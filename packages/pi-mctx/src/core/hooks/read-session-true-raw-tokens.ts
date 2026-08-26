@@ -556,7 +556,8 @@ export function buildTrueRawTokenIndex(
     // share this contract), so `messages.length` can be smaller than the
     // highest ordinal. Sizing by length alone would silently drop every valid
     // message past a gap from the prefix sums. Size by the max of all three.
-    const maxOrdinal = ordered.length > 0 ? ordered[ordered.length - 1].ordinal : 0;
+    const lastOrderedMessage = ordered.at(-1);
+    const maxOrdinal = lastOrderedMessage?.ordinal ?? 0;
     const rawMessageCount = Math.max(
         sliceCount,
         maxOrdinal,
@@ -585,8 +586,9 @@ export function buildTrueRawTokenIndex(
     // Convert the per-ordinal tokens into a cumulative prefix sum. O(N) integer
     // adds (no I/O, no parse) — negligible versus the avoided full-session read.
     for (let k = 1; k <= rawMessageCount; k += 1) {
-        prefix[k] += prefix[k - 1];
+        prefix[k] = (prefix[k] ?? 0) + (prefix[k - 1] ?? 0);
     }
+    const prefixAt = (index: number): number => prefix[index] ?? 0;
     const ordinalToIndex = (ordinal: number): number =>
         Math.max(0, Math.min(rawMessageCount, ordinal - 1));
     return {
@@ -600,47 +602,47 @@ export function buildTrueRawTokenIndex(
             return idsByOrdinal.get(ordinal) ?? null;
         },
         suffixTokensFromOrdinal(ordinal: number): number {
-            if (ordinal <= 1) return prefix[rawMessageCount];
+            if (ordinal <= 1) return prefixAt(rawMessageCount);
             if (ordinal > rawMessageCount) return 0;
-            return prefix[rawMessageCount] - prefix[ordinalToIndex(ordinal)];
+            return prefixAt(rawMessageCount) - prefixAt(ordinalToIndex(ordinal));
         },
         rangeTokens(startInclusive: number, endExclusive: number): number {
             const start = Math.max(1, startInclusive);
             const end = Math.max(start, Math.min(rawMessageCount + 1, endExclusive));
-            return prefix[end - 1] - prefix[start - 1];
+            return prefixAt(end - 1) - prefixAt(start - 1);
         },
-        findSuffixStartForTokens(tokens: number): number {
-            if (!Number.isFinite(tokens) || tokens <= 0) return rawMessageCount + 1;
-            const target = Math.max(0, Math.floor(tokens));
-            const total = prefix[rawMessageCount];
-            if (total < target) return 1;
-            const cut = total - target;
+        findSuffixStartForTokens(requestedTokens: number): number {
+            if (!Number.isFinite(requestedTokens) || requestedTokens <= 0) return rawMessageCount + 1;
+            const targetTokens = Math.max(0, Math.floor(requestedTokens));
+            const total = prefixAt(rawMessageCount);
+            if (total < targetTokens) return 1;
+            const cut = total - targetTokens;
             let lo = 0;
             let hi = rawMessageCount;
-            let best = 0;
+            let bestPrefixIndex = 0;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
-                if (prefix[mid] <= cut) {
-                    best = mid;
+                if (prefixAt(mid) <= cut) {
+                    bestPrefixIndex = mid;
                     lo = mid + 1;
                 } else {
                     hi = mid - 1;
                 }
             }
-            return best + 1;
+            return bestPrefixIndex + 1;
         },
         findHeadEndForCap(startInclusive: number, endExclusive: number, capTokens: number): number {
             const start = Math.max(1, Math.min(rawMessageCount + 1, startInclusive));
             const end = Math.max(start, Math.min(rawMessageCount + 1, endExclusive));
             if (!Number.isFinite(capTokens) || capTokens <= 0) return start;
-            const startPrefix = prefix[start - 1];
+            const startPrefix = prefixAt(start - 1);
             const cut = startPrefix + Math.floor(capTokens);
             let lo = start;
             let hi = end - 1;
             let bestEnd = start;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
-                if (prefix[mid] <= cut) {
+                if (prefixAt(mid) <= cut) {
                     bestEnd = mid + 1;
                     lo = mid + 1;
                 } else {
@@ -719,8 +721,9 @@ export function buildTrueRawTokenIndexFromTokenCountsForTest(
     const rawMessageCount = tokens.length;
     const prefix = new Array<number>(rawMessageCount + 1).fill(0);
     for (let index = 0; index < rawMessageCount; index += 1) {
-        prefix[index + 1] = prefix[index] + Math.max(0, Math.floor(tokens[index] ?? 0));
+        prefix[index + 1] = (prefix[index] ?? 0) + Math.max(0, Math.floor(tokens[index] ?? 0));
     }
+    const prefixAt = (index: number): number => prefix[index] ?? 0;
     return {
         sessionId,
         providerShapeVersion: "test",
@@ -732,43 +735,43 @@ export function buildTrueRawTokenIndexFromTokenCountsForTest(
             return ordinal >= 1 && ordinal <= rawMessageCount ? `m-${ordinal}` : null;
         },
         suffixTokensFromOrdinal(ordinal: number): number {
-            if (ordinal <= 1) return prefix[rawMessageCount];
+            if (ordinal <= 1) return prefixAt(rawMessageCount);
             if (ordinal > rawMessageCount) return 0;
-            return prefix[rawMessageCount] - prefix[ordinal - 1];
+            return prefixAt(rawMessageCount) - prefixAt(ordinal - 1);
         },
         rangeTokens(startInclusive: number, endExclusive: number): number {
             const start = Math.max(1, startInclusive);
             const end = Math.max(start, Math.min(rawMessageCount + 1, endExclusive));
-            return prefix[end - 1] - prefix[start - 1];
+            return prefixAt(end - 1) - prefixAt(start - 1);
         },
-        findSuffixStartForTokens(tokensNeeded: number): number {
-            if (!Number.isFinite(tokensNeeded) || tokensNeeded <= 0) return rawMessageCount + 1;
-            const target = Math.max(0, Math.floor(tokensNeeded));
-            const total = prefix[rawMessageCount];
+        findSuffixStartForTokens(requestedTokens: number): number {
+            if (!Number.isFinite(requestedTokens) || requestedTokens <= 0) return rawMessageCount + 1;
+            const target = Math.max(0, Math.floor(requestedTokens));
+            const total = prefixAt(rawMessageCount);
             if (total < target) return 1;
             const cut = total - target;
             let lo = 0;
             let hi = rawMessageCount;
-            let best = 0;
+            let bestPrefixIndex = 0;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
-                if (prefix[mid] <= cut) {
-                    best = mid;
+                if (prefixAt(mid) <= cut) {
+                    bestPrefixIndex = mid;
                     lo = mid + 1;
                 } else {
                     hi = mid - 1;
                 }
             }
-            return best + 1;
+            return bestPrefixIndex + 1;
         },
         findHeadEndForCap(startInclusive: number, endExclusive: number, capTokens: number): number {
             const start = Math.max(1, Math.min(rawMessageCount + 1, startInclusive));
             const end = Math.max(start, Math.min(rawMessageCount + 1, endExclusive));
             if (!Number.isFinite(capTokens) || capTokens <= 0) return start;
-            const cut = prefix[start - 1] + Math.floor(capTokens);
+            const cut = prefixAt(start - 1) + Math.floor(capTokens);
             let result = start;
             for (let ordinal = start; ordinal < end; ordinal += 1) {
-                if (prefix[ordinal] <= cut) result = ordinal + 1;
+                if (prefixAt(ordinal) <= cut) result = ordinal + 1;
                 else break;
             }
             return result === start && start < end ? start + 1 : result;
