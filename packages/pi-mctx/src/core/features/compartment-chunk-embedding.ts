@@ -387,8 +387,11 @@ function parseOrdinal(value: number | string | undefined): number | null {
 function parseCanonicalLineRange(line: string): { start: number; end: number } | null {
     const match = /^\[(\d+)(?:-(\d+))?\]\s+[UA]:/.exec(line.trim());
     if (!match) return null;
-    const start = Number.parseInt(match[1], 10);
-    const end = match[2] ? Number.parseInt(match[2], 10) : start;
+    const rawStart = match[1];
+    const rawEnd = match[2];
+    if (rawStart === undefined) return null;
+    const start = Number.parseInt(rawStart, 10);
+    const end = rawEnd === undefined ? start : Number.parseInt(rawEnd, 10);
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
     return { start, end };
 }
@@ -501,17 +504,22 @@ export function canonicalizeInMemoryChunkTextForEmbedding(
         const line = rawLine.trim();
         const match = /^(\[(\d+)(?:-(\d+))?\]\s+[UA]:)\s*(.*)$/.exec(line);
         if (!match) continue;
-        const lineStart = Number.parseInt(match[2], 10);
-        const lineEnd = match[3] ? Number.parseInt(match[3], 10) : lineStart;
+        const prefix = match[1];
+        const rawStart = match[2];
+        const rawEnd = match[3];
+        const rawContent = match[4];
+        if (prefix === undefined || rawStart === undefined || rawContent === undefined) continue;
+        const lineStart = Number.parseInt(rawStart, 10);
+        const lineEnd = rawEnd === undefined ? lineStart : Number.parseInt(rawEnd, 10);
         if (startOrdinal != null && lineEnd < startOrdinal) continue;
         if (endOrdinal != null && lineStart > endOrdinal) continue;
 
-        const rawParts = match[4]
+        const rawParts = rawContent
             .split(" / ")
             .map((part) => normalizeContent(part))
             .filter((part) => part.length > 0);
         const ordinalSpan = lineEnd - lineStart + 1;
-        const roleLabel = match[1].slice(match[1].indexOf("]") + 2);
+        const roleLabel = prefix.slice(prefix.indexOf("]") + 2);
 
         if (ordinalSpan === rawParts.length) {
             const retained = rawParts
@@ -523,8 +531,11 @@ export function canonicalizeInMemoryChunkTextForEmbedding(
                     return true;
                 });
             if (retained.length === 0) continue;
-            const retainedStart = retained[0].ordinal;
-            const retainedEnd = retained[retained.length - 1].ordinal;
+            const firstRetained = retained[0];
+            const lastRetained = retained[retained.length - 1];
+            if (firstRetained === undefined || lastRetained === undefined) continue;
+            const retainedStart = firstRetained.ordinal;
+            const retainedEnd = lastRetained.ordinal;
             lines.push(
                 `${formatOrdinalRange(retainedStart, retainedEnd)} ${roleLabel} ${retained
                     .map(({ part }) => part)
@@ -535,7 +546,7 @@ export function canonicalizeInMemoryChunkTextForEmbedding(
 
         const parts = rawParts.filter((part) => !part.startsWith("TC:"));
         if (parts.length === 0) continue;
-        lines.push(`${match[1]} ${parts.join(" / ")}`);
+        lines.push(`${prefix} ${parts.join(" / ")}`);
     }
     return lines.join("\n");
 }
@@ -769,9 +780,10 @@ export function replaceCompartmentChunkEmbeddings(
     db: Database,
     rows: readonly SaveCompartmentChunkEmbeddingInput[],
 ): void {
-    if (rows.length === 0) return;
-    const compartmentId = rows[0].compartmentId;
-    const modelId = rows[0].modelId;
+    const firstRow = rows[0];
+    if (firstRow === undefined) return;
+    const compartmentId = firstRow.compartmentId;
+    const modelId = firstRow.modelId;
     const now = Date.now();
     db.transaction(() => {
         getDeleteByCompartmentStatement(db).run(compartmentId, modelId);
@@ -796,8 +808,8 @@ export function replaceCompartmentChunkEmbeddings(
     invalidateDecodedSearchPools(
         db,
         ([sessionId, projectPath, cachedModelId]) =>
-            sessionId === rows[0].sessionId &&
-            projectPath === rows[0].projectPath &&
+            sessionId === firstRow.sessionId &&
+            projectPath === firstRow.projectPath &&
             cachedModelId === modelId,
     );
 }
