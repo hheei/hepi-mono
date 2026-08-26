@@ -335,14 +335,14 @@ export interface CtxMemoryToolDeps {
 		directory: string,
 		db: ContextDatabase,
 	) => Promise<void>;
-	memoryEnabled?: boolean;
-	embeddingEnabled?: boolean;
+	memoryEnabled?: boolean | undefined;
+	embeddingEnabled?: boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
 	resolveProjectIdentity?: (directory: string) => string | undefined;
 	/** When true, the dreamer-only `list` action is exposed. Set by the subagent
 	 *  extension entry when the parent passes `--magic-context-dreamer-actions`.
 	 *  Default: false (primary set only: write/archive/update/merge). */
-	allowDreamerActions?: boolean;
+	allowDreamerActions?: boolean | undefined;
 }
 
 export function createCtxMemoryTool(
@@ -545,12 +545,16 @@ export function createCtxMemoryTool(
 
 			if (params.action === "update") {
 				const updateIds = params.ids;
-				if (updateIds?.length !== 1 || !updateIds.every(Number.isInteger)) {
+				const updateId = updateIds?.[0];
+				if (
+					updateIds?.length !== 1 ||
+					updateId === undefined ||
+					!updateIds.every(Number.isInteger)
+				) {
 					return err(
 						"Error: 'ids' must contain exactly one integer memory ID when action is 'update'.",
 					);
 				}
-				const updateId = updateIds[0];
 				const content = params.content?.trim();
 				if (!content) {
 					return err("Error: 'content' is required when action is 'update'.");
