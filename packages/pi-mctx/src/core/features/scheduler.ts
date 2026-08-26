@@ -49,7 +49,14 @@ export function parseCacheTtl(ttl: string): number {
 
     const value = Number(match[1]);
     const unit = match[2];
-    return value * UNIT_TO_MS[unit];
+    if (unit === undefined) {
+        throw new Error(`Invalid cache TTL format: ${ttl}`);
+    }
+    const milliseconds = UNIT_TO_MS[unit];
+    if (milliseconds === undefined) {
+        throw new Error(`Invalid cache TTL format: ${ttl}`);
+    }
+    return value * milliseconds;
 }
 
 export function createScheduler(config: SchedulerConfig): Scheduler {
@@ -84,9 +91,13 @@ export function createScheduler(config: SchedulerConfig): Scheduler {
                 modelKey,
                 65,
                 {
-                    tokensConfig: config.executeThresholdTokens,
-                    contextLimit: effectiveContextLimit,
-                    sessionId,
+                    ...(config.executeThresholdTokens !== undefined
+                        ? { tokensConfig: config.executeThresholdTokens }
+                        : {}),
+                    ...(effectiveContextLimit !== undefined
+                        ? { contextLimit: effectiveContextLimit }
+                        : {}),
+                    ...(sessionId !== undefined ? { sessionId } : {}),
                 },
             );
             if (contextUsage.percentage >= threshold) {
