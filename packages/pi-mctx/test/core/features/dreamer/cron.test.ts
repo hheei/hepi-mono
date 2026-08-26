@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { isValidCron, matchesCron, nextDueAtMs, nextOccurrence, parseCron } from "../../../../src/core/features/dreamer/cron";
 

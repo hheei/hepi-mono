@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { PiRetrospectiveRawProvider } from "../../src/dreamer/retrospective-raw-provider-pi";
 

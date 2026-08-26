@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageLike, ThinkingLikePart } from "../../../src/core/hooks/tag-messages";
 import {

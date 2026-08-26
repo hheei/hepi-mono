@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { afterEach, describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

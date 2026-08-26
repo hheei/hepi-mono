@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { findFirstKeptEntryId } from "../src/pi-historian-runner";
 import {

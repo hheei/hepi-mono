@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * Tagger collision-recovery and counter-drift tests.
  *

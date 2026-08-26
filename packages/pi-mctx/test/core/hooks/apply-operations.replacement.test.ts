@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 import { describe, expect, it } from "vitest";
 import { buildReplacementContent } from "../../../src/core/hooks/apply-operations";
 

@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * Regression suite for `createSystemPromptHashHandler`'s drain semantics.
  *

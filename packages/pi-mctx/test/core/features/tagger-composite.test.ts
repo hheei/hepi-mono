@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * Tagger composite-identity tests for v3.3.1 Layer C.
  *

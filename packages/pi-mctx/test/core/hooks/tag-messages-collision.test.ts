@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * v3.3.1 Layer C: tag-messages.ts FIFO pairing + composite-key
  * collision handling tests.

@@ -1,5 +1,3 @@
-/// <reference types="bun-types" />
-
 /**
  * v3.3.1 Layer C — plan §5 / Finding D: drop-queue composite-identity
  * tests.
