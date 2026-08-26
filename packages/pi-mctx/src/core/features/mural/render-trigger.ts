@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { piModelRefToCanonical } from "../../shared/harness-provider-map";
 import { log } from "../../shared/logger";
 import { modelSupportsVision } from "../../shared/models-dev-cache";
 import type { Database } from "../../shared/sqlite";
@@ -137,10 +136,7 @@ export function ensureMuralRendered(
  *  lookup. Missing cache entries fail closed (no image). */
 function modelKeyAcceptsImages(modelKey: string | undefined): boolean {
     if (!modelKey) return false;
-    const canonical = piModelRefToCanonical(modelKey);
-    const separator = canonical.indexOf("/");
-    if (separator <= 0) return false;
-    return modelSupportsVision(canonical.slice(0, separator), canonical.slice(separator + 1));
+    return modelSupportsVision();
 }
 
 /**
@@ -169,7 +165,7 @@ export function resolveMuralWire(
     return {
         enabled: true,
         supportsVision: true,
-        dataUrl: result.dataUrl,
-        contentHash: result.contentHash,
+        ...(result.dataUrl !== undefined ? { dataUrl: result.dataUrl } : {}),
+        ...(result.contentHash !== undefined ? { contentHash: result.contentHash } : {}),
     };
 }
