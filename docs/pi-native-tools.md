@@ -10,7 +10,7 @@
 /home/chlo/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent
 ```
 
-本记录基于已安装的 `@earendil-works/pi-coding-agent` `v0.84.1`。发行包包含编译产物和 source map；source map 的 `sourcesContent` 保留了对应 TypeScript 源码。查阅原生工具时优先使用：
+本记录基于已安装的 `@earendil-works/pi-coding-agent` `v0.84.3`。发行包包含编译产物和 source map；source map 的 `sourcesContent` 保留了对应 TypeScript 源码。查阅原生工具时优先使用：
 
 ```text
 dist/core/tools/grep.js.map
