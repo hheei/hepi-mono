@@ -31,12 +31,12 @@ const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const MAX_OUTPUT_CHARS = 256_000;
 const EVAL_DESCRIPTION =
-	"Run trusted local JavaScript or Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
+	"Run trusted local Python by default, or JavaScript/TypeScript on a Bun host, in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
 const EVAL_CODE_DESCRIPTION = "Non-empty trusted source, at most 1 MiB.";
-const EVAL_LANGUAGE_DESCRIPTION = "js (default) or py.";
+const EVAL_LANGUAGE_DESCRIPTION = "py (default) or js/ts on a Bun host.";
 const EVAL_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 export const EVAL_PROMPT_SNIPPET =
-	"Persistent JS/Python kernel. language is js (default) or py. One cell per call; names survive until reset or that kernel dies.";
+	"Persistent Python kernel by default; JS/TS requires a Bun host. One cell per call; names survive until reset or that kernel dies.";
 
 export function evalPromptGuidelines(catalog: EditCatalog): string[] {
 	return [
@@ -449,7 +449,7 @@ function evalCallTitle(args: {
 }
 
 function resolveEvalLanguage(language: EvalParameters["language"]): EvalLanguage {
-	return language === "py" ? "python" : "javascript";
+	return language === "js" ? "javascript" : "python";
 }
 
 function mergeAbortSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal | undefined {

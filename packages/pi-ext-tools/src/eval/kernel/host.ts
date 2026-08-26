@@ -53,7 +53,7 @@ export class EvalKernelHost {
 		code: string,
 		hooks: EvalRuntimeHooks,
 		signal?: AbortSignal,
-		language: EvalLanguage = "javascript",
+		language: EvalLanguage = "python",
 		reset = false,
 	): Promise<unknown> {
 		if (this.#disposed) throw new Error("Eval runtime is unavailable after session cleanup.");
@@ -304,6 +304,8 @@ function kernelCommand(
 	pythonBin?: string,
 ): { file: string; args: string[] } {
 	if (language === "javascript") {
+		if (!isBunHost())
+			throw new Error("Eval language js requires a Bun host; use language py on Node.");
 		const child = javascriptChild();
 		return { file: javascriptRuntime(child), args: [child] };
 	}
@@ -315,6 +317,10 @@ function javascriptRuntime(child: string): string {
 	const base = process.execPath.split(/[/\\]/).pop();
 	if (base === "bun" || base === "bun.exe") return process.execPath;
 	return "bun";
+}
+
+function isBunHost(): boolean {
+	return typeof process.versions.bun === "string";
 }
 
 function javascriptChild(): string {

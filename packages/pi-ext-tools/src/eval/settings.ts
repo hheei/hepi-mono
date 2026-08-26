@@ -83,7 +83,7 @@ export function createEvalSettingsProvider(
 						type: "boolean",
 						defaultValue: DEFAULT_EVAL_ENABLED,
 						description:
-							"Run trusted local JavaScript or Python. This is not a sandbox and is disabled by default.",
+							"Run trusted local Python by default; JavaScript/TypeScript requires a Bun host. This is not a sandbox and is disabled by default.",
 						parse: (value) => value === "true",
 					},
 					{
@@ -101,7 +101,7 @@ export function createEvalSettingsProvider(
 						type: "path",
 						defaultValue: DEFAULT_EVAL_PYTHON_BIN,
 						description:
-							"Interpreter used when language is py. Empty uses python3 or python on PATH. Changes apply after reload or a new session.",
+							"Interpreter used by the default Python kernel. Empty uses python3 or python on PATH. Changes apply after reload or a new session.",
 						parse: (value) => value.trim(),
 					},
 				],
