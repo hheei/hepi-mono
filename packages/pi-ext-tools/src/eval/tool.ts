@@ -21,7 +21,6 @@ import {
 	type EvalToolBridge,
 	evalNestedLiveResult,
 } from "./bridge.js";
-import type { EvalLanguage } from "./kernel/protocol.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -31,22 +30,21 @@ const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const MAX_OUTPUT_CHARS = 256_000;
 const EVAL_DESCRIPTION =
-	"Run trusted local Python by default, or JavaScript/TypeScript on a Bun host, in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
+	"Run trusted local Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
 const EVAL_CODE_DESCRIPTION = "Non-empty trusted source, at most 1 MiB.";
-const EVAL_LANGUAGE_DESCRIPTION = "py (default) or js/ts on a Bun host.";
 const EVAL_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 export const EVAL_PROMPT_SNIPPET =
-	"Persistent Python kernel by default; JS/TS requires a Bun host. One cell per call; names survive until reset or that kernel dies.";
+	"Persistent Python kernel. One cell per call; names survive until reset or that kernel dies.";
 
 export function evalPromptGuidelines(catalog: EditCatalog): string[] {
 	return [
 		"eval: use for computation, data wrangling, and inspecting values that should persist across cells.",
 		evalMutationGuideline(catalog),
 		"eval: work incrementally — import, define, then use. Reuse top-level names. Re-run setup only after reset or a kernel crash.",
-		"eval: JS uses top-level await and `await tool.name({ ... })`. Python uses `tool.name(...)` kwargs or a dict.",
+		"eval: use Python. Call nested tools as `tool.name(...)` with kwargs or a dict.",
 		evalNestedGuideline(catalog),
 		"eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
-		"eval: reset: true wipes only that language. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
+		"eval: reset: true wipes the Python kernel and scope. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
 	];
 }
 
@@ -87,11 +85,6 @@ export const EVAL_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {
 
 export const EVAL_PARAMETERS = Type.Object(
 	{
-		language: Type.Optional(
-			Type.Union([Type.Literal("js"), Type.Literal("py")], {
-				description: EVAL_LANGUAGE_DESCRIPTION,
-			}),
-		),
 		code: Type.String({
 			minLength: 1,
 			maxLength: MAX_CODE_BYTES,
@@ -99,7 +92,7 @@ export const EVAL_PARAMETERS = Type.Object(
 		}),
 		reset: Type.Optional(
 			Type.Boolean({
-				description: "Wipe this language kernel before running. The other language is untouched.",
+				description: "Wipe the Python kernel before running.",
 			}),
 		),
 		timeout: Type.Optional(
@@ -151,7 +144,6 @@ export function createEvalTool(
 			renderEvalResult(result, options, theme, context, bridge),
 		async execute(_toolCallId, params, signal, onUpdate, context) {
 			if (params.code.trim() === "") throw new Error("Eval code must not be blank.");
-			const language = resolveEvalLanguage(params.language);
 			if (Buffer.byteLength(params.code) > MAX_CODE_BYTES)
 				throw new Error("Eval code exceeds 1 MiB.");
 			const runtime = state.getRuntime();
@@ -216,7 +208,7 @@ export function createEvalTool(
 						},
 					},
 					runSignal,
-					language,
+					"python",
 					params.reset === true,
 				);
 				if (value !== undefined) {
@@ -435,21 +427,15 @@ function boundedTrace(trace: EvalNestedTrace): EvalNestedTrace {
 }
 
 function evalCallTitle(args: {
-	readonly language?: string;
 	readonly reset?: boolean;
 	readonly timeout?: number;
 	readonly code?: string;
 }): string {
 	const parts = ["eval"];
-	if (args.language === "py") parts.push("py");
 	if (args.reset === true) parts.push("reset");
 	if (typeof args.timeout === "number" && args.timeout > 0) parts.push(`timeout ${args.timeout}s`);
 	parts.push(codeSummary(args.code ?? ""));
 	return parts.join(" ");
-}
-
-function resolveEvalLanguage(language: EvalParameters["language"]): EvalLanguage {
-	return language === "js" ? "javascript" : "python";
 }
 
 function mergeAbortSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal | undefined {

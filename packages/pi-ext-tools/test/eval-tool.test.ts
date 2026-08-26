@@ -13,7 +13,7 @@ import {
 } from "../src/eval/tool.js";
 
 describe("Eval tool", () => {
-	test("maps js/py onto kernel languages and advertises usage", async () => {
+	test("always uses the Python kernel and advertises usage", async () => {
 		const seen: string[] = [];
 		const state = createEvalRuntimeState();
 		const stop = startEvalRuntime(state, {
@@ -32,16 +32,16 @@ describe("Eval tool", () => {
 			expect(evalPromptGuidelines("apply_patch").join("\n")).not.toMatch(/edit\/write/u);
 			expect(evalPromptGuidelines("none").join("\n")).toMatch(/No file-mutation tools/u);
 			expect(evalPromptGuidelines("none").join("\n")).not.toMatch(/apply_patch/u);
-			await tool.execute("js", { code: "1", language: "js" }, undefined, undefined, {
+			await tool.execute("py", { code: "1" }, undefined, undefined, {
 				cwd: process.cwd(),
 			} as never);
-			await tool.execute("py", { code: "1", language: "py" }, undefined, undefined, {
+			await tool.execute("py", { code: "1" }, undefined, undefined, {
 				cwd: process.cwd(),
 			} as never);
 			await tool.execute("default", { code: "1" }, undefined, undefined, {
 				cwd: process.cwd(),
 			} as never);
-			expect(seen).toEqual(["javascript", "python", "python"]);
+			expect(seen).toEqual(["python", "python", "python"]);
 		} finally {
 			stop();
 		}
