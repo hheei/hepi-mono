@@ -18,7 +18,7 @@ uutils builtin set without exposing upstream Rust types to TypeScript. The
 bridge builds with stable Rust:
 
 ```bash
-bun run --cwd packages/pi-ext-tools build:native
+npm run build:native --workspace=@hheei/pi-ext-tools
 ```
 
 This writes `native/pi-ext-tools-bridge.node` for the current host platform with
@@ -27,5 +27,5 @@ Cargo's incremental `local` profile. The native file is not committed.
 Run the focused native contract test with:
 
 ```bash
-bun run --cwd packages/pi-ext-tools test:native
+npm run test:native --workspace=@hheei/pi-ext-tools
 ```

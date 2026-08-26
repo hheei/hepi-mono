@@ -285,7 +285,7 @@ history N tokens · recent 5 · summary N tokens
 
 ## Compatibility 与交付
 
-`pi-mctx`默认注册唯一 `/handoff`，没有 feature flag、legacy mode或 handoff-specific settings。`packages/pi-handoff`及其 command/tests/package manifest全部删除，并通过 `bun install`清理 workspace lock state。
+`pi-mctx`默认注册唯一 `/handoff`，没有 feature flag、legacy mode或 handoff-specific settings。`packages/pi-handoff`及其 command/tests/package manifest全部删除，并通过 `npm ci`清理 workspace lock state。
 
 既有 `hepi-handoff` custom messages不迁移；Pi仍按历史 JSONL恢复它们，新 MCTX不加 compatibility shim或特殊解释。
 
