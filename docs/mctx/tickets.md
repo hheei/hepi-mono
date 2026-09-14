@@ -28,7 +28,7 @@
 
 **依赖**：无。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-02：迁移 AgentMemory client、session lifecycle 与 bridge runtime
 

@@ -1,4 +1,6 @@
 import { DEFAULT_AGENTMEMORY_URL } from "#core/config/schema/magic-context";
+import { log } from "#core/shared/logger";
+import { createPlaintextBearerAuthGuard, plaintextBearerAuthMessage } from "./security";
 
 export type AgentMemoryClientErrorKind =
 	| "invalid_url"
@@ -114,12 +116,6 @@ export type AgentMemoryClientConfig = {
 	requireHttps?: boolean | undefined;
 };
 
-const LOOPBACK_HOSTS: Record<string, true> = {
-	localhost: true,
-	"127.0.0.1": true,
-	"::1": true,
-};
-
 const DEFAULT_TIMEOUTS = {
 	health: 1_000,
 	startSession: 3_000,
@@ -143,17 +139,6 @@ function nonEmpty(value: unknown): string | undefined {
 
 function normalizeBaseUrl(url: string): string {
 	return url.replace(/\/+$/, "");
-}
-
-export function usesPlaintextBearerAuth(baseUrl: string, secret?: string): boolean {
-	if (!secret) return false;
-	try {
-		const parsed = new URL(baseUrl);
-		const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-		return parsed.protocol === "http:" && LOOPBACK_HOSTS[hostname] !== true;
-	} catch {
-		return false;
-	}
 }
 
 function searchContent(value: Record<string, unknown>): string | undefined {
@@ -218,6 +203,7 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 	readonly #baseUrl: string;
 	readonly #secret: string;
 	readonly #requireHttps: boolean;
+	readonly #guardPlaintextBearer: (baseUrl: string, secret?: string) => void;
 	readonly #fetch: typeof fetch;
 
 	constructor(config: AgentMemoryClientConfig = {}, fetchImpl: typeof fetch = globalThis.fetch) {
@@ -239,6 +225,10 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 		this.#baseUrl = url;
 		this.#secret = config.secret?.trim() ?? "";
 		this.#requireHttps = config.requireHttps === true;
+		this.#guardPlaintextBearer = createPlaintextBearerAuthGuard({
+			requireHttps: this.#requireHttps,
+			warn: (message) => log(`[magic-context][agentmemory] ${message}`),
+		});
 		this.#fetch = fetchImpl;
 	}
 
@@ -361,11 +351,15 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 		options: AgentMemoryRequestOptions | undefined,
 		defaultTimeoutMs: number,
 	): Promise<unknown> {
-		if (this.#requireHttps && usesPlaintextBearerAuth(this.#baseUrl, this.#secret)) {
+		try {
+			this.#guardPlaintextBearer(this.#baseUrl, this.#secret);
+		} catch (error) {
 			throw new AgentMemoryClientError(
 				"insecure_transport",
 				pathname,
-				`agentmemory bearer secret would cross plaintext HTTP to ${this.#baseUrl}`,
+				plaintextBearerAuthMessage(this.#baseUrl),
+				undefined,
+				error,
 			);
 		}
 		const headers = new Headers();

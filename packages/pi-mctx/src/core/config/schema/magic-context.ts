@@ -401,9 +401,10 @@ export interface AgentMemoryConfig {
 	enabled: boolean;
 	url: string;
 	secret: string;
-	project: string;
 	agentId: string;
 	capture: boolean;
+	inject: boolean;
+	historianRetrieval: boolean;
 	memoryTools: boolean;
 	requireHttps: boolean;
 }
@@ -962,17 +963,19 @@ export const MagicContextConfigSchema = z
 					.string()
 					.default("")
 					.describe("Optional Bearer token. AGENTMEMORY_SECRET overrides this."),
-				project: z
-					.string()
-					.default("")
-					.describe(
-						"Optional explicit AgentMemory project namespace. AGENTMEMORY_PROJECT_NAME overrides this.",
-					),
 				agentId: z.string().default("").describe("Optional agent id tag. AGENT_ID overrides this."),
 				capture: z
 					.boolean()
 					.default(true)
 					.describe("Observe session prompts, tool results, and assistant turns over HTTP."),
+				inject: z
+					.boolean()
+					.default(true)
+					.describe("Admit automatic AgentMemory recall through Context Projection."),
+				historianRetrieval: z
+					.boolean()
+					.default(true)
+					.describe("Allow Historian retrieval from AgentMemory."),
 				memoryTools: z
 					.boolean()
 					.default(true)
@@ -988,9 +991,10 @@ export const MagicContextConfigSchema = z
 				enabled: false,
 				url: DEFAULT_AGENTMEMORY_URL,
 				secret: "",
-				project: "",
 				agentId: "",
 				capture: true,
+				inject: true,
+				historianRetrieval: true,
 				memoryTools: true,
 				requireHttps: false,
 			})

@@ -63,9 +63,10 @@ Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：
     "agentmemoryEnabled": false,
     "agentmemoryUrl": "http://127.0.0.1:3111",
     "agentmemorySecret": "",
-    "agentmemoryProject": "",
     "agentmemoryAgentId": "",
     "agentmemoryCapture": true,
+    "agentmemoryInject": true,
+    "agentmemoryHistorianRetrieval": true,
     "agentmemoryMemoryTools": true,
     "agentmemoryRequireHttps": false
 
@@ -73,7 +74,7 @@ Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：
 }
 ```
 
-这些是可编辑的运行设置：扩展/compaction/prompt/时间开关、memory 检索与 Git 索引、Historian 生命周期、模型和预算，以及 Dreamer 开关、模型与文档注入、sidekick 模型和 embedding 配置。Dreamer 与 embedding 默认关闭且已 deprecated，仍可显式 opt-in，实现暂不删除。embedding 支持 `off`、`local` 和 `openai-compatible`：remote 模式需要 model、endpoint；`embeddingApiKeyEnv` 保存环境变量名，不保存 API key，空值表示不发送凭据。Dreamer 启用时使用 schema 的 canonical task schedules；单任务 cron、fallback、thinking、Synapse embedding 的 fallback-provider 合约、remote provider 的请求格式高级项、agent overrides、项目覆盖以及安全/调试项不进入通用设置，继续使用 schema 默认值。保存通过 ext-core 的原子 JSON 更新完成，保留其他 extension section。运行时只在启动或 `/reload` 后读取新值。
+这些是可编辑的运行设置：扩展/compaction/prompt/时间开关、memory 检索与 Git 索引、Historian 生命周期、模型和预算，以及 Dreamer 开关、模型与文档注入、sidekick 模型、embedding 和 AgentMemory 配置。AgentMemory 不暴露 project setting；`AGENTMEMORY_PROJECT_NAME` 可显式覆盖，否则 namespace 取 git root basename，再退回 cwd basename。`AGENT_ID` 覆盖 agent id，`AGENTMEMORY_REQUIRE_HTTPS=1` 可强制拒绝向非 loopback plaintext HTTP 发送 Bearer secret。Dreamer 与 embedding 默认关闭且已 deprecated，仍可显式 opt-in，实现暂不删除。embedding 支持 `off`、`local` 和 `openai-compatible`：remote 模式需要 model、endpoint；`embeddingApiKeyEnv` 保存环境变量名，不保存 API key，空值表示不发送凭据。Dreamer 启用时使用 schema 的 canonical task schedules；单任务 cron、fallback、thinking、Synapse embedding 的 fallback-provider 合约、remote provider 的请求格式高级项、agent overrides、项目覆盖以及安全/调试项不进入通用设置，继续使用 schema 默认值。保存通过 ext-core storage 写回同一个全局 section；变更后必须 reload/restart Pi。
 
 ## 存储版本边界
 

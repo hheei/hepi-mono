@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { basename, resolve as resolvePath } from "node:path";
 import type { AgentMemoryConfig } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import { AgentMemoryClient, type AgentMemoryClientPort, type ObserveResult } from "./client";
+import { type AgentMemoryIdentity, createAgentMemoryIdentityResolver } from "./project";
+
+export type { AgentMemoryIdentity } from "./project";
 
 const PREFIX = "[magic-context][agentmemory]";
 const MAX_CAPTURE_TEXT = 8_000;
@@ -14,11 +16,6 @@ const EXCLUDED_TOOLS: Record<string, true> = {
 export type AgentMemoryHostContext = {
 	cwd: string;
 	sessionManager?: { getSessionId?: () => string | undefined } | undefined;
-};
-
-export type AgentMemoryIdentity = {
-	project: string;
-	agentId?: string | undefined;
 };
 
 export type AgentMemoryRuntime = {
@@ -34,8 +31,8 @@ export type AgentMemoryRuntime = {
 export type AgentMemorySettingsEnvironment = {
 	AGENTMEMORY_URL?: string | undefined;
 	AGENTMEMORY_SECRET?: string | undefined;
-	AGENTMEMORY_PROJECT_NAME?: string | undefined;
 	AGENT_ID?: string | undefined;
+	AGENTMEMORY_REQUIRE_HTTPS?: string | undefined;
 };
 
 function nonEmpty(value: unknown): string | undefined {
@@ -113,15 +110,9 @@ export function overlayAgentMemoryEnv(
 		...settings,
 		url: nonEmpty(environment.AGENTMEMORY_URL) ?? settings.url,
 		secret: nonEmpty(environment.AGENTMEMORY_SECRET) ?? settings.secret,
-		project: nonEmpty(environment.AGENTMEMORY_PROJECT_NAME) ?? settings.project,
 		agentId: nonEmpty(environment.AGENT_ID) ?? settings.agentId,
+		requireHttps: environment.AGENTMEMORY_REQUIRE_HTTPS === "1" ? true : settings.requireHttps,
 	};
-}
-
-export function resolveAgentMemoryProject(cwd: string, explicit: string): string {
-	const configured = nonEmpty(explicit);
-	if (configured) return configured;
-	return basename(resolvePath(cwd)) || cwd;
 }
 
 export function isExcludedMemoryTool(toolName: string | undefined): boolean {
@@ -144,13 +135,7 @@ export function createAgentMemoryRuntime(
 	const starting = new Map<string, Promise<string | undefined>>();
 	let shuttingDown = false;
 
-	const identity = (cwd: string): AgentMemoryIdentity => {
-		const agentId = nonEmpty(settings.agentId);
-		return {
-			project: resolveAgentMemoryProject(cwd, settings.project),
-			...(agentId ? { agentId } : {}),
-		};
-	};
+	const identity = createAgentMemoryIdentityResolver(settings);
 
 	const hostSessionId = (ctx: AgentMemoryHostContext): string => {
 		const id = ctx.sessionManager?.getSessionId?.();

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	DEFAULT_AGENTMEMORY_URL,
@@ -5,11 +8,16 @@ import {
 } from "#core/config/schema/magic-context";
 import { AgentMemoryClient, decodeAgentMemorySearchResults } from "../../src/agentmemory/client";
 import {
+	clearAgentMemoryProjectCache,
+	createAgentMemoryIdentityResolver,
+	resolveAgentMemoryProject,
+} from "../../src/agentmemory/project";
+import {
 	capturePrompt,
 	createAgentMemoryRuntime,
 	overlayAgentMemoryEnv,
-	resolveAgentMemoryProject,
 } from "../../src/agentmemory/runtime";
+import { createPlaintextBearerAuthGuard } from "../../src/agentmemory/security";
 
 const defaults = MagicContextConfigSchema.parse({}).agentmemory;
 
@@ -60,12 +68,53 @@ describe("AgentMemory HTTP client", () => {
 });
 
 describe("AgentMemory runtime", () => {
-	it("overlays env without treating Docker as a runtime assumption", () => {
-		expect(defaults.url).toBe(DEFAULT_AGENTMEMORY_URL);
-		expect(overlayAgentMemoryEnv(defaults, { AGENTMEMORY_URL: "https://am.example/v1/" }).url).toBe(
-			"https://am.example/v1/",
-		);
-		expect(resolveAgentMemoryProject("/tmp/hepi-mono", "")).toBe("hepi-mono");
+	it("resolves project and agent identity with environment, git-root, then cwd precedence", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-mctx-agentmemory-"));
+		const repository = join(root, "repo-name");
+		const nested = join(repository, "packages", "child");
+		const plain = join(root, "plain-name");
+		mkdirSync(join(repository, ".git"), { recursive: true });
+		mkdirSync(nested, { recursive: true });
+		mkdirSync(plain);
+		clearAgentMemoryProjectCache();
+		try {
+			expect(defaults.url).toBe(DEFAULT_AGENTMEMORY_URL);
+			expect(
+				overlayAgentMemoryEnv(defaults, {
+					AGENTMEMORY_URL: "https://am.example/v1/",
+					AGENT_ID: "env-agent",
+				}),
+			).toMatchObject({ url: "https://am.example/v1/", agentId: "env-agent" });
+			expect(resolveAgentMemoryProject(nested, {})).toBe("repo-name");
+			expect(resolveAgentMemoryProject(plain, {})).toBe("plain-name");
+			expect(
+				resolveAgentMemoryProject(nested, { AGENTMEMORY_PROJECT_NAME: "explicit-project" }),
+			).toBe("explicit-project");
+			expect(createAgentMemoryIdentityResolver({ agentId: "setting-agent" }, {})(nested)).toEqual({
+				project: "repo-name",
+				agentId: "setting-agent",
+			});
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+			clearAgentMemoryProjectCache();
+		}
+	});
+
+	it("warns once or fails closed for remote plaintext bearer authentication", () => {
+		const warnings: string[] = [];
+		const warnGuard = createPlaintextBearerAuthGuard({ warn: (message) => warnings.push(message) });
+		warnGuard("http://agentmemory.example", "secret");
+		warnGuard("http://agentmemory.example", "secret");
+		expect(warnings).toHaveLength(1);
+		expect(() =>
+			createPlaintextBearerAuthGuard({ requireHttps: true })(
+				"http://agentmemory.example",
+				"secret",
+			),
+		).toThrow(/plaintext HTTP/);
+		expect(() =>
+			createPlaintextBearerAuthGuard({ requireHttps: true })("http://127.0.0.1:3111", "secret"),
+		).not.toThrow();
 	});
 
 	it("starts a remote session then observes without awaiting the host hook", async () => {
