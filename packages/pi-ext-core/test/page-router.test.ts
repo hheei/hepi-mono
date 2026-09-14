@@ -647,6 +647,7 @@ test("forwards overlay options and delegates page editors through the hidden ove
 		focus: () => undefined,
 		unfocus: () => undefined,
 		isFocused: () => !hidden,
+		getBounds: () => undefined,
 	};
 	const theme = { fg: (_role: string, text: string) => text, bold: (text: string) => text };
 	const command = {

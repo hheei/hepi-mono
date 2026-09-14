@@ -56,20 +56,16 @@ describe("ToolExecutionComponent smoke", () => {
 			const component = new ToolExecutionComponent(
 				"eval",
 				callId,
-				{ code: "console.log(40 + 2);" },
+				{ code: "print(40 + 2)" },
 				undefined,
 				tool,
 				ui,
 				process.cwd(),
 			);
 			component.markExecutionStarted();
-			const result = await tool.execute(
-				callId,
-				{ code: "console.log(40 + 2);" },
-				undefined,
-				undefined,
-				{ cwd: process.cwd() } as never,
-			);
+			const result = await tool.execute(callId, { code: "print(40 + 2)" }, undefined, undefined, {
+				cwd: process.cwd(),
+			} as never);
 			component.updateResult({ ...result, isError: false });
 			expect(outputOccurrences(component, "42")).toBe(1);
 			component.invalidate();
@@ -80,7 +76,7 @@ describe("ToolExecutionComponent smoke", () => {
 			const resumed = new ToolExecutionComponent(
 				"eval",
 				"resumed-eval",
-				{ code: "console.log(40 + 2);" },
+				{ code: "print(40 + 2)" },
 				undefined,
 				tool,
 				ui,
