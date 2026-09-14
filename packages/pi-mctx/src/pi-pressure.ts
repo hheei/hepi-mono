@@ -100,6 +100,19 @@ export interface PiDisplayPressure {
 	source: PiDisplayPressureSource;
 }
 
+export type PiLiveUsageReading = {
+	tokens?: number | null | undefined;
+	percent?: number | null | undefined;
+	contextWindow?: number | null | undefined;
+};
+
+export type PiDisplayModel = {
+	provider?: string | undefined;
+	id?: string | undefined;
+	contextWindow?: number | undefined;
+	maxTokens?: number | undefined;
+};
+
 /**
  * Status/footer pressure. Same wire-input tokens and output-reserved
  * denominator as transform, but never uses Pi's output-inclusive `percent`
@@ -110,21 +123,8 @@ export interface PiDisplayPressure {
  * kept-tail prompt estimate instead.
  */
 export function resolvePiDisplayPressure(args: {
-	live?:
-		| {
-				tokens?: number | null | undefined;
-				percent?: number | null | undefined;
-				contextWindow?: number | null | undefined;
-		  }
-		| undefined;
-	model?:
-		| {
-				provider?: string | undefined;
-				id?: string | undefined;
-				contextWindow?: number | undefined;
-				maxTokens?: number | undefined;
-		  }
-		| undefined;
+	live?: PiLiveUsageReading | undefined;
+	model?: PiDisplayModel | undefined;
 	detectedContextLimit?: number | undefined;
 	lastInputTokens?: number | undefined;
 	prefixTokens?: number | undefined;
@@ -192,6 +192,41 @@ export function resolvePiDisplayPressure(args: {
 		}
 	}
 	return { inputTokens: undefined, percentage: undefined, contextLimit, source: "unknown" };
+}
+
+export function resolvePiSessionDisplayPressure(args: {
+	live?: PiLiveUsageReading | undefined;
+	model?: PiDisplayModel | undefined;
+	detectedContextLimit?: number | undefined;
+	lastInputTokens?: number | undefined;
+	prefixTokens?: number | undefined;
+	conversationTokens?: number | undefined;
+	toolCallTokens?: number | undefined;
+}): PiDisplayPressure {
+	const compactionUnknown = args.live?.tokens === null;
+	const conversationTokens =
+		typeof args.conversationTokens === "number" && args.conversationTokens > 0
+			? args.conversationTokens
+			: 0;
+	const toolCallTokens =
+		typeof args.toolCallTokens === "number" && args.toolCallTokens > 0 ? args.toolCallTokens : 0;
+	const estimatedTokens = compactionUnknown
+		? (args.prefixTokens ?? 0) + conversationTokens + toolCallTokens
+		: undefined;
+	return resolvePiDisplayPressure({
+		...(args.live === undefined ? {} : { live: args.live }),
+		...(args.model === undefined ? {} : { model: args.model }),
+		...(args.detectedContextLimit === undefined
+			? {}
+			: { detectedContextLimit: args.detectedContextLimit }),
+		...(!compactionUnknown && typeof args.lastInputTokens === "number" && args.lastInputTokens > 0
+			? { lastInputTokens: args.lastInputTokens }
+			: {}),
+		...(!compactionUnknown && args.prefixTokens !== undefined
+			? { prefixTokens: args.prefixTokens }
+			: {}),
+		...(estimatedTokens !== undefined && estimatedTokens > 0 ? { estimatedTokens } : {}),
+	});
 }
 
 function percentageOf(inputTokens: number, contextLimit: number): number | undefined {

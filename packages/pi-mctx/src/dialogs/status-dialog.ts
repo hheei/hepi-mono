@@ -24,7 +24,7 @@ import { formatBytes } from "#core/shared/format-bytes";
 import { formatThresholdClampNote, formatThresholdPercent } from "#core/shared/format-threshold";
 import packageJson from "../../package.json";
 import { resolveSessionId } from "../commands/pi-command-utils";
-import { resolvePiDisplayPressure } from "../pi-pressure";
+import { resolvePiSessionDisplayPressure } from "../pi-pressure";
 
 import { isPiRecompInFlight } from "../pi-recomp-runner";
 
@@ -468,28 +468,18 @@ export function buildPiStatusDetail(
 		prefix.systemPromptTokens > 0 ? prefix.systemPromptTokens : meta.systemPromptTokens;
 	const toolDefinitionTokens = prefix.toolDefinitionTokens;
 	const compactionUnknown = usage?.tokens === null;
-	const estimatedTokens = compactionUnknown
-		? prefix.tokens + meta.conversationTokens + meta.toolCallTokens
-		: undefined;
-	const pressure = resolvePiDisplayPressure({
+	const pressure = resolvePiSessionDisplayPressure({
 		...(usage === undefined ? {} : { live: usage }),
 		...(ctx.model === undefined ? {} : { model: ctx.model }),
 		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
 		...(!compactionUnknown && meta.lastInputTokens > 0
 			? { lastInputTokens: meta.lastInputTokens }
 			: {}),
-		...(!compactionUnknown
-			? {
-					prefixTokens:
-						prefix.tokens +
-						compartmentTokens +
-						factTokens +
-						memoryTokens +
-						docsTokens +
-						profileTokens,
-				}
-			: {}),
-		...(estimatedTokens !== undefined && estimatedTokens > 0 ? { estimatedTokens } : {}),
+		prefixTokens: compactionUnknown
+			? prefix.tokens
+			: prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
+		conversationTokens: meta.conversationTokens,
+		toolCallTokens: meta.toolCallTokens,
 	});
 	const contextLimit = pressure.contextLimit;
 	const inputTokens = pressure.inputTokens;

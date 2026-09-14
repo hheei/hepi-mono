@@ -3,7 +3,7 @@ import { estimatePiPrefixTokens, type PiPrefixTool } from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
 import { getOverflowState } from "#core/features/storage-meta-persisted";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
-import { resolvePiDisplayPressure } from "./pi-pressure";
+import { resolvePiSessionDisplayPressure } from "./pi-pressure";
 
 const STATUS_KEY = "magic-context";
 const RECENT_FAILURE_MS = 60_000;
@@ -53,21 +53,37 @@ export function registerStatusLine(pi: ExtensionAPI, deps: StatusLineDeps): void
 	};
 
 	pi.on("session_start", async (_event, ctx) => updateStatusLine(ctx, deps, true));
-	pi.on("agent_end", async (_event, ctx) => updateStatusLine(ctx, deps));
-	pi.on("session_compact", async (_event, ctx) => updateStatusLine(ctx, deps, true));
-	pi.on("tool_execution_end", async (_event, ctx) => updateStatusLine(ctx, deps));
+	pi.on("agent_end", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateStatusLine(ctx, deps);
+	});
+	pi.on("session_compact", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateStatusLine(ctx, deps, true);
+	});
+	pi.on("tool_execution_end", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		updateStatusLine(ctx, deps);
+	});
 	pi.on("message_end", async (event, ctx) => {
+		if (!ctx.hasUI) return;
 		const role = (event.message as { role?: unknown } | undefined)?.role;
 		if (role === "assistant") updateStatusLine(ctx, deps);
+	});
+	pi.on("session_before_switch", async (_event, ctx) => {
+		const sessionId = resolveSessionId(ctx);
+		if (sessionId) lastRenderedBySession.delete(sessionId);
+		if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 	pi.on("session_shutdown", async (_event, ctx) => {
 		const sessionId = resolveSessionId(ctx);
 		if (sessionId) lastRenderedBySession.delete(sessionId);
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 }
 
 export function updateStatusLine(ctx: ExtensionContext, deps: StatusLineDeps, force = false): void {
+	if (!ctx.hasUI) return;
 	const sessionId = resolveSessionId(ctx);
 	if (!sessionId) return;
 	const text = renderStatusText(ctx, deps.db, sessionId);
@@ -98,18 +114,7 @@ function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId:
 	} catch {
 		// Footer remains available when overflow metadata cannot be read.
 	}
-	const conversationTokens =
-		typeof meta?.conversation_tokens === "number" && meta.conversation_tokens > 0
-			? meta.conversation_tokens
-			: 0;
-	const toolCallTokens =
-		typeof meta?.tool_call_tokens === "number" && meta.tool_call_tokens > 0
-			? meta.tool_call_tokens
-			: 0;
-	const estimatedTokens = compactionUnknown
-		? (prefixTokens ?? 0) + conversationTokens + toolCallTokens
-		: undefined;
-	const pressure = resolvePiDisplayPressure({
+	const pressure = resolvePiSessionDisplayPressure({
 		...(usage === undefined ? {} : { live: usage }),
 		...(ctx.model === undefined ? {} : { model: ctx.model }),
 		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
@@ -118,8 +123,13 @@ function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId:
 		meta.last_input_tokens > 0
 			? { lastInputTokens: meta.last_input_tokens }
 			: {}),
-		...(!compactionUnknown && prefixTokens !== undefined ? { prefixTokens } : {}),
-		...(estimatedTokens !== undefined && estimatedTokens > 0 ? { estimatedTokens } : {}),
+		...(prefixTokens !== undefined ? { prefixTokens } : {}),
+		...(typeof meta?.conversation_tokens === "number"
+			? { conversationTokens: meta.conversation_tokens }
+			: {}),
+		...(typeof meta?.tool_call_tokens === "number"
+			? { toolCallTokens: meta.tool_call_tokens }
+			: {}),
 	});
 	const state = renderHistorianState(meta, recompSessions.has(sessionId));
 	const inputTokens = pressure.inputTokens;

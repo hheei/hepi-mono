@@ -108,7 +108,8 @@ describe("Pi compaction-off mode", () => {
 				},
 			});
 			const meta = getOrCreateSessionMeta(db, sessionId);
-			expect(meta.lastInputTokens).toBe(90_000);
+			expect(meta.lastInputTokens).toBe(0);
+			expect(meta.lastContextPercentage).toBe(0);
 			expect(meta.conversationTokens).toBeGreaterThan(0);
 			expect(meta.conversationTokens).toBeLessThan(1_000);
 			expect(meta.toolCallTokens).toBe(0);

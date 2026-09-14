@@ -20,6 +20,12 @@ import {
 } from "./event-resolvers";
 import { estimateTokens } from "./read-session-formatting";
 
+export type ExecuteStatusDisplayUsage = {
+	inputTokens?: number | undefined;
+	percentage?: number | undefined;
+	contextLimit?: number | undefined;
+};
+
 function formatExecuteThreshold(detail: ExecuteThresholdDetail, contextLimit: number): string {
 	const { percentage, mode } = detail;
 	// Surfaces the silent clamp from issue #241: when the configured value exceeded
@@ -57,6 +63,7 @@ export function executeStatus(
 		| { default?: number | undefined; [modelKey: string]: number | undefined }
 		| undefined,
 	contextLimit?: number,
+	displayUsage?: ExecuteStatusDisplayUsage,
 ): string {
 	// Single source of truth — resolver tells us both the effective percentage AND
 	// which config source won (tokens vs percentage). Previously /ctx-status
@@ -102,12 +109,16 @@ export function executeStatus(
 			executeThresholdPercentage,
 		);
 
+		const displayInputTokens = displayUsage?.inputTokens ?? meta.lastInputTokens;
+		const displayPercentage = displayUsage?.percentage ?? meta.lastContextPercentage;
 		const displayContextLimit =
-			contextLimit && contextLimit > 0
-				? contextLimit
-				: meta.lastContextPercentage > 0
-					? Math.round(meta.lastInputTokens / (meta.lastContextPercentage / 100))
-					: 0;
+			(displayUsage?.contextLimit && displayUsage.contextLimit > 0
+				? displayUsage.contextLimit
+				: undefined) ??
+			(contextLimit && contextLimit > 0 ? contextLimit : undefined) ??
+			(meta.lastContextPercentage > 0
+				? Math.round(meta.lastInputTokens / (meta.lastContextPercentage / 100))
+				: 0);
 
 		const lines: string[] = [
 			"## Magic Status",
@@ -135,18 +146,18 @@ export function executeStatus(
 			"",
 			"### Execute Threshold",
 			`- Execute threshold: ${formatExecuteThreshold(thresholdDetail, displayContextLimit)}`,
-			`- Last input tokens: ${meta.lastInputTokens.toLocaleString()} tokens`,
+			`- Last input tokens: ${displayInputTokens.toLocaleString()} tokens`,
 			"",
 			`**Protected tags:** ${protectedTags}`,
 			`**Subagent session:** ${meta.isSubagent}`,
 		];
 
-		if (meta.lastContextPercentage > 0 || meta.lastInputTokens > 0) {
+		if ((displayPercentage ?? 0) > 0 || (displayInputTokens ?? 0) > 0) {
 			lines.push(
 				"",
 				"### Context Usage",
-				`- Last percentage: ${meta.lastContextPercentage.toFixed(1)}%`,
-				`- Last input tokens: ${meta.lastInputTokens.toLocaleString()}`,
+				`- Last percentage: ${(displayPercentage ?? 0).toFixed(1)}%`,
+				`- Last input tokens: ${(displayInputTokens ?? 0).toLocaleString()}`,
 				`- Resolved context limit: ${displayContextLimit > 0 ? displayContextLimit.toLocaleString() : "unknown"}`,
 				`- Proactive compartment evaluation: ${proactiveCompartmentTrigger}%`,
 				`- Post-drop target for historian: ${(executeThresholdPercentage * POST_DROP_TARGET_RATIO).toFixed(0)}% (${executeThresholdPercentage}% * ${POST_DROP_TARGET_RATIO})`,

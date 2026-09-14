@@ -78,9 +78,13 @@ Pi compaction is a history rewrite inside the same session, not a new session.
 `session_before_compact` never cancels native compaction except on the
 fail-closed storage surface. It opens a durable native-compaction fence,
 clears cached m[0]/m[1], and discards any staged Pi marker. `session_compact`
-ends the fence and signals deferred history/materialization rebuild. The next
-`context` transform rebuilds from `getBranch()`; historian and recomp work is
-not run inside the event hook.
+ends the fence, rewrites kept-tail `conversation_tokens`/`tool_call_tokens`,
+and zeros stale `last_input_tokens` so historian/status cannot reuse the
+pre-compact trailing reading. The next `context` transform rebuilds from
+`getBranch()`; historian and recomp work is not run inside the event hook.
+Footer listeners register after this persist so compact re-render sees the
+new buckets. Compacted resume/startup rewrites the same buckets from
+`getBranch()` before the footer paints.
 
 Historian and recomp stage Pi markers only when the captured fence generation
 is still current and the fence is inactive. A marker captured before a native
@@ -96,13 +100,14 @@ AgentMemory and Context Projection are not part of this package.
 
 ## Status token accounting
 
-Footer `/ctx-status` 和 status dialog 与 transform 使用同一套 wire-input 口径：
-`tokens` 是 Pi 的 live 会话估计或 `session_meta.last_input_tokens`，百分比是
+Footer、`/ctx-status` overlay、print/rpc `/ctx-status` 文本走同一套
+`resolvePiSessionDisplayPressure` 口径：百分比是
 `inputTokens / output-reserved usable window`。不使用 Pi `getContextUsage().percent`
 （该字段含 output）。新 session 的 `tokens === 0` 仍用 system prompt + tool defs
 做下限。compaction 后的 `tokens === null` 不用旧 trailing；用 prefix + compact
 时写入的 kept-tail `conversation_tokens`/`tool_call_tokens` 显示下一发 prompt
-估计，等下一次 `message_end` 再换成 provider 实际值。
+估计，等下一次 `message_end` 再换成 provider 实际值。print/rpc 没有 footer；
+`/ctx-status` 在 `hasUI=false` 时把同一估计写进 model-invisible 文本。
 调度器的 0.85 forward-pressure 缩放只用于 historian/emergency，不进入 status。
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.

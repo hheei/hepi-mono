@@ -72,7 +72,28 @@ export function persistCompactKeptPromptEstimate(args: {
 	updateSessionMeta(args.db, args.sessionId, {
 		conversationTokens: counts.conversation,
 		toolCallTokens: counts.toolCall,
+		lastInputTokens: 0,
+		lastContextPercentage: 0,
 	});
+}
+
+export function persistCompactKeptPromptEstimateIfCompacted(args: {
+	db: Parameters<typeof updateSessionMeta>[0];
+	sessionId: string;
+	entries: readonly unknown[];
+}): boolean {
+	if (!hasCompactionEntry(args.entries)) return false;
+	persistCompactKeptPromptEstimate(args);
+	return true;
+}
+
+function hasCompactionEntry(entries: readonly unknown[]): boolean {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry || typeof entry !== "object") continue;
+		if ((entry as { type?: unknown }).type === "compaction") return true;
+	}
+	return false;
 }
 
 function toKeptMessage(entry: unknown): CompactKeptMessage | undefined {

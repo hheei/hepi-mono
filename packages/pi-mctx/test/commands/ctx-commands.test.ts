@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { replaceAllCompartmentState } from "#core/features/compartment-storage";
+import { updateSessionMeta } from "#core/features/storage-meta";
 import { queuePendingOp } from "#core/features/storage-ops";
 import { insertTag } from "#core/features/storage-tags";
 import { Database } from "#core/shared/sqlite";
@@ -38,9 +39,10 @@ interface MockCommandContext {
 	};
 	getContextUsage: () => {
 		contextWindow: number;
-		tokens: number;
-		percent: number;
+		tokens: number | null;
+		percent: number | null;
 	};
+	getSystemPrompt?: () => string;
 }
 
 function createDb() {
@@ -143,6 +145,36 @@ describe("Pi Magic Context commands", () => {
 		expect(sent).toHaveLength(1);
 		expect(sent[0]?.customType).toBe("ctx-status");
 		expect(sent[0]?.data.text).toContain("## Magic Status");
+	});
+
+	it("estimates compacted usage in print/rpc /ctx-status instead of stale trailing tokens", async () => {
+		const db = createDb();
+		updateSessionMeta(db, "ses-1", {
+			lastInputTokens: 90_000,
+			lastContextPercentage: 90,
+			conversationTokens: 2_000,
+			toolCallTokens: 500,
+		});
+		const { pi, handlers, sent } = createMockPi();
+		registerCtxStatusCommand(pi as never, {
+			db,
+			projectIdentity: "/tmp/project",
+		});
+		await handlers.get("ctx-status")?.("", {
+			...createCtx(),
+			model: { provider: "anthropic", id: "claude", contextWindow: 100_000, maxTokens: 20_000 },
+			getSystemPrompt: () => "You are pi.",
+			getContextUsage: () => ({
+				contextWindow: 100_000,
+				tokens: null,
+				percent: null,
+			}),
+		});
+
+		const text = sent[0]?.data.text ?? "";
+		expect(text).toContain("## Magic Status");
+		expect(text).not.toContain("90,000");
+		expect(text).toMatch(/Last input tokens: [1-9]/);
 	});
 
 	it("refuses every context-management command in compaction-off mode without mutations", async () => {

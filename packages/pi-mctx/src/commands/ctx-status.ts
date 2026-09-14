@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { estimatePiPrefixTokens } from "@hheei/pi-ext-core";
 import { getCompartments } from "#core/features/compartment-storage";
 import { getMostRecentTaskRunAt } from "#core/features/dreamer/storage-task-schedule";
 import { getMemoryCount } from "#core/features/memory/storage-memory";
@@ -8,9 +9,11 @@ import { getOverflowState } from "#core/features/storage-meta-persisted";
 import { getNotes } from "#core/features/storage-notes";
 import { getTagsBySession } from "#core/features/storage-tags";
 import { executeStatus } from "#core/hooks/execute-status";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { describeError } from "#core/shared/error-message";
 import { showStatusDialog } from "../dialogs/status-dialog";
 import { resolvePiUsableContextLimit } from "../pi-context-limit";
+import { resolvePiSessionDisplayPressure } from "../pi-pressure";
 import { resolveSessionId, sendCtxStatusMessage } from "./pi-command-utils";
 
 export interface RegisterCtxStatusDeps {
@@ -103,6 +106,35 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 					...(ctx.model === undefined ? {} : { model: ctx.model }),
 					...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
 				});
+				let prefixTokens: number | undefined;
+				if (usage?.tokens === null || usage?.tokens === 0) {
+					let systemPrompt: string | undefined;
+					try {
+						const prompt =
+							typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
+						if (typeof prompt === "string" && prompt.length > 0) systemPrompt = prompt;
+					} catch {
+						// Prefix estimate remains best-effort in print/rpc mode.
+					}
+					prefixTokens = estimatePiPrefixTokens({
+						...(systemPrompt === undefined ? {} : { systemPrompt }),
+						tools: pi.getAllTools?.() ?? [],
+						estimateTokens,
+					}).tokens;
+				}
+				const compactionUnknown = usage?.tokens === null;
+				const meta = getOrCreateSessionMeta(currentDeps.db, sessionId);
+				const pressure = resolvePiSessionDisplayPressure({
+					...(usage === undefined ? {} : { live: usage }),
+					...(ctx.model === undefined ? {} : { model: ctx.model }),
+					...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
+					...(!compactionUnknown && meta.lastInputTokens > 0
+						? { lastInputTokens: meta.lastInputTokens }
+						: {}),
+					...(prefixTokens === undefined ? {} : { prefixTokens }),
+					conversationTokens: meta.conversationTokens,
+					toolCallTokens: meta.toolCallTokens,
+				});
 				const statusText = executeStatus(
 					currentDeps.db,
 					sessionId,
@@ -113,6 +145,11 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 					currentDeps.commitClusterTrigger,
 					currentDeps.executeThresholdTokens,
 					usableContextLimit,
+					{
+						...(pressure.inputTokens === undefined ? {} : { inputTokens: pressure.inputTokens }),
+						...(pressure.percentage === undefined ? {} : { percentage: pressure.percentage }),
+						...(pressure.contextLimit > 0 ? { contextLimit: pressure.contextLimit } : {}),
+					},
 				);
 				const details = buildStatusDetails(currentDeps, sessionId);
 				sendCtxStatusMessage(
