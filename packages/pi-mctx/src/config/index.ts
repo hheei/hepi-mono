@@ -52,9 +52,10 @@ const EMBEDDING_API_KEY_ENV_FIELD = "embeddingApiKeyEnv";
 const AGENTMEMORY_ENABLED_FIELD = "agentmemoryEnabled";
 const AGENTMEMORY_URL_FIELD = "agentmemoryUrl";
 const AGENTMEMORY_SECRET_FIELD = "agentmemorySecret";
-const AGENTMEMORY_PROJECT_FIELD = "agentmemoryProject";
 const AGENTMEMORY_AGENT_ID_FIELD = "agentmemoryAgentId";
 const AGENTMEMORY_CAPTURE_FIELD = "agentmemoryCapture";
+const AGENTMEMORY_INJECT_FIELD = "agentmemoryInject";
+const AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD = "agentmemoryHistorianRetrieval";
 const AGENTMEMORY_MEMORY_TOOLS_FIELD = "agentmemoryMemoryTools";
 const AGENTMEMORY_REQUIRE_HTTPS_FIELD = "agentmemoryRequireHttps";
 
@@ -348,9 +349,14 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 			enabled: settingBoolean(state, AGENTMEMORY_ENABLED_FIELD, DEFAULT_CONFIG.agentmemory.enabled),
 			url: settingText(state, AGENTMEMORY_URL_FIELD) ?? DEFAULT_CONFIG.agentmemory.url,
 			secret: settingText(state, AGENTMEMORY_SECRET_FIELD) ?? "",
-			project: settingText(state, AGENTMEMORY_PROJECT_FIELD) ?? "",
 			agentId: settingText(state, AGENTMEMORY_AGENT_ID_FIELD) ?? "",
 			capture: settingBoolean(state, AGENTMEMORY_CAPTURE_FIELD, DEFAULT_CONFIG.agentmemory.capture),
+			inject: settingBoolean(state, AGENTMEMORY_INJECT_FIELD, DEFAULT_CONFIG.agentmemory.inject),
+			historianRetrieval: settingBoolean(
+				state,
+				AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD,
+				DEFAULT_CONFIG.agentmemory.historianRetrieval,
+			),
 			memoryTools: settingBoolean(
 				state,
 				AGENTMEMORY_MEMORY_TOOLS_FIELD,
@@ -636,12 +642,6 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 							"Optional Bearer token for AgentMemory. AGENTMEMORY_SECRET overrides this. Prefer the environment variable.",
 					}),
 					textField({
-						id: AGENTMEMORY_PROJECT_FIELD,
-						label: "agentmemory project",
-						description:
-							"Optional AgentMemory project namespace. Empty uses the cwd basename. AGENTMEMORY_PROJECT_NAME overrides this.",
-					}),
-					textField({
 						id: AGENTMEMORY_AGENT_ID_FIELD,
 						label: "agentmemory agent id",
 						description: "Optional AgentMemory agent id tag. AGENT_ID overrides this after reload.",
@@ -652,6 +652,19 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 						defaultValue: DEFAULT_CONFIG.agentmemory.capture,
 						description:
 							"Observe prompts, tool results, and assistant turns over HTTP when the bridge is enabled.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_INJECT_FIELD,
+						label: "agentmemory automatic recall",
+						defaultValue: DEFAULT_CONFIG.agentmemory.inject,
+						description:
+							"Admit automatic AgentMemory recall through Context Projection after reload.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD,
+						label: "agentmemory historian retrieval",
+						defaultValue: DEFAULT_CONFIG.agentmemory.historianRetrieval,
+						description: "Allow Historian retrieval from AgentMemory after reload.",
 					}),
 					booleanField({
 						id: AGENTMEMORY_MEMORY_TOOLS_FIELD,

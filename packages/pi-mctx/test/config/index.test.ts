@@ -133,6 +133,18 @@ describe("Pi MCTX settings", () => {
 		expect(config.embedding).toEqual(defaults.embedding);
 	});
 
+	it("ignores the retired explicit AgentMemory project setting", () => {
+		const config = resolvePiMctxSettings({
+			[PI_MCTX_SETTINGS_GROUP]: {
+				agentmemoryEnabled: true,
+				agentmemoryProject: "must-not-route",
+			},
+		});
+
+		expect(config.agentmemory.enabled).toBe(true);
+		expect(config.agentmemory).not.toHaveProperty("project");
+	});
+
 	it("registers direct operational settings for all supported controls", () => {
 		const provider = createPiMctxSettingsProvider();
 		const group = provider.groups[0];
@@ -171,9 +183,10 @@ describe("Pi MCTX settings", () => {
 			"agentmemoryEnabled",
 			"agentmemoryUrl",
 			"agentmemorySecret",
-			"agentmemoryProject",
 			"agentmemoryAgentId",
 			"agentmemoryCapture",
+			"agentmemoryInject",
+			"agentmemoryHistorianRetrieval",
 			"agentmemoryMemoryTools",
 			"agentmemoryRequireHttps",
 		]);

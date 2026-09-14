@@ -13,6 +13,8 @@ AgentMemory HTTP 服务，不是 `context.db` 的 `memories` 表，也不是 Doc
   `agent_end`、`session_shutdown` 上，fire-and-forget，失败不影响 transform。
 - `agentmemory.enabled` 独立于 Window `enabled`，默认 false。开启后主会话不再注册
   本地 store 版 `mctx_memory`，也不再把 historian facts 写入本地 `memories`。
+- AgentMemory 不提供 project setting；`AGENTMEMORY_PROJECT_NAME` 显式环境覆盖优先，否则使用 git root basename，再退回 cwd basename。`agentId` 只用于过滤，不是安全边界。
+- Bearer secret 发往非 loopback plaintext HTTP 时默认显式告警；`agentmemoryRequireHttps` 或 `AGENTMEMORY_REQUIRE_HTTPS=1` 使请求 fail closed。
 - 自动 recall 的 Context Projection / ledger / SQLite outbox 不在本 ADR 范围。
   显式写入走同名 `mctx_memory`（AgentMemory schema）的同步 `remember`；失败对工具可见，不静默落本地库。
 
