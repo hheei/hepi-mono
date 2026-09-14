@@ -398,7 +398,10 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
 		// No temp-file offload needed — the bounded blocks stay well within
 		// serialization limits.
 		const projectPath = resolveProjectIdentity(directory ?? process.cwd());
-		const memories = getMemoriesByProject(db, projectPath, ["active", "permanent"]);
+		const memories =
+			deps.memoryEnabled === false
+				? []
+				: getMemoriesByProject(db, projectPath, ["active", "permanent"]);
 		const projectMemory = renderMemoryBlock(memories) ?? "";
 
 		const references = buildReferenceBlocks({
