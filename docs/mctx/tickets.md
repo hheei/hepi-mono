@@ -55,7 +55,7 @@
 
 **依赖**：MCTX-01。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-03：迁移 capture、redaction、taint 与 Historian provenance
 
