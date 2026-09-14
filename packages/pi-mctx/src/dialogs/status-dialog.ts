@@ -23,6 +23,7 @@ import { countCompartmentsNeedingUpgrade } from "#core/hooks/upgrade-reminder";
 import { formatBytes } from "#core/shared/format-bytes";
 import { formatThresholdClampNote, formatThresholdPercent } from "#core/shared/format-threshold";
 import packageJson from "../../package.json";
+import { type AgentMemoryStatusSnapshot, formatAgentMemoryStatus } from "../agentmemory/status";
 import { resolveSessionId } from "../commands/pi-command-utils";
 import { resolvePiSessionDisplayPressure } from "../pi-pressure";
 
@@ -57,6 +58,7 @@ export interface StatusDialogDeps {
 				[modelKey: string]: number | undefined;
 		  }
 		| undefined;
+	agentMemoryStatus?: (() => AgentMemoryStatusSnapshot) | undefined;
 }
 
 interface StatusDialogDetail {
@@ -113,6 +115,7 @@ interface StatusDialogDetail {
 	upgradeNeededCount: number;
 	/** A detached /ctx-recomp or /ctx-session-upgrade is running in background. */
 	recompInFlight: boolean;
+	agentMemory: AgentMemoryStatusSnapshot | null;
 }
 
 export async function showStatusDialog(
@@ -295,6 +298,9 @@ function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): s
 		lines.push(`Upgrade: ${theme.fg("accent", "up to date")}`);
 	}
 	lines.push(`Pending drops: ${s.pendingOpsCount}`);
+	if (s.agentMemory) {
+		for (const line of formatAgentMemoryStatus(s.agentMemory)) lines.push(line);
+	}
 	lines.push(
 		`Cache TTL: ${s.cacheTtl} · last response ${
 			s.lastResponseTime > 0
@@ -566,6 +572,7 @@ export function buildPiStatusDetail(
 				? metaRow.historian_last_failure_at
 				: null,
 		historianLastError: metaRow?.historian_last_error ?? null,
+		agentMemory: deps.agentMemoryStatus?.() ?? null,
 		cacheTtl,
 		lastResponseTime: meta.lastResponseTime,
 		cacheRemainingMs,

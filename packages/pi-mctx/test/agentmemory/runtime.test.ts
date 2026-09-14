@@ -176,4 +176,30 @@ describe("AgentMemory runtime", () => {
 		await runtime.shutdown();
 		expect(calls.at(-1)).toBe("end");
 	});
+
+	it("records degraded health without turning status reads into probes", async () => {
+		const client = {
+			health: vi.fn(async () => Promise.reject(new Error("bridge down"))),
+			startSession: vi.fn(),
+			observe: vi.fn(),
+			search: vi.fn(),
+			remember: vi.fn(),
+			endSession: vi.fn(),
+		};
+		const runtime = createAgentMemoryRuntime({ ...defaults, enabled: true }, client);
+		runtime.ensureStarted({
+			cwd: "/tmp/hepi-mono",
+			sessionManager: { getSessionId: () => "ses-health-failure" },
+		});
+		await vi.waitFor(() => expect(client.health).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(runtime.statusSnapshot().health).toBe("degraded"));
+		const callsBeforeRead = client.health.mock.calls.length;
+		expect(runtime.statusSnapshot()).toMatchObject({
+			health: "degraded",
+			capture: "idle",
+			lastError: "bridge down",
+		});
+		expect(client.health).toHaveBeenCalledTimes(callsBeforeRead);
+		await runtime.shutdown();
+	});
 });

@@ -45,6 +45,61 @@ describe("Pi status dialog", () => {
 		}
 	});
 
+	it("renders the same AgentMemory snapshot in the TUI status", async () => {
+		const db = createTestDb();
+		try {
+			const rendered: string[][] = [];
+			const ctx = {
+				...fakeContext("ses-agentmemory-status"),
+				ui: {
+					async custom(factory: unknown) {
+						const makeComponent = factory as (
+							tui: { requestRender: () => void },
+							theme: {
+								fg: (_name: string, text: string) => string;
+								bold: (text: string) => string;
+							},
+							keybindings: unknown,
+							done: (value: undefined) => void,
+						) => { render: (width: number) => string[]; dispose?: () => void };
+						const component = makeComponent(
+							{ requestRender: () => undefined },
+							{ fg: (_name, text) => text, bold: (text) => text },
+							undefined,
+							() => undefined,
+						);
+						rendered.push(component.render(100));
+						component.dispose?.();
+					},
+				},
+			};
+
+			await showStatusDialog({ getAllTools: () => [] } as never, ctx as never, {
+				db,
+				projectIdentity: resolveProjectIdentity(process.cwd()),
+				agentMemoryStatus: () => ({
+					enabled: true,
+					health: "degraded",
+					capture: "healthy",
+					search: "degraded",
+					inject: "idle",
+					memory: "healthy",
+					outbox: { pending: 2, leased: 1, failed: 3 },
+					lastError: "bridge down",
+					lastErrorAt: 123,
+				}),
+			});
+
+			const text = rendered.flat().join("\n");
+			expect(text).toContain(
+				"AgentMemory: health=degraded capture=healthy search=degraded inject=idle memory=healthy",
+			);
+			expect(text).toContain("AgentMemory outbox: pending=2 leased=1 failed=3");
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
 	it("estimates compaction-null usage from prefix and kept-tail buckets", () => {
 		const db = createTestDb();
 		try {

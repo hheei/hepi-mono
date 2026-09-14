@@ -22,6 +22,27 @@ Pi host
 - Pi MCTX 不拥有 Todo：不注册、观察或重放 `todowrite`，不提供 `/todos` 或 overlay，也不在数据库保存 Todo snapshot。`pi-ext-tools` 是唯一的 Todo tool/UI owner；其工具 transcript 按普通 Pi tool 内容处理。
 - Pi MCTX 自动模型提醒使用 Pi `custom` session message：模型内容保留 `<system-reminder>…</system-reminder>`，交互 transcript 通过 `registerMessageRenderer` 显示 `[magic context]` 块。Channel 1 的 gentle/firm 级别保持模型可见但不显示；仅 urgent 级别显示该块，Channel 2 始终显示。Channel 1 每次送达后至少等待三个已完成的 assistant turn 才能再次送达；该 live-only 冷却状态不写入数据库。不得向 `toolResult.content` 挂载自动提醒。仅 `pi.on("context")` 的临时 message 变换可在当前 provider 请求中注入内容；该数组不写入 session，也没有 transcript 表示。
 
+
+### AgentMemory bridge
+
+```text
+Pi lifecycle hooks ──fire-and-forget──> AgentMemory session/capture runtime
+mctx_search ──> local session lane
+            └─> scoped AgentMemory lane ──partial failure──> local lane remains healthy
+mctx_memory ──transaction──> context.db outbox ──lease/retry/dedupe──> /remember
+/ctx-status ──read only──> observed runtime snapshot + local outbox counts
+/agentmemory-health ──explicit fresh probe──> /health
+session_shutdown ──abort/capped drain──> outbox + remote session cleanup
+```
+
+`pi-mctx` owns bridge lifecycle、cancellation、SQLite outbox 和 status snapshot；上游
+AgentMemory owns durable memory。Outbox 与 taint tables 是 additive、可重入的本地
+coordination state，不是上游 memory schema。Agent-facing 名称固定为
+`mctx_search` / `mctx_memory`；启用 bridge 只替换实现，不增加 alias 或 dual-write。
+每个 Pi session 映射一个 remote capture segment；search 的 project/agent scope gate
+会排除当前 active segment。Bridge failure 不阻断 Window，search 仍返回 local lane
+并明确标记 partial/degraded。Status refresh 绝不发网络请求；fresh health 仅由用户
+显式调用 `/agentmemory-health`。
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
 ## 设置

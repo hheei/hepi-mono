@@ -135,6 +135,47 @@ describe("AgentMemoryOutbox", () => {
 			closeQuietly(db);
 		}
 	});
+
+	it("closes after a bounded final drain and rejects later writes", async () => {
+		const db = createTestDb();
+		const remember = vi.fn(async () => ({ success: true as const, memory: { id: "mem" } }));
+		try {
+			const outbox = new AgentMemoryOutbox(db, client(remember), "worker-1");
+			outbox.queue({ content: "one", project: "hepi-mono" });
+			outbox.queue({ content: "two", project: "hepi-mono" });
+			await outbox.close(1);
+			expect(remember).toHaveBeenCalledTimes(1);
+			expect(outbox.pendingCount()).toBe(1);
+			expect(() => outbox.queue({ content: "late", project: "hepi-mono" })).toThrow(
+				/outbox is closed/,
+			);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("coalesces concurrent close calls into one final drain", async () => {
+		const db = createTestDb();
+		let release: (() => void) | undefined;
+		const remember = vi.fn(
+			() =>
+				new Promise<{ success: true; memory: { id: string } }>((resolve) => {
+					release = () => resolve({ success: true, memory: { id: "mem" } });
+				}),
+		);
+		try {
+			const outbox = new AgentMemoryOutbox(db, client(remember), "worker-1");
+			outbox.queue({ content: "one", project: "hepi-mono" });
+			const first = outbox.close();
+			const second = outbox.close();
+			await vi.waitFor(() => expect(remember).toHaveBeenCalledTimes(1));
+			release?.();
+			await Promise.all([first, second]);
+			expect(remember).toHaveBeenCalledTimes(1);
+		} finally {
+			closeQuietly(db);
+		}
+	});
 	it("records retry state when remote delivery fails", async () => {
 		const db = createTestDb();
 		try {

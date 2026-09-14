@@ -93,4 +93,33 @@ describe("AgentMemorySessionManager", () => {
 
 		expect(endSession).toHaveBeenCalledTimes(2);
 	});
+
+	it("makes concurrent shutdown callers await the same cleanup", async () => {
+		let release: (() => void) | undefined;
+		const endSession = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+		);
+		const manager = new AgentMemorySessionManager({
+			client: client({ endSession }),
+			resolveIdentity: () => ({ project: "repository" }),
+			enabled: () => true,
+		});
+		await manager.startForContext(context("session-a"));
+
+		const first = manager.shutdown();
+		const second = manager.shutdown();
+		await vi.waitFor(() => expect(endSession).toHaveBeenCalledTimes(1));
+		let secondSettled = false;
+		void second.then(() => {
+			secondSettled = true;
+		});
+		await Promise.resolve();
+		expect(secondSettled).toBe(false);
+		release?.();
+		await Promise.all([first, second]);
+		expect(endSession).toHaveBeenCalledTimes(1);
+	});
 });

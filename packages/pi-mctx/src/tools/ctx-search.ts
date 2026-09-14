@@ -190,6 +190,8 @@ export interface CtxSearchToolDeps {
 				client: AgentMemoryClientPort;
 				identity: (cwd: string) => AgentMemoryIdentity;
 				remoteSessionId?: ((piSessionId: string) => string | undefined) | undefined;
+				onSuccess?: (() => void) | undefined;
+				onFailure?: ((error: unknown) => void) | undefined;
 		  }
 		| undefined;
 }
@@ -320,6 +322,7 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 							(identity.agentId === undefined || item.agentId === identity.agentId) &&
 							(activeRemoteSessionId === undefined || item.sessionId !== activeRemoteSessionId),
 					);
+					deps.remoteSearch.onSuccess?.();
 					const durableText =
 						remote.length === 0
 							? "No durable results."
@@ -337,6 +340,7 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 									.join("\n\n");
 					text += `\n\nDurable AgentMemory lane\n${durableText}`;
 				} catch (error) {
+					deps.remoteSearch.onFailure?.(error);
 					const message = error instanceof Error ? error.message : String(error);
 					text += `\n\nDurable AgentMemory lane: partial/unavailable (${message})`;
 				}

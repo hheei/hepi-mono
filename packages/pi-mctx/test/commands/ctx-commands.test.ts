@@ -148,6 +148,37 @@ describe("Pi Magic Context commands", () => {
 		expect(sent[0]?.data.text).toContain("## Magic Status");
 	});
 
+	it("includes the observed AgentMemory snapshot in headless status and details", async () => {
+		const db = createDb();
+		const { pi, handlers, sent } = createMockPi();
+		const agentMemoryStatus = () => ({
+			enabled: true,
+			health: "degraded" as const,
+			capture: "healthy" as const,
+			search: "degraded" as const,
+			inject: "idle" as const,
+			memory: "healthy" as const,
+			outbox: { pending: 2, leased: 1, failed: 3 },
+			lastError: "bridge down",
+			lastErrorAt: 123,
+		});
+
+		registerCtxStatusCommand(pi as never, {
+			db,
+			projectIdentity: "/tmp/project",
+			agentMemoryStatus,
+		});
+		await handlers.get("ctx-status")?.("", createCtx());
+
+		expect(sent[0]?.data.text).toContain(
+			"AgentMemory: health=degraded capture=healthy search=degraded inject=idle memory=healthy",
+		);
+		expect(sent[0]?.data.text).toContain("pending=2 leased=1 failed=3");
+		expect(sent[0]?.data.details).toMatchObject({
+			agentMemory: { health: "degraded", outbox: { pending: 2, leased: 1, failed: 3 } },
+		});
+	});
+
 	it("estimates compacted usage in print/rpc /ctx-status instead of stale trailing tokens", async () => {
 		const db = createDb();
 		updateSessionMeta(db, "ses-1", {

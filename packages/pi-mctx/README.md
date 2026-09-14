@@ -4,11 +4,12 @@
 lives in `src/`; shared Magic Context implementation lives in `src/core/` and
 is private to this package through `#core/*` imports.
 
-The package is an upstream source baseline copied from
-[`cortexkit/magic-context`](https://github.com/cortexkit/magic-context) at
-`7dcd2e5726a1466126b2eea460482cca2b53283b`. It has no `pi.extensions` entry
-and remains unloadable until its first HEPI-adapted slice is designed and
-verified.
+Pi adapter 通过 `src/index.ts` 直接加载。Magic Context Window 继续由 Pi hooks 和
+本地 `context.db` 管理；可选 AgentMemory HTTP bridge 负责跨会话 durable memory。
+启用 bridge 后，agent-facing 工具名仍为 `mctx_search` / `mctx_memory`：search 将
+local session lane 与 AgentMemory lane 分开显示，memory write 先提交本地
+transactional outbox，再异步投递。`/ctx-status` 读取已观察的 bridge 状态与本地
+outbox 计数，不触发网络；`/agentmemory-health` 才执行显式 fresh probe。
 
 The previous implementation remains excluded at `packages/xpi-mctx/` for
 historical comparison.

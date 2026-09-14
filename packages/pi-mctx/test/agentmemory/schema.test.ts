@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import { Database } from "#core/shared/sqlite";
+import { closeQuietly } from "#core/shared/sqlite-helpers";
+import { ensureAgentMemorySchema } from "../../src/agentmemory/schema";
+
+function schemaObjects(db: Database): string[] {
+	return (
+		db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND name LIKE 'agentmemory_%' ORDER BY name",
+			)
+			.all() as Array<{ name: string }>
+	).map((row) => row.name);
+}
+
+describe("AgentMemory additive schema", () => {
+	it("initializes a fresh database idempotently", () => {
+		const db = new Database(":memory:");
+		try {
+			ensureAgentMemorySchema(db);
+			const first = schemaObjects(db);
+			ensureAgentMemorySchema(db);
+			expect(schemaObjects(db)).toEqual(first);
+			expect(first).toEqual([
+				"agentmemory_outbox",
+				"agentmemory_outbox_ready_idx",
+				"agentmemory_turn_taint",
+				"agentmemory_turn_taint_host_idx",
+			]);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("adds bridge tables without changing legacy rows", () => {
+		const db = new Database(":memory:");
+		try {
+			db.exec("CREATE TABLE legacy_state (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+			db.prepare("INSERT INTO legacy_state (id, value) VALUES (?, ?)").run("keep", "unchanged");
+			ensureAgentMemorySchema(db);
+			expect(db.prepare("SELECT id, value FROM legacy_state").get()).toEqual({
+				id: "keep",
+				value: "unchanged",
+			});
+			expect(schemaObjects(db)).toContain("agentmemory_outbox");
+		} finally {
+			closeQuietly(db);
+		}
+	});
+});

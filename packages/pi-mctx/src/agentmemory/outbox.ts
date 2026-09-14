@@ -72,6 +72,8 @@ export class AgentMemoryOutbox {
 	readonly #client: AgentMemoryClientPort;
 	readonly #owner: string;
 	#draining: Promise<void> | undefined;
+	#accepting = true;
+	#closing: Promise<void> | undefined;
 
 	constructor(db: Database, client: AgentMemoryClientPort, owner = `pi-${randomUUID()}`) {
 		this.#db = db;
@@ -81,6 +83,7 @@ export class AgentMemoryOutbox {
 	}
 
 	queue(input: RememberInput): { status: AgentMemoryOutboxStatus; id: string; dedupeKey: string } {
+		if (!this.#accepting) throw new Error("AgentMemory outbox is closed");
 		const key = dedupeKey(input);
 		const now = Date.now();
 		const id = randomUUID();
@@ -132,6 +135,18 @@ export class AgentMemoryOutbox {
 		return this.#draining;
 	}
 
+	close(limit = 16): Promise<void> {
+		this.#accepting = false;
+		this.#closing ??= this.#finishClose(limit);
+		return this.#closing;
+	}
+
+	async #finishClose(limit: number): Promise<void> {
+		const active = this.#draining;
+		if (active !== undefined) await active;
+		await this.drain(limit);
+	}
+
 	pendingCount(): number {
 		const row = this.#db
 			.prepare(
@@ -146,6 +161,26 @@ export class AgentMemoryOutbox {
 			.prepare("SELECT count(*) AS count FROM agentmemory_outbox WHERE state = 'failed'")
 			.get() as { count: number };
 		return Number(row.count);
+	}
+
+	statusCounts(): { pending: number; leased: number; failed: number } {
+		const rows = this.#db
+			.prepare(
+				"SELECT state, count(*) AS count FROM agentmemory_outbox WHERE state IN ('pending', 'leased', 'failed') GROUP BY state",
+			)
+			.all() as Array<{ state: "pending" | "leased" | "failed"; count: number }>;
+		const counts = { pending: 0, leased: 0, failed: 0 };
+		for (const row of rows) counts[row.state] = Number(row.count);
+		return counts;
+	}
+
+	latestError(): { message: string; at: number } | null {
+		const row = this.#db
+			.prepare(
+				"SELECT last_error, updated_at FROM agentmemory_outbox WHERE last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+			)
+			.get() as { last_error: string; updated_at: number } | undefined;
+		return row ? { message: row.last_error, at: Number(row.updated_at) } : null;
 	}
 
 	async #drain(limit: number): Promise<void> {
