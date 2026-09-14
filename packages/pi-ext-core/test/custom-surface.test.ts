@@ -372,6 +372,7 @@ function overlayFixture(
 		focus: () => undefined,
 		unfocus: () => undefined,
 		isFocused: () => !hidden,
+		getBounds: () => undefined,
 	};
 	const command = {
 		mode: "tui",
