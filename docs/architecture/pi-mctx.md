@@ -104,10 +104,11 @@ Footer、`/ctx-status` overlay、print/rpc `/ctx-status` 文本走同一套
 `resolvePiSessionDisplayPressure` 口径：百分比是
 `inputTokens / output-reserved usable window`。不使用 Pi `getContextUsage().percent`
 （该字段含 output）。新 session 的 `tokens === 0` 仍用 system prompt + tool defs
-做下限。compaction 后的 `tokens === null` 不用旧 trailing；用 prefix + compact
+做下限。compaction 后的 `tokens === null` 不用旧 trailing；用 prefix + display-time
+m[0]（cached wire bytes，否则 Σp1 compartments / live memories）+ compact
 时写入的 kept-tail `conversation_tokens`/`tool_call_tokens` 显示下一发 prompt
-估计，等下一次 `message_end` 再换成 provider 实际值。print/rpc 没有 footer；
-`/ctx-status` 在 `hasUI=false` 时把同一估计写进 model-invisible 文本。
+估计，等下一次 `message_end` 再换成 provider 实际值。m[0] 估计只进 status，
+不写回 `last_input_tokens`。print/rpc 没有 footer；
 调度器的 0.85 forward-pressure 缩放只用于 historian/emergency，不进入 status。
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.

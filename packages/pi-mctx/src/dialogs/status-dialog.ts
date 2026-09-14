@@ -17,7 +17,7 @@ import { getOverflowState, getSessionWorkMetrics } from "#core/features/storage-
 import { getNotes } from "#core/features/storage-notes";
 import { getTagsBySession } from "#core/features/storage-tags";
 import { MAX_EXECUTE_THRESHOLD, resolveExecuteThresholdDetail } from "#core/hooks/event-resolvers";
-import { computeM0BlockTokens } from "#core/hooks/m0-token-breakdown";
+import { resolveM0BlockTokensForDisplay, sumM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { countCompartmentsNeedingUpgrade } from "#core/hooks/upgrade-reminder";
 import { formatBytes } from "#core/shared/format-bytes";
@@ -388,21 +388,12 @@ export function buildPiStatusDetail(
 	const memoryBlockCount = Number(metaRow?.memory_block_count ?? 0);
 
 	// v2 m[0] per-block attribution via the SHARED core helper so the Pi dialog
-	// renders stable categories (Docs / User
-	// Profile / Memories / Compartments measured from the real cached_m0 slice;
-	// Facts retired → 0). Falls back to Σp1 / on-demand v2 memory render cold.
-	const m0Bytes = metaRow?.cached_m0_bytes;
-	const m0Text =
-		m0Bytes instanceof Uint8Array
-			? Buffer.from(m0Bytes).toString("utf8")
-			: typeof m0Bytes === "string"
-				? m0Bytes
-				: "";
-	const m0Blocks = computeM0BlockTokens(deps.db, sessionId, {
-		m0Text,
+	// renders stable categories (Docs / User Profile / Memories / Compartments).
+	// After native compaction the cached bytes are cleared; the helper falls
+	// back to Σp1 compartments and a live project memory count.
+	const m0Blocks = resolveM0BlockTokensForDisplay(deps.db, sessionId, {
 		projectIdentity: deps.projectIdentity,
 		injectionBudgetTokens: deps.injectionBudgetTokens,
-		memoryBlockCount,
 	});
 	const compartmentTokens = m0Blocks.compartmentTokens;
 	const factTokens = m0Blocks.factTokens;
@@ -475,9 +466,7 @@ export function buildPiStatusDetail(
 		...(!compactionUnknown && meta.lastInputTokens > 0
 			? { lastInputTokens: meta.lastInputTokens }
 			: {}),
-		prefixTokens: compactionUnknown
-			? prefix.tokens
-			: prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
+		prefixTokens: prefix.tokens + sumM0BlockTokens(m0Blocks),
 		conversationTokens: meta.conversationTokens,
 		toolCallTokens: meta.toolCallTokens,
 	});
@@ -715,13 +704,12 @@ function readSessionMetaRow(db: ContextDatabase, sessionId: string) {
 			{
 				memory_block_cache: string | null;
 				memory_block_count: number | null;
-				cached_m0_bytes: Buffer | Uint8Array | string | null;
 				historian_failure_count: number | null;
 				historian_last_failure_at: number | null;
 				historian_last_error: string | null;
 			}
 		>(
-			"SELECT memory_block_cache, memory_block_count, cached_m0_bytes, historian_failure_count, historian_last_failure_at, historian_last_error FROM session_meta WHERE session_id = ?",
+			"SELECT memory_block_cache, memory_block_count, historian_failure_count, historian_last_failure_at, historian_last_error FROM session_meta WHERE session_id = ?",
 		)
 		.get(sessionId);
 }

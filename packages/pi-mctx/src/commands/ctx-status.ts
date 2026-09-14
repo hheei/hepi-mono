@@ -9,6 +9,7 @@ import { getOverflowState } from "#core/features/storage-meta-persisted";
 import { getNotes } from "#core/features/storage-notes";
 import { getTagsBySession } from "#core/features/storage-tags";
 import { executeStatus } from "#core/hooks/execute-status";
+import { resolveM0BlockTokensForDisplay, sumM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { describeError } from "#core/shared/error-message";
 import { showStatusDialog } from "../dialogs/status-dialog";
@@ -121,6 +122,14 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 						tools: pi.getAllTools?.() ?? [],
 						estimateTokens,
 					}).tokens;
+					if (usage?.tokens === null) {
+						prefixTokens += sumM0BlockTokens(
+							resolveM0BlockTokensForDisplay(currentDeps.db, sessionId, {
+								projectIdentity: currentDeps.projectIdentity,
+								injectionBudgetTokens: currentDeps.injectionBudgetTokens,
+							}),
+						);
+					}
 				}
 				const compactionUnknown = usage?.tokens === null;
 				const meta = getOrCreateSessionMeta(currentDeps.db, sessionId);
