@@ -671,7 +671,7 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 						label: "agentmemory memory tools",
 						defaultValue: DEFAULT_CONFIG.agentmemory.memoryTools,
 						description:
-							"Register mctx_memory against AgentMemory and fold its hits into mctx_search when the bridge is enabled.",
+							"Register unified mctx_search and transactional mctx_memory when the bridge is enabled.",
 					}),
 					booleanField({
 						id: AGENTMEMORY_REQUIRE_HTTPS_FIELD,

@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { buildMagicContextSection } from "#core/agents/magic-context-prompt";
+import { buildMagicContextSection, type MemorySaveMode } from "#core/agents/magic-context-prompt";
 import {
 	type ContextDatabase,
 	getOrCreateSessionMeta,
@@ -35,6 +35,8 @@ export interface BuildMagicContextBlockOptions {
 	sessionId?: string | undefined;
 	/** Reserved for compatibility; project memories now live in m[0]/m[1]. */
 	memoryEnabled: boolean;
+	/** Selects the implementation-specific guidance while preserving one tool name. */
+	memorySaveMode?: MemorySaveMode | undefined;
 	memoryBudgetChars?: number | undefined;
 	/** When true (default), emit the `## Magic Context` guidance section. */
 	includeGuidance?: boolean | undefined;
@@ -71,9 +73,10 @@ export function buildMagicContextBlock(opts: BuildMagicContextBlockOptions): str
 		opts.cavemanTextCompressionEnabled ?? false,
 		false,
 		opts.language,
-		// Drop mctx_memory guidance when memory is off (the tool is gated via
-		// registerMagicContextTools memoryToolEnabled). mctx_search guidance stays.
+		// AgentMemory can replace the native mctx_memory implementation while
+		// preserving the same agent-facing tool contract.
 		opts.memoryEnabled !== false,
+		opts.memorySaveMode,
 	);
 }
 

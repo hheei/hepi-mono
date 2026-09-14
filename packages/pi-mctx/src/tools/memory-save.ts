@@ -1,7 +1,5 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
-import type { AgentMemoryClientPort } from "../agentmemory/client";
-import type { AgentMemoryIdentity } from "../agentmemory/runtime";
 
 const ParamsSchema = Type.Object({
 	content: Type.String({ description: "The durable fact to save." }),
@@ -20,33 +18,34 @@ const ParamsSchema = Type.Object({
 type SaveParams = Static<typeof ParamsSchema>;
 
 export function createMemorySaveTool(options: {
-	client: AgentMemoryClientPort;
-	identity: (cwd: string) => AgentMemoryIdentity;
+	queueMemory(input: {
+		readonly cwd: string;
+		readonly content: string;
+		readonly type?: string | undefined;
+	}): Promise<{ status: "queued" | "delivered" | "failed"; id: string }>;
 }): ToolDefinition<typeof ParamsSchema> {
 	return {
 		name: "mctx_memory",
 		label: "Magic Context: Memory",
-		description: "Save an explicit fact to the upstream AgentMemory service.",
+		description: "Queue an explicit fact for durable AgentMemory delivery.",
 		parameters: ParamsSchema,
 		async execute(_id, params: SaveParams, _signal, _onUpdate, ctx) {
 			const content = params.content.trim();
-			const identity = options.identity(ctx.cwd);
-			if (content.length === 0 || identity.project.length === 0) {
+			if (content.length === 0) {
 				return {
-					content: [{ type: "text" as const, text: "rejected: content and project are required" }],
+					content: [{ type: "text" as const, text: "rejected: content is required" }],
 					details: { status: "rejected" as const },
 				};
 			}
 			try {
-				const remembered = await options.client.remember({
+				const queued = await options.queueMemory({
+					cwd: ctx.cwd,
 					content,
-					project: identity.project,
-					...(identity.agentId ? { agentId: identity.agentId } : {}),
 					...(params.type?.trim() ? { type: params.type.trim() } : {}),
 				});
 				return {
-					content: [{ type: "text" as const, text: `saved: ${remembered.memory.id}` }],
-					details: { status: "saved" as const, id: remembered.memory.id },
+					content: [{ type: "text" as const, text: `${queued.status}: ${queued.id}` }],
+					details: { status: queued.status, id: queued.id },
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

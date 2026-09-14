@@ -33,7 +33,7 @@ interface MockCommandContext {
 		custom: (factory: unknown, options?: unknown) => Promise<unknown>;
 		setStatus?: (key: string, text: string) => void;
 	};
-	model?: { provider: string; id: string };
+	model?: { provider: string; id: string; contextWindow?: number; maxTokens?: number };
 	sessionManager: {
 		getSessionId: () => string | undefined;
 		getBranch?: () => unknown[];

@@ -256,9 +256,9 @@ function isSqliteLockError(error: unknown): boolean {
 }
 
 function sleep(ms: number): Promise<void> {
-	const { promise, resolve } = Promise.withResolvers<void>();
-	setTimeout(resolve, ms);
-	return promise;
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
 }
 
 function openDatabaseAttempt(dbDir: string, dbPath: string): Database {

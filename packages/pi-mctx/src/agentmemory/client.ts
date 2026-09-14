@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DEFAULT_AGENTMEMORY_URL } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import { createPlaintextBearerAuthGuard, plaintextBearerAuthMessage } from "./security";
@@ -84,6 +85,10 @@ export type DecodedSearchEntry = {
 	content: string;
 	kind: "memory" | "observation";
 	score?: number | undefined;
+	project?: string | undefined;
+	sessionId?: string | undefined;
+	agentId?: string | undefined;
+	digest: string;
 };
 
 export type RememberInput = {
@@ -175,7 +180,35 @@ export function decodeAgentMemorySearchResults(body: SearchResult): DecodedSearc
 				typeof wrapper.score === "number" && Number.isFinite(wrapper.score)
 					? wrapper.score
 					: undefined;
-			return [{ id, content, kind: resolvedKind, ...(score === undefined ? {} : { score }) }];
+			const project =
+				nonEmpty(value.project) ??
+				nonEmpty(value.projectName) ??
+				nonEmpty(value.project_name) ??
+				nonEmpty(wrapper.project) ??
+				nonEmpty(wrapper.projectName) ??
+				nonEmpty(wrapper.project_name);
+			const sessionId =
+				nonEmpty(wrapper.sessionId) ??
+				nonEmpty(wrapper.session_id) ??
+				nonEmpty(value.sessionId) ??
+				nonEmpty(value.session_id);
+			const agentId =
+				nonEmpty(value.agentId) ??
+				nonEmpty(value.agent_id) ??
+				nonEmpty(wrapper.agentId) ??
+				nonEmpty(wrapper.agent_id);
+			return [
+				{
+					id,
+					content,
+					digest: createHash("sha256").update(content).digest("hex"),
+					kind: resolvedKind,
+					...(score === undefined ? {} : { score }),
+					...(project ? { project } : {}),
+					...(sessionId ? { sessionId } : {}),
+					...(agentId ? { agentId } : {}),
+				},
+			];
 		}),
 	);
 }

@@ -805,7 +805,7 @@ async function startPiMagicContextRuntime(
 	let agentMemoryRuntime: AgentMemoryRuntime | undefined;
 	if (config.agentmemory.enabled) {
 		try {
-			agentMemoryRuntime = createAgentMemoryRuntime(config.agentmemory);
+			agentMemoryRuntime = createAgentMemoryRuntime(config.agentmemory, undefined, { db });
 			info(
 				config.agentmemory.capture
 					? "registered agentmemory HTTP bridge"
@@ -914,6 +914,7 @@ async function startPiMagicContextRuntime(
 					projectIdentity: resolveCurrentProject(ctx, cfg.allow_home_project).projectIdentity ?? "",
 				});
 			};
+			if (agentMemoryRuntime?.taint) hist.agentMemoryTaint = agentMemoryRuntime.taint;
 		}
 		const auto = resolveAutoSearchFromConfig(cfg);
 		return {
@@ -972,12 +973,12 @@ async function startPiMagicContextRuntime(
 		...(agentMemoryTools && agentMemoryRuntime
 			? {
 					memorySaveTool: {
-						client: agentMemoryRuntime.client,
-						identity: agentMemoryRuntime.identity,
+						queueMemory: agentMemoryRuntime.queueMemory,
 					},
 					remoteSearch: {
 						client: agentMemoryRuntime.client,
 						identity: agentMemoryRuntime.identity,
+						remoteSessionId: agentMemoryRuntime.remoteSessionId,
 					},
 				}
 			: {}),
@@ -1561,6 +1562,11 @@ async function startPiMagicContextRuntime(
 				cwd: currentProject.projectDir,
 				sessionId,
 				memoryEnabled: effectiveConfig.memory.enabled,
+				memorySaveMode: agentMemoryTools
+					? "agentmemory"
+					: effectiveConfig.memory.enabled
+						? "native"
+						: "off",
 				includeGuidance: true,
 				protectedTags: effectiveConfig.protected_tags,
 				ctxReduceCallable: !compactionOff,

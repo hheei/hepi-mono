@@ -74,7 +74,7 @@ describe("Pi LKG adapter", () => {
 			const assistant = restored[1];
 			expect(assistant && typeof assistant === "object" && "content" in assistant).toBe(true);
 			if (assistant && typeof assistant === "object" && "content" in assistant) {
-				expect(assistant.content).toEqual(piMessages[1].content);
+				expect(assistant.content).toEqual(piMessages[1]!.content);
 			}
 			dropSlot("s1");
 			expect(loadPersistedLkgSlot(db, "s1")).toBeUndefined();
