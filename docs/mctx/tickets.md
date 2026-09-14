@@ -72,7 +72,7 @@
 **验收**
 
 - 常见 secret/token/password/api-key 形态不会进入 observe payload。
-- `memory_search`/`memory_save` 输出不会被重复 capture 成可提升事实。
+- `mctx_search`/`mctx_memory` 输出不会被重复 capture 成可提升事实。
 - capture 请求失败只记录 failure，不改变主 turn 结果。
 - taint 传播覆盖 user entry、tool result、assistant restatement 和 historian candidate。
 - capture 并发与 shutdown race 有 deterministic tests。
@@ -81,18 +81,18 @@
 
 **依赖**：MCTX-02。
 
-状态：`[ ]`
+状态：`[x]`
 
-## MCTX-04：迁移 unified `memory_search` 与 transactional `memory_save`
+## MCTX-04：迁移 unified `mctx_search` 与 transactional `mctx_memory`
 
 **目标**：提供 tool-first 的 durable memory 能力，不改变 provider context projection。
 
 **范围**
 
-- `memory_search` 分离当前 session lane 与 AgentMemory lane；不把不可比 score 数值合并。
+- `mctx_search` 分离当前 session lane 与 AgentMemory lane；不把不可比 score 数值合并。
 - 远端结果经过 project/agent/session Scope Gate 和 active capture exclusion。
 - partial transport failure 返回健康 lane 和明确 partial 状态。
-- `memory_save` 先写本地 transactional outbox，再异步 remember。
+- AgentMemory 模式下的 `mctx_memory` 先写本地 transactional outbox，再异步 remember；切换后端不改变 agent-facing 工具名。
 - outbox 支持 lease、retry、dedupe、delivery result 和 bounded drain。
 - 删除当前精简 `runtime.ts` 中重复的 direct-save/search API，完成 clean cutover。
 
@@ -100,7 +100,7 @@
 
 - search 结果含 source identity、project、session、agent、digest，不只返回 count。
 - 不会显示当前 active capture segment。
-- `memory_save` 在 outbox commit 前不声称 delivered。
+- AgentMemory 模式下的 `mctx_memory` 在 outbox commit 前不声称 delivered。
 - 进程重启、重复 drain、远端 timeout 不造成重复 durable save。
 - bridge down 时 local session lane 仍可工作，状态明确为 partial/degraded。
 
@@ -108,7 +108,7 @@
 
 **依赖**：MCTX-02、MCTX-03。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-05：接入 schema、runtime registration 与统一 status
 
@@ -121,7 +121,7 @@
 - `/agentmemory-health` 保留为显式 fresh probe。
 - `/ctx-status` 增加 bridge gates、observed health、capture/search/inject 状态、outbox pending/leased/failed、最近错误。
 - status 读取只读本地状态，不触发网络请求或重复写库。
-- 更新 README、architecture、ADR 0020，写清 `mctx_memory` 到 `memory_save` 的 cutover。
+- 更新 README、architecture、ADR 0020，写清 `mctx_memory` 在 AgentMemory 模式下的实现与 schema 切换；agent-facing 名称保持不变。
 
 **验收**
 

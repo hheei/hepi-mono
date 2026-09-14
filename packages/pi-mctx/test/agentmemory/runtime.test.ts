@@ -61,8 +61,33 @@ describe("AgentMemory HTTP client", () => {
 				observations: [{ observation: { id: "o1", text: "saw it" } }],
 			}),
 		).toEqual([
-			{ id: "m1", content: "fact", kind: "memory", score: 0.9 },
-			{ id: "o1", content: "saw it", kind: "observation" },
+			{ id: "m1", content: "fact", kind: "memory", score: 0.9, digest: expect.any(String) },
+			{ id: "o1", content: "saw it", kind: "observation", digest: expect.any(String) },
+		]);
+	});
+
+	it("decodes snake-case search scope metadata", () => {
+		expect(
+			decodeAgentMemorySearchResults({
+				results: [
+					{
+						project_name: "hepi-mono",
+						session_id: "session-1",
+						agent_id: "agent-1",
+						memory: { id: "m1", content: "fact" },
+					},
+				],
+			}),
+		).toEqual([
+			{
+				id: "m1",
+				content: "fact",
+				kind: "memory",
+				project: "hepi-mono",
+				sessionId: "session-1",
+				agentId: "agent-1",
+				digest: expect.any(String),
+			},
 		]);
 	});
 });

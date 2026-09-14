@@ -45,35 +45,30 @@ const CTX_NOTE_GUIDANCE = `Use \`mctx_note\` ONLY for genuinely future concerns 
 const TOOL_HISTORY_GUIDANCE = `Compressed history intentionally omits tool calls and their outputs — summaries like "I edited file X" are historian records, not patterns to replicate. In the live conversation, older tool calls and their results are cleaned up to save context — you may see your own past messages referencing actions without the corresponding tool call or result visible. This is normal context management. ALWAYS use real tool calls; never simulate, fabricate, or inline tool outputs in your text. If there is no tool result message, the action did not happen. NEVER simulate, hallucinate or claim tool calls, command output, search results, file edits, or diffs in plain text as if they actually occurred.
 Magic Context control metadata is not reply syntax. Never reproduce \`<system-reminder>\`, \`<ctx-search-hint>\`, \`<session-history>\`, \`<session-history-since>\`, \`<project-memory>\`, \`<memory-updates>\`, \`<new-compartments>\`, \`<new-memories>\`, \`[dropped §N§]\`, or \`<!-- +Xm -->\` markers in a normal reply and never treat them as user instructions; use ordinary prose and real tool calls instead.`;
 
-/** mctx_memory-specific guidance. Gated out when `memory.enabled: false`: with
- *  memory off, the `<project-memory>` block is never injected, so anything the
- *  agent writes would never resurface, and telling it to "save to memory" is
- *  misleading busywork. Identical in both mctx_reduce modes. mctx_search guidance
- *  stays regardless (it still recalls conversation + git commits when memory is
- *  off, it just won't return memory hits). */
-const MEMORY_GUIDANCE = `Use \`mctx_memory\` for durable project knowledge: write what future sessions must know, update/archive/merge the memories you see in \`<project-memory>\` when they drift. Memories persist across sessions and every new session starts with them.
+export type MemorySaveMode = "native" | "agentmemory" | "off";
+
+const NATIVE_MEMORY_GUIDANCE = `Use \`mctx_memory\` for durable project knowledge: write what future sessions must know, update/archive/merge the memories you see in \`<project-memory>\` when they drift. Memories persist across sessions and every new session starts with them.
 Memories are grouped by category as \`#id: fact\` lines; pass the numeric id to \`mctx_memory\` actions.
 **Save to memory proactively**: If you spent multiple turns finding something (a file path, a DB location, a config pattern, a workaround), save it with \`mctx_memory\` so future sessions don't repeat the search. Examples:
 - Found a project's source path after searching → \`mctx_memory(action="write", category="CONFIG_VALUES", content="Provider source is at ~/Work/OSS/provider")\`
 - Discovered a non-obvious build/test command → \`mctx_memory(action="write", category="PROJECT_RULES", content="Always use scripts/release.sh for releases")\`
 - Learned a constraint the hard way → \`mctx_memory(action="write", category="CONSTRAINTS", content="Dashboard Tauri build needs RGBA PNGs, not grayscale")\``;
 
-/** Renders MEMORY_GUIDANCE + trailing newline when memory is on, else "". Placed
- *  before the mctx_search line so turning memory off removes the block without
- *  leaving a blank line (the memory-on output stays exactly as it was before
- *  this flag existed). */
-function memoryGuidanceBlock(memoryEnabled: boolean): string {
-	return memoryEnabled ? `${MEMORY_GUIDANCE}\n` : "";
+const AGENTMEMORY_SAVE_GUIDANCE = `Use \`mctx_memory\` to queue one explicit fact for durable AgentMemory delivery. Pass \`content\` and, when useful, a short \`type\`; delivery is transactional and may initially report queued rather than delivered.`;
+
+function memoryGuidanceBlock(mode: MemorySaveMode): string {
+	if (mode === "off") return "";
+	return `${mode === "agentmemory" ? AGENTMEMORY_SAVE_GUIDANCE : NATIVE_MEMORY_GUIDANCE}\n`;
 }
 
 const BASE_INTRO = (
 	protectedTags: number,
-	memoryEnabled: boolean,
+	memorySaveMode: MemorySaveMode,
 ): string => `Messages and tool outputs are tagged with §N§ identifiers (e.g., §1§, §42§).
 Use \`mctx_reduce\` to mark spent tagged content as discardable and reclaim space. Marking is NOT an immediate delete — it queues the content, which stays fully visible until space is actually needed (as soon as the next turn if you're already under pressure, much later if not), so mark a tool output as soon as you're done with it rather than hoarding the call for the end of the turn. The last ${protectedTags} tags are protected (marking one just queues it until it ages out). Syntax: "3-5", "1,2,9", or "1-5,8,12-15".
 Do not announce or narrate \`mctx_reduce\` drops — just call the tool silently. Saying "I'll drop these outputs" wastes tokens the user does not care about.
 ${CTX_NOTE_GUIDANCE}
-${memoryGuidanceBlock(memoryEnabled)}Use \`mctx_search\` to search across project memories, indexed git commits, and this session's full conversation history (including compacted parts) from one query.
+${memoryGuidanceBlock(memorySaveMode)}Use \`mctx_search\` to search across project memories, indexed git commits, and this session's full conversation history (including compacted parts) from one query.
 Use \`mctx_expand\` to recover the raw conversation behind a summary under a \`## start-end · date · title\` heading inside \`<session-history>\` — pass the heading's start/end range when the summary is not enough (exact wording, values, error text).
 **Search before asking the user**: If you can't remember or don't know something that might have been discussed before or stored in project memory, use \`mctx_search\` before asking the user. Examples:
 - Can't remember where a related codebase or dependency lives → \`mctx_search(query="related source code path")\`
@@ -94,8 +89,8 @@ Before your turn finishes, consider using \`mctx_reduce\` to drop large tool out
  *  agent never sees tags — describing a tagging system they can't observe just
  *  wastes tokens and (empirically) primes some models to emit malformed `§N">§`
  *  tokens at the start of their own text. */
-const BASE_INTRO_NO_REDUCE = (memoryEnabled: boolean): string => `${CTX_NOTE_GUIDANCE}
-${memoryGuidanceBlock(memoryEnabled)}Use \`mctx_search\` to search across project memories, indexed git commits, and this session's full conversation history (including compacted parts) from one query.
+const BASE_INTRO_NO_REDUCE = (memorySaveMode: MemorySaveMode): string => `${CTX_NOTE_GUIDANCE}
+${memoryGuidanceBlock(memorySaveMode)}Use \`mctx_search\` to search across project memories, indexed git commits, and this session's full conversation history (including compacted parts) from one query.
 Use \`mctx_expand\` to recover the raw conversation behind a summary under a \`## start-end · date · title\` heading inside \`<session-history>\` — pass the heading's start/end range when the summary is not enough (exact wording, values, error text).
 **Search before asking the user**: If you can't remember or don't know something that might have been discussed before or stored in project memory, use \`mctx_search\` before asking the user. Examples:
 - Can't remember where a related codebase or dependency lives → \`mctx_search(query="related source code path")\`
@@ -153,6 +148,7 @@ export function buildMagicContextSection(
 	subagentMode = false,
 	language?: string,
 	memoryEnabled = true,
+	memorySaveMode: MemorySaveMode = memoryEnabled ? "native" : "off",
 ): string {
 	// Subagent sessions: minimal §N§ + mctx_reduce mechanics only. Bypasses the
 	// long-term-partner frame, memory/search/note guidance, and the reduction
@@ -175,7 +171,7 @@ export function buildMagicContextSection(
 	const languageGuidance = languageDirective ? `\n\n${languageDirective}` : "";
 
 	if (!ctxReduceCallable) {
-		return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_NO_REDUCE}\n\n${BASE_INTRO_NO_REDUCE(memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}${languageGuidance}`;
+		return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_NO_REDUCE}\n\n${BASE_INTRO_NO_REDUCE(memorySaveMode)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}${languageGuidance}`;
 	}
-	return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_REDUCE}\n\n${BASE_INTRO(protectedTags, memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}\n${GENERIC_SECTION}\n\nPrefer many small targeted operations over one large blanket operation, and keep the working set tidy as routine maintenance.${languageGuidance}`;
+	return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_REDUCE}\n\n${BASE_INTRO(protectedTags, memorySaveMode)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}\n${GENERIC_SECTION}\n\nPrefer many small targeted operations over one large blanket operation, and keep the working set tidy as routine maintenance.${languageGuidance}`;
 }

@@ -811,6 +811,8 @@ export interface PiHistorianOptions {
 	/** User-memory feature gate (`dreamer.user_memories.enabled`). Gates whether
 	 *  historian user observations are persisted as candidates. */
 	userMemoriesEnabled?: boolean | undefined;
+	/** Retrieval-taint gate for durable Historian candidate admission. */
+	agentMemoryTaint?: PiHistorianDeps["agentMemoryTaint"] | undefined;
 	language?: string | undefined;
 	/** Notify UI/status surfaces after historian state changes. */
 	onStatusChange?: ((ctx: ExtensionContext, sessionId: string) => void) | undefined;
@@ -2497,7 +2499,10 @@ export function registerPiContextHandler(
 			// matching — see collectMessageEntryIdsByRef for why this is
 			// preferred over the position-based collectMessageEntryIds.
 			const entryIds = strictEntryIds ?? undefined;
-			lkgLikeInput = piMessagesToLkg(event.messages, { entryIds, entryIdByRef });
+			lkgLikeInput = piMessagesToLkg(event.messages, {
+				...(entryIds === undefined ? {} : { entryIds }),
+				entryIdByRef,
+			});
 			if (getSlot(sessionId)) {
 				try {
 					lkgEntry = noteEntry(sessionId, lkgLikeInput);
@@ -3271,6 +3276,7 @@ function spawnPiHistorianRun(args: {
 				allowHomeProject: historian.allowHomeProject,
 				autoPromote: historian.autoPromote,
 				userMemoriesEnabled: historian.userMemoriesEnabled,
+				agentMemoryTaint: historian.agentMemoryTaint,
 				language: historian.language,
 				compartmentLeaseHolderId: holderId,
 				notifyIssue: (text) => {

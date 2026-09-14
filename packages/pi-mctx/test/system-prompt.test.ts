@@ -37,6 +37,25 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 		}
 	});
 
+	it("keeps the same tool names with AgentMemory guidance", () => {
+		const db = createTestDb();
+		try {
+			const block = buildMagicContextBlock({
+				db,
+				cwd: tempDir("pi-agentmemory-guidance-"),
+				memoryEnabled: false,
+				memorySaveMode: "agentmemory",
+			});
+
+			expect(block).toContain("mctx_search");
+			expect(block).toContain("mctx_memory");
+			expect(block).not.toContain("memory_search");
+			expect(block).not.toContain("memory_save");
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
 	it("does not render project-docs, user-profile, or key-files in the system prompt", () => {
 		const db = createTestDb();
 		const cwd = tempDir("pi-system-v2-");

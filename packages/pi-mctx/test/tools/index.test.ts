@@ -33,7 +33,7 @@ describe("registerMagicContextTools", () => {
 			closeQuietly(db);
 		}
 	});
-	it("registers AgentMemory save as mctx_memory with a different schema", () => {
+	it("registers AgentMemory save as mctx_memory with the unified name", () => {
 		const db = createTestDb();
 		try {
 			const registered = new Map<
@@ -53,13 +53,16 @@ describe("registerMagicContextTools", () => {
 				db,
 				memoryToolEnabled: false,
 				memorySaveTool: {
-					client: {
-						remember: async () => ({ success: true as const, memory: { id: "x" } }),
-					} as never,
+					queueMemory: async () => ({ status: "queued", id: "x" }),
+				},
+				remoteSearch: {
+					client: { search: async () => ({ results: [] }) } as never,
 					identity: () => ({ project: "hepi-mono" }),
 				},
 			});
-			expect([...registered.keys()]).toContain("mctx_memory");
+			expect([...registered.keys()]).toEqual(
+				expect.arrayContaining(["mctx_search", "mctx_memory"]),
+			);
 			expect(
 				Object.keys(registered.get("mctx_memory")?.parameters.properties ?? {}).sort(),
 			).toEqual(["content", "type"].sort());

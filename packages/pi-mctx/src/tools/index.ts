@@ -1,11 +1,9 @@
 /**
  * Pi-side tool registration.
  *
- * Registers `mctx_search`, optional `mctx_memory` (native store or AgentMemory
- * save schema), `mctx_note`, `mctx_expand`, and `mctx_reduce` against the live
- * Pi extension API. The shared guidance block in `system-prompt.ts` advertises
- * these to the LLM only when each is available, so a registration gap surfaces
- * as "tool not found" errors when the agent tries to follow the guidance.
+ * Registers the stable `mctx_search` / optional `mctx_memory` surface plus
+ * `mctx_note`, `mctx_expand`, and `mctx_reduce`. Storage configuration changes
+ * tool implementations, never their agent-facing names.
  *
  * `mctx_reduce` is part of the primary session-scoped surface. It is omitted
  * only for `--no-session` child processes where session-scoped tools would
@@ -59,17 +57,21 @@ export interface RegisterToolsOptions {
 	sessionScopedToolsDisabled?: boolean | undefined;
 	/** In compaction-off mode, omit mctx_reduce and keep the other Pi tools available. */
 	compactionOff?: boolean | undefined;
-	/** When set, register AgentMemory save as `mctx_memory` (different schema). */
+	/** When set, register transactional AgentMemory through `mctx_memory`. */
 	memorySaveTool?:
 		| {
-				client: AgentMemoryClientPort;
-				identity: (cwd: string) => AgentMemoryIdentity;
+				queueMemory(input: {
+					readonly cwd: string;
+					readonly content: string;
+					readonly type?: string | undefined;
+				}): Promise<{ status: "queued" | "delivered" | "failed"; id: string }>;
 		  }
 		| undefined;
 	remoteSearch?:
 		| {
 				client: AgentMemoryClientPort;
 				identity: (cwd: string) => AgentMemoryIdentity;
+				remoteSessionId?: ((piSessionId: string) => string | undefined) | undefined;
 		  }
 		| undefined;
 }

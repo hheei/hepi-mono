@@ -189,6 +189,7 @@ export interface CtxSearchToolDeps {
 		| {
 				client: AgentMemoryClientPort;
 				identity: (cwd: string) => AgentMemoryIdentity;
+				remoteSessionId?: ((piSessionId: string) => string | undefined) | undefined;
 		  }
 		| undefined;
 }
@@ -262,22 +263,18 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 			// through to the normal lanes so a numeric query with no matching
 			// memory still searches text.
 			const idShape = parseIdShapedQuery(query);
+			let directResults: UnifiedSearchResult[] | null = null;
 			if (idShape && memoryEnabled) {
-				const idResults = resolveMemoriesByIdsForSearch({
+				directResults = resolveMemoriesByIdsForSearch({
 					db: deps.db,
 					projectPath: projectIdentity,
 					ids: idShape,
 					limit: Math.max(normalizeLimit(params.limit), idShape.length),
 					visibleMemoryIds,
 				});
-				if (idResults !== null) {
+				if (directResults !== null && !deps.remoteSearch) {
 					return {
-						content: [
-							{
-								type: "text",
-								text: formatSearchResults(query, idResults, sessionId),
-							},
-						],
+						content: [{ type: "text", text: formatSearchResults(query, directResults, sessionId) }],
 						details: undefined,
 					};
 				}
@@ -298,18 +295,15 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 				visibleMemoryIds,
 				explicitSearch: true,
 			};
-			const results = await unifiedSearch(
-				deps.db,
-				sessionId,
-				projectIdentity,
-				query,
-				searchOptions,
-			);
+			const results =
+				directResults ??
+				(await unifiedSearch(deps.db, sessionId, projectIdentity, query, searchOptions));
 
-			let text = formatSearchResults(query, results, sessionId);
+			let text = `Current session/local lane\n${formatSearchResults(query, results, sessionId)}`;
 			if (deps.remoteSearch) {
 				try {
 					const identity = deps.remoteSearch.identity(ctx.cwd);
+					const activeRemoteSessionId = deps.remoteSearch.remoteSessionId?.(sessionId);
 					const remote = decodeAgentMemorySearchResults(
 						await deps.remoteSearch.client.search(
 							{
@@ -320,15 +314,31 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 							},
 							_signal ? { signal: _signal } : {},
 						),
+					).filter(
+						(item) =>
+							item.project === identity.project &&
+							(identity.agentId === undefined || item.agentId === identity.agentId) &&
+							(activeRemoteSessionId === undefined || item.sessionId !== activeRemoteSessionId),
 					);
-					if (remote.length > 0) {
-						text += `\n\nDurable memory (agentmemory)\n${remote
-							.map((item, index) => `[${index + 1}] [${item.kind}] ${item.content}`)
-							.join("\n")}`;
-					}
+					const durableText =
+						remote.length === 0
+							? "No durable results."
+							: remote
+									.map((item, index) => {
+										const scope = [
+											`id=${item.id}`,
+											`digest=${item.digest}`,
+											`project=${item.project}`,
+											`session=${item.sessionId ?? "unscoped"}`,
+											`agent=${item.agentId ?? "unscoped"}`,
+										];
+										return `[${index + 1}] [${item.kind}] ${scope.join(" ")}\n${item.content}`;
+									})
+									.join("\n\n");
+					text += `\n\nDurable AgentMemory lane\n${durableText}`;
 				} catch (error) {
 					const message = error instanceof Error ? error.message : String(error);
-					text += `\n\nDurable memory (agentmemory) unavailable: ${message}`;
+					text += `\n\nDurable AgentMemory lane: partial/unavailable (${message})`;
 				}
 			}
 			return {

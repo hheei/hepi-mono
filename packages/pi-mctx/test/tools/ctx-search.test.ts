@@ -89,7 +89,9 @@ describe("createCtxSearchTool", () => {
 			const text = result.content[0]?.text ?? "";
 			expect(text).toContain("id=#5 status=ready");
 			expect(text).toContain("@msg 21");
-			expect(text).toContain("Use mctx_expand(start=N-10, end=N) around any note @msg anchor above");
+			expect(text).toContain(
+				"Use mctx_expand(start=N-10, end=N) around any note @msg anchor above",
+			);
 		} finally {
 			spy.mockRestore();
 			closeQuietly(db);
@@ -185,4 +187,149 @@ describe("createCtxSearchTool", () => {
 			closeQuietly(db);
 		}
 	});
+});
+
+it("keeps local and durable lanes separate and excludes the active remote session", async () => {
+	const db = createTestDb();
+	const spy = vi.spyOn(searchModule, "unifiedSearch").mockResolvedValue([]);
+	const remoteSearch = vi.fn(async () => ({
+		results: [
+			{
+				sessionId: "remote-active",
+				observation: { id: "active", narrative: "current capture", project: "hepi-mono" },
+			},
+			{
+				sessionId: "remote-prior",
+				observation: {
+					id: "prior",
+					narrative: "prior durable fact",
+					project: "hepi-mono",
+					agentId: "agent-1",
+				},
+			},
+		],
+	}));
+	try {
+		const tool = createCtxSearchTool({
+			db,
+			memoryEnabled: false,
+			embeddingEnabled: false,
+			gitCommitsEnabled: false,
+			remoteSearch: {
+				client: {
+					health: vi.fn(),
+					startSession: vi.fn(),
+					observe: vi.fn(),
+					search: remoteSearch,
+					remember: vi.fn(),
+					endSession: vi.fn(),
+				},
+				identity: () => ({ project: "hepi-mono", agentId: "agent-1" }),
+				remoteSessionId: () => "remote-active",
+			},
+		});
+		const result = asToolResult(
+			await tool.execute(
+				"call-remote",
+				{ query: "durable fact" },
+				new AbortController().signal,
+				undefined,
+				fakeContext("ses-search") as never,
+			),
+		);
+		const text = result.content[0]?.text ?? "";
+		expect(tool.name).toBe("mctx_search");
+		expect(text).toContain("Current session/local lane");
+		expect(text).toContain("Durable AgentMemory lane");
+		expect(text).toContain("prior durable fact");
+		expect(text).toContain("project=hepi-mono session=remote-prior agent=agent-1");
+		expect(text).not.toContain("current capture");
+	} finally {
+		spy.mockRestore();
+		closeQuietly(db);
+	}
+});
+
+it("reports a partial durable lane while preserving local results", async () => {
+	const db = createTestDb();
+	const spy = vi.spyOn(searchModule, "unifiedSearch").mockResolvedValue([]);
+	try {
+		const tool = createCtxSearchTool({
+			db,
+			remoteSearch: {
+				client: {
+					health: vi.fn(),
+					startSession: vi.fn(),
+					observe: vi.fn(),
+					search: vi.fn(async () => Promise.reject(new Error("offline"))),
+					remember: vi.fn(),
+					endSession: vi.fn(),
+				},
+				identity: () => ({ project: "hepi-mono" }),
+			},
+		});
+		const result = asToolResult(
+			await tool.execute(
+				"call-partial",
+				{ query: "anything" },
+				new AbortController().signal,
+				undefined,
+				fakeContext("ses-search") as never,
+			),
+		);
+		expect(result.content[0]?.text).toContain("Current session/local lane");
+		expect(result.content[0]?.text).toContain("partial/unavailable (offline)");
+	} finally {
+		spy.mockRestore();
+		closeQuietly(db);
+	}
+});
+
+it("fails closed for durable results without matching scope identity", async () => {
+	const db = createTestDb();
+	const spy = vi.spyOn(searchModule, "unifiedSearch").mockResolvedValue([]);
+	try {
+		const tool = createCtxSearchTool({
+			db,
+			remoteSearch: {
+				client: {
+					health: vi.fn(),
+					startSession: vi.fn(),
+					observe: vi.fn(),
+					search: vi.fn(async () => ({
+						results: [
+							{ memory: { id: "no-project", content: "missing scope" } },
+							{
+								memory: {
+									id: "wrong-agent",
+									content: "wrong agent",
+									project: "hepi-mono",
+									agentId: "agent-2",
+								},
+							},
+						],
+					})),
+					remember: vi.fn(),
+					endSession: vi.fn(),
+				},
+				identity: () => ({ project: "hepi-mono", agentId: "agent-1" }),
+			},
+		});
+		const result = asToolResult(
+			await tool.execute(
+				"call-scope",
+				{ query: "scope" },
+				new AbortController().signal,
+				undefined,
+				fakeContext("ses-search") as never,
+			),
+		);
+		const text = result.content[0]?.text ?? "";
+		expect(text).toContain("No durable results.");
+		expect(text).not.toContain("missing scope");
+		expect(text).not.toContain("wrong agent");
+	} finally {
+		spy.mockRestore();
+		closeQuietly(db);
+	}
 });

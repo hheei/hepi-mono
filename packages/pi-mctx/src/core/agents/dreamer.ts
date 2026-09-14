@@ -64,5 +64,5 @@ export const DREAMER_REVIEWER_AGENT = "dreamer-reviewer";
  *  code (a separate verify task owns memory-vs-code correctness), so it needs
  *  only mctx_memory — not the former bash/write/edit/read/aft/mctx_search/mctx_note
  *  kitchen sink. Kept on the `dreamer` id so the mctx_memory dreamer-action gate
- *  (toolContext.agent === DREAMER_AGENT) still recognizes it. */
+ *  recognizes it. */
 export const DREAMER_CURATE_ALLOWED_TOOLS = ["mctx_memory"] as const;

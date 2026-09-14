@@ -115,6 +115,8 @@ import type {
 	SubagentRunResult,
 } from "#core/shared/subagent-runner";
 
+import { admitHistorianCandidateFromRawMessages } from "./agentmemory/historian";
+import type { TurnTaintStore } from "./agentmemory/taint";
 import { ensureProjectRegisteredFromPiDirectory } from "./embedding-bootstrap";
 import { convertEntriesToRawMessages, SYNTH_USER_ID_PREFIX } from "./read-session-pi";
 
@@ -362,6 +364,8 @@ export interface PiHistorianDeps {
 	/** User-memory feature gate (`dreamer.user_memories.enabled`). Gates whether
 	 *  historian-extracted user observations are persisted as candidates. */
 	userMemoriesEnabled?: boolean | undefined;
+	/** Retrieval-taint state consulted before any Historian output becomes durable memory evidence. */
+	agentMemoryTaint?: Pick<TurnTaintStore, "isHostEntryTainted"> | undefined;
 	language?: string | undefined;
 	/** Optional callback invoked on successful publication for cache-bust signaling. */
 	onPublished?: (() => void) | undefined;
@@ -412,6 +416,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 		allowHomeProject,
 		autoPromote,
 		userMemoriesEnabled,
+		agentMemoryTaint,
 		onPublished,
 		compartmentLeaseHolderId,
 		readBranchEntries,
@@ -1044,6 +1049,30 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// (drives writing facts as memories).
 			const embeddingActive = memoryEnabled !== false;
 			const promotionActive = embeddingActive && autoPromote !== false;
+			const provenanceMessages = agentMemoryTaint
+				? provider
+						.readMessages()
+						.filter(
+							(message) => message.ordinal >= chunk.startIndex && message.ordinal <= chunk.endIndex,
+						)
+				: [];
+			const admitsDurableCandidate = (content: string): boolean =>
+				agentMemoryTaint === undefined ||
+				admitHistorianCandidateFromRawMessages({
+					content,
+					sessionId,
+					messages: provenanceMessages,
+					taint: agentMemoryTaint,
+				}).accepted;
+			const promotableFacts = (validatedPass.facts ?? []).filter((fact) =>
+				admitsDurableCandidate(fact.content),
+			);
+			const promotableUserObservations = (validatedPass.userObservations ?? []).filter(
+				admitsDurableCandidate,
+			);
+			const promotablePrimerCandidates = (validatedPass.primerCandidates ?? []).filter(
+				(candidate) => admitsDurableCandidate(candidate.question),
+			);
 
 			// Events: stored, NOT rendered. Best-effort. discard-last: drop events
 			// anchored to the discarded provisional compartment.
@@ -1095,7 +1124,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 						db,
 						sessionId,
 						projectPath,
-						validatedPass.facts ?? [],
+						promotableFacts,
 					);
 				}
 
@@ -1177,12 +1206,12 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			if (
 				userMemoriesEnabled === true &&
 				!skipUnanchoredPromotion &&
-				validatedPass.userObservations?.length
+				promotableUserObservations.length > 0
 			) {
 				try {
 					insertUserMemoryCandidates(
 						db,
-						validatedPass.userObservations.map((obs) => ({
+						promotableUserObservations.map((obs) => ({
 							content: obs,
 							sessionId,
 							sourceCompartmentStart: newCompartments[0]?.startMessage,
@@ -1191,7 +1220,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 					);
 					sessionLog(
 						sessionId,
-						`stored ${validatedPass.userObservations.length} user memory candidate(s)`,
+						`stored ${promotableUserObservations.length} user memory candidate(s)`,
 					);
 				} catch (error) {
 					sessionLog(sessionId, "failed to store user memory candidates:", error);
@@ -1201,14 +1230,14 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			// Primers v1 are recall-only side-table writes (dashboard + mctx_search),
 			// never prompt injection. They use the same actual-final weak-lookahead
 			// gate as facts and observations.
-			if (!skipUnanchoredPromotion && validatedPass.primerCandidates?.length && projectPath) {
+			if (!skipUnanchoredPromotion && promotablePrimerCandidates.length > 0 && projectPath) {
 				try {
 					const firstNew = newCompartments[0];
 					const lastNew = newCompartments[newCompartments.length - 1];
 					// Stable occurrence key intentionally excludes question text, so a
 					// source chunk stores at most one candidate occurrence (its
 					// origin-compartment tag is the single tagged origin).
-					const [candidate] = validatedPass.primerCandidates;
+					const [candidate] = promotablePrimerCandidates;
 					if (candidate) {
 						// Origin-tag (mirrors legacy host): narrow the source to the SPECIFIC
 						// compartment the question came from. originCompartmentIndex is

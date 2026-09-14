@@ -157,6 +157,7 @@ async function runHistorianWith(args: {
 	memoryEnabled?: boolean;
 	autoPromote?: boolean;
 	userMemoriesEnabled?: boolean;
+	agentMemoryTaint?: Parameters<typeof runPiHistorian>[0]["agentMemoryTaint"];
 	twoPass?: boolean;
 	signal?: AbortSignal;
 	retryBackoffMs?: (retryIndex: number) => number;
@@ -193,6 +194,7 @@ async function runHistorianWith(args: {
 		memoryEnabled: args.memoryEnabled,
 		autoPromote: args.autoPromote,
 		userMemoriesEnabled: args.userMemoriesEnabled,
+		agentMemoryTaint: args.agentMemoryTaint,
 		onPublished: args.onPublished,
 		appendCompaction: args.appendCompaction,
 		readBranchEntries: args.readBranchEntries,
@@ -738,6 +740,32 @@ describe("runPiHistorian", () => {
 			expect(getMemoriesByProject(blocked.db, projectPath)).toEqual([]);
 		} finally {
 			closeQuietly(blocked.db);
+		}
+	});
+
+	it("does not promote a Historian fact sourced only from a tainted turn", async () => {
+		const fact = "Use pnpm for workspace installs.";
+		const messages = rawMessages();
+		messages[0] = {
+			ordinal: 1,
+			id: "m1",
+			role: "user",
+			parts: [{ type: "text", text: fact }],
+		};
+		const projectPath = resolveProjectIdentity(process.cwd());
+		const { db } = await runHistorianWith({
+			outputs: [successXml(fact)],
+			providerMessages: messages,
+			memoryEnabled: true,
+			autoPromote: true,
+			agentMemoryTaint: {
+				isHostEntryTainted: (_sessionId, hostEntryId) => hostEntryId === "m1",
+			},
+		});
+		try {
+			expect(getMemoriesByProject(db, projectPath)).toEqual([]);
+		} finally {
+			closeQuietly(db);
 		}
 	});
 

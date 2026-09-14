@@ -979,7 +979,9 @@ export const MagicContextConfigSchema = z
 				memoryTools: z
 					.boolean()
 					.default(true)
-					.describe("Register mctx_memory against AgentMemory when the bridge is enabled."),
+					.describe(
+						"Register unified mctx_search and transactional mctx_memory when the bridge is enabled.",
+					),
 				requireHttps: z
 					.boolean()
 					.default(false)
