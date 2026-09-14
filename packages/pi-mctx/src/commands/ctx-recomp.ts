@@ -207,7 +207,7 @@ export function registerCtxRecompCommand(pi: ExtensionAPI, deps: RegisterCtxReco
 							autoPromote: currentDeps.autoPromote,
 							// Embedding substrate: register before the recomp publish
 							// path computes chunk embeddings, else rebuilt rows get
-							// none and drop out of ctx_search semantic results.
+							// none and drop out of mctx_search semantic results.
 							ensureProjectRegistered: ensureProjectRegisteredFromPiDirectory,
 							// Recomp-runner model chain: configured
 							// fallbacks + the session's own model as last-ditch retry.

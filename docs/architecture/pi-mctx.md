@@ -13,7 +13,7 @@ Pi host
   -> session storage / Pi APIs / configured external services
 ```
 
-- adapter owns Pi hooks、commands、tools、surface registration、Pi session lifecycle，以及 `RawMessageProvider` registration。`ctx_search` / `ctx_memory` / `ctx_note` / `ctx_expand` / `ctx_reduce` 经共享 `ToolTui` 包装：header、rails、Trace collapse 归 ext-core；工具只提供 model-visible content 与 header summary。
+- adapter owns Pi hooks、commands、tools、surface registration、Pi session lifecycle，以及 `RawMessageProvider` registration。`mctx_search` / `mctx_memory` / `mctx_note` / `mctx_expand` / `mctx_reduce` 经共享 `ToolTui` 包装：header、rails、Trace collapse 归 ext-core；工具只提供 model-visible content 与 header summary。
 - `src/core/**` owns Pi 使用的 shared storage、compaction、memory、search、Dreamer 與 pure transformations；`src/core/hooks/inject-compartments.ts` 是明確的 Pi-aware exception，集中 m[0]/m[1] injection、Pi message splice 與共享 memory render，避免 adapter wrapper 與 legacy injector 平行演進。
 - Embedding provider state is project-scoped in `project-embedding-registry`; adapter search callers pass `embedQuery` and availability explicitly. Core search never creates an ambient provider or silently chooses a model.
 - core is private implementation. Other workspace packages must not import it.
@@ -56,19 +56,28 @@ Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：
     "dreamerModel": "github-copilot/gpt-5.4",
     "dreamerInjectDocs": true,
     "sidekickModel": "github-copilot/gpt-5.4",
-    "embeddingProvider": "local",
-    "embeddingModel": "Xenova/all-MiniLM-L6-v2",
+    "embeddingProvider": "off",
+    "embeddingModel": "",
     "embeddingEndpoint": "",
-    "embeddingApiKeyEnv": ""
+    "embeddingApiKeyEnv": "",
+    "agentmemoryEnabled": false,
+    "agentmemoryUrl": "http://127.0.0.1:3111",
+    "agentmemorySecret": "",
+    "agentmemoryProject": "",
+    "agentmemoryAgentId": "",
+    "agentmemoryCapture": true,
+    "agentmemoryMemoryTools": true,
+    "agentmemoryRequireHttps": false
+
   }
 }
 ```
 
-这些是可编辑的运行设置：扩展/compaction/prompt/时间开关、memory 检索与 Git 索引、Historian 生命周期、模型和预算，以及 Dreamer 开关、模型与文档注入、sidekick 模型和 embedding 配置。embedding 支持 `local`、`off` 和 `openai-compatible`：remote 模式需要 model、endpoint；`embeddingApiKeyEnv` 保存环境变量名，不保存 API key，空值表示不发送凭据。Dreamer 启用时使用 schema 的 canonical task schedules；单任务 cron、fallback、thinking、Synapse embedding 的 fallback-provider 合约、remote provider 的请求格式高级项、agent overrides、项目覆盖以及安全/调试项不进入通用设置，继续使用 schema 默认值。保存通过 ext-core 的原子 JSON 更新完成，保留其他 extension section。运行时只在启动或 `/reload` 时读取设置；已运行 session 不做部分热更新。`enabled=false` 仍注册设置 provider，以便用户在 `/ext-settings` 中重新启用扩展。手工写入的无效值仅回退该字段的 schema 默认值，不会使整个配置失效。
+这些是可编辑的运行设置：扩展/compaction/prompt/时间开关、memory 检索与 Git 索引、Historian 生命周期、模型和预算，以及 Dreamer 开关、模型与文档注入、sidekick 模型和 embedding 配置。Dreamer 与 embedding 默认关闭且已 deprecated，仍可显式 opt-in，实现暂不删除。embedding 支持 `off`、`local` 和 `openai-compatible`：remote 模式需要 model、endpoint；`embeddingApiKeyEnv` 保存环境变量名，不保存 API key，空值表示不发送凭据。Dreamer 启用时使用 schema 的 canonical task schedules；单任务 cron、fallback、thinking、Synapse embedding 的 fallback-provider 合约、remote provider 的请求格式高级项、agent overrides、项目覆盖以及安全/调试项不进入通用设置，继续使用 schema 默认值。保存通过 ext-core 的原子 JSON 更新完成，保留其他 extension section。运行时只在启动或 `/reload` 后读取新值。
 
 ## 存储版本边界
 
-Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`；默认数据库为 `context.db`。此目录与旧的 `~/.local/share/cortexkit/magic-context/context.db` 隔离，Pi MCTX 不会读取、升级或删除后者。项目级 historian 临时文件位于 `<project>/.pi/magic-context/`，也不使用上游的 `<project>/.cortexkit/magic-context/`；旧的 `.cortexkit` 文件不会自动迁移或删除。
+Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/`（默认 `~/.pi/pi-mctx/`，与 Pi agent dir 同级）；默认数据库为 `context.db`。此目录不放在 `agent/extensions/` 下，也不读取、升级或删除旧的 `~/.local/share/cortexkit/magic-context/context.db`。项目级 historian 临时文件位于 `<project>/.pi/magic-context/`，也不使用上游的 `<project>/.cortexkit/magic-context/`；旧的 `.cortexkit` 文件不会自动迁移或删除。
 
 最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 
@@ -96,7 +105,7 @@ raw prompt. If the raw prompt is estimated over the resolved context limit,
 the transform refuses rather than overflowing. Fail-closed storage still
 cancels native compaction until the database reopens.
 
-AgentMemory and Context Projection are not part of this package.
+AgentMemory 是可选 HTTP bridge，不是本包内的 Durable Memory store。上游是任意可达的 AgentMemory HTTP 服务（本机进程、反向代理、Tailscale 均可；不假设 Docker）。`agentmemory.enabled` 默认 false，独立于 Window `enabled`。开启后 Capture 挂在已有 `session_start` / `before_agent_start` / `tool_result` / `agent_end` / `session_shutdown` 上，fire-and-forget；主会话把 `mctx_memory` 换成 AgentMemory schema，并停掉本地 store 版 `mctx_memory` 与 historian 本地 promotion。失败不阻断 Window。Context Projection / outbox / ledger 尚未接入。
 
 ## Status token accounting
 

@@ -168,6 +168,14 @@ describe("Pi MCTX settings", () => {
 			"embeddingModel",
 			"embeddingEndpoint",
 			"embeddingApiKeyEnv",
+			"agentmemoryEnabled",
+			"agentmemoryUrl",
+			"agentmemorySecret",
+			"agentmemoryProject",
+			"agentmemoryAgentId",
+			"agentmemoryCapture",
+			"agentmemoryMemoryTools",
+			"agentmemoryRequireHttps",
 		]);
 	});
 

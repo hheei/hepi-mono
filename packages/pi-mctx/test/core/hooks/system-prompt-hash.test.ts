@@ -75,7 +75,7 @@ afterEach(() => {
 
 function freezeCtxReduce(sessionId: string): void {
 	resolveCtxReduceAvailabilityFromMessages(sessionId, [
-		{ info: { role: "user", tools: { ctx_reduce: true } } },
+		{ info: { role: "user", tools: { mctx_reduce: true } } },
 	]);
 }
 
@@ -353,7 +353,7 @@ describe("system-prompt-hash v2 system prompt contents", () => {
  * system prompt for OpenCode's three native hidden agents (title, summary,
  * compaction). These agents run on small/cheap models with a fixed single-
  * shot job — they don't benefit from any of our injection (no tools, no
- * `ctx_reduce`, no nudges) and pay for the extra prompt content in cost.
+ * `mctx_reduce`, no nudges) and pay for the extra prompt content in cost.
  */
 describe("system-prompt-hash skips OpenCode internal hidden agents (issue #52)", () => {
 	const TITLE_PROMPT_HEAD =
@@ -527,13 +527,13 @@ describe("system-prompt-hash skips Magic Context internal child agents", () => {
 
 /**
  * Unit B: subagent self-management. A subagent session (isSubagent=true) with
- * ctx_reduce enabled gets the MINIMAL §N§ + ctx_reduce block — not the full
+ * mctx_reduce enabled gets the MINIMAL §N§ + mctx_reduce block — not the full
  * primary block, not the no-reduce block. Internal MC children still skip
  * entirely (order invariant: the internal-child skip runs BEFORE the subagent
  * branch).
  */
 describe("system-prompt-hash subagent self-management (Unit B)", () => {
-	it("injects the MINIMAL block for a subagent with ctx_reduce enabled", async () => {
+	it("injects the MINIMAL block for a subagent with mctx_reduce enabled", async () => {
 		useTempDataHome("sph-subagent-min-");
 		const sessionId = "ses-subagent";
 		const db = openDatabase();
@@ -545,25 +545,25 @@ describe("system-prompt-hash subagent self-management (Unit B)", () => {
 		await handler({ sessionID: sessionId }, { system });
 
 		const joined = system.join("\n");
-		// Minimal block: marker + §N§ + ctx_reduce mechanics …
+		// Minimal block: marker + §N§ + mctx_reduce mechanics …
 		expect(joined).toContain("## Magic Context");
 		expect(joined).toContain("§N§ identifiers");
-		expect(joined).toContain("ctx_reduce");
+		expect(joined).toContain("mctx_reduce");
 		// … but NONE of the primary's role/guidance.
 		expect(joined).not.toContain("long-term partner");
 		expect(joined).not.toContain("### Reduction Triggers");
-		expect(joined).not.toContain("ctx_memory");
-		expect(joined).not.toContain("ctx_search");
+		expect(joined).not.toContain("mctx_memory");
+		expect(joined).not.toContain("mctx_search");
 	});
 
-	it("injects NO block for a subagent without callable ctx_reduce (no primary-role leak)", async () => {
+	it("injects NO block for a subagent without callable mctx_reduce (no primary-role leak)", async () => {
 		useTempDataHome("sph-subagent-denied-");
 		const sessionId = "ses-subagent-denied";
 		const db = openDatabase();
 		getOrCreateSessionMeta(db, sessionId);
 		updateSessionMeta(db, sessionId, { isSubagent: true });
 
-		// Tool allow-list denies ctx_reduce: the subagent has no §N§ and no tool
+		// Tool allow-list denies mctx_reduce: the subagent has no §N§ and no tool
 		// to act on, so it must get NO Magic Context block — not the no-reduce
 		// PRIMARY block (which would leak the partner frame + memory/search/note
 		// guidance).
@@ -578,7 +578,7 @@ describe("system-prompt-hash subagent self-management (Unit B)", () => {
 		const joined = system.join("\n");
 		expect(joined).not.toContain("## Magic Context");
 		expect(joined).not.toContain("long-term partner");
-		expect(joined).not.toContain("ctx_memory");
+		expect(joined).not.toContain("mctx_memory");
 	});
 
 	it("a PRIMARY (non-subagent) still gets the full long-term-partner block", async () => {
@@ -595,10 +595,10 @@ describe("system-prompt-hash subagent self-management (Unit B)", () => {
 		const joined = system.join("\n");
 		expect(joined).toContain("## Magic Context");
 		expect(joined).toContain("long-term partner");
-		expect(joined).toContain("ctx_memory");
+		expect(joined).toContain("mctx_memory");
 	});
 
-	it("warns primary sessions about caveman compression even when ctx_reduce is callable", async () => {
+	it("warns primary sessions about caveman compression even when mctx_reduce is callable", async () => {
 		useTempDataHome("sph-primary-caveman-reduce-");
 		const sessionId = "ses-primary-caveman-reduce";
 		const db = openDatabase();
@@ -609,7 +609,7 @@ describe("system-prompt-hash subagent self-management (Unit B)", () => {
 		await handler({ sessionID: sessionId }, { system });
 
 		const joined = system.join("\n");
-		expect(joined).toContain("ctx_reduce");
+		expect(joined).toContain("mctx_reduce");
 		expect(joined).toContain("History compression is on");
 		expect(joined).toContain("DO NOT mimic this style");
 	});
@@ -735,7 +735,7 @@ describe("system-prompt-hash honors per-agent opt-out (issue #53)", () => {
 	});
 });
 
-describe("provisional ctx_reduce availability (pre-first-user race)", () => {
+describe("provisional mctx_reduce availability (pre-first-user race)", () => {
 	function createOpenCodeDbWithFirstUser(
 		dataHome: string,
 		sessionId: string,
@@ -808,7 +808,7 @@ describe("provisional ctx_reduce availability (pre-first-user race)", () => {
 		// Deny-list session: the no-reduce guidance variant renders...
 		const joined = system.join("\n");
 		expect(joined).toContain("## Magic Context");
-		expect(joined).not.toContain("ctx_reduce");
+		expect(joined).not.toContain("mctx_reduce");
 		// ...and the hash IS persisted (frozen verdict owns the baseline).
 		const meta = getOrCreateSessionMeta(db, sessionId);
 		expect(meta.systemPromptHash).not.toBe("");

@@ -103,7 +103,7 @@ export interface CompartmentRunnerDeps {
 	 * Automatic-promotion gate (`memory.auto_promote` config). When false (and
 	 * memory is otherwise enabled), tools and search still work, but historian
 	 * does not auto-promote session facts to memories. Users can still write
-	 * memories explicitly via `ctx_memory write`. Issue #44.
+	 * memories explicitly via `mctx_memory write`. Issue #44.
 	 */
 	autoPromote?: boolean | undefined;
 	/**

@@ -24,14 +24,20 @@ describe("MagicContextConfigSchema", () => {
 				history_budget_percentage: DEFAULT_HISTORY_BUDGET_PERCENTAGE,
 				historian_timeout_ms: DEFAULT_HISTORIAN_TIMEOUT_MS,
 				embedding: {
-					provider: "local",
-					model: DEFAULT_LOCAL_EMBEDDING_MODEL,
+					provider: "off",
 				},
 				memory: {
 					enabled: true,
 					injection_budget_tokens: 4000,
 					auto_promote: true,
 					retrieval_count_promotion_threshold: 3,
+				},
+				agentmemory: {
+					enabled: false,
+					url: "http://127.0.0.1:3111",
+					capture: true,
+					memoryTools: true,
+					requireHttps: false,
 				},
 			});
 			expect(result.historian).toBeUndefined();
@@ -136,6 +142,16 @@ describe("MagicContextConfigSchema", () => {
 				},
 				compaction: {
 					enabled: true,
+				},
+				agentmemory: {
+					enabled: false,
+					url: "http://127.0.0.1:3111",
+					secret: "",
+					project: "",
+					agentId: "",
+					capture: true,
+					memoryTools: true,
+					requireHttps: false,
 				},
 			} satisfies MagicContextConfig;
 

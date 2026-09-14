@@ -84,7 +84,7 @@ const TIER_CLOSE_ANY_REGEX = /<\/p\d/;
 // must never swallow a following tier's opener.
 const TIER_OPEN_ANY_REGEX = /<p\d/;
 // v2 world taxonomy (5 categories). The historian emits only these; legacy 9-cat
-// names are accepted at the ctx_memory layer (E3 aliases), not here.
+// names are accepted at the mctx_memory layer (E3 aliases), not here.
 const CATEGORY_BLOCK_REGEX =
 	/<(PROJECT_RULES|ARCHITECTURE|CONSTRAINTS|CONFIG_VALUES|NAMING)>(.*?)<\/\1>/gs;
 const FACT_ITEM_REGEX = /^\s*\*\s*(.+)$/gm;

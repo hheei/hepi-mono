@@ -258,7 +258,7 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
 			// v2: recompute raw chunk embeddings for the rebuilt compartments.
 			// Recomp deletes + reinserts every compartment, so their chunk
 			// embeddings must be regenerated — otherwise the rebuilt rows have no
-			// embeddings and vanish from ctx_search semantic results. Embedding is
+			// embeddings and vanish from mctx_search semantic results. Embedding is
 			// the search substrate (gated on memory-enabled), distinct from fact
 			// promotion (which recomp deliberately skips). Fire-and-forget.
 			if (deps.memoryEnabled !== false) {
@@ -542,7 +542,7 @@ export async function executeContextRecompInternal(deps: CompartmentRunnerDeps):
 		// the NORMAL full-completion path (distinct from promoteAndFinalize, which
 		// handles early-exit/partial cases and already embeds). Without this, a
 		// fully-completed recomp leaves the rebuilt rows without chunk embeddings
-		// → they vanish from ctx_search semantic results. Gated on memory-enabled,
+		// → they vanish from mctx_search semantic results. Gated on memory-enabled,
 		// distinct from fact promotion (recomp skips).
 		if (deps.memoryEnabled !== false) {
 			const projectIdentity = resolveProjectIdentity(sessionDirectory);

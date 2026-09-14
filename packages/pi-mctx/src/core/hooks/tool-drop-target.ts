@@ -193,7 +193,7 @@ function editMarkerToolPart(part: unknown, tagId: number): void {
 /**
  * Non-mutating read of a tool part's input object across the formats
  * `truncateToolPart` handles. Returns null when the part carries no input.
- * Used by supersession selection (read `ctx_note` action / edit `filePath`)
+ * Used by supersession selection (read `mctx_note` action / edit `filePath`)
  * without touching the wire.
  */
 function readToolPartInput(part: unknown): Record<string, unknown> | null {

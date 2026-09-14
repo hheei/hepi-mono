@@ -47,7 +47,7 @@ export interface CtxMemoryToolDeps {
 	 * from another working directory).
 	 * the project). The session's actual working directory is exposed
 	 * per-call via `toolContext.directory`. Resolving here ensures
-	 * `ctx_memory` operates on the session's project, not the launch
+	 * `mctx_memory` operates on the session's project, not the launch
 	 * directory's project.
 	 */
 	resolveProjectPath: (directory: string) => string | undefined;

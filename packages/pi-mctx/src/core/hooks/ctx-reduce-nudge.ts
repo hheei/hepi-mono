@@ -1,4 +1,4 @@
-// Channel 1 of the ctx_reduce nudge redesign. Pi delivers the resulting
+// Channel 1 of the mctx_reduce nudge redesign. Pi delivers the resulting
 // `<system-reminder>` as a distinct custom session message; its renderer keeps
 // it out of tool output while preserving the model-visible block.
 // The metric is `severity = (undropped / workingWindow) × pressure`:
@@ -50,7 +50,7 @@ export interface Channel1State {
 	 */
 	usableTokens: number;
 	/**
-	 * True once the agent calls `ctx_reduce` after the last baseline refresh.
+	 * True once the agent calls `mctx_reduce` after the last baseline refresh.
 	 * Suppresses Channel 1 until the next transform recomputes `tailToolTokens`
 	 * from the now-reduced messages (the in-flight baseline still shows the
 	 * pre-reduce high value, so without this we'd nag on the very next tool).
@@ -159,7 +159,7 @@ export function toolOutputTokens(output: string): number {
 }
 
 export interface TailTokenEstimate {
-	/** Non-dropped tool-output tokens: reclaimable by ctx_reduce. */
+	/** Non-dropped tool-output tokens: reclaimable by mctx_reduce. */
 	tailToolTokens: number;
 	/** Approximate full live-tail tokens: conversation + tool calls/results. */
 	liveTailTokens: number;
@@ -276,7 +276,7 @@ export function decideChannel1(input: {
 		nextLastNudgeLevel: lastLevel,
 	});
 
-	// Post-ctx_reduce self-nag suppression: never nudge on a turn where the
+	// Post-mctx_reduce self-nag suppression: never nudge on a turn where the
 	// agent just reduced — it's actively managing context.
 	if (hasRecentReduce) return quiet();
 
@@ -306,7 +306,7 @@ export function decideChannel1(input: {
 		}
 	} else if (LEVEL_RANK[level] <= LEVEL_RANK[lastLevel]) {
 		// Once a band has fired, repetition at that same band is noise; only an
-		// escalation carries new information before the next ctx_reduce reset.
+		// escalation carries new information before the next mctx_reduce reset.
 		return quiet();
 	}
 
@@ -385,7 +385,7 @@ export function buildChannel2Reminder(
 	return (
 		`<system-reminder>\n` +
 		`Routine context housekeeping is near: a large span of this session will be comparted soon, ` +
-		`and ~${amount} tokens of tool output remain unreduced. Drop spent outputs with ctx_reduce ` +
+		`and ~${amount} tokens of tool output remain unreduced. Drop spent outputs with mctx_reduce ` +
 		`first so the archived span is the part that matters.${hintText}\n` +
 		`</system-reminder>`
 	);
@@ -404,17 +404,17 @@ export function buildChannel1Reminder(
 		case "gentle":
 			body =
 				`You have ~${amount} tokens of tool output you have not reduced. ` +
-				`When you are done with earlier outputs, dropping them with ctx_reduce keeps context lean.`;
+				`When you are done with earlier outputs, dropping them with mctx_reduce keeps context lean.`;
 			break;
 		case "firm":
 			body =
 				`~${amount} tokens of unreduced tool output has built up. ` +
-				`At your next natural stopping point, consider dropping what you have already processed with ctx_reduce.`;
+				`At your next natural stopping point, consider dropping what you have already processed with mctx_reduce.`;
 			break;
 		case "urgent":
 			body =
 				`~${amount} tokens of unreduced tool output remain, and a large span of this session will be comparted before long. ` +
-				`Consider dropping spent outputs with ctx_reduce so the archived span is the part that matters.`;
+				`Consider dropping spent outputs with mctx_reduce so the archived span is the part that matters.`;
 			break;
 	}
 	return `\n\n<system-reminder>\n${body}${hintText}\n</system-reminder>`;

@@ -23,10 +23,10 @@
  *      project docs, user profile, session history, etc.).
  *
  * What this entry registers for `--no-session` children:
- *   - `ctx_search` — read-only search over shared memories/messages/git
- *   - `ctx_memory` — dreamer only; sidekick is retrieval-only and uses ctx_search
+ *   - `mctx_search` — read-only search over shared memories/messages/git
+ *   - `mctx_memory` — dreamer only; sidekick is retrieval-only and uses mctx_search
  *
- * Session-scoped `ctx_note`/`ctx_expand` stay omitted because hidden child
+ * Session-scoped `mctx_note`/`mctx_expand` stay omitted because hidden child
  * sessions have no useful transcript or parent note id to target.
  *
  * Recursion guard: this entry never wires `pi.on("context", ...)`,
@@ -46,9 +46,9 @@
  * named for that child agent.
  *
  * Tool/action allowlists via Pi flags:
- *   --magic-context-dreamer-actions  Register ctx_memory with the dreamer
+ *   --magic-context-dreamer-actions  Register mctx_memory with the dreamer
  *                                     action surface. Off by default; sidekick
- *                                     receives ctx_search only.
+ *                                     receives mctx_search only.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -75,7 +75,7 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 	setHarness("pi");
 
 	pi.registerFlag(SUBAGENT_DREAMER_ACTIONS_FLAG, {
-		description: "Register ctx_memory with dreamer actions for Magic Context subagents.",
+		description: "Register mctx_memory with dreamer actions for Magic Context subagents.",
 		type: "boolean",
 		default: false,
 	});
@@ -99,18 +99,18 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 				resolveProjectIdentity: (ctx) =>
 					resolveProjectIdentityForSession(ctx.cwd, cfg.allow_home_project),
 				// Sidekick is retrieval-only and consumes untrusted /ctx-aug prompt text,
-				// so only dreamer subagents register ctx_memory in child processes.
+				// so only dreamer subagents register mctx_memory in child processes.
 				memoryToolEnabled: dreamerActionsEnabled,
 				allowDreamerActions: dreamerActionsEnabled,
 				// `--no-session` children resolve getSessionId() to the ephemeral
-				// child session, so session-scoped ctx_note/ctx_expand would write
-				// orphaned notes / expand an empty transcript. Drop them; keep ctx_search.
+				// child session, so session-scoped mctx_note/mctx_expand would write
+				// orphaned notes / expand an empty transcript. Drop them; keep mctx_search.
 				sessionScopedToolsDisabled: true,
 			});
 
 			log(
-				`[pi-subagent] registered tools: ctx_search${dreamerActionsEnabled ? ", ctx_memory" : ""}` +
-					` (ctx_note/ctx_expand omitted: --no-session child;` +
+				`[pi-subagent] registered tools: mctx_search${dreamerActionsEnabled ? ", mctx_memory" : ""}` +
+					` (mctx_note/mctx_expand omitted: --no-session child;` +
 					` memory=${cfg.memory.enabled}, embedding=${cfg.embedding.provider !== "off"},` +
 					` git_commits=${cfg.memory.git_commit_indexing.enabled}, dreamer_actions=${dreamerActionsEnabled})`,
 			);

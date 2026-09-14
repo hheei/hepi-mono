@@ -4,7 +4,7 @@ import { registerMagicContextTools } from "../../src/tools/index";
 import { createTestDb } from "../test-utils.test";
 
 describe("registerMagicContextTools", () => {
-	it("can omit ctx_memory for retrieval-only sidekick subagents", () => {
+	it("can omit mctx_memory for retrieval-only sidekick subagents", () => {
 		const db = createTestDb();
 		try {
 			const registered: string[] = [];
@@ -24,17 +24,51 @@ describe("registerMagicContextTools", () => {
 				sessionScopedToolsDisabled: true,
 			});
 
-			expect(registered).toContain("ctx_search");
-			expect(registered).not.toContain("ctx_memory");
-			expect(registered).not.toContain("ctx_note");
-			expect(registered).not.toContain("ctx_expand");
+			expect(registered).toContain("mctx_search");
+			expect(registered).not.toContain("mctx_memory");
+			expect(registered).not.toContain("mctx_note");
+			expect(registered).not.toContain("mctx_expand");
 			expect(commands).not.toContain("todos");
 		} finally {
 			closeQuietly(db);
 		}
 	});
+	it("registers AgentMemory save as mctx_memory with a different schema", () => {
+		const db = createTestDb();
+		try {
+			const registered = new Map<
+				string,
+				{ name: string; parameters: { properties?: Record<string, unknown> } }
+			>();
+			const pi = {
+				registerTool: (tool: {
+					name: string;
+					parameters: { properties?: Record<string, unknown> };
+				}) => {
+					registered.set(tool.name, tool);
+				},
+				registerCommand: () => undefined,
+			} as never;
+			registerMagicContextTools(pi, {
+				db,
+				memoryToolEnabled: false,
+				memorySaveTool: {
+					client: {
+						remember: async () => ({ success: true as const, memory: { id: "x" } }),
+					} as never,
+					identity: () => ({ project: "hepi-mono" }),
+				},
+			});
+			expect([...registered.keys()]).toContain("mctx_memory");
+			expect(
+				Object.keys(registered.get("mctx_memory")?.parameters.properties ?? {}).sort(),
+			).toEqual(["content", "type"].sort());
+		} finally {
+			closeQuietly(db);
+		}
+	});
 
-	it("removes only ctx_reduce in compaction-off mode", () => {
+	it("removes only mctx_reduce in compaction-off mode", () => {
 		const db = createTestDb();
 		try {
 			const registered: string[] = [];
@@ -44,9 +78,9 @@ describe("registerMagicContextTools", () => {
 			} as never;
 			registerMagicContextTools(pi, { db, compactionOff: true });
 
-			expect(registered).not.toContain("ctx_reduce");
+			expect(registered).not.toContain("mctx_reduce");
 			expect(registered).toEqual(
-				expect.arrayContaining(["ctx_search", "ctx_memory", "ctx_note", "ctx_expand"]),
+				expect.arrayContaining(["mctx_search", "mctx_memory", "mctx_note", "mctx_expand"]),
 			);
 		} finally {
 			closeQuietly(db);
@@ -80,9 +114,9 @@ describe("registerMagicContextTools", () => {
 			registerMagicContextTools(pi, { db });
 
 			const expectedFields: Record<string, string[]> = {
-				ctx_search: ["query", "limit", "sources"],
-				ctx_memory: ["action", "content", "category", "ids", "limit", "reason"],
-				ctx_note: [
+				mctx_search: ["query", "limit", "sources"],
+				mctx_memory: ["action", "content", "category", "ids", "limit", "reason"],
+				mctx_note: [
 					"action",
 					"content",
 					"surface_condition",
@@ -91,8 +125,8 @@ describe("registerMagicContextTools", () => {
 					"limit",
 					"offset",
 				],
-				ctx_expand: ["start", "end", "verbose", "message"],
-				ctx_reduce: ["drop"],
+				mctx_expand: ["start", "end", "verbose", "message"],
+				mctx_reduce: ["drop"],
 			};
 			for (const [name, fields] of Object.entries(expectedFields)) {
 				const definition = registered.get(name);
@@ -127,7 +161,7 @@ describe("registerMagicContextTools", () => {
 			} as never;
 			registerMagicContextTools(pi, { db });
 
-			const search = registered.find((tool) => tool.name === "ctx_search");
+			const search = registered.find((tool) => tool.name === "mctx_search");
 			expect(search?.renderShell).toBe("self");
 			const theme = {
 				bg: (_role: string, text: string): string => text,
@@ -189,7 +223,7 @@ describe("registerMagicContextTools", () => {
 				resolveDreamerEnabled: (ctx) => ctx.cwd === "/tmp/project-b",
 			});
 
-			const noteTool = registered.get("ctx_note");
+			const noteTool = registered.get("mctx_note");
 			expect(noteTool).toBeDefined();
 			const result = await noteTool?.execute(
 				"call-1" as never,

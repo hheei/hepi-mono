@@ -15,7 +15,7 @@ import type { TagTarget } from "./tag-messages";
 // for English prose). Keeps the ai-tokenizer dependency in scripts only.
 
 /**
- * Agent-initiated (ctx_reduce) drops of a tool call within the newest N tool
+ * Agent-initiated (mctx_reduce) drops of a tool call within the newest N tool
  * calls keep a structural skeleton — the tool_use/tool_result pair survives
  * with the canonical `[dropped §N§]` placeholder as its output — instead of
  * being removed outright. (Long input arg VALUES are separately clamped with
@@ -119,7 +119,7 @@ export function applyPendingOperations(
 				// a tag that is absent/incomplete on this pass's visible wire. It
 				// only rides an already-mutating pass when the target can actually
 				// reclaim bytes right now; real pending ops keep their legacy
-				// absent persistence semantics for user-requested ctx_reduce.
+				// absent persistence semantics for user-requested mctx_reduce.
 				if (!isToolTag || target?.canDrop?.() !== true) continue;
 			}
 

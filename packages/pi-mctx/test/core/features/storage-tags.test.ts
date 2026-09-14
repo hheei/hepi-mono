@@ -123,8 +123,8 @@ describe("storage-tags", () => {
 
 		it("#then skips trivially-small sized outputs below the token floor", () => {
 			db = makeMemoryDatabase();
-			// tiny control-plane outputs (ctx_reduce/bash_status) below the floor
-			insertTag(db, "ses-floor", "msg-1", "tool", 50, 1, 0, "ctx_reduce", 0, null, null, {
+			// tiny control-plane outputs (mctx_reduce/bash_status) below the floor
+			insertTag(db, "ses-floor", "msg-1", "tool", 50, 1, 0, "mctx_reduce", 0, null, null, {
 				tokenCount: 40,
 				inputTokenCount: 0,
 				reasoningTokenCount: 0,

@@ -576,7 +576,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
 		// explicitly disabled the memory feature in config.
 		// Two distinct gates:
 		//  - embeddingActive: embeddings + project registration fire whenever the
-		//    memory FEATURE is enabled. They are the substrate for ctx_search +
+		//    memory FEATURE is enabled. They are the substrate for mctx_search +
 		//    future dreamer cross-linking and must NOT depend on auto_promote.
 		//  - promotionActive: writing facts as project memories additionally
 		//    requires auto_promote (a user who disabled auto-promotion still wants
@@ -748,7 +748,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
 
 		onNoteTrigger(db, sessionId, "historian_complete");
 
-		// v2: compute + store raw chunk embeddings (the ctx_search semantic
+		// v2: compute + store raw chunk embeddings (the mctx_search semantic
 		// substrate over session history). Fire-and-forget, best-effort, gated by
 		// memory flags so a memory-off user never hits the embedding endpoint.
 		if (embeddingActive) {
@@ -819,7 +819,7 @@ export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<
 			}
 		}
 
-		// Primers v1 are recall-only side-table writes (dashboard + ctx_search),
+		// Primers v1 are recall-only side-table writes (dashboard + mctx_search),
 		// never prompt injection. Use the same actual-final weak-lookahead gate as
 		// facts and observations.
 		if (

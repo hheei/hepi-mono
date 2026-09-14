@@ -103,9 +103,9 @@ describe("maybeChannel1ReminderForToolResult", () => {
 			content: [{ type: "text", text: "some bash output" }],
 		});
 		expect(reminder?.content).toContain("<system-reminder>");
-		expect(reminder?.content).toContain("ctx_reduce");
+		expect(reminder?.content).toContain("mctx_reduce");
 		expect(reminder?.displayText).not.toContain("<system-reminder>");
-		expect(reminder?.displayText).toContain("ctx_reduce");
+		expect(reminder?.displayText).toContain("mctx_reduce");
 		expect(reminder?.display).toBe(false);
 		expect(getLastNudgeUndropped(db, SESSION)).toBe(0);
 		if (reminder) markChannel1ReminderDelivered(db, SESSION, reminder);
@@ -136,13 +136,13 @@ describe("maybeChannel1ReminderForToolResult", () => {
 		clearPiChannel1State(SESSION);
 	});
 
-	it("suppresses on a ctx_reduce tool result and marks reduced", () => {
+	it("suppresses on a mctx_reduce tool result and marks reduced", () => {
 		const db = createTestDb();
 		seedBaseline(90_000);
 		const block = maybeChannel1ReminderForToolResult({
 			db,
 			sessionId: SESSION,
-			toolName: "ctx_reduce",
+			toolName: "mctx_reduce",
 			content: [{ type: "text", text: "dropped 5 tags" }],
 		});
 		expect(block).toBeNull();
@@ -299,7 +299,7 @@ describe("maybeDeliverChannel2Pi", () => {
 		expect(capturedDisplay).toBe(true);
 		expect(capturedCustomType).toBe(CHANNEL2_NUDGE_CUSTOM_TYPE);
 		expect(capturedContent).toContain("<system-reminder>");
-		expect(capturedContent).toContain("ctx_reduce");
+		expect(capturedContent).toContain("mctx_reduce");
 		expect(capturedContent).toContain("oldest reclaimable");
 		expect(getChannel2NudgeState(db, SESSION)).toBe("delivered");
 	});

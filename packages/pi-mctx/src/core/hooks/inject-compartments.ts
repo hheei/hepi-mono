@@ -1404,7 +1404,7 @@ export function materializeM0Pi(
 		// snapshot (parity with legacy host materializeM0). `memory_block_ids` /
 		// `memory_block_count` are otherwise written only by the dead legacy v1
 		// path, so they'd stay frozen at the last legacy value — wrong sidebar
-		// "Injected" count AND a stale ctx_search hide-already-visible filter after
+		// "Injected" count AND a stale mctx_search hide-already-visible filter after
 		// any memory change (e.g. migration delete+reinserts with new ids).
 		db.prepare(
 			"UPDATE session_meta SET memory_block_count = ?, memory_block_ids = ? WHERE session_id = ?",

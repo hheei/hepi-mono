@@ -580,7 +580,7 @@ export function normalizeStoredProjectPath(rawOrStored: string): string {
  * Ownership check for a memory row against the current session's resolved
  * project identity. A memory's stored `project_path` may be a raw filesystem
  * path (legacy) OR an already-normalized `git:`/`dir:` identity; either must
- * match the current identity after normalization. Used by ctx_memory
+ * match the current identity after normalization. Used by mctx_memory
  * delete/update/archive/merge so a session can still manage memories stored
  * under a legacy raw path that normalizes to the same project.
  */

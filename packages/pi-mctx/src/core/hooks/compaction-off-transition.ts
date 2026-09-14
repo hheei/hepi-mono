@@ -73,7 +73,7 @@ let loggedUnverifiedMarkerCleanupRetry = false;
 export const COMPACTION_OFF_FLIP_NOTICE = [
 	"## Magic Context — compaction-off mode is now active",
 	"",
-	"Magic Context no longer manages this session's context window; native compaction (or nothing) owns it. Memory, dreamer, notes and ctx_search stay live.",
+	"Magic Context no longer manages this session's context window; native compaction (or nothing) owns it. Memory, dreamer, notes and mctx_search stay live.",
 	"",
 	"Magic Context's compaction markers for this session were removed, so history previously hidden by them becomes visible again — the first turn after disabling may trigger one native compaction cycle on long sessions.",
 ].join("\n");

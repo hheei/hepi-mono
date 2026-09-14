@@ -49,7 +49,7 @@ describe("resolveToolTier", () => {
 	});
 
 	it("classifies everything else as T3 (drop-first default)", () => {
-		for (const name of ["bash", "ctx_reduce", "aft_inspect", "webfetch", "unknown_tool"]) {
+		for (const name of ["bash", "mctx_reduce", "aft_inspect", "webfetch", "unknown_tool"]) {
 			expect(resolveToolTier(name)).toBe(3);
 		}
 	});

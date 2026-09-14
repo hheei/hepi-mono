@@ -27,8 +27,21 @@ describe("hasVisibleNoteReadCall", () => {
 			assistantMsg("a-1", [
 				{
 					type: "tool",
-					tool: "ctx_note",
+					tool: "mctx_note",
 					state: { input: { action: "read" } },
+				},
+			]),
+		];
+		expect(hasVisibleNoteReadCall(msgs)).toBe(true);
+	});
+
+	it("returns true for registered mctx_note tool_use reads", () => {
+		const msgs = [
+			assistantMsg("a-1", [
+				{
+					type: "tool_use",
+					name: "mctx_note",
+					input: { action: "read" },
 				},
 			]),
 		];
@@ -40,7 +53,7 @@ describe("hasVisibleNoteReadCall", () => {
 			assistantMsg("a-1", [
 				{
 					type: "tool_use",
-					name: "ctx_note",
+					name: "mctx_note",
 					input: { action: "read" },
 				},
 			]),
@@ -53,7 +66,7 @@ describe("hasVisibleNoteReadCall", () => {
 			assistantMsg("a-1", [
 				{
 					type: "tool-invocation",
-					toolName: "ctx_note",
+					toolName: "mctx_note",
 					args: { action: "read" },
 				},
 			]),
@@ -66,7 +79,7 @@ describe("hasVisibleNoteReadCall", () => {
 			assistantMsg("a-1", [
 				{
 					type: "tool-invocation",
-					toolName: "ctx_note",
+					toolName: "mctx_note",
 					input: { action: "read" },
 				},
 			]),
@@ -74,26 +87,26 @@ describe("hasVisibleNoteReadCall", () => {
 		expect(hasVisibleNoteReadCall(msgs)).toBe(true);
 	});
 
-	it("returns false when ctx_note action is write/update/dismiss (only read counts)", () => {
+	it("returns false when mctx_note action is write/update/dismiss (only read counts)", () => {
 		for (const action of ["write", "update", "dismiss"]) {
 			const msgs = [
-				assistantMsg("a-1", [{ type: "tool", tool: "ctx_note", state: { input: { action } } }]),
+				assistantMsg("a-1", [{ type: "tool", tool: "mctx_note", state: { input: { action } } }]),
 			];
 			expect(hasVisibleNoteReadCall(msgs)).toBe(false);
 		}
 	});
 
-	it("returns false when ctx_note read part has been replaced with a sentinel", () => {
+	it("returns false when mctx_note read part has been replaced with a sentinel", () => {
 		const stripped = makeSentinel({
 			type: "tool",
-			tool: "ctx_note",
+			tool: "mctx_note",
 			state: { input: { action: "read" } },
 		});
 		const msgs = [assistantMsg("a-1", [stripped])];
 		expect(hasVisibleNoteReadCall(msgs)).toBe(false);
 	});
 
-	it("returns false when no ctx_note tool calls exist", () => {
+	it("returns false when no mctx_note tool calls exist", () => {
 		const msgs = [
 			userMsg("u-1", [{ type: "text", text: "hello" }]),
 			assistantMsg("a-1", [
@@ -109,14 +122,14 @@ describe("hasVisibleNoteReadCall", () => {
 		// Simulate: old read got sentineled, new read is intact — should return true.
 		const oldStripped = makeSentinel({
 			type: "tool",
-			tool: "ctx_note",
+			tool: "mctx_note",
 			state: { input: { action: "read" } },
 		});
 		const msgs = [
 			assistantMsg("a-1", [oldStripped]),
 			userMsg("u-2", [{ type: "text", text: "follow up" }]),
 			assistantMsg("a-2", [
-				{ type: "tool", tool: "ctx_note", state: { input: { action: "read" } } },
+				{ type: "tool", tool: "mctx_note", state: { input: { action: "read" } } },
 			]),
 		];
 		expect(hasVisibleNoteReadCall(msgs)).toBe(true);
@@ -125,12 +138,12 @@ describe("hasVisibleNoteReadCall", () => {
 	it("returns false when all reads are stripped sentinels", () => {
 		const s1 = makeSentinel({
 			type: "tool",
-			tool: "ctx_note",
+			tool: "mctx_note",
 			state: { input: { action: "read" } },
 		});
 		const s2 = makeSentinel({
 			type: "tool_use",
-			name: "ctx_note",
+			name: "mctx_note",
 			input: { action: "read" },
 		});
 		const msgs = [assistantMsg("a-1", [s1, s2])];

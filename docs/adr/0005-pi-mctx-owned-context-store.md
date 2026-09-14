@@ -19,8 +19,8 @@ commit 或产生 directory hash，不创建 database row。Git command failure �
 last-known Git identity；没有该 cache 时才使用 directory fallback。canonical path permission failure 拒绝 activation，
 不能把一个无法可靠识别的 directory 混入另一个 partition。
 
-context store 位于 `<getAgentDir>/mctx/context.db`。它与 global settings file 分开，不能放入 project/worktree，
-也不能依赖开发机绝对路径。
+context store 位于 `<dirname(getAgentDir)>/pi-mctx/context.db`（默认 `~/.pi/pi-mctx/context.db`）。它与 global settings file 分开，不能放入 project/worktree，
+也不能依赖开发机绝对路径，也不放在 Pi `agent/extensions/` 或 CortexKit 的 XDG 数据目录下。
 
 store 使用 SQLite WAL、短事务和 busy timeout。每个 partition 有独立 monotonic revision；writer 只能在
 预期 revision 仍有效时发布 compartment。冲突 writer 必须重读和重算，不能采用 last-writer-wins。

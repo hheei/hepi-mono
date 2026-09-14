@@ -1,5 +1,5 @@
 /**
- * Pi-side wrapper for the `ctx_search` tool.
+ * Pi-side wrapper for the `mctx_search` tool.
  *
  * The core search logic in `unifiedSearch()` is harness-agnostic — it operates
  * over the shared SQLite store. The pi-plugin only needs to:
@@ -8,7 +8,7 @@
  *   2. Resolve session ID and project identity from the Pi extension context.
  *   3. Formats results for the LLM.
  *
- * `ctx_expand` is now registered alongside (see `./ctx-expand.ts`) — Pi
+ * `mctx_expand` is now registered alongside (see `./ctx-expand.ts`) — Pi
  * sessions are JSONL files, but the shared `readSessionChunk` reads
  * via the `RawMessageProvider` registry, so Pi just registers its own
  * provider for the duration of an expand call.
@@ -32,10 +32,12 @@ import type { ContextDatabase } from "#core/features/storage";
 import { getVisibleMemoryIds } from "#core/hooks/inject-compartments";
 import { CTX_SEARCH_DESCRIPTION } from "#core/tools/ctx-search/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
+import { type AgentMemoryClientPort, decodeAgentMemorySearchResults } from "../agentmemory/client";
+import type { AgentMemoryIdentity } from "../agentmemory/runtime";
 
 const DEFAULT_LIMIT = 10;
 const NOTE_EXPAND_HINT =
-	"Use ctx_expand(start=N-10, end=N) around any note @msg anchor above to read the surrounding conversation context.";
+	"Use mctx_expand(start=N-10, end=N) around any note @msg anchor above to read the surrounding conversation context.";
 
 const ParamsSchema = Type.Object(
 	{
@@ -158,7 +160,7 @@ function formatSearchResults(
 	);
 	if (results.some((result) => result.source === "message" || result.source === "compartment")) {
 		bodyParts.push(
-			"Use ctx_expand(start, end) with the range from any message result above to read the full conversation context.",
+			"Use mctx_expand(start, end) with the range from any message result above to read the full conversation context.",
 		);
 	}
 	if (
@@ -183,12 +185,18 @@ export interface CtxSearchToolDeps {
 	gitCommitsEnabled?: boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
 	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
+	remoteSearch?:
+		| {
+				client: AgentMemoryClientPort;
+				identity: (cwd: string) => AgentMemoryIdentity;
+		  }
+		| undefined;
 }
 
 export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typeof ParamsSchema> {
 	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	return {
-		name: "ctx_search",
+		name: "mctx_search",
 		label: "Magic Context: Search",
 		description: CTX_SEARCH_DESCRIPTION,
 		parameters: ParamsSchema,
@@ -298,11 +306,36 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 				searchOptions,
 			);
 
+			let text = formatSearchResults(query, results, sessionId);
+			if (deps.remoteSearch) {
+				try {
+					const identity = deps.remoteSearch.identity(ctx.cwd);
+					const remote = decodeAgentMemorySearchResults(
+						await deps.remoteSearch.client.search(
+							{
+								query,
+								limit: normalizeLimit(params.limit),
+								project: identity.project,
+								...(identity.agentId ? { agentId: identity.agentId } : {}),
+							},
+							_signal ? { signal: _signal } : {},
+						),
+					);
+					if (remote.length > 0) {
+						text += `\n\nDurable memory (agentmemory)\n${remote
+							.map((item, index) => `[${index + 1}] [${item.kind}] ${item.content}`)
+							.join("\n")}`;
+					}
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					text += `\n\nDurable memory (agentmemory) unavailable: ${message}`;
+				}
+			}
 			return {
 				content: [
 					{
 						type: "text",
-						text: formatSearchResults(query, results, sessionId),
+						text,
 					},
 				],
 				details: undefined,

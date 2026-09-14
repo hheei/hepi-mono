@@ -47,7 +47,7 @@ const RESULT_PREVIEW_LIMIT = 220;
  * Messages are raw history that survived compression — boosted above baseline
  * (1.15 in this release, up from 1.0) because by definition these are the
  * specific details the historian didn't preserve as memories or compartments,
- * which is exactly what ctx_search is most useful for. */
+ * which is exactly what mctx_search is most useful for. */
 const MEMORY_SOURCE_BOOST = 1.3;
 const MESSAGE_SOURCE_BOOST = 1.15;
 const GIT_COMMIT_SOURCE_BOOST = 1.2;
@@ -108,7 +108,7 @@ export interface UnifiedSearchOptions {
 	 *  <session-history> block injected into message[0]. */
 	sources?: SearchSource[] | undefined;
 	/** Hard-filter memories already rendered in <session-history>. The agent
-	 *  can see them in message[0] — surfacing them via ctx_search wastes
+	 *  can see them in message[0] — surfacing them via mctx_search wastes
 	 *  tokens and crowds out high-signal raw-history hits. Pass null or omit
 	 *  to disable filtering (for callers outside the transform context that
 	 *  can't resolve the visible set). */
@@ -119,7 +119,7 @@ export interface UnifiedSearchOptions {
 	 *  needs to cancel the 30s embedding fetch. */
 	signal?: AbortSignal | undefined;
 	/** When true (default), increment retrieval_count on memory hits. Explicit
-	 *  `ctx_search` tool calls from the agent SHOULD count — the agent asked
+	 *  `mctx_search` tool calls from the agent SHOULD count — the agent asked
 	 *  for the memory, saw it, and used it. Plugin-internal automatic surfacing
 	 *  (e.g. auto-search hints appended to every user prompt) should NOT count
 	 *  because the agent may never actually consume the hint, and even if they
@@ -129,7 +129,7 @@ export interface UnifiedSearchOptions {
 	/** When true, run multi-probe message search: extract literal symbol/command/
 	 *  path probes from the query and query each one separately (RRF-fused) so a
 	 *  message containing the exact literal but not the query's other tokens is
-	 *  still recalled. Default false — only explicit `ctx_search` tool calls opt
+	 *  still recalled. Default false — only explicit `mctx_search` tool calls opt
 	 *  in; the auto-search hot path stays single-probe to protect its latency
 	 *  budget. NL queries with no extractable probes are unaffected either way. */
 	explicitSearch?: boolean | undefined;
@@ -224,7 +224,7 @@ function normalizeLimit(limit?: number): number {
 // `ID_SHAPED_QUERY_MAX_TOKENS` such tokens, we treat it as a direct id lookup.
 // Anything else — `"fix bug 1234"`, a quoted sentence containing a number — is
 // left alone so the normal lexical+semantic lanes still run. Reused by
-// ctx_search and any future consumer that needs to decide whether a query
+// mctx_search and any future consumer that needs to decide whether a query
 // should bypass the normal search pipeline.
 export const ID_SHAPED_QUERY_MAX_TOKENS = 5;
 // Matches one ID token: an optional leading `#` followed by one or more digits.
@@ -350,7 +350,7 @@ function getMessageSearchStatement(db: Database): PreparedStatement {
  * LIMIT. The JS-side post-filter in runMessageFtsQuery applies the cutoff AFTER
  * fetching `LIMIT` rows, so when the top-ranked rows are all live-tail (above the
  * cutoff) they're fetched-then-discarded and older eligible hits below the limit
- * are never seen — explicit ctx_search could then return nothing. Pushing the
+ * are never seen — explicit mctx_search could then return nothing. Pushing the
  * predicate into SQL makes LIMIT count only already-eligible rows.
  */
 function getMessageSearchStatementWithCutoff(db: Database): PreparedStatement {
@@ -598,7 +598,7 @@ function mergeMemoryResults(args: {
 
 	for (const id of candidateIds) {
 		// Hard-filter: memory is already rendered in <session-history>, so the
-		// agent sees it in message[0]. Returning it from ctx_search wastes
+		// agent sees it in message[0]. Returning it from mctx_search wastes
 		// output tokens and displaces high-signal raw-history hits.
 		if (args.visibleMemoryIds?.has(id)) {
 			continue;
@@ -1506,7 +1506,7 @@ function resolveSources(sources: SearchSource[] | undefined): Set<SearchSource> 
 }
 
 /** Turn memories already filtered through the visibility predicate into
- *  MemorySearchResult rows. Used by the ctx_search ID short-circuit so the
+ *  MemorySearchResult rows. Used by the mctx_search ID short-circuit so the
  *  direct-by-id path can return the same shape the normal search lanes emit
  *  (and reuse formatResult without a second code path). */
 function memoriesToIdLookupResults(args: {

@@ -23,7 +23,7 @@ import {
  * Each compartment's raw `[ordinal] U:/A:` conversational text (TC: tool
  * summaries stripped) is embedded — whole-compartment when it fits the
  * provider's input window, otherwise windowed — and stored in
- * `compartment_chunk_embeddings`. This is the semantic substrate for ctx_search
+ * `compartment_chunk_embeddings`. This is the semantic substrate for mctx_search
  * over session history.
  *
  * The older per-compartment `p1_embedding` (summary vector) was retired once

@@ -1,6 +1,6 @@
 // Test-isolation guard — production Pi MCTX state is rooted at
-// `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx`; tests isolate both
-// Pi state and legacy XDG fallbacks. Do not remove.
+// `${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx` (default ~/.pi/pi-mctx);
+// tests isolate both Pi state and XDG fallbacks. Do not remove.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

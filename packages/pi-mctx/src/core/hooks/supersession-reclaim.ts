@@ -10,14 +10,14 @@ import type { TagTarget } from "./tag-messages";
 // execute + already-mutating gate, so this never originates a cache bust.
 //
 // Keep-counts are fixed constants (no config sub-knobs):
-//   - ctx_reduce: keep newest 5 (preserves the visible reduce rhythm).
+//   - mctx_reduce: keep newest 5 (preserves the visible reduce rhythm).
 //   - zero-value meta: keep 0 (worthless once executed).
 const CTX_REDUCE_KEEP = 5;
 
-// Tools whose output is worthless once the call ran. ctx_note is handled
+// Tools whose output is worthless once the call ran. mctx_note is handled
 // separately because only its read/dismiss actions are zero-value.
 const ZERO_VALUE_META_TOOLS = new Set(["bash_status", "bash_kill"]);
-// ctx_note actions that carry no durable value (write/update carry intent and
+// mctx_note actions that carry no durable value (write/update carry intent and
 // are never dropped). An unreadable action fails safe = not a target.
 const CTX_NOTE_ZERO_VALUE_ACTIONS = new Set(["read", "dismiss"]);
 
@@ -48,12 +48,12 @@ export function buildSupersessionReclaimOps(input: {
 		if (!name) continue;
 
 		let isTarget = false;
-		if (name === "ctx_reduce") {
+		if (name === "mctx_reduce") {
 			ctxReduceSeen += 1;
 			isTarget = ctxReduceSeen > CTX_REDUCE_KEEP;
 		} else if (ZERO_VALUE_META_TOOLS.has(name)) {
 			isTarget = true;
-		} else if (name === "ctx_note") {
+		} else if (name === "mctx_note") {
 			const action = input.targets.get(tag.tagNumber)?.readInput?.()?.action;
 			// Fail safe: only drop when we can positively read a zero-value action.
 			isTarget = typeof action === "string" && CTX_NOTE_ZERO_VALUE_ACTIONS.has(action);

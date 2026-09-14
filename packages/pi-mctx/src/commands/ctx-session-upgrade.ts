@@ -298,7 +298,7 @@ export function registerCtxSessionUpgradeCommand(
 							autoPromote: currentDeps.autoPromote,
 							// Embedding substrate: without this the recomp publish path
 							// no-ops chunk embedding on an unregistered project, leaving
-							// rebuilt compartments out of ctx_search. Parity with legacy host.
+							// rebuilt compartments out of mctx_search. Parity with legacy host.
 							ensureProjectRegistered: ensureProjectRegisteredFromPiDirectory,
 							// Recomp-runner model chain (parity with legacy host
 							// recomp-orchestrator): configured fallbacks + the session's

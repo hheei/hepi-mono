@@ -174,7 +174,7 @@ describe("applyPiHeuristicCleanup", () => {
 		}
 	});
 
-	it("persists full drops for stale ctx_reduce calls and paired tool results", () => {
+	it("persists full drops for stale mctx_reduce calls and paired tool results", () => {
 		const db = createTestDb();
 		try {
 			const sessionId = "ses-heuristic";
@@ -187,7 +187,7 @@ describe("applyPiHeuristicCleanup", () => {
 						{
 							type: "toolCall",
 							id: "reduce-1",
-							name: "ctx_reduce",
+							name: "mctx_reduce",
 							arguments: {},
 						},
 					],
@@ -195,7 +195,7 @@ describe("applyPiHeuristicCleanup", () => {
 				},
 				{
 					...toolResultMessage("reduce-1", "reduced old tags", 3),
-					toolName: "ctx_reduce",
+					toolName: "mctx_reduce",
 				},
 				userMessage("next request", 4),
 				assistantMessage("newer answer", 5),
@@ -230,7 +230,7 @@ describe("applyPiHeuristicCleanup", () => {
 						{
 							type: "toolCall",
 							id: "reduce-1",
-							name: "ctx_reduce",
+							name: "mctx_reduce",
 							arguments: {},
 						},
 					],
@@ -238,7 +238,7 @@ describe("applyPiHeuristicCleanup", () => {
 				},
 				{
 					...toolResultMessage("reduce-1", "reduced old tags", 3),
-					toolName: "ctx_reduce",
+					toolName: "mctx_reduce",
 				},
 				userMessage("next request", 4),
 				assistantMessage("newer answer", 5),
@@ -262,11 +262,11 @@ describe("applyPiHeuristicCleanup", () => {
 		}
 	});
 
-	it("drops a STALE ctx_reduce but preserves a FRESH one reusing the same callId", () => {
+	it("drops a STALE mctx_reduce but preserves a FRESH one reusing the same callId", () => {
 		const db = createTestDb();
 		try {
 			const sessionId = "ses-reduce-collision";
-			// Two assistant turns both invoke ctx_reduce with the SAME callId
+			// Two assistant turns both invoke mctx_reduce with the SAME callId
 			// "reduce-1" (callId counters repeat across turns). The OLD one is stale
 			// (tag age < cutoff); the FRESH one is recent (must survive). Composite
 			// (owner, callId) identity must distinguish them — a bare-callId match
@@ -280,7 +280,7 @@ describe("applyPiHeuristicCleanup", () => {
 						{
 							type: "toolCall",
 							id: "reduce-1",
-							name: "ctx_reduce",
+							name: "mctx_reduce",
 							arguments: {},
 						},
 					],
@@ -288,7 +288,7 @@ describe("applyPiHeuristicCleanup", () => {
 				},
 				{
 					...toolResultMessage("reduce-1", "reduced old", 3),
-					toolName: "ctx_reduce",
+					toolName: "mctx_reduce",
 				},
 				// …several turns later…
 				userMessage("a", 4),
@@ -303,7 +303,7 @@ describe("applyPiHeuristicCleanup", () => {
 						{
 							type: "toolCall",
 							id: "reduce-1",
-							name: "ctx_reduce",
+							name: "mctx_reduce",
 							arguments: {},
 						},
 					],
@@ -311,7 +311,7 @@ describe("applyPiHeuristicCleanup", () => {
 				},
 				{
 					...toolResultMessage("reduce-1", "reduced fresh", 10),
-					toolName: "ctx_reduce",
+					toolName: "mctx_reduce",
 				},
 				userMessage("latest", 11),
 			];
@@ -320,7 +320,7 @@ describe("applyPiHeuristicCleanup", () => {
 			const transcript = createPiTranscript(messages, sessionId);
 			const { targets } = tagTranscript(sessionId, transcript, tagger, db);
 
-			// protectedTags:3 makes only the OLD ctx_reduce tag fall outside the
+			// protectedTags:3 makes only the OLD mctx_reduce tag fall outside the
 			// protected tail (the fresh one near the end stays protected).
 			const result = applyPiHeuristicCleanup(sessionId, db, targets, messages, {
 				protectedTags: 3,
@@ -328,10 +328,10 @@ describe("applyPiHeuristicCleanup", () => {
 			});
 			transcript.commit();
 
-			// Exactly ONE stale ctx_reduce dropped (the old turn), NOT both.
+			// Exactly ONE stale mctx_reduce dropped (the old turn), NOT both.
 			expect(result.droppedStaleReduceCalls).toBe(1);
 
-			// The two ctx_reduce tool tags share callId "reduce-1" but have
+			// The two mctx_reduce tool tags share callId "reduce-1" but have
 			// DISTINCT owners; exactly one must be dropped, the fresher preserved.
 			const reduceTags = getTagsBySession(db, sessionId)
 				.filter((tag) => tag.type === "tool" && tag.messageId === "reduce-1")

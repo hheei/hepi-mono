@@ -135,14 +135,14 @@ describe("note-nudger", () => {
 		expect(getNoteNudgeText(db, "ses-empty")).toBeNull();
 	});
 
-	it("suppresses nudge when agent ran ctx_note(read) AND that read is still visible in context", () => {
+	it("suppresses nudge when agent ran mctx_note(read) AND that read is still visible in context", () => {
 		const db = makeDb();
 		const note = addNote(db, "session", {
 			sessionId: "ses-read-watermark",
 			content: "Already-seen note.",
 		});
 
-		// Simulate agent running ctx_note(read) shortly after the note was added.
+		// Simulate agent running mctx_note(read) shortly after the note was added.
 		setNoteLastReadAt(db, "ses-read-watermark", note.updatedAt + 1000);
 
 		onNoteTrigger(db, "ses-read-watermark", "commit_detected");
@@ -153,14 +153,14 @@ describe("note-nudger", () => {
 		expect(peekNoteNudgeText(db, "ses-read-watermark", "u-2", undefined, true)).toBeNull();
 	});
 
-	it("re-nudges after work boundary when prior ctx_note(read) is no longer visible (dropped/aged/reduced)", () => {
+	it("re-nudges after work boundary when prior mctx_note(read) is no longer visible (dropped/aged/reduced)", () => {
 		const db = makeDb();
 		const note = addNote(db, "session", {
 			sessionId: "ses-read-dropped",
 			content: "Note the agent already saw but read got dropped.",
 		});
 
-		// Agent ran ctx_note(read) — watermark advances past note activity.
+		// Agent ran mctx_note(read) — watermark advances past note activity.
 		setNoteLastReadAt(db, "ses-read-dropped", note.updatedAt + 1000);
 
 		// A work-boundary trigger fires.
@@ -168,14 +168,14 @@ describe("note-nudger", () => {
 		// Defer first peek (trigger-time message).
 		expect(peekNoteNudgeText(db, "ses-read-dropped", "u-1", undefined, false)).toBeNull();
 		// Subsequent peek: read watermark is newer than note activity, BUT the
-		// read is NO LONGER visible (compactified, ctx_reduce'd, or aged out).
+		// read is NO LONGER visible (compactified, mctx_reduce'd, or aged out).
 		// The agent has lost note visibility, so re-surface the reminder.
 		expect(peekNoteNudgeText(db, "ses-read-dropped", "u-2", undefined, false)).toContain(
 			"You have 1 deferred note",
 		);
 	});
 
-	it("still delivers when a new note arrives after the last ctx_note(read)", () => {
+	it("still delivers when a new note arrives after the last mctx_note(read)", () => {
 		const db = makeDb();
 		const older = addNote(db, "session", {
 			sessionId: "ses-new-activity",

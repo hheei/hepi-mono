@@ -215,7 +215,7 @@ describe("source contract: peek-then-drain in runPipeline (history)", () => {
 	});
 
 	test("note nudges are wired after runPipeline", () => {
-		// The rolling/sticky reminders were removed in the ctx_reduce nudge
+		// The rolling/sticky reminders were removed in the mctx_reduce nudge
 		// redesign (replaced by Channel 1 tool-result append + Channel 2
 		// sendUserMessage). Note nudges still run after the pipeline completes.
 		const pipelineIdx = code.indexOf("const result = await runPipeline(");

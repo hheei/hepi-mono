@@ -100,7 +100,7 @@ describe("createDreamTaskExecutor — curate", () => {
 		expect(capturedPrompt).toContain("Mapped files: src/first.ts");
 		expect(capturedPrompt).toContain("### Global user profile (for the redundancy check)");
 		expect(capturedPrompt).toContain("Prefer concise answers globally.");
-		expect(capturedPrompt).not.toContain('ctx_memory(action="verified"');
+		expect(capturedPrompt).not.toContain('mctx_memory(action="verified"');
 		expect(capturedPrompt).not.toContain("verified_files");
 	});
 
@@ -269,11 +269,11 @@ describe("createDreamTaskExecutor — classify-memories", () => {
 		);
 
 		expect(result).toEqual({ status: "completed", schedulePatch: undefined });
-		// Zero-tool pure transform agent + the new XML prompt (no ctx_memory call).
+		// Zero-tool pure transform agent + the new XML prompt (no mctx_memory call).
 		expect(capturedAgent).toBe("dreamer-classifier");
 		expect(capturedPrompt).toContain("## Task: Classify Project Memories");
 		expect(capturedPrompt).toContain("Emit one <classify> manifest");
-		expect(capturedPrompt).not.toContain('ctx_memory(action="classify"');
+		expect(capturedPrompt).not.toContain('mctx_memory(action="classify"');
 
 		// Host applied the manifest: every memory is now classified (classified_at
 		// stamped → no longer unclassified) and importance moved off the default.
@@ -746,7 +746,7 @@ describe("createDreamTaskExecutor — retrospective", () => {
 		expect(captured[1]?.agent).toBe("dreamer-retrospective");
 		expect(captured[1]?.system).toContain("retrospective learning agent");
 		expect(captured[1]?.prompt).toContain("### Friction window");
-		expect(captured[1]?.prompt).not.toContain("ctx_memory");
+		expect(captured[1]?.prompt).not.toContain("mctx_memory");
 		const memories = getMemoriesByProject(db, project);
 		expect(memories.map((memory) => memory.content)).toEqual([
 			"Verify provider-executed tool availability on wire before describing it as supported.",

@@ -312,7 +312,7 @@ It does not prove a specific provider implementation failure.
 
 ## Magic Context drop analysis
 
-For a suspected `ctx_reduce` or automatic drop issue:
+For a suspected `mctx_reduce` or automatic drop issue:
 
 1. Find the request where `magic-context:m1.hash` first changes.
 2. Confirm `appendOnly=false` on that request.

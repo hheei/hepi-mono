@@ -272,7 +272,7 @@ describe("validateHistorianOutput primer candidate contract", () => {
 </compartments>
 <primer_candidates>
 <primer at_compartment="1">How does the cache materialization flow work?</primer>
-<primer at_compartment="1">How does ctx_search combine result types?</primer>
+<primer at_compartment="1">How does mctx_search combine result types?</primer>
 </primer_candidates>
 <meta><messages_processed>1-2</messages_processed><unprocessed_from>3</unprocessed_from></meta>
 </output>`;
