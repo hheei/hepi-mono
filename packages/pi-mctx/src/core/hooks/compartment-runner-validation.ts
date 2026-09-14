@@ -280,10 +280,17 @@ export function validateChunkCoverage(chunk: {
 	}
 
 	let expectedOrdinal = chunk.startIndex;
+	let lastOrdinal: number | undefined;
 	for (const line of chunk.lines) {
+		// Pi folds one or more toolResult entries into a synthetic user
+		// RawMessage. Its sourceLines preserve the individual tool entries,
+		// but they intentionally share the synthetic message's ordinal. They
+		// are metadata for drop/tag ownership, not additional raw ordinals.
+		if (line.ordinal === lastOrdinal) continue;
 		if (line.ordinal !== expectedOrdinal) {
 			return `chunk omits raw message ${expectedOrdinal} while still claiming coverage through ${chunk.endIndex}`;
 		}
+		lastOrdinal = line.ordinal;
 		expectedOrdinal += 1;
 	}
 
