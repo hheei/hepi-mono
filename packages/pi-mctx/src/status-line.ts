@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type PiPrefixTool, resolvePiContextUsage } from "@hheei/pi-ext-core";
+import { estimatePiPrefixTokens, type PiPrefixTool } from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
+import { getOverflowState } from "#core/features/storage-meta-persisted";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
+import { resolvePiDisplayPressure } from "./pi-pressure";
 
 const STATUS_KEY = "magic-context";
 const RECENT_FAILURE_MS = 60_000;
@@ -22,6 +24,7 @@ type SessionMetaStatus = {
 	compartment_in_progress: number | null;
 	historian_failure_count: number | null;
 	historian_last_failure_at: number | null;
+	last_input_tokens: number | null;
 };
 
 const lastRenderedBySession = new Map<string, string>();
@@ -29,10 +32,12 @@ const lastRenderedBySession = new Map<string, string>();
 /**
  * Persistent Magic Context footer status for Pi.
  *
- * Hot path by design: one session_meta row read + resolvePiContextUsage(). Prefix
- * tokenize (system prompt + tool defs) runs inside that helper. No tag or
- * compartment enumeration here; the rich breakdown is reserved for /ctx-status.
+ * Hot path: one session_meta row, overflow state, and wire-input pressure.
+ * Prefix tokenize (system prompt + tool defs) runs only for a new session
+ * (`tokens === 0`). Compaction `tokens === null` stays unknown. Percentage
+ * uses the output-reserved window, never Pi's output-inclusive `percent`.
  */
+
 export function registerStatusLine(pi: ExtensionAPI, deps: StatusLineDeps): void {
 	void deps.projectIdentity;
 	listedTools = () => {
@@ -69,24 +74,38 @@ export function updateStatusLine(ctx: ExtensionContext, deps: StatusLineDeps, fo
 
 function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId: string): string {
 	const usage = ctx.getContextUsage?.();
-	const liveReady = typeof usage?.tokens === "number" && usage.tokens > 0;
-	const systemPrompt = liveReady ? undefined : readSystemPrompt(ctx);
-	const usageOptions = {
-		...(usage === undefined ? {} : { live: usage }),
-		...(ctx.model?.contextWindow === undefined ? {} : { contextWindow: ctx.model.contextWindow }),
-		...(liveReady
-			? {}
-			: {
-					...(systemPrompt === undefined ? {} : { systemPrompt }),
-					tools: listedTools(),
-					estimateTokens,
-				}),
-	};
-	const resolved = resolvePiContextUsage(usageOptions);
-	const inputTokens = resolved.tokens;
-	const pct = resolved.percent;
+	const liveTokens = usage?.tokens;
+	const compactionUnknown = liveTokens === null;
+	const liveReady = typeof liveTokens === "number" && liveTokens > 0;
 	const meta = readSessionMetaStatus(db, sessionId);
+	let prefixTokens: number | undefined;
+	if (!compactionUnknown && !liveReady) {
+		const systemPrompt = readSystemPrompt(ctx);
+		prefixTokens = estimatePiPrefixTokens({
+			...(systemPrompt === undefined ? {} : { systemPrompt }),
+			tools: listedTools(),
+			estimateTokens,
+		}).tokens;
+	}
+	let detectedContextLimit: number | undefined;
+	try {
+		const detected = getOverflowState(db, sessionId).detectedContextLimit;
+		if (detected > 0) detectedContextLimit = detected;
+	} catch {
+		// Footer remains available when overflow metadata cannot be read.
+	}
+	const pressure = resolvePiDisplayPressure({
+		...(usage === undefined ? {} : { live: usage }),
+		...(ctx.model === undefined ? {} : { model: ctx.model }),
+		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
+		...(typeof meta?.last_input_tokens === "number" && meta.last_input_tokens > 0
+			? { lastInputTokens: meta.last_input_tokens }
+			: {}),
+		...(prefixTokens === undefined ? {} : { prefixTokens }),
+	});
 	const state = renderHistorianState(meta, recompSessions.has(sessionId));
+	const inputTokens = pressure.inputTokens;
+	const pct = pressure.percentage;
 	return `mc: ${inputTokens === undefined ? "--" : fmt(inputTokens)} (${pct === undefined ? "--" : `${Math.round(pct)}%`}) · ${state}`;
 }
 
@@ -109,8 +128,9 @@ function readSessionMetaStatus(
 	try {
 		return db
 			.prepare<[string], SessionMetaStatus>(
-				"SELECT compartment_in_progress, historian_failure_count, historian_last_failure_at FROM session_meta WHERE session_id = ?",
+				"SELECT compartment_in_progress, historian_failure_count, historian_last_failure_at, last_input_tokens FROM session_meta WHERE session_id = ?",
 			)
+
 			.get(sessionId);
 	} catch {
 		return undefined;

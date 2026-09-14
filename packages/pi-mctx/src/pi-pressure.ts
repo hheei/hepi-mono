@@ -1,3 +1,5 @@
+import { resolvePiUsableContextLimit } from "./pi-context-limit";
+
 /**
  * Pi pressure computation from input-context semantics.
  *
@@ -87,4 +89,98 @@ export function computePiPressure(
 	if (inputTokens === 0) return null;
 	const percentage = contextLimit > 0 ? (inputTokens / contextLimit) * 100 : 0;
 	return { inputTokens, percentage };
+}
+
+export type PiDisplayPressureSource = "live" | "persisted" | "prefix" | "unknown";
+
+export interface PiDisplayPressure {
+	inputTokens: number | undefined;
+	percentage: number | undefined;
+	contextLimit: number;
+	source: PiDisplayPressureSource;
+}
+
+/**
+ * Status/footer pressure. Same wire-input tokens and output-reserved
+ * denominator as transform, but never uses Pi's output-inclusive `percent`
+ * and never applies the scheduler's 0.85 forward-pressure scale.
+ *
+ * `live.tokens === null` is unknown after compaction: do not fill with
+ * prefix or a stale persisted trailing reading.
+ */
+export function resolvePiDisplayPressure(args: {
+	live?:
+		| {
+				tokens?: number | null | undefined;
+				percent?: number | null | undefined;
+				contextWindow?: number | null | undefined;
+		  }
+		| undefined;
+	model?:
+		| {
+				provider?: string | undefined;
+				id?: string | undefined;
+				contextWindow?: number | undefined;
+				maxTokens?: number | undefined;
+		  }
+		| undefined;
+	detectedContextLimit?: number | undefined;
+	lastInputTokens?: number | undefined;
+	prefixTokens?: number | undefined;
+}): PiDisplayPressure {
+	const rawWindow =
+		typeof args.live?.contextWindow === "number" && args.live.contextWindow > 0
+			? args.live.contextWindow
+			: args.model?.contextWindow;
+	const contextLimit =
+		resolvePiUsableContextLimit({
+			rawContextWindow: rawWindow,
+			...(args.model === undefined ? {} : { model: args.model }),
+			...(args.detectedContextLimit === undefined
+				? {}
+				: { detectedContextLimit: args.detectedContextLimit }),
+		}) ?? 0;
+	const liveTokens = args.live?.tokens;
+	if (liveTokens === null) {
+		return { inputTokens: undefined, percentage: undefined, contextLimit, source: "unknown" };
+	}
+
+	const persisted =
+		typeof args.lastInputTokens === "number" && args.lastInputTokens > 0 ? args.lastInputTokens : 0;
+	const live = typeof liveTokens === "number" && liveTokens > 0 ? liveTokens : 0;
+	if (live > 0) {
+		const inputTokens = Math.max(live, persisted);
+		return {
+			inputTokens,
+			percentage: percentageOf(inputTokens, contextLimit),
+			contextLimit,
+			source: "live",
+		};
+	}
+	if (persisted > 0) {
+		return {
+			inputTokens: persisted,
+			percentage: percentageOf(persisted, contextLimit),
+			contextLimit,
+			source: "persisted",
+		};
+	}
+	if (liveTokens === 0) {
+		const prefix =
+			typeof args.prefixTokens === "number" && args.prefixTokens > 0 ? args.prefixTokens : 0;
+		if (prefix > 0) {
+			return {
+				inputTokens: prefix,
+				percentage: percentageOf(prefix, contextLimit),
+				contextLimit,
+				source: "prefix",
+			};
+		}
+	}
+	return { inputTokens: undefined, percentage: undefined, contextLimit, source: "unknown" };
+}
+
+function percentageOf(inputTokens: number, contextLimit: number): number | undefined {
+	if (contextLimit <= 0 || inputTokens <= 0) return undefined;
+	return (inputTokens / contextLimit) * 100;
 }

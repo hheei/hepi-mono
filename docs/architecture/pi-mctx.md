@@ -94,9 +94,17 @@ cancels native compaction until the database reopens.
 
 AgentMemory and Context Projection are not part of this package.
 
+## Status token accounting
 
+Footer `/ctx-status` 和 status dialog 与 transform 使用同一套 wire-input 口径：
+`tokens` 是 Pi 的 live 会话估计或 `session_meta.last_input_tokens`，百分比是
+`inputTokens / output-reserved usable window`。不使用 Pi `getContextUsage().percent`
+（该字段含 output）。新 session 的 `tokens === 0` 仍用 system prompt + tool defs
+做下限；compaction 后的 `tokens === null` 显示未知，不用 prefix 或旧 trailing 顶上。
+调度器的 0.85 forward-pressure 缩放只用于 historian/emergency，不进入 status。
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.
+
 
 `pi-mctx` is a private source extension. Development loads it through an explicit source path such as `scripts/pi-dev`; it is not published through a package `pi.extensions` entry. Root Vitest, `tsc -p tsconfig.typecheck.json`, and Biome already include this package.
 

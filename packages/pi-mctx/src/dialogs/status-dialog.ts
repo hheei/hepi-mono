@@ -6,7 +6,8 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { estimatePiPrefixTokens, resolvePiContextUsage } from "@hheei/pi-ext-core";
+import { estimatePiPrefixTokens } from "@hheei/pi-ext-core";
+
 import { getCompartments } from "#core/features/compartment-storage";
 import { getMemoryCount } from "#core/features/memory/storage-memory";
 import { parseCacheTtl } from "#core/features/scheduler";
@@ -23,7 +24,8 @@ import { formatBytes } from "#core/shared/format-bytes";
 import { formatThresholdClampNote, formatThresholdPercent } from "#core/shared/format-threshold";
 import packageJson from "../../package.json";
 import { resolveSessionId } from "../commands/pi-command-utils";
-import { resolvePiUsableContextLimit } from "../pi-context-limit";
+import { resolvePiDisplayPressure } from "../pi-pressure";
+
 import { isPiRecompInFlight } from "../pi-recomp-runner";
 
 // Mirror packages/plugin/src/tui/slots/sidebar-content.tsx COLORS so the Pi
@@ -363,7 +365,6 @@ export function buildPiStatusDetail(
 ): StatusDialogDetail {
 	const usage = ctx.getContextUsage?.();
 	const meta = getOrCreateSessionMeta(deps.db, sessionId);
-	let inputTokens = typeof usage?.tokens === "number" ? usage.tokens : meta.lastInputTokens;
 	let detectedContextLimit: number | undefined;
 	try {
 		const detected = getOverflowState(deps.db, sessionId).detectedContextLimit;
@@ -371,19 +372,6 @@ export function buildPiStatusDetail(
 	} catch {
 		// Status remains available when overflow metadata cannot be read.
 	}
-	const contextLimit =
-		resolvePiUsableContextLimit({
-			rawContextWindow: usage?.contextWindow ?? ctx.model?.contextWindow,
-			model: ctx.model,
-			detectedContextLimit,
-		}) ??
-		(meta.lastContextPercentage > 0
-			? Math.round(inputTokens / (meta.lastContextPercentage / 100))
-			: 0);
-	let usagePercentage =
-		contextLimit > 0 && inputTokens > 0
-			? (inputTokens / contextLimit) * 100
-			: meta.lastContextPercentage;
 
 	const compartments = getCompartments(deps.db, sessionId);
 	const metaRow = readSessionMetaRow(deps.db, sessionId);
@@ -469,16 +457,17 @@ export function buildPiStatusDetail(
 	const systemPromptTokens =
 		prefix.systemPromptTokens > 0 ? prefix.systemPromptTokens : meta.systemPromptTokens;
 	const toolDefinitionTokens = prefix.toolDefinitionTokens;
-	const resolved = resolvePiContextUsage({
-		live: usage,
-		contextWindow: ctx.model?.contextWindow,
+	const pressure = resolvePiDisplayPressure({
+		...(usage === undefined ? {} : { live: usage }),
+		...(ctx.model === undefined ? {} : { model: ctx.model }),
+		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
+		...(meta.lastInputTokens > 0 ? { lastInputTokens: meta.lastInputTokens } : {}),
 		prefixTokens:
 			prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
 	});
-	inputTokens = resolved.tokens ?? inputTokens;
-	if (contextLimit > 0 && inputTokens > 0) {
-		usagePercentage = (inputTokens / contextLimit) * 100;
-	}
+	const contextLimit = pressure.contextLimit;
+	const inputTokens = pressure.inputTokens ?? 0;
+	const usagePercentage = pressure.percentage ?? 0;
 
 	const persistedToolCallTokens = meta.toolCallTokens;
 	const attributedTokens =
