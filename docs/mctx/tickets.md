@@ -160,7 +160,7 @@
 
 **依赖**：MCTX-05。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-07：接入 Context Projection 与 Pi context transform
 

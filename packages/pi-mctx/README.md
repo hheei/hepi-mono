@@ -10,6 +10,12 @@ Pi adapter 通过 `src/index.ts` 直接加载。Magic Context Window 继续由 P
 local session lane 与 AgentMemory lane 分开显示，memory write 先提交本地
 transactional outbox，再异步投递。`/ctx-status` 读取已观察的 bridge 状态与本地
 outbox 计数，不触发网络；`/agentmemory-health` 才执行显式 fresh probe。
+Automatic recall admission is recorded in an additive Pi-owned ledger keyed by
+session, branch generation, projection epoch, and real user-entry ID. Repeated
+transforms replay the same immutable snapshot; stale, tainted, out-of-scope, and
+already-visible results are rejected before commit. Admission does not write Pi
+session JSONL or alter provider-visible context until the Context Projection
+stage publishes it.
 
 The previous implementation remains excluded at `packages/xpi-mctx/` for
 historical comparison.

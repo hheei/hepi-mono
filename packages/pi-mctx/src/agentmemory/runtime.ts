@@ -2,9 +2,15 @@ import type { AgentMemoryConfig } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import type { Database } from "#core/shared/sqlite";
 import { SYNTH_USER_ID_PREFIX } from "../read-session-pi";
-import { AgentMemoryClient, type AgentMemoryClientPort, type ObserveResult } from "./client";
+import {
+	AgentMemoryClient,
+	type AgentMemoryClientPort,
+	decodeAgentMemorySearchResults,
+	type ObserveResult,
+} from "./client";
 import { AgentMemoryOutbox } from "./outbox";
 import { type AgentMemoryIdentity, createAgentMemoryIdentityResolver } from "./project";
+import { type RecallAdmission, RecallLedger } from "./recall";
 import { AgentMemorySessionManager, resolvePiSessionId } from "./session";
 import { type AgentMemoryStatusSnapshot, AgentMemoryStatusTracker } from "./status";
 import { SqliteTurnTaintStore, type TurnTaintStore } from "./taint";
@@ -57,6 +63,16 @@ export type AgentMemoryRuntime = {
 	): void;
 	propagateCurrentTurnTaint(ctx: AgentMemoryHostContext, hostEntryIds: readonly string[]): void;
 	remoteSessionId(piSessionId: string): string | undefined;
+	admitAutomaticRecall(input: {
+		readonly cwd: string;
+		readonly sessionId: string;
+		readonly userEntryId: string;
+		readonly query: string;
+		readonly visibleSourceIds?: ReadonlySet<string> | undefined;
+		readonly branchId?: string | undefined;
+		readonly generation?: number | undefined;
+		readonly signal?: AbortSignal | undefined;
+	}): Promise<RecallAdmission>;
 	queueMemory(input: {
 		readonly cwd: string;
 		readonly content: string;
@@ -233,6 +249,7 @@ export function createAgentMemoryRuntime(
 	});
 	const taint = options.db ? new SqliteTurnTaintStore(options.db) : undefined;
 	const outbox = options.db ? new AgentMemoryOutbox(options.db, client) : undefined;
+	const recall = options.db ? new RecallLedger(options.db) : undefined;
 	const taintedTurnBySession = new Map<string, string>();
 
 	const runtime: AgentMemoryRuntime = {
@@ -291,6 +308,72 @@ export function createAgentMemoryRuntime(
 		},
 		remoteSessionId(piSessionId) {
 			return sessions.getBinding(piSessionId)?.remoteSessionId;
+		},
+		async admitAutomaticRecall(input) {
+			if (!recall) return { kind: "skipped", reason: "scope" };
+			const resolved = identity(input.cwd);
+			const epoch = recall.declarePreUpgradeEpoch({
+				sessionId: input.sessionId,
+				branchId: input.branchId,
+				generation: input.generation,
+			});
+			try {
+				const admission = await recall.admit({
+					sessionId: input.sessionId,
+					userEntryId: input.userEntryId,
+					query: input.query,
+					epoch,
+					alreadyVisible: input.visibleSourceIds,
+					tainted: taint?.isHostEntryTainted(input.sessionId, input.userEntryId),
+					search: async () => {
+						const activeRemoteSessionId = sessions.getBinding(input.sessionId)?.remoteSessionId;
+						return decodeAgentMemorySearchResults(
+							await client.search(
+								{
+									query: input.query,
+									limit: 10,
+									project: resolved.project,
+									...(resolved.agentId ? { agentId: resolved.agentId } : {}),
+								},
+								input.signal ? { signal: input.signal } : {},
+							),
+						)
+							.filter(
+								(source) =>
+									source.project === resolved.project &&
+									(resolved.agentId === undefined || source.agentId === resolved.agentId) &&
+									(activeRemoteSessionId === undefined ||
+										source.sessionId !== activeRemoteSessionId),
+							)
+							.map((source) => ({
+								id: source.id,
+								kind: source.kind,
+								content: source.content,
+								digest: source.digest,
+								...(source.score === undefined ? {} : { score: source.score }),
+								metadata: {
+									project: source.project,
+									sessionId: source.sessionId,
+									agentId: source.agentId,
+								},
+							}));
+					},
+				});
+				if (admission.kind === "admitted") {
+					taint?.mark({
+						sessionId: input.sessionId,
+						turnId: input.userEntryId,
+						hostEntryIds: [input.userEntryId],
+						reason: `automatic-recall:${admission.event.id}`,
+					});
+				}
+				status.recordSuccess("inject");
+				return admission;
+			} catch (error) {
+				status.recordFailure("inject", error);
+				log(`${PREFIX} automatic recall failed`, error);
+				return { kind: "skipped", reason: "unavailable" };
+			}
 		},
 		async queueMemory(input) {
 			if (!outbox) throw new Error("AgentMemory outbox is unavailable");

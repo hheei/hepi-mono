@@ -18,6 +18,8 @@ import {
 	overlayAgentMemoryEnv,
 } from "../../src/agentmemory/runtime";
 import { createPlaintextBearerAuthGuard } from "../../src/agentmemory/security";
+import { closeQuietly } from "../../src/core/shared/sqlite-helpers";
+import { createTestDb } from "../test-utils.test";
 
 const defaults = MagicContextConfigSchema.parse({}).agentmemory;
 
@@ -201,5 +203,79 @@ describe("AgentMemory runtime", () => {
 		});
 		expect(client.health).toHaveBeenCalledTimes(callsBeforeRead);
 		await runtime.shutdown();
+	});
+	it("admits scoped automatic recall once per durable user anchor", async () => {
+		const db = createTestDb();
+		const search = vi.fn(async () => ({
+			results: [
+				{ memory: { id: "matching", content: "Use pnpm", project: "hepi-mono" } },
+				{ memory: { id: "wrong-project", content: "Use npm", project: "other" } },
+			],
+		}));
+		const client = {
+			health: vi.fn(async () => ({ status: "ok" })),
+			startSession: vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId })),
+			observe: vi.fn(async () => ({})),
+			search,
+			remember: vi.fn(async () => ({ success: true as const, memory: { id: "memory" } })),
+			endSession: vi.fn(async () => undefined),
+		};
+		try {
+			const runtime = createAgentMemoryRuntime({ ...defaults, enabled: true }, client, { db });
+			const input = {
+				cwd: "/tmp/hepi-mono",
+				sessionId: "session-recall",
+				userEntryId: "user-1",
+				query: "package manager",
+				branchId: "root",
+				generation: 0,
+			};
+			const first = await runtime.admitAutomaticRecall(input);
+			const retried = await runtime.admitAutomaticRecall(input);
+
+			expect(search).toHaveBeenCalledTimes(1);
+			expect(first).toMatchObject({
+				kind: "admitted",
+				reused: false,
+				event: { userEntryId: "user-1", sources: [{ id: "matching" }] },
+			});
+			expect(retried).toMatchObject({ kind: "admitted", reused: true });
+			await runtime.shutdown();
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("records recall backend failure without rejecting the context path", async () => {
+		const db = createTestDb();
+		const client = {
+			health: vi.fn(async () => ({ status: "ok" })),
+			startSession: vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId })),
+			observe: vi.fn(async () => ({})),
+			search: vi.fn(async () => Promise.reject(new Error("recall backend down"))),
+			remember: vi.fn(async () => ({ success: true as const, memory: { id: "memory" } })),
+			endSession: vi.fn(async () => undefined),
+		};
+		try {
+			const runtime = createAgentMemoryRuntime({ ...defaults, enabled: true }, client, { db });
+			await expect(
+				runtime.admitAutomaticRecall({
+					cwd: "/tmp/hepi-mono",
+					sessionId: "session-failure",
+					userEntryId: "user-1",
+					query: "query",
+				}),
+			).resolves.toEqual({ kind: "skipped", reason: "unavailable" });
+			expect(runtime.statusSnapshot()).toMatchObject({
+				inject: "degraded",
+				lastError: "recall backend down",
+			});
+			expect(db.prepare("SELECT count(*) AS count FROM mctx_recall_events").get()).toEqual({
+				count: 0,
+			});
+			await runtime.shutdown();
+		} finally {
+			closeQuietly(db);
+		}
 	});
 });

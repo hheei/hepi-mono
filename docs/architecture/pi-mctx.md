@@ -30,6 +30,7 @@ Pi lifecycle hooks ──fire-and-forget──> AgentMemory session/capture runt
 mctx_search ──> local session lane
             └─> scoped AgentMemory lane ──partial failure──> local lane remains healthy
 mctx_memory ──transaction──> context.db outbox ──lease/retry/dedupe──> /remember
+automatic recall ──scope/taint gate──> projection epoch + durable recall ledger
 /ctx-status ──read only──> observed runtime snapshot + local outbox counts
 /agentmemory-health ──explicit fresh probe──> /health
 session_shutdown ──abort/capped drain──> outbox + remote session cleanup
@@ -43,6 +44,13 @@ coordination state，不是上游 memory schema。Agent-facing 名称固定为
 会排除当前 active segment。Bridge failure 不阻断 Window，search 仍返回 local lane
 并明确标记 partial/degraded。Status refresh 绝不发网络请求；fresh health 仅由用户
 显式调用 `/agentmemory-health`。
+Automatic recall admission 由 `pi-mctx` 在 additive ledger 中按
+`session + branch + generation + user-entry anchor` 保存 immutable snapshot。相同
+anchor/epoch 的并发或重试只搜索一次并 replay 同一结果；branch/generation 已变化的
+异步结果会作为 stale 丢弃。Scope、当前 remote segment、taint 与 already-visible gate
+在提交前执行，backend failure 只更新 degraded status，不产生空 event，也不阻断
+Window。该 ledger 不写 session JSONL；provider-visible splice 与 projection publish
+属于后续 Context Projection 阶段，在该阶段接入前 admission 本身不改变 model context。
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
 ## 设置
