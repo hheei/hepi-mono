@@ -138,7 +138,10 @@ import {
 	HANDOFF_REQUEST_TYPE,
 } from "./handoff/model";
 import { renderHandoffAttempt, renderHandoffContext, renderHandoffRequest } from "./handoff/render";
-import { persistCompactKeptPromptEstimate } from "./pi-compact-kept-messages";
+import {
+	persistCompactKeptPromptEstimate,
+	persistCompactKeptPromptEstimateIfCompacted,
+} from "./pi-compact-kept-messages";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { computePiPressure, extractAssistantUsage } from "./pi-pressure";
 import { awaitInFlightRecomps } from "./pi-recomp-runner";
@@ -968,6 +971,18 @@ async function startPiMagicContextRuntime(
 			db,
 			signalPendingMarker: signalPiDeferredCompactionMarkerDrain,
 		});
+		try {
+			const sessionId = ctx.sessionManager?.getSessionId?.();
+			if (typeof sessionId === "string" && sessionId.length > 0) {
+				const getBranch = ctx.sessionManager?.getBranch;
+				const branch = typeof getBranch === "function" ? getBranch.call(ctx.sessionManager) : [];
+				if (Array.isArray(branch)) {
+					persistCompactKeptPromptEstimateIfCompacted({ db, sessionId, entries: branch });
+				}
+			}
+		} catch {
+			// Resume kept-tail rewrite is best-effort and must not block session start.
+		}
 	});
 
 	// Register the per-LLM-call transform pipeline. Tags eligible message
@@ -1042,6 +1057,10 @@ async function startPiMagicContextRuntime(
 		},
 	});
 	info("registered /ctx-status");
+	pi.on("session_before_compact", async (_event, ctx) =>
+		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
+	);
+	pi.on("session_compact", (_event, ctx) => handlePiSessionCompact({ db, ctx }));
 	registerStatusLine(pi, { db, projectIdentity });
 	info("registered magic-context status line");
 
@@ -1698,10 +1717,8 @@ async function startPiMagicContextRuntime(
 
 	// Native Pi compaction is allowed in every mode. Invalidate m[0]/m[1] before
 	// compaction, then defer reconciliation until the next transform pass.
-	pi.on("session_before_compact", async (_event, ctx) =>
-		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
-	);
-	pi.on("session_compact", (_event, ctx) => handlePiSessionCompact({ db, ctx }));
+	// session_before_compact / session_compact are registered before the footer
+	// so kept-tail buckets exist before status re-renders.
 
 	// Strip injected `§N§` tag prefix from assistant text BEFORE Pi
 	// persists the message to disk and renders it to the UI. Mirrors

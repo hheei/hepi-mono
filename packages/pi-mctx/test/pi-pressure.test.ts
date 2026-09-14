@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computePiPressure, resolvePiDisplayPressure } from "../src/pi-pressure";
+import {
+	computePiPressure,
+	resolvePiDisplayPressure,
+	resolvePiSessionDisplayPressure,
+} from "../src/pi-pressure";
 
 const reservedWindowModel = {
 	provider: "anthropic",
@@ -99,6 +103,24 @@ describe("resolvePiDisplayPressure", () => {
 			percentage: undefined,
 			contextLimit: 80_000,
 			source: "unknown",
+		});
+	});
+});
+
+describe("resolvePiSessionDisplayPressure", () => {
+	it("builds a kept-tail estimate after compaction-null", () => {
+		const pressure = resolvePiSessionDisplayPressure({
+			live: { tokens: null, percent: null, contextWindow: 100_000 },
+			model: reservedWindowModel,
+			lastInputTokens: 90_000,
+			prefixTokens: 1_600,
+			conversationTokens: 2_000,
+			toolCallTokens: 500,
+		});
+		expect(pressure).toMatchObject({
+			inputTokens: 4_100,
+			percentage: 5.125,
+			source: "estimated",
 		});
 	});
 });
