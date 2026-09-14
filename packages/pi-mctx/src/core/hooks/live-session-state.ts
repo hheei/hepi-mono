@@ -46,7 +46,7 @@ export interface LiveSessionState {
 	 * dreamer, sidekick, memory-migration). Detected at `session.created` by
 	 * the `magic-context-` title prefix. These sessions are fully exempt from
 	 * the message transform AND system-prompt injection — they have their own
-	 * fixed agent identity/prompt, never use ctx_reduce/nudges/compartments,
+	 * fixed agent identity/prompt, never use mctx_reduce/nudges/compartments,
 	 * and getting the MC guidance block bolted on is wasted spend plus a
 	 * contradictory second identity frame. In-memory only: these children are
 	 * ephemeral (a process restart abandons any in-flight run), so the set

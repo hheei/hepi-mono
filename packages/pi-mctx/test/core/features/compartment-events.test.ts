@@ -16,8 +16,8 @@ beforeEach(() => {
 	prevDataHome = process.env.XDG_DATA_HOME;
 	tempHome = mkdtempSync(join(tmpdir(), "mc-events-"));
 	process.env.XDG_DATA_HOME = tempHome;
-	// openDatabase() requires the Pi extension storage parent to exist.
-	mkdirSync(join(tempHome, "extensions", "pi-mctx"), { recursive: true });
+	// openDatabase() requires the Pi MCTX storage parent to exist.
+	mkdirSync(join(tempHome, "pi-mctx"), { recursive: true });
 	closeDatabase();
 });
 

@@ -45,7 +45,7 @@ const DEDUP_SAFE_TOOLS = new Set([
 export interface PiHeuristicCleanupConfig {
 	protectedTags: number;
 	/**
-	 * Whether this pass may discover NEW stale ctx_reduce strips. Existing dropped
+	 * Whether this pass may discover NEW stale mctx_reduce strips. Existing dropped
 	 * tags still replay through applyFlushedStatuses on every provider.
 	 */
 	staleReduceStripEnabled: boolean;
@@ -153,11 +153,11 @@ function buildPiToolFingerprints(
 }
 
 /**
- * Identify stale `ctx_reduce` tool calls by COMPOSITE (owner, callId) identity.
+ * Identify stale `mctx_reduce` tool calls by COMPOSITE (owner, callId) identity.
  *
  * A bare-callId match is unsafe: Pi/legacy host can reuse a tool callId across
  * assistant turns (the reason tool tags carry tool_owner_message_id), so a stale
- * ctx_reduce call in an OLD assistant message must NOT cause a FRESH ctx_reduce
+ * mctx_reduce call in an OLD assistant message must NOT cause a FRESH mctx_reduce
  * reusing the same callId in a recent turn to be dropped. We key by
  * `${ownerStableId}\x00${callId}` — the owner being the assistant message that
  * holds the toolCall part (resolveStableId of that message), which is exactly
@@ -194,7 +194,7 @@ function collectStaleReduceCallIds(
 			if (!part || typeof part !== "object") continue;
 			const p = part as { type?: unknown; name?: unknown; id?: unknown };
 			if (p.type !== "toolCall") continue;
-			if (p.name !== "ctx_reduce") continue;
+			if (p.name !== "mctx_reduce") continue;
 			if (typeof p.id !== "string" || p.id.length === 0) continue;
 			composite.add(`${stableId}\x00${p.id}`);
 			bareCallIds.add(p.id);
@@ -249,8 +249,8 @@ export function applyPiHeuristicCleanup(
 	// single backward index seek (O(log N)).
 	const maxTag = getMaxTagNumberBySession(db, sessionId);
 	const protectedCutoff = maxTag - config.protectedTags;
-	// Stale ctx_reduce removal now uses the protected-tail window (Phase 2
-	// removed the routine age knob); a ctx_reduce call is "stale" once it ages
+	// Stale mctx_reduce removal now uses the protected-tail window (Phase 2
+	// removed the routine age knob); a mctx_reduce call is "stale" once it ages
 	// past the protected tail.
 	const toolAgeCutoff = protectedCutoff;
 
@@ -324,7 +324,7 @@ export function applyPiHeuristicCleanup(
 		setEmergencyDropSample(db, sessionId, emergency.currentTotalInputTokens);
 	}
 
-	// ── Pass 1b: stale ctx_reduce calls (Pi persisted-drop replay) ──────
+	// ── Pass 1b: stale mctx_reduce calls (Pi persisted-drop replay) ──────
 	const staleReduce = config.staleReduceStripEnabled
 		? collectStaleReduceCallIds(
 				piMessages,
@@ -452,7 +452,7 @@ export function applyPiHeuristicCleanup(
 	) {
 		sessionLog(
 			sessionId,
-			`heuristic cleanup: dropped ${droppedTools} tool tags, stale ctx_reduce=${droppedStaleReduceCalls}, deduplicated ${deduplicatedTools} tool calls, dropped ${droppedInjections} system injections`,
+			`heuristic cleanup: dropped ${droppedTools} tool tags, stale mctx_reduce=${droppedStaleReduceCalls}, deduplicated ${deduplicatedTools} tool calls, dropped ${droppedInjections} system injections`,
 		);
 	}
 

@@ -9,7 +9,7 @@
  * PARITY.md for the deliberate mechanism-level divergences). Per pass it:
  *   1. Wraps the AgentMessage[] in a Transcript via `createPiTranscript`.
  *   2. Tags eligible parts with the shared `Tagger` and injects `§N§ `
- *      prefixes (unless the session has no ctx_reduce tool).
+ *      prefixes (unless the session has no mctx_reduce tool).
  *   3. Applies queued drops (`pending_ops`) + persisted tag statuses so
  *      cross-session drops survive.
  *   4. Prepares m[0]/m[1] history injection, trims the live tail to the
@@ -18,7 +18,7 @@
  *      providers (Anthropic via the m[0]/m[1] split), so the same
  *      byte-stability discipline as legacy host applies.
  *   5. Runs the historian/compartment trigger, nudges (rolling,
- *      note-nudge, ctx_reduce reminders), and auto-search hints.
+ *      note-nudge, mctx_reduce reminders), and auto-search hints.
  *   6. Drains deferred compaction markers via Pi's `appendCompaction()`
  *      surface (Pi's analogue of legacy host's compaction-marker injection).
  *
@@ -2718,7 +2718,7 @@ export function registerPiContextHandler(
 			const tChannelAccounting = performance.now();
 			try {
 				const sessionMetaForCh1 = getOrCreateSessionMeta(options.db, sessionId);
-				// Gate on ctx_reduce being callable. Primary Pi sessions register the
+				// Gate on mctx_reduce being callable. Primary Pi sessions register the
 				// tool; subagents do not, so a baseline/nudge there would point at a
 				// missing session-scoped tool. A missing baseline is also how Channel 1
 				// stays off.
@@ -2757,7 +2757,7 @@ export function registerPiContextHandler(
 					let liveTailTokens: number;
 					try {
 						// reclaimable (toolOutput) excludes the protected top-N tags
-						// (parity with legacy host) — the agent can't ctx_reduce those, so
+						// (parity with legacy host) — the agent can't mctx_reduce those, so
 						// counting them would nag forever about undroppable tail output.
 						const agg = getActiveTagTokenAggregate(
 							options.db,
@@ -2783,7 +2783,7 @@ export function registerPiContextHandler(
 						executeThresholdTokensPi - usageInputTokens + liveTailTokens,
 					);
 					// Same rationale as legacy host: a historian publish, emergency drop,
-					// or pending-op replay can shrink the tail without a ctx_reduce
+					// or pending-op replay can shrink the tail without a mctx_reduce
 					// tool call, so a regrowth must not inherit a stale persisted band.
 					resetLastNudgeCycleIfTailShrank(options.db, sessionId, tailToolTokens);
 					const oldestReclaimableToolTags = getOldestActiveUnprotectedToolTags(
@@ -4057,7 +4057,7 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 	})();
 	const alreadyRanHeuristicsThisTurn =
 		currentTurnId !== null && lastHeuristicsTurnIdBySession.get(args.sessionId) === currentTurnId;
-	// Pi's primary process always registers ctx_reduce. Hidden/no-session child
+	// Pi's primary process always registers mctx_reduce. Hidden/no-session child
 	// processes do not use this context handler; if a future path marks a session
 	// as subagent here, suppress visible tags and nudges so the prompt never points
 	// at a missing session-scoped tool.
@@ -4151,7 +4151,7 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 			m0HardFoldThisPass ||
 			(args.schedulerDecision === "execute" && !alreadyRanHeuristicsThisTurn));
 
-	// 1. Tagging: assigns tag numbers + injects §N§ prefixes when ctx_reduce
+	// 1. Tagging: assigns tag numbers + injects §N§ prefixes when mctx_reduce
 	// is callable. DB-side tag IDs still get created when prefixes are skipped
 	// so queued drops and automatic cleanup continue to work.
 	//
@@ -4686,7 +4686,7 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
 			watermark: reclaimMeta.toolReclaimWatermark ?? 0,
 			pendingOps,
 		});
-		// Smart-drops reclaim older ctx_reduce/meta outputs that
+		// Smart-drops reclaim older mctx_reduce/meta outputs that
 		// a later call supersedes, and compress superseded edits to an
 		// edit_marker (keep filePath + region hint). Merged into the same
 		// already-gated drop apply as the age-based sweep above. Dedupe (a tag
@@ -5090,7 +5090,7 @@ async function runPipeline(args: RunPipelineArgs): Promise<RunPipelineResult> {
  * Note-nudge + Channel 1/2 helpers.
  *
  * The rolling/iteration nudge and the tool-heavy sticky reminder were removed
- * in the ctx_reduce nudge redesign — replaced by Channel 1 (in-turn tool-result
+ * in the mctx_reduce nudge redesign — replaced by Channel 1 (in-turn tool-result
  * append via `pi.on("tool_result")`, see `ctx-reduce-nudge-pi.ts`) and Channel 2
  * (the hidden `sendMessage` ceiling). `appendReminderToUserMessageByIdPi` /
  * `appendReminderToPiUserMessage` below are retained — they back the note-nudge
@@ -5174,7 +5174,7 @@ function applyNoteNudges(args: {
 	// no user messages yet) as the trigger-message hint to peekNoteNudgeText.
 	//
 	// Visibility-aware suppression: peekNoteNudgeText suppresses the
-	// nudge when the agent already ran ctx_note(read) since the latest
+	// nudge when the agent already ran mctx_note(read) since the latest
 	// note activity AND that read is still visible in the current
 	// message context. Once the read has aged out / been dropped, we
 	// re-surface the nudge at the next work-boundary trigger so the

@@ -1,5 +1,5 @@
 /**
- * Pi-side wrapper for the `ctx_note` tool.
+ * Pi-side wrapper for the `mctx_note` tool.
  *
  * Action surface mirrors legacy host's `packages/plugin/src/tools/ctx-note/tools.ts`:
  *   - write: append a session note OR a smart note (when surface_condition is set)
@@ -141,7 +141,7 @@ function formatNoteLine(note: Note): string {
 	return `- **#${note.id}**${statusSuffix}: ${note.content}${anchorSuffix(note)}`;
 }
 
-const DISMISS_FOOTER = '\n\nTo dismiss a stale note: ctx_note(action="dismiss", note_id=N)';
+const DISMISS_FOOTER = '\n\nTo dismiss a stale note: mctx_note(action="dismiss", note_id=N)';
 
 /** Default page size for read. Long-running sessions accumulate hundreds of
  *  notes; read pages newest-first and points the caller at older pages.
@@ -159,7 +159,7 @@ function paginateNewestFirst(
 	const remaining = total - offset - page.length;
 	const footer =
 		remaining > 0
-			? `Showing ${page.length} of ${total} (newest first) — ${remaining} older: ctx_note(action="read", offset=${offset + page.length})`
+			? `Showing ${page.length} of ${total} (newest first) — ${remaining} older: mctx_note(action="read", offset=${offset + page.length})`
 			: null;
 	return { page, total, footer };
 }
@@ -182,7 +182,7 @@ export interface CtxNoteToolDeps {
 export function createCtxNoteTool(deps: CtxNoteToolDeps): ToolDefinition<typeof ParamsSchema> {
 	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	return {
-		name: "ctx_note",
+		name: "mctx_note",
 		label: "Magic Context: Notes",
 		description: CTX_NOTE_DESCRIPTION,
 		parameters: ParamsSchema,
@@ -211,7 +211,7 @@ export function createCtxNoteTool(deps: CtxNoteToolDeps): ToolDefinition<typeof 
 				if (!content) return err("Error: 'content' is required when action is 'write'.");
 
 				// Anchor the note to the live conversation tail so it can be
-				// traced back later via ctx_expand. Best-effort — null when
+				// traced back later via mctx_expand. Best-effort — null when
 				// there's no indexed tail yet.
 				const anchorOrdinal = captureAnchorOrdinal(deps.db, sessionId);
 
@@ -332,7 +332,7 @@ export function createCtxNoteTool(deps: CtxNoteToolDeps): ToolDefinition<typeof 
 			const body = sections.join("\n\n");
 			// Only surface the anchor hint when at least one note carries one.
 			const anchorHint = body.includes("↳ @msg ")
-				? "\n\n↳ @msg N marks the conversation tail when a note was written. To see what led to it: ctx_expand(start=N-x, end=N) (pick x for how far back to look)."
+				? "\n\n↳ @msg N marks the conversation tail when a note was written. To see what led to it: mctx_expand(start=N-x, end=N) (pick x for how far back to look)."
 				: "";
 			return ok(`${body}${anchorHint}${DISMISS_FOOTER}`);
 		},

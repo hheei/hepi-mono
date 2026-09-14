@@ -36,7 +36,7 @@ describe("buildAutoSearchHint", () => {
 		expect(hint).not.toBeNull();
 		expect(hint?.startsWith("<ctx-search-hint>")).toBe(true);
 		expect(hint?.endsWith("</ctx-search-hint>")).toBe(true);
-		expect(hint).toContain("ctx_search");
+		expect(hint).toContain("mctx_search");
 		expect(hint).toContain("If the fragments above seem relevant");
 	});
 

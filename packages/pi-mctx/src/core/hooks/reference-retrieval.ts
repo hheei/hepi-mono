@@ -12,7 +12,7 @@
  *       session wrote, full stored form (all tiers + importance + episode_type).
  *       Continuity + same-project format/importance calibration. RECENCY-based
  *       (no embedding at historian time — embedding K/L/M was dropped; see
- *       AUDIT E1 input-model decisions). ctx_search semantic retrieval over
+ *       AUDIT E1 input-model decisions). mctx_search semantic retrieval over
  *       compartments is served by per-compartment chunk embeddings computed on
  *       publish (compartment-embedding.ts).
  *

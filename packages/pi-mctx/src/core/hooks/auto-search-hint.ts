@@ -4,7 +4,7 @@
  *
  * The hint intentionally compresses fragments so they feel like vague recall
  * rather than a drop-in answer — the goal is to nudge the agent to run
- * ctx_search for full context, not to provide the answer itself.
+ * mctx_search for full context, not to provide the answer itself.
  *
  * Compression strategy per source:
  *   - memory → caveman-ultra via `cavemanCompress()` (token-dense)
@@ -116,7 +116,7 @@ export function buildAutoSearchHint(
 			? "Your memory may contain 1 related fragment:"
 			: `Your memory may contain ${lines.length} related fragments:`;
 	const footer =
-		"If the fragments above seem relevant to the current request, you may run ctx_search to retrieve full context. Otherwise ignore.";
+		"If the fragments above seem relevant to the current request, you may run mctx_search to retrieve full context. Otherwise ignore.";
 	const body = [header, ...lines, footer].join("\n");
 	const wrapped = `<ctx-search-hint>\n${body}\n</ctx-search-hint>`;
 

@@ -121,7 +121,7 @@ export type TagTarget = {
 	 * targets only; absent on message/file targets. */
 	canDrop?: (() => boolean) | undefined;
 	/** Non-mutating read of the tool invocation's input object (e.g. to read
-	 * `ctx_note`'s action or an edit's filePath for supersession selection).
+	 * `mctx_note`'s action or an edit's filePath for supersession selection).
 	 * Tool targets only; null when no invocation part is present. */
 	readInput?: (() => Record<string, unknown> | null) | undefined;
 	message?: MessageLike | undefined;
@@ -263,7 +263,7 @@ export interface TagMessagesOptions {
 	 * When true, skip injecting §N§ prefix into message text/tool output parts.
 	 * DB-level tag records are still created normally — this flag only affects
 	 * whether the agent-visible part content gets the tag prefix. Used when
-	 * the session's tool allow-list denies ctx_reduce so agents don't see tag
+	 * the session's tool allow-list denies mctx_reduce so agents don't see tag
 	 * markers they can't act on. Cache-safe: the availability verdict is frozen
 	 * per session, so message shape stays stable.
 	 */

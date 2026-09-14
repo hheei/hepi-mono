@@ -106,7 +106,7 @@ export interface MessageTokenTotal {
 	conversation: number;
 	toolCall: number;
 	/**
-	 * Tool OUTPUT tokens only (the ctx_reduce-droppable payload), excluding tool
+	 * Tool OUTPUT tokens only (the mctx_reduce-droppable payload), excluding tool
 	 * input args — this is the "reclaimable" figure the nudge channels gate on,
 	 * matching the legacy `computeTailToolTokens` semantics (which summed
 	 * `state.output`). `toolCall` = this + input args, for the sidebar bucket.
@@ -133,7 +133,7 @@ function ownerMessageIdForTagRow(row: {
  * weight EXCLUDING injected m[0]/m[1] blocks (which are never tagged). This is
  * the single source for the nudge channels:
  *   - liveTail   = conversation + toolCall  (real user/assistant + tool I/O)
- *   - reclaimable = toolOutput              (non-dropped, ctx_reduce-droppable)
+ *   - reclaimable = toolOutput              (non-dropped, mctx_reduce-droppable)
  *   - usable      = executeThresholdTokens − inputTokens + liveTail
  * `nullCount` > 0 means some active tags are legacy/un-backfilled this pass; the
  * caller may fall back to the byte-approx path until they converge.
@@ -147,7 +147,7 @@ export interface ActiveTagTokenAggregate {
 
 /**
  * @param protectedTags When > 0, the `toolOutput` (reclaimable) total EXCLUDES
- * the top-N active tag numbers — the exact set `ctx_reduce` refuses to drop (it
+ * the top-N active tag numbers — the exact set `mctx_reduce` refuses to drop (it
  * defers the N highest active tag numbers; see ctx-reduce/tools.ts). The nudge's
  * "reclaimable" figure must match what the agent can actually drop, or it nags
  * about protected tail output the agent cannot act on (re-firing forever).
@@ -204,12 +204,12 @@ export interface AgeReclaimToolTag extends ToolReclaimHintTag {
 
 /**
  * Oldest active tool tags the agent can actually drop (excludes the protected
- * newest active tag window, matching ctx_reduce/applyPendingOperations). Used
+ * newest active tag window, matching mctx_reduce/applyPendingOperations). Used
  * only to render lightweight nudge hints; it never mutates tag state.
  */
 /**
  * A reclaim hint should point at MEANINGFULLY reclaimable output, not a
- * 30-token status line or a tiny control-plane call (ctx_reduce, bash_status,
+ * 30-token status line or a tiny control-plane call (mctx_reduce, bash_status,
  * check_comments…). Tags whose cached token total is known AND below this are
  * skipped. A tag with NO cached token count is NOT excluded by the floor (we
  * cannot size it, so we never hide a potentially-large output).
@@ -307,7 +307,7 @@ export function getActiveToolTagsForAgeReclaim(
 
 /**
  * Upper bound on the historian's true-raw ELIGIBLE tokens for the cheap
- * trigger pre-gate. Sums `active` AND `dropped` tags: a ctx_reduce/emergency
+ * trigger pre-gate. Sums `active` AND `dropped` tags: a mctx_reduce/emergency
  * drop removes a tool output from the wire (and the active set) but its raw
  * content stays in legacy host's DB and still counts toward the historian's
  * chunk size — an active-only bound undercounts after drops and wrongly
@@ -483,7 +483,7 @@ export function getPersistedToolTagAccounting(
  * measures true-raw tokens — the original content the historian re-reads to
  * compact, which lives in legacy session store even when the wire shows a `[dropped]`
  * sentinel. (An active-only sum would undercount the eligible range whenever a
- * tool output had been ctx_reduce-dropped in the live tail.)
+ * tool output had been mctx_reduce-dropped in the live tail.)
  *
  * A message with ANY tag still carrying a NULL token_count (legacy, not yet
  * backfilled) is reported in `nullMessageIds` and omitted from `totals`, so the

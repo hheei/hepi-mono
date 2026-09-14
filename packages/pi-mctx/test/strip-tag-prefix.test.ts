@@ -140,7 +140,7 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 					{
 						type: "toolCall",
 						id: "t1",
-						name: "ctx_search",
+						name: "mctx_search",
 						arguments: {},
 					},
 				],

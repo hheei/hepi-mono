@@ -10,7 +10,7 @@ describe("Channel 1 nudge renderer", () => {
 				customType: CHANNEL1_NUDGE_CUSTOM_TYPE,
 				content: "<system-reminder>model-only</system-reminder>",
 				display: true,
-				details: { displayText: "Drop spent output with ctx_reduce." },
+				details: { displayText: "Drop spent output with mctx_reduce." },
 			} as never,
 			{ expanded: false, outputPad: 0 },
 			{

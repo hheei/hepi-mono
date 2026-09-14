@@ -1748,7 +1748,7 @@ describe("registerPiContextHandler", () => {
 		});
 	});
 
-	it("gates new stale ctx_reduce strips by provider but replays already-stripped tags", async () => {
+	it("gates new stale mctx_reduce strips by provider but replays already-stripped tags", async () => {
 		const buildMessages = () =>
 			[
 				userMessage("older request", 1),
@@ -1759,7 +1759,7 @@ describe("registerPiContextHandler", () => {
 						{
 							type: "toolCall",
 							id: "reduce-1",
-							name: "ctx_reduce",
+							name: "mctx_reduce",
 							arguments: {},
 						},
 					],
@@ -1767,7 +1767,7 @@ describe("registerPiContextHandler", () => {
 				},
 				{
 					...toolResultMessage("reduce-1", "reduced old tags", 3),
-					toolName: "ctx_reduce",
+					toolName: "mctx_reduce",
 				},
 				userMessage("next request", 4),
 				assistantMessage("newer answer", 5),

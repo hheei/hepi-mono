@@ -1,5 +1,5 @@
 /**
- * Detect whether the agent currently has a visible `ctx_note(action="read")`
+ * Detect whether the agent currently has a visible `mctx_note(action="read")`
  * tool call in their conversation context.
  *
  * Scope and timing
@@ -7,19 +7,19 @@
  * Run this AFTER all message-array drops have been materialized in the
  * transform pipeline (i.e. inside `runPostTransformPhase`, not inside
  * `tagMessages`). By that point:
- *   - queued user `ctx_reduce` ops have been applied
+ *   - queued user `mctx_reduce` ops have been applied
  *   - heuristic cleanup (emergency tiered drop, clear_reasoning_age) ran
  *   - sentinel/replay logic neutralized previously-stripped parts
- * So if a `ctx_note` read is still a real, non-sentinel part in the
+ * So if a `mctx_note` read is still a real, non-sentinel part in the
  * messages array we're about to send, the agent will actually see it.
  *
  * Why this matters
  * ----------------
  * Note nudges are normally suppressed when the agent already ran
- * `ctx_note(read)` since the latest note activity (see `note-nudger.ts`).
+ * `mctx_note(read)` since the latest note activity (see `note-nudger.ts`).
  * That suppression is correct ONLY while the read result is still in
  * context. Once the read tool call is dropped (compartmentalized, aged
- * out, or removed by `ctx_reduce`) the agent no longer has visibility
+ * out, or removed by `mctx_reduce`) the agent no longer has visibility
  * into the notes — re-surfacing them at the next work-boundary trigger
  * is the right thing to do.
  *
@@ -38,12 +38,12 @@ import { isRecord } from "../shared/record-type-guard";
 import { isSentinel } from "./sentinel";
 import type { MessageLike } from "./tag-messages";
 
-const NOTE_TOOL_NAMES = new Set(["ctx_note"]);
+const NOTE_TOOL_NAMES = new Set(["mctx_note"]);
 const READ_ACTION = "read";
 
 /**
  * Returns true if the messages array contains at least one non-stripped
- * `ctx_note(action="read")` tool call/result pair. Order doesn't matter for
+ * `mctx_note(action="read")` tool call/result pair. Order doesn't matter for
  * correctness — any visible read counts.
  */
 export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
@@ -59,15 +59,15 @@ export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
 }
 
 /**
- * Detect a `ctx_note(action="read")` tool call across supported message
+ * Detect a `mctx_note(action="read")` tool call across supported message
  * part shapes (mirrors the dispatch table in `drop-stale-reduce-calls.ts`):
  *
- *   - `{ type: "tool", tool: "ctx_note", state: { input: { action: "read" } } }`
- *   - `{ type: "tool_use", name: "ctx_note", input: { action: "read" } }`
- *   - `{ type: "tool-invocation", toolName: "ctx_note", args|input: { action: "read" } }`
+ *   - `{ type: "tool", tool: "mctx_note", state: { input: { action: "read" } } }`
+ *   - `{ type: "tool_use", name: "mctx_note", input: { action: "read" } }`
+ *   - `{ type: "tool-invocation", toolName: "mctx_note", args|input: { action: "read" } }`
  *
  * We intentionally only count `action: "read"` because that is the only
- * `ctx_note` invocation that surfaces note content to the agent. Writes,
+ * `mctx_note` invocation that surfaces note content to the agent. Writes,
  * updates, and dismisses do not put the note list in front of the agent,
  * so they should not suppress a future "review your notes" nudge.
  */

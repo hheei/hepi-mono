@@ -32,9 +32,9 @@ export const ANNOUNCEMENT_VERSION = "0.31.0";
  */
 export const ANNOUNCEMENT_FEATURES: ReadonlyArray<string> = [
 	"New /ctx-wrapup command: compact older history on demand, keeping the newest N messages raw. Run it before switching to a smaller-context model.",
-	"ctx_search now also searches your session notes and smart notes.",
+	"mctx_search now also searches your session notes and smart notes.",
 	"Project identity now survives transient git failures (slow disks, dubious ownership) without splitting your project memory.",
-	"Removed the ctx_reduce_enabled setting; agent-controlled reduction is always on. Caveman text compression is now independent (caveman_text_compression.enabled).",
+	"Removed the mctx_reduce_enabled setting; agent-controlled reduction is always on. Caveman text compression is now independent (caveman_text_compression.enabled).",
 ];
 
 /**

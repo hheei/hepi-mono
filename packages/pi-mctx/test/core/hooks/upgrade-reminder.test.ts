@@ -22,7 +22,7 @@ beforeEach(() => {
 	prevDataHome = process.env.XDG_DATA_HOME;
 	tempHome = mkdtempSync(join(tmpdir(), "mc-upgrade-rem-"));
 	process.env.XDG_DATA_HOME = tempHome;
-	mkdirSync(join(tempHome, "extensions", "pi-mctx"), { recursive: true });
+	mkdirSync(join(tempHome, "pi-mctx"), { recursive: true });
 	closeDatabase();
 	__resetUpgradeReminderProcessGuard();
 });

@@ -235,9 +235,9 @@ const BaseEmbeddingConfigSchema = z
 	.object({
 		provider: z
 			.enum(["local", "openai-compatible", "off", "synapse"])
-			.default("local")
+			.default("off")
 			.describe(
-				"Embedding provider. 'local' uses Xenova/all-MiniLM-L6-v2, 'openai-compatible' requires endpoint and model, 'synapse' uses the certified local Synapse lane with an explicit fallback provider, and 'off' disables embeddings.",
+				"Deprecated. Embedding provider. Default 'off' (no embeddings). 'local' uses Xenova/all-MiniLM-L6-v2, 'openai-compatible' requires endpoint and model, 'synapse' uses the certified local Synapse lane with an explicit fallback provider.",
 			),
 		fallback_provider: EmbeddingFallbackProviderSchema.optional().describe(
 			"Fallback provider for the Synapse lane. Required when provider is 'synapse'; local, openai-compatible, and off are valid.",
@@ -395,6 +395,19 @@ export interface ExperimentalConfig {
 	mural: ExperimentalMuralConfig;
 }
 
+export const DEFAULT_AGENTMEMORY_URL = "http://127.0.0.1:3111";
+
+export interface AgentMemoryConfig {
+	enabled: boolean;
+	url: string;
+	secret: string;
+	project: string;
+	agentId: string;
+	capture: boolean;
+	memoryTools: boolean;
+	requireHttps: boolean;
+}
+
 export interface MagicContextConfig {
 	enabled: boolean;
 	/** User-level setting that lets a session started exactly in the canonical home directory use a deterministic directory identity. */
@@ -404,6 +417,9 @@ export interface MagicContextConfig {
 	language?: string | undefined;
 	historian?: HistorianConfig | undefined;
 	dreamer?: DreamerConfig | undefined;
+	/** Optional HTTP bridge to an upstream AgentMemory service. Independent of Window `enabled`. */
+	agentmemory: AgentMemoryConfig;
+
 	cache_ttl: string | { default: string; [modelKey: string]: string };
 	/** User-only output-token reservation override. Zero disables reservation. */
 	output_reserve?: number | { default: number; [modelKey: string]: number } | undefined;
@@ -486,7 +502,7 @@ export interface MagicContextConfig {
 	/** Pi-only child-process extension controls. */
 	pi?: PiConfig | undefined;
 	/** Content-aware reclaim of tool output that a later call supersedes, added
-	 *  to the normal age-based auto-drop: superseded ctx_reduce/meta
+	 *  to the normal age-based auto-drop: superseded mctx_reduce/meta
 	 *  outputs are dropped, and older edits to a file are compressed to a marker
 	 *  that keeps only the filePath. Only runs on a transform pass that is
 	 *  already rewriting the messages, so it never triggers a prompt-cache miss
@@ -524,10 +540,10 @@ export interface MagicContextConfig {
 		injection_budget_tokens: number;
 		auto_promote: boolean;
 		retrieval_count_promotion_threshold: number;
-		/** Appends a compact hint to new user messages when ctx_search finds
+		/** Appends a compact hint to new user messages when mctx_search finds
 		 *  highly-related memories, conversation, or git commits. Does NOT
 		 *  inject full content — just vague fragments that nudge the agent to
-		 *  run ctx_search for full context if relevant. Graduated from
+		 *  run mctx_search for full context if relevant. Graduated from
 		 *  `experimental.auto_search`; enabled by default. Independent of
 		 *  `memory.enabled` — it can still surface conversation/git hints when
 		 *  the memory store is off. */
@@ -538,7 +554,7 @@ export interface MagicContextConfig {
 			/** Minimum user message length in characters (skip short prompts). */
 			min_prompt_chars: number;
 		};
-		/** Index git commit messages from HEAD into a new ctx_search source so
+		/** Index git commit messages from HEAD into a new mctx_search source so
 		 *  agents can recall recent regressions, fixes, and decisions from
 		 *  commit history without running git log manually. Graduated from
 		 *  `experimental.git_commit_indexing`; opt-in, default off. Independent
@@ -608,7 +624,7 @@ export const MagicContextConfigSchema = z
 			"Historian agent configuration (model, fallback_models, temperature, maxTokens, two_pass, etc.)",
 		),
 		dreamer: DreamerConfigSchema.optional().describe(
-			"Dreamer agent + scheduling configuration (model, fallback_models, disable, schedule, tasks, etc.)",
+			"Deprecated. Dreamer agent + scheduling (model, fallback_models, disable, schedule, tasks). Unset/disabled by default; explicit opt-in still runs the existing implementation.",
 		),
 		cache_ttl: z
 			.union([z.string(), z.object({ default: z.string() }).catchall(z.string())])
@@ -756,9 +772,10 @@ export const MagicContextConfigSchema = z
 				"Storage permission policy. The default keeps session content and memories owner-private. Disabling enforcement is for trusted shared-group storage managed externally; every group member able to read the storage can read all stored session content and memories.",
 			),
 		embedding: EmbeddingConfigSchema.default({
-			provider: "local",
-			model: DEFAULT_LOCAL_EMBEDDING_MODEL,
-		}).describe("Embedding provider configuration"),
+			provider: "off",
+		}).describe(
+			"Deprecated. Embedding provider configuration. Default is off; local/remote remain available as explicit opt-in.",
+		),
 		subc: z
 			.object({
 				connection_file: z
@@ -803,7 +820,7 @@ export const MagicContextConfigSchema = z
 					.boolean()
 					.default(true)
 					.describe(
-						"When false, Magic Context stops managing the context window and keeps its knowledge layer: memory and docs/user-profile/key-files injection through additive m[0]/m[1], raw-message FTS indexing, dreamer, notes, ctx_search, ctx_expand, ctx_memory, and /ctx-embed remain available. MC's historian/compartment preparation, tagging, markers, pruning, folding, drops, strips, splicing, temporal markers, nudges, and fail-closed blocking stop; ctx_expand remains a knowledge-surface tool. fail_closed_blocking is inert: a transform failure passes the input messages through without blocking or cancelling. This setting does not enable native compaction: Pi's native compaction owns the window, or nothing does. Pi MCTX settings are stored in Pi's global settings and are independent of any upstream CortexKit configuration. On the first turn after disabling, a long session may trigger one native compaction cycle; MC removes only its own marker boundary, leaves native boundaries and stored compartments intact, and does no pre-trimming mitigation. Marker cleanup is lazy per session, so an unresumed session is cleaned when it is next resumed. If compaction is enabled again, run /ctx-wrapup when the historian is runnable to catch up. Pi's native compaction covers child sessions: subagents receive additive memory/docs injection and no MC reclaim in this mode, so keep subagent tasks small or leave compaction.enabled on for long subagent runs. This is boot-resolved and requires a process restart; project settings cannot disable the user's setting. The sidebar reports raw usage as Context: <pct>% · native compaction or Context: <pct>% · no active compaction and does not show an MC execute-threshold fill. /ctx-wrapup, /ctx-recomp, /ctx-flush, and /ctx-session-upgrade refuse without context-management side effects; /ctx-embed remains functional. Raw content hidden by a native boundary before Magic Context's first pass is not retroactively indexed.",
+						"When false, Magic Context stops managing the context window and keeps its knowledge layer: memory and docs/user-profile/key-files injection through additive m[0]/m[1], raw-message FTS indexing, dreamer, notes, mctx_search, mctx_expand, mctx_memory, and /ctx-embed remain available. MC's historian/compartment preparation, tagging, markers, pruning, folding, drops, strips, splicing, temporal markers, nudges, and fail-closed blocking stop; mctx_expand remains a knowledge-surface tool. fail_closed_blocking is inert: a transform failure passes the input messages through without blocking or cancelling. This setting does not enable native compaction: Pi's native compaction owns the window, or nothing does. Pi MCTX settings are stored in Pi's global settings and are independent of any upstream CortexKit configuration. On the first turn after disabling, a long session may trigger one native compaction cycle; MC removes only its own marker boundary, leaves native boundaries and stored compartments intact, and does no pre-trimming mitigation. Marker cleanup is lazy per session, so an unresumed session is cleaned when it is next resumed. If compaction is enabled again, run /ctx-wrapup when the historian is runnable to catch up. Pi's native compaction covers child sessions: subagents receive additive memory/docs injection and no MC reclaim in this mode, so keep subagent tasks small or leave compaction.enabled on for long subagent runs. This is boot-resolved and requires a process restart; project settings cannot disable the user's setting. The sidebar reports raw usage as Context: <pct>% · native compaction or Context: <pct>% · no active compaction and does not show an MC execute-threshold fill. /ctx-wrapup, /ctx-recomp, /ctx-flush, and /ctx-session-upgrade refuse without context-management side effects; /ctx-embed remains functional. Raw content hidden by a native boundary before Magic Context's first pass is not retroactively indexed.",
 					),
 			})
 			.default({ enabled: true })
@@ -817,7 +834,7 @@ export const MagicContextConfigSchema = z
 			.boolean()
 			.default(false)
 			.describe(
-				"Content-aware reclaim of provably-superseded tool output, layered on the existing execute-pass auto-drop. When on: spent ctx_reduce (keep newest 5), and zero-value meta (bash_status, bash_kill, ctx_note read/dismiss) outputs are dropped; older edits to a file are compressed to a filePath-preserving marker while the newest edit per file stays full. Only acts on passes already busting the cache, so it never originates a cache bust. Honors the protected-tag reserve. Experimental: opt-in, default off until cache stability is proven; when off the wire is byte-identical to the positional-only reclaim. Requires a restart.",
+				"Content-aware reclaim of provably-superseded tool output, layered on the existing execute-pass auto-drop. When on: spent mctx_reduce (keep newest 5), and zero-value meta (bash_status, bash_kill, mctx_note read/dismiss) outputs are dropped; older edits to a file are compressed to a filePath-preserving marker while the newest edit per file stays full. Only acts on passes already busting the cache, so it never originates a cache bust. Honors the protected-tag reserve. Experimental: opt-in, default off until cache stability is proven; when off the wire is byte-identical to the positional-only reclaim. Requires a restart.",
 			),
 		caveman_text_compression: z
 			.object({
@@ -889,7 +906,7 @@ export const MagicContextConfigSchema = z
 					})
 					.default({ enabled: true, score_threshold: 0.6, min_prompt_chars: 20 })
 					.describe(
-						"Auto-search hint: transform-time ctx_search on each new user message; when the top hit clears the threshold, append a compact <ctx-search-hint> block of vague fragments to that user message. Does NOT inject full content. Graduated from experimental.auto_search; enabled by default (set enabled: false to opt out). Independent of memory.enabled.",
+						"Auto-search hint: transform-time mctx_search on each new user message; when the top hit clears the threshold, append a compact <ctx-search-hint> block of vague fragments to that user message. Does NOT inject full content. Graduated from experimental.auto_search; enabled by default (set enabled: false to opt out). Independent of memory.enabled.",
 					),
 				git_commit_indexing: z
 					.object({
@@ -897,7 +914,7 @@ export const MagicContextConfigSchema = z
 							.boolean()
 							.default(false)
 							.describe(
-								"Index HEAD git commits for ctx_search (git_commit source). Graduated from experimental.git_commit_indexing; opt-in, default off. Independent of memory.enabled.",
+								"Index HEAD git commits for mctx_search (git_commit source). Graduated from experimental.git_commit_indexing; opt-in, default off. Independent of memory.enabled.",
 							),
 						since_days: z
 							.number()
@@ -916,7 +933,7 @@ export const MagicContextConfigSchema = z
 					})
 					.default({ enabled: false, since_days: 365, max_commits: 2000 })
 					.describe(
-						"Index git commit messages from HEAD into ctx_search. Commits become a 4th searchable source alongside memories and session history. Graduated from experimental.git_commit_indexing; opt-in, default off (per-project embedding cost). Independent of memory.enabled.",
+						"Index git commit messages from HEAD into mctx_search. Commits become a 4th searchable source alongside memories and session history. Graduated from experimental.git_commit_indexing; opt-in, default off (per-project embedding cost). Independent of memory.enabled.",
 					),
 			})
 			.default({
@@ -928,6 +945,56 @@ export const MagicContextConfigSchema = z
 				git_commit_indexing: { enabled: false, since_days: 365, max_commits: 2000 },
 			})
 			.describe("Cross-session memory configuration"),
+		agentmemory: z
+			.object({
+				enabled: z
+					.boolean()
+					.default(false)
+					.describe(
+						"Enable the HTTP bridge to an upstream AgentMemory service. Independent of Window enabled.",
+					),
+				url: z
+					.string()
+					.trim()
+					.default(DEFAULT_AGENTMEMORY_URL)
+					.describe("AgentMemory HTTP base URL. AGENTMEMORY_URL overrides this."),
+				secret: z
+					.string()
+					.default("")
+					.describe("Optional Bearer token. AGENTMEMORY_SECRET overrides this."),
+				project: z
+					.string()
+					.default("")
+					.describe(
+						"Optional explicit AgentMemory project namespace. AGENTMEMORY_PROJECT_NAME overrides this.",
+					),
+				agentId: z.string().default("").describe("Optional agent id tag. AGENT_ID overrides this."),
+				capture: z
+					.boolean()
+					.default(true)
+					.describe("Observe session prompts, tool results, and assistant turns over HTTP."),
+				memoryTools: z
+					.boolean()
+					.default(true)
+					.describe("Register mctx_memory against AgentMemory when the bridge is enabled."),
+				requireHttps: z
+					.boolean()
+					.default(false)
+					.describe(
+						"Fail closed when a Bearer secret would cross plaintext HTTP to a non-loopback host.",
+					),
+			})
+			.default({
+				enabled: false,
+				url: DEFAULT_AGENTMEMORY_URL,
+				secret: "",
+				project: "",
+				agentId: "",
+				capture: true,
+				memoryTools: true,
+				requireHttps: false,
+			})
+			.describe("Optional HTTP bridge to an upstream AgentMemory service."),
 		sidekick: SidekickConfigSchema.describe(
 			"Optional sidekick agent configuration for session-start memory retrieval",
 		),

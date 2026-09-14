@@ -2,7 +2,7 @@ import type { MemoryCategory } from "./types";
 
 /**
  * The v2 world taxonomy — the only categories agents may WRITE today. Exposed
- * as the ctx_memory schema enum so invalid categories fail at validation
+ * as the mctx_memory schema enum so invalid categories fail at validation
  * instead of bouncing off a runtime check. Legacy 9-cat values remain readable
  * (CATEGORY_PRIORITY) for pre-v2 rows but are not accepted for new writes.
  */

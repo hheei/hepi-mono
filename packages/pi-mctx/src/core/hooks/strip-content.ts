@@ -132,7 +132,7 @@ const METADATA_PART_TYPES = new Set([
 
 /**
  * Neutralize messages that consist entirely of [dropped §N§] placeholders.
- * These are leftover shells after ctx_reduce drops their content — keeping
+ * These are leftover shells after mctx_reduce drops their content — keeping
  * their original text wastes tokens without providing any value since there
  * is no recall mechanism.
  *

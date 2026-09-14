@@ -1039,7 +1039,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 			const skipUnanchoredPromotion = discardedLast || weakLookaheadFinalCompartment;
 
 			// Two distinct gates (parity with legacy host): embeddingActive = memory
-			// feature on (drives registration + embedding, the ctx_search / dreamer
+			// feature on (drives registration + embedding, the mctx_search / dreamer
 			// linking substrate); promotionActive additionally requires auto_promote
 			// (drives writing facts as memories).
 			const embeddingActive = memoryEnabled !== false;
@@ -1198,7 +1198,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				}
 			}
 
-			// Primers v1 are recall-only side-table writes (dashboard + ctx_search),
+			// Primers v1 are recall-only side-table writes (dashboard + mctx_search),
 			// never prompt injection. They use the same actual-final weak-lookahead
 			// gate as facts and observations.
 			if (!skipUnanchoredPromotion && validatedPass.primerCandidates?.length && projectPath) {
@@ -1250,7 +1250,7 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				}
 			}
 
-			// Raw chunk embeddings: the ctx_search semantic substrate over session
+			// Raw chunk embeddings: the mctx_search semantic substrate over session
 			// history. Fire-and-forget, best-effort, memory-gated.
 			if (embeddingActive) {
 				const chunksToEmbed: CompartmentChunkToEmbed[] = [];

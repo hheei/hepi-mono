@@ -1,10 +1,10 @@
 /**
- * Pi-side wrapper for the `ctx_memory` tool.
+ * Pi-side wrapper for the `mctx_memory` tool.
  *
  * Action surface mirrors legacy host's `packages/plugin/src/tools/ctx-memory/tools.ts`.
  * Two tiers of actions:
  *
- *  Primary (for any agent that can call ctx_memory):
+ *  Primary (for any agent that can call mctx_memory):
  *    - write: insert a new memory (or no-op + bump seenCount on dedup hit)
  *    - archive: soft-delete a memory (status = 'archived'), optional reason
  *    - update: rewrite a memory's content (recomputes normalized_hash + queues re-embed)
@@ -311,7 +311,7 @@ export function createCtxMemoryTool(deps: CtxMemoryToolDeps): ToolDefinition<typ
 		: CTX_MEMORY_DESCRIPTION;
 
 	return {
-		name: "ctx_memory",
+		name: "mctx_memory",
 		label: "Magic Context: Memory",
 		description,
 		parameters: ParamsSchema,

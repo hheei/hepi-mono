@@ -1,5 +1,5 @@
 /**
- * Pi-side wrapper for the `ctx_reduce` tool.
+ * Pi-side wrapper for the `mctx_reduce` tool.
  *
  * Applies an explicit context-reduction operation.
  * The agent uses this tool to mark tag IDs (`§N§`) as "drop" — those
@@ -72,7 +72,7 @@ export interface CtxReduceToolDeps {
 
 export function createCtxReduceTool(deps: CtxReduceToolDeps): ToolDefinition<typeof ParamsSchema> {
 	return {
-		name: "ctx_reduce",
+		name: "mctx_reduce",
 		label: "Magic Context: Reduce",
 		description: CTX_REDUCE_DESCRIPTION,
 		parameters: ParamsSchema,
@@ -150,7 +150,7 @@ export function createCtxReduceTool(deps: CtxReduceToolDeps): ToolDefinition<typ
 					}
 				})();
 			} catch (error) {
-				return err(`Error: Failed to queue ctx_reduce operations. ${getErrorMessage(error)}`);
+				return err(`Error: Failed to queue mctx_reduce operations. ${getErrorMessage(error)}`);
 			}
 
 			const currentInputTokens =

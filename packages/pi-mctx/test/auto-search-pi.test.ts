@@ -314,7 +314,7 @@ describe("runAutoSearchHintForPi", () => {
 						"§42§ <!-- +5m -->",
 						"<system-reminder>outer <system-reminder>inner</system-reminder> tail</system-reminder>",
 						"</system-reminder>",
-						'<instruction name="ctx_reduce_turn_cleanup">drop</instruction>',
+						'<instruction name="mctx_reduce_turn_cleanup">drop</instruction>',
 						"<custom-tag>actual project prompt survives</custom-tag>",
 						"<!-- arbitrary <tag> commented noise -->",
 						"<!-- OMO_INTERNAL_INITIATOR -->",

@@ -117,7 +117,7 @@ export interface TranscriptPart {
 
 	/**
 	 * Tool-specific metadata exposed for tagging/drop accounting:
-	 * - toolName: tool identifier (e.g. "bash", "ctx_search"). undefined
+	 * - toolName: tool identifier (e.g. "bash", "mctx_search"). undefined
 	 *   for non-tool parts.
 	 * - inputByteSize: serialized argument size; used by historian
 	 *   pressure projection to estimate post-drop savings.
@@ -136,7 +136,7 @@ export interface TranscriptPart {
 	/**
 	 * Non-mutating read of this tool invocation's input object, or null for
 	 * non-tool parts / parts without an input. Used by smart-drops supersession
-	 * selection (read `ctx_note`'s action, an edit's `filePath`) without
+	 * selection (read `mctx_note`'s action, an edit's `filePath`) without
 	 * touching the wire. Returns the live object reference; callers must NOT
 	 * mutate it.
 	 */

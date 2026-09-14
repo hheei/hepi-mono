@@ -1,7 +1,7 @@
 /**
- * Verbose / by-id rendering for ctx_expand.
+ * Verbose / by-id rendering for mctx_expand.
  *
- * The default ctx_expand range view returns a CONDENSED digest (turns merged,
+ * The default mctx_expand range view returns a CONDENSED digest (turns merged,
  * tool calls collapsed to `TC: name(arg)`). These two renderers add the recovery
  * modes:
  *
@@ -11,7 +11,7 @@
  *   - `renderMessageById`: the FULL untruncated content of one message (any
  *     role) — every text part, and every tool call's complete input + output —
  *     read straight from the harness's stored history (Pi JSONL).
- *     This is the cheap way back from a `ctx_reduce` drop: the wire placeholder
+ *     This is the cheap way back from a `mctx_reduce` drop: the wire placeholder
  *     is `[dropped §N§]`, but the original output still lives in storage until
  *     the row is genuinely deleted (session prune/revert), in which case we say
  *     so rather than re-running the tool (which could now give a different
@@ -197,7 +197,7 @@ function renderPartFull(part: unknown): string | null {
 
 /**
  * Full untruncated recovery of one message by its ORDINAL — the same `[N]`
- * identifier the agent already uses everywhere (compartment start/end, ctx_search
+ * identifier the agent already uses everywhere (compartment start/end, mctx_search
  * hits, the verbose range view). Returns a "deleted" message when no message sits
  * at that ordinal (pruned/reverted or wrong ordinal).
  */
@@ -232,7 +232,7 @@ export interface VerboseRangeResult {
 /**
  * Verbose range view: every message in [start, end] shown separately, with its
  * id and a per-part preview, bounded by `tokenBudget`. The agent reads the ids
- * here and recovers any one message in full with ctx_expand(id=...).
+ * here and recovers any one message in full with mctx_expand(id=...).
  */
 export function renderVerboseRange(
 	sessionId: string,

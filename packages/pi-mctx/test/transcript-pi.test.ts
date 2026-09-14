@@ -154,7 +154,7 @@ describe("createPiTranscript", () => {
 
 	it("getToolInput returns the toolCall arguments object, null for non-tool parts", () => {
 		const messages = [
-			assistantToolCall("call-1", "ctx_note", {
+			assistantToolCall("call-1", "mctx_note", {
 				action: "dismiss",
 				note_id: 42,
 			}),

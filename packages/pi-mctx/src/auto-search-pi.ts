@@ -6,7 +6,7 @@
  * user message, run the shared `unifiedSearch()` over the stripped user
  * prompt, build the shared vague-recall hint, and append that hint to the
  * latest user message. The hint is deliberately not inline retrieved data;
- * it nudges the agent to call `ctx_search` for full context if relevant.
+ * it nudges the agent to call `mctx_search` for full context if relevant.
  *
  * ## Per-turn cache
  *
@@ -364,7 +364,7 @@ export async function runAutoSearchHintForPi(args: {
 			},
 			isEmbeddingRuntimeEnabled: () => embeddingEnabled === true,
 			visibleMemoryIds: options.visibleMemoryIds ?? null,
-			// Primers v1 are cache-neutral: explicit ctx_search/dashboard only,
+			// Primers v1 are cache-neutral: explicit mctx_search/dashboard only,
 			// never transform-time auto-search prompt hints.
 			sources: ["memory", "message", "git_commit"],
 		};

@@ -117,7 +117,7 @@ describe("decideChannel1 — trajectories", () => {
 		expect(d.fire).toBe(true);
 		expect(d.level).toBe("gentle");
 	});
-	it("post-ctx_reduce suppression: never fire on a reduce turn", () => {
+	it("post-mctx_reduce suppression: never fire on a reduce turn", () => {
 		const d = decideChannel1({
 			...base,
 			undroppedTokens: 140_000,
@@ -165,7 +165,7 @@ describe("decideChannel1 — trajectories", () => {
 		expect(d.level).toBe("firm");
 		expect(d.nextLastNudgeLevel).toBe("firm");
 	});
-	it("post-ctx_reduce reset clears the persisted level", () => {
+	it("post-mctx_reduce reset clears the persisted level", () => {
 		const d = decideChannel1({
 			...base,
 			undroppedTokens: 140_000,
@@ -308,6 +308,6 @@ describe("buildChannel2Reminder", () => {
 		expect(r).toContain("<system-reminder>");
 		expect(r).toContain("</system-reminder>");
 		expect(r).toContain("~55k");
-		expect(r).toContain("ctx_reduce");
+		expect(r).toContain("mctx_reduce");
 	});
 });

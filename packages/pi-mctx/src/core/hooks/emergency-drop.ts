@@ -52,7 +52,7 @@ function normalizeToolName(toolName: string | null): string {
 /**
  * Classify a tool into its drop tier. T1 (keep longest) = navigation/structure
  * the agent re-uses; T2 (medium) = edit-class continuation context; T3 (drop
- * first) = everything else (the default — bash, ctx_reduce, inspect, web, …).
+ * first) = everything else (the default — bash, mctx_reduce, inspect, web, …).
  */
 export function resolveToolTier(toolName: string | null): Tier {
 	const name = normalizeToolName(toolName);

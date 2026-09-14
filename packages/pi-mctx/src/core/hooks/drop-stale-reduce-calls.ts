@@ -2,21 +2,21 @@ import { isRecord } from "../shared/record-type-guard";
 import { isSentinel, makeSentinel } from "./sentinel";
 import type { MessageLike } from "./tag-messages";
 
-const STALE_TOOL_NAMES = new Set(["ctx_reduce"]);
+const STALE_TOOL_NAMES = new Set(["mctx_reduce"]);
 
 export function isReduceToolPart(part: unknown): boolean {
 	if (!isRecord(part)) return false;
-	// Legacy format: { type: "tool", tool: "ctx_reduce" }
+	// Legacy format: { type: "tool", tool: "mctx_reduce" }
 	if (part.type === "tool" && typeof part.tool === "string" && STALE_TOOL_NAMES.has(part.tool))
 		return true;
-	// tool-invocation format: { type: "tool-invocation", toolName: "ctx_reduce" }
+	// tool-invocation format: { type: "tool-invocation", toolName: "mctx_reduce" }
 	if (
 		part.type === "tool-invocation" &&
 		typeof part.toolName === "string" &&
 		STALE_TOOL_NAMES.has(part.toolName)
 	)
 		return true;
-	// tool_use format: { type: "tool_use", name: "ctx_reduce" }
+	// tool_use format: { type: "tool_use", name: "mctx_reduce" }
 	if (part.type === "tool_use" && typeof part.name === "string" && STALE_TOOL_NAMES.has(part.name))
 		return true;
 	return false;
@@ -63,30 +63,30 @@ function sentinelizeReduceParts(message: MessageLike): boolean {
 }
 
 export interface StaleReduceStripResult {
-	/** True if any ctx_reduce part was sentinelized this pass. */
+	/** True if any mctx_reduce part was sentinelized this pass. */
 	didDrop: boolean;
 	/** Message ids newly detected as aged this pass (only when detect=true). */
 	newlyStrippedIds: string[];
 }
 
 /**
- * Sentinel-strip aged `ctx_reduce` tool parts using a FROZEN replay watermark.
+ * Sentinel-strip aged `mctx_reduce` tool parts using a FROZEN replay watermark.
  *
  * The cache-stability contract: a defer pass must replay byte-identical to the
  * prior pass. An earlier version recomputed eligibility from the live
  * `messages.length - protectedCount` boundary on every pass — but that boundary
  * MOVES as the conversation grows, so a defer pass with tail growth would newly
- * strip an older ctx_reduce call mid-prefix (for Anthropic the empty sentinel is
+ * strip an older mctx_reduce call mid-prefix (for Anthropic the empty sentinel is
  * filtered before the wire and the dropped tool_result lets the SDK merge
  * adjacent assistants → the message vanishes + the array shifts → the cached
  * prefix busts). That is exactly the bug this design removes.
  *
  * Instead, eligibility is an id-keyed frozen set:
- * - REPLAY (every pass): strip ctx_reduce parts in any message whose `info.id`
+ * - REPLAY (every pass): strip mctx_reduce parts in any message whose `info.id`
  *   is in `frozenIds`. Growth-invariant and compaction-safe (a missing id is a
  *   no-op). This is what makes defer passes byte-identical.
  * - DETECT (cache-busting passes only, `detect=true`): additionally scan the
- *   pre-protected region for ctx_reduce calls not yet frozen, strip them, and
+ *   pre-protected region for mctx_reduce calls not yet frozen, strip them, and
  *   return their ids in `newlyStrippedIds` so the caller can advance the
  *   persisted watermark. Detection happens only on passes where the wire is
  *   already allowed to change, so it never busts a defer pass.
@@ -113,7 +113,7 @@ export function dropStaleReduceCalls(
 
 		// Replay: any message frozen on a prior cache-busting pass.
 		const inFrozen = id !== undefined && frozenIds.has(id);
-		// Detect (cache-busting passes only): a not-yet-frozen ctx_reduce call
+		// Detect (cache-busting passes only): a not-yet-frozen mctx_reduce call
 		// that has aged past the protected window and carries a stable id.
 		const isNewDetection =
 			!inFrozen &&

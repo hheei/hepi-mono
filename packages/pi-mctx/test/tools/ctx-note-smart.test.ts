@@ -1,5 +1,5 @@
 /**
- * Pi `ctx_note` smart-note coverage.
+ * Pi `mctx_note` smart-note coverage.
  *
  * Pin the parity-critical behaviors against OpenCode's
  * `packages/plugin/src/tools/ctx-note/tools.ts`:
@@ -45,7 +45,7 @@ async function callNote(args: {
 	return { result, text, isError: result.isError === true };
 }
 
-describe("Pi ctx_note smart notes", () => {
+describe("Pi mctx_note smart notes", () => {
 	it("matches OpenCode's default empty-read string", async () => {
 		const db = createTestDb();
 		const { isError, text } = await callNote({
@@ -166,7 +166,7 @@ describe("Pi ctx_note smart notes", () => {
 		);
 		const text = (result.content[0] as { text: string }).text;
 		expect(text).toContain("@msg 1");
-		expect(text).toContain("Use ctx_expand(start=N-10, end=N)");
+		expect(text).toContain("Use mctx_expand(start=N-10, end=N)");
 	});
 
 	it("creates a session note (no surface_condition) regardless of dreamer flag", async () => {

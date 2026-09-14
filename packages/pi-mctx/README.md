@@ -15,5 +15,6 @@ historical comparison.
 
 Pi MCTX owns its persistence. Runtime settings are stored in Pi's global
 `settings.json` under `pi-mctx`; the database is stored under
-`${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`. It does not read,
-write, migrate, or merge the upstream CortexKit `magic-context.jsonc` files.
+`${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/` (default `~/.pi/pi-mctx/`).
+It does not read, write, migrate, or merge the upstream CortexKit
+`magic-context.jsonc` files or `~/.local/share/cortexkit/magic-context/`.

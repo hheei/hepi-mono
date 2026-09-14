@@ -92,7 +92,7 @@ describe("primer candidate storage", () => {
 		});
 		updatePrimerAnswer(db, primerId, "An answer grounded in current source.");
 
-		// The whole reason refresh-primers must use the locked no-ctx_memory
+		// The whole reason refresh-primers must use the locked no-mctx_memory
 		// investigator: a primer answer write must NEVER touch the project memory
 		// epoch (which busts m[0]) or the supersede-delta mutation log (m[1]).
 		expect(getProjectState(db, "git:abc")?.projectMemoryEpoch ?? 0).toBe(epochBefore);

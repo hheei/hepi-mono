@@ -97,7 +97,7 @@ export function registerCtxAugCommand(
 			});
 
 			// Spawn sidekick as a Pi subprocess. The subagent inherits the
-			// current project's cwd so its tool calls (notably `ctx_search`)
+			// current project's cwd so its tool calls (notably `mctx_search`)
 			// resolve against the same project identity as the invoking
 			// session. This lets the sidekick resolve project-scoped memory.
 			const projectIdentity = resolveProjectIdentityForSession(

@@ -365,7 +365,7 @@ describe("subagent-runner pure helpers", () => {
 		expect(args).not.toContain("--");
 	});
 
-	it("locks dreamer-retrospective to --tools ctx_search (no built-ins) and never --no-tools", () => {
+	it("locks dreamer-retrospective to --tools mctx_search (no built-ins) and never --no-tools", () => {
 		const args = buildArgsForTest({
 			...baseOptions,
 			agent: "dreamer-retrospective",
@@ -373,8 +373,8 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe("ctx_search");
-		// --no-tools would disable EVERYTHING including ctx_search — must not appear.
+		expect(args[idx + 1]).toBe("mctx_search");
+		// --no-tools would disable EVERYTHING including mctx_search — must not appear.
 		expect(args).not.toContain("--no-tools");
 	});
 
@@ -391,11 +391,11 @@ describe("subagent-runner pure helpers", () => {
 			agent: "sidekick",
 		});
 		expect(sidekickArgs).toEqual(
-			expect.arrayContaining(["--tools", "read,grep,find,ls,ctx_search"]),
+			expect.arrayContaining(["--tools", "read,grep,find,ls,mctx_search"]),
 		);
 	});
 
-	it("locks base dreamer (curate) to --tools ctx_memory, stripping all built-ins", () => {
+	it("locks base dreamer (curate) to --tools mctx_memory, stripping all built-ins", () => {
 		const args = buildArgsForTest({
 			...baseOptions,
 			agent: "dreamer",
@@ -403,9 +403,9 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe("ctx_memory");
+		expect(args[idx + 1]).toBe("mctx_memory");
 		expect(args).not.toContain("--no-tools");
-		// No codebase/shell built-ins survive the allow-list. (ctx_memory itself is
+		// No codebase/shell built-ins survive the allow-list. (mctx_memory itself is
 		// registered by the lean extension when a real bundle path is present; in
 		// this dev/test env SUBAGENT_ENTRY_PATH is undefined so --extension and the
 		// dreamer-actions flag are absent — the strict allow-list is independent.)
@@ -415,7 +415,7 @@ describe("subagent-runner pure helpers", () => {
 		}
 	});
 
-	it("locks magic-context-dreamer (Pi facade default) to --tools ctx_memory only", () => {
+	it("locks magic-context-dreamer (Pi facade default) to --tools mctx_memory only", () => {
 		const args = buildArgsForTest({
 			...baseOptions,
 			agent: "magic-context-dreamer",
@@ -423,7 +423,7 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe("ctx_memory");
+		expect(args[idx + 1]).toBe("mctx_memory");
 		expect(args).not.toContain("--no-tools");
 		const toolList = args[idx + 1];
 		for (const denied of ["read", "grep", "find", "ls", "bash", "write", "edit"]) {
@@ -454,7 +454,7 @@ describe("subagent-runner pure helpers", () => {
 		expect(args).not.toContain("--tools");
 	});
 
-	it("locks dreamer-docs to file tools plus optional AFT read tools, with no ctx_memory and no extension", () => {
+	it("locks dreamer-docs to file tools plus optional AFT read tools, with no mctx_memory and no extension", () => {
 		const args = buildArgsForTest({
 			...baseOptions,
 			agent: "dreamer-docs",
@@ -464,9 +464,9 @@ describe("subagent-runner pure helpers", () => {
 		expect(idx).toBeGreaterThan(-1);
 		expect(args[idx + 1]).toBe("read,grep,find,ls,bash,write,edit,aft_outline,aft_zoom,aft_search");
 		expect(args).not.toContain("--no-tools");
-		// Edits docs, never the memory store: no ctx_memory, and the lean extension
+		// Edits docs, never the memory store: no mctx_memory, and the lean extension
 		// (which would register it) is not loaded for this agent.
-		expect(args[idx + 1]).not.toContain("ctx_memory");
+		expect(args[idx + 1]).not.toContain("mctx_memory");
 		expect(args).not.toContain("--magic-context-dreamer-actions");
 	});
 
@@ -481,7 +481,7 @@ describe("subagent-runner pure helpers", () => {
 		expect(args).not.toContain("--magic-context-dreamer-actions");
 	});
 
-	it("locks dreamer-primer-investigator to read-only built-ins, AFT read tools, and ctx_search", () => {
+	it("locks dreamer-primer-investigator to read-only built-ins, AFT read tools, and mctx_search", () => {
 		const args = buildArgsForTest({
 			...baseOptions,
 			agent: "dreamer-primer-investigator",
@@ -489,16 +489,16 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe("read,grep,find,ls,aft_outline,aft_zoom,aft_search,ctx_search");
+		expect(args[idx + 1]).toBe("read,grep,find,ls,aft_outline,aft_zoom,aft_search,mctx_search");
 		expect(args).not.toContain("--no-tools");
 		// Source-safety + cache-neutrality: no write/edit/bash, and crucially no
-		// ctx_memory (its mutations bump the project memory epoch → bust m[0]).
+		// mctx_memory (its mutations bump the project memory epoch → bust m[0]).
 		const toolList = args[idx + 1];
-		for (const denied of ["write", "edit", "bash", "ctx_memory", "ctx_note"]) {
+		for (const denied of ["write", "edit", "bash", "mctx_memory", "mctx_note"]) {
 			expect(toolList).not.toContain(denied);
 		}
-		// The lean extension loads (so ctx_search is registered to be gated), but
-		// the dreamer-actions flag (which adds ctx_memory) must NOT be present.
+		// The lean extension loads (so mctx_search is registered to be gated), but
+		// the dreamer-actions flag (which adds mctx_memory) must NOT be present.
 		expect(args).not.toContain("--magic-context-dreamer-actions");
 	});
 
@@ -616,7 +616,7 @@ describe("subagent-runner pure helpers", () => {
 
 	it("does not set --magic-context-dreamer-actions for non-dreamer agents", () => {
 		// Even if the bundle were present, only dreamer-equivalent agents should
-		// receive ctx_memory in the child extension. Historian, sidekick,
+		// receive mctx_memory in the child extension. Historian, sidekick,
 		// compressor etc. stay without the dreamer flag.
 		for (const agent of ["historian", "sidekick", "compressor", "recomp"]) {
 			const args = buildArgsForTest({

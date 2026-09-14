@@ -74,9 +74,8 @@ describe("announcement state persistence", () => {
 		const mod = await loadAnnouncement();
 		const { markAnnouncementSeen } = mod;
 
-		// Storage dir lives under tmpRoot + extensions/pi-mctx — does not
-		// exist yet at the start of the test
-		const expectedDir = path.join(tmpRoot, "extensions", "pi-mctx");
+		// Storage dir lives under tmpRoot/pi-mctx — does not exist yet
+		const expectedDir = path.join(tmpRoot, "pi-mctx");
 		expect(fs.existsSync(expectedDir)).toBe(false);
 
 		markAnnouncementSeen("0.21.7");
@@ -91,7 +90,7 @@ describe("announcement state persistence", () => {
 		const mod = await loadAnnouncement();
 		const { readLastAnnouncedVersion } = mod;
 
-		const dir = path.join(tmpRoot, "extensions", "pi-mctx");
+		const dir = path.join(tmpRoot, "pi-mctx");
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, "last_announced_version"), "  1.2.3  \n");
 
@@ -154,7 +153,7 @@ describe("shouldShowAnnouncement gating", () => {
 			return;
 		}
 
-		const dir = path.join(tmpRoot, "extensions", "pi-mctx");
+		const dir = path.join(tmpRoot, "pi-mctx");
 		const file = path.join(dir, "last_announced_version");
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(file, "");

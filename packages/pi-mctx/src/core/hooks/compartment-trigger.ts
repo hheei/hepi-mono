@@ -224,7 +224,7 @@ function estimateProjectedPostDropPercentage(
 
 	let droppableBytes = 0;
 
-	// 1. Pending user-queued drops (from ctx_reduce) — include both text and reasoning bytes
+	// 1. Pending user-queued drops (from mctx_reduce) — include both text and reasoning bytes
 	//    because dropping a message tag also clears its associated reasoning parts
 	const pendingDrops = getPendingOps(db, sessionId).filter((op) => op.operation === "drop");
 	const pendingDropTagIds = new Set(pendingDrops.map((op) => op.tagId));
@@ -493,7 +493,7 @@ export function checkCompartmentTrigger(
 	);
 	if (usage.percentage < proactiveFloorForGate) {
 		try {
-			// Bound must include DROPPED tags: ctx_reduce/emergency drops
+			// Bound must include DROPPED tags: mctx_reduce/emergency drops
 			// remove tool output from the wire but the raw content still
 			// counts toward the historian's true-raw chunk size — an
 			// active-only bound undercounts after drops and suppresses real

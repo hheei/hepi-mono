@@ -1,13 +1,13 @@
 /**
  * Pi-side `hasVisibleNoteReadCall` — detects a non-stripped
- * `ctx_note(action="read")` tool call in a Pi `AgentMessage[]`. Used
+ * `mctx_note(action="read")` tool call in a Pi `AgentMessage[]`. Used
  * by note-nudger to suppress note nudges while the agent currently
  * has visibility into the notes (and re-surface them once the read
  * has aged out).
  *
  * Pi shapes we care about:
  *   - Assistant message with content array containing
- *     `{ type: "toolCall", name: "ctx_note", arguments: { action: "read" } }`
+ *     `{ type: "toolCall", name: "mctx_note", arguments: { action: "read" } }`
  *
  * Pi's tool result message lives separately (`role: "toolResult"`), but
  * for visibility purposes the toolCall part on the assistant is what
@@ -22,7 +22,6 @@
  * payload), so the action check naturally filters them out.
  */
 
-const NOTE_TOOL_NAME = "ctx_note";
 const READ_ACTION = "read";
 const WHOLE_MESSAGE_PLACEHOLDER_TEXT = "[dropped]";
 
@@ -39,7 +38,7 @@ type PiAssistantMessage = {
 
 /**
  * Returns true if the Pi message array contains at least one non-stripped
- * `ctx_note(action="read")` tool call. Iterates newest-first so we
+ * `mctx_note(action="read")` tool call. Iterates newest-first so we
  * short-circuit on the most recent visible read.
  */
 export function hasVisibleNoteReadCallPi(messages: unknown[]): boolean {
@@ -54,7 +53,7 @@ export function hasVisibleNoteReadCallPi(messages: unknown[]): boolean {
 			if (!part || typeof part !== "object") continue;
 			const p = part as PiToolCall;
 			if (p.type !== "toolCall") continue;
-			if (p.name !== NOTE_TOOL_NAME) continue;
+			if (p.name !== "mctx_note") continue;
 			const args = p.arguments;
 			if (!args || typeof args !== "object") continue;
 			const action = (args as { action?: unknown }).action;

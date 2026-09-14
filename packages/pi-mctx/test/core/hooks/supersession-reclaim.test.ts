@@ -46,7 +46,7 @@ function freshDb(): ReturnType<typeof openDatabase> & object {
 
 const SES = "ses-1";
 
-/** A droppable tool target; optional input for ctx_note action / edit filePath reads. */
+/** A droppable tool target; optional input for mctx_note action / edit filePath reads. */
 function target(input?: Record<string, unknown>): TagTarget {
 	return {
 		setContent: () => true,
@@ -68,11 +68,11 @@ function ids(ops: ReturnType<typeof buildSupersessionReclaimOps>): number[] {
 }
 
 describe("buildSupersessionReclaimOps", () => {
-	it("keeps newest 5 ctx_reduce, drops older ones", () => {
+	it("keeps newest 5 mctx_reduce, drops older ones", () => {
 		const db = freshDb();
 		const targets = new Map<number, TagTarget>();
 		for (let n = 1; n <= 7; n += 1) {
-			insertTag(db, SES, `c${n}`, "tool", 40, n, 0, "ctx_reduce");
+			insertTag(db, SES, `c${n}`, "tool", 40, n, 0, "mctx_reduce");
 			targets.set(n, target());
 		}
 		const ops = buildSupersessionReclaimOps({ db, sessionId: SES, targets });
@@ -92,12 +92,12 @@ describe("buildSupersessionReclaimOps", () => {
 		expect(ids(ops)).toEqual([1, 2]);
 	});
 
-	it("drops ctx_note read/dismiss but never write/update; unreadable action is safe", () => {
+	it("drops mctx_note read/dismiss but never write/update; unreadable action is safe", () => {
 		const db = freshDb();
-		insertTag(db, SES, "c1", "tool", 50, 1, 0, "ctx_note");
-		insertTag(db, SES, "c2", "tool", 50, 2, 0, "ctx_note");
-		insertTag(db, SES, "c3", "tool", 50, 3, 0, "ctx_note");
-		insertTag(db, SES, "c4", "tool", 50, 4, 0, "ctx_note");
+		insertTag(db, SES, "c1", "tool", 50, 1, 0, "mctx_note");
+		insertTag(db, SES, "c2", "tool", 50, 2, 0, "mctx_note");
+		insertTag(db, SES, "c3", "tool", 50, 3, 0, "mctx_note");
+		insertTag(db, SES, "c4", "tool", 50, 4, 0, "mctx_note");
 		const targets = new Map<number, TagTarget>([
 			[1, target({ action: "read" })],
 			[2, target({ action: "dismiss" })],

@@ -15,6 +15,7 @@ import {
 	MagicContextConfigSchema,
 } from "#core/config/schema/magic-context";
 import { setOutputReserveConfig } from "#core/shared/models-dev-cache";
+import { overlayAgentMemoryEnv } from "../agentmemory/runtime";
 
 export const PI_MCTX_SETTINGS_SECTION = "pi-mctx";
 export const PI_MCTX_SETTINGS_GROUP = "operational";
@@ -48,6 +49,14 @@ const EMBEDDING_PROVIDER_FIELD = "embeddingProvider";
 const EMBEDDING_MODEL_FIELD = "embeddingModel";
 const EMBEDDING_ENDPOINT_FIELD = "embeddingEndpoint";
 const EMBEDDING_API_KEY_ENV_FIELD = "embeddingApiKeyEnv";
+const AGENTMEMORY_ENABLED_FIELD = "agentmemoryEnabled";
+const AGENTMEMORY_URL_FIELD = "agentmemoryUrl";
+const AGENTMEMORY_SECRET_FIELD = "agentmemorySecret";
+const AGENTMEMORY_PROJECT_FIELD = "agentmemoryProject";
+const AGENTMEMORY_AGENT_ID_FIELD = "agentmemoryAgentId";
+const AGENTMEMORY_CAPTURE_FIELD = "agentmemoryCapture";
+const AGENTMEMORY_MEMORY_TOOLS_FIELD = "agentmemoryMemoryTools";
+const AGENTMEMORY_REQUIRE_HTTPS_FIELD = "agentmemoryRequireHttps";
 
 const DEFAULT_CONFIG = MagicContextConfigSchema.parse({});
 let bootConfig: MagicContextConfig | undefined;
@@ -206,7 +215,7 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 						}
 					: DEFAULT_CONFIG.embedding;
 
-	return MagicContextConfigSchema.parse({
+	const parsed = MagicContextConfigSchema.parse({
 		enabled: settingBoolean(state, ENABLED_FIELD, DEFAULT_CONFIG.enabled),
 		compaction: {
 			...DEFAULT_CONFIG.compaction,
@@ -335,8 +344,30 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 					),
 				}
 			: undefined,
+		agentmemory: {
+			enabled: settingBoolean(state, AGENTMEMORY_ENABLED_FIELD, DEFAULT_CONFIG.agentmemory.enabled),
+			url: settingText(state, AGENTMEMORY_URL_FIELD) ?? DEFAULT_CONFIG.agentmemory.url,
+			secret: settingText(state, AGENTMEMORY_SECRET_FIELD) ?? "",
+			project: settingText(state, AGENTMEMORY_PROJECT_FIELD) ?? "",
+			agentId: settingText(state, AGENTMEMORY_AGENT_ID_FIELD) ?? "",
+			capture: settingBoolean(state, AGENTMEMORY_CAPTURE_FIELD, DEFAULT_CONFIG.agentmemory.capture),
+			memoryTools: settingBoolean(
+				state,
+				AGENTMEMORY_MEMORY_TOOLS_FIELD,
+				DEFAULT_CONFIG.agentmemory.memoryTools,
+			),
+			requireHttps: settingBoolean(
+				state,
+				AGENTMEMORY_REQUIRE_HTTPS_FIELD,
+				DEFAULT_CONFIG.agentmemory.requireHttps,
+			),
+		},
 		...(sidekickModel ? { sidekick: { model: sidekickModel } } : {}),
 	});
+	return {
+		...parsed,
+		agentmemory: overlayAgentMemoryEnv(parsed.agentmemory),
+	};
 }
 
 function readPiMctxSettings(): SettingsState {
@@ -468,7 +499,7 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 						id: MEMORY_GIT_COMMIT_INDEXING_ENABLED_FIELD,
 						label: "git commit indexing",
 						defaultValue: memory.git_commit_indexing.enabled,
-						description: "Index project Git commits as a ctx_search source after reload.",
+						description: "Index project Git commits as a mctx_search source after reload.",
 					}),
 					numberField({
 						id: MEMORY_GIT_COMMIT_SINCE_DAYS_FIELD,
@@ -534,21 +565,23 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 					}),
 					booleanField({
 						id: DREAMER_ENABLED_FIELD,
-						label: "dreamer",
+						label: "dreamer (deprecated)",
 						defaultValue: dreamerEnabled,
-						description: "Enable Dreamer background tasks using canonical default schedules.",
+						description:
+							"Deprecated. Opt in to Dreamer background tasks. Default is off; existing implementation still runs when enabled.",
 					}),
 					textField({
 						id: DREAMER_MODEL_FIELD,
-						label: "dreamer model",
+						label: "dreamer model (deprecated)",
 						description:
-							"Pi provider/model ID for Dreamer tasks. Leave empty to use existing task session-model fallback where available.",
+							"Deprecated. Pi provider/model ID for Dreamer tasks. Leave empty to use existing task session-model fallback where available.",
 					}),
 					booleanField({
 						id: DREAMER_INJECT_DOCS_FIELD,
-						label: "dreamer project docs",
+						label: "dreamer project docs (deprecated)",
 						defaultValue: DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
-						description: "Inject project documentation into Dreamer task prompts after reload.",
+						description:
+							"Deprecated. Inject project documentation into Dreamer task prompts after reload.",
 					}),
 					textField({
 						id: SIDEKICK_MODEL_FIELD,
@@ -558,28 +591,81 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 					}),
 					textField({
 						id: EMBEDDING_PROVIDER_FIELD,
-						label: "embedding provider",
+						label: "embedding provider (deprecated)",
 						defaultValue: DEFAULT_CONFIG.embedding.provider,
-						description: "Embedding backend: local, openai-compatible, or off.",
+						description:
+							"Deprecated. Embedding backend: off (default), local, or openai-compatible.",
 					}),
 					textField({
 						id: EMBEDDING_MODEL_FIELD,
-						label: "embedding model",
+						label: "embedding model (deprecated)",
 						defaultValue:
 							DEFAULT_CONFIG.embedding.provider === "local" ? DEFAULT_CONFIG.embedding.model : "",
 						description:
-							"Local or remote embedding model ID. Remote mode requires this value and an endpoint.",
+							"Deprecated. Local or remote embedding model ID. Remote mode requires this value and an endpoint.",
 					}),
 					textField({
 						id: EMBEDDING_ENDPOINT_FIELD,
-						label: "embedding endpoint",
-						description: "OpenAI-compatible embedding API endpoint. Applies only in remote mode.",
+						label: "embedding endpoint (deprecated)",
+						description:
+							"Deprecated. OpenAI-compatible embedding API endpoint. Applies only in remote mode.",
 					}),
 					environmentVariableField({
 						id: EMBEDDING_API_KEY_ENV_FIELD,
-						label: "embedding API key env",
+						label: "embedding API key env (deprecated)",
 						description:
-							"Environment variable containing the remote embedding API key. The key itself is never saved in Pi settings.",
+							"Deprecated. Environment variable containing the remote embedding API key. The key itself is never saved in Pi settings.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_ENABLED_FIELD,
+						label: "agentmemory",
+						defaultValue: DEFAULT_CONFIG.agentmemory.enabled,
+						description:
+							"Enable the HTTP bridge to an upstream AgentMemory service after reload. Independent of Window enabled.",
+					}),
+					textField({
+						id: AGENTMEMORY_URL_FIELD,
+						label: "agentmemory URL",
+						defaultValue: DEFAULT_CONFIG.agentmemory.url,
+						description: "AgentMemory HTTP base URL. AGENTMEMORY_URL overrides this after reload.",
+					}),
+					textField({
+						id: AGENTMEMORY_SECRET_FIELD,
+						label: "agentmemory secret",
+						description:
+							"Optional Bearer token for AgentMemory. AGENTMEMORY_SECRET overrides this. Prefer the environment variable.",
+					}),
+					textField({
+						id: AGENTMEMORY_PROJECT_FIELD,
+						label: "agentmemory project",
+						description:
+							"Optional AgentMemory project namespace. Empty uses the cwd basename. AGENTMEMORY_PROJECT_NAME overrides this.",
+					}),
+					textField({
+						id: AGENTMEMORY_AGENT_ID_FIELD,
+						label: "agentmemory agent id",
+						description: "Optional AgentMemory agent id tag. AGENT_ID overrides this after reload.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_CAPTURE_FIELD,
+						label: "agentmemory capture",
+						defaultValue: DEFAULT_CONFIG.agentmemory.capture,
+						description:
+							"Observe prompts, tool results, and assistant turns over HTTP when the bridge is enabled.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_MEMORY_TOOLS_FIELD,
+						label: "agentmemory memory tools",
+						defaultValue: DEFAULT_CONFIG.agentmemory.memoryTools,
+						description:
+							"Register mctx_memory against AgentMemory and fold its hits into mctx_search when the bridge is enabled.",
+					}),
+					booleanField({
+						id: AGENTMEMORY_REQUIRE_HTTPS_FIELD,
+						label: "agentmemory require HTTPS",
+						defaultValue: DEFAULT_CONFIG.agentmemory.requireHttps,
+						description:
+							"Fail closed when a Bearer secret would cross plaintext HTTP to a non-loopback host.",
 					}),
 				],
 			},

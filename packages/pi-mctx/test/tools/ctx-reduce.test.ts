@@ -1,5 +1,5 @@
 /**
- * Regression coverage for the Pi `ctx_reduce` tool.
+ * Regression coverage for the Pi `mctx_reduce` tool.
  *
  * Pin the parity-critical behaviors against OpenCode's
  * `packages/plugin/src/tools/ctx-reduce/tools.ts`:
@@ -61,7 +61,7 @@ async function callDrop(args: {
 	return { result, text, isError: result.isError === true };
 }
 
-describe("Pi ctx_reduce tool", () => {
+describe("Pi mctx_reduce tool", () => {
 	it("queues a drop for a known active tag", async () => {
 		const db = createTestDb();
 		const sessionId = "ses-reduce-1";

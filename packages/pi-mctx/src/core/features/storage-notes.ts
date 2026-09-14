@@ -21,7 +21,7 @@ export interface Note {
 	/** Message ordinal of the live tail when the note was written, so the note
 	 *  can be traced back to the conversation that produced it. The agent reads
 	 *  this as the upper bound and expands `anchorOrdinal - x .. anchorOrdinal`
-	 *  via ctx_expand at its own discretion. Null for notes written before this
+	 *  via mctx_expand at its own discretion. Null for notes written before this
 	 *  was tracked, or when the session had no indexed messages yet. */
 	anchorOrdinal: number | null;
 	compiledCheck: string | null;

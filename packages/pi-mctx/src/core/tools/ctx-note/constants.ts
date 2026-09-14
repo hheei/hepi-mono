@@ -1,6 +1,6 @@
 export const CTX_NOTE_DESCRIPTION = `Working notes for this session's future — reminders, follow-ups, and things to revisit later.
 
-Use a note when something matters LATER but not in the next few steps: "revisit the retry logic after the release", "user wants the dashboard polish batched", "flaky test to investigate when touching CI". Don't use notes for active multi-step work or durable project knowledge that should outlive this session (use ctx_memory). Notes resurface automatically at natural work boundaries and whenever you read them.
+Use a note when something matters LATER but not in the next few steps: "revisit the retry logic after the release", "user wants the dashboard polish batched", "flaky test to investigate when touching CI". Don't use notes for active multi-step work or durable project knowledge that should outlive this session (use mctx_memory). Notes resurface automatically at natural work boundaries and whenever you read them.
 
 Actions:
 - write: save a note (content). Add surface_condition to make it a smart note (below).
@@ -13,4 +13,4 @@ Smart notes: pass surface_condition and the note stays hidden until a background
 ✓ "When packages/plugin/src/foo.ts contains a function named bar"
 ✗ "When the user mentions X" / "when we revisit Y" / "after we finish this refactor" — no external signal; write a regular note instead.
 
-Example: ctx_note(action="write", content="Re-run the perf benchmark once the boundary rework ships", surface_condition="When the latest release tag is >= v0.23.0")`;
+Example: mctx_note(action="write", content="Re-run the perf benchmark once the boundary rework ships", surface_condition="When the latest release tag is >= v0.23.0")`;

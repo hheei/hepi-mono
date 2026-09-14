@@ -35,14 +35,12 @@ afterEach(() => {
 });
 
 describe("data-path", () => {
-	test("resolves production storage under Pi's extension root", () => {
+	test("resolves production storage as a sibling of Pi's agent dir", () => {
 		delete process.env.XDG_DATA_HOME;
 		delete process.env.PI_CODING_AGENT_DIR;
 		delete process.env.NODE_ENV;
 		expect(getDataDir()).toBe(path.join(os.homedir(), ".local", "share"));
-		expect(getMagicContextStorageDir()).toBe(
-			path.join(os.homedir(), ".pi", "agent", "extensions", "pi-mctx"),
-		);
+		expect(getMagicContextStorageDir()).toBe(path.join(os.homedir(), ".pi", "pi-mctx"));
 	});
 
 	test("honors Pi's configured agent directory", () => {
@@ -50,7 +48,7 @@ describe("data-path", () => {
 		process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent";
 		process.env.XDG_DATA_HOME = "/tmp/mctx-data";
 		expect(getDataDir()).toBe("/tmp/mctx-data");
-		expect(getMagicContextStorageDir()).toBe("/tmp/pi-agent/extensions/pi-mctx");
+		expect(getMagicContextStorageDir()).toBe("/tmp/pi-mctx");
 	});
 
 	test("resolves Pi temp, log, and historian paths", () => {

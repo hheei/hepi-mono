@@ -79,8 +79,7 @@ function useTempDataHome(prefix: string): string {
 }
 
 function resolveDbPath(dataHome: string): string {
-	// Pi-owned extension storage path. See data-path.ts.
-	return join(dataHome, "extensions", "pi-mctx", "context.db");
+	return join(dataHome, "pi-mctx", "context.db");
 }
 
 function makeMemoryDatabase(): Database {
@@ -409,7 +408,7 @@ describe("magic-context storage", () => {
 					id: 1,
 					sessionId: "ses-1",
 					category: "USER_DIRECTIVES",
-					content: "Don't drop Sam's <ctx_reduce> note & rationale.",
+					content: "Don't drop Sam's <mctx_reduce> note & rationale.",
 					createdAt: Date.now(),
 					updatedAt: Date.now(),
 				},
@@ -417,7 +416,7 @@ describe("magic-context storage", () => {
 		);
 
 		expect(block).toContain("Keep &lt;instruction&gt; &amp; &lt;magic-context&gt; safe.");
-		expect(block).toContain("Don't drop Sam's &lt;ctx_reduce&gt; note &amp; rationale.");
+		expect(block).toContain("Don't drop Sam's &lt;mctx_reduce&gt; note &amp; rationale.");
 	});
 
 	it("throws when storage operations fail", () => {
@@ -445,10 +444,9 @@ describe("magic-context storage", () => {
 	it("fails closed in openDatabase when file path setup fails (no in-memory fallback)", () => {
 		//#given
 		const dataHome = useTempDataHome("context-storage-fail-closed-");
-		// Force mkdirSync to fail by creating a file at the Pi extension
-		// parent directory. The path is <dataHome>/extensions/pi-mctx/, so
-		// blocking `extensions` forces openDatabase() to fail closed.
-		writeFileSync(join(dataHome, "extensions"), "not-a-directory", "utf-8");
+		// Force mkdirSync to fail by creating a file where the storage dir
+		// would be created. The path is <dataHome>/pi-mctx/.
+		writeFileSync(join(dataHome, "pi-mctx"), "not-a-directory", "utf-8");
 		//#when/#then
 		// openDatabase MUST throw — no silent in-memory fallback. See storage-db.ts.
 		expect(() => openDatabase()).toThrow(/storage unavailable/i);

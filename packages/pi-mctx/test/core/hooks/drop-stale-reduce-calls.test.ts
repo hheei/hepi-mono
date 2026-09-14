@@ -19,13 +19,13 @@ function makeTextPart(text: string) {
 const NO_FROZEN = new Set<string>();
 
 describe("dropStaleReduceCalls (frozen-set replay)", () => {
-	describe("#given a detect pass over aged ctx_reduce messages", () => {
+	describe("#given a detect pass over aged mctx_reduce messages", () => {
 		describe("#when detect=true and the call is past the protected window", () => {
-			it("#then sentinels the ctx_reduce part, preserves length, and reports the id", () => {
+			it("#then sentinels the mctx_reduce part, preserves length, and reports the id", () => {
 				//#given
 				const reduceMsg = makeMessage(
 					"tool",
-					[makeToolPart("ctx_reduce", "Queued: drop §1§")],
+					[makeToolPart("mctx_reduce", "Queued: drop §1§")],
 					"reduce-1",
 				);
 				const messages = [
@@ -46,7 +46,7 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				expect(messages[0]!.parts[0]).toEqual(makeTextPart("hello"));
 				expect(messages[1]!.parts[0]).toEqual(makeTextPart("thinking..."));
 				expect(messages[3]!.parts[0]).toEqual(makeTextPart("continue"));
-				// The ctx_reduce-only message became a single-sentinel shell
+				// The mctx_reduce-only message became a single-sentinel shell
 				expect(messages[2]!.parts).toHaveLength(1);
 				expect(isSentinel(messages[2]!.parts[0])).toBe(true);
 			});
@@ -85,16 +85,16 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 		});
 	});
 
-	describe("#given a message with mixed tool parts including ctx_reduce", () => {
-		describe("#when one part is ctx_reduce and another is a different tool", () => {
-			it("#then sentinels only the ctx_reduce part and preserves parts.length", () => {
+	describe("#given a message with mixed tool parts including mctx_reduce", () => {
+		describe("#when one part is mctx_reduce and another is a different tool", () => {
+			it("#then sentinels only the mctx_reduce part and preserves parts.length", () => {
 				//#given
 				const messages = [
 					makeMessage(
 						"tool",
 						[
 							makeToolPart("bash", "exit code 0", "call-a"),
-							makeToolPart("ctx_reduce", "Queued: drop §5§", "call-b"),
+							makeToolPart("mctx_reduce", "Queued: drop §5§", "call-b"),
 						],
 						"mixed-1",
 					),
@@ -119,9 +119,9 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				//#given
 				const messages = [
 					makeMessage("user", [makeTextPart("old message")], "u-old"),
-					makeMessage("tool", [makeToolPart("ctx_reduce", "Queued: drop §1§")], "r-old"),
+					makeMessage("tool", [makeToolPart("mctx_reduce", "Queued: drop §1§")], "r-old"),
 					makeMessage("user", [makeTextPart("recent message")], "u-new"),
-					makeMessage("tool", [makeToolPart("ctx_reduce", "Queued: drop §5§")], "r-new"),
+					makeMessage("tool", [makeToolPart("mctx_reduce", "Queued: drop §5§")], "r-new"),
 				];
 
 				//#when — protect last 2 messages
@@ -136,14 +136,14 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				expect(messages[1]!.parts).toHaveLength(1);
 				expect(isSentinel(messages[1]!.parts[0])).toBe(true);
 				// Protected reduce call stays a real tool_use
-				expect((messages[3]!.parts[0] as { tool: string }).tool).toBe("ctx_reduce");
+				expect((messages[3]!.parts[0] as { tool: string }).tool).toBe("mctx_reduce");
 			});
 		});
 	});
 
 	// ── The cache-bust regression: frozen replay vs. moving boundary ──
 
-	describe("#given a ctx_reduce call frozen on a prior cache-busting pass", () => {
+	describe("#given a mctx_reduce call frozen on a prior cache-busting pass", () => {
 		describe("#when a later DEFER pass replays with tail growth (detect=false)", () => {
 			it("#then re-strips the SAME frozen id and never newly strips a grown-past call", () => {
 				//#given — pass 1 (cache-busting): reduce-1 aged past protection, detected+frozen.
@@ -151,12 +151,12 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				// outside a live `messages.length - protectedCount` window.
 				const reduce1 = makeMessage(
 					"tool",
-					[makeToolPart("ctx_reduce", "Queued: drop §1§")],
+					[makeToolPart("mctx_reduce", "Queued: drop §1§")],
 					"reduce-1",
 				);
 				const reduce2 = makeMessage(
 					"tool",
-					[makeToolPart("ctx_reduce", "Queued: drop §9§")],
+					[makeToolPart("mctx_reduce", "Queued: drop §9§")],
 					"reduce-2",
 				);
 				const messages = [
@@ -183,7 +183,7 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				expect(messages[1]!.parts).toHaveLength(1);
 				expect(isSentinel(messages[1]!.parts[0])).toBe(true);
 				// reduce-2 still a real tool_use — the bug-free invariant
-				expect((messages[3]!.parts[0] as { tool: string }).tool).toBe("ctx_reduce");
+				expect((messages[3]!.parts[0] as { tool: string }).tool).toBe("mctx_reduce");
 			});
 		});
 	});
@@ -194,7 +194,7 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				//#given
 				const buildMessages = () => [
 					makeMessage("user", [makeTextPart("x")], "u-x"),
-					makeMessage("tool", [makeToolPart("ctx_reduce", "Queued: drop §1§")], "r-1"),
+					makeMessage("tool", [makeToolPart("mctx_reduce", "Queued: drop §1§")], "r-1"),
 					makeMessage("user", [makeTextPart("y")], "u-y"),
 					makeMessage("user", [makeTextPart("z")], "u-z"),
 				];
@@ -249,12 +249,12 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 	});
 
 	describe("#given a message without a stable info.id", () => {
-		describe("#when detect=true and it holds an aged ctx_reduce call", () => {
+		describe("#when detect=true and it holds an aged mctx_reduce call", () => {
 			it("#then it is left intact (cannot be frozen for deterministic replay)", () => {
 				//#given
 				const noId: MessageLike = {
 					info: { role: "tool" },
-					parts: [makeToolPart("ctx_reduce", "Queued: drop §1§")],
+					parts: [makeToolPart("mctx_reduce", "Queued: drop §1§")],
 				};
 				const messages = [
 					noId,
@@ -271,7 +271,7 @@ describe("dropStaleReduceCalls (frozen-set replay)", () => {
 				//#then — untouched, not reported
 				expect(result.didDrop).toBe(false);
 				expect(result.newlyStrippedIds).toEqual([]);
-				expect((noId.parts[0] as { tool: string }).tool).toBe("ctx_reduce");
+				expect((noId.parts[0] as { tool: string }).tool).toBe("mctx_reduce");
 			});
 		});
 	});

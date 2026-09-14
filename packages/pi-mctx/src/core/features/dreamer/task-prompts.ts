@@ -30,12 +30,12 @@ Project memory uses exactly 5 categories. Every memory belongs to one:
 
 **Legacy categories during transition:** older memories may still carry pre-v2 category names. When you touch one, map it to its 5-category home with \`action="update"\` (or \`merge\`): WORKFLOW_RULES→PROJECT_RULES, ARCHITECTURE_DECISIONS→ARCHITECTURE, CONFIG_DEFAULTS→CONFIG_VALUES, ENVIRONMENT→CONFIG_VALUES (paths) or CONSTRAINTS, KNOWN_ISSUES→CONSTRAINTS only if it's an external-system limit (otherwise archive — our own fixed bugs are not world facts). USER_DIRECTIVES / USER_PREFERENCES are NOT project categories — they live in the global user profile; archive project copies only when they add zero project-specific detail.`;
 
-// curate: memory-pool hygiene only. It edits the memory store via ctx_memory and
+// curate: memory-pool hygiene only. It edits the memory store via mctx_memory and
 // never reads code (a separate verify task owns memory-vs-code correctness), so
 // the codebase-tool framing is deliberately absent.
 export const CURATE_SYSTEM_PROMPT = `You are a memory-pool curator for the magic-context system. You run during a scheduled dream window to keep a project's cross-session memory store lean and well-formed.
 
-## Memory operations (ctx_memory)
+## Memory operations (mctx_memory)
 - \`action="list"\` — browse active memories, optionally filter by category
 - \`action="merge", ids=[N,M,...], content="...", category="..."\` — consolidate duplicates into one canonical memory
 - \`action="update", ids=[N], content="..."\` — rewrite a memory's content
@@ -120,7 +120,7 @@ The memories below are assumed ACCURATE (a separate verify task keeps them true)
 Work ALL THREE phases below in order (A → B → C) over the whole pool. Do NOT stop after consolidating — a run that only merges and never improves or archives is incomplete.
 
 ### Phase A — Consolidate duplicates
-Group by category, then merge near-identical / superset-subset / same-fact-different-angle clusters into one canonical memory with \`ctx_memory(action="merge", ids=[...], content="...", category="...")\`. Preserve every unique detail; terse present tense; paths/keys verbatim. Every id in a merge MUST share the same category — the system rejects cross-category merges. If two similar memories sit in different categories they are NOT duplicates (one is miscategorized — archive the redundant one in Phase C instead). One fact per memory.
+Group by category, then merge near-identical / superset-subset / same-fact-different-angle clusters into one canonical memory with \`mctx_memory(action="merge", ids=[...], content="...", category="...")\`. Preserve every unique detail; terse present tense; paths/keys verbatim. Every id in a merge MUST share the same category — the system rejects cross-category merges. If two similar memories sit in different categories they are NOT duplicates (one is miscategorized — archive the redundant one in Phase C instead). One fact per memory.
 
 ### Phase B — Improve wording
 Rewrite narrative/historical → operational present tense ("X uses Y because Z", not "we switched to Y"); drop session-local context and commit hashes (unless the hash is the point); add specifics where vague. \`write\` is for SPLITS ONLY (update the original down to its first fact, write the second) — a healthy run is net-neutral or net-shrinking, never net-adds facts.
@@ -144,7 +144,7 @@ export interface RetrospectivePromptEvent {
 
 export const RETROSPECTIVE_SYSTEM_PROMPT = `You are a retrospective learning agent for Magic Context.
 
-You learn only from recurring user-friction moments where the user had to correct, re-explain, or recover from the assistant's repeated behavior. You receive a pre-rendered friction window from the host and may use ctx_search to look for corroborating prior patterns.
+You learn only from recurring user-friction moments where the user had to correct, re-explain, or recover from the assistant's repeated behavior. You receive a pre-rendered friction window from the host and may use mctx_search to look for corroborating prior patterns.
 
 Rules:
 1. Pattern, not one-off: extract only recurring behavior that is likely to happen again. Zero learnings is fine.
@@ -189,7 +189,7 @@ export function buildRetrospectivePrompt(args: {
 
 **Project:** ${args.projectPath}
 
-The host detected possible user friction in the pre-rendered window below. Use it plus ctx_search (if helpful) to decide whether there is a recurring root cause and recurring assistant behavior worth remembering.
+The host detected possible user friction in the pre-rendered window below. Use it plus mctx_search (if helpful) to decide whether there is a recurring root cause and recurring assistant behavior worth remembering.
 
 ### Friction window
 ${args.frictionWindow}

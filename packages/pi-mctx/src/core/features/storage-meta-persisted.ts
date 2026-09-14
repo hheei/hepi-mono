@@ -938,10 +938,10 @@ export function clearEmergencyDropSample(db: Database, sessionId: string): void 
 	})();
 }
 
-// ---- Channel 1 (in-turn tool-output ctx_reduce nudge) cadence + band state ----
+// ---- Channel 1 (in-turn tool-output mctx_reduce nudge) cadence + band state ----
 // `last_nudge_undropped` records the `undropped` estimate when Channel 1 last
 // fired; `last_nudge_level` records the highest band already surfaced in the
-// current cycle. Both reset after ctx_reduce so the next accumulation can start
+// current cycle. Both reset after mctx_reduce so the next accumulation can start
 // a fresh gentle→firm→urgent sequence without repeating the same band.
 export type PersistedChannel1NudgeLevel = "" | "gentle" | "firm" | "urgent";
 
@@ -1025,7 +1025,7 @@ export function resetLastNudgeCycle(db: Database, sessionId: string): void {
  * that the reclaimable tail already shrank below the old watermark.
  *
  * Why this exists: historian publication, emergency eviction, or pending-op
- * replay can shrink the tail WITHOUT a `ctx_reduce` tool call. The old nudge then
+ * replay can shrink the tail WITHOUT a `mctx_reduce` tool call. The old nudge then
  * referred to a pile that no longer exists, so a regrowth must start a new
  * gentle→firm→urgent cycle instead of inheriting a stale persisted band.
  */
@@ -1513,7 +1513,7 @@ export function removeAutoSearchHintDecisionByMessageId(
 }
 
 /**
- * Return the timestamp of the most recent ctx_note(read) call for this session,
+ * Return the timestamp of the most recent mctx_note(read) call for this session,
  * or 0 when the session has never called it. Used by note-nudger to suppress
  * reminders when the agent has already seen notes in recent context.
  */
@@ -1529,13 +1529,13 @@ export function getNoteLastReadAt(db: Database, sessionId: string): number {
 		// Column may not exist yet on a DB that hasn't gone through
 		// ensureColumn (e.g. minimal test schemas). The watermark is a
 		// suppression hint, not required for correctness — return 0 so
-		// the nudge flow proceeds as if ctx_note(read) has never been called.
+		// the nudge flow proceeds as if mctx_note(read) has never been called.
 		return 0;
 	}
 }
 
 /**
- * Record that ctx_note(read) was just called for this session. The watermark is
+ * Record that mctx_note(read) was just called for this session. The watermark is
  * compared against note updated_at / created_at on each nudge decision.
  */
 export function setNoteLastReadAt(db: Database, sessionId: string, at = Date.now()): void {
@@ -1960,16 +1960,16 @@ export function removeStrippedPlaceholderId(
 	return true;
 }
 
-// ── Stale ctx_reduce stripped message IDs (frozen replay watermark) ──
+// ── Stale mctx_reduce stripped message IDs (frozen replay watermark) ──
 
 /**
- * Message ids whose ctx_reduce parts have been sentinel-stripped because they
+ * Message ids whose mctx_reduce parts have been sentinel-stripped because they
  * aged past the protected window. This set is the FROZEN replay watermark for
  * `dropStaleReduceCalls`: it advances ONLY on cache-busting passes (where the
  * wire is allowed to change) and is replayed verbatim on every pass. Replaying
  * a frozen id set — instead of recomputing a live `messages.length - protected`
  * boundary every pass — is what keeps defer passes byte-identical: tail growth
- * can never push an older ctx_reduce call past a moving boundary and strip it
+ * can never push an older mctx_reduce call past a moving boundary and strip it
  * mid-prefix on a defer pass (which busts the Anthropic prompt cache).
  */
 export function getStaleReduceStrippedIds(db: Database, sessionId: string): Set<string> {
@@ -1980,7 +1980,7 @@ export function getStaleReduceStrippedIds(db: Database, sessionId: string): Set<
 }
 
 /**
- * CAS-merge new aged ctx_reduce message ids into the frozen set, retrying on a
+ * CAS-merge new aged mctx_reduce message ids into the frozen set, retrying on a
  * concurrent write so sibling processes sharing the session DB merge instead of
  * clobbering. Returns true when the set ended in the intended state (incl.
  * no-op), false only when retries were exhausted.

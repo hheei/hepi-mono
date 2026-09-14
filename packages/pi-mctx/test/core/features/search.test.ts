@@ -153,7 +153,7 @@ describe("unifiedSearch", () => {
 		saveEmbedding(db, memory.id, new Float32Array([1, 0]), "mock:model");
 		queryEmbedding = new Float32Array([1, 0]);
 
-		// Facts are inserted but should NEVER appear in ctx_search results —
+		// Facts are inserted but should NEVER appear in mctx_search results —
 		// they're always rendered in <session-history> so returning them from
 		// search is redundant.
 		replaceSessionFacts(db, "ses-1", [
@@ -197,7 +197,7 @@ describe("unifiedSearch", () => {
 		const sources = results.map((r) => r.source);
 		expect(sources).toContain("memory");
 		expect(sources).toContain("message");
-		// Facts are NOT a ctx_search source — they're always visible in message[0].
+		// Facts are NOT a mctx_search source — they're always visible in message[0].
 		expect(sources).not.toContain("fact");
 		const messageResults = results.filter((r) => r.source === "message");
 		expect(messageResults.length).toBeGreaterThan(0);
@@ -205,7 +205,7 @@ describe("unifiedSearch", () => {
 		expect(getMemoryById(db, memory.id)?.retrievalCount).toBe(1);
 	});
 
-	it("filters ctx_search workspace memory candidates and FTS hits by shared categories", async () => {
+	it("filters mctx_search workspace memory candidates and FTS hits by shared categories", async () => {
 		db.exec(`
             INSERT INTO workspaces (id, name, share_categories, created_at, updated_at)
             VALUES (1, 'ws', '["CONSTRAINTS"]', 1, 1);
@@ -367,7 +367,7 @@ describe("unifiedSearch", () => {
 
 	it("maxMessageOrdinal=0 excludes every message (no compartment yet → whole tail is live)", async () => {
 		// Issue #131: before the historian first runs there are no compartments,
-		// so the ctx_search tool passes a cutoff of 0. Ordinals are 1-based, so a
+		// so the mctx_search tool passes a cutoff of 0. Ordinals are 1-based, so a
 		// 0 cutoff must exclude EVERY indexed message — none have scrolled out of
 		// the live context the agent already sees (incl. the current prompt).
 		const memory = insertMemory(db, {
@@ -928,7 +928,7 @@ describe("unifiedSearch", () => {
 				ordinal: 2,
 				id: "tool-1",
 				role: "assistant",
-				parts: [{ type: "tool-call", name: "ctx_note" }],
+				parts: [{ type: "tool-call", name: "mctx_note" }],
 			},
 			{
 				ordinal: 3,

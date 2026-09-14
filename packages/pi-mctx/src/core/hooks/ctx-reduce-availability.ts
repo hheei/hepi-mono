@@ -7,7 +7,7 @@ export interface ToolAvailabilityVerdict {
 
 export type CtxReduceAvailabilityVerdict = ToolAvailabilityVerdict;
 
-const CTX_REDUCE_TOOL = "ctx_reduce";
+const CTX_REDUCE_TOOL = "mctx_reduce";
 let ctxReduceRegisteredGlobally = true;
 const availabilityBySession = new BoundedSessionMap<boolean>(1000);
 

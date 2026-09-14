@@ -8,7 +8,7 @@ import { createCtxSearchTool } from "../../src/tools/ctx-search";
 import { asToolResult, createTestDb, fakeContext } from "../test-utils.test";
 
 describe("createCtxSearchTool", () => {
-	it("prints ctx_expand ranges and footer for message search hits", async () => {
+	it("prints mctx_expand ranges and footer for message search hits", async () => {
 		const db = createTestDb();
 		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(async () => [
 			{
@@ -41,7 +41,7 @@ describe("createCtxSearchTool", () => {
 			const text = result.content[0]?.text ?? "";
 			expect(text).toContain("ordinal=12 range=9-15 role=user");
 			expect(text).toContain(
-				"Use ctx_expand(start, end) with the range from any message result above",
+				"Use mctx_expand(start, end) with the range from any message result above",
 			);
 		} finally {
 			spy.mockRestore();
@@ -89,7 +89,7 @@ describe("createCtxSearchTool", () => {
 			const text = result.content[0]?.text ?? "";
 			expect(text).toContain("id=#5 status=ready");
 			expect(text).toContain("@msg 21");
-			expect(text).toContain("Use ctx_expand(start=N-10, end=N) around any note @msg anchor above");
+			expect(text).toContain("Use mctx_expand(start=N-10, end=N) around any note @msg anchor above");
 		} finally {
 			spy.mockRestore();
 			closeQuietly(db);
@@ -135,7 +135,7 @@ describe("createCtxSearchTool", () => {
 			expect(text).toContain("id=#6 status=ready");
 			expect(text).not.toContain("@msg 22");
 			expect(text).not.toContain(
-				"Use ctx_expand(start=N-10, end=N) around any note @msg anchor above",
+				"Use mctx_expand(start=N-10, end=N) around any note @msg anchor above",
 			);
 		} finally {
 			spy.mockRestore();

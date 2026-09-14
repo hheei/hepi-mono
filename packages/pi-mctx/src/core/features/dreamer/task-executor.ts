@@ -918,9 +918,9 @@ async function runRetrospectiveTask(
 					const response = await helpers.moduleRoute.moduleClient.call({
 						sessionId: helpers.moduleRoute.moduleSessionId,
 						projectRoot: helpers.moduleRoute.moduleProjectRoot,
-						method: "ctx_memory",
+						method: "mctx_memory",
 						body: {
-							name: "ctx_memory",
+							name: "mctx_memory",
 							arguments: {
 								action: "write",
 								memory_project: projectIdentity,
@@ -938,7 +938,7 @@ async function runRetrospectiveTask(
 						throw new Error("module rejected retrospective memory");
 					moduleMemoryWritten += 1;
 				} catch (error) {
-					throw new DreamerModuleFailureError("ctx_memory retrospective write", error);
+					throw new DreamerModuleFailureError("mctx_memory retrospective write", error);
 				}
 			}
 			// Invalid memory learnings remain rejected, but never reach a TypeScript memory insert.
@@ -1086,7 +1086,7 @@ async function runAgenticTask(
 				body: {
 					// Each agentic task gets its OWN scoped agent + system prompt so
 					// it never sees another task's tools/rules: curate runs on the
-					// base `dreamer` (ctx_memory only, no codebase tools);
+					// base `dreamer` (mctx_memory only, no codebase tools);
 					// maintain-docs runs on `dreamer-docs` (file read/write/bash, no
 					// memory machinery).
 					agent: task === "maintain-docs" ? DREAMER_DOCS_AGENT : DREAMER_AGENT,

@@ -57,9 +57,12 @@ export function getMagicContextStorageDir(): string {
 		process.env.NODE_ENV === "test"
 			? process.env.XDG_DATA_HOME?.trim() || process.env.MAGIC_CONTEXT_TEST_DATA_DIR?.trim()
 			: undefined;
-	if (testDataDir) return path.join(testDataDir, "extensions", "pi-mctx");
+	if (testDataDir) return path.join(testDataDir, "pi-mctx");
 
 	const agentDir =
 		process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent");
-	return path.join(agentDir, "extensions", "pi-mctx");
+	// Sibling of Pi's agent dir: ~/.pi/pi-mctx (or <parent>/pi-mctx when
+	// PI_CODING_AGENT_DIR is set). Not under agent/extensions (Pi package
+	// install) and not CortexKit's ~/.local/share/cortexkit/magic-context.
+	return path.join(path.dirname(agentDir), "pi-mctx");
 }

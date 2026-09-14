@@ -29,9 +29,9 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 
 			expect(block).not.toBeNull();
 			expect(block).toContain(MAGIC_CONTEXT_GUIDANCE_MARKER);
-			expect(block).toContain("ctx_search");
-			expect(block).toContain("ctx_memory");
-			expect(block).toContain("ctx_note");
+			expect(block).toContain("mctx_search");
+			expect(block).toContain("mctx_memory");
+			expect(block).toContain("mctx_note");
 		} finally {
 			closeQuietly(db);
 		}
@@ -101,7 +101,7 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 		}
 	});
 
-	it("emits no-reduce guidance variant when ctx_reduce is not callable", () => {
+	it("emits no-reduce guidance variant when mctx_reduce is not callable", () => {
 		const db = createTestDb();
 		try {
 			const block = buildMagicContextBlock({
@@ -114,8 +114,8 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 			});
 
 			expect(block).toContain(MAGIC_CONTEXT_GUIDANCE_MARKER);
-			expect(block).not.toContain("ctx_reduce");
-			expect(block).toContain("ctx_search");
+			expect(block).not.toContain("mctx_reduce");
+			expect(block).toContain("mctx_search");
 		} finally {
 			closeQuietly(db);
 		}

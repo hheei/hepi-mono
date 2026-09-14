@@ -7,7 +7,8 @@
  * and agent_end cleanup.
  *
  * Storage: fresh Pi schema at
- *   ${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/context.db
+ *   ${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/context.db
+ *   (default ~/.pi/pi-mctx/context.db; sibling of the Pi agent dir)
  *
  * Config: direct global Pi `settings.json` fields under `pi-mctx`, registered through
  * `@hheei/pi-ext-core`. Settings changes apply on `/reload` or restart.
@@ -82,6 +83,13 @@ import { setKeepSubagents } from "#core/shared/keep-subagents";
 import { log } from "#core/shared/logger";
 import { resolveFallbackChain } from "#core/shared/resolve-fallbacks";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";
+import {
+	type AgentMemoryRuntime,
+	captureAssistantEnd,
+	capturePrompt,
+	captureToolResult,
+	createAgentMemoryRuntime,
+} from "./agentmemory/runtime";
 import { handlePiCloneSessionStart } from "./clone-inheritance";
 import { type PiSidekickConfig, registerCtxAugCommand } from "./commands/ctx-aug";
 import { registerCtxDreamCommand } from "./commands/ctx-dream";
@@ -558,8 +566,6 @@ export function resolveHistorianFromConfig(
 		// long sessions where chunk dedupe matters more than speed.
 		twoPass: historian?.two_pass === true,
 		// Pi only: explicit thinking level for historian subagent invocations.
-		// When set, passed as --thinking <level> to Pi subprocess.
-		// Required for providers like GitHub Copilot that apply bad defaults.
 		thinkingLevel: historian?.thinking_level,
 		executeThresholdPercentage: config.execute_threshold_percentage,
 		executeThresholdTokens: config.execute_threshold_tokens,
@@ -567,8 +573,9 @@ export function resolveHistorianFromConfig(
 		protectedTags: config.protected_tags,
 		clearReasoningAge: config.clear_reasoning_age,
 		historyBudgetPercentage: config.history_budget_percentage,
-		memoryEnabled: config.memory.enabled,
-		autoPromote: config.memory.auto_promote,
+		memoryEnabled: config.agentmemory.enabled ? false : config.memory.enabled,
+		autoPromote: config.agentmemory.enabled ? false : config.memory.auto_promote,
+
 		userMemoriesEnabled: userMemoryCollectionEnabled(config.dreamer),
 		language: config.language,
 		allowHomeProject: config.allow_home_project,
@@ -795,6 +802,26 @@ async function startPiMagicContextRuntime(
 		return;
 	}
 
+	let agentMemoryRuntime: AgentMemoryRuntime | undefined;
+	if (config.agentmemory.enabled) {
+		try {
+			agentMemoryRuntime = createAgentMemoryRuntime(config.agentmemory);
+			info(
+				config.agentmemory.capture
+					? "registered agentmemory HTTP bridge"
+					: "registered agentmemory HTTP bridge (capture disabled)",
+			);
+		} catch (error) {
+			warn(
+				`agentmemory bridge unavailable; Window continues: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	} else {
+		info("agentmemory bridge: DISABLED");
+	}
+
+	const agentMemoryTools = Boolean(agentMemoryRuntime && config.agentmemory.memoryTools);
+
 	await ensureProjectRegisteredFromPiDirectory(projectDir, db);
 	info(
 		`registered embedding config for project ${projectIdentity ?? "(no project identity; cwd is $HOME)"}`,
@@ -836,7 +863,7 @@ async function startPiMagicContextRuntime(
 			clearReasoningAge: cfg.clear_reasoning_age,
 		},
 		injection: {
-			memoryEnabled: cfg.memory.enabled,
+			memoryEnabled: cfg.agentmemory.enabled ? false : cfg.memory.enabled,
 			injectDocs: cfg.dreamer?.inject_docs !== false,
 			injectionBudgetTokens: cfg.memory.injection_budget_tokens,
 			temporalAwareness: cfg.temporal_awareness === true,
@@ -858,7 +885,7 @@ async function startPiMagicContextRuntime(
 					db: database,
 					projectDir: dir,
 					projectIdentity: identity,
-					memoryEnabled: cfg.memory.enabled,
+					memoryEnabled: cfg.agentmemory.enabled ? false : cfg.memory.enabled,
 				},
 				sessionId,
 				dir,
@@ -934,36 +961,37 @@ async function startPiMagicContextRuntime(
 	registerMagicContextTools(pi, {
 		db,
 		ensureProjectRegistered: ensureProjectRegisteredFromPiDirectory,
-		// Main extension entry never gets the dreamer-only ctx_memory
-		// surface — those actions are reserved for dreamer subagents
-		// loaded via subagent-entry.ts with the
-		// `--magic-context-dreamer-actions` flag.
 		allowDreamerActions: false,
-		// ALWAYS register ctx_memory in the main entry. Pi is a single REPL that
-		// can `/cd` between projects, but tool registration happens once at boot,
-		// so gating registration on the BOOT project's memory.enabled would
-		// mismatch the per-project prompt (which re-resolves memory.enabled each
-		// pass): start in a memory-off project and switch to a memory-on one and
-		// the tool would be absent while the prompt advertises it. The tool's
-		// own per-call guard (ctx-memory.ts, getProjectEmbeddingSnapshot) refuses
-		// when the CURRENT project has memory off, so always-register is correct.
-		// (The subagent entry still uses memoryToolEnabled to keep ctx_memory off
-		// the retrieval-only sidekick, a separate security concern.)
-		memoryToolEnabled: true,
+		memoryToolEnabled: !agentMemoryTools,
 		protectedTags: config.protected_tags ?? 20,
 		resolveProtectedTags: (ctx) => resolveCurrentProjectDeps(ctx).config.protected_tags ?? 20,
 		resolveProjectIdentity: (ctx) => resolveCurrentProjectDeps(ctx).projectIdentity,
-		// Smart notes (surface_condition) only work when dreamer is
-		// running — otherwise the note sits `pending` forever with no
-		// path to surface. Match the user's dreamer config flag.
 		dreamerEnabled: isDreamerRunnable(config),
 		resolveDreamerEnabled: (ctx) => resolveCurrentProjectDeps(ctx).dreamerEnabled,
 		compactionOff,
+		...(agentMemoryTools && agentMemoryRuntime
+			? {
+					memorySaveTool: {
+						client: agentMemoryRuntime.client,
+						identity: agentMemoryRuntime.identity,
+					},
+					remoteSearch: {
+						client: agentMemoryRuntime.client,
+						identity: agentMemoryRuntime.identity,
+					},
+				}
+			: {}),
 	});
 	info(
-		compactionOff
-			? "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand (ctx_reduce unavailable in compaction-off mode)"
-			: "registered tools: ctx_search, ctx_memory, ctx_note, ctx_expand, ctx_reduce",
+		[
+			"mctx_search",
+			"mctx_memory",
+			"mctx_note",
+			"mctx_expand",
+			...(compactionOff ? [] : ["mctx_reduce"]),
+		]
+			.join(", ")
+			.replace(/^/, "registered tools: "),
 	);
 
 	pi.on("session_start", async (event, ctx) => {
@@ -983,11 +1011,12 @@ async function startPiMagicContextRuntime(
 		} catch {
 			// Resume kept-tail rewrite is best-effort and must not block session start.
 		}
+		agentMemoryRuntime?.ensureStarted(ctx);
 	});
 
 	// Register the per-LLM-call transform pipeline. Tags eligible message
 	// parts via the shared Tagger and applies queued drops from
-	// `pending_ops` so /ctx-flush and ctx_reduce work against Pi sessions.
+	// `pending_ops` so /ctx-flush and mctx_reduce work against Pi sessions.
 	registerPiContextHandler(pi, bootProjectDeps.contextOptions);
 	info(
 		bootProjectDeps.historianConfig
@@ -1057,6 +1086,31 @@ async function startPiMagicContextRuntime(
 		},
 	});
 	info("registered /ctx-status");
+	if (agentMemoryRuntime) {
+		const healthClient = agentMemoryRuntime.client;
+		pi.registerCommand("agentmemory-health", {
+			description: "Check the upstream AgentMemory HTTP service",
+			handler: async () => {
+				try {
+					const health = await healthClient.health();
+					const status = health.status ?? health.health?.status ?? "ok";
+					sendCtxStatusMessage(pi, {
+						title: "/agentmemory-health",
+						text: `agentmemory: ${status}`,
+						level: "info",
+					});
+				} catch (error) {
+					sendCtxStatusMessage(pi, {
+						title: "/agentmemory-health",
+						text: `agentmemory unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						level: "error",
+					});
+				}
+			},
+		});
+		info("registered /agentmemory-health");
+	}
+
 	pi.on("session_before_compact", async (_event, ctx) =>
 		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
 	);
@@ -1312,6 +1366,8 @@ async function startPiMagicContextRuntime(
 	// `experimental.chat.system.transform` handler in
 	// `system-prompt-hash.ts`.
 	pi.on("before_agent_start", async (event, ctx) => {
+		if (agentMemoryRuntime) capturePrompt(agentMemoryRuntime, ctx, event.prompt);
+
 		// Pi MCTX stores announcements under its own Pi-managed directory.
 		// Dismissing a Pi announcement never mutates legacy host state.
 		// Skipped silently when:
@@ -1627,6 +1683,9 @@ async function startPiMagicContextRuntime(
 		// (runPiHistorian wraps everything; spawnPiHistorianRun's
 		// .finally cleans up the inFlight map).
 		log("agent_end: returning synchronously (background work continues)");
+		if (agentMemoryRuntime) {
+			captureAssistantEnd(agentMemoryRuntime, ctx, event.messages);
+		}
 
 		// Channel 2 (ceiling) nudge delivery — the Pi analog of legacy host's
 		// event-handler delivery on terminal message.updated. The pipeline
@@ -1655,10 +1714,10 @@ async function startPiMagicContextRuntime(
 		}
 	});
 
-	// Tool-execution-start only clears note-nudge state after ctx_note.
+	// Tool-execution-start only clears note-nudge state after mctx_note.
 	pi.on("tool_execution_start", async (event, ctx) => {
 		try {
-			if (event.toolName !== "ctx_note") return;
+			if (event.toolName !== "mctx_note") return;
 			const sessionId = ctx.sessionManager.getSessionId();
 			clearNoteNudgeTriggerAndCooldown(db, sessionId);
 		} catch (err) {
@@ -1672,7 +1731,7 @@ async function startPiMagicContextRuntime(
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			if (typeof sessionId !== "string" || sessionId.length === 0) return;
-			if (!compactionOff && event.toolName === "ctx_reduce") {
+			if (!compactionOff && event.toolName === "mctx_reduce") {
 				markPiChannel1Reduced(sessionId, db);
 			}
 		} catch (err) {
@@ -1716,6 +1775,10 @@ async function startPiMagicContextRuntime(
 				`tool_result hook failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
 			);
 		}
+		if (agentMemoryRuntime) {
+			captureToolResult(agentMemoryRuntime, ctx, event);
+		}
+
 		if (annotatedContent) return { content: annotatedContent as typeof event.content };
 	});
 
@@ -1905,6 +1968,14 @@ async function startPiMagicContextRuntime(
 		// doesn't help that mode (and we don't pretend it does — see
 		// the comment block on the agent_end handler above).
 		const SHUTDOWN_DRAIN_MS = 5_000;
+		if (agentMemoryRuntime) {
+			try {
+				await withTimeout(agentMemoryRuntime.shutdown(), SHUTDOWN_DRAIN_MS);
+			} catch (err) {
+				warn("shutdown: agentmemory drain threw:", err);
+			}
+		}
+
 		try {
 			await withTimeout(awaitInFlightHistorians(), SHUTDOWN_DRAIN_MS);
 		} catch (err) {

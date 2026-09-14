@@ -412,7 +412,7 @@ function isPrimaryMutable(memory: Memory | null): memory is Memory {
 	);
 }
 
-/** Cache-neutral content rewrite (mirrors ctx_memory's in-transaction update):
+/** Cache-neutral content rewrite (mirrors mctx_memory's in-transaction update):
  *  new content + hash, reset shareable + classified_at (re-scored later by
  *  classify), drop stale embeddings/cache, and clear old file mappings. */
 function rewriteMemoryContent(db: Database, memory: Memory, content: string, hash: string): void {

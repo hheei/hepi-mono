@@ -71,8 +71,8 @@ export function buildMagicContextBlock(opts: BuildMagicContextBlockOptions): str
 		opts.cavemanTextCompressionEnabled ?? false,
 		false,
 		opts.language,
-		// Drop ctx_memory guidance when memory is off (the tool is gated via
-		// registerMagicContextTools memoryToolEnabled). ctx_search guidance stays.
+		// Drop mctx_memory guidance when memory is off (the tool is gated via
+		// registerMagicContextTools memoryToolEnabled). mctx_search guidance stays.
 		opts.memoryEnabled !== false,
 	);
 }

@@ -9,7 +9,7 @@
  *   2. Post-commit detection — agent committed work, natural boundary
  *
  * The nudge itself is a short reminder folded into the existing nudge anchor.
- * It does NOT include note content — just a count and "use ctx_note read" hint.
+ * It does NOT include note content — just a count and "use mctx_note read" hint.
  */
 
 import {
@@ -59,10 +59,10 @@ export function onNoteTrigger(db: Database, sessionId: string, trigger: NoteNudg
  *   so injecting into the current user message would mutate cached content).
  * @param projectIdentity - Project identity for resolving ready smart notes.
  * @param noteReadStillVisible - True if the agent currently has a non-stripped
- *   `ctx_note(action="read")` tool call in their visible message context. When
+ *   `mctx_note(action="read")` tool call in their visible message context. When
  *   the agent has read the latest note state AND that read is still visible,
  *   the nudge is suppressed (no value re-surfacing what's already on screen).
- *   When the read has been dropped (compactified, ctx_reduce'd, age-cleaned),
+ *   When the read has been dropped (compactified, mctx_reduce'd, age-cleaned),
  *   the nudge fires again at the next work boundary so the agent regains
  *   visibility into deferred intentions. Caller computes this via
  *   `hasVisibleNoteReadCall(messages)` AFTER drops are materialized.
@@ -126,15 +126,15 @@ export function peekNoteNudgeText(
 	}
 
 	// Suppress only when BOTH conditions hold:
-	//   1. The agent already ran ctx_note(read) AFTER the most recent note
+	//   1. The agent already ran mctx_note(read) AFTER the most recent note
 	//      activity — they've seen the current note state.
-	//   2. That ctx_note(read) tool call is STILL VISIBLE in their message
+	//   2. That mctx_note(read) tool call is STILL VISIBLE in their message
 	//      context (caller passes `noteReadStillVisible` after computing it
 	//      against the post-drop messages array).
 	//
 	// Both must hold because either alone produces wrong behavior:
 	//   - Timestamp-only suppression (#1 alone) keeps suppressing forever
-	//     once the read result has been compactified, ctx_reduce'd, or
+	//     once the read result has been compactified, mctx_reduce'd, or
 	//     age-cleaned out of context. The agent loses visibility into
 	//     deferred intentions and we never re-surface them.
 	//   - Visibility-only suppression (#2 alone) re-nudges immediately even
@@ -148,13 +148,13 @@ export function peekNoteNudgeText(
 	if (lastReadAt > 0 && noteReadStillVisible) {
 		const mostRecentNoteActivity = maxNoteActivityTime([...notes, ...readySmartNotes]);
 		// Strict > so same-millisecond races favor the newer note. If a note
-		// write and a ctx_note(read) land in the same ms, we can't tell which
+		// write and a mctx_note(read) land in the same ms, we can't tell which
 		// happened first; err on the side of surfacing the note once more
 		// rather than silently suppressing a potentially new reminder.
 		if (mostRecentNoteActivity > 0 && lastReadAt > mostRecentNoteActivity) {
 			sessionLog(
 				sessionId,
-				`note-nudge: suppressing — agent ran ctx_note(read) at ${new Date(
+				`note-nudge: suppressing — agent ran mctx_note(read) at ${new Date(
 					lastReadAt,
 				).toISOString()} and the read is still visible; no new notes since ${new Date(
 					mostRecentNoteActivity,
@@ -175,12 +175,12 @@ export function peekNoteNudgeText(
 		);
 	}
 	sessionLog(sessionId, `note-nudge: delivering nudge for ${parts.join(" and ")}`);
-	return `You have ${parts.join(" and ")}. Review with ctx_note read — some may be actionable now.`;
+	return `You have ${parts.join(" and ")}. Review with mctx_note read — some may be actionable now.`;
 }
 
 /**
  * Return the latest `updated_at` or `ready_at` timestamp across a batch of
- * notes. Used to compare against the agent's last ctx_note(read) watermark
+ * notes. Used to compare against the agent's last mctx_note(read) watermark
  * so we skip nudges when the current note state was already read.
  *
  * `ready_at` matters for smart notes that were pending at read time and just

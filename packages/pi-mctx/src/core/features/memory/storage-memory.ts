@@ -583,7 +583,7 @@ export class ModuleMemoryAuthorityError extends Error {
 
 	constructor(readonly projectPath: string) {
 		super(
-			`memory writes for module-managed project ${projectPath} must use the Rust ctx_memory module facade`,
+			`memory writes for module-managed project ${projectPath} must use the Rust mctx_memory module facade`,
 		);
 		this.name = "ModuleMemoryAuthorityError";
 	}

@@ -96,7 +96,7 @@ export function resolveDatabasePath(dbPathOverride?: string): { dbDir: string; d
 	// replace or clear XDG_DATA_HOME. Production never reads this variable.
 	const testDataDir = process.env.MAGIC_CONTEXT_TEST_DATA_DIR;
 	if (testDataDir && !process.env.XDG_DATA_HOME) {
-		const dbDir = join(testDataDir, "extensions", "pi-mctx");
+		const dbDir = join(testDataDir, "pi-mctx");
 		return { dbDir, dbPath: join(dbDir, "context.db") };
 	}
 	// A test started outside the configured preload must never use Pi storage.

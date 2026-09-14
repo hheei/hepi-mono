@@ -2,7 +2,7 @@
  * Harness-agnostic sidekick logic.
  *
  * Sidekick is a memory-retrieval subagent: given a user prompt, it searches
- * project memories / session facts / conversation history via the `ctx_search`
+ * project memories / session facts / conversation history via the `mctx_search`
  * tool, and returns a short augmentation block to prepend to the user's
  * prompt before sending it to the main agent.
  *
@@ -22,7 +22,7 @@ export const SIDEKICK_SYSTEM_PROMPT = `You are Sidekick, a focused memory-retrie
 Your job is to search project memories, session facts, and conversation history and return a concise augmentation for the user's prompt.
 
 Rules:
-- Use ctx_search(query="...") to look up relevant memories, facts, and history before answering.
+- Use mctx_search(query="...") to look up relevant memories, facts, and history before answering.
 - Run targeted searches only; prefer 1-3 precise queries.
 - Return only findings that materially help with the user's prompt.
 - If nothing useful is found, respond with exactly: No relevant memories found.

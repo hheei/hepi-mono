@@ -1,4 +1,4 @@
-// Pi-native ctx_reduce nudge delivery. Both channels send visible custom
+// Pi-native mctx_reduce nudge delivery. Both channels send visible custom
 // session messages: the model sees raw <system-reminder> content, while the
 // registered renderer presents a distinct [magic context] transcript block.
 
@@ -95,7 +95,7 @@ export function clearPiChannel1State(sessionId: string): void {
 	channel1TurnsSinceNudge.delete(sessionId);
 }
 
-/** Mark that the agent ran ctx_reduce since the last baseline refresh (suppress self-nag). */
+/** Mark that the agent ran mctx_reduce since the last baseline refresh (suppress self-nag). */
 export function markPiChannel1Reduced(sessionId: string, db?: Database): void {
 	const state = channel1StateBySession.get(sessionId);
 	if (state) state.reducedSinceRefresh = true;
@@ -204,7 +204,7 @@ export function computeTailTokenEstimatePi(messages: readonly unknown[]): TailTo
 /**
  * Channel 1 decision for a just-finished tool result. The caller persists it as
  * a distinct Pi custom message, leaving tool output untouched. `toolName` of
- * `ctx_reduce` suppresses the reminder because the agent is managing context.
+ * `mctx_reduce` suppresses the reminder because the agent is managing context.
  */
 export function maybeChannel1ReminderForToolResult(args: {
 	db: Database;
@@ -217,7 +217,7 @@ export function maybeChannel1ReminderForToolResult(args: {
 	if (!state) return null; // primary-only: no baseline ⇒ subagent ⇒ off
 	if (!canDeliverPiChannel1Reminder(sessionId)) return null;
 
-	if (toolName === "ctx_reduce") {
+	if (toolName === "mctx_reduce") {
 		state.reducedSinceRefresh = true;
 		resetLastNudgeCycle(db, sessionId);
 		return null;
@@ -337,7 +337,7 @@ export function maybeDeliverChannel2Pi(
 
 	// Revalidate before delivery.
 	// The `pending` intent was recorded at high pressure during a context pass;
-	// by this agent_end the agent may have run ctx_reduce (markPiChannel1Reduced
+	// by this agent_end the agent may have run mctx_reduce (markPiChannel1Reduced
 	// + the next pass refreshes the baseline), so the ceiling condition may no
 	// longer hold. Firing anyway injects a stale follow-up AND burns the
 	// one-per-session cap.

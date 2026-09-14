@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hasVisibleNoteReadCallPi } from "../src/note-visibility-pi";
 
 describe("hasVisibleNoteReadCallPi", () => {
-	it("returns true when an assistant has a ctx_note(action='read') tool call", () => {
+	it("returns true when an assistant has a mctx_note(action='read') tool call", () => {
 		const messages = [
 			{ role: "user", content: "Hi" },
 			{
@@ -12,7 +12,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 					{
 						type: "toolCall",
 						id: "call_1",
-						name: "ctx_note",
+						name: "mctx_note",
 						arguments: { action: "read" },
 					},
 				],
@@ -21,7 +21,24 @@ describe("hasVisibleNoteReadCallPi", () => {
 		expect(hasVisibleNoteReadCallPi(messages)).toBe(true);
 	});
 
-	it("returns false when ctx_note action is not 'read'", () => {
+	it("returns true for a registered mctx_note(action='read') tool call", () => {
+		const messages = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call_mctx",
+						name: "mctx_note",
+						arguments: { action: "read" },
+					},
+				],
+			},
+		];
+		expect(hasVisibleNoteReadCallPi(messages)).toBe(true);
+	});
+
+	it("returns false when mctx_note action is not 'read'", () => {
 		const messages = [
 			{
 				role: "assistant",
@@ -29,7 +46,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 					{
 						type: "toolCall",
 						id: "call_1",
-						name: "ctx_note",
+						name: "mctx_note",
 						arguments: { action: "write", content: "save this" },
 					},
 				],
@@ -38,7 +55,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 		expect(hasVisibleNoteReadCallPi(messages)).toBe(false);
 	});
 
-	it("returns false when no ctx_note call is present", () => {
+	it("returns false when no mctx_note call is present", () => {
 		const messages = [
 			{ role: "user", content: "Hi" },
 			{
@@ -48,7 +65,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 					{
 						type: "toolCall",
 						id: "call_1",
-						name: "ctx_search",
+						name: "mctx_search",
 						arguments: { query: "anything" },
 					},
 				],
@@ -65,7 +82,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 					{
 						type: "toolCall",
 						id: "call_old",
-						name: "ctx_note",
+						name: "mctx_note",
 						arguments: { action: "read" },
 					},
 				],
@@ -79,7 +96,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 		expect(hasVisibleNoteReadCallPi(messages)).toBe(true);
 	});
 
-	it("returns false for a sentinel-stripped ctx_note read", () => {
+	it("returns false for a sentinel-stripped mctx_note read", () => {
 		const messages = [
 			{
 				role: "assistant",
@@ -100,7 +117,7 @@ describe("hasVisibleNoteReadCallPi", () => {
 				content: [
 					{
 						type: "toolCall",
-						name: "ctx_note",
+						name: "mctx_note",
 						arguments: { action: "read" },
 					},
 				],

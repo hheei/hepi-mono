@@ -81,8 +81,8 @@ export function createSystemPromptHashHandler(deps: {
 	protectedTags: number;
 	dreamerEnabled: boolean;
 	/** When false (`memory.enabled: false`), the `<project-memory>` block is
-	 *  never injected, so ctx_memory guidance is dropped from the prompt and the
-	 *  ctx_memory tool is not registered. ctx_search guidance stays (it still
+	 *  never injected, so mctx_memory guidance is dropped from the prompt and the
+	 *  mctx_memory tool is not registered. mctx_search guidance stays (it still
 	 *  recalls conversation + git commits). Default true. */
 	memoryEnabled?: boolean | undefined;
 	/** Optional language from user config for the main agent's generated text. */
@@ -207,7 +207,7 @@ export function createSystemPromptHashHandler(deps: {
 		}
 
 		// ── Step 1: Inject magic-context guidance ──
-		// Subagents with callable ctx_reduce get only the minimal drop mechanics
+		// Subagents with callable mctx_reduce get only the minimal drop mechanics
 		// guidance. Subagents without the tool get no Magic Context guidance,
 		// because the primary-session no-reduce block would incorrectly describe
 		// memory/search/note behavior for a bounded, parent-driven child task.
@@ -218,8 +218,8 @@ export function createSystemPromptHashHandler(deps: {
 			sessionLog(sessionId, "system-prompt-hash session meta load failed:", error);
 		}
 		const isSubagentSession = sessionMetaEarly?.isSubagent === true;
-		// A session whose spawn tools map filters ctx_reduce out (parent
-		// allow-lists) must be treated like ctx_reduce-disabled: reduce
+		// A session whose spawn tools map filters mctx_reduce out (parent
+		// allow-lists) must be treated like mctx_reduce-disabled: reduce
 		// guidance for an uncallable tool is overhead + cargo-cult risk.
 		// The verdict freezes on the session's first user message; before that
 		// exists it is a PROVISIONAL fail-open default. Guidance still renders
@@ -232,7 +232,7 @@ export function createSystemPromptHashHandler(deps: {
 		const ctxReduceCallable = availability.callable;
 		const subagentReduceMode = isSubagentSession && ctxReduceCallable;
 		const effectiveCtxReduceEnabled = isSubagentSession ? false : ctxReduceCallable;
-		// A subagent without callable ctx_reduce gets no MC guidance.
+		// A subagent without callable mctx_reduce gets no MC guidance.
 		const skipGuidanceForDisabledSubagent = isSubagentSession && !ctxReduceCallable;
 		const fullPrompt = output.system.join("\n");
 		if (

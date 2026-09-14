@@ -1,5 +1,5 @@
 /**
- * Pi-side wrapper for the `ctx_expand` tool.
+ * Pi-side wrapper for the `mctx_expand` tool.
  *
  * Expands a complete context compartment by ordinal or search result.
  * given the N-M range from a rendered `## N-M · date · title` heading, return
@@ -32,7 +32,7 @@ const ParamsSchema = Type.Object(
 		start: Type.Optional(
 			Type.Number({
 				description:
-					'First message ordinal to expand — a compartment\'s start="N" attribute, or an ordinal from a ctx_search message hit',
+					'First message ordinal to expand — a compartment\'s start="N" attribute, or an ordinal from a mctx_search message hit',
 			}),
 		),
 		end: Type.Optional(
@@ -50,7 +50,7 @@ const ParamsSchema = Type.Object(
 		message: Type.Optional(
 			Type.Number({
 				description:
-					"Full untruncated recovery of ONE message by its ordinal (every text part + every tool call's complete input/output). Use an ordinal from a compartment, ctx_search hit, or verbose range. Recovers a tool output you dropped with ctx_reduce.",
+					"Full untruncated recovery of ONE message by its ordinal (every text part + every tool call's complete input/output). Use an ordinal from a compartment, mctx_search hit, or verbose range. Recovers a tool output you dropped with mctx_reduce.",
 			}),
 		),
 	},
@@ -77,7 +77,7 @@ export interface CtxExpandToolDeps {
 
 export function createCtxExpandTool(deps: CtxExpandToolDeps): ToolDefinition<typeof ParamsSchema> {
 	return {
-		name: "ctx_expand",
+		name: "mctx_expand",
 		label: "Magic Context: Expand",
 		description: CTX_EXPAND_DESCRIPTION,
 		parameters: ParamsSchema,
@@ -119,7 +119,7 @@ export function createCtxExpandTool(deps: CtxExpandToolDeps): ToolDefinition<typ
 				}
 
 				// Clamp to the last compartment boundary.
-				// ctx_search): messages after it are the live tail already visible
+				// mctx_search): messages after it are the live tail already visible
 				// to the agent, so re-expanding them wastes output tokens. -1 = no
 				// compartments yet → nothing compacted, so don't clamp.
 				const lastCompartmentEnd = getLastCompartmentEndMessage(deps.db, sessionId);
@@ -145,7 +145,7 @@ export function createCtxExpandTool(deps: CtxExpandToolDeps): ToolDefinition<typ
 						);
 					}
 					const out = [
-						`Messages ${params.start}-${v.lastOrdinal} (verbose). Recover any one in full with ctx_expand(message=<ordinal>):`,
+						`Messages ${params.start}-${v.lastOrdinal} (verbose). Recover any one in full with mctx_expand(message=<ordinal>):`,
 						"",
 						v.text,
 					];

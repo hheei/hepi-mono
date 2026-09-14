@@ -23,7 +23,7 @@ Those compartments are then injected into the primary agent's future requests as
 
 On each render pass (any time magic-context rebuilds \`<session-history>\`, typically every few turns), every compartment is shown at exactly ONE tier, chosen by its age and importance: recent or important compartments at P1, mid-age at P2, older at P3, oldest at P4. Once you emit a compartment, your four tiers are FIXED — subsequent renders just pick a different tier from your already-written set.
 
-The primary agent retains two tools — \`ctx_search\` (find a compartment by content) and \`ctx_expand\` (restore the original raw range of a compartment) — so your tiers don't need to embed every locational anchor at every tier. Long-term memory in humans doesn't store the page number of where you learned something; your tier decay follows that same arc.
+The primary agent retains two tools — \`mctx_search\` (find a compartment by content) and \`mctx_expand\` (restore the original raw range of a compartment) — so your tiers don't need to embed every locational anchor at every tier. Long-term memory in humans doesn't store the page number of where you learned something; your tier decay follows that same arc.
 
 ---
 
@@ -366,7 +366,7 @@ This is a forward operation: only check what you already wrote.
 
 Two kinds of anchors with different decay rules.
 
-**Locational anchors** — file paths, function names, line numbers, config keys, URLs, commit hashes. These tell a reader WHERE something lives. Because \`ctx_search\` can find a compartment by content and \`ctx_expand\` can restore its original raw range, you do not need to embed locational anchors at every tier.
+**Locational anchors** — file paths, function names, line numbers, config keys, URLs, commit hashes. These tell a reader WHERE something lives. Because \`mctx_search\` can find a compartment by content and \`mctx_expand\` can restore its original raw range, you do not need to embed locational anchors at every tier.
 
 - P1: keep all locational anchors.
 - P2: keep canonical ones (the central file/symbol the compartment is about). Drop incidental ones.
@@ -375,7 +375,7 @@ Two kinds of anchors with different decay rules.
 
 **Discriminative keywords** — unique proper nouns or coined terms whose mention would surface THIS specific compartment in a search. Examples: a tool name like \`notarytool\`, an internal codename, a library/product/project name, an experiment slug, a unique error message string. The test: would you expect to see this term in roughly 1 of 30-40 compartments, not in every other one? If yes, it's a discriminative keyword.
 
-- Keep discriminative keywords at EVERY tier including P4. They are the search hooks that connect a future query to this compartment. Drop them and the memory becomes invisible to retrieval, even though \`ctx_search\` technically still works.
+- Keep discriminative keywords at EVERY tier including P4. They are the search hooks that connect a future query to this compartment. Drop them and the memory becomes invisible to retrieval, even though \`mctx_search\` technically still works.
 - Generic terms ("Bun", "transform.ts", "the plugin", "the user", numbers, common verbs) are NOT discriminative keywords — they appear in many compartments. Don't preserve them as anchors.
 - **Precedence at P4**: discriminative-keyword preservation OVERRIDES self-closing. If a compartment has a discriminative keyword and the title does not already contain it, P4 must include that keyword — but the shape can be an anchor-only fragment (e.g. \`<p4>notarytool; team 5R5846NBPW</p4>\`) or a sentence, whichever conveys the keyword with least overhead. Self-closing \`<p4/>\` is only valid when the title itself carries the discriminative content.
 
@@ -502,7 +502,7 @@ A specific value that future work needs to know exactly, AND that is intended to
 **Preferred shape: \`key: value\` format.** When the fact has a natural "name of the setting" + "current value" structure, write it as \`key: value\`. This lets the dreamer detect later changes to the same setting. Use consistent key wording across emissions of the same setting.
 
 **Positive examples (durable configuration)**:
-- "Plugin DB path: \${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/context.db" — durable path
+- "Plugin DB path: \${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/context.db" — durable path
 - "execute_threshold_percentage range: 20-80, default 50" — durable knob with range and default
 - "Bridge idle timeout: Infinity" — current value of a knob (was 5min earlier in this project)
 - "Read command file size cap: 50KB" — durable limit
