@@ -21,9 +21,10 @@ describe("Pi status dialog", () => {
 				},
 				getContextUsage: () => ({
 					tokens: 50_000,
-					percent: 50,
+					percent: 80,
 					contextWindow: 100_000,
 				}),
+
 				getSystemPrompt: () => "system prompt",
 			};
 
@@ -38,6 +39,44 @@ describe("Pi status dialog", () => {
 			);
 			expect(detail.contextLimit).toBe(80_000);
 			expect(detail.usagePercentage).toBe(62.5);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("keeps compaction-null usage unknown instead of a prefix floor", () => {
+		const db = createTestDb();
+		try {
+			const sessionId = "ses-status-compacted";
+			const ctx = {
+				...fakeContext(sessionId),
+				model: {
+					provider: "anthropic",
+					id: "claude",
+					contextWindow: 100_000,
+					maxTokens: 20_000,
+				},
+				getContextUsage: () => ({
+					tokens: null,
+					percent: null,
+					contextWindow: 100_000,
+				}),
+				getSystemPrompt: () => "You are pi.",
+			};
+
+			const detail = buildPiStatusDetail(
+				{ getAllTools: () => [] } as never,
+				ctx as never,
+				{
+					db,
+					projectIdentity: resolveProjectIdentity(process.cwd()),
+				},
+				sessionId,
+			);
+			expect(detail.contextLimit).toBe(80_000);
+			expect(detail.inputTokens).toBe(0);
+			expect(detail.usagePercentage).toBe(0);
+			expect(detail.tokenBreakdownAvailable).toBe(false);
 		} finally {
 			closeQuietly(db);
 		}
