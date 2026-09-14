@@ -177,6 +177,21 @@ export const META_COLUMNS: Record<string, string> = {
 
 export const BOOLEAN_META_KEYS = new Set(["isSubagent", "compartmentInProgress", "cacheAlertSent"]);
 
+export function ensureNativeCompactionFenceColumns(db: Database): void {
+	const rows = db.prepare("PRAGMA table_info(session_meta)").all() as Array<{ name?: string }>;
+	const columns = new Set(rows.map((row) => row.name));
+	if (!columns.has("native_compaction_generation")) {
+		db.exec(
+			"ALTER TABLE session_meta ADD COLUMN native_compaction_generation INTEGER NOT NULL DEFAULT 0",
+		);
+	}
+	if (!columns.has("native_compaction_active")) {
+		db.exec(
+			"ALTER TABLE session_meta ADD COLUMN native_compaction_active INTEGER NOT NULL DEFAULT 0",
+		);
+	}
+}
+
 function ensureSessionFactsVersionColumn(db: Database): void {
 	const rows = db.prepare("PRAGMA table_info(session_meta)").all() as Array<{ name?: string }>;
 	if (!rows.some((row) => row.name === "session_facts_version")) {

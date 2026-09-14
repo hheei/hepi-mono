@@ -70,7 +70,9 @@ function parsePendingMarker(raw: string | null): PendingPiCompactionMarker | nul
 			Number.isFinite(value.tokensBefore) &&
 			typeof value.summary === "string" &&
 			typeof value.publishedAt === "number" &&
-			Number.isFinite(value.publishedAt)
+			Number.isFinite(value.publishedAt) &&
+			(value.generation === undefined ||
+				(typeof value.generation === "number" && Number.isFinite(value.generation)))
 		) {
 			return value as PendingPiCompactionMarker;
 		}

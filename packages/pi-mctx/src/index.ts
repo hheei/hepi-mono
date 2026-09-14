@@ -48,18 +48,23 @@ import {
 	getSessionsWithPendingPiMarker,
 	updateSessionMeta,
 } from "#core/features/storage";
-
 import {
 	applySqliteTuningPragmas,
 	openDatabaseAsync,
 	setSqlitePragmaConfig,
 } from "#core/features/storage-db";
-import { getOverflowState, recordOverflowDetected } from "#core/features/storage-meta-persisted";
+import {
+	beginNativeCompactionFence,
+	endNativeCompactionFence,
+	getOverflowState,
+	recordOverflowDetected,
+} from "#core/features/storage-meta-persisted";
 import { setCtxReduceRegisteredGlobally } from "#core/hooks/ctx-reduce-availability";
 import {
 	deriveHistorianChunkTokens,
 	resolveHistorianContextLimit,
 } from "#core/hooks/derive-budgets";
+import { annotateEmptyTaskOutputContent } from "#core/hooks/empty-task-output";
 import { resolveCacheTtl } from "#core/hooks/event-resolvers";
 import { clearNoteNudgeTriggerAndCooldown } from "#core/hooks/note-nudger";
 import { maybeSendUpgradeReminder } from "#core/hooks/upgrade-reminder";
@@ -77,7 +82,6 @@ import { setKeepSubagents } from "#core/shared/keep-subagents";
 import { log } from "#core/shared/logger";
 import { resolveFallbackChain } from "#core/shared/resolve-fallbacks";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";
-
 import { handlePiCloneSessionStart } from "./clone-inheritance";
 import { type PiSidekickConfig, registerCtxAugCommand } from "./commands/ctx-aug";
 import { registerCtxDreamCommand } from "./commands/ctx-dream";
@@ -240,29 +244,48 @@ export function signalPiDeferredCompactionMarkerDrain(sessionId: string): void {
 }
 
 /**
- * Pi native compaction invalidates MC's cached m[0]/m[1] bytes. In normal mode
- * MC still owns compaction and cancels this event; compaction-off mode clears
- * only that cache and deliberately returns no cancellation result.
+ * Native Pi compaction invalidates MC's cached m[0]/m[1] bytes. Invalidation
+ * happens before Pi compacts so a racing transform cannot reuse the old cache;
+ * cache failures must never cancel native compaction.
  */
 export async function handlePiSessionBeforeCompact(args: {
 	db: ContextDatabase;
 	compactionOff: boolean;
 	ctx: { sessionManager?: { getSessionId?: () => string | undefined } };
-}): Promise<{ cancel: true } | undefined> {
+}): Promise<undefined> {
 	try {
 		const sessionId = args.ctx.sessionManager?.getSessionId?.();
 		if (typeof sessionId === "string" && sessionId.length > 0) {
+			beginNativeCompactionFence(args.db, sessionId);
 			clearPiM0Cache(args.db, sessionId, "session_before_compact");
 		}
 	} catch {
-		// Cache invalidation is best-effort; it must not suppress Pi's native path.
+		// Native compaction must never be cancelled by mctx.
 	}
-	if (args.compactionOff) {
-		info("session_before_compact: native Pi compaction proceeds (compaction-off mode)");
-		return;
+	info(
+		`session_before_compact: native Pi compaction proceeds (compaction-off=${args.compactionOff ? "on" : "off"})`,
+	);
+	return undefined;
+}
+
+/**
+ * Reconcile state after native compaction without doing synchronous historian
+ * work. The before hook is the correctness gate; this idempotent signal lets
+ * the next transform rebuild against Pi's replacement history.
+ */
+export function handlePiSessionCompact(args: {
+	db: ContextDatabase;
+	ctx: { sessionManager?: { getSessionId?: () => string | undefined } };
+}): void {
+	try {
+		const sessionId = args.ctx.sessionManager?.getSessionId?.();
+		if (typeof sessionId === "string" && sessionId.length > 0) {
+			endNativeCompactionFence(args.db, sessionId);
+			signalPiDeferredCompactionMarkerDrain(sessionId);
+		}
+	} catch {
+		// Post-compaction reconciliation is best-effort and must not affect Pi.
 	}
-	info("session_before_compact: cancelling — magic-context owns compaction");
-	return { cancel: true };
 }
 
 export function persistPiMessageEndModelMeta(args: {
@@ -1621,42 +1644,46 @@ async function startPiMagicContextRuntime(
 	// Channel 1 is a separate persisted custom message. Its raw content remains
 	// model-visible `<system-reminder>` text; the renderer shows a [magic context]
 	// block and the original tool result stays byte-for-byte intact.
-	pi.on("tool_result", async (event, ctx) => {
+	pi.on("tool_result", (event, ctx) => {
+		const annotatedContent = annotateEmptyTaskOutputContent(event.toolName, event.content);
+		const resultContent = annotatedContent ?? event.content;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			if (typeof sessionId !== "string" || sessionId.length === 0) return;
-			if (compactionOff) return;
-			if (db) maybeDeliverChannel2Pi(pi, db, sessionId, "steer");
-			const reminder = maybeChannel1ReminderForToolResult({
-				db,
-				sessionId,
-				toolName: event.toolName,
-				content: event.content,
-			});
-			if (!reminder) return;
-			pi.sendMessage(
-				{
-					customType: CHANNEL1_NUDGE_CUSTOM_TYPE,
-					content: reminder.content,
-					display: reminder.display,
-					details: { displayText: reminder.displayText },
-				},
-				{ deliverAs: "steer" },
-			);
-			markChannel1ReminderDelivered(db, sessionId, reminder);
+			if (typeof sessionId === "string" && sessionId.length > 0 && !compactionOff) {
+				maybeDeliverChannel2Pi(pi, db, sessionId, "steer");
+				const reminder = maybeChannel1ReminderForToolResult({
+					db,
+					sessionId,
+					toolName: event.toolName,
+					content: resultContent,
+				});
+				if (reminder) {
+					pi.sendMessage(
+						{
+							customType: CHANNEL1_NUDGE_CUSTOM_TYPE,
+							content: reminder.content,
+							display: reminder.display,
+							details: { displayText: reminder.displayText },
+						},
+						{ deliverAs: "steer" },
+					);
+					markChannel1ReminderDelivered(db, sessionId, reminder);
+				}
+			}
 		} catch (err) {
 			log(
 				`tool_result hook failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
 			);
 		}
+		if (annotatedContent) return { content: annotatedContent as typeof event.content };
 	});
 
-	// In normal mode MC owns compaction and cancels Pi's native hook. In
-	// compaction-off mode the same hook must return nothing: native Pi compaction
-	// is the selected context manager and cancelling it would leave no manager.
+	// Native Pi compaction is allowed in every mode. Invalidate m[0]/m[1] before
+	// compaction, then defer reconciliation until the next transform pass.
 	pi.on("session_before_compact", async (_event, ctx) =>
 		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
 	);
+	pi.on("session_compact", (_event, ctx) => handlePiSessionCompact({ db, ctx }));
 
 	// Strip injected `§N§` tag prefix from assistant text BEFORE Pi
 	// persists the message to disk and renders it to the UI. Mirrors

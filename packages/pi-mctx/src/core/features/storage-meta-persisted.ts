@@ -2201,19 +2201,87 @@ export interface PendingPiCompactionMarker {
 	tokensBefore: number;
 	summary: string;
 	publishedAt: number;
+	/** Native compaction fence generation captured by the producer. Legacy markers omit it and resolve to 0. */
+	generation?: number;
+}
+
+export interface NativeCompactionFence {
+	generation: number;
+	active: boolean;
+}
+
+export function getNativeCompactionFence(db: Database, sessionId: string): NativeCompactionFence {
+	ensureSessionMetaRow(db, sessionId);
+	const row = db
+		.prepare(
+			"SELECT native_compaction_generation, native_compaction_active FROM session_meta WHERE session_id = ?",
+		)
+		.get(sessionId) as {
+		native_compaction_generation?: number | null;
+		native_compaction_active?: number | null;
+	};
+	return {
+		generation: Math.max(0, Math.floor(row.native_compaction_generation ?? 0)),
+		active: (row.native_compaction_active ?? 0) !== 0,
+	};
+}
+
+/** Atomically opens a native-compaction fence and discards any staged Pi marker. */
+export function beginNativeCompactionFence(db: Database, sessionId: string): number {
+	ensureSessionMetaRow(db, sessionId);
+	let generation = 0;
+	db.transaction(() => {
+		const row = db
+			.prepare("SELECT native_compaction_generation FROM session_meta WHERE session_id = ?")
+			.get(sessionId) as { native_compaction_generation?: number | null };
+		generation = Math.max(0, Math.floor(row?.native_compaction_generation ?? 0)) + 1;
+		db.prepare(
+			"UPDATE session_meta SET native_compaction_generation = ?, native_compaction_active = 1, pending_pi_compaction_marker_state = NULL WHERE session_id = ?",
+		).run(generation, sessionId);
+	})();
+	return generation;
+}
+
+export function endNativeCompactionFence(db: Database, sessionId: string): void {
+	ensureSessionMetaRow(db, sessionId);
+	db.prepare("UPDATE session_meta SET native_compaction_active = 0 WHERE session_id = ?").run(
+		sessionId,
+	);
+}
+
+export function isNativeCompactionFenceAdmissible(
+	db: Database,
+	sessionId: string,
+	generation: number,
+): boolean {
+	const fence = getNativeCompactionFence(db, sessionId);
+	return !fence.active && fence.generation === generation;
 }
 
 function isPendingPiCompactionMarker(value: unknown): value is PendingPiCompactionMarker {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as { firstKeptEntryId?: unknown }).firstKeptEntryId === "string" &&
-		typeof (value as { endMessageId?: unknown }).endMessageId === "string" &&
-		typeof (value as { ordinal?: unknown }).ordinal === "number" &&
-		typeof (value as { tokensBefore?: unknown }).tokensBefore === "number" &&
-		typeof (value as { summary?: unknown }).summary === "string" &&
-		typeof (value as { publishedAt?: unknown }).publishedAt === "number"
-	);
+	if (typeof value !== "object" || value === null) return false;
+	if (
+		!("firstKeptEntryId" in value) ||
+		!("endMessageId" in value) ||
+		!("ordinal" in value) ||
+		!("tokensBefore" in value) ||
+		!("summary" in value) ||
+		!("publishedAt" in value)
+	) {
+		return false;
+	}
+	if (
+		typeof value.firstKeptEntryId !== "string" ||
+		typeof value.endMessageId !== "string" ||
+		typeof value.ordinal !== "number" ||
+		typeof value.tokensBefore !== "number" ||
+		typeof value.summary !== "string" ||
+		typeof value.publishedAt !== "number"
+	) {
+		return false;
+	}
+	if (!("generation" in value) || value.generation === undefined) return true;
+	return typeof value.generation === "number";
 }
 
 export function getPendingPiCompactionMarkerState(
@@ -2230,7 +2298,10 @@ export function getPendingPiCompactionMarkerState(
 	try {
 		const parsed = JSON.parse(raw);
 		if (isPendingPiCompactionMarker(parsed)) {
-			return parsed;
+			return {
+				...parsed,
+				generation: typeof parsed.generation === "number" ? parsed.generation : 0,
+			};
 		}
 	} catch {
 		// Fall through to clear malformed durable state below.
@@ -2251,6 +2322,31 @@ export function setPendingPiCompactionMarkerState(
 	db.prepare(
 		"UPDATE session_meta SET pending_pi_compaction_marker_state = ? WHERE session_id = ?",
 	).run(blob, sessionId);
+}
+
+/**
+ * Stage a marker only when the captured fence generation is still current and
+ * no native compaction is active. The predicate and write share one SQLite
+ * write, preventing a fence from racing the publication.
+ */
+export function stagePendingPiCompactionMarkerIfAdmissible(
+	db: Database,
+	sessionId: string,
+	marker: PendingPiCompactionMarker,
+	generation: number,
+): boolean {
+	ensureSessionMetaRow(db, sessionId);
+	const blob = stableStringify({ ...marker, generation });
+	const result = db
+		.prepare(
+			`UPDATE session_meta
+			 SET pending_pi_compaction_marker_state = ?
+			 WHERE session_id = ?
+			   AND native_compaction_active = 0
+			   AND native_compaction_generation = ?`,
+		)
+		.run(blob, sessionId, generation);
+	return result.changes > 0;
 }
 
 export function clearPendingPiCompactionMarkerStateIf(

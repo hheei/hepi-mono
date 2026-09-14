@@ -72,6 +72,29 @@ Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions
 
 最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 
+## Native compaction continuity
+
+Pi compaction is a history rewrite inside the same session, not a new session.
+`session_before_compact` never cancels native compaction except on the
+fail-closed storage surface. It opens a durable native-compaction fence,
+clears cached m[0]/m[1], and discards any staged Pi marker. `session_compact`
+ends the fence and signals deferred history/materialization rebuild. The next
+`context` transform rebuilds from `getBranch()`; historian and recomp work is
+not run inside the event hook.
+
+Historian and recomp stage Pi markers only when the captured fence generation
+is still current and the fence is inactive. A marker captured before a native
+compaction is discarded rather than applied.
+
+Successful transforms persist a last-known-good prefix in `lkg_slots`. On a
+later transform failure, Pi MCTX replays that prefix instead of sending the
+raw prompt. If the raw prompt is estimated over the resolved context limit,
+the transform refuses rather than overflowing. Fail-closed storage still
+cancels native compaction until the database reopens.
+
+AgentMemory and Context Projection are not part of this package.
+
+
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.
 

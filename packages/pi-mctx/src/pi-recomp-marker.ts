@@ -2,7 +2,8 @@ import { getCompartments } from "#core/features/compartment-storage";
 import {
 	type ContextDatabase,
 	clearPendingPiCompactionMarkerStateIf,
-	setPendingPiCompactionMarkerState,
+	getNativeCompactionFence,
+	stagePendingPiCompactionMarkerIfAdmissible,
 } from "#core/features/storage";
 import { applyDeferredPiCompactionMarker } from "./compaction-marker-manager-pi";
 import { signalPiDeferredHistoryRefresh } from "./context-handler";
@@ -60,14 +61,22 @@ export function stagePiRecompMarker(args: {
 	}
 	if (!firstKeptEntryId || last.endMessageId.length === 0) return;
 
-	setPendingPiCompactionMarkerState(args.db, args.sessionId, {
-		firstKeptEntryId,
-		endMessageId: last.endMessageId,
-		ordinal: last.endMessage,
-		tokensBefore: 0,
-		summary: buildPiCompactionSummary(compartments),
-		publishedAt: Date.now(),
-	});
+	const generation = getNativeCompactionFence(args.db, args.sessionId).generation;
+	const staged = stagePendingPiCompactionMarkerIfAdmissible(
+		args.db,
+		args.sessionId,
+		{
+			firstKeptEntryId,
+			endMessageId: last.endMessageId,
+			ordinal: last.endMessage,
+			tokensBefore: 0,
+			summary: buildPiCompactionSummary(compartments),
+			publishedAt: Date.now(),
+			generation,
+		},
+		generation,
+	);
+	if (!staged) return;
 	signalPiDeferredHistoryRefresh(args.sessionId);
 }
 
@@ -104,6 +113,7 @@ export function queueAndApplyPiRecompMarker(args: {
 	}
 	if (!firstKeptEntryId || last.endMessageId.length === 0) return;
 
+	const generation = getNativeCompactionFence(args.db, args.sessionId).generation;
 	const pending = {
 		firstKeptEntryId,
 		endMessageId: last.endMessageId,
@@ -111,9 +121,11 @@ export function queueAndApplyPiRecompMarker(args: {
 		tokensBefore: 0,
 		summary: buildPiCompactionSummary(compartments),
 		publishedAt: Date.now(),
+		generation,
 	};
-
-	setPendingPiCompactionMarkerState(args.db, args.sessionId, pending);
+	if (!stagePendingPiCompactionMarkerIfAdmissible(args.db, args.sessionId, pending, generation)) {
+		return;
+	}
 	const outcome = applyDeferredPiCompactionMarker(
 		{ db: args.db, appendCompaction, readBranchEntries },
 		args.sessionId,
