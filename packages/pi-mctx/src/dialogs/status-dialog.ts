@@ -61,8 +61,8 @@ export interface StatusDialogDeps {
 
 interface StatusDialogDetail {
 	sessionId: string;
-	usagePercentage: number;
-	inputTokens: number;
+	usagePercentage: number | undefined;
+	inputTokens: number | undefined;
 	tokenBreakdownAvailable: boolean;
 	systemPromptTokens: number;
 	compartmentCount: number;
@@ -222,8 +222,16 @@ class StatusDialogComponent implements Component {
 }
 
 function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): string[] {
+	const usagePercentage = s.usagePercentage;
+	const inputTokens = s.inputTokens;
 	const pctColor =
-		s.usagePercentage >= 80 ? "error" : s.usagePercentage >= 65 ? "warning" : "accent";
+		usagePercentage === undefined
+			? "muted"
+			: usagePercentage >= 80
+				? "error"
+				: usagePercentage >= 65
+					? "warning"
+					: "accent";
 	const lines: string[] = [];
 
 	// Header
@@ -236,11 +244,10 @@ function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): s
 	lines.push("");
 
 	// Context summary
+	const usageLabel = usagePercentage === undefined ? "--" : `${usagePercentage.toFixed(1)}%`;
+	const tokensLabel = inputTokens === undefined ? "--" : fmt(inputTokens);
 	lines.push(
-		`Context  ${theme.fg(
-			pctColor,
-			theme.bold(`${s.usagePercentage.toFixed(1)}%`),
-		)} · ${fmt(s.inputTokens)} / ${s.contextLimit > 0 ? fmt(s.contextLimit) : "?"} tokens`,
+		`Context  ${theme.fg(pctColor, theme.bold(usageLabel))} · ${tokensLabel} / ${s.contextLimit > 0 ? fmt(s.contextLimit) : "?"} tokens`,
 	);
 	lines.push(`Work tokens ${fmt(s.newWorkTokens)} new · ${fmt(s.totalInputTokens)} total input`);
 
@@ -249,7 +256,10 @@ function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): s
 
 	// Legend
 	for (const seg of breakdownSegments(s)) {
-		const pct = s.inputTokens > 0 ? `${((seg.tokens / s.inputTokens) * 100).toFixed(1)}%` : "—";
+		const pct =
+			s.inputTokens !== undefined && s.inputTokens > 0
+				? `${((seg.tokens / s.inputTokens) * 100).toFixed(1)}%`
+				: "—";
 		const left = colorHex(seg.color, `${seg.label}${seg.detail ? ` ${seg.detail}` : ""}`);
 		const right = theme.fg("muted", `${fmt(seg.tokens)} (${pct})`);
 		lines.push(`${left}   ${right}`);
@@ -466,8 +476,8 @@ export function buildPiStatusDetail(
 			prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
 	});
 	const contextLimit = pressure.contextLimit;
-	const inputTokens = pressure.inputTokens ?? 0;
-	const usagePercentage = pressure.percentage ?? 0;
+	const inputTokens = pressure.inputTokens;
+	const usagePercentage = pressure.percentage;
 
 	const persistedToolCallTokens = meta.toolCallTokens;
 	const attributedTokens =
@@ -480,6 +490,7 @@ export function buildPiStatusDetail(
 		persistedToolCallTokens +
 		toolDefinitionTokens;
 	const tokenBreakdownAvailable =
+		inputTokens !== undefined &&
 		inputTokens > 0 &&
 		Number.isFinite(attributedTokens) &&
 		attributedTokens >= 0 &&
@@ -670,10 +681,9 @@ function renderBar(s: StatusDialogDetail, innerWidth: number): string {
 	// collapsing all segments to width 1.
 	const barWidth = Math.max(20, innerWidth);
 	const segs = breakdownSegments(s);
-	if (segs.length === 0 || s.inputTokens <= 0) return "";
-	const widths = segs.map((seg) =>
-		Math.max(1, Math.round((seg.tokens / s.inputTokens) * barWidth)),
-	);
+	const inputTokens = s.inputTokens;
+	if (segs.length === 0 || inputTokens === undefined || inputTokens <= 0) return "";
+	const widths = segs.map((seg) => Math.max(1, Math.round((seg.tokens / inputTokens) * barWidth)));
 	let sum = widths.reduce((a, b) => a + b, 0);
 	while (sum > barWidth) {
 		const maxIdx = widths.indexOf(Math.max(...widths));

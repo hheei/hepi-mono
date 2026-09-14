@@ -74,9 +74,65 @@ describe("Pi status dialog", () => {
 				sessionId,
 			);
 			expect(detail.contextLimit).toBe(80_000);
-			expect(detail.inputTokens).toBe(0);
-			expect(detail.usagePercentage).toBe(0);
+			expect(detail.inputTokens).toBeUndefined();
+			expect(detail.usagePercentage).toBeUndefined();
 			expect(detail.tokenBreakdownAvailable).toBe(false);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("renders compaction-null usage as unknown instead of 0%", async () => {
+		const db = createTestDb();
+		try {
+			const sessionId = "ses-status-compacted-render";
+			const rendered: string[][] = [];
+			const ctx = {
+				...fakeContext(sessionId),
+				model: {
+					provider: "anthropic",
+					id: "claude",
+					contextWindow: 100_000,
+					maxTokens: 20_000,
+				},
+				getContextUsage: () => ({
+					tokens: null,
+					percent: null,
+					contextWindow: 100_000,
+				}),
+				getSystemPrompt: () => "You are pi.",
+				ui: {
+					async custom(factory: unknown) {
+						const makeComponent = factory as (
+							tui: { requestRender: () => void },
+							theme: {
+								fg: (_name: string, text: string) => string;
+								bold: (text: string) => string;
+							},
+							keybindings: unknown,
+							done: (value: undefined) => void,
+						) => { render: (width: number) => string[]; dispose?: () => void };
+						const component = makeComponent(
+							{ requestRender: () => undefined },
+							{ fg: (_name, text) => text, bold: (text) => text },
+							undefined,
+							() => undefined,
+						);
+						rendered.push(component.render(100));
+						component.dispose?.();
+						return undefined;
+					},
+				},
+			};
+
+			await showStatusDialog({ getAllTools: () => [] } as never, ctx as never, {
+				db,
+				projectIdentity: resolveProjectIdentity(process.cwd()),
+			});
+
+			const text = rendered.flat().join("\n");
+			expect(text).toContain("Context  -- · -- / 80K tokens");
+			expect(text).not.toContain("Context  0.0%");
 		} finally {
 			closeQuietly(db);
 		}
