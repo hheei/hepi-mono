@@ -36,20 +36,20 @@ For UI or UX work, every plan and implementation must reference [DESIGN.md](../.
 Install dependencies:
 
 ```bash
-npm ci --ignore-scripts
+pnpm install --frozen-lockfile --ignore-scripts
 ```
 
 Run checks only for the affected code:
 
 ```bash
-npm test -- <focused-test-path>
-npm exec -- biome check <changed paths...>
+pnpm test -- <focused-test-path>
+pnpm exec biome check <changed paths...>
 ```
 
 Apply formatting or safe lint fixes only to changed paths:
 
 ```bash
-npm exec -- biome check --write <changed paths...>
+pnpm exec biome check --write <changed paths...>
 ```
 
 ## Extension Entry Point
@@ -80,7 +80,7 @@ Build and run the affected extension directly:
 
 ```bash
 cd packages/pi-<name>
-npm run build
+pnpm run build
 pi --no-extensions --no-skills -e dist/extension.js
 ```
 

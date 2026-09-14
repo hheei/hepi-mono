@@ -1,6 +1,6 @@
 # hepi-mono
 
-Node/npm monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace under `packages/` is maintained under the `@hheei` scope.
+Node/pnpm monorepo for HEPI Pi Coding Agent extensions. Every publishable workspace under `packages/` is maintained under the `@hheei` scope.
 
 ## Documentation
 
@@ -26,7 +26,7 @@ New features will be published as independent extensions built on
 For a local checkout:
 
 ```bash
-npm ci
+pnpm install --frozen-lockfile --ignore-scripts
 pi install ./packages/pi-ext-tools
 ```
 

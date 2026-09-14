@@ -136,7 +136,7 @@ Capture shell output as an ANSI file:
 
 ```bash
 pi-tui-replay \
-  --command "npm exec -- vitest run packages/pi-debug/test" \
+  --command "pnpm exec vitest run packages/pi-debug/test" \
   --format ans
 ```
 
@@ -186,7 +186,7 @@ Component replay writes the complete six-file artifact bundle.
 Repository command:
 
 ```bash
-npm run tui:replay -- --command "git status --short" --format svg
+pnpm run tui:replay -- --command "git status --short" --format svg
 ```
 
 ## Incremental session CLI
@@ -247,7 +247,7 @@ The default journal location is `~/.pi/agent/replay-sessions`. Override it with 
 Repository command:
 
 ```bash
-npm run tui:replay:session -- key down
+pnpm run tui:replay:session -- key down
 ```
 
 Use a custom component by default-exporting a replay factory:
@@ -290,7 +290,7 @@ Use component replay for deterministic UI behavior. Use a native Pi TUI smoke te
 ## Development checks
 
 ```bash
-npm test -- packages/pi-debug/test/tui-replay.test.ts
-npm test -- packages/pi-debug/test/tui-replay-session.test.ts
-npm run typecheck
+pnpm test -- packages/pi-debug/test/tui-replay.test.ts
+pnpm test -- packages/pi-debug/test/tui-replay-session.test.ts
+pnpm run typecheck
 ```

@@ -15,7 +15,7 @@ Each package exposes one Pi extension entry.
 Build the selected package, then install it:
 
 ```bash
-npm ci --ignore-scripts
+pnpm install --frozen-lockfile --ignore-scripts
 pi install ./packages/pi-ext-tools
 ```
 

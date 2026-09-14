@@ -36,7 +36,7 @@ FFF 的 page cursor 仅用于一次 grep execute 内部取完结果。`grep` sch
 
 ## Public input schema
 
-`grep` 完整采用 Pi `0.84.3` 的 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context` 与 `limit` schema。`path: "output://N"` 是合法的只读 source。删除 extension-only `exclude`、`caseSensitive` 与 `cursor`；不再维护参数翻译层。
+`grep` 完整采用 Pi `0.85.1` 的 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context` 与 `limit` schema。`path: "output://N"` 是合法的只读 source。删除 extension-only `exclude`、`caseSensitive` 与 `cursor`；不再维护参数翻译层。
 
 ## Canonical Grep Result
 
