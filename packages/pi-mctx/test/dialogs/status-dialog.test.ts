@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import { updateSessionMeta } from "#core/features/storage-meta";
 import { setSessionWorkMetrics } from "#core/features/storage-meta-persisted";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { buildPiStatusDetail, showStatusDialog } from "../../src/dialogs/status-dialog";
 import { createTestDb, fakeContext } from "../test-utils.test";
@@ -44,10 +45,16 @@ describe("Pi status dialog", () => {
 		}
 	});
 
-	it("keeps compaction-null usage unknown instead of a prefix floor", () => {
+	it("estimates compaction-null usage from prefix and kept-tail buckets", () => {
 		const db = createTestDb();
 		try {
 			const sessionId = "ses-status-compacted";
+			const systemPrompt = "You are pi.";
+			updateSessionMeta(db, sessionId, {
+				lastInputTokens: 90_000,
+				conversationTokens: 2_000,
+				toolCallTokens: 500,
+			});
 			const ctx = {
 				...fakeContext(sessionId),
 				model: {
@@ -61,7 +68,7 @@ describe("Pi status dialog", () => {
 					percent: null,
 					contextWindow: 100_000,
 				}),
-				getSystemPrompt: () => "You are pi.",
+				getSystemPrompt: () => systemPrompt,
 			};
 
 			const detail = buildPiStatusDetail(
@@ -74,18 +81,23 @@ describe("Pi status dialog", () => {
 				sessionId,
 			);
 			expect(detail.contextLimit).toBe(80_000);
-			expect(detail.inputTokens).toBeUndefined();
-			expect(detail.usagePercentage).toBeUndefined();
-			expect(detail.tokenBreakdownAvailable).toBe(false);
+			expect(detail.inputTokens).toBe(estimateTokens(systemPrompt) + 2_500);
+			expect(detail.usagePercentage).toBe(((estimateTokens(systemPrompt) + 2_500) / 80_000) * 100);
+			expect(detail.inputTokens).toBeLessThan(10_000);
 		} finally {
 			closeQuietly(db);
 		}
 	});
 
-	it("renders compaction-null usage as unknown instead of 0%", async () => {
+	it("renders compaction-null usage as an estimate instead of 0%", async () => {
 		const db = createTestDb();
 		try {
 			const sessionId = "ses-status-compacted-render";
+			updateSessionMeta(db, sessionId, {
+				lastInputTokens: 90_000,
+				conversationTokens: 2_000,
+				toolCallTokens: 500,
+			});
 			const rendered: string[][] = [];
 			const ctx = {
 				...fakeContext(sessionId),
@@ -131,7 +143,8 @@ describe("Pi status dialog", () => {
 			});
 
 			const text = rendered.flat().join("\n");
-			expect(text).toContain("Context  -- · -- / 80K tokens");
+			expect(text).toMatch(/Context {2}\d/);
+			expect(text).not.toContain("Context  -- · --");
 			expect(text).not.toContain("Context  0.0%");
 		} finally {
 			closeQuietly(db);

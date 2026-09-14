@@ -71,7 +71,23 @@ describe("resolvePiDisplayPressure", () => {
 		});
 	});
 
-	it("keeps compaction-null unknown instead of prefix or persisted tokens", () => {
+	it("uses estimated kept-tail tokens after compaction-null", () => {
+		const pressure = resolvePiDisplayPressure({
+			live: { tokens: null, percent: null, contextWindow: 100_000 },
+			model: reservedWindowModel,
+			lastInputTokens: 50_000,
+			prefixTokens: 1_600,
+			estimatedTokens: 4_000,
+		});
+		expect(pressure).toMatchObject({
+			inputTokens: 4_000,
+			percentage: 5,
+			contextLimit: 80_000,
+			source: "estimated",
+		});
+	});
+
+	it("keeps compaction-null unknown without an estimate", () => {
 		const pressure = resolvePiDisplayPressure({
 			live: { tokens: null, percent: null, contextWindow: 100_000 },
 			model: reservedWindowModel,
