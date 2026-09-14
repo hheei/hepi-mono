@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { initializeDatabase } from "../../../src/core/features/storage-db";
 import { getOrCreateSessionMeta } from "../../../src/core/features/storage-meta";
-import { computeM0BlockTokens } from "../../../src/core/hooks/m0-token-breakdown";
+import { clearCachedM0M1 } from "../../../src/core/features/storage-meta-shared";
+import {
+	computeM0BlockTokens,
+	resolveM0BlockTokensForDisplay,
+	sumM0BlockTokens,
+} from "../../../src/core/hooks/m0-token-breakdown";
 import { estimateTokens } from "../../../src/core/hooks/read-session-formatting";
 import { Database } from "../../../src/core/shared/sqlite";
 
@@ -95,6 +100,29 @@ describe("computeM0BlockTokens", () => {
 		expect(b.compartmentTokens).toBe(
 			estimateTokens("## 1-9 · Cold compartment\nsome content body\n"),
 		);
+		db.close();
+	});
+
+	test("display helper uses Σp1 after native compaction clears cached m[0]", () => {
+		const db = makeDb();
+		db.prepare(
+			"INSERT INTO compartments (session_id, sequence, start_message, end_message, start_message_id, end_message_id, title, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+		).run(SESSION_ID, 1, 1, 9, "m1", "m9", "Cold compartment", "some content body", Date.now());
+		db.prepare(
+			"UPDATE session_meta SET cached_m0_bytes = ?, memory_block_count = 0 WHERE session_id = ?",
+		).run(
+			Buffer.from("<session-history>\nstale cached history\n</session-history>", "utf8"),
+			SESSION_ID,
+		);
+		clearCachedM0M1(db, SESSION_ID);
+		const blocks = resolveM0BlockTokensForDisplay(db, SESSION_ID, {
+			projectIdentity: undefined,
+			injectionBudgetTokens: undefined,
+		});
+		expect(blocks.compartmentTokens).toBe(
+			estimateTokens("## 1-9 · Cold compartment\nsome content body\n"),
+		);
+		expect(sumM0BlockTokens(blocks)).toBe(blocks.compartmentTokens);
 		db.close();
 	});
 });

@@ -1,5 +1,7 @@
+import { estimatePiPrefixTokens } from "@hheei/pi-ext-core";
 import { describe, expect, it } from "vitest";
 import { updateSessionMeta } from "#core/features/storage";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { registerStatusLine, updateStatusLine } from "../src/status-line";
 import { createTestDb, fakeContext } from "./test-utils.test";
@@ -92,16 +94,30 @@ describe("status line prefix", () => {
 				conversationTokens: 2_000,
 				toolCallTokens: 500,
 			});
+			db.prepare(
+				"INSERT INTO compartments (session_id, sequence, start_message, end_message, start_message_id, end_message_id, title, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+			).run(
+				sessionId,
+				1,
+				1,
+				9,
+				"m1",
+				"m9",
+				"Kept history",
+				"archived compartment body",
+				Date.now(),
+			);
 			const statuses: Array<string | undefined> = [];
+			const tools = [
+				{
+					name: "read",
+					description: "Read a file",
+					parameters: { type: "object" },
+				},
+			];
 			registerStatusLine(
 				{
-					getAllTools: () => [
-						{
-							name: "read",
-							description: "Read a file",
-							parameters: { type: "object" },
-						},
-					],
+					getAllTools: () => tools,
 					on() {
 						return undefined;
 					},
@@ -130,10 +146,17 @@ describe("status line prefix", () => {
 			};
 			updateStatusLine(ctx as never, { db, projectIdentity: "proj" }, true);
 			const text = statuses.at(-1) ?? "";
-			expect(text).toMatch(/^mc: \d/);
-			expect(text).not.toBe("mc: -- (--) · idle");
-			expect(text).not.toMatch(/^mc: 90/);
-			expect(text).toContain("idle");
+			const systemPrompt = "You are pi.";
+			const prefix = estimatePiPrefixTokens({ systemPrompt, tools, estimateTokens }).tokens;
+			const compartmentTokens = estimateTokens(
+				"## 1-9 · Kept history\narchived compartment body\n",
+			);
+			const expected = prefix + compartmentTokens + 2_500;
+			const shown =
+				expected >= 1_000
+					? `${(expected / 1_000).toFixed(1).replace(/\.0$/, "")}K`
+					: String(Math.round(expected));
+			expect(text).toBe(`mc: ${shown} (${Math.round((expected / 80_000) * 100)}%) · idle`);
 		} finally {
 			closeQuietly(db);
 		}

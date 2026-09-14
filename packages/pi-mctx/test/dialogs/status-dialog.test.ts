@@ -55,6 +55,19 @@ describe("Pi status dialog", () => {
 				conversationTokens: 2_000,
 				toolCallTokens: 500,
 			});
+			db.prepare(
+				"INSERT INTO compartments (session_id, sequence, start_message, end_message, start_message_id, end_message_id, title, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+			).run(
+				sessionId,
+				1,
+				1,
+				9,
+				"m1",
+				"m9",
+				"Kept history",
+				"archived compartment body",
+				Date.now(),
+			);
 			const ctx = {
 				...fakeContext(sessionId),
 				model: {
@@ -81,9 +94,14 @@ describe("Pi status dialog", () => {
 				sessionId,
 			);
 			expect(detail.contextLimit).toBe(80_000);
-			expect(detail.inputTokens).toBe(estimateTokens(systemPrompt) + 2_500);
-			expect(detail.usagePercentage).toBe(((estimateTokens(systemPrompt) + 2_500) / 80_000) * 100);
+			const expected =
+				estimateTokens(systemPrompt) +
+				2_500 +
+				estimateTokens("## 1-9 · Kept history\narchived compartment body\n");
+			expect(detail.inputTokens).toBe(expected);
+			expect(detail.usagePercentage).toBe((expected / 80_000) * 100);
 			expect(detail.inputTokens).toBeLessThan(10_000);
+			expect(detail.compartmentTokens).toBeGreaterThan(0);
 		} finally {
 			closeQuietly(db);
 		}

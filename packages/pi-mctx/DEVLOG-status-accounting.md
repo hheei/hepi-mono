@@ -1,8 +1,8 @@
 # Status token accounting 开发日志
 
 > 范围：footer、`/ctx-status` overlay、print/rpc `/ctx-status` 文本，以及 compact / new / resume 入口。
-> 状态：display 口径已对齐到 `b98aa72`；调度器（historian / emergency / nudge）仍用 `message_end` 写入的 trailing，compact 后到下一发真实 usage 之前不估。
-> 相关提交：`9f46bda` 百分比口径 → `d8e578a` compact 显示 unknown → `7dce5d4` kept-tail 估计 → `b98aa72` 入口共享。
+> 状态：display 口径已对齐到 `b98aa72`；compact 估计已加 display-time m[0] 冷路径。调度器仍用 `message_end` trailing，compact 后到下一发真实 usage 之前不估。
+> 相关提交：`9f46bda` 百分比口径 → `d8e578a` compact 显示 unknown → `7dce5d4` kept-tail 估计 → `b98aa72` 入口共享 → compact m[0] display 估计。
 
 ## 问题
 
@@ -22,7 +22,7 @@ Pi `getContextUsage()` 在 native compaction 后把 `tokens` / `percent` 置 `nu
 live.tokens
   >0    → live，必要时和 last_input_tokens 取 max
   0     → new session：system prompt + tool defs（prefix）
-  null  → compact：prefix + kept-tail conversation_tokens + tool_call_tokens
+  null  → compact：prefix + display-time m[0] + kept-tail conversation_tokens + tool_call_tokens
 ```
 
 分母始终是 `resolvePiUsableContextLimit`（output-reserved，可被 `detected_context_limit` 盖住）。不用 Pi `percent`，也不用调度器的 0.85 `FORWARD_PRESSURE_LIMIT_FACTOR`。
@@ -44,7 +44,7 @@ compact persist（`persistCompactKeptPromptEstimate`）同时：
 | compact footer | persist 重写桶并清 trailing；footer 监听注册在 persist 之后 | `index.ts` `handlePiSessionCompact` + `registerStatusLine` |
 | compacted resume | `session_start` 若 branch 含 compaction entry，重写同一套桶 | `index.ts` `session_start` |
 | TUI `/ctx-status` | overlay 走同一 resolver | `dialogs/status-dialog.ts` |
-| print/rpc `/ctx-status` | `hasUI=false` 无 footer；文本经 `displayUsage` 传入 `executeStatus` | `commands/ctx-status.ts` |
+| print/rpc `/ctx-status` | `hasUI=false` 无 footer；文本经 `displayUsage` 传入 `executeStatus`；compact 估计含 m[0] 冷路径 | `commands/ctx-status.ts` |
 | session switch | 清 footer 缓存和当前 `mc:`，避免切回来看到上一 session | `status-line.ts` `session_before_switch` |
 | clone / fork | **不**拷贝 token 桶；新 session 从 0 开始，走 prefix | `storage-clone.ts` |
 | 模型切换 | transform 无条件清 trailing + overflow/historian 模型态 | `context-handler.ts` |
@@ -62,15 +62,19 @@ compact persist（`persistCompactKeptPromptEstimate`）同时：
 
 按优先级。这些不是「下次顺手改」，是已知缺口。
 
-### 1. compact 估计不含 m[0]/m[1]
+### 1. compact 估计已加 m[0] 冷路径，m[1]/docs/profile 仍缺
 
-下一发真实 prompt 还有 compartments / memories / docs / profile 注入。现在 compact 估计是：
+`session_before_compact` 清 `cached_m0_bytes` / `cached_m1_bytes` / `memory_block_count`。不能读 cache。
 
-`system + tools + kept-tail conversation + kept-tail tools`
+现在 footer / overlay / RPC 在 `tokens === null` 时走 `resolveM0BlockTokensForDisplay`：有 cache 用 wire bytes；没有则 Σp1 compartments + live `getMemoryCount` 触发的 v2 memory render。只进 display，不写 `last_input_tokens`。
 
-dialog 在 **非** compact 时会把 m[0] 块加进 prefixTokens；`tokens === null` 时只用 `prefix.tokens`（system+tools）。footer / RPC 同样不加 m[0]。
+仍缺：
 
-compact 后到第一次 transform 重建 cache 前，footer 会系统性偏低。要补的话应读 `cached_m0_bytes`（compact 前已清 cache，所以 resume/compact 当下常常是 0），或在 persist 时另存一笔 injection 估计。
+- **m[1]**：冷路径不算 since-last-materialization delta；compact 后到第一次 transform 前通常是 0，第一次 inject 才会有。
+- **docs / user-profile / mural**：冷路径只从 m0Text 抽块，cache 空时这三项是 0。docs 要读项目文件，profile 要读 user memories；footer 热路径现在故意不跑完整 `renderM0Pi`。
+- Σp1 大于 decayed `<session-history>`，第一次 transform 后数字会再跳一次。
+
+不把 injection 写进 persist：估错会污染 historian。
 
 ### 2. 调度器故意不吃估计，但副作用没测完
 
@@ -135,6 +139,6 @@ kept-tail 用 `estimateTokens`（char-based），和 footer prefix 同一套，�
 
 1. 真实 `pi-dev` compact + resume 看 footer / RPC（第 5 项）——先确认还有没有看不见的入口。
 2. switch-in 重画 footer（第 4 项）。
-3. compact 估计是否加 m[0]（第 1 项）——要先确认 compact 当下 cache 是空的，加了也是 0。
+3. 若产品要 docs/profile 进 compact 估计，再决定是否在 footer 热路径跑完整 `renderM0Pi`（第 1 项剩余）。
 4. 给 historian / nudge 加「compact 后无 usage」的显式测试（第 2 项），不要改行为除非产品要第一发就能触发。
 5. `executeStatus` 单测补 `displayUsage` compact 用例（第 3 项）。

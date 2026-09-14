@@ -1,4 +1,5 @@
-import { getMemoriesByProject } from "../features/memory/storage-memory";
+import { Buffer } from "node:buffer";
+import { getMemoriesByProject, getMemoryCount } from "../features/memory/storage-memory";
 import type { ContextDatabase } from "../features/storage";
 import { extractM0Block } from "./decay-render";
 import { renderMemoryBlockV2, trimMemoriesToBudgetV2 } from "./inject-compartments";
@@ -135,4 +136,64 @@ export function computeM0BlockTokens(
 		compartmentTokens,
 		factTokens: 0,
 	};
+}
+
+export function sumM0BlockTokens(blocks: M0BlockTokens): number {
+	return (
+		blocks.docsTokens +
+		blocks.profileTokens +
+		blocks.memoryTokens +
+		blocks.muralTokens +
+		blocks.compartmentTokens +
+		blocks.factTokens
+	);
+}
+
+/**
+ * Display-only m[0] cost. Prefers cached wire bytes; after native compaction
+ * those bytes are cleared, so this falls back to Σp1 compartments and a live
+ * project memory count. Do not persist this into session_meta trailing usage.
+ */
+export function resolveM0BlockTokensForDisplay(
+	db: ContextDatabase,
+	sessionId: string,
+	args: {
+		projectIdentity: string | undefined;
+		injectionBudgetTokens: number | undefined;
+	},
+): M0BlockTokens {
+	let m0Text = "";
+	let memoryBlockCount = 0;
+	try {
+		const row = db
+			.prepare<
+				[string],
+				{
+					cached_m0_bytes: Buffer | Uint8Array | string | null;
+					memory_block_count: number | null;
+				}
+			>("SELECT cached_m0_bytes, memory_block_count FROM session_meta WHERE session_id = ?")
+			.get(sessionId);
+		const m0Bytes = row?.cached_m0_bytes;
+		if (m0Bytes instanceof Uint8Array) m0Text = Buffer.from(m0Bytes).toString("utf8");
+		else if (typeof m0Bytes === "string") m0Text = m0Bytes;
+		if (typeof row?.memory_block_count === "number" && row.memory_block_count > 0) {
+			memoryBlockCount = row.memory_block_count;
+		}
+	} catch {
+		// Status remains available when the cached m[0] row cannot be read.
+	}
+	if (memoryBlockCount <= 0 && args.projectIdentity) {
+		try {
+			memoryBlockCount = getMemoryCount(db, args.projectIdentity);
+		} catch {
+			memoryBlockCount = 0;
+		}
+	}
+	return computeM0BlockTokens(db, sessionId, {
+		m0Text,
+		projectIdentity: args.projectIdentity,
+		injectionBudgetTokens: args.injectionBudgetTokens,
+		memoryBlockCount,
+	});
 }

@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { estimatePiPrefixTokens, type PiPrefixTool } from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
 import { getOverflowState } from "#core/features/storage-meta-persisted";
+import { resolveM0BlockTokensForDisplay, sumM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { resolvePiSessionDisplayPressure } from "./pi-pressure";
 
@@ -13,6 +14,7 @@ let listedTools: () => ReadonlyArray<PiPrefixTool> = () => [];
 export interface StatusLineDeps {
 	db: ContextDatabase;
 	projectIdentity: string;
+	injectionBudgetTokens?: number | undefined;
 }
 
 export function setMagicContextRecompActive(sessionId: string, active: boolean): void {
@@ -33,17 +35,15 @@ const lastRenderedBySession = new Map<string, string>();
 
 /**
  * Persistent Magic Context footer status for Pi.
- *
- * Hot path: one session_meta row, overflow state, and wire-input pressure.
  * Prefix tokenize (system prompt + tool defs) runs only for a new session
- * (`tokens === 0`) or compaction (`tokens === null`). Percentage uses the
- * output-reserved window, never Pi's output-inclusive `percent`. Compaction
- * uses prefix + kept-tail conversation/tool buckets, not the pre-compact
- * trailing reading.
+ * (`tokens === 0`) or compaction (`tokens === null`). Compaction also adds the
+ * display-time m[0] estimate (cached wire bytes, else Σp1 compartments / live
+ * memories). Percentage uses the output-reserved window, never Pi's
+ * output-inclusive `percent`. Compaction uses prefix + m[0] + kept-tail
+ * conversation/tool buckets, not the pre-compact trailing reading.
  */
 
 export function registerStatusLine(pi: ExtensionAPI, deps: StatusLineDeps): void {
-	void deps.projectIdentity;
 	listedTools = () => {
 		try {
 			return pi.getAllTools?.() ?? [];
@@ -86,13 +86,14 @@ export function updateStatusLine(ctx: ExtensionContext, deps: StatusLineDeps, fo
 	if (!ctx.hasUI) return;
 	const sessionId = resolveSessionId(ctx);
 	if (!sessionId) return;
-	const text = renderStatusText(ctx, deps.db, sessionId);
+	const text = renderStatusText(ctx, deps, sessionId);
 	if (!force && lastRenderedBySession.get(sessionId) === text) return;
 	lastRenderedBySession.set(sessionId, text);
 	ctx.ui.setStatus(STATUS_KEY, text);
 }
 
-function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId: string): string {
+function renderStatusText(ctx: ExtensionContext, deps: StatusLineDeps, sessionId: string): string {
+	const db = deps.db;
 	const usage = ctx.getContextUsage?.();
 	const liveTokens = usage?.tokens;
 	const compactionUnknown = liveTokens === null;
@@ -106,6 +107,14 @@ function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId:
 			tools: listedTools(),
 			estimateTokens,
 		}).tokens;
+		if (compactionUnknown) {
+			prefixTokens += sumM0BlockTokens(
+				resolveM0BlockTokensForDisplay(db, sessionId, {
+					projectIdentity: deps.projectIdentity,
+					injectionBudgetTokens: deps.injectionBudgetTokens,
+				}),
+			);
+		}
 	}
 	let detectedContextLimit: number | undefined;
 	try {

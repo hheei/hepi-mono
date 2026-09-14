@@ -11,6 +11,7 @@ import { registerCtxSessionUpgradeCommand } from "../../src/commands/ctx-session
 import { registerCtxStatusCommand } from "../../src/commands/ctx-status";
 import { registerCtxWrapupCommand } from "../../src/commands/ctx-wrapup";
 import { initializeDatabase } from "../../src/core/features/storage-db";
+import { estimateTokens } from "../../src/core/hooks/read-session-formatting";
 import { awaitInFlightRecomps } from "../../src/pi-recomp-runner";
 
 type Handler = (args: string, ctx: MockCommandContext) => Promise<void>;
@@ -155,6 +156,9 @@ describe("Pi Magic Context commands", () => {
 			conversationTokens: 2_000,
 			toolCallTokens: 500,
 		});
+		db.prepare(
+			"INSERT INTO compartments (session_id, sequence, start_message, end_message, start_message_id, end_message_id, title, content, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+		).run("ses-1", 1, 1, 9, "m1", "m9", "Kept history", "archived compartment body", Date.now());
 		const { pi, handlers, sent } = createMockPi();
 		registerCtxStatusCommand(pi as never, {
 			db,
@@ -172,9 +176,13 @@ describe("Pi Magic Context commands", () => {
 		});
 
 		const text = sent[0]?.data.text ?? "";
+		const expected =
+			estimateTokens("You are pi.") +
+			2_500 +
+			estimateTokens("## 1-9 · Kept history\narchived compartment body\n");
 		expect(text).toContain("## Magic Status");
 		expect(text).not.toContain("90,000");
-		expect(text).toMatch(/Last input tokens: [1-9]/);
+		expect(text).toContain(`Last input tokens: ${expected.toLocaleString()}`);
 	});
 
 	it("refuses every context-management command in compaction-off mode without mutations", async () => {

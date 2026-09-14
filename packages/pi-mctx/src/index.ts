@@ -1061,7 +1061,11 @@ async function startPiMagicContextRuntime(
 		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
 	);
 	pi.on("session_compact", (_event, ctx) => handlePiSessionCompact({ db, ctx }));
-	registerStatusLine(pi, { db, projectIdentity });
+	registerStatusLine(pi, {
+		db,
+		projectIdentity,
+		injectionBudgetTokens: bootProjectDeps.config.memory?.injection_budget_tokens,
+	});
 	info("registered magic-context status line");
 
 	registerCtxFlushCommand(pi, { db, compactionOff });
