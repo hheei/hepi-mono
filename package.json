@@ -4,18 +4,15 @@
 	"private": true,
 	"description": "Monorepo for HEPI Pi Coding Agent extensions.",
 	"type": "module",
-	"packageManager": "npm@10.9.3",
-	"workspaces": [
-		"packages/*"
-	],
+	"packageManager": "pnpm@12.4.1",
 	"scripts": {
-		"build": "npm run build --workspace=@hheei/pi-ext-core && npm run build --workspace=@hheei/pi-auto-title && npm run build --workspace=@hheei/pi-btw && npm run build --workspace=@hheei/pi-dollar-skill && npm run build --workspace=@hheei/pi-ext-addon && npm run build --workspace=@hheei/pi-ext-tools && npm run build --workspace=@hheei/pi-settings && npm run build --workspace=@hheei/pi-status && npm run build --workspace=@hheei/pi-t2s",
-		"check": "biome check . && npm run typecheck && npm test",
+		"build": "pnpm --filter @hheei/pi-ext-core run build && pnpm --filter @hheei/pi-auto-title --filter @hheei/pi-btw --filter @hheei/pi-dollar-skill --filter @hheei/pi-ext-addon --filter @hheei/pi-ext-tools --filter @hheei/pi-settings --filter @hheei/pi-status --filter @hheei/pi-t2s run build",
+		"check": "biome check . && pnpm run typecheck && pnpm test",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "npm run build:native --workspace=@hheei/pi-ext-tools && vitest run",
+		"test": "pnpm --filter @hheei/pi-ext-tools run build:native && vitest run",
 		"bun:compat": "bun scripts/bun-compat-smoke.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
 		"tui:replay": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay.ts",
@@ -32,9 +29,7 @@
 		"vitest": "^4.1.11"
 	},
 	"engines": {
-		"node": ">=22.19.0"
-	},
-	"patchedDependencies": {
-		"@earendil-works/pi-tui@0.84.3": "patches/@earendil-works%2Fpi-tui@0.84.3.patch"
+		"node": ">=22.19.0",
+		"pnpm": ">=12.4.1"
 	}
 }

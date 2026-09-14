@@ -1,8 +1,8 @@
 diff --git a/dist/components/editor.js b/dist/components/editor.js
-index 4786b46932b65785cfbd2304610ca77ccead910a..af52c6fb10fefbb74cb8090a1f95481369046e6a 100644
+index 0000000..0000001 100644
 --- a/dist/components/editor.js
 +++ b/dist/components/editor.js
-@@ -540,6 +540,7 @@ export class Editor {
+@@ -613,6 +613,7 @@ export class Editor {
              if (kb.matches(data, "tui.input.tab")) {
                  const selected = this.autocompleteList.getSelectedItem();
                  if (selected && this.autocompleteProvider) {
@@ -10,7 +10,7 @@ index 4786b46932b65785cfbd2304610ca77ccead910a..af52c6fb10fefbb74cb8090a1f954813
                      this.pushUndoSnapshot();
                      this.lastAction = null;
                      const result = this.autocompleteProvider.applyCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol, selected, this.autocompletePrefix);
-@@ -549,6 +550,8 @@ export class Editor {
+@@ -622,6 +623,8 @@ export class Editor {
                      this.cancelAutocomplete();
                      if (this.onChange)
                          this.onChange(this.getText());
@@ -20,27 +20,29 @@ index 4786b46932b65785cfbd2304610ca77ccead910a..af52c6fb10fefbb74cb8090a1f954813
                  return;
              }
 diff --git a/dist/tui-main-screen.js b/dist/tui-main-screen.js
-index 05279f4699c298ca345785dd2f896a33d8271f4a..c50e7f9d0f83f196a9b08dffd6fa9f6cf5d87e57 100644
+index 0000000..0000001 100644
 --- a/dist/tui-main-screen.js
 +++ b/dist/tui-main-screen.js
-@@ -176,12 +176,15 @@ export class TuiMainScreen extends TuiBase {
+@@ -241,13 +241,16 @@ export class TuiMainScreen extends TuiBase {
          const cursorPos = this.extractCursorPosition(newLines, height);
          newLines = this.applyLineResets(newLines);
          // Helper to clear scrollback and viewport and render all new lines
 -        const fullRender = (clear) => {
 +        const fullRender = (clear, clearScrollback = clear) => {
              this.fullRedrawCount += 1;
-             let buffer = "\x1b[?2026h"; // Begin synchronized output
+             const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
+             output.append("\x1b[?2026h"); // Begin synchronized output
              if (clear) {
-                 buffer += this.deleteKittyImages(this.previousKittyImageIds);
--                buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
-+                buffer += "\x1b[2J\x1b[H"; // Clear screen and home
+                 output.append(this.deleteKittyImages(this.previousKittyImageIds));
+-                output.append("\x1b[2J\x1b[H\x1b[3J"); // Clear screen, home, then clear scrollback
++                output.append("\x1b[2J\x1b[H"); // Clear screen and home
 +                if (clearScrollback) {
-+                    buffer += "\x1b[3J"; // Clear scrollback
++                    output.append("\x1b[3J"); // Clear scrollback
 +                }
              }
              for (let i = 0; i < newLines.length; i++) {
-@@ -238,7 +241,9 @@ export class TuiMainScreen extends TuiBase {
+                 if (i > 0)
+@@ -304,7 +307,9 @@ export class TuiMainScreen extends TuiBase {
          // Width changes always need a full re-render because wrapping changes.
          if (widthChanged) {
              logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);
@@ -50,3 +52,4 @@ index 05279f4699c298ca345785dd2f896a33d8271f4a..c50e7f9d0f83f196a9b08dffd6fa9f6c
 +            fullRender(true, false);
              return;
          }
+         // Height changes normally need a full re-render to keep the visible viewport aligned,

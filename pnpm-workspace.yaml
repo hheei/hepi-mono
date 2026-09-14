@@ -1,0 +1,15 @@
+packages:
+  - "packages/pi-auto-title"
+  - "packages/pi-btw"
+  - "packages/pi-debug"
+  - "packages/pi-dollar-skill"
+  - "packages/pi-ext-addon"
+  - "packages/pi-ext-core"
+  - "packages/pi-ext-tools"
+  - "packages/pi-mctx"
+  - "packages/pi-settings"
+  - "packages/pi-status"
+  - "packages/pi-t2s"
+
+patchedDependencies:
+  "@earendil-works/pi-tui@0.85.1": "patches/@earendil-works__pi-tui.patch"

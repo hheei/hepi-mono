@@ -12,19 +12,31 @@ const settingsPackageDir = path.join(packageRoot, "pi-settings");
 const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const nativeBridgePath = path.join(toolsPackageDir, "native", "pi-ext-tools-bridge.node");
 const buildCacheDir = path.join(root, ".pi-dev");
-const piCli = path.join(
-	toolsPackageDir,
-	"node_modules",
-	"@earendil-works",
-	"pi-coding-agent",
-	"dist",
-	"cli.js",
-);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const piCliCandidates = [
+	path.join(
+		toolsPackageDir,
+		"node_modules",
+		"@earendil-works",
+		"pi-coding-agent",
+		"dist",
+		"bundle",
+		"cli.js",
+	),
+	path.join(
+		toolsPackageDir,
+		"node_modules",
+		"@earendil-works",
+		"pi-coding-agent",
+		"dist",
+		"cli.js",
+	),
+];
+const piCli = piCliCandidates.find((candidate) => existsSync(candidate));
+const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const requiredBuildDirectories = [path.join(packageRoot, "pi-ext-core")].filter(existsSync);
 
-if (!existsSync(piCli)) {
-	console.error("Missing local Pi. Run npm ci from the repository root.");
+if (!piCli) {
+	console.error("Missing local Pi. Run pnpm install from the repository root.");
 	process.exit(1);
 }
 
@@ -67,7 +79,7 @@ function updateRustSourceHash(hash: ReturnType<typeof createHash>, directory: st
 function buildFingerprint(directories: readonly string[]): string {
 	const hash = createHash("sha256");
 	for (const filePath of [
-		path.join(root, "package-lock.json"),
+		path.join(root, "pnpm-lock.yaml"),
 		path.join(root, "tsconfig.base.json"),
 	]) {
 		hash.update(filePath);
@@ -89,7 +101,7 @@ function buildFingerprint(directories: readonly string[]): string {
 function nativeBuildFingerprint(): string {
 	const hash = createHash("sha256");
 	for (const filePath of [
-		path.join(root, "package-lock.json"),
+		path.join(root, "pnpm-lock.yaml"),
 		path.join(toolsPackageDir, "package.json"),
 		path.join(root, "scripts", "build-rust.mjs"),
 	]) {
@@ -100,8 +112,8 @@ function nativeBuildFingerprint(): string {
 	return hash.digest("hex");
 }
 
-function runNpmScript(directory: string, script: string): void {
-	const result = spawnSync(npmCommand, ["run", script], {
+function runWorkspaceScript(directory: string, script: string): void {
+	const result = spawnSync(pnpmCommand, ["run", script], {
 		cwd: directory,
 		stdio: "inherit",
 	});
@@ -149,15 +161,11 @@ const needsTypeScriptBuild =
 	buildDirectories.some((directory) => !existsSync(path.join(directory, "dist")));
 
 if (needsNativeBuild) {
-	const result = spawnSync(npmCommand, ["run", "build:native"], {
-		cwd: toolsPackageDir,
-		stdio: "inherit",
-	});
-	if (result.status !== 0) process.exit(result.status ?? 1);
+	runWorkspaceScript(toolsPackageDir, "build:native");
 }
 
 if (needsTypeScriptBuild) {
-	for (const directory of buildDirectories) runNpmScript(directory, "build");
+	for (const directory of buildDirectories) runWorkspaceScript(directory, "build");
 }
 
 if (needsNativeBuild || needsTypeScriptBuild) {
@@ -170,6 +178,7 @@ if (needsNativeBuild || needsTypeScriptBuild) {
 const extensionArgs = [
 	"--extension",
 	path.join(toolsPackageDir, "dist", "extension.js"),
+	"--extension",
 	path.join(dollarSkillPackageDir, "dist", "extension.js"),
 	"--extension",
 	path.join(settingsPackageDir, "dist", "extension.js"),
