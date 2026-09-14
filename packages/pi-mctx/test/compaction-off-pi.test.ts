@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	getOrCreateSessionMeta,
 	getPendingOps,
 	insertTag,
 	queuePendingOp,
@@ -66,6 +67,51 @@ describe("Pi compaction-off mode", () => {
 			expect(consumeDeferredHistoryRefresh(sessionId)).toBe(false);
 			expect(consumeDeferredMaterialization(sessionId)).toBe(true);
 			expect(consumeDeferredMaterialization(sessionId)).toBe(false);
+		} finally {
+			closeQuietly(db);
+		}
+	});
+
+	it("rewrites conversation and tool buckets from the kept tail after compact", () => {
+		const db = createTestDb();
+		const sessionId = "ses-native-kept-tail";
+		try {
+			updateSessionMeta(db, sessionId, {
+				lastInputTokens: 90_000,
+				conversationTokens: 80_000,
+				toolCallTokens: 10_000,
+			});
+			handlePiSessionCompact({
+				db,
+				ctx: {
+					sessionManager: {
+						getSessionId: () => sessionId,
+						getBranch: () => [
+							{
+								type: "message",
+								id: "old",
+								message: { role: "user", content: "drop this huge pre-compact history" },
+							},
+							{
+								type: "compaction",
+								id: "compact-1",
+								firstKeptEntryId: "kept-user",
+								summary: "compacted earlier work",
+							},
+							{
+								type: "message",
+								id: "kept-user",
+								message: { role: "user", content: "keep this" },
+							},
+						],
+					},
+				},
+			});
+			const meta = getOrCreateSessionMeta(db, sessionId);
+			expect(meta.lastInputTokens).toBe(90_000);
+			expect(meta.conversationTokens).toBeGreaterThan(0);
+			expect(meta.conversationTokens).toBeLessThan(1_000);
+			expect(meta.toolCallTokens).toBe(0);
 		} finally {
 			closeQuietly(db);
 		}

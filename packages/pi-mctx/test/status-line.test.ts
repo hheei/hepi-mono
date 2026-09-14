@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { updateSessionMeta } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { registerStatusLine, updateStatusLine } from "../src/status-line";
 import { createTestDb, fakeContext } from "./test-utils.test";
@@ -82,9 +83,15 @@ describe("status line prefix", () => {
 		}
 	});
 
-	it("shows unknown after compaction instead of a prefix floor", () => {
+	it("estimates the next prompt after compaction instead of a prefix floor", () => {
 		const db = createTestDb();
 		try {
+			const sessionId = "ses-status-line-compacted";
+			updateSessionMeta(db, sessionId, {
+				lastInputTokens: 90_000,
+				conversationTokens: 2_000,
+				toolCallTokens: 500,
+			});
 			const statuses: Array<string | undefined> = [];
 			registerStatusLine(
 				{
@@ -102,7 +109,13 @@ describe("status line prefix", () => {
 				{ db, projectIdentity: "proj" },
 			);
 			const ctx = {
-				...fakeContext("ses-status-line-compacted"),
+				...fakeContext(sessionId),
+				model: {
+					provider: "anthropic",
+					id: "claude",
+					contextWindow: 100_000,
+					maxTokens: 20_000,
+				},
 				getSystemPrompt: () => "You are pi.",
 				getContextUsage: () => ({
 					tokens: null,
@@ -116,7 +129,11 @@ describe("status line prefix", () => {
 				},
 			};
 			updateStatusLine(ctx as never, { db, projectIdentity: "proj" }, true);
-			expect(statuses.at(-1)).toBe("mc: -- (--) · idle");
+			const text = statuses.at(-1) ?? "";
+			expect(text).toMatch(/^mc: \d/);
+			expect(text).not.toBe("mc: -- (--) · idle");
+			expect(text).not.toMatch(/^mc: 90/);
+			expect(text).toContain("idle");
 		} finally {
 			closeQuietly(db);
 		}

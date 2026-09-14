@@ -138,6 +138,7 @@ import {
 	HANDOFF_REQUEST_TYPE,
 } from "./handoff/model";
 import { renderHandoffAttempt, renderHandoffContext, renderHandoffRequest } from "./handoff/render";
+import { persistCompactKeptPromptEstimate } from "./pi-compact-kept-messages";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { computePiPressure, extractAssistantUsage } from "./pi-pressure";
 import { awaitInFlightRecomps } from "./pi-recomp-runner";
@@ -271,17 +272,34 @@ export async function handlePiSessionBeforeCompact(args: {
 /**
  * Reconcile state after native compaction without doing synchronous historian
  * work. The before hook is the correctness gate; this idempotent signal lets
- * the next transform rebuild against Pi's replacement history.
+ * the next transform rebuild against Pi's replacement history. Kept-tail
+ * conversation/tool-call buckets are rewritten so status can estimate the
+ * next prompt without the pre-compact trailing reading.
  */
 export function handlePiSessionCompact(args: {
 	db: ContextDatabase;
-	ctx: { sessionManager?: { getSessionId?: () => string | undefined } };
+	ctx: {
+		sessionManager?: {
+			getSessionId?: () => string | undefined;
+			getBranch?: () => unknown[];
+		};
+	};
 }): void {
 	try {
 		const sessionId = args.ctx.sessionManager?.getSessionId?.();
 		if (typeof sessionId === "string" && sessionId.length > 0) {
 			endNativeCompactionFence(args.db, sessionId);
 			signalPiDeferredCompactionMarkerDrain(sessionId);
+			let entries: unknown[] = [];
+			try {
+				const getBranch = args.ctx.sessionManager?.getBranch;
+				const branch =
+					typeof getBranch === "function" ? getBranch.call(args.ctx.sessionManager) : [];
+				if (Array.isArray(branch)) entries = branch;
+			} catch {
+				entries = [];
+			}
+			persistCompactKeptPromptEstimate({ db: args.db, sessionId, entries });
 		}
 	} catch {
 		// Post-compaction reconciliation is best-effort and must not affect Pi.

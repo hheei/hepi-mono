@@ -91,7 +91,7 @@ export function computePiPressure(
 	return { inputTokens, percentage };
 }
 
-export type PiDisplayPressureSource = "live" | "persisted" | "prefix" | "unknown";
+export type PiDisplayPressureSource = "live" | "persisted" | "prefix" | "estimated" | "unknown";
 
 export interface PiDisplayPressure {
 	inputTokens: number | undefined;
@@ -105,8 +105,9 @@ export interface PiDisplayPressure {
  * denominator as transform, but never uses Pi's output-inclusive `percent`
  * and never applies the scheduler's 0.85 forward-pressure scale.
  *
- * `live.tokens === null` is unknown after compaction: do not fill with
- * prefix or a stale persisted trailing reading.
+ * `live.tokens === null` is post-compaction. Do not fill with prefix or a
+ * stale persisted trailing reading. Callers may pass an `estimatedTokens`
+ * kept-tail prompt estimate instead.
  */
 export function resolvePiDisplayPressure(args: {
 	live?:
@@ -127,6 +128,7 @@ export function resolvePiDisplayPressure(args: {
 	detectedContextLimit?: number | undefined;
 	lastInputTokens?: number | undefined;
 	prefixTokens?: number | undefined;
+	estimatedTokens?: number | undefined;
 }): PiDisplayPressure {
 	const rawWindow =
 		typeof args.live?.contextWindow === "number" && args.live.contextWindow > 0
@@ -142,6 +144,18 @@ export function resolvePiDisplayPressure(args: {
 		}) ?? 0;
 	const liveTokens = args.live?.tokens;
 	if (liveTokens === null) {
+		const estimated =
+			typeof args.estimatedTokens === "number" && args.estimatedTokens > 0
+				? args.estimatedTokens
+				: 0;
+		if (estimated > 0) {
+			return {
+				inputTokens: estimated,
+				percentage: percentageOf(estimated, contextLimit),
+				contextLimit,
+				source: "estimated",
+			};
+		}
 		return { inputTokens: undefined, percentage: undefined, contextLimit, source: "unknown" };
 	}
 

@@ -467,13 +467,29 @@ export function buildPiStatusDetail(
 	const systemPromptTokens =
 		prefix.systemPromptTokens > 0 ? prefix.systemPromptTokens : meta.systemPromptTokens;
 	const toolDefinitionTokens = prefix.toolDefinitionTokens;
+	const compactionUnknown = usage?.tokens === null;
+	const estimatedTokens = compactionUnknown
+		? prefix.tokens + meta.conversationTokens + meta.toolCallTokens
+		: undefined;
 	const pressure = resolvePiDisplayPressure({
 		...(usage === undefined ? {} : { live: usage }),
 		...(ctx.model === undefined ? {} : { model: ctx.model }),
 		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
-		...(meta.lastInputTokens > 0 ? { lastInputTokens: meta.lastInputTokens } : {}),
-		prefixTokens:
-			prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
+		...(!compactionUnknown && meta.lastInputTokens > 0
+			? { lastInputTokens: meta.lastInputTokens }
+			: {}),
+		...(!compactionUnknown
+			? {
+					prefixTokens:
+						prefix.tokens +
+						compartmentTokens +
+						factTokens +
+						memoryTokens +
+						docsTokens +
+						profileTokens,
+				}
+			: {}),
+		...(estimatedTokens !== undefined && estimatedTokens > 0 ? { estimatedTokens } : {}),
 	});
 	const contextLimit = pressure.contextLimit;
 	const inputTokens = pressure.inputTokens;

@@ -100,7 +100,9 @@ Footer `/ctx-status` 和 status dialog 与 transform 使用同一套 wire-input 
 `tokens` 是 Pi 的 live 会话估计或 `session_meta.last_input_tokens`，百分比是
 `inputTokens / output-reserved usable window`。不使用 Pi `getContextUsage().percent`
 （该字段含 output）。新 session 的 `tokens === 0` 仍用 system prompt + tool defs
-做下限；compaction 后的 `tokens === null` 显示未知，不用 prefix 或旧 trailing 顶上。
+做下限。compaction 后的 `tokens === null` 不用旧 trailing；用 prefix + compact
+时写入的 kept-tail `conversation_tokens`/`tool_call_tokens` 显示下一发 prompt
+估计，等下一次 `message_end` 再换成 provider 实际值。
 调度器的 0.85 forward-pressure 缩放只用于 historian/emergency，不进入 status。
 
 Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.

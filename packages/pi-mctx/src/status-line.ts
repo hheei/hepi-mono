@@ -25,6 +25,8 @@ type SessionMetaStatus = {
 	historian_failure_count: number | null;
 	historian_last_failure_at: number | null;
 	last_input_tokens: number | null;
+	conversation_tokens: number | null;
+	tool_call_tokens: number | null;
 };
 
 const lastRenderedBySession = new Map<string, string>();
@@ -34,8 +36,10 @@ const lastRenderedBySession = new Map<string, string>();
  *
  * Hot path: one session_meta row, overflow state, and wire-input pressure.
  * Prefix tokenize (system prompt + tool defs) runs only for a new session
- * (`tokens === 0`). Compaction `tokens === null` stays unknown. Percentage
- * uses the output-reserved window, never Pi's output-inclusive `percent`.
+ * (`tokens === 0`) or compaction (`tokens === null`). Percentage uses the
+ * output-reserved window, never Pi's output-inclusive `percent`. Compaction
+ * uses prefix + kept-tail conversation/tool buckets, not the pre-compact
+ * trailing reading.
  */
 
 export function registerStatusLine(pi: ExtensionAPI, deps: StatusLineDeps): void {
@@ -79,7 +83,7 @@ function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId:
 	const liveReady = typeof liveTokens === "number" && liveTokens > 0;
 	const meta = readSessionMetaStatus(db, sessionId);
 	let prefixTokens: number | undefined;
-	if (!compactionUnknown && !liveReady) {
+	if (compactionUnknown || !liveReady) {
 		const systemPrompt = readSystemPrompt(ctx);
 		prefixTokens = estimatePiPrefixTokens({
 			...(systemPrompt === undefined ? {} : { systemPrompt }),
@@ -94,14 +98,28 @@ function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId:
 	} catch {
 		// Footer remains available when overflow metadata cannot be read.
 	}
+	const conversationTokens =
+		typeof meta?.conversation_tokens === "number" && meta.conversation_tokens > 0
+			? meta.conversation_tokens
+			: 0;
+	const toolCallTokens =
+		typeof meta?.tool_call_tokens === "number" && meta.tool_call_tokens > 0
+			? meta.tool_call_tokens
+			: 0;
+	const estimatedTokens = compactionUnknown
+		? (prefixTokens ?? 0) + conversationTokens + toolCallTokens
+		: undefined;
 	const pressure = resolvePiDisplayPressure({
 		...(usage === undefined ? {} : { live: usage }),
 		...(ctx.model === undefined ? {} : { model: ctx.model }),
 		...(detectedContextLimit === undefined ? {} : { detectedContextLimit }),
-		...(typeof meta?.last_input_tokens === "number" && meta.last_input_tokens > 0
+		...(!compactionUnknown &&
+		typeof meta?.last_input_tokens === "number" &&
+		meta.last_input_tokens > 0
 			? { lastInputTokens: meta.last_input_tokens }
 			: {}),
-		...(prefixTokens === undefined ? {} : { prefixTokens }),
+		...(!compactionUnknown && prefixTokens !== undefined ? { prefixTokens } : {}),
+		...(estimatedTokens !== undefined && estimatedTokens > 0 ? { estimatedTokens } : {}),
 	});
 	const state = renderHistorianState(meta, recompSessions.has(sessionId));
 	const inputTokens = pressure.inputTokens;
@@ -128,9 +146,8 @@ function readSessionMetaStatus(
 	try {
 		return db
 			.prepare<[string], SessionMetaStatus>(
-				"SELECT compartment_in_progress, historian_failure_count, historian_last_failure_at, last_input_tokens FROM session_meta WHERE session_id = ?",
+				"SELECT compartment_in_progress, historian_failure_count, historian_last_failure_at, last_input_tokens, conversation_tokens, tool_call_tokens FROM session_meta WHERE session_id = ?",
 			)
-
 			.get(sessionId);
 	} catch {
 		return undefined;
