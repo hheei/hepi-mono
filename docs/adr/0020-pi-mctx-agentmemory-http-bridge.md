@@ -15,9 +15,11 @@ AgentMemory HTTP 服务，不是 `context.db` 的 `memories` 表，也不是 Doc
   本地 store 版 `mctx_memory`，也不再把 historian facts 写入本地 `memories`。
 - AgentMemory 不提供 project setting；`AGENTMEMORY_PROJECT_NAME` 显式环境覆盖优先，否则使用 git root basename，再退回 cwd basename。`agentId` 只用于过滤，不是安全边界。
 - Bearer secret 发往非 loopback plaintext HTTP 时默认显式告警；`agentmemoryRequireHttps` 或 `AGENTMEMORY_REQUIRE_HTTPS=1` 使请求 fail closed。
-- 自动 recall 的 Context Projection / ledger / SQLite outbox 不在本 ADR 范围。
-  显式写入走同名 `mctx_memory`（AgentMemory schema）的同步 `remember`；失败对工具可见，不静默落本地库。
-
+- 自动 recall 的 Context Projection / ledger 不在本 ADR 范围；由后续独立决策定义。
+- Agent-facing 工具名固定为 `mctx_search` / `mctx_memory`。启用 AgentMemory 后只切换实现与 schema，不注册 `memory_*` 别名，也不 dual-write 本地 memory。
+- `mctx_memory` 先提交到 Pi-owned SQLite transactional outbox，再异步调用 `/remember`；outbox 使用 lease、退避重试、内容 scope dedupe 与超时后的远端 reconciliation。工具在本地提交后只声明 `queued`，除非相同 dedupe row 已确认 `delivered`。
+- `/ctx-status` 只读取 runtime 已观察状态和本地 outbox 计数，不为刷新状态发网络请求；`/agentmemory-health` 是唯一显式 fresh probe。
+- bridge 初始化以 additive、可重入方式建立 `agentmemory_outbox` 与 `agentmemory_turn_taint`；reload/shutdown 取消 capture、等待有界 outbox drain，并结束 live remote sessions。
 ## 不做
 
 - 不把 omp-mctx 的 capture 类、pending observation map、taint store、recall ledger

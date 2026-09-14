@@ -72,6 +72,8 @@ export interface RegisterToolsOptions {
 				client: AgentMemoryClientPort;
 				identity: (cwd: string) => AgentMemoryIdentity;
 				remoteSessionId?: ((piSessionId: string) => string | undefined) | undefined;
+				onSuccess?: (() => void) | undefined;
+				onFailure?: ((error: unknown) => void) | undefined;
 		  }
 		| undefined;
 }

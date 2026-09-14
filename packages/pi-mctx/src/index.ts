@@ -90,6 +90,8 @@ import {
 	captureToolResult,
 	createAgentMemoryRuntime,
 } from "./agentmemory/runtime";
+import { ensureAgentMemorySchema } from "./agentmemory/schema";
+import { AgentMemoryStatusTracker } from "./agentmemory/status";
 import { handlePiCloneSessionStart } from "./clone-inheritance";
 import { type PiSidekickConfig, registerCtxAugCommand } from "./commands/ctx-aug";
 import { registerCtxDreamCommand } from "./commands/ctx-dream";
@@ -710,6 +712,7 @@ async function startPiMagicContextRuntime(
 	config: MagicContextConfig,
 ): Promise<void> {
 	const db = database;
+	ensureAgentMemorySchema(db);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx/handoff",
 		start(context) {
@@ -802,6 +805,7 @@ async function startPiMagicContextRuntime(
 		return;
 	}
 
+	const fallbackAgentMemoryStatus = new AgentMemoryStatusTracker();
 	let agentMemoryRuntime: AgentMemoryRuntime | undefined;
 	if (config.agentmemory.enabled) {
 		try {
@@ -815,10 +819,18 @@ async function startPiMagicContextRuntime(
 			warn(
 				`agentmemory bridge unavailable; Window continues: ${error instanceof Error ? error.message : String(error)}`,
 			);
+			fallbackAgentMemoryStatus.recordFailure("health", error);
+			fallbackAgentMemoryStatus.recordFailure("capture", error);
+			fallbackAgentMemoryStatus.recordFailure("search", error);
+			fallbackAgentMemoryStatus.recordFailure("inject", error);
+			fallbackAgentMemoryStatus.recordFailure("memory", error);
 		}
 	} else {
 		info("agentmemory bridge: DISABLED");
 	}
+	const agentMemoryStatus =
+		agentMemoryRuntime?.statusSnapshot ??
+		(() => fallbackAgentMemoryStatus.snapshot(config.agentmemory, undefined));
 
 	const agentMemoryTools = Boolean(agentMemoryRuntime && config.agentmemory.memoryTools);
 
@@ -979,6 +991,8 @@ async function startPiMagicContextRuntime(
 						client: agentMemoryRuntime.client,
 						identity: agentMemoryRuntime.identity,
 						remoteSessionId: agentMemoryRuntime.remoteSessionId,
+						onSuccess: agentMemoryRuntime.recordSearchSuccess,
+						onFailure: agentMemoryRuntime.recordSearchFailure,
 					},
 				}
 			: {}),
@@ -1068,6 +1082,7 @@ async function startPiMagicContextRuntime(
 			runnable: bootProjectDeps.dreamerEnabled,
 			scheduleSummary: summarizeDreamSchedule(bootProjectDeps.config.dreamer),
 		},
+		agentMemoryStatus,
 		resolveStatusDeps: (ctx) => {
 			const current = resolveCurrentProjectDeps(ctx);
 			return {
@@ -1083,6 +1098,7 @@ async function startPiMagicContextRuntime(
 					runnable: current.dreamerEnabled,
 					scheduleSummary: summarizeDreamSchedule(current.config.dreamer),
 				},
+				agentMemoryStatus,
 			};
 		},
 	});
@@ -1094,6 +1110,7 @@ async function startPiMagicContextRuntime(
 			handler: async () => {
 				try {
 					const health = await healthClient.health();
+					agentMemoryRuntime.recordHealthSuccess();
 					const status = health.status ?? health.health?.status ?? "ok";
 					sendCtxStatusMessage(pi, {
 						title: "/agentmemory-health",
@@ -1101,6 +1118,7 @@ async function startPiMagicContextRuntime(
 						level: "info",
 					});
 				} catch (error) {
+					agentMemoryRuntime.recordHealthFailure(error);
 					sendCtxStatusMessage(pi, {
 						title: "/agentmemory-health",
 						text: `agentmemory unavailable: ${error instanceof Error ? error.message : String(error)}`,

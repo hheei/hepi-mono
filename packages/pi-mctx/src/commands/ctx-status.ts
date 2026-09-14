@@ -12,6 +12,7 @@ import { executeStatus } from "#core/hooks/execute-status";
 import { resolveM0BlockTokensForDisplay, sumM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { describeError } from "#core/shared/error-message";
+import { type AgentMemoryStatusSnapshot, formatAgentMemoryStatus } from "../agentmemory/status";
 import { showStatusDialog } from "../dialogs/status-dialog";
 import { resolvePiUsableContextLimit } from "../pi-context-limit";
 import { resolvePiSessionDisplayPressure } from "../pi-pressure";
@@ -39,6 +40,7 @@ export interface RegisterCtxStatusDeps {
 		  }
 		| undefined;
 	dreamer?: { runnable?: boolean; scheduleSummary?: string } | undefined;
+	agentMemoryStatus?: (() => AgentMemoryStatusSnapshot) | undefined;
 }
 
 export type CtxStatusRuntimeDeps = Omit<RegisterCtxStatusDeps, "resolveStatusDeps">;
@@ -67,6 +69,7 @@ export interface CtxStatusDetails {
 		lastError: string | null;
 		failureCount: number;
 	};
+	agentMemory: AgentMemoryStatusSnapshot | null;
 }
 
 export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStatusDeps): void {
@@ -144,7 +147,7 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 					conversationTokens: meta.conversationTokens,
 					toolCallTokens: meta.toolCallTokens,
 				});
-				const statusText = executeStatus(
+				const windowStatusText = executeStatus(
 					currentDeps.db,
 					sessionId,
 					currentDeps.protectedTags ?? 20,
@@ -160,6 +163,10 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 						...(pressure.contextLimit > 0 ? { contextLimit: pressure.contextLimit } : {}),
 					},
 				);
+				const agentMemory = currentDeps.agentMemoryStatus?.() ?? null;
+				const statusText = agentMemory
+					? `${windowStatusText}\n\n${formatAgentMemoryStatus(agentMemory).join("\n")}`
+					: windowStatusText;
 				const details = buildStatusDetails(currentDeps, sessionId);
 				sendCtxStatusMessage(
 					pi,
@@ -215,6 +222,7 @@ function buildStatusDetails(deps: RegisterCtxStatusDeps, sessionId: string): Ctx
 			lastRunAt: getMostRecentTaskRunAt(deps.db, deps.projectIdentity),
 		},
 		historian: readHistorianState(deps.db, sessionId, meta),
+		agentMemory: deps.agentMemoryStatus?.() ?? null,
 	};
 }
 

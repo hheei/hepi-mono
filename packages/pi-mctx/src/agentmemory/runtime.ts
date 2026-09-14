@@ -6,6 +6,7 @@ import { AgentMemoryClient, type AgentMemoryClientPort, type ObserveResult } fro
 import { AgentMemoryOutbox } from "./outbox";
 import { type AgentMemoryIdentity, createAgentMemoryIdentityResolver } from "./project";
 import { AgentMemorySessionManager, resolvePiSessionId } from "./session";
+import { type AgentMemoryStatusSnapshot, AgentMemoryStatusTracker } from "./status";
 import { SqliteTurnTaintStore, type TurnTaintStore } from "./taint";
 
 export type { AgentMemoryIdentity } from "./project";
@@ -40,6 +41,12 @@ export type AgentMemoryRuntime = {
 	readonly sessions: AgentMemorySessionManager;
 	readonly taint: TurnTaintStore | undefined;
 	readonly outbox: AgentMemoryOutbox | undefined;
+	readonly status: AgentMemoryStatusTracker;
+	statusSnapshot(): AgentMemoryStatusSnapshot;
+	recordSearchSuccess(): void;
+	recordSearchFailure(error: unknown): void;
+	recordHealthSuccess(): void;
+	recordHealthFailure(error: unknown): void;
 	identity(cwd: string): AgentMemoryIdentity;
 	ensureStarted(ctx: AgentMemoryHostContext): void;
 	observe(ctx: AgentMemoryHostContext, hookType: string, data: Record<string, unknown>): void;
@@ -211,11 +218,18 @@ export function createAgentMemoryRuntime(
 	options: { db?: Database | undefined } = {},
 ): AgentMemoryRuntime {
 	const identity = createAgentMemoryIdentityResolver(settings);
+	const status = new AgentMemoryStatusTracker();
 	const sessions = new AgentMemorySessionManager({
 		client,
 		resolveIdentity: identity,
 		enabled: () => settings.enabled && settings.capture,
-		onFailure: (operation, error) => log(`${PREFIX} ${operation} failed`, error),
+		onSuccess: (operation) => {
+			status.recordSuccess(operation === "health" ? "health" : "capture");
+		},
+		onFailure: (operation, error) => {
+			status.recordFailure(operation === "health" ? "health" : "capture", error);
+			log(`${PREFIX} ${operation} failed`, error);
+		},
 	});
 	const taint = options.db ? new SqliteTurnTaintStore(options.db) : undefined;
 	const outbox = options.db ? new AgentMemoryOutbox(options.db, client) : undefined;
@@ -227,6 +241,22 @@ export function createAgentMemoryRuntime(
 		sessions,
 		taint,
 		outbox,
+		status,
+		statusSnapshot() {
+			return status.snapshot(settings, outbox);
+		},
+		recordSearchSuccess() {
+			status.recordSuccess("search");
+		},
+		recordSearchFailure(error) {
+			status.recordFailure("search", error);
+		},
+		recordHealthSuccess() {
+			status.recordSuccess("health");
+		},
+		recordHealthFailure(error) {
+			status.recordFailure("health", error);
+		},
 		identity,
 		ensureStarted(ctx) {
 			void sessions.startForContext(ctx);
@@ -265,16 +295,23 @@ export function createAgentMemoryRuntime(
 		async queueMemory(input) {
 			if (!outbox) throw new Error("AgentMemory outbox is unavailable");
 			const resolved = identity(input.cwd);
-			return outbox.enqueueAndDrain({
-				content: input.content,
-				project: resolved.project,
-				...(resolved.agentId ? { agentId: resolved.agentId } : {}),
-				...(input.type ? { type: input.type } : {}),
-			});
+			try {
+				const result = await outbox.enqueueAndDrain({
+					content: input.content,
+					project: resolved.project,
+					...(resolved.agentId ? { agentId: resolved.agentId } : {}),
+					...(input.type ? { type: input.type } : {}),
+				});
+				status.recordSuccess("memory");
+				return result;
+			} catch (error) {
+				status.recordFailure("memory", error);
+				throw error;
+			}
 		},
 		async shutdown() {
 			taintedTurnBySession.clear();
-			if (outbox) await outbox.drain();
+			if (outbox) await outbox.close();
 			await sessions.shutdown();
 		},
 	};

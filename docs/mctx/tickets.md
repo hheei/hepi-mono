@@ -134,7 +134,7 @@
 
 **依赖**：MCTX-03、MCTX-04。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-06：迁移 Recall Ledger 与 Automatic Recall Admission
 

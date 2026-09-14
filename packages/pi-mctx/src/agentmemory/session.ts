@@ -27,6 +27,7 @@ export type AgentMemorySessionManagerOptions = {
 	resolveIdentity: (cwd: string) => AgentMemoryIdentity;
 	enabled: () => boolean;
 	onFailure?: ((operation: string, error: unknown) => void) | undefined;
+	onSuccess?: ((operation: string) => void) | undefined;
 	activationId?: string | undefined;
 };
 
@@ -43,18 +44,21 @@ export class AgentMemorySessionManager {
 	readonly #resolveIdentity: (cwd: string) => AgentMemoryIdentity;
 	readonly #enabled: () => boolean;
 	readonly #onFailure: ((operation: string, error: unknown) => void) | undefined;
+	readonly #onSuccess: ((operation: string) => void) | undefined;
 	readonly #activationId: string;
 	readonly #bindings = new Map<string, AgentMemorySessionBinding>();
 	readonly #starting = new Map<string, Promise<AgentMemorySessionBinding | undefined>>();
 	readonly #observing = new Set<Promise<ObserveResult | undefined>>();
 	readonly #lifetime = new AbortController();
 	#shuttingDown = false;
+	#shutdownPromise: Promise<void> | undefined;
 
 	constructor(options: AgentMemorySessionManagerOptions) {
 		this.#client = options.client;
 		this.#resolveIdentity = options.resolveIdentity;
 		this.#enabled = options.enabled;
 		this.#onFailure = options.onFailure;
+		this.#onSuccess = options.onSuccess;
 		this.#activationId = options.activationId?.trim() || `pi-${randomUUID()}`;
 	}
 
@@ -96,8 +100,12 @@ export class AgentMemorySessionManager {
 		return pending;
 	}
 
-	async shutdown(): Promise<void> {
-		if (this.#shuttingDown) return;
+	shutdown(): Promise<void> {
+		this.#shutdownPromise ??= this.#finishShutdown();
+		return this.#shutdownPromise;
+	}
+
+	async #finishShutdown(): Promise<void> {
 		this.#shuttingDown = true;
 		this.#lifetime.abort();
 		await Promise.allSettled([...this.#starting.values(), ...this.#observing]);
@@ -110,9 +118,14 @@ export class AgentMemorySessionManager {
 		context: AgentMemorySessionContext,
 	): Promise<AgentMemorySessionBinding | undefined> {
 		try {
-			const identity = this.#resolveIdentity(context.cwd);
 			await this.#client.health({ signal: this.#lifetime.signal });
-			if (this.#shuttingDown) return undefined;
+			this.#reportSuccess("health");
+		} catch (error) {
+			if (!this.#shuttingDown) this.#reportFailure("health", error);
+			return undefined;
+		}
+		try {
+			const identity = this.#resolveIdentity(context.cwd);
 			const proposedSessionId = `${this.#activationId}:${randomUUID()}`;
 			const result = await this.#client.startSession(
 				{
@@ -123,6 +136,7 @@ export class AgentMemorySessionManager {
 				},
 				{ signal: this.#lifetime.signal },
 			);
+			this.#reportSuccess("session/start");
 			if (this.#shuttingDown) {
 				await this.#client.endSession(result.sessionId).catch((error: unknown) => {
 					this.#reportFailure("session/end", error);
@@ -152,7 +166,7 @@ export class AgentMemorySessionManager {
 		const binding = await this.startForContext(context);
 		if (!binding || binding.ended || this.#shuttingDown) return undefined;
 		try {
-			return await this.#client.observe(
+			const result = await this.#client.observe(
 				{
 					...input,
 					cwd: input.cwd ?? binding.cwd,
@@ -161,6 +175,8 @@ export class AgentMemorySessionManager {
 				},
 				{ signal: this.#lifetime.signal },
 			);
+			this.#reportSuccess("observe");
+			return result;
 		} catch (error) {
 			if (!this.#shuttingDown) this.#reportFailure("observe", error);
 			return undefined;
@@ -173,8 +189,17 @@ export class AgentMemorySessionManager {
 		current.ended = true;
 		try {
 			await this.#client.endSession(current.remoteSessionId);
+			this.#reportSuccess("session/end");
 		} catch (error) {
 			this.#reportFailure("session/end", error);
+		}
+	}
+
+	#reportSuccess(operation: string): void {
+		try {
+			this.#onSuccess?.(operation);
+		} catch {
+			// Observability cannot become a runtime dependency.
 		}
 	}
 
