@@ -20,7 +20,6 @@
 			"!!**/.pi",
 			"!references",
 			"!legacy",
-			"!!packages/pi-mctx",
 			"!!graphify-out"
 		]
 	},
@@ -99,6 +98,16 @@
 					},
 					"suspicious": {
 						"noExplicitAny": "warn"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["packages/pi-mctx/**/*.ts"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off"
 					}
 				}
 			}
