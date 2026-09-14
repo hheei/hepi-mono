@@ -120,6 +120,9 @@ import {
 	type PiM0M1InjectionResult as PiInjectionResult,
 	trimPiMessagesToCachedBoundary,
 } from "#core/hooks/inject-compartments";
+import { saveLkgSlotToDb } from "#core/hooks/lkg-persist";
+import { captureLkgSlot, replayLkg, resolveLkgModelKeys } from "#core/hooks/lkg-replay";
+import { dropSlot, getSlot, type LkgEntryNote, noteEntry } from "#core/hooks/lkg-slot";
 import { markNoteNudgeDelivered, onNoteTrigger, peekNoteNudgeText } from "#core/hooks/note-nudger";
 import {
 	getRawHistoryEligibility,
@@ -128,7 +131,12 @@ import {
 	resolveBoundaryContext,
 	resolveProtectedTailBoundary,
 } from "#core/hooks/protected-tail-boundary";
+import {
+	isLoudTransformAbort,
+	RawFallbackContextLimitError,
+} from "#core/hooks/raw-fallback-context-limit";
 import { readRawSessionMessages, setRawMessageProvider } from "#core/hooks/read-session-chunk";
+import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { invalidateTrueRawTokenCache } from "#core/hooks/read-session-true-raw-tokens";
 import { modelAcceptsEmptyContent } from "#core/hooks/sentinel";
 import {
@@ -140,6 +148,7 @@ import {
 	advanceToolReclaimWatermarkToCurrentMax,
 	buildSyntheticToolReclaimOps,
 } from "#core/hooks/tool-reclaim";
+import type { MessageLike } from "#core/hooks/transform-operations";
 import { escalationBands } from "#core/shared/escalation-bands";
 import { log, sessionLog } from "#core/shared/logger";
 import { isSaneLimit } from "#core/shared/models-dev-cache";
@@ -162,6 +171,7 @@ import {
 import { detectRecentCommit } from "./detect-recent-commit";
 import { ensureProjectRegisteredFromPiDirectory } from "./embedding-bootstrap";
 import { applyPiHeuristicCleanup, type PiHeuristicCleanupResult } from "./heuristic-cleanup-pi";
+import { lkgMessagesToPi, piMessagesToLkg } from "./lkg-pi";
 import { hasVisibleNoteReadCallPi } from "./note-visibility-pi";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { type PiHistorianDeps, runPiHistorian } from "./pi-historian-runner";
@@ -1819,6 +1829,9 @@ export function registerPiContextHandler(
 	pi.on("context", async (event, ctx) => {
 		const transformStartTime = performance.now();
 		let sessionIdForError: string | undefined;
+		let lkgEntry: LkgEntryNote | null = null;
+		let lkgContextLimit: number | undefined;
+		let lkgLikeInput: MessageLike[] | undefined;
 		try {
 			const tFindSession = performance.now();
 			const sessionId = resolveSessionId(ctx);
@@ -2183,6 +2196,7 @@ export function registerPiContextHandler(
 				model: ctx.model,
 				detectedContextLimit,
 			});
+			lkgContextLimit = usageContextLimit;
 			const effectiveExecuteThresholdPercentage = resolveExecuteThreshold(
 				schedulerConfig.executeThresholdPercentage,
 				modelKey,
@@ -2483,6 +2497,15 @@ export function registerPiContextHandler(
 			// matching — see collectMessageEntryIdsByRef for why this is
 			// preferred over the position-based collectMessageEntryIds.
 			const entryIds = strictEntryIds ?? undefined;
+			lkgLikeInput = piMessagesToLkg(event.messages, { entryIds, entryIdByRef });
+			if (getSlot(sessionId)) {
+				try {
+					lkgEntry = noteEntry(sessionId, lkgLikeInput);
+				} catch (error) {
+					sessionLog(sessionId, "lkg entry snapshot failed; replay unavailable", error);
+					lkgEntry = null;
+				}
+			}
 
 			// Ceiling for the tiered emergency drop = contextLimit ×
 			// executeThreshold%. Undefined when the limit isn't resolved → the
@@ -2873,6 +2896,27 @@ export function registerPiContextHandler(
 				sessionId,
 				`transform completed in ${transformElapsedMs.toFixed(1)}ms (${outputMessages.length} messages, ${result.targetCount} targets, watermark: ${result.reasoningWatermark})`,
 			);
+			if (!options.compactionOff && lkgLikeInput) {
+				const lkgOutput = piMessagesToLkg(outputMessages, {
+					entryIdByRef: result.postCommitEntryIdByRef,
+				});
+				const keys = resolveLkgModelKeys(lkgOutput);
+				const captured = captureLkgSlot({
+					sessionId,
+					input: lkgLikeInput,
+					output: lkgOutput,
+					modelKey: keys.modelKey,
+					providerKey: keys.providerKey,
+				});
+				if (captured) {
+					const capturedSlot = getSlot(sessionId);
+					if (capturedSlot) {
+						setImmediate(() => {
+							saveLkgSlotToDb(options.db, sessionId, capturedSlot);
+						});
+					}
+				}
+			}
 			return { messages: outputMessages } as {
 				messages: typeof event.messages;
 			};
@@ -2880,6 +2924,50 @@ export function registerPiContextHandler(
 			// Loud fail-closed / emergency aborts must reach the user — do not
 			// swallow into native-compaction fallthrough.
 			if (isFailClosedBlockingError(err) && !baseOptions.compactionOff) throw err;
+			if (isLoudTransformAbort(err, baseOptions.compactionOff === true)) throw err;
+			if (!baseOptions.compactionOff && sessionIdForError && lkgEntry && lkgLikeInput) {
+				try {
+					const overflow = getOverflowState(baseOptions.db, sessionIdForError);
+					if (!overflow.needsEmergencyRecovery) {
+						const keys = resolveLkgModelKeys(lkgLikeInput);
+						const replay = replayLkg({
+							sessionId: sessionIdForError,
+							messages: lkgLikeInput,
+							modelKey: keys.modelKey,
+							providerKey: keys.providerKey,
+							entry: lkgEntry,
+						});
+						if (replay.ok) {
+							sessionLog(sessionIdForError, "lkg_replay_served");
+							return {
+								messages: lkgMessagesToPi(replay.messages) as typeof event.messages,
+							};
+						}
+						sessionLog(sessionIdForError, replay.reason);
+					} else {
+						sessionLog(sessionIdForError, "lkg_emergency_armed");
+					}
+				} catch (replayError) {
+					sessionLog(sessionIdForError, "lkg_replay_unavailable", replayError);
+				}
+			}
+			if (!baseOptions.compactionOff && lkgContextLimit && lkgContextLimit > 0) {
+				let estimated = 0;
+				try {
+					estimated = estimateTokens(JSON.stringify(event.messages));
+				} catch {
+					estimated = 0;
+				}
+				if (estimated > lkgContextLimit) {
+					log(
+						`[magic-context][pi] refusing oversized raw fallback estimate=${estimated} limit=${lkgContextLimit}`,
+					);
+					throw new RawFallbackContextLimitError(estimated, lkgContextLimit, {
+						cause: err,
+					});
+				}
+			}
+
 			const message = err instanceof Error ? err.message : String(err);
 			const stack = err instanceof Error ? err.stack : undefined;
 			log(
@@ -5379,6 +5467,8 @@ function clearPiCompactionOffInMemoryState(sessionId: string): void {
 // orphan-row cost for sessions that are genuinely abandoned and never resumed.
 // Do not add DB clearSession here.
 export function clearContextHandlerSession(sessionId: string): void {
+	dropSlot(sessionId, "session-clear");
+
 	invalidateTrueRawTokenCache({ sessionId, reason: "pi.branch.changed" });
 	activeContextHandlerSessions.delete(sessionId);
 	clearAutoSearchForPiSession(sessionId);

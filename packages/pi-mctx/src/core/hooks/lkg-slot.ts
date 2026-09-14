@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
+import { sessionLog } from "../shared/logger";
 import type { MessageLike } from "./transform-operations";
+
+export interface LkgPersistenceBackend {
+	load(sessionId: string): LkgSlot | undefined;
+	clear(sessionId: string): void;
+}
 
 export interface LkgSlot {
 	jsonPrefix: string;
@@ -25,6 +31,12 @@ const LKG_METADATA_BYTES = 256;
 
 const slots = new Map<string, { slot: LkgSlot; bytes: number }>();
 let totalBytes = 0;
+
+let persistenceBackend: LkgPersistenceBackend | undefined;
+
+export function registerLkgPersistence(backend: LkgPersistenceBackend | undefined): void {
+	persistenceBackend = backend;
+}
 
 function slotBytes(slot: LkgSlot): number {
 	const digestBytes = slot.inputContentDigests.reduce(
@@ -123,22 +135,51 @@ export function captureSlot(sessionId: string, slot: LkgSlot): boolean {
 	return true;
 }
 
+function copySlotForRead(slot: LkgSlot): LkgSlot {
+	return {
+		...slot,
+		inputIdSeq: [...slot.inputIdSeq],
+		inputContentDigests: [...slot.inputContentDigests],
+	};
+}
+
+function hydrateSlotFromPersistence(sessionId: string): LkgSlot | undefined {
+	const backend = persistenceBackend;
+	if (!backend) return undefined;
+	let loaded: LkgSlot | undefined;
+	try {
+		loaded = backend.load(sessionId);
+	} catch (error) {
+		sessionLog(sessionId, "LKG durable hydration failed:", error);
+		return undefined;
+	}
+	if (!loaded) return undefined;
+	if (!captureSlot(sessionId, loaded)) return undefined;
+	sessionLog(sessionId, "lkg_hydrated_from_disk");
+	const entry = slots.get(sessionId);
+	return entry ? copySlotForRead(entry.slot) : undefined;
+}
+
 export function getSlot(sessionId: string): LkgSlot | undefined {
 	const entry = slots.get(sessionId);
-	if (!entry) return undefined;
+	if (!entry) return hydrateSlotFromPersistence(sessionId);
 	touch(sessionId, entry);
-	return {
-		...entry.slot,
-		inputIdSeq: [...entry.slot.inputIdSeq],
-		inputContentDigests: [...entry.slot.inputContentDigests],
-	};
+	return copySlotForRead(entry.slot);
 }
 
 export function dropSlot(sessionId: string, _reason?: string): void {
 	const entry = slots.get(sessionId);
-	if (!entry) return;
-	slots.delete(sessionId);
-	totalBytes -= entry.bytes;
+	if (entry) {
+		slots.delete(sessionId);
+		totalBytes -= entry.bytes;
+	}
+	const backend = persistenceBackend;
+	if (!backend) return;
+	try {
+		backend.clear(sessionId);
+	} catch (error) {
+		sessionLog(sessionId, "LKG durable clear failed:", error);
+	}
 }
 
 export function noteEntry(sessionId: string, messages: MessageLike[]): LkgEntryNote | null {
@@ -166,6 +207,7 @@ export function noteEntry(sessionId: string, messages: MessageLike[]): LkgEntryN
 export function resetLkgSlotsForTest(): void {
 	slots.clear();
 	totalBytes = 0;
+	persistenceBackend = undefined;
 }
 
 export function getLkgSlotStatsForTest(): { totalBytes: number; count: number } {

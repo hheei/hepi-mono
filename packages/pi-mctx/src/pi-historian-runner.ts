@@ -61,7 +61,7 @@ import {
 	recordProtectedTailPublicationFloor,
 	reserveProtectedTailDrainTokens,
 	rollbackProtectedTailDrainReservation,
-	setPendingPiCompactionMarkerState,
+	stagePendingPiCompactionMarkerIfAdmissible,
 } from "#core/features/storage";
 import {
 	type HistorianRunInput,
@@ -70,6 +70,7 @@ import {
 	tallyFactsByCategory,
 } from "#core/features/storage-historian-runs";
 import { updateSessionMeta } from "#core/features/storage-meta";
+import { getNativeCompactionFence } from "#core/features/storage-meta-persisted";
 import { insertPrimerCandidates } from "#core/features/storage-primers";
 import { getLatestHistorianInvocationId } from "#core/features/storage-subagent-invocations";
 import { insertUserMemoryCandidates } from "#core/features/user-memory/storage-user-memory";
@@ -419,6 +420,8 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 		forceDrainQuota,
 		forceKeepLastCompartment,
 	} = deps;
+
+	const nativeCompactionGeneration = getNativeCompactionFence(db, sessionId).generation;
 
 	let issueNotified = false;
 	const notify = async (message: string): Promise<void> => {
@@ -1118,14 +1121,23 @@ export async function runPiHistorian(deps: PiHistorianDeps): Promise<void> {
 				// auxiliary user_memory_candidates failure must never roll back
 				// compartment publication. Mirrors legacy host.
 				if (firstKeptEntryId && lastNewEndMessageId) {
-					setPendingPiCompactionMarkerState(db, sessionId, {
-						firstKeptEntryId,
-						endMessageId: lastNewEndMessageId,
-						ordinal: lastNewEnd,
-						tokensBefore: chunk.tokenEstimate,
-						summary: markerSummary,
-						publishedAt: Date.now(),
-					});
+					const staged = stagePendingPiCompactionMarkerIfAdmissible(
+						db,
+						sessionId,
+						{
+							firstKeptEntryId,
+							endMessageId: lastNewEndMessageId,
+							ordinal: lastNewEnd,
+							tokensBefore: chunk.tokenEstimate,
+							summary: markerSummary,
+							publishedAt: Date.now(),
+							generation: nativeCompactionGeneration,
+						},
+						nativeCompactionGeneration,
+					);
+					if (!staged) {
+						sessionLog(sessionId, "historian marker staging rejected by native compaction fence");
+					}
 				}
 				db.exec("COMMIT");
 				published = true;

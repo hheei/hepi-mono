@@ -1,6 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createDbLkgPersistence, LKG_SLOTS_DDL } from "../hooks/lkg-persist";
+import { registerLkgPersistence } from "../hooks/lkg-slot";
 import { getMagicContextStorageDir } from "../shared/data-path";
 import { getErrorMessage } from "../shared/error-message";
 import { log } from "../shared/logger";
@@ -9,6 +11,7 @@ import { closeQuietly } from "../shared/sqlite-helpers";
 import { shouldEnforcePrivateStoragePermissions } from "../shared/storage-permissions";
 import { ensureContextStoreUuid } from "./context-authority";
 import { LATEST_SCHEMA_SQL } from "./fresh-schema";
+import { ensureNativeCompactionFenceColumns } from "./storage-meta-shared";
 import {
 	loadToolDefinitionMeasurements,
 	setDatabase as setToolDefinitionDatabase,
@@ -202,6 +205,7 @@ function finishDatabaseOpen(db: Database, dbPath: string): Database {
 	// never hits a missing-table failure path.
 	setToolDefinitionDatabase(db);
 	loadToolDefinitionMeasurements(db);
+	registerLkgPersistence(createDbLkgPersistence(db));
 	// When enabled, tighten the DB + WAL/SHM sidecars now that WAL mode has
 	// created them. Externally managed trusted-group storage skips this entirely.
 	restrictDatabaseFilePermissions(dbPath);
@@ -232,6 +236,42 @@ export function initializeDatabase(db: Database): void {
 		db.prepare(
 			"INSERT OR IGNORE INTO mirror_resnapshot_state(domain, status, updated_at, generation) VALUES ('memories', 'pending_check', 0, NULL)",
 		).run();
+	}
+	db.exec(LKG_SLOTS_DDL);
+	ensureNativeCompactionFenceColumns(db);
+}
+
+const SQLITE_OPEN_MAX_ATTEMPTS = 3;
+const SQLITE_OPEN_RETRY_DELAY_MS = 250;
+
+function isSqliteLockError(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const sqliteError = error as { code?: unknown; message?: unknown };
+	if (sqliteError.code === "SQLITE_BUSY" || sqliteError.code === "SQLITE_LOCKED") return true;
+	if (typeof sqliteError.message !== "string") return false;
+	return (
+		/database is locked/i.test(sqliteError.message) ||
+		/sqlite_(busy|locked)/i.test(sqliteError.message)
+	);
+}
+
+function sleep(ms: number): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	setTimeout(resolve, ms);
+	return promise;
+}
+
+function openDatabaseAttempt(dbDir: string, dbPath: string): Database {
+	let db: Database | undefined;
+	try {
+		ensureSecureStorageDir(dbDir);
+		db = new Database(dbPath);
+		initializeDatabase(db);
+		ensureContextStoreUuid(db);
+		return finishDatabaseOpen(db, dbPath);
+	} catch (error) {
+		if (db) closeQuietly(db);
+		throw error;
 	}
 }
 
@@ -264,28 +304,15 @@ export function openDatabase(dbPathOrOptions?: string | OpenDatabaseOptions): Da
 		if (!persistenceByDatabase.has(existing)) {
 			persistenceByDatabase.set(existing, true);
 		}
-		// Re-run the TTL-scoped lease heal on cache hits too. Long-lived
-		// processes keep this handle for hours, and a revert/confirm DB lock can
-		// leave a stale `claimed` lease behind until some later openDatabase()
-		// call. The heal is one idempotent UPDATE gated by claimed_at age.
 		healWedgedChannel2Claims(existing);
 		return existing;
 	}
 
-	let db: Database | undefined;
 	try {
-		ensureSecureStorageDir(dbDir);
-
-		db = new Database(dbPath);
-		initializeDatabase(db);
-		ensureContextStoreUuid(db);
-		return finishDatabaseOpen(db, dbPath);
+		return openDatabaseAttempt(dbDir, dbPath);
 	} catch (error) {
-		if (db) closeQuietly(db);
 		const detail = getErrorMessage(error);
 		log(`[magic-context] storage fatal: failed to open ${dbPath}: ${detail}`);
-		// No silent in-memory fallback — see comment above. Caller must
-		// catch and disable Magic Context for that run.
 		throw new Error(
 			`[magic-context] storage unavailable: ${detail}. Magic Context is disabled for this run; check log for details.`,
 		);
@@ -313,22 +340,22 @@ export async function openDatabaseAsync(
 	if (pending) return pending;
 
 	const opening = (async (): Promise<Database> => {
-		let db: Database | undefined;
-		try {
-			ensureSecureStorageDir(dbDir);
-
-			db = new Database(dbPath);
-			initializeDatabase(db);
-			ensureContextStoreUuid(db);
-			return finishDatabaseOpen(db, dbPath);
-		} catch (error) {
-			if (db) closeQuietly(db);
-			const detail = getErrorMessage(error);
-			log(`[magic-context] storage fatal: failed to open ${dbPath}: ${detail}`);
-			throw new Error(
-				`[magic-context] storage unavailable: ${detail}. Magic Context is disabled for this run; check log for details.`,
-			);
+		let lastError: unknown;
+		for (let attempt = 1; attempt <= SQLITE_OPEN_MAX_ATTEMPTS; attempt++) {
+			try {
+				return openDatabaseAttempt(dbDir, dbPath);
+			} catch (error) {
+				lastError = error;
+				if (!isSqliteLockError(error) || attempt === SQLITE_OPEN_MAX_ATTEMPTS) break;
+				await sleep(SQLITE_OPEN_RETRY_DELAY_MS);
+			}
 		}
+
+		const detail = getErrorMessage(lastError);
+		log(`[magic-context] storage fatal: failed to open ${dbPath}: ${detail}`);
+		throw new Error(
+			`[magic-context] storage unavailable: ${detail}. Magic Context is disabled for this run; check log for details.`,
+		);
 	})();
 	pendingAsyncOpens.set(dbPath, opening);
 	try {
