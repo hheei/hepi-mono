@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
 import type { AgentMemoryConfig } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import { AgentMemoryClient, type AgentMemoryClientPort, type ObserveResult } from "./client";
 import { type AgentMemoryIdentity, createAgentMemoryIdentityResolver } from "./project";
+import { AgentMemorySessionManager } from "./session";
 
 export type { AgentMemoryIdentity } from "./project";
 
@@ -21,6 +21,7 @@ export type AgentMemoryHostContext = {
 export type AgentMemoryRuntime = {
 	readonly settings: AgentMemoryConfig;
 	readonly client: AgentMemoryClientPort;
+	readonly sessions: AgentMemorySessionManager;
 	identity(cwd: string): AgentMemoryIdentity;
 	ensureStarted(ctx: AgentMemoryHostContext): void;
 	observe(ctx: AgentMemoryHostContext, hookType: string, data: Record<string, unknown>): void;
@@ -127,114 +128,34 @@ export function createAgentMemoryRuntime(
 		requireHttps: settings.requireHttps,
 	}),
 ): AgentMemoryRuntime {
-	const activationId = `pi-${randomUUID()}`;
-	const bindings = new Map<
-		string,
-		{ remoteSessionId: string; project: string; agentId?: string; cwd: string; ended: boolean }
-	>();
-	const starting = new Map<string, Promise<string | undefined>>();
-	let shuttingDown = false;
-
 	const identity = createAgentMemoryIdentityResolver(settings);
-
-	const hostSessionId = (ctx: AgentMemoryHostContext): string => {
-		const id = ctx.sessionManager?.getSessionId?.();
-		return typeof id === "string" && id.length > 0 ? id : `cwd:${ctx.cwd}`;
-	};
-
-	const start = async (ctx: AgentMemoryHostContext): Promise<string | undefined> => {
-		if (shuttingDown || !settings.enabled || !settings.capture) return undefined;
-		const piSessionId = hostSessionId(ctx);
-		const existing = bindings.get(piSessionId);
-		if (existing && !existing.ended) return existing.remoteSessionId;
-		const inFlight = starting.get(piSessionId);
-		if (inFlight) return inFlight;
-		const pending = (async () => {
-			try {
-				const resolved = identity(ctx.cwd);
-				await client.health();
-				const remoteSessionId = `${activationId}:${randomUUID()}`;
-				const started = await client.startSession({
-					sessionId: remoteSessionId,
-					project: resolved.project,
-					cwd: ctx.cwd,
-					...(resolved.agentId ? { agentId: resolved.agentId } : {}),
-				});
-				bindings.set(piSessionId, {
-					remoteSessionId: started.sessionId,
-					project: resolved.project,
-					cwd: ctx.cwd,
-					ended: false,
-					...(resolved.agentId ? { agentId: resolved.agentId } : {}),
-				});
-				return started.sessionId;
-			} catch (error) {
-				log(`${PREFIX} session/start failed`, error);
-				return undefined;
-			}
-		})();
-		starting.set(piSessionId, pending);
-		try {
-			return await pending;
-		} finally {
-			if (starting.get(piSessionId) === pending) starting.delete(piSessionId);
-		}
-	};
-
-	const observe = (
-		ctx: AgentMemoryHostContext,
-		hookType: string,
-		data: Record<string, unknown>,
-	): void => {
-		if (!settings.enabled || !settings.capture || shuttingDown) return;
-		void (async () => {
-			try {
-				const remoteSessionId = await start(ctx);
-				if (!remoteSessionId) return;
-				const binding = bindings.get(hostSessionId(ctx));
-				if (!binding || binding.ended) return;
-				const secrets = settings.secret ? [settings.secret] : [];
-				await client.observe({
-					sessionId: remoteSessionId,
-					project: binding.project,
-					cwd: ctx.cwd,
-					hookType,
-					data: redactValue(data, secrets) as Record<string, unknown>,
-				});
-			} catch (error) {
-				log(`${PREFIX} observe ${hookType} failed`, error);
-			}
-		})();
-	};
+	const sessions = new AgentMemorySessionManager({
+		client,
+		resolveIdentity: identity,
+		enabled: () => settings.enabled && settings.capture,
+		onFailure: (operation, error) => log(`${PREFIX} ${operation} failed`, error),
+	});
 
 	return {
 		settings,
 		client,
+		sessions,
 		identity,
 		ensureStarted(ctx) {
-			void start(ctx);
+			void sessions.startForContext(ctx);
 		},
-		observe,
+		observe(ctx, hookType, data) {
+			const secrets = settings.secret ? [settings.secret] : [];
+			void sessions.observeForContext(ctx, {
+				hookType,
+				cwd: ctx.cwd,
+				data: redactValue(data, secrets) as Record<string, unknown>,
+			});
+		},
 		remoteSessionId(piSessionId) {
-			const binding = bindings.get(piSessionId);
-			return binding && !binding.ended ? binding.remoteSessionId : undefined;
+			return sessions.getBinding(piSessionId)?.remoteSessionId;
 		},
-		async shutdown() {
-			shuttingDown = true;
-			await Promise.allSettled(starting.values());
-			await Promise.allSettled(
-				[...bindings.values()]
-					.filter((binding) => !binding.ended)
-					.map(async (binding) => {
-						binding.ended = true;
-						try {
-							await client.endSession(binding.remoteSessionId);
-						} catch (error) {
-							log(`${PREFIX} session/end failed`, error);
-						}
-					}),
-			);
-		},
+		shutdown: () => sessions.shutdown(),
 	};
 }
 

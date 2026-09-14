@@ -105,8 +105,7 @@ later transform failure, Pi MCTX replays that prefix instead of sending the
 raw prompt. If the raw prompt is estimated over the resolved context limit,
 the transform refuses rather than overflowing. Fail-closed storage still
 cancels native compaction until the database reopens.
-
-AgentMemory 是可选 HTTP bridge，不是本包内的 Durable Memory store。上游是任意可达的 AgentMemory HTTP 服务（本机进程、反向代理、Tailscale 均可；不假设 Docker）。`agentmemory.enabled` 默认 false，独立于 Window `enabled`。开启后 Capture 挂在已有 `session_start` / `before_agent_start` / `tool_result` / `agent_end` / `session_shutdown` 上，fire-and-forget；主会话把 `mctx_memory` 换成 AgentMemory schema，并停掉本地 store 版 `mctx_memory` 与 historian 本地 promotion。失败不阻断 Window。Context Projection / outbox / ledger 尚未接入。
+AgentMemory 是可选 HTTP bridge，不是本包内的 Durable Memory store。上游是任意可达的 AgentMemory HTTP 服务（本机进程、反向代理、Tailscale 均可；不假设 Docker）。`agentmemory.enabled` 默认 false，独立于 Window `enabled`。开启后 Capture 挂在已有 `session_start` / `before_agent_start` / `tool_result` / `agent_end` / `session_shutdown` 上，fire-and-forget；主会话把 `mctx_memory` 换成 AgentMemory schema，并停掉本地 store 版 `mctx_memory` 与 historian 本地 promotion。可取消的 session manager 按 Pi session 隔离 remote capture segment，合并重复 start，并在 shutdown 结束全部 live bindings；失败不阻断 Window。Context Projection / outbox / ledger 尚未接入。
 
 ## Status token accounting
 
