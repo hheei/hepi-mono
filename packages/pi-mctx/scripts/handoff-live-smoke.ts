@@ -2,7 +2,7 @@
 /**
  * Live host smoke for `/handoff`.
  *
- *   npm run smoke:handoff --workspace=@hheei/pi-mctx -- [all|happy|cancel|resume|historian]
+ *   pnpm --filter @hheei/pi-mctx run smoke:handoff -- [all|happy|cancel|resume|historian]
  *
  * Child-only modes used by resume:
  *   crash-after-snapshot, resume-continue

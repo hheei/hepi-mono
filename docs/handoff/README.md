@@ -285,7 +285,7 @@ history N tokens · recent 5 · summary N tokens
 
 ## Compatibility 与交付
 
-`pi-mctx`默认注册唯一 `/handoff`，没有 feature flag、legacy mode或 handoff-specific settings。`packages/pi-handoff`及其 command/tests/package manifest全部删除，并通过 `npm ci`清理 workspace lock state。
+`pi-mctx`默认注册唯一 `/handoff`，没有 feature flag、legacy mode或 handoff-specific settings。`packages/pi-handoff`及其 command/tests/package manifest全部删除，并通过 lockfile 清理 workspace lock state。
 
 既有 `hepi-handoff` custom messages不迁移；Pi仍按历史 JSONL恢复它们，新 MCTX不加 compatibility shim或特殊解释。
 
@@ -300,12 +300,12 @@ Real Pi smoke必须验证 Source → Completion → Continuation → first model
 Repository gate：
 
 ```text
-npm ci --ignore-scripts
-npm exec -- biome check --write <changed TypeScript paths>
-npm exec -- biome check <changed TypeScript paths>
-npm test -- <focused handoff/context/storage/renderer tests>
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm exec biome check --write <changed TypeScript paths>
+pnpm exec biome check <changed TypeScript paths>
+pnpm test -- <focused handoff/context/storage/renderer tests>
 focused pi-mctx typecheck
-npm run typecheck
+pnpm run typecheck
 full repository test gate
 ```
 
