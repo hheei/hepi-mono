@@ -135,8 +135,7 @@ export function resolvePiStableId(
 	if (typeof byRef === "string" && byRef.length > 0) return byRef;
 	// 2. Positional real entry id — mandatory fallback (covers cloned-ref misses).
 	const positional = entryIds?.[index];
-	if (typeof positional === "string" && positional.length > 0)
-		return positional;
+	if (typeof positional === "string" && positional.length > 0) return positional;
 	// 3. Unstable index id — last resort (synthetic / unresolved messages only).
 	const m = msg as { role?: string; timestamp?: number };
 	const role = m.role ?? "unknown";
@@ -168,8 +167,7 @@ export function isMidTurnPi(
 	}
 
 	if (latestAssistant === null) return false;
-	if (hasRealUserAfter(messages, latestAssistantIndex, branchEntries))
-		return false;
+	if (hasRealUserAfter(messages, latestAssistantIndex, branchEntries)) return false;
 	if (latestAssistant.stopReason === "toolUse") return true;
 
 	const toolCallIds = getToolCallIds(latestAssistant.content);
@@ -212,11 +210,7 @@ function hasRealUserAfter(
 	// A wire-shaped user role is not enough: steer/custom entries can be converted
 	// to user messages for the model. Only a genuine branch message ends the lock.
 	for (const msg of messages.slice(latestAssistantIndex + 1)) {
-		if (
-			msg !== null &&
-			typeof msg === "object" &&
-			genuineUserMessages.has(msg)
-		) {
+		if (msg !== null && typeof msg === "object" && genuineUserMessages.has(msg)) {
 			return true;
 		}
 	}
@@ -250,8 +244,7 @@ function getToolCallIds(content: unknown): Set<string> {
 export function readPiSessionMessages(ctx: ExtensionContext): RawMessage[] {
 	const sm = ctx.sessionManager;
 	if (sm === undefined) return [];
-	const getBranch = (sm as { getBranch?: (fromId?: string) => unknown[] })
-		.getBranch;
+	const getBranch = (sm as { getBranch?: (fromId?: string) => unknown[] }).getBranch;
 	if (typeof getBranch !== "function") return [];
 
 	let entries: unknown[];
@@ -319,13 +312,9 @@ function rawEntryVersion(entry: unknown): string | number {
 			: "";
 }
 
-function attachPiPartVersion(
-	parts: unknown[],
-	version: string | number,
-): unknown[] {
+function attachPiPartVersion(parts: unknown[], version: string | number): unknown[] {
 	return parts.map((part) => {
-		if (part === null || typeof part !== "object" || Array.isArray(part))
-			return part;
+		if (part === null || typeof part !== "object" || Array.isArray(part)) return part;
 		try {
 			Object.defineProperty(part, "__magicContextPartUpdatedAt", {
 				value: version,
@@ -393,9 +382,7 @@ export function convertEntriesToRawMessages(entries: unknown[]): RawMessage[] {
 
 		if (role === "toolResult") {
 			const version = rawEntryVersion(entry);
-			pendingToolParts.push(
-				...attachPiPartVersion(synthesizeToolResultParts(msg), version),
-			);
+			pendingToolParts.push(...attachPiPartVersion(synthesizeToolResultParts(msg), version));
 			if (pendingFirstRealId === "") {
 				pendingFirstRealId = entry.id;
 				pendingFirstRealVersion = version;
@@ -492,9 +479,7 @@ interface MessageEntry {
 	message: unknown;
 }
 
-function asHandoffContextEntry(
-	value: unknown,
-): { id: string; text: string } | undefined {
+function asHandoffContextEntry(value: unknown): { id: string; text: string } | undefined {
 	if (value === null || typeof value !== "object") return undefined;
 	const rec = value as Record<string, unknown>;
 	if (rec.type !== "custom_message") return undefined;

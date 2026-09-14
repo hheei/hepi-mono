@@ -41,20 +41,20 @@ Rules:
 - Default to VERIFIED. update and archive are the exceptions, not the norm.`;
 
 export interface VerifyPromptMemory {
-    id: number;
-    category: string;
-    content: string;
-    mappedFiles: string[];
+	id: number;
+	category: string;
+	content: string;
+	mappedFiles: string[];
 }
 
 export function buildVerifyPrompt(projectPath: string, memories: VerifyPromptMemory[]): string {
-    const list = memories
-        .map(
-            (m) =>
-                `[${m.id}] ${m.category}\nContent: ${m.content}\nBacking files: ${m.mappedFiles.join(", ")}`,
-        )
-        .join("\n\n");
-    return `## Verify these memories against the code
+	const list = memories
+		.map(
+			(m) =>
+				`[${m.id}] ${m.category}\nContent: ${m.content}\nBacking files: ${m.mappedFiles.join(", ")}`,
+		)
+		.join("\n\n");
+	return `## Verify these memories against the code
 
 Project: ${projectPath}
 
@@ -66,50 +66,50 @@ ${list}
 }
 
 export interface ParsedVerifyManifest {
-    verified: Array<{ id: number; files: string[] }>;
-    updated: Array<{ id: number; files: string[]; content: string }>;
-    archived: Array<{ id: number; reason: string }>;
+	verified: Array<{ id: number; files: string[] }>;
+	updated: Array<{ id: number; files: string[]; content: string }>;
+	archived: Array<{ id: number; reason: string }>;
 }
 
 function attrOf(s: string, name: string): string | null {
-    const m = s.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`));
-    return m?.[1] ?? null;
+	const m = s.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`));
+	return m?.[1] ?? null;
 }
 
 function filesOf(s: string): string[] {
-    return (attrOf(s, "files") ?? "")
-        .split(",")
-        .map((f) => f.trim())
-        .filter(Boolean);
+	return (attrOf(s, "files") ?? "")
+		.split(",")
+		.map((f) => f.trim())
+		.filter(Boolean);
 }
 
 /** Parse the agent's complete `<verify>` manifest. The root close tag is
  *  mandatory so truncated output cannot apply a partial set of verdicts. */
 export function parseVerifyManifest(text: string): ParsedVerifyManifest {
-    const out: ParsedVerifyManifest = { verified: [], updated: [], archived: [] };
-    const body = extractCompleteManifestBody(text, "verify");
+	const out: ParsedVerifyManifest = { verified: [], updated: [], archived: [] };
+	const body = extractCompleteManifestBody(text, "verify");
 
-    for (const m of body.matchAll(/<verified\b([^>]*)\/?>/g)) {
-        const attrs = m[1] ?? "";
-        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
-        if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.verified.push({ id, files: filesOf(attrs) });
-    }
-    for (const m of body.matchAll(/<update\b([^>]*?)(?:\/>|>([\s\S]*?)<\/update>)/g)) {
-        const attrs = m[1] ?? "";
-        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
-        if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.updated.push({ id, files: filesOf(attrs), content: (m[2] ?? "").trim() });
-    }
-    for (const m of body.matchAll(/<archive\b([^>]*)\/?>/g)) {
-        const attrs = m[1] ?? "";
-        const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
-        if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
-        out.archived.push({ id, reason: attrOf(attrs, "reason") ?? "" });
-    }
-    assertNoDuplicateManifestIds(
-        [...out.verified, ...out.updated, ...out.archived].map((entry) => entry.id),
-        "verify",
-    );
-    return out;
+	for (const m of body.matchAll(/<verified\b([^>]*)\/?>/g)) {
+		const attrs = m[1] ?? "";
+		const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
+		if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
+		out.verified.push({ id, files: filesOf(attrs) });
+	}
+	for (const m of body.matchAll(/<update\b([^>]*?)(?:\/>|>([\s\S]*?)<\/update>)/g)) {
+		const attrs = m[1] ?? "";
+		const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
+		if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
+		out.updated.push({ id, files: filesOf(attrs), content: (m[2] ?? "").trim() });
+	}
+	for (const m of body.matchAll(/<archive\b([^>]*)\/?>/g)) {
+		const attrs = m[1] ?? "";
+		const id = Number.parseInt(attrOf(attrs, "id") ?? "", 10);
+		if (!Number.isInteger(id)) throw new Error("verify manifest entry missing numeric id");
+		out.archived.push({ id, reason: attrOf(attrs, "reason") ?? "" });
+	}
+	assertNoDuplicateManifestIds(
+		[...out.verified, ...out.updated, ...out.archived].map((entry) => entry.id),
+		"verify",
+	);
+	return out;
 }

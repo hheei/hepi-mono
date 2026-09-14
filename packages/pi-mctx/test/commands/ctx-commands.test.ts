@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { replaceAllCompartmentState } from "#core/features/compartment-storage";
-import { initializeDatabase } from "../../src/core/features/storage-db";
 import { queuePendingOp } from "#core/features/storage-ops";
 import { insertTag } from "#core/features/storage-tags";
 import { Database } from "#core/shared/sqlite";
-
-import { awaitInFlightRecomps } from "../../src/pi-recomp-runner";
 import { registerCtxDreamCommand } from "../../src/commands/ctx-dream";
 import { registerCtxFlushCommand } from "../../src/commands/ctx-flush";
 import { registerCtxRecompCommand } from "../../src/commands/ctx-recomp";
 import { registerCtxSessionUpgradeCommand } from "../../src/commands/ctx-session-upgrade";
 import { registerCtxStatusCommand } from "../../src/commands/ctx-status";
 import { registerCtxWrapupCommand } from "../../src/commands/ctx-wrapup";
+import { initializeDatabase } from "../../src/core/features/storage-db";
+import { awaitInFlightRecomps } from "../../src/pi-recomp-runner";
 
 type Handler = (args: string, ctx: MockCommandContext) => Promise<void>;
 
@@ -166,12 +165,7 @@ describe("Pi Magic Context commands", () => {
 		registerCtxWrapupCommand(pi as never, common);
 		registerCtxSessionUpgradeCommand(pi as never, common);
 
-		for (const name of [
-			"ctx-flush",
-			"ctx-recomp",
-			"ctx-wrapup",
-			"ctx-session-upgrade",
-		]) {
+		for (const name of ["ctx-flush", "ctx-recomp", "ctx-wrapup", "ctx-session-upgrade"]) {
 			await handlers.get(name)?.("", createCtx(sessionId));
 		}
 
@@ -182,9 +176,7 @@ describe("Pi Magic Context commands", () => {
 			"Unavailable: magic-context is in compaction-off mode (compaction.enabled=false).",
 		]);
 		expect(
-			db
-				.prepare("SELECT COUNT(*) AS n FROM pending_ops WHERE session_id = ?")
-				.get(sessionId),
+			db.prepare("SELECT COUNT(*) AS n FROM pending_ops WHERE session_id = ?").get(sessionId),
 		).toMatchObject({ n: 1 });
 	});
 
@@ -236,12 +228,7 @@ describe("Pi Magic Context commands", () => {
 		await handlers.get("ctx-dream")?.("curate", createCtx());
 		expect(sent[0]?.data.text).toContain('Running dream task "curate"');
 
-		for (const retired of [
-			"maintain-memory",
-			"consolidate",
-			"improve",
-			"archive-stale",
-		]) {
+		for (const retired of ["maintain-memory", "consolidate", "improve", "archive-stale"]) {
 			sent.length = 0;
 			await handlers.get("ctx-dream")?.(retired, createCtx());
 			expect(sent[0]?.data.text).toContain(`Unknown task "${retired}"`);
@@ -284,9 +271,7 @@ describe("Pi Magic Context commands", () => {
 			cwd: "/tmp/project-b",
 		});
 
-		expect(sent[0]?.data.text).toContain(
-			"Starting dream run for /tmp/project-b",
-		);
+		expect(sent[0]?.data.text).toContain("Starting dream run for /tmp/project-b");
 		expect(sent[0]?.data.text).not.toContain("Dreamer is disabled");
 	});
 
@@ -334,6 +319,7 @@ describe("Pi Magic Context commands", () => {
 		registerCtxRecompCommand(pi as never, {
 			db,
 			runner: {
+				harness: "test",
 				run: async () => {
 					runnerCalled = true;
 					return { ok: true, assistantText: "[]", cost: 0, durationMs: 1 };
@@ -358,6 +344,7 @@ describe("Pi Magic Context commands", () => {
 		registerCtxRecompCommand(pi as never, {
 			db,
 			runner: {
+				harness: "test",
 				run: async () => ({
 					ok: true,
 					assistantText: "[]",
@@ -372,6 +359,7 @@ describe("Pi Magic Context commands", () => {
 			resolveRuntimeDeps: () => ({
 				db,
 				runner: {
+					harness: "test",
 					run: async () => ({
 						ok: true,
 						assistantText: "[]",
@@ -418,6 +406,7 @@ describe("Pi Magic Context commands", () => {
 		registerCtxRecompCommand(pi as never, {
 			db,
 			runner: {
+				harness: "test",
 				run: async () => ({
 					ok: true,
 					assistantText: "[]",
@@ -464,6 +453,7 @@ describe("Pi Magic Context commands", () => {
 		registerCtxRecompCommand(pi as never, {
 			db,
 			runner: {
+				harness: "test",
 				run: async (args) => {
 					promptText = args.userMessage;
 					return { ok: true, assistantText: "[]", cost: 0, durationMs: 1 };

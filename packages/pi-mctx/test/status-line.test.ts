@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import {
-	registerStatusLine,
-	updateStatusLine,
-} from "../src/status-line";
+import { registerStatusLine, updateStatusLine } from "../src/status-line";
 import { createTestDb, fakeContext } from "./test-utils.test";
 
 describe("status line prefix", () => {

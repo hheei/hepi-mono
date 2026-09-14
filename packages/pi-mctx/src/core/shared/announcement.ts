@@ -17,8 +17,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compareSemverCore } from "./semver";
 import { getMagicContextStorageDir } from "./data-path";
+import { compareSemverCore } from "./semver";
 
 /**
  * Bump only when there are user-visible changes worth a startup dialog.
@@ -31,10 +31,10 @@ export const ANNOUNCEMENT_VERSION = "0.31.0";
  * TUI dialog renders cleanly without horizontal scroll on a typical terminal.
  */
 export const ANNOUNCEMENT_FEATURES: ReadonlyArray<string> = [
-    "New /ctx-wrapup command: compact older history on demand, keeping the newest N messages raw. Run it before switching to a smaller-context model.",
-    "ctx_search now also searches your session notes and smart notes.",
-    "Project identity now survives transient git failures (slow disks, dubious ownership) without splitting your project memory.",
-    "Removed the ctx_reduce_enabled setting; agent-controlled reduction is always on. Caveman text compression is now independent (caveman_text_compression.enabled).",
+	"New /ctx-wrapup command: compact older history on demand, keeping the newest N messages raw. Run it before switching to a smaller-context model.",
+	"ctx_search now also searches your session notes and smart notes.",
+	"Project identity now survives transient git failures (slow disks, dubious ownership) without splitting your project memory.",
+	"Removed the ctx_reduce_enabled setting; agent-controlled reduction is always on. Caveman text compression is now independent (caveman_text_compression.enabled).",
 ];
 
 /**
@@ -49,24 +49,24 @@ export const ANNOUNCEMENT_FOOTER = "Join us on Discord: https://discord.gg/F2uWx
 const STATE_FILENAME = "last_announced_version";
 
 function getStateFilePath(): string {
-    return path.join(getMagicContextStorageDir(), STATE_FILENAME);
+	return path.join(getMagicContextStorageDir(), STATE_FILENAME);
 }
 
 type AnnouncementStateRead =
-    | { status: "missing" }
-    | { status: "valid"; version: string }
-    | { status: "error" };
+	| { status: "missing" }
+	| { status: "valid"; version: string }
+	| { status: "error" };
 
 function readAnnouncementState(): AnnouncementStateRead {
-    try {
-        const file = getStateFilePath();
-        if (!fs.existsSync(file)) return { status: "missing" };
-        const version = fs.readFileSync(file, "utf-8").trim();
-        if (!version) return { status: "error" };
-        return { status: "valid", version };
-    } catch {
-        return { status: "error" };
-    }
+	try {
+		const file = getStateFilePath();
+		if (!fs.existsSync(file)) return { status: "missing" };
+		const version = fs.readFileSync(file, "utf-8").trim();
+		if (!version) return { status: "error" };
+		return { status: "valid", version };
+	} catch {
+		return { status: "error" };
+	}
 }
 
 /**
@@ -75,8 +75,8 @@ function readAnnouncementState(): AnnouncementStateRead {
  * failures should use the internal tri-state path in `shouldShowAnnouncement`.
  */
 export function readLastAnnouncedVersion(): string {
-    const state = readAnnouncementState();
-    return state.status === "valid" ? state.version : "";
+	const state = readAnnouncementState();
+	return state.status === "valid" ? state.version : "";
 }
 
 /**
@@ -85,14 +85,14 @@ export function readLastAnnouncedVersion(): string {
  * errors. Worst case the user sees the same dialog once more on next startup.
  */
 export function markAnnouncementSeen(version: string): void {
-    if (!version) return;
-    try {
-        const dir = getMagicContextStorageDir();
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(getStateFilePath(), version);
-    } catch {
-        // best-effort
-    }
+	if (!version) return;
+	try {
+		const dir = getMagicContextStorageDir();
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(getStateFilePath(), version);
+	} catch {
+		// best-effort
+	}
 }
 
 /**
@@ -117,29 +117,29 @@ export function markAnnouncementSeen(version: string): void {
  * startup, Pi startup, TUI rpc pull) consistent with no ordering dependency.
  */
 export function shouldShowAnnouncement(): boolean {
-    if (!ANNOUNCEMENT_VERSION || ANNOUNCEMENT_FEATURES.length === 0) return false;
-    const state = readAnnouncementState();
-    if (state.status === "missing") {
-        // No prior state: fresh install or wiped sandbox. Seed to current and
-        // skip the announcement so we never pester first-run / ephemeral envs.
-        markAnnouncementSeen(ANNOUNCEMENT_VERSION);
-        return false;
-    }
-    if (state.status === "error") {
-        // A corrupt or temporarily unreadable existing state file is not first-run.
-        // Do not advance the version; a later successful boot can still show it.
-        return false;
-    }
-    // Show ONLY on a forward version change (current > stored). A bare string
-    // inequality re-announced on a DOWNGRADE (0.27.0 → 0.26.0) or when stored
-    // state held an unexpected value. compareSemverCore returns null for
-    // non-semver input → treat conservatively (don't announce).
-    const ordering = compareSemverCore(ANNOUNCEMENT_VERSION, state.version);
-    if (ordering === null) {
-        // Stored version isn't parseable as semver but differs from current: only
-        // announce when it's genuinely not the current string (avoids re-showing on
-        // every boot for a corrupt-but-present value).
-        return state.version !== ANNOUNCEMENT_VERSION;
-    }
-    return ordering > 0;
+	if (!ANNOUNCEMENT_VERSION || ANNOUNCEMENT_FEATURES.length === 0) return false;
+	const state = readAnnouncementState();
+	if (state.status === "missing") {
+		// No prior state: fresh install or wiped sandbox. Seed to current and
+		// skip the announcement so we never pester first-run / ephemeral envs.
+		markAnnouncementSeen(ANNOUNCEMENT_VERSION);
+		return false;
+	}
+	if (state.status === "error") {
+		// A corrupt or temporarily unreadable existing state file is not first-run.
+		// Do not advance the version; a later successful boot can still show it.
+		return false;
+	}
+	// Show ONLY on a forward version change (current > stored). A bare string
+	// inequality re-announced on a DOWNGRADE (0.27.0 → 0.26.0) or when stored
+	// state held an unexpected value. compareSemverCore returns null for
+	// non-semver input → treat conservatively (don't announce).
+	const ordering = compareSemverCore(ANNOUNCEMENT_VERSION, state.version);
+	if (ordering === null) {
+		// Stored version isn't parseable as semver but differs from current: only
+		// announce when it's genuinely not the current string (avoids re-showing on
+		// every boot for a corrupt-but-present value).
+		return state.version !== ANNOUNCEMENT_VERSION;
+	}
+	return ordering > 0;
 }

@@ -6,18 +6,14 @@ describe("resolvePiStableId — precedence", () => {
 
 	it("prefers entryIdByRef (reference identity) over everything", () => {
 		const ref = new Map<object, string>([[msg, "entry-real"]]);
-		expect(resolvePiStableId(msg, 3, ["positional-id"], ref)).toBe(
-			"entry-real",
-		);
+		expect(resolvePiStableId(msg, 3, ["positional-id"], ref)).toBe("entry-real");
 	});
 
 	it("falls back to positional entryIds when ref misses", () => {
 		// A cloned object (different ref) is NOT in the ref map — this is the
 		// tagging-clone case F1 calls out. Positional must cover it.
 		const ref = new Map<object, string>([[{ other: true }, "entry-other"]]);
-		expect(resolvePiStableId(msg, 2, ["a", "b", "entry-pos"], ref)).toBe(
-			"entry-pos",
-		);
+		expect(resolvePiStableId(msg, 2, ["a", "b", "entry-pos"], ref)).toBe("entry-pos");
 	});
 
 	it("falls back to the pi-msg index id when no real id resolves", () => {
@@ -40,9 +36,7 @@ describe("resolvePiStableId — precedence", () => {
 
 	it("skips empty/whitespace positional and ref ids, falling through to index", () => {
 		const ref = new Map<object, string>([[msg, ""]]);
-		expect(resolvePiStableId(msg, 7, [""], ref)).toBe(
-			"pi-msg-7-1700-assistant",
-		);
+		expect(resolvePiStableId(msg, 7, [""], ref)).toBe("pi-msg-7-1700-assistant");
 	});
 });
 

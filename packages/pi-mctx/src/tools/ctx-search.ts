@@ -15,12 +15,13 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import { getLastCompartmentEndMessage } from "#core/features/compartment-storage";
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	embedTextForProject,
 	getProjectEmbeddingSnapshot,
 } from "#core/features/project-embedding-registry";
-import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	parseIdShapedQuery,
 	resolveMemoriesByIdsForSearch,
@@ -31,7 +32,6 @@ import type { ContextDatabase } from "#core/features/storage";
 import { getVisibleMemoryIds } from "#core/hooks/inject-compartments";
 import { CTX_SEARCH_DESCRIPTION } from "#core/tools/ctx-search/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
-import { type Static, Type } from "typebox";
 
 const DEFAULT_LIMIT = 10;
 const NOTE_EXPAND_HINT =
@@ -72,8 +72,7 @@ const ParamsSchema = Type.Object(
 type CtxSearchParams = Static<typeof ParamsSchema>;
 
 function normalizeLimit(limit?: number): number {
-	if (typeof limit !== "number" || !Number.isFinite(limit))
-		return DEFAULT_LIMIT;
+	if (typeof limit !== "number" || !Number.isFinite(limit)) return DEFAULT_LIMIT;
 	return Math.max(1, Math.floor(limit));
 }
 
@@ -122,8 +121,7 @@ function formatResult(
 
 	if (result.source === "note") {
 		const anchor =
-			result.anchorOrdinal !== null &&
-			result.sourceSessionId === currentSessionId
+			result.anchorOrdinal !== null && result.sourceSessionId === currentSessionId
 				? ` @msg ${result.anchorOrdinal}`
 				: "";
 		return [
@@ -158,12 +156,7 @@ function formatSearchResults(
 	const bodyParts = results.map((result, index) =>
 		formatResult(result, index + 1, currentSessionId),
 	);
-	if (
-		results.some(
-			(result) =>
-				result.source === "message" || result.source === "compartment",
-		)
-	) {
+	if (results.some((result) => result.source === "message" || result.source === "compartment")) {
 		bodyParts.push(
 			"Use ctx_expand(start, end) with the range from any message result above to read the full conversation context.",
 		);
@@ -184,10 +177,7 @@ function formatSearchResults(
 
 export interface CtxSearchToolDeps {
 	db: ContextDatabase;
-	ensureProjectRegistered?: ((
-		directory: string,
-		db: ContextDatabase,
-	) => Promise<void>) | undefined;
+	ensureProjectRegistered?: ((directory: string, db: ContextDatabase) => Promise<void>) | undefined;
 	memoryEnabled?: boolean | undefined;
 	embeddingEnabled?: boolean | undefined;
 	gitCommitsEnabled?: boolean | undefined;
@@ -195,23 +185,14 @@ export interface CtxSearchToolDeps {
 	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
 }
 
-export function createCtxSearchTool(
-	deps: CtxSearchToolDeps,
-): ToolDefinition<typeof ParamsSchema> {
-	const resolveProject =
-		deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
+export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typeof ParamsSchema> {
+	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	return {
 		name: "ctx_search",
 		label: "Magic Context: Search",
 		description: CTX_SEARCH_DESCRIPTION,
 		parameters: ParamsSchema,
-		async execute(
-			_toolCallId,
-			params: CtxSearchParams,
-			_signal,
-			_onUpdate,
-			ctx,
-		) {
+		async execute(_toolCallId, params: CtxSearchParams, _signal, _onUpdate, ctx) {
 			params = unwrapImitatedReducedArgs(params, ["query"], {
 				query: "string",
 				limit: "number",
@@ -247,13 +228,11 @@ export function createCtxSearchTool(
 			}
 			await deps.ensureProjectRegistered?.(ctx.cwd, deps.db);
 			const snapshot = getProjectEmbeddingSnapshot(projectIdentity);
-			const memoryEnabled =
-				snapshot?.features.memoryEnabled ?? deps.memoryEnabled;
+			const memoryEnabled = snapshot?.features.memoryEnabled ?? deps.memoryEnabled;
 			const embeddingEnabled = snapshot
 				? snapshot.enabled || snapshot.gitCommitEnabled
 				: deps.embeddingEnabled;
-			const gitCommitsEnabled =
-				snapshot?.gitCommitEnabled ?? deps.gitCommitsEnabled ?? false;
+			const gitCommitsEnabled = snapshot?.gitCommitEnabled ?? deps.gitCommitsEnabled ?? false;
 
 			// Only search message history up to the last compartment boundary —
 			// anything after that (the live tail, including the current turn) is
@@ -263,12 +242,8 @@ export function createCtxSearchTool(
 			// the live tail and must be excluded. A negative sentinel here would mean
 			// "search everything" and leak the current prompt back to the agent — the
 			// exact opposite of the intent (issue #131).
-			const lastCompartmentEnd = getLastCompartmentEndMessage(
-				deps.db,
-				sessionId,
-			);
-			const messageOrdinalCutoff =
-				lastCompartmentEnd >= 0 ? lastCompartmentEnd : 0;
+			const lastCompartmentEnd = getLastCompartmentEndMessage(deps.db, sessionId);
+			const messageOrdinalCutoff = lastCompartmentEnd >= 0 ? lastCompartmentEnd : 0;
 
 			// Hard-filter memories already rendered in <session-history>.
 			const visibleMemoryIds = getVisibleMemoryIds(deps.db, sessionId);
@@ -305,12 +280,7 @@ export function createCtxSearchTool(
 				...(memoryEnabled === undefined ? {} : { memoryEnabled }),
 				...(embeddingEnabled === undefined ? {} : { embeddingEnabled }),
 				embedQuery: async (text: string, signal?: AbortSignal) => {
-					const result = await embedTextForProject(
-						projectIdentity,
-						text,
-						signal,
-						"query",
-					);
+					const result = await embedTextForProject(projectIdentity, text, signal, "query");
 					return result?.vector ?? null;
 				},
 				isEmbeddingRuntimeEnabled: () => embeddingEnabled === true,

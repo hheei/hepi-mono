@@ -1,19 +1,13 @@
-import { describe, expect, test } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import { discoverContinuations } from "../../src/handoff/command";
-import {
-	HANDOFF_ATTEMPT_TYPE,
-	HANDOFF_CONTEXT_TYPE,
-} from "../../src/handoff/model";
+import { HANDOFF_ATTEMPT_TYPE, HANDOFF_CONTEXT_TYPE } from "../../src/handoff/model";
 
 function writeSession(dir: string, name: string, entries: unknown[]): string {
 	const path = join(dir, name);
-	writeFileSync(
-		path,
-		entries.map((entry) => JSON.stringify(entry)).join("\n"),
-	);
+	writeFileSync(path, entries.map((entry) => JSON.stringify(entry)).join("\n"));
 	return path;
 }
 

@@ -6,14 +6,12 @@ import {
 	queuePendingOp,
 } from "#core/features/storage";
 import { createTagger } from "#core/features/tagger";
-import {
-	applyFlushedStatuses,
-	applyPendingOperations,
-} from "#core/hooks/apply-operations";
+import { applyFlushedStatuses, applyPendingOperations } from "#core/hooks/apply-operations";
 import type { TagTarget } from "#core/hooks/tag-messages";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
 import { applyPiHeuristicCleanup } from "../src/heuristic-cleanup-pi";
+import { createPiTranscript } from "../src/transcript-pi";
 import {
 	assistantMessage,
 	createTestDb,
@@ -21,13 +19,8 @@ import {
 	toolResultMessage,
 	userMessage,
 } from "./test-utils.test";
-import { createPiTranscript } from "../src/transcript-pi";
 
-function tagMessages(
-	sessionId: string,
-	db: ReturnType<typeof createTestDb>,
-	messages: unknown[],
-) {
+function tagMessages(sessionId: string, db: ReturnType<typeof createTestDb>, messages: unknown[]) {
 	const tagger = createTagger();
 	tagger.initFromDb(sessionId, db);
 	const transcript = createPiTranscript(messages, sessionId);
@@ -163,9 +156,7 @@ describe("applyPiHeuristicCleanup", () => {
 				},
 			];
 			const { targets } = tagMessages(sessionId, db, messages);
-			const oldTag = getTagsBySession(db, sessionId).find(
-				(tag) => tag.messageId === "read-call-a",
-			);
+			const oldTag = getTagsBySession(db, sessionId).find((tag) => tag.messageId === "read-call-a");
 			if (!oldTag) throw new Error("missing old tag");
 			targets.delete(oldTag.tagNumber);
 
@@ -176,9 +167,7 @@ describe("applyPiHeuristicCleanup", () => {
 
 			expect(result.deduplicatedTools).toBe(0);
 			expect(
-				getTagsBySession(db, sessionId).find(
-					(tag) => tag.tagNumber === oldTag.tagNumber,
-				)?.status,
+				getTagsBySession(db, sessionId).find((tag) => tag.tagNumber === oldTag.tagNumber)?.status,
 			).toBe("dropped");
 		} finally {
 			closeQuietly(db);
@@ -267,9 +256,7 @@ describe("applyPiHeuristicCleanup", () => {
 			// text "I will reduce now." (#2), assistant toolCall reduce-1 (#3),
 			// user toolResult reuses #3, user "next request" (#4), assistant
 			// "newer answer" (#5), user "latest request" (#6). reduce-1 = #3.
-			expect(textOf(replayTranscript.getOutputMessages()[2] as never)).toBe(
-				"[dropped §3§]",
-			);
+			expect(textOf(replayTranscript.getOutputMessages()[2] as never)).toBe("[dropped §3§]");
 		} finally {
 			closeQuietly(db);
 		}
@@ -398,12 +385,7 @@ describe("applyPiHeuristicCleanup emergency floor accounting", () => {
 				activeAfterPending,
 			);
 
-			expect(
-				getTagsBySession(db, sessionId).map((tag) => [
-					tag.tagNumber,
-					tag.status,
-				]),
-			).toEqual([
+			expect(getTagsBySession(db, sessionId).map((tag) => [tag.tagNumber, tag.status])).toEqual([
 				[1, "dropped"],
 				[2, "dropped"],
 				[3, "active"],

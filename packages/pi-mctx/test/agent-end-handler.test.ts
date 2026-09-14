@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 /**
  * Regression coverage for the "historian blocks main agent" bug.
@@ -108,9 +108,7 @@ describe("session_shutdown handler (drain location)", () => {
 
 	test("drains in-flight historians through withTimeout", () => {
 		expect(body).toContain("awaitInFlightHistorians");
-		expect(body).toContain(
-			"withTimeout(awaitInFlightHistorians(), SHUTDOWN_DRAIN_MS)",
-		);
+		expect(body).toContain("withTimeout(awaitInFlightHistorians(), SHUTDOWN_DRAIN_MS)");
 		expect(body).not.toContain("Promise.race");
 	});
 

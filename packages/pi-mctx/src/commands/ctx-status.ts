@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getCompartments } from "#core/features/compartment-storage";
 import { getMostRecentTaskRunAt } from "#core/features/dreamer/storage-task-schedule";
 import { getMemoryCount } from "#core/features/memory/storage-memory";
-import { getPendingOps, type ContextDatabase } from "#core/features/storage";
+import { type ContextDatabase, getPendingOps } from "#core/features/storage";
 import { getOrCreateSessionMeta } from "#core/features/storage-meta";
 import { getOverflowState } from "#core/features/storage-meta-persisted";
 import { getNotes } from "#core/features/storage-notes";
@@ -17,28 +17,27 @@ export interface RegisterCtxStatusDeps {
 	db: ContextDatabase;
 	projectIdentity: string;
 	resolveStatusDeps?: ((ctx: { cwd: string }) => CtxStatusRuntimeDeps) | undefined;
-	resolveProject?: ((ctx: { cwd: string }) => {
-		projectDir: string;
-		projectIdentity: string;
-	}) | undefined;
+	resolveProject?:
+		| ((ctx: { cwd: string }) => {
+				projectDir: string;
+				projectIdentity: string;
+		  })
+		| undefined;
 	protectedTags?: number | undefined;
-	executeThresholdPercentage?:
-		| number
-		| { default: number; [modelKey: string]: number } | undefined;
+	executeThresholdPercentage?: number | { default: number; [modelKey: string]: number } | undefined;
 	historyBudgetPercentage?: number | undefined;
 	injectionBudgetTokens?: number | undefined;
 	commitClusterTrigger?: { enabled: boolean; min_clusters: number } | undefined;
-	executeThresholdTokens?: {
-		default?: number | undefined;
-		[modelKey: string]: number | undefined;
-	} | undefined;
+	executeThresholdTokens?:
+		| {
+				default?: number | undefined;
+				[modelKey: string]: number | undefined;
+		  }
+		| undefined;
 	dreamer?: { runnable?: boolean; scheduleSummary?: string } | undefined;
 }
 
-export type CtxStatusRuntimeDeps = Omit<
-	RegisterCtxStatusDeps,
-	"resolveStatusDeps"
->;
+export type CtxStatusRuntimeDeps = Omit<RegisterCtxStatusDeps, "resolveStatusDeps">;
 
 export interface CtxStatusDetails {
 	sessionId: string;
@@ -66,17 +65,13 @@ export interface CtxStatusDetails {
 	};
 }
 
-export function registerCtxStatusCommand(
-	pi: ExtensionAPI,
-	deps: RegisterCtxStatusDeps,
-): void {
+export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStatusDeps): void {
 	pi.registerCommand("ctx-status", {
 		description: "Show Magic Context status for the current Pi session",
 		handler: async (_args, ctx) => {
 			const runtimeDeps = deps.resolveStatusDeps?.(ctx) ?? deps;
 			const projectIdentity =
-				runtimeDeps.resolveProject?.(ctx).projectIdentity ??
-				runtimeDeps.projectIdentity;
+				runtimeDeps.resolveProject?.(ctx).projectIdentity ?? runtimeDeps.projectIdentity;
 			const currentDeps = { ...runtimeDeps, projectIdentity };
 			const sessionId = resolveSessionId(ctx);
 			if (!sessionId) {
@@ -95,15 +90,10 @@ export function registerCtxStatusCommand(
 				}
 
 				const usage = ctx.getContextUsage?.();
-				const modelKey = ctx.model
-					? `${ctx.model.provider}/${ctx.model.id}`
-					: undefined;
+				const modelKey = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
 				let detectedContextLimit: number | undefined;
 				try {
-					const detected = getOverflowState(
-						currentDeps.db,
-						sessionId,
-					).detectedContextLimit;
+					const detected = getOverflowState(currentDeps.db, sessionId).detectedContextLimit;
 					if (detected > 0) detectedContextLimit = detected;
 				} catch {
 					// Status remains available when overflow metadata cannot be read.
@@ -141,10 +131,7 @@ export function registerCtxStatusCommand(
 	});
 }
 
-function buildStatusDetails(
-	deps: RegisterCtxStatusDeps,
-	sessionId: string,
-): CtxStatusDetails {
+function buildStatusDetails(deps: RegisterCtxStatusDeps, sessionId: string): CtxStatusDetails {
 	const meta = getOrCreateSessionMeta(deps.db, sessionId);
 	const tags = getTagsBySession(deps.db, sessionId);
 	const activeTags = tags.filter((tag) => tag.status === "active");
@@ -167,8 +154,7 @@ function buildStatusDetails(
 			: null,
 		memoryCount: getMemoryCount(deps.db, deps.projectIdentity),
 		noteCount:
-			getNotes(deps.db, { sessionId, type: "session", status: "active" })
-				.length +
+			getNotes(deps.db, { sessionId, type: "session", status: "active" }).length +
 			getNotes(deps.db, {
 				projectPath: deps.projectIdentity,
 				type: "smart",
@@ -207,9 +193,7 @@ function readHistorianState(
 		lastFireCount: meta.timesExecuteThresholdReached,
 		inProgress: meta.compartmentInProgress,
 		lastFailureAt:
-			typeof row?.historian_last_failure_at === "number"
-				? row.historian_last_failure_at
-				: null,
+			typeof row?.historian_last_failure_at === "number" ? row.historian_last_failure_at : null,
 		lastError: row?.historian_last_error ?? null,
 		failureCount: row?.historian_failure_count ?? 0,
 	};

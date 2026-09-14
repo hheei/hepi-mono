@@ -1,18 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { EmbeddingConfig } from "#core/config/schema/magic-context";
 import { appendCompartments } from "#core/features/compartment-storage";
-import type {
-	EmbeddingProvider,
-	EmbeddingPurpose,
-} from "#core/features/memory/embedding-provider";
+import type { EmbeddingProvider, EmbeddingPurpose } from "#core/features/memory/embedding-provider";
 import {
 	_resetProjectEmbeddingRegistryForTests,
 	_setTestProviderFactoryForProject,
 	registerProjectEmbedding,
 } from "#core/features/project-embedding-registry";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { createTestDb } from "../test-utils.test";
 import { runEmbedDrain } from "../../src/commands/ctx-embed";
+import { createTestDb } from "../test-utils.test";
 
 class FakeEmbeddingProvider implements EmbeddingProvider {
 	readonly modelId = "fake-embedding-model";
@@ -73,10 +70,7 @@ function seedCompartments(
 	}
 }
 
-function registerEmbedding(
-	db: ReturnType<typeof createTestDb>,
-	project: string,
-): void {
+function registerEmbedding(db: ReturnType<typeof createTestDb>, project: string): void {
 	registerProjectEmbedding(
 		db,
 		project,

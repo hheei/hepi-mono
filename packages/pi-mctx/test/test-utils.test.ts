@@ -1,7 +1,7 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
-import { initializeDatabase } from "../src/core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { Database } from "#core/shared/sqlite";
+import { initializeDatabase } from "../src/core/features/storage-db";
 
 export type PiMessage = ContextEvent["messages"][number];
 
@@ -15,10 +15,7 @@ export function createTestDb(path = ":memory:"): Database {
 export function userMessage(
 	content:
 		| string
-		| Array<
-				| { type: "text"; text: string }
-				| { type: "image"; data: string; mimeType: string }
-		  >,
+		| Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>,
 	timestamp = 1,
 ): PiMessage {
 	return { role: "user", content, timestamp } as PiMessage;
@@ -67,11 +64,7 @@ export function assistantToolCall(
 	} as PiMessage;
 }
 
-export function toolResultMessage(
-	toolCallId: string,
-	text: string,
-	timestamp = 3,
-): PiMessage {
+export function toolResultMessage(toolCallId: string, text: string, timestamp = 3): PiMessage {
 	return {
 		role: "toolResult",
 		toolCallId,
@@ -98,6 +91,31 @@ export function textOf(message: PiMessage | undefined): string {
 		})
 		.map((part) => part.text)
 		.join("");
+}
+
+export function asToolResult(result: unknown): {
+	isError?: boolean | undefined;
+	content: Array<{ type?: string | undefined; text?: string | undefined }>;
+} {
+	if (typeof result !== "object" || result === null) {
+		return { content: [] };
+	}
+	const rec = result as {
+		isError?: boolean | undefined;
+		content?: unknown;
+	};
+	const content = Array.isArray(rec.content) ? rec.content : [];
+	return {
+		...(rec.isError === undefined ? {} : { isError: rec.isError }),
+		content: content.map((part) => {
+			if (typeof part !== "object" || part === null) return {};
+			const value = part as { type?: string | undefined; text?: string | undefined };
+			return {
+				...(value.type === undefined ? {} : { type: value.type }),
+				...(value.text === undefined ? {} : { text: value.text }),
+			};
+		}),
+	};
 }
 
 export function createFakePi() {

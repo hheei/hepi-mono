@@ -3,8 +3,8 @@ import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import { updateSessionMeta } from "#core/features/storage-meta";
 import { setSessionWorkMetrics } from "#core/features/storage-meta-persisted";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { createTestDb, fakeContext } from "../test-utils.test";
 import { buildPiStatusDetail, showStatusDialog } from "../../src/dialogs/status-dialog";
+import { createTestDb, fakeContext } from "../test-utils.test";
 
 describe("Pi status dialog", () => {
 	it("displays usage against the output-reserved safe window", () => {
@@ -192,9 +192,7 @@ describe("Pi status dialog", () => {
 			);
 			expect(detail.systemPromptTokens).toBeGreaterThan(0);
 			expect(detail.toolDefinitionTokens).toBeGreaterThan(0);
-			expect(detail.inputTokens).toBe(
-				detail.systemPromptTokens + detail.toolDefinitionTokens,
-			);
+			expect(detail.inputTokens).toBe(detail.systemPromptTokens + detail.toolDefinitionTokens);
 			expect(detail.tokenBreakdownAvailable).toBe(true);
 			expect(detail.usagePercentage).toBeGreaterThan(0);
 		} finally {

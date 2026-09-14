@@ -13,11 +13,11 @@ import {
 	setLastNudgeUndropped,
 } from "#core/features/storage";
 import {
-	CHANNEL1_MIN_TURNS_BETWEEN_NUDGES,
 	buildChannel1Reminder,
 	buildChannel2Reminder,
-	type Channel1State,
+	CHANNEL1_MIN_TURNS_BETWEEN_NUDGES,
 	type Channel1Level,
+	type Channel1State,
 	computePressure,
 	decideChannel1,
 	isDroppedToolOutput,
@@ -43,7 +43,6 @@ export interface Channel1Reminder {
 	nextLastNudge: number;
 	nextLastNudgeLevel: Channel1Level | "";
 }
-
 
 function sealDeliveredAfterUnconfirmedSend(
 	db: Database,
@@ -75,10 +74,7 @@ const channel1TurnsSinceNudge = new Map<string, number>();
 export function advancePiChannel1Turn(sessionId: string): void {
 	const turns = channel1TurnsSinceNudge.get(sessionId);
 	if (turns === undefined) return;
-	channel1TurnsSinceNudge.set(
-		sessionId,
-		Math.min(CHANNEL1_MIN_TURNS_BETWEEN_NUDGES, turns + 1),
-	);
+	channel1TurnsSinceNudge.set(sessionId, Math.min(CHANNEL1_MIN_TURNS_BETWEEN_NUDGES, turns + 1));
 }
 
 function canDeliverPiChannel1Reminder(sessionId: string): boolean {
@@ -86,16 +82,11 @@ function canDeliverPiChannel1Reminder(sessionId: string): boolean {
 	return turns === undefined || turns >= CHANNEL1_MIN_TURNS_BETWEEN_NUDGES;
 }
 
-export function setPiChannel1Baseline(
-	sessionId: string,
-	state: Channel1State,
-): void {
+export function setPiChannel1Baseline(sessionId: string, state: Channel1State): void {
 	channel1StateBySession.set(sessionId, state);
 }
 
-export function getPiChannel1Baseline(
-	sessionId: string,
-): Channel1State | undefined {
+export function getPiChannel1Baseline(sessionId: string): Channel1State | undefined {
 	return channel1StateBySession.get(sessionId);
 }
 
@@ -142,11 +133,7 @@ function toolResultText(content: readonly unknown[]): string {
 export function computeTailToolTokensPi(messages: readonly unknown[]): number {
 	const outputs: string[] = [];
 	for (const m of messages) {
-		if (
-			m !== null &&
-			typeof m === "object" &&
-			(m as { role?: unknown }).role === "toolResult"
-		) {
+		if (m !== null && typeof m === "object" && (m as { role?: unknown }).role === "toolResult") {
 			const content = (m as { content?: unknown }).content;
 			if (Array.isArray(content)) outputs.push(toolResultText(content));
 		}
@@ -171,16 +158,13 @@ function textTokens(content: unknown): number {
 		if (!part || typeof part !== "object") continue;
 		const p = part as { type?: unknown; text?: unknown; thinking?: unknown };
 		if (typeof p.text === "string") tokens += toolOutputTokens(p.text);
-		else if (typeof p.thinking === "string")
-			tokens += toolOutputTokens(p.thinking);
+		else if (typeof p.thinking === "string") tokens += toolOutputTokens(p.thinking);
 		else if (p.type === "image") tokens += 1200;
 	}
 	return tokens;
 }
 
-export function computeTailTokenEstimatePi(
-	messages: readonly unknown[],
-): TailTokenEstimate {
+export function computeTailTokenEstimatePi(messages: readonly unknown[]): TailTokenEstimate {
 	let tailToolTokens = 0;
 	let liveTailTokens = 0;
 	for (const raw of messages) {
@@ -193,9 +177,7 @@ export function computeTailTokenEstimatePi(
 					? msg.content
 					: "";
 			const outputTokens =
-				outputText && !isDroppedToolOutput(outputText)
-					? toolOutputTokens(outputText)
-					: 0;
+				outputText && !isDroppedToolOutput(outputText) ? toolOutputTokens(outputText) : 0;
 			tailToolTokens += outputTokens;
 			liveTailTokens += outputTokens;
 			continue;
@@ -209,8 +191,7 @@ export function computeTailTokenEstimatePi(
 					arguments?: unknown | undefined;
 				};
 				if (p.type === "toolCall") {
-					if (typeof p.name === "string")
-						liveTailTokens += toolOutputTokens(p.name);
+					if (typeof p.name === "string") liveTailTokens += toolOutputTokens(p.name);
 					liveTailTokens += jsonTokens(p.arguments);
 				}
 			}
@@ -389,10 +370,7 @@ export function maybeDeliverChannel2Pi(
 	if (!casChannel2NudgeState(db, sessionId, "pending", "claimed")) return false;
 
 	try {
-		const content = buildChannel2Reminder(
-			undropped,
-			baseline.oldestReclaimableToolTags,
-		);
+		const content = buildChannel2Reminder(undropped, baseline.oldestReclaimableToolTags);
 		pi.sendMessage(
 			{
 				customType: CHANNEL2_NUDGE_CUSTOM_TYPE,
@@ -418,21 +396,12 @@ export function maybeDeliverChannel2Pi(
 			);
 			return false;
 		}
-		sessionLog(
-			sessionId,
-			"channel2 ceiling nudge delivery failed (will retry):",
-			error,
-		);
+		sessionLog(sessionId, "channel2 ceiling nudge delivery failed (will retry):", error);
 		return false;
 	}
 
 	try {
-		const confirmed = casChannel2NudgeState(
-			db,
-			sessionId,
-			"claimed",
-			"delivered",
-		);
+		const confirmed = casChannel2NudgeState(db, sessionId, "claimed", "delivered");
 		if (confirmed) {
 			sessionLog(sessionId, "channel2 ceiling nudge delivered");
 			return true;
@@ -466,11 +435,7 @@ export function maybeDeliverChannel2Pi(
 				"channel2 ceiling nudge duplicate window: our send returned after a sibling reclaimed the stale lease and already delivered",
 			);
 		} else if (outcome === "sealed") {
-			sessionLog(
-				sessionId,
-				"channel2 ceiling nudge sent but confirm failed:",
-				error,
-			);
+			sessionLog(sessionId, "channel2 ceiling nudge sent but confirm failed:", error);
 		} else {
 			sessionLog(
 				sessionId,

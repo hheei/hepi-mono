@@ -14,6 +14,7 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import { parseRangeString } from "#core/features/range-parser";
 import {
 	type ContextDatabase,
@@ -26,7 +27,6 @@ import {
 import { getErrorMessage } from "#core/shared/error-message";
 import { CTX_REDUCE_DESCRIPTION } from "#core/tools/ctx-reduce/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
-import { type Static, Type } from "typebox";
 
 const ParamsSchema = Type.Object(
 	{
@@ -70,21 +70,13 @@ export interface CtxReduceToolDeps {
 	getSessionTokens?: ((sessionId: string) => number) | undefined;
 }
 
-export function createCtxReduceTool(
-	deps: CtxReduceToolDeps,
-): ToolDefinition<typeof ParamsSchema> {
+export function createCtxReduceTool(deps: CtxReduceToolDeps): ToolDefinition<typeof ParamsSchema> {
 	return {
 		name: "ctx_reduce",
 		label: "Magic Context: Reduce",
 		description: CTX_REDUCE_DESCRIPTION,
 		parameters: ParamsSchema,
-		async execute(
-			_toolCallId,
-			params: CtxReduceParams,
-			_signal,
-			_onUpdate,
-			ctx,
-		) {
+		async execute(_toolCallId, params: CtxReduceParams, _signal, _onUpdate, ctx) {
 			params = unwrapImitatedReducedArgs(params, ["drop"], { drop: "string" });
 			const sessionId = ctx.sessionManager.getSessionId();
 			const protectedTags = Math.max(
@@ -121,14 +113,10 @@ export function createCtxReduceTool(
 				.slice(0, protectedTags);
 			const protectedSet = new Set(protectedTagIds);
 
-			const tagStatusMap = new Map(
-				allTags.map((tag) => [tag.tagNumber, tag.status]),
-			);
+			const tagStatusMap = new Map(allTags.map((tag) => [tag.tagNumber, tag.status]));
 
 			const pendingOps = getPendingOps(deps.db, sessionId);
-			const pendingMap = new Map(
-				pendingOps.map((op) => [op.tagId, op.operation]),
-			);
+			const pendingMap = new Map(pendingOps.map((op) => [op.tagId, op.operation]));
 
 			// Reject drops on compaction-survivor tags.
 			// `tagStatusMap.get(id) === "compacted"` guard — those tags are
@@ -146,15 +134,12 @@ export function createCtxReduceTool(
 
 			const preFilterDropCount = dropIds.length;
 			dropIds = dropIds.filter(
-				(id) =>
-					tagStatusMap.get(id) !== "dropped" && pendingMap.get(id) !== "drop",
+				(id) => tagStatusMap.get(id) !== "dropped" && pendingMap.get(id) !== "drop",
 			);
 			const skippedCount = preFilterDropCount - dropIds.length;
 
 			if (dropIds.length === 0) {
-				return ok(
-					"All requested tags were already queued or processed. No new action is needed.",
-				);
+				return ok("All requested tags were already queued or processed. No new action is needed.");
 			}
 
 			try {
@@ -165,9 +150,7 @@ export function createCtxReduceTool(
 					}
 				})();
 			} catch (error) {
-				return err(
-					`Error: Failed to queue ctx_reduce operations. ${getErrorMessage(error)}`,
-				);
+				return err(`Error: Failed to queue ctx_reduce operations. ${getErrorMessage(error)}`);
 			}
 
 			const currentInputTokens =
@@ -178,18 +161,14 @@ export function createCtxReduceTool(
 			});
 
 			const immediateDropIds = dropIds.filter((id) => !protectedSet.has(id));
-			const deferredDropIds = [
-				...new Set(dropIds.filter((id) => protectedSet.has(id))),
-			];
+			const deferredDropIds = [...new Set(dropIds.filter((id) => protectedSet.has(id)))];
 			const skippedNote =
 				skippedCount > 0
 					? ` ${skippedCount} requested tag${skippedCount === 1 ? " was" : "s were"} already queued and need no action.`
 					: "";
 			const parts: string[] = [];
-			if (immediateDropIds.length > 0)
-				parts.push(`drop ${formatIds(immediateDropIds)}`);
-			if (deferredDropIds.length > 0)
-				parts.push(`deferred drop ${formatIds(deferredDropIds)}`);
+			if (immediateDropIds.length > 0) parts.push(`drop ${formatIds(immediateDropIds)}`);
+			if (deferredDropIds.length > 0) parts.push(`deferred drop ${formatIds(deferredDropIds)}`);
 			return ok(`Queued: ${parts.join(", ")}.${skippedNote}`);
 		},
 	};

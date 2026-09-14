@@ -1,17 +1,10 @@
-import {
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	vi,
-} from "vitest";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { closeDatabase, openDatabase } from "#core/features/storage";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { closeDatabase } from "#core/features/storage";
 import * as loggerModule from "#core/shared/logger";
 import type { SubagentRunOptions } from "#core/shared/subagent-runner";
 
@@ -84,10 +77,7 @@ function createMockChild({ stdout = true }: { stdout?: boolean } = {}) {
 		}),
 		on: events.on.bind(events),
 		once: events.once.bind(events),
-		emitClose: (
-			code: number | null = 0,
-			signal: NodeJS.Signals | null = null,
-		) => {
+		emitClose: (code: number | null = 0, signal: NodeJS.Signals | null = null) => {
 			exitCode = code;
 			signalCode = signal;
 			stdoutStream?.end();
@@ -95,10 +85,7 @@ function createMockChild({ stdout = true }: { stdout?: boolean } = {}) {
 			if (!stdinStream.writableEnded) stdinStream.end();
 			setTimeout(() => events.emit("close", code, signal), 0);
 		},
-		emitExit: (
-			code: number | null = 0,
-			signal: NodeJS.Signals | null = null,
-		) => {
+		emitExit: (code: number | null = 0, signal: NodeJS.Signals | null = null) => {
 			exitCode = code;
 			signalCode = signal;
 			if (!stdinStream.writableEnded) stdinStream.end();
@@ -137,10 +124,8 @@ function runnerWith(
 		subagentExtensions?: readonly string[];
 	} = {},
 ) {
-	const remainingChildren = Array.isArray(childOrChildren)
-		? [...childOrChildren]
-		: null;
-	const spawnImpl = vi.fn(() => {
+	const remainingChildren = Array.isArray(childOrChildren) ? [...childOrChildren] : null;
+	const spawnImpl = vi.fn((_command: string, _args: readonly string[], _options?: object) => {
 		if (remainingChildren === null) return childOrChildren as never;
 		const nextChild = remainingChildren.shift();
 		if (!nextChild) throw new Error("unexpected extra spawn");
@@ -179,7 +164,7 @@ function nextTick() {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-const originalXdgDataHome = process.env.XDG_DATA_HOME;
+const _originalXdgDataHome = process.env.XDG_DATA_HOME;
 
 describe("subagent-runner pure helpers", () => {
 	it("extracts the last assistant text and status from mixed messages", () => {
@@ -206,9 +191,11 @@ describe("subagent-runner pure helpers", () => {
 	});
 
 	it("returns null text when no assistant message exists", () => {
-		expect(
-			__test.extractFinalAssistant([{ role: "user", content: [] }, null]),
-		).toEqual({ text: null, stopReason: null, errorMessage: null });
+		expect(__test.extractFinalAssistant([{ role: "user", content: [] }, null])).toEqual({
+			text: null,
+			stopReason: null,
+			errorMessage: null,
+		});
 	});
 
 	it("builds argv with system prompt, primary model, and prompt last", () => {
@@ -238,7 +225,7 @@ describe("subagent-runner pure helpers", () => {
 			// No --thinking flag: thinkingLevel not set in baseOptions,
 			// so Pi's own resolution handles it (correct for Anthropic).
 			// Users on providers like GitHub Copilot should set
-			// historian.thinking_level in their Pi magic-context.jsonc.
+			// historian.thinking_level in Pi MCTX settings.
 			"summarize this session",
 		]);
 	});
@@ -268,11 +255,7 @@ describe("subagent-runner pure helpers", () => {
 		);
 
 		expect(args).toEqual(
-			expect.arrayContaining([
-				"--no-extensions",
-				"--extension",
-				"/tmp/subagent-entry.js",
-			]),
+			expect.arrayContaining(["--no-extensions", "--extension", "/tmp/subagent-entry.js"]),
 		);
 	});
 
@@ -317,9 +300,7 @@ describe("subagent-runner pure helpers", () => {
 		});
 
 		expect(args).toContain("--no-context-files");
-		expect(args.indexOf("--no-context-files")).toBeLessThan(
-			args.indexOf("--tools"),
-		);
+		expect(args.indexOf("--no-context-files")).toBeLessThan(args.indexOf("--tools"));
 	});
 
 	it("always includes --no-session so child sessions don't appear in pi resume", () => {
@@ -356,24 +337,21 @@ describe("subagent-runner pure helpers", () => {
 	it("translates configured provider aliases to Pi's form at --model", () => {
 		// Pi names two auth-plugin providers differently. The spawned --model
 		// must carry Pi's preferred form.
-		expect(
-			buildArgsForTest({ ...baseOptions, model: "openai/gpt-5.5" }),
-		).toEqual(expect.arrayContaining(["--model", "openai-codex/gpt-5.5"]));
+		expect(buildArgsForTest({ ...baseOptions, model: "openai/gpt-5.5" })).toEqual(
+			expect.arrayContaining(["--model", "openai-codex/gpt-5.5"]),
+		);
 		expect(
 			buildArgsForTest({
 				...baseOptions,
 				model: "google/antigravity-gemini-3.5-flash",
 			}),
 		).toEqual(
-			expect.arrayContaining([
-				"--model",
-				"google-antigravity/antigravity-gemini-3.5-flash",
-			]),
+			expect.arrayContaining(["--model", "google-antigravity/antigravity-gemini-3.5-flash"]),
 		);
 		// Anthropic and other providers pass through unchanged.
-		expect(
-			buildArgsForTest({ ...baseOptions, model: "anthropic/claude-opus-4-8" }),
-		).toEqual(expect.arrayContaining(["--model", "anthropic/claude-opus-4-8"]));
+		expect(buildArgsForTest({ ...baseOptions, model: "anthropic/claude-opus-4-8" })).toEqual(
+			expect.arrayContaining(["--model", "anthropic/claude-opus-4-8"]),
+		);
 	});
 
 	it("passes prompt last without a -- sentinel", () => {
@@ -432,15 +410,7 @@ describe("subagent-runner pure helpers", () => {
 		// this dev/test env SUBAGENT_ENTRY_PATH is undefined so --extension and the
 		// dreamer-actions flag are absent — the strict allow-list is independent.)
 		const toolList = args[idx + 1];
-		for (const denied of [
-			"read",
-			"grep",
-			"find",
-			"ls",
-			"bash",
-			"write",
-			"edit",
-		]) {
+		for (const denied of ["read", "grep", "find", "ls", "bash", "write", "edit"]) {
 			expect(toolList).not.toContain(denied);
 		}
 	});
@@ -456,15 +426,7 @@ describe("subagent-runner pure helpers", () => {
 		expect(args[idx + 1]).toBe("ctx_memory");
 		expect(args).not.toContain("--no-tools");
 		const toolList = args[idx + 1];
-		for (const denied of [
-			"read",
-			"grep",
-			"find",
-			"ls",
-			"bash",
-			"write",
-			"edit",
-		]) {
+		for (const denied of ["read", "grep", "find", "ls", "bash", "write", "edit"]) {
 			expect(toolList).not.toContain(denied);
 		}
 	});
@@ -500,9 +462,7 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe(
-			"read,grep,find,ls,bash,write,edit,aft_outline,aft_zoom,aft_search",
-		);
+		expect(args[idx + 1]).toBe("read,grep,find,ls,bash,write,edit,aft_outline,aft_zoom,aft_search");
 		expect(args).not.toContain("--no-tools");
 		// Edits docs, never the memory store: no ctx_memory, and the lean extension
 		// (which would register it) is not loaded for this agent.
@@ -529,9 +489,7 @@ describe("subagent-runner pure helpers", () => {
 		});
 		const idx = args.indexOf("--tools");
 		expect(idx).toBeGreaterThan(-1);
-		expect(args[idx + 1]).toBe(
-			"read,grep,find,ls,aft_outline,aft_zoom,aft_search,ctx_search",
-		);
+		expect(args[idx + 1]).toBe("read,grep,find,ls,aft_outline,aft_zoom,aft_search,ctx_search");
 		expect(args).not.toContain("--no-tools");
 		// Source-safety + cache-neutrality: no write/edit/bash, and crucially no
 		// ctx_memory (its mutations bump the project memory epoch → bust m[0]).
@@ -548,15 +506,11 @@ describe("subagent-runner pure helpers", () => {
 		const toolListFor = (agent: string) => {
 			const args = buildArgsForTest({ ...baseOptions, agent });
 			const idx = args.indexOf("--tools");
-			return idx >= 0 ? args[idx + 1].split(",") : [];
+			return idx >= 0 ? args[idx + 1]!.split(",") : [];
 		};
 		const aftReadSet = ["aft_outline", "aft_zoom", "aft_search"];
 
-		for (const agent of [
-			"dreamer-memory-mapper",
-			"dreamer-primer-investigator",
-			"dreamer-docs",
-		]) {
+		for (const agent of ["dreamer-memory-mapper", "dreamer-primer-investigator", "dreamer-docs"]) {
 			expect(toolListFor(agent)).toEqual(expect.arrayContaining(aftReadSet));
 		}
 
@@ -677,7 +631,7 @@ describe("subagent-runner pure helpers", () => {
 
 describe("PiSubagentRunner spawn lifecycle", () => {
 	it("refuses to spawn known zero-tool agents without a system prompt", async () => {
-		const spawnImpl = vi.fn(() => {
+		const spawnImpl = vi.fn((_command: string, _args: readonly string[], _options?: object) => {
 			throw new Error("spawn must not be reached");
 		});
 		// Replace the runner's test seam with a throwing spawn so this assertion
@@ -829,7 +783,9 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		// because npm installs a pi.cmd shim, not a literal pi). It re-invokes the
 		// exact host CLI: process.execPath + process.argv[1], with no shell.
 		const child = createMockChild();
-		const spawnImpl = vi.fn(() => child as never);
+		const spawnImpl = vi.fn(
+			(_command: string, _args: readonly string[], _options?: object) => child as never,
+		);
 		const { PiSubagentRunner } = await import("../src/subagent-runner");
 		const runner = new PiSubagentRunner({ spawnImpl: spawnImpl as never });
 
@@ -848,9 +804,11 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		await resultPromise;
 
 		expect(spawnImpl).toHaveBeenCalledTimes(1);
-		const [command, spawnArgs, opts] = (
-			spawnImpl.mock.calls as unknown[][]
-		)[0] as [string, string[], { shell?: boolean }];
+		const [command, spawnArgs, opts] = (spawnImpl.mock.calls as unknown[][])[0] as [
+			string,
+			string[],
+			{ shell?: boolean },
+		];
 		// In this test runner argv[1] is a real on-disk script (bun/node test
 		// file), so the host-CLI branch fires: command is the runtime, the first
 		// arg is the running script, and the child is spawned without a shell.
@@ -967,7 +925,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 	});
 
 	it("returns spawn_failed when spawn throws synchronously", async () => {
-		const spawnImpl = vi.fn(() => {
+		const spawnImpl = vi.fn((_command: string, _args: readonly string[], _options?: object) => {
 			throw new Error("ENOENT pi");
 		});
 		const runner = new PiSubagentRunner({ spawnImpl: spawnImpl as never });
@@ -983,7 +941,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 	it("writes the system prompt to a temp file path and removes it after success", async () => {
 		const child = createMockChild();
 		let promptPath: string | undefined;
-		const spawnImpl = vi.fn((_command: string, args: string[]) => {
+		const spawnImpl = vi.fn((_command: string, args: string[], _options?: object) => {
 			const promptFlagIndex = args.indexOf("--system-prompt");
 			expect(promptFlagIndex).toBeGreaterThan(-1);
 			promptPath = args[promptFlagIndex + 1];
@@ -991,9 +949,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			expect(systemPromptPath).not.toBe(baseOptions.systemPrompt);
 			expect(isAbsolute(systemPromptPath)).toBe(true);
 			expect(existsSync(systemPromptPath)).toBe(true);
-			expect(readFileSync(systemPromptPath, "utf8")).toBe(
-				baseOptions.systemPrompt,
-			);
+			expect(readFileSync(systemPromptPath, "utf8")).toBe(baseOptions.systemPrompt);
 			return child as never;
 		});
 		const runner = new PiSubagentRunner({
@@ -1029,7 +985,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 
 	it("removes the temp system prompt file when spawn throws", async () => {
 		let promptPath: string | undefined;
-		const spawnImpl = vi.fn((_command: string, args: string[]) => {
+		const spawnImpl = vi.fn((_command: string, args: string[], _options?: object) => {
 			const promptFlagIndex = args.indexOf("--system-prompt");
 			expect(promptFlagIndex).toBeGreaterThan(-1);
 			promptPath = args[promptFlagIndex + 1];
@@ -1193,9 +1149,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const resultPromise = runner.run(baseOptions);
 		child.writeRawStdoutLine("not json");
 		child.writeStdoutLine(
-			agentEnd([
-				{ role: "assistant", content: [{ type: "text", text: "recovered" }] },
-			]),
+			agentEnd([{ role: "assistant", content: [{ type: "text", text: "recovered" }] }]),
 		);
 		child.emitClose(0);
 
@@ -1314,9 +1268,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			...baseOptions,
 			model: "openai/gpt-5.5",
 		});
-		first.writeStderr(
-			"No API key found for openai-codex. Use /login to authenticate.",
-		);
+		first.writeStderr("No API key found for openai-codex. Use /login to authenticate.");
 		first.emitClose(1);
 		await nextTick();
 		second.writeStdoutLine(
@@ -1353,9 +1305,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const { runner, spawnImpl } = runnerWith([first, second, third]);
 
 		const firstRun = runner.run({ ...baseOptions, model: "openai/gpt-5.5" });
-		first.writeStderr(
-			"No API key found for openai-codex. Use /login to authenticate.",
-		);
+		first.writeStderr("No API key found for openai-codex. Use /login to authenticate.");
 		first.emitClose(1);
 		await nextTick();
 		second.writeStdoutLine(
@@ -1397,9 +1347,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			...baseOptions,
 			model: "openai/gpt-5.5",
 		});
-		first.writeStderr(
-			"No API key found for another-provider. Check configuration.",
-		);
+		first.writeStderr("No API key found for another-provider. Check configuration.");
 		first.emitClose(1);
 
 		const result = await resultPromise;
@@ -1416,9 +1364,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			...baseOptions,
 			model: "google/gemini-2.5-pro",
 		});
-		first.writeStderr(
-			"No API key found for google-antigravity. Use /login to authenticate.",
-		);
+		first.writeStderr("No API key found for google-antigravity. Use /login to authenticate.");
 		first.emitClose(1);
 		await nextTick();
 		second.writeStdoutLine(
@@ -1447,18 +1393,14 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const second = createMockChild();
 		const third = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second, third]);
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
 				...baseOptions,
 				model: "openai/gpt-5.5",
 			});
-			first.writeStderr(
-				"No API key found for openai-codex. Use /login to authenticate.",
-			);
+			first.writeStderr("No API key found for openai-codex. Use /login to authenticate.");
 			first.emitClose(1);
 			await nextTick();
 			second.writeStderr(COLLISION_STDERR);
@@ -1503,9 +1445,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second]);
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1538,8 +1478,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			expect(spawnImpl.mock.calls[1]?.[1]).toContain("--no-extensions");
 			expect(
 				logSpy.mock.calls.some(
-					(call) =>
-						call[0] === "pi-subagent" && call[1] === ISOLATED_RETRY_LOG_MESSAGE,
+					(call) => call[0] === "pi-subagent" && call[1] === ISOLATED_RETRY_LOG_MESSAGE,
 				),
 			).toBe(true);
 		} finally {
@@ -1620,9 +1559,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const { runner, spawnImpl } = runnerWith(first, {
 			subagentExtensions: ["provider-package", "./provider.ts"],
 		});
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1644,11 +1581,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 				"--extension",
 				join(homedir(), ".pi/agent/provider.ts"),
 			]);
-			expect(
-				logSpy.mock.calls.some(
-					(call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE,
-				),
-			).toBe(false);
+			expect(logSpy.mock.calls.some((call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE)).toBe(false);
 		} finally {
 			logSpy.mockRestore();
 		}
@@ -1660,9 +1593,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const { runner, spawnImpl } = runnerWith([first, second], {
 			extraArgs: ["--no-extensions"],
 		});
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1694,11 +1625,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			expect(spawnImpl).toHaveBeenCalledTimes(2);
 			expect(spawnImpl.mock.calls[0]?.[1]).toContain("--no-extensions");
 			expect(spawnImpl.mock.calls[1]?.[1]).toContain("--no-extensions");
-			expect(
-				logSpy.mock.calls.some(
-					(call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE,
-				),
-			).toBe(false);
+			expect(logSpy.mock.calls.some((call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE)).toBe(false);
 		} finally {
 			logSpy.mockRestore();
 		}
@@ -1708,9 +1635,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner } = runnerWith([first, second]);
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1727,20 +1652,12 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			expect(result.ok).toBe(false);
 			if (!result.ok) {
 				expect(result.reason).toBe("non_zero_exit");
-				expect(result.error).toContain(
-					ISOLATED_RETRY_MODEL_UNAVAILABLE_LOG_MESSAGE,
-				);
+				expect(result.error).toContain(ISOLATED_RETRY_MODEL_UNAVAILABLE_LOG_MESSAGE);
 				expect(result.error).toContain("Original failure:");
 			}
+			expect(logSpy.mock.calls.some((call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE)).toBe(true);
 			expect(
-				logSpy.mock.calls.some(
-					(call) => call[1] === ISOLATED_RETRY_LOG_MESSAGE,
-				),
-			).toBe(true);
-			expect(
-				logSpy.mock.calls.some(
-					(call) => call[1] === ISOLATED_RETRY_MODEL_UNAVAILABLE_LOG_MESSAGE,
-				),
+				logSpy.mock.calls.some((call) => call[1] === ISOLATED_RETRY_MODEL_UNAVAILABLE_LOG_MESSAGE),
 			).toBe(true);
 		} finally {
 			logSpy.mockRestore();
@@ -1807,9 +1724,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		const { runner, spawnImpl } = runnerWith([first, second]);
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1842,9 +1757,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			expect(spawnImpl.mock.calls[1]?.[1]).toContain("--no-extensions");
 			expect(
 				logSpy.mock.calls.some(
-					(call) =>
-						call[0] === "pi-subagent" &&
-						call[1] === ISOLATED_RETRY_SILENT_LOG_MESSAGE,
+					(call) => call[0] === "pi-subagent" && call[1] === ISOLATED_RETRY_SILENT_LOG_MESSAGE,
 				),
 			).toBe(true);
 		} finally {
@@ -1859,9 +1772,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		// than spend the one-shot isolated retry.
 		const child = createMockChild();
 		const { runner, spawnImpl } = runnerWith(child);
-		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const logSpy = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		try {
 			const resultPromise = runner.run({
@@ -1891,11 +1802,9 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			// No isolated retry: exactly one spawn, discovery left enabled.
 			expect(spawnImpl).toHaveBeenCalledTimes(1);
 			expect(spawnImpl.mock.calls[0]?.[1]).not.toContain("--no-extensions");
-			expect(
-				logSpy.mock.calls.some(
-					(call) => call[1] === ISOLATED_RETRY_SILENT_LOG_MESSAGE,
-				),
-			).toBe(false);
+			expect(logSpy.mock.calls.some((call) => call[1] === ISOLATED_RETRY_SILENT_LOG_MESSAGE)).toBe(
+				false,
+			);
 		} finally {
 			logSpy.mockRestore();
 		}
@@ -1921,14 +1830,9 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		);
 
 		expect(args).toContain("--no-extensions");
+		expect(args).toEqual(expect.arrayContaining(["--extension", "/tmp/subagent-entry.js"]));
 		expect(args).toEqual(
-			expect.arrayContaining(["--extension", "/tmp/subagent-entry.js"]),
-		);
-		expect(args).toEqual(
-			expect.arrayContaining([
-				"--extension",
-				join(homedir(), ".pi/agent/provider-package"),
-			]),
+			expect.arrayContaining(["--extension", join(homedir(), ".pi/agent/provider-package")]),
 		);
 	});
 
@@ -1959,9 +1863,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			timeoutMs: 500,
 		});
 		child.writeStdoutLine(
-			agentEnd([
-				{ role: "assistant", content: [{ type: "text", text: "done" }] },
-			]),
+			agentEnd([{ role: "assistant", content: [{ type: "text", text: "done" }] }]),
 		);
 		child.emitClose(0);
 		await resultPromise;
@@ -1995,9 +1897,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 			// No --thinking: thinkingLevel not set in options above.
 			"summarize this session",
 		]);
-		const spawnOptions = spawnImpl.mock.calls[0]?.[2] as
-			| { env?: NodeJS.ProcessEnv }
-			| undefined;
+		const spawnOptions = spawnImpl.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv } | undefined;
 		expect(spawnOptions?.env).not.toBe(process.env);
 	});
 
@@ -2023,12 +1923,8 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		child.emitClose(0);
 		await resultPromise;
 
-		const spawnOptions = spawnImpl.mock.calls[0]?.[2] as
-			| { env?: NodeJS.ProcessEnv }
-			| undefined;
-		expect(spawnOptions?.env).toEqual(
-			expect.objectContaining({ MAGIC_CONTEXT_PI_SUBAGENT: "1" }),
-		);
+		const spawnOptions = spawnImpl.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv } | undefined;
+		expect(spawnOptions?.env).toEqual(expect.objectContaining({ MAGIC_CONTEXT_PI_SUBAGENT: "1" }));
 	});
 
 	it("does not let a post-terminal child signal override captured success", async () => {
@@ -2061,7 +1957,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		let spawnCount = 0;
-		const spawnImpl = vi.fn(() => {
+		const spawnImpl = vi.fn((_command: string, _args: readonly string[], _options?: object) => {
 			spawnCount += 1;
 			return (spawnCount === 1 ? first : second) as never;
 		});
@@ -2119,7 +2015,7 @@ describe("PiSubagentRunner spawn lifecycle", () => {
 		const first = createMockChild();
 		const second = createMockChild();
 		let spawnCount = 0;
-		const spawnImpl = vi.fn(() => {
+		const spawnImpl = vi.fn((_command: string, _args: readonly string[], _options?: object) => {
 			spawnCount += 1;
 			return (spawnCount === 1 ? first : second) as never;
 		});

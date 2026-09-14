@@ -39,9 +39,7 @@ export interface PiSidekickConfig {
 	allowHomeProject?: boolean | undefined;
 }
 
-type ResolveSidekickConfig = (ctx: {
-	cwd: string;
-}) => PiSidekickConfig | undefined;
+type ResolveSidekickConfig = (ctx: { cwd: string }) => PiSidekickConfig | undefined;
 
 /**
  * Register the `/ctx-aug` slash command on Pi.
@@ -64,14 +62,13 @@ export function registerCtxAugCommand(
 			// Use Pi's session entry IDs for log correlation. The session
 			// manager's branch always has at least the current entry.
 			const branch = ctx.sessionManager.getBranch();
-			const lastEntryId =
-				branch.length > 0 ? branch[branch.length - 1]?.id : "unknown";
+			const lastEntryId = branch.length > 0 ? branch[branch.length - 1]?.id : "unknown";
 			const sessionLabel = `pi-session-${lastEntryId}`;
 			const currentConfig = typeof config === "function" ? config(ctx) : config;
 
 			if (!currentConfig) {
 				ctx.ui.notify(
-					"/ctx-aug: Sidekick is not configured. Add `sidekick.model` to your magic-context.jsonc to enable this command.",
+					"/ctx-aug: Sidekick is not configured. Set the sidekick model in `/ext-settings`, then reload.",
 					"warning",
 				);
 				return;
@@ -108,10 +105,7 @@ export function registerCtxAugCommand(
 				currentConfig.allowHomeProject,
 			);
 			if (!projectIdentity) {
-				sessionLog(
-					sessionLabel,
-					"Error: Could not resolve project identity for sidekick.",
-				);
+				sessionLog(sessionLabel, "Error: Could not resolve project identity for sidekick.");
 				return;
 			}
 			sessionLog(sessionLabel, "/ctx-aug: project identity", projectIdentity);
@@ -143,9 +137,7 @@ export function registerCtxAugCommand(
 				// the worst sidekick can do is fail silently, so we send the prompt
 				// unaugmented and tell the user via UI notification (interactive
 				// only).
-				log(
-					`[magic-context][pi] /ctx-aug: sidekick failed (${result.reason}): ${result.error}`,
-				);
+				log(`[magic-context][pi] /ctx-aug: sidekick failed (${result.reason}): ${result.error}`);
 				if (ctx.hasUI) {
 					ctx.ui.notify(
 						`/ctx-aug: sidekick failed (${result.reason}). Sending prompt without augmentation.`,

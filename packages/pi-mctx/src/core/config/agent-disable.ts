@@ -9,21 +9,21 @@
 export const COMPACTION_ENABLED_PATH = `compaction${"."}enabled`;
 
 export function isDreamerRunnable(config: {
-    dreamer?: { disable?: boolean | undefined } | null | undefined;
+	dreamer?: { disable?: boolean | undefined } | null | undefined;
 }): boolean {
-    return !!config.dreamer && config.dreamer.disable !== true;
+	return !!config.dreamer && config.dreamer.disable !== true;
 }
 
 export function isSidekickRunnable(config: {
-    sidekick?: { disable?: boolean | undefined } | null | undefined;
+	sidekick?: { disable?: boolean | undefined } | null | undefined;
 }): boolean {
-    return !!config.sidekick && config.sidekick.disable !== true;
+	return !!config.sidekick && config.sidekick.disable !== true;
 }
 
 export function isHistorianRunnable(config: {
-    historian?: { disable?: boolean | undefined } | null | undefined;
+	historian?: { disable?: boolean | undefined } | null | undefined;
 }): boolean {
-    return config.historian?.disable !== true;
+	return config.historian?.disable !== true;
 }
 
 /**
@@ -35,7 +35,7 @@ export function isHistorianRunnable(config: {
  * ON / default behavior) when the block or field is absent.
  */
 export function isCompactionEnabled(config: {
-    compaction?: { enabled?: boolean | undefined } | null | undefined;
+	compaction?: { enabled?: boolean | undefined } | null | undefined;
 }): boolean {
-    return config.compaction?.enabled !== false;
+	return config.compaction?.enabled !== false;
 }

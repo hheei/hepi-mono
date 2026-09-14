@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-    appendCompartments,
-    type CompartmentInput,
-    getCompartments,
+	appendCompartments,
+	type CompartmentInput,
+	getCompartments,
 } from "../../../src/core/features/compartment-storage";
 import { closeDatabase, openDatabase } from "../../../src/core/features/storage";
 import { parseCompartmentOutput } from "../../../src/core/hooks/compartment-parser";
@@ -23,17 +23,17 @@ let prevDataHome: string | undefined;
 let tempHome: string;
 
 beforeEach(() => {
-    prevDataHome = process.env.XDG_DATA_HOME;
-    tempHome = mkdtempSync(join(tmpdir(), "mc-v2-roundtrip-"));
-    process.env.XDG_DATA_HOME = tempHome;
-    closeDatabase();
+	prevDataHome = process.env.XDG_DATA_HOME;
+	tempHome = mkdtempSync(join(tmpdir(), "mc-v2-roundtrip-"));
+	process.env.XDG_DATA_HOME = tempHome;
+	closeDatabase();
 });
 
 afterEach(() => {
-    closeDatabase();
-    if (prevDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = prevDataHome;
-    rmSync(tempHome, { recursive: true, force: true });
+	closeDatabase();
+	if (prevDataHome === undefined) delete process.env.XDG_DATA_HOME;
+	else process.env.XDG_DATA_HOME = prevDataHome;
+	rmSync(tempHome, { recursive: true, force: true });
 });
 
 // A realistic v8.7.3 output envelope with two compartments: one full 4-tier,
@@ -95,83 +95,83 @@ STREAM_KEY renamed to SSE_AUTH_TOKEN.
 </output>`;
 
 describe("v2 historian output round-trip (E1.7)", () => {
-    it("parses the v8.7.3 envelope into tiered compartments + 5-cat facts + events", () => {
-        const parsed = parseCompartmentOutput(V873_OUTPUT);
+	it("parses the v8.7.3 envelope into tiered compartments + 5-cat facts + events", () => {
+		const parsed = parseCompartmentOutput(V873_OUTPUT);
 
-        expect(parsed.compartments).toHaveLength(2);
-        expect(parsed.unprocessedFrom).toBe(25);
+		expect(parsed.compartments).toHaveLength(2);
+		expect(parsed.unprocessedFrom).toBe(25);
 
-        const [c1, c2] = parsed.compartments;
-        // Full 4-tier compartment
-        expect(c1.startMessage).toBe(3);
-        expect(c1.endMessage).toBe(18);
-        expect(c1.title).toBe("Wire SSE reconnect with jittered backoff");
-        expect(c1.episodeType).toBe("feature");
-        expect(c1.importance).toBe(72);
-        expect(c1.p1).toContain('U: "make sure a flaky network');
-        expect(c1.p2).toContain("jittered exponential backoff");
-        expect(c1.p3).toContain("capped at 8 attempts");
-        expect(c1.p4).toContain("src/stream/client.ts");
-        // content mirrors P1 (fullest) for v2 rows
-        expect(c1.content).toBe(c1.p1);
+		const [c1, c2] = parsed.compartments;
+		// Full 4-tier compartment
+		expect(c1!.startMessage).toBe(3);
+		expect(c1!.endMessage).toBe(18);
+		expect(c1!.title).toBe("Wire SSE reconnect with jittered backoff");
+		expect(c1!.episodeType).toBe("feature");
+		expect(c1!.importance).toBe(72);
+		expect(c1!.p1).toContain('U: "make sure a flaky network');
+		expect(c1!.p2).toContain("jittered exponential backoff");
+		expect(c1!.p3).toContain("capped at 8 attempts");
+		expect(c1!.p4).toContain("src/stream/client.ts");
+		// content mirrors P1 (fullest) for v2 rows
+		expect(c1!.content).toBe(c1!.p1);
 
-        // Self-closing <p4/> compartment
-        expect(c2.importance).toBe(8);
-        expect(c2.episodeType).toBe("infra");
-        expect(c2.p1).toContain("Renamed the STREAM_KEY");
-        // p4 self-closed → empty string (the three valid P4 shapes)
-        expect(c2.p4 === "" || c2.p4 === undefined).toBe(true);
+		// Self-closing <p4/> compartment
+		expect(c2!.importance).toBe(8);
+		expect(c2!.episodeType).toBe("infra");
+		expect(c2!.p1).toContain("Renamed the STREAM_KEY");
+		// p4 self-closed → empty string (the three valid P4 shapes)
+		expect(c2!.p4 === "" || c2!.p4 === undefined).toBe(true);
 
-        // 5-cat facts (no 9-cat leakage)
-        const cats = parsed.facts.map((f) => f.category).sort();
-        expect(cats).toEqual(["ARCHITECTURE", "CONFIG_VALUES", "NAMING"]);
+		// 5-cat facts (no 9-cat leakage)
+		const cats = parsed.facts.map((f) => f.category).sort();
+		expect(cats).toEqual(["ARCHITECTURE", "CONFIG_VALUES", "NAMING"]);
 
-        // events extracted (stored-not-rendered), kind-agnostic
-        expect(parsed.events).toHaveLength(1);
-        expect(parsed.events[0].kind).toBe("causal_incident");
-        expect(parsed.events[0].atCompartment).toBe(1);
-    });
+		// events extracted (stored-not-rendered), kind-agnostic
+		expect(parsed.events).toHaveLength(1);
+		expect(parsed.events[0]!.kind).toBe("causal_incident");
+		expect(parsed.events[0]!.atCompartment).toBe(1);
+	});
 
-    it("survives store → load with all tier/importance/episode_type fields intact", () => {
-        const parsed = parseCompartmentOutput(V873_OUTPUT);
-        const db = openDatabase();
+	it("survives store → load with all tier/importance/episode_type fields intact", () => {
+		const parsed = parseCompartmentOutput(V873_OUTPUT);
+		const db = openDatabase();
 
-        const inputs: CompartmentInput[] = parsed.compartments.map((c, i) => ({
-            sequence: i,
-            startMessage: c.startMessage,
-            endMessage: c.endMessage,
-            startMessageId: `m-${c.startMessage}`,
-            endMessageId: `m-${c.endMessage}`,
-            title: c.title,
-            content: c.content,
-            p1: c.p1,
-            p2: c.p2,
-            p3: c.p3,
-            p4: c.p4,
-            importance: c.importance,
-            episodeType: c.episodeType,
-        }));
-        appendCompartments(db, "ses-roundtrip", inputs);
+		const inputs: CompartmentInput[] = parsed.compartments.map((c, i) => ({
+			sequence: i,
+			startMessage: c.startMessage,
+			endMessage: c.endMessage,
+			startMessageId: `m-${c.startMessage}`,
+			endMessageId: `m-${c.endMessage}`,
+			title: c.title,
+			content: c.content,
+			p1: c.p1,
+			p2: c.p2,
+			p3: c.p3,
+			p4: c.p4,
+			importance: c.importance,
+			episodeType: c.episodeType,
+		}));
+		appendCompartments(db, "ses-roundtrip", inputs);
 
-        const loaded = getCompartments(db, "ses-roundtrip");
-        expect(loaded).toHaveLength(2);
+		const loaded = getCompartments(db, "ses-roundtrip");
+		expect(loaded).toHaveLength(2);
 
-        const l1 = loaded[0];
-        expect(l1.title).toBe("Wire SSE reconnect with jittered backoff");
-        expect(l1.importance).toBe(72);
-        expect(l1.episodeType).toBe("feature");
-        expect(l1.p1).toContain('U: "make sure a flaky network');
-        expect(l1.p2).toContain("jittered exponential backoff");
-        expect(l1.p3).toContain("capped at 8 attempts");
-        expect(l1.p4).toContain("src/stream/client.ts");
-        // v2 row: not flagged legacy
-        expect(l1.legacy).toBeFalsy();
+		const l1 = loaded[0];
+		expect(l1!.title).toBe("Wire SSE reconnect with jittered backoff");
+		expect(l1!.importance).toBe(72);
+		expect(l1!.episodeType).toBe("feature");
+		expect(l1!.p1).toContain('U: "make sure a flaky network');
+		expect(l1!.p2).toContain("jittered exponential backoff");
+		expect(l1!.p3).toContain("capped at 8 attempts");
+		expect(l1!.p4).toContain("src/stream/client.ts");
+		// v2 row: not flagged legacy
+		expect(l1!.legacy).toBeFalsy();
 
-        const l2 = loaded[1];
-        expect(l2.importance).toBe(8);
-        expect(l2.episodeType).toBe("infra");
-    });
-    // Render-path coverage lives in inject-compartments tests + the E1.5
-    // renderer test (bodyForTier per tier); prepareCompartmentInjection wiring
-    // is exercised there. This file proves the produce→store→load contract.
+		const l2 = loaded[1];
+		expect(l2!.importance).toBe(8);
+		expect(l2!.episodeType).toBe("infra");
+	});
+	// Render-path coverage lives in inject-compartments tests + the E1.5
+	// renderer test (bodyForTier per tier); prepareCompartmentInjection wiring
+	// is exercised there. This file proves the produce→store→load contract.
 });

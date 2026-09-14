@@ -1,20 +1,20 @@
 import { sessionLog } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 import {
-    buildCanonicalChunkTextFromFts,
-    buildCompartmentSummaryFallbackText,
-    canonicalizeInMemoryChunkTextForEmbedding,
-    chunkCanonicalText,
-    chunkEmbeddingWindowsAreCurrent,
-    replaceCompartmentChunkEmbeddings,
-    type SaveCompartmentChunkEmbeddingInput,
+	buildCanonicalChunkTextFromFts,
+	buildCompartmentSummaryFallbackText,
+	canonicalizeInMemoryChunkTextForEmbedding,
+	chunkCanonicalText,
+	chunkEmbeddingWindowsAreCurrent,
+	replaceCompartmentChunkEmbeddings,
+	type SaveCompartmentChunkEmbeddingInput,
 } from "./compartment-chunk-embedding";
 import {
-    contentSha256,
-    embedItemsForProject,
-    enqueueShadowEmbeddingItems,
-    getProjectChunkEmbeddingModelId,
-    getProjectEmbeddingMaxInputTokens,
+	contentSha256,
+	embedItemsForProject,
+	enqueueShadowEmbeddingItems,
+	getProjectChunkEmbeddingModelId,
+	getProjectEmbeddingMaxInputTokens,
 } from "./project-embedding-registry";
 
 /**
@@ -39,111 +39,99 @@ import {
  */
 
 export interface CompartmentChunkToEmbed {
-    id: number;
-    startMessage: number;
-    endMessage: number;
-    /** Optional publish-time chunk text. When present, TC: tool summaries are stripped. */
-    sourceChunkText?: string | undefined;
+	id: number;
+	startMessage: number;
+	endMessage: number;
+	/** Optional publish-time chunk text. When present, TC: tool summaries are stripped. */
+	sourceChunkText?: string | undefined;
 }
 
 export async function embedAndStoreCompartmentChunks(
-    db: Database,
-    sessionId: string,
-    projectPath: string,
-    compartments: readonly CompartmentChunkToEmbed[],
+	db: Database,
+	sessionId: string,
+	projectPath: string,
+	compartments: readonly CompartmentChunkToEmbed[],
 ): Promise<void> {
-    if (compartments.length === 0) return;
-    const maxInputTokens = getProjectEmbeddingMaxInputTokens(projectPath);
+	if (compartments.length === 0) return;
+	const maxInputTokens = getProjectEmbeddingMaxInputTokens(projectPath);
 
-    for (const compartment of compartments) {
-        try {
-            const fromMemory = compartment.sourceChunkText
-                ? canonicalizeInMemoryChunkTextForEmbedding(
-                      compartment.sourceChunkText,
-                      compartment.startMessage,
-                      compartment.endMessage,
-                  )
-                : "";
-            const canonicalText =
-                fromMemory ||
-                buildCanonicalChunkTextFromFts(
-                    db,
-                    sessionId,
-                    compartment.startMessage,
-                    compartment.endMessage,
-                ) ||
-                buildCompartmentSummaryFallbackText(db, compartment.id);
-            if (canonicalText.length === 0) continue;
+	for (const compartment of compartments) {
+		try {
+			const fromMemory = compartment.sourceChunkText
+				? canonicalizeInMemoryChunkTextForEmbedding(
+						compartment.sourceChunkText,
+						compartment.startMessage,
+						compartment.endMessage,
+					)
+				: "";
+			const canonicalText =
+				fromMemory ||
+				buildCanonicalChunkTextFromFts(
+					db,
+					sessionId,
+					compartment.startMessage,
+					compartment.endMessage,
+				) ||
+				buildCompartmentSummaryFallbackText(db, compartment.id);
+			if (canonicalText.length === 0) continue;
 
-            const windows = chunkCanonicalText(
-                canonicalText,
-                compartment.startMessage,
-                compartment.endMessage,
-                maxInputTokens,
-            );
-            if (windows.length === 0) continue;
+			const windows = chunkCanonicalText(
+				canonicalText,
+				compartment.startMessage,
+				compartment.endMessage,
+				maxInputTokens,
+			);
+			if (windows.length === 0) continue;
 
-            const currentModelId = getProjectChunkEmbeddingModelId(projectPath);
-            if (
-                currentModelId !== "off" &&
-                chunkEmbeddingWindowsAreCurrent(
-                    db,
-                    compartment.id,
-                    currentModelId,
-                    windows,
-                    projectPath,
-                )
-            ) {
-                continue;
-            }
+			const currentModelId = getProjectChunkEmbeddingModelId(projectPath);
+			if (
+				currentModelId !== "off" &&
+				chunkEmbeddingWindowsAreCurrent(db, compartment.id, currentModelId, windows, projectPath)
+			) {
+				continue;
+			}
 
-            const result = await embedItemsForProject(
-                projectPath,
-                windows.map((window) => ({
-                    id: `chunk:${compartment.id}:${window.windowIndex}`,
-                    text: window.text,
-                    contentSha256: contentSha256(window.text),
-                })),
-                undefined,
-                db,
-                sessionId,
-            );
-            if (!result) continue;
-            if (
-                chunkEmbeddingWindowsAreCurrent(
-                    db,
-                    compartment.id,
-                    currentModelId,
-                    windows,
-                    projectPath,
-                )
-            ) {
-                continue;
-            }
+			const result = await embedItemsForProject(
+				projectPath,
+				windows.map((window) => ({
+					id: `chunk:${compartment.id}:${window.windowIndex}`,
+					text: window.text,
+					contentSha256: contentSha256(window.text),
+				})),
+				undefined,
+				db,
+				sessionId,
+			);
+			if (!result) continue;
+			if (
+				chunkEmbeddingWindowsAreCurrent(db, compartment.id, currentModelId, windows, projectPath)
+			) {
+				continue;
+			}
 
-            const rows: SaveCompartmentChunkEmbeddingInput[] = [];
-            for (const window of windows) {
-                const vector = result.vectors.get(`chunk:${compartment.id}:${window.windowIndex}`);
-                if (!vector) continue;
-                rows.push({
-                    compartmentId: compartment.id,
-                    sessionId,
-                    projectPath,
-                    window,
-                    modelId: currentModelId,
-                    vector,
-                });
-            }
-            if (rows.length === windows.length) {
-                replaceCompartmentChunkEmbeddings(db, rows);
-                enqueueShadowEmbeddingItems(projectPath, "chunk", [String(compartment.id)]);
-            }
-        } catch (error) {
-            sessionLog(
-                sessionId,
-                `compartment chunk embedding failed for compartment ${compartment.id}:`,
-                error,
-            );
-        }
-    }
+			const rows: SaveCompartmentChunkEmbeddingInput[] = [];
+			for (const window of windows) {
+				const vector = result.vectors.get(`chunk:${compartment.id}:${window.windowIndex}`);
+				if (!vector) continue;
+				rows.push({
+					compartmentId: compartment.id,
+					sessionId,
+					projectPath,
+					window,
+					modelId: currentModelId,
+					vector,
+				});
+			}
+			if (rows.length === windows.length) {
+				replaceCompartmentChunkEmbeddings(db, rows);
+				enqueueShadowEmbeddingItems(projectPath, "chunk", [String(compartment.id)]);
+			}
+		} catch (error) {
+			sessionLog(
+				sessionId,
+				`compartment chunk embedding failed for compartment ${compartment.id}:`,
+				error,
+			);
+		}
+	}
 }

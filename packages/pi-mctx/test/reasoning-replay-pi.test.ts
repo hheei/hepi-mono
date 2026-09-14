@@ -1,11 +1,8 @@
-import { describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	getOrCreateSessionMeta,
-	updateSessionMeta,
-} from "#core/features/storage";
+import { describe, expect, it } from "vitest";
+import { getOrCreateSessionMeta, updateSessionMeta } from "#core/features/storage";
 import { openDatabase } from "#core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import {
@@ -35,8 +32,7 @@ function fakeTagTarget(messageId: string) {
 /** Test helper: throw when piMessageStableId returns undefined. */
 function requireId(msg: unknown, index: number): string {
 	const id = piMessageStableId(msg, index);
-	if (!id)
-		throw new Error(`piMessageStableId returned undefined for index=${index}`);
+	if (!id) throw new Error(`piMessageStableId returned undefined for index=${index}`);
 	return id;
 }
 
@@ -58,10 +54,7 @@ describe("buildMessageIdToMaxTag", () => {
 			[2, fakeTagTarget("msg-A")],
 		] as Array<[number, ReturnType<typeof fakeTagTarget>]>);
 		const result = buildMessageIdToMaxTag(
-			targets as unknown as Map<
-				number,
-				import("#core/hooks/tag-messages").TagTarget
-			>,
+			targets as unknown as Map<number, import("#core/hooks/tag-messages").TagTarget>,
 		);
 		expect(result.size).toBe(1);
 		expect(result.get("msg-A")).toBe(2);
@@ -70,12 +63,8 @@ describe("buildMessageIdToMaxTag", () => {
 
 describe("piMessageStableId", () => {
 	it("matches the format used by transcript-pi.ts", () => {
-		expect(piMessageStableId({ role: "user", timestamp: 1234 }, 5)).toBe(
-			"pi-msg-5-1234-user",
-		);
-		expect(piMessageStableId({ role: "assistant" }, 7)).toBe(
-			"pi-msg-7-assistant",
-		);
+		expect(piMessageStableId({ role: "user", timestamp: 1234 }, 5)).toBe("pi-msg-5-1234-user");
+		expect(piMessageStableId({ role: "assistant" }, 7)).toBe("pi-msg-7-assistant");
 	});
 });
 
@@ -117,12 +106,12 @@ describe("clearOldReasoningPi", () => {
 		expect(result.newWatermark).toBe(1);
 		// Old reasoning is emptied (not "[cleared]"); every Pi serializer drops an
 		// empty thinking block before the wire.
-		expect(messages[0].content[0]).toMatchObject({
+		expect(messages[0]!.content[0]).toMatchObject({
 			type: "thinking",
 			thinking: "",
 		});
 		// Recent message untouched.
-		expect(messages[1].content[0]).toMatchObject({
+		expect(messages[1]!.content[0]).toMatchObject({
 			type: "thinking",
 			thinking: "recent reasoning",
 		});
@@ -136,9 +125,7 @@ describe("clearOldReasoningPi", () => {
 				content: [{ type: "thinking", thinking: "a" }],
 			},
 		];
-		const messageIdToMaxTag = new Map<string, number>([
-			[requireId(messages[0], 0), 1],
-		]);
+		const messageIdToMaxTag = new Map<string, number>([[requireId(messages[0], 0), 1]]);
 		const result = clearOldReasoningPi({
 			messages,
 			messageIdToMaxTag,
@@ -178,7 +165,7 @@ describe("clearOldReasoningPi", () => {
 			piMessageStableId,
 		});
 		expect(result.cleared).toBe(0);
-		expect(messages[0].content[0]).toMatchObject({
+		expect(messages[0]!.content[0]).toMatchObject({
 			type: "thinking",
 			thinking: "opaque-redacted-payload",
 			thinkingSignature: "sig-abc",
@@ -219,8 +206,8 @@ describe("replayClearedReasoningPi", () => {
 			piMessageStableId,
 		});
 		expect(cleared).toBe(1);
-		expect(messages[0].content[0]).toMatchObject({ thinking: "" });
-		expect(messages[1].content[0]).toMatchObject({ thinking: "still visible" });
+		expect(messages[0]!.content[0]).toMatchObject({ thinking: "" });
+		expect(messages[1]!.content[0]).toMatchObject({ thinking: "still visible" });
 	});
 });
 
@@ -267,9 +254,9 @@ describe("stripInlineThinkingPi", () => {
 		});
 
 		expect(result).toEqual({ stripped: 2, newWatermark: 2 });
-		expect(messages[0].content[0]).toMatchObject({ text: "A visible" });
-		expect(messages[1].content[0]).toMatchObject({ text: "B visible" });
-		expect(messages[2].content[0]).toMatchObject({
+		expect(messages[0]!.content[0]).toMatchObject({ text: "A visible" });
+		expect(messages[1]!.content[0]).toMatchObject({ text: "B visible" });
+		expect(messages[2]!.content[0]).toMatchObject({
 			text: "C <thinking>keep</thinking><think>keep</think> visible",
 		});
 	});
@@ -294,9 +281,7 @@ describe("replayStrippedInlineThinkingPi", () => {
 				],
 			},
 		];
-		const messageIdToMaxTag = new Map<string, number>([
-			[requireId(messages[0], 0), 1],
-		]);
+		const messageIdToMaxTag = new Map<string, number>([[requireId(messages[0], 0), 1]]);
 		const stripped = replayStrippedInlineThinkingPi({
 			db,
 			sessionId,
@@ -305,7 +290,7 @@ describe("replayStrippedInlineThinkingPi", () => {
 			piMessageStableId,
 		});
 		expect(stripped).toBe(1);
-		expect(messages[0].content[0]).toMatchObject({
+		expect(messages[0]!.content[0]).toMatchObject({
 			type: "text",
 			text: "Hello world",
 		});
@@ -323,9 +308,7 @@ describe("replayStrippedInlineThinkingPi", () => {
 				content: [{ type: "text", text: "<thinking>nope</thinking>untouched" }],
 			},
 		];
-		const messageIdToMaxTag = new Map<string, number>([
-			[requireId(messages[0], 0), 1],
-		]);
+		const messageIdToMaxTag = new Map<string, number>([[requireId(messages[0], 0), 1]]);
 		const stripped = replayStrippedInlineThinkingPi({
 			db,
 			sessionId,

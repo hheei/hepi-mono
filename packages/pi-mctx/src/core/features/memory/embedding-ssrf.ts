@@ -36,7 +36,7 @@ const IPV6_METADATA_HOSTS = new Set(["fd00:ec2::254"]);
 
 /** 169.254.0.0/16 — link-local, which includes the cloud metadata IP. */
 function isLinkLocalIpv4(host: string): boolean {
-    return /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host);
+	return /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
 /**
@@ -49,24 +49,24 @@ function isLinkLocalIpv4(host: string): boolean {
  * (`::ffff:a9fe:a9fe`) tails. Returns null when the host isn't IPv4-mapped.
  */
 function ipv4FromMappedIpv6(host: string): string | null {
-    const m = /^::ffff:(.+)$/.exec(host);
-    if (!m) return null;
-    const tail = m[1];
-    if (tail === undefined) return null;
-    // Dotted form: ::ffff:169.254.169.254
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(tail)) return tail;
-    // Hex form: ::ffff:a9fe:a9fe → 169.254.169.254
-    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
-    if (hex) {
-        const hiRaw = hex[1];
-        const loRaw = hex[2];
-        if (hiRaw === undefined || loRaw === undefined) return null;
-        const hi = Number.parseInt(hiRaw, 16);
-        const lo = Number.parseInt(loRaw, 16);
-        if (Number.isNaN(hi) || Number.isNaN(lo)) return null;
-        return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-    }
-    return null;
+	const m = /^::ffff:(.+)$/.exec(host);
+	if (!m) return null;
+	const tail = m[1];
+	if (tail === undefined) return null;
+	// Dotted form: ::ffff:169.254.169.254
+	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(tail)) return tail;
+	// Hex form: ::ffff:a9fe:a9fe → 169.254.169.254
+	const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
+	if (hex) {
+		const hiRaw = hex[1];
+		const loRaw = hex[2];
+		if (hiRaw === undefined || loRaw === undefined) return null;
+		const hi = Number.parseInt(hiRaw, 16);
+		const lo = Number.parseInt(loRaw, 16);
+		if (Number.isNaN(hi) || Number.isNaN(lo)) return null;
+		return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+	}
+	return null;
 }
 
 /**
@@ -75,40 +75,40 @@ function ipv4FromMappedIpv6(host: string): string | null {
  * value that can't even be parsed as a URL should not reach `fetch`.
  */
 export function blockedEmbeddingEndpointReason(endpoint: string): string | null {
-    const trimmed = endpoint.trim();
-    if (trimmed.length === 0) return null; // empty → provider already no-ops
+	const trimmed = endpoint.trim();
+	if (trimmed.length === 0) return null; // empty → provider already no-ops
 
-    let url: URL;
-    try {
-        url = new URL(trimmed);
-    } catch {
-        return `embedding endpoint is not a valid URL: ${trimmed}`;
-    }
+	let url: URL;
+	try {
+		url = new URL(trimmed);
+	} catch {
+		return `embedding endpoint is not a valid URL: ${trimmed}`;
+	}
 
-    // WHATWG URL keeps the brackets on IPv6 hostnames ("[fe80::1]"); strip them
-    // so the link-local prefix checks below match. Lowercase for comparison.
-    const host = url.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+	// WHATWG URL keeps the brackets on IPv6 hostnames ("[fe80::1]"); strip them
+	// so the link-local prefix checks below match. Lowercase for comparison.
+	const host = url.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
 
-    if (METADATA_HOSTNAMES.has(host)) {
-        return `embedding endpoint host ${host} is a cloud metadata service (blocked)`;
-    }
-    if (IPV6_METADATA_HOSTS.has(host)) {
-        return `embedding endpoint host ${host} is the AWS IPv6 metadata service (blocked)`;
-    }
-    if (isLinkLocalIpv4(host)) {
-        return `embedding endpoint host ${host} is link-local / cloud metadata (blocked)`;
-    }
-    // IPv4-mapped IPv6 (::ffff:a.b.c.d or hex ::ffff:hhhh:hhhh) — decode to the
-    // embedded IPv4 and re-check link-local so the metadata IP can't slip through
-    // an alternate spelling.
-    const mappedV4 = ipv4FromMappedIpv6(host);
-    if (mappedV4 && isLinkLocalIpv4(mappedV4)) {
-        return `embedding endpoint host ${host} (IPv4-mapped ${mappedV4}) is link-local / cloud metadata (blocked)`;
-    }
-    // IPv6 link-local (fe80::/10).
-    if (host.startsWith("fe80:")) {
-        return `embedding endpoint host ${host} is link-local / cloud metadata (blocked)`;
-    }
+	if (METADATA_HOSTNAMES.has(host)) {
+		return `embedding endpoint host ${host} is a cloud metadata service (blocked)`;
+	}
+	if (IPV6_METADATA_HOSTS.has(host)) {
+		return `embedding endpoint host ${host} is the AWS IPv6 metadata service (blocked)`;
+	}
+	if (isLinkLocalIpv4(host)) {
+		return `embedding endpoint host ${host} is link-local / cloud metadata (blocked)`;
+	}
+	// IPv4-mapped IPv6 (::ffff:a.b.c.d or hex ::ffff:hhhh:hhhh) — decode to the
+	// embedded IPv4 and re-check link-local so the metadata IP can't slip through
+	// an alternate spelling.
+	const mappedV4 = ipv4FromMappedIpv6(host);
+	if (mappedV4 && isLinkLocalIpv4(mappedV4)) {
+		return `embedding endpoint host ${host} (IPv4-mapped ${mappedV4}) is link-local / cloud metadata (blocked)`;
+	}
+	// IPv6 link-local (fe80::/10).
+	if (host.startsWith("fe80:")) {
+		return `embedding endpoint host ${host} is link-local / cloud metadata (blocked)`;
+	}
 
-    return null;
+	return null;
 }

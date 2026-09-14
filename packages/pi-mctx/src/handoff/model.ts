@@ -68,8 +68,7 @@ export const HANDOFF_FAILURE_CATEGORIES = [
 	"recovery",
 ] as const;
 
-export type HandoffFailureCategory =
-	(typeof HANDOFF_FAILURE_CATEGORIES)[number];
+export type HandoffFailureCategory = (typeof HANDOFF_FAILURE_CATEGORIES)[number];
 
 export const HANDOFF_STAGE_LABELS: Record<HandoffProgressStage, string> = {
 	preparing: "Preparing history",
@@ -190,15 +189,11 @@ const OMITTED_PART_TYPES = new Set([
 	"redacted_reasoning",
 ]);
 
-export function isHandoffProgressPhase(
-	phase: string,
-): phase is HandoffProgressPhase {
+export function isHandoffProgressPhase(phase: string): phase is HandoffProgressPhase {
 	return (HANDOFF_PROGRESS_PHASES as readonly string[]).includes(phase);
 }
 
-export function isHandoffTerminalPhase(
-	phase: string,
-): phase is HandoffTerminalPhase {
+export function isHandoffTerminalPhase(phase: string): phase is HandoffTerminalPhase {
 	return (HANDOFF_TERMINAL_PHASES as readonly string[]).includes(phase);
 }
 
@@ -238,11 +233,7 @@ export function planHandoffBudget(args: {
 	}
 	const wrapperTokens = args.estimateTokens(handoffWrapperSample());
 	const historyBudget =
-		args.executeCeiling -
-		args.prefixTokens -
-		wrapperTokens -
-		args.recentTokens -
-		summaryReserve;
+		args.executeCeiling - args.prefixTokens - wrapperTokens - args.recentTokens - summaryReserve;
 	if (historyBudget <= 0) {
 		return {
 			ok: false,
@@ -267,10 +258,7 @@ export function payloadByteLength(value: unknown): number {
 	return TEXT_ENCODER.encode(JSON.stringify(value)).length;
 }
 
-export function assertPayloadLimit(
-	value: unknown,
-	label: string,
-): string | undefined {
+export function assertPayloadLimit(value: unknown, label: string): string | undefined {
 	const bytes = payloadByteLength(value);
 	if (bytes > HANDOFF_PAYLOAD_LIMIT_BYTES) {
 		return `${label} is ${bytes} bytes, above the ${HANDOFF_PAYLOAD_LIMIT_BYTES} byte limit`;
@@ -291,13 +279,12 @@ export function reduceHandoffPhase(
 	}
 	if (current === next) return { ok: true, phase: next };
 	if (isHandoffTerminalPhase(next)) return { ok: true, phase: next };
-	const allowed: Record<HandoffProgressPhase, HandoffProgressPhase | undefined> =
-		{
-			requested: "snapshot-ready",
-			"snapshot-ready": "summary-ready",
-			"summary-ready": "replacement-started",
-			"replacement-started": undefined,
-		};
+	const allowed: Record<HandoffProgressPhase, HandoffProgressPhase | undefined> = {
+		requested: "snapshot-ready",
+		"snapshot-ready": "summary-ready",
+		"summary-ready": "replacement-started",
+		"replacement-started": undefined,
+	};
 	if (allowed[current] === next) return { ok: true, phase: next };
 	return { ok: false, reason: `illegal transition ${current} → ${next}` };
 }
@@ -308,9 +295,7 @@ export function latestRequestRecord(
 	return records.length === 0 ? undefined : records[records.length - 1];
 }
 
-export function serializeRecentMessages(
-	messages: readonly unknown[],
-): SerializeRecentResult {
+export function serializeRecentMessages(messages: readonly unknown[]): SerializeRecentResult {
 	const serialized: SerializedRecentMessage[] = [];
 	for (const message of messages) {
 		const result = serializeOneMessage(message);
@@ -324,9 +309,7 @@ export function stripHandoffTags(value: string): string {
 	return stripPersistedAssistantText(value);
 }
 
-export function renderRecentMessagesXml(
-	messages: readonly SerializedRecentMessage[],
-): string {
+export function renderRecentMessagesXml(messages: readonly SerializedRecentMessage[]): string {
 	if (messages.length === 0) return "<recent-messages></recent-messages>";
 	const blocks = messages.map((message) => {
 		const lines = [`<message role="${escapeXml(message.role)}">`];
@@ -363,9 +346,7 @@ export function renderHandoffContextXml(args: {
 	].join("\n");
 }
 
-export function collectHandoffImages(
-	messages: readonly SerializedRecentMessage[],
-): HandoffImage[] {
+export function collectHandoffImages(messages: readonly SerializedRecentMessage[]): HandoffImage[] {
 	return messages.flatMap((message) => [...message.images]);
 }
 
@@ -454,10 +435,7 @@ export function validateHandoffSummary(args: {
 	return undefined;
 }
 
-export function fenceMatches(
-	expected: HandoffFence,
-	actual: HandoffFence,
-): boolean {
+export function fenceMatches(expected: HandoffFence, actual: HandoffFence): boolean {
 	return (
 		expected.projectIdentity === actual.projectIdentity &&
 		expected.sessionId === actual.sessionId &&
@@ -474,9 +452,7 @@ export function fenceMatches(
 	);
 }
 
-export function hashRecentMessages(
-	messages: readonly SerializedRecentMessage[],
-): string {
+export function hashRecentMessages(messages: readonly SerializedRecentMessage[]): string {
 	return hashBytes(JSON.stringify(messages));
 }
 
@@ -484,10 +460,7 @@ export function hashSessionHistory(history: string): string {
 	return hashBytes(history);
 }
 
-export function buildCompletionPrompt(args: {
-	language: string;
-	reserveTokens: number;
-}): string {
+export function buildCompletionPrompt(args: { language: string; reserveTokens: number }): string {
 	return [
 		"Produce a handoff summary for a new continuation session.",
 		"There are no tools. Do not invent unverified facts.",
@@ -549,9 +522,7 @@ export function buildHandoffCompletionMessages(args: {
 				message.images.length === 0
 					? message.text
 					: [
-							...(message.text
-								? [{ type: "text" as const, text: message.text }]
-								: []),
+							...(message.text ? [{ type: "text" as const, text: message.text }] : []),
 							...message.images.map((image) => ({
 								type: "image" as const,
 								data: image.data,
@@ -585,9 +556,7 @@ export function detectConversationLanguage(
 
 function serializeOneMessage(
 	message: unknown,
-):
-	| { ok: true; message: SerializedRecentMessage }
-	| { ok: false; reason: string } {
+): { ok: true; message: SerializedRecentMessage } | { ok: false; reason: string } {
 	if (message === null || typeof message !== "object") {
 		return { ok: false, reason: "recent message is not an object" };
 	}
@@ -634,9 +603,7 @@ function collectParts(row: {
 function serializePart(
 	part: unknown,
 	role: "user" | "assistant",
-):
-	| { ok: true; text?: string; image?: HandoffImage }
-	| { ok: false; reason: string } {
+): { ok: true; text?: string; image?: HandoffImage } | { ok: false; reason: string } {
 	if (part === null || typeof part !== "object") {
 		return { ok: false, reason: "recent message contains a non-object part" };
 	}
@@ -677,8 +644,7 @@ function serializeToolPart(part: Record<string, unknown>): string {
 			: {};
 	const input = state.input ?? part.arguments ?? part.input;
 	const output = state.output ?? part.output;
-	const inputText =
-		input === undefined ? "" : stripHandoffTags(stableJson(input));
+	const inputText = input === undefined ? "" : stripHandoffTags(stableJson(input));
 	const outputText =
 		typeof output === "string"
 			? stripHandoffTags(output)

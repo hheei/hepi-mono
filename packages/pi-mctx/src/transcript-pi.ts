@@ -85,7 +85,7 @@ import { resolvePiStableId, SYNTH_USER_ID_PREFIX } from "./read-session-pi";
 // to construct synthetic messages, and a local type makes that easier.
 // The shape MUST stay structurally compatible with pi-ai's exports.
 
-type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined};
+type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined };
 type PiThinkingContent = {
 	type: "thinking";
 	thinking: string;
@@ -271,14 +271,7 @@ function buildTranscriptView(
 			const next = i < working.length ? working[i] : undefined;
 			if (next?.role === "user") {
 				result.push(
-					createUserTranscriptMessage(
-						working,
-						i,
-						sessionId,
-						toolResultRun,
-						markDirty,
-						entryIds,
-					),
+					createUserTranscriptMessage(working, i, sessionId, toolResultRun, markDirty, entryIds),
 				);
 				i += 1;
 			} else {
@@ -296,39 +289,20 @@ function buildTranscriptView(
 		}
 
 		if (msg.role === "user") {
-			result.push(
-				createUserTranscriptMessage(
-					working,
-					i,
-					sessionId,
-					[],
-					markDirty,
-					entryIds,
-				),
-			);
+			result.push(createUserTranscriptMessage(working, i, sessionId, [], markDirty, entryIds));
 			i += 1;
 			continue;
 		}
 
 		if (msg.role === "assistant") {
-			result.push(
-				createAssistantTranscriptMessage(
-					working,
-					i,
-					sessionId,
-					markDirty,
-					entryIds,
-				),
-			);
+			result.push(createAssistantTranscriptMessage(working, i, sessionId, markDirty, entryIds));
 			i += 1;
 			continue;
 		}
 
 		// Unknown role — surface as-is with kind "unknown" parts. Forward
 		// compatibility for new Pi message kinds we don't recognize yet.
-		result.push(
-			createOpaqueTranscriptMessage(working, i, sessionId, markDirty, entryIds),
-		);
+		result.push(createOpaqueTranscriptMessage(working, i, sessionId, markDirty, entryIds));
 		i += 1;
 	}
 
@@ -368,14 +342,7 @@ function createUserTranscriptMessage(
 			for (const { index: toolResultIndex } of foldedToolResults) {
 				const toolMsg = working[toolResultIndex] as PiToolResultMessage;
 				toolMsg.content.forEach((_, partIndex) => {
-					parts.push(
-						createPiToolResultPart(
-							working,
-							toolResultIndex,
-							partIndex,
-							markDirty,
-						),
-					);
+					parts.push(createPiToolResultPart(working, toolResultIndex, partIndex, markDirty));
 				});
 			}
 
@@ -384,9 +351,7 @@ function createUserTranscriptMessage(
 				parts.push(createPiUserStringPart(working, index, markDirty));
 			} else if (Array.isArray(userMsg.content)) {
 				userMsg.content.forEach((_, partIndex) => {
-					parts.push(
-						createPiUserArrayPart(working, index, partIndex, markDirty),
-					);
+					parts.push(createPiUserArrayPart(working, index, partIndex, markDirty));
 				});
 			}
 
@@ -420,14 +385,7 @@ function createSyntheticToolResultUserMessage(
 			for (const { index: toolResultIndex } of toolResultRun) {
 				const toolMsg = working[toolResultIndex] as PiToolResultMessage;
 				toolMsg.content.forEach((_, partIndex) => {
-					parts.push(
-						createPiToolResultPart(
-							working,
-							toolResultIndex,
-							partIndex,
-							markDirty,
-						),
-					);
+					parts.push(createPiToolResultPart(working, toolResultIndex, partIndex, markDirty));
 				});
 			}
 			return parts;
@@ -442,9 +400,7 @@ function createSyntheticToolResultUserId(
 	const first = toolResultRun[0];
 	if (first === undefined) return undefined;
 	const stableId = extractStableId(first.msg, first.index, entryIds);
-	return stableId === undefined
-		? undefined
-		: `${SYNTH_USER_ID_PREFIX}${stableId}`;
+	return stableId === undefined ? undefined : `${SYNTH_USER_ID_PREFIX}${stableId}`;
 }
 
 function createAssistantTranscriptMessage(

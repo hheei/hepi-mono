@@ -54,10 +54,9 @@ export interface PiMessageTokenCacheEntry {
 export interface TokenizePiMessagesOptions {
 	cache: Map<string, PiMessageTokenCacheEntry>;
 	stableId: (message: object) => string | undefined;
-	onTiming?: ((
-		phase: "cacheValidation" | "bpe" | "cachePrune",
-		elapsedMs: number,
-	) => void) | undefined;
+	onTiming?:
+		| ((phase: "cacheValidation" | "bpe" | "cachePrune", elapsedMs: number) => void)
+		| undefined;
 }
 
 interface MaybePart {
@@ -105,18 +104,12 @@ export function tokenizePiMessages(
 		// fields the tokenizer reads. Pi's JSONL messages satisfy this shape; custom
 		// prototypes and toJSON hooks must take the uncached path.
 		const stableId =
-			resolvedStableId !== undefined && isTokenCacheSafeMessage(raw)
-				? resolvedStableId
-				: undefined;
-		const fingerprint =
-			stableId === undefined ? null : buildTokenCacheFingerprint(raw);
+			resolvedStableId !== undefined && isTokenCacheSafeMessage(raw) ? resolvedStableId : undefined;
+		const fingerprint = stableId === undefined ? null : buildTokenCacheFingerprint(raw);
 		if (stableId !== undefined && fingerprint !== null) {
 			liveIds?.add(stableId);
 			const cached = options?.cache.get(stableId);
-			if (
-				cached &&
-				tokenCacheFingerprintsEqual(cached.fingerprint, fingerprint)
-			) {
+			if (cached && tokenCacheFingerprintsEqual(cached.fingerprint, fingerprint)) {
 				conversation += cached.counts.conversation;
 				toolCall += cached.counts.toolCall;
 				cacheValidationMs += performance.now() - cacheValidationStart;
@@ -145,14 +138,12 @@ export function tokenizePiMessages(
 					const p = part as MaybePart;
 					switch (p.type) {
 						case "text":
-							if (typeof p.text === "string")
-								conversation += estimateTokens(p.text);
+							if (typeof p.text === "string") conversation += estimateTokens(p.text);
 							if (typeof p.textSignature === "string")
 								conversation += estimateTokens(p.textSignature);
 							break;
 						case "thinking":
-							if (typeof p.thinking === "string")
-								conversation += estimateTokens(p.thinking);
+							if (typeof p.thinking === "string") conversation += estimateTokens(p.thinking);
 							if (typeof p.thinkingSignature === "string")
 								conversation += estimateTokens(p.thinkingSignature);
 							break;
@@ -168,13 +159,10 @@ export function tokenizePiMessages(
 						case "toolCall":
 							// Tool invocation: name + JSON-serialized arguments.
 							// Uses the normalized args payload.
-							if (typeof p.name === "string")
-								toolCall += estimateTokens(p.name);
+							if (typeof p.name === "string") toolCall += estimateTokens(p.name);
 							if (p.arguments !== undefined) {
 								const s =
-									typeof p.arguments === "string"
-										? p.arguments
-										: safeJsonStringify(p.arguments);
+									typeof p.arguments === "string" ? p.arguments : safeJsonStringify(p.arguments);
 								if (s) toolCall += estimateTokens(s);
 							}
 							break;
@@ -267,9 +255,7 @@ function buildTokenCacheFingerprint(value: object): readonly (string | null)[] {
 				fingerprint.push(
 					"thinking",
 					typeof part.thinking === "string" ? part.thinking : null,
-					typeof part.thinkingSignature === "string"
-						? part.thinkingSignature
-						: null,
+					typeof part.thinkingSignature === "string" ? part.thinkingSignature : null,
 				);
 				break;
 			case "image":
@@ -309,10 +295,7 @@ function isTokenCacheSafeMessage(value: object): boolean {
 	const prototype = Object.getPrototypeOf(value);
 	if (prototype !== Object.prototype && prototype !== null) return false;
 	if ("toJSON" in value) return false;
-	if (
-		!isJsonVisibleDataProperty(value, "role") ||
-		!isJsonVisibleDataProperty(value, "content")
-	) {
+	if (!isJsonVisibleDataProperty(value, "role") || !isJsonVisibleDataProperty(value, "content")) {
 		return false;
 	}
 	return isPlainJsonData((value as { content?: unknown }).content, new Set());
@@ -321,11 +304,7 @@ function isTokenCacheSafeMessage(value: object): boolean {
 function isJsonVisibleDataProperty(value: object, key: string): boolean {
 	if (!(key in value)) return true;
 	const descriptor = Object.getOwnPropertyDescriptor(value, key);
-	return (
-		descriptor !== undefined &&
-		descriptor.enumerable === true &&
-		"value" in descriptor
-	);
+	return descriptor !== undefined && descriptor.enumerable === true && "value" in descriptor;
 }
 
 function isPlainJsonData(value: unknown, seen: Set<object>): boolean {
@@ -340,11 +319,7 @@ function isPlainJsonData(value: unknown, seen: Set<object>): boolean {
 	}
 	if (typeof value !== "object" || seen.has(value)) return false;
 	const prototype = Object.getPrototypeOf(value);
-	if (
-		!Array.isArray(value) &&
-		prototype !== Object.prototype &&
-		prototype !== null
-	) {
+	if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
 		return false;
 	}
 	if ("toJSON" in value) return false;

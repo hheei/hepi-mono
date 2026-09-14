@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	getChannel2NudgeClaimedAt,
 	getChannel2NudgeState,
@@ -54,9 +54,7 @@ describe("computeTailToolTokensPi", () => {
 			},
 			{
 				role: "assistant",
-				content: [
-					{ type: "toolCall", name: "bash", arguments: { cmd: "echo hi" } },
-				],
+				content: [{ type: "toolCall", name: "bash", arguments: { cmd: "echo hi" } }],
 			},
 			toolResultMsg("tool output ".repeat(1000)),
 		]);
@@ -385,9 +383,7 @@ describe("maybeDeliverChannel2Pi", () => {
 		armStrongBaseline(session);
 
 		const originalPrepare = db.prepare.bind(db);
-		(db as unknown as { prepare: typeof db.prepare }).prepare = (
-			sql: string,
-		) => {
+		(db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
 			const statement = originalPrepare(sql);
 			if (
 				sql ===
@@ -404,9 +400,7 @@ describe("maybeDeliverChannel2Pi", () => {
 						) {
 							throw new Error("SQLITE_BUSY: database is locked");
 						}
-						return statement.run(
-							...(args as [unknown, unknown, unknown, unknown]),
-						);
+						return statement.run(...(args as [unknown, unknown, unknown, unknown]));
 					},
 				} as typeof statement;
 			}
@@ -434,9 +428,7 @@ describe("maybeDeliverChannel2Pi", () => {
 		setChannel2NudgeState(db, session, "pending");
 		armStrongBaseline(session);
 
-		const sessionLog = vi.spyOn(loggerModule, "sessionLog").mockImplementation(
-			() => {},
-		);
+		const sessionLog = vi.spyOn(loggerModule, "sessionLog").mockImplementation(() => {});
 
 		const delivered = maybeDeliverChannel2Pi(
 			{
@@ -493,8 +485,6 @@ describe("Channel 2 delivery wiring (regression)", () => {
 	it("the agent_end handler calls maybeDeliverChannel2Pi", () => {
 		const handler = INDEX_SRC.match(/pi\.on\("agent_end",[\s\S]*?\n\s*\}\);/);
 		expect(handler).not.toBeNull();
-		expect(handler?.[0] ?? "").toContain(
-			"maybeDeliverChannel2Pi(pi, db, sessionId)",
-		);
+		expect(handler?.[0] ?? "").toContain("maybeDeliverChannel2Pi(pi, db, sessionId)");
 	});
 });

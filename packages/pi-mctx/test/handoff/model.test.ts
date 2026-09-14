@@ -4,8 +4,8 @@ import {
 	assertPayloadLimit,
 	buildCompletionPrompt,
 	buildHandoffCompletionMessages,
-	detectConversationLanguage,
 	deriveSummaryReserve,
+	detectConversationLanguage,
 	escapeXml,
 	fenceMatches,
 	formatHandoffBusyWarning,
@@ -13,6 +13,7 @@ import {
 	HANDOFF_PAYLOAD_LIMIT_BYTES,
 	HANDOFF_SUMMARY_RESERVE_MIN,
 	HANDOFF_SYSTEM_GUARD,
+	type HandoffFence,
 	handoffContextContent,
 	planHandoffBudget,
 	reduceHandoffPhase,
@@ -20,7 +21,6 @@ import {
 	serializeRecentMessages,
 	stripHandoffTags,
 	validateHandoffSummary,
-	type HandoffFence,
 } from "../../src/handoff/model";
 
 function fence(overrides: Partial<HandoffFence> = {}): HandoffFence {
@@ -78,9 +78,7 @@ describe("handoff model", () => {
 	test("payload limit counts serialized bytes including images", () => {
 		expect(assertPayloadLimit({ text: "ok" }, "payload")).toBeUndefined();
 		const huge = "x".repeat(HANDOFF_PAYLOAD_LIMIT_BYTES + 1);
-		expect(assertPayloadLimit({ data: huge }, "Handoff Context")).toContain(
-			"above the",
-		);
+		expect(assertPayloadLimit({ data: huge }, "Handoff Context")).toContain("above the");
 	});
 
 	test("phase reducer allows only the documented transitions", () => {
@@ -88,12 +86,8 @@ describe("handoff model", () => {
 		expect(reduceHandoffPhase(undefined, "snapshot-ready").ok).toBe(false);
 		expect(reduceHandoffPhase("requested", "snapshot-ready").ok).toBe(true);
 		expect(reduceHandoffPhase("snapshot-ready", "summary-ready").ok).toBe(true);
-		expect(reduceHandoffPhase("summary-ready", "replacement-started").ok).toBe(
-			true,
-		);
-		expect(reduceHandoffPhase("replacement-started", "snapshot-ready").ok).toBe(
-			false,
-		);
+		expect(reduceHandoffPhase("summary-ready", "replacement-started").ok).toBe(true);
+		expect(reduceHandoffPhase("replacement-started", "snapshot-ready").ok).toBe(false);
 		expect(reduceHandoffPhase("failed", "requested").ok).toBe(false);
 		expect(reduceHandoffPhase("requested", "cancelled").ok).toBe(true);
 		expect(reduceHandoffPhase("snapshot-ready", "superseded").ok).toBe(true);
@@ -125,9 +119,7 @@ describe("handoff model", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		expect(result.messages[0]?.text).toBe("see this  file");
-		expect(result.messages[0]?.images).toEqual([
-			{ mimeType: "image/png", data: "abcd" },
-		]);
+		expect(result.messages[0]?.images).toEqual([{ mimeType: "image/png", data: "abcd" }]);
 		expect(result.messages[1]?.text).toContain("tool read");
 		expect(result.messages[1]?.text).not.toContain("secret");
 		expect(result.messages[1]?.text).toContain("done");
@@ -147,9 +139,7 @@ describe("handoff model", () => {
 			model: "anthropic/claude",
 			generatedAt: "2026-01-01T00:00:00.000Z",
 			sessionHistory: "<old>&",
-			recentMessages: [
-				{ role: "user", text: "hello <world>", images: [] },
-			],
+			recentMessages: [{ role: "user", text: "hello <world>", images: [] }],
 			summary: "keep going",
 		});
 		expect(xml).toContain("<handoff-context>");
@@ -240,12 +230,12 @@ describe("handoff model", () => {
 
 	test("language follows settings, then recent conversation script", () => {
 		expect(detectConversationLanguage([], "ja")).toBe("ja");
-		expect(
-			detectConversationLanguage([{ role: "user", text: "继续做", images: [] }]),
-		).toBe("zh-CN");
-		expect(
-			detectConversationLanguage([{ role: "user", text: "keep going", images: [] }]),
-		).toBe("en");
+		expect(detectConversationLanguage([{ role: "user", text: "继续做", images: [] }])).toBe(
+			"zh-CN",
+		);
+		expect(detectConversationLanguage([{ role: "user", text: "keep going", images: [] }])).toBe(
+			"en",
+		);
 	});
 
 	test("handoff content keeps images as typed parts after the XML", () => {

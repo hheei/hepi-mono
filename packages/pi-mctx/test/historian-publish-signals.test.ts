@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 /**
  * Regression coverage for the "context kept climbing after historian
@@ -27,10 +27,7 @@ import { join } from "node:path";
 
 const HANDLER_PATH = join(import.meta.dirname, "../src/context-handler.ts");
 const HANDLER_SRC = readFileSync(HANDLER_PATH, "utf8");
-const RUNNER_SRC = readFileSync(
-	join(import.meta.dirname, "../src/pi-historian-runner.ts"),
-	"utf8",
-);
+const RUNNER_SRC = readFileSync(join(import.meta.dirname, "../src/pi-historian-runner.ts"), "utf8");
 
 function extractOnPublishedBodies(src: string): string[] {
 	// Find every `onPublished: () => { ... },` callback in the file.

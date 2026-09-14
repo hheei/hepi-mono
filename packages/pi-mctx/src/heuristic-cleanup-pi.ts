@@ -16,14 +16,8 @@ import {
 	setEmergencyDropSample,
 } from "#core/features/storage-meta-persisted";
 import type { TagEntry } from "#core/features/types";
-import {
-	applyCavemanCleanup,
-	type CavemanCleanupConfig,
-} from "#core/hooks/caveman-cleanup";
-import {
-	type EmergencyDropTag,
-	planEmergencyDrop,
-} from "#core/hooks/emergency-drop";
+import { applyCavemanCleanup, type CavemanCleanupConfig } from "#core/hooks/caveman-cleanup";
+import { type EmergencyDropTag, planEmergencyDrop } from "#core/hooks/emergency-drop";
 import { stripSystemInjection } from "#core/hooks/system-injection-stripper";
 import type { TagTarget } from "#core/hooks/tag-messages";
 import { stripTagPrefix } from "#core/hooks/tag-part-guards";
@@ -60,10 +54,12 @@ export interface PiHeuristicCleanupConfig {
 	 * derived force-band materialize (cache-busting) pass; undefined on routine execute
 	 * passes (routine age-based tool drops were removed).
 	 */
-	emergency?: {
-		currentTotalInputTokens: number;
-		ceilingTokens: number;
-	} | undefined;
+	emergency?:
+		| {
+				currentTotalInputTokens: number;
+				ceilingTokens: number;
+		  }
+		| undefined;
 	/**
 	 * Age-tier caveman text compression settings. Caller is responsible
 	 * for forwarding this only for primary sessions where caveman is enabled.
@@ -276,10 +272,7 @@ export function applyPiHeuristicCleanup(
 		// bytes (canDrop, not mere drop() presence) — keeps the floor math equal
 		// to the on-wire tail and avoids phantom under-evict.
 		const droppableTags = tags.filter(
-			(t) =>
-				t.status === "active" &&
-				t.type === "tool" &&
-				targets.get(t.tagNumber)?.canDrop?.(),
+			(t) => t.status === "active" && t.type === "tool" && targets.get(t.tagNumber)?.canDrop?.(),
 		);
 		// Floor accounting needs the FULL active live-window set (all types) —
 		// narrowing it to the droppable subset folds real conversation/
@@ -315,12 +308,7 @@ export function applyPiHeuristicCleanup(
 						: (target?.drop?.() ?? "absent");
 					if (result === "removed" || result === "truncated") {
 						updateTagStatus(db, sessionId, tag.tagNumber, "dropped");
-						updateTagDropMode(
-							db,
-							sessionId,
-							tag.tagNumber,
-							recent ? "truncated" : "full",
-						);
+						updateTagDropMode(db, sessionId, tag.tagNumber, recent ? "truncated" : "full");
 						droppedTools++;
 						emergencyDroppedTools++;
 					}
@@ -359,9 +347,7 @@ export function applyPiHeuristicCleanup(
 				// old turn. Legacy NULL-owner rows fall back to bare callId match
 				// (lazy adoption: they predate composite identity).
 				const matched = tag.toolOwnerMessageId
-					? staleReduce.composite.has(
-							`${tag.toolOwnerMessageId}\x00${tag.messageId}`,
-						)
+					? staleReduce.composite.has(`${tag.toolOwnerMessageId}\x00${tag.messageId}`)
 					: staleReduce.bareCallIds.has(tag.messageId);
 				if (!matched) continue;
 				const target = targets.get(tag.tagNumber);
@@ -396,9 +382,7 @@ export function applyPiHeuristicCleanup(
 			if (strippedSource.trim().length === 0) {
 				const dropResult = target.drop?.() ?? "absent";
 				const didReplace =
-					dropResult === "absent"
-						? target.setContent(`[dropped §${tag.tagNumber}§]`)
-						: false;
+					dropResult === "absent" ? target.setContent(`[dropped §${tag.tagNumber}§]`) : false;
 				if (dropResult === "removed" || dropResult === "absent") {
 					replaceSourceContent(db, sessionId, tag.tagNumber, "");
 					updateTagStatus(db, sessionId, tag.tagNumber, "dropped");
@@ -499,9 +483,7 @@ export function applyPiHeuristicCleanup(
 	};
 }
 
-function buildMessageIdToMaxTagFromTargets(
-	targets: Map<number, TagTarget>,
-): Map<string, number> {
+function buildMessageIdToMaxTagFromTargets(targets: Map<number, TagTarget>): Map<string, number> {
 	const byMessage = new Map<string, number>();
 	for (const [tagNumber, target] of targets) {
 		const id = target.message?.info?.id;

@@ -33,6 +33,8 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
+import { invalidateMemory } from "#core/features/memory/embedding-cache";
 import {
 	archiveMemory,
 	getMemoriesByIds,
@@ -51,11 +53,6 @@ import {
 	updateMemorySeenCount,
 	V2_MEMORY_CATEGORIES,
 } from "#core/features/memory/index";
-import {
-	embedTextForProject,
-	getProjectEmbeddingSnapshot,
-} from "#core/features/project-embedding-registry";
-import { invalidateMemory } from "#core/features/memory/embedding-cache";
 import { computeNormalizedHash } from "#core/features/memory/normalize-hash";
 import {
 	normalizeStoredProjectPath,
@@ -63,12 +60,13 @@ import {
 	storedPathBelongsToIdentity,
 } from "#core/features/memory/project-identity";
 import {
-	type ContextDatabase,
-	queueMemoryMutation,
-} from "#core/features/storage";
+	embedTextForProject,
+	getProjectEmbeddingSnapshot,
+} from "#core/features/project-embedding-registry";
+import { type ContextDatabase, queueMemoryMutation } from "#core/features/storage";
 import {
-	resolveWorkspaceIdentityExpansion,
 	resolveStoredPathWorkspaceIdentity,
+	resolveWorkspaceIdentityExpansion,
 	resolveWorkspaceIdentitySet,
 	resolveWorkspaceShareCategories,
 	storedPathBelongsToWorkspace,
@@ -77,7 +75,6 @@ import { log } from "#core/shared/logger";
 import { CTX_MEMORY_DESCRIPTION } from "#core/tools/ctx-memory/constants";
 import { runImmediateTransaction } from "#core/tools/ctx-memory/verification-recording";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
-import { type Static, Type } from "typebox";
 
 const DEFAULT_LIST_LIMIT = 10;
 
@@ -91,14 +88,7 @@ const DEFAULT_LIST_LIMIT = 10;
 // no other way to look it up. Memory verification (file mapping) and
 // classification are no longer tool actions — the verify and classify dreamer
 // tasks apply them host-side from a manifest.
-const ALL_ACTIONS = [
-	"write",
-	"archive",
-	"update",
-	"merge",
-	"get",
-	"list",
-] as const;
+const ALL_ACTIONS = ["write", "archive", "update", "merge", "get", "list"] as const;
 type CtxMemoryAction = (typeof ALL_ACTIONS)[number];
 
 const DREAMER_ONLY_ACTIONS: ReadonlySet<CtxMemoryAction> = new Set(["list"]);
@@ -111,23 +101,20 @@ const ParamsSchema = Type.Object(
 			Type.Union(
 				ALL_ACTIONS.map((a) => Type.Literal(a)),
 				{
-					description:
-						"What to do: write, update, archive, merge, get, or list",
+					description: "What to do: write, update, archive, merge, get, or list",
 				},
 			),
 		),
 		content: Type.Optional(
 			Type.String({
-				description:
-					"The memory text — one standalone fact (required for write, update, merge)",
+				description: "The memory text — one standalone fact (required for write, update, merge)",
 			}),
 		),
 		category: Type.Optional(
 			Type.Union(
 				V2_MEMORY_CATEGORIES.map((c) => Type.Literal(c)),
 				{
-					description:
-						"What kind of fact this is (required for write; optional merge override)",
+					description: "What kind of fact this is (required for write; optional merge override)",
 				},
 			),
 		),
@@ -166,8 +153,7 @@ function err(text: string) {
 }
 
 function normalizeLimit(limit?: number): number {
-	if (typeof limit !== "number" || !Number.isFinite(limit))
-		return DEFAULT_LIST_LIMIT;
+	if (typeof limit !== "number" || !Number.isFinite(limit)) return DEFAULT_LIST_LIMIT;
 	return Math.max(1, Math.floor(limit));
 }
 
@@ -192,22 +178,10 @@ function formatMemoryList(memories: Memory[]): string {
 	};
 	const widths = {
 		id: Math.max(headers.id.length, ...rows.map((r) => r.id.length)),
-		category: Math.max(
-			headers.category.length,
-			...rows.map((r) => r.category.length),
-		),
-		status: Math.max(
-			headers.status.length,
-			...rows.map((r) => r.status.length),
-		),
-		verification: Math.max(
-			headers.verification.length,
-			...rows.map((r) => r.verification.length),
-		),
-		updated: Math.max(
-			headers.updated.length,
-			...rows.map((r) => r.updated.length),
-		),
+		category: Math.max(headers.category.length, ...rows.map((r) => r.category.length)),
+		status: Math.max(headers.status.length, ...rows.map((r) => r.status.length)),
+		verification: Math.max(headers.verification.length, ...rows.map((r) => r.verification.length)),
+		updated: Math.max(headers.updated.length, ...rows.map((r) => r.updated.length)),
 	};
 	const fmt = (r: (typeof rows)[number] | typeof headers) =>
 		[
@@ -241,10 +215,7 @@ function isPrimaryMutableMemory(memory: Memory): boolean {
 	);
 }
 
-function inactiveMemoryError(
-	id: number,
-	action: "updating" | "merging" | "archiving",
-): string {
+function inactiveMemoryError(id: number, action: "updating" | "merging" | "archiving"): string {
 	return `Error: Memory with ID ${id} is archived or superseded; restore it before ${action}.`;
 }
 
@@ -288,13 +259,9 @@ function updateMemoryContentInCurrentTransaction(
 	}
 	// Clear the classify marker so the changed fact is re-scored next classify run.
 	if (hasMemoryClassifiedAtColumn(db)) {
-		db.prepare("UPDATE memories SET classified_at = NULL WHERE id = ?").run(
-			memory.id,
-		);
+		db.prepare("UPDATE memories SET classified_at = NULL WHERE id = ?").run(memory.id);
 	}
-	db.prepare("DELETE FROM memory_embeddings WHERE memory_id = ?").run(
-		memory.id,
-	);
+	db.prepare("DELETE FROM memory_embeddings WHERE memory_id = ?").run(memory.id);
 	invalidateMemory(memory.projectPath, memory.id);
 }
 
@@ -308,10 +275,7 @@ function queueEmbedding(args: {
 	if (!snapshot?.enabled) return;
 	void (async () => {
 		try {
-			const result = await embedTextForProject(
-				args.projectIdentity,
-				args.content,
-			);
+			const result = await embedTextForProject(args.projectIdentity, args.content);
 			if (!result) {
 				log(
 					`[magic-context-pi] embedding skipped for memory ${args.memoryId}: provider unavailable.`,
@@ -321,20 +285,14 @@ function queueEmbedding(args: {
 			saveEmbedding(args.deps.db, args.memoryId, result.vector, result.modelId);
 			log(`[magic-context-pi] proactively embedded memory ${args.memoryId}.`);
 		} catch (error) {
-			log(
-				`[magic-context-pi] embedding failed for memory ${args.memoryId}:`,
-				error,
-			);
+			log(`[magic-context-pi] embedding failed for memory ${args.memoryId}:`, error);
 		}
 	})();
 }
 
 export interface CtxMemoryToolDeps {
 	db: ContextDatabase;
-	ensureProjectRegistered?: ((
-		directory: string,
-		db: ContextDatabase,
-	) => Promise<void>) | undefined;
+	ensureProjectRegistered?: ((directory: string, db: ContextDatabase) => Promise<void>) | undefined;
 	memoryEnabled?: boolean | undefined;
 	embeddingEnabled?: boolean | undefined;
 	/** Resolve a directory's project identity, allowing home only when user-level configuration enables it. */
@@ -345,12 +303,9 @@ export interface CtxMemoryToolDeps {
 	allowDreamerActions?: boolean | undefined;
 }
 
-export function createCtxMemoryTool(
-	deps: CtxMemoryToolDeps,
-): ToolDefinition<typeof ParamsSchema> {
+export function createCtxMemoryTool(deps: CtxMemoryToolDeps): ToolDefinition<typeof ParamsSchema> {
 	const dreamerAllowed = deps.allowDreamerActions === true;
-	const resolveProject =
-		deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
+	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	const description = dreamerAllowed
 		? `${CTX_MEMORY_DESCRIPTION}\n- list: enumerate stored memories (maintenance sessions).`
 		: CTX_MEMORY_DESCRIPTION;
@@ -360,13 +315,7 @@ export function createCtxMemoryTool(
 		label: "Magic Context: Memory",
 		description,
 		parameters: ParamsSchema,
-		async execute(
-			_toolCallId,
-			params: CtxMemoryParams,
-			_signal,
-			_onUpdate,
-			ctx,
-		) {
+		async execute(_toolCallId, params: CtxMemoryParams, _signal, _onUpdate, ctx) {
 			params = unwrapImitatedReducedArgs(params, ["action"], {
 				action: { type: "enum", values: ALL_ACTIONS },
 				content: "string",
@@ -381,22 +330,15 @@ export function createCtxMemoryTool(
 			// Gate dreamer-only actions on the allowlist flag. Mirrors
 			// legacy host's `if (toolContext.agent !== DREAMER_AGENT && !allowedActions.includes(args.action))`.
 			if (!dreamerAllowed && DREAMER_ONLY_ACTIONS.has(params.action)) {
-				return err(
-					`Error: Action '${params.action}' is not allowed in this context.`,
-				);
+				return err(`Error: Action '${params.action}' is not allowed in this context.`);
 			}
 
 			const projectIdentity = resolveProject(ctx.cwd);
 			if (!projectIdentity) {
-				return err(
-					"Error: Could not resolve project identity for memory action.",
-				);
+				return err("Error: Could not resolve project identity for memory action.");
 			}
 			await deps.ensureProjectRegistered?.(ctx.cwd, deps.db);
-			const workspaceIdentitySet = resolveWorkspaceIdentitySet(
-				deps.db,
-				projectIdentity,
-			);
+			const workspaceIdentitySet = resolveWorkspaceIdentitySet(deps.db, projectIdentity);
 			const expandedWorkspace = resolveWorkspaceIdentityExpansion(
 				deps.db,
 				workspaceIdentitySet.identities,
@@ -427,10 +369,7 @@ export function createCtxMemoryTool(
 			// grants write access to another project.
 			const memoryVisibleToTool = (memory: Memory): boolean => {
 				if (workspaceIdentitySet.identities.length <= 1) {
-					return storedPathBelongsToIdentity(
-						memory.projectPath,
-						projectIdentity,
-					);
+					return storedPathBelongsToIdentity(memory.projectPath, projectIdentity);
 				}
 				if (
 					!storedPathBelongsToWorkspace(
@@ -442,8 +381,7 @@ export function createCtxMemoryTool(
 				) {
 					return false;
 				}
-				const isOwn =
-					targetIdentityForStoredPath(memory.projectPath) === projectIdentity;
+				const isOwn = targetIdentityForStoredPath(memory.projectPath) === projectIdentity;
 				if (isOwn) return true;
 				return toolShareCategories?.includes(memory.category) ?? false;
 			};
@@ -452,19 +390,14 @@ export function createCtxMemoryTool(
 					? targetIdentityForStoredPath(memory.projectPath) === projectIdentity
 					: storedPathBelongsToIdentity(memory.projectPath, projectIdentity);
 			const snapshot = getProjectEmbeddingSnapshot(projectIdentity);
-			if (
-				snapshot
-					? !snapshot.features.memoryEnabled
-					: deps.memoryEnabled === false
-			) {
+			if (snapshot ? !snapshot.features.memoryEnabled : deps.memoryEnabled === false) {
 				return err("Cross-session memory is disabled for this project.");
 			}
 			const sessionId = ctx.sessionManager.getSessionId();
 
 			if (params.action === "write") {
 				const content = params.content?.trim();
-				if (!content)
-					return err("Error: 'content' is required when action is 'write'.");
+				if (!content) return err("Error: 'content' is required when action is 'write'.");
 
 				const rawCategory = params.category;
 				if (!rawCategory) {
@@ -508,9 +441,7 @@ export function createCtxMemoryTool(
 				const limit = normalizeLimit(params.limit);
 				const filtered = getMemoriesByProject(deps.db, projectIdentity);
 				const category = params.category;
-				const filtered2 = category
-					? filtered.filter((m) => m.category === category)
-					: filtered;
+				const filtered2 = category ? filtered.filter((m) => m.category === category) : filtered;
 				return ok(formatMemoryList(filtered2.slice(0, limit)));
 			}
 
@@ -575,12 +506,7 @@ export function createCtxMemoryTool(
 
 				const normalizedHash = computeNormalizedHash(content);
 				const targetIdentity = targetIdentityForStoredPath(memory.projectPath);
-				const duplicate = getMemoryByHash(
-					deps.db,
-					targetIdentity,
-					memory.category,
-					normalizedHash,
-				);
+				const duplicate = getMemoryByHash(deps.db, targetIdentity, memory.category, normalizedHash);
 				if (duplicate && duplicate.id !== memory.id) {
 					return err(
 						`Error: Memory content already exists as ID ${duplicate.id}; merge or archive duplicates instead.`,
@@ -588,12 +514,7 @@ export function createCtxMemoryTool(
 				}
 
 				runImmediateTransaction(deps.db, () => {
-					updateMemoryContentInCurrentTransaction(
-						deps.db,
-						memory,
-						content,
-						normalizedHash,
-					);
+					updateMemoryContentInCurrentTransaction(deps.db, memory, content, normalizedHash);
 					queueMemoryMutation(deps.db, {
 						projectPath: targetIdentity,
 						mutationType: "update",
@@ -644,15 +565,11 @@ export function createCtxMemoryTool(
 				// must not reach into ANOTHER project's memories — mirror
 				// update/archive ownership (parity with legacy host).
 				if (!dreamerAllowed) {
-					const foreign = sourceMemories.find(
-						(memory) => !memoryOwnedByTool(memory),
-					);
+					const foreign = sourceMemories.find((memory) => !memoryOwnedByTool(memory));
 					if (foreign) {
 						return err(`Error: Memory with ID ${foreign.id} was not found.`);
 					}
-					const inactive = sourceMemories.find(
-						(memory) => !isPrimaryMutableMemory(memory),
-					);
+					const inactive = sourceMemories.find((memory) => !isPrimaryMutableMemory(memory));
 					if (inactive) {
 						return err(inactiveMemoryError(inactive.id, "merging"));
 					}
@@ -663,9 +580,7 @@ export function createCtxMemoryTool(
 					// foreign member's memory in a non-shared category is off-limits.
 					// memoryVisibleToTool already encodes own→true,
 					// foreign-shared→true, else→false. (Parity with legacy host D1.)
-					const blocked = sourceMemories.find(
-						(memory) => !memoryVisibleToTool(memory),
-					);
+					const blocked = sourceMemories.find((memory) => !memoryVisibleToTool(memory));
 					if (blocked) {
 						return err(
 							`Error: Memory with ID ${blocked.id} is in a category not shared with this workspace member and cannot be merged.`,
@@ -677,9 +592,7 @@ export function createCtxMemoryTool(
 				// are NOT genuine duplicates — one is miscategorized; archive the
 				// redundant one instead. Merging across categories silently destroys
 				// a distinct fact, so reject it structurally (not a prompt rule).
-				const sourceCategories = new Set(
-					sourceMemories.map((memory) => memory.category),
-				);
+				const sourceCategories = new Set(sourceMemories.map((memory) => memory.category));
 				if (sourceCategories.size > 1) {
 					return err(
 						`Error: Cannot merge memories from different categories (${[...sourceCategories].join(", ")}). If they are genuine duplicates, one is miscategorized — archive the redundant one instead of merging across categories.`,
@@ -687,26 +600,16 @@ export function createCtxMemoryTool(
 				}
 
 				// Schema-validated literal union — no runtime re-check needed.
-				const requestedCategoryTyped: MemoryCategory | undefined =
-					params.category;
+				const requestedCategoryTyped: MemoryCategory | undefined = params.category;
 				const fallbackCategory = sourceMemories[0]?.category;
-				const category: MemoryCategory | undefined =
-					requestedCategoryTyped ?? fallbackCategory;
+				const category: MemoryCategory | undefined = requestedCategoryTyped ?? fallbackCategory;
 				if (!category) {
-					return err(
-						"Error: A valid category is required when action is 'merge'.",
-					);
+					return err("Error: A valid category is required when action is 'merge'.");
 				}
 
 				const normalizedHash = computeNormalizedHash(content);
-				const duplicate = getMemoryByHash(
-					deps.db,
-					projectIdentity,
-					category,
-					normalizedHash,
-				);
-				const canonicalExisting =
-					duplicate && ids.includes(duplicate.id) ? duplicate : null;
+				const duplicate = getMemoryByHash(deps.db, projectIdentity, category, normalizedHash);
+				const canonicalExisting = duplicate && ids.includes(duplicate.id) ? duplicate : null;
 				if (duplicate && !canonicalExisting) {
 					return err(
 						`Error: Memory content already exists as ID ${duplicate.id}; update or archive existing duplicates instead.`,
@@ -714,10 +617,7 @@ export function createCtxMemoryTool(
 				}
 
 				// Aggregate stats from all source memories.
-				const mergedSeenCount = sourceMemories.reduce(
-					(sum, memory) => sum + memory.seenCount,
-					0,
-				);
+				const mergedSeenCount = sourceMemories.reduce((sum, memory) => sum + memory.seenCount, 0);
 				const mergedRetrievalCount = sourceMemories.reduce(
 					(sum, memory) => sum + memory.retrievalCount,
 					0,
@@ -736,9 +636,7 @@ export function createCtxMemoryTool(
 								parsed = [];
 							}
 							const priorIds = Array.isArray(parsed)
-								? parsed.filter(
-										(value): value is number => typeof value === "number",
-									)
+								? parsed.filter((value): value is number => typeof value === "number")
 								: [];
 							return [memory.id, ...priorIds];
 						}),
@@ -762,12 +660,7 @@ export function createCtxMemoryTool(
 							canonicalMemory.content !== content ||
 							canonicalMemory.normalizedHash !== normalizedHash;
 						if (canonicalContentChanged) {
-							updateMemoryContent(
-								deps.db,
-								canonicalMemory.id,
-								content,
-								normalizedHash,
-							);
+							updateMemoryContent(deps.db, canonicalMemory.id, content, normalizedHash);
 						}
 					} else {
 						// Insert a fresh canonical memory with the merged content.
@@ -810,9 +703,7 @@ export function createCtxMemoryTool(
 
 					if (canonicalExisting && canonicalContentChanged) {
 						queueMemoryMutation(deps.db, {
-							projectPath: normalizeStoredProjectPath(
-								canonicalMemory.projectPath,
-							),
+							projectPath: normalizeStoredProjectPath(canonicalMemory.projectPath),
 							mutationType: "update",
 							targetMemoryId: canonicalMemory.id,
 							category,
@@ -869,8 +760,7 @@ export function createCtxMemoryTool(
 				}
 				const targets = archiveIds.map((memoryId) => {
 					const memory = getMemoryById(deps.db, memoryId);
-					if (!memory)
-						throw new Error(`validated memory ${memoryId} disappeared`);
+					if (!memory) throw new Error(`validated memory ${memoryId} disappeared`);
 					return {
 						memoryId,
 						projectIdentity: targetIdentityForStoredPath(memory.projectPath),

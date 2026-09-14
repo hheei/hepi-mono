@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 /**
  * Regression coverage for per-session cleanup wiring.
@@ -19,19 +19,14 @@ import { join } from "node:path";
  */
 
 const INDEX_SRC = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
-const HANDLER_SRC = readFileSync(
-	join(import.meta.dirname, "../src/context-handler.ts"),
-	"utf8",
-);
+const HANDLER_SRC = readFileSync(join(import.meta.dirname, "../src/context-handler.ts"), "utf8");
 
 describe("clearContextHandlerSession internals", () => {
 	// The function body must drain all three signal sets — historian
 	// or compressor publish (or hash change in before_agent_start) can
 	// add to all three, and a stale session id would keep an entry in
 	// any of them indefinitely without this cleanup.
-	const fn = HANDLER_SRC.match(
-		/export function clearContextHandlerSession\([^{]*\{([\s\S]*?)\n\}/,
-	);
+	const fn = HANDLER_SRC.match(/export function clearContextHandlerSession\([^{]*\{([\s\S]*?)\n\}/);
 
 	test("function exists and is exported", () => {
 		expect(fn).not.toBeNull();
@@ -58,9 +53,7 @@ describe("clearContextHandlerSession internals", () => {
 });
 
 describe("session_before_switch handler wiring", () => {
-	const handler = INDEX_SRC.match(
-		/pi\.on\("session_before_switch"[\s\S]*?\}\);/,
-	);
+	const handler = INDEX_SRC.match(/pi\.on\("session_before_switch"[\s\S]*?\}\);/);
 
 	test("session_before_switch handler is registered", () => {
 		expect(handler).not.toBeNull();
@@ -84,9 +77,7 @@ describe("session_before_switch handler wiring", () => {
 });
 
 describe("session_shutdown handler also drains per-session maps", () => {
-	const handler = INDEX_SRC.match(
-		/pi\.on\("session_shutdown"[\s\S]*?\n\s*\}\);/,
-	);
+	const handler = INDEX_SRC.match(/pi\.on\("session_shutdown"[\s\S]*?\n\s*\}\);/);
 
 	test("session_shutdown handler exists", () => {
 		expect(handler).not.toBeNull();

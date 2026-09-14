@@ -68,7 +68,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		// on it (mirrors what tag-driven heuristic cleanup does in production).
 		const assistantMsg = transcript.messages[1];
 		expect(assistantMsg).toBeDefined();
-		const toolUsePart = assistantMsg.parts.find((p) => p.kind === "tool_use");
+		const toolUsePart = assistantMsg!.parts.find((p) => p.kind === "tool_use");
 		expect(toolUsePart).toBeDefined();
 		expect(toolUsePart?.id).toBe("call_abc123");
 
@@ -132,9 +132,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		];
 
 		const transcript = createPiTranscript(messages, "ses_shrink_test");
-		const part = transcript.messages[0].parts.find(
-			(p) => p.kind === "tool_use",
-		);
+		const part = transcript.messages[0]!.parts.find((p) => p.kind === "tool_use");
 		expect(part?.replaceWithSentinel("[dropped §1§]")).toBe(true);
 		transcript.commit();
 
@@ -148,15 +146,15 @@ describe("transcript-pi tool pairing preservation", () => {
 			}>;
 		};
 		const outCall = outAssistant.content[0];
-		expect(outCall.type).toBe("toolCall");
-		expect(outCall.id).toBe("call_xyz");
-		expect(outCall.name).toBe("mcp_read");
+		expect(outCall!.type).toBe("toolCall");
+		expect(outCall!.id).toBe("call_xyz");
+		expect(outCall!.name).toBe("mcp_read");
 		// arguments are reduced to the sentinel marker — bulk gone.
-		expect(outCall.arguments).toEqual({
+		expect(outCall!.arguments).toEqual({
 			__magic_context_dropped__: "[dropped §1§]",
 		});
 		// The full original args do NOT survive.
-		expect(JSON.stringify(outCall.arguments).length).toBeLessThan(200);
+		expect(JSON.stringify(outCall!.arguments).length).toBeLessThan(200);
 	});
 
 	it("falls back to plain text-sentinel for non-toolCall assistant parts", () => {
@@ -184,9 +182,7 @@ describe("transcript-pi tool pairing preservation", () => {
 		];
 
 		const transcript = createPiTranscript(messages, "ses_text_sentinel");
-		const textPart = transcript.messages[0].parts.find(
-			(p) => p.kind === "text",
-		);
+		const textPart = transcript.messages[0]!.parts.find((p) => p.kind === "text");
 		expect(textPart?.replaceWithSentinel("[dropped §3§]")).toBe(true);
 		transcript.commit();
 

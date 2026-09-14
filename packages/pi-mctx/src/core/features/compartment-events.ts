@@ -27,19 +27,19 @@ import type { Database } from "../shared/sqlite";
  */
 
 export interface CompartmentEventInput {
-    /** Event element name, e.g. "causal_incident" | "trajectory_correction". */
-    kind: string;
-    /** 1-based index into the publish's emitted compartments; null if absent/invalid. */
-    atCompartment: number | null;
-    /** Child elements verbatim (e.g. trigger, implication). */
-    fields: Record<string, string>;
+	/** Event element name, e.g. "causal_incident" | "trajectory_correction". */
+	kind: string;
+	/** 1-based index into the publish's emitted compartments; null if absent/invalid. */
+	atCompartment: number | null;
+	/** Child elements verbatim (e.g. trigger, implication). */
+	fields: Record<string, string>;
 }
 
 export interface StoredCompartmentEvent extends CompartmentEventInput {
-    id: number;
-    sessionId: string;
-    compartmentId: number | null;
-    createdAt: number;
+	id: number;
+	sessionId: string;
+	compartmentId: number | null;
+	createdAt: number;
 }
 
 /**
@@ -50,71 +50,71 @@ export interface StoredCompartmentEvent extends CompartmentEventInput {
  *   Used to resolve `at_compartment` (1-based) to a durable `compartment_id`.
  */
 export function insertCompartmentEvents(
-    db: Database,
-    sessionId: string,
-    events: readonly CompartmentEventInput[],
-    compartmentIds: readonly number[],
+	db: Database,
+	sessionId: string,
+	events: readonly CompartmentEventInput[],
+	compartmentIds: readonly number[],
 ): void {
-    if (events.length === 0) return;
-    const now = Date.now();
-    const harness = getHarness();
-    const stmt = db.prepare(
-        "INSERT INTO compartment_events (session_id, compartment_id, kind, at_compartment, fields_json, created_at, harness) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (const ev of events) {
-        // at_compartment is 1-based into the emitted list; map to durable id.
-        const idx = ev.atCompartment != null && ev.atCompartment >= 1 ? ev.atCompartment - 1 : -1;
-        const compartmentId = idx >= 0 && idx < compartmentIds.length ? compartmentIds[idx] : null;
-        stmt.run(
-            sessionId,
-            compartmentId,
-            ev.kind,
-            ev.atCompartment,
-            JSON.stringify(ev.fields ?? {}),
-            now,
-            harness,
-        );
-    }
+	if (events.length === 0) return;
+	const now = Date.now();
+	const harness = getHarness();
+	const stmt = db.prepare(
+		"INSERT INTO compartment_events (session_id, compartment_id, kind, at_compartment, fields_json, created_at, harness) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	);
+	for (const ev of events) {
+		// at_compartment is 1-based into the emitted list; map to durable id.
+		const idx = ev.atCompartment != null && ev.atCompartment >= 1 ? ev.atCompartment - 1 : -1;
+		const compartmentId = idx >= 0 && idx < compartmentIds.length ? compartmentIds[idx] : null;
+		stmt.run(
+			sessionId,
+			compartmentId,
+			ev.kind,
+			ev.atCompartment,
+			JSON.stringify(ev.fields ?? {}),
+			now,
+			harness,
+		);
+	}
 }
 
 /** Load all stored events for a session (newest first). For diagnostics / future dreamer aggregation. */
 export function getCompartmentEvents(db: Database, sessionId: string): StoredCompartmentEvent[] {
-    const rows = db
-        .prepare(
-            "SELECT id, session_id, compartment_id, kind, at_compartment, fields_json, created_at FROM compartment_events WHERE session_id = ? ORDER BY id DESC",
-        )
-        .all(sessionId) as Array<{
-        id: number;
-        session_id: string;
-        compartment_id: number | null;
-        kind: string;
-        at_compartment: number | null;
-        fields_json: string;
-        created_at: number;
-    }>;
-    return rows.map((r) => ({
-        id: r.id,
-        sessionId: r.session_id,
-        compartmentId: r.compartment_id,
-        kind: r.kind,
-        atCompartment: r.at_compartment,
-        fields: parseFields(r.fields_json),
-        createdAt: r.created_at,
-    }));
+	const rows = db
+		.prepare(
+			"SELECT id, session_id, compartment_id, kind, at_compartment, fields_json, created_at FROM compartment_events WHERE session_id = ? ORDER BY id DESC",
+		)
+		.all(sessionId) as Array<{
+		id: number;
+		session_id: string;
+		compartment_id: number | null;
+		kind: string;
+		at_compartment: number | null;
+		fields_json: string;
+		created_at: number;
+	}>;
+	return rows.map((r) => ({
+		id: r.id,
+		sessionId: r.session_id,
+		compartmentId: r.compartment_id,
+		kind: r.kind,
+		atCompartment: r.at_compartment,
+		fields: parseFields(r.fields_json),
+		createdAt: r.created_at,
+	}));
 }
 
 function parseFields(json: string): Record<string, string> {
-    try {
-        const parsed = JSON.parse(json);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            const out: Record<string, string> = {};
-            for (const [k, v] of Object.entries(parsed)) {
-                if (typeof v === "string") out[k] = v;
-            }
-            return out;
-        }
-    } catch {
-        // corrupt row — return empty rather than throw on a read path
-    }
-    return {};
+	try {
+		const parsed = JSON.parse(json);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			const out: Record<string, string> = {};
+			for (const [k, v] of Object.entries(parsed)) {
+				if (typeof v === "string") out[k] = v;
+			}
+			return out;
+		}
+	} catch {
+		// corrupt row — return empty rather than throw on a read path
+	}
+	return {};
 }

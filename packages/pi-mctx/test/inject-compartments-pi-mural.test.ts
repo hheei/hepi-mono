@@ -1,18 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { resolveMuralWire } from "#core/features/mural/render-trigger";
+import { describe, expect, it } from "vitest";
 import { getOrCreateSessionMeta } from "#core/features/storage";
-import {
-	clearModelsDevCache,
-} from "#core/shared/models-dev-cache";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import {
-	__test,
-	injectM0M1Pi,
-	type PiM0M1State,
-} from "../src/core/hooks/inject-compartments";
+import { __test, injectM0M1Pi, type PiM0M1State } from "../src/core/hooks/inject-compartments";
 import { createTestDb, textOf, userMessage } from "./test-utils.test";
 
 const SESSION_ID = "ses_pi_mural_inject";
@@ -20,9 +9,7 @@ const SESSION_ID = "ses_pi_mural_inject";
 // 1x1 transparent PNG data URL (same fixture as OpenCode mural inject tests).
 const FAKE_MURAL_DATA_URL =
 	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-const FAKE_MURAL_BASE64 = FAKE_MURAL_DATA_URL.slice(
-	"data:image/png;base64,".length,
-);
+const FAKE_MURAL_BASE64 = FAKE_MURAL_DATA_URL.slice("data:image/png;base64,".length);
 
 function muralOption() {
 	return {
@@ -58,19 +45,15 @@ function replaceCurrentManifest(db: ReturnType<typeof createTestDb>): string {
 	return image.toString("base64");
 }
 
-function findM0Image(messages: Array<{ content?: unknown }>): {
+function findM0Image(messages: unknown[]): {
 	type?: string;
 	mimeType?: string;
 	data?: string;
 } | null {
-	const head = messages[0];
+	const head = messages[0] as { content?: unknown } | undefined;
 	if (!head || !Array.isArray(head.content)) return null;
 	for (const part of head.content) {
-		if (
-			part &&
-			typeof part === "object" &&
-			(part as { type?: string }).type === "image"
-		) {
+		if (part && typeof part === "object" && (part as { type?: string }).type === "image") {
 			return part as { type?: string; mimeType?: string; data?: string };
 		}
 	}
@@ -85,13 +68,7 @@ describe("Pi m[0] mural image fold (on-demand render → wire)", () => {
 			const state = baseState({ mural: muralOption() });
 
 			const hardMessages = [userMessage("hello")];
-			const first = injectM0M1Pi(
-				state,
-				db,
-				hardMessages as never,
-				undefined,
-				true,
-			);
+			const first = injectM0M1Pi(state, db, hardMessages as never, undefined, true);
 			expect(first.injected).toBe(true);
 			expect(first.m0Materialized).toBe(true);
 			expect(textOf(hardMessages[0])).toContain("<memory-mural>");
@@ -106,13 +83,7 @@ describe("Pi m[0] mural image fold (on-demand render → wire)", () => {
 			__test.clearPiMuralProcessCache(SESSION_ID);
 			const deferState = baseState();
 			const deferMessages = [userMessage("again")];
-			const second = injectM0M1Pi(
-				deferState,
-				db,
-				deferMessages as never,
-				undefined,
-				false,
-			);
+			const second = injectM0M1Pi(deferState, db, deferMessages as never, undefined, false);
 			expect(second.m0Materialized).toBe(false);
 			expect(textOf(deferMessages[0])).toContain("<memory-mural>");
 			const deferImage = findM0Image(deferMessages);

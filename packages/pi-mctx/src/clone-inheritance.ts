@@ -1,12 +1,12 @@
 // Pi clone inheritance follows the durable-state rules documented in issue #225.
 import { readFile } from "node:fs/promises";
 import {
-	copySessionStateForClone,
 	type CloneCompartmentRow,
 	type CloneSessionStateFilter,
 	type CloneTagRow,
 	type ContextDatabase,
 	type CopySessionStateForCloneResult,
+	copySessionStateForClone,
 	type PendingPiCompactionMarker,
 } from "#core/features/storage";
 import { log } from "#core/shared/logger";
@@ -19,8 +19,11 @@ type SessionManagerLike = {
 	getBranch?: (() => unknown[]) | undefined;
 };
 
-type CloneContextLike = { sessionManager?: SessionManagerLike | undefined};
-type CloneStartEventLike = { reason?: unknown | undefined; previousSessionFile?: unknown | undefined};
+type CloneContextLike = { sessionManager?: SessionManagerLike | undefined };
+type CloneStartEventLike = {
+	reason?: unknown | undefined;
+	previousSessionFile?: unknown | undefined;
+};
 
 export interface PiCloneInheritanceDeps {
 	db: ContextDatabase;
@@ -54,9 +57,7 @@ function latestCompactionFirstKept(entries: readonly unknown[]): string | null {
 	return null;
 }
 
-function parsePendingMarker(
-	raw: string | null,
-): PendingPiCompactionMarker | null {
+function parsePendingMarker(raw: string | null): PendingPiCompactionMarker | null {
 	if (!raw) return null;
 	try {
 		const value = JSON.parse(raw) as Partial<PendingPiCompactionMarker>;
@@ -79,13 +80,9 @@ function parsePendingMarker(
 	return null;
 }
 
-function createCloneFilter(
-	entries: readonly unknown[],
-): CloneSessionStateFilter {
+function createCloneFilter(entries: readonly unknown[]): CloneSessionStateFilter {
 	const rawMessages = convertEntriesToRawMessages([...entries]);
-	const rawOrdinalById = new Map(
-		rawMessages.map((message) => [message.id, message.ordinal]),
-	);
+	const rawOrdinalById = new Map(rawMessages.map((message) => [message.id, message.ordinal]));
 	const validStateIds = new Set<string>(rawOrdinalById.keys());
 	for (const entry of entries) {
 		const id = entryId(entry);
@@ -99,8 +96,7 @@ function createCloneFilter(
 		includeTag: (tag: CloneTagRow) => {
 			if (tag.type === "tool") {
 				return (
-					typeof tag.toolOwnerMessageId === "string" &&
-					includeMessageId(tag.toolOwnerMessageId)
+					typeof tag.toolOwnerMessageId === "string" && includeMessageId(tag.toolOwnerMessageId)
 				);
 			}
 			return rawOrdinalById.has(tag.messageId.replace(CONTENT_ID_SUFFIX, ""));
@@ -111,10 +107,7 @@ function createCloneFilter(
 		): string | null => {
 			const pending = parsePendingMarker(rawState);
 			if (!pending) return null;
-			const pendingFirstKeptPosition = branchPosition(
-				entries,
-				pending.firstKeptEntryId,
-			);
+			const pendingFirstKeptPosition = branchPosition(entries, pending.firstKeptEntryId);
 			if (pendingFirstKeptPosition < 0) return null;
 
 			const mappedOrdinal = rawOrdinalById.get(pending.endMessageId);
@@ -137,18 +130,12 @@ function createCloneFilter(
 	};
 }
 
-export async function readPiSessionIdFromFile(
-	filePath: string,
-): Promise<string> {
+export async function readPiSessionIdFromFile(filePath: string): Promise<string> {
 	const contents = await readFile(filePath, "utf8");
 	const newline = contents.indexOf("\n");
 	const headerText = newline >= 0 ? contents.slice(0, newline) : contents;
 	const header = JSON.parse(headerText) as { type?: unknown; id?: unknown };
-	if (
-		header.type !== "session" ||
-		typeof header.id !== "string" ||
-		header.id.length === 0
-	) {
+	if (header.type !== "session" || typeof header.id !== "string" || header.id.length === 0) {
 		throw new Error("previous session file has no valid session header");
 	}
 	return header.id;
@@ -160,10 +147,7 @@ export async function handlePiCloneSessionStart(
 	ctx: CloneContextLike,
 	deps: PiCloneInheritanceDeps,
 ): Promise<CopySessionStateForCloneResult | null> {
-	if (
-		event.reason !== "fork" ||
-		typeof event.previousSessionFile !== "string"
-	) {
+	if (event.reason !== "fork" || typeof event.previousSessionFile !== "string") {
 		return null;
 	}
 

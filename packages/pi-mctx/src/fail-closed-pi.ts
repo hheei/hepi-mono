@@ -37,7 +37,7 @@ export function registerPiFailClosedSurface(
 
 	const tryRecover = async (): Promise<boolean> => {
 		if (recovered) return true;
-		if (recovering) return recovering;
+		if (recovering != null) return recovering;
 		recovering = (async () => {
 			try {
 				const db = await args.tryReopen();
@@ -45,9 +45,7 @@ export function registerPiFailClosedSurface(
 				recovered = true;
 				controller.clear();
 				await args.onRecovered(db);
-				log(
-					`${PREFIX} storage re-probe succeeded; full Magic Context runtime starting`,
-				);
+				log(`${PREFIX} storage re-probe succeeded; full Magic Context runtime starting`);
 				return true;
 			} catch (error) {
 				log(
@@ -82,10 +80,7 @@ export function registerPiFailClosedSurface(
 			});
 		} catch (error) {
 			if (isFailClosedBlockingError(error)) throw error;
-			throw createFailClosedBlockingError(
-				controller.getReason() ?? args.reason,
-				{ cause: error },
-			);
+			throw createFailClosedBlockingError(controller.getReason() ?? args.reason, { cause: error });
 		}
 		// enforce() returned without throw only when recovered mid-pass.
 	});

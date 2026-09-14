@@ -5,9 +5,9 @@ import { modelSupportsVision } from "../../shared/models-dev-cache";
 import type { Database } from "../../shared/sqlite";
 import { DEFAULT_MURAL_MEMORY_BUDGET } from "./mural-selection";
 import { renderMural } from "./render-mural";
-import { type MuralWireOptions, getMuralCoverage, resolveMural } from "./resolve-mural";
+import { getMuralCoverage, type MuralWireOptions, resolveMural } from "./resolve-mural";
 
-import { getMural,upsertMural } from "./storage-mural";
+import { getMural, upsertMural } from "./storage-mural";
 
 /**
  * On-demand deterministic mural render. The weekly author task is gone: the
@@ -27,26 +27,26 @@ export const MIN_MURAL_CUED_MEMORIES = 15;
 export const MIN_MURAL_COVERAGE = 0.5;
 
 export interface EnsureMuralResult {
-    /** True when a resolved cue pool exists (the mural block should be injected). */
-    hasMural: boolean;
-    /** data URL of the current mural PNG, when hasMural. */
-    dataUrl?: string | undefined;
-    /** sha256 of the mural PNG bytes — the m0 mural fold identity. */
-    contentHash?: string | undefined;
-    /** True when this call re-rendered + upserted (the text changed or was new). */
-    rerendered: boolean;
-    /** Set when the coverage gate intentionally omitted the mural. */
-    skipReason?: string | undefined;
-    width?: number | undefined;
-    height?: number | undefined;
+	/** True when a resolved cue pool exists (the mural block should be injected). */
+	hasMural: boolean;
+	/** data URL of the current mural PNG, when hasMural. */
+	dataUrl?: string | undefined;
+	/** sha256 of the mural PNG bytes — the m0 mural fold identity. */
+	contentHash?: string | undefined;
+	/** True when this call re-rendered + upserted (the text changed or was new). */
+	rerendered: boolean;
+	/** Set when the coverage gate intentionally omitted the mural. */
+	skipReason?: string | undefined;
+	width?: number | undefined;
+	height?: number | undefined;
 }
 
 /** A mural is useful with enough cues or broad enough pool coverage. */
 export function muralCoverageGate(cuedMemoryCount: number, activeMemoryCount: number): boolean {
-    return (
-        cuedMemoryCount >= MIN_MURAL_CUED_MEMORIES ||
-        cuedMemoryCount >= MIN_MURAL_COVERAGE * activeMemoryCount
-    );
+	return (
+		cuedMemoryCount >= MIN_MURAL_CUED_MEMORIES ||
+		cuedMemoryCount >= MIN_MURAL_COVERAGE * activeMemoryCount
+	);
 }
 
 /**
@@ -58,76 +58,76 @@ export function muralCoverageGate(cuedMemoryCount: number, activeMemoryCount: nu
  *   matches exactly what the m0 path dropped.
  */
 export function ensureMuralRendered(
-    db: Database,
-    projectIdentity: string,
-    budgetTokens: number = DEFAULT_MURAL_MEMORY_BUDGET,
+	db: Database,
+	projectIdentity: string,
+	budgetTokens: number = DEFAULT_MURAL_MEMORY_BUDGET,
 ): EnsureMuralResult {
-    const coverage = getMuralCoverage(db, projectIdentity);
-    if (
-        coverage.activeMemoryCount === 0 ||
-        !muralCoverageGate(coverage.cuedMemoryCount, coverage.activeMemoryCount)
-    ) {
-        const skipReason =
-            coverage.activeMemoryCount === 0
-                ? "no active memories"
-                : `only ${coverage.cuedMemoryCount}/${coverage.activeMemoryCount} active memories have current cues (requires ${MIN_MURAL_CUED_MEMORIES} cues or ${MIN_MURAL_COVERAGE * 100}% coverage)`;
-        log(`[mural] skipped for ${projectIdentity}: ${skipReason}`);
-        return { hasMural: false, rerendered: false, skipReason };
-    }
+	const coverage = getMuralCoverage(db, projectIdentity);
+	if (
+		coverage.activeMemoryCount === 0 ||
+		!muralCoverageGate(coverage.cuedMemoryCount, coverage.activeMemoryCount)
+	) {
+		const skipReason =
+			coverage.activeMemoryCount === 0
+				? "no active memories"
+				: `only ${coverage.cuedMemoryCount}/${coverage.activeMemoryCount} active memories have current cues (requires ${MIN_MURAL_CUED_MEMORIES} cues or ${MIN_MURAL_COVERAGE * 100}% coverage)`;
+		log(`[mural] skipped for ${projectIdentity}: ${skipReason}`);
+		return { hasMural: false, rerendered: false, skipReason };
+	}
 
-    const entries = resolveMural(db, projectIdentity, budgetTokens);
-    if (entries.length === 0) {
-        // Empty overflow pool → no mural block. Leave any stale stored row alone
-        // so the dashboard can still show the last render.
-        return { hasMural: false, rerendered: false };
-    }
+	const entries = resolveMural(db, projectIdentity, budgetTokens);
+	if (entries.length === 0) {
+		// Empty overflow pool → no mural block. Leave any stale stored row alone
+		// so the dashboard can still show the last render.
+		return { hasMural: false, rerendered: false };
+	}
 
-    const rendered = renderMural(entries);
-    // The mural TEXT (not the PNG) is the change-detection key: it's cheap to
-    // assemble and deterministic, so an unchanged pool re-derives the same hash
-    // and we skip PNG re-encode + DB write entirely.
-    const textHash = createHash("sha256").update(rendered.sha256Input).digest("hex");
+	const rendered = renderMural(entries);
+	// The mural TEXT (not the PNG) is the change-detection key: it's cheap to
+	// assemble and deterministic, so an unchanged pool re-derives the same hash
+	// and we skip PNG re-encode + DB write entirely.
+	const textHash = createHash("sha256").update(rendered.sha256Input).digest("hex");
 
-    const existing = getMural(db, projectIdentity);
-    if (
-        existing &&
-        existing.contentHash === textHash &&
-        existing.width === rendered.width &&
-        existing.height === rendered.height
-    ) {
-        // Unchanged: reuse the stored PNG (already the right bytes) without re-encoding.
-        return {
-            hasMural: true,
-            dataUrl: `data:image/png;base64,${existing.image.toString("base64")}`,
-            contentHash: existing.contentHash,
-            rerendered: false,
-            width: existing.width,
-            height: existing.height,
-        };
-    }
+	const existing = getMural(db, projectIdentity);
+	if (
+		existing &&
+		existing.contentHash === textHash &&
+		existing.width === rendered.width &&
+		existing.height === rendered.height
+	) {
+		// Unchanged: reuse the stored PNG (already the right bytes) without re-encoding.
+		return {
+			hasMural: true,
+			dataUrl: `data:image/png;base64,${existing.image.toString("base64")}`,
+			contentHash: existing.contentHash,
+			rerendered: false,
+			width: existing.width,
+			height: existing.height,
+		};
+	}
 
-    upsertMural(db, {
-        projectPath: projectIdentity,
-        image: Buffer.from(rendered.png),
-        // content_hash is the TEXT hash (the change-detection key), not a PNG
-        // hash: identical text always yields identical PNG bytes, and hashing the
-        // text is what lets the unchanged-pool fast path above skip re-encoding.
-        contentHash: textHash,
-        renderedAt: Date.now(),
-        model: DETERMINISTIC_MURAL_MODEL,
-        memoryIds: rendered.renderedIds,
-        width: rendered.width,
-        height: rendered.height,
-    });
+	upsertMural(db, {
+		projectPath: projectIdentity,
+		image: Buffer.from(rendered.png),
+		// content_hash is the TEXT hash (the change-detection key), not a PNG
+		// hash: identical text always yields identical PNG bytes, and hashing the
+		// text is what lets the unchanged-pool fast path above skip re-encoding.
+		contentHash: textHash,
+		renderedAt: Date.now(),
+		model: DETERMINISTIC_MURAL_MODEL,
+		memoryIds: rendered.renderedIds,
+		width: rendered.width,
+		height: rendered.height,
+	});
 
-    return {
-        hasMural: true,
-        dataUrl: rendered.dataUrl,
-        contentHash: textHash,
-        rerendered: true,
-        width: rendered.width,
-        height: rendered.height,
-    };
+	return {
+		hasMural: true,
+		dataUrl: rendered.dataUrl,
+		contentHash: textHash,
+		rerendered: true,
+		width: rendered.width,
+		height: rendered.height,
+	};
 }
 
 /** True only when the given model's cached provider metadata accepts images. A
@@ -135,8 +135,8 @@ export function ensureMuralRendered(
  *  model key aliases are translated to the canonical form before the models.dev
  *  lookup. Missing cache entries fail closed (no image). */
 function modelKeyAcceptsImages(modelKey: string | undefined): boolean {
-    if (!modelKey) return false;
-    return modelSupportsVision();
+	if (!modelKey) return false;
+	return modelSupportsVision();
 }
 
 /**
@@ -151,21 +151,21 @@ function modelKeyAcceptsImages(modelKey: string | undefined): boolean {
  * can't take images, or the cue pool is empty.
  */
 export function resolveMuralWire(
-    db: Database,
-    projectIdentity: string | undefined,
-    modelKey: string | undefined,
-    enabled: boolean,
-    budgetTokens: number = DEFAULT_MURAL_MEMORY_BUDGET,
+	db: Database,
+	projectIdentity: string | undefined,
+	modelKey: string | undefined,
+	enabled: boolean,
+	budgetTokens: number = DEFAULT_MURAL_MEMORY_BUDGET,
 ): MuralWireOptions {
-    if (!enabled || !projectIdentity || !modelKeyAcceptsImages(modelKey)) {
-        return { enabled, supportsVision: false };
-    }
-    const result = ensureMuralRendered(db, projectIdentity, budgetTokens);
-    if (!result.hasMural) return { enabled: true, supportsVision: true };
-    return {
-        enabled: true,
-        supportsVision: true,
-        ...(result.dataUrl !== undefined ? { dataUrl: result.dataUrl } : {}),
-        ...(result.contentHash !== undefined ? { contentHash: result.contentHash } : {}),
-    };
+	if (!enabled || !projectIdentity || !modelKeyAcceptsImages(modelKey)) {
+		return { enabled, supportsVision: false };
+	}
+	const result = ensureMuralRendered(db, projectIdentity, budgetTokens);
+	if (!result.hasMural) return { enabled: true, supportsVision: true };
+	return {
+		enabled: true,
+		supportsVision: true,
+		...(result.dataUrl !== undefined ? { dataUrl: result.dataUrl } : {}),
+		...(result.contentHash !== undefined ? { contentHash: result.contentHash } : {}),
+	};
 }

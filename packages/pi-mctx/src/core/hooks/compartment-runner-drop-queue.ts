@@ -28,51 +28,51 @@ import { getRawSessionTagKeysThrough } from "./read-session-chunk";
  * correctly.
  */
 export function queueDropsForCompartmentalizedMessages(
-    db: Database,
-    sessionId: string,
-    upToMessageIndex: number,
+	db: Database,
+	sessionId: string,
+	upToMessageIndex: number,
 ): void {
-    const tags = getTagsBySession(db, sessionId);
-    const { messageFileKeys, toolObservations } = getRawSessionTagKeysThrough(
-        sessionId,
-        upToMessageIndex,
-    );
-    let dropsQueued = 0;
+	const tags = getTagsBySession(db, sessionId);
+	const { messageFileKeys, toolObservations } = getRawSessionTagKeysThrough(
+		sessionId,
+		upToMessageIndex,
+	);
+	let dropsQueued = 0;
 
-    for (const tag of tags) {
-        if (tag.status !== "active") continue;
+	for (const tag of tags) {
+		if (tag.status !== "active") continue;
 
-        if (tag.type === "tool") {
-            const observedOwners = toolObservations.get(tag.messageId);
-            if (!observedOwners) continue;
+		if (tag.type === "tool") {
+			const observedOwners = toolObservations.get(tag.messageId);
+			if (!observedOwners) continue;
 
-            if (tag.toolOwnerMessageId !== null) {
-                // Composite-key match: tag's owner must be one of the
-                // owners we observed for this callId in the visible
-                // window. If not, this tag belongs to a DIFFERENT
-                // assistant turn (outside the compartment) — leave it
-                // active.
-                if (!observedOwners.has(tag.toolOwnerMessageId)) continue;
-            }
-            // tag.toolOwnerMessageId === null: legacy unbackfilled row.
-            // Fall back to bare-callId match (existing behavior). Plan
-            // accepted trade-off documented in §Risk #20.
+			if (tag.toolOwnerMessageId !== null) {
+				// Composite-key match: tag's owner must be one of the
+				// owners we observed for this callId in the visible
+				// window. If not, this tag belongs to a DIFFERENT
+				// assistant turn (outside the compartment) — leave it
+				// active.
+				if (!observedOwners.has(tag.toolOwnerMessageId)) continue;
+			}
+			// tag.toolOwnerMessageId === null: legacy unbackfilled row.
+			// Fall back to bare-callId match (existing behavior). Plan
+			// accepted trade-off documented in §Risk #20.
 
-            queuePendingOp(db, sessionId, tag.tagNumber, "drop");
-            dropsQueued += 1;
-            continue;
-        }
+			queuePendingOp(db, sessionId, tag.tagNumber, "drop");
+			dropsQueued += 1;
+			continue;
+		}
 
-        // Message and file tags: bare contentId match (globally unique
-        // within a session, no collision risk).
-        if (messageFileKeys.has(tag.messageId)) {
-            queuePendingOp(db, sessionId, tag.tagNumber, "drop");
-            dropsQueued += 1;
-        }
-    }
+		// Message and file tags: bare contentId match (globally unique
+		// within a session, no collision risk).
+		if (messageFileKeys.has(tag.messageId)) {
+			queuePendingOp(db, sessionId, tag.tagNumber, "drop");
+			dropsQueued += 1;
+		}
+	}
 
-    sessionLog(
-        sessionId,
-        `compartment agent: queued ${dropsQueued} drops for messages 0-${upToMessageIndex}`,
-    );
+	sessionLog(
+		sessionId,
+		`compartment agent: queued ${dropsQueued} drops for messages 0-${upToMessageIndex}`,
+	);
 }

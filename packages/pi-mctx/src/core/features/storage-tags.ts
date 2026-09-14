@@ -13,55 +13,55 @@ const getTagNumberByMessageIdStatements = new WeakMap<Database, PreparedStatemen
 const hasPiFallbackMessageTagStatements = new WeakMap<Database, PreparedStatement>();
 
 function getInsertTagStatement(db: Database): PreparedStatement {
-    let stmt = insertTagStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "INSERT INTO tags (session_id, message_id, type, byte_size, reasoning_byte_size, tag_number, tool_name, input_byte_size, harness, tool_owner_message_id, entry_fingerprint, token_count, input_token_count, reasoning_token_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        );
-        insertTagStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = insertTagStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"INSERT INTO tags (session_id, message_id, type, byte_size, reasoning_byte_size, tag_number, tool_name, input_byte_size, harness, tool_owner_message_id, entry_fingerprint, token_count, input_token_count, reasoning_token_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		);
+		insertTagStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getUpdateTagStatusStatement(db: Database): PreparedStatement {
-    let stmt = updateTagStatusStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare("UPDATE tags SET status = ? WHERE session_id = ? AND tag_number = ?");
-        updateTagStatusStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagStatusStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare("UPDATE tags SET status = ? WHERE session_id = ? AND tag_number = ?");
+		updateTagStatusStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getUpdateTagDropModeStatement(db: Database): PreparedStatement {
-    let stmt = updateTagDropModeStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare("UPDATE tags SET drop_mode = ? WHERE session_id = ? AND tag_number = ?");
-        updateTagDropModeStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagDropModeStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare("UPDATE tags SET drop_mode = ? WHERE session_id = ? AND tag_number = ?");
+		updateTagDropModeStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 const updateTagByteSizeStatements = new WeakMap<Database, PreparedStatement>();
 const updateTagInputByteSizeStatements = new WeakMap<Database, PreparedStatement>();
 
 function getUpdateTagByteSizeStatement(db: Database): PreparedStatement {
-    let stmt = updateTagByteSizeStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare("UPDATE tags SET byte_size = ? WHERE session_id = ? AND tag_number = ?");
-        updateTagByteSizeStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagByteSizeStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare("UPDATE tags SET byte_size = ? WHERE session_id = ? AND tag_number = ?");
+		updateTagByteSizeStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getUpdateTagInputByteSizeStatement(db: Database): PreparedStatement {
-    let stmt = updateTagInputByteSizeStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "UPDATE tags SET input_byte_size = ? WHERE session_id = ? AND tag_number = ?",
-        );
-        updateTagInputByteSizeStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagInputByteSizeStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"UPDATE tags SET input_byte_size = ? WHERE session_id = ? AND tag_number = ?",
+		);
+		updateTagInputByteSizeStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -74,12 +74,12 @@ function getUpdateTagInputByteSizeStatement(db: Database): PreparedStatement {
  * (caller should compare in memory and only call when necessary).
  */
 export function updateTagByteSize(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    newByteSize: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	newByteSize: number,
 ): void {
-    getUpdateTagByteSizeStatement(db).run(newByteSize, sessionId, tagNumber);
+	getUpdateTagByteSizeStatement(db).run(newByteSize, sessionId, tagNumber);
 }
 
 /**
@@ -103,29 +103,29 @@ export function updateTagByteSize(
  * message this pass instead of trusting the stored sum.
  */
 export interface MessageTokenTotal {
-    conversation: number;
-    toolCall: number;
-    /**
-     * Tool OUTPUT tokens only (the ctx_reduce-droppable payload), excluding tool
-     * input args — this is the "reclaimable" figure the nudge channels gate on,
-     * matching the legacy `computeTailToolTokens` semantics (which summed
-     * `state.output`). `toolCall` = this + input args, for the sidebar bucket.
-     */
-    toolOutput: number;
-    hasNull: boolean;
+	conversation: number;
+	toolCall: number;
+	/**
+	 * Tool OUTPUT tokens only (the ctx_reduce-droppable payload), excluding tool
+	 * input args — this is the "reclaimable" figure the nudge channels gate on,
+	 * matching the legacy `computeTailToolTokens` semantics (which summed
+	 * `state.output`). `toolCall` = this + input args, for the sidebar bucket.
+	 */
+	toolOutput: number;
+	hasNull: boolean;
 }
 
 const CONTENT_ID_SUFFIX = /:(?:p|file)\d+$/;
 
 function ownerMessageIdForTagRow(row: {
-    type: string;
-    message_id: string;
-    tool_owner_message_id: string | null;
+	type: string;
+	message_id: string;
+	tool_owner_message_id: string | null;
 }): string {
-    if (row.type === "tool") {
-        return row.tool_owner_message_id ?? row.message_id;
-    }
-    return row.message_id.replace(CONTENT_ID_SUFFIX, "");
+	if (row.type === "tool") {
+		return row.tool_owner_message_id ?? row.message_id;
+	}
+	return row.message_id.replace(CONTENT_ID_SUFFIX, "");
 }
 
 /**
@@ -139,10 +139,10 @@ function ownerMessageIdForTagRow(row: {
  * caller may fall back to the byte-approx path until they converge.
  */
 export interface ActiveTagTokenAggregate {
-    conversation: number;
-    toolCall: number;
-    toolOutput: number;
-    nullCount: number;
+	conversation: number;
+	toolCall: number;
+	toolOutput: number;
+	nullCount: number;
 }
 
 /**
@@ -155,24 +155,24 @@ export interface ActiveTagTokenAggregate {
  * working range, where protected content still counts. Default 0 = no exclusion.
  */
 export function getActiveTagTokenAggregate(
-    db: Database,
-    sessionId: string,
-    protectedTags = 0,
+	db: Database,
+	sessionId: string,
+	protectedTags = 0,
 ): ActiveTagTokenAggregate {
-    // Reclaimable tool output excludes the protected top-N tags. The cutoff is
-    // the N-th highest active tag number; a tag is droppable iff its number is
-    // strictly below it. When there are fewer than N active tags the subquery
-    // yields NULL → `tag_number < NULL` is never true → reclaimable 0 (everything
-    // protected), which is correct. protectedTags <= 0 takes the unfiltered path.
-    const toolOutputExpr =
-        protectedTags > 0
-            ? `COALESCE(SUM(CASE WHEN type = 'tool' AND tag_number < (
+	// Reclaimable tool output excludes the protected top-N tags. The cutoff is
+	// the N-th highest active tag number; a tag is droppable iff its number is
+	// strictly below it. When there are fewer than N active tags the subquery
+	// yields NULL → `tag_number < NULL` is never true → reclaimable 0 (everything
+	// protected), which is correct. protectedTags <= 0 takes the unfiltered path.
+	const toolOutputExpr =
+		protectedTags > 0
+			? `COALESCE(SUM(CASE WHEN type = 'tool' AND tag_number < (
                     SELECT tag_number FROM tags
                     WHERE session_id = ? AND status = 'active'
                     ORDER BY tag_number DESC LIMIT 1 OFFSET ?
                 ) THEN COALESCE(token_count, 0) ELSE 0 END), 0)`
-            : `COALESCE(SUM(CASE WHEN type = 'tool' THEN COALESCE(token_count, 0) ELSE 0 END), 0)`;
-    const sql = `SELECT
+			: `COALESCE(SUM(CASE WHEN type = 'tool' THEN COALESCE(token_count, 0) ELSE 0 END), 0)`;
+	const sql = `SELECT
                 COALESCE(SUM(CASE WHEN type != 'tool' THEN COALESCE(token_count, 0) ELSE 0 END), 0)
                     + COALESCE(SUM(COALESCE(reasoning_token_count, 0)), 0) AS conversation,
                 COALESCE(SUM(CASE WHEN type = 'tool' THEN COALESCE(token_count, 0) + COALESCE(input_token_count, 0) ELSE 0 END), 0) AS tool_call,
@@ -180,26 +180,26 @@ export function getActiveTagTokenAggregate(
                 COALESCE(SUM(CASE WHEN token_count IS NULL THEN 1 ELSE 0 END), 0) AS null_count
              FROM tags
              WHERE session_id = ? AND status = 'active'`;
-    const params = protectedTags > 0 ? [sessionId, protectedTags - 1, sessionId] : [sessionId];
-    const row = db.prepare(sql).get(...params) as
-        | { conversation: number; tool_call: number; tool_output: number; null_count: number }
-        | undefined;
-    return {
-        conversation: row?.conversation ?? 0,
-        toolCall: row?.tool_call ?? 0,
-        toolOutput: row?.tool_output ?? 0,
-        nullCount: row?.null_count ?? 0,
-    };
+	const params = protectedTags > 0 ? [sessionId, protectedTags - 1, sessionId] : [sessionId];
+	const row = db.prepare(sql).get(...params) as
+		| { conversation: number; tool_call: number; tool_output: number; null_count: number }
+		| undefined;
+	return {
+		conversation: row?.conversation ?? 0,
+		toolCall: row?.tool_call ?? 0,
+		toolOutput: row?.tool_output ?? 0,
+		nullCount: row?.null_count ?? 0,
+	};
 }
 
 export interface ToolReclaimHintTag {
-    tagNumber: number;
-    toolName: string | null;
+	tagNumber: number;
+	toolName: string | null;
 }
 
 export interface AgeReclaimToolTag extends ToolReclaimHintTag {
-    /** Cached output + input tokens; null means the legacy row has no size estimate. */
-    reclaimableTokens: number | null;
+	/** Cached output + input tokens; null means the legacy row has no size estimate. */
+	reclaimableTokens: number | null;
 }
 
 /**
@@ -217,50 +217,50 @@ export interface AgeReclaimToolTag extends ToolReclaimHintTag {
 export const AGE_RECLAIM_MIN_TOKENS = 250;
 
 export function getOldestActiveUnprotectedToolTags(
-    db: Database,
-    sessionId: string,
-    protectedTags = 0,
-    limit = 4,
+	db: Database,
+	sessionId: string,
+	protectedTags = 0,
+	limit = 4,
 ): ToolReclaimHintTag[] {
-    if (limit <= 0) return [];
-    const boundedLimit = Math.max(1, Math.min(10, Math.floor(limit)));
-    const whereProtected =
-        protectedTags > 0
-            ? `AND tag_number < (
+	if (limit <= 0) return [];
+	const boundedLimit = Math.max(1, Math.min(10, Math.floor(limit)));
+	const whereProtected =
+		protectedTags > 0
+			? `AND tag_number < (
                     SELECT tag_number FROM tags
                     WHERE session_id = ? AND status = 'active'
                     ORDER BY tag_number DESC LIMIT 1 OFFSET ?
                 )`
-            : "";
-    // Skip only trivially-small outputs; all registered tools use the same
-    // reclaim policy.
-    // Unsized tags (both token columns NULL) pass the floor clause so a
-    // not-yet-backfilled large output is never wrongly hidden.
-    const valueFloor = `AND (
+			: "";
+	// Skip only trivially-small outputs; all registered tools use the same
+	// reclaim policy.
+	// Unsized tags (both token columns NULL) pass the floor clause so a
+	// not-yet-backfilled large output is never wrongly hidden.
+	const valueFloor = `AND (
             (token_count IS NULL AND input_token_count IS NULL)
             OR (COALESCE(token_count, 0) + COALESCE(input_token_count, 0)) >= ?
         )`;
-    const params =
-        protectedTags > 0
-            ? [sessionId, AGE_RECLAIM_MIN_TOKENS, sessionId, protectedTags - 1, boundedLimit]
-            : [sessionId, AGE_RECLAIM_MIN_TOKENS, boundedLimit];
-    const rows = db
-        .prepare(
-            `SELECT tag_number, tool_name
+	const params =
+		protectedTags > 0
+			? [sessionId, AGE_RECLAIM_MIN_TOKENS, sessionId, protectedTags - 1, boundedLimit]
+			: [sessionId, AGE_RECLAIM_MIN_TOKENS, boundedLimit];
+	const rows = db
+		.prepare(
+			`SELECT tag_number, tool_name
              FROM tags
              WHERE session_id = ? AND status = 'active' AND type = 'tool'
              ${valueFloor}
              ${whereProtected}
              ORDER BY tag_number ASC, id ASC
              LIMIT ?`,
-        )
-        .all(...params) as Array<{ tag_number?: unknown; tool_name?: unknown }>;
-    return rows
-        .filter((row) => typeof row.tag_number === "number")
-        .map((row) => ({
-            tagNumber: row.tag_number as number,
-            toolName: typeof row.tool_name === "string" ? row.tool_name : null,
-        }));
+		)
+		.all(...params) as Array<{ tag_number?: unknown; tool_name?: unknown }>;
+	return rows
+		.filter((row) => typeof row.tag_number === "number")
+		.map((row) => ({
+			tagNumber: row.tag_number as number,
+			toolName: typeof row.tool_name === "string" ? row.tool_name : null,
+		}));
 }
 
 const getActiveToolTagsForAgeReclaimStatements = new WeakMap<Database, PreparedStatement>();
@@ -270,40 +270,39 @@ const getActiveToolTagsForAgeReclaimStatements = new WeakMap<Database, PreparedS
  * Legacy rows with neither token column populated remain eligible for fail-safe reclaim.
  */
 export function getActiveToolTagsForAgeReclaim(
-    db: Database,
-    sessionId: string,
+	db: Database,
+	sessionId: string,
 ): AgeReclaimToolTag[] {
-    let stmt = getActiveToolTagsForAgeReclaimStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `SELECT tag_number, tool_name, token_count, input_token_count
+	let stmt = getActiveToolTagsForAgeReclaimStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`SELECT tag_number, tool_name, token_count, input_token_count
              FROM tags
              WHERE session_id = ? AND status = 'active' AND type = 'tool'
              ORDER BY tag_number ASC, id ASC`,
-        );
-        getActiveToolTagsForAgeReclaimStatements.set(db, stmt);
-    }
-    const rows = stmt.all(sessionId) as Array<{
-        tag_number?: unknown | undefined;
-        tool_name?: unknown | undefined;
-        token_count?: unknown | undefined;
-        input_token_count?: unknown | undefined;
-    }>;
-    return rows
-        .filter((row) => typeof row.tag_number === "number")
-        .map((row) => {
-            const outputTokens = typeof row.token_count === "number" ? row.token_count : null;
-            const inputTokens =
-                typeof row.input_token_count === "number" ? row.input_token_count : null;
-            return {
-                tagNumber: row.tag_number as number,
-                toolName: typeof row.tool_name === "string" ? row.tool_name : null,
-                reclaimableTokens:
-                    outputTokens === null && inputTokens === null
-                        ? null
-                        : (outputTokens ?? 0) + (inputTokens ?? 0),
-            };
-        });
+		);
+		getActiveToolTagsForAgeReclaimStatements.set(db, stmt);
+	}
+	const rows = stmt.all(sessionId) as Array<{
+		tag_number?: unknown | undefined;
+		tool_name?: unknown | undefined;
+		token_count?: unknown | undefined;
+		input_token_count?: unknown | undefined;
+	}>;
+	return rows
+		.filter((row) => typeof row.tag_number === "number")
+		.map((row) => {
+			const outputTokens = typeof row.token_count === "number" ? row.token_count : null;
+			const inputTokens = typeof row.input_token_count === "number" ? row.input_token_count : null;
+			return {
+				tagNumber: row.tag_number as number,
+				toolName: typeof row.tool_name === "string" ? row.tool_name : null,
+				reclaimableTokens:
+					outputTokens === null && inputTokens === null
+						? null
+						: (outputTokens ?? 0) + (inputTokens ?? 0),
+			};
+		});
 }
 
 /**
@@ -319,76 +318,76 @@ export function getActiveToolTagsForAgeReclaim(
  * only trustworthy when every contributing row has a cached token count.
  */
 export function getTriggerTagTokenUpperBound(
-    db: Database,
-    sessionId: string,
-    floor = 0,
+	db: Database,
+	sessionId: string,
+	floor = 0,
 ): { bound: number; nullCount: number } {
-    // floor > 0 (legacy host) restricts to the live-wire range (tag_number >= floor).
-    // The bound is an UPPER BOUND on the historian's eligible-tail tokens; the
-    // eligible tail ⊆ the live wire, so the scoped sum is still a valid (tighter,
-    // more accurate) upper bound. Critically it also fixes nullCount: pre-floor
-    // legacy tags are never backfilled (the tagger only backfills the scoped
-    // tail), so a whole-session nullCount stays ~95k forever and the cheap-skip
-    // can NEVER trust the bound — scoping drops nullCount to ~0 so the gate finally
-    // works. floor=0 (Pi / no-floor fallback) keeps the full-session scan.
-    const sql =
-        floor > 0
-            ? `SELECT
+	// floor > 0 (legacy host) restricts to the live-wire range (tag_number >= floor).
+	// The bound is an UPPER BOUND on the historian's eligible-tail tokens; the
+	// eligible tail ⊆ the live wire, so the scoped sum is still a valid (tighter,
+	// more accurate) upper bound. Critically it also fixes nullCount: pre-floor
+	// legacy tags are never backfilled (the tagger only backfills the scoped
+	// tail), so a whole-session nullCount stays ~95k forever and the cheap-skip
+	// can NEVER trust the bound — scoping drops nullCount to ~0 so the gate finally
+	// works. floor=0 (Pi / no-floor fallback) keeps the full-session scan.
+	const sql =
+		floor > 0
+			? `SELECT
                 COALESCE(SUM(COALESCE(token_count, 0) + COALESCE(input_token_count, 0) + COALESCE(reasoning_token_count, 0)), 0) AS bound,
                 COALESCE(SUM(CASE WHEN token_count IS NULL THEN 1 ELSE 0 END), 0) AS null_count
              FROM tags
              WHERE session_id = ? AND status IN ('active', 'dropped') AND tag_number >= ?`
-            : `SELECT
+			: `SELECT
                 COALESCE(SUM(COALESCE(token_count, 0) + COALESCE(input_token_count, 0) + COALESCE(reasoning_token_count, 0)), 0) AS bound,
                 COALESCE(SUM(CASE WHEN token_count IS NULL THEN 1 ELSE 0 END), 0) AS null_count
              FROM tags
              WHERE session_id = ? AND status IN ('active', 'dropped')`;
-    const row = (
-        floor > 0 ? db.prepare(sql).get(sessionId, floor) : db.prepare(sql).get(sessionId)
-    ) as { bound: number; null_count: number } | undefined;
-    return { bound: row?.bound ?? 0, nullCount: row?.null_count ?? 0 };
+	const row = (
+		floor > 0 ? db.prepare(sql).get(sessionId, floor) : db.prepare(sql).get(sessionId)
+	) as { bound: number; null_count: number } | undefined;
+	return { bound: row?.bound ?? 0, nullCount: row?.null_count ?? 0 };
 }
 
 export function getActiveTagTokenTotalsByMessage(
-    db: Database,
-    sessionId: string,
+	db: Database,
+	sessionId: string,
 ): Map<string, MessageTokenTotal> {
-    const rows = db
-        .prepare(
-            `SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
+	const rows = db
+		.prepare(
+			`SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
              FROM tags
              WHERE session_id = ? AND status = 'active'`,
-        )
-        .all(sessionId) as Array<{
-        type: string;
-        message_id: string;
-        tool_owner_message_id: string | null;
-        token_count: number | null;
-        input_token_count: number | null;
-        reasoning_token_count: number | null;
-    }>;
-    const out = new Map<string, MessageTokenTotal>();
-    for (const row of rows) {
-        const owner = ownerMessageIdForTagRow(row);
-        let entry = out.get(owner);
-        if (!entry) {
-            entry = { conversation: 0, toolCall: 0, toolOutput: 0, hasNull: false };
-            out.set(owner, entry);
-        }
-        const reasoning = row.reasoning_token_count ?? 0;
-        if (row.type === "tool") {
-            const output = row.token_count ?? 0;
-            entry.toolCall += output + (row.input_token_count ?? 0);
-            entry.toolOutput += output;
-        } else {
-            entry.conversation += row.token_count ?? 0;
-        }
-        // Reasoning always counts as conversation (mirrors the live walk),
-        // regardless of which tag type it was stored on.
-        entry.conversation += reasoning;
-        if (row.token_count === null) entry.hasNull = true;
-    }
-    return out;
+		)
+		.all(sessionId) as Array<{
+		type: string;
+		message_id: string;
+		tool_owner_message_id: string | null;
+		token_count: number | null;
+		input_token_count: number | null;
+		reasoning_token_count: number | null;
+	}>;
+	const out = new Map<string, MessageTokenTotal>();
+	for (const row of rows) {
+		const owner = ownerMessageIdForTagRow(row);
+		let entry = out.get(owner);
+		if (!entry) {
+			entry = { conversation: 0, toolCall: 0, toolOutput: 0, hasNull: false };
+			out.set(owner, entry);
+		}
+		const reasoning = row.reasoning_token_count ?? 0;
+		if (row.type === "tool") {
+			const output = row.token_count ?? 0;
+			entry.toolCall += output + (row.input_token_count ?? 0);
+			entry.toolOutput += output;
+		} else {
+			entry.conversation += row.token_count ?? 0;
+		}
+		// Reasoning always counts as conversation (mirrors the live walk),
+		// regardless of which tag type it was stored on.
+		entry.conversation += reasoning;
+		if (row.token_count === null) entry.hasNull = true;
+	}
+	return out;
 }
 
 /**
@@ -397,37 +396,35 @@ export function getActiveTagTokenTotalsByMessage(
  * orderings).
  */
 export function updateTagInputByteSize(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    newInputByteSize: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	newInputByteSize: number,
 ): void {
-    getUpdateTagInputByteSizeStatement(db).run(newInputByteSize, sessionId, tagNumber);
+	getUpdateTagInputByteSizeStatement(db).run(newInputByteSize, sessionId, tagNumber);
 }
 
 const updateTagTokenCountStatements = new WeakMap<Database, PreparedStatement>();
 const updateTagInputTokenCountStatements = new WeakMap<Database, PreparedStatement>();
 
 function getUpdateTagTokenCountStatement(db: Database): PreparedStatement {
-    let stmt = updateTagTokenCountStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "UPDATE tags SET token_count = ? WHERE session_id = ? AND tag_number = ?",
-        );
-        updateTagTokenCountStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagTokenCountStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare("UPDATE tags SET token_count = ? WHERE session_id = ? AND tag_number = ?");
+		updateTagTokenCountStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getUpdateTagInputTokenCountStatement(db: Database): PreparedStatement {
-    let stmt = updateTagInputTokenCountStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "UPDATE tags SET input_token_count = ? WHERE session_id = ? AND tag_number = ?",
-        );
-        updateTagInputTokenCountStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagInputTokenCountStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"UPDATE tags SET input_token_count = ? WHERE session_id = ? AND tag_number = ?",
+		);
+		updateTagInputTokenCountStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -436,47 +433,47 @@ function getUpdateTagInputTokenCountStatement(db: Database): PreparedStatement {
  * the same site so the cached token count tracks the grown tool result.
  */
 export function updateTagTokenCount(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    newTokenCount: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	newTokenCount: number,
 ): void {
-    getUpdateTagTokenCountStatement(db).run(newTokenCount, sessionId, tagNumber);
+	getUpdateTagTokenCountStatement(db).run(newTokenCount, sessionId, tagNumber);
 }
 
 export interface PersistedToolTagAccounting {
-    byteSize: number;
-    tokenCount: number | null;
-    inputByteSize: number;
-    inputTokenCount: number | null;
+	byteSize: number;
+	tokenCount: number | null;
+	inputByteSize: number;
+	inputTokenCount: number | null;
 }
 
 /** Read the authoritative accounting after an exceptional same-pass owner adoption. */
 export function getPersistedToolTagAccounting(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
 ): PersistedToolTagAccounting | null {
-    const row = db
-        .prepare(
-            `SELECT byte_size AS byteSize,
+	const row = db
+		.prepare(
+			`SELECT byte_size AS byteSize,
                     token_count AS tokenCount,
                     input_byte_size AS inputByteSize,
                     input_token_count AS inputTokenCount
              FROM tags
              WHERE session_id = ? AND tag_number = ? AND type = 'tool'`,
-        )
-        .get(sessionId, tagNumber) as PersistedToolTagAccounting | null | undefined;
-    if (
-        !row ||
-        typeof row.byteSize !== "number" ||
-        (row.tokenCount !== null && typeof row.tokenCount !== "number") ||
-        typeof row.inputByteSize !== "number" ||
-        (row.inputTokenCount !== null && typeof row.inputTokenCount !== "number")
-    ) {
-        return null;
-    }
-    return row;
+		)
+		.get(sessionId, tagNumber) as PersistedToolTagAccounting | null | undefined;
+	if (
+		!row ||
+		typeof row.byteSize !== "number" ||
+		(row.tokenCount !== null && typeof row.tokenCount !== "number") ||
+		typeof row.inputByteSize !== "number" ||
+		(row.inputTokenCount !== null && typeof row.inputTokenCount !== "number")
+	) {
+		return null;
+	}
+	return row;
 }
 
 /**
@@ -495,78 +492,76 @@ export function getPersistedToolTagAccounting(
  * boundary's prefix-difference math, so including them here is harmless.
  */
 export function getAllStatusTagTokenTotalsFlat(
-    db: Database,
-    sessionId: string,
-    floor = 0,
+	db: Database,
+	sessionId: string,
+	floor = 0,
 ): { totals: Map<string, number>; nullMessageIds: Set<string> } {
-    // floor > 0 (legacy host) loads only the live-wire range (tag_number >= floor):
-    // tag_number is monotonic with message order, so every tag below the first
-    // wire message is compacted-away history the boundary never indexes. The
-    // boundary only looks up totals for messages in the live slice (all >= floor
-    // by construction), and any excluded slice message degrades to live
-    // tokenization of the same content — byte-identical total. floor=0 (Pi, and
-    // the legacy host no-floor fallback) keeps the full-session scan unchanged.
-    const rows = (
-        floor > 0
-            ? db
-                  .prepare(
-                      `SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
+	// floor > 0 (legacy host) loads only the live-wire range (tag_number >= floor):
+	// tag_number is monotonic with message order, so every tag below the first
+	// wire message is compacted-away history the boundary never indexes. The
+	// boundary only looks up totals for messages in the live slice (all >= floor
+	// by construction), and any excluded slice message degrades to live
+	// tokenization of the same content — byte-identical total. floor=0 (Pi, and
+	// the legacy host no-floor fallback) keeps the full-session scan unchanged.
+	const rows = (
+		floor > 0
+			? db
+					.prepare(
+						`SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
                        FROM tags
                        WHERE session_id = ? AND tag_number >= ?`,
-                  )
-                  .all(sessionId, floor)
-            : db
-                  .prepare(
-                      `SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
+					)
+					.all(sessionId, floor)
+			: db
+					.prepare(
+						`SELECT type, message_id, tool_owner_message_id, token_count, input_token_count, reasoning_token_count
                        FROM tags
                        WHERE session_id = ?`,
-                  )
-                  .all(sessionId)
-    ) as Array<{
-        type: string;
-        message_id: string;
-        tool_owner_message_id: string | null;
-        token_count: number | null;
-        input_token_count: number | null;
-        reasoning_token_count: number | null;
-    }>;
-    const totals = new Map<string, number>();
-    const nullMessageIds = new Set<string>();
-    for (const row of rows) {
-        // NULL-owner tool rows (pre-v10 unadopted orphans): `ownerMessageIdForTagRow`
-        // would key them under the bare callId, which `storedTotalForMessage`
-        // (real message ids) never queries — their tokens would be silently
-        // attributed to a key nobody reads, making that MESSAGE's stored total
-        // an undercount. Treat the row as unresolvable instead: we can't know
-        // which message it belongs to, so we can't mark that message NULL
-        // either — skipping is the conservative choice (the affected message's
-        // total simply lacks this orphan's contribution until lazy adoption
-        // resolves the owner, after which it lands under the real id).
-        if (row.type === "tool" && row.tool_owner_message_id === null) continue;
-        const owner = ownerMessageIdForTagRow(row);
-        if (row.token_count === null) {
-            nullMessageIds.add(owner);
-            totals.delete(owner);
-            continue;
-        }
-        if (nullMessageIds.has(owner)) continue;
-        const weight =
-            (row.token_count ?? 0) +
-            (row.input_token_count ?? 0) +
-            (row.reasoning_token_count ?? 0);
-        totals.set(owner, (totals.get(owner) ?? 0) + weight);
-    }
-    return { totals, nullMessageIds };
+					)
+					.all(sessionId)
+	) as Array<{
+		type: string;
+		message_id: string;
+		tool_owner_message_id: string | null;
+		token_count: number | null;
+		input_token_count: number | null;
+		reasoning_token_count: number | null;
+	}>;
+	const totals = new Map<string, number>();
+	const nullMessageIds = new Set<string>();
+	for (const row of rows) {
+		// NULL-owner tool rows (pre-v10 unadopted orphans): `ownerMessageIdForTagRow`
+		// would key them under the bare callId, which `storedTotalForMessage`
+		// (real message ids) never queries — their tokens would be silently
+		// attributed to a key nobody reads, making that MESSAGE's stored total
+		// an undercount. Treat the row as unresolvable instead: we can't know
+		// which message it belongs to, so we can't mark that message NULL
+		// either — skipping is the conservative choice (the affected message's
+		// total simply lacks this orphan's contribution until lazy adoption
+		// resolves the owner, after which it lands under the real id).
+		if (row.type === "tool" && row.tool_owner_message_id === null) continue;
+		const owner = ownerMessageIdForTagRow(row);
+		if (row.token_count === null) {
+			nullMessageIds.add(owner);
+			totals.delete(owner);
+			continue;
+		}
+		if (nullMessageIds.has(owner)) continue;
+		const weight =
+			(row.token_count ?? 0) + (row.input_token_count ?? 0) + (row.reasoning_token_count ?? 0);
+		totals.set(owner, (totals.get(owner) ?? 0) + weight);
+	}
+	return { totals, nullMessageIds };
 }
 
 /** Bump a tag's input_token_count — the token mirror of `updateTagInputByteSize`. */
 export function updateTagInputTokenCount(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    newInputTokenCount: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	newInputTokenCount: number,
 ): void {
-    getUpdateTagInputTokenCountStatement(db).run(newInputTokenCount, sessionId, tagNumber);
+	getUpdateTagInputTokenCountStatement(db).run(newInputTokenCount, sessionId, tagNumber);
 }
 
 /**
@@ -576,13 +571,13 @@ export function updateTagInputTokenCount(
  * tokenizer thunk; populated rows skip it so a restart never re-tokenizes.
  */
 export function tagTokenCountIsNull(db: Database, sessionId: string, tagNumber: number): boolean {
-    const row = db
-        .prepare("SELECT token_count FROM tags WHERE session_id = ? AND tag_number = ?")
-        .get(sessionId, tagNumber) as { token_count: number | null } | undefined | null;
-    // `!= null` guards a no-row result (`.get()` yields null, not the JS undefined
-    // sentinel) — `row !== undefined` alone would let that null through to
-    // `null.token_count` and crash.
-    return row != null && row.token_count === null;
+	const row = db
+		.prepare("SELECT token_count FROM tags WHERE session_id = ? AND tag_number = ?")
+		.get(sessionId, tagNumber) as { token_count: number | null } | undefined | null;
+	// `!= null` guards a no-row result (`.get()` yields null, not the JS undefined
+	// sentinel) — `row !== undefined` alone would let that null through to
+	// `null.token_count` and crash.
+	return row != null && row.token_count === null;
 }
 
 /**
@@ -592,165 +587,165 @@ export function tagTokenCountIsNull(db: Database, sessionId: string, tagNumber: 
  * insert time.
  */
 export function backfillTagTokenCounts(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    counts: TagTokenCounts,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	counts: TagTokenCounts,
 ): void {
-    db.prepare(
-        `UPDATE tags
+	db.prepare(
+		`UPDATE tags
             SET token_count = ?, input_token_count = ?, reasoning_token_count = ?
             WHERE session_id = ? AND tag_number = ? AND token_count IS NULL`,
-    ).run(
-        counts.tokenCount ?? null,
-        counts.inputTokenCount ?? null,
-        counts.reasoningTokenCount ?? null,
-        sessionId,
-        tagNumber,
-    );
+	).run(
+		counts.tokenCount ?? null,
+		counts.inputTokenCount ?? null,
+		counts.reasoningTokenCount ?? null,
+		sessionId,
+		tagNumber,
+	);
 }
 
 function getUpdateTagMessageIdStatement(db: Database): PreparedStatement {
-    let stmt = updateTagMessageIdStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare("UPDATE tags SET message_id = ? WHERE session_id = ? AND tag_number = ?");
-        updateTagMessageIdStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = updateTagMessageIdStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare("UPDATE tags SET message_id = ? WHERE session_id = ? AND tag_number = ?");
+		updateTagMessageIdStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getTagNumbersByMessageIdStatement(db: Database): PreparedStatement {
-    let stmt = getTagNumbersByMessageIdStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT tag_number FROM tags WHERE session_id = ? AND (message_id = ? OR message_id LIKE ? ESCAPE '\\' OR message_id LIKE ? ESCAPE '\\') ORDER BY tag_number ASC",
-        );
-        getTagNumbersByMessageIdStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getTagNumbersByMessageIdStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT tag_number FROM tags WHERE session_id = ? AND (message_id = ? OR message_id LIKE ? ESCAPE '\\' OR message_id LIKE ? ESCAPE '\\') ORDER BY tag_number ASC",
+		);
+		getTagNumbersByMessageIdStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getDeleteTagsByMessageIdStatement(db: Database): PreparedStatement {
-    let stmt = deleteTagsByMessageIdStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "DELETE FROM tags WHERE session_id = ? AND (message_id = ? OR message_id LIKE ? ESCAPE '\\' OR message_id LIKE ? ESCAPE '\\')",
-        );
-        deleteTagsByMessageIdStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = deleteTagsByMessageIdStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"DELETE FROM tags WHERE session_id = ? AND (message_id = ? OR message_id LIKE ? ESCAPE '\\' OR message_id LIKE ? ESCAPE '\\')",
+		);
+		deleteTagsByMessageIdStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getMaxTagNumberBySessionStatement(db: Database): PreparedStatement {
-    let stmt = getMaxTagNumberBySessionStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT COALESCE(MAX(tag_number), 0) AS max_tag_number FROM tags WHERE session_id = ?",
-        );
-        getMaxTagNumberBySessionStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getMaxTagNumberBySessionStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT COALESCE(MAX(tag_number), 0) AS max_tag_number FROM tags WHERE session_id = ?",
+		);
+		getMaxTagNumberBySessionStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getTagNumberByMessageIdStatement(db: Database): PreparedStatement {
-    let stmt = getTagNumberByMessageIdStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT tag_number FROM tags WHERE session_id = ? AND message_id = ? ORDER BY tag_number ASC LIMIT 1",
-        );
-        getTagNumberByMessageIdStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getTagNumberByMessageIdStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT tag_number FROM tags WHERE session_id = ? AND message_id = ? ORDER BY tag_number ASC LIMIT 1",
+		);
+		getTagNumberByMessageIdStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 interface TagRow {
-    id: number;
-    message_id: string;
-    type: string;
-    status: string;
-    drop_mode: string | null;
-    tool_name: string | null;
-    input_byte_size: number | null;
-    byte_size: number;
-    reasoning_byte_size: number;
-    session_id: string;
-    tag_number: number;
-    caveman_depth: number | null;
-    tool_owner_message_id: string | null;
+	id: number;
+	message_id: string;
+	type: string;
+	status: string;
+	drop_mode: string | null;
+	tool_name: string | null;
+	input_byte_size: number | null;
+	byte_size: number;
+	reasoning_byte_size: number;
+	session_id: string;
+	tag_number: number;
+	caveman_depth: number | null;
+	tool_owner_message_id: string | null;
 }
 
 interface TagNumberRow {
-    tag_number: number;
+	tag_number: number;
 }
 
 interface MaxTagNumberRow {
-    max_tag_number: number;
+	max_tag_number: number;
 }
 
 function isTagRow(row: unknown): row is TagRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return (
-        typeof r.id === "number" &&
-        typeof r.message_id === "string" &&
-        typeof r.type === "string" &&
-        typeof r.status === "string" &&
-        typeof r.byte_size === "number" &&
-        typeof r.session_id === "string" &&
-        typeof r.tag_number === "number"
-    );
-    // reasoning_byte_size may be missing on old rows (ensureColumn adds DEFAULT 0)
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return (
+		typeof r.id === "number" &&
+		typeof r.message_id === "string" &&
+		typeof r.type === "string" &&
+		typeof r.status === "string" &&
+		typeof r.byte_size === "number" &&
+		typeof r.session_id === "string" &&
+		typeof r.tag_number === "number"
+	);
+	// reasoning_byte_size may be missing on old rows (ensureColumn adds DEFAULT 0)
 }
 
 function toTagEntry(row: TagRow): TagEntry {
-    const type = row.type === "tool" ? "tool" : row.type === "file" ? "file" : "message";
-    const status = row.status === "dropped" || row.status === "compacted" ? row.status : "active";
+	const type = row.type === "tool" ? "tool" : row.type === "file" ? "file" : "message";
+	const status = row.status === "dropped" || row.status === "compacted" ? row.status : "active";
 
-    return {
-        tagNumber: row.tag_number,
-        messageId: row.message_id,
-        type,
-        status,
-        dropMode:
-            row.drop_mode === "truncated"
-                ? "truncated"
-                : row.drop_mode === "edit_marker"
-                  ? "edit_marker"
-                  : "full",
-        toolName: row.tool_name ?? null,
-        inputByteSize: row.input_byte_size ?? 0,
-        byteSize: row.byte_size,
-        reasoningByteSize: row.reasoning_byte_size ?? 0,
-        sessionId: row.session_id,
-        // ensureColumn adds DEFAULT 0 but SQLite leaves NULL on pre-existing
-        // rows. Coerce to 0 so downstream callers never see NaN arithmetic.
-        cavemanDepth:
-            typeof row.caveman_depth === "number" && Number.isFinite(row.caveman_depth)
-                ? row.caveman_depth
-                : 0,
-        // tool_owner_message_id is the third axis of tool-tag identity.
-        // NULL is the legitimate value for non-tool tags AND for legacy
-        // tool tags written before plugin v0.16.x. Lazy adoption +
-        // backfill populate this column at runtime; see plan v3.3.1.
-        toolOwnerMessageId:
-            typeof row.tool_owner_message_id === "string" ? row.tool_owner_message_id : null,
-    };
+	return {
+		tagNumber: row.tag_number,
+		messageId: row.message_id,
+		type,
+		status,
+		dropMode:
+			row.drop_mode === "truncated"
+				? "truncated"
+				: row.drop_mode === "edit_marker"
+					? "edit_marker"
+					: "full",
+		toolName: row.tool_name ?? null,
+		inputByteSize: row.input_byte_size ?? 0,
+		byteSize: row.byte_size,
+		reasoningByteSize: row.reasoning_byte_size ?? 0,
+		sessionId: row.session_id,
+		// ensureColumn adds DEFAULT 0 but SQLite leaves NULL on pre-existing
+		// rows. Coerce to 0 so downstream callers never see NaN arithmetic.
+		cavemanDepth:
+			typeof row.caveman_depth === "number" && Number.isFinite(row.caveman_depth)
+				? row.caveman_depth
+				: 0,
+		// tool_owner_message_id is the third axis of tool-tag identity.
+		// NULL is the legitimate value for non-tool tags AND for legacy
+		// tool tags written before plugin v0.16.x. Lazy adoption +
+		// backfill populate this column at runtime; see plan v3.3.1.
+		toolOwnerMessageId:
+			typeof row.tool_owner_message_id === "string" ? row.tool_owner_message_id : null,
+	};
 }
 
 function isTagNumberRow(row: unknown): row is TagNumberRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return typeof r.tag_number === "number";
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return typeof r.tag_number === "number";
 }
 
 function isMaxTagNumberRow(row: unknown): row is MaxTagNumberRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return typeof r.max_tag_number === "number";
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return typeof r.max_tag_number === "number";
 }
 
 function escapeLikePattern(value: string): string {
-    return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+	return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 /**
@@ -759,61 +754,61 @@ function escapeLikePattern(value: string): string {
  * columns); readers treat NULL as a fall-back-per-call signal.
  */
 export interface TagTokenCounts {
-    tokenCount: number | null;
-    inputTokenCount: number | null;
-    reasoningTokenCount: number | null;
+	tokenCount: number | null;
+	inputTokenCount: number | null;
+	reasoningTokenCount: number | null;
 }
 
 export function insertTag(
-    db: Database,
-    sessionId: string,
-    messageId: string,
-    type: TagEntry["type"],
-    byteSize: number,
-    tagNumber: number,
-    reasoningByteSize: number = 0,
-    toolName: string | null = null,
-    inputByteSize: number = 0,
-    toolOwnerMessageId: string | null = null,
-    entryFingerprint: string | null = null,
-    tokenCounts: TagTokenCounts | null = null,
+	db: Database,
+	sessionId: string,
+	messageId: string,
+	type: TagEntry["type"],
+	byteSize: number,
+	tagNumber: number,
+	reasoningByteSize: number = 0,
+	toolName: string | null = null,
+	inputByteSize: number = 0,
+	toolOwnerMessageId: string | null = null,
+	entryFingerprint: string | null = null,
+	tokenCounts: TagTokenCounts | null = null,
 ): number {
-    getInsertTagStatement(db).run(
-        sessionId,
-        messageId,
-        type,
-        byteSize,
-        reasoningByteSize,
-        tagNumber,
-        toolName,
-        inputByteSize,
-        getHarness(),
-        toolOwnerMessageId,
-        entryFingerprint,
-        tokenCounts?.tokenCount ?? null,
-        tokenCounts?.inputTokenCount ?? null,
-        tokenCounts?.reasoningTokenCount ?? null,
-    );
+	getInsertTagStatement(db).run(
+		sessionId,
+		messageId,
+		type,
+		byteSize,
+		reasoningByteSize,
+		tagNumber,
+		toolName,
+		inputByteSize,
+		getHarness(),
+		toolOwnerMessageId,
+		entryFingerprint,
+		tokenCounts?.tokenCount ?? null,
+		tokenCounts?.inputTokenCount ?? null,
+		tokenCounts?.reasoningTokenCount ?? null,
+	);
 
-    return tagNumber;
+	return tagNumber;
 }
 
 export function updateTagStatus(
-    db: Database,
-    sessionId: string,
-    tagId: number,
-    status: TagEntry["status"],
+	db: Database,
+	sessionId: string,
+	tagId: number,
+	status: TagEntry["status"],
 ): void {
-    getUpdateTagStatusStatement(db).run(status, sessionId, tagId);
+	getUpdateTagStatusStatement(db).run(status, sessionId, tagId);
 }
 
 export function updateTagDropMode(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    dropMode: TagEntry["dropMode"],
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	dropMode: TagEntry["dropMode"],
 ): void {
-    getUpdateTagDropModeStatement(db).run(dropMode, sessionId, tagNumber);
+	getUpdateTagDropModeStatement(db).run(dropMode, sessionId, tagNumber);
 }
 
 /**
@@ -824,42 +819,42 @@ export function updateTagDropMode(
  * re-compressing text that already matches its target age-tier depth.
  */
 export function updateCavemanDepth(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    depth: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	depth: number,
 ): void {
-    db.prepare("UPDATE tags SET caveman_depth = ? WHERE session_id = ? AND tag_number = ?").run(
-        depth,
-        sessionId,
-        tagNumber,
-    );
+	db.prepare("UPDATE tags SET caveman_depth = ? WHERE session_id = ? AND tag_number = ?").run(
+		depth,
+		sessionId,
+		tagNumber,
+	);
 }
 
 export function updateTagMessageId(
-    db: Database,
-    sessionId: string,
-    tagId: number,
-    messageId: string,
+	db: Database,
+	sessionId: string,
+	tagId: number,
+	messageId: string,
 ): void {
-    getUpdateTagMessageIdStatement(db).run(messageId, sessionId, tagId);
+	getUpdateTagMessageIdStatement(db).run(messageId, sessionId, tagId);
 }
 
 /** Return whether this session has any message tag bound to a fallback Pi id. */
 export function hasPiFallbackMessageTags(db: Database, sessionId: string): boolean {
-    let statement = hasPiFallbackMessageTagStatements.get(db);
-    if (!statement) {
-        statement = db.prepare(
-            `SELECT 1
+	let statement = hasPiFallbackMessageTagStatements.get(db);
+	if (!statement) {
+		statement = db.prepare(
+			`SELECT 1
              FROM tags
              WHERE session_id = ?
                AND type = 'message'
                AND message_id LIKE 'pi-msg-%'
              LIMIT 1`,
-        );
-        hasPiFallbackMessageTagStatements.set(db, statement);
-    }
-    return statement.get(sessionId) != null;
+		);
+		hasPiFallbackMessageTagStatements.set(db, statement);
+	}
+	return statement.get(sessionId) != null;
 }
 
 /**
@@ -871,21 +866,21 @@ export function hasPiFallbackMessageTags(db: Database, sessionId: string): boole
  * and the fallback-id shape so a real-id row is never re-adopted.
  */
 export function findAdoptableFallbackTags(
-    db: Database,
-    sessionId: string,
-    entryFingerprint: string,
+	db: Database,
+	sessionId: string,
+	entryFingerprint: string,
 ): Array<{ tagNumber: number; messageId: string }> {
-    const rows = db
-        .prepare(
-            `SELECT tag_number AS tagNumber, message_id AS messageId
+	const rows = db
+		.prepare(
+			`SELECT tag_number AS tagNumber, message_id AS messageId
              FROM tags
              WHERE session_id = ?
                AND type = 'message'
                AND entry_fingerprint = ?
                AND message_id LIKE 'pi-msg-%'`,
-        )
-        .all(sessionId, entryFingerprint) as Array<{ tagNumber: number; messageId: string }>;
-    return rows;
+		)
+		.all(sessionId, entryFingerprint) as Array<{ tagNumber: number; messageId: string }>;
+	return rows;
 }
 
 /**
@@ -896,102 +891,102 @@ export function findAdoptableFallbackTags(
  * true iff exactly this migration applied.
  */
 export function adoptFallbackTagMessageId(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    oldFallbackMessageId: string,
-    newRealMessageId: string,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	oldFallbackMessageId: string,
+	newRealMessageId: string,
 ): boolean {
-    const result = db
-        .prepare(
-            `UPDATE tags SET message_id = ?
+	const result = db
+		.prepare(
+			`UPDATE tags SET message_id = ?
              WHERE session_id = ? AND tag_number = ? AND message_id = ?`,
-        )
-        .run(newRealMessageId, sessionId, tagNumber, oldFallbackMessageId);
-    return (result.changes ?? 0) > 0;
+		)
+		.run(newRealMessageId, sessionId, tagNumber, oldFallbackMessageId);
+	return (result.changes ?? 0) > 0;
 }
 
 export interface PiFallbackToolOwnerTag {
-    tagNumber: number;
-    callId: string;
-    toolOwnerMessageId: string;
-    status: string;
+	tagNumber: number;
+	callId: string;
+	toolOwnerMessageId: string;
+	status: string;
 }
 
 export type PiFallbackTagAdoptionResult =
-    | { action: "skipped" }
-    | { action: "rekeyed"; tagNumber: number }
-    | { action: "folded"; tagNumber: number; deletedTagNumbers: number[] };
+	| { action: "skipped" }
+	| { action: "rekeyed"; tagNumber: number }
+	| { action: "folded"; tagNumber: number; deletedTagNumbers: number[] };
 
 interface PiFallbackFoldTagRow {
-    tagNumber: number;
-    messageId: string;
-    toolOwnerMessageId: string | null;
-    type: string;
-    status: string;
-    byteSize: number | null;
-    reasoningByteSize: number | null;
-    inputByteSize: number | null;
-    tokenCount: number | null;
-    inputTokenCount: number | null;
-    reasoningTokenCount: number | null;
+	tagNumber: number;
+	messageId: string;
+	toolOwnerMessageId: string | null;
+	type: string;
+	status: string;
+	byteSize: number | null;
+	reasoningByteSize: number | null;
+	inputByteSize: number | null;
+	tokenCount: number | null;
+	inputTokenCount: number | null;
+	reasoningTokenCount: number | null;
 }
 
 interface PendingOpIdentityRow {
-    id: number;
-    operation: string;
+	id: number;
+	operation: string;
 }
 
 function isPiFallbackToolOwnerTag(row: unknown): row is PiFallbackToolOwnerTag {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return (
-        typeof r.tagNumber === "number" &&
-        typeof r.callId === "string" &&
-        typeof r.toolOwnerMessageId === "string" &&
-        typeof r.status === "string"
-    );
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return (
+		typeof r.tagNumber === "number" &&
+		typeof r.callId === "string" &&
+		typeof r.toolOwnerMessageId === "string" &&
+		typeof r.status === "string"
+	);
 }
 
 function isPiFallbackFoldTagRow(row: unknown): row is PiFallbackFoldTagRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return (
-        typeof r.tagNumber === "number" &&
-        typeof r.messageId === "string" &&
-        (typeof r.toolOwnerMessageId === "string" || r.toolOwnerMessageId === null) &&
-        typeof r.type === "string" &&
-        typeof r.status === "string" &&
-        (typeof r.byteSize === "number" || r.byteSize === null) &&
-        (typeof r.reasoningByteSize === "number" || r.reasoningByteSize === null) &&
-        (typeof r.inputByteSize === "number" || r.inputByteSize === null) &&
-        (typeof r.tokenCount === "number" || r.tokenCount === null) &&
-        (typeof r.inputTokenCount === "number" || r.inputTokenCount === null) &&
-        (typeof r.reasoningTokenCount === "number" || r.reasoningTokenCount === null)
-    );
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return (
+		typeof r.tagNumber === "number" &&
+		typeof r.messageId === "string" &&
+		(typeof r.toolOwnerMessageId === "string" || r.toolOwnerMessageId === null) &&
+		typeof r.type === "string" &&
+		typeof r.status === "string" &&
+		(typeof r.byteSize === "number" || r.byteSize === null) &&
+		(typeof r.reasoningByteSize === "number" || r.reasoningByteSize === null) &&
+		(typeof r.inputByteSize === "number" || r.inputByteSize === null) &&
+		(typeof r.tokenCount === "number" || r.tokenCount === null) &&
+		(typeof r.inputTokenCount === "number" || r.inputTokenCount === null) &&
+		(typeof r.reasoningTokenCount === "number" || r.reasoningTokenCount === null)
+	);
 }
 
 function isPendingOpIdentityRow(row: unknown): row is PendingOpIdentityRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return typeof r.id === "number" && typeof r.operation === "string";
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return typeof r.id === "number" && typeof r.operation === "string";
 }
 
 function maxNullableNumber(a: number | null, b: number | null): number | null {
-    if (typeof a === "number" && typeof b === "number") return Math.max(a, b);
-    if (typeof a === "number") return a;
-    if (typeof b === "number") return b;
-    return null;
+	if (typeof a === "number" && typeof b === "number") return Math.max(a, b);
+	if (typeof a === "number") return a;
+	if (typeof b === "number") return b;
+	return null;
 }
 
 function getPiFallbackFoldTagRowByNumber(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
 ): PiFallbackFoldTagRow | null {
-    const row = db
-        .prepare(
-            `SELECT tag_number AS tagNumber,
+	const row = db
+		.prepare(
+			`SELECT tag_number AS tagNumber,
                     message_id AS messageId,
                     tool_owner_message_id AS toolOwnerMessageId,
                     type,
@@ -1004,20 +999,20 @@ function getPiFallbackFoldTagRowByNumber(
                     reasoning_token_count AS reasoningTokenCount
              FROM tags
              WHERE session_id = ? AND tag_number = ?`,
-        )
-        .get(sessionId, tagNumber);
-    return isPiFallbackFoldTagRow(row) ? row : null;
+		)
+		.get(sessionId, tagNumber);
+	return isPiFallbackFoldTagRow(row) ? row : null;
 }
 
 function getPiFallbackToolFoldTagRowByOwner(
-    db: Database,
-    sessionId: string,
-    callId: string,
-    ownerMsgId: string,
+	db: Database,
+	sessionId: string,
+	callId: string,
+	ownerMsgId: string,
 ): PiFallbackFoldTagRow | null {
-    const row = db
-        .prepare(
-            `SELECT tag_number AS tagNumber,
+	const row = db
+		.prepare(
+			`SELECT tag_number AS tagNumber,
                     message_id AS messageId,
                     tool_owner_message_id AS toolOwnerMessageId,
                     type,
@@ -1034,19 +1029,19 @@ function getPiFallbackToolFoldTagRowByOwner(
                AND type = 'tool'
                AND tool_owner_message_id = ?
              LIMIT 1`,
-        )
-        .get(sessionId, callId, ownerMsgId);
-    return isPiFallbackFoldTagRow(row) ? row : null;
+		)
+		.get(sessionId, callId, ownerMsgId);
+	return isPiFallbackFoldTagRow(row) ? row : null;
 }
 
 function getPiFallbackMessageFoldTagRowsByMessageId(
-    db: Database,
-    sessionId: string,
-    messageId: string,
+	db: Database,
+	sessionId: string,
+	messageId: string,
 ): PiFallbackFoldTagRow[] {
-    return db
-        .prepare(
-            `SELECT tag_number AS tagNumber,
+	return db
+		.prepare(
+			`SELECT tag_number AS tagNumber,
                     message_id AS messageId,
                     tool_owner_message_id AS toolOwnerMessageId,
                     type,
@@ -1062,19 +1057,19 @@ function getPiFallbackMessageFoldTagRowsByMessageId(
                AND message_id = ?
                AND type = 'message'
              ORDER BY tag_number ASC`,
-        )
-        .all(sessionId, messageId)
-        .filter(isPiFallbackFoldTagRow);
+		)
+		.all(sessionId, messageId)
+		.filter(isPiFallbackFoldTagRow);
 }
 
 function mergeSizeAndTokenColumnsIntoSurvivor(
-    db: Database,
-    sessionId: string,
-    survivor: PiFallbackFoldTagRow,
-    duplicate: PiFallbackFoldTagRow,
+	db: Database,
+	sessionId: string,
+	survivor: PiFallbackFoldTagRow,
+	duplicate: PiFallbackFoldTagRow,
 ): void {
-    db.prepare(
-        `UPDATE tags
+	db.prepare(
+		`UPDATE tags
          SET byte_size = ?,
              reasoning_byte_size = ?,
              input_byte_size = ?,
@@ -1082,144 +1077,135 @@ function mergeSizeAndTokenColumnsIntoSurvivor(
              input_token_count = ?,
              reasoning_token_count = ?
          WHERE session_id = ? AND tag_number = ?`,
-    ).run(
-        maxNullableNumber(survivor.byteSize, duplicate.byteSize),
-        maxNullableNumber(survivor.reasoningByteSize, duplicate.reasoningByteSize),
-        maxNullableNumber(survivor.inputByteSize, duplicate.inputByteSize),
-        maxNullableNumber(survivor.tokenCount, duplicate.tokenCount),
-        maxNullableNumber(survivor.inputTokenCount, duplicate.inputTokenCount),
-        maxNullableNumber(survivor.reasoningTokenCount, duplicate.reasoningTokenCount),
-        sessionId,
-        survivor.tagNumber,
-    );
-    survivor.byteSize = maxNullableNumber(survivor.byteSize, duplicate.byteSize);
-    survivor.reasoningByteSize = maxNullableNumber(
-        survivor.reasoningByteSize,
-        duplicate.reasoningByteSize,
-    );
-    survivor.inputByteSize = maxNullableNumber(survivor.inputByteSize, duplicate.inputByteSize);
-    survivor.tokenCount = maxNullableNumber(survivor.tokenCount, duplicate.tokenCount);
-    survivor.inputTokenCount = maxNullableNumber(
-        survivor.inputTokenCount,
-        duplicate.inputTokenCount,
-    );
-    survivor.reasoningTokenCount = maxNullableNumber(
-        survivor.reasoningTokenCount,
-        duplicate.reasoningTokenCount,
-    );
+	).run(
+		maxNullableNumber(survivor.byteSize, duplicate.byteSize),
+		maxNullableNumber(survivor.reasoningByteSize, duplicate.reasoningByteSize),
+		maxNullableNumber(survivor.inputByteSize, duplicate.inputByteSize),
+		maxNullableNumber(survivor.tokenCount, duplicate.tokenCount),
+		maxNullableNumber(survivor.inputTokenCount, duplicate.inputTokenCount),
+		maxNullableNumber(survivor.reasoningTokenCount, duplicate.reasoningTokenCount),
+		sessionId,
+		survivor.tagNumber,
+	);
+	survivor.byteSize = maxNullableNumber(survivor.byteSize, duplicate.byteSize);
+	survivor.reasoningByteSize = maxNullableNumber(
+		survivor.reasoningByteSize,
+		duplicate.reasoningByteSize,
+	);
+	survivor.inputByteSize = maxNullableNumber(survivor.inputByteSize, duplicate.inputByteSize);
+	survivor.tokenCount = maxNullableNumber(survivor.tokenCount, duplicate.tokenCount);
+	survivor.inputTokenCount = maxNullableNumber(survivor.inputTokenCount, duplicate.inputTokenCount);
+	survivor.reasoningTokenCount = maxNullableNumber(
+		survivor.reasoningTokenCount,
+		duplicate.reasoningTokenCount,
+	);
 }
 
 function applyDroppedStatusIfNeeded(
-    db: Database,
-    sessionId: string,
-    survivor: PiFallbackFoldTagRow,
-    duplicate: PiFallbackFoldTagRow,
+	db: Database,
+	sessionId: string,
+	survivor: PiFallbackFoldTagRow,
+	duplicate: PiFallbackFoldTagRow,
 ): void {
-    if (survivor.status === "dropped") return;
-    if (duplicate.status !== "dropped") return;
-    db.prepare("UPDATE tags SET status = 'dropped' WHERE session_id = ? AND tag_number = ?").run(
-        sessionId,
-        survivor.tagNumber,
-    );
-    survivor.status = "dropped";
+	if (survivor.status === "dropped") return;
+	if (duplicate.status !== "dropped") return;
+	db.prepare("UPDATE tags SET status = 'dropped' WHERE session_id = ? AND tag_number = ?").run(
+		sessionId,
+		survivor.tagNumber,
+	);
+	survivor.status = "dropped";
 }
 
 function retargetPendingOps(
-    db: Database,
-    sessionId: string,
-    fromTagNumber: number,
-    toTagNumber: number,
+	db: Database,
+	sessionId: string,
+	fromTagNumber: number,
+	toTagNumber: number,
 ): void {
-    const rows = db
-        .prepare(
-            `SELECT id, operation
+	const rows = db
+		.prepare(
+			`SELECT id, operation
              FROM pending_ops
              WHERE session_id = ? AND tag_id = ?
              ORDER BY id ASC`,
-        )
-        .all(sessionId, fromTagNumber)
-        .filter(isPendingOpIdentityRow);
-    for (const row of rows) {
-        const existing = db
-            .prepare(
-                `SELECT 1
+		)
+		.all(sessionId, fromTagNumber)
+		.filter(isPendingOpIdentityRow);
+	for (const row of rows) {
+		const existing = db
+			.prepare(
+				`SELECT 1
                  FROM pending_ops
                  WHERE session_id = ? AND tag_id = ? AND operation = ?
                  LIMIT 1`,
-            )
-            .get(sessionId, toTagNumber, row.operation);
-        if (existing) {
-            db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND id = ?").run(
-                sessionId,
-                row.id,
-            );
-        } else {
-            db.prepare("UPDATE pending_ops SET tag_id = ? WHERE session_id = ? AND id = ?").run(
-                toTagNumber,
-                sessionId,
-                row.id,
-            );
-        }
-    }
-    db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND tag_id = ?").run(
-        sessionId,
-        fromTagNumber,
-    );
+			)
+			.get(sessionId, toTagNumber, row.operation);
+		if (existing) {
+			db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND id = ?").run(sessionId, row.id);
+		} else {
+			db.prepare("UPDATE pending_ops SET tag_id = ? WHERE session_id = ? AND id = ?").run(
+				toTagNumber,
+				sessionId,
+				row.id,
+			);
+		}
+	}
+	db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND tag_id = ?").run(
+		sessionId,
+		fromTagNumber,
+	);
 }
 
 function deleteFoldedDuplicateTag(db: Database, sessionId: string, tagNumber: number): void {
-    db.prepare("DELETE FROM source_contents WHERE session_id = ? AND tag_id = ?").run(
-        sessionId,
-        tagNumber,
-    );
-    db.prepare("DELETE FROM tags WHERE session_id = ? AND tag_number = ?").run(
-        sessionId,
-        tagNumber,
-    );
-    db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND tag_id = ?").run(
-        sessionId,
-        tagNumber,
-    );
+	db.prepare("DELETE FROM source_contents WHERE session_id = ? AND tag_id = ?").run(
+		sessionId,
+		tagNumber,
+	);
+	db.prepare("DELETE FROM tags WHERE session_id = ? AND tag_number = ?").run(sessionId, tagNumber);
+	db.prepare("DELETE FROM pending_ops WHERE session_id = ? AND tag_id = ?").run(
+		sessionId,
+		tagNumber,
+	);
 }
 
 function foldDuplicateIntoSurvivor(
-    db: Database,
-    sessionId: string,
-    survivor: PiFallbackFoldTagRow,
-    duplicate: PiFallbackFoldTagRow,
+	db: Database,
+	sessionId: string,
+	survivor: PiFallbackFoldTagRow,
+	duplicate: PiFallbackFoldTagRow,
 ): void {
-    mergeSizeAndTokenColumnsIntoSurvivor(db, sessionId, survivor, duplicate);
-    applyDroppedStatusIfNeeded(db, sessionId, survivor, duplicate);
-    retargetPendingOps(db, sessionId, duplicate.tagNumber, survivor.tagNumber);
-    deleteFoldedDuplicateTag(db, sessionId, duplicate.tagNumber);
+	mergeSizeAndTokenColumnsIntoSurvivor(db, sessionId, survivor, duplicate);
+	applyDroppedStatusIfNeeded(db, sessionId, survivor, duplicate);
+	retargetPendingOps(db, sessionId, duplicate.tagNumber, survivor.tagNumber);
+	deleteFoldedDuplicateTag(db, sessionId, duplicate.tagNumber);
 }
 
 export function hasPiFallbackToolOwnerTags(db: Database, sessionId: string): boolean {
-    const row = db
-        .prepare(
-            `SELECT 1
+	const row = db
+		.prepare(
+			`SELECT 1
              FROM tags
              WHERE session_id = ?
                AND type = 'tool'
                AND tool_owner_message_id LIKE 'pi-msg-%'
              LIMIT 1`,
-        )
-        .get(sessionId);
-    // `.get()` returns NULL for a no-row result (empirically true under bun:sqlite;
-    // node:sqlite likewise never returns the JS `undefined` sentinel) — so
-    // `row !== undefined` is TRUE for an EMPTY result, which would defeat this cheap
-    // pre-gate and run the per-pass tool-owner branch-walk for EVERY session. Use
-    // `!= null` to treat both null and undefined as "no row".
-    return row != null;
+		)
+		.get(sessionId);
+	// `.get()` returns NULL for a no-row result (empirically true under bun:sqlite;
+	// node:sqlite likewise never returns the JS `undefined` sentinel) — so
+	// `row !== undefined` is TRUE for an EMPTY result, which would defeat this cheap
+	// pre-gate and run the per-pass tool-owner branch-walk for EVERY session. Use
+	// `!= null` to treat both null and undefined as "no row".
+	return row != null;
 }
 
 export function findPiFallbackToolOwnerTags(
-    db: Database,
-    sessionId: string,
+	db: Database,
+	sessionId: string,
 ): PiFallbackToolOwnerTag[] {
-    return db
-        .prepare(
-            `SELECT tag_number AS tagNumber,
+	return db
+		.prepare(
+			`SELECT tag_number AS tagNumber,
                     message_id AS callId,
                     tool_owner_message_id AS toolOwnerMessageId,
                     status
@@ -1228,115 +1214,111 @@ export function findPiFallbackToolOwnerTags(
                AND type = 'tool'
                AND tool_owner_message_id LIKE 'pi-msg-%'
              ORDER BY tag_number ASC`,
-        )
-        .all(sessionId)
-        .filter(isPiFallbackToolOwnerTag);
+		)
+		.all(sessionId)
+		.filter(isPiFallbackToolOwnerTag);
 }
 
 export function adoptPiFallbackToolOwnerTag(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    callId: string,
-    oldOwnerMessageId: string,
-    newOwnerMessageId: string,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	callId: string,
+	oldOwnerMessageId: string,
+	newOwnerMessageId: string,
 ): PiFallbackTagAdoptionResult {
-    const survivor = getPiFallbackFoldTagRowByNumber(db, sessionId, tagNumber);
-    if (
-        survivor === null ||
-        survivor.type !== "tool" ||
-        survivor.messageId !== callId ||
-        survivor.toolOwnerMessageId !== oldOwnerMessageId
-    ) {
-        return { action: "skipped" };
-    }
+	const survivor = getPiFallbackFoldTagRowByNumber(db, sessionId, tagNumber);
+	if (
+		survivor === null ||
+		survivor.type !== "tool" ||
+		survivor.messageId !== callId ||
+		survivor.toolOwnerMessageId !== oldOwnerMessageId
+	) {
+		return { action: "skipped" };
+	}
 
-    const existing = getPiFallbackToolFoldTagRowByOwner(db, sessionId, callId, newOwnerMessageId);
-    if (existing === null) {
-        const result = db
-            .prepare(
-                `UPDATE tags
+	const existing = getPiFallbackToolFoldTagRowByOwner(db, sessionId, callId, newOwnerMessageId);
+	if (existing === null) {
+		const result = db
+			.prepare(
+				`UPDATE tags
                  SET tool_owner_message_id = ?
                  WHERE session_id = ?
                    AND tag_number = ?
                    AND type = 'tool'
                    AND message_id = ?
                    AND tool_owner_message_id = ?`,
-            )
-            .run(newOwnerMessageId, sessionId, tagNumber, callId, oldOwnerMessageId);
-        return (result.changes ?? 0) === 1
-            ? { action: "rekeyed", tagNumber }
-            : { action: "skipped" };
-    }
+			)
+			.run(newOwnerMessageId, sessionId, tagNumber, callId, oldOwnerMessageId);
+		return (result.changes ?? 0) === 1 ? { action: "rekeyed", tagNumber } : { action: "skipped" };
+	}
 
-    if (existing.tagNumber === tagNumber) {
-        return { action: "skipped" };
-    }
+	if (existing.tagNumber === tagNumber) {
+		return { action: "skipped" };
+	}
 
-    // The real-id row may have been allocated by a racing pass after adoption's
-    // probe. Preserve that row's tag number so the §N§ already sent on the wire
-    // remains stable, and fold the stale fallback row into it.
-    foldDuplicateIntoSurvivor(db, sessionId, existing, survivor);
-    return {
-        action: "folded",
-        tagNumber: existing.tagNumber,
-        deletedTagNumbers: [tagNumber],
-    };
+	// The real-id row may have been allocated by a racing pass after adoption's
+	// probe. Preserve that row's tag number so the §N§ already sent on the wire
+	// remains stable, and fold the stale fallback row into it.
+	foldDuplicateIntoSurvivor(db, sessionId, existing, survivor);
+	return {
+		action: "folded",
+		tagNumber: existing.tagNumber,
+		deletedTagNumbers: [tagNumber],
+	};
 }
 
 export function adoptPiFallbackMessageTag(
-    db: Database,
-    sessionId: string,
-    tagNumber: number,
-    oldFallbackMessageId: string,
-    newRealMessageId: string,
+	db: Database,
+	sessionId: string,
+	tagNumber: number,
+	oldFallbackMessageId: string,
+	newRealMessageId: string,
 ): PiFallbackTagAdoptionResult {
-    const survivor = getPiFallbackFoldTagRowByNumber(db, sessionId, tagNumber);
-    if (
-        survivor === null ||
-        survivor.type !== "message" ||
-        survivor.messageId !== oldFallbackMessageId
-    ) {
-        return { action: "skipped" };
-    }
+	const survivor = getPiFallbackFoldTagRowByNumber(db, sessionId, tagNumber);
+	if (
+		survivor === null ||
+		survivor.type !== "message" ||
+		survivor.messageId !== oldFallbackMessageId
+	) {
+		return { action: "skipped" };
+	}
 
-    const duplicates = getPiFallbackMessageFoldTagRowsByMessageId(
-        db,
-        sessionId,
-        newRealMessageId,
-    ).filter((row) => row.tagNumber !== tagNumber);
-    if (duplicates.length === 0) {
-        const result = db
-            .prepare(
-                `UPDATE tags
+	const duplicates = getPiFallbackMessageFoldTagRowsByMessageId(
+		db,
+		sessionId,
+		newRealMessageId,
+	).filter((row) => row.tagNumber !== tagNumber);
+	if (duplicates.length === 0) {
+		const result = db
+			.prepare(
+				`UPDATE tags
                  SET message_id = ?
                  WHERE session_id = ?
                    AND tag_number = ?
                    AND type = 'message'
                    AND message_id = ?`,
-            )
-            .run(newRealMessageId, sessionId, tagNumber, oldFallbackMessageId);
-        return (result.changes ?? 0) === 1
-            ? { action: "rekeyed", tagNumber }
-            : { action: "skipped" };
-    }
+			)
+			.run(newRealMessageId, sessionId, tagNumber, oldFallbackMessageId);
+		return (result.changes ?? 0) === 1 ? { action: "rekeyed", tagNumber } : { action: "skipped" };
+	}
 
-    // A real-id row can appear after the adoption probe but before allocation.
-    // Keep its already-visible tag identity and merge every fallback/duplicate
-    // row into it, rather than replacing the §N§ emitted by the racing pass.
-    const realSurvivor = duplicates[0];
-    if (!realSurvivor) return { action: "skipped" };
-    const deletedTagNumbers = [tagNumber];
-    foldDuplicateIntoSurvivor(db, sessionId, realSurvivor, survivor);
-    for (const duplicate of duplicates.slice(1)) {
-        foldDuplicateIntoSurvivor(db, sessionId, realSurvivor, duplicate);
-        deletedTagNumbers.push(duplicate.tagNumber);
-    }
-    return {
-        action: "folded",
-        tagNumber: realSurvivor.tagNumber,
-        deletedTagNumbers,
-    };
+	// A real-id row can appear after the adoption probe but before allocation.
+	// Keep its already-visible tag identity and merge every fallback/duplicate
+	// row into it, rather than replacing the §N§ emitted by the racing pass.
+	const realSurvivor = duplicates[0];
+	if (!realSurvivor) return { action: "skipped" };
+	const deletedTagNumbers = [tagNumber];
+	foldDuplicateIntoSurvivor(db, sessionId, realSurvivor, survivor);
+	for (const duplicate of duplicates.slice(1)) {
+		foldDuplicateIntoSurvivor(db, sessionId, realSurvivor, duplicate);
+		deletedTagNumbers.push(duplicate.tagNumber);
+	}
+	return {
+		action: "folded",
+		tagNumber: realSurvivor.tagNumber,
+		deletedTagNumbers,
+	};
 }
 
 /**
@@ -1360,70 +1342,70 @@ export function adoptPiFallbackMessageTag(
  * to re-anchor reasoning watermarks and audit logs).
  */
 export function deleteTagsByMessageId(
-    db: Database,
-    sessionId: string,
-    messageId: string,
+	db: Database,
+	sessionId: string,
+	messageId: string,
 ): number[] {
-    const deleteTransaction = db.transaction(() => {
-        const escapedMessageId = escapeLikePattern(messageId);
-        const textPartPattern = `${escapedMessageId}:p%`;
-        const filePartPattern = `${escapedMessageId}:file%`;
-        const messageScopedTags = getTagNumbersByMessageIdStatement(db)
-            .all(sessionId, messageId, textPartPattern, filePartPattern)
-            .filter(isTagNumberRow)
-            .map((row) => row.tag_number);
+	const deleteTransaction = db.transaction(() => {
+		const escapedMessageId = escapeLikePattern(messageId);
+		const textPartPattern = `${escapedMessageId}:p%`;
+		const filePartPattern = `${escapedMessageId}:file%`;
+		const messageScopedTags = getTagNumbersByMessageIdStatement(db)
+			.all(sessionId, messageId, textPartPattern, filePartPattern)
+			.filter(isTagNumberRow)
+			.map((row) => row.tag_number);
 
-        // Tool tags owned by the removed message — `tool_owner_message_id`
-        // can match independent of `messageId` (which is the callId). Pull
-        // these tag numbers BEFORE running the delete so the caller sees
-        // the union.
-        const ownerScopedTagNumbers = getOwnerScopedToolTagNumbers(db, sessionId, messageId);
+		// Tool tags owned by the removed message — `tool_owner_message_id`
+		// can match independent of `messageId` (which is the callId). Pull
+		// these tag numbers BEFORE running the delete so the caller sees
+		// the union.
+		const ownerScopedTagNumbers = getOwnerScopedToolTagNumbers(db, sessionId, messageId);
 
-        if (messageScopedTags.length === 0 && ownerScopedTagNumbers.length === 0) {
-            return [];
-        }
+		if (messageScopedTags.length === 0 && ownerScopedTagNumbers.length === 0) {
+			return [];
+		}
 
-        if (messageScopedTags.length > 0) {
-            getDeleteTagsByMessageIdStatement(db).run(
-                sessionId,
-                messageId,
-                textPartPattern,
-                filePartPattern,
-            );
-        }
-        if (ownerScopedTagNumbers.length > 0) {
-            deleteToolTagsByOwner(db, sessionId, messageId);
-        }
+		if (messageScopedTags.length > 0) {
+			getDeleteTagsByMessageIdStatement(db).run(
+				sessionId,
+				messageId,
+				textPartPattern,
+				filePartPattern,
+			);
+		}
+		if (ownerScopedTagNumbers.length > 0) {
+			deleteToolTagsByOwner(db, sessionId, messageId);
+		}
 
-        // De-duplicate — a tag could in theory match both predicates.
-        const merged = new Set<number>([...messageScopedTags, ...ownerScopedTagNumbers]);
-        return Array.from(merged).sort((a, b) => a - b);
-    });
-    return deleteTransaction.immediate();
+		// De-duplicate — a tag could in theory match both predicates.
+		const merged = new Set<number>([...messageScopedTags, ...ownerScopedTagNumbers]);
+		return Array.from(merged).sort((a, b) => a - b);
+	});
+	return deleteTransaction.immediate();
 }
 
 const getOwnerScopedToolTagNumbersStatements = new WeakMap<Database, PreparedStatement>();
 function getOwnerScopedToolTagNumbers(
-    db: Database,
-    sessionId: string,
-    ownerMsgId: string,
+	db: Database,
+	sessionId: string,
+	ownerMsgId: string,
 ): number[] {
-    let stmt = getOwnerScopedToolTagNumbersStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT tag_number FROM tags WHERE session_id = ? AND type = 'tool' AND tool_owner_message_id = ? ORDER BY tag_number ASC",
-        );
-        getOwnerScopedToolTagNumbersStatements.set(db, stmt);
-    }
-    return stmt
-        .all(sessionId, ownerMsgId)
-        .filter(isTagNumberRow)
-        .map((row) => row.tag_number);
+	let stmt = getOwnerScopedToolTagNumbersStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT tag_number FROM tags WHERE session_id = ? AND type = 'tool' AND tool_owner_message_id = ? ORDER BY tag_number ASC",
+		);
+		getOwnerScopedToolTagNumbersStatements.set(db, stmt);
+	}
+	return stmt
+		.all(sessionId, ownerMsgId)
+		.filter(isTagNumberRow)
+		.map((row) => row.tag_number);
 }
 
 export function getMaxTagNumberBySession(db: Database, sessionId: string): number {
-    const row = getMaxTagNumberBySessionStatement(db).get(sessionId);
-    return isMaxTagNumberRow(row) ? row.max_tag_number : 0;
+	const row = getMaxTagNumberBySessionStatement(db).get(sessionId);
+	return isMaxTagNumberRow(row) ? row.max_tag_number : 0;
 }
 
 /**
@@ -1434,20 +1416,20 @@ export function getMaxTagNumberBySession(db: Database, sessionId: string): numbe
  * actual max. Returns null when no tag exists for that message yet.
  */
 export function getTagNumberByMessageId(
-    db: Database,
-    sessionId: string,
-    messageId: string,
+	db: Database,
+	sessionId: string,
+	messageId: string,
 ): number | null {
-    const row = getTagNumberByMessageIdStatement(db).get(sessionId, messageId);
-    return isTagNumberRow(row) ? row.tag_number : null;
+	const row = getTagNumberByMessageIdStatement(db).get(sessionId, messageId);
+	return isTagNumberRow(row) ? row.tag_number : null;
 }
 
 const getMinMessageTagNumberForRawIdStatements = new WeakMap<Database, PreparedStatement>();
 interface MinTagNumberRow {
-    m: number | null;
+	m: number | null;
 }
 function isMinTagNumberRow(row: unknown): row is MinTagNumberRow {
-    return row !== null && typeof row === "object" && "m" in row;
+	return row !== null && typeof row === "object" && "m" in row;
 }
 /**
  * Lowest `tag_number` among the message/file content-ids of a single raw
@@ -1469,20 +1451,20 @@ function isMinTagNumberRow(row: unknown): row is MinTagNumberRow {
  * break the delimiter proof — never true for legacy host `msg_*` ids).
  */
 export function getMinMessageTagNumberForRawId(
-    db: Database,
-    sessionId: string,
-    rawId: string,
+	db: Database,
+	sessionId: string,
+	rawId: string,
 ): number | null {
-    if (rawId.includes(":")) return null;
-    let stmt = getMinMessageTagNumberForRawIdStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT MIN(tag_number) AS m FROM tags WHERE session_id = ? AND message_id >= ? AND message_id < ?",
-        );
-        getMinMessageTagNumberForRawIdStatements.set(db, stmt);
-    }
-    const row = stmt.get(sessionId, `${rawId}:`, `${rawId};`);
-    return isMinTagNumberRow(row) && typeof row.m === "number" ? row.m : null;
+	if (rawId.includes(":")) return null;
+	let stmt = getMinMessageTagNumberForRawIdStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT MIN(tag_number) AS m FROM tags WHERE session_id = ? AND message_id >= ? AND message_id < ?",
+		);
+		getMinMessageTagNumberForRawIdStatements.set(db, stmt);
+	}
+	const row = stmt.get(sessionId, `${rawId}:`, `${rawId};`);
+	return isMinTagNumberRow(row) && typeof row.m === "number" ? row.m : null;
 }
 
 // Floor derivation tunables. A LOWER floor only ever loads MORE tags (strictly
@@ -1522,30 +1504,29 @@ export const TAGGER_FLOOR_PER_SKIP_MARGIN = 64;
  * (loads a few extra tags), never higher (never drops a live-wire tag).
  */
 export function deriveTagLoadFloor(
-    db: Database,
-    sessionId: string,
-    rawIds: Iterable<string | null | undefined>,
+	db: Database,
+	sessionId: string,
+	rawIds: Iterable<string | null | undefined>,
 ): number {
-    let min = Number.POSITIVE_INFINITY;
-    let probes = 0;
-    let hits = 0;
-    let skippedBeforeFirstHit = 0;
-    for (const rawId of rawIds) {
-        if (typeof rawId !== "string" || rawId.length === 0) continue;
-        if (probes >= TAGGER_FLOOR_MAX_PROBES) break;
-        probes++;
-        const m = getMinMessageTagNumberForRawId(db, sessionId, rawId);
-        if (m === null) {
-            if (hits === 0) skippedBeforeFirstHit++;
-            continue;
-        }
-        if (m < min) min = m;
-        if (++hits >= TAGGER_FLOOR_SCAN_MESSAGES) break;
-    }
-    if (!Number.isFinite(min)) return 0;
-    const margin =
-        TAGGER_FLOOR_SAFETY_MARGIN + skippedBeforeFirstHit * TAGGER_FLOOR_PER_SKIP_MARGIN;
-    return Math.max(0, min - margin);
+	let min = Number.POSITIVE_INFINITY;
+	let probes = 0;
+	let hits = 0;
+	let skippedBeforeFirstHit = 0;
+	for (const rawId of rawIds) {
+		if (typeof rawId !== "string" || rawId.length === 0) continue;
+		if (probes >= TAGGER_FLOOR_MAX_PROBES) break;
+		probes++;
+		const m = getMinMessageTagNumberForRawId(db, sessionId, rawId);
+		if (m === null) {
+			if (hits === 0) skippedBeforeFirstHit++;
+			continue;
+		}
+		if (m < min) min = m;
+		if (++hits >= TAGGER_FLOOR_SCAN_MESSAGES) break;
+	}
+	if (!Number.isFinite(min)) return 0;
+	const margin = TAGGER_FLOOR_SAFETY_MARGIN + skippedBeforeFirstHit * TAGGER_FLOOR_PER_SKIP_MARGIN;
+	return Math.max(0, min - margin);
 }
 
 // Single source-of-truth column list for SELECTs that produce TagEntry.
@@ -1554,17 +1535,17 @@ export function deriveTagLoadFloor(
 // reader must include the new column or downstream callers will see
 // undefined where they expect a typed field.
 const TAG_SELECT_COLUMNS =
-    "id, message_id, type, status, drop_mode, tool_name, input_byte_size, byte_size, reasoning_byte_size, session_id, tag_number, caveman_depth, tool_owner_message_id";
+	"id, message_id, type, status, drop_mode, tool_name, input_byte_size, byte_size, reasoning_byte_size, session_id, tag_number, caveman_depth, tool_owner_message_id";
 
 export function getTagsBySession(db: Database, sessionId: string): TagEntry[] {
-    const rows = db
-        .prepare(
-            `SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? ORDER BY tag_number ASC, id ASC`,
-        )
-        .all(sessionId)
-        .filter(isTagRow);
+	const rows = db
+		.prepare(
+			`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? ORDER BY tag_number ASC, id ASC`,
+		)
+		.all(sessionId)
+		.filter(isTagRow);
 
-    return rows.map(toTagEntry);
+	return rows.map(toTagEntry);
 }
 
 // ─── Targeted helpers for the hot transform path ──────────────────────────
@@ -1591,36 +1572,36 @@ const getDroppedTagsBySessionStatements = new WeakMap<Database, PreparedStatemen
 const getMaxDroppedTagNumberStatements = new WeakMap<Database, PreparedStatement>();
 
 function getActiveTagsBySessionStatement(db: Database): PreparedStatement {
-    let stmt = getActiveTagsBySessionStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'active' ORDER BY tag_number ASC, id ASC`,
-        );
-        getActiveTagsBySessionStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getActiveTagsBySessionStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'active' ORDER BY tag_number ASC, id ASC`,
+		);
+		getActiveTagsBySessionStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getDroppedTagsBySessionStatement(db: Database): PreparedStatement {
-    let stmt = getDroppedTagsBySessionStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'dropped' ORDER BY tag_number ASC, id ASC`,
-        );
-        getDroppedTagsBySessionStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getDroppedTagsBySessionStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'dropped' ORDER BY tag_number ASC, id ASC`,
+		);
+		getDroppedTagsBySessionStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 function getMaxDroppedTagNumberStatement(db: Database): PreparedStatement {
-    let stmt = getMaxDroppedTagNumberStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            "SELECT COALESCE(MAX(tag_number), 0) AS max_tag_number FROM tags WHERE session_id = ? AND status = 'dropped'",
-        );
-        getMaxDroppedTagNumberStatements.set(db, stmt);
-    }
-    return stmt;
+	let stmt = getMaxDroppedTagNumberStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			"SELECT COALESCE(MAX(tag_number), 0) AS max_tag_number FROM tags WHERE session_id = ? AND status = 'dropped'",
+		);
+		getMaxDroppedTagNumberStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -1637,8 +1618,8 @@ function getMaxDroppedTagNumberStatement(db: Database): PreparedStatement {
  * no behavior change beyond seeing fewer (active-only) rows.
  */
 export function getActiveTagsBySession(db: Database, sessionId: string): TagEntry[] {
-    const rows = getActiveTagsBySessionStatement(db).all(sessionId).filter(isTagRow);
-    return rows.map(toTagEntry);
+	const rows = getActiveTagsBySessionStatement(db).all(sessionId).filter(isTagRow);
+	return rows.map(toTagEntry);
 }
 
 /**
@@ -1646,8 +1627,8 @@ export function getActiveTagsBySession(db: Database, sessionId: string): TagEntr
  * loading active and compacted history when a force seed only needs drop state.
  */
 export function getDroppedTagsBySession(db: Database, sessionId: string): TagEntry[] {
-    const rows = getDroppedTagsBySessionStatement(db).all(sessionId).filter(isTagRow);
-    return rows.map(toTagEntry);
+	const rows = getDroppedTagsBySessionStatement(db).all(sessionId).filter(isTagRow);
+	return rows.map(toTagEntry);
 }
 
 /**
@@ -1666,65 +1647,65 @@ export function getDroppedTagsBySession(db: Database, sessionId: string): TagEnt
  * `IN ()` which is an SQL syntax error).
  */
 export function getTagsForPendingOperations(
-    db: Database,
-    sessionId: string,
-    pendingTagNumbers: readonly number[],
-    protectedTags: number,
-    recentToolWindow: number,
+	db: Database,
+	sessionId: string,
+	pendingTagNumbers: readonly number[],
+	protectedTags: number,
+	recentToolWindow: number,
 ): TagEntry[] {
-    const byNumber = new Map<number, TagEntry>();
-    for (const tag of getTagsByNumbers(db, sessionId, pendingTagNumbers)) {
-        byNumber.set(tag.tagNumber, tag);
-    }
-    const addRows = (sql: string, limit: number): void => {
-        if (limit <= 0) return;
-        const rows = db.prepare(sql).all(sessionId, limit).filter(isTagRow);
-        for (const row of rows) {
-            const tag = toTagEntry(row);
-            byNumber.set(tag.tagNumber, tag);
-        }
-    };
-    addRows(
-        `SELECT ${TAG_SELECT_COLUMNS} FROM tags
+	const byNumber = new Map<number, TagEntry>();
+	for (const tag of getTagsByNumbers(db, sessionId, pendingTagNumbers)) {
+		byNumber.set(tag.tagNumber, tag);
+	}
+	const addRows = (sql: string, limit: number): void => {
+		if (limit <= 0) return;
+		const rows = db.prepare(sql).all(sessionId, limit).filter(isTagRow);
+		for (const row of rows) {
+			const tag = toTagEntry(row);
+			byNumber.set(tag.tagNumber, tag);
+		}
+	};
+	addRows(
+		`SELECT ${TAG_SELECT_COLUMNS} FROM tags
          WHERE session_id = ? AND status = 'active'
          ORDER BY tag_number DESC, id DESC LIMIT ?`,
-        protectedTags,
-    );
-    addRows(
-        `SELECT ${TAG_SELECT_COLUMNS} FROM tags
+		protectedTags,
+	);
+	addRows(
+		`SELECT ${TAG_SELECT_COLUMNS} FROM tags
          WHERE session_id = ? AND type = 'tool'
          ORDER BY tag_number DESC, id DESC LIMIT ?`,
-        recentToolWindow,
-    );
-    return [...byNumber.values()].sort((left, right) => left.tagNumber - right.tagNumber);
+		recentToolWindow,
+	);
+	return [...byNumber.values()].sort((left, right) => left.tagNumber - right.tagNumber);
 }
 
 export function getTagsByNumbers(
-    db: Database,
-    sessionId: string,
-    tagNumbers: readonly number[],
+	db: Database,
+	sessionId: string,
+	tagNumbers: readonly number[],
 ): TagEntry[] {
-    if (tagNumbers.length === 0) return [];
+	if (tagNumbers.length === 0) return [];
 
-    // SQLite parameter limit is 999 by default; chunk just in case very
-    // large target sets ever appear (the common case is ~500-1000).
-    if (tagNumbers.length > 900) {
-        const all: TagEntry[] = [];
-        for (let i = 0; i < tagNumbers.length; i += 900) {
-            all.push(...getTagsByNumbers(db, sessionId, tagNumbers.slice(i, i + 900)));
-        }
-        return all;
-    }
+	// SQLite parameter limit is 999 by default; chunk just in case very
+	// large target sets ever appear (the common case is ~500-1000).
+	if (tagNumbers.length > 900) {
+		const all: TagEntry[] = [];
+		for (let i = 0; i < tagNumbers.length; i += 900) {
+			all.push(...getTagsByNumbers(db, sessionId, tagNumbers.slice(i, i + 900)));
+		}
+		return all;
+	}
 
-    const placeholders = tagNumbers.map(() => "?").join(",");
-    const rows = db
-        .prepare(
-            `SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND tag_number IN (${placeholders}) ORDER BY tag_number ASC, id ASC`,
-        )
-        .all(sessionId, ...tagNumbers)
-        .filter(isTagRow);
+	const placeholders = tagNumbers.map(() => "?").join(",");
+	const rows = db
+		.prepare(
+			`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND tag_number IN (${placeholders}) ORDER BY tag_number ASC, id ASC`,
+		)
+		.all(sessionId, ...tagNumbers)
+		.filter(isTagRow);
 
-    return rows.map(toTagEntry);
+	return rows.map(toTagEntry);
 }
 
 /**
@@ -1737,35 +1718,35 @@ export function getTagsByNumbers(
  * SQLite resolves the MAX with a backward index seek (O(log N)).
  */
 export function getMaxDroppedTagNumber(db: Database, sessionId: string): number {
-    const row = getMaxDroppedTagNumberStatement(db).get(sessionId);
-    return isMaxTagNumberRow(row) ? row.max_tag_number : 0;
+	const row = getMaxDroppedTagNumberStatement(db).get(sessionId);
+	return isMaxTagNumberRow(row) ? row.max_tag_number : 0;
 }
 
 export function getTagById(db: Database, sessionId: string, tagId: number): TagEntry | null {
-    const result = db
-        .prepare(`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND tag_number = ?`)
-        .get(sessionId, tagId);
+	const result = db
+		.prepare(`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND tag_number = ?`)
+		.get(sessionId, tagId);
 
-    if (!isTagRow(result)) {
-        return null;
-    }
+	if (!isTagRow(result)) {
+		return null;
+	}
 
-    return toTagEntry(result);
+	return toTagEntry(result);
 }
 
 export function getTopNBySize(db: Database, sessionId: string, n: number): TagEntry[] {
-    if (n <= 0) {
-        return [];
-    }
+	if (n <= 0) {
+		return [];
+	}
 
-    const rows = db
-        .prepare(
-            `SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'active' ORDER BY byte_size DESC, tag_number ASC LIMIT ?`,
-        )
-        .all(sessionId, n)
-        .filter(isTagRow);
+	const rows = db
+		.prepare(
+			`SELECT ${TAG_SELECT_COLUMNS} FROM tags WHERE session_id = ? AND status = 'active' ORDER BY byte_size DESC, tag_number ASC LIMIT ?`,
+		)
+		.all(sessionId, n)
+		.filter(isTagRow);
 
-    return rows.map(toTagEntry);
+	return rows.map(toTagEntry);
 }
 
 // ─── Tool-owner composite identity helpers (migration v10) ──────────────────
@@ -1787,17 +1768,17 @@ const adoptNullOwnerToolTagStatements = new WeakMap<Database, PreparedStatement>
 const deleteToolTagsByOwnerStatements = new WeakMap<Database, PreparedStatement>();
 
 function getGetToolTagNumberByOwnerStatement(db: Database): PreparedStatement {
-    let stmt = getToolTagNumberByOwnerStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `SELECT tag_number FROM tags
+	let stmt = getToolTagNumberByOwnerStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`SELECT tag_number FROM tags
              WHERE session_id = ? AND message_id = ?
                AND type = 'tool' AND tool_owner_message_id = ?
              LIMIT 1`,
-        );
-        getToolTagNumberByOwnerStatements.set(db, stmt);
-    }
-    return stmt;
+		);
+		getToolTagNumberByOwnerStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -1808,39 +1789,39 @@ function getGetToolTagNumberByOwnerStatement(db: Database): PreparedStatement {
  * or cache eviction.
  */
 export function getToolTagNumberByOwner(
-    db: Database,
-    sessionId: string,
-    callId: string,
-    ownerMsgId: string,
+	db: Database,
+	sessionId: string,
+	callId: string,
+	ownerMsgId: string,
 ): number | null {
-    const row = getGetToolTagNumberByOwnerStatement(db).get(sessionId, callId, ownerMsgId);
-    return isTagNumberRow(row) ? row.tag_number : null;
+	const row = getGetToolTagNumberByOwnerStatement(db).get(sessionId, callId, ownerMsgId);
+	return isTagNumberRow(row) ? row.tag_number : null;
 }
 
 interface NullOwnerToolTagRow {
-    id: number;
-    tag_number: number;
+	id: number;
+	tag_number: number;
 }
 
 function isNullOwnerToolTagRow(row: unknown): row is NullOwnerToolTagRow {
-    if (row === null || typeof row !== "object") return false;
-    const r = row as Record<string, unknown>;
-    return typeof r.id === "number" && typeof r.tag_number === "number";
+	if (row === null || typeof row !== "object") return false;
+	const r = row as Record<string, unknown>;
+	return typeof r.id === "number" && typeof r.tag_number === "number";
 }
 
 function getGetNullOwnerToolTagStatement(db: Database): PreparedStatement {
-    let stmt = getNullOwnerToolTagStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `SELECT id, tag_number FROM tags
+	let stmt = getNullOwnerToolTagStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`SELECT id, tag_number FROM tags
              WHERE session_id = ? AND message_id = ?
                AND type = 'tool' AND tool_owner_message_id IS NULL
              ORDER BY tag_number ASC
              LIMIT 1`,
-        );
-        getNullOwnerToolTagStatements.set(db, stmt);
-    }
-    return stmt;
+		);
+		getNullOwnerToolTagStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -1860,30 +1841,30 @@ function getGetNullOwnerToolTagStatement(db: Database): PreparedStatement {
  * path or allocate a fresh tag.
  */
 export function getNullOwnerToolTag(
-    db: Database,
-    sessionId: string,
-    callId: string,
+	db: Database,
+	sessionId: string,
+	callId: string,
 ): { id: number; tagNumber: number } | null {
-    const row = getGetNullOwnerToolTagStatement(db).get(sessionId, callId);
-    if (!isNullOwnerToolTagRow(row)) return null;
-    return { id: row.id, tagNumber: row.tag_number };
+	const row = getGetNullOwnerToolTagStatement(db).get(sessionId, callId);
+	if (!isNullOwnerToolTagRow(row)) return null;
+	return { id: row.id, tagNumber: row.tag_number };
 }
 
 function getAdoptNullOwnerToolTagStatement(db: Database): PreparedStatement {
-    let stmt = adoptNullOwnerToolTagStatements.get(db);
-    if (!stmt) {
-        // NULL-guarded UPDATE: matches zero rows if another writer
-        // (backfill or a concurrent runtime adoption) already populated
-        // owner. Caller MUST treat changes=0 as "race lost" and
-        // recover.
-        stmt = db.prepare(
-            `UPDATE tags
+	let stmt = adoptNullOwnerToolTagStatements.get(db);
+	if (!stmt) {
+		// NULL-guarded UPDATE: matches zero rows if another writer
+		// (backfill or a concurrent runtime adoption) already populated
+		// owner. Caller MUST treat changes=0 as "race lost" and
+		// recover.
+		stmt = db.prepare(
+			`UPDATE tags
              SET tool_owner_message_id = ?
              WHERE id = ? AND tool_owner_message_id IS NULL`,
-        );
-        adoptNullOwnerToolTagStatements.set(db, stmt);
-    }
-    return stmt;
+		);
+		adoptNullOwnerToolTagStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -1896,22 +1877,22 @@ function getAdoptNullOwnerToolTagStatement(db: Database): PreparedStatement {
  * pass and concurrent runtime adoptions in other plugin processes.
  */
 export function adoptNullOwnerToolTag(db: Database, rowId: number, ownerMsgId: string): boolean {
-    const result = getAdoptNullOwnerToolTagStatement(db).run(ownerMsgId, rowId);
-    return (result.changes ?? 0) === 1;
+	const result = getAdoptNullOwnerToolTagStatement(db).run(ownerMsgId, rowId);
+	return (result.changes ?? 0) === 1;
 }
 
 function getDeleteToolTagsByOwnerStatement(db: Database): PreparedStatement {
-    let stmt = deleteToolTagsByOwnerStatements.get(db);
-    if (!stmt) {
-        stmt = db.prepare(
-            `DELETE FROM tags
+	let stmt = deleteToolTagsByOwnerStatements.get(db);
+	if (!stmt) {
+		stmt = db.prepare(
+			`DELETE FROM tags
              WHERE session_id = ?
                AND type = 'tool'
                AND tool_owner_message_id = ?`,
-        );
-        deleteToolTagsByOwnerStatements.set(db, stmt);
-    }
-    return stmt;
+		);
+		deleteToolTagsByOwnerStatements.set(db, stmt);
+	}
+	return stmt;
 }
 
 /**
@@ -1927,6 +1908,6 @@ function getDeleteToolTagsByOwnerStatement(db: Database): PreparedStatement {
  * deletion paths until adopted or backfilled.
  */
 export function deleteToolTagsByOwner(db: Database, sessionId: string, ownerMsgId: string): number {
-    const result = getDeleteToolTagsByOwnerStatement(db).run(sessionId, ownerMsgId);
-    return result.changes ?? 0;
+	const result = getDeleteToolTagsByOwnerStatement(db).run(sessionId, ownerMsgId);
+	return result.changes ?? 0;
 }

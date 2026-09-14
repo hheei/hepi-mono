@@ -6,15 +6,11 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 		it("strips a single §N§ prefix from assistant text", () => {
 			const msg = {
 				role: "assistant",
-				content: [
-					{ type: "text", text: "§4§ Yes. I can see the magic context." },
-				],
+				content: [{ type: "text", text: "§4§ Yes. I can see the magic context." }],
 			};
 			const mutated = stripTagPrefixFromAssistantMessage(msg);
 			expect(mutated).toBe(true);
-			expect((msg.content[0] as { text: string }).text).toBe(
-				"Yes. I can see the magic context.",
-			);
+			expect((msg.content[0] as { text: string }).text).toBe("Yes. I can see the magic context.");
 		});
 
 		it("strips consecutive §N§ prefixes (model-mimicked sequence)", () => {
@@ -23,9 +19,7 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				content: [{ type: "text", text: "§3§ §4§ §5§ Hello world" }],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(true);
-			expect((msg.content[0] as { type: string; text: string }).text).toBe(
-				"Hello world",
-			);
+			expect((msg.content[0] as { type: string; text: string }).text).toBe("Hello world");
 		});
 
 		it("strips trailing whitespace after the prefix", () => {
@@ -34,9 +28,7 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				content: [{ type: "text", text: "§4§   \n\nYes" }],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(true);
-			expect((msg.content[0] as { type: string; text: string }).text).toBe(
-				"Yes",
-			);
+			expect((msg.content[0] as { type: string; text: string }).text).toBe("Yes");
 		});
 
 		it("strips multi-digit tag IDs", () => {
@@ -45,9 +37,7 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				content: [{ type: "text", text: "§38773§ Found it." }],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(true);
-			expect((msg.content[0] as { type: string; text: string }).text).toBe(
-				"Found it.",
-			);
+			expect((msg.content[0] as { type: string; text: string }).text).toBe("Found it.");
 		});
 	});
 
@@ -114,9 +104,7 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				content: [{ type: "text", text: "§4§ Hello from user" }],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(false);
-			expect((msg.content[0] as { type: string; text: string }).text).toBe(
-				"§4§ Hello from user",
-			);
+			expect((msg.content[0] as { type: string; text: string }).text).toBe("§4§ Hello from user");
 		});
 
 		it("does NOT strip prefix on tool result messages", () => {
@@ -136,12 +124,8 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(true);
-			expect((msg.content[0] as { type: string; text: string }).text).toBe(
-				"First chunk",
-			);
-			expect((msg.content[1] as { type: string; text: string }).text).toBe(
-				"Second chunk",
-			);
+			expect((msg.content[0] as { type: string; text: string }).text).toBe("First chunk");
+			expect((msg.content[1] as { type: string; text: string }).text).toBe("Second chunk");
 		});
 
 		it("ignores non-text parts (thinking, toolCall, image)", () => {
@@ -162,13 +146,11 @@ describe("stripTagPrefixFromAssistantMessage", () => {
 				],
 			};
 			expect(stripTagPrefixFromAssistantMessage(msg)).toBe(true);
-			expect((msg.content[1] as { type: string; text: string }).text).toBe(
-				"Real assistant text",
-			);
+			expect((msg.content[1] as { type: string; text: string }).text).toBe("Real assistant text");
 			// Thinking part untouched (only text parts are scrubbed)
-			expect(
-				(msg.content[0] as { type: string; thinking: string }).thinking,
-			).toBe("§4§ pretend reasoning, not stripped");
+			expect((msg.content[0] as { type: string; thinking: string }).thinking).toBe(
+				"§4§ pretend reasoning, not stripped",
+			);
 		});
 	});
 

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { appendCompartments } from "#core/features/compartment-storage";
 import { getPendingPiCompactionMarkerState } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";

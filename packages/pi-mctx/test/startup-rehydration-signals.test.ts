@@ -1,15 +1,13 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 
 describe("Pi startup rehydration signal contract", () => {
 	it("rehydrates pending Pi marker sessions into history and materialization signals", () => {
 		const source = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
 		const block = source.slice(
 			source.indexOf("const pendingPiMarkerSessions"),
-			source.indexOf(
-				"Magic Context (pi) failed to rehydrate deferred Pi compaction markers",
-			),
+			source.indexOf("Magic Context (pi) failed to rehydrate deferred Pi compaction markers"),
 		);
 		const helper = source.slice(
 			source.indexOf("function signalPiDeferredCompactionMarkerDrain"),

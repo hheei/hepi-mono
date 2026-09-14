@@ -1,18 +1,12 @@
 import * as crypto from "node:crypto";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
 	acquireCompartmentLease,
 	COMPARTMENT_LEASE_RENEWAL_MS,
 	releaseCompartmentLease,
 	renewCompartmentLease,
 } from "#core/features/compartment-lease";
-import {
-	getCompartments,
-	getLastCompartmentEndMessage,
-} from "#core/features/compartment-storage";
+import { getCompartments, getLastCompartmentEndMessage } from "#core/features/compartment-storage";
 import {
 	acquireWrapupInProgress,
 	type ContextDatabase,
@@ -55,23 +49,20 @@ export interface RegisterCtxWrapupDeps {
 	memoryEnabled: boolean;
 	autoPromote: boolean;
 	userMemoriesEnabled?: boolean | undefined;
-	executeThresholdPercentage?:
-		| number
-		| { default: number; [modelKey: string]: number } | undefined;
-	executeThresholdTokens?: {
-		default?: number | undefined;
-		[modelKey: string]: number | undefined;
-	} | undefined;
+	executeThresholdPercentage?: number | { default: number; [modelKey: string]: number } | undefined;
+	executeThresholdTokens?:
+		| {
+				default?: number | undefined;
+				[modelKey: string]: number | undefined;
+		  }
+		| undefined;
 	runPiHistorianForWrapup?: typeof runPiHistorian | undefined;
 	wrapupLeaseWaitTimeoutMs?: number | undefined;
 	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxWrapupRuntimeDeps) | undefined;
 	compactionOff?: boolean | undefined;
 }
 
-export type CtxWrapupRuntimeDeps = Omit<
-	RegisterCtxWrapupDeps,
-	"resolveRuntimeDeps"
->;
+export type CtxWrapupRuntimeDeps = Omit<RegisterCtxWrapupDeps, "resolveRuntimeDeps">;
 
 const DEFAULT_MESSAGES_TO_KEEP = 20;
 const LEASE_WAIT_MS = 1_000;
@@ -83,17 +74,14 @@ type LeaseAcquireResult =
 
 function resolveWrapupLeaseWaitTimeout(deps: CtxWrapupRuntimeDeps): number {
 	const configured = deps.wrapupLeaseWaitTimeoutMs ?? MAX_WRAPUP_LEASE_WAIT_MS;
-	return Number.isFinite(configured) && configured >= 0
-		? configured
-		: MAX_WRAPUP_LEASE_WAIT_MS;
+	return Number.isFinite(configured) && configured >= 0 ? configured : MAX_WRAPUP_LEASE_WAIT_MS;
 }
 
 export function parseWrapupArgs(
 	raw: string,
 ): { ok: true; messagesToKeep: number } | { ok: false; message: string } {
 	const trimmed = raw.trim();
-	if (trimmed === "")
-		return { ok: true, messagesToKeep: DEFAULT_MESSAGES_TO_KEEP };
+	if (trimmed === "") return { ok: true, messagesToKeep: DEFAULT_MESSAGES_TO_KEEP };
 	if (!/^\d+$/.test(trimmed)) {
 		return {
 			ok: false,
@@ -111,13 +99,9 @@ export function parseWrapupArgs(
 	return { ok: true, messagesToKeep };
 }
 
-export function registerCtxWrapupCommand(
-	pi: ExtensionAPI,
-	deps: RegisterCtxWrapupDeps,
-): void {
+export function registerCtxWrapupCommand(pi: ExtensionAPI, deps: RegisterCtxWrapupDeps): void {
 	pi.registerCommand("ctx-wrapup", {
-		description:
-			"Compact older Magic Context history while keeping the newest messages raw",
+		description: "Compact older Magic Context history while keeping the newest messages raw",
 		handler: async (args, ctx) => {
 			const sessionId = resolveSessionId(ctx);
 			if (!sessionId) {
@@ -167,13 +151,7 @@ export function registerCtxWrapupCommand(
 				return;
 			}
 
-			const result = await runPiWrapup(
-				pi,
-				currentDeps,
-				ctx,
-				sessionId,
-				parsed.messagesToKeep,
-			);
+			const result = await runPiWrapup(pi, currentDeps, ctx, sessionId, parsed.messagesToKeep);
 			sendCtxStatusMessage(pi, {
 				title: "/ctx-wrapup",
 				text: result.message,
@@ -183,12 +161,7 @@ export function registerCtxWrapupCommand(
 	});
 }
 
-export type PiWrapupKind =
-	| "complete"
-	| "already-current"
-	| "partial"
-	| "blocked"
-	| "failed";
+export type PiWrapupKind = "complete" | "already-current" | "partial" | "blocked" | "failed";
 
 export interface PiWrapupOutcome {
 	readonly ok: boolean;
@@ -196,11 +169,7 @@ export interface PiWrapupOutcome {
 	readonly message: string;
 }
 
-function wrapupOutcome(
-	ok: boolean,
-	kind: PiWrapupKind,
-	message: string,
-): PiWrapupOutcome {
+function wrapupOutcome(ok: boolean, kind: PiWrapupKind, message: string): PiWrapupOutcome {
 	return { ok, kind, message };
 }
 
@@ -231,9 +200,7 @@ export async function runPiWrapup(
 	let holderId = "";
 	try {
 		const contextLimit = resolvePiContextLimit(ctx, deps.db, sessionId);
-		const modelKey = ctx.model
-			? `${ctx.model.provider}/${ctx.model.id}`
-			: undefined;
+		const modelKey = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
 		const executeThresholdPercentage = resolveExecuteThreshold(
 			deps.executeThresholdPercentage ?? 65,
 			modelKey,
@@ -288,28 +255,18 @@ export async function runPiWrapup(
 			return wrapupOutcome(
 				false,
 				"blocked",
-				formatExistingWrapup(
-					acquired.state ?? getWrapupInProgressState(deps.db, sessionId),
-				),
+				formatExistingWrapup(acquired.state ?? getWrapupInProgressState(deps.db, sessionId)),
 			);
 		}
 
 		let ownershipLost = false;
-		const ownershipLostReason =
-			"another process took over this session's wrapup";
+		const ownershipLostReason = "another process took over this session's wrapup";
 		const markOwnershipLost = (): void => {
 			if (ownershipLost) return;
 			ownershipLost = true;
 		};
-		const renewWrapupMarker = (
-			updates: Parameters<typeof updateWrapupInProgress>[3],
-		): boolean => {
-			const updated = updateWrapupInProgress(
-				deps.db,
-				sessionId,
-				holderId,
-				updates,
-			);
+		const renewWrapupMarker = (updates: Parameters<typeof updateWrapupInProgress>[3]): boolean => {
+			const updated = updateWrapupInProgress(deps.db, sessionId, holderId, updates);
 			if (!updated) {
 				markOwnershipLost();
 				return false;
@@ -350,10 +307,7 @@ export async function runPiWrapup(
 				if (
 					!renewWrapupMarker({
 						chunkIndex,
-						lastCompartmentEnd: getLastCompartmentEndMessage(
-							deps.db,
-							sessionId,
-						),
+						lastCompartmentEnd: getLastCompartmentEndMessage(deps.db, sessionId),
 					})
 				) {
 					failure = `${ownershipLostReason}; wrapped up through message ${lastEnd}. Run /ctx-wrapup again to continue.`;
@@ -385,17 +339,11 @@ export async function runPiWrapup(
 				if (
 					!renewWrapupMarker({
 						chunkIndex,
-						lastCompartmentEnd: getLastCompartmentEndMessage(
-							deps.db,
-							sessionId,
-						),
+						lastCompartmentEnd: getLastCompartmentEndMessage(deps.db, sessionId),
 						targetEligibleEndOrdinal: plan.targetEligibleEndOrdinal,
 						expectedChunks: Math.max(
 							chunkIndex,
-							estimateChunks(
-								plan.snapshot.trueRawEligibleTokens,
-								deps.historianChunkTokens,
-							),
+							estimateChunks(plan.snapshot.trueRawEligibleTokens, deps.historianChunkTokens),
 						),
 					})
 				) {
@@ -513,10 +461,7 @@ export async function runPiWrapup(
 			}
 			const finalCompartmentCount = getCompartments(deps.db, sessionId).length;
 			const messagesWrapped = Math.max(0, finalEnd - startEnd);
-			const compartmentsCreated = Math.max(
-				0,
-				finalCompartmentCount - startCompartmentCount,
-			);
+			const compartmentsCreated = Math.max(0, finalCompartmentCount - startCompartmentCount);
 			if (failure) {
 				return wrapupOutcome(
 					false,
@@ -568,23 +513,18 @@ function resolvePiContextLimit(
 async function acquireCompartmentLeaseEventually(
 	db: ContextDatabase,
 	sessionId: string,
-	renewWrapupMarker: (
-		updates: Parameters<typeof updateWrapupInProgress>[3],
-	) => boolean,
+	renewWrapupMarker: (updates: Parameters<typeof updateWrapupInProgress>[3]) => boolean,
 	maxWaitMs: number,
 ): Promise<LeaseAcquireResult> {
 	const waitStartedAt = Date.now();
-	const remainingMs = (): number =>
-		Math.max(0, waitStartedAt + maxWaitMs - Date.now());
+	const remainingMs = (): number => Math.max(0, waitStartedAt + maxWaitMs - Date.now());
 	for (;;) {
 		if (remainingMs() <= 0) return { ok: false, reason: "timeout" };
 		const holderId = crypto.randomUUID();
 		const lease = acquireCompartmentLease(db, sessionId, holderId);
 		if (lease) return { ok: true, holderId };
 		if (!renewWrapupMarker({})) return { ok: false, reason: "ownership_lost" };
-		await new Promise((resolve) =>
-			setTimeout(resolve, Math.min(LEASE_WAIT_MS, remainingMs())),
-		);
+		await new Promise((resolve) => setTimeout(resolve, Math.min(LEASE_WAIT_MS, remainingMs())));
 	}
 }
 
@@ -592,9 +532,7 @@ function estimateChunks(tokens: number, chunkTokens: number): number {
 	return Math.max(1, Math.ceil(Math.max(0, tokens) / Math.max(1, chunkTokens)));
 }
 
-function formatExistingWrapup(
-	state: ReturnType<typeof getWrapupInProgressState>,
-): string {
+function formatExistingWrapup(state: ReturnType<typeof getWrapupInProgressState>): string {
 	if (!state) {
 		return "## Magic Wrapup — Skipped\n\nAnother /ctx-wrapup is already compacting this session. Wait for it to finish, then try again.";
 	}
@@ -602,12 +540,8 @@ function formatExistingWrapup(
 }
 
 function readBranchEntries(ctx: ExtensionCommandContext): unknown[] {
-	const getBranch = (ctx.sessionManager as { getBranch?: () => unknown })
-		.getBranch;
+	const getBranch = (ctx.sessionManager as { getBranch?: () => unknown }).getBranch;
 	if (typeof getBranch !== "function") return [];
-	const branch = getBranch.call(ctx.sessionManager) as
-		| { entries?: unknown }
-		| null
-		| undefined;
+	const branch = getBranch.call(ctx.sessionManager) as { entries?: unknown } | null | undefined;
 	return Array.isArray(branch?.entries) ? branch.entries : [];
 }

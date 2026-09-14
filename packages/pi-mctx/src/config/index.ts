@@ -5,9 +5,9 @@ import {
 	defaultPiSettingsPaths,
 	getRuntimeSettingsRegistry,
 	type SettingField,
-	type SettingValue,
 	type SettingsProvider,
 	type SettingsState,
+	type SettingValue,
 } from "@hheei/pi-ext-core";
 import {
 	DEFAULT_LOCAL_EMBEDDING_MODEL,
@@ -139,11 +139,7 @@ function settingValue(state: SettingsState, field: string): unknown {
 	return state[PI_MCTX_SETTINGS_GROUP]?.[field];
 }
 
-function settingBoolean(
-	state: SettingsState,
-	field: string,
-	fallback: boolean,
-): boolean {
+function settingBoolean(state: SettingsState, field: string, fallback: boolean): boolean {
 	const value = settingValue(state, field);
 	return typeof value === "boolean" ? value : fallback;
 }
@@ -161,16 +157,16 @@ function settingNumber(
 	maximum?: number,
 ): number {
 	const value = settingValue(state, field);
-	return typeof value === "number" && Number.isFinite(value) && value >= minimum &&
+	return typeof value === "number" &&
+		Number.isFinite(value) &&
+		value >= minimum &&
 		(maximum === undefined || value <= maximum)
 		? value
 		: fallback;
 }
 
 /** Converts flat ext-core settings into the Pi MCTX runtime schema. */
-export function resolvePiMctxSettings(
-	state: SettingsState = {},
-): MagicContextConfig {
+export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextConfig {
 	const memory = DEFAULT_CONFIG.memory;
 	const historianEnabled = settingBoolean(
 		state,
@@ -189,34 +185,32 @@ export function resolvePiMctxSettings(
 	const embeddingModel = settingText(state, EMBEDDING_MODEL_FIELD);
 	const embeddingEndpoint = settingText(state, EMBEDDING_ENDPOINT_FIELD);
 	const embeddingApiKeyEnv = settingText(state, EMBEDDING_API_KEY_ENV_FIELD);
-	const embeddingApiKey = embeddingApiKeyEnv && /^[A-Z_][A-Z0-9_]*$/.test(embeddingApiKeyEnv)
-		? process.env[embeddingApiKeyEnv]
-		: undefined;
-	const embedding = embeddingProvider === "off"
-		? { provider: "off" as const }
-		: embeddingProvider === "openai-compatible" && embeddingModel && embeddingEndpoint
-			? {
-				provider: "openai-compatible" as const,
-				model: embeddingModel,
-				endpoint: embeddingEndpoint,
-				...(embeddingApiKey ? { api_key: embeddingApiKey } : {}),
-			}
-			: embeddingProvider === "local"
+	const embeddingApiKey =
+		embeddingApiKeyEnv && /^[A-Z_][A-Z0-9_]*$/.test(embeddingApiKeyEnv)
+			? process.env[embeddingApiKeyEnv]
+			: undefined;
+	const embedding =
+		embeddingProvider === "off"
+			? { provider: "off" as const }
+			: embeddingProvider === "openai-compatible" && embeddingModel && embeddingEndpoint
 				? {
-					provider: "local" as const,
-					model: embeddingModel ?? DEFAULT_LOCAL_EMBEDDING_MODEL,
-				}
-				: DEFAULT_CONFIG.embedding;
+						provider: "openai-compatible" as const,
+						model: embeddingModel,
+						endpoint: embeddingEndpoint,
+						...(embeddingApiKey ? { api_key: embeddingApiKey } : {}),
+					}
+				: embeddingProvider === "local"
+					? {
+							provider: "local" as const,
+							model: embeddingModel ?? DEFAULT_LOCAL_EMBEDDING_MODEL,
+						}
+					: DEFAULT_CONFIG.embedding;
 
 	return MagicContextConfigSchema.parse({
 		enabled: settingBoolean(state, ENABLED_FIELD, DEFAULT_CONFIG.enabled),
 		compaction: {
 			...DEFAULT_CONFIG.compaction,
-			enabled: settingBoolean(
-				state,
-				COMPACTION_ENABLED_FIELD,
-				DEFAULT_CONFIG.compaction.enabled,
-			),
+			enabled: settingBoolean(state, COMPACTION_ENABLED_FIELD, DEFAULT_CONFIG.compaction.enabled),
 		},
 		system_prompt_injection: {
 			...DEFAULT_CONFIG.system_prompt_injection,
@@ -278,11 +272,7 @@ export function resolvePiMctxSettings(
 				500,
 				20_000,
 			),
-			auto_promote: settingBoolean(
-				state,
-				MEMORY_AUTO_PROMOTE_FIELD,
-				memory.auto_promote,
-			),
+			auto_promote: settingBoolean(state, MEMORY_AUTO_PROMOTE_FIELD, memory.auto_promote),
 			retrieval_count_promotion_threshold: settingNumber(
 				state,
 				MEMORY_RETRIEVAL_PROMOTION_THRESHOLD_FIELD,
@@ -337,13 +327,13 @@ export function resolvePiMctxSettings(
 		embedding,
 		dreamer: dreamerEnabled
 			? {
-				...(dreamerModel ? { model: dreamerModel } : {}),
-				inject_docs: settingBoolean(
-					state,
-					DREAMER_INJECT_DOCS_FIELD,
-					DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
-				),
-			}
+					...(dreamerModel ? { model: dreamerModel } : {}),
+					inject_docs: settingBoolean(
+						state,
+						DREAMER_INJECT_DOCS_FIELD,
+						DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
+					),
+				}
 			: undefined,
 		...(sidekickModel ? { sidekick: { model: sidekickModel } } : {}),
 	});
@@ -351,9 +341,7 @@ export function resolvePiMctxSettings(
 
 function readPiMctxSettings(): SettingsState {
 	try {
-		const root = JSON.parse(
-			readFileSync(defaultPiSettingsPaths().globalPath, "utf8"),
-		) as unknown;
+		const root = JSON.parse(readFileSync(defaultPiSettingsPaths().globalPath, "utf8")) as unknown;
 		if (!isRecord(root)) return {};
 		const section = root[PI_MCTX_SETTINGS_SECTION];
 		if (!isRecord(section)) return {};
@@ -385,7 +373,8 @@ export function resetPiMctxConfigForReload(): void {
 export function createPiMctxSettingsProvider(): SettingsProvider {
 	const memory = DEFAULT_CONFIG.memory;
 	const historianEnabled = DEFAULT_CONFIG.historian?.disable !== true;
-	const dreamerEnabled = DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true;
+	const dreamerEnabled =
+		DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true;
 	return {
 		id: PI_MCTX_SETTINGS_SECTION,
 		title: "Magic Context",
@@ -397,35 +386,201 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 				title: "Operational",
 				description: "Global Pi MCTX controls applied at the next extension boot.",
 				fields: [
-					booleanField({ id: ENABLED_FIELD, label: "enabled", defaultValue: DEFAULT_CONFIG.enabled, description: "Enable Magic Context commands, tools, widgets, and lifecycle handlers after reload." }),
-					booleanField({ id: COMPACTION_ENABLED_FIELD, label: "compaction", defaultValue: DEFAULT_CONFIG.compaction.enabled, description: "Enable Magic Context compaction instead of leaving context management to native Pi." }),
-					booleanField({ id: SYSTEM_PROMPT_INJECTION_FIELD, label: "system prompt injection", defaultValue: DEFAULT_CONFIG.system_prompt_injection.enabled, description: "Inject Magic Context instructions into supported agent system prompts after reload." }),
-					booleanField({ id: TEMPORAL_AWARENESS_FIELD, label: "temporal awareness", defaultValue: DEFAULT_CONFIG.temporal_awareness, description: "Inject elapsed-time and date markers into context after the next reload." }),
-					booleanField({ id: MEMORY_ENABLED_FIELD, label: "memory", defaultValue: memory.enabled, description: "Enable cross-session memory indexing, retrieval, and memory-aware commands after reload." }),
-					numberField({ id: MEMORY_INJECTION_BUDGET_FIELD, label: "memory injection budget", defaultValue: memory.injection_budget_tokens, description: "Reserve tokens for memory injection after the next reload.", minimum: 500, maximum: 20_000 }),
-					booleanField({ id: MEMORY_AUTO_PROMOTE_FIELD, label: "memory auto promote", defaultValue: memory.auto_promote, description: "Promote eligible session observations into durable memory after reload." }),
-					numberField({ id: MEMORY_RETRIEVAL_PROMOTION_THRESHOLD_FIELD, label: "memory promotion retrievals", defaultValue: memory.retrieval_count_promotion_threshold, description: "Require this many retrievals before memory promotion after reload.", minimum: 1 }),
-					booleanField({ id: MEMORY_AUTO_SEARCH_ENABLED_FIELD, label: "memory auto search", defaultValue: memory.auto_search.enabled, description: "Add related-memory search hints to eligible user prompts after the next reload." }),
-					numberField({ id: MEMORY_AUTO_SEARCH_SCORE_THRESHOLD_FIELD, label: "memory search score", defaultValue: memory.auto_search.score_threshold, description: "Require this top search score before showing a memory hint after reload.", minimum: 0.3, maximum: 0.95 }),
-					numberField({ id: MEMORY_AUTO_SEARCH_MIN_PROMPT_CHARS_FIELD, label: "memory search prompt length", defaultValue: memory.auto_search.min_prompt_chars, description: "Skip memory search hints below this prompt length after reload.", minimum: 5, maximum: 500 }),
-					booleanField({ id: MEMORY_GIT_COMMIT_INDEXING_ENABLED_FIELD, label: "git commit indexing", defaultValue: memory.git_commit_indexing.enabled, description: "Index project Git commits as a ctx_search source after reload." }),
-					numberField({ id: MEMORY_GIT_COMMIT_SINCE_DAYS_FIELD, label: "git history days", defaultValue: memory.git_commit_indexing.since_days, description: "Index this many days of Git history after the next reload.", minimum: 7, maximum: 3650 }),
-					numberField({ id: MEMORY_GIT_COMMIT_MAX_COMMITS_FIELD, label: "git commit limit", defaultValue: memory.git_commit_indexing.max_commits, description: "Keep at most this many indexed Git commits per project after reload.", minimum: 100, maximum: 20_000 }),
-					booleanField({ id: HISTORIAN_ENABLED_FIELD, label: "historian", defaultValue: historianEnabled, description: "Enable historian runs that prepare and summarize long session context." }),
-					textField({ id: HISTORIAN_MODEL_FIELD, label: "historian model", description: "Pi provider/model ID for historian runs, for example github-copilot/gpt-5.4. Leave empty to disable historian calls." }),
-					booleanField({ id: HISTORIAN_TWO_PASS_FIELD, label: "historian two pass", defaultValue: DEFAULT_CONFIG.historian?.two_pass ?? false, description: "Run a second historian cleanup pass after the primary pass." }),
-					numberField({ id: HISTORIAN_TIMEOUT_FIELD, label: "historian timeout", defaultValue: DEFAULT_CONFIG.historian_timeout_ms, description: "Allow this many milliseconds for each historian prompt call.", minimum: 60_000 }),
-					numberField({ id: HISTORY_BUDGET_FIELD, label: "history budget", defaultValue: DEFAULT_CONFIG.history_budget_percentage, description: "Reserve this fraction of usable context for the historian history block.", minimum: 0.05, maximum: 0.5 }),
-					booleanField({ id: COMMIT_CLUSTER_TRIGGER_ENABLED_FIELD, label: "commit cluster trigger", defaultValue: DEFAULT_CONFIG.commit_cluster_trigger.enabled, description: "Trigger historian runs when unsummarized Git clusters accumulate." }),
-					numberField({ id: COMMIT_CLUSTER_MIN_CLUSTERS_FIELD, label: "commit clusters", defaultValue: DEFAULT_CONFIG.commit_cluster_trigger.min_clusters, description: "Require this many commit clusters before triggering historian work.", minimum: 1 }),
-					booleanField({ id: DREAMER_ENABLED_FIELD, label: "dreamer", defaultValue: dreamerEnabled, description: "Enable Dreamer background tasks using canonical default schedules." }),
-					textField({ id: DREAMER_MODEL_FIELD, label: "dreamer model", description: "Pi provider/model ID for Dreamer tasks. Leave empty to use existing task session-model fallback where available." }),
-					booleanField({ id: DREAMER_INJECT_DOCS_FIELD, label: "dreamer project docs", defaultValue: DEFAULT_CONFIG.dreamer?.inject_docs ?? true, description: "Inject project documentation into Dreamer task prompts after reload." }),
-					textField({ id: SIDEKICK_MODEL_FIELD, label: "sidekick model", description: "Pi provider/model ID for sidekick retrieval runs. Leave empty to disable sidekick calls." }),
-					textField({ id: EMBEDDING_PROVIDER_FIELD, label: "embedding provider", defaultValue: DEFAULT_CONFIG.embedding.provider, description: "Embedding backend: local, openai-compatible, or off." }),
-					textField({ id: EMBEDDING_MODEL_FIELD, label: "embedding model", defaultValue: DEFAULT_CONFIG.embedding.provider === "local" ? DEFAULT_CONFIG.embedding.model : "", description: "Local or remote embedding model ID. Remote mode requires this value and an endpoint." }),
-					textField({ id: EMBEDDING_ENDPOINT_FIELD, label: "embedding endpoint", description: "OpenAI-compatible embedding API endpoint. Applies only in remote mode." }),
-					environmentVariableField({ id: EMBEDDING_API_KEY_ENV_FIELD, label: "embedding API key env", description: "Environment variable containing the remote embedding API key. The key itself is never saved in Pi settings." }),
+					booleanField({
+						id: ENABLED_FIELD,
+						label: "enabled",
+						defaultValue: DEFAULT_CONFIG.enabled,
+						description:
+							"Enable Magic Context commands, tools, widgets, and lifecycle handlers after reload.",
+					}),
+					booleanField({
+						id: COMPACTION_ENABLED_FIELD,
+						label: "compaction",
+						defaultValue: DEFAULT_CONFIG.compaction.enabled,
+						description:
+							"Enable Magic Context compaction instead of leaving context management to native Pi.",
+					}),
+					booleanField({
+						id: SYSTEM_PROMPT_INJECTION_FIELD,
+						label: "system prompt injection",
+						defaultValue: DEFAULT_CONFIG.system_prompt_injection.enabled,
+						description:
+							"Inject Magic Context instructions into supported agent system prompts after reload.",
+					}),
+					booleanField({
+						id: TEMPORAL_AWARENESS_FIELD,
+						label: "temporal awareness",
+						defaultValue: DEFAULT_CONFIG.temporal_awareness,
+						description: "Inject elapsed-time and date markers into context after the next reload.",
+					}),
+					booleanField({
+						id: MEMORY_ENABLED_FIELD,
+						label: "memory",
+						defaultValue: memory.enabled,
+						description:
+							"Enable cross-session memory indexing, retrieval, and memory-aware commands after reload.",
+					}),
+					numberField({
+						id: MEMORY_INJECTION_BUDGET_FIELD,
+						label: "memory injection budget",
+						defaultValue: memory.injection_budget_tokens,
+						description: "Reserve tokens for memory injection after the next reload.",
+						minimum: 500,
+						maximum: 20_000,
+					}),
+					booleanField({
+						id: MEMORY_AUTO_PROMOTE_FIELD,
+						label: "memory auto promote",
+						defaultValue: memory.auto_promote,
+						description: "Promote eligible session observations into durable memory after reload.",
+					}),
+					numberField({
+						id: MEMORY_RETRIEVAL_PROMOTION_THRESHOLD_FIELD,
+						label: "memory promotion retrievals",
+						defaultValue: memory.retrieval_count_promotion_threshold,
+						description: "Require this many retrievals before memory promotion after reload.",
+						minimum: 1,
+					}),
+					booleanField({
+						id: MEMORY_AUTO_SEARCH_ENABLED_FIELD,
+						label: "memory auto search",
+						defaultValue: memory.auto_search.enabled,
+						description:
+							"Add related-memory search hints to eligible user prompts after the next reload.",
+					}),
+					numberField({
+						id: MEMORY_AUTO_SEARCH_SCORE_THRESHOLD_FIELD,
+						label: "memory search score",
+						defaultValue: memory.auto_search.score_threshold,
+						description: "Require this top search score before showing a memory hint after reload.",
+						minimum: 0.3,
+						maximum: 0.95,
+					}),
+					numberField({
+						id: MEMORY_AUTO_SEARCH_MIN_PROMPT_CHARS_FIELD,
+						label: "memory search prompt length",
+						defaultValue: memory.auto_search.min_prompt_chars,
+						description: "Skip memory search hints below this prompt length after reload.",
+						minimum: 5,
+						maximum: 500,
+					}),
+					booleanField({
+						id: MEMORY_GIT_COMMIT_INDEXING_ENABLED_FIELD,
+						label: "git commit indexing",
+						defaultValue: memory.git_commit_indexing.enabled,
+						description: "Index project Git commits as a ctx_search source after reload.",
+					}),
+					numberField({
+						id: MEMORY_GIT_COMMIT_SINCE_DAYS_FIELD,
+						label: "git history days",
+						defaultValue: memory.git_commit_indexing.since_days,
+						description: "Index this many days of Git history after the next reload.",
+						minimum: 7,
+						maximum: 3650,
+					}),
+					numberField({
+						id: MEMORY_GIT_COMMIT_MAX_COMMITS_FIELD,
+						label: "git commit limit",
+						defaultValue: memory.git_commit_indexing.max_commits,
+						description: "Keep at most this many indexed Git commits per project after reload.",
+						minimum: 100,
+						maximum: 20_000,
+					}),
+					booleanField({
+						id: HISTORIAN_ENABLED_FIELD,
+						label: "historian",
+						defaultValue: historianEnabled,
+						description: "Enable historian runs that prepare and summarize long session context.",
+					}),
+					textField({
+						id: HISTORIAN_MODEL_FIELD,
+						label: "historian model",
+						description:
+							"Pi provider/model ID for historian runs, for example github-copilot/gpt-5.4. Leave empty to disable historian calls.",
+					}),
+					booleanField({
+						id: HISTORIAN_TWO_PASS_FIELD,
+						label: "historian two pass",
+						defaultValue: DEFAULT_CONFIG.historian?.two_pass ?? false,
+						description: "Run a second historian cleanup pass after the primary pass.",
+					}),
+					numberField({
+						id: HISTORIAN_TIMEOUT_FIELD,
+						label: "historian timeout",
+						defaultValue: DEFAULT_CONFIG.historian_timeout_ms,
+						description: "Allow this many milliseconds for each historian prompt call.",
+						minimum: 60_000,
+					}),
+					numberField({
+						id: HISTORY_BUDGET_FIELD,
+						label: "history budget",
+						defaultValue: DEFAULT_CONFIG.history_budget_percentage,
+						description: "Reserve this fraction of usable context for the historian history block.",
+						minimum: 0.05,
+						maximum: 0.5,
+					}),
+					booleanField({
+						id: COMMIT_CLUSTER_TRIGGER_ENABLED_FIELD,
+						label: "commit cluster trigger",
+						defaultValue: DEFAULT_CONFIG.commit_cluster_trigger.enabled,
+						description: "Trigger historian runs when unsummarized Git clusters accumulate.",
+					}),
+					numberField({
+						id: COMMIT_CLUSTER_MIN_CLUSTERS_FIELD,
+						label: "commit clusters",
+						defaultValue: DEFAULT_CONFIG.commit_cluster_trigger.min_clusters,
+						description: "Require this many commit clusters before triggering historian work.",
+						minimum: 1,
+					}),
+					booleanField({
+						id: DREAMER_ENABLED_FIELD,
+						label: "dreamer",
+						defaultValue: dreamerEnabled,
+						description: "Enable Dreamer background tasks using canonical default schedules.",
+					}),
+					textField({
+						id: DREAMER_MODEL_FIELD,
+						label: "dreamer model",
+						description:
+							"Pi provider/model ID for Dreamer tasks. Leave empty to use existing task session-model fallback where available.",
+					}),
+					booleanField({
+						id: DREAMER_INJECT_DOCS_FIELD,
+						label: "dreamer project docs",
+						defaultValue: DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
+						description: "Inject project documentation into Dreamer task prompts after reload.",
+					}),
+					textField({
+						id: SIDEKICK_MODEL_FIELD,
+						label: "sidekick model",
+						description:
+							"Pi provider/model ID for sidekick retrieval runs. Leave empty to disable sidekick calls.",
+					}),
+					textField({
+						id: EMBEDDING_PROVIDER_FIELD,
+						label: "embedding provider",
+						defaultValue: DEFAULT_CONFIG.embedding.provider,
+						description: "Embedding backend: local, openai-compatible, or off.",
+					}),
+					textField({
+						id: EMBEDDING_MODEL_FIELD,
+						label: "embedding model",
+						defaultValue:
+							DEFAULT_CONFIG.embedding.provider === "local" ? DEFAULT_CONFIG.embedding.model : "",
+						description:
+							"Local or remote embedding model ID. Remote mode requires this value and an endpoint.",
+					}),
+					textField({
+						id: EMBEDDING_ENDPOINT_FIELD,
+						label: "embedding endpoint",
+						description: "OpenAI-compatible embedding API endpoint. Applies only in remote mode.",
+					}),
+					environmentVariableField({
+						id: EMBEDDING_API_KEY_ENV_FIELD,
+						label: "embedding API key env",
+						description:
+							"Environment variable containing the remote embedding API key. The key itself is never saved in Pi settings.",
+					}),
 				],
 			},
 		],
@@ -438,7 +593,5 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 
 /** Replaces stale providers when Pi reloads the extension. */
 export function registerPiMctxSettings(pi: ExtensionAPI): () => void {
-	return getRuntimeSettingsRegistry(pi).replace(
-		createPiMctxSettingsProvider(),
-	);
+	return getRuntimeSettingsRegistry(pi).replace(createPiMctxSettingsProvider());
 }

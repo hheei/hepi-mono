@@ -10,40 +10,38 @@ import type { DreamTaskRuntimeConfig } from "./task-scheduler";
  * task-specific params. One place owns the inheritance rule.
  */
 export function buildDreamTaskRuntimeConfigs(
-    dreamer: DreamerConfig,
-    language?: string,
+	dreamer: DreamerConfig,
+	language?: string,
 ): DreamTaskRuntimeConfig[] {
-    // Defensive: `tasks` is always the v2 record after config load (Zod default),
-    // but background/test callers can hand a partially-shaped object; treat a
-    // missing entry as a disabled task with defaults rather than crashing.
-    const tasks = (dreamer.tasks ?? {}) as Partial<DreamerConfig["tasks"]>;
-    return CANONICAL_DREAM_TASKS.map((task) => {
-        const t = (tasks[task] ?? {
-            schedule: "",
-            timeout_minutes: 20,
-        }) as DreamTaskConfig;
-        // Per-task model override falls back to the dreamer-level model. Fallback
-        // chain: per-task list if set, else the dreamer-level list (resolved/deduped).
-        // compress-cues has a separate experimental.mural.model fallback. Leave its
-        // primary model empty here so the executor can apply task override →
-        // experimental.mural.model → dreamer model in that order (same ladder as
-        // the retired render-mural task used for its author model).
-        const model = task === "compress-cues" ? t.model : (t.model ?? dreamer.model);
-        const fallbackModels = resolveFallbackChain(t.fallback_models ?? dreamer.fallback_models);
-        const thinkingLevel = t.thinking_level ?? dreamer.thinking_level;
-        return {
-            task,
-            schedule: t.schedule,
-            ...(model === undefined ? {} : { model }),
-            ...(fallbackModels === undefined ? {} : { fallbackModels }),
-            ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-            ...(language === undefined ? {} : { language }),
-            timeoutMinutes: t.timeout_minutes ?? 20,
-            ...(t.promotion_threshold === undefined
-                ? {}
-                : { promotionThreshold: t.promotion_threshold }),
-        };
-    });
+	// Defensive: `tasks` is always the v2 record after config load (Zod default),
+	// but background/test callers can hand a partially-shaped object; treat a
+	// missing entry as a disabled task with defaults rather than crashing.
+	const tasks = (dreamer.tasks ?? {}) as Partial<DreamerConfig["tasks"]>;
+	return CANONICAL_DREAM_TASKS.map((task) => {
+		const t = (tasks[task] ?? {
+			schedule: "",
+			timeout_minutes: 20,
+		}) as DreamTaskConfig;
+		// Per-task model override falls back to the dreamer-level model. Fallback
+		// chain: per-task list if set, else the dreamer-level list (resolved/deduped).
+		// compress-cues has a separate experimental.mural.model fallback. Leave its
+		// primary model empty here so the executor can apply task override →
+		// experimental.mural.model → dreamer model in that order (same ladder as
+		// the retired render-mural task used for its author model).
+		const model = task === "compress-cues" ? t.model : (t.model ?? dreamer.model);
+		const fallbackModels = resolveFallbackChain(t.fallback_models ?? dreamer.fallback_models);
+		const thinkingLevel = t.thinking_level ?? dreamer.thinking_level;
+		return {
+			task,
+			schedule: t.schedule,
+			...(model === undefined ? {} : { model }),
+			...(fallbackModels === undefined ? {} : { fallbackModels }),
+			...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+			...(language === undefined ? {} : { language }),
+			timeoutMinutes: t.timeout_minutes ?? 20,
+			...(t.promotion_threshold === undefined ? {} : { promotionThreshold: t.promotion_threshold }),
+		};
+	});
 }
 
 /**
@@ -53,35 +51,35 @@ export function buildDreamTaskRuntimeConfigs(
  * `user_memories.enabled` flag, which both gated collection AND review.
  */
 export function userMemoryCollectionEnabled(dreamer: DreamerConfig | undefined): boolean {
-    const schedule = dreamer?.tasks?.["review-user-memories"]?.schedule;
-    return typeof schedule === "string" && schedule.trim() !== "";
+	const schedule = dreamer?.tasks?.["review-user-memories"]?.schedule;
+	return typeof schedule === "string" && schedule.trim() !== "";
 }
 
 /** The promotion threshold for user-memory review (collection + review share it). */
 export function userMemoryPromotionThreshold(dreamer: DreamerConfig | undefined): number {
-    return dreamer?.tasks?.["review-user-memories"]?.promotion_threshold ?? 3;
+	return dreamer?.tasks?.["review-user-memories"]?.promotion_threshold ?? 3;
 }
 
 /** True when a task is scheduled (schedule != ""). Generic enable check. */
 export function dreamTaskScheduled(
-    dreamer: DreamerConfig | undefined,
-    task: keyof NonNullable<DreamerConfig["tasks"]>,
+	dreamer: DreamerConfig | undefined,
+	task: keyof NonNullable<DreamerConfig["tasks"]>,
 ): boolean {
-    const schedule = dreamer?.tasks?.[task]?.schedule;
-    return typeof schedule === "string" && schedule.trim() !== "";
+	const schedule = dreamer?.tasks?.[task]?.schedule;
+	return typeof schedule === "string" && schedule.trim() !== "";
 }
 
 /** Names of the tasks the user has scheduled (schedule != ""), in canonical order. */
 export function enabledDreamTasks(dreamer: DreamerConfig | undefined): DreamTaskName[] {
-    if (!dreamer?.tasks) return [];
-    return CANONICAL_DREAM_TASKS.filter((t) => dreamer.tasks[t]?.schedule?.trim());
+	if (!dreamer?.tasks) return [];
+	return CANONICAL_DREAM_TASKS.filter((t) => dreamer.tasks[t]?.schedule?.trim());
 }
 
 /** A compact `/ctx-status`-style schedule summary, e.g.
  *  "verify 0 3 * * *, curate 0 4 * * 0" — or "manual-only" when nothing is
  *  scheduled. */
 export function summarizeDreamSchedule(dreamer: DreamerConfig | undefined): string {
-    const enabled = enabledDreamTasks(dreamer);
-    if (enabled.length === 0) return "manual-only";
-    return enabled.map((t) => `${t} ${dreamer?.tasks[t]?.schedule}`).join(", ");
+	const enabled = enabledDreamTasks(dreamer);
+	if (enabled.length === 0) return "manual-only";
+	return enabled.map((t) => `${t} ${dreamer?.tasks[t]?.schedule}`).join(", ");
 }

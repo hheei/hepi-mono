@@ -8,18 +8,18 @@
  * while preserving `unknown` at this boundary.
  */
 type SessionOperation = {
-    bivarianceHack(input: unknown): Promise<unknown>;
+	bivarianceHack(input: unknown): Promise<unknown>;
 }["bivarianceHack"];
 
 export interface PluginContext {
-    client: {
-        session: {
-            create: SessionOperation;
-            delete: SessionOperation;
-            get: SessionOperation;
-            list: SessionOperation;
-            messages: SessionOperation;
-            prompt: SessionOperation;
-        };
-    };
+	client: {
+		session: {
+			create: SessionOperation;
+			delete: SessionOperation;
+			get: SessionOperation;
+			list: SessionOperation;
+			messages: SessionOperation;
+			prompt: SessionOperation;
+		};
+	};
 }

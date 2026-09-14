@@ -2,19 +2,16 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
+import { initializeDatabase } from "../../src/core/features/storage-db";
 import {
 	publishHandoffContext,
 	registerHandoffCommand,
 	runHandoffCommand,
 } from "../../src/handoff/command";
-import {
-	HANDOFF_CONTEXT_TYPE,
-	type HandoffContextDetails,
-} from "../../src/handoff/model";
 import { acquireHandoffLease } from "../../src/handoff/lease";
+import { HANDOFF_CONTEXT_TYPE } from "../../src/handoff/model";
 
 function createDb(): Database {
 	const db = new Database(":memory:");
@@ -23,10 +20,7 @@ function createDb(): Database {
 	return db;
 }
 
-function ctx(
-	warnings: string[],
-	overrides: Record<string, unknown> = {},
-) {
+function ctx(warnings: string[], overrides: Record<string, unknown> = {}) {
 	return {
 		cwd: "/tmp/project",
 		model: { provider: "anthropic", id: "claude", contextWindow: 200_000 },
@@ -56,21 +50,27 @@ describe("handoff command", () => {
 		try {
 			await publishHandoffContext(
 				{
-					sendMessage(message, options) {
+					async sendMessage(message: unknown, options?: unknown) {
 						sent.push({ message, options });
 					},
 					sessionManager: {
 						getSessionFile: () => sessionFile,
-						getHeader: () => ({ type: "session", id: "dest", cwd: "/tmp" }),
-						getEntries: () => [
-							{
-								type: "custom_message",
-								customType: HANDOFF_CONTEXT_TYPE,
-								content: "<handoff-context/>",
-							},
-						],
+						getHeader: () => ({
+							type: "session",
+							id: "dest",
+							cwd: "/tmp",
+							timestamp: 0,
+						}),
+						getEntries: () =>
+							[
+								{
+									type: "custom_message",
+									customType: HANDOFF_CONTEXT_TYPE,
+									content: "<handoff-context/>",
+								},
+							] as never,
 					},
-				},
+				} as never,
 				"<handoff-context/>",
 				{
 					requestId: "req-1",
@@ -81,7 +81,7 @@ describe("handoff command", () => {
 					thinkingLevel: "off",
 					generatedAt: "2026-01-01T00:00:00.000Z",
 					images: [],
-				} as HandoffContextDetails,
+				} as never,
 			);
 			expect(sent).toHaveLength(1);
 			expect(sent[0]?.options).toEqual({ triggerTurn: false });
@@ -128,7 +128,7 @@ describe("handoff command", () => {
 					compactionOff: false,
 					historianModel: "anthropic/claude",
 				} as never,
-				ctx(warnings),
+				ctx(warnings) as never,
 				"please continue",
 			);
 			expect(warnings.join("\n")).toContain("does not accept arguments");
@@ -164,7 +164,7 @@ describe("handoff command", () => {
 					...ctx(warnings),
 					getSystemPrompt: () => "system",
 					thinkingLevel: "off",
-				},
+				} as never,
 				"",
 			);
 			expect(warnings.join("\n")).toContain("The source session is still available.");
@@ -179,9 +179,7 @@ describe("handoff command", () => {
 		const db = createDb();
 		const warnings: string[] = [];
 		try {
-			expect(
-				acquireHandoffLease(db, "sess-1", "other", "req-hold", "summarizing"),
-			).not.toBeNull();
+			expect(acquireHandoffLease(db, "sess-1", "other", "req-hold", "summarizing")).not.toBeNull();
 			await runHandoffCommand(
 				{} as never,
 				{
@@ -189,7 +187,7 @@ describe("handoff command", () => {
 					compactionOff: false,
 					historianModel: "anthropic/claude",
 				} as never,
-				ctx(warnings),
+				ctx(warnings) as never,
 				"",
 			);
 			expect(warnings.join("\n")).toContain("req-hold");

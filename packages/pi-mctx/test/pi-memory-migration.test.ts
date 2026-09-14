@@ -1,21 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isMemoryMigrationDone } from "#core/features/memory/memory-migration";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
-import {
-	getMemoriesByProject,
-	insertMemory,
-} from "#core/features/memory/storage-memory";
-import {
-	closeDatabase,
-	openDatabase,
-} from "#core/features/storage";
-import type {
-	SubagentRunner,
-	SubagentRunResult,
-} from "#core/shared/subagent-runner";
+import { getMemoriesByProject, insertMemory } from "#core/features/memory/storage-memory";
+import { closeDatabase, openDatabase } from "#core/features/storage";
+import type { SubagentRunner, SubagentRunResult } from "#core/shared/subagent-runner";
 import { runPiMemoryMigration } from "../src/pi-memory-migration";
 
 let prevDataHome: string | undefined;
@@ -38,9 +29,11 @@ afterEach(() => {
 
 function runnerReturning(assistantText: string): SubagentRunner {
 	return {
+		harness: "test",
 		run: async (): Promise<SubagentRunResult> => ({
 			ok: true,
 			assistantText,
+			durationMs: 0,
 		}),
 	};
 }
@@ -58,12 +51,13 @@ function recordingRunner(succeedOnCall: number): {
 	return {
 		models,
 		runner: {
-			run: async (opts: { model?: string }): Promise<SubagentRunResult> => {
+			harness: "test",
+			run: async (opts): Promise<SubagentRunResult> => {
 				models.push(opts.model ?? "<default>");
 				return {
 					ok: true,
-					assistantText:
-						models.length >= succeedOnCall ? MIGRATED_XML : "no migrated block",
+					assistantText: models.length >= succeedOnCall ? MIGRATED_XML : "no migrated block",
+					durationMs: 0,
 				};
 			},
 		},
@@ -108,10 +102,7 @@ describe("Pi memory migration (E6c)", () => {
 
 		expect(outcome.ran).toBe(true);
 		const after = getMemoriesByProject(db, projectPath);
-		expect(after.map((m) => m.category).sort()).toEqual([
-			"ARCHITECTURE",
-			"CONFIG_VALUES",
-		]);
+		expect(after.map((m) => m.category).sort()).toEqual(["ARCHITECTURE", "CONFIG_VALUES"]);
 		expect(isMemoryMigrationDone(db, projectPath)).toBe(true);
 	});
 
@@ -222,10 +213,7 @@ describe("Pi memory migration (E6c)", () => {
 
 		// The escalation ORDER is the assertion: primary (empty) → fallback,
 		// with the historian model NEVER inserted between them.
-		expect(models).toEqual([
-			"session/main-model",
-			"anthropic/claude-sonnet-4-6",
-		]);
+		expect(models).toEqual(["session/main-model", "anthropic/claude-sonnet-4-6"]);
 		expect(models).not.toContain("historian/model");
 		expect(outcome.ran).toBe(true);
 	});

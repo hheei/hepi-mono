@@ -96,7 +96,7 @@ describe("injectPiTemporalMarkers", () => {
 		];
 		expect(injectPiTemporalMarkers(messages)).toBe(1);
 		const second = messages[1] as { content: Array<{ text: string }> };
-		expect(second.content[0].text).toBe("<!-- +10m -->\nLater");
+		expect(second.content[0]!.text).toBe("<!-- +10m -->\nLater");
 	});
 
 	it("does NOT inject markers on assistant messages", () => {
@@ -110,9 +110,7 @@ describe("injectPiTemporalMarkers", () => {
 			},
 		];
 		expect(injectPiTemporalMarkers(messages)).toBe(0);
-		expect(
-			(messages[1] as { content: Array<{ text: string }> }).content[0].text,
-		).toBe("Reply");
+		expect((messages[1]! as { content: Array<{ text: string }> }).content[0]!.text).toBe("Reply");
 	});
 
 	it("returns 0 when timestamps are missing on either side", () => {

@@ -30,11 +30,7 @@ export function applyDeferredPiCompactionMarker(
 	pending: PendingPiCompactionMarker,
 ): PiMarkerUpdateOutcome {
 	try {
-		const matches = getCompartmentsByEndMessageId(
-			deps.db,
-			sessionId,
-			pending.endMessageId,
-		);
+		const matches = getCompartmentsByEndMessageId(deps.db, sessionId, pending.endMessageId);
 		if (matches.length === 0 || matches.length > 1) {
 			if (matches.length > 1) {
 				sessionLog(
@@ -49,20 +45,14 @@ export function applyDeferredPiCompactionMarker(
 		}
 
 		const branchEntries = deps.readBranchEntries();
-		const pendingFirstKeptIndex = findEntryIndex(
-			branchEntries,
-			pending.firstKeptEntryId,
-		);
+		const pendingFirstKeptIndex = findEntryIndex(branchEntries, pending.firstKeptEntryId);
 		if (pendingFirstKeptIndex < 0) {
 			return { kind: "stale-skip", reason: "entry-removed" };
 		}
 
 		const latestFirstKept = findLatestCompactionFirstKept(branchEntries);
 		if (latestFirstKept !== null) {
-			const latestFirstKeptIndex = findEntryIndex(
-				branchEntries,
-				latestFirstKept,
-			);
+			const latestFirstKeptIndex = findEntryIndex(branchEntries, latestFirstKept);
 			if (latestFirstKeptIndex >= pendingFirstKeptIndex) {
 				return { kind: "already-current" };
 			}
@@ -100,17 +90,12 @@ export function applyDeferredPiCompactionMarker(
 	}
 }
 
-export function findLatestCompactionFirstKept(
-	branchEntries: unknown[],
-): string | null {
+export function findLatestCompactionFirstKept(branchEntries: unknown[]): string | null {
 	for (let i = branchEntries.length - 1; i >= 0; i--) {
 		const entry = branchEntries[i];
 		if (entry === null || typeof entry !== "object") continue;
 		const record = entry as { type?: unknown; firstKeptEntryId?: unknown };
-		if (
-			record.type === "compaction" &&
-			typeof record.firstKeptEntryId === "string"
-		) {
+		if (record.type === "compaction" && typeof record.firstKeptEntryId === "string") {
 			return record.firstKeptEntryId;
 		}
 	}

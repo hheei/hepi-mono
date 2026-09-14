@@ -31,53 +31,33 @@ function toolResult(text: string) {
 
 describe("detectRecentCommit", () => {
 	it("returns true when an assistant message has a hash + verb pair", async () => {
-		expect(
-			detectRecentCommit([assistant("Committed 4abc123 with the fix")]),
-		).toBe(true);
+		expect(detectRecentCommit([assistant("Committed 4abc123 with the fix")])).toBe(true);
 	});
 
 	it("recognizes 'committed' (past tense) as a commit verb", () => {
-		expect(
-			detectRecentCommit([assistant("I committed 1234abc to master")]),
-		).toBe(true);
+		expect(detectRecentCommit([assistant("I committed 1234abc to master")])).toBe(true);
 	});
 
 	it("recognizes 'merge' / 'rebase' / 'cherry-pick' as commit verbs", () => {
-		expect(detectRecentCommit([assistant("merged abc1234 into main")])).toBe(
-			true,
-		);
-		expect(
-			detectRecentCommit([assistant("rebased onto a1b2c3d cleanly")]),
-		).toBe(true);
-		expect(
-			detectRecentCommit([assistant("cherry-pick of feedb4d landed clean")]),
-		).toBe(true);
+		expect(detectRecentCommit([assistant("merged abc1234 into main")])).toBe(true);
+		expect(detectRecentCommit([assistant("rebased onto a1b2c3d cleanly")])).toBe(true);
+		expect(detectRecentCommit([assistant("cherry-pick of feedb4d landed clean")])).toBe(true);
 	});
 
 	it("returns false when text has a hash but no verb", () => {
-		expect(
-			detectRecentCommit([
-				assistant("Just sayin' something about hash 1234567"),
-			]),
-		).toBe(false);
+		expect(detectRecentCommit([assistant("Just sayin' something about hash 1234567")])).toBe(false);
 	});
 
 	it("returns false when text has a verb but no hash", () => {
-		expect(
-			detectRecentCommit([assistant("I plan to commit later today")]),
-		).toBe(false);
+		expect(detectRecentCommit([assistant("I plan to commit later today")])).toBe(false);
 	});
 
 	it("ignores user messages even if they mention a commit", () => {
-		expect(detectRecentCommit([user("Did you commit abc1234 yet?")])).toBe(
-			false,
-		);
+		expect(detectRecentCommit([user("Did you commit abc1234 yet?")])).toBe(false);
 	});
 
 	it("ignores toolResult messages even if they mention commits", () => {
-		expect(detectRecentCommit([toolResult("commit abc1234 by alice")])).toBe(
-			false,
-		);
+		expect(detectRecentCommit([toolResult("commit abc1234 by alice")])).toBe(false);
 	});
 
 	it("scans up to COMMIT_LOOKBACK (5) most-recent assistant messages", () => {
@@ -159,11 +139,7 @@ describe("detectRecentCommit", () => {
 	});
 
 	it("rejects too-long hex (> 12 chars)", () => {
-		expect(
-			detectRecentCommit([
-				assistant("committed abc1234567890abcdef but unsure"),
-			]),
-		).toBe(false);
+		expect(detectRecentCommit([assistant("committed abc1234567890abcdef but unsure")])).toBe(false);
 	});
 
 	it("works on a session-shaped messages array (mixed roles)", () => {

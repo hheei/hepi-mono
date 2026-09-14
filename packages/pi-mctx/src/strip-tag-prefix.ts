@@ -32,11 +32,7 @@ export function stripTagPrefixFromAssistantMessage(message: {
 	let mutated = false;
 
 	for (const part of message.content) {
-		if (
-			part === null ||
-			typeof part !== "object" ||
-			(part as { type?: unknown }).type !== "text"
-		) {
+		if (part === null || typeof part !== "object" || (part as { type?: unknown }).type !== "text") {
 			continue;
 		}
 

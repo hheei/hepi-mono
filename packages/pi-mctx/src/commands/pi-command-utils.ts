@@ -34,18 +34,14 @@ type PiEntryRendererRegistration = {
 			options: { expanded: boolean },
 			theme: Theme,
 		) => Component | undefined,
-	) => void | undefined;
+	) => void;
 };
 
-export type PiMessageSender = Pick<ExtensionAPI, "appendEntry"> &
-	PiEntryRendererRegistration;
+export type PiMessageSender = Pick<ExtensionAPI, "appendEntry"> & PiEntryRendererRegistration;
 
-export function resolveSessionId(
-	ctx: ExtensionCommandContext,
-): string | undefined {
+export function resolveSessionId(ctx: ExtensionCommandContext): string | undefined {
 	const sm = ctx.sessionManager;
-	const getSessionId = (sm as { getSessionId?: () => string | undefined })
-		.getSessionId;
+	const getSessionId = (sm as { getSessionId?: () => string | undefined }).getSessionId;
 	if (typeof getSessionId !== "function") return undefined;
 	try {
 		const id = getSessionId.call(sm);
@@ -68,11 +64,7 @@ function statusTitleColor(level: CtxStatusLevel | undefined) {
 	}
 }
 
-export const renderCtxStatusEntry: CtxStatusEntryRenderer = (
-	entry,
-	_options,
-	theme,
-) => {
+export const renderCtxStatusEntry: CtxStatusEntryRenderer = (entry, _options, theme) => {
 	const data = entry?.data;
 	if (
 		!data ||
@@ -83,9 +75,7 @@ export const renderCtxStatusEntry: CtxStatusEntryRenderer = (
 		return undefined;
 	}
 
-	const title = theme.bold(
-		theme.fg(statusTitleColor(data.level), `[${data.title}]`),
-	);
+	const title = theme.bold(theme.fg(statusTitleColor(data.level), `[${data.title}]`));
 	const body = theme.fg("customMessageText", data.text);
 	const box = new Box(1, 0, (text) => theme.bg("customMessageBg", text));
 	box.addChild(new Text(`${title}\n${body}`));
@@ -100,10 +90,7 @@ export const renderCtxStatusEntry: CtxStatusEntryRenderer = (
 export function registerCtxStatusEntryRenderer(pi: PiMessageSender): boolean {
 	if (typeof pi.registerEntryRenderer !== "function") return false;
 	try {
-		pi.registerEntryRenderer<CtxStatusEntryData>(
-			CTX_STATUS_CUSTOM_TYPE,
-			renderCtxStatusEntry,
-		);
+		pi.registerEntryRenderer<CtxStatusEntryData>(CTX_STATUS_CUSTOM_TYPE, renderCtxStatusEntry);
 		return true;
 	} catch {
 		return false;

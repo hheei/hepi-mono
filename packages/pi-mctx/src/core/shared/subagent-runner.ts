@@ -36,51 +36,51 @@
  *   (used by dreamer's lease-renewal-aborts-on-loss path).
  */
 export interface SubagentRunOptions {
-    agent: string;
-    systemPrompt: string;
-    userMessage: string;
-    model?: string | undefined;
-    fallbackModels?: readonly string[] | undefined;
-    timeoutMs?: number | undefined;
-    cwd?: string | undefined;
-    signal?: AbortSignal | undefined;
-    /**
-     * Pi only: explicit thinking level, passed as `--thinking <level>` to the
-     * Pi subprocess. legacy host ignores this field — thinking/reasoning is
-     * controlled via `variant` in the legacy host agent config instead.
-     *
-     * Required when the configured historian/dreamer model supports reasoning
-     * (e.g. github-copilot/gpt-5.4) because Pi's own default resolution may
-     * pick a value the provider rejects. Set to "off" to disable thinking for
-     * speed (local models), or "medium"/"high" for better quality.
-     */
-    thinkingLevel?: string | undefined;
+	agent: string;
+	systemPrompt: string;
+	userMessage: string;
+	model?: string | undefined;
+	fallbackModels?: readonly string[] | undefined;
+	timeoutMs?: number | undefined;
+	cwd?: string | undefined;
+	signal?: AbortSignal | undefined;
+	/**
+	 * Pi only: explicit thinking level, passed as `--thinking <level>` to the
+	 * Pi subprocess. legacy host ignores this field — thinking/reasoning is
+	 * controlled via `variant` in the legacy host agent config instead.
+	 *
+	 * Required when the configured historian/dreamer model supports reasoning
+	 * (e.g. github-copilot/gpt-5.4) because Pi's own default resolution may
+	 * pick a value the provider rejects. Set to "off" to disable thinking for
+	 * speed (local models), or "medium"/"high" for better quality.
+	 */
+	thinkingLevel?: string | undefined;
 
-    /**
-     * Optional progress callback. The runner invokes it for milestone events
-     * during the run: spawn, first event received, terminal stop reason
-     * detected, child exit. Used by historian/dreamer/sidekick to write
-     * lifecycle entries to the magic-context.log without polluting the
-     * normal stdout stream.
-     *
-     * Implementations must be non-throwing and fast — they're called on the
-     * runner's hot path. Errors are swallowed.
-     */
-    onProgress?: ((event: SubagentProgressEvent) => void) | undefined;
+	/**
+	 * Optional progress callback. The runner invokes it for milestone events
+	 * during the run: spawn, first event received, terminal stop reason
+	 * detected, child exit. Used by historian/dreamer/sidekick to write
+	 * lifecycle entries to the magic-context.log without polluting the
+	 * normal stdout stream.
+	 *
+	 * Implementations must be non-throwing and fast — they're called on the
+	 * runner's hot path. Errors are swallowed.
+	 */
+	onProgress?: ((event: SubagentProgressEvent) => void) | undefined;
 
-    /** Optional token accounting metadata. When present, harness runners persist subagent_invocations. */
-    accountingSessionId?: string | undefined;
-    accountingSubagent?:
-        | "historian"
-        | "historian_editor"
-        | "compressor"
-        | "dreamer"
-        | "sidekick"
-        | "user_memory_review"
-        | "recomp"
-        | undefined;
-    accountingTask?: string | null | undefined;
-    accountingParentInvocationId?: number | null | undefined;
+	/** Optional token accounting metadata. When present, harness runners persist subagent_invocations. */
+	accountingSessionId?: string | undefined;
+	accountingSubagent?:
+		| "historian"
+		| "historian_editor"
+		| "compressor"
+		| "dreamer"
+		| "sidekick"
+		| "user_memory_review"
+		| "recomp"
+		| undefined;
+	accountingTask?: string | null | undefined;
+	accountingParentInvocationId?: number | null | undefined;
 }
 
 /**
@@ -102,23 +102,23 @@ export interface SubagentRunOptions {
  *   harness-shaped — callers should treat it as `unknown` and log it raw.
  */
 export type SubagentProgressEvent =
-    | { type: "spawned"; argv: readonly string[]; pid: number | undefined }
-    | { type: "first_event"; eventType: string; ms: number }
-    | {
-          type: "raw_event";
-          eventType: string | undefined;
-          event: unknown;
-          ms: number;
-      }
-    | {
-          type: "terminal";
-          stopReason: string | undefined;
-          textLength: number;
-          hasToolCall: boolean;
-          ms: number;
-      }
-    | { type: "stderr"; chunk: string }
-    | { type: "child_exit"; code: number | null; signal: string | null; ms: number };
+	| { type: "spawned"; argv: readonly string[]; pid: number | undefined }
+	| { type: "first_event"; eventType: string; ms: number }
+	| {
+			type: "raw_event";
+			eventType: string | undefined;
+			event: unknown;
+			ms: number;
+	  }
+	| {
+			type: "terminal";
+			stopReason: string | undefined;
+			textLength: number;
+			hasToolCall: boolean;
+			ms: number;
+	  }
+	| { type: "stderr"; chunk: string }
+	| { type: "child_exit"; code: number | null; signal: string | null; ms: number };
 
 /**
  * Result of one subagent invocation.
@@ -154,39 +154,39 @@ export type SubagentProgressEvent =
  *   correlation when Step 5b lands.
  */
 export type SubagentRunResult =
-    | {
-          ok: true;
-          assistantText: string;
-          durationMs: number;
-          /**
-           * Number of tool invocations the agent made during the run. Pi reports
-           * this so callers that gate on "did the agent actually investigate vs
-           * just paraphrase" (refresh-primers' grounding gate) work on Pi, whose
-           * facade otherwise surfaces only the final assistant text. legacy host
-           * leaves it undefined — its callers read tool-call parts straight off
-           * the real session messages.
-           */
-          toolCallCount?: number | undefined;
-          meta?: Record<string, unknown> | undefined;
-      }
-    | {
-          ok: false;
-          reason:
-              | "invalid_prompt"
-              | "timeout"
-              | "abort"
-              | "model_failed"
-              | "truncated"
-              | "spawn_failed"
-              | "non_zero_exit"
-              | "no_assistant"
-              | "parse_failed";
-          error: string;
-          durationMs: number;
-          /** True when the caller should retry the task rather than advance its schedule. */
-          transient?: boolean | undefined;
-          meta?: Record<string, unknown> | undefined;
-      };
+	| {
+			ok: true;
+			assistantText: string;
+			durationMs: number;
+			/**
+			 * Number of tool invocations the agent made during the run. Pi reports
+			 * this so callers that gate on "did the agent actually investigate vs
+			 * just paraphrase" (refresh-primers' grounding gate) work on Pi, whose
+			 * facade otherwise surfaces only the final assistant text. legacy host
+			 * leaves it undefined — its callers read tool-call parts straight off
+			 * the real session messages.
+			 */
+			toolCallCount?: number | undefined;
+			meta?: Record<string, unknown> | undefined;
+	  }
+	| {
+			ok: false;
+			reason:
+				| "invalid_prompt"
+				| "timeout"
+				| "abort"
+				| "model_failed"
+				| "truncated"
+				| "spawn_failed"
+				| "non_zero_exit"
+				| "no_assistant"
+				| "parse_failed";
+			error: string;
+			durationMs: number;
+			/** True when the caller should retry the task rather than advance its schedule. */
+			transient?: boolean | undefined;
+			meta?: Record<string, unknown> | undefined;
+	  };
 
 /**
  * Abstract runner contract.
@@ -198,15 +198,15 @@ export type SubagentRunResult =
  * client APIs directly.
  */
 export interface SubagentRunner {
-    /** Human-readable harness name, for logging (`"legacy-host"` or `"pi"`). */
-    readonly harness: string;
+	/** Human-readable harness name, for logging (`"legacy-host"` or `"pi"`). */
+	readonly harness: string;
 
-    /**
-     * Run one subagent invocation to completion.
-     *
-     * Always resolves with a `SubagentRunResult` — never throws for
-     * runtime/transport/model failures. Throwing is reserved for caller
-     * misuse (e.g. missing required option fields).
-     */
-    run(options: SubagentRunOptions): Promise<SubagentRunResult>;
+	/**
+	 * Run one subagent invocation to completion.
+	 *
+	 * Always resolves with a `SubagentRunResult` — never throws for
+	 * runtime/transport/model failures. Throwing is reserved for caller
+	 * misuse (e.g. missing required option fields).
+	 */
+	run(options: SubagentRunOptions): Promise<SubagentRunResult>;
 }

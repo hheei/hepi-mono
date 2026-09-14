@@ -56,9 +56,7 @@ export function createPiHistorianClient(args: {
 			accountingSubagent: "recomp",
 		});
 		if (!result.ok) {
-			throw new Error(
-				`Pi recomp historian failed (${result.reason}): ${result.error}`,
-			);
+			throw new Error(`Pi recomp historian failed (${result.reason}): ${result.error}`);
 		}
 		sessions.set(sessionId, [makeMessage("assistant", result.assistantText)]);
 		return {};
@@ -130,13 +128,9 @@ function extractPromptText(parts: unknown): string {
 	if (!Array.isArray(parts)) return "";
 	return parts
 		.map((part) =>
-			typeof part === "object" && part !== null
-				? (part as { text?: unknown }).text
-				: undefined,
+			typeof part === "object" && part !== null ? (part as { text?: unknown }).text : undefined,
 		)
-		.filter(
-			(text): text is string => typeof text === "string" && text.length > 0,
-		)
+		.filter((text): text is string => typeof text === "string" && text.length > 0)
 		.join("\n");
 }
 

@@ -71,9 +71,7 @@ describe("loadDefaultPiSessionApi", () => {
 		});
 
 		it("first loader throws ERR_MODULE_NOT_FOUND -> second loader's module used", async () => {
-			const firstLoaderCalled = vi.fn(() =>
-				Promise.reject(new Error("Cannot find module")),
-			);
+			const firstLoaderCalled = vi.fn(() => Promise.reject(new Error("Cannot find module")));
 			const secondLoaderCalled = vi.fn(() =>
 				Promise.resolve({ SessionManager: { listAll: () => [] } }),
 			);
@@ -90,9 +88,7 @@ describe("loadDefaultPiSessionApi", () => {
 		});
 
 		it("all loaders fail -> single aggregated error naming both strategies (assert message mentions the symlink/layout hint)", async () => {
-			const firstLoaderCalled = vi.fn(() =>
-				Promise.reject(new Error("Cannot find module")),
-			);
+			const firstLoaderCalled = vi.fn(() => Promise.reject(new Error("Cannot find module")));
 			const secondLoaderCalled = vi.fn(() =>
 				Promise.reject(new Error("process.argv[1] is undefined")),
 			);
@@ -114,22 +110,14 @@ describe("loadDefaultPiSessionApi", () => {
 				"Failed to resolve @earendil-works/pi-coding-agent via all strategies",
 			);
 			expect(error?.message).toContain("- First: Cannot find module");
-			expect(error?.message).toContain(
-				"- Second: process.argv[1] is undefined",
-			);
-			expect(error?.message).toContain(
-				"symlinked or nonstandard install layout",
-			);
+			expect(error?.message).toContain("- Second: process.argv[1] is undefined");
+			expect(error?.message).toContain("symlinked or nonstandard install layout");
 		});
 
 		it("memoization: two calls -> loaders invoked once", async () => {
-			const loaderCalled = vi.fn(() =>
-				Promise.resolve({ SessionManager: { listAll: () => [] } }),
-			);
+			const loaderCalled = vi.fn(() => Promise.resolve({ SessionManager: { listAll: () => [] } }));
 
-			const loaders: ModuleLoader[] = [
-				{ name: "SpyLoader", load: loaderCalled },
-			];
+			const loaders: ModuleLoader[] = [{ name: "SpyLoader", load: loaderCalled }];
 
 			await loadDefaultPiSessionApi(loaders);
 			await loadDefaultPiSessionApi(loaders);

@@ -95,9 +95,7 @@ function stripInlineThinkingMarkup(text: string): string {
  * tag to gate reasoning replay, and the primary tag always comes
  * from a text or tool part.
  */
-export function buildMessageIdToMaxTag(
-	targets: Map<number, TagTarget>,
-): Map<string, number> {
+export function buildMessageIdToMaxTag(targets: Map<number, TagTarget>): Map<string, number> {
 	const out = new Map<string, number>();
 	for (const [tagNumber, target] of targets) {
 		const id = target.message?.info?.id;
@@ -122,8 +120,7 @@ export function clearOldReasoningPi(args: {
 	clearReasoningAge: number;
 	piMessageStableId: (msg: unknown, index: number) => string | undefined;
 }): { cleared: number; newWatermark: number } {
-	const { messages, messageIdToMaxTag, clearReasoningAge, piMessageStableId } =
-		args;
+	const { messages, messageIdToMaxTag, clearReasoningAge, piMessageStableId } = args;
 
 	let maxTag = 0;
 	for (const t of messageIdToMaxTag.values()) if (t > maxTag) maxTag = t;
@@ -147,11 +144,7 @@ export function clearOldReasoningPi(args: {
 		if (msgTag === 0 || msgTag > ageCutoff) continue;
 
 		for (const part of msg.content) {
-			if (
-				part &&
-				typeof part === "object" &&
-				(part as { type?: unknown }).type === "thinking"
-			) {
+			if (part && typeof part === "object" && (part as { type?: unknown }).type === "thinking") {
 				const tp = part as PiThinkingContent;
 				// Leave REDACTED thinking blocks untouched. Unlike normal thinking,
 				// redacted blocks bypass the empty-drop in Pi's serializers
@@ -192,8 +185,7 @@ export function stripInlineThinkingPi(args: {
 	clearReasoningAge: number;
 	piMessageStableId: (msg: unknown, index: number) => string | undefined;
 }): { stripped: number; newWatermark: number } {
-	const { messages, messageIdToMaxTag, clearReasoningAge, piMessageStableId } =
-		args;
+	const { messages, messageIdToMaxTag, clearReasoningAge, piMessageStableId } = args;
 
 	let maxTag = 0;
 	for (const t of messageIdToMaxTag.values()) if (t > maxTag) maxTag = t;
@@ -218,11 +210,7 @@ export function stripInlineThinkingPi(args: {
 
 		let strippedThisMessage = false;
 		for (const part of msg.content) {
-			if (
-				part &&
-				typeof part === "object" &&
-				(part as { type?: unknown }).type === "text"
-			) {
+			if (part && typeof part === "object" && (part as { type?: unknown }).type === "text") {
 				const tp = part as PiTextContent;
 				if (typeof tp.text !== "string") continue;
 				const cleaned = stripInlineThinkingMarkup(tp.text);
@@ -253,8 +241,7 @@ export function replayClearedReasoningPi(args: {
 	messageIdToMaxTag: Map<string, number>;
 	piMessageStableId: (msg: unknown, index: number) => string | undefined;
 }): number {
-	const { db, sessionId, messages, messageIdToMaxTag, piMessageStableId } =
-		args;
+	const { db, sessionId, messages, messageIdToMaxTag, piMessageStableId } = args;
 
 	const meta = getOrCreateSessionMeta(db, sessionId);
 	const watermark = meta.clearedReasoningThroughTag ?? 0;
@@ -273,11 +260,7 @@ export function replayClearedReasoningPi(args: {
 		if (msgTag === 0 || msgTag > watermark) continue;
 
 		for (const part of msg.content) {
-			if (
-				part &&
-				typeof part === "object" &&
-				(part as { type?: unknown }).type === "thinking"
-			) {
+			if (part && typeof part === "object" && (part as { type?: unknown }).type === "thinking") {
 				const tp = part as PiThinkingContent;
 				// Mirror clearOldReasoningPi exactly: redacted blocks are left
 				// untouched (they bypass the serializers' empty-drop, so emptying
@@ -312,8 +295,7 @@ export function replayStrippedInlineThinkingPi(args: {
 	messageIdToMaxTag: Map<string, number>;
 	piMessageStableId: (msg: unknown, index: number) => string | undefined;
 }): number {
-	const { db, sessionId, messages, messageIdToMaxTag, piMessageStableId } =
-		args;
+	const { db, sessionId, messages, messageIdToMaxTag, piMessageStableId } = args;
 
 	const meta = getOrCreateSessionMeta(db, sessionId);
 	const watermark = meta.clearedReasoningThroughTag ?? 0;
@@ -332,11 +314,7 @@ export function replayStrippedInlineThinkingPi(args: {
 		if (msgTag === 0 || msgTag > watermark) continue;
 
 		for (const part of msg.content) {
-			if (
-				part &&
-				typeof part === "object" &&
-				(part as { type?: unknown }).type === "text"
-			) {
+			if (part && typeof part === "object" && (part as { type?: unknown }).type === "text") {
 				const tp = part as PiTextContent;
 				if (typeof tp.text !== "string") continue;
 				const cleaned = stripInlineThinkingMarkup(tp.text);
@@ -362,10 +340,7 @@ export function replayStrippedInlineThinkingPi(args: {
  * so the reasoning-replay unit tests can exercise the index-id shape directly.
  * Do not import it into production modules; reach for `resolvePiStableId`.
  */
-export function piMessageStableId(
-	msg: unknown,
-	index: number,
-): string | undefined {
+export function piMessageStableId(msg: unknown, index: number): string | undefined {
 	if (!msg || typeof msg !== "object") return undefined;
 	const m = msg as { role?: string; timestamp?: number };
 	const role = m.role ?? "unknown";

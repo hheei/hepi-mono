@@ -14,22 +14,22 @@
 import { assertNoDuplicateManifestIds, extractCompleteManifestBody } from "./manifest-parser";
 
 export interface ClassifyPromptMemory {
-    id: number;
-    category: string;
-    content: string;
-    importance: number;
-    scope: "project" | "ecosystem" | "universe";
-    shareable: number | boolean;
+	id: number;
+	category: string;
+	content: string;
+	importance: number;
+	scope: "project" | "ecosystem" | "universe";
+	shareable: number | boolean;
 }
 
 /** A few already-classified memories shown as scoring ANCHORS in Stage 3 (large
  *  pools), so the model calibrates the new/changed memories against the existing
  *  distribution instead of re-scoring in a vacuum. */
 export interface ClassifyAnchorMemory {
-    id: number;
-    category: string;
-    content: string;
-    importance: number;
+	id: number;
+	category: string;
+	content: string;
+	importance: number;
 }
 
 const SCORING_GUIDANCE = `### How to score importance (1-100)
@@ -72,20 +72,20 @@ ${SCORING_GUIDANCE}
 ${OUTPUT_CONTRACT}`;
 
 function renderPool(memories: ClassifyPromptMemory[]): string {
-    return memories
-        .map(
-            (m) =>
-                `[${m.id}] ${m.category} (current: importance=${m.importance} scope=${m.scope} shareable=${Boolean(m.shareable)})\n${m.content}`,
-        )
-        .join("\n\n");
+	return memories
+		.map(
+			(m) =>
+				`[${m.id}] ${m.category} (current: importance=${m.importance} scope=${m.scope} shareable=${Boolean(m.shareable)})\n${m.content}`,
+		)
+		.join("\n\n");
 }
 
 function renderAnchors(anchors: ClassifyAnchorMemory[]): string {
-    if (anchors.length === 0) return "";
-    const list = anchors
-        .map((a) => `[${a.id}] ${a.category} importance=${a.importance}\n${a.content}`)
-        .join("\n\n");
-    return `### Already-classified reference memories (calibrate against these — do NOT re-score them, they are NOT in your output)
+	if (anchors.length === 0) return "";
+	const list = anchors
+		.map((a) => `[${a.id}] ${a.category} importance=${a.importance}\n${a.content}`)
+		.join("\n\n");
+	return `### Already-classified reference memories (calibrate against these — do NOT re-score them, they are NOT in your output)
 ${list}
 
 `;
@@ -97,11 +97,11 @@ ${list}
  * are NOT scored and must NOT appear in the manifest.
  */
 export function buildClassifyPrompt(args: {
-    projectPath: string;
-    memories: ClassifyPromptMemory[];
-    anchors?: ClassifyAnchorMemory[] | undefined;
+	projectPath: string;
+	memories: ClassifyPromptMemory[];
+	anchors?: ClassifyAnchorMemory[] | undefined;
 }): string {
-    return `## Task: Classify Project Memories
+	return `## Task: Classify Project Memories
 
 **Project:** ${args.projectPath}
 
@@ -112,10 +112,10 @@ ${renderPool(args.memories)}`;
 }
 
 export interface ParsedClassification {
-    id: number;
-    importance?: number | undefined;
-    scope?: "project" | "ecosystem" | "universe" | undefined;
-    shareable?: boolean | undefined;
+	id: number;
+	importance?: number | undefined;
+	scope?: "project" | "ecosystem" | "universe" | undefined;
+	shareable?: boolean | undefined;
 }
 
 const SCOPES = new Set(["project", "ecosystem", "universe"]);
@@ -123,44 +123,44 @@ const SCOPES = new Set(["project", "ecosystem", "universe"]);
 /** Parse the agent's complete `<classify>` manifest. A missing root close tag is
  *  treated as truncation and rejects the whole batch. */
 export function parseClassifyManifest(text: string): ParsedClassification[] {
-    const out: ParsedClassification[] = [];
-    const body = extractCompleteManifestBody(text, "classify");
-    for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
-        const attrs = m[1] ?? "";
-        const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
-        const rawId = idMatch?.[1];
-        if (rawId === undefined) throw new Error("classify manifest entry missing numeric id");
-        const id = Number.parseInt(rawId, 10);
-        if (!Number.isInteger(id)) throw new Error("classify manifest entry missing numeric id");
+	const out: ParsedClassification[] = [];
+	const body = extractCompleteManifestBody(text, "classify");
+	for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
+		const attrs = m[1] ?? "";
+		const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
+		const rawId = idMatch?.[1];
+		if (rawId === undefined) throw new Error("classify manifest entry missing numeric id");
+		const id = Number.parseInt(rawId, 10);
+		if (!Number.isInteger(id)) throw new Error("classify manifest entry missing numeric id");
 
-        const entry: ParsedClassification = { id };
-        const impMatch = attrs.match(/\bimportance\s*=\s*"(\d+)"/);
-        const rawImp = impMatch?.[1];
-        if (rawImp !== undefined) {
-            const imp = Number.parseInt(rawImp, 10);
-            if (Number.isInteger(imp)) entry.importance = Math.max(1, Math.min(100, imp));
-        }
-        const scopeMatch = attrs.match(/\bscope\s*=\s*"([a-z]+)"/i);
-        const rawScope = scopeMatch?.[1];
-        if (rawScope !== undefined) {
-            const scope = rawScope.toLowerCase();
-            if (!SCOPES.has(scope)) throw new Error(`classify manifest invalid scope ${scope}`);
-            entry.scope = scope as ParsedClassification["scope"];
-        }
-        const shareMatch = attrs.match(/\bshareable\s*=\s*"(true|false|1|0)"/i);
-        const rawShare = shareMatch?.[1];
-        if (rawShare !== undefined) {
-            const v = rawShare.toLowerCase();
-            entry.shareable = v === "true" || v === "1";
-        }
-        if (entry.importance === undefined && !entry.scope && entry.shareable === undefined) {
-            throw new Error(`classify manifest entry ${id} missing classification fields`);
-        }
-        out.push(entry);
-    }
-    assertNoDuplicateManifestIds(
-        out.map((entry) => entry.id),
-        "classify",
-    );
-    return out;
+		const entry: ParsedClassification = { id };
+		const impMatch = attrs.match(/\bimportance\s*=\s*"(\d+)"/);
+		const rawImp = impMatch?.[1];
+		if (rawImp !== undefined) {
+			const imp = Number.parseInt(rawImp, 10);
+			if (Number.isInteger(imp)) entry.importance = Math.max(1, Math.min(100, imp));
+		}
+		const scopeMatch = attrs.match(/\bscope\s*=\s*"([a-z]+)"/i);
+		const rawScope = scopeMatch?.[1];
+		if (rawScope !== undefined) {
+			const scope = rawScope.toLowerCase();
+			if (!SCOPES.has(scope)) throw new Error(`classify manifest invalid scope ${scope}`);
+			entry.scope = scope as ParsedClassification["scope"];
+		}
+		const shareMatch = attrs.match(/\bshareable\s*=\s*"(true|false|1|0)"/i);
+		const rawShare = shareMatch?.[1];
+		if (rawShare !== undefined) {
+			const v = rawShare.toLowerCase();
+			entry.shareable = v === "true" || v === "1";
+		}
+		if (entry.importance === undefined && !entry.scope && entry.shareable === undefined) {
+			throw new Error(`classify manifest entry ${id} missing classification fields`);
+		}
+		out.push(entry);
+	}
+	assertNoDuplicateManifestIds(
+		out.map((entry) => entry.id),
+		"classify",
+	);
+	return out;
 }

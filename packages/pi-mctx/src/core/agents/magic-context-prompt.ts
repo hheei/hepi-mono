@@ -63,12 +63,12 @@ Memories are grouped by category as \`#id: fact\` lines; pass the numeric id to 
  *  leaving a blank line (the memory-on output stays exactly as it was before
  *  this flag existed). */
 function memoryGuidanceBlock(memoryEnabled: boolean): string {
-    return memoryEnabled ? `${MEMORY_GUIDANCE}\n` : "";
+	return memoryEnabled ? `${MEMORY_GUIDANCE}\n` : "";
 }
 
 const BASE_INTRO = (
-    protectedTags: number,
-    memoryEnabled: boolean,
+	protectedTags: number,
+	memoryEnabled: boolean,
 ): string => `Messages and tool outputs are tagged with §N§ identifiers (e.g., §1§, §42§).
 Use \`ctx_reduce\` to mark spent tagged content as discardable and reclaim space. Marking is NOT an immediate delete — it queues the content, which stays fully visible until space is actually needed (as soon as the next turn if you're already under pressure, much later if not), so mark a tool output as soon as you're done with it rather than hoarding the call for the end of the turn. The last ${protectedTags} tags are protected (marking one just queues it until it ages out). Syntax: "3-5", "1,2,9", or "1-5,8,12-15".
 Do not announce or narrate \`ctx_reduce\` drops — just call the tool silently. Saying "I'll drop these outputs" wastes tokens the user does not care about.
@@ -135,7 +135,7 @@ const TEMPORAL_AWARENESS_GUIDANCE = `\n**Temporal awareness**: User messages may
  * injection idempotency (system-prompt-hash.ts gates on it).
  */
 const SUBAGENT_REDUCE_INTRO = (
-    protectedTags: number,
+	protectedTags: number,
 ): string => `Messages and tool outputs are tagged with §N§ identifiers (e.g., §1§, §42§).
 Use \`ctx_reduce\` to drop tool outputs you have already finished with, keeping your working context lean. Syntax: "3-5", "1,2,9", or "1-5,8,12-15". The last ${protectedTags} tags are protected.
 Drop silently — do not narrate it. NEVER drop large ranges blindly (e.g., "1-50"); review each tag first. Do not drop user or assistant text messages — only large tool outputs are worth dropping.
@@ -144,38 +144,38 @@ Older tool calls may show \`[dropped §N§]\` sentinels; that is normal context 
 const CAVEMAN_COMPRESSION_WARNING = `\n**BEWARE**: History compression is on; older user AND assistant text — including your own earlier responses — has been deterministically rewritten in a terse caveman style (dropped articles, missing auxiliaries, \`//\` instead of connectives like \`because\`). This is automatic context compression that runs after the fact, not your actual prior wording or the user's. **DO NOT mimic this style in new turns.** Write fresh responses in normal prose. If you notice your output drifting into caveman cadence, that drift is in-context-learning bleeding from the compressed history — consciously revert to full sentences.`;
 
 export function buildMagicContextSection(
-    _agent: string | null,
-    protectedTags: number,
-    ctxReduceCallable = true,
-    dreamerEnabled = false,
-    temporalAwarenessEnabled = false,
-    cavemanTextCompressionEnabled = false,
-    subagentMode = false,
-    language?: string,
-    memoryEnabled = true,
+	_agent: string | null,
+	protectedTags: number,
+	ctxReduceCallable = true,
+	dreamerEnabled = false,
+	temporalAwarenessEnabled = false,
+	cavemanTextCompressionEnabled = false,
+	subagentMode = false,
+	language?: string,
+	memoryEnabled = true,
 ): string {
-    // Subagent sessions: minimal §N§ + ctx_reduce mechanics only. Bypasses the
-    // long-term-partner frame, memory/search/note guidance, and the reduction
-    // taxonomy — none of which apply to a bounded single-task child. Only
-    // reachable when ctx_reduce is enabled for the subagent (caller gates this);
-    // when ctx_reduce is off the subagent gets no §N§ prefix, so describing the
-    // tag system would be noise.
-    if (subagentMode) {
-        return `## Magic Context\n\n${SUBAGENT_REDUCE_INTRO(protectedTags)}`;
-    }
-    const smartNoteGuidance = dreamerEnabled
-        ? `\nWhen \`surface_condition\` is provided with \`write\`, the note becomes a project-scoped smart note.\nThe dreamer evaluates smart note conditions during nightly runs and surfaces them when conditions are met.\nExample: \`ctx_note(action="write", content="Implement X because Y", surface_condition="When PR #42 is merged in this repo")\``
-        : "";
-    const temporalGuidance = temporalAwarenessEnabled ? TEMPORAL_AWARENESS_GUIDANCE : "";
-    // Caveman compression is independent of ctx_reduce availability. Emit the
-    // warning in both primary guidance variants whenever the primary-session
-    // caveman pass is enabled so the agent does not mimic compressed history.
-    const cavemanWarning = cavemanTextCompressionEnabled ? CAVEMAN_COMPRESSION_WARNING : "";
-    const languageDirective = buildPrimaryLanguageDirective(language);
-    const languageGuidance = languageDirective ? `\n\n${languageDirective}` : "";
+	// Subagent sessions: minimal §N§ + ctx_reduce mechanics only. Bypasses the
+	// long-term-partner frame, memory/search/note guidance, and the reduction
+	// taxonomy — none of which apply to a bounded single-task child. Only
+	// reachable when ctx_reduce is enabled for the subagent (caller gates this);
+	// when ctx_reduce is off the subagent gets no §N§ prefix, so describing the
+	// tag system would be noise.
+	if (subagentMode) {
+		return `## Magic Context\n\n${SUBAGENT_REDUCE_INTRO(protectedTags)}`;
+	}
+	const smartNoteGuidance = dreamerEnabled
+		? `\nWhen \`surface_condition\` is provided with \`write\`, the note becomes a project-scoped smart note.\nThe dreamer evaluates smart note conditions during nightly runs and surfaces them when conditions are met.\nExample: \`ctx_note(action="write", content="Implement X because Y", surface_condition="When PR #42 is merged in this repo")\``
+		: "";
+	const temporalGuidance = temporalAwarenessEnabled ? TEMPORAL_AWARENESS_GUIDANCE : "";
+	// Caveman compression is independent of ctx_reduce availability. Emit the
+	// warning in both primary guidance variants whenever the primary-session
+	// caveman pass is enabled so the agent does not mimic compressed history.
+	const cavemanWarning = cavemanTextCompressionEnabled ? CAVEMAN_COMPRESSION_WARNING : "";
+	const languageDirective = buildPrimaryLanguageDirective(language);
+	const languageGuidance = languageDirective ? `\n\n${languageDirective}` : "";
 
-    if (!ctxReduceCallable) {
-        return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_NO_REDUCE}\n\n${BASE_INTRO_NO_REDUCE(memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}${languageGuidance}`;
-    }
-    return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_REDUCE}\n\n${BASE_INTRO(protectedTags, memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}\n${GENERIC_SECTION}\n\nPrefer many small targeted operations over one large blanket operation, and keep the working set tidy as routine maintenance.${languageGuidance}`;
+	if (!ctxReduceCallable) {
+		return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_NO_REDUCE}\n\n${BASE_INTRO_NO_REDUCE(memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}${languageGuidance}`;
+	}
+	return `## Magic Context\n\n${LONG_TERM_PARTNER_FRAME}\n${PARTNER_FRAME_CLOSER_REDUCE}\n\n${BASE_INTRO(protectedTags, memoryEnabled)}${smartNoteGuidance}${temporalGuidance}${cavemanWarning}\n${GENERIC_SECTION}\n\nPrefer many small targeted operations over one large blanket operation, and keep the working set tidy as routine maintenance.${languageGuidance}`;
 }

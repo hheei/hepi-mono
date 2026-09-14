@@ -1,9 +1,4 @@
-import { estimatePiPrefixTokens, resolvePiContextUsage } from "@hheei/pi-ext-core";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
 	matchesKey,
@@ -11,29 +6,21 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import { estimatePiPrefixTokens, resolvePiContextUsage } from "@hheei/pi-ext-core";
 import { getCompartments } from "#core/features/compartment-storage";
 import { getMemoryCount } from "#core/features/memory/storage-memory";
 import { parseCacheTtl } from "#core/features/scheduler";
 import type { ContextDatabase } from "#core/features/storage";
 import { getOrCreateSessionMeta } from "#core/features/storage-meta";
-import {
-	getOverflowState,
-	getSessionWorkMetrics,
-} from "#core/features/storage-meta-persisted";
+import { getOverflowState, getSessionWorkMetrics } from "#core/features/storage-meta-persisted";
 import { getNotes } from "#core/features/storage-notes";
 import { getTagsBySession } from "#core/features/storage-tags";
-import {
-	MAX_EXECUTE_THRESHOLD,
-	resolveExecuteThresholdDetail,
-} from "#core/hooks/event-resolvers";
-import { formatBytes } from "#core/shared/format-bytes";
+import { MAX_EXECUTE_THRESHOLD, resolveExecuteThresholdDetail } from "#core/hooks/event-resolvers";
 import { computeM0BlockTokens } from "#core/hooks/m0-token-breakdown";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import { countCompartmentsNeedingUpgrade } from "#core/hooks/upgrade-reminder";
-import {
-	formatThresholdClampNote,
-	formatThresholdPercent,
-} from "#core/shared/format-threshold";
+import { formatBytes } from "#core/shared/format-bytes";
+import { formatThresholdClampNote, formatThresholdPercent } from "#core/shared/format-threshold";
 import packageJson from "../../package.json";
 import { resolveSessionId } from "../commands/pi-command-utils";
 import { resolvePiUsableContextLimit } from "../pi-context-limit";
@@ -59,15 +46,15 @@ export interface StatusDialogDeps {
 	db: ContextDatabase;
 	projectIdentity: string;
 	protectedTags?: number | undefined;
-	executeThresholdPercentage?:
-		| number
-		| { default: number; [modelKey: string]: number } | undefined;
+	executeThresholdPercentage?: number | { default: number; [modelKey: string]: number } | undefined;
 	historyBudgetPercentage?: number | undefined;
 	injectionBudgetTokens?: number | undefined;
-	executeThresholdTokens?: {
-		default?: number | undefined;
-		[modelKey: string]: number | undefined;
-	} | undefined;
+	executeThresholdTokens?:
+		| {
+				default?: number | undefined;
+				[modelKey: string]: number | undefined;
+		  }
+		| undefined;
 }
 
 interface StatusDialogDetail {
@@ -177,12 +164,7 @@ class StatusDialogComponent implements Component {
 
 	constructor(props: StatusDialogProps) {
 		this.props = props;
-		this.detail = buildPiStatusDetail(
-			props.pi,
-			props.ctx,
-			props.deps,
-			props.sessionId,
-		);
+		this.detail = buildPiStatusDetail(props.pi, props.ctx, props.deps, props.sessionId);
 		this.refreshTimer = setInterval(() => {
 			if (this.closed) return;
 			try {
@@ -200,11 +182,7 @@ class StatusDialogComponent implements Component {
 	}
 
 	handleInput(data: string): void {
-		if (
-			matchesKey(data, "escape") ||
-			matchesKey(data, "ctrl+c") ||
-			matchesKey(data, "return")
-		) {
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "return")) {
 			this.close();
 		}
 	}
@@ -241,17 +219,9 @@ class StatusDialogComponent implements Component {
 	}
 }
 
-function renderInner(
-	s: StatusDialogDetail,
-	theme: Theme,
-	innerWidth: number,
-): string[] {
+function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): string[] {
 	const pctColor =
-		s.usagePercentage >= 80
-			? "error"
-			: s.usagePercentage >= 65
-				? "warning"
-				: "accent";
+		s.usagePercentage >= 80 ? "error" : s.usagePercentage >= 65 ? "warning" : "accent";
 	const lines: string[] = [];
 
 	// Header
@@ -270,23 +240,15 @@ function renderInner(
 			theme.bold(`${s.usagePercentage.toFixed(1)}%`),
 		)} · ${fmt(s.inputTokens)} / ${s.contextLimit > 0 ? fmt(s.contextLimit) : "?"} tokens`,
 	);
-	lines.push(
-		`Work tokens ${fmt(s.newWorkTokens)} new · ${fmt(s.totalInputTokens)} total input`,
-	);
+	lines.push(`Work tokens ${fmt(s.newWorkTokens)} new · ${fmt(s.totalInputTokens)} total input`);
 
 	// Segmented bar (fills the full inner content width)
 	lines.push(renderBar(s, innerWidth));
 
 	// Legend
 	for (const seg of breakdownSegments(s)) {
-		const pct =
-			s.inputTokens > 0
-				? `${((seg.tokens / s.inputTokens) * 100).toFixed(1)}%`
-				: "—";
-		const left = colorHex(
-			seg.color,
-			`${seg.label}${seg.detail ? ` ${seg.detail}` : ""}`,
-		);
+		const pct = s.inputTokens > 0 ? `${((seg.tokens / s.inputTokens) * 100).toFixed(1)}%` : "—";
+		const left = colorHex(seg.color, `${seg.label}${seg.detail ? ` ${seg.detail}` : ""}`);
 		const right = theme.fg("muted", `${fmt(seg.tokens)} (${pct})`);
 		lines.push(`${left}   ${right}`);
 	}
@@ -301,9 +263,7 @@ function renderInner(
 	);
 	lines.push(
 		`Historian: ${
-			s.historianRunning
-				? theme.fg("warning", "running")
-				: theme.fg("accent", "idle")
+			s.historianRunning ? theme.fg("warning", "running") : theme.fg("accent", "idle")
 		}${
 			s.historianFailureCount > 0
 				? ` · ${theme.fg("error", `last failure ${s.historianLastFailureAt ? relTime(s.historianLastFailureAt) : "unknown"}`)}`
@@ -347,15 +307,13 @@ function renderInner(
 	// Context / thresholds
 	lines.push(theme.fg("muted", "Context"));
 	lines.push(
-		`Execute threshold ${formatThresholdPercent(s.executeThreshold)}%${formatThresholdClampNote(
-			{
-				clamped: s.executeThresholdClamped,
-				mode: s.executeThresholdMode,
-				configuredValue: s.executeThresholdConfigured,
-				contextLimit: s.contextLimit,
-				maxPercentage: MAX_EXECUTE_THRESHOLD,
-			},
-		)}`,
+		`Execute threshold ${formatThresholdPercent(s.executeThreshold)}%${formatThresholdClampNote({
+			clamped: s.executeThresholdClamped,
+			mode: s.executeThresholdMode,
+			configuredValue: s.executeThresholdConfigured,
+			contextLimit: s.contextLimit,
+			maxPercentage: MAX_EXECUTE_THRESHOLD,
+		})}`,
 	);
 	lines.push(
 		`Protected tags ${s.protectedTagCount} · Subagent ${s.isSubagent ? "yes" : "no"} · History block ~${fmt(s.historyBlockTokens)} tok${
@@ -365,10 +323,8 @@ function renderInner(
 		}`,
 	);
 
-	if (s.lastTransformError)
-		lines.push(theme.fg("error", `⚠ ${s.lastTransformError}`));
-	if (s.historianLastError)
-		lines.push(theme.fg("error", `⚠ ${s.historianLastError}`));
+	if (s.lastTransformError) lines.push(theme.fg("error", `⚠ ${s.lastTransformError}`));
+	if (s.historianLastError) lines.push(theme.fg("error", `⚠ ${s.historianLastError}`));
 
 	lines.push("");
 	lines.push(theme.fg("muted", "Press Escape to close"));
@@ -407,8 +363,7 @@ export function buildPiStatusDetail(
 ): StatusDialogDetail {
 	const usage = ctx.getContextUsage?.();
 	const meta = getOrCreateSessionMeta(deps.db, sessionId);
-	let inputTokens =
-		typeof usage?.tokens === "number" ? usage.tokens : meta.lastInputTokens;
+	let inputTokens = typeof usage?.tokens === "number" ? usage.tokens : meta.lastInputTokens;
 	let detectedContextLimit: number | undefined;
 	try {
 		const detected = getOverflowState(deps.db, sessionId).detectedContextLimit;
@@ -464,10 +419,7 @@ export function buildPiStatusDetail(
 	// Skills are already inside that prompt (`<available_skills>`).
 	let systemPrompt: string | undefined;
 	try {
-		const sysPrompt =
-			typeof ctx.getSystemPrompt === "function"
-				? ctx.getSystemPrompt()
-				: undefined;
+		const sysPrompt = typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
 		if (typeof sysPrompt === "string" && sysPrompt.length > 0) {
 			systemPrompt = sysPrompt;
 		}
@@ -515,20 +467,13 @@ export function buildPiStatusDetail(
 		estimateTokens,
 	});
 	const systemPromptTokens =
-		prefix.systemPromptTokens > 0
-			? prefix.systemPromptTokens
-			: meta.systemPromptTokens;
+		prefix.systemPromptTokens > 0 ? prefix.systemPromptTokens : meta.systemPromptTokens;
 	const toolDefinitionTokens = prefix.toolDefinitionTokens;
 	const resolved = resolvePiContextUsage({
 		live: usage,
 		contextWindow: ctx.model?.contextWindow,
 		prefixTokens:
-			prefix.tokens +
-			compartmentTokens +
-			factTokens +
-			memoryTokens +
-			docsTokens +
-			profileTokens,
+			prefix.tokens + compartmentTokens + factTokens + memoryTokens + docsTokens + profileTokens,
 	});
 	inputTokens = resolved.tokens ?? inputTokens;
 	if (contextLimit > 0 && inputTokens > 0) {
@@ -556,9 +501,7 @@ export function buildPiStatusDetail(
 		: 0;
 	const workMetrics = getSessionWorkMetrics(deps.db, sessionId);
 
-	const modelKey = ctx.model
-		? `${ctx.model.provider}/${ctx.model.id}`
-		: undefined;
+	const modelKey = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
 	const threshold = resolveExecuteThresholdDetail(
 		deps.executeThresholdPercentage ?? 65,
 		modelKey,
@@ -577,8 +520,7 @@ export function buildPiStatusDetail(
 		cacheTtlMs = 5 * 60 * 1000;
 	}
 	const neverExpires = cacheTtlMs === Number.POSITIVE_INFINITY;
-	const elapsed =
-		meta.lastResponseTime > 0 ? Date.now() - meta.lastResponseTime : 0;
+	const elapsed = meta.lastResponseTime > 0 ? Date.now() - meta.lastResponseTime : 0;
 	const cacheRemainingMs = neverExpires
 		? Number.POSITIVE_INFINITY
 		: meta.lastResponseTime > 0
@@ -590,9 +532,7 @@ export function buildPiStatusDetail(
 	const compressionBudget =
 		contextLimit > 0
 			? Math.floor(
-					contextLimit *
-						(Math.min(threshold.percentage, 80) / 100) *
-						historyBudgetPercentage,
+					contextLimit * (Math.min(threshold.percentage, 80) / 100) * historyBudgetPercentage,
 				)
 			: null;
 
@@ -603,10 +543,7 @@ export function buildPiStatusDetail(
 		tokenBreakdownAvailable,
 		systemPromptTokens,
 		compartmentCount: compartments.length,
-		memoryCount: safeRead(
-			() => getMemoryCount(deps.db, deps.projectIdentity),
-			0,
-		),
+		memoryCount: safeRead(() => getMemoryCount(deps.db, deps.projectIdentity), 0),
 		memoryBlockCount,
 		sessionNoteCount: safeRead(
 			() =>
@@ -668,10 +605,7 @@ export function buildPiStatusDetail(
 		toolDefinitionTokens,
 		newWorkTokens: workMetrics.newWorkTokens,
 		totalInputTokens: workMetrics.totalInputTokens,
-		upgradeNeededCount: safeRead(
-			() => countCompartmentsNeedingUpgrade(deps.db, sessionId),
-			0,
-		),
+		upgradeNeededCount: safeRead(() => countCompartmentsNeedingUpgrade(deps.db, sessionId), 0),
 		recompInFlight: isPiRecompInFlight(sessionId),
 	};
 }
@@ -699,8 +633,7 @@ function breakdownSegments(s: StatusDialogDetail): Array<{
 			tokens: s.systemPromptTokens,
 			color: COLORS.system,
 		});
-	if (s.docsTokens > 0)
-		segs.push({ label: "Docs", tokens: s.docsTokens, color: COLORS.docs });
+	if (s.docsTokens > 0) segs.push({ label: "Docs", tokens: s.docsTokens, color: COLORS.docs });
 	if (s.compartmentTokens > 0)
 		segs.push({
 			label: "Compartments",
@@ -767,9 +700,7 @@ function renderBar(s: StatusDialogDetail, innerWidth: number): string {
 		widths[maxIdx] = current + 1;
 		sum++;
 	}
-	return segs
-		.map((seg, i) => colorHex(seg.color, "█".repeat(widths[i] ?? 0)))
-		.join("");
+	return segs.map((seg, i) => colorHex(seg.color, "█".repeat(widths[i] ?? 0))).join("");
 }
 
 function readSessionMetaRow(db: ContextDatabase, sessionId: string) {

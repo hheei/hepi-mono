@@ -19,12 +19,12 @@ export const DREAMER_MEMORY_MAPPER_AGENT = "dreamer-memory-mapper";
 /** Read-only tool profile shared by the memory-maintenance reader agent.
  *  No ctx_search (local-source checks only), no write/bash/ctx_memory. */
 export const DREAMER_MEMORY_MAPPER_ALLOWED_TOOLS = [
-    "read",
-    "grep",
-    "glob",
-    "aft_outline",
-    "aft_zoom",
-    "aft_search",
+	"read",
+	"grep",
+	"glob",
+	"aft_outline",
+	"aft_zoom",
+	"aft_search",
 ] as const;
 
 // Pure-transform classifier for the classify-memories task: prompt in → ONE XML
@@ -43,15 +43,15 @@ export const DREAMER_DOCS_AGENT = "dreamer-docs";
 /** Codebase-read + doc-write tool profile for the docs maintainer. No memory
  *  tools (it edits docs, not the memory store). */
 export const DREAMER_DOCS_ALLOWED_TOOLS = [
-    "read",
-    "grep",
-    "glob",
-    "bash",
-    "write",
-    "edit",
-    "aft_outline",
-    "aft_zoom",
-    "aft_search",
+	"read",
+	"grep",
+	"glob",
+	"bash",
+	"write",
+	"edit",
+	"aft_outline",
+	"aft_zoom",
+	"aft_search",
 ] as const;
 
 // Pure JSON reviewer for the review-user-memories task: reads the candidate

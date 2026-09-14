@@ -1,10 +1,10 @@
-import { Box, Container, Text, type Component } from "@earendil-works/pi-tui";
 import type {
 	CustomEntry,
 	EntryRenderOptions,
 	MessageRenderer,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
+import { Box, type Component, Container, Text } from "@earendil-works/pi-tui";
 import {
 	firstSummaryLine,
 	HANDOFF_STAGE_LABELS,
@@ -57,9 +57,7 @@ export function createHandoffProgressComponent(
 	const paint = (next: HandoffProgressState): void => {
 		text.setText(
 			renderHandoffProgressLines(next)
-				.map((line, index) =>
-					index === 0 ? theme.bold(line) : theme.fg("dim", line),
-				)
+				.map((line, index) => (index === 0 ? theme.bold(line) : theme.fg("dim", line)))
 				.join("\n"),
 		);
 	};
@@ -90,13 +88,9 @@ export function renderHandoffRequestCollapsed(
 
 export function renderHandoffRequestExpanded(
 	record: HandoffRequestRecord,
-	theme: Theme,
+	_theme: Theme,
 ): Component {
-	const lines = [
-		`request ${record.requestId}`,
-		`phase ${record.phase}`,
-		`stage ${record.stage}`,
-	];
+	const lines = [`request ${record.requestId}`, `phase ${record.phase}`, `stage ${record.stage}`];
 	if (record.model) lines.push(`model ${record.model}`);
 	if (record.tokenCounts) {
 		lines.push(
@@ -150,9 +144,7 @@ export function renderHandoffAttemptCollapsed(
 
 function phaseLabel(record: HandoffRequestRecord): string {
 	if (record.phase === "failed") {
-		return record.failureCategory
-			? `${record.failureCategory} failed`
-			: "failed";
+		return record.failureCategory ? `${record.failureCategory} failed` : "failed";
 	}
 	if (record.phase === "snapshot-ready") return "snapshot ready";
 	if (record.phase === "summary-ready") return "summary ready";
@@ -162,22 +154,13 @@ function phaseLabel(record: HandoffRequestRecord): string {
 
 function isFailurePhase(phase: HandoffRequestRecord["phase"]): boolean {
 	return (
-		phase === "failed" ||
-		phase === "cancelled" ||
-		phase === "interrupted" ||
-		phase === "superseded"
+		phase === "failed" || phase === "cancelled" || phase === "interrupted" || phase === "superseded"
 	);
 }
 
-function colorLine(
-	line: string,
-	record: HandoffRequestRecord,
-	theme: Theme,
-): Component {
+function colorLine(line: string, record: HandoffRequestRecord, theme: Theme): Component {
 	const container = new Container();
-	container.addChild(
-		new Text(isFailurePhase(record.phase) ? theme.fg("error", line) : line),
-	);
+	container.addChild(new Text(isFailurePhase(record.phase) ? theme.fg("error", line) : line));
 	return container;
 }
 

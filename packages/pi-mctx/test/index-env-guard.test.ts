@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import magicContextPiExtension, { __test } from "../src/index";
 import { MAGIC_CONTEXT_PI_SUBAGENT_ENV } from "../src/subagent-runner";
 

@@ -1,7 +1,4 @@
-import {
-	type RawMessageProvider,
-	setRawMessageProvider,
-} from "#core/hooks/read-session-chunk";
+import { type RawMessageProvider, setRawMessageProvider } from "#core/hooks/read-session-chunk";
 import { sessionLog } from "#core/shared/logger";
 import { setMagicContextRecompActive } from "./status-line";
 

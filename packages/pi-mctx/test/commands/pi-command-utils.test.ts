@@ -46,11 +46,7 @@ describe("ctx-status entries", () => {
 	it("registers one ctx-status entry renderer and ignores malformed data", () => {
 		let customType = "";
 		let renderer:
-			| ((
-					entry: { data?: CtxStatusEntryData },
-					options: unknown,
-					theme: unknown,
-			  ) => unknown)
+			| ((entry: { data?: CtxStatusEntryData }, options: unknown, theme: unknown) => unknown)
 			| undefined;
 		const pi = {
 			registerEntryRenderer(type: string, value: typeof renderer) {
@@ -63,9 +59,7 @@ describe("ctx-status entries", () => {
 		expect(registerCtxStatusEntryRenderer(pi)).toBe(true);
 		expect(customType).toBe(CTX_STATUS_CUSTOM_TYPE);
 		expect(renderer).toBeDefined();
-		expect(
-			renderer?.({ data: undefined }, { expanded: false }, {}),
-		).toBeUndefined();
+		expect(renderer?.({}, { expanded: false }, {})).toBeUndefined();
 	});
 
 	it("keeps statuses model-invisible on Pi 0.80.2 without entry renderers", () => {

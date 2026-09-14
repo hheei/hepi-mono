@@ -19,8 +19,8 @@ import { getSourceContents } from "#core/features/storage-source";
 import { createTagger } from "#core/features/tagger";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
-import { assistantMessage, createTestDb, userMessage } from "./test-utils.test";
 import { createPiTranscript } from "../src/transcript-pi";
+import { assistantMessage, createTestDb, userMessage } from "./test-utils.test";
 
 describe("tagTranscript source_contents persistence", () => {
 	it("persists original text content for text parts so caveman has source to compress from", () => {
@@ -55,9 +55,7 @@ describe("tagTranscript source_contents persistence", () => {
 			// §N§-prefixed version that the agent sees. Caveman compresses
 			// from this pristine source on age-tier passes.
 			const allContent = Array.from(persisted.values());
-			expect(allContent).toContain(
-				"Original user prompt about distributed systems",
-			);
+			expect(allContent).toContain("Original user prompt about distributed systems");
 			expect(allContent).toContain(
 				"Here is a long assistant explanation that should be persisted as source content.",
 			);
@@ -81,9 +79,7 @@ describe("tagTranscript source_contents persistence", () => {
 			// and the in-memory text got re-tagged from the prefixed form).
 			// The persisted source MUST be the stripped form so caveman
 			// compression operates on real content, not the marker.
-			const messages = [
-				userMessage("\u00a742\u00a7 stale prefix from earlier tagging", 1),
-			];
+			const messages = [userMessage("\u00a742\u00a7 stale prefix from earlier tagging", 1)];
 			const tagger = createTagger();
 			tagger.initFromDb(sessionId, db);
 			const transcript = createPiTranscript(messages, sessionId);

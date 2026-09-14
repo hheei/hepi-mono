@@ -12,15 +12,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	getOrCreateSessionMeta,
-	updateSessionMeta,
-} from "#core/features/storage";
+import { getOrCreateSessionMeta, updateSessionMeta } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import {
-	clearPiSystemPromptSession,
-	processSystemPromptForCache,
-} from "../src/system-prompt";
+import { clearPiSystemPromptSession, processSystemPromptForCache } from "../src/system-prompt";
 import { createTestDb } from "./test-utils.test";
 
 describe("processSystemPromptForCache", () => {
@@ -147,8 +141,7 @@ describe("processSystemPromptForCache", () => {
 			const turn2 = processSystemPromptForCache({
 				db,
 				sessionId,
-				systemPrompt:
-					"Second prompt with different content.\nToday's date: 2026-05-01",
+				systemPrompt: "Second prompt with different content.\nToday's date: 2026-05-01",
 				isCacheBusting: false,
 			});
 			expect(turn2.hashChanged).toBe(true);

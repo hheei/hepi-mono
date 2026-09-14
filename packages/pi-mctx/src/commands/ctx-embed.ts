@@ -72,8 +72,7 @@ export async function runEmbedDrain(
 		if (progress.embedded <= 0 || progress.embedded >= progress.total) return;
 		const currentTime = now();
 		const enoughCompartments =
-			progress.embedded - lastProgressEmbedded >=
-			EMBED_PROGRESS_COMPARTMENT_STEP;
+			progress.embedded - lastProgressEmbedded >= EMBED_PROGRESS_COMPARTMENT_STEP;
 		const enoughTime =
 			currentTime - lastProgressAt >= EMBED_PROGRESS_MIN_INTERVAL_MS &&
 			progress.embedded > lastProgressEmbedded;
@@ -87,18 +86,11 @@ export async function runEmbedDrain(
 	};
 	let outcome: Awaited<ReturnType<typeof embedSessionCompartmentChunks>>;
 	try {
-		outcome = await embedSessionCompartmentChunks(
-			db,
-			projectIdentity,
-			sessionId,
-			{
-				signal: controller.signal,
-				onProgress: emitProgress,
-				...(options.batchSize !== undefined
-					? { batchSize: options.batchSize }
-					: {}),
-			},
-		);
+		outcome = await embedSessionCompartmentChunks(db, projectIdentity, sessionId, {
+			signal: controller.signal,
+			onProgress: emitProgress,
+			...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
+		});
 	} finally {
 		// Always release the controller, even on throw, so a later start works.
 		if (embedRunStateBySession.get(sessionId) === controller) {
@@ -156,8 +148,7 @@ export function registerCtxEmbedCommand(
 	},
 ): void {
 	pi.registerCommand("ctx-embed", {
-		description:
-			"Embedding status, or start/pause history compartment embedding (start | pause)",
+		description: "Embedding status, or start/pause history compartment embedding (start | pause)",
 		handler: async (args, ctx) => {
 			const sessionId = resolveSessionId(ctx);
 			if (!sessionId) {
@@ -172,19 +163,14 @@ export function registerCtxEmbedCommand(
 				projectDir: deps.projectDir,
 				projectIdentity: deps.projectIdentity,
 			};
-			const memoryEnabled =
-				deps.resolveMemoryEnabled?.(ctx) ?? deps.memoryEnabled;
+			const memoryEnabled = deps.resolveMemoryEnabled?.(ctx) ?? deps.memoryEnabled;
 			const sub = args.trim().toLowerCase();
 
 			if (sub === "pause") {
 				embedPauseBySession.add(sessionId);
 				const ctrl = embedRunStateBySession.get(sessionId);
 				if (ctrl) ctrl.abort();
-				const cov = getEmbeddingCoverageStatus(
-					deps.db,
-					project.projectIdentity,
-					sessionId,
-				);
+				const cov = getEmbeddingCoverageStatus(deps.db, project.projectIdentity, sessionId);
 				sendCtxStatusMessage(pi, {
 					title: "/ctx-embed",
 					text: `## /ctx-embed\n\nPaused at ${cov.session.embedded}/${cov.session.total} compartments embedded.`,
@@ -205,18 +191,13 @@ export function registerCtxEmbedCommand(
 			await ensureProjectRegisteredFromPiDirectory(project.projectDir, deps.db);
 
 			if (sub === "start") {
-				const { text, level } = await runEmbedDrain(
-					deps.db,
-					project.projectIdentity,
-					sessionId,
-					{
-						onStatus: (status) =>
-							sendCtxStatusMessage(pi, {
-								title: "/ctx-embed",
-								...status,
-							}),
-					},
-				);
+				const { text, level } = await runEmbedDrain(deps.db, project.projectIdentity, sessionId, {
+					onStatus: (status) =>
+						sendCtxStatusMessage(pi, {
+							title: "/ctx-embed",
+							...status,
+						}),
+				});
 				sendCtxStatusMessage(pi, { title: "/ctx-embed", text, level });
 				return;
 			}
@@ -230,11 +211,7 @@ export function registerCtxEmbedCommand(
 				return;
 			}
 
-			const coverage = getEmbeddingCoverageStatus(
-				deps.db,
-				project.projectIdentity,
-				sessionId,
-			);
+			const coverage = getEmbeddingCoverageStatus(deps.db, project.projectIdentity, sessionId);
 			const statusText = formatEmbedStatusText(coverage, { status: "idle" });
 			sendCtxStatusMessage(pi, {
 				title: "/ctx-embed",
@@ -269,11 +246,7 @@ export function maybeAutoEmbedPiSession(
 			// wipe synchronously, so awaiting it first would run on the hot path.
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			await ensureProjectRegisteredFromPiDirectory(projectDir, deps.db);
-			const coverage = getEmbeddingCoverageStatus(
-				deps.db,
-				projectIdentity,
-				sessionId,
-			);
+			const coverage = getEmbeddingCoverageStatus(deps.db, projectIdentity, sessionId);
 			if (!coverage.enabled) return;
 			const remaining = coverage.session.total - coverage.session.embedded;
 			if (remaining <= 0) return;

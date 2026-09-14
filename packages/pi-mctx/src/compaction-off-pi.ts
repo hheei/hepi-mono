@@ -1,5 +1,6 @@
 import { COMPACTION_ENABLED_PATH } from "#core/config/agent-disable";
 import {
+	type ContextDatabase,
 	clearCachedM0M1,
 	clearPendingOps,
 	getOrCreateSessionMeta,
@@ -8,7 +9,6 @@ import {
 	setChannel2NudgeState,
 	setPendingPiCompactionMarkerState,
 	updateSessionMeta,
-	type ContextDatabase,
 } from "#core/features/storage";
 import {
 	type CompactionModeRecord,
@@ -79,9 +79,7 @@ export function reconcilePiCompactionMode(args: {
 
 	if (!args.compactionOff) {
 		if (stored === null || resolveCompactionModeRecord(stored) === "on") {
-			return stored === null
-				? { ...NO_TRANSITION, recordToWrite: "on" }
-				: NO_TRANSITION;
+			return stored === null ? { ...NO_TRANSITION, recordToWrite: "on" } : NO_TRANSITION;
 		}
 
 		clearCachedM0M1(args.db, args.sessionId);

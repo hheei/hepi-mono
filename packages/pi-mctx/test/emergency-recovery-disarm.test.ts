@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 /**
  * Regression guard for the emergency-recovery disarm predicate.
@@ -29,33 +29,20 @@ const codeOnly = SRC.split("\n")
 
 describe("emergency-recovery disarm predicate", () => {
 	test("the no-fire historian branch disarms using the RUNNABLE-window snapshot", () => {
-		const noFire = codeOnly.indexOf(
-			"shouldFire=false (no trigger condition met)",
-		);
+		const noFire = codeOnly.indexOf("shouldFire=false (no trigger condition met)");
 		expect(noFire).toBeGreaterThan(-1);
 		// The disarm clears the flag right after the no-fire log, gated on the
 		// authoritative runnable-window check (not the loose raw-beyond-boundary one).
-		const disarm = codeOnly.indexOf(
-			"clearEmergencyRecovery(db, sessionId)",
-			noFire,
-		);
+		const disarm = codeOnly.indexOf("clearEmergencyRecovery(db, sessionId)", noFire);
 		expect(disarm).toBeGreaterThan(noFire);
-		const window = codeOnly.lastIndexOf(
-			"hasRunnableCompartmentWindow(boundarySnapshot)",
-			disarm,
-		);
+		const window = codeOnly.lastIndexOf("hasRunnableCompartmentWindow(boundarySnapshot)", disarm);
 		expect(window).toBeGreaterThan(noFire);
 		expect(window).toBeLessThan(disarm);
 	});
 
 	test("the disarm is gated on recovery being armed and no in-flight historian", () => {
-		const noFire = codeOnly.indexOf(
-			"shouldFire=false (no trigger condition met)",
-		);
-		const disarm = codeOnly.indexOf(
-			"clearEmergencyRecovery(db, sessionId)",
-			noFire,
-		);
+		const noFire = codeOnly.indexOf("shouldFire=false (no trigger condition met)");
+		const disarm = codeOnly.indexOf("clearEmergencyRecovery(db, sessionId)", noFire);
 		const gateRegion = codeOnly.slice(noFire, disarm);
 		expect(gateRegion).toContain("overflowState.needsEmergencyRecovery");
 		expect(gateRegion).toContain("!inFlightHistorian.has(sessionId)");
@@ -66,16 +53,9 @@ describe("emergency-recovery disarm predicate", () => {
 		// one in-progress arc — keep the flag armed (OpenCode does too) so
 		// drop-all-tools keeps shrinking until the arc closes. Only a STALE flag
 		// (low real pressure, e.g. post-/ctx-recomp ~20%) disarms.
-		const noFire = codeOnly.indexOf(
-			"shouldFire=false (no trigger condition met)",
-		);
-		const disarm = codeOnly.indexOf(
-			"clearEmergencyRecovery(db, sessionId)",
-			noFire,
-		);
+		const noFire = codeOnly.indexOf("shouldFire=false (no trigger condition met)");
+		const disarm = codeOnly.indexOf("clearEmergencyRecovery(db, sessionId)", noFire);
 		const gateRegion = codeOnly.slice(noFire, disarm);
-		expect(gateRegion).toContain(
-			"usage.percentage < historianForceMaterializationPercentage",
-		);
+		expect(gateRegion).toContain("usage.percentage < historianForceMaterializationPercentage");
 	});
 });

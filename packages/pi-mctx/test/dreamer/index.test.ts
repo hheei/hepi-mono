@@ -1,13 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import {
-	type DreamerConfig,
-	DreamerConfigSchema,
-} from "#core/config/schema/magic-context";
+import { type DreamerConfig, DreamerConfigSchema } from "#core/config/schema/magic-context";
 import { getTaskScheduleState } from "#core/features/dreamer/storage-task-schedule";
 import { insertMemory } from "#core/features/memory/index";
-import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
+import { initializeDatabase } from "../../src/core/features/storage-db";
 import {
 	__test,
 	awaitInFlightDreamers,
@@ -25,9 +22,7 @@ type CapturedDreamClient = {
 	};
 };
 
-function requireCapturedClient(
-	client: CapturedDreamClient | null,
-): CapturedDreamClient {
+function requireCapturedClient(client: CapturedDreamClient | null): CapturedDreamClient {
 	expect(client).not.toBeNull();
 	if (!client) throw new Error("dreamer client was not captured");
 	return client;
@@ -61,9 +56,7 @@ function dreamerOptions(args: {
 }) {
 	return {
 		db: args.database,
-		projectDir:
-			args.projectDir ??
-			`/tmp/${args.projectIdentity.replace(/[^a-z0-9-]/gi, "-")}`,
+		projectDir: args.projectDir ?? `/tmp/${args.projectIdentity.replace(/[^a-z0-9-]/gi, "-")}`,
 		projectIdentity: args.projectIdentity,
 		config: args.config ?? enabledConfig(),
 		embeddingConfig: { provider: "off" as const },
@@ -185,13 +178,8 @@ describe("Pi dreamer wiring", () => {
 			}),
 		);
 
-		const result = await runPiDreamForProject(
-			"git:pi-manual-language",
-			"curate",
-		);
-		expect(
-			getTaskScheduleState(db, "git:pi-manual-language", "curate")?.lastError,
-		).toBeNull();
+		const result = await runPiDreamForProject("git:pi-manual-language", "curate");
+		expect(getTaskScheduleState(db, "git:pi-manual-language", "curate")?.lastError).toBeNull();
 		expect(result).toEqual({
 			ran: ["curate"],
 			skippedNoWork: [],
@@ -330,9 +318,7 @@ describe("Pi dreamer wiring", () => {
 				}) as never,
 		);
 
-		registerPiDreamerProject(
-			dreamerOptions({ database: db, projectIdentity: "git:pi-g5-noop" }),
-		);
+		registerPiDreamerProject(dreamerOptions({ database: db, projectIdentity: "git:pi-g5-noop" }));
 		const client = requireCapturedClient(capturedClient);
 		const created = (await client.session.create({})) as {
 			id: string;
@@ -427,9 +413,7 @@ describe("Pi dreamer wiring", () => {
 		const timer = deferred<() => void>();
 		__test.setStartDreamScheduleTimerFactory(() => timer.promise);
 
-		registerPiDreamerProject(
-			dreamerOptions({ database: db, projectIdentity: "git:pi-g12-race" }),
-		);
+		registerPiDreamerProject(dreamerOptions({ database: db, projectIdentity: "git:pi-g12-race" }));
 		unregisterPiDreamerProject({ projectIdentity: "git:pi-g12-race" });
 		expect(timerCleanup).not.toHaveBeenCalled();
 

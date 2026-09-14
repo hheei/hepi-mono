@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { initializeDatabase } from "../../src/core/features/storage-db";
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
+import { initializeDatabase } from "../../src/core/features/storage-db";
 import {
 	acquireHandoffLease,
 	getHandoffLease,
@@ -43,9 +43,7 @@ describe("handoff lease", () => {
 		const db = createDb();
 		try {
 			const now = 1_000;
-			expect(
-				acquireHandoffLease(db, "sess-2", "old", "req-old", "preparing", now),
-			).not.toBeNull();
+			expect(acquireHandoffLease(db, "sess-2", "old", "req-old", "preparing", now)).not.toBeNull();
 			const next = acquireHandoffLease(
 				db,
 				"sess-2",

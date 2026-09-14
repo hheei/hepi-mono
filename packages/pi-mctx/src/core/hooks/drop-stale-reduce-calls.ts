@@ -5,77 +5,68 @@ import type { MessageLike } from "./tag-messages";
 const STALE_TOOL_NAMES = new Set(["ctx_reduce"]);
 
 export function isReduceToolPart(part: unknown): boolean {
-    if (!isRecord(part)) return false;
-    // Legacy format: { type: "tool", tool: "ctx_reduce" }
-    if (part.type === "tool" && typeof part.tool === "string" && STALE_TOOL_NAMES.has(part.tool))
-        return true;
-    // tool-invocation format: { type: "tool-invocation", toolName: "ctx_reduce" }
-    if (
-        part.type === "tool-invocation" &&
-        typeof part.toolName === "string" &&
-        STALE_TOOL_NAMES.has(part.toolName)
-    )
-        return true;
-    // tool_use format: { type: "tool_use", name: "ctx_reduce" }
-    if (
-        part.type === "tool_use" &&
-        typeof part.name === "string" &&
-        STALE_TOOL_NAMES.has(part.name)
-    )
-        return true;
-    return false;
+	if (!isRecord(part)) return false;
+	// Legacy format: { type: "tool", tool: "ctx_reduce" }
+	if (part.type === "tool" && typeof part.tool === "string" && STALE_TOOL_NAMES.has(part.tool))
+		return true;
+	// tool-invocation format: { type: "tool-invocation", toolName: "ctx_reduce" }
+	if (
+		part.type === "tool-invocation" &&
+		typeof part.toolName === "string" &&
+		STALE_TOOL_NAMES.has(part.toolName)
+	)
+		return true;
+	// tool_use format: { type: "tool_use", name: "ctx_reduce" }
+	if (part.type === "tool_use" && typeof part.name === "string" && STALE_TOOL_NAMES.has(part.name))
+		return true;
+	return false;
 }
 
 function hasAnyMeaningfulPart(parts: unknown[]): boolean {
-    for (const part of parts) {
-        if (!isRecord(part)) continue;
-        if (part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0)
-            return true;
-        if (
-            part.type === "thinking" ||
-            part.type === "reasoning" ||
-            part.type === "redacted_thinking"
-        )
-            continue;
-        if (part.type === "meta" || part.type === "step-start" || part.type === "step-finish")
-            continue;
-        if (part.type !== "tool" || !isReduceToolPart(part)) return true;
-    }
-    return false;
+	for (const part of parts) {
+		if (!isRecord(part)) continue;
+		if (part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0)
+			return true;
+		if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking")
+			continue;
+		if (part.type === "meta" || part.type === "step-start" || part.type === "step-finish") continue;
+		if (part.type !== "tool" || !isReduceToolPart(part)) return true;
+	}
+	return false;
 }
 
 function messageHasReducePart(message: MessageLike): boolean {
-    for (const part of message.parts) {
-        if (isSentinel(part)) continue;
-        if (isReduceToolPart(part)) return true;
-    }
-    return false;
+	for (const part of message.parts) {
+		if (isSentinel(part)) continue;
+		if (isReduceToolPart(part)) return true;
+	}
+	return false;
 }
 
 function sentinelizeReduceParts(message: MessageLike): boolean {
-    let touched = false;
-    for (let j = 0; j < message.parts.length; j++) {
-        const part = message.parts[j];
-        if (isSentinel(part)) continue;
-        if (isReduceToolPart(part)) {
-            message.parts[j] = makeSentinel(part);
-            touched = true;
-        }
-    }
-    if (touched && !hasAnyMeaningfulPart(message.parts)) {
-        // Whole message becomes a single-sentinel-part shell. Preserves
-        // messages.length so proxy cache hashes stay stable.
-        message.parts.length = 0;
-        message.parts.push(makeSentinel(undefined));
-    }
-    return touched;
+	let touched = false;
+	for (let j = 0; j < message.parts.length; j++) {
+		const part = message.parts[j];
+		if (isSentinel(part)) continue;
+		if (isReduceToolPart(part)) {
+			message.parts[j] = makeSentinel(part);
+			touched = true;
+		}
+	}
+	if (touched && !hasAnyMeaningfulPart(message.parts)) {
+		// Whole message becomes a single-sentinel-part shell. Preserves
+		// messages.length so proxy cache hashes stay stable.
+		message.parts.length = 0;
+		message.parts.push(makeSentinel(undefined));
+	}
+	return touched;
 }
 
 export interface StaleReduceStripResult {
-    /** True if any ctx_reduce part was sentinelized this pass. */
-    didDrop: boolean;
-    /** Message ids newly detected as aged this pass (only when detect=true). */
-    newlyStrippedIds: string[];
+	/** True if any ctx_reduce part was sentinelized this pass. */
+	didDrop: boolean;
+	/** Message ids newly detected as aged this pass (only when detect=true). */
+	newlyStrippedIds: string[];
 }
 
 /**
@@ -105,40 +96,40 @@ export interface StaleReduceStripResult {
  * inconsistently.
  */
 export function dropStaleReduceCalls(
-    messages: MessageLike[],
-    frozenIds: Set<string>,
-    options: { detect?: boolean; protectedCount?: number } = {},
+	messages: MessageLike[],
+	frozenIds: Set<string>,
+	options: { detect?: boolean; protectedCount?: number } = {},
 ): StaleReduceStripResult {
-    const detect = options.detect ?? false;
-    const protectedCount = options.protectedCount ?? 0;
-    const protectedStart = messages.length - protectedCount;
-    const newlyStrippedIds: string[] = [];
-    let didDrop = false;
+	const detect = options.detect ?? false;
+	const protectedCount = options.protectedCount ?? 0;
+	const protectedStart = messages.length - protectedCount;
+	const newlyStrippedIds: string[] = [];
+	let didDrop = false;
 
-    for (let i = 0; i < messages.length; i++) {
-        const message = messages[i];
-        if (!message) continue;
-        const id = typeof message.info.id === "string" ? message.info.id : undefined;
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i];
+		if (!message) continue;
+		const id = typeof message.info.id === "string" ? message.info.id : undefined;
 
-        // Replay: any message frozen on a prior cache-busting pass.
-        const inFrozen = id !== undefined && frozenIds.has(id);
-        // Detect (cache-busting passes only): a not-yet-frozen ctx_reduce call
-        // that has aged past the protected window and carries a stable id.
-        const isNewDetection =
-            !inFrozen &&
-            detect &&
-            i < protectedStart &&
-            id !== undefined &&
-            messageHasReducePart(message);
+		// Replay: any message frozen on a prior cache-busting pass.
+		const inFrozen = id !== undefined && frozenIds.has(id);
+		// Detect (cache-busting passes only): a not-yet-frozen ctx_reduce call
+		// that has aged past the protected window and carries a stable id.
+		const isNewDetection =
+			!inFrozen &&
+			detect &&
+			i < protectedStart &&
+			id !== undefined &&
+			messageHasReducePart(message);
 
-        if (!inFrozen && !isNewDetection) continue;
+		if (!inFrozen && !isNewDetection) continue;
 
-        const touched = sentinelizeReduceParts(message);
-        if (touched) {
-            didDrop = true;
-            if (isNewDetection && id !== undefined) newlyStrippedIds.push(id);
-        }
-    }
+		const touched = sentinelizeReduceParts(message);
+		if (touched) {
+			didDrop = true;
+			if (isNewDetection && id !== undefined) newlyStrippedIds.push(id);
+		}
+	}
 
-    return { didDrop, newlyStrippedIds };
+	return { didDrop, newlyStrippedIds };
 }

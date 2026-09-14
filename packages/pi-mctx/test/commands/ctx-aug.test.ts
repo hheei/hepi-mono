@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerCtxAugCommand } from "../../src/commands/ctx-aug";
 import * as subagentModule from "../../src/subagent-runner";
 import { createFakePi, fakeContext } from "../test-utils.test";
-import { registerCtxAugCommand } from "../../src/commands/ctx-aug";
 
 function installRunner(result: unknown) {
 	const run = vi.fn(async () => result);
-	const runnerConstructor = vi.spyOn(subagentModule, "PiSubagentRunner").mockImplementation(
-		function MockRunner(this: { harness: string; run: typeof run }) {
+	const runnerConstructor = vi
+		.spyOn(subagentModule, "PiSubagentRunner")
+		.mockImplementation(function MockRunner(this: { harness: string; run: typeof run }) {
 			this.harness = "pi";
 			this.run = run;
-		} as never,
-	);
+		} as never);
 	return { run, constructor: runnerConstructor };
 }
 
@@ -43,10 +43,7 @@ describe("registerCtxAugCommand", () => {
 				handler: (args: string, ctx: never) => Promise<void>;
 			};
 
-			await command.handler(
-				" implement feature ",
-				fakeContext("ses-aug") as never,
-			);
+			await command.handler(" implement feature ", fakeContext("ses-aug") as never);
 
 			expect(runner.run).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -94,10 +91,7 @@ describe("registerCtxAugCommand", () => {
 				handler: (args: string, ctx: never) => Promise<void>;
 			};
 
-			await command.handler(
-				"implement feature",
-				fakeContext("ses-aug") as never,
-			);
+			await command.handler("implement feature", fakeContext("ses-aug") as never);
 
 			expect(fake.sentMessages).toEqual(["implement feature"]);
 		} finally {

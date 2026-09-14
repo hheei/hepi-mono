@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CloneSessionStateFilter,
 	copySessionStateForClone,
@@ -166,12 +166,7 @@ function count(database: Database, table: string, sessionId = "clone"): number {
 }
 
 function copyWithEntries(database: Database, entries: unknown[]) {
-	return copySessionStateForClone(
-		database,
-		"source",
-		"clone",
-		__test.createCloneFilter(entries),
-	);
+	return copySessionStateForClone(database, "source", "clone", __test.createCloneFilter(entries));
 }
 
 function seedMeta(database: Database, values: Record<string, unknown>): void {
@@ -184,11 +179,7 @@ function seedMeta(database: Database, values: Record<string, unknown>): void {
 		.run("source", "pi", ...Object.values(values));
 }
 
-function pending(
-	firstKeptEntryId: string,
-	endMessageId: string,
-	ordinal: number,
-): string {
+function pending(firstKeptEntryId: string, endMessageId: string, ordinal: number): string {
 	return JSON.stringify({
 		firstKeptEntryId,
 		endMessageId,
@@ -214,25 +205,15 @@ describe("Pi clone state inheritance", () => {
 			ownerId: "a3",
 		});
 
-		const result = copyWithEntries(database, [
-			user("u1"),
-			assistant("a1"),
-			user("u2"),
-		]);
+		const result = copyWithEntries(database, [user("u1"), assistant("a1"), user("u2")]);
 
 		expect(result).toMatchObject({ compartmentsCopied: 1, tagsCopied: 1 });
 		const compartments = database
-			.prepare(
-				"SELECT sequence, start_message, end_message FROM compartments WHERE session_id = ?",
-			)
+			.prepare("SELECT sequence, start_message, end_message FROM compartments WHERE session_id = ?")
 			.all("clone");
-		expect(compartments).toEqual([
-			{ sequence: 1, start_message: 1, end_message: 2 },
-		]);
+		expect(compartments).toEqual([{ sequence: 1, start_message: 1, end_message: 2 }]);
 		const copiedTag = database
-			.prepare(
-				"SELECT tag_number, status, drop_mode, token_count FROM tags WHERE session_id = ?",
-			)
+			.prepare("SELECT tag_number, status, drop_mode, token_count FROM tags WHERE session_id = ?")
 			.get("clone");
 		expect(copiedTag).toEqual({
 			tag_number: 1,
@@ -250,17 +231,12 @@ describe("Pi clone state inheritance", () => {
 			endId: "a1",
 		});
 
-		const result = copyWithEntries(database, [
-			toolResult("tool-1"),
-			assistant("a1"),
-		]);
+		const result = copyWithEntries(database, [toolResult("tool-1"), assistant("a1")]);
 
 		expect(result.compartmentsCopied).toBe(1);
 		expect(
 			database
-				.prepare(
-					"SELECT start_message, end_message FROM compartments WHERE session_id = ?",
-				)
+				.prepare("SELECT start_message, end_message FROM compartments WHERE session_id = ?")
 				.get("clone"),
 		).toEqual({ start_message: 1, end_message: 2 });
 	});
@@ -385,8 +361,7 @@ describe("Pi clone state inheritance", () => {
 		seedTag(database, { tagNumber: 2, messageId: "a1:p0" });
 		let visits = 0;
 		const filter: CloneSessionStateFilter = {
-			resolveBoundaryOrdinal: (id) =>
-				id === "u1" ? 1 : id === "a1" ? 2 : undefined,
+			resolveBoundaryOrdinal: (id) => (id === "u1" ? 1 : id === "a1" ? 2 : undefined),
 			includeMessageId: () => true,
 			includeTag: () => {
 				visits += 1;
@@ -396,9 +371,9 @@ describe("Pi clone state inheritance", () => {
 			selectPendingPiMarker: () => null,
 		};
 
-		expect(() =>
-			copySessionStateForClone(database, "source", "clone", filter),
-		).toThrow("injected copy failure");
+		expect(() => copySessionStateForClone(database, "source", "clone", filter)).toThrow(
+			"injected copy failure",
+		);
 		for (const table of [
 			"compartments",
 			"tags",
@@ -430,17 +405,14 @@ describe("Pi clone state inheritance", () => {
 		expect(result.pendingOpsCopied).toBe(1);
 		expect(
 			database
-				.prepare(
-					"SELECT tag_id, operation, queued_at FROM pending_ops WHERE session_id = ?",
-				)
+				.prepare("SELECT tag_id, operation, queued_at FROM pending_ops WHERE session_id = ?")
 				.all("clone"),
 		).toEqual([{ tag_id: 1, operation: "drop", queued_at: 100 }]);
 	});
 
 	it("copies source contents so caveman replay works on a migrated tag", () => {
 		const database = db();
-		const original =
-			"I just really basically wanted to clearly explain ".repeat(20);
+		const original = "I just really basically wanted to clearly explain ".repeat(20);
 
 		seedTag(database, {
 			tagNumber: 7,
@@ -471,12 +443,7 @@ describe("Pi clone state inheritance", () => {
 			],
 		]);
 		expect(
-			replayCavemanCompression(
-				"clone",
-				database,
-				targets,
-				getTagsBySession(database, "clone"),
-			),
+			replayCavemanCompression("clone", database, targets, getTagsBySession(database, "clone")),
 		).toBe(1);
 		expect(rendered).not.toBe(original);
 	});
@@ -514,9 +481,7 @@ describe("Pi clone state inheritance", () => {
 		copyWithEntries(database, [user("u1"), assistant("a1")]);
 
 		const row = database
-			.prepare(
-				"SELECT processed_image_stripped_ids AS ids FROM session_meta WHERE session_id = ?",
-			)
+			.prepare("SELECT processed_image_stripped_ids AS ids FROM session_meta WHERE session_id = ?")
 			.get("clone") as { ids: string };
 		expect(JSON.parse(row.ids)).toEqual(["u1"]);
 	});
@@ -563,10 +528,7 @@ describe("Pi clone state inheritance", () => {
 		const directory = await mkdtemp(join(tmpdir(), "mc-clone-header-"));
 		temporaryDirectories.push(directory);
 		const file = join(directory, "source.jsonl");
-		await writeFile(
-			file,
-			'{"type":"session","id":"source-id"}\n{"type":"message"}\n',
-		);
+		await writeFile(file, '{"type":"session","id":"source-id"}\n{"type":"message"}\n');
 		expect(await readPiSessionIdFromFile(file)).toBe("source-id");
 	});
 
@@ -626,9 +588,7 @@ describe("Pi clone state inheritance", () => {
 
 		expect(result).toBeNull();
 		expect(messages).toHaveLength(1);
-		expect(messages[0]).toContain(
-			"source=unknown dest=clone stage=read-source-header",
-		);
+		expect(messages[0]).toContain("source=unknown dest=clone stage=read-source-header");
 		expect(messages[0]).toContain("run /ctx-wrapup to rebuild, or re-clone");
 	});
 });

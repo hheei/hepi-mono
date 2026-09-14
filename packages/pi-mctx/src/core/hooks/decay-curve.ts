@@ -55,19 +55,19 @@ export type Tier = 1 | 2 | 3 | 4 | 5;
  * @param budgetPressure 0.10..∞ (computed once per pass via computeBudgetPressure).
  */
 export function tier(compartmentIndex: number, importance: number, budgetPressure: number): Tier {
-    const a = Math.max(compartmentIndex, 1) - 1;
-    const imp = Math.max(1, Math.min(100, importance));
-    const p = Math.max(budgetPressure, P_FLOOR);
+	const a = Math.max(compartmentIndex, 1) - 1;
+	const imp = Math.max(1, Math.min(100, importance));
+	const p = Math.max(budgetPressure, P_FLOOR);
 
-    const F = 2 ** ((imp - 50) / D);
-    const H = (H50 * F) / p;
-    const z = a / H;
+	const F = 2 ** ((imp - 50) / D);
+	const H = (H50 * F) / p;
+	const z = a / H;
 
-    if (z < Z1) return 1;
-    if (z < Z2) return 2;
-    if (z < Z3) return 3;
-    if (z < Z4) return 4;
-    return 5;
+	if (z < Z1) return 1;
+	if (z < Z2) return 2;
+	if (z < Z3) return 3;
+	if (z < Z4) return 4;
+	return 5;
 }
 
 /**
@@ -76,21 +76,21 @@ export function tier(compartmentIndex: number, importance: number, budgetPressur
  * reduces to `z >= Z4`.
  */
 export function shouldArchive(
-    compartmentIndex: number,
-    importance: number,
-    budgetPressure: number,
-    anchorOverlap = 0,
+	compartmentIndex: number,
+	importance: number,
+	budgetPressure: number,
+	anchorOverlap = 0,
 ): boolean {
-    const a = Math.max(compartmentIndex, 1) - 1;
-    const imp = Math.max(1, Math.min(100, importance));
-    const p = Math.max(budgetPressure, P_FLOOR);
-    const o = Math.max(0, Math.min(1, anchorOverlap));
+	const a = Math.max(compartmentIndex, 1) - 1;
+	const imp = Math.max(1, Math.min(100, importance));
+	const p = Math.max(budgetPressure, P_FLOOR);
+	const o = Math.max(0, Math.min(1, anchorOverlap));
 
-    const F = 2 ** ((imp - 50) / D);
-    const H = (H50 * F) / p;
-    const z = a / H;
+	const F = 2 ** ((imp - 50) / D);
+	const H = (H50 * F) / p;
+	const z = a / H;
 
-    return z >= Z4 + G * o;
+	return z >= Z4 + G * o;
 }
 
 /**
@@ -99,16 +99,16 @@ export function shouldArchive(
  * instead of P5, preserving the topic until anchor overlap fades.
  */
 export function renderedTier(
-    compartmentIndex: number,
-    importance: number,
-    budgetPressure: number,
-    anchorOverlap = 0,
+	compartmentIndex: number,
+	importance: number,
+	budgetPressure: number,
+	anchorOverlap = 0,
 ): Tier {
-    if (shouldArchive(compartmentIndex, importance, budgetPressure, anchorOverlap)) {
-        return 5;
-    }
-    const base = tier(compartmentIndex, importance, budgetPressure);
-    return Math.min(base, 4) as Tier;
+	if (shouldArchive(compartmentIndex, importance, budgetPressure, anchorOverlap)) {
+		return 5;
+	}
+	const base = tier(compartmentIndex, importance, budgetPressure);
+	return Math.min(base, 4) as Tier;
 }
 
 /**
@@ -118,19 +118,19 @@ export function renderedTier(
  * very tight budgets (<8K) — use computeBudgetPressureTwoPass there.
  */
 export function computeBudgetPressure(
-    compartments: ReadonlyArray<{ index: number; importance: number }>,
-    historyBudget: number,
+	compartments: ReadonlyArray<{ index: number; importance: number }>,
+	historyBudget: number,
 ): number {
-    if (historyBudget <= 0) return 1;
-    let naturalCost = 0;
-    for (const c of compartments) {
-        const naturalTier = tier(c.index, c.importance, 1.0);
-        // Archived compartments render as an empty string, so charging the
-        // historical P5 placeholder cost here creates phantom pressure from
-        // bytes that will never appear in the prompt.
-        naturalCost += naturalTier >= 5 ? 0 : TIER_COST[naturalTier];
-    }
-    return Math.max(P_FLOOR, naturalCost / historyBudget);
+	if (historyBudget <= 0) return 1;
+	let naturalCost = 0;
+	for (const c of compartments) {
+		const naturalTier = tier(c.index, c.importance, 1.0);
+		// Archived compartments render as an empty string, so charging the
+		// historical P5 placeholder cost here creates phantom pressure from
+		// bytes that will never appear in the prompt.
+		naturalCost += naturalTier >= 5 ? 0 : TIER_COST[naturalTier];
+	}
+	return Math.max(P_FLOOR, naturalCost / historyBudget);
 }
 
 /**
@@ -139,18 +139,18 @@ export function computeBudgetPressure(
  * still overshoots by >10%, scale pressure proportionally.
  */
 export function computeBudgetPressureTwoPass(
-    compartments: ReadonlyArray<{ index: number; importance: number }>,
-    historyBudget: number,
+	compartments: ReadonlyArray<{ index: number; importance: number }>,
+	historyBudget: number,
 ): number {
-    if (historyBudget <= 0) return 1;
-    let p = computeBudgetPressure(compartments, historyBudget);
-    let actualCost = 0;
-    for (const c of compartments) {
-        const actualTier = tier(c.index, c.importance, p);
-        actualCost += actualTier >= 5 ? 0 : TIER_COST[actualTier];
-    }
-    if (actualCost > historyBudget * 1.1) {
-        p = p * (actualCost / historyBudget);
-    }
-    return Math.max(P_FLOOR, p);
+	if (historyBudget <= 0) return 1;
+	let p = computeBudgetPressure(compartments, historyBudget);
+	let actualCost = 0;
+	for (const c of compartments) {
+		const actualTier = tier(c.index, c.importance, p);
+		actualCost += actualTier >= 5 ? 0 : TIER_COST[actualTier];
+	}
+	if (actualCost > historyBudget * 1.1) {
+		p = p * (actualCost / historyBudget);
+	}
+	return Math.max(P_FLOOR, p);
 }

@@ -1,7 +1,4 @@
-import type {
-	DreamerConfig,
-	EmbeddingConfig,
-} from "#core/config/schema/magic-context";
+import type { DreamerConfig, EmbeddingConfig } from "#core/config/schema/magic-context";
 import {
 	buildDreamTaskRuntimeConfigs,
 	userMemoryCollectionEnabled,
@@ -13,8 +10,8 @@ import {
 	runDueTasksForProject,
 	runManualDream,
 } from "#core/features/dreamer/task-scheduler";
-import { log } from "#core/shared/logger";
 import type { ContextDatabase } from "#core/features/storage";
+import { log } from "#core/shared/logger";
 import { ensureProjectRegisteredFromPiDirectory } from "../embedding-bootstrap";
 import { PiSubagentRunner } from "../subagent-runner";
 import { createPiPrimerRawProviderFactory } from "./primer-raw-provider-pi";
@@ -94,14 +91,13 @@ async function defaultStartDreamScheduleTimer(
 			await runDueTasksForProject({
 				db: registration.db,
 				projectIdentity: registration.projectIdentity,
-				tasks: buildDreamTaskRuntimeConfigs(
-					registration.dreamerConfig,
-					registration.language,
-				),
+				tasks: buildDreamTaskRuntimeConfigs(registration.dreamerConfig, registration.language),
 				executor,
 			});
 		} catch (error) {
-			log(`[dreamer] scheduled drain failed: ${error instanceof Error ? error.message : String(error)}`);
+			log(
+				`[dreamer] scheduled drain failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		} finally {
 			running = false;
 		}
@@ -158,8 +154,7 @@ const registeredProjects = new Map<string, ProjectRegistration>();
 const sessionsById = new Map<string, PiDreamerSession>();
 const inFlightDreams = new Set<Promise<unknown>>();
 let sessionCounter = 0;
-let piSubagentRunnerFactory: PiSubagentRunnerFactory = () =>
-	new PiSubagentRunner();
+let piSubagentRunnerFactory: PiSubagentRunnerFactory = () => new PiSubagentRunner();
 let startDreamScheduleTimerFn: typeof defaultStartDreamScheduleTimer =
 	defaultStartDreamScheduleTimer;
 
@@ -206,8 +201,7 @@ export function registerPiDreamerProject(opts: PiDreamerOptions): void {
 		// Supply the Pi provider factory (db arg ignored — Pi reads JSONL by cwd),
 		// converging the scheduled path onto the same provider the manual
 		// /ctx-dream path already uses.
-		retrospectiveRawProvider: () =>
-			new PiRetrospectiveRawProvider({ projectCwd: opts.projectDir }),
+		retrospectiveRawProvider: () => new PiRetrospectiveRawProvider({ projectCwd: opts.projectDir }),
 		// SCHEDULED refresh-primers likewise needs the Pi JSONL factory so its
 		// open-book seed renders raw U:/TC: lines; without it the scheduled task
 		// silently ran closed-book (the manual /ctx-dream path already wires this).
@@ -283,9 +277,7 @@ export async function runPiDreamForProject(
 }
 
 /** Cleanup hook — call from session_shutdown to deregister this project. */
-export function unregisterPiDreamerProject(opts: {
-	projectIdentity: string;
-}): void {
+export function unregisterPiDreamerProject(opts: { projectIdentity: string }): void {
 	const registration = registeredProjects.get(opts.projectIdentity);
 	if (!registration) {
 		return;
@@ -358,9 +350,7 @@ function createPiDreamerClient(opts: PiDreamerOptions): DreamTimerClient {
 			try {
 				const result = await runPromise;
 				if (!result.ok) {
-					const error = new Error(
-						`Pi dreamer subagent failed (${result.reason}): ${result.error}`,
-					);
+					const error = new Error(`Pi dreamer subagent failed (${result.reason}): ${result.error}`);
 					if (result.transient) {
 						(error as Error & { transient?: boolean }).transient = true;
 					}
@@ -407,9 +397,7 @@ function readDirectory(args: { query?: unknown }): string | undefined {
 	}
 
 	const directory = (query as { directory?: unknown }).directory;
-	return typeof directory === "string" && directory.length > 0
-		? directory
-		: undefined;
+	return typeof directory === "string" && directory.length > 0 ? directory : undefined;
 }
 
 function readSessionTitle(args: { body?: unknown }): string | undefined {
@@ -497,10 +485,7 @@ function syntheticToolParts(count: number): SyntheticPart[] {
 	}));
 }
 
-function makeMessage(
-	role: "user" | "assistant",
-	parts: SyntheticPart[],
-): unknown {
+function makeMessage(role: "user" | "assistant", parts: SyntheticPart[]): unknown {
 	return {
 		info: {
 			role,
@@ -515,9 +500,7 @@ export const __test = {
 	setPiSubagentRunnerFactory: (factory: PiSubagentRunnerFactory) => {
 		piSubagentRunnerFactory = factory;
 	},
-	setStartDreamScheduleTimerFactory: (
-		factory: typeof defaultStartDreamScheduleTimer,
-	) => {
+	setStartDreamScheduleTimerFactory: (factory: typeof defaultStartDreamScheduleTimer) => {
 		startDreamScheduleTimerFn = factory;
 	},
 	reset: () => {

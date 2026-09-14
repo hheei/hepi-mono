@@ -56,9 +56,7 @@ export interface BuildMagicContextBlockOptions {
  * this function must never emit `<project-docs>` or `<user-profile>` even when
  * legacy options are true.
  */
-export function buildMagicContextBlock(
-	opts: BuildMagicContextBlockOptions,
-): string | null {
+export function buildMagicContextBlock(opts: BuildMagicContextBlockOptions): string | null {
 	const existing = opts.existingSystemPrompt ?? "";
 	const includeGuidance =
 		(opts.includeGuidance ?? true) && !existing.includes(MAGIC_CONTEXT_MARKER);
@@ -114,17 +112,11 @@ export function processSystemPromptForCache(args: {
 	const { db, sessionId, systemPrompt, isCacheBusting } = args;
 
 	// Step 1: hash detection vs persisted value.
-	let sessionMeta:
-		| import("#core/features/types").SessionMeta
-		| undefined;
+	let sessionMeta: import("#core/features/types").SessionMeta | undefined;
 	try {
 		sessionMeta = getOrCreateSessionMeta(db, sessionId);
 	} catch (error) {
-		sessionLog(
-			sessionId,
-			"system-prompt-hash session meta load failed:",
-			error,
-		);
+		sessionLog(sessionId, "system-prompt-hash session meta load failed:", error);
 	}
 
 	// Hash the prompt BEFORE date freezing — we want to detect content
@@ -190,9 +182,7 @@ export function processSystemPromptForCache(args: {
 				systemPromptHash: currentHash,
 				systemPromptTokens,
 			});
-		} else if (
-			Math.abs(sessionMeta.systemPromptTokens - systemPromptTokens) > 50
-		) {
+		} else if (Math.abs(sessionMeta.systemPromptTokens - systemPromptTokens) > 50) {
 			updateSessionMeta(db, sessionId, { systemPromptTokens });
 		}
 	}

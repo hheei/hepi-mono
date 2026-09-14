@@ -47,15 +47,15 @@ const READ_ACTION = "read";
  * correctness — any visible read counts.
  */
 export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const parts = messages[i]?.parts;
-        if (!Array.isArray(parts)) continue;
-        for (const part of parts) {
-            if (isSentinel(part)) continue;
-            if (isVisibleNoteReadPart(part)) return true;
-        }
-    }
-    return false;
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		const parts = messages[i]?.parts;
+		if (!Array.isArray(parts)) continue;
+		for (const part of parts) {
+			if (isSentinel(part)) continue;
+			if (isVisibleNoteReadPart(part)) return true;
+		}
+	}
+	return false;
 }
 
 /**
@@ -72,44 +72,40 @@ export function hasVisibleNoteReadCall(messages: MessageLike[]): boolean {
  * so they should not suppress a future "review your notes" nudge.
  */
 function isVisibleNoteReadPart(part: unknown): boolean {
-    if (!isRecord(part)) return false;
+	if (!isRecord(part)) return false;
 
-    // Tool input lives at `state.input`.
-    // for completed calls; in-flight calls may not have state populated yet
-    // but those don't surface a result anyway, so they shouldn't count.
-    if (part.type === "tool" && typeof part.tool === "string" && NOTE_TOOL_NAMES.has(part.tool)) {
-        const state = part.state;
-        if (isRecord(state) && isRecord(state.input)) {
-            return state.input.action === READ_ACTION;
-        }
-        return false;
-    }
+	// Tool input lives at `state.input`.
+	// for completed calls; in-flight calls may not have state populated yet
+	// but those don't surface a result anyway, so they shouldn't count.
+	if (part.type === "tool" && typeof part.tool === "string" && NOTE_TOOL_NAMES.has(part.tool)) {
+		const state = part.state;
+		if (isRecord(state) && isRecord(state.input)) {
+			return state.input.action === READ_ACTION;
+		}
+		return false;
+	}
 
-    // tool_use format used by some provider serializers.
-    if (
-        part.type === "tool_use" &&
-        typeof part.name === "string" &&
-        NOTE_TOOL_NAMES.has(part.name)
-    ) {
-        if (isRecord(part.input)) {
-            return part.input.action === READ_ACTION;
-        }
-        return false;
-    }
+	// tool_use format used by some provider serializers.
+	if (part.type === "tool_use" && typeof part.name === "string" && NOTE_TOOL_NAMES.has(part.name)) {
+		if (isRecord(part.input)) {
+			return part.input.action === READ_ACTION;
+		}
+		return false;
+	}
 
-    // tool-invocation format — args may be under `args` or `input` depending
-    // on serializer version; check both for forward-compat.
-    if (
-        part.type === "tool-invocation" &&
-        typeof part.toolName === "string" &&
-        NOTE_TOOL_NAMES.has(part.toolName)
-    ) {
-        const argsCandidate = part.args ?? part.input;
-        if (isRecord(argsCandidate)) {
-            return argsCandidate.action === READ_ACTION;
-        }
-        return false;
-    }
+	// tool-invocation format — args may be under `args` or `input` depending
+	// on serializer version; check both for forward-compat.
+	if (
+		part.type === "tool-invocation" &&
+		typeof part.toolName === "string" &&
+		NOTE_TOOL_NAMES.has(part.toolName)
+	) {
+		const argsCandidate = part.args ?? part.input;
+		if (isRecord(argsCandidate)) {
+			return argsCandidate.action === READ_ACTION;
+		}
+		return false;
+	}
 
-    return false;
+	return false;
 }

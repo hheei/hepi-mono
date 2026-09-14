@@ -15,48 +15,48 @@ import type { Database } from "../shared/sqlite";
  */
 
 export type HistorianRunStatus =
-    /** Compartments were validated + published. */
-    | "success"
-    /** A real failure (validation / coverage / no-progress / exception). */
-    | "failed"
-    /** A successful no-op (nothing eligible to compact, empty chunk). */
-    | "noop";
+	/** Compartments were validated + published. */
+	| "success"
+	/** A real failure (validation / coverage / no-progress / exception). */
+	| "failed"
+	/** A successful no-op (nothing eligible to compact, empty chunk). */
+	| "noop";
 
 export type HistorianRunKind = "incremental" | "recomp" | "partial-recomp" | "upgrade";
 
 export interface HistorianRunInput {
-    sessionId: string;
-    harness: string;
-    /** FK to subagent_invocations.id (tokens/model/timing). NULL if no invocation. */
-    subagentInvocationId?: number | null | undefined;
-    runKind: HistorianRunKind;
-    status: HistorianRunStatus;
-    /** Failure reason for `failed` (and optionally a no-op explanation). */
-    failureReason?: string | null | undefined;
-    /** Raw-ordinal range of the input chunk. */
-    chunkStartOrdinal?: number | null | undefined;
-    chunkEndOrdinal?: number | null | undefined;
-    /** Historian's reported next-start (its `<unprocessed_from>`). */
-    unprocessedFrom?: number | null | undefined;
-    /** Compartments actually persisted (post discard-last). */
-    compartmentsProduced?: number | undefined;
-    /** Durable id range of the persisted compartments. */
-    compartmentIdMin?: number | null | undefined;
-    compartmentIdMax?: number | null | undefined;
-    /** Facts emitted in the `<facts>` block. */
-    factsEmitted?: number | undefined;
-    /** `{ [category]: count }` of emitted facts. */
-    factsByCategory?: Record<string, number> | null | undefined;
-    /** Events emitted (causal_incident / trajectory_correction). */
-    eventsEmitted?: number | undefined;
-    /** Importance distribution across persisted compartments. */
-    importanceMin?: number | null | undefined;
-    importanceMax?: number | null | undefined;
-    importanceAvg?: number | null | undefined;
-    /** Whether the lookahead-free last compartment was discarded (boundary healing). */
-    discardedLast?: boolean | undefined;
-    /** Whether the run produced/processed legacy (pre-v2) compartments. */
-    legacy?: boolean | undefined;
+	sessionId: string;
+	harness: string;
+	/** FK to subagent_invocations.id (tokens/model/timing). NULL if no invocation. */
+	subagentInvocationId?: number | null | undefined;
+	runKind: HistorianRunKind;
+	status: HistorianRunStatus;
+	/** Failure reason for `failed` (and optionally a no-op explanation). */
+	failureReason?: string | null | undefined;
+	/** Raw-ordinal range of the input chunk. */
+	chunkStartOrdinal?: number | null | undefined;
+	chunkEndOrdinal?: number | null | undefined;
+	/** Historian's reported next-start (its `<unprocessed_from>`). */
+	unprocessedFrom?: number | null | undefined;
+	/** Compartments actually persisted (post discard-last). */
+	compartmentsProduced?: number | undefined;
+	/** Durable id range of the persisted compartments. */
+	compartmentIdMin?: number | null | undefined;
+	compartmentIdMax?: number | null | undefined;
+	/** Facts emitted in the `<facts>` block. */
+	factsEmitted?: number | undefined;
+	/** `{ [category]: count }` of emitted facts. */
+	factsByCategory?: Record<string, number> | null | undefined;
+	/** Events emitted (causal_incident / trajectory_correction). */
+	eventsEmitted?: number | undefined;
+	/** Importance distribution across persisted compartments. */
+	importanceMin?: number | null | undefined;
+	importanceMax?: number | null | undefined;
+	importanceAvg?: number | null | undefined;
+	/** Whether the lookahead-free last compartment was discarded (boundary healing). */
+	discardedLast?: boolean | undefined;
+	/** Whether the run produced/processed legacy (pre-v2) compartments. */
+	legacy?: boolean | undefined;
 }
 
 /**
@@ -65,10 +65,10 @@ export interface HistorianRunInput {
  * failure.
  */
 export function recordHistorianRun(db: Database, input: HistorianRunInput): number | null {
-    try {
-        const result = db
-            .prepare(
-                `INSERT INTO historian_runs (
+	try {
+		const result = db
+			.prepare(
+				`INSERT INTO historian_runs (
                     session_id, harness, subagent_invocation_id, run_kind, status,
                     failure_reason, chunk_start_ordinal, chunk_end_ordinal, unprocessed_from,
                     compartments_produced, compartment_id_min, compartment_id_max,
@@ -76,64 +76,64 @@ export function recordHistorianRun(db: Database, input: HistorianRunInput): numb
                     importance_min, importance_max, importance_avg,
                     discarded_last, legacy, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-                input.sessionId,
-                input.harness,
-                input.subagentInvocationId ?? null,
-                input.runKind,
-                input.status,
-                input.failureReason ?? null,
-                input.chunkStartOrdinal ?? null,
-                input.chunkEndOrdinal ?? null,
-                input.unprocessedFrom ?? null,
-                input.compartmentsProduced ?? 0,
-                input.compartmentIdMin ?? null,
-                input.compartmentIdMax ?? null,
-                input.factsEmitted ?? 0,
-                input.factsByCategory ? JSON.stringify(input.factsByCategory) : null,
-                input.eventsEmitted ?? 0,
-                input.importanceMin ?? null,
-                input.importanceMax ?? null,
-                input.importanceAvg ?? null,
-                input.discardedLast ? 1 : 0,
-                input.legacy ? 1 : 0,
-                Date.now(),
-            );
-        return Number(result.lastInsertRowid);
-    } catch {
-        return null;
-    }
+			)
+			.run(
+				input.sessionId,
+				input.harness,
+				input.subagentInvocationId ?? null,
+				input.runKind,
+				input.status,
+				input.failureReason ?? null,
+				input.chunkStartOrdinal ?? null,
+				input.chunkEndOrdinal ?? null,
+				input.unprocessedFrom ?? null,
+				input.compartmentsProduced ?? 0,
+				input.compartmentIdMin ?? null,
+				input.compartmentIdMax ?? null,
+				input.factsEmitted ?? 0,
+				input.factsByCategory ? JSON.stringify(input.factsByCategory) : null,
+				input.eventsEmitted ?? 0,
+				input.importanceMin ?? null,
+				input.importanceMax ?? null,
+				input.importanceAvg ?? null,
+				input.discardedLast ? 1 : 0,
+				input.legacy ? 1 : 0,
+				Date.now(),
+			);
+		return Number(result.lastInsertRowid);
+	} catch {
+		return null;
+	}
 }
 
 /** Summarize a list of importance values into min/max/avg (null on empty). */
 export function summarizeImportance(values: readonly number[]): {
-    min: number | null;
-    max: number | null;
-    avg: number | null;
+	min: number | null;
+	max: number | null;
+	avg: number | null;
 } {
-    const nums = values.filter((v) => typeof v === "number" && Number.isFinite(v));
-    const first = nums[0];
-    if (first === undefined) return { min: null, max: null, avg: null };
-    let min = first;
-    let max = first;
-    let sum = 0;
-    for (const v of nums) {
-        if (v < min) min = v;
-        if (v > max) max = v;
-        sum += v;
-    }
-    return { min, max, avg: sum / nums.length };
+	const nums = values.filter((v) => typeof v === "number" && Number.isFinite(v));
+	const first = nums[0];
+	if (first === undefined) return { min: null, max: null, avg: null };
+	let min = first;
+	let max = first;
+	let sum = 0;
+	for (const v of nums) {
+		if (v < min) min = v;
+		if (v > max) max = v;
+		sum += v;
+	}
+	return { min, max, avg: sum / nums.length };
 }
 
 /** Tally facts by their category for `factsByCategory`. */
 export function tallyFactsByCategory(
-    facts: ReadonlyArray<{ category?: string | null }>,
+	facts: ReadonlyArray<{ category?: string | null }>,
 ): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const f of facts) {
-        const cat = (f.category ?? "UNKNOWN").trim() || "UNKNOWN";
-        out[cat] = (out[cat] ?? 0) + 1;
-    }
-    return out;
+	const out: Record<string, number> = {};
+	for (const f of facts) {
+		const cat = (f.category ?? "UNKNOWN").trim() || "UNKNOWN";
+		out[cat] = (out[cat] ?? 0) + 1;
+	}
+	return out;
 }

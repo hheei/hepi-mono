@@ -1,7 +1,4 @@
-import {
-	isSaneLimit,
-	resolveLimit,
-} from "#core/shared/models-dev-cache";
+import { isSaneLimit, resolveLimit } from "#core/shared/models-dev-cache";
 
 export interface PiModelLimit {
 	provider?: string | undefined;
@@ -16,9 +13,7 @@ export function resolvePiUsableContextLimit(args: {
 	model?: PiModelLimit | undefined;
 	detectedContextLimit?: number | undefined;
 }): number | undefined {
-	const rawContext = isSaneLimit(args.rawContextWindow)
-		? args.rawContextWindow
-		: undefined;
+	const rawContext = isSaneLimit(args.rawContextWindow) ? args.rawContextWindow : undefined;
 	const detected =
 		typeof args.detectedContextLimit === "number" &&
 		Number.isFinite(args.detectedContextLimit) &&
@@ -33,9 +28,7 @@ export function resolvePiUsableContextLimit(args: {
 	return resolveLimit(
 		{
 			context,
-			...(args.model?.maxTokens === undefined
-				? {}
-				: { output: args.model.maxTokens }),
+			...(args.model?.maxTokens === undefined ? {} : { output: args.model.maxTokens }),
 		},
 		args.model?.provider ?? "unknown",
 		args.model?.id ?? "unknown",

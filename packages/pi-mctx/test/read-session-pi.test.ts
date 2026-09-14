@@ -108,9 +108,7 @@ describe("isMidTurnPi", () => {
 		expect(
 			isMidTurnPi(
 				{
-					messages: [
-						{ role: "assistant", content: [{ type: "text", text: "done" }] },
-					],
+					messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
 				},
 				"session-1",
 			),
@@ -142,10 +140,7 @@ describe("convertEntriesToRawMessages: synthetic-user entry-id propagation", () 
 	// correctly. findFirstKeptEntryId now delegates to
 	// convertEntriesToRawMessages so the two ordinal counters can't diverge.
 
-	function messageEntry(
-		id: string,
-		message: Record<string, unknown>,
-	): Record<string, unknown> {
+	function messageEntry(id: string, message: Record<string, unknown>): Record<string, unknown> {
 		return { type: "message", id, message };
 	}
 
@@ -206,9 +201,7 @@ describe("convertEntriesToRawMessages: synthetic-user entry-id propagation", () 
 		//   2: asst-1 (real)
 		//   3: synthetic user folding tr-1 — MUST carry tr-1's id
 		//   4: asst-2 (real)
-		expect(
-			raws.map((r) => ({ ordinal: r.ordinal, id: r.id, role: r.role })),
-		).toEqual([
+		expect(raws.map((r) => ({ ordinal: r.ordinal, id: r.id, role: r.role }))).toEqual([
 			{ ordinal: 1, id: "user-1", role: "user" },
 			{ ordinal: 2, id: "asst-1", role: "assistant" },
 			{ ordinal: 3, id: "synth-user-tr-1", role: "user" },
@@ -309,9 +302,7 @@ describe("convertEntriesToRawMessages: synthetic-user entry-id propagation", () 
 		//   3: asst-2
 		//   4: synthetic user folding tr-2   — id="tr-2"
 		//   5: asst-3
-		expect(
-			raws.map((r) => ({ ordinal: r.ordinal, id: r.id, role: r.role })),
-		).toEqual([
+		expect(raws.map((r) => ({ ordinal: r.ordinal, id: r.id, role: r.role }))).toEqual([
 			{ ordinal: 1, id: "asst-1", role: "assistant" },
 			{ ordinal: 2, id: "real-user", role: "user" },
 			{ ordinal: 3, id: "asst-2", role: "assistant" },
@@ -387,10 +378,7 @@ describe("convertEntriesToRawMessages: synthetic-user entry-id propagation", () 
 });
 
 describe("findFirstKeptEntryId — replay-safe boundary resolution", () => {
-	function messageEntry(
-		id: string,
-		message: Record<string, unknown>,
-	): Record<string, unknown> {
+	function messageEntry(id: string, message: Record<string, unknown>): Record<string, unknown> {
 		return { type: "message", id, message };
 	}
 
@@ -472,9 +460,7 @@ describe("findLastModelKeyFromBranch", () => {
 
 	it("ignores malformed model_change entries (missing provider/modelId)", () => {
 		expect(
-			findLastModelKeyFromBranch([
-				{ type: "model_change", provider: "openai" },
-			]),
+			findLastModelKeyFromBranch([{ type: "model_change", provider: "openai" }]),
 		).toBeUndefined();
 		expect(findLastModelKeyFromBranch([])).toBeUndefined();
 		expect(findLastModelKeyFromBranch(null)).toBeUndefined();

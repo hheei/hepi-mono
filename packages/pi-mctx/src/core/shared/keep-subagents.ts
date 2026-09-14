@@ -19,15 +19,15 @@ let keepSubagents = false;
 
 /** Set at plugin boot from `keep_subagents` config. */
 export function setKeepSubagents(value: boolean): void {
-    keepSubagents = value === true;
+	keepSubagents = value === true;
 }
 
 /** True when subagent child sessions should be retained (not deleted). */
 export function shouldKeepSubagents(): boolean {
-    return keepSubagents;
+	return keepSubagents;
 }
 
 /** Test-only reset. Do NOT call from production paths. */
 export function _resetKeepSubagentsForTesting(): void {
-    keepSubagents = false;
+	keepSubagents = false;
 }

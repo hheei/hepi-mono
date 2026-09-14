@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
 import { MagicContextConfigSchema } from "#core/config/schema/magic-context";
 import {
 	createPiMctxSettingsProvider,
+	loadPiConfig,
 	PI_MCTX_SETTINGS_GROUP,
 	PI_MCTX_SETTINGS_SECTION,
 	registerPiMctxSettings,
+	resetPiMctxConfigForReload,
 	resolvePiMctxSettings,
 } from "../../src/config/index";
 
@@ -173,5 +178,31 @@ describe("Pi MCTX settings", () => {
 		expect(getRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_SECTION)?.id).toBe(
 			PI_MCTX_SETTINGS_SECTION,
 		);
+	});
+
+	it("reads Pi settings without consulting legacy magic-context JSONC", () => {
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-mctx-settings-test-"));
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({
+				"pi-mctx": { historianEnabled: true, historianModel: "fork/provider-model" },
+			}),
+		);
+		writeFileSync(
+			join(agentDir, "magic-context.jsonc"),
+			JSON.stringify({ historian: { model: "upstream/provider-model" } }),
+		);
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		resetPiMctxConfigForReload();
+		try {
+			const config = loadPiConfig();
+			expect(config.historian?.model).toBe("fork/provider-model");
+		} finally {
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			resetPiMctxConfigForReload();
+			rmSync(agentDir, { recursive: true, force: true });
+		}
 	});
 });

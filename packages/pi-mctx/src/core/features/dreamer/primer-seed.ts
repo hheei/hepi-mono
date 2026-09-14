@@ -20,16 +20,13 @@
  * back to a closed-book seed (origin compartment P1) rather than silently
  * proceeding with an empty orientation.
  */
+import { cleanUserText, readRawSessionMessages } from "../../hooks/read-session-chunk";
 import {
-    cleanUserText,
-    readRawSessionMessages,
-} from "../../hooks/read-session-chunk";
-import {
-    estimateTokens,
-    extractTexts,
-    extractToolCallSummaries,
-    hasMeaningfulUserText,
-    normalizeText,
+	estimateTokens,
+	extractTexts,
+	extractToolCallSummaries,
+	hasMeaningfulUserText,
+	normalizeText,
 } from "../../hooks/read-session-formatting";
 import type { RawMessage } from "../../hooks/read-session-raw";
 import type { Database } from "../../shared/sqlite";
@@ -41,24 +38,24 @@ import { getPrimerCandidatesByIds, type Primer } from "../storage-primers";
 export const PRIMER_SEED_CAP_TOKENS = 4000;
 
 export interface PrimerSeed {
-    /** "raw" = U:/TC: orientation from the origin compartment; "closed-book" =
-     *  origin compartment P1 (raw unavailable). */
-    kind: "raw" | "closed-book";
-    /** The orientation block (already token-capped). */
-    orientation: string;
-    /** P1 of the immediately-preceding and -following compartments, for context. */
-    prePost: string;
-    /** Session + ordinal range the orientation came from (for logging). */
-    sessionId: string | null;
+	/** "raw" = U:/TC: orientation from the origin compartment; "closed-book" =
+	 *  origin compartment P1 (raw unavailable). */
+	kind: "raw" | "closed-book";
+	/** The orientation block (already token-capped). */
+	orientation: string;
+	/** P1 of the immediately-preceding and -following compartments, for context. */
+	prePost: string;
+	/** Session + ordinal range the orientation came from (for logging). */
+	sessionId: string | null;
 }
 
 interface CompartmentP1Row {
-    sequence: number;
-    start_message: number;
-    end_message: number;
-    title: string;
-    p1: string | null;
-    content: string | null;
+	sequence: number;
+	start_message: number;
+	end_message: number;
+	title: string;
+	p1: string | null;
+	content: string | null;
 }
 
 /**
@@ -67,81 +64,81 @@ interface CompartmentP1Row {
  * excluded — there is no code path that emits an `A:` line here.
  */
 function renderUserAndToolOrientation(
-    messages: RawMessage[],
-    startOrdinal: number,
-    endOrdinal: number,
-    capTokens: number,
+	messages: RawMessage[],
+	startOrdinal: number,
+	endOrdinal: number,
+	capTokens: number,
 ): string {
-    const lines: string[] = [];
-    let tokens = 0;
-    for (const msg of messages) {
-        if (msg.ordinal < startOrdinal || msg.ordinal > endOrdinal) continue;
-        const out: string[] = [];
-        if (msg.role === "user" && hasMeaningfulUserText(msg.parts)) {
-            const text = extractTexts(msg.parts)
-                .map((t) => cleanUserText(t))
-                .map(normalizeText)
-                .filter((t) => t.length > 0)
-                .join(" / ");
-            if (text) out.push(`U: ${text}`);
-        }
-        // Tool-call inputs (no outputs) — what the agent looked at. Applies to
-        // both assistant tool-use messages and tool-result user messages.
-        for (const tc of extractToolCallSummaries(msg.parts)) out.push(tc);
-        for (const line of out) {
-            const lineTokens = estimateTokens(line);
-            if (tokens + lineTokens > capTokens && lines.length > 0) {
-                lines.push("… (orientation truncated; investigate the current source directly)");
-                return lines.join("\n");
-            }
-            lines.push(line);
-            tokens += lineTokens;
-        }
-    }
-    return lines.join("\n");
+	const lines: string[] = [];
+	let tokens = 0;
+	for (const msg of messages) {
+		if (msg.ordinal < startOrdinal || msg.ordinal > endOrdinal) continue;
+		const out: string[] = [];
+		if (msg.role === "user" && hasMeaningfulUserText(msg.parts)) {
+			const text = extractTexts(msg.parts)
+				.map((t) => cleanUserText(t))
+				.map(normalizeText)
+				.filter((t) => t.length > 0)
+				.join(" / ");
+			if (text) out.push(`U: ${text}`);
+		}
+		// Tool-call inputs (no outputs) — what the agent looked at. Applies to
+		// both assistant tool-use messages and tool-result user messages.
+		for (const tc of extractToolCallSummaries(msg.parts)) out.push(tc);
+		for (const line of out) {
+			const lineTokens = estimateTokens(line);
+			if (tokens + lineTokens > capTokens && lines.length > 0) {
+				lines.push("… (orientation truncated; investigate the current source directly)");
+				return lines.join("\n");
+			}
+			lines.push(line);
+			tokens += lineTokens;
+		}
+	}
+	return lines.join("\n");
 }
 
 function loadPrePostP1(db: Database, sessionId: string, originStartMessage: number): string {
-    const origin = db
-        .prepare(
-            "SELECT sequence FROM compartments WHERE session_id = ? AND start_message = ? ORDER BY sequence ASC LIMIT 1",
-        )
-        .get(sessionId, originStartMessage) as { sequence?: number } | undefined;
-    if (typeof origin?.sequence !== "number") return "";
-    const originSeq = origin.sequence;
-    const rows = db
-        .prepare(
-            `SELECT sequence, start_message, end_message, title, p1, content
+	const origin = db
+		.prepare(
+			"SELECT sequence FROM compartments WHERE session_id = ? AND start_message = ? ORDER BY sequence ASC LIMIT 1",
+		)
+		.get(sessionId, originStartMessage) as { sequence?: number } | undefined;
+	if (typeof origin?.sequence !== "number") return "";
+	const originSeq = origin.sequence;
+	const rows = db
+		.prepare(
+			`SELECT sequence, start_message, end_message, title, p1, content
              FROM compartments
              WHERE session_id = ? AND sequence IN (?, ?)
              ORDER BY sequence ASC`,
-        )
-        .all(sessionId, originSeq - 1, originSeq + 1) as CompartmentP1Row[];
-    if (rows.length === 0) return "";
-    return rows
-        .map((r) => {
-            const body = (r.p1 ?? r.content ?? "").slice(0, 1200);
-            const label = r.sequence < originSeq ? "before" : "after";
-            return `- (${label}) ${r.title}: ${body}`;
-        })
-        .join("\n");
+		)
+		.all(sessionId, originSeq - 1, originSeq + 1) as CompartmentP1Row[];
+	if (rows.length === 0) return "";
+	return rows
+		.map((r) => {
+			const body = (r.p1 ?? r.content ?? "").slice(0, 1200);
+			const label = r.sequence < originSeq ? "before" : "after";
+			return `- (${label}) ${r.title}: ${body}`;
+		})
+		.join("\n");
 }
 
 function closedBookOriginP1(
-    db: Database,
-    sessionId: string,
-    originStartMessage: number,
+	db: Database,
+	sessionId: string,
+	originStartMessage: number,
 ): { orientation: string; sessionId: string } {
-    const row = db
-        .prepare(
-            "SELECT title, p1, content FROM compartments WHERE session_id = ? AND start_message = ? ORDER BY sequence ASC LIMIT 1",
-        )
-        .get(sessionId, originStartMessage) as
-        | { title?: string; p1?: string | null; content?: string | null }
-        | undefined;
-    const body = (row?.p1 ?? row?.content ?? "").slice(0, 2000);
-    const orientation = row?.title ? `${row.title}: ${body}` : body;
-    return { orientation, sessionId };
+	const row = db
+		.prepare(
+			"SELECT title, p1, content FROM compartments WHERE session_id = ? AND start_message = ? ORDER BY sequence ASC LIMIT 1",
+		)
+		.get(sessionId, originStartMessage) as
+		| { title?: string; p1?: string | null; content?: string | null }
+		| undefined;
+	const body = (row?.p1 ?? row?.content ?? "").slice(0, 2000);
+	const orientation = row?.title ? `${row.title}: ${body}` : body;
+	return { orientation, sessionId };
 }
 
 /**
@@ -151,47 +148,47 @@ function closedBookOriginP1(
  * read is cached across the run.
  */
 export function buildPrimerSeed(db: Database, primer: Primer): PrimerSeed {
-    const candidates = getPrimerCandidatesByIds(db, primer.sourceCandidateIds);
-    // Most-recent occurrence drives the seed (freshest code context).
-    const mostRecent = candidates
-        .slice()
-        .sort((a, b) => b.sourceMessageTime - a.sourceMessageTime || b.id - a.id)[0];
-    if (
-        !mostRecent ||
-        typeof mostRecent.sourceCompartmentStart !== "number" ||
-        typeof mostRecent.sourceCompartmentEnd !== "number"
-    ) {
-        return { kind: "closed-book", orientation: "", prePost: "", sessionId: null };
-    }
+	const candidates = getPrimerCandidatesByIds(db, primer.sourceCandidateIds);
+	// Most-recent occurrence drives the seed (freshest code context).
+	const mostRecent = candidates
+		.slice()
+		.sort((a, b) => b.sourceMessageTime - a.sourceMessageTime || b.id - a.id)[0];
+	if (
+		!mostRecent ||
+		typeof mostRecent.sourceCompartmentStart !== "number" ||
+		typeof mostRecent.sourceCompartmentEnd !== "number"
+	) {
+		return { kind: "closed-book", orientation: "", prePost: "", sessionId: null };
+	}
 
-    const sessionId = mostRecent.sessionId;
-    const start = mostRecent.sourceCompartmentStart;
-    const end = mostRecent.sourceCompartmentEnd;
+	const sessionId = mostRecent.sessionId;
+	const start = mostRecent.sourceCompartmentStart;
+	const end = mostRecent.sourceCompartmentEnd;
 
-    let raw: RawMessage[] = [];
-    try {
-        raw = readRawSessionMessages(sessionId);
-    } catch {
-        raw = [];
-    }
-    const inRange = raw.some((m) => m.ordinal >= start && m.ordinal <= end);
-    if (!inRange) {
-        // Deleted session, or Pi with no provider registered: do NOT proceed with
-        // an empty orientation — fall back to the origin compartment's P1.
-        const closed = closedBookOriginP1(db, sessionId, start);
-        return {
-            kind: "closed-book",
-            orientation: closed.orientation,
-            prePost: loadPrePostP1(db, sessionId, start),
-            sessionId,
-        };
-    }
+	let raw: RawMessage[] = [];
+	try {
+		raw = readRawSessionMessages(sessionId);
+	} catch {
+		raw = [];
+	}
+	const inRange = raw.some((m) => m.ordinal >= start && m.ordinal <= end);
+	if (!inRange) {
+		// Deleted session, or Pi with no provider registered: do NOT proceed with
+		// an empty orientation — fall back to the origin compartment's P1.
+		const closed = closedBookOriginP1(db, sessionId, start);
+		return {
+			kind: "closed-book",
+			orientation: closed.orientation,
+			prePost: loadPrePostP1(db, sessionId, start),
+			sessionId,
+		};
+	}
 
-    const orientation = renderUserAndToolOrientation(raw, start, end, PRIMER_SEED_CAP_TOKENS);
-    return {
-        kind: "raw",
-        orientation,
-        prePost: loadPrePostP1(db, sessionId, start),
-        sessionId,
-    };
+	const orientation = renderUserAndToolOrientation(raw, start, end, PRIMER_SEED_CAP_TOKENS);
+	return {
+		kind: "raw",
+		orientation,
+		prePost: loadPrePostP1(db, sessionId, start),
+		sessionId,
+	};
 }

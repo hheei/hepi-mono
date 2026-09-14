@@ -50,10 +50,8 @@ export function clearCachedModule(): void {
 	cachedModulePromise = null;
 }
 
-export async function resolvePiCodingAgentModule(
-	loaders?: ModuleLoader[],
-): Promise<unknown> {
-	if (cachedModulePromise) {
+export async function resolvePiCodingAgentModule(loaders?: ModuleLoader[]): Promise<unknown> {
+	if (cachedModulePromise != null) {
 		return cachedModulePromise;
 	}
 
@@ -86,9 +84,7 @@ export async function resolvePiCodingAgentModule(
 	return promise;
 }
 
-export async function loadDefaultPiSessionApi(
-	loaders?: ModuleLoader[],
-): Promise<PiSessionApi> {
+export async function loadDefaultPiSessionApi(loaders?: ModuleLoader[]): Promise<PiSessionApi> {
 	const mod = (await resolvePiCodingAgentModule(loaders)) as {
 		SessionManager?: {
 			listAll?: ((sessionDir?: string) => unknown[] | Promise<unknown[]>) | undefined;

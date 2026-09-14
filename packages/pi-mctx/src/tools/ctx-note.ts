@@ -19,21 +19,23 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import { getLastIndexedOrdinal } from "#core/features/message-index";
-import { type ContextDatabase, addNote, dismissNote, getNotes, type Note, type NoteStatus, setNoteLastReadAt, updateNote } from "#core/features/storage";
-
+import {
+	addNote,
+	type ContextDatabase,
+	dismissNote,
+	getNotes,
+	type Note,
+	type NoteStatus,
+	setNoteLastReadAt,
+	updateNote,
+} from "#core/features/storage";
 import { CTX_NOTE_DESCRIPTION } from "#core/tools/ctx-note/constants";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
-import { type Static, Type } from "typebox";
 
-const FILTER_VALUES = [
-	"active",
-	"pending",
-	"ready",
-	"dismissed",
-	"all",
-] as const;
+const FILTER_VALUES = ["active", "pending", "ready", "dismissed", "all"] as const;
 type CtxNoteReadFilter = (typeof FILTER_VALUES)[number];
 
 const ParamsSchema = Type.Object(
@@ -79,14 +81,12 @@ const ParamsSchema = Type.Object(
 		),
 		limit: Type.Optional(
 			Type.Number({
-				description:
-					"Max notes per section for read, newest first (default: 25)",
+				description: "Max notes per section for read, newest first (default: 25)",
 			}),
 		),
 		offset: Type.Optional(
 			Type.Number({
-				description:
-					"Skip this many newest notes for read — page older ones (default: 0)",
+				description: "Skip this many newest notes for read — page older ones (default: 0)",
 			}),
 		),
 	},
@@ -111,10 +111,7 @@ function err(text: string) {
  *  conversation that produced it. Best-effort: returns null when there are no
  *  indexed messages yet (ordinal 0) or the lookup fails. Mirrors legacy host's
  *  packages/plugin/src/tools/ctx-note/tools.ts. */
-function captureAnchorOrdinal(
-	db: ContextDatabase,
-	sessionId: string,
-): number | null {
+function captureAnchorOrdinal(db: ContextDatabase, sessionId: string): number | null {
 	try {
 		const ordinal = getLastIndexedOrdinal(db, sessionId);
 		return ordinal > 0 ? ordinal : null;
@@ -144,8 +141,7 @@ function formatNoteLine(note: Note): string {
 	return `- **#${note.id}**${statusSuffix}: ${note.content}${anchorSuffix(note)}`;
 }
 
-const DISMISS_FOOTER =
-	'\n\nTo dismiss a stale note: ctx_note(action="dismiss", note_id=N)';
+const DISMISS_FOOTER = '\n\nTo dismiss a stale note: ctx_note(action="dismiss", note_id=N)';
 
 /** Default page size for read. Long-running sessions accumulate hundreds of
  *  notes; read pages newest-first and points the caller at older pages.
@@ -183,11 +179,8 @@ export interface CtxNoteToolDeps {
 	resolveProjectIdentity?: ((directory: string) => string | undefined) | undefined;
 }
 
-export function createCtxNoteTool(
-	deps: CtxNoteToolDeps,
-): ToolDefinition<typeof ParamsSchema> {
-	const resolveProject =
-		deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
+export function createCtxNoteTool(deps: CtxNoteToolDeps): ToolDefinition<typeof ParamsSchema> {
+	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	return {
 		name: "ctx_note",
 		label: "Magic Context: Notes",
@@ -207,18 +200,15 @@ export function createCtxNoteTool(
 				offset: "number",
 			});
 			const sessionId = ctx.sessionManager.getSessionId();
-			const dreamerEnabled =
-				deps.resolveDreamerEnabled?.(ctx) ?? deps.dreamerEnabled;
+			const dreamerEnabled = deps.resolveDreamerEnabled?.(ctx) ?? deps.dreamerEnabled;
 			// Infer write only on NON-EMPTY content. GPT-family models fill every
 			// optional param (content:"" for a read), so a bare `typeof === "string"`
 			// check would mis-infer `write` and then reject the empty content.
-			const action =
-				params.action ?? (params.content?.trim() ? "write" : "read");
+			const action = params.action ?? (params.content?.trim() ? "write" : "read");
 
 			if (action === "write") {
 				const content = params.content?.trim();
-				if (!content)
-					return err("Error: 'content' is required when action is 'write'.");
+				if (!content) return err("Error: 'content' is required when action is 'write'.");
 
 				// Anchor the note to the live conversation tail so it can be
 				// traced back later via ctx_expand. Best-effort — null when
@@ -229,14 +219,12 @@ export function createCtxNoteTool(
 				if (surfaceCondition) {
 					if (dreamerEnabled !== true) {
 						return err(
-							"Error: Smart notes require dreamer to be enabled. Enable dreamer in magic-context.jsonc to use surface_condition.",
+							"Error: Smart notes require Dreamer to be enabled. Enable it in `/ext-settings`, then reload to use surface_condition.",
 						);
 					}
 					const projectIdentity = resolveProject(ctx.cwd);
 					if (!projectIdentity) {
-						return err(
-							"Error: Could not resolve project identity for smart note.",
-						);
+						return err("Error: Could not resolve project identity for smart note.");
 					}
 					const note = addNote(deps.db, "smart", {
 						content,
@@ -264,9 +252,7 @@ export function createCtxNoteTool(
 				}
 				const projectIdentity = resolveProject(ctx.cwd);
 				if (!projectIdentity) {
-					return err(
-						"Error: Could not resolve project identity for note dismiss.",
-					);
+					return err("Error: Could not resolve project identity for note dismiss.");
 				}
 				const dismissed = dismissNote(deps.db, params.note_id, {
 					projectPath: projectIdentity,
@@ -288,29 +274,22 @@ export function createCtxNoteTool(
 				if (params.surface_condition?.trim())
 					updates.surfaceCondition = params.surface_condition.trim();
 				if (!updates.content && !updates.surfaceCondition) {
-					return err(
-						"Error: Provide 'content' and/or 'surface_condition' to update.",
-					);
+					return err("Error: Provide 'content' and/or 'surface_condition' to update.");
 				}
 				const projectIdentity = resolveProject(ctx.cwd);
 				if (!projectIdentity) {
-					return err(
-						"Error: Could not resolve project identity for note update.",
-					);
+					return err("Error: Could not resolve project identity for note update.");
 				}
 				const updated = updateNote(deps.db, params.note_id, updates, {
 					projectPath: projectIdentity,
 					sessionId,
 				});
 				if (!updated) {
-					return err(
-						`Error: Note #${params.note_id} not found in your session/project.`,
-					);
+					return err(`Error: Note #${params.note_id} not found in your session/project.`);
 				}
 				const parts: string[] = [];
 				if (updates.content) parts.push(`content: ${updates.content}`);
-				if (updates.surfaceCondition)
-					parts.push(`condition: ${updates.surfaceCondition}`);
+				if (updates.surfaceCondition) parts.push(`condition: ${updates.surfaceCondition}`);
 				return ok(`Updated note #${params.note_id}\n- ${parts.join("\n- ")}`);
 			}
 
@@ -327,9 +306,7 @@ export function createCtxNoteTool(
 					? Math.floor(params.limit)
 					: DEFAULT_READ_LIMIT;
 			const offset =
-				typeof params.offset === "number" && params.offset > 0
-					? Math.floor(params.offset)
-					: 0;
+				typeof params.offset === "number" && params.offset > 0 ? Math.floor(params.offset) : 0;
 			const sections = readNotes({
 				db: deps.db,
 				sessionId,
@@ -405,15 +382,9 @@ function readNotes(args: {
 			: [];
 		const sections: string[] = [];
 		if (sessionNotes.length > 0) {
-			const { page, footer } = paginateNewestFirst(
-				sessionNotes,
-				args.limit,
-				args.offset,
-			);
+			const { page, footer } = paginateNewestFirst(sessionNotes, args.limit, args.offset);
 			const lines = page.map(formatNoteLine).join("\n");
-			sections.push(
-				`## Session Notes\n\n${lines}${footer ? `\n\n${footer}` : ""}`,
-			);
+			sections.push(`## Session Notes\n\n${lines}${footer ? `\n\n${footer}` : ""}`);
 		}
 		// Ready smart notes are few by construction (condition-gated) and
 		// time-sensitive — always show all of them, unpaged.
@@ -452,22 +423,12 @@ function readNotes(args: {
 
 	const sections: string[] = [];
 	if (sessionNotes.length > 0) {
-		const { page, footer } = paginateNewestFirst(
-			sessionNotes,
-			args.limit,
-			args.offset,
-		);
+		const { page, footer } = paginateNewestFirst(sessionNotes, args.limit, args.offset);
 		const lines = page.map(formatNoteLine).join("\n");
-		sections.push(
-			`## Session Notes\n\n${lines}${footer ? `\n\n${footer}` : ""}`,
-		);
+		sections.push(`## Session Notes\n\n${lines}${footer ? `\n\n${footer}` : ""}`);
 	}
 	if (smartNotes.length > 0) {
-		const { page, footer } = paginateNewestFirst(
-			smartNotes,
-			args.limit,
-			args.offset,
-		);
+		const { page, footer } = paginateNewestFirst(smartNotes, args.limit, args.offset);
 		const lines = page.map(formatNoteLine).join("\n\n");
 		sections.push(`## Smart Notes\n\n${lines}${footer ? `\n\n${footer}` : ""}`);
 	}

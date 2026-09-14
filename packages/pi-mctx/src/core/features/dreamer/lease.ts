@@ -16,59 +16,59 @@ const LEASE_DURATION_MS = 2 * 60 * 1000; // 2 minutes — renewed periodically d
 export const DREAMING_LEASE_KEY = "dreaming";
 
 interface LeaseRowKeys {
-    holder: string;
-    heartbeat: string;
-    expiry: string;
+	holder: string;
+	heartbeat: string;
+	expiry: string;
 }
 
 function rowKeys(leaseKey: string): LeaseRowKeys {
-    // The legacy lease retains its historical un-namespaced row keys so an
-    // in-flight pre-upgrade lease isn't orphaned across the boundary.
-    if (leaseKey === DREAMING_LEASE_KEY) {
-        return {
-            holder: "dreaming_lease_holder",
-            heartbeat: "dreaming_lease_heartbeat",
-            expiry: "dreaming_lease_expiry",
-        };
-    }
-    return {
-        holder: `lease:${leaseKey}:holder`,
-        heartbeat: `lease:${leaseKey}:heartbeat`,
-        expiry: `lease:${leaseKey}:expiry`,
-    };
+	// The legacy lease retains its historical un-namespaced row keys so an
+	// in-flight pre-upgrade lease isn't orphaned across the boundary.
+	if (leaseKey === DREAMING_LEASE_KEY) {
+		return {
+			holder: "dreaming_lease_holder",
+			heartbeat: "dreaming_lease_heartbeat",
+			expiry: "dreaming_lease_expiry",
+		};
+	}
+	return {
+		holder: `lease:${leaseKey}:holder`,
+		heartbeat: `lease:${leaseKey}:heartbeat`,
+		expiry: `lease:${leaseKey}:expiry`,
+	};
 }
 
 function getLeaseExpiry(db: Database, keys: LeaseRowKeys): number | null {
-    const value = getDreamState(db, keys.expiry);
-    if (!value) {
-        return null;
-    }
+	const value = getDreamState(db, keys.expiry);
+	if (!value) {
+		return null;
+	}
 
-    const expiry = Number(value);
-    return Number.isFinite(expiry) ? expiry : null;
+	const expiry = Number(value);
+	return Number.isFinite(expiry) ? expiry : null;
 }
 
 export function isLeaseActive(db: Database, leaseKey: string = DREAMING_LEASE_KEY): boolean {
-    const expiry = getLeaseExpiry(db, rowKeys(leaseKey));
-    return expiry !== null && expiry > Date.now();
+	const expiry = getLeaseExpiry(db, rowKeys(leaseKey));
+	return expiry !== null && expiry > Date.now();
 }
 
 export function getLeaseHolder(db: Database, leaseKey: string = DREAMING_LEASE_KEY): string | null {
-    return getDreamState(db, rowKeys(leaseKey).holder);
+	return getDreamState(db, rowKeys(leaseKey).holder);
 }
 
 export function peekLeaseHolderAndExpiry(
-    db: Database,
-    expectedHolder: string,
-    leaseKey: string = DREAMING_LEASE_KEY,
+	db: Database,
+	expectedHolder: string,
+	leaseKey: string = DREAMING_LEASE_KEY,
 ): boolean {
-    const keys = rowKeys(leaseKey);
-    const holder = getDreamState(db, keys.holder);
-    if (holder !== expectedHolder) return false;
-    const expiryStr = getDreamState(db, keys.expiry);
-    if (!expiryStr) return false;
-    const expiry = Number(expiryStr);
-    return Number.isFinite(expiry) && expiry >= Date.now();
+	const keys = rowKeys(leaseKey);
+	const holder = getDreamState(db, keys.holder);
+	if (holder !== expectedHolder) return false;
+	const expiryStr = getDreamState(db, keys.expiry);
+	if (!expiryStr) return false;
+	const expiry = Number(expiryStr);
+	return Number.isFinite(expiry) && expiry >= Date.now();
 }
 
 // The lease spans three dream_state rows (holder/heartbeat/expiry), so it can't
@@ -81,79 +81,79 @@ export function peekLeaseHolderAndExpiry(
 // lease and spawning duplicate dreamer workers. busy_timeout (set in
 // initializeDatabase) makes the loser wait rather than throw SQLITE_BUSY.
 function runImmediate<T>(db: Database, body: () => T): T {
-    db.exec("BEGIN IMMEDIATE");
-    let committed = false;
-    try {
-        const result = body();
-        db.exec("COMMIT");
-        committed = true;
-        return result;
-    } finally {
-        if (!committed) {
-            try {
-                db.exec("ROLLBACK");
-            } catch {
-                // already rolled back / no active transaction
-            }
-        }
-    }
+	db.exec("BEGIN IMMEDIATE");
+	let committed = false;
+	try {
+		const result = body();
+		db.exec("COMMIT");
+		committed = true;
+		return result;
+	} finally {
+		if (!committed) {
+			try {
+				db.exec("ROLLBACK");
+			} catch {
+				// already rolled back / no active transaction
+			}
+		}
+	}
 }
 
 export function acquireLease(
-    db: Database,
-    holderId: string,
-    leaseKey: string = DREAMING_LEASE_KEY,
+	db: Database,
+	holderId: string,
+	leaseKey: string = DREAMING_LEASE_KEY,
 ): boolean {
-    const keys = rowKeys(leaseKey);
-    return runImmediate(db, () => {
-        if (isLeaseActive(db, leaseKey)) {
-            const existingHolder = getLeaseHolder(db, leaseKey);
-            if (existingHolder && existingHolder !== holderId) {
-                return false;
-            }
-        }
+	const keys = rowKeys(leaseKey);
+	return runImmediate(db, () => {
+		if (isLeaseActive(db, leaseKey)) {
+			const existingHolder = getLeaseHolder(db, leaseKey);
+			if (existingHolder && existingHolder !== holderId) {
+				return false;
+			}
+		}
 
-        const now = Date.now();
-        setDreamState(db, keys.holder, holderId);
-        setDreamState(db, keys.heartbeat, String(now));
-        setDreamState(db, keys.expiry, String(now + LEASE_DURATION_MS));
-        return true;
-    });
+		const now = Date.now();
+		setDreamState(db, keys.holder, holderId);
+		setDreamState(db, keys.heartbeat, String(now));
+		setDreamState(db, keys.expiry, String(now + LEASE_DURATION_MS));
+		return true;
+	});
 }
 
 export function renewLease(
-    db: Database,
-    holderId: string,
-    leaseKey: string = DREAMING_LEASE_KEY,
+	db: Database,
+	holderId: string,
+	leaseKey: string = DREAMING_LEASE_KEY,
 ): boolean {
-    const keys = rowKeys(leaseKey);
-    return runImmediate(db, () => {
-        if (getLeaseHolder(db, leaseKey) !== holderId || !isLeaseActive(db, leaseKey)) {
-            return false;
-        }
+	const keys = rowKeys(leaseKey);
+	return runImmediate(db, () => {
+		if (getLeaseHolder(db, leaseKey) !== holderId || !isLeaseActive(db, leaseKey)) {
+			return false;
+		}
 
-        const now = Date.now();
-        setDreamState(db, keys.heartbeat, String(now));
-        setDreamState(db, keys.expiry, String(now + LEASE_DURATION_MS));
-        return true;
-    });
+		const now = Date.now();
+		setDreamState(db, keys.heartbeat, String(now));
+		setDreamState(db, keys.expiry, String(now + LEASE_DURATION_MS));
+		return true;
+	});
 }
 
 export function runLeaseGuardedWrite<T>(
-    db: Database,
-    holderId: string,
-    leaseKey: string,
-    fn: () => T,
+	db: Database,
+	holderId: string,
+	leaseKey: string,
+	fn: () => T,
 ): T {
-    return runImmediate(db, () => {
-        // The lease is checked after BEGIN IMMEDIATE has acquired SQLite's write
-        // lock. That removes the deferred-transaction gap where another process
-        // could steal the lease after a peek but before the durable mutation.
-        if (!peekLeaseHolderAndExpiry(db, holderId, leaseKey)) {
-            throw new Error("Dream lease lost before guarded write");
-        }
-        return fn();
-    });
+	return runImmediate(db, () => {
+		// The lease is checked after BEGIN IMMEDIATE has acquired SQLite's write
+		// lock. That removes the deferred-transaction gap where another process
+		// could steal the lease after a peek but before the durable mutation.
+		if (!peekLeaseHolderAndExpiry(db, holderId, leaseKey)) {
+			throw new Error("Dream lease lost before guarded write");
+		}
+		return fn();
+	});
 }
 
 /** Renewal beat interval. The lease TTL is LEASE_DURATION_MS (2×), so a single
@@ -161,10 +161,10 @@ export function runLeaseGuardedWrite<T>(
 const LEASE_HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
 export interface LeaseHeartbeat {
-    /** Stop the heartbeat timer. Safe to call more than once. */
-    stop(): void;
-    /** True once the lease was confirmed genuinely lost (and onLost was called). */
-    readonly lost: boolean;
+	/** Stop the heartbeat timer. Safe to call more than once. */
+	stop(): void;
+	/** True once the lease was confirmed genuinely lost (and onLost was called). */
+	readonly lost: boolean;
 }
 
 /**
@@ -188,84 +188,84 @@ export interface LeaseHeartbeat {
  * the next beat.
  */
 export function startLeaseHeartbeat(
-    db: Database,
-    holderId: string,
-    leaseKey: string,
-    onLost: (reason: string) => void,
-    intervalMs: number = LEASE_HEARTBEAT_INTERVAL_MS,
+	db: Database,
+	holderId: string,
+	leaseKey: string,
+	onLost: (reason: string) => void,
+	intervalMs: number = LEASE_HEARTBEAT_INTERVAL_MS,
 ): LeaseHeartbeat {
-    let lost = false;
-    let lastConfirmedAt = Date.now();
-    const declareLost = (reason: string): void => {
-        if (lost) return;
-        lost = true;
-        onLost(reason);
-    };
-    const beat = () => {
-        if (lost) return;
-        try {
-            // Continuous ownership: renewLease keeps it if still ours. This is
-            // the always-safe path — we never lost the lease.
-            if (renewLease(db, holderId, leaseKey)) {
-                lastConfirmedAt = Date.now();
-                return;
-            }
-            // renewLease failed → we are no longer the recorded holder OR the
-            // lease lapsed. If the gap since our last confirmed beat exceeds a
-            // full TTL, the lease was provably claimable by another process for a
-            // meaningful window — a sibling could have acquired AND mutated in the
-            // gap (a >2min stall / machine sleep), so blindly reclaiming a now-free
-            // lease and continuing on our stale snapshot is split-brain. Declare
-            // lost instead. A SHORT delay (≤ TTL, e.g. a slightly-late 60s beat
-            // causing self-inflicted expiry) still recovers via reclaim below.
-            if (Date.now() - lastConfirmedAt > LEASE_DURATION_MS) {
-                declareLost("lease lapsed past TTL — another holder may have run");
-                return;
-            }
-            // reclaim an expired-but-free lease after only a short gap (our own
-            // delayed beat); returns false only when a different holder is
-            // actively in possession.
-            if (acquireLease(db, holderId, leaseKey)) {
-                lastConfirmedAt = Date.now();
-                return;
-            }
-            declareLost("lease acquired by another holder");
-        } catch {
-            if (Date.now() - lastConfirmedAt > LEASE_DURATION_MS) {
-                declareLost("lease renewal unconfirmed past TTL");
-            }
-        }
-    };
+	let lost = false;
+	let lastConfirmedAt = Date.now();
+	const declareLost = (reason: string): void => {
+		if (lost) return;
+		lost = true;
+		onLost(reason);
+	};
+	const beat = () => {
+		if (lost) return;
+		try {
+			// Continuous ownership: renewLease keeps it if still ours. This is
+			// the always-safe path — we never lost the lease.
+			if (renewLease(db, holderId, leaseKey)) {
+				lastConfirmedAt = Date.now();
+				return;
+			}
+			// renewLease failed → we are no longer the recorded holder OR the
+			// lease lapsed. If the gap since our last confirmed beat exceeds a
+			// full TTL, the lease was provably claimable by another process for a
+			// meaningful window — a sibling could have acquired AND mutated in the
+			// gap (a >2min stall / machine sleep), so blindly reclaiming a now-free
+			// lease and continuing on our stale snapshot is split-brain. Declare
+			// lost instead. A SHORT delay (≤ TTL, e.g. a slightly-late 60s beat
+			// causing self-inflicted expiry) still recovers via reclaim below.
+			if (Date.now() - lastConfirmedAt > LEASE_DURATION_MS) {
+				declareLost("lease lapsed past TTL — another holder may have run");
+				return;
+			}
+			// reclaim an expired-but-free lease after only a short gap (our own
+			// delayed beat); returns false only when a different holder is
+			// actively in possession.
+			if (acquireLease(db, holderId, leaseKey)) {
+				lastConfirmedAt = Date.now();
+				return;
+			}
+			declareLost("lease acquired by another holder");
+		} catch {
+			if (Date.now() - lastConfirmedAt > LEASE_DURATION_MS) {
+				declareLost("lease renewal unconfirmed past TTL");
+			}
+		}
+	};
 
-    // Confirm ownership before the caller can begin work. Without this first
-    // synchronous beat, a long pre-prompt stall could let the TTL expire and a
-    // same-domain runner start while this runner still waits for the 60s timer.
-    beat();
+	// Confirm ownership before the caller can begin work. Without this first
+	// synchronous beat, a long pre-prompt stall could let the TTL expire and a
+	// same-domain runner start while this runner still waits for the 60s timer.
+	beat();
 
-    const timer = lost ? undefined : setInterval(beat, intervalMs);
-    return {
-        stop: () => {
-            if (timer) clearInterval(timer);
-        },
-        get lost() {
-            return lost;
-        },
-    };
+	const timer = lost ? undefined : setInterval(beat, intervalMs);
+	return {
+		stop: () => {
+			if (timer) clearInterval(timer);
+		},
+		get lost() {
+			return lost;
+		},
+	};
 }
 
 export function releaseLease(
-    db: Database,
-    holderId: string,
-    leaseKey: string = DREAMING_LEASE_KEY,
+	db: Database,
+	holderId: string,
+	leaseKey: string = DREAMING_LEASE_KEY,
 ): void {
-    const keys = rowKeys(leaseKey);
-    runImmediate(db, () => {
-        if (getLeaseHolder(db, leaseKey) !== holderId) {
-            return;
-        }
+	const keys = rowKeys(leaseKey);
+	runImmediate(db, () => {
+		if (getLeaseHolder(db, leaseKey) !== holderId) {
+			return;
+		}
 
-        deleteDreamState(db, keys.holder);
-        deleteDreamState(db, keys.heartbeat);
-        deleteDreamState(db, keys.expiry);
-    });
+		deleteDreamState(db, keys.holder);
+		deleteDreamState(db, keys.heartbeat);
+		deleteDreamState(db, keys.expiry);
+	});
 }

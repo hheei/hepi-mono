@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 /**
  * Regression coverage for the `/ctx-recomp` post-completion signal contract.
@@ -47,9 +47,7 @@ describe("/ctx-recomp post-completion signal contract", () => {
 
 	test("signals fire only inside the published branch, not unconditionally", () => {
 		const publishedGate = codeOnly.indexOf("if (result.published)");
-		const deferredSignal = codeOnly.indexOf(
-			"signalPiDeferredMaterialization(sessionId)",
-		);
+		const deferredSignal = codeOnly.indexOf("signalPiDeferredMaterialization(sessionId)");
 		expect(publishedGate).toBeGreaterThan(-1);
 		expect(deferredSignal).toBeGreaterThan(publishedGate);
 	});
@@ -63,14 +61,10 @@ describe("/ctx-recomp post-completion signal contract", () => {
 		// A successful recomp resolves the overflow that may have armed
 		// needs_emergency_recovery; without clearing it the flag force-bumps
 		// pressure to 95% every later pass even though the session is now small.
-		expect(codeOnly).toContain(
-			"clearEmergencyRecovery(currentDeps.db, sessionId)",
-		);
+		expect(codeOnly).toContain("clearEmergencyRecovery(currentDeps.db, sessionId)");
 		// Must be inside the published branch, before the deferred signals.
 		const publishedGate = codeOnly.indexOf("if (result.published)");
-		const clearCall = codeOnly.indexOf(
-			"clearEmergencyRecovery(currentDeps.db, sessionId)",
-		);
+		const clearCall = codeOnly.indexOf("clearEmergencyRecovery(currentDeps.db, sessionId)");
 		expect(clearCall).toBeGreaterThan(publishedGate);
 	});
 });
