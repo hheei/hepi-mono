@@ -25,6 +25,11 @@ This directory records high-level information for users and developers. Detailed
 - [Apply Patch result architecture](architecture/apply-patch.md): target V4A outcome, mpatch diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
 
+## Feature Specifications
+
+- [pi-mctx AgentMemory 与 Context Projection 迁移规格](mctx/spec.md)：目标边界、数据流、公共契约、失败语义与完成定义。
+- [pi-mctx 迁移 tickets](mctx/tickets.md)：按依赖顺序可独立提交和验收的实施 backlog。
+
 ## Research
 
 - [Advisor research](research/advisor.md): advisor design comparison and original feature boundary.
