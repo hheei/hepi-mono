@@ -1,8 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	type DreamTaskName,
-	isCanonicalDreamTask,
-} from "#core/features/dreamer/task-registry";
+import { type DreamTaskName, isCanonicalDreamTask } from "#core/features/dreamer/task-registry";
 import type { ContextDatabase } from "#core/features/storage";
 import { sessionLog } from "#core/shared/logger";
 import { runPiDreamForProject } from "../dreamer";
@@ -30,13 +27,11 @@ export function registerCtxDreamCommand(
 				projectDir: deps.projectDir,
 				projectIdentity: deps.projectIdentity,
 			};
-			const dreamerEnabled =
-				deps.resolveDreamerEnabled?.(ctx) ?? deps.dreamerEnabled;
+			const dreamerEnabled = deps.resolveDreamerEnabled?.(ctx) ?? deps.dreamerEnabled;
 			deps.onProjectSeen?.(project.projectIdentity);
 
 			// Optional single-task arg: `/ctx-dream verify`.
-			const requested =
-				typeof args === "string" ? args.trim() : String(args ?? "").trim();
+			const requested = typeof args === "string" ? args.trim() : String(args ?? "").trim();
 			let task: DreamTaskName | undefined;
 			if (requested) {
 				if (!isCanonicalDreamTask(requested)) {
@@ -94,14 +89,10 @@ export function registerCtxDreamCommand(
 
 			// Dreamer v2: run due/forced tasks now via the per-task scheduler.
 			try {
-				const result = await runPiDreamForProject(
-					project.projectIdentity,
-					task,
-				);
+				const result = await runPiDreamForProject(project.projectIdentity, task);
 				const lines: string[] = [];
 				if (result.ran.length > 0) lines.push(`Ran: ${result.ran.join(", ")}`);
-				if (result.failed.length > 0)
-					lines.push(`Failed: ${result.failed.join(", ")}`);
+				if (result.failed.length > 0) lines.push(`Failed: ${result.failed.join(", ")}`);
 				if (result.skippedNoWork.length > 0)
 					lines.push(`Skipped (no work): ${result.skippedNoWork.join(", ")}`);
 				if (result.deferredBusy.length > 0)

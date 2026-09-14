@@ -40,9 +40,7 @@ export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 
 	constructor(private readonly deps: PiRetrospectiveRawProviderDeps) {}
 
-	async listProjectSessions(
-		_projectIdentity: string,
-	): Promise<RetrospectiveProjectSession[]> {
+	async listProjectSessions(_projectIdentity: string): Promise<RetrospectiveProjectSession[]> {
 		const deps = await this.resolveDeps();
 		const sessions = await deps.listSessions(this.deps.sessionDir);
 		const projectCwd = resolve(this.deps.projectCwd);
@@ -52,10 +50,8 @@ export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 		for (const raw of sessions) {
 			const info = raw as PiSessionInfoLike | null;
 			if (!info || typeof info !== "object") continue;
-			if (typeof info.id !== "string" || typeof info.path !== "string")
-				continue;
-			if (typeof info.cwd !== "string" || resolve(info.cwd) !== projectCwd)
-				continue;
+			if (typeof info.id !== "string" || typeof info.path !== "string") continue;
+			if (typeof info.cwd !== "string" || resolve(info.cwd) !== projectCwd) continue;
 
 			this.sessionPathById.set(info.id, info.path);
 			const updatedAt = typeof info.modified === "number" ? info.modified : undefined;
@@ -117,9 +113,7 @@ export class PiRetrospectiveRawProvider implements RetrospectiveRawProvider {
 			.slice(-Math.max(1, Math.floor(count)));
 	}
 
-	private async loadUserEntries(
-		sessionId: string,
-	): Promise<RetrospectiveRawMessage[]> {
+	private async loadUserEntries(sessionId: string): Promise<RetrospectiveRawMessage[]> {
 		const filePath = this.sessionPathById.get(sessionId);
 		if (!filePath) return [];
 		const deps = await this.resolveDeps();
@@ -156,8 +150,7 @@ function normalizePiUserEntry(
 	if (!e || typeof e !== "object" || e.type !== "message") return null;
 	const message = e.message as PiUserMessageLike | null;
 	if (!message || typeof message !== "object") return null;
-	if (message.role !== "user" || typeof message.timestamp !== "number")
-		return null;
+	if (message.role !== "user" || typeof message.timestamp !== "number") return null;
 	const text = extractPiTextContent(message.content).trim();
 	if (!text) return null;
 	return {
@@ -176,9 +169,7 @@ function extractPiTextContent(content: unknown): string {
 		.flatMap((part) => {
 			if (part === null || typeof part !== "object") return [];
 			const record = part as Record<string, unknown>;
-			return record.type === "text" && typeof record.text === "string"
-				? [record.text]
-				: [];
+			return record.type === "text" && typeof record.text === "string" ? [record.text] : [];
 		})
 		.join("\n");
 }

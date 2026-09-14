@@ -5,18 +5,18 @@ import { estimateImageTokensFromDataUrl } from "#core/hooks/image-token-estimate
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 import {
 	assertPayloadLimit,
+	type BudgetPlan,
 	collectHandoffImages,
 	HANDOFF_RECENT_COUNT,
+	type HandoffFence,
+	type HandoffSourceContextSnapshot,
 	hashBytes,
 	hashRecentMessages,
 	hashSessionHistory,
 	planHandoffBudget,
 	renderHandoffContextXml,
-	serializeRecentMessages,
-	type BudgetPlan,
-	type HandoffFence,
-	type HandoffSourceContextSnapshot,
 	type SerializedRecentMessage,
+	serializeRecentMessages,
 } from "./model";
 
 export interface SnapshotInputs {
@@ -127,10 +127,7 @@ export function assertProjectedContextLimit(args: {
 		estimateTokens(xml) +
 		images.reduce(
 			(sum, image) =>
-				sum +
-				estimateImageTokensFromDataUrl(
-					`data:${image.mimeType};base64,${image.data}`,
-				),
+				sum + estimateImageTokensFromDataUrl(`data:${image.mimeType};base64,${image.data}`),
 			0,
 		);
 	if (tokens > args.ceiling) {
@@ -264,9 +261,7 @@ function estimateRecentTokens(messages: readonly SerializedRecentMessage[]): num
 	for (const message of messages) {
 		tokens += estimateTokens(message.text);
 		for (const image of message.images) {
-			tokens += estimateImageTokensFromDataUrl(
-				`data:${image.mimeType};base64,${image.data}`,
-			);
+			tokens += estimateImageTokensFromDataUrl(`data:${image.mimeType};base64,${image.data}`);
 		}
 	}
 	return tokens;
@@ -325,13 +320,10 @@ function normalizeDroppedPart(part: unknown, drop: TagEntry | undefined): unknow
 function foldToolResult(
 	message: Record<string, unknown>,
 	dropped: ReadonlyMap<string, TagEntry>,
-):
-	| { ok: true; part: Record<string, unknown> }
-	| { ok: false; reason: string } {
+): { ok: true; part: Record<string, unknown> } | { ok: false; reason: string } {
 	const id = typeof message.id === "string" ? message.id : "";
 	const drop = dropped.get(id);
-	const name =
-		typeof message.toolName === "string" ? message.toolName : "unknown";
+	const name = typeof message.toolName === "string" ? message.toolName : "unknown";
 	if (drop?.type === "tool" && drop.dropMode === "full") {
 		return { ok: true, part: { type: "tool", tool: name, state: { output: "[dropped]" } } };
 	}

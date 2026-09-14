@@ -1,5 +1,5 @@
 export interface NormalizeSDKResponseOptions {
-    preferResponseOnMissingData?: boolean | undefined;
+	preferResponseOnMissingData?: boolean | undefined;
 }
 
 // Audit note: `as TData` casts are intentional at this external SDK boundary. The types
@@ -7,34 +7,34 @@ export interface NormalizeSDKResponseOptions {
 // for every SDK response shape, which changes with each SDK release. The fallback parameter
 // provides safe degradation when shapes mismatch.
 export function normalizeSDKResponse<TData>(
-    response: unknown,
-    fallback: TData,
-    options?: NormalizeSDKResponseOptions,
+	response: unknown,
+	fallback: TData,
+	options?: NormalizeSDKResponseOptions,
 ): TData {
-    if (response === null || response === undefined) {
-        return fallback;
-    }
+	if (response === null || response === undefined) {
+		return fallback;
+	}
 
-    if (Array.isArray(response)) {
-        return response as TData;
-    }
+	if (Array.isArray(response)) {
+		return response as TData;
+	}
 
-    if (typeof response === "object" && "data" in response) {
-        const data = (response as { data?: unknown }).data;
-        if (data !== null && data !== undefined) {
-            return data as TData;
-        }
+	if (typeof response === "object" && "data" in response) {
+		const data = (response as { data?: unknown }).data;
+		if (data !== null && data !== undefined) {
+			return data as TData;
+		}
 
-        if (options?.preferResponseOnMissingData === true) {
-            return response as TData;
-        }
+		if (options?.preferResponseOnMissingData === true) {
+			return response as TData;
+		}
 
-        return fallback;
-    }
+		return fallback;
+	}
 
-    if (options?.preferResponseOnMissingData === true) {
-        return response as TData;
-    }
+	if (options?.preferResponseOnMissingData === true) {
+		return response as TData;
+	}
 
-    return fallback;
+	return fallback;
 }

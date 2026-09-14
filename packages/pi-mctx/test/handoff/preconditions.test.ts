@@ -1,7 +1,7 @@
-import { describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import { closeDatabase, openDatabase } from "../../src/core/features/storage-db";
 import { checkPreconditions } from "../../src/handoff/command";
 
@@ -33,9 +33,9 @@ describe("handoff preconditions", () => {
 				compactionOff: false,
 				historianModel: "anthropic/claude",
 			};
-			expect(
-				checkPreconditions({} as never, deps as never, ctx() as never, "goal"),
-			).toMatchObject({ ok: false });
+			expect(checkPreconditions({} as never, deps as never, ctx() as never, "goal")).toMatchObject({
+				ok: false,
+			});
 			expect(
 				checkPreconditions(
 					{} as never,
@@ -65,9 +65,9 @@ describe("handoff preconditions", () => {
 					"",
 				),
 			).toMatchObject({ ok: false });
-			expect(
-				checkPreconditions({} as never, deps as never, ctx() as never, ""),
-			).toMatchObject({ ok: true });
+			expect(checkPreconditions({} as never, deps as never, ctx() as never, "")).toMatchObject({
+				ok: true,
+			});
 		} finally {
 			closeDatabase();
 			if (saved === undefined) delete process.env.XDG_DATA_HOME;

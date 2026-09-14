@@ -1,14 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-	acquireCompartmentLease,
-	releaseCompartmentLease,
-} from "#core/features/compartment-lease";
+import { acquireCompartmentLease, releaseCompartmentLease } from "#core/features/compartment-lease";
 import {
 	appendCompartments,
 	getCompartments,
 	getLastCompartmentEndMessage,
 } from "#core/features/compartment-storage";
-import { initializeDatabase } from "../../src/core/features/storage-db";
 import { updateSessionMeta } from "#core/features/storage";
 import {
 	getOverflowState,
@@ -20,14 +16,15 @@ import {
 import { Database } from "#core/shared/sqlite";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
-	consumeDeferredHistoryRefresh,
-	consumeDeferredMaterialization,
-} from "../../src/context-handler";
-import {
 	parseWrapupArgs,
 	type RegisterCtxWrapupDeps,
 	runPiWrapup,
 } from "../../src/commands/ctx-wrapup";
+import {
+	consumeDeferredHistoryRefresh,
+	consumeDeferredMaterialization,
+} from "../../src/context-handler";
+import { initializeDatabase } from "../../src/core/features/storage-db";
 
 function createDb(): Database {
 	const db = new Database(":memory:");
@@ -139,12 +136,7 @@ function pi() {
 	};
 }
 
-function appendRange(
-	db: Database,
-	sessionId: string,
-	start: number,
-	end: number,
-): void {
+function appendRange(db: Database, sessionId: string, start: number, end: number): void {
 	if (end < start) return;
 	appendCompartments(db, sessionId, [
 		{
@@ -159,10 +151,7 @@ function appendRange(
 	]);
 }
 
-function deps(
-	db: Database,
-	overrides: Partial<RegisterCtxWrapupDeps> = {},
-): RegisterCtxWrapupDeps {
+function deps(db: Database, overrides: Partial<RegisterCtxWrapupDeps> = {}): RegisterCtxWrapupDeps {
 	return {
 		db,
 		runner: {} as never,
@@ -173,10 +162,7 @@ function deps(
 		runPiHistorianForWrapup: vi.fn(async (args) => {
 			const sessionId = args.sessionId;
 			const start = getLastCompartmentEndMessage(db, sessionId) + 1;
-			const end = Math.min(
-				args.boundarySnapshot.eligibleEndOrdinal - 1,
-				start + 2,
-			);
+			const end = Math.min(args.boundarySnapshot.eligibleEndOrdinal - 1, start + 2);
 			appendRange(db, sessionId, start, end);
 			args.onPublished?.();
 		}),
@@ -236,9 +222,7 @@ describe("Pi /ctx-wrapup", () => {
 			expect(result.message).toContain("No forward progress");
 			expect(result.message).toContain("Run /ctx-wrapup again to continue");
 			const row = db
-				.prepare(
-					"SELECT wrapup_in_progress_state FROM session_meta WHERE session_id = ?",
-				)
+				.prepare("SELECT wrapup_in_progress_state FROM session_meta WHERE session_id = ?")
 				.get(sessionId) as { wrapup_in_progress_state: string | null } | null;
 			expect(row?.wrapup_in_progress_state ?? null).toBeNull();
 		} finally {
@@ -251,9 +235,7 @@ describe("Pi /ctx-wrapup", () => {
 		try {
 			const sessionId = "pi-wrapup-lease-timeout";
 			const foreignHolder = "foreign-lease-holder";
-			expect(
-				acquireCompartmentLease(db, sessionId, foreignHolder),
-			).not.toBeNull();
+			expect(acquireCompartmentLease(db, sessionId, foreignHolder)).not.toBeNull();
 			const runPiHistorianForWrapup = vi.fn(async () => {});
 
 			const result = await runPiWrapup(
@@ -364,13 +346,9 @@ describe("Pi /ctx-wrapup", () => {
 			expect(result.ok).toBe(false);
 			expect(result.kind).toBe("partial");
 			expect(result.message).toContain("## Magic Wrapup — Partial");
-			expect(result.message).toContain(
-				"another process took over this session's wrapup",
-			);
+			expect(result.message).toContain("another process took over this session's wrapup");
 			expect(calls).toBe(1);
-			expect(getWrapupInProgressState(db, sessionId)?.holderId).toBe(
-				"foreign-holder",
-			);
+			expect(getWrapupInProgressState(db, sessionId)?.holderId).toBe("foreign-holder");
 		} finally {
 			closeQuietly(db);
 		}
@@ -385,10 +363,7 @@ describe("Pi /ctx-wrapup", () => {
 				deps(db, {
 					runPiHistorianForWrapup: vi.fn(async (args) => {
 						const start = getLastCompartmentEndMessage(db, sessionId) + 1;
-						const end = Math.min(
-							args.boundarySnapshot.eligibleEndOrdinal - 1,
-							start + 2,
-						);
+						const end = Math.min(args.boundarySnapshot.eligibleEndOrdinal - 1, start + 2);
 						appendRange(db, sessionId, start, end);
 						setPendingPiCompactionMarkerState(db, sessionId, {
 							firstKeptEntryId: `m-${end + 1}`,

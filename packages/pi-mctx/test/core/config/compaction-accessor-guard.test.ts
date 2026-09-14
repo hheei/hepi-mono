@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
 
 // isCompactionEnabled (config/agent-disable.ts) is the ONLY non-schema reader
 // of the `compaction.enabled` config path. Every gate site (pi-plugin, cli,
@@ -17,22 +17,22 @@ const REPOSITORY_ROOT = resolve(import.meta.dirname, "../../../../..");
 const SOURCE_ROOTS = ["packages/pi-mctx/src"];
 
 const ALLOWED_READERS = new Set<string>([
-    "packages/pi-mctx/src/config/index.ts",
-    "packages/pi-mctx/src/core/config/agent-disable.ts",
-    "packages/pi-mctx/src/core/config/schema/magic-context.ts",
+	"packages/pi-mctx/src/config/index.ts",
+	"packages/pi-mctx/src/core/config/agent-disable.ts",
+	"packages/pi-mctx/src/core/config/schema/magic-context.ts",
 ]);
 
 function sourceFiles(directory: string): string[] {
-    const result: string[] = [];
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) {
-            result.push(...sourceFiles(path));
-        } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
-            result.push(path);
-        }
-    }
-    return result;
+	const result: string[] = [];
+	for (const entry of readdirSync(directory, { withFileTypes: true })) {
+		const path = join(directory, entry.name);
+		if (entry.isDirectory()) {
+			result.push(...sourceFiles(path));
+		} else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+			result.push(path);
+		}
+	}
+	return result;
 }
 
 // Matches direct reads of the config path: `compaction.enabled` or
@@ -44,32 +44,32 @@ function sourceFiles(directory: string): string[] {
 const COMPACTION_ENABLED_READ = /\bcompaction\??\s*\.\s*enabled\b(?!_)/;
 
 describe("compaction.enabled accessor exclusivity (issue #266)", () => {
-    it("no non-schema source file reads compaction.enabled directly", () => {
-        const offenders: string[] = [];
-        for (const root of SOURCE_ROOTS) {
-            for (const path of sourceFiles(resolve(REPOSITORY_ROOT, root))) {
-                const relativePath = relative(REPOSITORY_ROOT, path);
-                if (ALLOWED_READERS.has(relativePath)) continue;
-                const source = readFileSync(path, "utf8");
-                if (COMPACTION_ENABLED_READ.test(source)) {
-                    offenders.push(relativePath);
-                }
-            }
-        }
-        expect(offenders).toEqual([]);
-    });
+	it("no non-schema source file reads compaction.enabled directly", () => {
+		const offenders: string[] = [];
+		for (const root of SOURCE_ROOTS) {
+			for (const path of sourceFiles(resolve(REPOSITORY_ROOT, root))) {
+				const relativePath = relative(REPOSITORY_ROOT, path);
+				if (ALLOWED_READERS.has(relativePath)) continue;
+				const source = readFileSync(path, "utf8");
+				if (COMPACTION_ENABLED_READ.test(source)) {
+					offenders.push(relativePath);
+				}
+			}
+		}
+		expect(offenders).toEqual([]);
+	});
 
-    it("isCompactionEnabled is exported from the accessor module", async () => {
-        const mod = await import("../../../src/core/config/agent-disable");
-        expect(typeof mod.isCompactionEnabled).toBe("function");
-    });
+	it("isCompactionEnabled is exported from the accessor module", async () => {
+		const mod = await import("../../../src/core/config/agent-disable");
+		expect(typeof mod.isCompactionEnabled).toBe("function");
+	});
 
-    it("isCompactionEnabled resolves default-on for absent block and explicit true, off for false", async () => {
-        const { isCompactionEnabled } = await import("../../../src/core/config/agent-disable");
-        expect(isCompactionEnabled({})).toBe(true);
-        expect(isCompactionEnabled({ compaction: {} })).toBe(true);
-        expect(isCompactionEnabled({ compaction: { enabled: true } })).toBe(true);
-        expect(isCompactionEnabled({ compaction: { enabled: false } })).toBe(false);
-        expect(isCompactionEnabled({ compaction: null })).toBe(true);
-    });
+	it("isCompactionEnabled resolves default-on for absent block and explicit true, off for false", async () => {
+		const { isCompactionEnabled } = await import("../../../src/core/config/agent-disable");
+		expect(isCompactionEnabled({})).toBe(true);
+		expect(isCompactionEnabled({ compaction: {} })).toBe(true);
+		expect(isCompactionEnabled({ compaction: { enabled: true } })).toBe(true);
+		expect(isCompactionEnabled({ compaction: { enabled: false } })).toBe(false);
+		expect(isCompactionEnabled({ compaction: null })).toBe(true);
+	});
 });

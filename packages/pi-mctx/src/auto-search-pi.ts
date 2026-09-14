@@ -55,9 +55,9 @@ import {
 	getProjectEmbeddingSnapshot,
 } from "#core/features/project-embedding-registry";
 import {
-	unifiedSearch,
 	type UnifiedSearchOptions,
 	type UnifiedSearchResult,
+	unifiedSearch,
 } from "#core/features/search";
 import {
 	type AutoSearchHintNoHintReason,
@@ -216,10 +216,7 @@ function findLatestMeaningfulUserMessage(
 		// (compartment trim / placeholder strip), so index i can be stale. The
 		// ref-map resolves the actual current message correctly.
 		if (entryIdByRef) {
-			const byRef =
-				msg && typeof msg === "object"
-					? entryIdByRef.get(msg as object)
-					: undefined;
+			const byRef = msg && typeof msg === "object" ? entryIdByRef.get(msg as object) : undefined;
 			if (typeof byRef === "string") return { message: msg, messageId: byRef };
 			// Ref-map MISS with a ref-map present: do NOT fall back to the stale
 			// positional `entryIds[i]` — after a splice it points at the wrong
@@ -250,9 +247,7 @@ function appendHintToUserMessage(message: UserMessage, hint: string): boolean {
 		return true;
 	}
 
-	const firstTextIndex = message.content.findIndex(
-		(part) => part.type === "text",
-	);
+	const firstTextIndex = message.content.findIndex((part) => part.type === "text");
 	if (firstTextIndex >= 0) {
 		const part = message.content[firstTextIndex];
 		if (part?.type !== "text") return false;
@@ -302,18 +297,12 @@ export async function runAutoSearchHintForPi(args: {
 			})
 		: entryIds;
 
-	const found = findLatestMeaningfulUserMessage(
-		messages,
-		effectiveEntryIds,
-		entryIdByRef,
-	);
+	const found = findLatestMeaningfulUserMessage(messages, effectiveEntryIds, entryIdByRef);
 	if (found === null) return messages;
 
 	const { message: userMsg, messageId: userMsgId } = found;
 	const existing = getAutoSearchHintDecisions(db, sessionId);
-	const existingForMessage = existing.find(
-		(decision) => decision.messageId === userMsgId,
-	);
+	const existingForMessage = existing.find((decision) => decision.messageId === userMsgId);
 	if (existingForMessage) {
 		if (existingForMessage.decision === "hint") {
 			appendHintToUserMessage(userMsg, existingForMessage.text);
@@ -330,19 +319,14 @@ export async function runAutoSearchHintForPi(args: {
 
 	await args.ensureProjectRegistered?.();
 
-	const writeNoHintAndReconcile = (
-		reason: AutoSearchHintNoHintReason,
-	): void => {
+	const writeNoHintAndReconcile = (reason: AutoSearchHintNoHintReason): void => {
 		const outcome = appendAutoSearchHintDecision(db, sessionId, {
 			messageId: userMsgId,
 			decision: "no-hint",
 			reason,
 		});
 		if (!outcome.ok) return;
-		if (
-			outcome.kind === "already-present" &&
-			outcome.decision.decision === "hint"
-		) {
+		if (outcome.kind === "already-present" && outcome.decision.decision === "hint") {
 			appendHintToUserMessage(userMsg, outcome.decision.text);
 		}
 	};
@@ -351,10 +335,7 @@ export async function runAutoSearchHintForPi(args: {
 	// same at lines 189-198 because stripping removes the signal tags.
 	const rawPartsText = collectUserPromptParts(userMsg);
 	if (hasStackedAugmentation(rawPartsText)) {
-		sessionLog(
-			sessionId,
-			"auto-search: skipping — user message already carries augmentation/hint",
-		);
+		sessionLog(sessionId, "auto-search: skipping — user message already carries augmentation/hint");
 		writeNoHintAndReconcile("stacked");
 		return messages;
 	}
@@ -370,9 +351,7 @@ export async function runAutoSearchHintForPi(args: {
 	try {
 		const snapshot = getProjectEmbeddingSnapshot(options.projectPath);
 		const memoryEnabled = snapshot?.features.memoryEnabled ?? true;
-		const embeddingEnabled = snapshot
-			? snapshot.enabled || snapshot.gitCommitEnabled
-			: true;
+		const embeddingEnabled = snapshot ? snapshot.enabled || snapshot.gitCommitEnabled : true;
 		const gitCommitsEnabled = snapshot?.gitCommitEnabled ?? false;
 		const searchOptions: UnifiedSearchOptions = {
 			limit: 10,
@@ -380,12 +359,7 @@ export async function runAutoSearchHintForPi(args: {
 			embeddingEnabled,
 			gitCommitsEnabled,
 			embedQuery: async (text, signal) => {
-				const result = await embedTextForProject(
-					options.projectPath,
-					text,
-					signal,
-					"query",
-				);
+				const result = await embedTextForProject(options.projectPath, text, signal, "query");
 				return result?.vector ?? null;
 			},
 			isEmbeddingRuntimeEnabled: () => embeddingEnabled === true,

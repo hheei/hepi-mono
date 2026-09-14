@@ -70,8 +70,8 @@ const bunSpec = "bun:" + "sqlite";
 const nodeSpec = "node:" + "sqlite";
 
 const sqliteModule = isBun
-    ? await import(/* @vite-ignore */ bunSpec)
-    : await import(/* @vite-ignore */ nodeSpec);
+	? await import(/* @vite-ignore */ bunSpec)
+	: await import(/* @vite-ignore */ nodeSpec);
 
 // Different export shapes between the two backends:
 //   - bun:sqlite  → named export `Database` (has its own .transaction, accepts
@@ -79,8 +79,8 @@ const sqliteModule = isBun
 //   - node:sqlite → named export `DatabaseSync` (no .transaction, option is
 //     `readOnly`) — wrapped below.
 const DatabaseImpl: typeof BetterSqlite3 = isBun
-    ? (sqliteModule.Database as typeof BetterSqlite3)
-    : buildNodeSqliteDatabaseClass(sqliteModule.DatabaseSync);
+	? (sqliteModule.Database as typeof BetterSqlite3)
+	: buildNodeSqliteDatabaseClass(sqliteModule.DatabaseSync);
 
 /**
  * Wrap node:sqlite's `DatabaseSync` so it presents the better-sqlite3/bun
@@ -92,95 +92,93 @@ const DatabaseImpl: typeof BetterSqlite3 = isBun
  */
 // biome-ignore lint/suspicious/noExplicitAny: node:sqlite has no shipped types here; the public export is cast to the better-sqlite3 shape.
 function buildNodeSqliteDatabaseClass(DatabaseSync: any): typeof BetterSqlite3 {
-    // Single constant savepoint name is correct for arbitrary nesting depth:
-    // SQLite savepoints with the same name stack LIFO — RELEASE / ROLLBACK TO
-    // always target the most recent. node:sqlite is synchronous + single-process
-    // per connection, so there is no concurrent-savepoint hazard.
-    const SAVEPOINT = "mc_tx_sp";
+	// Single constant savepoint name is correct for arbitrary nesting depth:
+	// SQLite savepoints with the same name stack LIFO — RELEASE / ROLLBACK TO
+	// always target the most recent. node:sqlite is synchronous + single-process
+	// per connection, so there is no concurrent-savepoint hazard.
+	const SAVEPOINT = "mc_tx_sp";
 
-    class NodeSqliteDatabase extends DatabaseSync {
-        constructor(filename?: string | Buffer, options?: BetterSqlite3.Options) {
-            const translated: Record<string, unknown> = { ...options };
-            if (options && "readonly" in options) {
-                translated.readOnly = (options as { readonly?: boolean }).readonly;
-                delete translated.readonly;
-            }
-            super(typeof filename === "string" ? filename : ":memory:", translated);
-        }
+	class NodeSqliteDatabase extends DatabaseSync {
+		constructor(filename?: string | Buffer, options?: BetterSqlite3.Options) {
+			const translated: Record<string, unknown> = { ...options };
+			if (options && "readonly" in options) {
+				translated.readOnly = (options as { readonly?: boolean }).readonly;
+				delete translated.readonly;
+			}
+			super(typeof filename === "string" ? filename : ":memory:", translated);
+		}
 
-        // Normalize a single ARRAY bind arg to spread positional, matching
-        // bun:sqlite. bun's `.run([a,b])` binds positionally; node:sqlite instead
-        // reads a lone array as NAMED params with keys "0","1" and throws
-        // `Unknown named parameter '0'`. That divergence let an array-form bind
-        // (e.g. `.run([x, y])`) silently work on legacy host/Bun yet break Pi and
-        // legacy host Desktop (both node:sqlite) — issue #151 (/ctx-dream). Wrapping
-        // every prepared statement here keeps the two backends' bind surface
-        // truly identical so this whole class is impossible regardless of how a
-        // call site writes its bind. Named-object binds (`.run({k:v})`), no-arg
-        // calls, and already-spread positional args are passed through unchanged;
-        // the normalization only triggers on the exact 1-array shape. Overhead
-        // measured at ~12ns/call against real node:sqlite (negligible).
-        // biome-ignore lint/suspicious/noExplicitAny: node:sqlite StatementSync has no shipped types here.
-        prepare(sql: string): any {
-            const stmt = super.prepare(sql);
-            for (const method of ["run", "get", "all"] as const) {
-                const original = stmt[method].bind(stmt);
-                stmt[method] = (...args: unknown[]): unknown =>
-                    args.length === 1 && Array.isArray(args[0])
-                        ? original(...args[0])
-                        : original(...args);
-            }
-            return stmt;
-        }
+		// Normalize a single ARRAY bind arg to spread positional, matching
+		// bun:sqlite. bun's `.run([a,b])` binds positionally; node:sqlite instead
+		// reads a lone array as NAMED params with keys "0","1" and throws
+		// `Unknown named parameter '0'`. That divergence let an array-form bind
+		// (e.g. `.run([x, y])`) silently work on legacy host/Bun yet break Pi and
+		// legacy host Desktop (both node:sqlite) — issue #151 (/ctx-dream). Wrapping
+		// every prepared statement here keeps the two backends' bind surface
+		// truly identical so this whole class is impossible regardless of how a
+		// call site writes its bind. Named-object binds (`.run({k:v})`), no-arg
+		// calls, and already-spread positional args are passed through unchanged;
+		// the normalization only triggers on the exact 1-array shape. Overhead
+		// measured at ~12ns/call against real node:sqlite (negligible).
+		// biome-ignore lint/suspicious/noExplicitAny: node:sqlite StatementSync has no shipped types here.
+		prepare(sql: string): any {
+			const stmt = super.prepare(sql);
+			for (const method of ["run", "get", "all"] as const) {
+				const original = stmt[method].bind(stmt);
+				stmt[method] = (...args: unknown[]): unknown =>
+					args.length === 1 && Array.isArray(args[0]) ? original(...args[0]) : original(...args);
+			}
+			return stmt;
+		}
 
-        // biome-ignore lint/suspicious/noExplicitAny: mirrors better-sqlite3's generic transaction(fn) signature.
-        transaction<F extends (...args: any[]) => any>(fn: F): F {
-            // biome-ignore lint/suspicious/noExplicitAny: faithful pass-through of this/args to fn.
-            const self = this as any;
-            const execute = (
-                mode: "" | "DEFERRED" | "IMMEDIATE" | "EXCLUSIVE",
-                receiver: unknown,
-                args: unknown[],
-            ) => {
-                const nested = self.isTransaction === true;
-                self.exec(nested ? `SAVEPOINT ${SAVEPOINT}` : `BEGIN${mode ? ` ${mode}` : ""}`);
-                try {
-                    const result = fn.apply(receiver, args);
-                    self.exec(nested ? `RELEASE ${SAVEPOINT}` : "COMMIT");
-                    return result;
-                } catch (error) {
-                    if (nested) {
-                        // ROLLBACK TO unwinds the savepoint's changes but leaves
-                        // it on the stack; RELEASE then pops it (better-sqlite3
-                        // does both).
-                        self.exec(`ROLLBACK TO ${SAVEPOINT}`);
-                        self.exec(`RELEASE ${SAVEPOINT}`);
-                    } else {
-                        self.exec("ROLLBACK");
-                    }
-                    throw error;
-                }
-            };
-            const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-                return execute("", this, args);
-            };
-            wrapped.default = function (this: unknown, ...args: unknown[]): unknown {
-                return execute("", this, args);
-            };
-            wrapped.deferred = function (this: unknown, ...args: unknown[]): unknown {
-                return execute("DEFERRED", this, args);
-            };
-            wrapped.immediate = function (this: unknown, ...args: unknown[]): unknown {
-                return execute("IMMEDIATE", this, args);
-            };
-            wrapped.exclusive = function (this: unknown, ...args: unknown[]): unknown {
-                return execute("EXCLUSIVE", this, args);
-            };
-            return wrapped as unknown as F;
-        }
-    }
+		// biome-ignore lint/suspicious/noExplicitAny: mirrors better-sqlite3's generic transaction(fn) signature.
+		transaction<F extends (...args: any[]) => any>(fn: F): F {
+			// biome-ignore lint/suspicious/noExplicitAny: faithful pass-through of this/args to fn.
+			const self = this as any;
+			const execute = (
+				mode: "" | "DEFERRED" | "IMMEDIATE" | "EXCLUSIVE",
+				receiver: unknown,
+				args: unknown[],
+			) => {
+				const nested = self.isTransaction === true;
+				self.exec(nested ? `SAVEPOINT ${SAVEPOINT}` : `BEGIN${mode ? ` ${mode}` : ""}`);
+				try {
+					const result = fn.apply(receiver, args);
+					self.exec(nested ? `RELEASE ${SAVEPOINT}` : "COMMIT");
+					return result;
+				} catch (error) {
+					if (nested) {
+						// ROLLBACK TO unwinds the savepoint's changes but leaves
+						// it on the stack; RELEASE then pops it (better-sqlite3
+						// does both).
+						self.exec(`ROLLBACK TO ${SAVEPOINT}`);
+						self.exec(`RELEASE ${SAVEPOINT}`);
+					} else {
+						self.exec("ROLLBACK");
+					}
+					throw error;
+				}
+			};
+			const wrapped = function (this: unknown, ...args: unknown[]): unknown {
+				return execute("", this, args);
+			};
+			wrapped.default = function (this: unknown, ...args: unknown[]): unknown {
+				return execute("", this, args);
+			};
+			wrapped.deferred = function (this: unknown, ...args: unknown[]): unknown {
+				return execute("DEFERRED", this, args);
+			};
+			wrapped.immediate = function (this: unknown, ...args: unknown[]): unknown {
+				return execute("IMMEDIATE", this, args);
+			};
+			wrapped.exclusive = function (this: unknown, ...args: unknown[]): unknown {
+				return execute("EXCLUSIVE", this, args);
+			};
+			return wrapped as unknown as F;
+		}
+	}
 
-    return NodeSqliteDatabase as unknown as typeof BetterSqlite3;
+	return NodeSqliteDatabase as unknown as typeof BetterSqlite3;
 }
 
 export const Database: typeof BetterSqlite3 = DatabaseImpl;
@@ -203,8 +201,8 @@ export type Statement = BetterSqlite3.Statement<unknown[], unknown>;
 const privilegeDepth = new WeakMap<Database, number>();
 
 function isInTransaction(db: Database): boolean {
-    const candidate = db as unknown as { inTransaction?: unknown; isTransaction?: unknown };
-    return candidate.inTransaction === true || candidate.isTransaction === true;
+	const candidate = db as unknown as { inTransaction?: unknown; isTransaction?: unknown };
+	return candidate.inTransaction === true || candidate.isTransaction === true;
 }
 
 /**
@@ -219,43 +217,43 @@ function isInTransaction(db: Database): boolean {
  * flag, so an inner scope releasing does not drop permission out from under its caller.
  */
 export function withPrivilegedWriter<T>(db: Database, operation: () => T): T {
-    const previousDepth = privilegeDepth.get(db) ?? 0;
-    const nested = isInTransaction(db);
-    const savepoint = "mc_privilege_scope";
-    if (nested) {
-        db.exec(`SAVEPOINT ${savepoint}`);
-    } else {
-        db.exec("BEGIN IMMEDIATE");
-    }
-    privilegeDepth.set(db, previousDepth + 1);
-    try {
-        db.prepare(
-            "INSERT INTO context_privilege_state(id, enabled) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET enabled = 1",
-        ).run();
-        const result = operation();
-        if (previousDepth === 0) {
-            db.prepare("UPDATE context_privilege_state SET enabled = 0 WHERE id = 1").run();
-        }
-        if (nested) {
-            db.exec(`RELEASE ${savepoint}`);
-        } else {
-            db.exec("COMMIT");
-        }
-        if (previousDepth > 0) privilegeDepth.set(db, previousDepth);
-        else privilegeDepth.delete(db);
-        return result;
-    } catch (error) {
-        try {
-            if (nested) {
-                db.exec(`ROLLBACK TO ${savepoint}`);
-                db.exec(`RELEASE ${savepoint}`);
-            } else {
-                db.exec("ROLLBACK");
-            }
-        } finally {
-            if (previousDepth > 0) privilegeDepth.set(db, previousDepth);
-            else privilegeDepth.delete(db);
-        }
-        throw error;
-    }
+	const previousDepth = privilegeDepth.get(db) ?? 0;
+	const nested = isInTransaction(db);
+	const savepoint = "mc_privilege_scope";
+	if (nested) {
+		db.exec(`SAVEPOINT ${savepoint}`);
+	} else {
+		db.exec("BEGIN IMMEDIATE");
+	}
+	privilegeDepth.set(db, previousDepth + 1);
+	try {
+		db.prepare(
+			"INSERT INTO context_privilege_state(id, enabled) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET enabled = 1",
+		).run();
+		const result = operation();
+		if (previousDepth === 0) {
+			db.prepare("UPDATE context_privilege_state SET enabled = 0 WHERE id = 1").run();
+		}
+		if (nested) {
+			db.exec(`RELEASE ${savepoint}`);
+		} else {
+			db.exec("COMMIT");
+		}
+		if (previousDepth > 0) privilegeDepth.set(db, previousDepth);
+		else privilegeDepth.delete(db);
+		return result;
+	} catch (error) {
+		try {
+			if (nested) {
+				db.exec(`ROLLBACK TO ${savepoint}`);
+				db.exec(`RELEASE ${savepoint}`);
+			} else {
+				db.exec("ROLLBACK");
+			}
+		} finally {
+			if (previousDepth > 0) privilegeDepth.set(db, previousDepth);
+			else privilegeDepth.delete(db);
+		}
+		throw error;
+	}
 }

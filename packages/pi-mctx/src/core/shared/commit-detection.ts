@@ -33,11 +33,11 @@ export const COMMIT_HASH_TEST_PATTERN = new RegExp(`\\b${HASH_HEX}\\b`, "i");
  * it matters.
  */
 export const COMMIT_VERB_PATTERN =
-    /\b(?:commit(?:ted|ting|s)?|cherry-?pick(?:ed|ing|s)?|merge[ds]?|merging|rebas(?:e|ed|es|ing))\b/i;
+	/\b(?:commit(?:ted|ting|s)?|cherry-?pick(?:ed|ing|s)?|merge[ds]?|merging|rebas(?:e|ed|es|ing))\b/i;
 
 /** True when a text part mentions a commit hash in a commit context. */
 export function textMentionsRecentCommit(text: string): boolean {
-    return COMMIT_HASH_TEST_PATTERN.test(text) && COMMIT_VERB_PATTERN.test(text);
+	return COMMIT_HASH_TEST_PATTERN.test(text) && COMMIT_VERB_PATTERN.test(text);
 }
 
 /**
@@ -47,5 +47,5 @@ export function textMentionsRecentCommit(text: string): boolean {
  * bulletproof against accidental `.exec()` reuse across callers.
  */
 export function createCommitHashExtractPattern(): RegExp {
-    return new RegExp(`\`?\\b(${HASH_HEX})\\b\`?`, "gi");
+	return new RegExp(`\`?\\b(${HASH_HEX})\\b\`?`, "gi");
 }

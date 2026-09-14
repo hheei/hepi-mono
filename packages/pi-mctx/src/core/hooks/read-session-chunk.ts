@@ -1,23 +1,23 @@
 import { OMO_INTERNAL_INITIATOR_MARKER } from "../shared/internal-initiator-marker";
 import { removeSystemReminders } from "../shared/system-directive";
 import {
-    type ChunkBlock,
-    compactRole,
-    compactTextForSummary,
-    estimateTokens,
-    extractTexts,
-    extractToolCallSummaries,
-    formatBlock,
-    hasMeaningfulUserText,
-    mergeCommitHashes,
-    normalizeText,
-    type SessionChunkLine,
+	type ChunkBlock,
+	compactRole,
+	compactTextForSummary,
+	estimateTokens,
+	extractTexts,
+	extractToolCallSummaries,
+	formatBlock,
+	hasMeaningfulUserText,
+	mergeCommitHashes,
+	normalizeText,
+	type SessionChunkLine,
 } from "./read-session-formatting";
-import {
-    type RawMessage,
-    type RawMessageOrdinalAnchor,
-    type RawMessageOrdinalEntry,
-    type RawMessageParts,
+import type {
+	RawMessage,
+	RawMessageOrdinalAnchor,
+	RawMessageOrdinalEntry,
+	RawMessageParts,
 } from "./read-session-raw";
 import { isFilePart, isTextPart } from "./tag-part-guards";
 import { extractToolCallObservation } from "./tool-drop-target";
@@ -46,20 +46,20 @@ export { extractTexts, hasMeaningfulUserText } from "./read-session-formatting";
 const BLOCK_TOKEN_MEMO_MAX = 2048;
 const blockTokenMemo = new Map<string, number>();
 function estimateBlockTokens(blockText: string): number {
-    const cached = blockTokenMemo.get(blockText);
-    if (cached !== undefined) {
-        // Refresh recency (Map preserves insertion order → re-insert = most-recent).
-        blockTokenMemo.delete(blockText);
-        blockTokenMemo.set(blockText, cached);
-        return cached;
-    }
-    const count = estimateTokens(blockText);
-    if (blockTokenMemo.size >= BLOCK_TOKEN_MEMO_MAX) {
-        const oldest = blockTokenMemo.keys().next().value;
-        if (oldest !== undefined) blockTokenMemo.delete(oldest);
-    }
-    blockTokenMemo.set(blockText, count);
-    return count;
+	const cached = blockTokenMemo.get(blockText);
+	if (cached !== undefined) {
+		// Refresh recency (Map preserves insertion order → re-insert = most-recent).
+		blockTokenMemo.delete(blockText);
+		blockTokenMemo.set(blockText, cached);
+		return cached;
+	}
+	const count = estimateTokens(blockText);
+	if (blockTokenMemo.size >= BLOCK_TOKEN_MEMO_MAX) {
+		const oldest = blockTokenMemo.keys().next().value;
+		if (oldest !== undefined) blockTokenMemo.delete(oldest);
+	}
+	blockTokenMemo.set(blockText, count);
+	return count;
 }
 
 let activeRawMessageCache: Map<string, RawMessage[]> | null = null;
@@ -91,20 +91,21 @@ let activeAbsoluteCountCache: Map<string, number> | null = null;
  * scope.
  */
 export interface RawMessageProvider {
-    readMessages(): RawMessage[];
-    readMessagePage?: ((afterOrdinal: number, limit: number, finalWatermark: number) => RawMessage[]) | undefined;
-    readMessageById?: ((messageId: string) => RawMessage | null) | undefined;
-    readMessagePartsById?: ((messageId: string) => RawMessageParts | null) | undefined;
-    readMessageOrdinalById?: ((messageId: string) => number | null) | undefined;
-    readMessageIdOrdinals?: (() => Map<string, number>) | undefined;
-    readMessageOrdinalPage?: ((
-        after: RawMessageOrdinalAnchor | null,
-        limit: number,
-    ) => RawMessageOrdinalEntry[]) | undefined;
-    /** Optional fast count path; falls back to readMessages().length. */
-    getMessageCount?: (() => number) | undefined;
-    /** Stored row count including compaction summaries, used for ordinal drift detection. */
-    getStoredMessageCount?: (() => number) | undefined;
+	readMessages(): RawMessage[];
+	readMessagePage?:
+		| ((afterOrdinal: number, limit: number, finalWatermark: number) => RawMessage[])
+		| undefined;
+	readMessageById?: ((messageId: string) => RawMessage | null) | undefined;
+	readMessagePartsById?: ((messageId: string) => RawMessageParts | null) | undefined;
+	readMessageOrdinalById?: ((messageId: string) => number | null) | undefined;
+	readMessageIdOrdinals?: (() => Map<string, number>) | undefined;
+	readMessageOrdinalPage?:
+		| ((after: RawMessageOrdinalAnchor | null, limit: number) => RawMessageOrdinalEntry[])
+		| undefined;
+	/** Optional fast count path; falls back to readMessages().length. */
+	getMessageCount?: (() => number) | undefined;
+	/** Stored row count including compaction summaries, used for ordinal drift detection. */
+	getStoredMessageCount?: (() => number) | undefined;
 }
 
 const sessionProviders = new Map<string, RawMessageProvider>();
@@ -113,11 +114,11 @@ const sessionProviders = new Map<string, RawMessageProvider>();
  * Pi installs this provider for each historian/trigger evaluation.
  */
 export function setRawMessageProvider(sessionId: string, provider: RawMessageProvider): () => void {
-    sessionProviders.set(sessionId, provider);
-    return () => {
-        const current = sessionProviders.get(sessionId);
-        if (current === provider) sessionProviders.delete(sessionId);
-    };
+	sessionProviders.set(sessionId, provider);
+	return () => {
+		const current = sessionProviders.get(sessionId);
+		if (current === provider) sessionProviders.delete(sessionId);
+	};
 }
 
 /**
@@ -135,116 +136,114 @@ export function setRawMessageProvider(sessionId: string, provider: RawMessagePro
  * exist at all, throwing `unable to open database file`.
  */
 export function withRawMessageProvider<T>(
-    sessionId: string,
-    provider: RawMessageProvider,
-    fn: () => T,
+	sessionId: string,
+	provider: RawMessageProvider,
+	fn: () => T,
 ): T {
-    const cleanup = setRawMessageProvider(sessionId, provider);
-    let result: T;
-    try {
-        result = fn();
-    } catch (error) {
-        cleanup();
-        throw error;
-    }
-    if (
-        result !== null &&
-        typeof result === "object" &&
-        typeof (result as { then?: unknown }).then === "function"
-    ) {
-        return (result as unknown as Promise<unknown>).finally(cleanup) as unknown as T;
-    }
-    cleanup();
-    return result;
+	const cleanup = setRawMessageProvider(sessionId, provider);
+	let result: T;
+	try {
+		result = fn();
+	} catch (error) {
+		cleanup();
+		throw error;
+	}
+	if (
+		result !== null &&
+		typeof result === "object" &&
+		typeof (result as { then?: unknown }).then === "function"
+	) {
+		return (result as unknown as Promise<unknown>).finally(cleanup) as unknown as T;
+	}
+	cleanup();
+	return result;
 }
 
 /** Strip system-reminder blocks and OMO markers from user text for chunk compaction. */
 export function cleanUserText(text: string): string {
-    return removeSystemReminders(text).replace(OMO_INTERNAL_INITIATOR_MARKER, "").trim();
+	return removeSystemReminders(text).replace(OMO_INTERNAL_INITIATOR_MARKER, "").trim();
 }
 
 export interface SessionChunk {
-    startIndex: number;
-    endIndex: number;
-    startMessageId: string;
-    endMessageId: string;
-    messageCount: number;
-    tokenEstimate: number;
-    hasMore: boolean;
-    text: string;
-    lines: SessionChunkLine[];
-    /** Number of distinct commit clusters — assistant blocks with commits separated by meaningful user turns */
-    commitClusterCount: number;
-    /**
-     * Contiguous ranges of raw message ordinals whose visible chunk content was
-     * tool-only (TC: lines, no narrative text). Historian frequently skips such
-     * ranges entirely — that's safe, so validation absorbs gaps that fall fully
-     * within these ranges regardless of size. Gaps outside these ranges still
-     * fail validation and trigger a repair retry.
-     */
-    toolOnlyRanges: Array<{ start: number; end: number }>;
+	startIndex: number;
+	endIndex: number;
+	startMessageId: string;
+	endMessageId: string;
+	messageCount: number;
+	tokenEstimate: number;
+	hasMore: boolean;
+	text: string;
+	lines: SessionChunkLine[];
+	/** Number of distinct commit clusters — assistant blocks with commits separated by meaningful user turns */
+	commitClusterCount: number;
+	/**
+	 * Contiguous ranges of raw message ordinals whose visible chunk content was
+	 * tool-only (TC: lines, no narrative text). Historian frequently skips such
+	 * ranges entirely — that's safe, so validation absorbs gaps that fall fully
+	 * within these ranges regardless of size. Gaps outside these ranges still
+	 * fail validation and trigger a repair retry.
+	 */
+	toolOnlyRanges: Array<{ start: number; end: number }>;
 }
 
 export function withRawSessionMessageCache<T>(fn: () => T): T {
-    const outerCache = activeRawMessageCache;
-    if (!outerCache) {
-        activeRawMessageCache = new Map();
-        activeAbsoluteCountCache = new Map();
-    }
+	const outerCache = activeRawMessageCache;
+	if (!outerCache) {
+		activeRawMessageCache = new Map();
+		activeAbsoluteCountCache = new Map();
+	}
 
-    try {
-        return fn();
-    } finally {
-        if (!outerCache) {
-            activeRawMessageCache = null;
-            activeAbsoluteCountCache = null;
-        }
-    }
+	try {
+		return fn();
+	} finally {
+		if (!outerCache) {
+			activeRawMessageCache = null;
+			activeAbsoluteCountCache = null;
+		}
+	}
 }
 
 export function readRawSessionMessages(sessionId: string): RawMessage[] {
-    if (activeRawMessageCache) {
-        const cached = activeRawMessageCache.get(sessionId);
-        if (cached) {
-            return cached;
-        }
+	if (activeRawMessageCache) {
+		const cached = activeRawMessageCache.get(sessionId);
+		if (cached) {
+			return cached;
+		}
 
-        const messages = readRawSessionMessagesFromSource(sessionId);
-        activeRawMessageCache.set(sessionId, messages);
-        return messages;
-    }
+		const messages = readRawSessionMessagesFromSource(sessionId);
+		activeRawMessageCache.set(sessionId, messages);
+		return messages;
+	}
 
-    return readRawSessionMessagesFromSource(sessionId);
+	return readRawSessionMessagesFromSource(sessionId);
 }
 
 export function readRawSessionMessagePage(
-    sessionId: string,
-    afterOrdinal: number,
-    limit: number,
-    finalWatermark: number,
+	sessionId: string,
+	afterOrdinal: number,
+	limit: number,
+	finalWatermark: number,
 ): RawMessage[] {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessagePage) {
-        return provider.readMessagePage(afterOrdinal, limit, finalWatermark);
-    }
-    if (provider) {
-        return provider
-            .readMessages()
-            .filter(
-                (message) => message.ordinal > afterOrdinal && message.ordinal <= finalWatermark,
-            )
-            .slice(0, limit);
-    }
-    return [];
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessagePage) {
+		return provider.readMessagePage(afterOrdinal, limit, finalWatermark);
+	}
+	if (provider) {
+		return provider
+			.readMessages()
+			.filter((message) => message.ordinal > afterOrdinal && message.ordinal <= finalWatermark)
+			.slice(0, limit);
+	}
+	return [];
 }
 
 export function getRawSessionMessageOrdinalCount(sessionId: string): number {
-    const provider = sessionProviders.get(sessionId);
-    if (provider) {
-        if (provider.getMessageCount) return provider.getMessageCount();
-        return provider.readMessages().length;
-    }
-    return 0;
+	const provider = sessionProviders.get(sessionId);
+	if (provider) {
+		if (provider.getMessageCount) return provider.getMessageCount();
+		return provider.readMessages().length;
+	}
+	return 0;
 }
 
 readRawSessionMessages.readPage = readRawSessionMessagePage;
@@ -274,14 +273,14 @@ readRawSessionMessages.getCount = getRawSessionMessageOrdinalCount;
  * the full read, which is correct (everything is eligible / nothing to skip).
  */
 export function primeTailRawMessageCache(args: {
-    sessionId: string;
-    lastCompartmentEnd: number;
-    anchorMessageId: string | null;
+	sessionId: string;
+	lastCompartmentEnd: number;
+	anchorMessageId: string | null;
 }): boolean {
-    const { sessionId, lastCompartmentEnd, anchorMessageId } = args;
-    if (!activeRawMessageCache) return false;
-    if (activeRawMessageCache.has(sessionId)) return false;
-    return false;
+	const { sessionId } = args;
+	if (!activeRawMessageCache) return false;
+	if (activeRawMessageCache.has(sessionId)) return false;
+	return false;
 }
 
 /**
@@ -291,7 +290,7 @@ export function primeTailRawMessageCache(args: {
  * array) as before.
  */
 export function getCachedAbsoluteMessageCount(sessionId: string): number | null {
-    return activeAbsoluteCountCache?.get(sessionId) ?? null;
+	return activeAbsoluteCountCache?.get(sessionId) ?? null;
 }
 
 /**
@@ -309,136 +308,135 @@ export function getCachedAbsoluteMessageCount(sessionId: string): number | null 
  * Returns true when it primed the cache.
  */
 export function primeInMemoryTailRawMessageCache(args: {
-    sessionId: string;
-    messages: RawMessage[];
-    absoluteMessageCount: number;
+	sessionId: string;
+	messages: RawMessage[];
+	absoluteMessageCount: number;
 }): boolean {
-    const { sessionId, messages, absoluteMessageCount } = args;
-    if (!activeRawMessageCache) return false;
-    if (activeRawMessageCache.has(sessionId)) return false;
-    if (sessionProviders.has(sessionId)) return false;
-    activeRawMessageCache.set(sessionId, messages);
-    activeAbsoluteCountCache?.set(sessionId, absoluteMessageCount);
-    return true;
+	const { sessionId, messages, absoluteMessageCount } = args;
+	if (!activeRawMessageCache) return false;
+	if (activeRawMessageCache.has(sessionId)) return false;
+	if (sessionProviders.has(sessionId)) return false;
+	activeRawMessageCache.set(sessionId, messages);
+	activeAbsoluteCountCache?.set(sessionId, absoluteMessageCount);
+	return true;
 }
 
 export function readRawSessionMessageOrdinalPage(
-    sessionId: string,
-    after: RawMessageOrdinalAnchor | null,
-    limit: number,
+	sessionId: string,
+	after: RawMessageOrdinalAnchor | null,
+	limit: number,
 ): RawMessageOrdinalEntry[] {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessageOrdinalPage) return provider.readMessageOrdinalPage(after, limit);
-    if (provider) {
-        const rows = provider
-            .readMessages()
-            .map((message) => ({
-                id: message.id,
-                timeCreated: message.createdAt ?? message.ordinal,
-                contributesOrdinal: true,
-                hasValidInfo: true,
-            }))
-            .filter(
-                (row) =>
-                    !after ||
-                    row.timeCreated > after.timeCreated ||
-                    (row.timeCreated === after.timeCreated && row.id > after.id),
-            )
-            .sort(
-                (left, right) =>
-                    left.timeCreated - right.timeCreated || left.id.localeCompare(right.id),
-            );
-        return rows.slice(0, Math.max(1, Math.floor(limit)));
-    }
-    return [];
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessageOrdinalPage) return provider.readMessageOrdinalPage(after, limit);
+	if (provider) {
+		const rows = provider
+			.readMessages()
+			.map((message) => ({
+				id: message.id,
+				timeCreated: message.createdAt ?? message.ordinal,
+				contributesOrdinal: true,
+				hasValidInfo: true,
+			}))
+			.filter(
+				(row) =>
+					!after ||
+					row.timeCreated > after.timeCreated ||
+					(row.timeCreated === after.timeCreated && row.id > after.id),
+			)
+			.sort(
+				(left, right) => left.timeCreated - right.timeCreated || left.id.localeCompare(right.id),
+			);
+		return rows.slice(0, Math.max(1, Math.floor(limit)));
+	}
+	return [];
 }
 
 export function getRawSessionStoredMessageCount(sessionId: string): number {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.getStoredMessageCount) return provider.getStoredMessageCount();
-    if (provider) return provider.readMessages().length;
-    return 0;
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.getStoredMessageCount) return provider.getStoredMessageCount();
+	if (provider) return provider.readMessages().length;
+	return 0;
 }
 
 export function readRawSessionMessageIdOrdinals(sessionId: string): Map<string, number> {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessageIdOrdinals) return provider.readMessageIdOrdinals();
-    if (provider) {
-        return new Map(provider.readMessages().map((message) => [message.id, message.ordinal]));
-    }
-    return new Map();
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessageIdOrdinals) return provider.readMessageIdOrdinals();
+	if (provider) {
+		return new Map(provider.readMessages().map((message) => [message.id, message.ordinal]));
+	}
+	return new Map();
 }
 
 export function readRawSessionMessagePartsById(
-    sessionId: string,
-    messageId: string,
+	sessionId: string,
+	messageId: string,
 ): RawMessageParts | null {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessagePartsById) return provider.readMessagePartsById(messageId);
-    if (provider?.readMessageById) return provider.readMessageById(messageId);
-    if (provider) {
-        return provider.readMessages().find((message) => message.id === messageId) ?? null;
-    }
-    return null;
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessagePartsById) return provider.readMessagePartsById(messageId);
+	if (provider?.readMessageById) return provider.readMessageById(messageId);
+	if (provider) {
+		return provider.readMessages().find((message) => message.id === messageId) ?? null;
+	}
+	return null;
 }
 
 export function readRawSessionMessageOrdinalById(
-    sessionId: string,
-    messageId: string,
+	sessionId: string,
+	messageId: string,
 ): number | null {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessageOrdinalById) {
-        return provider.readMessageOrdinalById(messageId);
-    }
-    if (provider?.readMessageIdOrdinals) {
-        return provider.readMessageIdOrdinals().get(messageId) ?? null;
-    }
-    if (provider?.readMessageOrdinalPage) {
-        let after: RawMessageOrdinalAnchor | null = null;
-        let ordinal = 0;
-        while (true) {
-            const page = provider.readMessageOrdinalPage(after, 500);
-            if (page.length === 0) return null;
-            for (const entry of page) {
-                if (entry.contributesOrdinal) ordinal += 1;
-                if (entry.id === messageId) return entry.contributesOrdinal ? ordinal : null;
-            }
-            const last = page.at(-1);
-            if (!last || page.length < 500) return null;
-            after = { timeCreated: last.timeCreated, id: last.id };
-        }
-    }
-    if (provider?.readMessageById) {
-        return provider.readMessageById(messageId)?.ordinal ?? null;
-    }
-    if (provider) {
-        return provider.readMessages().find((message) => message.id === messageId)?.ordinal ?? null;
-    }
-    return null;
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessageOrdinalById) {
+		return provider.readMessageOrdinalById(messageId);
+	}
+	if (provider?.readMessageIdOrdinals) {
+		return provider.readMessageIdOrdinals().get(messageId) ?? null;
+	}
+	if (provider?.readMessageOrdinalPage) {
+		let after: RawMessageOrdinalAnchor | null = null;
+		let ordinal = 0;
+		while (true) {
+			const page = provider.readMessageOrdinalPage(after, 500);
+			if (page.length === 0) return null;
+			for (const entry of page) {
+				if (entry.contributesOrdinal) ordinal += 1;
+				if (entry.id === messageId) return entry.contributesOrdinal ? ordinal : null;
+			}
+			const last = page.at(-1);
+			if (!last || page.length < 500) return null;
+			after = { timeCreated: last.timeCreated, id: last.id };
+		}
+	}
+	if (provider?.readMessageById) {
+		return provider.readMessageById(messageId)?.ordinal ?? null;
+	}
+	if (provider) {
+		return provider.readMessages().find((message) => message.id === messageId)?.ordinal ?? null;
+	}
+	return null;
 }
 
 export function readRawSessionMessageById(sessionId: string, messageId: string): RawMessage | null {
-    const provider = sessionProviders.get(sessionId);
-    if (provider?.readMessageById) {
-        return provider.readMessageById(messageId);
-    }
-    if (provider) {
-        return provider.readMessages().find((message) => message.id === messageId) ?? null;
-    }
-    return null;
+	const provider = sessionProviders.get(sessionId);
+	if (provider?.readMessageById) {
+		return provider.readMessageById(messageId);
+	}
+	if (provider) {
+		return provider.readMessages().find((message) => message.id === messageId) ?? null;
+	}
+	return null;
 }
 
 function readRawSessionMessagesFromSource(sessionId: string): RawMessage[] {
-    return sessionProviders.get(sessionId)?.readMessages() ?? [];
+	return sessionProviders.get(sessionId)?.readMessages() ?? [];
 }
 
 export function getRawSessionMessageCount(sessionId: string): number {
-    const provider = sessionProviders.get(sessionId);
-    if (provider) {
-        if (provider.getMessageCount) return provider.getMessageCount();
-        return provider.readMessages().length;
-    }
-    return 0;
+	const provider = sessionProviders.get(sessionId);
+	if (provider) {
+		if (provider.getMessageCount) return provider.getMessageCount();
+		return provider.readMessages().length;
+	}
+	return 0;
 }
 
 /**
@@ -459,312 +457,312 @@ export function getRawSessionMessageCount(sessionId: string): number {
  *     both appear here.
  */
 export interface RawSessionTagKeys {
-    messageFileKeys: Set<string>;
-    toolObservations: Map<string, Set<string>>;
+	messageFileKeys: Set<string>;
+	toolObservations: Map<string, Set<string>>;
 }
 
 export function getRawSessionTagKeysThrough(
-    sessionId: string,
-    upToMessageIndex: number,
+	sessionId: string,
+	upToMessageIndex: number,
 ): RawSessionTagKeys {
-    const messages = readRawSessionMessages(sessionId);
-    const messageFileKeys = new Set<string>();
-    const toolObservations = new Map<string, Set<string>>();
-    // FIFO queue per callId of unpaired invocations — same logic as
-    // tag-messages.ts so the composite keys we produce here match what
-    // the tagger persisted.
-    const unpairedInvocations = new Map<string, string[]>();
+	const messages = readRawSessionMessages(sessionId);
+	const messageFileKeys = new Set<string>();
+	const toolObservations = new Map<string, Set<string>>();
+	// FIFO queue per callId of unpaired invocations — same logic as
+	// tag-messages.ts so the composite keys we produce here match what
+	// the tagger persisted.
+	const unpairedInvocations = new Map<string, string[]>();
 
-    for (const message of messages) {
-        if (message.ordinal > upToMessageIndex) break;
+	for (const message of messages) {
+		if (message.ordinal > upToMessageIndex) break;
 
-        for (const [partIndex, part] of message.parts.entries()) {
-            if (isTextPart(part)) {
-                messageFileKeys.add(`${message.id}:p${partIndex}`);
-                continue;
-            }
-            if (isFilePart(part)) {
-                messageFileKeys.add(`${message.id}:file${partIndex}`);
-                continue;
-            }
+		for (const [partIndex, part] of message.parts.entries()) {
+			if (isTextPart(part)) {
+				messageFileKeys.add(`${message.id}:p${partIndex}`);
+				continue;
+			}
+			if (isFilePart(part)) {
+				messageFileKeys.add(`${message.id}:file${partIndex}`);
+				continue;
+			}
 
-            const obs = extractToolCallObservation(part);
-            if (!obs) continue;
+			const obs = extractToolCallObservation(part);
+			if (!obs) continue;
 
-            // FIFO pairing: invocation parts push their owner; result
-            // parts pop. The owner identifies which assistant message
-            // hosts the invocation, which is what `tag-messages.ts`
-            // uses for `tool_owner_message_id`.
-            let ownerMsgId: string;
-            if (obs.kind === "invocation") {
-                ownerMsgId = message.id;
-                const queue = unpairedInvocations.get(obs.callId) ?? [];
-                queue.push(message.id);
-                unpairedInvocations.set(obs.callId, queue);
-            } else {
-                const queue = unpairedInvocations.get(obs.callId);
-                if (queue && queue.length > 0) {
-                    const popped = queue.shift();
-                    if (queue.length === 0) unpairedInvocations.delete(obs.callId);
-                    ownerMsgId = popped ?? message.id;
-                } else {
-                    // Result-only window inside this scan: invocation
-                    // wasn't observed in the visible range. Use the
-                    // result's own message id as a best-effort owner.
-                    // The drop queue compares against persisted
-                    // `tool_owner_message_id` and falls back to bare-
-                    // callId match for legacy NULL-owner rows; this
-                    // best-effort ownerMsgId is mainly informational.
-                    ownerMsgId = message.id;
-                }
-            }
-            const owners = toolObservations.get(obs.callId) ?? new Set();
-            owners.add(ownerMsgId);
-            toolObservations.set(obs.callId, owners);
-        }
-    }
+			// FIFO pairing: invocation parts push their owner; result
+			// parts pop. The owner identifies which assistant message
+			// hosts the invocation, which is what `tag-messages.ts`
+			// uses for `tool_owner_message_id`.
+			let ownerMsgId: string;
+			if (obs.kind === "invocation") {
+				ownerMsgId = message.id;
+				const queue = unpairedInvocations.get(obs.callId) ?? [];
+				queue.push(message.id);
+				unpairedInvocations.set(obs.callId, queue);
+			} else {
+				const queue = unpairedInvocations.get(obs.callId);
+				if (queue && queue.length > 0) {
+					const popped = queue.shift();
+					if (queue.length === 0) unpairedInvocations.delete(obs.callId);
+					ownerMsgId = popped ?? message.id;
+				} else {
+					// Result-only window inside this scan: invocation
+					// wasn't observed in the visible range. Use the
+					// result's own message id as a best-effort owner.
+					// The drop queue compares against persisted
+					// `tool_owner_message_id` and falls back to bare-
+					// callId match for legacy NULL-owner rows; this
+					// best-effort ownerMsgId is mainly informational.
+					ownerMsgId = message.id;
+				}
+			}
+			const owners = toolObservations.get(obs.callId) ?? new Set();
+			owners.add(ownerMsgId);
+			toolObservations.set(obs.callId, owners);
+		}
+	}
 
-    return { messageFileKeys, toolObservations };
+	return { messageFileKeys, toolObservations };
 }
 
 const PROTECTED_TAIL_USER_TURNS = 5;
 
 export function getLegacyProtectedTailStartOrdinal(sessionId: string): number {
-    const messages = readRawSessionMessages(sessionId);
-    const userOrdinals = messages
-        .filter((m) => m.role === "user" && hasMeaningfulUserText(m.parts))
-        .map((m) => m.ordinal);
-    if (userOrdinals.length < PROTECTED_TAIL_USER_TURNS) {
-        return 1;
-    }
-    return userOrdinals[userOrdinals.length - PROTECTED_TAIL_USER_TURNS] ?? 1;
+	const messages = readRawSessionMessages(sessionId);
+	const userOrdinals = messages
+		.filter((m) => m.role === "user" && hasMeaningfulUserText(m.parts))
+		.map((m) => m.ordinal);
+	if (userOrdinals.length < PROTECTED_TAIL_USER_TURNS) {
+		return 1;
+	}
+	return userOrdinals[userOrdinals.length - PROTECTED_TAIL_USER_TURNS] ?? 1;
 }
 
 export function getProtectedTailStartOrdinal(sessionId: string): number {
-    return getLegacyProtectedTailStartOrdinal(sessionId);
+	return getLegacyProtectedTailStartOrdinal(sessionId);
 }
 
 export function readSessionChunk(
-    sessionId: string,
-    tokenBudget: number,
-    offset: number = 1,
-    eligibleEndOrdinal?: number,
+	sessionId: string,
+	tokenBudget: number,
+	offset: number = 1,
+	eligibleEndOrdinal?: number,
 ): SessionChunk {
-    const messages = readRawSessionMessages(sessionId);
-    // When a tail-only slice is primed, `messages.length` is just the slice
-    // size while ordinals are ABSOLUTE — comparing an absolute `lastOrdinal`
-    // against the slice length would wrongly report hasMore=true forever
-    // (historian re-fires on an already-finished session). Use the absolute
-    // session count whenever the prime recorded one.
-    const totalMessageCount = getCachedAbsoluteMessageCount(sessionId) ?? messages.length;
-    const startOrdinal = Math.max(1, offset);
-    const lines: string[] = [];
-    const lineMeta: SessionChunkLine[] = [];
-    /**
-     * Tool-only block ranges captured at flush time. After the main loop finishes
-     * we merge adjacent ranges into contiguous `toolOnlyRanges` for the validator.
-     */
-    const flushedToolOnlyBlocks: Array<{ start: number; end: number }> = [];
-    let totalTokens = 0;
-    let messagesProcessed = 0;
-    let lastOrdinal = startOrdinal - 1;
-    let highestScannedOrdinal = startOrdinal - 1;
-    let lastMessageId = "";
-    let firstMessageId = "";
-    let currentBlock: ChunkBlock | null = null;
-    let pendingNoiseMeta: SessionChunkLine[] = [];
-    let commitClusters = 0;
-    let lastFlushedRole = "";
+	const messages = readRawSessionMessages(sessionId);
+	// When a tail-only slice is primed, `messages.length` is just the slice
+	// size while ordinals are ABSOLUTE — comparing an absolute `lastOrdinal`
+	// against the slice length would wrongly report hasMore=true forever
+	// (historian re-fires on an already-finished session). Use the absolute
+	// session count whenever the prime recorded one.
+	const totalMessageCount = getCachedAbsoluteMessageCount(sessionId) ?? messages.length;
+	const startOrdinal = Math.max(1, offset);
+	const lines: string[] = [];
+	const lineMeta: SessionChunkLine[] = [];
+	/**
+	 * Tool-only block ranges captured at flush time. After the main loop finishes
+	 * we merge adjacent ranges into contiguous `toolOnlyRanges` for the validator.
+	 */
+	const flushedToolOnlyBlocks: Array<{ start: number; end: number }> = [];
+	let totalTokens = 0;
+	let messagesProcessed = 0;
+	let lastOrdinal = startOrdinal - 1;
+	let highestScannedOrdinal = startOrdinal - 1;
+	let lastMessageId = "";
+	let firstMessageId = "";
+	let currentBlock: ChunkBlock | null = null;
+	let pendingNoiseMeta: SessionChunkLine[] = [];
+	let commitClusters = 0;
+	let lastFlushedRole = "";
 
-    function recordFilteredNoise(meta: SessionChunkLine): void {
-        pendingNoiseMeta.push(meta);
-        if (!currentBlock) {
-            highestScannedOrdinal = Math.max(highestScannedOrdinal, meta.ordinal);
-        }
-    }
+	function recordFilteredNoise(meta: SessionChunkLine): void {
+		pendingNoiseMeta.push(meta);
+		if (!currentBlock) {
+			highestScannedOrdinal = Math.max(highestScannedOrdinal, meta.ordinal);
+		}
+	}
 
-    function flushCurrentBlock(): boolean {
-        if (!currentBlock) return true;
-        const blockText = formatBlock(currentBlock);
-        const blockTokens = estimateBlockTokens(blockText);
-        if (totalTokens + blockTokens > tokenBudget && totalTokens > 0) {
-            return false;
-        }
+	function flushCurrentBlock(): boolean {
+		if (!currentBlock) return true;
+		const blockText = formatBlock(currentBlock);
+		const blockTokens = estimateBlockTokens(blockText);
+		if (totalTokens + blockTokens > tokenBudget && totalTokens > 0) {
+			return false;
+		}
 
-        // Count commit clusters: an A block with commits after a non-A block (or first block) is a new cluster
-        if (
-            currentBlock.role === "A" &&
-            currentBlock.commitHashes.length > 0 &&
-            lastFlushedRole !== "A"
-        ) {
-            commitClusters++;
-        }
-        lastFlushedRole = currentBlock.role;
+		// Count commit clusters: an A block with commits after a non-A block (or first block) is a new cluster
+		if (
+			currentBlock.role === "A" &&
+			currentBlock.commitHashes.length > 0 &&
+			lastFlushedRole !== "A"
+		) {
+			commitClusters++;
+		}
+		lastFlushedRole = currentBlock.role;
 
-        if (!firstMessageId) firstMessageId = currentBlock.meta[0]?.messageId ?? "";
-        lastOrdinal =
-            currentBlock.meta[currentBlock.meta.length - 1]?.ordinal ?? currentBlock.endOrdinal;
-        highestScannedOrdinal = Math.max(highestScannedOrdinal, lastOrdinal);
-        lastMessageId = currentBlock.meta[currentBlock.meta.length - 1]?.messageId ?? "";
-        messagesProcessed += currentBlock.meta.length;
-        lines.push(blockText);
-        lineMeta.push(...currentBlock.meta);
-        totalTokens += blockTokens;
+		if (!firstMessageId) firstMessageId = currentBlock.meta[0]?.messageId ?? "";
+		lastOrdinal =
+			currentBlock.meta[currentBlock.meta.length - 1]?.ordinal ?? currentBlock.endOrdinal;
+		highestScannedOrdinal = Math.max(highestScannedOrdinal, lastOrdinal);
+		lastMessageId = currentBlock.meta[currentBlock.meta.length - 1]?.messageId ?? "";
+		messagesProcessed += currentBlock.meta.length;
+		lines.push(blockText);
+		lineMeta.push(...currentBlock.meta);
+		totalTokens += blockTokens;
 
-        // Record the flushed block's range if it was pure tool-only content.
-        // Validator uses these ranges to absorb gaps of any size where historian
-        // legitimately skipped tool-only noise.
-        if (currentBlock.isToolOnly) {
-            flushedToolOnlyBlocks.push({
-                start: currentBlock.startOrdinal,
-                end: currentBlock.endOrdinal,
-            });
-        }
+		// Record the flushed block's range if it was pure tool-only content.
+		// Validator uses these ranges to absorb gaps of any size where historian
+		// legitimately skipped tool-only noise.
+		if (currentBlock.isToolOnly) {
+			flushedToolOnlyBlocks.push({
+				start: currentBlock.startOrdinal,
+				end: currentBlock.endOrdinal,
+			});
+		}
 
-        currentBlock = null;
-        return true;
-    }
+		currentBlock = null;
+		return true;
+	}
 
-    for (const msg of messages) {
-        if (eligibleEndOrdinal !== undefined && msg.ordinal >= eligibleEndOrdinal) break;
-        if (msg.ordinal < startOrdinal) continue;
+	for (const msg of messages) {
+		if (eligibleEndOrdinal !== undefined && msg.ordinal >= eligibleEndOrdinal) break;
+		if (msg.ordinal < startOrdinal) continue;
 
-        const meta = { ordinal: msg.ordinal, messageId: msg.id };
+		const meta = { ordinal: msg.ordinal, messageId: msg.id };
 
-        // Skip user messages that are pure system notifications (background task
-        // completions, internal initiator markers, system directives). These carry
-        // zero signal for compartment summaries — unless they contain tool results
-        // with extractable descriptions.
-        if (msg.role === "user" && !hasMeaningfulUserText(msg.parts)) {
-            const tcSummaries = extractToolCallSummaries(msg.parts);
-            if (tcSummaries.length === 0) {
-                recordFilteredNoise(meta);
-                continue;
-            }
-            // Tool-result-only user messages: merge TC summaries into the
-            // preceding assistant block (same "A" role since tool results follow
-            // assistant tool-use messages in the compacted flow).
-            const tcText = tcSummaries.join(" / ");
-            if (currentBlock && currentBlock.role === "A") {
-                currentBlock.endOrdinal = msg.ordinal;
-                currentBlock.parts.push(tcText);
-                currentBlock.meta.push(...pendingNoiseMeta, meta);
-                // Do NOT flip isToolOnly here — TC-only content merging into an
-                // existing A block keeps that block's narrative/tool-only status.
-                pendingNoiseMeta = [];
-            } else {
-                if (!flushCurrentBlock()) break;
-                currentBlock = {
-                    role: "A",
-                    startOrdinal: pendingNoiseMeta[0]?.ordinal ?? msg.ordinal,
-                    endOrdinal: msg.ordinal,
-                    parts: [tcText],
-                    meta: [...pendingNoiseMeta, meta],
-                    commitHashes: [],
-                    // Pure TC-only block — no narrative from text parts.
-                    isToolOnly: true,
-                };
-                pendingNoiseMeta = [];
-            }
-            continue;
-        }
+		// Skip user messages that are pure system notifications (background task
+		// completions, internal initiator markers, system directives). These carry
+		// zero signal for compartment summaries — unless they contain tool results
+		// with extractable descriptions.
+		if (msg.role === "user" && !hasMeaningfulUserText(msg.parts)) {
+			const tcSummaries = extractToolCallSummaries(msg.parts);
+			if (tcSummaries.length === 0) {
+				recordFilteredNoise(meta);
+				continue;
+			}
+			// Tool-result-only user messages: merge TC summaries into the
+			// preceding assistant block (same "A" role since tool results follow
+			// assistant tool-use messages in the compacted flow).
+			const tcText = tcSummaries.join(" / ");
+			if (currentBlock && currentBlock.role === "A") {
+				currentBlock.endOrdinal = msg.ordinal;
+				currentBlock.parts.push(tcText);
+				currentBlock.meta.push(...pendingNoiseMeta, meta);
+				// Do NOT flip isToolOnly here — TC-only content merging into an
+				// existing A block keeps that block's narrative/tool-only status.
+				pendingNoiseMeta = [];
+			} else {
+				if (!flushCurrentBlock()) break;
+				currentBlock = {
+					role: "A",
+					startOrdinal: pendingNoiseMeta[0]?.ordinal ?? msg.ordinal,
+					endOrdinal: msg.ordinal,
+					parts: [tcText],
+					meta: [...pendingNoiseMeta, meta],
+					commitHashes: [],
+					// Pure TC-only block — no narrative from text parts.
+					isToolOnly: true,
+				};
+				pendingNoiseMeta = [];
+			}
+			continue;
+		}
 
-        const role = compactRole(msg.role);
-        const textParts = extractTexts(msg.parts)
-            .map((t) => (msg.role === "user" ? cleanUserText(t) : t))
-            .map(normalizeText)
-            .filter((value) => value.length > 0);
+		const role = compactRole(msg.role);
+		const textParts = extractTexts(msg.parts)
+			.map((t) => (msg.role === "user" ? cleanUserText(t) : t))
+			.map(normalizeText)
+			.filter((value) => value.length > 0);
 
-        // For messages with no text content, extract tool-call descriptions as
-        // lightweight summaries so historian sees what actions were taken.
-        const toolSummaries = textParts.length === 0 ? extractToolCallSummaries(msg.parts) : [];
-        const allParts = [...textParts, ...toolSummaries];
+		// For messages with no text content, extract tool-call descriptions as
+		// lightweight summaries so historian sees what actions were taken.
+		const toolSummaries = textParts.length === 0 ? extractToolCallSummaries(msg.parts) : [];
+		const allParts = [...textParts, ...toolSummaries];
 
-        const compacted = compactTextForSummary(allParts.join(" / "), msg.role);
-        const text = compacted.text;
+		const compacted = compactTextForSummary(allParts.join(" / "), msg.role);
+		const text = compacted.text;
 
-        if (!text) {
-            recordFilteredNoise(meta);
-            continue;
-        }
+		if (!text) {
+			recordFilteredNoise(meta);
+			continue;
+		}
 
-        // Narrative is present iff this message contributed at least one real text part.
-        // Tool summaries alone count as tool-only. User-role messages here always carry
-        // meaningful text (the no-text user branch returned above).
-        const msgHasNarrative = textParts.length > 0;
+		// Narrative is present iff this message contributed at least one real text part.
+		// Tool summaries alone count as tool-only. User-role messages here always carry
+		// meaningful text (the no-text user branch returned above).
+		const msgHasNarrative = textParts.length > 0;
 
-        if (currentBlock && currentBlock.role === role) {
-            currentBlock.endOrdinal = msg.ordinal;
-            currentBlock.parts.push(text);
-            currentBlock.meta.push(...pendingNoiseMeta, meta);
-            currentBlock.commitHashes = mergeCommitHashes(
-                currentBlock.commitHashes,
-                compacted.commitHashes,
-            );
-            // Once any message in the merged block contributes narrative, the block is
-            // no longer tool-only.
-            if (msgHasNarrative) currentBlock.isToolOnly = false;
-            pendingNoiseMeta = [];
-            continue;
-        }
+		if (currentBlock && currentBlock.role === role) {
+			currentBlock.endOrdinal = msg.ordinal;
+			currentBlock.parts.push(text);
+			currentBlock.meta.push(...pendingNoiseMeta, meta);
+			currentBlock.commitHashes = mergeCommitHashes(
+				currentBlock.commitHashes,
+				compacted.commitHashes,
+			);
+			// Once any message in the merged block contributes narrative, the block is
+			// no longer tool-only.
+			if (msgHasNarrative) currentBlock.isToolOnly = false;
+			pendingNoiseMeta = [];
+			continue;
+		}
 
-        if (!flushCurrentBlock()) break;
+		if (!flushCurrentBlock()) break;
 
-        currentBlock = {
-            role,
-            startOrdinal: pendingNoiseMeta[0]?.ordinal ?? msg.ordinal,
-            endOrdinal: msg.ordinal,
-            parts: [text],
-            meta: [...pendingNoiseMeta, meta],
-            commitHashes: [...compacted.commitHashes],
-            isToolOnly: !msgHasNarrative,
-        };
-        pendingNoiseMeta = [];
-    }
+		currentBlock = {
+			role,
+			startOrdinal: pendingNoiseMeta[0]?.ordinal ?? msg.ordinal,
+			endOrdinal: msg.ordinal,
+			parts: [text],
+			meta: [...pendingNoiseMeta, meta],
+			commitHashes: [...compacted.commitHashes],
+			isToolOnly: !msgHasNarrative,
+		};
+		pendingNoiseMeta = [];
+	}
 
-    if (flushCurrentBlock() && pendingNoiseMeta.length > 0) {
-        highestScannedOrdinal = Math.max(
-            highestScannedOrdinal,
-            pendingNoiseMeta[pendingNoiseMeta.length - 1]?.ordinal ?? highestScannedOrdinal,
-        );
-    }
+	if (flushCurrentBlock() && pendingNoiseMeta.length > 0) {
+		highestScannedOrdinal = Math.max(
+			highestScannedOrdinal,
+			pendingNoiseMeta[pendingNoiseMeta.length - 1]?.ordinal ?? highestScannedOrdinal,
+		);
+	}
 
-    // Merge adjacent tool-only block ranges into contiguous ranges. Adjacent
-    // means `next.start === prev.end + 1` — a pure tool chain spread across
-    // multiple successive flushed blocks becomes one merged range so validation
-    // can absorb the full gap in a single heal check.
-    const toolOnlyRanges: Array<{ start: number; end: number }> = [];
-    for (const range of flushedToolOnlyBlocks) {
-        const last = toolOnlyRanges[toolOnlyRanges.length - 1];
-        if (last && range.start === last.end + 1) {
-            last.end = range.end;
-        } else {
-            toolOnlyRanges.push({ start: range.start, end: range.end });
-        }
-    }
+	// Merge adjacent tool-only block ranges into contiguous ranges. Adjacent
+	// means `next.start === prev.end + 1` — a pure tool chain spread across
+	// multiple successive flushed blocks becomes one merged range so validation
+	// can absorb the full gap in a single heal check.
+	const toolOnlyRanges: Array<{ start: number; end: number }> = [];
+	for (const range of flushedToolOnlyBlocks) {
+		const last = toolOnlyRanges[toolOnlyRanges.length - 1];
+		if (last && range.start === last.end + 1) {
+			last.end = range.end;
+		} else {
+			toolOnlyRanges.push({ start: range.start, end: range.end });
+		}
+	}
 
-    return {
-        startIndex: startOrdinal,
-        endIndex: lastOrdinal,
-        startMessageId: firstMessageId,
-        endMessageId: lastMessageId,
-        messageCount: messagesProcessed,
-        tokenEstimate: totalTokens,
-        hasMore:
-            Math.max(lastOrdinal, highestScannedOrdinal) <
-            (eligibleEndOrdinal !== undefined
-                ? Math.min(eligibleEndOrdinal - 1, totalMessageCount)
-                : totalMessageCount),
-        text: lines.join("\n"),
-        lines: lineMeta,
-        commitClusterCount: commitClusters,
-        toolOnlyRanges,
-    };
+	return {
+		startIndex: startOrdinal,
+		endIndex: lastOrdinal,
+		startMessageId: firstMessageId,
+		endMessageId: lastMessageId,
+		messageCount: messagesProcessed,
+		tokenEstimate: totalTokens,
+		hasMore:
+			Math.max(lastOrdinal, highestScannedOrdinal) <
+			(eligibleEndOrdinal !== undefined
+				? Math.min(eligibleEndOrdinal - 1, totalMessageCount)
+				: totalMessageCount),
+		text: lines.join("\n"),
+		lines: lineMeta,
+		commitClusterCount: commitClusters,
+		toolOnlyRanges,
+	};
 }
 
 export function getRawSessionMessageIdsThrough(sessionId: string, endOrdinal: number): string[] {
-    if (endOrdinal < 1) return [];
-    return readRawSessionMessages(sessionId)
-        .filter((message) => message.ordinal <= endOrdinal)
-        .map((message) => message.id);
+	if (endOrdinal < 1) return [];
+	return readRawSessionMessages(sessionId)
+		.filter((message) => message.ordinal <= endOrdinal)
+		.map((message) => message.id);
 }

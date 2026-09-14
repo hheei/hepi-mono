@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Database } from "../../../src/core/shared/sqlite";
 import {
-    clearDeferredExecutePendingIfMatches,
-    type DeferredExecutePayload,
-    peekDeferredExecutePending,
-    setDeferredExecutePendingIfAbsent,
+	clearDeferredExecutePendingIfMatches,
+	type DeferredExecutePayload,
+	peekDeferredExecutePending,
+	setDeferredExecutePendingIfAbsent,
 } from "../../../src/core/features/storage-meta-persisted";
 import { ensureSessionMetaRow } from "../../../src/core/features/storage-meta-shared";
+import { Database } from "../../../src/core/shared/sqlite";
 
 function createTestDb(): Database {
-    const db = new Database(":memory:");
-    db.exec(`
+	const db = new Database(":memory:");
+	db.exec(`
         CREATE TABLE session_meta (
             session_id TEXT PRIMARY KEY,
             harness TEXT NOT NULL DEFAULT 'opencode',
@@ -35,63 +35,63 @@ function createTestDb(): Database {
             deferred_execute_state TEXT
         )
     `);
-    return db;
+	return db;
 }
 
 const payload: DeferredExecutePayload = {
-    id: "flag-1",
-    reason: "execute-none",
-    recordedAt: 1_700_000_000_000,
+	id: "flag-1",
+	reason: "execute-none",
+	recordedAt: 1_700_000_000_000,
 };
 
 describe("deferred execute state", () => {
-    let db: Database;
+	let db: Database;
 
-    beforeEach(() => {
-        db = createTestDb();
-    });
+	beforeEach(() => {
+		db = createTestDb();
+	});
 
-    it("peeks null when no deferred execute state is present", () => {
-        ensureSessionMetaRow(db, "session-1");
+	it("peeks null when no deferred execute state is present", () => {
+		ensureSessionMetaRow(db, "session-1");
 
-        expect(peekDeferredExecutePending(db, "session-1")).toBeNull();
-    });
+		expect(peekDeferredExecutePending(db, "session-1")).toBeNull();
+	});
 
-    it("peeks non-null deferred execute state", () => {
-        ensureSessionMetaRow(db, "session-1");
-        db.prepare("UPDATE session_meta SET deferred_execute_state = ? WHERE session_id = ?").run(
-            JSON.stringify(payload),
-            "session-1",
-        );
+	it("peeks non-null deferred execute state", () => {
+		ensureSessionMetaRow(db, "session-1");
+		db.prepare("UPDATE session_meta SET deferred_execute_state = ? WHERE session_id = ?").run(
+			JSON.stringify(payload),
+			"session-1",
+		);
 
-        expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
-    });
+		expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
+	});
 
-    it("set-then-set fails when a deferred execute state already exists", () => {
-        expect(setDeferredExecutePendingIfAbsent(db, "session-1", payload)).toBe(true);
+	it("set-then-set fails when a deferred execute state already exists", () => {
+		expect(setDeferredExecutePendingIfAbsent(db, "session-1", payload)).toBe(true);
 
-        const second: DeferredExecutePayload = { ...payload, id: "flag-2" };
-        expect(setDeferredExecutePendingIfAbsent(db, "session-1", second)).toBe(false);
-    });
+		const second: DeferredExecutePayload = { ...payload, id: "flag-2" };
+		expect(setDeferredExecutePendingIfAbsent(db, "session-1", second)).toBe(false);
+	});
 
-    it("set-then-peek returns the recorded deferred execute payload", () => {
-        setDeferredExecutePendingIfAbsent(db, "session-1", payload);
+	it("set-then-peek returns the recorded deferred execute payload", () => {
+		setDeferredExecutePendingIfAbsent(db, "session-1", payload);
 
-        expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
-    });
+		expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
+	});
 
-    it("clear-matches removes the deferred execute payload", () => {
-        setDeferredExecutePendingIfAbsent(db, "session-1", payload);
+	it("clear-matches removes the deferred execute payload", () => {
+		setDeferredExecutePendingIfAbsent(db, "session-1", payload);
 
-        expect(clearDeferredExecutePendingIfMatches(db, "session-1", payload)).toBe(true);
-        expect(peekDeferredExecutePending(db, "session-1")).toBeNull();
-    });
+		expect(clearDeferredExecutePendingIfMatches(db, "session-1", payload)).toBe(true);
+		expect(peekDeferredExecutePending(db, "session-1")).toBeNull();
+	});
 
-    it("clear-stale-fails leaves the deferred execute payload intact", () => {
-        setDeferredExecutePendingIfAbsent(db, "session-1", payload);
+	it("clear-stale-fails leaves the deferred execute payload intact", () => {
+		setDeferredExecutePendingIfAbsent(db, "session-1", payload);
 
-        const stale: DeferredExecutePayload = { ...payload, id: "stale" };
-        expect(clearDeferredExecutePendingIfMatches(db, "session-1", stale)).toBe(false);
-        expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
-    });
+		const stale: DeferredExecutePayload = { ...payload, id: "stale" };
+		expect(clearDeferredExecutePendingIfMatches(db, "session-1", stale)).toBe(false);
+		expect(peekDeferredExecutePending(db, "session-1")).toEqual(payload);
+	});
 });

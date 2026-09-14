@@ -1,9 +1,6 @@
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-    ensureCortexKitArtifactGitignore,
-    getProjectMagicContextHistorianDir,
-} from "../shared/data-path";
+import { ensurePiArtifactGitignore, getProjectMagicContextHistorianDir } from "../shared/data-path";
 
 /**
  * Historian state-file offloading.
@@ -11,11 +8,11 @@ import {
  * When the existing-state XML (prior compartments + facts + project memory)
  * exceeds {@link HISTORIAN_STATE_INLINE_THRESHOLD} characters, the historian
  * caller writes it to a temp file under the project-local historian dir
- * (`<project>/.cortexkit/magic-context/historian/`) and the prompt instructs
+ * (`<project>/.pi/magic-context/historian/`) and the prompt instructs
  * the model to `Read this file first`. This avoids pushing 100K+ chars of
  * inline reference state through the model's input on long sessions.
  *
- * State is written inside `.cortexkit/magic-context/` so Pi native tools can
+ * State is written inside `.pi/magic-context/` so Pi native tools can
  * read it without escaping the project boundary.
  *
  * The caller MUST delete the file in finally{} via
@@ -32,34 +29,34 @@ export const HISTORIAN_STATE_INLINE_THRESHOLD = 30_000;
  * writing fails (in which case the caller should fall back to inline).
  *
  * `directory` is the project directory; the helper writes under
- * `<directory>/.cortexkit/magic-context/historian/`. The dir is created
+ * `<directory>/.pi/magic-context/historian/`. The dir is created
  * recursively on first write.
  */
 export function maybeWriteHistorianStateFile(
-    sessionId: string,
-    existingState: string,
-    directory: string,
+	sessionId: string,
+	existingState: string,
+	directory: string,
 ): string | undefined {
-    if (existingState.length <= HISTORIAN_STATE_INLINE_THRESHOLD) return undefined;
-    try {
-        const dir = getProjectMagicContextHistorianDir(directory);
-        mkdirSync(dir, { recursive: true });
-        // Keep the transient dump dir out of the user's git status.
-        ensureCortexKitArtifactGitignore(directory);
-        const path = join(dir, `state-${sessionId}-${Date.now()}.xml`);
-        writeFileSync(path, existingState, "utf8");
-        return path;
-    } catch {
-        return undefined;
-    }
+	if (existingState.length <= HISTORIAN_STATE_INLINE_THRESHOLD) return undefined;
+	try {
+		const dir = getProjectMagicContextHistorianDir(directory);
+		mkdirSync(dir, { recursive: true });
+		// Keep the transient dump dir out of the user's git status.
+		ensurePiArtifactGitignore(directory);
+		const path = join(dir, `state-${sessionId}-${Date.now()}.xml`);
+		writeFileSync(path, existingState, "utf8");
+		return path;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Delete a previously written state file. Safe to call with undefined. */
 export function cleanupHistorianStateFile(path: string | undefined): void {
-    if (!path) return;
-    try {
-        unlinkSync(path);
-    } catch {
-        // best-effort cleanup
-    }
+	if (!path) return;
+	try {
+		unlinkSync(path);
+	} catch {
+		// best-effort cleanup
+	}
 }

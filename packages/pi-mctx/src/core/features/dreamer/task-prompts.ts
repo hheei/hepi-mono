@@ -2,11 +2,11 @@ import type { DreamingTask } from "../../config/schema/magic-context";
 
 /** Memory shape the curate prompt renders (verify now has its own runner/prompt). */
 export interface CuratePromptMemory {
-    id: number;
-    category: string;
-    content: string;
-    mappedFiles: string[];
-    hasNoFileSentinel: boolean;
+	id: number;
+	category: string;
+	content: string;
+	mappedFiles: string[];
+	hasNoFileSentinel: boolean;
 }
 
 // ── System Prompt ──────────────────────────────────────────────────────────
@@ -90,30 +90,28 @@ export const PRIMER_INVESTIGATOR_SYSTEM_PROMPT = `You are a read-only code inves
 // ── Curate ─────────────────────────────────────────────────────────────────
 
 function renderMemoryList(memories: CuratePromptMemory[]): string {
-    return memories
-        .map((memory) => {
-            const files = memory.mappedFiles.length
-                ? memory.mappedFiles.join(", ")
-                : "(none mapped yet)";
-            return `[${memory.id}] ${memory.category}\nContent: ${memory.content}\nMapped files: ${files}${memory.hasNoFileSentinel ? " (file-independent)" : ""}`;
-        })
-        .join("\n\n");
+	return memories
+		.map((memory) => {
+			const files = memory.mappedFiles.length ? memory.mappedFiles.join(", ") : "(none mapped yet)";
+			return `[${memory.id}] ${memory.category}\nContent: ${memory.content}\nMapped files: ${files}${memory.hasNoFileSentinel ? " (file-independent)" : ""}`;
+		})
+		.join("\n\n");
 }
 
 function formatUserProfileList(
-    userMemories?: Array<{ id: number; content: string }>,
+	userMemories?: Array<{ id: number; content: string }>,
 ): string | undefined {
-    if (!userMemories || userMemories.length === 0) return undefined;
-    return userMemories.map((um) => `- [U${um.id}] ${um.content}`).join("\n");
+	if (!userMemories || userMemories.length === 0) return undefined;
+	return userMemories.map((um) => `- [U${um.id}] ${um.content}`).join("\n");
 }
 
 export function buildCuratePrompt(args: {
-    projectPath: string;
-    memories: CuratePromptMemory[];
-    userProfile?: string | undefined;
+	projectPath: string;
+	memories: CuratePromptMemory[];
+	userProfile?: string | undefined;
 }): string {
-    // adapted from validated shadow-trial prompt; further tuning happens in the harness
-    return `## Task: Curate Project Memory Pool (hygiene)
+	// adapted from validated shadow-trial prompt; further tuning happens in the harness
+	return `## Task: Curate Project Memory Pool (hygiene)
 
 **Project:** ${args.projectPath}
 
@@ -138,10 +136,10 @@ ${renderMemoryList(args.memories)}`;
 // ── Retrospective ───────────────────────────────────────────────────────────
 
 export interface RetrospectivePromptEvent {
-    sessionId: string;
-    kind: string;
-    fields: Record<string, string>;
-    createdAt: number;
+	sessionId: string;
+	kind: string;
+	fields: Record<string, string>;
+	createdAt: number;
 }
 
 export const RETROSPECTIVE_SYSTEM_PROMPT = `You are a retrospective learning agent for Magic Context.
@@ -157,10 +155,10 @@ Rules:
 /** Tiny system prompt for the cheap LLM gate (turn 1): it reads only U: lines
  *  and answers "n" or "y: <ordinals>". Kept minimal so the gate is cheap. */
 export const FRICTION_GATE_SYSTEM_PROMPT =
-    "You are a conservative friction detector for a coding agent. You read recent user message lines and decide whether the user was correcting, re-explaining to, or frustrated with the assistant. Output exactly one line and nothing else.";
+	"You are a conservative friction detector for a coding agent. You read recent user message lines and decide whether the user was correcting, re-explaining to, or frustrated with the assistant. Output exactly one line and nothing else.";
 
 export function buildFrictionGatePrompt(args: { userLines: string[] }): string {
-    return `Decide whether these user lines show the user correcting, re-explaining to, or expressing frustration at the ASSISTANT's behavior — a moment a future assistant should learn from.
+	return `Decide whether these user lines show the user correcting, re-explaining to, or expressing frustration at the ASSISTANT's behavior — a moment a future assistant should learn from.
 
 Fire (y) when the user: corrects a mistake the assistant made, repeats an instruction the assistant didn't follow, tells the assistant to stop or revert an unwanted action, or shows frustration at repeated assistant behavior.
 Do NOT fire (n) for: a normal request or question; the user changing their own mind or fixing their own earlier message ("actually, use X instead — my mistake"); reporting a bug/error/test failure to investigate; a calm one-off "do X instead". The words "no", "not", "error", "fail", "wrong" inside an otherwise-normal sentence are not friction.
@@ -171,23 +169,23 @@ ${args.userLines.join("\n")}`;
 }
 
 function renderRetrospectiveEvents(events: RetrospectivePromptEvent[]): string {
-    if (events.length === 0) return "(no corroborating historian events)";
-    return events
-        .map((event) => {
-            const fields = Object.entries(event.fields)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join("; ");
-            return `- ${new Date(event.createdAt).toISOString()} session=${event.sessionId} kind=${event.kind}${fields ? ` — ${fields}` : ""}`;
-        })
-        .join("\n");
+	if (events.length === 0) return "(no corroborating historian events)";
+	return events
+		.map((event) => {
+			const fields = Object.entries(event.fields)
+				.map(([key, value]) => `${key}: ${value}`)
+				.join("; ");
+			return `- ${new Date(event.createdAt).toISOString()} session=${event.sessionId} kind=${event.kind}${fields ? ` — ${fields}` : ""}`;
+		})
+		.join("\n");
 }
 
 export function buildRetrospectivePrompt(args: {
-    projectPath: string;
-    frictionWindow: string;
-    events: RetrospectivePromptEvent[];
+	projectPath: string;
+	frictionWindow: string;
+	events: RetrospectivePromptEvent[];
 }): string {
-    return `## Task: Retrospective Learning
+	return `## Task: Retrospective Learning
 
 **Project:** ${args.projectPath}
 
@@ -218,20 +216,20 @@ Return only XML in this exact shape:
 // ── Maintain Docs ──────────────────────────────────────────────────────────
 
 export function buildMaintainDocsPrompt(
-    projectPath: string,
-    lastDreamAt: string | null,
-    existingDocs: { architecture: boolean; structure: boolean },
+	projectPath: string,
+	lastDreamAt: string | null,
+	existingDocs: { architecture: boolean; structure: boolean },
 ): string {
-    const hasAny = existingDocs.architecture || existingDocs.structure;
-    const gitSinceClause = lastDreamAt
-        ? `Run \`git log --oneline --since="${new Date(Number(lastDreamAt)).toISOString()}"\` to see what changed since the last dream.`
-        : "No previous dream timestamp — treat this as a full analysis.";
+	const hasAny = existingDocs.architecture || existingDocs.structure;
+	const gitSinceClause = lastDreamAt
+		? `Run \`git log --oneline --since="${new Date(Number(lastDreamAt)).toISOString()}"\` to see what changed since the last dream.`
+		: "No previous dream timestamp — treat this as a full analysis.";
 
-    const modeIntro = hasAny
-        ? `Some docs already exist and are the source of truth for shape. Make SURGICAL \`edit\` changes to only the sections affected by recent code changes; preserve every other section, the existing structure, and the existing density verbatim. Do NOT regenerate a whole file, do NOT reshape prose into a template, and do NOT use the templates below (they are for creation only). If nothing material changed, change nothing.`
-        : `No docs exist yet. Create both ARCHITECTURE.md and STRUCTURE.md from scratch using the templates below as a STARTING shape, then go deeper than the template wherever the code warrants it.`;
+	const modeIntro = hasAny
+		? `Some docs already exist and are the source of truth for shape. Make SURGICAL \`edit\` changes to only the sections affected by recent code changes; preserve every other section, the existing structure, and the existing density verbatim. Do NOT regenerate a whole file, do NOT reshape prose into a template, and do NOT use the templates below (they are for creation only). If nothing material changed, change nothing.`
+		: `No docs exist yet. Create both ARCHITECTURE.md and STRUCTURE.md from scratch using the templates below as a STARTING shape, then go deeper than the template wherever the code warrants it.`;
 
-    return `## Task: Maintain Codebase Documentation
+	return `## Task: Maintain Codebase Documentation
 
 **Project:** ${projectPath}
 **Last dream:** ${lastDreamAt ? new Date(Number(lastDreamAt)).toISOString() : "never"}
@@ -377,30 +375,33 @@ const STRUCTURE_TEMPLATE = `
 // ── Dispatcher ─────────────────────────────────────────────────────────────
 
 export function buildDreamTaskPrompt(
-    task: DreamingTask,
-    args: {
-        projectPath: string;
-        lastDreamAt?: string | null | undefined;
-        existingDocs?: { architecture: boolean; structure: boolean } | undefined;
-        userMemories?: Array<{ id: number; content: string }> | undefined;
-        curate?: {
-            memories: CuratePromptMemory[];
-        } | undefined;
-    },
+	task: DreamingTask,
+	args: {
+		projectPath: string;
+		lastDreamAt?: string | null | undefined;
+		existingDocs?: { architecture: boolean; structure: boolean } | undefined;
+		userMemories?: Array<{ id: number; content: string }> | undefined;
+		curate?:
+			| {
+					memories: CuratePromptMemory[];
+			  }
+			| undefined;
+	},
 ): string {
-    switch (task) {
-        case "curate":
-            const userProfile = formatUserProfileList(args.userMemories);
-            return buildCuratePrompt({
-                projectPath: args.projectPath,
-                memories: args.curate?.memories ?? [],
-                ...(userProfile === undefined ? {} : { userProfile }),
-            });
-        case "maintain-docs":
-            return buildMaintainDocsPrompt(
-                args.projectPath,
-                args.lastDreamAt ?? null,
-                args.existingDocs ?? { architecture: false, structure: false },
-            );
-    }
+	switch (task) {
+		case "curate": {
+			const userProfile = formatUserProfileList(args.userMemories);
+			return buildCuratePrompt({
+				projectPath: args.projectPath,
+				memories: args.curate?.memories ?? [],
+				...(userProfile === undefined ? {} : { userProfile }),
+			});
+		}
+		case "maintain-docs":
+			return buildMaintainDocsPrompt(
+				args.projectPath,
+				args.lastDreamAt ?? null,
+				args.existingDocs ?? { architecture: false, structure: false },
+			);
+	}
 }

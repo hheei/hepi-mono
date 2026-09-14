@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { createTestDb } from "../test-utils.test";
 import { registerMagicContextTools } from "../../src/tools/index";
+import { createTestDb } from "../test-utils.test";
 
 describe("registerMagicContextTools", () => {
 	it("can omit ctx_memory for retrieval-only sidekick subagents", () => {
@@ -46,12 +46,7 @@ describe("registerMagicContextTools", () => {
 
 			expect(registered).not.toContain("ctx_reduce");
 			expect(registered).toEqual(
-				expect.arrayContaining([
-					"ctx_search",
-					"ctx_memory",
-					"ctx_note",
-					"ctx_expand",
-				]),
+				expect.arrayContaining(["ctx_search", "ctx_memory", "ctx_note", "ctx_expand"]),
 			);
 		} finally {
 			closeQuietly(db);
@@ -102,9 +97,9 @@ describe("registerMagicContextTools", () => {
 			for (const [name, fields] of Object.entries(expectedFields)) {
 				const definition = registered.get(name);
 				expect(definition).toBeDefined();
-				expect(
-					Object.keys(definition?.parameters.properties ?? {}).sort(),
-				).toEqual([...fields].sort());
+				expect(Object.keys(definition?.parameters.properties ?? {}).sort()).toEqual(
+					[...fields].sort(),
+				);
 				expect(definition?.parameters.properties).not.toHaveProperty("reduced");
 				expect(definition?.parameters.properties).not.toHaveProperty("summary");
 				expect(definition?.parameters.additionalProperties).toBe(true);
@@ -170,9 +165,7 @@ describe("registerMagicContextTools", () => {
 					context as never,
 				)
 				.render(80);
-			expect(body?.some((line) => line.includes("[1] [memory] id=1"))).toBe(
-				true,
-			);
+			expect(body?.some((line) => line.includes("[1] [memory] id=1"))).toBe(true);
 			expect(body?.some((line) => line.includes("─"))).toBe(true);
 		} finally {
 			closeQuietly(db);
@@ -182,15 +175,9 @@ describe("registerMagicContextTools", () => {
 	it("registered tools resolve smart-note gating from the invocation cwd", async () => {
 		const db = createTestDb();
 		try {
-			const registered = new Map<
-				string,
-				{ execute: (...args: never[]) => unknown }
-			>();
+			const registered = new Map<string, { execute: (...args: never[]) => unknown }>();
 			const pi = {
-				registerTool: (tool: {
-					name: string;
-					execute: (...args: never[]) => unknown;
-				}) => {
+				registerTool: (tool: { name: string; execute: (...args: never[]) => unknown }) => {
 					registered.set(tool.name, tool);
 				},
 				registerCommand: () => undefined,
@@ -219,9 +206,7 @@ describe("registerMagicContextTools", () => {
 				} as never,
 			);
 
-			expect(
-				(result as { isError?: boolean } | undefined)?.isError,
-			).toBeUndefined();
+			expect((result as { isError?: boolean } | undefined)?.isError).toBeUndefined();
 		} finally {
 			closeQuietly(db);
 		}

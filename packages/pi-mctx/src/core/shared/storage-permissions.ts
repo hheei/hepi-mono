@@ -8,14 +8,14 @@
 let enforcePrivateStoragePermissions = true;
 
 export function setStoragePrivatePermissionEnforcement(enforce: boolean): void {
-    enforcePrivateStoragePermissions = enforce;
+	enforcePrivateStoragePermissions = enforce;
 }
 
 export function shouldEnforcePrivateStoragePermissions(): boolean {
-    return enforcePrivateStoragePermissions;
+	return enforcePrivateStoragePermissions;
 }
 
 /** Test-only reset for suites that exercise both permission policies in one process. */
 export function __resetStoragePrivatePermissionEnforcementForTests(): void {
-    enforcePrivateStoragePermissions = true;
+	enforcePrivateStoragePermissions = true;
 }

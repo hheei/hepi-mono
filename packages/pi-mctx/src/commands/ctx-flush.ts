@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getPendingOps, type ContextDatabase } from "#core/features/storage";
+import { type ContextDatabase, getPendingOps } from "#core/features/storage";
 import { executeFlush } from "#core/hooks/execute-flush";
 import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import {
@@ -14,8 +14,7 @@ export function registerCtxFlushCommand(
 	deps: { db: ContextDatabase; compactionOff?: boolean },
 ): void {
 	pi.registerCommand("ctx-flush", {
-		description:
-			"Force pending Magic Context drops to materialize on the next provider call",
+		description: "Force pending Magic Context drops to materialize on the next provider call",
 		handler: async (_args, ctx) => {
 			const sessionId = resolveSessionId(ctx);
 			if (!sessionId) {

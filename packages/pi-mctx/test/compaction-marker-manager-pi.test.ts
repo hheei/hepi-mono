@@ -8,9 +8,7 @@ import {
 } from "../src/compaction-marker-manager-pi";
 import { createTestDb } from "./test-utils.test";
 
-function pending(
-	overrides: Partial<PendingPiCompactionMarker> = {},
-): PendingPiCompactionMarker {
+function pending(overrides: Partial<PendingPiCompactionMarker> = {}): PendingPiCompactionMarker {
 	return {
 		firstKeptEntryId: "entry-3",
 		endMessageId: "m2",
@@ -40,9 +38,7 @@ describe("Pi deferred compaction marker manager", () => {
 				{ type: "compaction", firstKeptEntryId: "new" },
 			]),
 		).toBe("new");
-		expect(
-			findLatestCompactionFirstKept([{ type: "message", id: "x" }]),
-		).toBeNull();
+		expect(findLatestCompactionFirstKept([{ type: "message", id: "x" }])).toBeNull();
 	});
 
 	it("applies pending marker with Pi appendCompaction arguments", () => {
@@ -101,8 +97,7 @@ describe("Pi deferred compaction marker manager", () => {
 				applyDeferredPiCompactionMarker(
 					{
 						db,
-						readBranchEntries: () =>
-							branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
+						readBranchEntries: () => branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
 						appendCompaction,
 					},
 					"ses",
@@ -121,8 +116,7 @@ describe("Pi deferred compaction marker manager", () => {
 			const outcome = applyDeferredPiCompactionMarker(
 				{
 					db,
-					readBranchEntries: () =>
-						branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
+					readBranchEntries: () => branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
 					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",
@@ -154,8 +148,7 @@ describe("Pi deferred compaction marker manager", () => {
 			const outcome = applyDeferredPiCompactionMarker(
 				{
 					db,
-					readBranchEntries: () =>
-						branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
+					readBranchEntries: () => branch([{ type: "compaction", firstKeptEntryId: "entry-3" }]),
 					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",
@@ -187,8 +180,7 @@ describe("Pi deferred compaction marker manager", () => {
 			const outcome = applyDeferredPiCompactionMarker(
 				{
 					db,
-					readBranchEntries: () =>
-						branch([{ type: "compaction", firstKeptEntryId: "missing" }]),
+					readBranchEntries: () => branch([{ type: "compaction", firstKeptEntryId: "missing" }]),
 					appendCompaction: vi.fn(() => "compact"),
 				},
 				"ses",

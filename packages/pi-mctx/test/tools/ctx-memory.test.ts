@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
-import {
-	getMemoryById,
-	insertMemory,
-} from "#core/features/memory/storage-memory";
+import { getMemoryById, insertMemory } from "#core/features/memory/storage-memory";
 import { getMemoryMutationsForRender } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxMemoryTool } from "../../src/tools/ctx-memory";
+import { asToolResult, createTestDb, fakeContext } from "../test-utils.test";
 
 describe("createCtxMemoryTool", () => {
 	it("rejects list for primary agents and allows it for dreamer agents", async () => {
@@ -27,19 +24,23 @@ describe("createCtxMemoryTool", () => {
 			});
 
 			const ctx = fakeContext("ses-memory") as never;
-			const primaryResult = await primary.execute(
-				"call-1",
-				{ action: "list" },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const primaryResult = asToolResult(
+				await primary.execute(
+					"call-1",
+					{ action: "list" } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const dreamerResult = await dreamer.execute(
-				"call-2",
-				{ action: "list" },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const dreamerResult = asToolResult(
+				await dreamer.execute(
+					"call-2",
+					{ action: "list" } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(primaryResult.isError).toBe(true);
@@ -69,34 +70,40 @@ describe("createCtxMemoryTool", () => {
 				content: "Run the focused test suite.",
 			});
 
-			const plain = await tool.execute(
-				"call-plain",
-				{ action: "get", ids: [memory.id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const plain = asToolResult(
+				await tool.execute(
+					"call-plain",
+					{ action: "get", ids: [memory.id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const imitated = await tool.execute(
-				"call-imitated",
-				{
-					reduced: true,
-					summary: JSON.stringify({ action: "get", ids: [memory.id] }),
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const imitated = asToolResult(
+				await tool.execute(
+					"call-imitated",
+					{
+						reduced: true,
+						summary: JSON.stringify({ action: "get", ids: [memory.id] }),
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const decorated = await tool.execute(
-				"call-decorated",
-				{
-					action: "get",
-					ids: [memory.id],
-					reduced: true,
-					summary: JSON.stringify({ action: "archive", ids: [memory.id] }),
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const decorated = asToolResult(
+				await tool.execute(
+					"call-decorated",
+					{
+						action: "get",
+						ids: [memory.id],
+						reduced: true,
+						summary: JSON.stringify({ action: "archive", ids: [memory.id] }),
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(imitated).toEqual(plain);
@@ -110,9 +117,7 @@ describe("createCtxMemoryTool", () => {
 		const db = createTestDb();
 		try {
 			const ctx = fakeContext("ses-memory") as never;
-			const projectIdentity = resolveProjectIdentity(
-				(ctx as { cwd: string }).cwd,
-			);
+			const projectIdentity = resolveProjectIdentity((ctx as { cwd: string }).cwd);
 			insertMemory(db, {
 				projectPath: projectIdentity,
 				category: "CONSTRAINTS",
@@ -125,12 +130,14 @@ describe("createCtxMemoryTool", () => {
 				allowDreamerActions: true,
 			});
 
-			const result = await dreamer.execute(
-				"call-list",
-				{ action: "list" },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-list",
+					{ action: "list" } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBeUndefined();
@@ -157,24 +164,28 @@ describe("createCtxMemoryTool", () => {
 			// write a memory as the primary agent, then archive it as the same
 			// primary agent — archive replaced the old `delete` alias and is no
 			// longer gated behind allowDreamerActions.
-			const written = await primary.execute(
-				"call-w",
-				{ action: "write", category: "ARCHITECTURE", content: "Stale fact." },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const written = asToolResult(
+				await primary.execute(
+					"call-w",
+					{ action: "write", category: "ARCHITECTURE", content: "Stale fact." } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 			expect(written.isError).toBeUndefined();
 			const idMatch = written.content[0]?.text?.match(/ID:\s*(\d+)/);
 			const id = idMatch ? Number(idMatch[1]) : Number.NaN;
 			expect(Number.isInteger(id)).toBe(true);
 
-			const archived = await primary.execute(
-				"call-a",
-				{ action: "archive", ids: [id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const archived = asToolResult(
+				await primary.execute(
+					"call-a",
+					{ action: "archive", ids: [id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 			expect(archived.isError).toBeUndefined();
 			expect(archived.content[0]?.text).toContain("Archived memory");
@@ -206,28 +217,24 @@ describe("createCtxMemoryTool", () => {
 				content: "Old foreign shared constraint.",
 			});
 
-			const result = await primary.execute(
-				"call-u",
-				{
-					action: "update",
-					ids: [foreign.id],
-					content: "Updated foreign shared constraint.",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-u",
+					{
+						action: "update",
+						ids: [foreign.id],
+						content: "Updated foreign shared constraint.",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
-			expect(result.content[0]?.text).toBe(
-				`Error: Memory with ID ${foreign.id} was not found.`,
-			);
-			expect(getMemoryById(db, foreign.id)?.content).toBe(
-				"Old foreign shared constraint.",
-			);
-			expect(
-				getMemoryMutationsForRender(db, "git:foreign", 0, [foreign.id]),
-			).toHaveLength(0);
+			expect(result.content[0]?.text).toBe(`Error: Memory with ID ${foreign.id} was not found.`);
+			expect(getMemoryById(db, foreign.id)?.content).toBe("Old foreign shared constraint.");
+			expect(getMemoryMutationsForRender(db, "git:foreign", 0, [foreign.id])).toHaveLength(0);
 		} finally {
 			closeQuietly(db);
 		}
@@ -256,22 +263,20 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign shared constraint.",
 			});
 
-			const result = await primary.execute(
-				"call-a",
-				{ action: "archive", ids: [foreign.id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-a",
+					{ action: "archive", ids: [foreign.id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
-			expect(result.content[0]?.text).toBe(
-				`Error: Memory with ID ${foreign.id} was not found.`,
-			);
+			expect(result.content[0]?.text).toBe(`Error: Memory with ID ${foreign.id} was not found.`);
 			expect(getMemoryById(db, foreign.id)?.status).toBe("active");
-			expect(
-				getMemoryMutationsForRender(db, "git:foreign", 0, [foreign.id]),
-			).toHaveLength(0);
+			expect(getMemoryMutationsForRender(db, "git:foreign", 0, [foreign.id])).toHaveLength(0);
 		} finally {
 			closeQuietly(db);
 		}
@@ -302,12 +307,14 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign architecture detail not shared.",
 			});
 
-			const result = await primary.execute(
-				"call-block",
-				{ action: "archive", ids: [foreignHidden.id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-block",
+					{ action: "archive", ids: [foreignHidden.id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(String(result)).not.toContain("Archived memory");
@@ -340,12 +347,14 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign constraint shared with this project.",
 			});
 
-			const result = await primary.execute(
-				"call-ok",
-				{ action: "archive", ids: [foreignShared.id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-ok",
+					{ action: "archive", ids: [foreignShared.id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
@@ -373,16 +382,18 @@ describe("createCtxMemoryTool", () => {
 			// one under a foreign project path. Cross-identity merge is a
 			// dreamer-only capability; a primary agent must get the same opaque
 			// "not found" reply update/archive use (no existence oracle).
-			const written = await primary.execute(
-				"call-w",
-				{
-					action: "write",
-					category: "CONSTRAINTS",
-					content: "Use bun for scripts.",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const written = asToolResult(
+				await primary.execute(
+					"call-w",
+					{
+						action: "write",
+						category: "CONSTRAINTS",
+						content: "Use bun for scripts.",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 			expect(written.isError).toBeUndefined();
 			const idMatch = written.content[0]?.text?.match(/ID:\s*(\d+)/);
@@ -395,22 +406,22 @@ describe("createCtxMemoryTool", () => {
 				content: "Use bun for build scripts.",
 			});
 
-			const result = await primary.execute(
-				"call-m",
-				{
-					action: "merge",
-					ids: [ownId, foreign.id],
-					content: "Use bun for all scripts in this repository.",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-m",
+					{
+						action: "merge",
+						ids: [ownId, foreign.id],
+						content: "Use bun for all scripts in this repository.",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
-			expect(result.content[0]?.text).toBe(
-				`Error: Memory with ID ${foreign.id} was not found.`,
-			);
+			expect(result.content[0]?.text).toBe(`Error: Memory with ID ${foreign.id} was not found.`);
 			expect(getMemoryById(db, ownId)?.status).toBe("active");
 			expect(getMemoryById(db, foreign.id)?.status).toBe("active");
 		} finally {
@@ -448,17 +459,19 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign architecture not shared with this project.",
 			});
 
-			const result = await primary.execute(
-				"call-block",
-				{
-					action: "merge",
-					ids: [own.id, foreignHidden.id],
-					content: "Merged architecture detail.",
-					category: "ARCHITECTURE",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-block",
+					{
+						action: "merge",
+						ids: [own.id, foreignHidden.id],
+						content: "Merged architecture detail.",
+						category: "ARCHITECTURE",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			// Primary agents get the opaque "not found" reply (no existence oracle).
@@ -501,17 +514,19 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign constraint shared with this project.",
 			});
 
-			const result = await primary.execute(
-				"call-ok",
-				{
-					action: "merge",
-					ids: [own.id, foreignShared.id],
-					content: "Merged shared constraint.",
-					category: "CONSTRAINTS",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await primary.execute(
+					"call-ok",
+					{
+						action: "merge",
+						ids: [own.id, foreignShared.id],
+						content: "Merged shared constraint.",
+						category: "CONSTRAINTS",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
@@ -556,17 +571,19 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign architecture not shared with this workspace member.",
 			});
 
-			const result = await dreamer.execute(
-				"call-d1-block",
-				{
-					action: "merge",
-					ids: [own.id, foreignHidden.id],
-					content: "Merged architecture detail D1.",
-					category: "ARCHITECTURE",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-d1-block",
+					{
+						action: "merge",
+						ids: [own.id, foreignHidden.id],
+						content: "Merged architecture detail D1.",
+						category: "ARCHITECTURE",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
@@ -602,17 +619,19 @@ describe("createCtxMemoryTool", () => {
 				content: "execute_threshold_percentage accepts 20-80 scalar or map.",
 			});
 
-			const result = await dreamer.execute(
-				"call-xcat",
-				{
-					action: "merge",
-					ids: [arch.id, cfg.id],
-					content: "Execute threshold stuff.",
-					category: "CONFIG_VALUES",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-xcat",
+					{
+						action: "merge",
+						ids: [arch.id, cfg.id],
+						content: "Execute threshold stuff.",
+						category: "CONFIG_VALUES",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
@@ -652,23 +671,23 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign constraint hidden by malformed policy.",
 			});
 
-			const result = await dreamer.execute(
-				"call-d1-malformed",
-				{
-					action: "merge",
-					ids: [own.id, foreign.id],
-					content: "Merged malformed policy constraint.",
-					category: "CONSTRAINTS",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-d1-malformed",
+					{
+						action: "merge",
+						ids: [own.id, foreign.id],
+						content: "Merged malformed policy constraint.",
+						category: "CONSTRAINTS",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBe(true);
-			expect(result.content[0]?.text).toContain(
-				"not shared with this workspace member",
-			);
+			expect(result.content[0]?.text).toContain("not shared with this workspace member");
 			expect(getMemoryById(db, own.id)?.status).toBe("active");
 			expect(getMemoryById(db, foreign.id)?.status).toBe("active");
 		} finally {
@@ -704,17 +723,19 @@ describe("createCtxMemoryTool", () => {
 				content: "Foreign constraint shared with the workspace.",
 			});
 
-			const result = await dreamer.execute(
-				"call-d1-ok",
-				{
-					action: "merge",
-					ids: [own.id, foreignShared.id],
-					content: "Merged shared constraint D1.",
-					category: "CONSTRAINTS",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-d1-ok",
+					{
+						action: "merge",
+						ids: [own.id, foreignShared.id],
+						content: "Merged shared constraint D1.",
+						category: "CONSTRAINTS",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			// Fresh canonical inserted; both sources superseded → archived.
@@ -748,26 +769,32 @@ describe("createCtxMemoryTool", () => {
 				content: "Use bun for tests.",
 			});
 
-			const malformedArchive = await primary.execute(
-				"call-a",
-				{ action: "archive", ids: [first.id, second.id + 0.5] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const malformedArchive = asToolResult(
+				await primary.execute(
+					"call-a",
+					{ action: "archive", ids: [first.id, second.id + 0.5] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const malformedUpdate = await primary.execute(
-				"call-u",
-				{ action: "update", ids: [first.id + 0.5], content: "Use pnpm." },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const malformedUpdate = asToolResult(
+				await primary.execute(
+					"call-u",
+					{ action: "update", ids: [first.id + 0.5], content: "Use pnpm." } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const duplicateMerge = await primary.execute(
-				"call-m",
-				{ action: "merge", ids: [first.id, first.id], content: "Use bun." },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const duplicateMerge = asToolResult(
+				await primary.execute(
+					"call-m",
+					{ action: "merge", ids: [first.id, first.id], content: "Use bun." } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(malformedArchive.isError).toBe(true);
@@ -804,23 +831,25 @@ describe("createCtxMemoryTool", () => {
 				category: "CONSTRAINTS",
 				content: "Use bun for tests.",
 			});
-			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(
-				archived.id,
-			);
+			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(archived.id);
 
-			const update = await primary.execute(
-				"call-u",
-				{ action: "update", ids: [archived.id], content: "Use pnpm." },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const update = asToolResult(
+				await primary.execute(
+					"call-u",
+					{ action: "update", ids: [archived.id], content: "Use pnpm." } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
-			const merge = await primary.execute(
-				"call-m",
-				{ action: "merge", ids: [archived.id, active.id], content: "Use bun." },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const merge = asToolResult(
+				await primary.execute(
+					"call-m",
+					{ action: "merge", ids: [archived.id, active.id], content: "Use bun." } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(update.isError).toBe(true);
@@ -850,22 +879,20 @@ describe("createCtxMemoryTool", () => {
 				category: "CONSTRAINTS",
 				content: "Use bun for scripts.",
 			});
-			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(
-				archived.id,
-			);
+			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(archived.id);
 
-			const archivedAgain = await primary.execute(
-				"call-a",
-				{ action: "archive", ids: [archived.id] },
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const archivedAgain = asToolResult(
+				await primary.execute(
+					"call-a",
+					{ action: "archive", ids: [archived.id] } as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(archivedAgain.isError).toBe(true);
-			expect(archivedAgain.content[0]?.text).toContain(
-				"restore it before archiving",
-			);
+			expect(archivedAgain.content[0]?.text).toContain("restore it before archiving");
 			expect(getMemoryById(db, archived.id)?.status).toBe("archived");
 		} finally {
 			closeQuietly(db);
@@ -893,26 +920,24 @@ describe("createCtxMemoryTool", () => {
 				category: "CONSTRAINTS",
 				content: "Use bun for tests.",
 			});
-			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(
-				archived.id,
-			);
+			db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(archived.id);
 
-			const result = await dreamer.execute(
-				"call-m",
-				{
-					action: "merge",
-					ids: [archived.id, active.id],
-					content: "Use bun for scripts.",
-				},
-				new AbortController().signal,
-				undefined,
-				ctx,
+			const result = asToolResult(
+				await dreamer.execute(
+					"call-m",
+					{
+						action: "merge",
+						ids: [archived.id, active.id],
+						content: "Use bun for scripts.",
+					} as never,
+					new AbortController().signal,
+					undefined,
+					ctx,
+				),
 			);
 
 			expect(result.isError).toBeUndefined();
-			expect(result.content[0]?.text).toContain(
-				`canonical memory [ID: ${archived.id}]`,
-			);
+			expect(result.content[0]?.text).toContain(`canonical memory [ID: ${archived.id}]`);
 			expect(getMemoryById(db, archived.id)?.status).toBe("active");
 			expect(getMemoryById(db, active.id)?.status).toBe("archived");
 		} finally {
@@ -925,9 +950,7 @@ describe("createCtxMemoryTool", () => {
 			const db = createTestDb();
 			try {
 				const ctx = fakeContext("ses-get") as never;
-				const projectIdentity = resolveProjectIdentity(
-					(ctx as { cwd: string }).cwd,
-				);
+				const projectIdentity = resolveProjectIdentity((ctx as { cwd: string }).cwd);
 				const memory = insertMemory(db, {
 					projectPath: projectIdentity,
 					category: "CONSTRAINTS",
@@ -940,12 +963,14 @@ describe("createCtxMemoryTool", () => {
 					allowDreamerActions: false,
 				});
 
-				const result = await primary.execute(
-					"call-get",
-					{ action: "get", ids: [memory.id] },
-					new AbortController().signal,
-					undefined,
-					ctx,
+				const result = asToolResult(
+					await primary.execute(
+						"call-get",
+						{ action: "get", ids: [memory.id] } as never,
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
 				);
 
 				expect(result.isError).toBeUndefined();
@@ -962,17 +987,13 @@ describe("createCtxMemoryTool", () => {
 			const db = createTestDb();
 			try {
 				const ctx = fakeContext("ses-get-archived") as never;
-				const projectIdentity = resolveProjectIdentity(
-					(ctx as { cwd: string }).cwd,
-				);
+				const projectIdentity = resolveProjectIdentity((ctx as { cwd: string }).cwd);
 				const memory = insertMemory(db, {
 					projectPath: projectIdentity,
 					category: "KNOWN_ISSUES",
 					content: "Retired issue the user just referenced.",
 				});
-				db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(
-					memory.id,
-				);
+				db.prepare("UPDATE memories SET status = 'archived' WHERE id = ?").run(memory.id);
 				const primary = createCtxMemoryTool({
 					db,
 					memoryEnabled: true,
@@ -980,12 +1001,14 @@ describe("createCtxMemoryTool", () => {
 					allowDreamerActions: false,
 				});
 
-				const result = await primary.execute(
-					"call-get-archived",
-					{ action: "get", ids: [memory.id] },
-					new AbortController().signal,
-					undefined,
-					ctx,
+				const result = asToolResult(
+					await primary.execute(
+						"call-get-archived",
+						{ action: "get", ids: [memory.id] } as never,
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
 				);
 
 				const text = result.content[0]?.text ?? "";
@@ -1001,9 +1024,7 @@ describe("createCtxMemoryTool", () => {
 			const db = createTestDb();
 			try {
 				const ctx = fakeContext("ses-get-foreign") as never;
-				const ownIdentity = resolveProjectIdentity(
-					(ctx as { cwd: string }).cwd,
-				);
+				const ownIdentity = resolveProjectIdentity((ctx as { cwd: string }).cwd);
 				// Construct a workspace that shares only CONSTRAINTS so the
 				// foreign ARCHITECTURE memory is not visible from the own side.
 				db.exec(`
@@ -1025,21 +1046,19 @@ describe("createCtxMemoryTool", () => {
 					allowDreamerActions: false,
 				});
 
-				const result = await primary.execute(
-					"call-get-foreign",
-					{ action: "get", ids: [foreign.id] },
-					new AbortController().signal,
-					undefined,
-					ctx,
+				const result = asToolResult(
+					await primary.execute(
+						"call-get-foreign",
+						{ action: "get", ids: [foreign.id] } as never,
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
 				);
 
 				const text = result.content[0]?.text ?? "";
-				expect(text).toContain(
-					`id ${foreign.id}: not found or not visible from this project`,
-				);
-				expect(text).not.toContain(
-					"Foreign architecture hidden by the share policy.",
-				);
+				expect(text).toContain(`id ${foreign.id}: not found or not visible from this project`);
+				expect(text).not.toContain("Foreign architecture hidden by the share policy.");
 			} finally {
 				closeQuietly(db);
 			}
@@ -1057,12 +1076,14 @@ describe("createCtxMemoryTool", () => {
 				});
 				const ids = Array.from({ length: 21 }, (_, i) => i + 1);
 
-				const result = await primary.execute(
-					"call-get-many",
-					{ action: "get", ids },
-					new AbortController().signal,
-					undefined,
-					ctx,
+				const result = asToolResult(
+					await primary.execute(
+						"call-get-many",
+						{ action: "get", ids } as never,
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
 				);
 
 				expect(result.isError).toBe(true);
@@ -1076,9 +1097,7 @@ describe("createCtxMemoryTool", () => {
 			const db = createTestDb();
 			try {
 				const ctx = fakeContext("ses-get-mixed") as never;
-				const projectIdentity = resolveProjectIdentity(
-					(ctx as { cwd: string }).cwd,
-				);
+				const projectIdentity = resolveProjectIdentity((ctx as { cwd: string }).cwd);
 				const own = insertMemory(db, {
 					projectPath: projectIdentity,
 					category: "CONSTRAINTS",
@@ -1092,20 +1111,20 @@ describe("createCtxMemoryTool", () => {
 					allowDreamerActions: false,
 				});
 
-				const result = await primary.execute(
-					"call-get-mixed",
-					{ action: "get", ids: [own.id, missing] },
-					new AbortController().signal,
-					undefined,
-					ctx,
+				const result = asToolResult(
+					await primary.execute(
+						"call-get-mixed",
+						{ action: "get", ids: [own.id, missing] } as never,
+						new AbortController().signal,
+						undefined,
+						ctx,
+					),
 				);
 
 				const text = result.content[0]?.text ?? "";
 				expect(text).toContain(String(own.id));
 				expect(text).toContain("Own constraint present.");
-				expect(text).toContain(
-					`id ${missing}: not found or not visible from this project`,
-				);
+				expect(text).toContain(`id ${missing}: not found or not visible from this project`);
 			} finally {
 				closeQuietly(db);
 			}

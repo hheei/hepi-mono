@@ -43,15 +43,9 @@ export function createPiPrimerRawProviderFactory(
 	return async (sessionId: string): Promise<RawMessageProvider | null> => {
 		try {
 			const { listSessions, loadEntriesFromFile } = await resolveDeps();
-			const sessions = (await listSessions(
-				deps.sessionDir,
-			)) as PiSessionInfoLike[];
+			const sessions = (await listSessions(deps.sessionDir)) as PiSessionInfoLike[];
 			const match = sessions.find(
-				(s) =>
-					s &&
-					typeof s === "object" &&
-					s.id === sessionId &&
-					typeof s.path === "string",
+				(s) => s && typeof s === "object" && s.id === sessionId && typeof s.path === "string",
 			);
 			if (!match || typeof match.path !== "string") return null;
 			const entries = await loadEntriesFromFile(match.path);

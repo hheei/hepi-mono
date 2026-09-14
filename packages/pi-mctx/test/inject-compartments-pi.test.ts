@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { appendCompartments } from "#core/features/compartment-storage";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import {
@@ -84,9 +84,7 @@ describe("workspace memory sharing", () => {
 				category: "CONSTRAINTS",
 				content: "foreign constraint is shared",
 			});
-			db.prepare("UPDATE memories SET shareable = 1 WHERE id = ?").run(
-				shared.id,
-			);
+			db.prepare("UPDATE memories SET shareable = 1 WHERE id = ?").run(shared.id);
 			insertMemory(db, {
 				projectPath: "git:foreign",
 				category: "NAMING",
@@ -104,7 +102,7 @@ describe("workspace memory sharing", () => {
 			expect(m0).not.toContain("foreign naming is hidden");
 
 			const messages = [userMessage("hello")];
-			const result = injectM0M1Pi(state, db, messages);
+			const result = injectM0M1Pi(state, db, messages as never);
 			expect(result.memoryCount).toBe(2);
 			expect(textOf(messages[0])).toContain("foreign constraint is shared");
 			expect(textOf(messages[0])).not.toContain("foreign naming is hidden");
@@ -152,18 +150,9 @@ describe("workspace memory sharing", () => {
 
 describe("trimPiMessagesToBoundary", () => {
 	it("sweeps non-contiguous toolResults whose assistant toolCall was trimmed", () => {
-		const messages = [
-			assistant(["call-a"]),
-			user("interleaved"),
-			result("call-a"),
-			user("keep"),
-		];
+		const messages = [assistant(["call-a"]), user("interleaved"), result("call-a"), user("keep")];
 
-		const removed = __test.trimPiMessagesToBoundary(
-			messages,
-			["a", "u1", "r", "u2"],
-			"a",
-		);
+		const removed = __test.trimPiMessagesToBoundary(messages, ["a", "u1", "r", "u2"], "a");
 
 		expect(removed).toBe(2);
 		expect(messages.map((m) => m.role)).toEqual(["user", "user"]);
@@ -190,18 +179,9 @@ describe("trimPiMessagesToBoundary", () => {
 	});
 
 	it("sweeps kept assistant toolCalls when their toolResult was trimmed", () => {
-		const messages = [
-			user("old"),
-			result("call-a"),
-			assistant(["call-a"]),
-			user("keep"),
-		];
+		const messages = [user("old"), result("call-a"), assistant(["call-a"]), user("keep")];
 
-		const removed = __test.trimPiMessagesToBoundary(
-			messages,
-			["u", "r", "a", "keep"],
-			"r",
-		);
+		const removed = __test.trimPiMessagesToBoundary(messages, ["u", "r", "a", "keep"], "r");
 
 		expect(removed).toBe(3);
 		expect(messages).toEqual([user("keep")]);
@@ -262,12 +242,7 @@ describe("trimPiMessagesToBoundary", () => {
 		);
 
 		expect(removed).toBe(2);
-		expect(messages.map((m) => m.role)).toEqual([
-			"user",
-			"assistant",
-			"toolResult",
-			"user",
-		]);
+		expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "toolResult", "user"]);
 		expect((messages[3] as { content: string }).content).toBe("keep");
 	});
 
@@ -304,15 +279,7 @@ describe("trimPiMessagesToBoundary", () => {
 			]);
 			insertUserMemory(db, "new profile memory", []);
 
-			const m0 = renderM0Pi(
-				state,
-				db,
-				"",
-				1,
-				[],
-				frozenCompartments,
-				frozenUserProfile,
-			);
+			const m0 = renderM0Pi(state, db, "", 1, [], frozenCompartments, frozenUserProfile);
 			const m1 = renderM1Pi(state, db, {
 				maxCompartmentSeq: 1,
 				maxMemoryId: 0,
@@ -325,7 +292,7 @@ describe("trimPiMessagesToBoundary", () => {
 				materializedAt: 0,
 				upgradeState: "",
 				lastBaselineEndMessageId: "entry-1",
-			});
+			} as never);
 
 			expect(m0).toContain("old compartment body");
 			expect(m0).toContain("old profile memory");
@@ -346,6 +313,14 @@ function piState(sessionId: string, cwd: string) {
 		projectIdentity: resolveProjectIdentity(cwd),
 		projectDirectory: cwd,
 		injectionBudgetTokens: 10_000,
+		hardSignals: undefined as
+			| {
+					systemHash: string;
+					modelKey: string;
+					cacheExpired: boolean;
+					lastResponseTime: number;
+			  }
+			| undefined,
 	};
 }
 
@@ -432,18 +407,10 @@ describe("injectM0M1Pi", () => {
 				content: "compaction-off memory survives",
 				sourceType: "historian",
 			});
-			const messages = [
-				userMessage("raw history stays visible", 10),
-				userMessage("live tail", 11),
-			];
-			const result = injectM0M1Pi(offState, db, messages as never, [
-				"old-entry",
-				"live-entry",
-			]);
+			const messages = [userMessage("raw history stays visible", 10), userMessage("live tail", 11)];
+			const result = injectM0M1Pi(offState, db, messages as never, ["old-entry", "live-entry"]);
 
-			expect(textOf(messages[0] as never)).toContain(
-				"compaction-off memory survives",
-			);
+			expect(textOf(messages[0] as never)).toContain("compaction-off memory survives");
 			expect(textOf(messages[0] as never)).not.toContain("<session-history>");
 			expect(textOf(messages[0] as never)).not.toContain(
 				"compartment-only history must stay off the wire",
@@ -463,9 +430,7 @@ describe("injectM0M1Pi", () => {
 			const messages = [userMessage("hello", 10)];
 			injectM0M1Pi(piState("ses-pi-empty", cwd), db, messages as never);
 
-			expect(textOf(messages[0] as never)).toBe(
-				"<session-history></session-history>",
-			);
+			expect(textOf(messages[0] as never)).toBe("<session-history></session-history>");
 			expect(textOf(messages[1] as never)).toBe(
 				"<session-history-since>(no new content since last materialization)</session-history-since>",
 			);
@@ -497,22 +462,14 @@ describe("injectM0M1Pi", () => {
 			expect(firstM0).not.toContain("<project-docs>");
 			expect(firstM0).not.toContain("PI_FLAG_OFF_ARCH_DOCS");
 			expect(firstM0).not.toContain("PI_FLAG_OFF_STRUCTURE_DOCS");
-			expect(
-				getOrCreateSessionMeta(db, state.sessionId).cachedM0ProjectDocsHash,
-			).toBe("");
+			expect(getOrCreateSessionMeta(db, state.sessionId).cachedM0ProjectDocsHash).toBe("");
 			expect(mustMaterializePi(state, db)).toEqual({
 				value: false,
 				reason: null,
 			});
 
 			const second = [userMessage("hello again", 11)];
-			const secondResult = injectM0M1Pi(
-				state,
-				db,
-				second as never,
-				undefined,
-				false,
-			);
+			const secondResult = injectM0M1Pi(state, db, second as never, undefined, false);
 
 			expect(secondResult.m0Materialized).toBe(false);
 			expect(textOf(second[0] as never)).toBe(firstM0);
@@ -523,12 +480,8 @@ describe("injectM0M1Pi", () => {
 			injectM0M1Pi(enabledState, db, enabled as never);
 			expect(textOf(enabled[0] as never)).toContain("<project-docs>");
 			expect(textOf(enabled[0] as never)).toContain("PI_FLAG_OFF_ARCH_DOCS");
-			expect(textOf(enabled[0] as never)).toContain(
-				"PI_FLAG_OFF_STRUCTURE_DOCS",
-			);
-			expect(
-				mustMaterializePi({ ...enabledState, injectDocs: false }, db),
-			).toEqual({
+			expect(textOf(enabled[0] as never)).toContain("PI_FLAG_OFF_STRUCTURE_DOCS");
+			expect(mustMaterializePi({ ...enabledState, injectDocs: false }, db)).toEqual({
 				value: false,
 				reason: null,
 			});
@@ -593,9 +546,9 @@ describe("injectM0M1Pi", () => {
 			expect(textOf(replay2[0] as never)).toBe(foldedM0);
 			expect(textOf(replay1[1] as never)).toBe(foldedM1);
 			expect(textOf(replay2[1] as never)).toBe(foldedM1);
-			expect(
-				getOrCreateSessionMeta(db, state.sessionId).cachedM0UpgradeState,
-			).toContain(COMPARTMENT_RENDER_EPOCH);
+			expect(getOrCreateSessionMeta(db, state.sessionId).cachedM0UpgradeState).toContain(
+				COMPARTMENT_RENDER_EPOCH,
+			);
 			expect(mustMaterializePi(state, db)).toEqual({
 				value: false,
 				reason: null,
@@ -638,9 +591,7 @@ describe("injectM0M1Pi", () => {
 			// body is present because the U: line keeps the legacy row at P3.
 			expect(textOf(second[0] as never)).toContain("## 1-1 · Setup");
 			expect(textOf(second[0] as never)).toContain("Compacted setup");
-			expect(textOf(second[1] as never)).toContain(
-				"no new content since last materialization",
-			);
+			expect(textOf(second[1] as never)).toContain("no new content since last materialization");
 		} finally {
 			closeQuietly(db);
 		}
@@ -693,13 +644,7 @@ describe("injectM0M1Pi", () => {
 				userMessage("covered-1", 11), // entry-1 → new compartment, must trim
 				userMessage("keep", 12), // live tail → must survive
 			];
-			const r1 = injectM0M1Pi(
-				state,
-				db,
-				secondPass as never,
-				["entry-0", "entry-1", "keep"],
-				true,
-			);
+			const r1 = injectM0M1Pi(state, db, secondPass as never, ["entry-0", "entry-1", "keep"], true);
 
 			// (a) m[0] NOT re-materialized — SOFT, not HARD.
 			expect(r1.m0Materialized).toBe(false);
@@ -709,9 +654,7 @@ describe("injectM0M1Pi", () => {
 			expect(m0).toBe(baselineM0);
 			expect(m0).not.toContain("second compartment body");
 			// (c) new compartment surfaces in m[1].
-			expect(textOf(secondPass[1] as never)).toContain(
-				"second compartment body",
-			);
+			expect(textOf(secondPass[1] as never)).toContain("second compartment body");
 			// (d) raw messages through the new compartment boundary (entry-1) are
 			// trimmed (no duplication) while the live tail survives.
 			expect(r1.skippedVisibleMessages).toBe(2);
@@ -778,9 +721,7 @@ describe("injectM0M1Pi", () => {
 
 			expect(result.m0Materialized).toBe(false);
 			expect(textOf(messages[0] as never)).toContain("seq zero body");
-			expect(textOf(messages[1] as never)).toContain(
-				"no new content since last materialization",
-			);
+			expect(textOf(messages[1] as never)).toContain("no new content since last materialization");
 		} finally {
 			closeQuietly(db);
 		}
@@ -805,12 +746,8 @@ describe("injectM0M1Pi", () => {
 			const result = injectM0M1Pi(state, db, messages as never);
 
 			expect(result.m0Materialized).toBe(false);
-			expect(textOf(messages[0] as never)).toBe(
-				"<session-history></session-history>",
-			);
-			expect(textOf(messages[1] as never)).toContain(
-				"no new content since last materialization",
-			);
+			expect(textOf(messages[0] as never)).toBe("<session-history></session-history>");
+			expect(textOf(messages[1] as never)).toContain("no new content since last materialization");
 		} finally {
 			closeQuietly(db);
 		}
@@ -862,10 +799,7 @@ describe("injectM0M1Pi", () => {
 				reason: "cache_invalid",
 			});
 			const messages = [userMessage("covered", 10), userMessage("keep", 11)];
-			const result = injectM0M1Pi(state, db, messages as never, [
-				"entry-0",
-				"keep",
-			]);
+			const result = injectM0M1Pi(state, db, messages as never, ["entry-0", "keep"]);
 
 			expect(result.m0Materialized).toBe(true);
 			expect(result.m0Reason).toBe("cache_invalid");
@@ -918,9 +852,7 @@ describe("injectM0M1Pi", () => {
 			// BYTE-IDENTICAL m[0]/m[1] across consecutive reuse passes (no
 			// materialize-vs-reuse oscillation). Compare the actual injected
 			// synthetic-prefix text, not just the materialized flag.
-			expect(textOf(pass2Messages[0] as never)).toBe(
-				textOf(pass1Messages[0] as never),
-			);
+			expect(textOf(pass2Messages[0] as never)).toBe(textOf(pass1Messages[0] as never));
 		} finally {
 			closeQuietly(db);
 		}
@@ -987,11 +919,7 @@ describe("injectM0M1Pi", () => {
 				userMessage("must stay", 11),
 				userMessage("keep", 12),
 			];
-			const result = injectM0M1Pi(state, db, messages as never, [
-				"old-end",
-				"too-far",
-				"keep",
-			]);
+			const result = injectM0M1Pi(state, db, messages as never, ["old-end", "too-far", "keep"]);
 
 			expect(result.skippedVisibleMessages).toBe(1);
 			expect(textOf(messages[2] as never)).toBe("must stay");
@@ -1033,15 +961,9 @@ describe("injectM0M1Pi", () => {
 			const result = injectM0M1Pi(state, db, messages as never);
 
 			expect(result.m0Materialized).toBe(false);
-			expect(textOf(messages[0] as never)).toBe(
-				"<session-history></session-history>",
-			);
-			expect(textOf(messages[1] as never)).toContain(
-				"no new content since last materialization",
-			);
-			expect(textOf(messages[1] as never)).not.toContain(
-				"busy code fallback body",
-			);
+			expect(textOf(messages[0] as never)).toBe("<session-history></session-history>");
+			expect(textOf(messages[1] as never)).toContain("no new content since last materialization");
+			expect(textOf(messages[1] as never)).not.toContain("busy code fallback body");
 		} finally {
 			closeQuietly(db);
 		}
@@ -1076,12 +998,8 @@ describe("injectM0M1Pi", () => {
 			const result = injectM0M1Pi(state, db, messages as never);
 
 			expect(result.m0Materialized).toBe(false);
-			expect(textOf(messages[0] as never)).toBe(
-				"<session-history></session-history>",
-			);
-			expect(textOf(messages[1] as never)).toContain(
-				"no new content since last materialization",
-			);
+			expect(textOf(messages[0] as never)).toBe("<session-history></session-history>");
+			expect(textOf(messages[1] as never)).toContain("no new content since last materialization");
 			expect(textOf(messages[1] as never)).not.toContain("busy fallback body");
 		} finally {
 			closeQuietly(db);
@@ -1133,9 +1051,7 @@ describe("injectM0M1Pi", () => {
 			const bust = [userMessage("bust", 13)];
 			injectM0M1Pi(state, db, bust as never, undefined, true);
 			expect(textOf(bust[1] as never)).toContain("<new-memories>");
-			expect(textOf(bust[1] as never)).toContain(
-				"New additive memory appears only after a bust.",
-			);
+			expect(textOf(bust[1] as never)).toContain("New additive memory appears only after a bust.");
 		} finally {
 			closeQuietly(db);
 		}
@@ -1163,13 +1079,7 @@ describe("injectM0M1Pi", () => {
 				content: "Baseline memory to remove from m0. ".repeat(300),
 				sourceType: "historian",
 			});
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 
 			db.transaction(() => {
 				archiveMemory(db, memory.id);
@@ -1189,9 +1099,7 @@ describe("injectM0M1Pi", () => {
 			injectM0M1Pi(state, db, bust as never, undefined, true);
 			const m1 = textOf(bust[1] as never);
 			expect(m1).toContain("<memory-updates>");
-			expect(m1).toContain(
-				"These memories changed since the snapshot below — trust these:",
-			);
+			expect(m1).toContain("These memories changed since the snapshot below — trust these:");
 			expect(m1).toContain(`<removed id="${memory.id}"/>`);
 
 			const deferAfterBust = [userMessage("defer after bust", 13)];
@@ -1216,13 +1124,7 @@ describe("injectM0M1Pi", () => {
 				content: "This memory is too large for a one-token m0 budget.",
 				sourceType: "historian",
 			});
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 			queueMemoryMutation(db, {
 				projectPath: state.projectIdentity,
 				mutationType: "update",
@@ -1235,9 +1137,7 @@ describe("injectM0M1Pi", () => {
 			injectM0M1Pi(state, db, bust as never, undefined, true);
 
 			expect(textOf(bust[1] as never)).not.toContain("<memory-updates>");
-			expect(textOf(bust[1] as never)).not.toContain(
-				"Updated but not resident.",
-			);
+			expect(textOf(bust[1] as never)).not.toContain("Updated but not resident.");
 		} finally {
 			closeQuietly(db);
 		}
@@ -1254,13 +1154,7 @@ describe("injectM0M1Pi", () => {
 				content: "Old baseline content.",
 				sourceType: "historian",
 			});
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 			db.prepare(
 				"UPDATE memories SET content = ?, normalized_hash = ?, updated_at = ? WHERE id = ?",
 			).run("Reconciled content.", "reconciled-hash", Date.now(), memory.id);
@@ -1290,13 +1184,7 @@ describe("injectM0M1Pi", () => {
 		const originalExec = db.exec.bind(db);
 		try {
 			const state = piState("ses-pi-m1-soft-cas", cwd);
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 			let injectedSibling = false;
 			db.exec = ((sql: string) => {
 				if (sql === "BEGIN IMMEDIATE" && !injectedSibling) {
@@ -1304,10 +1192,7 @@ describe("injectM0M1Pi", () => {
 					db.prepare(
 						"UPDATE session_meta SET cached_m0_bytes = ?, cached_m0_max_memory_id = ?, cached_m1_bytes = ? WHERE session_id = ?",
 					).run(
-						Buffer.from(
-							`<session-history>${"baseline ".repeat(300)}</session-history>`,
-							"utf8",
-						),
+						Buffer.from(`<session-history>${"baseline ".repeat(300)}</session-history>`, "utf8"),
 						99,
 						Buffer.from("sibling cached m1", "utf8"),
 						state.sessionId,
@@ -1334,13 +1219,7 @@ describe("injectM0M1Pi", () => {
 		const originalExec = db.exec.bind(db);
 		try {
 			const state = piState("ses-pi-m1-soft-cas-bytes", cwd);
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 			const siblingM0 = Buffer.from(
 				`<session-history>${"byte mismatch ".repeat(300)}</session-history>`,
 				"utf8",
@@ -1366,9 +1245,7 @@ describe("injectM0M1Pi", () => {
 			expect(injectedSibling).toBe(true);
 			expect(result.m0Materialized).toBe(false);
 			expect(textOf(bust[0] as never)).toBe(siblingM0.toString("utf8"));
-			expect(textOf(bust[1] as never)).toBe(
-				"sibling cached pi m1 byte mismatch",
-			);
+			expect(textOf(bust[1] as never)).toBe("sibling cached pi m1 byte mismatch");
 		} finally {
 			db.exec = originalExec as typeof db.exec;
 			closeQuietly(db);
@@ -1407,9 +1284,7 @@ describe("injectM0M1Pi", () => {
 			expect(changedDocsMarker).toBe(true);
 			expect(result.m0Materialized).toBe(false);
 			expect(textOf(bust[0] as never)).toBe(baselineM0);
-			expect(textOf(bust[1] as never)).toContain(
-				"Pi docs-hash-only CAS delta memory",
-			);
+			expect(textOf(bust[1] as never)).toContain("Pi docs-hash-only CAS delta memory");
 		} finally {
 			db.exec = originalExec as typeof db.exec;
 			closeQuietly(db);
@@ -1456,10 +1331,7 @@ describe("renderM0Pi sibling-block layout (OpenCode parity)", () => {
 			expect(m0).toContain("<ARCHITECTURE>\n#");
 			expect(m0).not.toContain("<memory id=");
 			// Compartment body lives INSIDE <session-history>; memory does NOT.
-			const historyBlock = m0.slice(
-				m0.indexOf("<session-history>"),
-				historyClose,
-			);
+			const historyBlock = m0.slice(m0.indexOf("<session-history>"), historyClose);
 			expect(historyBlock).toContain("Compacted setup");
 			expect(historyBlock).not.toContain("widget service");
 		} finally {
@@ -1488,10 +1360,10 @@ describe("renderM0Pi sibling-block layout (OpenCode parity)", () => {
 					sourceType: "historian",
 				});
 			}
-			const maxId = getMemoriesByProject(db, state.projectIdentity, [
-				"active",
-				"permanent",
-			]).reduce((m, x) => (x.id > m ? x.id : m), 0);
+			const maxId = getMemoriesByProject(db, state.projectIdentity, ["active", "permanent"]).reduce(
+				(m, x) => (x.id > m ? x.id : m),
+				0,
+			);
 
 			const { snapshotMarkers } = materializeM0Pi(state, db);
 
@@ -1547,9 +1419,7 @@ describe("renderM0Pi sibling-block layout (OpenCode parity)", () => {
 				};
 				const second = materializeM0Pi(state, db);
 				expect(second.m0).toContain("Pi D16c expiry-gap memory");
-				expect(
-					second.m0.match(/<project-memory>[\s\S]*?<\/project-memory>/)?.[0],
-				).toBe(
+				expect(second.m0.match(/<project-memory>[\s\S]*?<\/project-memory>/)?.[0]).toBe(
 					first.m0.match(/<project-memory>[\s\S]*?<\/project-memory>/)?.[0],
 				);
 			} finally {
@@ -1676,9 +1546,7 @@ describe("mustMaterializePi — SOFT/HARD taxonomy (parity with OpenCode)", () =
 				reason: null,
 			});
 			const noSwitch = [userMessage("same project", 11)];
-			const noSwitchResult = injectM0M1Pi(state, db, noSwitch as never, [
-				"entry-0",
-			]);
+			const noSwitchResult = injectM0M1Pi(state, db, noSwitch as never, ["entry-0"]);
 
 			expect(noSwitchResult.m0Materialized).toBe(false);
 			expect(noSwitchResult.m0Reason).not.toBe("first_render");
@@ -1686,9 +1554,7 @@ describe("mustMaterializePi — SOFT/HARD taxonomy (parity with OpenCode)", () =
 			expect(textOf(noSwitch[0] as never)).toBe(baselineM0);
 			expect(
 				db
-					.prepare(
-						"SELECT cached_m0_project_identity FROM session_meta WHERE session_id = ?",
-					)
+					.prepare("SELECT cached_m0_project_identity FROM session_meta WHERE session_id = ?")
 					.get(state.sessionId),
 			).toEqual({ cached_m0_project_identity: state.projectIdentity });
 
@@ -1736,26 +1602,14 @@ describe("mustMaterializePi — SOFT/HARD taxonomy (parity with OpenCode)", () =
 			});
 
 			const switched = [userMessage("after cd", 11)];
-			const switchedResult = injectM0M1Pi(
-				stateB,
-				db,
-				switched as never,
-				undefined,
-				true,
-			);
+			const switchedResult = injectM0M1Pi(stateB, db, switched as never, undefined, true);
 			expect(switchedResult.m0Materialized).toBe(true);
 			expect(switchedResult.m0Reason).toBe("project_change");
 			expect(textOf(switched[0] as never)).toContain("Project B memory");
 			expect(textOf(switched[0] as never)).not.toContain("Project A memory");
 
 			const stable = [userMessage("after cd stable", 12)];
-			const stableResult = injectM0M1Pi(
-				stateB,
-				db,
-				stable as never,
-				undefined,
-				false,
-			);
+			const stableResult = injectM0M1Pi(stateB, db, stable as never, undefined, false);
 			expect(stableResult.m0Materialized).toBe(false);
 			expect(stableResult.m0Reason).toBeNull();
 			expect(textOf(stable[0] as never)).toBe(textOf(switched[0] as never));
@@ -1845,13 +1699,7 @@ describe("mustMaterializePi — SOFT/HARD taxonomy (parity with OpenCode)", () =
 				hardSignals: baseHard,
 			};
 			writeFileSync(join(cwd, "ARCHITECTURE.md"), "# Old Pi docs\n");
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hi", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hi", 10)] as never, undefined, true);
 
 			writeFileSync(join(cwd, "ARCHITECTURE.md"), "# New Pi docs\n");
 
@@ -1886,20 +1734,12 @@ describe("mustMaterializePi — SOFT/HARD taxonomy (parity with OpenCode)", () =
 				hardSignals: { ...baseHard, systemHash: "sys-v2" },
 			};
 			const second = [userMessage("hi again", 11)];
-			const result = injectM0M1Pi(
-				changed,
-				db,
-				second as never,
-				undefined,
-				true,
-			);
+			const result = injectM0M1Pi(changed, db, second as never, undefined, true);
 
 			expect(result.m0Materialized).toBe(true);
 			expect(result.m0Reason).toBe("system_hash");
 			expect(textOf(second[0] as never)).toContain("Updated Pi architecture");
-			expect(textOf(second[0] as never)).toContain(
-				"Fresh Pi docs folded on hard bust.",
-			);
+			expect(textOf(second[0] as never)).toContain("Fresh Pi docs folded on hard bust.");
 			expect(textOf(second[0] as never)).not.toContain("Old Pi architecture");
 		} finally {
 			closeQuietly(db);
@@ -1960,13 +1800,7 @@ describe("injectM0M1Pi m[1]-rendered coverage watermark (marker-drain liveness)"
 				userMessage("covered-1", 11),
 				userMessage("keep", 12),
 			];
-			const r1 = injectM0M1Pi(
-				state,
-				db,
-				secondPass as never,
-				["entry-0", "entry-1", "keep"],
-				true,
-			);
+			const r1 = injectM0M1Pi(state, db, secondPass as never, ["entry-0", "entry-1", "keep"], true);
 			expect(r1.m0Materialized).toBe(false);
 			expect(r1.contentionExhausted).toBe(false);
 			expect(r1.m1RenderedCoverage).toEqual({
@@ -1982,13 +1816,7 @@ describe("injectM0M1Pi m[1]-rendered coverage watermark (marker-drain liveness)"
 				userMessage("covered-1", 11),
 				userMessage("keep", 12),
 			];
-			const r2 = injectM0M1Pi(
-				state,
-				db,
-				thirdPass as never,
-				["entry-0", "entry-1", "keep"],
-				false,
-			);
+			const r2 = injectM0M1Pi(state, db, thirdPass as never, ["entry-0", "entry-1", "keep"], false);
 			expect(r2.m0Materialized).toBe(false);
 			expect(r2.m1RenderedCoverage).toBeNull();
 		} finally {
@@ -2048,13 +1876,7 @@ describe("injectM0M1Pi m[1]-rendered coverage watermark (marker-drain liveness)"
 			]);
 
 			const secondPass = [userMessage("hello", 10), userMessage("tail", 12)];
-			const r1 = injectM0M1Pi(
-				state,
-				db,
-				secondPass as never,
-				["entry-1", "keep"],
-				true,
-			);
+			const r1 = injectM0M1Pi(state, db, secondPass as never, ["entry-1", "keep"], true);
 			expect(r1.m0Materialized).toBe(false);
 			// The m[0] arm still reads <none>, so it cannot by itself certify
 			// coverage for the pending marker…
@@ -2079,13 +1901,7 @@ describe("injectM0M1Pi m[1]-rendered coverage watermark (marker-drain liveness)"
 		const originalExec = db.exec.bind(db);
 		try {
 			const state = piState("ses-pi-m1-coverage-sibling", cwd);
-			injectM0M1Pi(
-				state,
-				db,
-				[userMessage("hello", 10)] as never,
-				undefined,
-				true,
-			);
+			injectM0M1Pi(state, db, [userMessage("hello", 10)] as never, undefined, true);
 
 			// A newer compartment lands in the live snapshot. A naive coverage
 			// derivation from live DB rows would certify it — but the stale
@@ -2110,10 +1926,7 @@ describe("injectM0M1Pi m[1]-rendered coverage watermark (marker-drain liveness)"
 					db.prepare(
 						"UPDATE session_meta SET cached_m0_bytes = ?, cached_m0_max_memory_id = ?, cached_m1_bytes = ? WHERE session_id = ?",
 					).run(
-						Buffer.from(
-							`<session-history>${"baseline ".repeat(300)}</session-history>`,
-							"utf8",
-						),
+						Buffer.from(`<session-history>${"baseline ".repeat(300)}</session-history>`, "utf8"),
 						99,
 						Buffer.from("sibling cached m1", "utf8"),
 						state.sessionId,

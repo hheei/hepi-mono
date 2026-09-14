@@ -65,8 +65,8 @@ let persistenceDb: Database | null = null;
 let cachedInsertStmt: Statement | null = null;
 
 function keyFor(providerID: string, modelID: string, agentName: string | undefined): string {
-    const agent = agentName && agentName.length > 0 ? agentName : "default";
-    return `${providerID}/${modelID}/${agent}`;
+	const agent = agentName && agentName.length > 0 ? agentName : "default";
+	return `${providerID}/${modelID}/${agent}`;
 }
 
 /**
@@ -75,11 +75,11 @@ function keyFor(providerID: string, modelID: string, agentName: string | undefin
  * invalidate cached token counts too.
  */
 function fingerprintFor(description: string, parameters: unknown): string {
-    return createHash("sha256")
-        .update(description)
-        .update("\0")
-        .update(stableStringify(parameters))
-        .digest("hex");
+	return createHash("sha256")
+		.update(description)
+		.update("\0")
+		.update(stableStringify(parameters))
+		.digest("hex");
 }
 
 /**
@@ -89,10 +89,10 @@ function fingerprintFor(description: string, parameters: unknown): string {
  * recordToolDefinition() calls will write through to SQLite.
  */
 export function setDatabase(db: Database): void {
-    persistenceDb = db;
-    // New DB binding invalidates any cached statement compiled against the
-    // previous handle.
-    cachedInsertStmt = null;
+	persistenceDb = db;
+	// New DB binding invalidates any cached statement compiled against the
+	// previous handle.
+	cachedInsertStmt = null;
 }
 
 /**
@@ -106,39 +106,39 @@ export function setDatabase(db: Database): void {
  * inner-map key (toolID) ensures duplicates overwrite rather than accumulate.
  */
 export function loadToolDefinitionMeasurements(db: Database): void {
-    let rows: Array<{
-        provider_id: string;
-        model_id: string;
-        agent_name: string;
-        tool_id: string;
-        token_count: number;
-    }> = [];
-    try {
-        rows = db
-            .prepare(
-                "SELECT provider_id, model_id, agent_name, tool_id, token_count FROM tool_definition_measurements",
-            )
-            .all() as typeof rows;
-    } catch {
-        // Table doesn't exist yet — migrations haven't run. Nothing to load.
-        return;
-    }
+	let rows: Array<{
+		provider_id: string;
+		model_id: string;
+		agent_name: string;
+		tool_id: string;
+		token_count: number;
+	}> = [];
+	try {
+		rows = db
+			.prepare(
+				"SELECT provider_id, model_id, agent_name, tool_id, token_count FROM tool_definition_measurements",
+			)
+			.all() as typeof rows;
+	} catch {
+		// Table doesn't exist yet — migrations haven't run. Nothing to load.
+		return;
+	}
 
-    for (const row of rows) {
-        const key = keyFor(row.provider_id, row.model_id, row.agent_name);
-        let inner = measurements.get(key);
-        if (!inner) {
-            inner = new Map<string, number>();
-            measurements.set(key, inner);
-        }
-        inner.set(row.tool_id, row.token_count);
-    }
-    // Note: we deliberately do NOT seed `fingerprints` from DB here. The
-    // first fire after restart will compute a real fingerprint, find no
-    // entry, do the work once, and store both. This means the very first
-    // flight after restart pays full measurement cost (~1.4s on a large
-    // tool set) but every subsequent flight skips it — same steady-state
-    // behavior as before-restart.
+	for (const row of rows) {
+		const key = keyFor(row.provider_id, row.model_id, row.agent_name);
+		let inner = measurements.get(key);
+		if (!inner) {
+			inner = new Map<string, number>();
+			measurements.set(key, inner);
+		}
+		inner.set(row.tool_id, row.token_count);
+	}
+	// Note: we deliberately do NOT seed `fingerprints` from DB here. The
+	// first fire after restart will compute a real fingerprint, find no
+	// entry, do the work once, and store both. This means the very first
+	// flight after restart pays full measurement cost (~1.4s on a large
+	// tool set) but every subsequent flight skips it — same steady-state
+	// behavior as before-restart.
 }
 
 /**
@@ -148,84 +148,84 @@ export function loadToolDefinitionMeasurements(db: Database): void {
  * consistent even if descriptions or parameters drift between turns.
  */
 export function recordToolDefinition(
-    providerID: string,
-    modelID: string,
-    agentName: string | undefined,
-    toolID: string,
-    description: string,
-    parameters: unknown,
+	providerID: string,
+	modelID: string,
+	agentName: string | undefined,
+	toolID: string,
+	description: string,
+	parameters: unknown,
 ): void {
-    if (!providerID || !modelID || !toolID) return;
-    const key = keyFor(providerID, modelID, agentName);
+	if (!providerID || !modelID || !toolID) return;
+	const key = keyFor(providerID, modelID, agentName);
 
-    // Fast-path skip: if this exact tool's last fire under this key carried
-    // an identical fingerprint, every downstream operation (stringify,
-    // tokenize, map write, SQLite write) would produce the same result.
-    // Bail out before doing any of them.
-    const fp = fingerprintFor(description ?? "", parameters);
-    let innerFp = fingerprints.get(key);
-    if (innerFp && innerFp.get(toolID) === fp) return;
+	// Fast-path skip: if this exact tool's last fire under this key carried
+	// an identical fingerprint, every downstream operation (stringify,
+	// tokenize, map write, SQLite write) would produce the same result.
+	// Bail out before doing any of them.
+	const fp = fingerprintFor(description ?? "", parameters);
+	let innerFp = fingerprints.get(key);
+	if (innerFp && innerFp.get(toolID) === fp) return;
 
-    // Serialize parameters to match what the provider actually sees on the
-    // wire. `JSON.stringify(undefined)` returns undefined, so guard that.
-    let paramsText = "";
-    try {
-        paramsText = parameters === undefined ? "" : JSON.stringify(parameters);
-    } catch {
-        paramsText = "";
-    }
+	// Serialize parameters to match what the provider actually sees on the
+	// wire. `JSON.stringify(undefined)` returns undefined, so guard that.
+	let paramsText = "";
+	try {
+		paramsText = parameters === undefined ? "" : JSON.stringify(parameters);
+	} catch {
+		paramsText = "";
+	}
 
-    // Count: description + serialized params. This is the token cost of a
-    // single tool's definition inside the `tools` array the provider
-    // receives. Overhead around the array (field names, commas, braces) is
-    // attributed to the separate "Overhead" bucket the RPC handler computes
-    // as a residual against inputTokens.
-    const tokens = estimateTokens(description ?? "") + estimateTokens(paramsText);
+	// Count: description + serialized params. This is the token cost of a
+	// single tool's definition inside the `tools` array the provider
+	// receives. Overhead around the array (field names, commas, braces) is
+	// attributed to the separate "Overhead" bucket the RPC handler computes
+	// as a residual against inputTokens.
+	const tokens = estimateTokens(description ?? "") + estimateTokens(paramsText);
 
-    let inner = measurements.get(key);
-    if (!inner) {
-        inner = new Map<string, number>();
-        measurements.set(key, inner);
-    }
-    inner.set(toolID, tokens);
+	let inner = measurements.get(key);
+	if (!inner) {
+		inner = new Map<string, number>();
+		measurements.set(key, inner);
+	}
+	inner.set(toolID, tokens);
 
-    // Update fingerprint AFTER the in-memory map so a thrown error above
-    // doesn't poison the skip-check on the next fire. (Currently nothing
-    // above can throw post-guard, but the ordering is intentionally
-    // defensive.)
-    if (!innerFp) {
-        innerFp = new Map<string, string>();
-        fingerprints.set(key, innerFp);
-    }
-    innerFp.set(toolID, fp);
+	// Update fingerprint AFTER the in-memory map so a thrown error above
+	// doesn't poison the skip-check on the next fire. (Currently nothing
+	// above can throw post-guard, but the ordering is intentionally
+	// defensive.)
+	if (!innerFp) {
+		innerFp = new Map<string, string>();
+		fingerprints.set(key, innerFp);
+	}
+	innerFp.set(toolID, fp);
 
-    // Write-through to SQLite so the value survives a plugin restart.
-    // Skipped silently when the DB isn't wired yet (cold path before
-    // openDatabase has finished init): the in-memory map still has the
-    // value, and the next recordToolDefinition() after init lands both.
-    if (persistenceDb) {
-        try {
-            const agent = agentName && agentName.length > 0 ? agentName : "default";
-            // Compile statement once per DB binding. `.run()` is reusable
-            // across calls with different bound values.
-            if (!cachedInsertStmt) {
-                cachedInsertStmt = persistenceDb.prepare(
-                    `INSERT OR REPLACE INTO tool_definition_measurements
+	// Write-through to SQLite so the value survives a plugin restart.
+	// Skipped silently when the DB isn't wired yet (cold path before
+	// openDatabase has finished init): the in-memory map still has the
+	// value, and the next recordToolDefinition() after init lands both.
+	if (persistenceDb) {
+		try {
+			const agent = agentName && agentName.length > 0 ? agentName : "default";
+			// Compile statement once per DB binding. `.run()` is reusable
+			// across calls with different bound values.
+			if (!cachedInsertStmt) {
+				cachedInsertStmt = persistenceDb.prepare(
+					`INSERT OR REPLACE INTO tool_definition_measurements
                      (provider_id, model_id, agent_name, tool_id, token_count, recorded_at)
                      VALUES (?, ?, ?, ?, ?, ?)`,
-                );
-            }
-            cachedInsertStmt.run(providerID, modelID, agent, toolID, tokens, Date.now());
-        } catch {
-            // Persistence is best-effort. A SQLITE_BUSY or transient write
-            // failure must not break the live measurement: the in-memory
-            // map already has the new value and the sidebar will display
-            // it correctly until the next plugin restart.
-            // Drop the cached statement on error — if the DB connection
-            // went bad, recompiling on the next attempt is the safe move.
-            cachedInsertStmt = null;
-        }
-    }
+				);
+			}
+			cachedInsertStmt.run(providerID, modelID, agent, toolID, tokens, Date.now());
+		} catch {
+			// Persistence is best-effort. A SQLITE_BUSY or transient write
+			// failure must not break the live measurement: the in-memory
+			// map already has the new value and the sidebar will display
+			// it correctly until the next plugin restart.
+			// Drop the cached statement on error — if the DB connection
+			// went bad, recompiling on the next attempt is the safe move.
+			cachedInsertStmt = null;
+		}
+	}
 }
 
 /**
@@ -233,35 +233,35 @@ export function recordToolDefinition(
  * or `undefined` when never measured (e.g. fresh session before first turn).
  */
 export function getMeasuredToolDefinitionTokens(
-    providerID: string,
-    modelID: string,
-    agentName: string | undefined,
+	providerID: string,
+	modelID: string,
+	agentName: string | undefined,
 ): number | undefined {
-    if (!providerID || !modelID) return undefined;
-    const inner = measurements.get(keyFor(providerID, modelID, agentName));
-    if (!inner || inner.size === 0) return undefined;
-    let total = 0;
-    for (const tokens of inner.values()) total += tokens;
-    return total;
+	if (!providerID || !modelID) return undefined;
+	const inner = measurements.get(keyFor(providerID, modelID, agentName));
+	if (!inner || inner.size === 0) return undefined;
+	let total = 0;
+	for (const tokens of inner.values()) total += tokens;
+	return total;
 }
 
 /** Test helper: reset the store so suites don't leak measurements. */
 export function __resetToolDefinitionMeasurements(): void {
-    measurements.clear();
-    fingerprints.clear();
-    persistenceDb = null;
-    cachedInsertStmt = null;
+	measurements.clear();
+	fingerprints.clear();
+	persistenceDb = null;
+	cachedInsertStmt = null;
 }
 
 /** Inspection helper: snapshot the current store (for debug logging/tests). */
 export function getToolDefinitionSnapshot(): Array<{
-    key: string;
-    totalTokens: number;
-    toolCount: number;
+	key: string;
+	totalTokens: number;
+	toolCount: number;
 }> {
-    return Array.from(measurements.entries()).map(([key, inner]) => {
-        let total = 0;
-        for (const tokens of inner.values()) total += tokens;
-        return { key, totalTokens: total, toolCount: inner.size };
-    });
+	return Array.from(measurements.entries()).map(([key, inner]) => {
+		let total = 0;
+		for (const tokens of inner.values()) total += tokens;
+		return { key, totalTokens: total, toolCount: inner.size };
+	});
 }

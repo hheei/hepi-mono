@@ -19,10 +19,7 @@ import {
 import { getUserMemoryCandidates } from "#core/features/user-memory/storage-user-memory";
 import type { ProtectedTailBoundarySnapshot } from "#core/hooks/protected-tail-boundary";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import type {
-	SubagentRunner,
-	SubagentRunResult,
-} from "#core/shared/subagent-runner";
+import type { SubagentRunner, SubagentRunResult } from "#core/shared/subagent-runner";
 import {
 	buildPiCompactionSummary,
 	clearPiHistorianAlertState,
@@ -44,9 +41,7 @@ describe("buildPiCompactionSummary", () => {
 		const summary = buildPiCompactionSummary(many);
 		// Bounded: only the first 5 titles appear, plus a remainder count.
 		expect(summary).toContain("Magic Context compacted 545 segments:");
-		expect(summary).toContain(
-			"segment-0; segment-1; segment-2; segment-3; segment-4",
-		);
+		expect(summary).toContain("segment-0; segment-1; segment-2; segment-3; segment-4");
 		expect(summary).toContain("…and 540 more");
 		expect(summary).not.toContain("segment-5;");
 		// Length must not scale with compartment count.
@@ -54,9 +49,7 @@ describe("buildPiCompactionSummary", () => {
 	});
 
 	it("falls back to message range when titles are empty", () => {
-		const summary = buildPiCompactionSummary([
-			{ title: "  ", startMessage: 3, endMessage: 9 },
-		]);
+		const summary = buildPiCompactionSummary([{ title: "  ", startMessage: 3, endMessage: 9 }]);
 		expect(summary).toBe("Magic Context compacted messages 3-9.");
 	});
 });
@@ -72,9 +65,7 @@ function rawMessages(count = 12) {
 			parts: [
 				{
 					type: "text",
-					text: isUser
-						? `User request ${ordinal}`
-						: `Assistant response ${ordinal}`,
+					text: isUser ? `User request ${ordinal}` : `Assistant response ${ordinal}`,
 				},
 			],
 		};
@@ -139,9 +130,7 @@ function okRun(text: string): SubagentRunResult {
 	return { ok: true, assistantText: text, durationMs: 1 };
 }
 
-function runnerWithSteps(
-	steps: Array<string | SubagentRunResult | Error>,
-): SubagentRunner {
+function runnerWithSteps(steps: Array<string | SubagentRunResult | Error>): SubagentRunner {
 	const run = vi.fn(async () => {
 		const step = steps.shift() ?? "";
 		if (step instanceof Error) throw step;
@@ -181,9 +170,7 @@ async function runHistorianWith(args: {
 	forceKeepLastCompartment?: boolean;
 	historianChunkTokens?: number;
 	beforeRun?: (db: ReturnType<typeof createTestDb>) => void;
-	ensureProjectRegistered?: Parameters<
-		typeof runPiHistorian
-	>[0]["ensureProjectRegistered"];
+	ensureProjectRegistered?: Parameters<typeof runPiHistorian>[0]["ensureProjectRegistered"];
 }) {
 	const db = createTestDb();
 	const runner = args.runner ?? runnerReturning([...(args.outputs ?? [])]);
@@ -247,9 +234,7 @@ describe("runPiHistorian", () => {
 			});
 
 			expect(runner.run).not.toHaveBeenCalled();
-			expect(getOverflowState(db, "ses-historian").needsEmergencyRecovery).toBe(
-				false,
-			);
+			expect(getOverflowState(db, "ses-historian").needsEmergencyRecovery).toBe(false);
 		} finally {
 			closeQuietly(db);
 		}
@@ -281,9 +266,7 @@ describe("runPiHistorian", () => {
 			});
 
 			expect(runner.run).not.toHaveBeenCalled();
-			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(
-				1,
-			);
+			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(1);
 		} finally {
 			closeQuietly(db);
 		}
@@ -291,9 +274,7 @@ describe("runPiHistorian", () => {
 
 	it("skips when the protected-tail drain quota is exhausted", async () => {
 		const boundary = makeBoundarySnapshot();
-		const usable = Math.round(
-			(boundary.contextLimit * boundary.executeThresholdPercentage) / 100,
-		);
+		const usable = Math.round((boundary.contextLimit * boundary.executeThresholdPercentage) / 100);
 		const { db, runner } = await runHistorianWith({
 			outputs: [successXml()],
 			boundarySnapshot: boundary,
@@ -315,9 +296,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(runner.run).not.toHaveBeenCalled();
-			expect(
-				loadProtectedTailMeta(db, "ses-historian").protectedTailDrainTokens,
-			).toBe(9000);
+			expect(loadProtectedTailMeta(db, "ses-historian").protectedTailDrainTokens).toBe(9000);
 		} finally {
 			closeQuietly(db);
 		}
@@ -342,9 +321,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(runner.run).not.toHaveBeenCalled();
-			expect(
-				loadProtectedTailMeta(db, "ses-historian").protectedTailDrainTokens,
-			).toBe(0);
+			expect(loadProtectedTailMeta(db, "ses-historian").protectedTailDrainTokens).toBe(0);
 		} finally {
 			closeQuietly(db);
 		}
@@ -456,9 +433,9 @@ describe("runPiHistorian", () => {
 			// (no REPLACE). They flow to project memory via promotion.
 			expect(getSessionFacts(db, "ses-historian")).toEqual([]);
 			const projectPath = resolveProjectIdentity(process.cwd());
-			expect(
-				getMemoriesByProject(db, projectPath).map((m) => m.content),
-			).toContain("Pi historian facts can promote to memory.");
+			expect(getMemoriesByProject(db, projectPath).map((m) => m.content)).toContain(
+				"Pi historian facts can promote to memory.",
+			);
 		} finally {
 			closeQuietly(db);
 		}
@@ -471,9 +448,7 @@ describe("runPiHistorian", () => {
 		try {
 			expect(runner.run).toHaveBeenCalledTimes(2);
 			expect(getCompartments(db, "ses-historian")).toEqual([]);
-			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(
-				1,
-			);
+			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(1);
 		} finally {
 			closeQuietly(db);
 		}
@@ -486,11 +461,7 @@ describe("runPiHistorian", () => {
 			fallbackModelId: "session/model",
 		});
 		try {
-			expect(attemptedModels(runner)).toEqual([
-				"test/model",
-				"fallback/model",
-				"session/model",
-			]);
+			expect(attemptedModels(runner)).toEqual(["test/model", "fallback/model", "session/model"]);
 			expect(getCompartments(db, "ses-historian")).toEqual([
 				expect.objectContaining({ title: "Initial Pi slice" }),
 			]);
@@ -506,9 +477,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(attemptedModels(runner)).toEqual(["test/model"]);
-			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(
-				1,
-			);
+			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(1);
 		} finally {
 			closeQuietly(db);
 		}
@@ -522,9 +491,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(attemptedModels(runner)).toEqual(["test/model", "session/model"]);
-			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(
-				1,
-			);
+			expect(getHistorianFailureState(db, "ses-historian").failureCount).toBe(1);
 		} finally {
 			closeQuietly(db);
 		}
@@ -634,9 +601,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(onPublished).toHaveBeenCalledTimes(1);
-			expect(getPersistedNoteNudge(db, "ses-historian").triggerPending).toBe(
-				true,
-			);
+			expect(getPersistedNoteNudge(db, "ses-historian").triggerPending).toBe(true);
 		} finally {
 			closeQuietly(db);
 		}
@@ -656,13 +621,11 @@ describe("runPiHistorian", () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			expect(onPublished).toHaveBeenCalledTimes(1);
 			expect(getCompartments(db, "ses-historian")).toHaveLength(1);
-			expect(
-				loadProtectedTailMeta(db, "ses-historian").priorBoundaryOrdinal,
-			).toBe(3);
+			expect(loadProtectedTailMeta(db, "ses-historian").priorBoundaryOrdinal).toBe(3);
 			const projectPath = resolveProjectIdentity(process.cwd());
-			expect(
-				getMemoriesByProject(db, projectPath).map((memory) => memory.content),
-			).toContain("Pi durable fact survives registration outage.");
+			expect(getMemoriesByProject(db, projectPath).map((memory) => memory.content)).toContain(
+				"Pi durable fact survives registration outage.",
+			);
 			expect(
 				db
 					.prepare(
@@ -733,9 +696,7 @@ describe("runPiHistorian", () => {
 			// promotion by long-standing design (the discarded range re-reads
 			// next iteration; reworded facts would double-store).
 			expect(getCompartments(midLoop.db, "ses-historian")).toHaveLength(1);
-			expect(getCompartments(midLoop.db, "ses-historian")[0]?.endMessage).toBe(
-				2,
-			);
+			expect(getCompartments(midLoop.db, "ses-historian")[0]?.endMessage).toBe(2);
 			expect(getMemoriesByProject(midLoop.db, projectPath)).toEqual([]);
 		} finally {
 			closeQuietly(midLoop.db);
@@ -762,9 +723,7 @@ describe("runPiHistorian", () => {
 		});
 		try {
 			expect(
-				getMemoriesByProject(allowed.db, projectPath).map(
-					(memory) => memory.content,
-				),
+				getMemoriesByProject(allowed.db, projectPath).map((memory) => memory.content),
 			).toContain("Promote this Pi fact.");
 		} finally {
 			closeQuietly(allowed.db);
@@ -812,9 +771,9 @@ describe("runPiHistorian", () => {
 				);
 				// Editor output won — the promoted fact is from the editor.
 				const projectPath = resolveProjectIdentity(process.cwd());
-				expect(
-					getMemoriesByProject(db, projectPath).map((m) => m.content),
-				).toContain("Edited fact replaced the draft.");
+				expect(getMemoriesByProject(db, projectPath).map((m) => m.content)).toContain(
+					"Edited fact replaced the draft.",
+				);
 			} finally {
 				closeQuietly(db);
 			}
@@ -831,9 +790,9 @@ describe("runPiHistorian", () => {
 				expect(runner.run).toHaveBeenCalledTimes(2);
 				// Draft fact is promoted despite editor failure (no data loss).
 				const projectPath = resolveProjectIdentity(process.cwd());
-				expect(
-					getMemoriesByProject(db, projectPath).map((m) => m.content),
-				).toContain("Original draft fact.");
+				expect(getMemoriesByProject(db, projectPath).map((m) => m.content)).toContain(
+					"Original draft fact.",
+				);
 				// Compartments still persisted.
 				expect(getCompartments(db, "ses-historian")).toEqual([
 					expect.objectContaining({ title: "Initial Pi slice" }),

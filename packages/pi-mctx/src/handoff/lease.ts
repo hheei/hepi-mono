@@ -72,15 +72,12 @@ export function renewHandoffLease(
 	return result.changes === 1;
 }
 
-export function releaseHandoffLease(
-	db: Database,
-	sessionId: string,
-	holderId: string,
-): void {
+export function releaseHandoffLease(db: Database, sessionId: string, holderId: string): void {
 	ensureHandoffLeaseTable(db);
-	db.prepare(
-		"DELETE FROM handoff_lease WHERE session_id = ? AND holder_id = ?",
-	).run(sessionId, holderId);
+	db.prepare("DELETE FROM handoff_lease WHERE session_id = ? AND holder_id = ?").run(
+		sessionId,
+		holderId,
+	);
 }
 
 export function getHandoffLease(

@@ -36,7 +36,7 @@ Rules:
  * suppress them.
  */
 export function stripThinkingBlocks(text: string): string {
-    return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+	return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 }
 
 /**
@@ -48,9 +48,9 @@ export function stripThinkingBlocks(text: string): string {
  * a no-op result so the caller can skip injecting an augmentation block.
  */
 export function isEmptySidekickResult(text: string): boolean {
-    const trimmed = text
-        .trim()
-        .toLowerCase()
-        .replace(/[.!]+$/, "");
-    return trimmed.length === 0 || trimmed === "no relevant memories found";
+	const trimmed = text
+		.trim()
+		.toLowerCase()
+		.replace(/[.!]+$/, "");
+	return trimmed.length === 0 || trimmed === "no relevant memories found";
 }

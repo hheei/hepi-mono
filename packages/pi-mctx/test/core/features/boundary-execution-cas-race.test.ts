@@ -1,19 +1,19 @@
-import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+	type DeferredExecutePayload,
+	peekDeferredExecutePending,
+	setDeferredExecutePendingIfAbsent,
+} from "../../../src/core/features/storage-meta-persisted";
 import { Database } from "../../../src/core/shared/sqlite";
 import { closeQuietly } from "../../../src/core/shared/sqlite-helpers";
-import {
-    type DeferredExecutePayload,
-    peekDeferredExecutePending,
-    setDeferredExecutePendingIfAbsent,
-} from "../../../src/core/features/storage-meta-persisted";
 
 function createRaceDb(path: string): Database {
-    const db = new Database(path);
-    db.exec("PRAGMA journal_mode=WAL");
-    db.exec(`
+	const db = new Database(path);
+	db.exec("PRAGMA journal_mode=WAL");
+	db.exec(`
         CREATE TABLE IF NOT EXISTS session_meta (
             session_id TEXT PRIMARY KEY,
             harness TEXT NOT NULL DEFAULT 'opencode',
@@ -38,32 +38,32 @@ function createRaceDb(path: string): Database {
             deferred_execute_state TEXT
         )
     `);
-    return db;
+	return db;
 }
 
 function payload(id: string): DeferredExecutePayload {
-    return { id, reason: "execute-none", recordedAt: 1_700_000_000_000 };
+	return { id, reason: "execute-none", recordedAt: 1_700_000_000_000 };
 }
 
 describe("deferred execute CAS race", () => {
-    it("15. one WAL handle wins set-if-absent and the other no-ops", () => {
-        const dir = mkdtempSync(join(tmpdir(), "boundary-exec-race-"));
-        const path = join(dir, "context.db");
-        const a = createRaceDb(path);
-        const b = createRaceDb(path);
-        try {
-            const first = setDeferredExecutePendingIfAbsent(a, "s1", payload("a"));
-            const second = setDeferredExecutePendingIfAbsent(b, "s1", payload("b"));
-            expect([first, second].filter(Boolean)).toHaveLength(1);
-            expect(peekDeferredExecutePending(a, "s1")?.id).toBe(first ? "a" : "b");
-        } finally {
-            closeQuietly(a);
-            closeQuietly(b);
-            try {
-                rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-            } catch {
-                // Ignore EBUSY on Windows
-            }
-        }
-    });
+	it("15. one WAL handle wins set-if-absent and the other no-ops", () => {
+		const dir = mkdtempSync(join(tmpdir(), "boundary-exec-race-"));
+		const path = join(dir, "context.db");
+		const a = createRaceDb(path);
+		const b = createRaceDb(path);
+		try {
+			const first = setDeferredExecutePendingIfAbsent(a, "s1", payload("a"));
+			const second = setDeferredExecutePendingIfAbsent(b, "s1", payload("b"));
+			expect([first, second].filter(Boolean)).toHaveLength(1);
+			expect(peekDeferredExecutePending(a, "s1")?.id).toBe(first ? "a" : "b");
+		} finally {
+			closeQuietly(a);
+			closeQuietly(b);
+			try {
+				rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			} catch {
+				// Ignore EBUSY on Windows
+			}
+		}
+	});
 });

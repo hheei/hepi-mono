@@ -21,19 +21,19 @@
 export type LengthFunction = (text: string) => number;
 
 export interface RecursiveCharacterSplitOptions {
-    /** Max length (in `lengthFunction` units) of an emitted chunk. */
-    chunkSize: number;
-    /** Length function; defaults to character count. */
-    lengthFunction?: LengthFunction | undefined;
-    /** Separator hierarchy, tried in order; "" means split into characters. */
-    separators?: string[] | undefined;
+	/** Max length (in `lengthFunction` units) of an emitted chunk. */
+	chunkSize: number;
+	/** Length function; defaults to character count. */
+	lengthFunction?: LengthFunction | undefined;
+	/** Separator hierarchy, tried in order; "" means split into characters. */
+	separators?: string[] | undefined;
 }
 
 const DEFAULT_SEPARATORS = ["\n\n", "\n", " ", ""];
 
 function splitOnSeparator(text: string, separator: string): string[] {
-    const splits = separator ? text.split(separator) : text.split("");
-    return splits.filter((s) => s !== "");
+	const splits = separator ? text.split(separator) : text.split("");
+	return splits.filter((s) => s !== "");
 }
 
 /**
@@ -43,93 +43,91 @@ function splitOnSeparator(text: string, separator: string): string[] {
  * "drain currentDoc once the running total exceeds the budget").
  */
 function mergeSplits(
-    splits: string[],
-    separator: string,
-    chunkSize: number,
-    lengthFunction: LengthFunction,
+	splits: string[],
+	separator: string,
+	chunkSize: number,
+	lengthFunction: LengthFunction,
 ): string[] {
-    const docs: string[] = [];
-    const currentDoc: string[] = [];
-    let total = 0;
-    const joinDocs = (docsToJoin: string[]): string | null => {
-        const joined = docsToJoin.join(separator).trim();
-        return joined === "" ? null : joined;
-    };
-    for (const d of splits) {
-        const len = lengthFunction(d);
-        if (total + len + currentDoc.length * separator.length > chunkSize) {
-            if (currentDoc.length > 0) {
-                const doc = joinDocs(currentDoc);
-                if (doc !== null) docs.push(doc);
-                // chunkOverlap = 0: upstream's drain loop condition
-                // `while (total > chunkOverlap || ...)` reduces to `while (total > 0)`,
-                // i.e. fully flush the accumulated window before starting the next.
-                while (total > 0 && currentDoc.length > 0) {
-                    const first = currentDoc[0];
-                    if (first === undefined) break;
-                    total -= lengthFunction(first);
-                    currentDoc.shift();
-                }
-            }
-        }
-        currentDoc.push(d);
-        total += len;
-    }
-    const doc = joinDocs(currentDoc);
-    if (doc !== null) docs.push(doc);
-    return docs;
+	const docs: string[] = [];
+	const currentDoc: string[] = [];
+	let total = 0;
+	const joinDocs = (docsToJoin: string[]): string | null => {
+		const joined = docsToJoin.join(separator).trim();
+		return joined === "" ? null : joined;
+	};
+	for (const d of splits) {
+		const len = lengthFunction(d);
+		if (total + len + currentDoc.length * separator.length > chunkSize) {
+			if (currentDoc.length > 0) {
+				const doc = joinDocs(currentDoc);
+				if (doc !== null) docs.push(doc);
+				// chunkOverlap = 0: upstream's drain loop condition
+				// `while (total > chunkOverlap || ...)` reduces to `while (total > 0)`,
+				// i.e. fully flush the accumulated window before starting the next.
+				while (total > 0 && currentDoc.length > 0) {
+					const first = currentDoc[0];
+					if (first === undefined) break;
+					total -= lengthFunction(first);
+					currentDoc.shift();
+				}
+			}
+		}
+		currentDoc.push(d);
+		total += len;
+	}
+	const doc = joinDocs(currentDoc);
+	if (doc !== null) docs.push(doc);
+	return docs;
 }
 
 function splitTextRecursive(
-    text: string,
-    separators: string[],
-    chunkSize: number,
-    lengthFunction: LengthFunction,
+	text: string,
+	separators: string[],
+	chunkSize: number,
+	lengthFunction: LengthFunction,
 ): string[] {
-    const finalChunks: string[] = [];
-    // Pick the finest separator that occurs in `text`; "" forces a char split.
-    let separator = separators[separators.length - 1] ?? "";
-    let newSeparators: string[] | undefined;
-    for (let i = 0; i < separators.length; i += 1) {
-        const s = separators[i];
-        if (s === undefined) continue;
-        if (s === "") {
-            separator = s;
-            break;
-        }
-        if (text.includes(s)) {
-            separator = s;
-            newSeparators = separators.slice(i + 1);
-            break;
-        }
-    }
+	const finalChunks: string[] = [];
+	// Pick the finest separator that occurs in `text`; "" forces a char split.
+	let separator = separators[separators.length - 1] ?? "";
+	let newSeparators: string[] | undefined;
+	for (let i = 0; i < separators.length; i += 1) {
+		const s = separators[i];
+		if (s === undefined) continue;
+		if (s === "") {
+			separator = s;
+			break;
+		}
+		if (text.includes(s)) {
+			separator = s;
+			newSeparators = separators.slice(i + 1);
+			break;
+		}
+	}
 
-    const splits = splitOnSeparator(text, separator);
-    let goodSplits: string[] = [];
-    // keepSeparator = false → join merged pieces with the separator.
-    for (const s of splits) {
-        if (lengthFunction(s) < chunkSize) {
-            goodSplits.push(s);
-        } else {
-            if (goodSplits.length) {
-                finalChunks.push(...mergeSplits(goodSplits, separator, chunkSize, lengthFunction));
-                goodSplits = [];
-            }
-            if (!newSeparators) {
-                // No finer separator left — emit as-is (caller applies a hard
-                // char-budget guard for the degenerate token-dense case).
-                finalChunks.push(s);
-            } else {
-                finalChunks.push(
-                    ...splitTextRecursive(s, newSeparators, chunkSize, lengthFunction),
-                );
-            }
-        }
-    }
-    if (goodSplits.length) {
-        finalChunks.push(...mergeSplits(goodSplits, separator, chunkSize, lengthFunction));
-    }
-    return finalChunks;
+	const splits = splitOnSeparator(text, separator);
+	let goodSplits: string[] = [];
+	// keepSeparator = false → join merged pieces with the separator.
+	for (const s of splits) {
+		if (lengthFunction(s) < chunkSize) {
+			goodSplits.push(s);
+		} else {
+			if (goodSplits.length) {
+				finalChunks.push(...mergeSplits(goodSplits, separator, chunkSize, lengthFunction));
+				goodSplits = [];
+			}
+			if (!newSeparators) {
+				// No finer separator left — emit as-is (caller applies a hard
+				// char-budget guard for the degenerate token-dense case).
+				finalChunks.push(s);
+			} else {
+				finalChunks.push(...splitTextRecursive(s, newSeparators, chunkSize, lengthFunction));
+			}
+		}
+	}
+	if (goodSplits.length) {
+		finalChunks.push(...mergeSplits(goodSplits, separator, chunkSize, lengthFunction));
+	}
+	return finalChunks;
 }
 
 /**
@@ -139,12 +137,12 @@ function splitTextRecursive(
  * Synchronous.
  */
 export function recursiveCharacterSplit(
-    text: string,
-    options: RecursiveCharacterSplitOptions,
+	text: string,
+	options: RecursiveCharacterSplitOptions,
 ): string[] {
-    const chunkSize = options.chunkSize;
-    const lengthFunction = options.lengthFunction ?? ((t: string) => t.length);
-    const separators = options.separators ?? DEFAULT_SEPARATORS;
-    if (text.length === 0) return [];
-    return splitTextRecursive(text, separators, chunkSize, lengthFunction);
+	const chunkSize = options.chunkSize;
+	const lengthFunction = options.lengthFunction ?? ((t: string) => t.length);
+	const separators = options.separators ?? DEFAULT_SEPARATORS;
+	if (text.length === 0) return [];
+	return splitTextRecursive(text, separators, chunkSize, lengthFunction);
 }

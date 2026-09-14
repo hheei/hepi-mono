@@ -49,14 +49,14 @@
 
 /** Categorical kind of a transcript part, useful for filter predicates. */
 export type TranscriptPartKind =
-    | "text"
-    | "thinking"
-    | "tool_use"
-    | "tool_result"
-    | "image"
-    | "file"
-    | "structural"
-    | "unknown";
+	| "text"
+	| "thinking"
+	| "tool_use"
+	| "tool_result"
+	| "image"
+	| "file"
+	| "structural"
+	| "unknown";
 
 /**
  * A single content fragment within a transcript message.
@@ -73,108 +73,108 @@ export type TranscriptPartKind =
  * way, the transcript code reads back consistent values via `getText()`.
  */
 export interface TranscriptPart {
-    /** Discriminator for filter logic. Stable across mutations. */
-    readonly kind: TranscriptPartKind;
+	/** Discriminator for filter logic. Stable across mutations. */
+	readonly kind: TranscriptPartKind;
 
-    /**
-     * Best-effort identifier for cross-pass tracking. May be:
-     * - legacy host part ID (e.g. "prt_..."), stable across passes.
-     * - Pi tool-call ID for tool_use/tool_result parts.
-     * - undefined for synthetic/structural parts.
-     *
-     * Pure parts without a stable ID return undefined and are tracked
-     * positionally within their containing message instead.
-     */
-    readonly id: string | undefined;
+	/**
+	 * Best-effort identifier for cross-pass tracking. May be:
+	 * - legacy host part ID (e.g. "prt_..."), stable across passes.
+	 * - Pi tool-call ID for tool_use/tool_result parts.
+	 * - undefined for synthetic/structural parts.
+	 *
+	 * Pure parts without a stable ID return undefined and are tracked
+	 * positionally within their containing message instead.
+	 */
+	readonly id: string | undefined;
 
-    /**
-     * The user-/agent-visible text payload, if this part has one. Returns
-     * undefined for parts that have no text representation (image, file,
-     * structural-only). For thinking parts returns the thinking text. For
-     * tool_use returns the JSON-stringified arguments (so size accounting
-     * reflects what the model sees). For tool_result returns the
-     * concatenated text content of the result.
-     */
-    getText(): string | undefined;
+	/**
+	 * The user-/agent-visible text payload, if this part has one. Returns
+	 * undefined for parts that have no text representation (image, file,
+	 * structural-only). For thinking parts returns the thinking text. For
+	 * tool_use returns the JSON-stringified arguments (so size accounting
+	 * reflects what the model sees). For tool_result returns the
+	 * concatenated text content of the result.
+	 */
+	getText(): string | undefined;
 
-    /**
-     * Replace the visible text payload. Applies only to text and thinking
-     * parts; throws for kinds where mutation isn't meaningful (the caller
-     * should check `kind` first).
-     *
-     * Returns true if the underlying source data actually changed (so
-     * deduplication helpers can short-circuit). Returns false when the
-     * new text equals the existing text byte-for-byte.
-     */
-    setText(newText: string): boolean;
+	/**
+	 * Replace the visible text payload. Applies only to text and thinking
+	 * parts; throws for kinds where mutation isn't meaningful (the caller
+	 * should check `kind` first).
+	 *
+	 * Returns true if the underlying source data actually changed (so
+	 * deduplication helpers can short-circuit). Returns false when the
+	 * new text equals the existing text byte-for-byte.
+	 */
+	setText(newText: string): boolean;
 
-    /**
-     * For tool_result parts: replace the text content of the result.
-     * For tool_use parts: replace JSON-serialized arguments.
-     * For everything else: throws — caller should check `kind` first.
-     */
-    setToolOutput(newText: string): boolean;
+	/**
+	 * For tool_result parts: replace the text content of the result.
+	 * For tool_use parts: replace JSON-serialized arguments.
+	 * For everything else: throws — caller should check `kind` first.
+	 */
+	setToolOutput(newText: string): boolean;
 
-    /**
-     * Tool-specific metadata exposed for tagging/drop accounting:
-     * - toolName: tool identifier (e.g. "bash", "ctx_search"). undefined
-     *   for non-tool parts.
-     * - inputByteSize: serialized argument size; used by historian
-     *   pressure projection to estimate post-drop savings.
-     * - inputTokenCount: real-tokenizer count of the same serialized
-     *   argument, stored on the tag so token-budget consumers SUM stored
-     *   counts instead of re-tokenizing. 0 for non-tool parts.
-     *
-     * For non-tool parts both byte fields are undefined/0.
-     */
-    getToolMetadata(): {
-        toolName: string | undefined;
-        inputByteSize: number;
-        inputTokenCount: number;
-    };
+	/**
+	 * Tool-specific metadata exposed for tagging/drop accounting:
+	 * - toolName: tool identifier (e.g. "bash", "ctx_search"). undefined
+	 *   for non-tool parts.
+	 * - inputByteSize: serialized argument size; used by historian
+	 *   pressure projection to estimate post-drop savings.
+	 * - inputTokenCount: real-tokenizer count of the same serialized
+	 *   argument, stored on the tag so token-budget consumers SUM stored
+	 *   counts instead of re-tokenizing. 0 for non-tool parts.
+	 *
+	 * For non-tool parts both byte fields are undefined/0.
+	 */
+	getToolMetadata(): {
+		toolName: string | undefined;
+		inputByteSize: number;
+		inputTokenCount: number;
+	};
 
-    /**
-     * Non-mutating read of this tool invocation's input object, or null for
-     * non-tool parts / parts without an input. Used by smart-drops supersession
-     * selection (read `ctx_note`'s action, an edit's `filePath`) without
-     * touching the wire. Returns the live object reference; callers must NOT
-     * mutate it.
-     */
-    getToolInput?(): Record<string, unknown> | null;
+	/**
+	 * Non-mutating read of this tool invocation's input object, or null for
+	 * non-tool parts / parts without an input. Used by smart-drops supersession
+	 * selection (read `ctx_note`'s action, an edit's `filePath`) without
+	 * touching the wire. Returns the live object reference; callers must NOT
+	 * mutate it.
+	 */
+	getToolInput?(): Record<string, unknown> | null;
 
-    /**
-     * Replace this tool invocation's input object with `input`. Used by the
-     * smart-drops edit_marker path to write back a filePath-preserving,
-     * region-hint-clamped copy of an edit's arguments. Returns true if the part
-     * carried a writable tool input. No-op (false) for non-tool parts.
-     */
-    setToolInput?(input: Record<string, unknown>): boolean;
+	/**
+	 * Replace this tool invocation's input object with `input`. Used by the
+	 * smart-drops edit_marker path to write back a filePath-preserving,
+	 * region-hint-clamped copy of an edit's arguments. Returns true if the part
+	 * carried a writable tool input. No-op (false) for non-tool parts.
+	 */
+	setToolInput?(input: Record<string, unknown>): boolean;
 
-    /**
-     * Replace this part with a sentinel placeholder. Sentinels look like
-     * `[dropped §N§]` or `[truncated §N§]` and survive cache-busting
-     * cycles by carrying their original tag number. Used by the
-     * apply-operations flow when a queued drop fires.
-     *
-     * Implementations replace the part *in place* in the parent message's
-     * part array. The replaced part's `kind` shifts to "structural" so
-     * subsequent transform passes don't double-process it.
-     *
-     * Returns true on success; returns false if the part can't be
-     * replaced (e.g. it's already a sentinel, or it's an image part).
-     */
-    replaceWithSentinel(sentinelText: string): boolean;
+	/**
+	 * Replace this part with a sentinel placeholder. Sentinels look like
+	 * `[dropped §N§]` or `[truncated §N§]` and survive cache-busting
+	 * cycles by carrying their original tag number. Used by the
+	 * apply-operations flow when a queued drop fires.
+	 *
+	 * Implementations replace the part *in place* in the parent message's
+	 * part array. The replaced part's `kind` shifts to "structural" so
+	 * subsequent transform passes don't double-process it.
+	 *
+	 * Returns true on success; returns false if the part can't be
+	 * replaced (e.g. it's already a sentinel, or it's an image part).
+	 */
+	replaceWithSentinel(sentinelText: string): boolean;
 
-    /**
-     * Optional: serialized byte size of the part's REAL payload, including
-     * non-text content (images, structured data) that `getText()` can't
-     * surface. Used by emergency-drop reclaim accounting so an image-only
-     * tool result is sized by its actual payload, not treated as ~0 bytes.
-     * Adapters that can compute this (e.g. Pi's tool_result proxy, which
-     * closes over the raw content array) should implement it; callers fall
-     * back to the text/JSON estimate when it's absent.
-     */
-    rawByteSize?(): number;
+	/**
+	 * Optional: serialized byte size of the part's REAL payload, including
+	 * non-text content (images, structured data) that `getText()` can't
+	 * surface. Used by emergency-drop reclaim accounting so an image-only
+	 * tool result is sized by its actual payload, not treated as ~0 bytes.
+	 * Adapters that can compute this (e.g. Pi's tool_result proxy, which
+	 * closes over the raw content array) should implement it; callers fall
+	 * back to the text/JSON estimate when it's absent.
+	 */
+	rawByteSize?(): number;
 }
 
 /**
@@ -185,27 +185,27 @@ export interface TranscriptPart {
  * use `info.id` for cross-pass correlation, never the message reference.
  */
 export interface TranscriptMessage {
-    /**
-     * Lightweight metadata exposed for tagging, sentinel persistence, and
-     * cross-pass correlation. Adapters fill these from harness-native
-     * fields:
-     *
-     * - id: provider-stable message ID (legacy host `msg_...`, Pi entryId).
-     * - role: "user" | "assistant" | "system" | "tool" | other custom roles.
-     * - sessionId: session identifier, used to scope DB writes.
-     *
-     * IMPORTANT for Pi: Pi's `ToolResultMessage` has role "toolResult"
-     * which the legacy host-derived transform code expects to NOT be present
-     * (legacy host folds tool results into the next user message's parts).
-     * The Pi adapter therefore exposes tool-result messages as parts of a
-     * synthetic "user" message in the transcript view, even though the
-     * underlying Pi storage has them as separate top-level entries. This
-     * is the *only* shape normalization the adapter performs.
-     */
-    readonly info: { id?: string | undefined; role: string; sessionId?: string | undefined };
+	/**
+	 * Lightweight metadata exposed for tagging, sentinel persistence, and
+	 * cross-pass correlation. Adapters fill these from harness-native
+	 * fields:
+	 *
+	 * - id: provider-stable message ID (legacy host `msg_...`, Pi entryId).
+	 * - role: "user" | "assistant" | "system" | "tool" | other custom roles.
+	 * - sessionId: session identifier, used to scope DB writes.
+	 *
+	 * IMPORTANT for Pi: Pi's `ToolResultMessage` has role "toolResult"
+	 * which the legacy host-derived transform code expects to NOT be present
+	 * (legacy host folds tool results into the next user message's parts).
+	 * The Pi adapter therefore exposes tool-result messages as parts of a
+	 * synthetic "user" message in the transcript view, even though the
+	 * underlying Pi storage has them as separate top-level entries. This
+	 * is the *only* shape normalization the adapter performs.
+	 */
+	readonly info: { id?: string | undefined; role: string; sessionId?: string | undefined };
 
-    /** Ordered parts. Same ordering invariants as the underlying source. */
-    readonly parts: TranscriptPart[];
+	/** Ordered parts. Same ordering invariants as the underlying source. */
+	readonly parts: TranscriptPart[];
 }
 
 /**
@@ -218,33 +218,33 @@ export interface TranscriptMessage {
  * interface — it never imports from a host SDK or `@earendil-works/pi-ai`.
  */
 export interface Transcript {
-    /** Ordered messages in the current pass. */
-    readonly messages: TranscriptMessage[];
+	/** Ordered messages in the current pass. */
+	readonly messages: TranscriptMessage[];
 
-    /**
-     * Adapter identification. Useful for:
-     * - Logging (`magic-context[legacy host]` vs `magic-context[pi]`).
-     * - Per-harness behaviors gated at adapter level (e.g. legacy host-only
-     *   compaction marker injection).
-     * - Test assertions confirming the right adapter ran.
-     */
-    readonly harness: "pi";
+	/**
+	 * Adapter identification. Useful for:
+	 * - Logging (`magic-context[legacy host]` vs `magic-context[pi]`).
+	 * - Per-harness behaviors gated at adapter level (e.g. legacy host-only
+	 *   compaction marker injection).
+	 * - Test assertions confirming the right adapter ran.
+	 */
+	readonly harness: "pi";
 
-    /**
-     * Commit accumulated mutations to the underlying source array.
-     *
-     * For legacy host: no-op — parts are mutated directly in `Part.text`/
-     * `Part.state.output` and legacy host reads them back from the same
-     * array, so changes are already visible.
-     *
-     * For Pi: rebuilds a new `AgentMessage[]` from the dirty messages
-     * and stores it on the adapter so `pi.on("context", ...)` can return
-     * `{ messages }` to Pi. Idempotent: calling twice is safe.
-     *
-     * Always called exactly once per pass, after the transform pipeline
-     * finishes. Adapters that don't need it implement it as a no-op.
-     */
-    commit(): void;
+	/**
+	 * Commit accumulated mutations to the underlying source array.
+	 *
+	 * For legacy host: no-op — parts are mutated directly in `Part.text`/
+	 * `Part.state.output` and legacy host reads them back from the same
+	 * array, so changes are already visible.
+	 *
+	 * For Pi: rebuilds a new `AgentMessage[]` from the dirty messages
+	 * and stores it on the adapter so `pi.on("context", ...)` can return
+	 * `{ messages }` to Pi. Idempotent: calling twice is safe.
+	 *
+	 * Always called exactly once per pass, after the transform pipeline
+	 * finishes. Adapters that don't need it implement it as a no-op.
+	 */
+	commit(): void;
 }
 
 /**

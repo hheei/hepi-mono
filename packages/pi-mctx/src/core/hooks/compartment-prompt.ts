@@ -82,32 +82,32 @@ Rules:
 - Never output facts, events, user observations, primer candidates, markdown fences, or prose outside <output>.`;
 
 export function buildHistorianEditorPrompt(draft: string): string {
-    return [
-        "This is a historian draft. Clean it up following the rules in your system prompt.",
-        "",
-        "<draft>",
-        draft,
-        "</draft>",
-        "",
-        "Return the cleaned draft as valid XML matching the original structure.",
-    ].join("\n");
+	return [
+		"This is a historian draft. Clean it up following the rules in your system prompt.",
+		"",
+		"<draft>",
+		draft,
+		"</draft>",
+		"",
+		"Return the cleaned draft as valid XML matching the original structure.",
+	].join("\n");
 }
 export interface CompartmentPromptInputs {
-    /** `<compartment_examples_from_other_projects>` block (4-seed floor), or "". */
-    seedExamples: string;
-    /** `<session_references>` block (last-6 recency), or "" for a young session. */
-    sessionReferences: string;
-    /** `<project-memory>` block for fact dedup, or "" when memory disabled/empty. */
-    projectMemory: string;
-    /** Raw chunk to compartmentalize, pre-formatted `Messages X-Y:\n\n...`. */
-    inputSource: string;
-    /** When false, instruct the historian to SKIP fact extraction entirely.
-     *  v2 faithful facts are stored only as project memories; with memory
-     *  disabled there is no fact store, so emitting facts is pure waste
-     *  (and they would never be rendered). Defaults to enabled. */
-    memoryEnabled?: boolean | undefined;
-    /** Recomp/session-upgrade structural rebuilds must use the extraction-free prompt. */
-    extractionFree?: boolean | undefined;
+	/** `<compartment_examples_from_other_projects>` block (4-seed floor), or "". */
+	seedExamples: string;
+	/** `<session_references>` block (last-6 recency), or "" for a young session. */
+	sessionReferences: string;
+	/** `<project-memory>` block for fact dedup, or "" when memory disabled/empty. */
+	projectMemory: string;
+	/** Raw chunk to compartmentalize, pre-formatted `Messages X-Y:\n\n...`. */
+	inputSource: string;
+	/** When false, instruct the historian to SKIP fact extraction entirely.
+	 *  v2 faithful facts are stored only as project memories; with memory
+	 *  disabled there is no fact store, so emitting facts is pure waste
+	 *  (and they would never be rendered). Defaults to enabled. */
+	memoryEnabled?: boolean | undefined;
+	/** Recomp/session-upgrade structural rebuilds must use the extraction-free prompt. */
+	extractionFree?: boolean | undefined;
 }
 
 /**
@@ -121,24 +121,24 @@ export interface CompartmentPromptInputs {
  * bounded reference blocks replace it.
  */
 export function buildCompartmentAgentPrompt(inputs: CompartmentPromptInputs): string {
-    const parts: string[] = [];
-    if (inputs.seedExamples) parts.push(inputs.seedExamples);
-    if (inputs.sessionReferences) parts.push(inputs.sessionReferences);
-    if (inputs.projectMemory) parts.push(inputs.projectMemory);
-    if (inputs.extractionFree) {
-        parts.push(
-            "<extraction>disabled</extraction>\nStructural recomp mode: emit compartments and <meta> only. Do NOT emit <facts>, <events>, <user_observations>, or <primer_candidates>.",
-        );
-    }
-    if (inputs.memoryEnabled === false) {
-        // Memory disabled → no fact store exists. Tell the historian to skip
-        // the <facts> section so it spends its budget on compartments only.
-        parts.push(
-            "<fact_extraction>disabled</fact_extraction>\nMemory is disabled for this project: do NOT emit a <facts> block. Produce compartments only.",
-        );
-    }
-    parts.push("<new_messages>");
-    parts.push(inputs.inputSource);
-    parts.push("</new_messages>");
-    return parts.join("\n\n");
+	const parts: string[] = [];
+	if (inputs.seedExamples) parts.push(inputs.seedExamples);
+	if (inputs.sessionReferences) parts.push(inputs.sessionReferences);
+	if (inputs.projectMemory) parts.push(inputs.projectMemory);
+	if (inputs.extractionFree) {
+		parts.push(
+			"<extraction>disabled</extraction>\nStructural recomp mode: emit compartments and <meta> only. Do NOT emit <facts>, <events>, <user_observations>, or <primer_candidates>.",
+		);
+	}
+	if (inputs.memoryEnabled === false) {
+		// Memory disabled → no fact store exists. Tell the historian to skip
+		// the <facts> section so it spends its budget on compartments only.
+		parts.push(
+			"<fact_extraction>disabled</fact_extraction>\nMemory is disabled for this project: do NOT emit a <facts> block. Produce compartments only.",
+		);
+	}
+	parts.push("<new_messages>");
+	parts.push(inputs.inputSource);
+	parts.push("</new_messages>");
+	return parts.join("\n\n");
 }

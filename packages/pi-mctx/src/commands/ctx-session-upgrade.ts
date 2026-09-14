@@ -48,8 +48,7 @@ export interface CtxSessionUpgradeRuntimeDeps {
 	compactionOff?: boolean | undefined;
 }
 
-export interface RegisterCtxSessionUpgradeDeps
-	extends CtxSessionUpgradeRuntimeDeps {
+export interface RegisterCtxSessionUpgradeDeps extends CtxSessionUpgradeRuntimeDeps {
 	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxSessionUpgradeRuntimeDeps) | undefined;
 }
 
@@ -132,9 +131,7 @@ export function registerCtxSessionUpgradeCommand(
 			// legacy host's primaryModelId): a quality-sensitive consolidation should
 			// run on the user's working model, not the (possibly misconfigured)
 			// historian model. Historian model + fallbacks remain the safety net.
-			const sessionMainModel = ctx.model
-				? `${ctx.model.provider}/${ctx.model.id}`
-				: undefined;
+			const sessionMainModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
 
 			// Migration runs only when memory is enabled — parity with legacy host,
 			// whose orchestrator gates on `runMigration = memory.enabled !== false
@@ -186,16 +183,12 @@ export function registerCtxSessionUpgradeCommand(
 			//   • none + migration already done → no-op "already upgraded"
 			//   • none + migration still pending → migration only (skip recomp)
 			if (upgradableCount === 0) {
-				const projectPath = resolveProjectIdentityForSession(
-					ctx.cwd,
-					currentDeps.allowHomeProject,
-				);
+				const projectPath = resolveProjectIdentityForSession(ctx.cwd, currentDeps.allowHomeProject);
 				if (!projectPath) return;
 				// migrationPending mirrors legacy host: only pending when memory is
 				// enabled AND the project hasn't been migrated yet.
 				const migrationPending =
-					migrationEnabled &&
-					!isMemoryMigrationDone(currentDeps.db, projectPath);
+					migrationEnabled && !isMemoryMigrationDone(currentDeps.db, projectPath);
 				if (!migrationPending) {
 					sendCtxStatusMessage(pi, {
 						title: "/ctx-session-upgrade",
@@ -314,9 +307,7 @@ export function registerCtxSessionUpgradeCommand(
 							...(currentDeps.historianFallbacks === undefined
 								? {}
 								: { fallbackModels: currentDeps.historianFallbacks }),
-							...(sessionMainModel === undefined
-								? {}
-								: { fallbackModelId: sessionMainModel }),
+							...(sessionMainModel === undefined ? {} : { fallbackModelId: sessionMainModel }),
 							...(currentDeps.language === undefined ? {} : { language: currentDeps.language }),
 						},
 						{},
@@ -336,10 +327,7 @@ export function registerCtxSessionUpgradeCommand(
 					// and running migration + declaring Complete on it would migrate
 					// memories while leaving tierless legacy rows. Mirrors legacy host's
 					// recomp-orchestrator gate.
-					if (
-						!recompResult.published ||
-						!isRecompComplete(recompResult.message)
-					) {
+					if (!recompResult.published || !isRecompComplete(recompResult.message)) {
 						const reason = contextualizeUpgradeReason(
 							isRecompFailure(recompResult.message)
 								? extractRecompReason(recompResult.message)

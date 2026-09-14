@@ -1,11 +1,5 @@
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-	type PiPrefixTool,
-	resolvePiContextUsage,
-} from "@hheei/pi-ext-core";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type PiPrefixTool, resolvePiContextUsage } from "@hheei/pi-ext-core";
 import type { ContextDatabase } from "#core/features/storage";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
 
@@ -19,10 +13,7 @@ export interface StatusLineDeps {
 	projectIdentity: string;
 }
 
-export function setMagicContextRecompActive(
-	sessionId: string,
-	active: boolean,
-): void {
+export function setMagicContextRecompActive(sessionId: string, active: boolean): void {
 	if (active) recompSessions.add(sessionId);
 	else recompSessions.delete(sessionId);
 }
@@ -42,10 +33,7 @@ const lastRenderedBySession = new Map<string, string>();
  * tokenize (system prompt + tool defs) runs inside that helper. No tag or
  * compartment enumeration here; the rich breakdown is reserved for /ctx-status.
  */
-export function registerStatusLine(
-	pi: ExtensionAPI,
-	deps: StatusLineDeps,
-): void {
+export function registerStatusLine(pi: ExtensionAPI, deps: StatusLineDeps): void {
 	void deps.projectIdentity;
 	listedTools = () => {
 		try {
@@ -55,16 +43,10 @@ export function registerStatusLine(
 		}
 	};
 
-	pi.on("session_start", async (_event, ctx) =>
-		updateStatusLine(ctx, deps, true),
-	);
+	pi.on("session_start", async (_event, ctx) => updateStatusLine(ctx, deps, true));
 	pi.on("agent_end", async (_event, ctx) => updateStatusLine(ctx, deps));
-	pi.on("session_compact", async (_event, ctx) =>
-		updateStatusLine(ctx, deps, true),
-	);
-	pi.on("tool_execution_end", async (_event, ctx) =>
-		updateStatusLine(ctx, deps),
-	);
+	pi.on("session_compact", async (_event, ctx) => updateStatusLine(ctx, deps, true));
+	pi.on("tool_execution_end", async (_event, ctx) => updateStatusLine(ctx, deps));
 	pi.on("message_end", async (event, ctx) => {
 		const role = (event.message as { role?: unknown } | undefined)?.role;
 		if (role === "assistant") updateStatusLine(ctx, deps);
@@ -76,11 +58,7 @@ export function registerStatusLine(
 	});
 }
 
-export function updateStatusLine(
-	ctx: ExtensionContext,
-	deps: StatusLineDeps,
-	force = false,
-): void {
+export function updateStatusLine(ctx: ExtensionContext, deps: StatusLineDeps, force = false): void {
 	const sessionId = resolveSessionId(ctx);
 	if (!sessionId) return;
 	const text = renderStatusText(ctx, deps.db, sessionId);
@@ -89,19 +67,13 @@ export function updateStatusLine(
 	ctx.ui.setStatus(STATUS_KEY, text);
 }
 
-function renderStatusText(
-	ctx: ExtensionContext,
-	db: ContextDatabase,
-	sessionId: string,
-): string {
+function renderStatusText(ctx: ExtensionContext, db: ContextDatabase, sessionId: string): string {
 	const usage = ctx.getContextUsage?.();
 	const liveReady = typeof usage?.tokens === "number" && usage.tokens > 0;
 	const systemPrompt = liveReady ? undefined : readSystemPrompt(ctx);
 	const usageOptions = {
 		...(usage === undefined ? {} : { live: usage }),
-		...(ctx.model?.contextWindow === undefined
-			? {}
-			: { contextWindow: ctx.model.contextWindow }),
+		...(ctx.model?.contextWindow === undefined ? {} : { contextWindow: ctx.model.contextWindow }),
 		...(liveReady
 			? {}
 			: {
@@ -118,10 +90,7 @@ function renderStatusText(
 	return `mc: ${inputTokens === undefined ? "--" : fmt(inputTokens)} (${pct === undefined ? "--" : `${Math.round(pct)}%`}) · ${state}`;
 }
 
-function renderHistorianState(
-	meta: SessionMetaStatus | undefined,
-	recompActive: boolean,
-): string {
+function renderHistorianState(meta: SessionMetaStatus | undefined, recompActive: boolean): string {
 	const failureCount = meta?.historian_failure_count ?? 0;
 	const lastFailureAt = meta?.historian_last_failure_at ?? 0;
 	if (failureCount > 0 && lastFailureAt > 0) {
@@ -150,10 +119,7 @@ function readSessionMetaStatus(
 
 function readSystemPrompt(ctx: ExtensionContext): string | undefined {
 	try {
-		const prompt =
-			typeof ctx.getSystemPrompt === "function"
-				? ctx.getSystemPrompt()
-				: undefined;
+		const prompt = typeof ctx.getSystemPrompt === "function" ? ctx.getSystemPrompt() : undefined;
 		return typeof prompt === "string" && prompt.length > 0 ? prompt : undefined;
 	} catch {
 		return undefined;
@@ -161,9 +127,8 @@ function readSystemPrompt(ctx: ExtensionContext): string | undefined {
 }
 
 function resolveSessionId(ctx: ExtensionContext): string | undefined {
-	const getSessionId = (
-		ctx.sessionManager as { getSessionId?: () => string | undefined }
-	).getSessionId;
+	const getSessionId = (ctx.sessionManager as { getSessionId?: () => string | undefined })
+		.getSessionId;
 	if (typeof getSessionId !== "function") return undefined;
 	try {
 		const id = getSessionId.call(ctx.sessionManager);

@@ -5,19 +5,19 @@ import type { MessageLike } from "./tag-messages";
 const STRUCTURAL_PART_TYPES = new Set(["meta", "step-start", "step-finish", "reasoning"]);
 
 function isStructuralNoisePart(part: unknown): boolean {
-    if (!isRecord(part) || typeof part.type !== "string") {
-        return false;
-    }
+	if (!isRecord(part) || typeof part.type !== "string") {
+		return false;
+	}
 
-    if (!STRUCTURAL_PART_TYPES.has(part.type)) {
-        return false;
-    }
+	if (!STRUCTURAL_PART_TYPES.has(part.type)) {
+		return false;
+	}
 
-    if (part.type === "reasoning" && typeof part.text === "string" && part.text !== "[cleared]") {
-        return false;
-    }
+	if (part.type === "reasoning" && typeof part.text === "string" && part.text !== "[cleared]") {
+		return false;
+	}
 
-    return true;
+	return true;
 }
 
 /**
@@ -33,21 +33,21 @@ function isStructuralNoisePart(part: unknown): boolean {
  * skipped (not re-mutated, not re-counted).
  */
 export function stripStructuralNoise(messages: MessageLike[]): number {
-    let strippedParts = 0;
+	let strippedParts = 0;
 
-    for (const message of messages) {
-        if (!Array.isArray(message.parts)) {
-            continue;
-        }
+	for (const message of messages) {
+		if (!Array.isArray(message.parts)) {
+			continue;
+		}
 
-        for (let i = 0; i < message.parts.length; i++) {
-            const part = message.parts[i];
-            if (isSentinel(part)) continue;
-            if (!isStructuralNoisePart(part)) continue;
-            message.parts[i] = makeSentinel(part);
-            strippedParts++;
-        }
-    }
+		for (let i = 0; i < message.parts.length; i++) {
+			const part = message.parts[i];
+			if (isSentinel(part)) continue;
+			if (!isStructuralNoisePart(part)) continue;
+			message.parts[i] = makeSentinel(part);
+			strippedParts++;
+		}
+	}
 
-    return strippedParts;
+	return strippedParts;
 }

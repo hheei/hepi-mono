@@ -13,18 +13,14 @@
  */
 
 import {
-    deliverNoteNudgeAtomic,
-    getNoteLastReadAt,
-    getPersistedNoteNudge,
-    type NoteNudgeDeliveryOutcome,
-    setPersistedNoteNudgeTrigger,
-    setPersistedNoteNudgeTriggerMessageId,
+	deliverNoteNudgeAtomic,
+	getNoteLastReadAt,
+	getPersistedNoteNudge,
+	type NoteNudgeDeliveryOutcome,
+	setPersistedNoteNudgeTrigger,
+	setPersistedNoteNudgeTriggerMessageId,
 } from "../features/storage-meta-persisted";
-import {
-    getReadySmartNotes,
-    getSessionNotes,
-    type Note,
-} from "../features/storage-notes";
+import { getReadySmartNotes, getSessionNotes, type Note } from "../features/storage-notes";
 import { sessionLog } from "../shared/logger";
 import type { Database } from "../shared/sqlite";
 
@@ -37,19 +33,19 @@ const NOTE_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 const lastDeliveredAt = new Map<string, number>();
 
 function getPersistedNoteNudgeDeliveredAt(_db: unknown, sessionId: string): number {
-    return lastDeliveredAt.get(sessionId) ?? 0;
+	return lastDeliveredAt.get(sessionId) ?? 0;
 }
 
 export function recordNoteNudgeDeliveryTime(sessionId: string): void {
-    lastDeliveredAt.set(sessionId, Date.now());
+	lastDeliveredAt.set(sessionId, Date.now());
 }
 
 /**
  * Signal that a trigger event occurred.
  */
 export function onNoteTrigger(db: Database, sessionId: string, trigger: NoteNudgeTrigger): void {
-    setPersistedNoteNudgeTrigger(db, sessionId);
-    sessionLog(sessionId, `note-nudge: trigger fired (${trigger}), triggerPending=true`);
+	setPersistedNoteNudgeTrigger(db, sessionId);
+	sessionLog(sessionId, `note-nudge: trigger fired (${trigger}), triggerPending=true`);
 }
 
 /**
@@ -72,114 +68,114 @@ export function onNoteTrigger(db: Database, sessionId: string, trigger: NoteNudg
  *   `hasVisibleNoteReadCall(messages)` AFTER drops are materialized.
  */
 export function peekNoteNudgeText(
-    db: Database,
-    sessionId: string,
-    currentUserMessageId?: string | null,
-    projectIdentity?: string,
-    noteReadStillVisible?: boolean,
+	db: Database,
+	sessionId: string,
+	currentUserMessageId?: string | null,
+	projectIdentity?: string,
+	noteReadStillVisible?: boolean,
 ): string | null {
-    const state = getPersistedNoteNudge(db, sessionId);
+	const state = getPersistedNoteNudge(db, sessionId);
 
-    if (!state.triggerPending) return null;
+	if (!state.triggerPending) return null;
 
-    // On first peek after trigger, record the current user message as the
-    // trigger-time message. This is filled here (not in onNoteTrigger) because
-    // hook callers like tool.execute.after don't have access to the message array.
-    if (!state.triggerMessageId && currentUserMessageId) {
-        setPersistedNoteNudgeTriggerMessageId(db, sessionId, currentUserMessageId);
-        state.triggerMessageId = currentUserMessageId;
-    }
+	// On first peek after trigger, record the current user message as the
+	// trigger-time message. This is filled here (not in onNoteTrigger) because
+	// hook callers like tool.execute.after don't have access to the message array.
+	if (!state.triggerMessageId && currentUserMessageId) {
+		setPersistedNoteNudgeTriggerMessageId(db, sessionId, currentUserMessageId);
+		state.triggerMessageId = currentUserMessageId;
+	}
 
-    // Defer delivery until a NEW user message arrives after the trigger.
-    // Injecting into the trigger-time message would bust the cached prefix.
-    if (
-        state.triggerMessageId &&
-        currentUserMessageId &&
-        state.triggerMessageId === currentUserMessageId
-    ) {
-        sessionLog(
-            sessionId,
-            `note-nudge: deferring — current user message ${currentUserMessageId} is same as trigger-time message`,
-        );
-        return null;
-    }
+	// Defer delivery until a NEW user message arrives after the trigger.
+	// Injecting into the trigger-time message would bust the cached prefix.
+	if (
+		state.triggerMessageId &&
+		currentUserMessageId &&
+		state.triggerMessageId === currentUserMessageId
+	) {
+		sessionLog(
+			sessionId,
+			`note-nudge: deferring — current user message ${currentUserMessageId} is same as trigger-time message`,
+		);
+		return null;
+	}
 
-    // Suppress if we delivered a nudge recently (within 15 minutes).
-    // Prevents the same notes from being re-surfaced on every work boundary
-    // in quick succession during active work.
-    // Check unconditionally — a new trigger clears sticky fields, so gating on
-    // stickyText presence would let triggers bypass the cooldown window.
-    const deliveredAt = getPersistedNoteNudgeDeliveredAt(db, sessionId);
-    if (deliveredAt > 0 && Date.now() - deliveredAt < NOTE_NUDGE_COOLDOWN_MS) {
-        sessionLog(
-            sessionId,
-            `note-nudge: suppressing — last delivered ${Math.round((Date.now() - deliveredAt) / 1000)}s ago (cooldown ${NOTE_NUDGE_COOLDOWN_MS / 60000}m)`,
-        );
-        clearNoteNudgeTriggerOnly(db, sessionId);
-        return null;
-    }
+	// Suppress if we delivered a nudge recently (within 15 minutes).
+	// Prevents the same notes from being re-surfaced on every work boundary
+	// in quick succession during active work.
+	// Check unconditionally — a new trigger clears sticky fields, so gating on
+	// stickyText presence would let triggers bypass the cooldown window.
+	const deliveredAt = getPersistedNoteNudgeDeliveredAt(db, sessionId);
+	if (deliveredAt > 0 && Date.now() - deliveredAt < NOTE_NUDGE_COOLDOWN_MS) {
+		sessionLog(
+			sessionId,
+			`note-nudge: suppressing — last delivered ${Math.round((Date.now() - deliveredAt) / 1000)}s ago (cooldown ${NOTE_NUDGE_COOLDOWN_MS / 60000}m)`,
+		);
+		clearNoteNudgeTriggerOnly(db, sessionId);
+		return null;
+	}
 
-    // Check if there are actually notes to remind about
-    const notes = getSessionNotes(db, sessionId);
-    const readySmartNotes = projectIdentity ? getReadySmartNotes(db, projectIdentity) : [];
-    const totalCount = notes.length + readySmartNotes.length;
-    if (totalCount === 0) {
-        sessionLog(sessionId, "note-nudge: triggerPending but no notes found, skipping");
-        clearNoteNudgeTriggerOnly(db, sessionId);
-        return null;
-    }
+	// Check if there are actually notes to remind about
+	const notes = getSessionNotes(db, sessionId);
+	const readySmartNotes = projectIdentity ? getReadySmartNotes(db, projectIdentity) : [];
+	const totalCount = notes.length + readySmartNotes.length;
+	if (totalCount === 0) {
+		sessionLog(sessionId, "note-nudge: triggerPending but no notes found, skipping");
+		clearNoteNudgeTriggerOnly(db, sessionId);
+		return null;
+	}
 
-    // Suppress only when BOTH conditions hold:
-    //   1. The agent already ran ctx_note(read) AFTER the most recent note
-    //      activity — they've seen the current note state.
-    //   2. That ctx_note(read) tool call is STILL VISIBLE in their message
-    //      context (caller passes `noteReadStillVisible` after computing it
-    //      against the post-drop messages array).
-    //
-    // Both must hold because either alone produces wrong behavior:
-    //   - Timestamp-only suppression (#1 alone) keeps suppressing forever
-    //     once the read result has been compactified, ctx_reduce'd, or
-    //     age-cleaned out of context. The agent loses visibility into
-    //     deferred intentions and we never re-surface them.
-    //   - Visibility-only suppression (#2 alone) re-nudges immediately even
-    //     when the agent just read the latest state — pestering them with
-    //     content they already see.
-    //
-    // The combined check is what your original design intended: re-surface
-    // notes at work boundaries when the prior read is no longer in front
-    // of the agent.
-    const lastReadAt = getNoteLastReadAt(db, sessionId);
-    if (lastReadAt > 0 && noteReadStillVisible) {
-        const mostRecentNoteActivity = maxNoteActivityTime([...notes, ...readySmartNotes]);
-        // Strict > so same-millisecond races favor the newer note. If a note
-        // write and a ctx_note(read) land in the same ms, we can't tell which
-        // happened first; err on the side of surfacing the note once more
-        // rather than silently suppressing a potentially new reminder.
-        if (mostRecentNoteActivity > 0 && lastReadAt > mostRecentNoteActivity) {
-            sessionLog(
-                sessionId,
-                `note-nudge: suppressing — agent ran ctx_note(read) at ${new Date(
-                    lastReadAt,
-                ).toISOString()} and the read is still visible; no new notes since ${new Date(
-                    mostRecentNoteActivity,
-                ).toISOString()}`,
-            );
-            clearNoteNudgeTriggerOnly(db, sessionId);
-            return null;
-        }
-    }
+	// Suppress only when BOTH conditions hold:
+	//   1. The agent already ran ctx_note(read) AFTER the most recent note
+	//      activity — they've seen the current note state.
+	//   2. That ctx_note(read) tool call is STILL VISIBLE in their message
+	//      context (caller passes `noteReadStillVisible` after computing it
+	//      against the post-drop messages array).
+	//
+	// Both must hold because either alone produces wrong behavior:
+	//   - Timestamp-only suppression (#1 alone) keeps suppressing forever
+	//     once the read result has been compactified, ctx_reduce'd, or
+	//     age-cleaned out of context. The agent loses visibility into
+	//     deferred intentions and we never re-surface them.
+	//   - Visibility-only suppression (#2 alone) re-nudges immediately even
+	//     when the agent just read the latest state — pestering them with
+	//     content they already see.
+	//
+	// The combined check is what your original design intended: re-surface
+	// notes at work boundaries when the prior read is no longer in front
+	// of the agent.
+	const lastReadAt = getNoteLastReadAt(db, sessionId);
+	if (lastReadAt > 0 && noteReadStillVisible) {
+		const mostRecentNoteActivity = maxNoteActivityTime([...notes, ...readySmartNotes]);
+		// Strict > so same-millisecond races favor the newer note. If a note
+		// write and a ctx_note(read) land in the same ms, we can't tell which
+		// happened first; err on the side of surfacing the note once more
+		// rather than silently suppressing a potentially new reminder.
+		if (mostRecentNoteActivity > 0 && lastReadAt > mostRecentNoteActivity) {
+			sessionLog(
+				sessionId,
+				`note-nudge: suppressing — agent ran ctx_note(read) at ${new Date(
+					lastReadAt,
+				).toISOString()} and the read is still visible; no new notes since ${new Date(
+					mostRecentNoteActivity,
+				).toISOString()}`,
+			);
+			clearNoteNudgeTriggerOnly(db, sessionId);
+			return null;
+		}
+	}
 
-    const parts: string[] = [];
-    if (notes.length > 0) {
-        parts.push(`${notes.length} deferred note${notes.length === 1 ? "" : "s"}`);
-    }
-    if (readySmartNotes.length > 0) {
-        parts.push(
-            `${readySmartNotes.length} ready smart note${readySmartNotes.length === 1 ? "" : "s"}`,
-        );
-    }
-    sessionLog(sessionId, `note-nudge: delivering nudge for ${parts.join(" and ")}`);
-    return `You have ${parts.join(" and ")}. Review with ctx_note read — some may be actionable now.`;
+	const parts: string[] = [];
+	if (notes.length > 0) {
+		parts.push(`${notes.length} deferred note${notes.length === 1 ? "" : "s"}`);
+	}
+	if (readySmartNotes.length > 0) {
+		parts.push(
+			`${readySmartNotes.length} ready smart note${readySmartNotes.length === 1 ? "" : "s"}`,
+		);
+	}
+	sessionLog(sessionId, `note-nudge: delivering nudge for ${parts.join(" and ")}`);
+	return `You have ${parts.join(" and ")}. Review with ctx_note read — some may be actionable now.`;
 }
 
 /**
@@ -192,12 +188,12 @@ export function peekNoteNudgeText(
  * ready transition is new information the agent hasn't seen.
  */
 function maxNoteActivityTime(notes: Note[]): number {
-    let max = 0;
-    for (const note of notes) {
-        if (note.updatedAt > max) max = note.updatedAt;
-        if (note.readyAt !== null && note.readyAt > max) max = note.readyAt;
-    }
-    return max;
+	let max = 0;
+	for (const note of notes) {
+		if (note.updatedAt > max) max = note.updatedAt;
+		if (note.readyAt !== null && note.readyAt > max) max = note.readyAt;
+	}
+	return max;
 }
 
 /**
@@ -205,28 +201,28 @@ function maxNoteActivityTime(notes: Note[]): number {
  * Only call after appendReminderToLatestUserMessage returns an anchor (or null if no user message exists).
  */
 export function markNoteNudgeDelivered(
-    db: Database,
-    sessionId: string,
-    text: string,
-    messageId: string | null,
+	db: Database,
+	sessionId: string,
+	text: string,
+	messageId: string | null,
 ): NoteNudgeDeliveryOutcome {
-    if (!messageId) {
-        clearNoteNudgeTriggerAndCooldown(db, sessionId);
-        sessionLog(sessionId, "note-nudge: marked delivered without anchor");
-        return { ok: true, kind: "already-present" };
-    }
+	if (!messageId) {
+		clearNoteNudgeTriggerAndCooldown(db, sessionId);
+		sessionLog(sessionId, "note-nudge: marked delivered without anchor");
+		return { ok: true, kind: "already-present" };
+	}
 
-    const outcome = deliverNoteNudgeAtomic(db, sessionId, messageId, text);
-    if (outcome.ok) {
-        recordNoteNudgeDeliveryTime(sessionId);
-    }
-    sessionLog(
-        sessionId,
-        outcome.ok
-            ? `note-nudge: marked delivered, sticky anchor=${messageId} (${outcome.kind})`
-            : `note-nudge: delivery not persisted for anchor=${messageId} (${outcome.kind})`,
-    );
-    return outcome;
+	const outcome = deliverNoteNudgeAtomic(db, sessionId, messageId, text);
+	if (outcome.ok) {
+		recordNoteNudgeDeliveryTime(sessionId);
+	}
+	sessionLog(
+		sessionId,
+		outcome.ok
+			? `note-nudge: marked delivered, sticky anchor=${messageId} (${outcome.kind})`
+			: `note-nudge: delivery not persisted for anchor=${messageId} (${outcome.kind})`,
+	);
+	return outcome;
 }
 
 /**
@@ -234,12 +230,12 @@ export function markNoteNudgeDelivered(
  * Returns { text, messageId } if a delivered nudge needs re-injection, null otherwise.
  */
 export function getStickyNoteNudge(
-    db: Database,
-    sessionId: string,
+	db: Database,
+	sessionId: string,
 ): { text: string; messageId: string } | null {
-    const state = getPersistedNoteNudge(db, sessionId);
-    if (!state.stickyText || !state.stickyMessageId) return null;
-    return { text: state.stickyText, messageId: state.stickyMessageId };
+	const state = getPersistedNoteNudge(db, sessionId);
+	if (!state.stickyText || !state.stickyMessageId) return null;
+	return { text: state.stickyText, messageId: state.stickyMessageId };
 }
 
 /**
@@ -247,55 +243,55 @@ export function getStickyNoteNudge(
  * Kept for tests; prefer peekNoteNudgeText + markNoteNudgeDelivered in production.
  */
 export function getNoteNudgeText(db: Database, sessionId: string): string | null {
-    const text = peekNoteNudgeText(db, sessionId);
-    if (text) {
-        markNoteNudgeDelivered(db, sessionId, text, null);
-    }
-    return text;
+	const text = peekNoteNudgeText(db, sessionId);
+	if (text) {
+		markNoteNudgeDelivered(db, sessionId, text, null);
+	}
+	return text;
 }
 
 /**
  * Call when session is deleted or notes are read to clear persisted state.
  */
 export function clearNoteNudgeState(
-    db: Database,
-    sessionId: string,
-    options?: { persist?: boolean },
+	db: Database,
+	sessionId: string,
+	options?: { persist?: boolean },
 ): void {
-    if (options?.persist !== false) {
-        clearAllNoteNudgeState(db, sessionId);
-    }
-    lastDeliveredAt.delete(sessionId); // also reset in-memory cooldown
+	if (options?.persist !== false) {
+		clearAllNoteNudgeState(db, sessionId);
+	}
+	lastDeliveredAt.delete(sessionId); // also reset in-memory cooldown
 }
 
 export function clearAllNoteNudgeState(db: Database, sessionId: string): void {
-    db.transaction(() => {
-        db.prepare(
-            `UPDATE session_meta
+	db.transaction(() => {
+		db.prepare(
+			`UPDATE session_meta
              SET note_nudge_anchors = '[]',
                  note_nudge_trigger_pending = 0,
                  note_nudge_trigger_message_id = '',
                  note_nudge_sticky_text = '',
                  note_nudge_sticky_message_id = ''
              WHERE session_id = ?`,
-        ).run(sessionId);
-    })();
-    lastDeliveredAt.delete(sessionId);
+		).run(sessionId);
+	})();
+	lastDeliveredAt.delete(sessionId);
 }
 
 export function clearNoteNudgeTriggerAndCooldown(db: Database, sessionId: string): void {
-    db.prepare(
-        "UPDATE session_meta SET note_nudge_trigger_pending = 0, note_nudge_trigger_message_id = '' WHERE session_id = ?",
-    ).run(sessionId);
-    lastDeliveredAt.delete(sessionId);
+	db.prepare(
+		"UPDATE session_meta SET note_nudge_trigger_pending = 0, note_nudge_trigger_message_id = '' WHERE session_id = ?",
+	).run(sessionId);
+	lastDeliveredAt.delete(sessionId);
 }
 
 export function resetNoteNudgeCooldownOnly(sessionId: string): void {
-    lastDeliveredAt.delete(sessionId);
+	lastDeliveredAt.delete(sessionId);
 }
 
 export function clearNoteNudgeTriggerOnly(db: Database, sessionId: string): void {
-    db.prepare(
-        "UPDATE session_meta SET note_nudge_trigger_pending = 0, note_nudge_trigger_message_id = '' WHERE session_id = ?",
-    ).run(sessionId);
+	db.prepare(
+		"UPDATE session_meta SET note_nudge_trigger_pending = 0, note_nudge_trigger_message_id = '' WHERE session_id = ?",
+	).run(sessionId);
 }

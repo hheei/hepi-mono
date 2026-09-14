@@ -25,59 +25,59 @@
  *   messages array on the next pass, or reloadable from SQLite.
  */
 export class BoundedSessionMap<V> {
-    private readonly maxEntries: number;
-    private readonly store = new Map<string, V>();
+	private readonly maxEntries: number;
+	private readonly store = new Map<string, V>();
 
-    constructor(maxEntries: number) {
-        if (!Number.isFinite(maxEntries) || maxEntries < 1) {
-            throw new Error(`BoundedSessionMap: maxEntries must be >= 1, got ${maxEntries}`);
-        }
-        this.maxEntries = maxEntries;
-    }
+	constructor(maxEntries: number) {
+		if (!Number.isFinite(maxEntries) || maxEntries < 1) {
+			throw new Error(`BoundedSessionMap: maxEntries must be >= 1, got ${maxEntries}`);
+		}
+		this.maxEntries = maxEntries;
+	}
 
-    get(sessionId: string): V | undefined {
-        const value = this.store.get(sessionId);
-        if (value === undefined) return undefined;
-        // Touch: move to most-recent position.
-        this.store.delete(sessionId);
-        this.store.set(sessionId, value);
-        return value;
-    }
+	get(sessionId: string): V | undefined {
+		const value = this.store.get(sessionId);
+		if (value === undefined) return undefined;
+		// Touch: move to most-recent position.
+		this.store.delete(sessionId);
+		this.store.set(sessionId, value);
+		return value;
+	}
 
-    /**
-     * Peek without touching recency — useful for `has`-style checks that
-     * should not rearrange LRU order. Use sparingly; `get` is the normal
-     * access path.
-     */
-    peek(sessionId: string): V | undefined {
-        return this.store.get(sessionId);
-    }
+	/**
+	 * Peek without touching recency — useful for `has`-style checks that
+	 * should not rearrange LRU order. Use sparingly; `get` is the normal
+	 * access path.
+	 */
+	peek(sessionId: string): V | undefined {
+		return this.store.get(sessionId);
+	}
 
-    has(sessionId: string): boolean {
-        return this.store.has(sessionId);
-    }
+	has(sessionId: string): boolean {
+		return this.store.has(sessionId);
+	}
 
-    set(sessionId: string, value: V): void {
-        if (this.store.has(sessionId)) {
-            // Refresh recency.
-            this.store.delete(sessionId);
-        } else if (this.store.size >= this.maxEntries) {
-            // Evict oldest entry. Map iteration is insertion-ordered.
-            const oldest = this.store.keys().next().value;
-            if (oldest !== undefined) this.store.delete(oldest);
-        }
-        this.store.set(sessionId, value);
-    }
+	set(sessionId: string, value: V): void {
+		if (this.store.has(sessionId)) {
+			// Refresh recency.
+			this.store.delete(sessionId);
+		} else if (this.store.size >= this.maxEntries) {
+			// Evict oldest entry. Map iteration is insertion-ordered.
+			const oldest = this.store.keys().next().value;
+			if (oldest !== undefined) this.store.delete(oldest);
+		}
+		this.store.set(sessionId, value);
+	}
 
-    delete(sessionId: string): boolean {
-        return this.store.delete(sessionId);
-    }
+	delete(sessionId: string): boolean {
+		return this.store.delete(sessionId);
+	}
 
-    clear(): void {
-        this.store.clear();
-    }
+	clear(): void {
+		this.store.clear();
+	}
 
-    get size(): number {
-        return this.store.size;
-    }
+	get size(): number {
+		return this.store.size;
+	}
 }

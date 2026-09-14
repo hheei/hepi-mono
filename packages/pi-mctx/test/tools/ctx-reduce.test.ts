@@ -15,17 +15,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	getPendingOps,
-	queuePendingOp,
-	updateSessionMeta,
-} from "#core/features/storage";
-import {
-	insertTag,
-	updateTagStatus,
-} from "#core/features/storage-tags";
-import { createTestDb, fakeContext } from "../test-utils.test";
+import { getPendingOps, queuePendingOp, updateSessionMeta } from "#core/features/storage";
+import { insertTag, updateTagStatus } from "#core/features/storage-tags";
 import { createCtxReduceTool } from "../../src/tools/ctx-reduce";
+import { asToolResult, createTestDb, fakeContext } from "../test-utils.test";
 
 function seedTags(
 	db: ReturnType<typeof createTestDb>,
@@ -37,7 +30,7 @@ function seedTags(
 	}>,
 ): void {
 	for (const spec of specs) {
-		insertTag(db, sessionId, spec.messageId, "text", 100, spec.tagNumber);
+		insertTag(db, sessionId, spec.messageId, "message", 100, spec.tagNumber);
 		if (spec.status && spec.status !== "active") {
 			updateTagStatus(db, sessionId, spec.tagNumber, spec.status);
 		}
@@ -55,14 +48,16 @@ async function callDrop(args: {
 		db: args.db,
 		protectedTags: args.protectedTags ?? 0,
 	});
-	const result = await tool.execute(
-		"call-1",
-		{ drop: args.drop },
-		new AbortController().signal,
-		undefined,
-		fakeContext(args.sessionId) as never,
+	const result = asToolResult(
+		await tool.execute(
+			"call-1",
+			{ drop: args.drop } as never,
+			new AbortController().signal,
+			undefined,
+			fakeContext(args.sessionId) as never,
+		),
 	);
-	const text = (result.content[0] as { text: string }).text;
+	const text = result.content[0]?.text ?? "";
 	return { result, text, isError: result.isError === true };
 }
 
@@ -87,8 +82,8 @@ describe("Pi ctx_reduce tool", () => {
 
 		const ops = getPendingOps(db, sessionId);
 		expect(ops).toHaveLength(1);
-		expect(ops[0].operation).toBe("drop");
-		expect(ops[0].tagId).toBe(2);
+		expect(ops[0]!.operation).toBe("drop");
+		expect(ops[0]!.tagId).toBe(2);
 	});
 
 	it("parses comma + dash ranges (3-5,7,9 → [3,4,5,7,9])", async () => {
@@ -171,7 +166,7 @@ describe("Pi ctx_reduce tool", () => {
 		// Still exactly one pending op — no duplicate.
 		const ops = getPendingOps(db, sessionId);
 		expect(ops).toHaveLength(1);
-		expect(ops[0].tagId).toBe(2);
+		expect(ops[0]!.tagId).toBe(2);
 	});
 
 	it("defers protected-tag drops with explicit 'deferred drop' messaging", async () => {
@@ -204,16 +199,16 @@ describe("Pi ctx_reduce tool", () => {
 		seedTags(db, sessionId, [{ tagNumber: 1, messageId: "m1" }]);
 
 		const tool = createCtxReduceTool({ db, protectedTags: 0 });
-		const result = await tool.execute(
-			"call-1",
-			{},
-			new AbortController().signal,
-			undefined,
-			fakeContext(sessionId) as never,
+		const result = asToolResult(
+			await tool.execute(
+				"call-1",
+				{} as never,
+				new AbortController().signal,
+				undefined,
+				fakeContext(sessionId) as never,
+			),
 		);
 		expect(result.isError).toBe(true);
-		expect((result.content[0] as { text: string }).text).toContain(
-			"'drop' must",
-		);
+		expect(result.content[0]?.text).toContain("'drop' must");
 	});
 });

@@ -18,22 +18,13 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import { getLastCompartmentEndMessage } from "#core/features/compartment-storage";
 import type { ContextDatabase } from "#core/features/storage";
-import {
-	readSessionChunk,
-	setRawMessageProvider,
-} from "#core/hooks/read-session-chunk";
-import {
-	CTX_EXPAND_DESCRIPTION,
-	CTX_EXPAND_TOKEN_BUDGET,
-} from "#core/tools/ctx-expand/constants";
-import {
-	renderMessageByOrdinal,
-	renderVerboseRange,
-} from "#core/tools/ctx-expand/render";
+import { readSessionChunk, setRawMessageProvider } from "#core/hooks/read-session-chunk";
+import { CTX_EXPAND_DESCRIPTION, CTX_EXPAND_TOKEN_BUDGET } from "#core/tools/ctx-expand/constants";
+import { renderMessageByOrdinal, renderVerboseRange } from "#core/tools/ctx-expand/render";
 import { unwrapImitatedReducedArgs } from "#core/tools/unwrap-imitated-reduced-args";
-import { type Static, Type } from "typebox";
 import { readPiSessionMessages } from "../read-session-pi";
 
 const ParamsSchema = Type.Object(
@@ -84,21 +75,13 @@ export interface CtxExpandToolDeps {
 	db: ContextDatabase;
 }
 
-export function createCtxExpandTool(
-	deps: CtxExpandToolDeps,
-): ToolDefinition<typeof ParamsSchema> {
+export function createCtxExpandTool(deps: CtxExpandToolDeps): ToolDefinition<typeof ParamsSchema> {
 	return {
 		name: "ctx_expand",
 		label: "Magic Context: Expand",
 		description: CTX_EXPAND_DESCRIPTION,
 		parameters: ParamsSchema,
-		async execute(
-			_toolCallId,
-			params: CtxExpandParams,
-			_signal,
-			_onUpdate,
-			ctx,
-		) {
+		async execute(_toolCallId, params: CtxExpandParams, _signal, _onUpdate, ctx) {
 			params = unwrapImitatedReducedArgs(params, ["message", "start"], {
 				start: "number",
 				end: "number",
@@ -139,19 +122,14 @@ export function createCtxExpandTool(
 				// ctx_search): messages after it are the live tail already visible
 				// to the agent, so re-expanding them wastes output tokens. -1 = no
 				// compartments yet → nothing compacted, so don't clamp.
-				const lastCompartmentEnd = getLastCompartmentEndMessage(
-					deps.db,
-					sessionId,
-				);
+				const lastCompartmentEnd = getLastCompartmentEndMessage(deps.db, sessionId);
 				if (lastCompartmentEnd >= 0 && params.start > lastCompartmentEnd) {
 					return ok(
 						`Range ${params.start}-${params.end} is entirely within the live tail (after the last compacted message ${lastCompartmentEnd}); those messages are already visible in context.`,
 					);
 				}
 				const effectiveEnd =
-					lastCompartmentEnd >= 0
-						? Math.min(params.end, lastCompartmentEnd)
-						: params.end;
+					lastCompartmentEnd >= 0 ? Math.min(params.end, lastCompartmentEnd) : params.end;
 
 				// Verbose mode: each message separate, with ids + per-part previews.
 				if (params.verbose === true) {

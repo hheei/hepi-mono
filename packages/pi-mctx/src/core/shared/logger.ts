@@ -17,65 +17,65 @@ const BUFFER_SIZE_LIMIT = 50;
 let lastEnsuredDir: string | null = null;
 
 function ensureDir(filePath: string): void {
-    const dir = path.dirname(filePath);
-    if (dir === lastEnsuredDir) return;
-    try {
-        fs.mkdirSync(dir, { recursive: true });
-        lastEnsuredDir = dir;
-    } catch {
-        // Intentional: logging must never throw. If mkdir fails we still
-        // try the append; failure there is also swallowed.
-    }
+	const dir = path.dirname(filePath);
+	if (dir === lastEnsuredDir) return;
+	try {
+		fs.mkdirSync(dir, { recursive: true });
+		lastEnsuredDir = dir;
+	} catch {
+		// Intentional: logging must never throw. If mkdir fails we still
+		// try the append; failure there is also swallowed.
+	}
 }
 
 function flush(): void {
-    if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-    }
-    if (buffer.length === 0) return;
-    const data = buffer.join("");
-    buffer = [];
-    try {
-        const logFile = getMagicContextLogPath();
-        ensureDir(logFile);
-        fs.appendFileSync(logFile, data);
-    } catch {
-        // Intentional: logging must never throw
-    }
+	if (flushTimer) {
+		clearTimeout(flushTimer);
+		flushTimer = null;
+	}
+	if (buffer.length === 0) return;
+	const data = buffer.join("");
+	buffer = [];
+	try {
+		const logFile = getMagicContextLogPath();
+		ensureDir(logFile);
+		fs.appendFileSync(logFile, data);
+	} catch {
+		// Intentional: logging must never throw
+	}
 }
 
 function scheduleFlush(): void {
-    if (flushTimer) return;
-    flushTimer = setTimeout(() => {
-        flushTimer = null;
-        flush();
-    }, FLUSH_INTERVAL_MS);
+	if (flushTimer) return;
+	flushTimer = setTimeout(() => {
+		flushTimer = null;
+		flush();
+	}, FLUSH_INTERVAL_MS);
 }
 
 export function log(message: string, data?: unknown): void {
-    if (isTestEnv) return;
-    try {
-        const timestamp = new Date().toISOString();
-        const serialized =
-            data === undefined
-                ? ""
-                : data instanceof Error
-                  ? ` ${data.message}${data.stack ? `\n${data.stack}` : ""}`
-                  : ` ${JSON.stringify(data)}`;
-        buffer.push(`[${timestamp}] ${message}${serialized}\n`);
-        if (buffer.length >= BUFFER_SIZE_LIMIT) {
-            flush();
-        } else {
-            scheduleFlush();
-        }
-    } catch {
-        // Intentional: logging must never throw
-    }
+	if (isTestEnv) return;
+	try {
+		const timestamp = new Date().toISOString();
+		const serialized =
+			data === undefined
+				? ""
+				: data instanceof Error
+					? ` ${data.message}${data.stack ? `\n${data.stack}` : ""}`
+					: ` ${JSON.stringify(data)}`;
+		buffer.push(`[${timestamp}] ${message}${serialized}\n`);
+		if (buffer.length >= BUFFER_SIZE_LIMIT) {
+			flush();
+		} else {
+			scheduleFlush();
+		}
+	} catch {
+		// Intentional: logging must never throw
+	}
 }
 
 export function sessionLog(sessionId: string, message: string, data?: unknown): void {
-    log(`[magic-context][${sessionId}] ${message}`, data);
+	log(`[magic-context][${sessionId}] ${message}`, data);
 }
 
 /**
@@ -85,10 +85,10 @@ export function sessionLog(sessionId: string, message: string, data?: unknown): 
  * flush will actually use.
  */
 export function getLogFilePath(): string {
-    return getMagicContextLogPath();
+	return getMagicContextLogPath();
 }
 
 // Flush remaining buffer on process exit
 if (!isTestEnv) {
-    process.on("exit", flush);
+	process.on("exit", flush);
 }

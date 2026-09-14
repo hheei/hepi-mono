@@ -8,20 +8,20 @@ const TAG_PREFIX_PATTERN = /^§\d+§\s*/;
 // Patterns that identify system-injected messages (notifications, reminders, etc.)
 // These should never reach the LLM — they're internal plumbing.
 const SYSTEM_INJECTION_PATTERNS = [
-    /^<!-- OMO_INTERNAL_INITIATOR -->$/,
-    /^<system-reminder>[\s\S]*<\/system-reminder>$/,
-    /^\[SYSTEM DIRECTIVE:/,
-    /^\[Category\+Skill Reminder\]/,
-    /^\[EDIT ERROR - IMMEDIATE ACTION REQUIRED\]/,
-    /^\[task CALL FAILED/,
-    /^\[EMERGENCY CONTEXT WINDOW WARNING\]/,
+	/^<!-- OMO_INTERNAL_INITIATOR -->$/,
+	/^<system-reminder>[\s\S]*<\/system-reminder>$/,
+	/^\[SYSTEM DIRECTIVE:/,
+	/^\[Category\+Skill Reminder\]/,
+	/^\[EDIT ERROR - IMMEDIATE ACTION REQUIRED\]/,
+	/^\[task CALL FAILED/,
+	/^\[EMERGENCY CONTEXT WINDOW WARNING\]/,
 ];
 
 function isSystemInjectedText(text: string): boolean {
-    // Remove §N§ tag prefix that our tagger adds
-    const stripped = text.trim().replace(TAG_PREFIX_PATTERN, "").trim();
-    if (stripped.length === 0) return false;
-    return SYSTEM_INJECTION_PATTERNS.some((pattern) => pattern.test(stripped));
+	// Remove §N§ tag prefix that our tagger adds
+	const stripped = text.trim().replace(TAG_PREFIX_PATTERN, "").trim();
+	if (stripped.length === 0) return false;
+	return SYSTEM_INJECTION_PATTERNS.some((pattern) => pattern.test(stripped));
 }
 
 /**
@@ -44,69 +44,69 @@ function isSystemInjectedText(text: string): boolean {
  * mid-pipeline array mutation.
  */
 export function stripSystemInjectedMessages(
-    messages: MessageLike[],
-    protectedTailStart: number,
-    providerID?: string,
+	messages: MessageLike[],
+	protectedTailStart: number,
+	providerID?: string,
 ): { stripped: number; sentineledIds: string[] } {
-    let stripped = 0;
-    const sentineledIds: string[] = [];
-    for (let i = 0; i < messages.length; i++) {
-        // Don't neutralize messages in the protected tail — they may contain
-        // actionable info like background task IDs
-        if (i >= protectedTailStart) continue;
+	let stripped = 0;
+	const sentineledIds: string[] = [];
+	for (let i = 0; i < messages.length; i++) {
+		// Don't neutralize messages in the protected tail — they may contain
+		// actionable info like background task IDs
+		if (i >= protectedTailStart) continue;
 
-        const msg = messages[i];
-        if (msg === undefined) continue;
-        if (msg.parts.length === 0) continue;
+		const msg = messages[i];
+		if (msg === undefined) continue;
+		if (msg.parts.length === 0) continue;
 
-        // Never neutralize user-role messages — they anchor turn boundaries
-        // that AI SDK depends on to avoid merging consecutive assistants.
-        if (msg.info.role === "user") continue;
+		// Never neutralize user-role messages — they anchor turn boundaries
+		// that AI SDK depends on to avoid merging consecutive assistants.
+		if (msg.info.role === "user") continue;
 
-        // Skip messages already reduced to a lone sentinel — idempotent on replay
-        if (msg.parts.length === 1 && isSentinel(msg.parts[0])) continue;
+		// Skip messages already reduced to a lone sentinel — idempotent on replay
+		if (msg.parts.length === 1 && isSentinel(msg.parts[0])) continue;
 
-        let hasContentPart = false;
-        let allContentIsSystemInjection = true;
+		let hasContentPart = false;
+		let allContentIsSystemInjection = true;
 
-        for (const part of msg.parts) {
-            if (!isRecord(part)) continue;
-            const partType = part.type as string;
+		for (const part of msg.parts) {
+			if (!isRecord(part)) continue;
+			const partType = part.type as string;
 
-            // Skip metadata parts
-            if (METADATA_PART_TYPES.has(partType)) continue;
+			// Skip metadata parts
+			if (METADATA_PART_TYPES.has(partType)) continue;
 
-            // Check for ignored flag (set by sendIgnoredMessage)
-            if (part.ignored === true) continue;
+			// Check for ignored flag (set by sendIgnoredMessage)
+			if (part.ignored === true) continue;
 
-            // Tool parts are real content
-            if (partType === "tool") {
-                allContentIsSystemInjection = false;
-                break;
-            }
+			// Tool parts are real content
+			if (partType === "tool") {
+				allContentIsSystemInjection = false;
+				break;
+			}
 
-            if (partType === "text" && typeof part.text === "string") {
-                hasContentPart = true;
-                if (!isSystemInjectedText(part.text)) {
-                    allContentIsSystemInjection = false;
-                    break;
-                }
-                continue;
-            }
+			if (partType === "text" && typeof part.text === "string") {
+				hasContentPart = true;
+				if (!isSystemInjectedText(part.text)) {
+					allContentIsSystemInjection = false;
+					break;
+				}
+				continue;
+			}
 
-            // Any other content type — keep the message
-            allContentIsSystemInjection = false;
-            break;
-        }
+			// Any other content type — keep the message
+			allContentIsSystemInjection = false;
+			break;
+		}
 
-        if (hasContentPart && allContentIsSystemInjection) {
-            msg.parts.length = 0;
-            msg.parts.push(makeWholeMessageSentinel(providerID));
-            stripped++;
-            if (typeof msg.info.id === "string") sentineledIds.push(msg.info.id);
-        }
-    }
-    return { stripped, sentineledIds };
+		if (hasContentPart && allContentIsSystemInjection) {
+			msg.parts.length = 0;
+			msg.parts.push(makeWholeMessageSentinel(providerID));
+			stripped++;
+			if (typeof msg.info.id === "string") sentineledIds.push(msg.info.id);
+		}
+	}
+	return { stripped, sentineledIds };
 }
 
 // legacy host messages can have metadata parts alongside content parts.
@@ -120,14 +120,14 @@ export function stripSystemInjectedMessages(
 // risk stripping an image-bearing message if its text part became a dropped
 // placeholder, silently destroying the user's visual context.
 const METADATA_PART_TYPES = new Set([
-    "step-start",
-    "step-finish",
-    "snapshot",
-    "patch",
-    "agent",
-    "retry",
-    "subtask",
-    "compaction",
+	"step-start",
+	"step-finish",
+	"snapshot",
+	"patch",
+	"agent",
+	"retry",
+	"subtask",
+	"compaction",
 ]);
 
 /**
@@ -159,95 +159,95 @@ const METADATA_PART_TYPES = new Set([
  * Returns both count and sentineled IDs so callers can persist-and-replay.
  */
 export function stripDroppedPlaceholderMessages(
-    messages: MessageLike[],
-    providerID?: string,
+	messages: MessageLike[],
+	providerID?: string,
 ): {
-    stripped: number;
-    sentineledIds: string[];
+	stripped: number;
+	sentineledIds: string[];
 } {
-    let stripped = 0;
-    const sentineledIds: string[] = [];
-    for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        if (msg === undefined) continue;
-        if (msg.parts.length === 0) continue;
+	let stripped = 0;
+	const sentineledIds: string[] = [];
+	for (let i = 0; i < messages.length; i++) {
+		const msg = messages[i];
+		if (msg === undefined) continue;
+		if (msg.parts.length === 0) continue;
 
-        // Never neutralize user-role messages — they anchor turn boundaries
-        // that AI SDK depends on to avoid merging consecutive assistants.
-        if (msg.info.role === "user") continue;
+		// Never neutralize user-role messages — they anchor turn boundaries
+		// that AI SDK depends on to avoid merging consecutive assistants.
+		if (msg.info.role === "user") continue;
 
-        // Skip messages already reduced to a lone sentinel — idempotent on replay
-        if (msg.parts.length === 1 && isSentinel(msg.parts[0])) continue;
+		// Skip messages already reduced to a lone sentinel — idempotent on replay
+		if (msg.parts.length === 1 && isSentinel(msg.parts[0])) continue;
 
-        let hasContentPart = false;
-        let hasNonDroppedContent = false;
+		let hasContentPart = false;
+		let hasNonDroppedContent = false;
 
-        for (const part of msg.parts) {
-            if (!isRecord(part)) continue;
-            const partType = part.type as string;
+		for (const part of msg.parts) {
+			if (!isRecord(part)) continue;
+			const partType = part.type as string;
 
-            // Skip metadata parts — they don't reach the model
-            if (METADATA_PART_TYPES.has(partType)) continue;
+			// Skip metadata parts — they don't reach the model
+			if (METADATA_PART_TYPES.has(partType)) continue;
 
-            // Tool parts carry content — don't strip messages with tool calls/results
-            if (partType === "tool") {
-                hasNonDroppedContent = true;
-                break;
-            }
+			// Tool parts carry content — don't strip messages with tool calls/results
+			if (partType === "tool") {
+				hasNonDroppedContent = true;
+				break;
+			}
 
-            // Text parts: check if they're only dropped placeholders
-            if (partType === "text" && typeof part.text === "string") {
-                hasContentPart = true;
-                const trimmed = part.text.trim();
-                if (trimmed.length === 0) continue;
-                if (!trimmed.includes("[dropped §")) {
-                    hasNonDroppedContent = true;
-                    break;
-                }
-                const allSegmentsDropped = trimmed
-                    .split(/(?=\[dropped §)/)
-                    .filter((s) => s.trim().length > 0)
-                    .every((segment) => DROPPED_PLACEHOLDER_PATTERN.test(segment.trim()));
-                if (!allSegmentsDropped) {
-                    hasNonDroppedContent = true;
-                    break;
-                }
-                continue;
-            }
+			// Text parts: check if they're only dropped placeholders
+			if (partType === "text" && typeof part.text === "string") {
+				hasContentPart = true;
+				const trimmed = part.text.trim();
+				if (trimmed.length === 0) continue;
+				if (!trimmed.includes("[dropped §")) {
+					hasNonDroppedContent = true;
+					break;
+				}
+				const allSegmentsDropped = trimmed
+					.split(/(?=\[dropped §)/)
+					.filter((s) => s.trim().length > 0)
+					.every((segment) => DROPPED_PLACEHOLDER_PATTERN.test(segment.trim()));
+				if (!allSegmentsDropped) {
+					hasNonDroppedContent = true;
+					break;
+				}
+				continue;
+			}
 
-            // Reasoning parts: check similarly
-            if (partType === "reasoning" && typeof part.text === "string") {
-                hasContentPart = true;
-                const trimmed = part.text.trim();
-                if (trimmed.length === 0) continue;
-                if (!trimmed.includes("[dropped §")) {
-                    hasNonDroppedContent = true;
-                    break;
-                }
-                const allSegmentsDropped = trimmed
-                    .split(/(?=\[dropped §)/)
-                    .filter((s) => s.trim().length > 0)
-                    .every((segment) => DROPPED_PLACEHOLDER_PATTERN.test(segment.trim()));
-                if (!allSegmentsDropped) {
-                    hasNonDroppedContent = true;
-                    break;
-                }
-                continue;
-            }
+			// Reasoning parts: check similarly
+			if (partType === "reasoning" && typeof part.text === "string") {
+				hasContentPart = true;
+				const trimmed = part.text.trim();
+				if (trimmed.length === 0) continue;
+				if (!trimmed.includes("[dropped §")) {
+					hasNonDroppedContent = true;
+					break;
+				}
+				const allSegmentsDropped = trimmed
+					.split(/(?=\[dropped §)/)
+					.filter((s) => s.trim().length > 0)
+					.every((segment) => DROPPED_PLACEHOLDER_PATTERN.test(segment.trim()));
+				if (!allSegmentsDropped) {
+					hasNonDroppedContent = true;
+					break;
+				}
+				continue;
+			}
 
-            // Unknown content-carrying part type — don't strip
-            hasNonDroppedContent = true;
-            break;
-        }
+			// Unknown content-carrying part type — don't strip
+			hasNonDroppedContent = true;
+			break;
+		}
 
-        if (hasContentPart && !hasNonDroppedContent) {
-            msg.parts.length = 0;
-            msg.parts.push(makeWholeMessageSentinel(providerID));
-            stripped++;
-            if (typeof msg.info.id === "string") sentineledIds.push(msg.info.id);
-        }
-    }
-    return { stripped, sentineledIds };
+		if (hasContentPart && !hasNonDroppedContent) {
+			msg.parts.length = 0;
+			msg.parts.push(makeWholeMessageSentinel(providerID));
+			stripped++;
+			if (typeof msg.info.id === "string") sentineledIds.push(msg.info.id);
+		}
+	}
+	return { stripped, sentineledIds };
 }
 
 /**
@@ -257,33 +257,33 @@ export function stripDroppedPlaceholderMessages(
  * rebuilds messages fresh from its own DB.
  */
 export function replayClearedReasoning(
-    messages: MessageLike[],
-    reasoningByMessage: Map<MessageLike, ThinkingLikePart[]>,
-    messageTagNumbers: Map<MessageLike, number>,
-    persistedWatermark: number,
+	messages: MessageLike[],
+	reasoningByMessage: Map<MessageLike, ThinkingLikePart[]>,
+	messageTagNumbers: Map<MessageLike, number>,
+	persistedWatermark: number,
 ): number {
-    if (persistedWatermark <= 0) return 0;
+	if (persistedWatermark <= 0) return 0;
 
-    let cleared = 0;
-    for (const message of messages) {
-        const msgTag = messageTagNumbers.get(message) ?? 0;
-        if (msgTag === 0 || msgTag > persistedWatermark) continue;
+	let cleared = 0;
+	for (const message of messages) {
+		const msgTag = messageTagNumbers.get(message) ?? 0;
+		if (msgTag === 0 || msgTag > persistedWatermark) continue;
 
-        const parts = reasoningByMessage.get(message);
-        if (!parts) continue;
+		const parts = reasoningByMessage.get(message);
+		if (!parts) continue;
 
-        for (const tp of parts) {
-            if (tp.thinking !== undefined && tp.thinking !== "[cleared]") {
-                tp.thinking = "[cleared]";
-                cleared++;
-            }
-            if (tp.text !== undefined && tp.text !== "[cleared]") {
-                tp.text = "[cleared]";
-                cleared++;
-            }
-        }
-    }
-    return cleared;
+		for (const tp of parts) {
+			if (tp.thinking !== undefined && tp.thinking !== "[cleared]") {
+				tp.thinking = "[cleared]";
+				cleared++;
+			}
+			if (tp.text !== undefined && tp.text !== "[cleared]") {
+				tp.text = "[cleared]";
+				cleared++;
+			}
+		}
+	}
+	return cleared;
 }
 
 /**
@@ -291,73 +291,73 @@ export function replayClearedReasoning(
  * Strips inline <thinking> tags for all messages with tag <= persistedWatermark.
  */
 export function replayStrippedInlineThinking(
-    messages: MessageLike[],
-    messageTagNumbers: Map<MessageLike, number>,
-    persistedWatermark: number,
+	messages: MessageLike[],
+	messageTagNumbers: Map<MessageLike, number>,
+	persistedWatermark: number,
 ): number {
-    if (persistedWatermark <= 0) return 0;
+	if (persistedWatermark <= 0) return 0;
 
-    let stripped = 0;
-    for (const message of messages) {
-        if (message.info.role !== "assistant") continue;
-        const msgTag = messageTagNumbers.get(message) ?? 0;
-        if (msgTag === 0 || msgTag > persistedWatermark) continue;
+	let stripped = 0;
+	for (const message of messages) {
+		if (message.info.role !== "assistant") continue;
+		const msgTag = messageTagNumbers.get(message) ?? 0;
+		if (msgTag === 0 || msgTag > persistedWatermark) continue;
 
-        for (const part of message.parts) {
-            if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
-            // Both supported opening tags (`<think>` and `<thinking>`) share
-            // this prefix, so one native scan can reject clean text before regex.
-            if (!part.text.includes("<think")) continue;
-            const cleaned = (part.text as string).replace(INLINE_THINKING_PATTERN, "");
-            if (cleaned !== part.text) {
-                part.text = cleaned;
-                stripped++;
-            }
-        }
-    }
-    return stripped;
+		for (const part of message.parts) {
+			if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
+			// Both supported opening tags (`<think>` and `<thinking>`) share
+			// this prefix, so one native scan can reject clean text before regex.
+			if (!part.text.includes("<think")) continue;
+			const cleaned = (part.text as string).replace(INLINE_THINKING_PATTERN, "");
+			if (cleaned !== part.text) {
+				part.text = cleaned;
+				stripped++;
+			}
+		}
+	}
+	return stripped;
 }
 
 export function clearOldReasoning(
-    messages: MessageLike[],
-    reasoningByMessage: Map<MessageLike, ThinkingLikePart[]>,
-    messageTagNumbers: Map<MessageLike, number>,
-    clearReasoningAge: number,
+	messages: MessageLike[],
+	reasoningByMessage: Map<MessageLike, ThinkingLikePart[]>,
+	messageTagNumbers: Map<MessageLike, number>,
+	clearReasoningAge: number,
 ): number {
-    const maxTag = findMaxTag(messageTagNumbers);
-    if (maxTag === 0) return 0;
+	const maxTag = findMaxTag(messageTagNumbers);
+	if (maxTag === 0) return 0;
 
-    const ageCutoff = maxTag - clearReasoningAge;
-    let cleared = 0;
+	const ageCutoff = maxTag - clearReasoningAge;
+	let cleared = 0;
 
-    for (const message of messages) {
-        const msgTag = messageTagNumbers.get(message) ?? 0;
-        if (msgTag === 0 || msgTag > ageCutoff) continue;
+	for (const message of messages) {
+		const msgTag = messageTagNumbers.get(message) ?? 0;
+		if (msgTag === 0 || msgTag > ageCutoff) continue;
 
-        const parts = reasoningByMessage.get(message);
-        if (!parts) continue;
+		const parts = reasoningByMessage.get(message);
+		if (!parts) continue;
 
-        for (const tp of parts) {
-            if (tp.thinking !== undefined && tp.thinking !== "[cleared]") {
-                tp.thinking = "[cleared]";
-                cleared++;
-            }
-            if (tp.text !== undefined && tp.text !== "[cleared]") {
-                tp.text = "[cleared]";
-                cleared++;
-            }
-        }
-    }
+		for (const tp of parts) {
+			if (tp.thinking !== undefined && tp.thinking !== "[cleared]") {
+				tp.thinking = "[cleared]";
+				cleared++;
+			}
+			if (tp.text !== undefined && tp.text !== "[cleared]") {
+				tp.text = "[cleared]";
+				cleared++;
+			}
+		}
+	}
 
-    return cleared;
+	return cleared;
 }
 
 function findMaxTag(messageTagNumbers: Map<MessageLike, number>): number {
-    let max = 0;
-    for (const tag of messageTagNumbers.values()) {
-        if (tag > max) max = tag;
-    }
-    return max;
+	let max = 0;
+	for (const tag of messageTagNumbers.values()) {
+		if (tag > max) max = tag;
+	}
+	return max;
 }
 
 const CLEARED_REASONING_TYPES = new Set(["thinking", "reasoning"]);
@@ -373,78 +373,78 @@ const CLEARED_REASONING_TYPES = new Set(["thinking", "reasoning"]);
  * other adapters can forward them as real content blocks.
  */
 export function stripClearedReasoning(messages: MessageLike[]): number {
-    let stripped = 0;
-    for (const message of messages) {
-        if (message.info.role !== "assistant") continue;
-        for (let i = 0; i < message.parts.length; i++) {
-            const part = message.parts[i];
-            if (!isRecord(part)) continue;
-            const partType = part.type as string;
-            if (!CLEARED_REASONING_TYPES.has(partType)) continue;
-            // Defense-in-depth: if neither `thinking` nor `text` is present on
-            // the part, we cannot tell whether it's a cleared shell — keep it.
-            // This protects edge-case thinking shapes (e.g., future providers
-            // emitting parts with only a `data` or `signature` field) from
-            // being wrongly dropped. Anthropic requires thinking-like blocks in
-            // the latest assistant message to be replayed unchanged, and an
-            // undefined-fields part cannot be known to be cleared, so it is
-            // not safe to strip it.
-            if (!("thinking" in part) && !("text" in part)) continue;
-            const thinking = "thinking" in part ? (part.thinking as string | undefined) : undefined;
-            const text = "text" in part ? (part.text as string | undefined) : undefined;
-            const isCleared =
-                (thinking === undefined || thinking === "[cleared]") &&
-                (text === undefined || text === "[cleared]");
-            if (!isCleared) continue;
-            message.parts[i] = makeSentinel(part);
-            stripped++;
-        }
-    }
-    return stripped;
+	let stripped = 0;
+	for (const message of messages) {
+		if (message.info.role !== "assistant") continue;
+		for (let i = 0; i < message.parts.length; i++) {
+			const part = message.parts[i];
+			if (!isRecord(part)) continue;
+			const partType = part.type as string;
+			if (!CLEARED_REASONING_TYPES.has(partType)) continue;
+			// Defense-in-depth: if neither `thinking` nor `text` is present on
+			// the part, we cannot tell whether it's a cleared shell — keep it.
+			// This protects edge-case thinking shapes (e.g., future providers
+			// emitting parts with only a `data` or `signature` field) from
+			// being wrongly dropped. Anthropic requires thinking-like blocks in
+			// the latest assistant message to be replayed unchanged, and an
+			// undefined-fields part cannot be known to be cleared, so it is
+			// not safe to strip it.
+			if (!("thinking" in part) && !("text" in part)) continue;
+			const thinking = "thinking" in part ? (part.thinking as string | undefined) : undefined;
+			const text = "text" in part ? (part.text as string | undefined) : undefined;
+			const isCleared =
+				(thinking === undefined || thinking === "[cleared]") &&
+				(text === undefined || text === "[cleared]");
+			if (!isCleared) continue;
+			message.parts[i] = makeSentinel(part);
+			stripped++;
+		}
+	}
+	return stripped;
 }
 
 const INLINE_THINKING_PATTERN = /<(?:thinking|think)>[\s\S]*?<\/(?:thinking|think)>\s*/g;
 
 export function stripInlineThinking(
-    messages: MessageLike[],
-    messageTagNumbers: Map<MessageLike, number>,
-    clearReasoningAge: number,
+	messages: MessageLike[],
+	messageTagNumbers: Map<MessageLike, number>,
+	clearReasoningAge: number,
 ): number {
-    const maxTag = findMaxTag(messageTagNumbers);
-    if (maxTag === 0) return 0;
+	const maxTag = findMaxTag(messageTagNumbers);
+	if (maxTag === 0) return 0;
 
-    const ageCutoff = maxTag - clearReasoningAge;
-    let stripped = 0;
+	const ageCutoff = maxTag - clearReasoningAge;
+	let stripped = 0;
 
-    for (const message of messages) {
-        if (message.info.role !== "assistant") continue;
-        const msgTag = messageTagNumbers.get(message) ?? 0;
-        if (msgTag === 0 || msgTag > ageCutoff) continue;
+	for (const message of messages) {
+		if (message.info.role !== "assistant") continue;
+		const msgTag = messageTagNumbers.get(message) ?? 0;
+		if (msgTag === 0 || msgTag > ageCutoff) continue;
 
-        for (const part of message.parts) {
-            if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
-            const cleaned = (part.text as string).replace(INLINE_THINKING_PATTERN, "");
-            if (cleaned !== part.text) {
-                part.text = cleaned;
-                stripped++;
-            }
-        }
-    }
-    return stripped;
+		for (const part of message.parts) {
+			if (!isRecord(part) || part.type !== "text" || typeof part.text !== "string") continue;
+			const cleaned = (part.text as string).replace(INLINE_THINKING_PATTERN, "");
+			if (cleaned !== part.text) {
+				part.text = cleaned;
+				stripped++;
+			}
+		}
+	}
+	return stripped;
 }
 
 // Parts that the AI SDK ignores when converting legacy host messages to the
 // Anthropic request body. Treating them as invisible when deciding whether
 // a reasoning part lands at the start of the eventual assistant block.
 const REASONING_IGNORED_PART_TYPES = new Set([
-    "step-start",
-    "step-finish",
-    "snapshot",
-    "patch",
-    "agent",
-    "retry",
-    "subtask",
-    "compaction",
+	"step-start",
+	"step-finish",
+	"snapshot",
+	"patch",
+	"agent",
+	"retry",
+	"subtask",
+	"compaction",
 ]);
 
 // Every part type that becomes an Anthropic thinking/redacted_thinking block
@@ -496,94 +496,94 @@ const REASONING_PART_TYPES = new Set(["reasoning", "thinking", "redacted_thinkin
  * fixed for Bedrock in vercel/ai#13583/#13972.
  */
 export function stripReasoningFromMergedAssistants(
-    messages: MessageLike[],
-    providerID?: string,
+	messages: MessageLike[],
+	providerID?: string,
 ): number {
-    // Anthropic-only workaround for @ai-sdk/anthropic's groupIntoBlocks
-    // index-0-thinking rule. openai-compatible providers like Kimi/
-    // Moonshot enforce the opposite invariant (every tool-call assistant
-    // must have non-empty `reasoning_content`), so the strip would
-    // trigger 400 "reasoning_content is missing" there. See call site
-    // in transform.ts for the full rationale.
-    if (providerID !== "anthropic") return 0;
+	// Anthropic-only workaround for @ai-sdk/anthropic's groupIntoBlocks
+	// index-0-thinking rule. openai-compatible providers like Kimi/
+	// Moonshot enforce the opposite invariant (every tool-call assistant
+	// must have non-empty `reasoning_content`), so the strip would
+	// trigger 400 "reasoning_content is missing" there. See call site
+	// in transform.ts for the full rationale.
+	if (providerID !== "anthropic") return 0;
 
-    let stripped = 0;
-    let prevRole: string | undefined;
-    let keptReasoningInRun = false;
+	let stripped = 0;
+	let prevRole: string | undefined;
+	let keptReasoningInRun = false;
 
-    for (const message of messages) {
-        const role = message.info.role;
+	for (const message of messages) {
+		const role = message.info.role;
 
-        if (role !== "assistant") {
-            prevRole = role;
-            keptReasoningInRun = false;
-            continue;
-        }
+		if (role !== "assistant") {
+			prevRole = role;
+			keptReasoningInRun = false;
+			continue;
+		}
 
-        const firstInRun = prevRole !== "assistant";
-        if (firstInRun) keptReasoningInRun = false;
+		const firstInRun = prevRole !== "assistant";
+		if (firstInRun) keptReasoningInRun = false;
 
-        // Determine which reasoning/thinking part (if any) to KEEP for this
-        // run. Only eligible: the first assistant in a run, no reasoning
-        // kept yet, AND the first non-metadata content part is a
-        // reasoning/thinking/redacted_thinking part.
-        //
-        // Sentinels (from stripStructuralNoise and other in-place strips) are
-        // `{type:"text", text:""}` and occupy positions previously held by
-        // structural-noise parts. They are invisible on the wire (legacy host's
-        // provider transform drops empty text) so the "first non-metadata" rule
-        // must treat them as equivalent to the structural parts they replaced
-        // — otherwise a reasoning part that would have been first-after-strip
-        // is wrongly considered non-first and gets neutralized, stripping the
-        // last thinking from a run that has one eligible to keep.
-        let keepIndex = -1;
-        if (firstInRun && !keptReasoningInRun) {
-            for (let i = 0; i < message.parts.length; i++) {
-                const part = message.parts[i];
-                if (!isRecord(part)) continue;
-                const partType = part.type as string;
-                if (REASONING_IGNORED_PART_TYPES.has(partType)) continue;
-                if (part.ignored === true) continue;
-                // Skip sentinels — see comment above.
-                if (isSentinel(part)) continue;
-                // First non-metadata part found — is it reasoning-like?
-                if (REASONING_PART_TYPES.has(partType)) {
-                    keepIndex = i;
-                }
-                break;
-            }
-        }
+		// Determine which reasoning/thinking part (if any) to KEEP for this
+		// run. Only eligible: the first assistant in a run, no reasoning
+		// kept yet, AND the first non-metadata content part is a
+		// reasoning/thinking/redacted_thinking part.
+		//
+		// Sentinels (from stripStructuralNoise and other in-place strips) are
+		// `{type:"text", text:""}` and occupy positions previously held by
+		// structural-noise parts. They are invisible on the wire (legacy host's
+		// provider transform drops empty text) so the "first non-metadata" rule
+		// must treat them as equivalent to the structural parts they replaced
+		// — otherwise a reasoning part that would have been first-after-strip
+		// is wrongly considered non-first and gets neutralized, stripping the
+		// last thinking from a run that has one eligible to keep.
+		let keepIndex = -1;
+		if (firstInRun && !keptReasoningInRun) {
+			for (let i = 0; i < message.parts.length; i++) {
+				const part = message.parts[i];
+				if (!isRecord(part)) continue;
+				const partType = part.type as string;
+				if (REASONING_IGNORED_PART_TYPES.has(partType)) continue;
+				if (part.ignored === true) continue;
+				// Skip sentinels — see comment above.
+				if (isSentinel(part)) continue;
+				// First non-metadata part found — is it reasoning-like?
+				if (REASONING_PART_TYPES.has(partType)) {
+					keepIndex = i;
+				}
+				break;
+			}
+		}
 
-        // Forward pass: neutralize all reasoning/thinking/redacted_thinking
-        // parts except the one we decided to keep (if any). Replace in place
-        // with empty-text sentinels so message.parts length stays constant
-        // across passes — preserving cache-prefix stability for proxy
-        // providers that hash the message array. For Anthropic, legacy host's
-        // provider/transform.ts:65 drops empty text parts before the wire,
-        // so the "thinking-block must be at index 0" rule the AI SDK cares
-        // about is still satisfied (the kept reasoning part is the only
-        // non-empty content at its position, empty sentinels vanish).
-        for (let i = 0; i < message.parts.length; i++) {
-            const part = message.parts[i];
-            if (!isRecord(part)) continue;
-            if (!REASONING_PART_TYPES.has(part.type as string)) continue;
-            if (i === keepIndex) {
-                keptReasoningInRun = true;
-                continue;
-            }
-            message.parts[i] = makeSentinel(part);
-            stripped++;
-        }
+		// Forward pass: neutralize all reasoning/thinking/redacted_thinking
+		// parts except the one we decided to keep (if any). Replace in place
+		// with empty-text sentinels so message.parts length stays constant
+		// across passes — preserving cache-prefix stability for proxy
+		// providers that hash the message array. For Anthropic, legacy host's
+		// provider/transform.ts:65 drops empty text parts before the wire,
+		// so the "thinking-block must be at index 0" rule the AI SDK cares
+		// about is still satisfied (the kept reasoning part is the only
+		// non-empty content at its position, empty sentinels vanish).
+		for (let i = 0; i < message.parts.length; i++) {
+			const part = message.parts[i];
+			if (!isRecord(part)) continue;
+			if (!REASONING_PART_TYPES.has(part.type as string)) continue;
+			if (i === keepIndex) {
+				keptReasoningInRun = true;
+				continue;
+			}
+			message.parts[i] = makeSentinel(part);
+			stripped++;
+		}
 
-        prevRole = role;
-    }
+		prevRole = role;
+	}
 
-    return stripped;
+	return stripped;
 }
 
 export interface StripProcessedImagesResult {
-    stripped: number;
-    newlyStrippedIds: string[];
+	stripped: number;
+	newlyStrippedIds: string[];
 }
 
 /**
@@ -611,65 +611,61 @@ export interface StripProcessedImagesResult {
  * to the wire.
  */
 export function stripProcessedImages(
-    messages: MessageLike[],
-    frozenIds: Set<string>,
-    options: {
-        detect: boolean;
-        watermark: number;
-        messageTagNumbers: Map<MessageLike, number>;
-    },
+	messages: MessageLike[],
+	frozenIds: Set<string>,
+	options: {
+		detect: boolean;
+		watermark: number;
+		messageTagNumbers: Map<MessageLike, number>;
+	},
 ): StripProcessedImagesResult {
-    const { detect, watermark, messageTagNumbers } = options;
-    let stripped = 0;
-    const newlyStrippedIds: string[] = [];
-    let hasAssistantResponse = false;
+	const { detect, watermark, messageTagNumbers } = options;
+	let stripped = 0;
+	const newlyStrippedIds: string[] = [];
+	let hasAssistantResponse = false;
 
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (msg === undefined) continue;
-        if (msg.info.role === "assistant") {
-            hasAssistantResponse = true;
-            continue;
-        }
-        if (msg.info.role !== "user") {
-            continue;
-        }
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i];
+		if (msg === undefined) continue;
+		if (msg.info.role === "assistant") {
+			hasAssistantResponse = true;
+			continue;
+		}
+		if (msg.info.role !== "user") {
+			continue;
+		}
 
-        const id = typeof msg.info.id === "string" ? msg.info.id : undefined;
-        const inFrozen = id !== undefined && frozenIds.has(id);
-        // DETECT (cache-busting passes only): a processed (assistant-answered),
-        // aged (maxTag <= watermark) user message not yet frozen.
-        const maxTag = messageTagNumbers.get(msg) ?? 0;
-        const isNewDetection =
-            !inFrozen && detect && hasAssistantResponse && id !== undefined && maxTag <= watermark;
+		const id = typeof msg.info.id === "string" ? msg.info.id : undefined;
+		const inFrozen = id !== undefined && frozenIds.has(id);
+		// DETECT (cache-busting passes only): a processed (assistant-answered),
+		// aged (maxTag <= watermark) user message not yet frozen.
+		const maxTag = messageTagNumbers.get(msg) ?? 0;
+		const isNewDetection =
+			!inFrozen && detect && hasAssistantResponse && id !== undefined && maxTag <= watermark;
 
-        if (!inFrozen && !isNewDetection) {
-            continue;
-        }
+		if (!inFrozen && !isNewDetection) {
+			continue;
+		}
 
-        let touchedThisMsg = false;
-        for (let j = 0; j < msg.parts.length; j++) {
-            const part = msg.parts[j];
-            if (!isRecord(part) || part.type !== "file") {
-                continue;
-            }
-            if (typeof part.mime !== "string" || !part.mime.startsWith("image/")) {
-                continue;
-            }
-            if (
-                typeof part.url === "string" &&
-                part.url.startsWith("data:") &&
-                part.url.length > 200
-            ) {
-                msg.parts[j] = makeSentinel(part);
-                stripped++;
-                touchedThisMsg = true;
-            }
-        }
-        if (touchedThisMsg && isNewDetection && id !== undefined) {
-            newlyStrippedIds.push(id);
-        }
-    }
+		let touchedThisMsg = false;
+		for (let j = 0; j < msg.parts.length; j++) {
+			const part = msg.parts[j];
+			if (!isRecord(part) || part.type !== "file") {
+				continue;
+			}
+			if (typeof part.mime !== "string" || !part.mime.startsWith("image/")) {
+				continue;
+			}
+			if (typeof part.url === "string" && part.url.startsWith("data:") && part.url.length > 200) {
+				msg.parts[j] = makeSentinel(part);
+				stripped++;
+				touchedThisMsg = true;
+			}
+		}
+		if (touchedThisMsg && isNewDetection && id !== undefined) {
+			newlyStrippedIds.push(id);
+		}
+	}
 
-    return { stripped, newlyStrippedIds };
+	return { stripped, newlyStrippedIds };
 }

@@ -55,45 +55,45 @@ export const MAX_SEED_PATHS_PER_MEMORY = 3;
 // NOTE: built FRESH per call via matchAll — a shared /g regex carries lastIndex
 // across calls and silently skips matches at the start of later inputs.
 const PATH_PATTERN =
-    "`?((?:[\\w.-]+\\/)+[\\w.-]+\\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|json|jsonc|sql|toml|sh))`?";
+	"`?((?:[\\w.-]+\\/)+[\\w.-]+\\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|json|jsonc|sql|toml|sh))`?";
 
 /** Extract candidate backing-file paths a memory NAMES, keep only those that
  *  EXIST in the repo, dedupe, cap. Pure host-side seeding — no LLM, no contents. */
 export function extractMemoryCandidatePaths(content: string, repoDir: string): string[] {
-    const found = new Set<string>();
-    const root = path.resolve(repoDir);
-    for (const match of content.matchAll(new RegExp(PATH_PATTERN, "g"))) {
-        const rel = match[1];
-        if (rel === undefined || rel.includes("..")) continue;
-        const abs = path.resolve(repoDir, rel);
-        if (!abs.startsWith(`${root}/`)) continue;
-        try {
-            if (existsSync(abs) && statSync(abs).isFile()) found.add(rel);
-        } catch {
-            /* unreadable → skip */
-        }
-        if (found.size >= MAX_SEED_PATHS_PER_MEMORY) break;
-    }
-    return [...found];
+	const found = new Set<string>();
+	const root = path.resolve(repoDir);
+	for (const match of content.matchAll(new RegExp(PATH_PATTERN, "g"))) {
+		const rel = match[1];
+		if (rel === undefined || rel.includes("..")) continue;
+		const abs = path.resolve(repoDir, rel);
+		if (!abs.startsWith(`${root}/`)) continue;
+		try {
+			if (existsSync(abs) && statSync(abs).isFile()) found.add(rel);
+		} catch {
+			/* unreadable → skip */
+		}
+		if (found.size >= MAX_SEED_PATHS_PER_MEMORY) break;
+	}
+	return [...found];
 }
 
 export interface MapMemoryInput {
-    id: number;
-    category: string;
-    content: string;
-    candidates: string[];
+	id: number;
+	category: string;
+	content: string;
+	candidates: string[];
 }
 
 export function buildMapMemoriesPrompt(projectPath: string, memories: MapMemoryInput[]): string {
-    const list = memories
-        .map((m) => {
-            const seed = m.candidates.length
-                ? `\nLikely files (named in the memory, confirmed to exist): ${m.candidates.join(", ")}`
-                : "";
-            return `[${m.id}] ${m.category}\n${m.content}${seed}`;
-        })
-        .join("\n\n");
-    return `## Map these memories to their backing files
+	const list = memories
+		.map((m) => {
+			const seed = m.candidates.length
+				? `\nLikely files (named in the memory, confirmed to exist): ${m.candidates.join(", ")}`
+				: "";
+			return `[${m.id}] ${m.category}\n${m.content}${seed}`;
+		})
+		.join("\n\n");
+	return `## Map these memories to their backing files
 
 Project: ${projectPath}
 
@@ -105,34 +105,35 @@ ${list}
 }
 
 export interface ParsedMemoryMapping {
-    id: number;
-    files: string[];
-    independent: boolean;
+	id: number;
+	files: string[];
+	independent: boolean;
 }
 
 /** Parse the agent's complete `<mappings>` manifest. A missing root close tag is
  *  treated as truncation and rejects the whole batch. */
 export function parseMapMemoriesManifest(text: string): ParsedMemoryMapping[] {
-    const out: ParsedMemoryMapping[] = [];
-    const body = extractCompleteManifestBody(text, "mappings");
-    for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
-        const attrs = m[1] ?? "";
-        const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
-        const rawId = idMatch?.[1];
-        if (rawId === undefined) throw new Error("mappings manifest entry missing numeric id");
-        const id = Number.parseInt(rawId, 10);
-        if (!Number.isInteger(id)) throw new Error("mappings manifest entry missing numeric id");
-        const independent = /\bindependent\s*=\s*"(?:true|1)"/i.test(attrs);
-        const filesMatch = attrs.match(/\bfiles\s*=\s*"([^"]*)"/);
-        const files = filesMatch?.[1]
-            ?.split(",")
-            .map((f) => f.trim())
-            .filter(Boolean) ?? [];
-        out.push({ id, files, independent: independent || files.length === 0 });
-    }
-    assertNoDuplicateManifestIds(
-        out.map((entry) => entry.id),
-        "mappings",
-    );
-    return out;
+	const out: ParsedMemoryMapping[] = [];
+	const body = extractCompleteManifestBody(text, "mappings");
+	for (const m of body.matchAll(/<memory\b([^>]*)\/?>/g)) {
+		const attrs = m[1] ?? "";
+		const idMatch = attrs.match(/\bid\s*=\s*"(\d+)"/);
+		const rawId = idMatch?.[1];
+		if (rawId === undefined) throw new Error("mappings manifest entry missing numeric id");
+		const id = Number.parseInt(rawId, 10);
+		if (!Number.isInteger(id)) throw new Error("mappings manifest entry missing numeric id");
+		const independent = /\bindependent\s*=\s*"(?:true|1)"/i.test(attrs);
+		const filesMatch = attrs.match(/\bfiles\s*=\s*"([^"]*)"/);
+		const files =
+			filesMatch?.[1]
+				?.split(",")
+				.map((f) => f.trim())
+				.filter(Boolean) ?? [];
+		out.push({ id, files, independent: independent || files.length === 0 });
+	}
+	assertNoDuplicateManifestIds(
+		out.map((entry) => entry.id),
+		"mappings",
+	);
+	return out;
 }

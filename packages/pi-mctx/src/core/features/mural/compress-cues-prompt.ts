@@ -23,10 +23,10 @@
 import { extractCompleteManifestBody } from "../dreamer/manifest-parser";
 
 export interface CompressCuesPromptMemory {
-    id: number;
-    category: string;
-    importance: number;
-    content: string;
+	id: number;
+	category: string;
+	importance: number;
+	content: string;
 }
 
 /** Per-cue hard budget in codepoints. Importance >= 70 gets more room because
@@ -36,7 +36,7 @@ export const CUE_BUDGET_HIGH = 90;
 export const CUE_BUDGET_LOW = 50;
 
 export function cueBudgetFor(importance: number): number {
-    return importance >= 70 ? CUE_BUDGET_HIGH : CUE_BUDGET_LOW;
+	return importance >= 70 ? CUE_BUDGET_HIGH : CUE_BUDGET_LOW;
 }
 
 export const COMPRESS_CUES_SYSTEM_PROMPT = `You compress project memories into mnemonic mural cues. Each cue is a compact pidgin anchor that lets a reader recall the full memory at a glance — NOT a sentence, NOT a summary. You do not select, rank, group, merge, or reword the underlying facts; you compress each supplied memory into one cue, independently.
@@ -62,22 +62,22 @@ Rules:
 - The complete <cues> root must be closed. Do not wrap it in a Markdown fence.`;
 
 function renderPool(memories: CompressCuesPromptMemory[]): string {
-    return memories
-        .map(
-            (memory) =>
-                `[${memory.id}] ${memory.category} importance=${memory.importance} (budget ${cueBudgetFor(memory.importance)})\n${memory.content}`,
-        )
-        .join("\n\n");
+	return memories
+		.map(
+			(memory) =>
+				`[${memory.id}] ${memory.category} importance=${memory.importance} (budget ${cueBudgetFor(memory.importance)})\n${memory.content}`,
+		)
+		.join("\n\n");
 }
 
 /** Build the compress-cues prompt for one chunk. The category and importance are
  *  copied into the pool line so the model applies the right budget and polarity,
  *  but it never re-decides them — those are source facts. */
 export function buildCompressCuesPrompt(args: {
-    projectPath: string;
-    memories: CompressCuesPromptMemory[];
+	projectPath: string;
+	memories: CompressCuesPromptMemory[];
 }): string {
-    return `## Task: Compress Project Memory Cues
+	return `## Task: Compress Project Memory Cues
 
 **Project:** ${args.projectPath}
 
@@ -88,16 +88,16 @@ ${renderPool(args.memories)}`;
 }
 
 export interface ParsedCue {
-    id: number;
-    cue: string;
+	id: number;
+	cue: string;
 }
 
 function unescapeXml(value: string): string {
-    return value
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, "&");
+	return value
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&amp;/g, "&");
 }
 
 /**
@@ -108,12 +108,12 @@ function unescapeXml(value: string): string {
  * the caller decides which cues to keep.
  */
 export function parseCuesManifest(text: string): ParsedCue[] {
-    const body = extractCompleteManifestBody(text, "cues");
-    const out: ParsedCue[] = [];
-    for (const match of body.matchAll(/<cue\s+id="(\d+)"\s*>([\s\S]*?)<\/cue>/g)) {
-        const id = Number.parseInt(match[1] ?? "", 10);
-        if (!Number.isInteger(id)) continue;
-        out.push({ id, cue: unescapeXml(match[2] ?? "").trim() });
-    }
-    return out;
+	const body = extractCompleteManifestBody(text, "cues");
+	const out: ParsedCue[] = [];
+	for (const match of body.matchAll(/<cue\s+id="(\d+)"\s*>([\s\S]*?)<\/cue>/g)) {
+		const id = Number.parseInt(match[1] ?? "", 10);
+		if (!Number.isInteger(id)) continue;
+		out.push({ id, cue: unescapeXml(match[2] ?? "").trim() });
+	}
+	return out;
 }

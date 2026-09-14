@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createTagger } from "#core/features/tagger";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import { tagTranscript } from "#core/shared/tag-transcript";
+import { createPiTranscript } from "../src/transcript-pi";
 import {
 	assistantMessage,
 	assistantToolCall,
@@ -10,7 +11,6 @@ import {
 	toolResultMessage,
 	userMessage,
 } from "./test-utils.test";
-import { createPiTranscript } from "../src/transcript-pi";
 
 type ToolTokenCacheEntry = { text: string; tokenCount: number };
 
@@ -47,9 +47,7 @@ describe("createPiTranscript", () => {
 		const messages = [userMessage("hello", 10), assistantMessage("world", 11)];
 		const transcript = createPiTranscript(messages, "ses-transcript");
 
-		expect(transcript.messages[0]?.parts[0]?.setText("hello tagged")).toBe(
-			true,
-		);
+		expect(transcript.messages[0]?.parts[0]?.setText("hello tagged")).toBe(true);
 		transcript.commit();
 		const output = transcript.getOutputMessages();
 
@@ -64,10 +62,7 @@ describe("createPiTranscript", () => {
 	});
 
 	it("preserves source identity when there are no mutations", () => {
-		const messages = [
-			userMessage("unchanged", 10),
-			assistantMessage("same", 11),
-		];
+		const messages = [userMessage("unchanged", 10), assistantMessage("same", 11)];
 		const transcript = createPiTranscript(messages, "ses-transcript");
 
 		transcript.commit();
@@ -100,10 +95,7 @@ describe("createPiTranscript", () => {
 	});
 
 	it("supports tag-prefix removal via part text mutation", () => {
-		const messages = [
-			userMessage("§1§ keep me", 10),
-			assistantMessage("§2§ keep assistant", 11),
-		];
+		const messages = [userMessage("§1§ keep me", 10), assistantMessage("§2§ keep assistant", 11)];
 		const transcript = createPiTranscript(messages, "ses-transcript");
 
 		for (const msg of transcript.messages) {
@@ -137,23 +129,17 @@ describe("createPiTranscript", () => {
 		const output = transcript.getOutputMessages() as typeof messages;
 
 		expect(typeof (output[0] as { content: unknown }).content).toBe("string");
-		expect(Array.isArray((output[1] as { content: unknown }).content)).toBe(
-			true,
-		);
+		expect(Array.isArray((output[1] as { content: unknown }).content)).toBe(true);
 		expect(textOf(output[0] as never)).toBe("changed string");
 		expect(textOf(output[1] as never)).toBe("changed array");
 	});
 
 	it("falls back to replacing toolCall arguments through setText", () => {
-		const messages = [
-			assistantToolCall("call-1", "Read", { path: "large-file.txt" }),
-		];
+		const messages = [assistantToolCall("call-1", "Read", { path: "large-file.txt" })];
 		const transcript = createPiTranscript(messages, "ses-transcript");
 		const part = transcript.messages[0]?.parts[0];
 
-		expect(() => part?.setToolOutput("[truncated]")).toThrow(
-			"setToolOutput on assistant part",
-		);
+		expect(() => part?.setToolOutput("[truncated]")).toThrow("setToolOutput on assistant part");
 		expect(part?.setText("[truncated]")).toBe(true);
 		transcript.commit();
 
@@ -196,9 +182,7 @@ describe("createPiTranscript", () => {
 		const transcript = createPiTranscript(messages, "ses-transcript");
 		const part = transcript.messages[0]?.parts[0];
 
-		expect(
-			part?.setToolInput?.({ filePath: "spec.md", oldString: "clamped" }),
-		).toBe(true);
+		expect(part?.setToolInput?.({ filePath: "spec.md", oldString: "clamped" })).toBe(true);
 		transcript.commit();
 
 		const output = transcript.getOutputMessages() as Array<{
@@ -228,10 +212,7 @@ describe("createPiTranscript", () => {
 
 		expect(transcript.messages).toHaveLength(2);
 		expect(transcript.messages[1]?.info.role).toBe("user");
-		expect(transcript.messages[1]?.parts.map((part) => part.kind)).toEqual([
-			"tool_result",
-			"text",
-		]);
+		expect(transcript.messages[1]?.parts.map((part) => part.kind)).toEqual(["tool_result", "text"]);
 	});
 	it("gives tail synthetic tool-result users a stable deterministic id", () => {
 		const makeTranscriptId = () => {
@@ -277,9 +258,7 @@ describe("createPiTranscript", () => {
 				"entry-tool-result",
 			]);
 
-			expect(transcript.messages[1]?.info.id).toBe(
-				"synth-user-entry-tool-result",
-			);
+			expect(transcript.messages[1]?.info.id).toBe("synth-user-entry-tool-result");
 			expect(transcript.messages[1]?.parts.map((part) => part.kind)).toEqual([
 				"tool_result",
 				"tool_result",
@@ -290,7 +269,7 @@ describe("createPiTranscript", () => {
 			expect(targets.size).toBe(1);
 
 			const target = Array.from(targets.values())[0];
-			expect(target?.drop()).toBe("removed");
+			expect(target?.drop?.()).toBe("removed");
 			transcript.commit();
 
 			const output = transcript.getOutputMessages() as Array<{
@@ -318,12 +297,7 @@ describe("createPiTranscript", () => {
 				const tagger = createTagger();
 				tagger.initFromDb(sessionId, db);
 				const makeMessages = () => [
-					assistantToolCall(
-						"call-multi-cache",
-						"Read",
-						{ path: "large.txt" },
-						11,
-					),
+					assistantToolCall("call-multi-cache", "Read", { path: "large.txt" }, 11),
 					{
 						role: "toolResult" as const,
 						toolCallId: "call-multi-cache",

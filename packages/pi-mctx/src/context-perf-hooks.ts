@@ -5,9 +5,7 @@ export interface PiTransformTimingSample {
 	extra?: string | undefined;
 }
 
-export type PiTransformTimingObserver = (
-	sample: PiTransformTimingSample,
-) => void;
+export type PiTransformTimingObserver = (sample: PiTransformTimingSample) => void;
 
 let timingObserver: PiTransformTimingObserver | undefined;
 

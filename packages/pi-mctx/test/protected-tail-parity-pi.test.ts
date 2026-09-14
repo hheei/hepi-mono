@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { RawMessage } from "#core/hooks/read-session-raw";
-import { buildToolArcs, buildTrueRawTokenIndex, computeRawRangeFingerprint } from "#core/hooks/read-session-true-raw-tokens";
+import {
+	buildToolArcs,
+	buildTrueRawTokenIndex,
+	computeRawRangeFingerprint,
+} from "#core/hooks/read-session-true-raw-tokens";
 
 describe("Pi protected-tail true-raw parity", () => {
 	test("matches OpenCode text and tool-I/O totals for folded Pi shape", () => {
@@ -74,7 +78,7 @@ describe("Pi protected-tail true-raw parity", () => {
 		];
 
 		const ocIndex = buildTrueRawTokenIndex("ses-oc", opencode, {
-			providerShapeVersion: "opencode-v1",
+			providerShapeVersion: "legacy-v1",
 			cacheNamespace: "test:oc",
 		});
 		const piIndex = buildTrueRawTokenIndex("ses-pi", piFolded, {
@@ -83,9 +87,7 @@ describe("Pi protected-tail true-raw parity", () => {
 		});
 
 		expect(piIndex.rangeTokens(1, 4)).toBe(ocIndex.rangeTokens(1, 4));
-		expect(buildToolArcs(piFolded)).toEqual([
-			{ callId: "read:1", invOrdinal: 2, resOrdinal: 3 },
-		]);
+		expect(buildToolArcs(piFolded)).toEqual([{ callId: "read:1", invOrdinal: 2, resOrdinal: 3 }]);
 	});
 
 	test("documents Pi thinking/image undercount as an intentional provider-shape divergence", () => {
@@ -100,12 +102,10 @@ describe("Pi protected-tail true-raw parity", () => {
 				],
 			},
 		];
-		const piFolded: RawMessage[] = [
-			{ ordinal: 1, id: "a-thinking", role: "assistant", parts: [] },
-		];
+		const piFolded: RawMessage[] = [{ ordinal: 1, id: "a-thinking", role: "assistant", parts: [] }];
 
 		const ocTotal = buildTrueRawTokenIndex("ses-oc-divergence", opencode, {
-			providerShapeVersion: "opencode-v1",
+			providerShapeVersion: "legacy-v1",
 			cacheNamespace: "test:oc-divergence",
 		}).rangeTokens(1, 2);
 		const piTotal = buildTrueRawTokenIndex("ses-pi-divergence", piFolded, {
@@ -147,27 +147,13 @@ test("protected-tail fingerprints are content-stable: metadata-only drift matche
 	];
 
 	// Metadata-only drift (timestamp bump, same content) → SAME fingerprint.
-	expect(
-		computeRawRangeFingerprint(
-			convertEntriesToRawMessages(entry(10, "short")),
-			1,
-			2,
-		),
-	).toBe(
-		computeRawRangeFingerprint(
-			convertEntriesToRawMessages(entry(11, "short")),
-			1,
-			2,
-		),
+	expect(computeRawRangeFingerprint(convertEntriesToRawMessages(entry(10, "short")), 1, 2)).toBe(
+		computeRawRangeFingerprint(convertEntriesToRawMessages(entry(11, "short")), 1, 2),
 	);
 
 	// Content drift (output text changed) → DIFFERENT fingerprint.
 	expect(
-		computeRawRangeFingerprint(
-			convertEntriesToRawMessages(entry(10, "short")),
-			1,
-			2,
-		),
+		computeRawRangeFingerprint(convertEntriesToRawMessages(entry(10, "short")), 1, 2),
 	).not.toBe(
 		computeRawRangeFingerprint(
 			convertEntriesToRawMessages(entry(10, "short but longer now")),

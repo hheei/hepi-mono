@@ -2,22 +2,13 @@ import * as childProcess from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import {
-	basename,
-	dirname,
-	isAbsolute,
-	join,
-	resolve as resolvePath,
-} from "node:path";
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "#core/features/storage";
 import type { SubagentKind } from "#core/features/storage-subagent-invocations";
 import { recordChildInvocation } from "#core/features/subagent-token-capture";
-import {
-	piModelRefToCanonical,
-	resolveModelRefForPi,
-} from "#core/shared/harness-provider-map";
+import { piModelRefToCanonical, resolveModelRefForPi } from "#core/shared/harness-provider-map";
 import { sessionLog } from "#core/shared/logger";
 import type {
 	SubagentProgressEvent,
@@ -52,9 +43,7 @@ import type {
 function resolveBundledPiCli(): string | null {
 	try {
 		const require_ = createRequire(import.meta.url);
-		const pkgJson = require_.resolve(
-			"@earendil-works/pi-coding-agent/package.json",
-		);
+		const pkgJson = require_.resolve("@earendil-works/pi-coding-agent/package.json");
 		const cliPath = join(dirname(pkgJson), "dist/cli.js");
 		if (existsSync(cliPath)) return cliPath;
 		return null;
@@ -105,8 +94,7 @@ interface PiInvocation {
 function resolvePiInvocation(): PiInvocation {
 	const execPath = process.execPath;
 	const currentScript = process.argv[1];
-	const isBunVirtualScript =
-		currentScript?.startsWith("/$bunfs/root/") ?? false;
+	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/") ?? false;
 
 	if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
 		return { command: execPath, prefixArgs: [currentScript] };
@@ -185,9 +173,7 @@ const PI_AGENT_SETTINGS_DIR = join(homedir(), ".pi", "agent");
 let configuredSubagentExtensions: readonly string[] | undefined;
 
 /** Configure the user-tier extension allowlist used by new Pi child runners. */
-export function configurePiSubagentExtensions(
-	extensions: readonly string[] | undefined,
-): void {
+export function configurePiSubagentExtensions(extensions: readonly string[] | undefined): void {
 	configuredSubagentExtensions = extensions?.slice();
 }
 
@@ -214,10 +200,7 @@ const PI_HISTORIAN_TOOLS = [...PI_READ_ONLY_BUILTINS, "aft_search"] as const;
  * here too. Mismatched agent strings silently disable the elevated
  * action surface.
  */
-const DREAMER_ACTION_AGENTS: ReadonlySet<string> = new Set([
-	"dreamer",
-	"magic-context-dreamer",
-]);
+const DREAMER_ACTION_AGENTS: ReadonlySet<string> = new Set(["dreamer", "magic-context-dreamer"]);
 const SEARCH_ONLY_SUBAGENT_TOOL_AGENTS: ReadonlySet<string> = new Set([
 	"sidekick",
 	"dreamer-retrospective",
@@ -243,10 +226,7 @@ const SEARCH_ONLY_SUBAGENT_TOOL_AGENTS: ReadonlySet<string> = new Set([
  * after filtering, so listing optional AFT read tools is safe when AFT is not
  * installed while still allowing them when an AFT provider extension is present.
  */
-const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [
-	string,
-	readonly string[],
-])[] = [
+const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [string, readonly string[]])[] = [
 	["dreamer-retrospective", ["ctx_search"]],
 	["smart-note-compiler", []],
 	// Pi's live historian runner uses this Magic Context-specific id for first
@@ -276,10 +256,7 @@ const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [
 	// source. Pi's own canonical read-only set is {read, grep, find, ls}
 	// (createReadOnlyToolDefinitions), plus ctx_search and the optional AFT read
 	// navigation tools legacy host grants. NO bash/edit/write and NO ctx_memory.
-	[
-		"dreamer-primer-investigator",
-		[...PI_READ_ONLY_BUILTINS, ...PI_AFT_READ_TOOLS, "ctx_search"],
-	],
+	["dreamer-primer-investigator", [...PI_READ_ONLY_BUILTINS, ...PI_AFT_READ_TOOLS, "ctx_search"]],
 	// map-memories / verify reader: read-only check against the CURRENT LOCAL
 	// source. Same read-only lock as the primer investigator but WITHOUT ctx_search
 	// — these tasks read local code, not cross-session recall. The host applies the
@@ -290,10 +267,7 @@ const STRICT_TOOL_ALLOWLIST_ENTRIES: readonly (readonly [
 	// plus optional AFT read navigation. Deliberately NO ctx_memory/ctx_search — it
 	// edits docs, never the memory store. Not in any *_SUBAGENT_TOOL_AGENTS set, so
 	// the lean extension is never loaded and ctx_memory cannot leak in.
-	[
-		"dreamer-docs",
-		[...PI_READ_ONLY_BUILTINS, "bash", "write", "edit", ...PI_AFT_READ_TOOLS],
-	],
+	["dreamer-docs", [...PI_READ_ONLY_BUILTINS, "bash", "write", "edit", ...PI_AFT_READ_TOOLS]],
 	// curate (base `dreamer`): memory-pool hygiene via ctx_memory ONLY. It is in
 	// DREAMER_ACTION_AGENTS so the lean extension registers ctx_memory; this
 	// allow-list then strips ALL 7 built-ins, leaving only the extension-provided
@@ -310,9 +284,7 @@ const STRICT_TOOL_ALLOWLIST: ReadonlyMap<string, readonly string[]> = new Map(
 );
 
 const ZERO_TOOL_PROMPT_REQUIRED_AGENTS: ReadonlySet<string> = new Set(
-	STRICT_TOOL_ALLOWLIST_ENTRIES.filter(([, tools]) => tools.length === 0).map(
-		([agent]) => agent,
-	),
+	STRICT_TOOL_ALLOWLIST_ENTRIES.filter(([, tools]) => tools.length === 0).map(([agent]) => agent),
 );
 
 const KNOWN_PI_SUBAGENT_AGENTS = [
@@ -476,8 +448,7 @@ export class PiSubagentRunner implements SubagentRunner {
 		this.spawnImpl = options.spawnImpl ?? childProcess.spawn;
 		this.platform = options.platform ?? process.platform;
 		this.extraArgs = options.extraArgs ?? [];
-		this.subagentExtensions =
-			options.subagentExtensions ?? configuredSubagentExtensions;
+		this.subagentExtensions = options.subagentExtensions ?? configuredSubagentExtensions;
 	}
 
 	async run(options: SubagentRunOptions): Promise<SubagentRunResult> {
@@ -485,10 +456,7 @@ export class PiSubagentRunner implements SubagentRunner {
 		const firstOptions = providerAttempt
 			? { ...options, model: providerAttempt.canonicalRef }
 			: options;
-		const firstRun = await this.runWithExtensionRetry(
-			firstOptions,
-			providerAttempt?.modelRef,
-		);
+		const firstRun = await this.runWithExtensionRetry(firstOptions, providerAttempt?.modelRef);
 		if (!providerAttempt) return firstRun.result;
 		if (firstRun.result.ok) {
 			PI_PROVIDER_FORM_CACHE.set(
@@ -517,10 +485,7 @@ export class PiSubagentRunner implements SubagentRunner {
 					),
 					extensionRetryUsed: true,
 				}
-			: await this.runWithExtensionRetry(
-					fallbackOptions,
-					providerAttempt.canonicalRef,
-				);
+			: await this.runWithExtensionRetry(fallbackOptions, providerAttempt.canonicalRef);
 		if (fallbackRun.result.ok) {
 			PI_PROVIDER_FORM_CACHE.set(
 				providerAttempt.canonicalProvider,
@@ -535,15 +500,8 @@ export class PiSubagentRunner implements SubagentRunner {
 		modelRefOverride?: string,
 	): Promise<ExtensionRetryResult> {
 		const primaryRunMode: PiRunMode = { disableDiscoveredExtensions: false };
-		const primaryResult = await this.runModelChain(
-			options,
-			primaryRunMode,
-			modelRefOverride,
-		);
-		if (
-			this.spawnUsesNoExtensions(primaryRunMode) ||
-			!isIsolatedRetryTrigger(primaryResult)
-		) {
+		const primaryResult = await this.runModelChain(options, primaryRunMode, modelRefOverride);
+		if (this.spawnUsesNoExtensions(primaryRunMode) || !isIsolatedRetryTrigger(primaryResult)) {
 			return { result: primaryResult, extensionRetryUsed: false };
 		}
 
@@ -602,24 +560,14 @@ export class PiSubagentRunner implements SubagentRunner {
 			// primary. Later top-level runs still start with extensions enabled (the
 			// degrade is per-attempt, not cached) so extension-provided models keep
 			// working normally.
-			if (
-				!this.spawnUsesNoExtensions(runMode) &&
-				isIsolatedRetryTrigger(result)
-			) {
+			if (!this.spawnUsesNoExtensions(runMode) && isIsolatedRetryTrigger(result)) {
 				return result;
 			}
 			if (index >= attempts.length - 1 || !isFallbackEligible(result.reason)) {
 				return result;
 			}
 		}
-		return (
-			lastResult ??
-			this.runOnce(
-				{ ...options, fallbackModels: [] },
-				runMode,
-				primaryModelRef,
-			)
-		);
+		return lastResult ?? this.runOnce({ ...options, fallbackModels: [] }, runMode, primaryModelRef);
 	}
 
 	private spawnUsesNoExtensions(runMode: PiRunMode): boolean {
@@ -637,38 +585,23 @@ export class PiSubagentRunner implements SubagentRunner {
 	): Promise<SubagentRunResult> {
 		const startTime = Date.now();
 		let recordedAccounting = false;
-		const recordAccounting = (
-			result: SubagentRunResult,
-			messages: unknown[] = [],
-		) => {
+		const recordAccounting = (result: SubagentRunResult, messages: unknown[] = []) => {
 			if (!options.accountingSessionId || recordedAccounting) return;
 			recordedAccounting = true;
 			const errorMessage = result.ok ? undefined : result.error;
-			const providerId =
-				typeof options.model === "string"
-					? options.model.split("/")[0]
-					: null;
+			const providerId = typeof options.model === "string" ? options.model.split("/")[0] : null;
 			recordChildInvocation({
 				db: openDatabase(),
 				parentSessionId: options.accountingSessionId,
-				subagent:
-					options.accountingSubagent ?? inferAccountingSubagent(options.agent),
+				subagent: options.accountingSubagent ?? inferAccountingSubagent(options.agent),
 				task: options.accountingTask ?? null,
 				startedAt: startTime,
-				status: result.ok
-					? "completed"
-					: result.reason === "abort"
-						? "aborted"
-						: "failed",
+				status: result.ok ? "completed" : result.reason === "abort" ? "aborted" : "failed",
 				messages,
 				...(providerId === undefined ? {} : { providerId }),
 				modelId:
-					typeof options.model === "string"
-						? options.model.split("/").slice(1).join("/")
-						: null,
-				...(typeof errorMessage !== "string"
-					? {}
-					: { error: errorMessage }),
+					typeof options.model === "string" ? options.model.split("/").slice(1).join("/") : null,
+				...(typeof errorMessage !== "string" ? {} : { error: errorMessage }),
 				parentInvocationId: options.accountingParentInvocationId ?? null,
 			});
 		};
@@ -738,8 +671,7 @@ export class PiSubagentRunner implements SubagentRunner {
 		// Pi's print mode concatenates stdin into the initial message, so when we
 		// pipe the prompt we must omit the positional argv to avoid duplication.
 		const promptBytes = Buffer.byteLength(options.userMessage, "utf8");
-		const deliverViaStdin =
-			promptBytes > PROMPT_ARGV_MAX_BYTES || this.platform === "win32";
+		const deliverViaStdin = promptBytes > PROMPT_ARGV_MAX_BYTES || this.platform === "win32";
 		let systemPromptTempDir: string | undefined;
 		let systemPromptPath: string | undefined;
 		const cleanupSystemPromptFile = () => {
@@ -1139,8 +1071,7 @@ export class PiSubagentRunner implements SubagentRunner {
 					// vs actively producing output but slow (model just
 					// taking too long). Without this, every timeout looks
 					// the same and operators can't distinguish them.
-					const sinceLastEvent =
-						lastEventTimestamp > 0 ? Date.now() - lastEventTimestamp : -1;
+					const sinceLastEvent = lastEventTimestamp > 0 ? Date.now() - lastEventTimestamp : -1;
 					const progressSuffix =
 						eventCount === 0
 							? " — no events received from child (silent hang: spawn/auth/network or model never started streaming)"
@@ -1204,10 +1135,7 @@ export class PiSubagentRunner implements SubagentRunner {
 				// into a fake subprocess failure.
 				if (sawAgentEnd) {
 					const trimmedAssistantText = finalAssistantText?.trim() ?? null;
-					if (
-						trimmedAssistantText === null ||
-						trimmedAssistantText.length === 0
-					) {
+					if (trimmedAssistantText === null || trimmedAssistantText.length === 0) {
 						settle({
 							ok: false,
 							reason: "no_assistant",
@@ -1234,11 +1162,8 @@ export class PiSubagentRunner implements SubagentRunner {
 					) {
 						settle({
 							ok: false,
-							reason:
-								finalStopReason === "length" ? "truncated" : "model_failed",
-							error:
-								finalErrorMessage ??
-								`pi assistant stopped with reason "${finalStopReason}"`,
+							reason: finalStopReason === "length" ? "truncated" : "model_failed",
+							error: finalErrorMessage ?? `pi assistant stopped with reason "${finalStopReason}"`,
 							durationMs: Date.now() - startTime,
 							meta: { stderr: stderr.length > 0 ? stderr : undefined },
 						});
@@ -1250,9 +1175,7 @@ export class PiSubagentRunner implements SubagentRunner {
 						// Prefer agent_end's authoritative full array; else the
 						// accumulated message_end stream. Counting toolCall content
 						// parts is event-name-independent (see countToolCalls).
-						toolCallCount: countToolCalls(
-							agentEndMessages ?? accumulatedMessages,
-						),
+						toolCallCount: countToolCalls(agentEndMessages ?? accumulatedMessages),
 						durationMs: Date.now() - startTime,
 						meta: { stderr: stderr.length > 0 ? stderr : undefined },
 					});
@@ -1322,9 +1245,7 @@ function hasNoExtensionsArg(args: readonly string[]): boolean {
 	return args.includes("--no-extensions");
 }
 
-function isPiExtensionCollisionFailure(
-	result: SubagentRunResult,
-): result is FailedRunResult {
+function isPiExtensionCollisionFailure(result: SubagentRunResult): result is FailedRunResult {
 	return (
 		!result.ok &&
 		result.reason === "non_zero_exit" &&
@@ -1344,14 +1265,8 @@ function isPiExtensionCollisionFailure(
  * `no_assistant` that should fall through to fallback models, not an isolated
  * retry.
  */
-function isSilentNoAssistantFailure(
-	result: SubagentRunResult,
-): result is FailedRunResult {
-	return (
-		!result.ok &&
-		result.reason === "no_assistant" &&
-		result.meta?.sawProtocolOutput === false
-	);
+function isSilentNoAssistantFailure(result: SubagentRunResult): result is FailedRunResult {
+	return !result.ok && result.reason === "no_assistant" && result.meta?.sawProtocolOutput === false;
 }
 
 /**
@@ -1359,12 +1274,8 @@ function isSilentNoAssistantFailure(
  * (--no-extensions for discovered user extensions). Covers both the #222
  * extension turn collision and the #238 silent exit-0 signature.
  */
-function isIsolatedRetryTrigger(
-	result: SubagentRunResult,
-): result is FailedRunResult {
-	return (
-		isPiExtensionCollisionFailure(result) || isSilentNoAssistantFailure(result)
-	);
+function isIsolatedRetryTrigger(result: SubagentRunResult): result is FailedRunResult {
+	return isPiExtensionCollisionFailure(result) || isSilentNoAssistantFailure(result);
 }
 
 /** Pick the accurate log message for whichever trigger fired the isolated retry. */
@@ -1374,19 +1285,13 @@ function isolatedRetryLogMessage(result: FailedRunResult): string {
 		: ISOLATED_RETRY_SILENT_LOG_MESSAGE;
 }
 
-function isIsolatedRetryModelUnavailable(
-	result: SubagentRunResult,
-): result is FailedRunResult {
+function isIsolatedRetryModelUnavailable(result: SubagentRunResult): result is FailedRunResult {
 	if (result.ok) return false;
 	const diagnosticText = `${result.error}\n${getResultStderr(result)}`;
-	return MODEL_RESOLUTION_ERROR_PATTERNS.some((pattern) =>
-		pattern.test(diagnosticText),
-	);
+	return MODEL_RESOLUTION_ERROR_PATTERNS.some((pattern) => pattern.test(diagnosticText));
 }
 
-function annotateIsolatedRetryModelUnavailable(
-	result: FailedRunResult,
-): FailedRunResult {
+function annotateIsolatedRetryModelUnavailable(result: FailedRunResult): FailedRunResult {
 	if (result.error.startsWith(ISOLATED_RETRY_MODEL_UNAVAILABLE_MESSAGE)) {
 		return result;
 	}
@@ -1415,9 +1320,7 @@ function replaceProviderPrefix(ref: string, provider: string): string {
 	return slash > 0 ? `${provider}${ref.slice(slash)}` : ref;
 }
 
-function resolveProviderModelAttempt(
-	model: string | undefined,
-): ProviderModelAttempt | undefined {
+function resolveProviderModelAttempt(model: string | undefined): ProviderModelAttempt | undefined {
 	if (typeof model !== "string" || model.length === 0) return undefined;
 
 	const canonicalRef = piModelRefToCanonical(model);
@@ -1452,9 +1355,7 @@ function isProviderCredentialFailure(
 		attempt.translated &&
 		!result.ok &&
 		result.reason === "non_zero_exit" &&
-		getResultStderr(result).includes(
-			`No API key found for ${attempt.attemptedProvider}`,
-		)
+		getResultStderr(result).includes(`No API key found for ${attempt.attemptedProvider}`)
 	);
 }
 
@@ -1522,10 +1423,7 @@ export function buildArgs(
 		// Every known Magic Context child gets an explicit --tools allow-list so Pi's
 		// discovered extension registry cannot leak unrelated tools into subagents.
 	];
-	if (
-		opts?.disableDiscoveredExtensions ||
-		opts?.subagentExtensions !== undefined
-	) {
+	if (opts?.disableDiscoveredExtensions || opts?.subagentExtensions !== undefined) {
 		// When an allowlist is active, or when the collision retry asks for an
 		// isolated child, disable auto-discovered extensions. Explicit entries are
 		// added below in their configured order.
@@ -1621,7 +1519,7 @@ export function buildArgs(
 	// Without an explicit level, Pi's own resolution runs (works for most
 	// providers; may fail for e.g. github-copilot/gpt-5.4 which injects
 	// "minimal" as a default that its own API then rejects). Users who hit
-	// this must set `historian.thinking_level` in their Pi magic-context.jsonc.
+	// this must set `historian.thinking_level` in Pi MCTX settings.
 	if (options.thinkingLevel) {
 		args.push("--thinking", options.thinkingLevel);
 	}
@@ -1725,10 +1623,7 @@ export function countToolCalls(messages: unknown[]): number {
 
 export function parsePiEventLine(
 	line: string,
-):
-	| { ok: true; event: unknown }
-	| { ok: false; error: string }
-	| { ok: false; noise: true } {
+): { ok: true; event: unknown } | { ok: false; error: string } | { ok: false; noise: true } {
 	// Pi's --print JSON event stream emits one JSON OBJECT per line. Since
 	// subagent children load the user's full extension set (v0.30.4 dropped
 	// --no-extensions), any co-loaded extension that writes plain text to

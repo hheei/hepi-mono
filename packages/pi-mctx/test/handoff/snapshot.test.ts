@@ -1,13 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { HANDOFF_REQUEST_TYPE, hashBytes } from "../../src/handoff/model";
 import {
 	collectRecentLogicalMessages,
 	freezeHandoffSnapshot,
 	modelVisibleBranchFingerprint,
 } from "../../src/handoff/snapshot";
-import {
-	HANDOFF_REQUEST_TYPE,
-	hashBytes,
-} from "../../src/handoff/model";
 
 describe("handoff snapshot", () => {
 	test("recent five folds tool results into the next user turn", () => {

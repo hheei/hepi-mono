@@ -15,13 +15,13 @@ import type { Database } from "./sqlite";
  * doesn't care whether the close succeeded.
  */
 export function closeQuietly(db: Database | null | undefined): void {
-    if (!db) return;
-    // Just attempt close and swallow errors. bun:sqlite has no `open` property,
-    // and node:sqlite throws on an already-closed handle — both are handled by
-    // the bare try/catch.
-    try {
-        db.close();
-    } catch {
-        // intentional: caller wants quiet close
-    }
+	if (!db) return;
+	// Just attempt close and swallow errors. bun:sqlite has no `open` property,
+	// and node:sqlite throws on an already-closed handle — both are handled by
+	// the bare try/catch.
+	try {
+		db.close();
+	} catch {
+		// intentional: caller wants quiet close
+	}
 }

@@ -35,9 +35,7 @@ describe("tokenizePiMessages", () => {
 
 	test("user content as plain string → conversation bucket", () => {
 		// Pi accepts user.content as either an array OR a bare string.
-		const counts = tokenizePiMessages([
-			{ role: "user", content: "hello world" },
-		]);
+		const counts = tokenizePiMessages([{ role: "user", content: "hello world" }]);
 		expect(counts.conversation).toBeGreaterThan(0);
 		expect(counts.toolCall).toBe(0);
 	});
@@ -83,10 +81,7 @@ describe("tokenizePiMessages", () => {
 		// toolCall, not conversation. Use varied content because
 		// repeated single chars compress unrealistically well under a
 		// real BPE tokenizer.
-		const bigResult = Array.from(
-			{ length: 200 },
-			(_, i) => `line ${i}: data ${i * 7}`,
-		).join("\n");
+		const bigResult = Array.from({ length: 200 }, (_, i) => `line ${i}: data ${i * 7}`).join("\n");
 		const counts = tokenizePiMessages([
 			{
 				role: "toolResult",
@@ -217,9 +212,7 @@ describe("tokenizePiMessages", () => {
 			[
 				{
 					role: "user",
-					content: [
-						{ type: "text", text: "cached text with a longer changed suffix" },
-					],
+					content: [{ type: "text", text: "cached text with a longer changed suffix" }],
 				},
 			],
 			{ cache, stableId },
@@ -265,10 +258,10 @@ describe("tokenizePiMessages", () => {
 			},
 		};
 
-		const recounted = tokenizePiMessages(
-			[{ role: "user", content: [customPart] }],
-			{ cache, stableId },
-		);
+		const recounted = tokenizePiMessages([{ role: "user", content: [customPart] }], {
+			cache,
+			stableId,
+		});
 		expect(recounted.conversation).toBeGreaterThan(first.conversation);
 		expect(cache.has("entry-nested-to-json")).toBe(false);
 	});
@@ -293,10 +286,7 @@ describe("tokenizePiMessages", () => {
 
 	test("stable-id cache prunes messages outside the live wire", () => {
 		const cache = new Map([
-			[
-				"old-entry",
-				{ fingerprint: [], counts: { conversation: 0, toolCall: 0 } },
-			],
+			["old-entry", { fingerprint: [], counts: { conversation: 0, toolCall: 0 } }],
 		]);
 		const message = { role: "user", content: "live" };
 		tokenizePiMessages([message], {
@@ -314,9 +304,7 @@ describe("tokenizePiMessages", () => {
 			[
 				{
 					role: "user",
-					content: [
-						{ type: "image", data: "first-payload", mimeType: "image/png" },
-					],
+					content: [{ type: "image", data: "first-payload", mimeType: "image/png" }],
 				},
 			],
 			{ cache, stableId },

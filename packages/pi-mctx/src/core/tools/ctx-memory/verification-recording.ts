@@ -6,13 +6,13 @@ import type { Database } from "../../shared/sqlite";
  * a memory write + its mutation-log row commit atomically.
  */
 export function runImmediateTransaction<T>(db: Database, fn: () => T): T {
-    db.exec("BEGIN IMMEDIATE");
-    try {
-        const result = fn();
-        db.exec("COMMIT");
-        return result;
-    } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-    }
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		const result = fn();
+		db.exec("COMMIT");
+		return result;
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
 }

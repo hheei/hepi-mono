@@ -15,7 +15,11 @@
  * contract.
  */
 
-import { type ContextDatabase, applyStrippedPlaceholderDelta, getStrippedPlaceholderIds } from "#core/features/storage";
+import {
+	applyStrippedPlaceholderDelta,
+	type ContextDatabase,
+	getStrippedPlaceholderIds,
+} from "#core/features/storage";
 
 import { sessionLog } from "#core/shared/logger";
 import { resolvePiStableId } from "./read-session-pi";
@@ -29,10 +33,7 @@ function isDroppedOnlyText(text: string): boolean {
 		.split(/(?=\[dropped(?: §[^§]+§)?\])/)
 		.map((segment) => segment.trim())
 		.filter((segment) => segment.length > 0);
-	return (
-		segments.length > 0 &&
-		segments.every((s) => DROPPED_SEGMENT_PATTERN.test(s))
-	);
+	return segments.length > 0 && segments.every((s) => DROPPED_SEGMENT_PATTERN.test(s));
 }
 
 function messageIsPlaceholderOnly(message: unknown): boolean {
@@ -103,8 +104,7 @@ export function stripPiDroppedPlaceholderMessages(args: {
 		return resolvePiStableId(msg, index);
 	};
 
-	const canPrune =
-		(isCacheBusting || args.forceDiscovery === true) && !!stableIdByRef;
+	const canPrune = (isCacheBusting || args.forceDiscovery === true) && !!stableIdByRef;
 	const presentIds = canPrune ? new Set<string>() : null;
 	const discoveredIds: string[] = [];
 	if (isCacheBusting || args.forceDiscovery) {
@@ -128,14 +128,10 @@ export function stripPiDroppedPlaceholderMessages(args: {
 	let discovered = 0;
 	let pruned = 0;
 	if (discoveredIds.length > 0 || removedIds.length > 0) {
-		const persisted = (args.applyDelta ?? applyStrippedPlaceholderDelta)(
-			db,
-			sessionId,
-			{
-				add: discoveredIds,
-				remove: removedIds,
-			},
-		);
+		const persisted = (args.applyDelta ?? applyStrippedPlaceholderDelta)(db, sessionId, {
+			add: discoveredIds,
+			remove: removedIds,
+		});
 		if (persisted) {
 			// Bytes ship only after their replay state is durable. If the CAS fails,
 			// replay the old frozen set and retry discovery on the next busting pass.

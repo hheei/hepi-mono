@@ -1,27 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import {
-	SessionManager,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
-	type ExtensionContext,
 	type SessionHeader,
+	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-	openTuiSurface,
-	startSubagent,
-	type ExtensionLifecycleContext,
-} from "@hheei/pi-ext-core";
+import { type ExtensionLifecycleContext, openTuiSurface, startSubagent } from "@hheei/pi-ext-core";
 import { getCompartments } from "#core/features/compartment-storage";
 import { getMemoriesByProject } from "#core/features/memory/storage-memory";
 import { getOrCreateSessionMeta } from "#core/features/storage";
 import { getTagsBySession } from "#core/features/storage-tags";
 import { resolveExecuteThreshold } from "#core/hooks/event-resolvers";
 import { estimateTokens } from "#core/hooks/read-session-formatting";
-import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import type { RegisterCtxWrapupDeps } from "../commands/ctx-wrapup";
 import { runPiWrapup } from "../commands/ctx-wrapup";
 import { sendCtxStatusMessage } from "../commands/pi-command-utils";
+import { COMPACTION_OFF_COMMAND_UNAVAILABLE } from "../compaction-off-pi";
 import { resolvePiUsableContextLimit } from "../pi-context-limit";
 import { isPiRecompInFlight } from "../pi-recomp-runner";
 import {
@@ -45,11 +40,6 @@ import {
 	HANDOFF_RECENT_COUNT,
 	HANDOFF_REQUEST_TYPE,
 	HANDOFF_SYSTEM_GUARD,
-	handoffContextContent,
-	hashBytes,
-	isHandoffProgressPhase,
-	renderHandoffContextXml,
-	validateHandoffSummary,
 	type HandoffAttemptRecord,
 	type HandoffContextDetails,
 	type HandoffFailureCategory,
@@ -57,6 +47,11 @@ import {
 	type HandoffRequestRecord,
 	type HandoffSourceContextSnapshot,
 	type HandoffTerminalPhase,
+	handoffContextContent,
+	hashBytes,
+	isHandoffProgressPhase,
+	renderHandoffContextXml,
+	validateHandoffSummary,
 } from "./model";
 import {
 	appendRequestPhase,
@@ -67,8 +62,8 @@ import {
 } from "./persistence";
 import {
 	createHandoffProgressComponent,
-	tokenSummaryLine,
 	type HandoffProgressState,
+	tokenSummaryLine,
 } from "./render";
 import {
 	assertProjectedContextLimit,
@@ -87,10 +82,7 @@ export interface RegisterHandoffDeps extends RegisterCtxWrapupDeps {
 	lifecycle?: ExtensionLifecycleContext | undefined;
 }
 
-export function registerHandoffCommand(
-	pi: ExtensionAPI,
-	deps: RegisterHandoffDeps,
-): void {
+export function registerHandoffCommand(pi: ExtensionAPI, deps: RegisterHandoffDeps): void {
 	pi.registerCommand("handoff", {
 		description:
 			"Create a clean continuation session from a historian wrapup and current-model summary",
@@ -120,13 +112,11 @@ type HandoffPublishContext = {
 function hasHandoffSendMessage(
 	ctx: ExtensionCommandContext,
 ): ctx is ExtensionCommandContext & HandoffPublishContext {
-	return (
-		"sendMessage" in ctx &&
-		typeof (ctx as HandoffPublishContext).sendMessage === "function"
-	);
+	return "sendMessage" in ctx && typeof (ctx as HandoffPublishContext).sendMessage === "function";
 }
 
-export async function publishHandoffContext(ctx: HandoffPublishContext,
+export async function publishHandoffContext(
+	ctx: HandoffPublishContext,
 	xml: string,
 	details: HandoffContextDetails,
 ): Promise<void> {
@@ -145,9 +135,9 @@ export async function publishHandoffContext(ctx: HandoffPublishContext,
 	persistHandoffSession(ctx.sessionManager);
 }
 
-export function branchHasHandoffContext(
-	ctx: { sessionManager?: { getEntries?: () => unknown[] } },
-): boolean {
+export function branchHasHandoffContext(ctx: {
+	sessionManager?: { getEntries?: () => unknown[] };
+}): boolean {
 	const entries = readSessionEntries(ctx);
 	return parseHandoffEntries(entries).contexts.length > 0;
 }
@@ -202,13 +192,7 @@ export async function runHandoffCommand(
 	}
 
 	const holderId = randomUUID();
-	const lease = acquireHandoffLease(
-		deps.db,
-		sessionId,
-		holderId,
-		"pending",
-		"preparing",
-	);
+	const lease = acquireHandoffLease(deps.db, sessionId, holderId, "pending", "preparing");
 	if (!lease) {
 		const held = getHandoffLease(deps.db, sessionId);
 		warning(
@@ -228,9 +212,7 @@ export async function runHandoffCommand(
 	}, HANDOFF_LEASE_RENEWAL_MS);
 	const currentStage: { stage: HandoffProgressStage } = { stage: "preparing" };
 	const startedAt = Date.now();
-	let progress:
-		| { update(next: HandoffProgressState): void; requestRender(): void }
-		| undefined;
+	let progress: { update(next: HandoffProgressState): void; requestRender(): void } | undefined;
 	try {
 		await ctx.waitForIdle();
 		if (ctx.hasPendingMessages()) {
@@ -269,9 +251,7 @@ export async function runHandoffCommand(
 				progress?.update({
 					stage,
 					...(extras?.model !== undefined ? { model: extras.model } : {}),
-					...(extras?.tokenSummary !== undefined
-						? { tokenSummary: extras.tokenSummary }
-						: {}),
+					...(extras?.tokenSummary !== undefined ? { tokenSummary: extras.tokenSummary } : {}),
 					startedAt,
 					cancellable: stage !== "finalizing" && stage !== "creating",
 					now: Date.now(),
@@ -305,13 +285,19 @@ interface ExecuteArgs {
 	abort: AbortController;
 	setStage: (
 		stage: HandoffProgressStage,
-		extras?: { model?: string | undefined; tokenSummary?: string | undefined; status?: string | undefined } | undefined,
+		extras?:
+			| {
+					model?: string | undefined;
+					tokenSummary?: string | undefined;
+					status?: string | undefined;
+			  }
+			| undefined,
 	) => void;
 	warning: (content: { title: string; text: string }) => void;
 }
 
 async function executeHandoff(args: ExecuteArgs): Promise<"ok" | "cancelled"> {
-	const { pi, deps, ctx, sourcePath, sessionId, abort, setStage, warning } = args;
+	const { pi, ctx, warning } = args;
 	const existing = latestRequest(parseHandoffEntries(readSessionEntries(ctx)).requests);
 	if (existing && isHandoffProgressPhase(existing.phase)) {
 		return resumeExisting(args, existing);
@@ -369,13 +355,7 @@ async function continueFromRequested(
 	if (abort.signal.aborted) return cancel(args, requested);
 	let snapshot: ReturnType<typeof freezeFromContext>;
 	try {
-		snapshot = freezeFromContext(
-			deps,
-			ctx,
-			sessionId,
-			sourcePath,
-			pi.getAllTools(),
-		);
+		snapshot = freezeFromContext(deps, ctx, sessionId, sourcePath, pi.getAllTools());
 	} catch (error) {
 		failAndWarn({
 			pi,
@@ -435,15 +415,13 @@ async function resumeExisting(
 		return continueFromRequested(args, existing);
 	}
 
-	const liveFence = freezeFromContext(
-		deps,
-		ctx,
-		sessionId,
-		sourcePath,
-		pi.getAllTools(),
-	);
+	const liveFence = freezeFromContext(deps, ctx, sessionId, sourcePath, pi.getAllTools());
 	if (existing.phase === "snapshot-ready" || existing.phase === "summary-ready") {
-		if (!liveFence.ok || !existing.snapshot || !fenceMatches(existing.snapshot.fence, liveFence.snapshot.fence)) {
+		if (
+			!liveFence.ok ||
+			!existing.snapshot ||
+			!fenceMatches(existing.snapshot.fence, liveFence.snapshot.fence)
+		) {
 			writeRequest(pi, existing, {
 				...existing,
 				phase: "superseded",
@@ -526,10 +504,7 @@ async function completeAndReplace(
 		tokenSummary: tokenSummaryLine({ tokenCounts: request.snapshot.tokens }),
 		status: `Summarizing · ${modelRef}`,
 	});
-	const language = detectConversationLanguage(
-		request.snapshot.recentMessages,
-		deps.language,
-	);
+	const language = detectConversationLanguage(request.snapshot.recentMessages, deps.language);
 	const prompt = buildCompletionPrompt({
 		language,
 		reserveTokens: request.snapshot.tokens.summaryReserve,
@@ -585,10 +560,7 @@ async function completeAndReplace(
 				phase: "failed",
 				category: "completion",
 				stage: "summarizing",
-				reason:
-					result.status === "failed"
-						? result.failure.message
-						: "handoff completion failed",
+				reason: result.status === "failed" ? result.failure.message : "handoff completion failed",
 			});
 			return "ok";
 		}
@@ -775,10 +747,7 @@ async function replaceSession(
 					destWarn(drift, "new-request");
 					return;
 				}
-				const payloadError = assertPayloadLimit(
-					{ xml, details },
-					"Handoff Context",
-				);
+				const payloadError = assertPayloadLimit({ xml, details }, "Handoff Context");
 				if (payloadError) {
 					writable.appendCustomEntry(HANDOFF_ATTEMPT_TYPE, {
 						requestId: request.requestId,
@@ -800,7 +769,8 @@ async function replaceSession(
 				formatHandoffWarning({
 					outcome: "failed",
 					stage: "replacement",
-					reason: "session replacement was cancelled after replacement-started; rerun /handoff to retry",
+					reason:
+						"session replacement was cancelled after replacement-started; rerun /handoff to retry",
 					requestId: request.requestId,
 					sourceAvailable: true,
 					nextAction: "resume",
@@ -834,7 +804,11 @@ async function finalizeCurrentAttempt(
 ): Promise<void> {
 	const source = parseHandoffSessionFile(attempt.sourcePath);
 	const request = latestRequest(source.requests);
-	if (!request || request.requestId !== attempt.requestId || request.phase !== "replacement-started") {
+	if (
+		!request ||
+		request.requestId !== attempt.requestId ||
+		request.phase !== "replacement-started"
+	) {
 		warning(
 			formatHandoffWarning({
 				outcome: "failed",
@@ -1045,9 +1019,7 @@ function freezeFromContext(
 	sourcePath: string,
 	tools: readonly unknown[] = [],
 ): ReturnType<typeof freezeHandoffSnapshot> {
-	const model = ctx.model
-		? `${ctx.model.provider}/${ctx.model.id}`
-		: "unknown";
+	const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown";
 	const usableLimit =
 		resolvePiUsableContextLimit({
 			rawContextWindow: ctx.getContextUsage?.()?.contextWindow ?? ctx.model?.contextWindow,
@@ -1095,9 +1067,7 @@ function persistHandoffSession(sessionManager: {
 	if (!path) throw new Error("destination session has no file path");
 	const header = sessionManager.getHeader();
 	if (!header) throw new Error("destination session has no header");
-	const lines = [header, ...sessionManager.getEntries()].map((entry) =>
-		JSON.stringify(entry),
-	);
+	const lines = [header, ...sessionManager.getEntries()].map((entry) => JSON.stringify(entry));
 	writeFileSync(path, `${lines.join("\n")}\n`);
 	(sessionManager as { flushed?: boolean }).flushed = true;
 }
@@ -1144,10 +1114,7 @@ function failAndWarn(args: {
 	);
 }
 
-function cancel(
-	args: ExecuteArgs,
-	request: HandoffRequestRecord,
-): "cancelled" {
+function cancel(args: ExecuteArgs, request: HandoffRequestRecord): "cancelled" {
 	failAndWarn({
 		pi: args.pi,
 		ctx: args.ctx,
@@ -1194,15 +1161,11 @@ function readSessionEntries(ctx: {
 	return [];
 }
 
-function latestAttempt(
-	records: readonly HandoffAttemptRecord[],
-): HandoffAttemptRecord | undefined {
+function latestAttempt(records: readonly HandoffAttemptRecord[]): HandoffAttemptRecord | undefined {
 	return records.length === 0 ? undefined : records[records.length - 1];
 }
 
-function sessionIsPersisted(
-	manager: ExtensionCommandContext["sessionManager"],
-): boolean {
+function sessionIsPersisted(manager: ExtensionCommandContext["sessionManager"]): boolean {
 	const maybe = manager as { isPersisted?: () => boolean };
 	if (typeof maybe.isPersisted === "function") return maybe.isPersisted();
 	const path = manager.getSessionFile();
@@ -1213,7 +1176,9 @@ async function listSiblingSessions(
 	ctx: ExtensionCommandContext,
 ): Promise<Array<{ path: string; parentSessionPath?: string }>> {
 	const local = ctx.sessionManager as {
-		list?: ((cwd: string) => Promise<Array<{ path: string; parentSessionPath?: string }>>) | undefined;
+		list?:
+			| ((cwd: string) => Promise<Array<{ path: string; parentSessionPath?: string }>>)
+			| undefined;
 	};
 	if (typeof local.list === "function") return local.list(ctx.cwd);
 	return SessionManager.list(ctx.cwd);
@@ -1224,14 +1189,9 @@ async function maybeOpenProgress(
 	ctx: ExtensionCommandContext,
 	abort: AbortController,
 	initial: HandoffProgressState,
-): Promise<
-	| { update(next: HandoffProgressState): void; requestRender(): void }
-	| undefined
-> {
+): Promise<{ update(next: HandoffProgressState): void; requestRender(): void } | undefined> {
 	if (ctx.mode !== "tui") return undefined;
-	let view:
-		| { update(next: HandoffProgressState): void; requestRender(): void }
-		| undefined;
+	let view: { update(next: HandoffProgressState): void; requestRender(): void } | undefined;
 	void openTuiSurface(pi, ctx, {
 		hostId: HANDOFF_HOST_ID,
 		signal: abort.signal,
@@ -1249,4 +1209,3 @@ async function maybeOpenProgress(
 	});
 	return view;
 }
-

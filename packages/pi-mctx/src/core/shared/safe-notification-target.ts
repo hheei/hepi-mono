@@ -30,10 +30,10 @@ import { log } from "./logger";
  * `New session - <ISO>` or `Child session - <ISO>`.
  */
 const DEFAULT_TITLE_RE =
-    /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+	/^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export function isDefaultSessionTitle(title: string): boolean {
-    return DEFAULT_TITLE_RE.test(title);
+	return DEFAULT_TITLE_RE.test(title);
 }
 
 /**
@@ -43,27 +43,27 @@ export function isDefaultSessionTitle(title: string): boolean {
  * on clients/tests that don't expose session.get.
  */
 async function readSessionTitle(client: unknown, sessionId: string): Promise<string | null> {
-    try {
-        const c = client as {
-            session?: { get?: (input: unknown) => unknown };
-        };
-        if (typeof c.session?.get !== "function") return null;
-        const raw = await Promise.resolve(c.session.get({ path: { id: sessionId } }));
-        // SDK response shapes vary across versions: `{ data: { title } }` or
-        // the session object directly.
-        const obj = raw as { data?: { title?: unknown }; title?: unknown } | null;
-        const title = obj && typeof obj === "object" ? (obj.data?.title ?? obj.title) : undefined;
-        return typeof title === "string" ? title : null;
-    } catch {
-        return null;
-    }
+	try {
+		const c = client as {
+			session?: { get?: (input: unknown) => unknown };
+		};
+		if (typeof c.session?.get !== "function") return null;
+		const raw = await Promise.resolve(c.session.get({ path: { id: sessionId } }));
+		// SDK response shapes vary across versions: `{ data: { title } }` or
+		// the session object directly.
+		const obj = raw as { data?: { title?: unknown }; title?: unknown } | null;
+		const title = obj && typeof obj === "object" ? (obj.data?.title ?? obj.title) : undefined;
+		return typeof title === "string" ? title : null;
+	} catch {
+		return null;
+	}
 }
 
 export interface SafeTargetOptions {
-    /** Total title checks before giving up (default 4). */
-    attempts?: number | undefined;
-    /** Delay between checks in ms (default 15s). */
-    delayMs?: number | undefined;
+	/** Total title checks before giving up (default 4). */
+	attempts?: number | undefined;
+	/** Delay between checks in ms (default 15s). */
+	delayMs?: number | undefined;
 }
 
 /**
@@ -81,22 +81,22 @@ export interface SafeTargetOptions {
  * lands within seconds of that first prompt.
  */
 export async function waitForSafeNotificationTarget(
-    client: unknown,
-    sessionId: string,
-    options?: SafeTargetOptions,
+	client: unknown,
+	sessionId: string,
+	options?: SafeTargetOptions,
 ): Promise<"safe" | "skip"> {
-    const attempts = Math.max(1, options?.attempts ?? 4);
-    const delayMs = options?.delayMs ?? 15_000;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const title = await readSessionTitle(client, sessionId);
-        if (title === null) return "safe";
-        if (!isDefaultSessionTitle(title)) return "safe";
-        if (attempt < attempts - 1) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-    }
-    log(
-        `[magic-context] notification skipped: session ${sessionId} still has its default title (would suppress title generation); will retry on a later startup`,
-    );
-    return "skip";
+	const attempts = Math.max(1, options?.attempts ?? 4);
+	const delayMs = options?.delayMs ?? 15_000;
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
+		const title = await readSessionTitle(client, sessionId);
+		if (title === null) return "safe";
+		if (!isDefaultSessionTitle(title)) return "safe";
+		if (attempt < attempts - 1) {
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+	log(
+		`[magic-context] notification skipped: session ${sessionId} still has its default title (would suppress title generation); will retry on a later startup`,
+	);
+	return "skip";
 }

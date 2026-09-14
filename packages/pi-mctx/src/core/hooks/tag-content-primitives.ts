@@ -60,24 +60,24 @@ const MALFORMED_TAG_GLOBAL_REGEX = /\u00a7\d+">(?:\u00a7(?:\d+\u00a7)?)?/g;
 const STRAY_SECTION_CHAR_REGEX = /\u00a7/g;
 
 export function stripWellFormedLeadingTagPrefix(value: string): string {
-    return value.replace(/^(\u00a7\d+\u00a7\s*)+/, "");
+	return value.replace(/^(\u00a7\d+\u00a7\s*)+/, "");
 }
 
 export function stripCompleteTagPairsGlobally(value: string): string {
-    return value.replace(COMPLETE_TAG_PAIR_GLOBAL_REGEX, "");
+	return value.replace(COMPLETE_TAG_PAIR_GLOBAL_REGEX, "");
 }
 
 export function stripMalformedTagNotationGlobally(value: string): string {
-    return value.replace(MALFORMED_TAG_GLOBAL_REGEX, "");
+	return value.replace(MALFORMED_TAG_GLOBAL_REGEX, "");
 }
 
 /** Dangling `§N<closer?>` shapes anywhere (cargo-cult cleanup). */
 export function stripDanglingTagNotationGlobally(value: string): string {
-    return value.replace(DANGLING_TAG_GLOBAL_REGEX, "");
+	return value.replace(DANGLING_TAG_GLOBAL_REGEX, "");
 }
 
 export function stripTagSectionCharacters(value: string): string {
-    return value.replace(STRAY_SECTION_CHAR_REGEX, "");
+	return value.replace(STRAY_SECTION_CHAR_REGEX, "");
 }
 
 /**
@@ -86,18 +86,18 @@ export function stripTagSectionCharacters(value: string): string {
  * (never bare leading digits), then malformed hybrids and stray `§`.
  */
 export function stripPersistedAssistantText(value: string): string {
-    let text = stripWellFormedLeadingTagPrefix(value);
-    text = stripCompleteTagPairsGlobally(text);
-    text = stripMalformedTagNotationGlobally(text);
-    // Catch dangling `§N$` / `§Nҩ` (improvised closer) BEFORE the stray-§ pass,
-    // so the digits + closer are removed as a unit instead of orphaned.
-    text = stripDanglingTagNotationGlobally(text);
-    text = stripTagSectionCharacters(text);
-    return text.trim();
+	let text = stripWellFormedLeadingTagPrefix(value);
+	text = stripCompleteTagPairsGlobally(text);
+	text = stripMalformedTagNotationGlobally(text);
+	// Catch dangling `§N$` / `§Nҩ` (improvised closer) BEFORE the stray-§ pass,
+	// so the digits + closer are removed as a unit instead of orphaned.
+	text = stripDanglingTagNotationGlobally(text);
+	text = stripTagSectionCharacters(text);
+	return text.trim();
 }
 
 export function byteSize(value: string): number {
-    return encoder.encode(value).length;
+	return encoder.encode(value).length;
 }
 
 /**
@@ -106,20 +106,20 @@ export function byteSize(value: string): number {
  * (`99 files`, `2024 roadmap`, numbered lists).
  */
 export function stripTagPrefix(value: string): string {
-    let stripped = value;
-    for (let pass = 0; pass < 8; pass++) {
-        const prev = stripped;
-        stripped = stripped.replace(MALFORMED_TAG_PREFIX_REGEX, "");
-        stripped = stripped.replace(TAG_PREFIX_REGEX, "");
-        // Dangling-open leading tag LAST: a well-formed `§N§` must be consumed by
-        // TAG_PREFIX_REGEX first, or this would strip `§N` and orphan the closing
-        // `§` (`§42§ hi` → `§ hi`). Recognizing it here stops re-tagging from
-        // prepending a fresh `§M§` in front of a cargo-culted `§N$`, which would
-        // compound and reinforce the pattern in-context every pass.
-        stripped = stripped.replace(DANGLING_TAG_PREFIX_REGEX, "");
-        if (stripped === prev) break;
-    }
-    return stripped;
+	let stripped = value;
+	for (let pass = 0; pass < 8; pass++) {
+		const prev = stripped;
+		stripped = stripped.replace(MALFORMED_TAG_PREFIX_REGEX, "");
+		stripped = stripped.replace(TAG_PREFIX_REGEX, "");
+		// Dangling-open leading tag LAST: a well-formed `§N§` must be consumed by
+		// TAG_PREFIX_REGEX first, or this would strip `§N` and orphan the closing
+		// `§` (`§42§ hi` → `§ hi`). Recognizing it here stops re-tagging from
+		// prepending a fresh `§M§` in front of a cargo-culted `§N$`, which would
+		// compound and reinforce the pattern in-context every pass.
+		stripped = stripped.replace(DANGLING_TAG_PREFIX_REGEX, "");
+		if (stripped === prev) break;
+	}
+	return stripped;
 }
 
 /**
@@ -127,18 +127,18 @@ export function stripTagPrefix(value: string): string {
  * Uses the same §-only rules as {@link stripTagPrefix}.
  */
 export function peelLeadingMcTagNotation(value: string): { tagPrefix: string; body: string } {
-    const body = stripTagPrefix(value);
-    if (body === value) return { tagPrefix: "", body };
-    return { tagPrefix: value.slice(0, value.length - body.length), body };
+	const body = stripTagPrefix(value);
+	if (body === value) return { tagPrefix: "", body };
+	return { tagPrefix: value.slice(0, value.length - body.length), body };
 }
 
 export function prependTag(tagId: number, value: string): string {
-    const stripped = stripTagPrefix(value);
-    return `§${tagId}§ ${stripped}`;
+	const stripped = stripTagPrefix(value);
+	return `§${tagId}§ ${stripped}`;
 }
 
 export function isThinkingPart(part: unknown): part is ThinkingLikePart {
-    if (part === null || typeof part !== "object") return false;
-    const candidate = part as Record<string, unknown>;
-    return candidate.type === "thinking" || candidate.type === "reasoning";
+	if (part === null || typeof part !== "object") return false;
+	const candidate = part as Record<string, unknown>;
+	return candidate.type === "thinking" || candidate.type === "reasoning";
 }

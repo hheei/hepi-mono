@@ -29,9 +29,7 @@ describe("withTimeout", () => {
 		}) as typeof clearTimeout);
 
 		try {
-			expect(
-				await withTimeout(new Promise(() => undefined), 5_000),
-			).toBeUndefined();
+			expect(await withTimeout(new Promise(() => undefined), 5_000)).toBeUndefined();
 			expect(setSpy).toHaveBeenCalled();
 			expect(unref).toHaveBeenCalledTimes(1);
 			expect(clearSpy).toHaveBeenCalledWith(fakeHandle);

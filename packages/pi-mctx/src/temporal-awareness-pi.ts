@@ -23,16 +23,10 @@
  * every pass (intentional — same as legacy host, see transform.ts:648).
  */
 
-import {
-	peelLeadingMcTagNotation,
-	stripTagPrefix,
-} from "#core/hooks/tag-content-primitives";
-import {
-	TEMPORAL_MARKER_PATTERN,
-	temporalMarkerPrefix,
-} from "#core/hooks/temporal-awareness";
+import { peelLeadingMcTagNotation, stripTagPrefix } from "#core/hooks/tag-content-primitives";
+import { TEMPORAL_MARKER_PATTERN, temporalMarkerPrefix } from "#core/hooks/temporal-awareness";
 
-type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined};
+type PiTextContent = { type: "text"; text: string; textSignature?: string | undefined };
 type PiImageContent = { type: "image"; data: string; mimeType: string };
 type PiUserMessage = {
 	role: "user";
@@ -67,20 +61,14 @@ export function injectPiTemporalMarkers(messages: unknown[]): number {
 		// Compute gap from previous-any-role message → current user message.
 		// Matches legacy host: any role triggers the "previous time" baseline,
 		// only user role receives the marker.
-		if (
-			prevTimestampMs !== undefined &&
-			role === "user" &&
-			typeof currTimestamp === "number"
-		) {
+		if (prevTimestampMs !== undefined && role === "user" && typeof currTimestamp === "number") {
 			const gapSec = (currTimestamp - prevTimestampMs) / 1000;
 			const prefix = temporalMarkerPrefix(gapSec);
 			if (prefix !== null) {
 				const userMsg = msg as PiUserMessage;
 				if (typeof userMsg.content === "string") {
 					if (!TEMPORAL_MARKER_PATTERN.test(stripTagPrefix(userMsg.content))) {
-						const { tagPrefix, body } = peelLeadingMcTagNotation(
-							userMsg.content,
-						);
+						const { tagPrefix, body } = peelLeadingMcTagNotation(userMsg.content);
 						(messages as PiAgentMessage[])[i] = {
 							...userMsg,
 							content: tagPrefix + prefix + body,
@@ -89,10 +77,7 @@ export function injectPiTemporalMarkers(messages: unknown[]): number {
 					}
 				} else if (Array.isArray(userMsg.content)) {
 					const firstTextIndex = userMsg.content.findIndex(
-						(p) =>
-							p &&
-							typeof p === "object" &&
-							(p as { type?: unknown }).type === "text",
+						(p) => p && typeof p === "object" && (p as { type?: unknown }).type === "text",
 					);
 					if (firstTextIndex >= 0) {
 						const existing = userMsg.content[firstTextIndex] as PiTextContent;

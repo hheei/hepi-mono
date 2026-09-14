@@ -2,10 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withContentLanguageDirective } from "#core/agents/language-directive";
 import { getCompartments } from "#core/features/compartment-storage";
 import type { ContextDatabase } from "#core/features/storage";
-import {
-	clearEmergencyRecovery,
-	isWrapupInProgress,
-} from "#core/features/storage-meta-persisted";
+import { clearEmergencyRecovery, isWrapupInProgress } from "#core/features/storage-meta-persisted";
 import { COMPARTMENT_STRUCTURAL_SYSTEM_PROMPT } from "#core/hooks/compartment-prompt";
 import { executeContextRecompWithResult } from "#core/hooks/compartment-runner";
 import {
@@ -61,13 +58,9 @@ export interface RegisterCtxRecompDeps extends CtxRecompRuntimeDeps {
 	resolveRuntimeDeps?: ((ctx: { cwd: string }) => CtxRecompRuntimeDeps) | undefined;
 }
 
-export function registerCtxRecompCommand(
-	pi: ExtensionAPI,
-	deps: RegisterCtxRecompDeps,
-): void {
+export function registerCtxRecompCommand(pi: ExtensionAPI, deps: RegisterCtxRecompDeps): void {
 	pi.registerCommand("ctx-recomp", {
-		description:
-			"Rebuild Magic Context compartments from raw Pi session history",
+		description: "Rebuild Magic Context compartments from raw Pi session history",
 		handler: async (args, ctx) => {
 			const sessionId = resolveSessionId(ctx);
 			if (!sessionId) {
@@ -116,10 +109,7 @@ export function registerCtxRecompCommand(
 				return;
 			}
 
-			const argsKey =
-				parsed.kind === "partial"
-					? `${parsed.range.start}-${parsed.range.end}`
-					: "";
+			const argsKey = parsed.kind === "partial" ? `${parsed.range.start}-${parsed.range.end}` : "";
 			const now = Date.now();
 			const confirmation = confirmationBySession.get(sessionId);
 			const confirmed =
@@ -128,11 +118,7 @@ export function registerCtxRecompCommand(
 				confirmation.argsKey === argsKey;
 
 			if (!confirmed) {
-				const warning = buildConfirmationWarning(
-					currentDeps.db,
-					sessionId,
-					parsed,
-				);
+				const warning = buildConfirmationWarning(currentDeps.db, sessionId, parsed);
 				if (!warning.confirmable) confirmationBySession.delete(sessionId);
 				else confirmationBySession.set(sessionId, { timestamp: now, argsKey });
 				sendCtxStatusMessage(pi, {
@@ -227,9 +213,7 @@ export function registerCtxRecompCommand(
 							// fallbacks + the session's own model as last-ditch retry.
 							fallbackModels: currentDeps.historianFallbacks,
 							language: currentDeps.language,
-							fallbackModelId: ctx.model
-								? `${ctx.model.provider}/${ctx.model.id}`
-								: undefined,
+							fallbackModelId: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
 						},
 						parsed.kind === "partial" ? { range: parsed.range } : {},
 					);
@@ -305,8 +289,7 @@ function parseRecompArgs(
 	}
 	const start = Number.parseInt(startRaw, 10);
 	const end = Number.parseInt(endRaw, 10);
-	if (start < 1)
-		return { kind: "error", message: `Start must be >= 1 (got ${start}).` };
+	if (start < 1) return { kind: "error", message: `Start must be >= 1 (got ${start}).` };
 	if (end < start)
 		return {
 			kind: "error",
@@ -315,10 +298,7 @@ function parseRecompArgs(
 	return { kind: "partial", range: { start, end } };
 }
 
-function executeRecompUpgradeStub(
-	db: ContextDatabase,
-	sessionId: string,
-): string {
+function executeRecompUpgradeStub(db: ContextDatabase, sessionId: string): string {
 	const legacyCount = getCompartments(db, sessionId).filter(
 		(compartment) => compartment.legacy === 1,
 	).length;

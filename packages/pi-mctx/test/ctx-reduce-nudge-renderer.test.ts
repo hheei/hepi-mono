@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { renderChannel1Nudge } from "../src/index";
+import { describe, expect, it } from "vitest";
 import { CHANNEL1_NUDGE_CUSTOM_TYPE } from "../src/ctx-reduce-nudge-pi";
+import { renderChannel1Nudge } from "../src/index";
 
 describe("Channel 1 nudge renderer", () => {
 	it("renders a magic-context block without exposing system-reminder markup", () => {

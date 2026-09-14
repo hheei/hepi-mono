@@ -41,20 +41,20 @@ const DEFAULT_HISTORIAN_CONTEXT_FALLBACK = 128_000;
  * @param executeThresholdPercentage The effective execute threshold (0-100).
  */
 export function deriveTriggerBudget(
-    mainContextLimit: number,
-    executeThresholdPercentage: number,
+	mainContextLimit: number,
+	executeThresholdPercentage: number,
 ): number {
-    if (!Number.isFinite(mainContextLimit) || mainContextLimit <= 0) {
-        return TRIGGER_BUDGET_MIN;
-    }
-    // Callers resolve executeThresholdPercentage through resolveExecuteThreshold(),
-    // which caps at MAX_EXECUTE_THRESHOLD (90). We still guard against negative
-    // inputs so derived budgets never go upside-down, but the upper clamp is
-    // not needed and was dead defensively.
-    const thresholdFraction = Math.max(0, executeThresholdPercentage) / 100;
-    const usable = mainContextLimit * thresholdFraction;
-    const derived = Math.round(usable * TRIGGER_BUDGET_PERCENTAGE);
-    return Math.max(TRIGGER_BUDGET_MIN, Math.min(TRIGGER_BUDGET_MAX, derived));
+	if (!Number.isFinite(mainContextLimit) || mainContextLimit <= 0) {
+		return TRIGGER_BUDGET_MIN;
+	}
+	// Callers resolve executeThresholdPercentage through resolveExecuteThreshold(),
+	// which caps at MAX_EXECUTE_THRESHOLD (90). We still guard against negative
+	// inputs so derived budgets never go upside-down, but the upper clamp is
+	// not needed and was dead defensively.
+	const thresholdFraction = Math.max(0, executeThresholdPercentage) / 100;
+	const usable = mainContextLimit * thresholdFraction;
+	const derived = Math.round(usable * TRIGGER_BUDGET_PERCENTAGE);
+	return Math.max(TRIGGER_BUDGET_MIN, Math.min(TRIGGER_BUDGET_MAX, derived));
 }
 
 /**
@@ -66,11 +66,11 @@ export function deriveTriggerBudget(
  * @param historianContextLimit Historian model's context window (tokens).
  */
 export function deriveHistorianChunkTokens(historianContextLimit: number): number {
-    if (!Number.isFinite(historianContextLimit) || historianContextLimit <= 0) {
-        return HISTORIAN_CHUNK_MIN;
-    }
-    const derived = Math.round(historianContextLimit * HISTORIAN_CHUNK_PERCENTAGE);
-    return Math.max(HISTORIAN_CHUNK_MIN, Math.min(HISTORIAN_CHUNK_MAX, derived));
+	if (!Number.isFinite(historianContextLimit) || historianContextLimit <= 0) {
+		return HISTORIAN_CHUNK_MIN;
+	}
+	const derived = Math.round(historianContextLimit * HISTORIAN_CHUNK_PERCENTAGE);
+	return Math.max(HISTORIAN_CHUNK_MIN, Math.min(HISTORIAN_CHUNK_MAX, derived));
 }
 
 /**
@@ -88,25 +88,25 @@ export function deriveHistorianChunkTokens(historianContextLimit: number): numbe
  * Provider config (models.dev + snapshot + local configuration) is * overrides + auth-plugin caps), bounded to a sane range.
  */
 export function resolveHistorianContextLimit(historianModelOverride?: string): number {
-    // Explicit override with full provider/model form — user intent wins.
-    if (typeof historianModelOverride === "string" && historianModelOverride.includes("/")) {
-        const [providerID, ...rest] = historianModelOverride.split("/");
-        const modelID = rest.join("/");
-        if (providerID && modelID) {
-            const limit = getSdkContextLimit();
-            if (typeof limit === "number" && limit > 0) return limit;
-        }
-        return DEFAULT_HISTORIAN_CONTEXT_FALLBACK;
-    }
+	// Explicit override with full provider/model form — user intent wins.
+	if (typeof historianModelOverride === "string" && historianModelOverride.includes("/")) {
+		const [providerID, ...rest] = historianModelOverride.split("/");
+		const modelID = rest.join("/");
+		if (providerID && modelID) {
+			const limit = getSdkContextLimit();
+			if (typeof limit === "number" && limit > 0) return limit;
+		}
+		return DEFAULT_HISTORIAN_CONTEXT_FALLBACK;
+	}
 
-    // Malformed override (no provider prefix): surface at log level, not a crash,
-    // and use the conservative default for chunk-budget derivation.
-    if (typeof historianModelOverride === "string" && historianModelOverride.trim() !== "") {
-        // eslint-disable-next-line no-console
-        console.warn(
-            `[magic-context] historian.model "${historianModelOverride}" lacks provider prefix ("provider/model-id"); using the default context limit for chunk-budget derivation.`,
-        );
-    }
+	// Malformed override (no provider prefix): surface at log level, not a crash,
+	// and use the conservative default for chunk-budget derivation.
+	if (typeof historianModelOverride === "string" && historianModelOverride.trim() !== "") {
+		// eslint-disable-next-line no-console
+		console.warn(
+			`[magic-context] historian.model "${historianModelOverride}" lacks provider prefix ("provider/model-id"); using the default context limit for chunk-budget derivation.`,
+		);
+	}
 
-    return DEFAULT_HISTORIAN_CONTEXT_FALLBACK;
+	return DEFAULT_HISTORIAN_CONTEXT_FALLBACK;
 }

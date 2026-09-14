@@ -188,9 +188,7 @@ describe("stripPiProcessedImages", () => {
 
 			expect(result).toEqual({ stripped: 0, newlyStrippedIds: [] });
 			expect((image.content[1] as { type: string }).type).toBe("image");
-			expect(
-				getProcessedImageStrippedIds(db, "ses-image-cas-failure").size,
-			).toBe(0);
+			expect(getProcessedImageStrippedIds(db, "ses-image-cas-failure").size).toBe(0);
 		} finally {
 			closeQuietly(db);
 		}

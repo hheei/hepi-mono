@@ -1,7 +1,7 @@
-import { describe, expect, test } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 import {
 	HANDOFF_ATTEMPT_TYPE,
 	HANDOFF_CONTEXT_TYPE,
@@ -16,13 +16,11 @@ import {
 } from "../../src/handoff/persistence";
 
 function request(
-	overrides: Partial<HandoffRequestRecord> &
-		Pick<HandoffRequestRecord, "requestId" | "phase">,
+	overrides: Partial<HandoffRequestRecord> & Pick<HandoffRequestRecord, "requestId" | "phase">,
 ): HandoffRequestRecord {
 	return {
 		stage: "preparing",
-		createdAt: 1,
-		updatedAt: 1,
+		createdAt: "1",
 		...overrides,
 	};
 }

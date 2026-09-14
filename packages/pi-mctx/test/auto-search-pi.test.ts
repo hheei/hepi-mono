@@ -1,15 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UnifiedSearchResult } from "#core/features/search";
 import * as searchModule from "#core/features/search";
 
-import {
-	appendAutoSearchHintDecision,
-	getAutoSearchHintDecisions,
-} from "#core/features/storage";
+import { appendAutoSearchHintDecision, getAutoSearchHintDecisions } from "#core/features/storage";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import {
-	clearAutoSearchForPiSession,
-	runAutoSearchHintForPi,
-} from "../src/auto-search-pi";
+import { clearAutoSearchForPiSession, runAutoSearchHintForPi } from "../src/auto-search-pi";
 import { createTestDb, textOf, userMessage } from "./test-utils.test";
 
 const baseOptions = {
@@ -44,13 +39,11 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("reuses the per-turn cached hint for the same user message id", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
-			const firstMessages = [
-				userMessage("explain the historian cache wiring", 1),
-			];
+			const firstMessages = [userMessage("explain the historian cache wiring", 1)];
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
 				db,
@@ -58,9 +51,7 @@ describe("runAutoSearchHintForPi", () => {
 				options: baseOptions,
 			});
 
-			const replayMessages = [
-				userMessage("explain the historian cache wiring", 1),
-			];
+			const replayMessages = [userMessage("explain the historian cache wiring", 1)];
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
 				db,
@@ -78,16 +69,12 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("excludes Primers from transform-time auto-search hints", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [],
-		);
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(async () => []);
 		try {
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
 				db,
-				messages: [
-					userMessage("explain how durable primer questions are maintained", 1),
-				],
+				messages: [userMessage("explain how durable primer questions are maintained", 1)],
 				options: baseOptions,
 			});
 
@@ -101,18 +88,16 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("replays persisted hints but skips fresh decisions when strict entry ids fail", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			appendAutoSearchHintDecision(db, "ses-auto", {
 				messageId: "entry-replay",
 				decision: "hint",
 				text: "\n\n<ctx-search-hint>stored hint</ctx-search-hint>",
 			});
-			const replay = [
-				{ ...userMessage("explain cached hint", 1), id: "entry-replay" },
-			];
+			const replay = [{ ...userMessage("explain cached hint", 1), id: "entry-replay" }];
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
 				db,
@@ -122,9 +107,7 @@ describe("runAutoSearchHintForPi", () => {
 			});
 			expect(textOf(replay[0] as never)).toContain("stored hint");
 
-			const fresh = [
-				{ ...userMessage("explain new hint", 2), id: "entry-fresh" },
-			];
+			const fresh = [{ ...userMessage("explain new hint", 2), id: "entry-fresh" }];
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
 				db,
@@ -149,18 +132,16 @@ describe("runAutoSearchHintForPi", () => {
 		// now-removed message's id ("entry-OLD-WRONG"). The reference-keyed map
 		// must win and anchor the hint to the real id ("entry-REAL").
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			const latest = userMessage("explain the historian cache wiring", 1);
 			const currentMessages = [latest];
 			// Stale positional array (wrong id at index 0).
 			const stalePositionalEntryIds = ["entry-OLD-WRONG"];
 			// Splice-safe reference map: the actual current message -> real id.
-			const entryIdByRef = new Map<object, string>([
-				[latest as object, "entry-REAL"],
-			]);
+			const entryIdByRef = new Map<object, string>([[latest as object, "entry-REAL"]]);
 
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
@@ -177,9 +158,7 @@ describe("runAutoSearchHintForPi", () => {
 			// positional one — proving reference resolution took precedence.
 			const decisions = getAutoSearchHintDecisions(db, "ses-auto");
 			expect(decisions.some((d) => d.messageId === "entry-REAL")).toBe(true);
-			expect(decisions.some((d) => d.messageId === "entry-OLD-WRONG")).toBe(
-				false,
-			);
+			expect(decisions.some((d) => d.messageId === "entry-OLD-WRONG")).toBe(false);
 		} finally {
 			spy.mockRestore();
 			closeQuietly(db);
@@ -194,18 +173,16 @@ describe("runAutoSearchHintForPi", () => {
 		// anchor would persist a decision against the wrong turn and replay the hint
 		// onto the wrong message on later passes.
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			const latest = userMessage("explain the historian cache wiring", 1);
 			const currentMessages = [latest];
 			const stalePositionalEntryIds = ["entry-STALE-WRONG"];
 			// Ref-map present but does NOT contain `latest` (simulates a clone/
 			// synthetic the map was not built for).
-			const entryIdByRef = new Map<object, string>([
-				[{} as object, "entry-SOMETHING-ELSE"],
-			]);
+			const entryIdByRef = new Map<object, string>([[{} as object, "entry-SOMETHING-ELSE"]]);
 
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
@@ -220,9 +197,7 @@ describe("runAutoSearchHintForPi", () => {
 			expect(textOf(currentMessages[0])).not.toContain("<ctx-search-hint>");
 			// ...and crucially NO decision was persisted to the stale positional id.
 			const decisions = getAutoSearchHintDecisions(db, "ses-auto");
-			expect(decisions.some((d) => d.messageId === "entry-STALE-WRONG")).toBe(
-				false,
-			);
+			expect(decisions.some((d) => d.messageId === "entry-STALE-WRONG")).toBe(false);
 		} finally {
 			spy.mockRestore();
 			closeQuietly(db);
@@ -231,9 +206,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("runs a fresh search for a new user message id", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
@@ -257,9 +232,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("does not append a hint when top score is below threshold", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult(0.2)],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult(0.2)]);
 		try {
 			const messages = [userMessage("long prompt with weak matches", 1)];
 
@@ -280,9 +255,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("skips empty user messages", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			await runAutoSearchHintForPi({
 				sessionId: "ses-auto",
@@ -300,15 +275,12 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("skips stacked sidekick augmentation without searching", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			const messages = [
-				userMessage(
-					"Implement this\n\n<sidekick-augmentation>context</sidekick-augmentation>",
-					1,
-				),
+				userMessage("Implement this\n\n<sidekick-augmentation>context</sidekick-augmentation>", 1),
 			];
 
 			await runAutoSearchHintForPi({
@@ -329,12 +301,12 @@ describe("runAutoSearchHintForPi", () => {
 	it("strips plugin markers from the prompt before searching", async () => {
 		const db = createTestDb();
 		let capturedPrompt = "";
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async (_db, _session, _project, prompt) => {
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async (_db, _session, _project, prompt) => {
 				capturedPrompt = prompt;
 				return [];
-			},
-		);
+			});
 		try {
 			const messages = [
 				userMessage(
@@ -368,11 +340,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("does not persist no-hint decisions for retryable search errors", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => {
-				throw new Error("temporary search failure");
-			},
-		);
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(async () => {
+			throw new Error("temporary search failure");
+		});
 		try {
 			const messages = [userMessage("explain the historian cache wiring", 1)];
 
@@ -400,9 +370,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("does not persist no-hint decisions for retryable search timeouts", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			() => new Promise<UnifiedSearchResult[]>(() => undefined),
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(() => new Promise<UnifiedSearchResult[]>(() => undefined));
 		try {
 			const messages = [userMessage("explain the historian cache wiring", 1)];
 			const started = Date.now();
@@ -433,9 +403,9 @@ describe("runAutoSearchHintForPi", () => {
 
 	it("does not double-append an already present cached hint", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => [memoryResult()],
-		);
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async () => [memoryResult()]);
 		try {
 			const messages = [userMessage("explain the historian cache wiring", 1)];
 

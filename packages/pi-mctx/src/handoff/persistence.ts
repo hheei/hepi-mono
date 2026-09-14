@@ -1,9 +1,5 @@
 import { readFileSync } from "node:fs";
-import type {
-	HandoffAttemptRecord,
-	HandoffContextDetails,
-	HandoffRequestRecord,
-} from "./model";
+import type { HandoffAttemptRecord, HandoffContextDetails, HandoffRequestRecord } from "./model";
 import {
 	HANDOFF_ATTEMPT_TYPE,
 	HANDOFF_CONTEXT_TYPE,
@@ -87,11 +83,7 @@ export function appendRequestPhase(
 ): { ok: true; record: HandoffRequestRecord } | { ok: false; reason: string } {
 	const reduced = reduceHandoffPhase(current?.phase, next.phase);
 	if (!reduced.ok) return reduced;
-	if (
-		current &&
-		current.requestId !== next.requestId &&
-		isHandoffProgressPhase(current.phase)
-	) {
+	if (current && current.requestId !== next.requestId && isHandoffProgressPhase(current.phase)) {
 		return { ok: false, reason: "cannot change requestId while a request is live" };
 	}
 	if (current && isHandoffTerminalPhase(current.phase) && current.requestId === next.requestId) {

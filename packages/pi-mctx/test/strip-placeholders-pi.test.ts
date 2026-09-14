@@ -34,9 +34,9 @@ describe("stripPiDroppedPlaceholderMessages", () => {
 				"user",
 				"assistant",
 			]);
-			expect(
-				(messages[1] as { content: { text: string }[] }).content[0].text,
-			).toBe("[dropped §3§]");
+			expect((messages[1]! as { content: { text: string }[] }).content[0]?.text).toBe(
+				"[dropped §3§]",
+			);
 			expect(getStrippedPlaceholderIds(db, "ses-placeholders").size).toBe(1);
 		} finally {
 			closeQuietly(db);
@@ -65,10 +65,7 @@ describe("stripPiDroppedPlaceholderMessages", () => {
 	it("replays persisted stripping on defer passes without discovering new ids", () => {
 		const db = createTestDb();
 		try {
-			const first = [
-				userMessage("keep", 1),
-				assistantMessage("[dropped §2§]", 2),
-			];
+			const first = [userMessage("keep", 1), assistantMessage("[dropped §2§]", 2)];
 			stripPiDroppedPlaceholderMessages({
 				db,
 				sessionId: "ses-placeholders",
@@ -188,16 +185,12 @@ describe("stripPiDroppedPlaceholderMessages", () => {
 				isCacheBusting: true,
 				stableIdByRef: map1,
 			});
-			expect(
-				getStrippedPlaceholderIds(db, "ses-defer-noprune").has("entry-A"),
-			).toBe(true);
+			expect(getStrippedPlaceholderIds(db, "ses-defer-noprune").has("entry-A")).toBe(true);
 
 			// Defer pass where entry-A is absent — must NOT prune (defer passes
 			// never mutate persisted replay state).
 			const pass2 = [userMessage("keep", 1)];
-			const map2 = new Map<object, string>([
-				[pass2[0] as object, "entry-keep"],
-			]);
+			const map2 = new Map<object, string>([[pass2[0] as object, "entry-keep"]]);
 			stripPiDroppedPlaceholderMessages({
 				db,
 				sessionId: "ses-defer-noprune",
@@ -205,9 +198,7 @@ describe("stripPiDroppedPlaceholderMessages", () => {
 				isCacheBusting: false,
 				stableIdByRef: map2,
 			});
-			expect(
-				getStrippedPlaceholderIds(db, "ses-defer-noprune").has("entry-A"),
-			).toBe(true);
+			expect(getStrippedPlaceholderIds(db, "ses-defer-noprune").has("entry-A")).toBe(true);
 		} finally {
 			closeQuietly(db);
 		}
@@ -232,9 +223,7 @@ describe("stripPiDroppedPlaceholderMessages", () => {
 			});
 			expect(r1).toEqual({ removed: 1, discovered: 1 });
 			// Persisted under the REAL id, not pi-msg-*.
-			expect(getStrippedPlaceholderIds(db, "ses-carry").has("entry-PH")).toBe(
-				true,
-			);
+			expect(getStrippedPlaceholderIds(db, "ses-carry").has("entry-PH")).toBe(true);
 
 			// Pass 2 (defer): the SAME placeholder object now sits at a DIFFERENT
 			// index (prefix grew), and a synthetic m[0] prepend (NOT in the map) is

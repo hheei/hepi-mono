@@ -14,14 +14,10 @@
 import { describe, expect, it } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
 import { indexMessagesAfterOrdinal } from "#core/features/message-index";
-import {
-	addNote,
-	getNotes,
-	updateNote,
-} from "#core/features/storage";
-import { createTestDb, fakeContext } from "../test-utils.test";
+import { addNote, getNotes, updateNote } from "#core/features/storage";
 import { createCtxNoteTool } from "../../src/tools/ctx-note";
 import { createCtxSearchTool } from "../../src/tools/ctx-search";
+import { asToolResult, createTestDb, fakeContext } from "../test-utils.test";
 
 async function callNote(args: {
 	db: ReturnType<typeof createTestDb>;
@@ -36,17 +32,16 @@ async function callNote(args: {
 		dreamerEnabled: args.dreamerEnabled,
 		resolveDreamerEnabled: args.resolveDreamerEnabled,
 	});
-	const result = await tool.execute(
-		"call-1",
-		args.params,
-		new AbortController().signal,
-		undefined,
-		fakeContext(
-			args.sessionId ?? "ses-note-1",
-			args.cwd ?? process.cwd(),
-		) as never,
+	const result = asToolResult(
+		await tool.execute(
+			"call-1",
+			args.params as never,
+			new AbortController().signal,
+			undefined,
+			fakeContext(args.sessionId ?? "ses-note-1", args.cwd ?? process.cwd()) as never,
+		),
 	);
-	const text = (result.content[0] as { text: string }).text;
+	const text = result.content[0]?.text ?? "";
 	return { result, text, isError: result.isError === true };
 }
 
@@ -103,11 +98,9 @@ describe("Pi ctx_note smart notes", () => {
 			type: "smart",
 		});
 		expect(notes).toHaveLength(1);
-		expect(notes[0].status).toBe("pending");
-		expect(notes[0].surfaceCondition).toBe(
-			"When PR #42 is merged in this repo",
-		);
-		expect(notes[0].content).toBe("Revisit caching after PR #42 merges");
+		expect(notes[0]!.status).toBe("pending");
+		expect(notes[0]!.surfaceCondition).toBe("When PR #42 is merged in this repo");
+		expect(notes[0]!.content).toBe("Revisit caching after PR #42 merges");
 	});
 
 	it("resolves smart-note enablement from the invocation cwd", async () => {
@@ -139,9 +132,7 @@ describe("Pi ctx_note smart notes", () => {
 					id: "m1",
 					ordinal: 1,
 					role: "user",
-					parts: [
-						{ type: "text", text: "Please remember the release follow-up." },
-					],
+					parts: [{ type: "text", text: "Please remember the release follow-up." }],
 				},
 			],
 			0,
@@ -162,8 +153,8 @@ describe("Pi ctx_note smart notes", () => {
 		const projectIdentity = resolveProjectIdentity(process.cwd());
 		const notes = getNotes(db, { projectPath: projectIdentity, type: "smart" });
 		expect(notes).toHaveLength(1);
-		expect(notes[0].sessionId).toBe(sessionId);
-		expect(notes[0].anchorOrdinal).toBe(1);
+		expect(notes[0]!.sessionId).toBe(sessionId);
+		expect(notes[0]!.anchorOrdinal).toBe(1);
 
 		const search = createCtxSearchTool({ db });
 		const result = await search.execute(
@@ -195,9 +186,7 @@ describe("Pi ctx_note smart notes", () => {
 			type: "session",
 		});
 		expect(sessionNotes).toHaveLength(1);
-		expect(sessionNotes[0].content).toBe(
-			"Don't forget to update CHANGELOG before release",
-		);
+		expect(sessionNotes[0]!.content).toBe("Don't forget to update CHANGELOG before release");
 	});
 
 	it("read with filter='active' is STRICTER than default — does not include pending smart notes", async () => {
@@ -318,9 +307,9 @@ describe("Pi ctx_note smart notes", () => {
 			type: "smart",
 		});
 		expect(updated).toHaveLength(1);
-		expect(updated[0].surfaceCondition).toBe("New condition");
+		expect(updated[0]!.surfaceCondition).toBe("New condition");
 		// Content unchanged when only surface_condition is updated.
-		expect(updated[0].content).toBe("Original content");
+		expect(updated[0]!.content).toBe("Original content");
 	});
 
 	it("update path accepts new content for an existing smart note", async () => {
@@ -347,8 +336,8 @@ describe("Pi ctx_note smart notes", () => {
 			projectPath: projectIdentity,
 			type: "smart",
 		});
-		expect(updated[0].content).toBe("New content");
-		expect(updated[0].surfaceCondition).toBe("Some condition");
+		expect(updated[0]!.content).toBe("New content");
+		expect(updated[0]!.surfaceCondition).toBe("Some condition");
 	});
 
 	it("rejects dismissing another session's session note", async () => {
@@ -366,9 +355,7 @@ describe("Pi ctx_note smart notes", () => {
 
 		expect(isError).toBe(true);
 		expect(text).toContain("not found in your session/project");
-		expect(
-			getNotes(db, { sessionId: "ses-other", type: "session" })[0].status,
-		).toBe("active");
+		expect(getNotes(db, { sessionId: "ses-other", type: "session" })[0]!.status).toBe("active");
 	});
 
 	it("rejects updating another project's smart note", async () => {
@@ -392,9 +379,9 @@ describe("Pi ctx_note smart notes", () => {
 
 		expect(isError).toBe(true);
 		expect(text).toContain("not found in your session/project");
-		expect(
-			getNotes(db, { projectPath: otherProject, type: "smart" })[0].content,
-		).toBe("Other project smart note");
+		expect(getNotes(db, { projectPath: otherProject, type: "smart" })[0]!.content).toBe(
+			"Other project smart note",
+		);
 	});
 
 	it("read default (no filter) shows ready smart notes alongside session notes", async () => {

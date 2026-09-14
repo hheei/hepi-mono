@@ -61,10 +61,7 @@ export interface PiMemoryMigrationOutcome {
 export async function runPiMemoryMigration(
 	deps: PiMemoryMigrationDeps,
 ): Promise<PiMemoryMigrationOutcome> {
-	const projectPath = resolveProjectIdentityForSession(
-		deps.directory,
-		deps.allowHomeProject,
-	);
+	const projectPath = resolveProjectIdentityForSession(deps.directory, deps.allowHomeProject);
 	if (!projectPath) {
 		return {
 			ran: false,
@@ -112,10 +109,7 @@ export async function runPiMemoryMigration(
 	// fallbacks. Each de-duplicated.
 	const modelChain: string[] = [];
 	const seenModels = new Set<string>();
-	for (const m of [
-		deps.primaryModel ?? deps.model,
-		...(deps.fallbackModels ?? []),
-	]) {
+	for (const m of [deps.primaryModel ?? deps.model, ...(deps.fallbackModels ?? [])]) {
 		if (m && !seenModels.has(m)) {
 			seenModels.add(m);
 			modelChain.push(m);
@@ -134,10 +128,7 @@ export async function runPiMemoryMigration(
 		}
 		const result = await deps.runner.run({
 			agent: "magic-context-historian",
-			systemPrompt: withMigrationLanguageDirective(
-				MIGRATION_SYSTEM_PROMPT,
-				deps.language,
-			),
+			systemPrompt: withMigrationLanguageDirective(MIGRATION_SYSTEM_PROMPT, deps.language),
 			userMessage: prompt,
 			model,
 			// We drive the chain here (validating each), so don't let the runner

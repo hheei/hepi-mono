@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { insertUserMemory } from "#core/features/user-memory/storage-user-memory";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 import {
@@ -75,7 +75,6 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 				memoryEnabled: true,
 				includeGuidance: false,
 				userMemoriesEnabled: true,
-				pinKeyFilesEnabled: true,
 			});
 
 			expect(block).toBeNull();
@@ -150,9 +149,7 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 			});
 
 			expect(unset).toBe(baseline);
-			expect(localized).toContain(
-				"Use Spanish (español) for your natural-language replies",
-			);
+			expect(localized).toContain("Use Spanish (español) for your natural-language replies");
 		} finally {
 			closeQuietly(db);
 		}

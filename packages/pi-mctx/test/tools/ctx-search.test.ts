@@ -1,27 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveProjectIdentity } from "#core/features/memory/project-identity";
+import type { UnifiedSearchResult } from "#core/features/search";
 import * as searchModule from "#core/features/search";
 
 import { closeQuietly } from "#core/shared/sqlite-helpers";
-import { createTestDb, fakeContext } from "../test-utils.test";
 import { createCtxSearchTool } from "../../src/tools/ctx-search";
+import { asToolResult, createTestDb, fakeContext } from "../test-utils.test";
 
 describe("createCtxSearchTool", () => {
 	it("prints ctx_expand ranges and footer for message search hits", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () =>
-				[
-					{
-						source: "message",
-						content: "prior conversation detail",
-						score: 0.87,
-						messageOrdinal: 12,
-						role: "user",
-						matchType: "fts",
-					},
-				] as UnifiedSearchResult[],
-		);
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(async () => [
+			{
+				source: "message",
+				content: "prior conversation detail",
+				score: 0.87,
+				messageOrdinal: 12,
+				messageId: "m-12",
+				role: "user",
+			} satisfies UnifiedSearchResult,
+		]);
 		try {
 			const tool = createCtxSearchTool({
 				db,
@@ -30,12 +28,14 @@ describe("createCtxSearchTool", () => {
 				gitCommitsEnabled: false,
 			});
 
-			const result = await tool.execute(
-				"call-1",
-				{ query: "prior detail", sources: ["message"] },
-				new AbortController().signal,
-				undefined,
-				fakeContext("ses-search") as never,
+			const result = asToolResult(
+				await tool.execute(
+					"call-1",
+					{ query: "prior detail", sources: ["message"] },
+					new AbortController().signal,
+					undefined,
+					fakeContext("ses-search") as never,
+				),
 			);
 
 			const text = result.content[0]?.text ?? "";
@@ -51,14 +51,14 @@ describe("createCtxSearchTool", () => {
 
 	it("accepts note sources and renders note anchors", async () => {
 		const db = createTestDb();
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async (_db, _sessionId, _project, _query, options) => {
+		const spy = vi
+			.spyOn(searchModule, "unifiedSearch")
+			.mockImplementation(async (_db, _sessionId, _project, _query, options) => {
 				expect(options?.sources).toEqual(["note"]);
 				return [
 					{
 						source: "note",
-						content:
-							"Decision: keep the compatibility shim for one more release.",
+						content: "Decision: keep the compatibility shim for one more release.",
 						score: 0.91,
 						noteId: 5,
 						status: "ready",
@@ -67,8 +67,7 @@ describe("createCtxSearchTool", () => {
 						sourceSessionId: "ses-search",
 					},
 				] as UnifiedSearchResult[];
-			},
-		);
+			});
 		try {
 			const tool = createCtxSearchTool({
 				db,
@@ -77,20 +76,20 @@ describe("createCtxSearchTool", () => {
 				gitCommitsEnabled: false,
 			});
 
-			const result = await tool.execute(
-				"call-2",
-				{ query: "compatibility shim", sources: ["note"] },
-				new AbortController().signal,
-				undefined,
-				fakeContext("ses-search") as never,
+			const result = asToolResult(
+				await tool.execute(
+					"call-2",
+					{ query: "compatibility shim", sources: ["note"] },
+					new AbortController().signal,
+					undefined,
+					fakeContext("ses-search") as never,
+				),
 			);
 
 			const text = result.content[0]?.text ?? "";
 			expect(text).toContain("id=#5 status=ready");
 			expect(text).toContain("@msg 21");
-			expect(text).toContain(
-				"Use ctx_expand(start=N-10, end=N) around any note @msg anchor above",
-			);
+			expect(text).toContain("Use ctx_expand(start=N-10, end=N) around any note @msg anchor above");
 		} finally {
 			spy.mockRestore();
 			closeQuietly(db);
@@ -104,8 +103,7 @@ describe("createCtxSearchTool", () => {
 				[
 					{
 						source: "note",
-						content:
-							"Foreign session note should not expose an expandable anchor.",
+						content: "Foreign session note should not expose an expandable anchor.",
 						score: 0.72,
 						noteId: 6,
 						status: "ready",
@@ -123,12 +121,14 @@ describe("createCtxSearchTool", () => {
 				gitCommitsEnabled: false,
 			});
 
-			const result = await tool.execute(
-				"call-3",
-				{ query: "foreign anchor", sources: ["note"] },
-				new AbortController().signal,
-				undefined,
-				fakeContext("ses-search") as never,
+			const result = asToolResult(
+				await tool.execute(
+					"call-3",
+					{ query: "foreign anchor", sources: ["note"] },
+					new AbortController().signal,
+					undefined,
+					fakeContext("ses-search") as never,
+				),
 			);
 
 			const text = result.content[0]?.text ?? "";
@@ -148,20 +148,16 @@ describe("createCtxSearchTool", () => {
 		// Dynamically import `insertMemory` to seed a memory for this test,
 		// then verify that an ID-shaped query uses `resolveMemoriesByIdsForSearch`
 		// instead of `unifiedSearch`.
-		const { insertMemory } = await import(
-			"#core/features/memory/index"
-		);
+		const { insertMemory } = await import("#core/features/memory/index");
 		const projectIdentity = resolveProjectIdentity(process.cwd());
 		const memory = insertMemory(db, {
 			projectPath: projectIdentity,
 			category: "USER_DIRECTIVES",
 			content: "Direct id hit for the short-circuit.",
 		});
-		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(
-			async () => {
-				throw new Error("unifiedSearch must not run for ID-shaped queries");
-			},
-		);
+		const spy = vi.spyOn(searchModule, "unifiedSearch").mockImplementation(async () => {
+			throw new Error("unifiedSearch must not run for ID-shaped queries");
+		});
 		try {
 			const tool = createCtxSearchTool({
 				db,
@@ -170,12 +166,14 @@ describe("createCtxSearchTool", () => {
 				gitCommitsEnabled: false,
 			});
 
-			const result = await tool.execute(
-				"call-id",
-				{ query: `#${memory.id}` },
-				new AbortController().signal,
-				undefined,
-				fakeContext("ses-search", process.cwd()) as never,
+			const result = asToolResult(
+				await tool.execute(
+					"call-id",
+					{ query: `#${memory.id}` },
+					new AbortController().signal,
+					undefined,
+					fakeContext("ses-search", process.cwd()) as never,
+				),
 			);
 
 			const text = result.content[0]?.text ?? "";

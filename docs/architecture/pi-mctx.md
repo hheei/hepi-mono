@@ -26,7 +26,7 @@ Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core
 
 ## 设置
 
-Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：`pi-mctx`。设置仅写入 Pi 全局 `settings.json` 的直接 `pi-mctx.<field>` 键；不读取项目级 `.pi/settings.json`，也不读取、导入或迁移 CortexKit 的 JSONC 配置。
+Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：`pi-mctx`。设置仅写入 Pi 全局 `settings.json` 的直接 `pi-mctx.<field>` 键；不读取项目级 `.pi/settings.json`，也不读取、导入或迁移 CortexKit 的 JSONC 配置。不要用 `@cortexkit/magic-context setup` 配置这个 fork；该命令只管理上游的配置文件。
 
 ```json
 {
@@ -68,14 +68,14 @@ Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：
 
 ## 存储版本边界
 
-Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`；默认数据库为 `context.db`。此目录与旧的 `~/.local/share/cortexkit/magic-context/context.db` 隔离，Pi MCTX 不会读取、升级或删除后者。
+Pi MCTX 的持久化数据位于 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions/pi-mctx/`；默认数据库为 `context.db`。此目录与旧的 `~/.local/share/cortexkit/magic-context/context.db` 隔离，Pi MCTX 不会读取、升级或删除后者。项目级 historian 临时文件位于 `<project>/.pi/magic-context/`，也不使用上游的 `<project>/.cortexkit/magic-context/`；旧的 `.cortexkit` 文件不会自动迁移或删除。
 
 最新 schema 不包含已退役的 v22 identity rekey 映射；workspace 只按当前成员身份解析。
 
 
-Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**` under Bun. No public subpath export is added for core.
+Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.
 
-`pi-mctx` is a private source extension. Development loads it through an explicit source path such as `scripts/pi-dev`; it is not published through a package `pi.extensions` entry. The package remains excluded from repository-wide Biome/typecheck/test commands while its upstream-derived surface is adapted; its focused Pi suite and focused root typecheck are the current gate. Remove these exclusions once the package passes the repository root gates.
+`pi-mctx` is a private source extension. Development loads it through an explicit source path such as `scripts/pi-dev`; it is not published through a package `pi.extensions` entry. Root Vitest, `tsc -p tsconfig.typecheck.json`, and Biome already include this package.
 
 The completion check is `rg -i opencode packages/pi-mctx` returning no matches.
 

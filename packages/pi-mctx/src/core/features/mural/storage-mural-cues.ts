@@ -24,7 +24,7 @@ import { type Database, withPrivilegedWriter } from "../../shared/sqlite";
  * whitespace/case edits that normalization would erase.
  */
 export function computeCueContentHash(content: string): string {
-    return createHash("sha256").update(content).digest("hex");
+	return createHash("sha256").update(content).digest("hex");
 }
 
 const muralCueColumnCache = new WeakMap<Database, boolean>();
@@ -32,19 +32,19 @@ const muralCueColumnCache = new WeakMap<Database, boolean>();
 /** Column-guard for pre-v65 databases so cue reads/writes degrade to a no-op
  *  rather than throwing "no such column" on an un-migrated DB. */
 export function hasMuralCueColumns(db: Database): boolean {
-    const cached = muralCueColumnCache.get(db);
-    if (cached !== undefined) return cached;
-    const columns = db.prepare("PRAGMA table_info(memories)").all() as Array<{ name?: string }>;
-    const present = columns.some((column) => column.name === "mural_cue");
-    muralCueColumnCache.set(db, present);
-    return present;
+	const cached = muralCueColumnCache.get(db);
+	if (cached !== undefined) return cached;
+	const columns = db.prepare("PRAGMA table_info(memories)").all() as Array<{ name?: string }>;
+	const present = columns.some((column) => column.name === "mural_cue");
+	muralCueColumnCache.set(db, present);
+	return present;
 }
 
 export interface MuralCueState {
-    /** The stored compressed cue, or null when never compressed. */
-    cue: string | null;
-    /** sha256 of the content the stored cue was compressed from, or null. */
-    hash: string | null;
+	/** The stored compressed cue, or null when never compressed. */
+	cue: string | null;
+	/** sha256 of the content the stored cue was compressed from, or null. */
+	hash: string | null;
 }
 
 /**
@@ -53,23 +53,23 @@ export interface MuralCueState {
  * compress-cues gate and by resolveMural's hash-current filter.
  */
 export function getMuralCueState(
-    db: Database,
-    memoryIds: readonly number[],
+	db: Database,
+	memoryIds: readonly number[],
 ): Map<number, MuralCueState> {
-    const out = new Map<number, MuralCueState>();
-    if (!hasMuralCueColumns(db)) return out;
-    const ids = Array.from(new Set(memoryIds.filter(Number.isInteger)));
-    if (ids.length === 0) return out;
-    const placeholders = ids.map(() => "?").join(", ");
-    const rows = db
-        .prepare<number[], { id: number; mural_cue: string | null; mural_cue_hash: string | null }>(
-            `SELECT id, mural_cue, mural_cue_hash FROM memories WHERE id IN (${placeholders})`,
-        )
-        .all(...ids);
-    for (const row of rows) {
-        out.set(row.id, { cue: row.mural_cue ?? null, hash: row.mural_cue_hash ?? null });
-    }
-    return out;
+	const out = new Map<number, MuralCueState>();
+	if (!hasMuralCueColumns(db)) return out;
+	const ids = Array.from(new Set(memoryIds.filter(Number.isInteger)));
+	if (ids.length === 0) return out;
+	const placeholders = ids.map(() => "?").join(", ");
+	const rows = db
+		.prepare<number[], { id: number; mural_cue: string | null; mural_cue_hash: string | null }>(
+			`SELECT id, mural_cue, mural_cue_hash FROM memories WHERE id IN (${placeholders})`,
+		)
+		.all(...ids);
+	for (const row of rows) {
+		out.set(row.id, { cue: row.mural_cue ?? null, hash: row.mural_cue_hash ?? null });
+	}
+	return out;
 }
 
 /**
@@ -78,8 +78,8 @@ export function getMuralCueState(
  * CURRENT content so the check reacts to edits.
  */
 export function memoryNeedsCue(state: MuralCueState | undefined, currentContent: string): boolean {
-    if (!state || state.cue === null || state.hash === null) return true;
-    return state.hash !== computeCueContentHash(currentContent);
+	if (!state || state.cue === null || state.hash === null) return true;
+	return state.hash !== computeCueContentHash(currentContent);
 }
 
 /**
@@ -92,24 +92,24 @@ export function memoryNeedsCue(state: MuralCueState | undefined, currentContent:
  * not injected as part of the m[0] baseline bytes.
  */
 export function setMuralCue(
-    db: Database,
-    projectPath: string,
-    id: number,
-    cue: string,
-    contentHash: string,
+	db: Database,
+	projectPath: string,
+	id: number,
+	cue: string,
+	contentHash: string,
 ): void {
-    if (!hasMuralCueColumns(db)) return;
-    withPrivilegedWriter(db, () => {
-        const owned = db
-            .prepare("SELECT 1 FROM memories WHERE id = ? AND project_path = ?")
-            .get(id, projectPath);
-        if (!owned) {
-            throw new Error(`Memory ${id} does not belong to project ${projectPath}`);
-        }
-        // Privilege is safe here because only derived cache columns are changed;
-        // authoritative memory content and identity fields are never writable here.
-        db.prepare(
-            "UPDATE memories SET mural_cue = ?, mural_cue_hash = ?, mural_cue_at = ? WHERE id = ? AND project_path = ?",
-        ).run(cue, contentHash, Date.now(), id, projectPath);
-    });
+	if (!hasMuralCueColumns(db)) return;
+	withPrivilegedWriter(db, () => {
+		const owned = db
+			.prepare("SELECT 1 FROM memories WHERE id = ? AND project_path = ?")
+			.get(id, projectPath);
+		if (!owned) {
+			throw new Error(`Memory ${id} does not belong to project ${projectPath}`);
+		}
+		// Privilege is safe here because only derived cache columns are changed;
+		// authoritative memory content and identity fields are never writable here.
+		db.prepare(
+			"UPDATE memories SET mural_cue = ?, mural_cue_hash = ?, mural_cue_at = ? WHERE id = ? AND project_path = ?",
+		).run(cue, contentHash, Date.now(), id, projectPath);
+	});
 }

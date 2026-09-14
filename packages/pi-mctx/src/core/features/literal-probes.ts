@@ -36,7 +36,7 @@ const QUOTED_RE = /["`]([^"`]{3,80})["`]/g;
 // whole token to be hex (the \b guards handle this) AND contain a digit so we
 // don't flag prose words like "feedface" — rare, but cheap to exclude.
 function looksLikeSha(token: string): boolean {
-    return /[0-9]/.test(token) && /^[0-9a-f]{7,40}$/i.test(token);
+	return /[0-9]/.test(token) && /^[0-9a-f]{7,40}$/i.test(token);
 }
 
 /**
@@ -44,42 +44,42 @@ function looksLikeSha(token: string): boolean {
  * (case-insensitive) and capped. Returns [] for plain natural-language text.
  */
 export function extractLiteralProbes(query: string): string[] {
-    const trimmed = query.trim();
-    if (trimmed.length === 0) return [];
+	const trimmed = query.trim();
+	if (trimmed.length === 0) return [];
 
-    const ordered: string[] = [];
-    const seen = new Set<string>();
+	const ordered: string[] = [];
+	const seen = new Set<string>();
 
-    const add = (raw: string | undefined): void => {
-        if (!raw) return;
-        const probe = raw.trim();
-        if (probe.length < MIN_PROBE_LENGTH) return;
-        const key = probe.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        ordered.push(probe);
-    };
+	const add = (raw: string | undefined): void => {
+		if (!raw) return;
+		const probe = raw.trim();
+		if (probe.length < MIN_PROBE_LENGTH) return;
+		const key = probe.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		ordered.push(probe);
+	};
 
-    // Order matters: quoted spans and slash commands are the most intentional
-    // literal signals, so they get the earliest (highest-priority) probe slots
-    // before the cap truncates.
-    for (const m of trimmed.matchAll(QUOTED_RE)) add(m[1]);
-    for (const m of trimmed.matchAll(SLASH_COMMAND_RE)) add(m[0]);
-    for (const m of trimmed.matchAll(ERROR_CODE_RE)) add(m[0]);
-    for (const m of trimmed.matchAll(DOTTED_RE)) add(m[0]);
-    for (const m of trimmed.matchAll(KEBAB_SNAKE_RE)) add(m[0]);
-    for (const m of trimmed.matchAll(CAMEL_RE)) add(m[0]);
-    for (const m of trimmed.matchAll(SHA_RE)) {
-        if (looksLikeSha(m[0])) add(m[0]);
-    }
+	// Order matters: quoted spans and slash commands are the most intentional
+	// literal signals, so they get the earliest (highest-priority) probe slots
+	// before the cap truncates.
+	for (const m of trimmed.matchAll(QUOTED_RE)) add(m[1]);
+	for (const m of trimmed.matchAll(SLASH_COMMAND_RE)) add(m[0]);
+	for (const m of trimmed.matchAll(ERROR_CODE_RE)) add(m[0]);
+	for (const m of trimmed.matchAll(DOTTED_RE)) add(m[0]);
+	for (const m of trimmed.matchAll(KEBAB_SNAKE_RE)) add(m[0]);
+	for (const m of trimmed.matchAll(CAMEL_RE)) add(m[0]);
+	for (const m of trimmed.matchAll(SHA_RE)) {
+		if (looksLikeSha(m[0])) add(m[0]);
+	}
 
-    return ordered.slice(0, MAX_PROBES);
+	return ordered.slice(0, MAX_PROBES);
 }
 
 /** True when a probe appears verbatim (case-insensitive) in the text. Used to
  *  boost candidates that contain the exact literal the user searched for. */
 export function containsProbeVerbatim(text: string, probes: string[]): boolean {
-    if (probes.length === 0) return false;
-    const haystack = text.toLowerCase();
-    return probes.some((probe) => haystack.includes(probe.toLowerCase()));
+	if (probes.length === 0) return false;
+	const haystack = text.toLowerCase();
+	return probes.some((probe) => haystack.includes(probe.toLowerCase()));
 }

@@ -8,30 +8,37 @@
  *   crash-after-snapshot, resume-continue
  */
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	type AgentSession,
+	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
-	SessionManager,
-	type AgentSession,
-	type CreateAgentSessionRuntimeFactory,
 	type ExtensionUIContext,
+	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { getCompartments } from "../src/core/features/compartment-storage.ts";
 import { openDatabase } from "../src/core/features/storage.ts";
 import { getTagsBySession } from "../src/core/features/storage-tags.ts";
-import magicContext from "../src/index.ts";
 import {
 	HANDOFF_ATTEMPT_TYPE,
 	HANDOFF_CONTEXT_TYPE,
 	HANDOFF_REQUEST_TYPE,
 } from "../src/handoff/model.ts";
+import magicContext from "../src/index.ts";
 
 const USER_AGENT_DIR = join(process.env.HOME ?? "/home/chlo", ".pi", "agent");
 const PROVIDER = process.env.HANDOFF_SMOKE_PROVIDER ?? "cx";
@@ -337,9 +344,7 @@ async function startRuntime(args: {
 	runtime.setRebindSession(bind);
 	await bind(runtime.session);
 	runtime.session.extensionRunner.onError((error) => {
-		console.error(
-			`[extension-error] ${error.extensionPath} ${error.event}: ${error.error}`,
-		);
+		console.error(`[extension-error] ${error.extensionPath} ${error.event}: ${error.error}`);
 	});
 	const commandNames = runtime.session.extensionRunner
 		.getRegisteredCommands()
@@ -392,7 +397,9 @@ function assertHappyDestination(sourcePath: string, destPath: string | undefined
 	const lastRequest = latestRequest(sourceEntries);
 	if (!lastRequest) fail("source has no handoff request");
 	if (lastRequest.data?.phase !== "replacement-started") {
-		fail(`source last phase is ${lastRequest.data?.phase ?? "missing"}, expected replacement-started`);
+		fail(
+			`source last phase is ${lastRequest.data?.phase ?? "missing"}, expected replacement-started`,
+		);
 	}
 	if (!destPath || destPath === sourcePath) fail("session was not replaced");
 	const contexts = destContexts(destEntries);
@@ -514,9 +521,7 @@ async function runCancel(): Promise<void> {
 		fail(`cancel switched away from source to ${runtime.session.sessionFile}`);
 	}
 	const sessionsDir = join(prepared.agentDir, "sessions");
-	const extra = sessionFiles(sessionsDir).filter(
-		(name) => !sourcePath.endsWith(name),
-	);
+	const extra = sessionFiles(sessionsDir).filter((name) => !sourcePath.endsWith(name));
 	if (extra.length > 0) fail(`cancel created extra sessions: ${extra.join(", ")}`);
 	pass("cancel");
 }
@@ -524,21 +529,16 @@ async function runCancel(): Promise<void> {
 async function runResume(): Promise<void> {
 	const prepared = prepareRoot();
 	console.log(`\n== resume ==\nsmoke root ${prepared.root}`);
-	const crashCode = await runSmokeChild(
-		["crash-after-snapshot"],
-		{
-			...process.env,
-			HANDOFF_SMOKE_ROOT: prepared.root,
-			HANDOFF_SMOKE_PROVIDER: PROVIDER,
-			HANDOFF_SMOKE_MODEL: MODEL,
-			HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
-		},
-	);
+	const crashCode = await runSmokeChild(["crash-after-snapshot"], {
+		...process.env,
+		HANDOFF_SMOKE_ROOT: prepared.root,
+		HANDOFF_SMOKE_PROVIDER: PROVIDER,
+		HANDOFF_SMOKE_MODEL: MODEL,
+		HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
+	});
 	if (crashCode !== 99) fail(`crash child exited ${crashCode}, expected 99`);
 	const recorded = join(prepared.root, "source-path.txt");
-	const recordedPath = existsSync(recorded)
-		? (await readFile(recorded, "utf8")).trim()
-		: undefined;
+	const recordedPath = existsSync(recorded) ? (await readFile(recorded, "utf8")).trim() : undefined;
 	const crashedSource =
 		recordedPath && existsSync(recordedPath)
 			? recordedPath
@@ -611,15 +611,12 @@ async function runCrashAfterSnapshot(): Promise<void> {
 }
 
 async function spawnScenario(name: string): Promise<void> {
-	const code = await runSmokeChild(
-		[name],
-		{
-			...process.env,
-			HANDOFF_SMOKE_PROVIDER: PROVIDER,
-			HANDOFF_SMOKE_MODEL: MODEL,
-			HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
-		},
-	);
+	const code = await runSmokeChild([name], {
+		...process.env,
+		HANDOFF_SMOKE_PROVIDER: PROVIDER,
+		HANDOFF_SMOKE_MODEL: MODEL,
+		HANDOFF_SMOKE_HISTORIAN: HISTORIAN,
+	});
 	if (code !== 0) fail(`scenario ${name} exited ${code}`);
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { convertEntriesToRawMessages } from "../../src/read-session-pi";
 import { HANDOFF_CONTEXT_TYPE } from "../../src/handoff/model";
+import { convertEntriesToRawMessages } from "../../src/read-session-pi";
 
 describe("convertEntriesToRawMessages handoff", () => {
 	test("keeps destination Handoff Context as a skip-tagged historical message", () => {

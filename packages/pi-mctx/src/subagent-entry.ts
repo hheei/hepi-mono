@@ -58,10 +58,7 @@ import { openDatabase } from "#core/features/storage-db";
 import { setHarness } from "#core/shared/harness";
 import { log } from "#core/shared/logger";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";
-import {
-	loadPiConfig,
-	resetPiMctxConfigForReload,
-} from "./config";
+import { loadPiConfig, resetPiMctxConfigForReload } from "./config";
 import { ensureProjectRegisteredFromPiDirectory } from "./embedding-bootstrap";
 import { registerMagicContextTools } from "./tools";
 
@@ -78,8 +75,7 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 	setHarness("pi");
 
 	pi.registerFlag(SUBAGENT_DREAMER_ACTIONS_FLAG, {
-		description:
-			"Register ctx_memory with dreamer actions for Magic Context subagents.",
+		description: "Register ctx_memory with dreamer actions for Magic Context subagents.",
 		type: "boolean",
 		default: false,
 	});
@@ -91,14 +87,11 @@ export default function magicContextSubagentExtension(pi: ExtensionAPI): void {
 			resetPiMctxConfigForReload();
 			const cfg = loadPiConfig();
 			const directory = process.cwd();
-			setStoragePrivatePermissionEnforcement(
-				cfg.storage.enforce_private_permissions,
-			);
+			setStoragePrivatePermissionEnforcement(cfg.storage.enforce_private_permissions);
 			const db = openDatabase();
 			openedDb = db;
 			await ensureProjectRegisteredFromPiDirectory(directory, db);
-			const dreamerActionsEnabled =
-				pi.getFlag(SUBAGENT_DREAMER_ACTIONS_FLAG) === true;
+			const dreamerActionsEnabled = pi.getFlag(SUBAGENT_DREAMER_ACTIONS_FLAG) === true;
 
 			registerMagicContextTools(pi, {
 				db,

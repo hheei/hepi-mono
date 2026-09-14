@@ -1,8 +1,8 @@
+import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import {
 	type EmbeddingFeatures,
 	registerProjectEmbedding,
 } from "#core/features/project-embedding-registry";
-import { resolveProjectIdentityForSession } from "#core/features/memory/project-identity";
 import type { ContextDatabase } from "#core/features/storage";
 import { loadPiConfig } from "./config";
 
@@ -14,10 +14,7 @@ export async function ensureProjectRegisteredFromPiDirectory(
 	db: ContextDatabase,
 ): Promise<void> {
 	const config = loadPiConfig();
-	const projectIdentity = resolveProjectIdentityForSession(
-		directory,
-		config.allow_home_project,
-	);
+	const projectIdentity = resolveProjectIdentityForSession(directory, config.allow_home_project);
 	if (!projectIdentity) return;
 
 	let registeredProjects = registeredProjectsByDatabase.get(db);
@@ -31,12 +28,6 @@ export async function ensureProjectRegisteredFromPiDirectory(
 		memoryEnabled: config.memory.enabled,
 		gitCommitEnabled: config.memory.git_commit_indexing.enabled,
 	};
-	registerProjectEmbedding(
-		db,
-		projectIdentity,
-		config.embedding,
-		features,
-		directory,
-	);
+	registerProjectEmbedding(db, projectIdentity, config.embedding, features, directory);
 	registeredProjects.add(projectIdentity);
 }

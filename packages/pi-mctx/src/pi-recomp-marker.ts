@@ -6,10 +6,7 @@ import {
 } from "#core/features/storage";
 import { applyDeferredPiCompactionMarker } from "./compaction-marker-manager-pi";
 import { signalPiDeferredHistoryRefresh } from "./context-handler";
-import {
-	buildPiCompactionSummary,
-	findFirstKeptEntryId,
-} from "./pi-historian-runner";
+import { buildPiCompactionSummary, findFirstKeptEntryId } from "./pi-historian-runner";
 
 /**
  * Advance the Pi native compaction marker to the latest compartment boundary
@@ -57,10 +54,7 @@ export function stagePiRecompMarker(args: {
 
 	let firstKeptEntryId: string | null = null;
 	try {
-		firstKeptEntryId = findFirstKeptEntryId(
-			readBranchEntries(),
-			last.endMessage,
-		);
+		firstKeptEntryId = findFirstKeptEntryId(readBranchEntries(), last.endMessage);
 	} catch {
 		firstKeptEntryId = null;
 	}
@@ -104,10 +98,7 @@ export function queueAndApplyPiRecompMarker(args: {
 
 	let firstKeptEntryId: string | null = null;
 	try {
-		firstKeptEntryId = findFirstKeptEntryId(
-			readBranchEntries(),
-			last.endMessage,
-		);
+		firstKeptEntryId = findFirstKeptEntryId(readBranchEntries(), last.endMessage);
 	} catch {
 		firstKeptEntryId = null;
 	}
@@ -132,9 +123,7 @@ export function queueAndApplyPiRecompMarker(args: {
 		signalPiDeferredHistoryRefresh(args.sessionId);
 		return;
 	}
-	if (
-		!clearPendingPiCompactionMarkerStateIf(args.db, args.sessionId, pending)
-	) {
+	if (!clearPendingPiCompactionMarkerStateIf(args.db, args.sessionId, pending)) {
 		signalPiDeferredHistoryRefresh(args.sessionId);
 	}
 }
@@ -165,9 +154,7 @@ function resolvePiAppendCompaction(
 	return sm.appendCompaction.bind(sm);
 }
 
-function resolvePiReadBranchEntries(
-	ctx: unknown,
-): (() => unknown[]) | undefined {
+function resolvePiReadBranchEntries(ctx: unknown): (() => unknown[]) | undefined {
 	const sm = (ctx as { sessionManager?: unknown })?.sessionManager as
 		| { getBranch?: () => unknown[] }
 		| undefined;

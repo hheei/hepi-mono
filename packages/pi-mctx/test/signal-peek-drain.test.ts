@@ -14,9 +14,9 @@
  * runtime mocking.
  */
 
-import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { describe, expect, test } from "vitest";
 
 import {
 	clearSystemPromptRefresh,
@@ -178,9 +178,7 @@ describe("source contract: peek-then-drain in runPipeline (history)", () => {
 			/const\s+canConsumeDeferredLate\s*=\s*[\s\S]*?args\.schedulerDecision\s*===\s*"execute"/,
 		);
 		expect(code).toContain("args.forceMaterialization === true");
-		expect(code).toContain(
-			"args.contextUsage.percentage >= forceMaterializationPercentage",
-		);
+		expect(code).toContain("args.contextUsage.percentage >= forceMaterializationPercentage");
 		expect(code).toContain("const deferredMaterialize =");
 		expect(code).toContain("const deferredHistoryRefresh =");
 		expect(code).toContain(
@@ -192,19 +190,13 @@ describe("source contract: peek-then-drain in runPipeline (history)", () => {
 	test("once-per-turn heuristics guard uses latest user turn id", () => {
 		expect(code).toContain("lastHeuristicsTurnIdBySession");
 		expect(code).toContain("alreadyRanHeuristicsThisTurn");
-		expect(code).toContain(
-			'args.schedulerDecision === "execute" && !alreadyRanHeuristicsThisTurn',
-		);
+		expect(code).toContain('args.schedulerDecision === "execute" && !alreadyRanHeuristicsThisTurn');
 	});
 
 	test("raw message provider unregister is retained and cleaned", () => {
 		expect(code).toContain("rawMessageProviderUnregistersBySession");
-		expect(code).toContain(
-			"rawMessageProviderUnregistersBySession.set(sessionId, unregisterRaw)",
-		);
-		expect(code).toContain(
-			"rawMessageProviderUnregistersBySession.delete(sessionId)",
-		);
+		expect(code).toContain("rawMessageProviderUnregistersBySession.set(sessionId, unregisterRaw)");
+		expect(code).toContain("rawMessageProviderUnregistersBySession.delete(sessionId)");
 	});
 
 	test("inline thinking stripping shares the reasoning watermark", () => {
@@ -216,14 +208,10 @@ describe("source contract: peek-then-drain in runPipeline (history)", () => {
 	test("model switch reset clears usage, reasoning, failure, limit, and recovery state", () => {
 		expect(code).toContain("clearedReasoningThroughTag: 0");
 		expect(code).toContain("clearHistorianFailureState(options.db, sessionId)");
-		expect(code).toContain(
-			"clearPersistedReasoningWatermark(options.db, sessionId)",
-		);
+		expect(code).toContain("clearPersistedReasoningWatermark(options.db, sessionId)");
 		expect(code).toContain("clearDetectedContextLimit(options.db, sessionId)");
 		expect(code).toContain("clearEmergencyRecovery(options.db, sessionId)");
-		expect(code).toContain(
-			"sessionMetaForUsage.clearedReasoningThroughTag = 0",
-		);
+		expect(code).toContain("sessionMetaForUsage.clearedReasoningThroughTag = 0");
 	});
 
 	test("note nudges are wired after runPipeline", () => {
@@ -245,9 +233,7 @@ describe("source contract: peek-then-drain in runPipeline (pending materializati
 		// The gate must not drain the signal at decision time. The drain
 		// happens AFTER applyPendingOperations succeeds.
 		// Match across formatter line wraps with a tolerant regex.
-		expect(code).toMatch(
-			/const\s+hasPendingMaterializeSignal\s*=\s*hasPendingMaterialization\(/,
-		);
+		expect(code).toMatch(/const\s+hasPendingMaterializeSignal\s*=\s*hasPendingMaterialization\(/);
 		// And confirm the variable is NOT directly assigned from the
 		// draining helper (regression guard for the pre-fix pattern).
 		expect(code).not.toMatch(
@@ -300,12 +286,8 @@ describe("source contract: peek-then-drain in before_agent_start (system prompt)
 		// Council #4 (project-config bleed on /cd): these decisions use
 		// effectiveConfig — the config re-resolved from the CURRENT checkout's
 		// cwd on a project switch — not the launch-cwd boot `config`.
-		expect(code).toContain(
-			"effectiveConfig.system_prompt_injection?.enabled === false",
-		);
-		expect(code).toContain(
-			"effectiveConfig.system_prompt_injection?.skip_signatures",
-		);
+		expect(code).toContain("effectiveConfig.system_prompt_injection?.enabled === false");
+		expect(code).toContain("effectiveConfig.system_prompt_injection?.skip_signatures");
 		expect(code).toContain("existingSystemPrompt: event.systemPrompt");
 	});
 
@@ -318,17 +300,13 @@ describe("source contract: peek-then-drain in before_agent_start (system prompt)
 	test("runtime project identity resolves from ctx.cwd and tracks prompt path sessions", () => {
 		expect(code).toContain("function resolveCurrentProject");
 		expect(code).toContain("const projectDir = ctx.cwd");
-		expect(code).toContain(
-			"trackSessionForProject(currentProject.projectIdentity, sessionId)",
-		);
+		expect(code).toContain("trackSessionForProject(currentProject.projectIdentity, sessionId)");
 		expect(code).toContain("resolveProject: resolveCurrentProject");
 	});
 
 	test("project-docs m0 injection uses the flag independent of dreamer.disable", () => {
 		expect(code).toContain("injectDocs: cfg.dreamer?.inject_docs !== false");
-		expect(code).not.toContain(
-			"isDreamerRunnable(config) && (config.dreamer?.inject_docs",
-		);
+		expect(code).not.toContain("isDreamerRunnable(config) && (config.dreamer?.inject_docs");
 	});
 
 	test("hash-change path remains eager for all three refresh sets", () => {

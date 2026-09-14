@@ -23,10 +23,7 @@ import { createCtxSearchTool } from "./ctx-search";
 
 export interface RegisterToolsOptions {
 	db: ContextDatabase;
-	ensureProjectRegistered?: ((
-		directory: string,
-		db: ContextDatabase,
-	) => Promise<void>) | undefined;
+	ensureProjectRegistered?: ((directory: string, db: ContextDatabase) => Promise<void>) | undefined;
 	memoryEnabled?: boolean | undefined;
 	embeddingEnabled?: boolean | undefined;
 	gitCommitsEnabled?: boolean | undefined;
@@ -92,10 +89,7 @@ function frameTool<T>(tui: ToolTui, tool: T): T {
 	}) as T;
 }
 
-export function registerMagicContextTools(
-	pi: ExtensionAPI,
-	opts: RegisterToolsOptions,
-): void {
+export function registerMagicContextTools(pi: ExtensionAPI, opts: RegisterToolsOptions): void {
 	const tui = getToolTui(pi);
 	if (typeof pi.on === "function") registerToolTuiTrace(pi);
 	const resolveProjectIdentity = opts.resolveProjectIdentity

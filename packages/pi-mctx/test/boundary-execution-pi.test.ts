@@ -53,9 +53,7 @@ describe("boundary execution Pi integration", () => {
 		const db = createDb();
 		const midTurn = isMidTurnPi(
 			{
-				messages: [
-					{ role: "assistant", content: [{ type: "toolCall", id: "call-1" }] },
-				],
+				messages: [{ role: "assistant", content: [{ type: "toolCall", id: "call-1" }] }],
 			},
 			"s1",
 		);
@@ -64,8 +62,7 @@ describe("boundary execution Pi integration", () => {
 			bypassReason: "none",
 			midTurn,
 		});
-		if (result.sideEffect === "set-flag")
-			setDeferredExecutePendingIfAbsent(db, "s1", flag());
+		if (result.sideEffect === "set-flag") setDeferredExecutePendingIfAbsent(db, "s1", flag());
 		expect(result.midTurnAdjustedSchedulerDecision).toBe("defer");
 		expect(peekDeferredExecutePending(db, "s1")?.id).toBe("flag-1");
 	});

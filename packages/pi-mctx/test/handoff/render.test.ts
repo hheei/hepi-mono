@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
+import type { HandoffRequestRecord } from "../../src/handoff/model";
 import {
 	createHandoffProgressComponent,
 	renderHandoffProgressLines,
 	renderHandoffRequest,
 	renderHandoffRequestCollapsed,
 } from "../../src/handoff/render";
-import type { HandoffRequestRecord } from "../../src/handoff/model";
 
 const theme = {
 	bold: (value: string) => `*${value}*`,
@@ -23,11 +23,7 @@ describe("handoff render", () => {
 				now: 3500,
 				cancellable: true,
 			}),
-		).toEqual([
-			"Summarizing · anthropic/claude",
-			"12.0k tokens",
-			"3s · Esc cancel",
-		]);
+		).toEqual(["Summarizing · anthropic/claude", "12.0k tokens", "3s · Esc cancel"]);
 		expect(
 			renderHandoffProgressLines({
 				stage: "finalizing",
@@ -43,8 +39,7 @@ describe("handoff render", () => {
 			requestId: "req-1",
 			phase: "snapshot-ready",
 			stage: "freezing",
-			createdAt: 1,
-			updatedAt: 1,
+			createdAt: "1",
 			tokenCounts: {
 				usableLimit: 1,
 				executeCeiling: 1,
@@ -63,9 +58,7 @@ describe("handoff render", () => {
 			{ expanded: false },
 			theme as never,
 		);
-		expect(registered?.render(80).join("\n")).toContain(
-			"◐ handoff · snapshot ready",
-		);
+		expect(registered?.render(80).join("\n")).toContain("◐ handoff · snapshot ready");
 	});
 
 	test("progress component updates without changing size contract", () => {

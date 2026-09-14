@@ -15,10 +15,7 @@ import {
 } from "#core/features/storage-meta-persisted";
 import { closeQuietly } from "#core/shared/sqlite-helpers";
 
-import {
-	commitPiCompactionModeRecord,
-	reconcilePiCompactionMode,
-} from "../src/compaction-off-pi";
+import { commitPiCompactionModeRecord, reconcilePiCompactionMode } from "../src/compaction-off-pi";
 import { handlePiSessionBeforeCompact } from "../src/index";
 import { createTestDb } from "./test-utils.test";
 
@@ -27,14 +24,12 @@ describe("Pi compaction-off mode", () => {
 		const db = createTestDb();
 		try {
 			const ctx = { sessionManager: { getSessionId: () => "ses-native" } };
-			expect(
-				await handlePiSessionBeforeCompact({ db, compactionOff: false, ctx }),
-			).toEqual({ cancel: true });
+			expect(await handlePiSessionBeforeCompact({ db, compactionOff: false, ctx })).toEqual({
+				cancel: true,
+			});
 			// Mutation direction: returning cancel here would prevent Pi from owning
 			// the window and leave an off-mode session with no compactor.
-			expect(
-				await handlePiSessionBeforeCompact({ db, compactionOff: true, ctx }),
-			).toBeUndefined();
+			expect(await handlePiSessionBeforeCompact({ db, compactionOff: true, ctx })).toBeUndefined();
 		} finally {
 			closeQuietly(db);
 		}
@@ -72,9 +67,7 @@ describe("Pi compaction-off mode", () => {
 			expect(getCompactionModeRecord(db, sessionId)).toBe("off_notice_pending");
 			expect(transition.clearDeferredMarkerState).toBe(true);
 			expect(getPendingOps(db, sessionId)).toEqual([]);
-			expect(getOverflowState(db, sessionId).needsEmergencyRecovery).toBe(
-				false,
-			);
+			expect(getOverflowState(db, sessionId).needsEmergencyRecovery).toBe(false);
 			expect(getChannel2NudgeState(db, sessionId)).toBe("");
 			expect(
 				db
@@ -157,8 +150,7 @@ describe("Pi compaction-off mode", () => {
 			});
 			expect(restarted.notice).toBe(first.notice);
 			const recordToWrite = restarted.recordToWrite;
-			if (!recordToWrite)
-				throw new Error("expected a compaction mode record to persist");
+			if (!recordToWrite) throw new Error("expected a compaction mode record to persist");
 			commitPiCompactionModeRecord(db, sessionId, recordToWrite);
 			expect(getCompactionModeRecord(db, sessionId)).toBe("off");
 		} finally {
