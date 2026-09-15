@@ -20,57 +20,46 @@ export type AgentMemoryStatusSnapshot = {
 	readonly lastErrorAt: number | null;
 };
 
-type Observation = {
-	state: "healthy" | "degraded";
-};
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
 export class AgentMemoryStatusTracker {
-	readonly #observations = new Map<AgentMemoryObservedOperation, Observation>();
-	#lastError: { error: string; at: number } | undefined;
+	readonly #observations = new Map<AgentMemoryObservedOperation, "healthy" | "degraded">();
+	#lastError: { message: string; at: number } | undefined;
 
 	recordSuccess(operation: AgentMemoryObservedOperation): void {
-		this.#observations.set(operation, { state: "healthy" });
+		this.#observations.set(operation, "healthy");
 	}
 
 	recordFailure(operation: AgentMemoryObservedOperation, error: unknown): void {
 		const at = Date.now();
-		const message = errorMessage(error);
-		this.#observations.set(operation, { state: "degraded" });
-		this.#lastError = { error: message, at };
+		const message = error instanceof Error ? error.message : String(error);
+		this.#observations.set(operation, "degraded");
+		this.#lastError = { message, at };
 	}
 
 	snapshot(
 		settings: AgentMemoryConfig,
 		outbox: AgentMemoryOutbox | undefined,
 	): AgentMemoryStatusSnapshot {
-		const health = this.#observations.get("health");
 		const outboxError = outbox?.latestError() ?? null;
-		const latestRuntimeError = this.#lastError;
 		const latestError =
-			outboxError && (!latestRuntimeError || outboxError.at > latestRuntimeError.at)
-				? { error: outboxError.message, at: outboxError.at }
-				: latestRuntimeError;
-		const counts = outbox?.statusCounts() ?? { pending: 0, leased: 0, failed: 0 };
+			outboxError && (!this.#lastError || outboxError.at > this.#lastError.at)
+				? outboxError
+				: this.#lastError;
 		return {
 			enabled: settings.enabled,
-			health: health?.state ?? "unknown",
+			health: this.#observations.get("health") ?? "unknown",
 			capture: this.#state(settings.enabled && settings.capture, "capture"),
 			search: this.#state(settings.enabled && settings.memoryTools, "search"),
 			inject: this.#state(settings.enabled && settings.inject, "inject"),
 			memory: this.#state(settings.enabled && settings.memoryTools, "memory"),
-			outbox: counts,
-			lastError: latestError?.error ?? null,
+			outbox: outbox?.statusCounts() ?? { pending: 0, leased: 0, failed: 0 },
+			lastError: latestError?.message ?? null,
 			lastErrorAt: latestError?.at ?? null,
 		};
 	}
 
 	#state(enabled: boolean, operation: AgentMemoryObservedOperation): AgentMemoryObservedState {
 		if (!enabled) return "disabled";
-		return this.#observations.get(operation)?.state ?? "idle";
+		return this.#observations.get(operation) ?? "idle";
 	}
 }
 

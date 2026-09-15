@@ -142,10 +142,6 @@ function nonEmpty(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function normalizeBaseUrl(url: string): string {
-	return url.replace(/\/+$/, "");
-}
-
 function searchContent(value: Record<string, unknown>): string | undefined {
 	for (const key of ["content", "text", "narrative", "summary", "description"] as const) {
 		const content = nonEmpty(value[key]);
@@ -235,12 +231,11 @@ function successfulBody(value: unknown, endpoint: string): Record<string, unknow
 export class AgentMemoryClient implements AgentMemoryClientPort {
 	readonly #baseUrl: string;
 	readonly #secret: string;
-	readonly #requireHttps: boolean;
 	readonly #guardPlaintextBearer: (baseUrl: string, secret?: string) => void;
 	readonly #fetch: typeof fetch;
 
 	constructor(config: AgentMemoryClientConfig = {}, fetchImpl: typeof fetch = globalThis.fetch) {
-		const url = normalizeBaseUrl(config.url?.trim() || DEFAULT_AGENTMEMORY_URL);
+		const url = (config.url?.trim() || DEFAULT_AGENTMEMORY_URL).replace(/\/+$/, "");
 		try {
 			const parsed = new URL(url);
 			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -257,9 +252,8 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 		}
 		this.#baseUrl = url;
 		this.#secret = config.secret?.trim() ?? "";
-		this.#requireHttps = config.requireHttps === true;
 		this.#guardPlaintextBearer = createPlaintextBearerAuthGuard({
-			requireHttps: this.#requireHttps,
+			requireHttps: config.requireHttps === true,
 			warn: (message) => log(`[magic-context][agentmemory] ${message}`),
 		});
 		this.#fetch = fetchImpl;
@@ -368,7 +362,7 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 			),
 			"session/end",
 		);
-		if (body.ended === false || body.success === false || body.ok === false) {
+		if (body.ended === false) {
 			throw new AgentMemoryClientError(
 				"invalid_response",
 				"session/end",
