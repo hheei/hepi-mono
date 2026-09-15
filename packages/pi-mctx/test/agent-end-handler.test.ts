@@ -44,10 +44,10 @@ function extractAgentEndHandlerBody(src: string): string {
 }
 
 function extractSessionShutdownHandlerBody(src: string): string {
-	const start = src.indexOf('pi.on("session_shutdown"');
+	// Bridge-only mode owns an earlier shutdown handler. The historian/dreamer
+	// drain belongs to the full Window handler, which is the last one.
+	const start = src.lastIndexOf('pi.on("session_shutdown"');
 	if (start === -1) throw new Error("no session_shutdown handler in index.ts");
-	// session_shutdown handler is the last large block; find the
-	// matching brace by counting { / } from the start.
 	let depth = 0;
 	let i = start;
 	let started = false;
@@ -59,7 +59,6 @@ function extractSessionShutdownHandlerBody(src: string): string {
 		} else if (ch === "}") {
 			depth--;
 			if (started && depth === 0) {
-				// Look for trailing `);`
 				const tail = src.slice(i, i + 3);
 				if (tail.startsWith("})")) return src.slice(start, i + 3);
 			}

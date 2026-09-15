@@ -85,6 +85,10 @@ export function piMessagesToLkg(
 				providerID,
 				modelID,
 				model: providerID && modelID ? { providerID, modelID } : undefined,
+				synthetic: rec.synthetic === true,
+				...(typeof rec.anchorMessageId === "string"
+					? { anchorMessageId: rec.anchorMessageId }
+					: {}),
 			},
 			parts: piContentToParts(rec),
 			pi: message,

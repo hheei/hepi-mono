@@ -31,8 +31,9 @@ mctx_search ──> local session lane
             └─> scoped AgentMemory lane ──partial failure──> local lane remains healthy
 mctx_memory ──transaction──> context.db outbox ──lease/retry/dedupe──> /remember
 automatic recall ──scope/taint gate──> projection epoch + durable recall ledger
-/ctx-status ──read only──> observed runtime snapshot + local outbox counts
-/agentmemory-health ──explicit fresh probe──> /health
+projection publish ──interactive TUI──> leased aboveEditor widget + receipt
+/ctx-status ──read only──> observed runtime snapshot + bounded recall preview
+headless/RPC ──> provider context only (no widget)
 session_shutdown ──abort/capped drain──> outbox + remote session cleanup
 ```
 
@@ -49,8 +50,11 @@ Automatic recall admission 由 `pi-mctx` 在 additive ledger 中按
 anchor/epoch 的并发或重试只搜索一次并 replay 同一结果；branch/generation 已变化的
 异步结果会作为 stale 丢弃。Scope、当前 remote segment、taint 与 already-visible gate
 在提交前执行，backend failure 只更新 degraded status，不产生空 event，也不阻断
-Window。该 ledger 不写 session JSONL；provider-visible splice 与 projection publish
-属于后续 Context Projection 阶段，在该阶段接入前 admission 本身不改变 model context。
+Window。Context Projection publish 后，interactive TUI 通过 ext-core-managed
+`aboveEditor` widget 展示 newly admitted sources；event 先取得短 lease，widget
+mount 成功后才写 presentation receipt，失败则由 lease expiry 重试。headless/RPC
+只接收 provider-visible projection，不挂载 widget，也不追加 transcript recall 文本。
+`/ctx-status` 最多展示三个 recent admitted source 的 sanitized bounded preview，且不发网络请求。
 Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
 
 ## 设置
@@ -134,7 +138,11 @@ later transform failure, Pi MCTX replays that prefix instead of sending the
 raw prompt. If the raw prompt is estimated over the resolved context limit,
 the transform refuses rather than overflowing. Fail-closed storage still
 cancels native compaction until the database reopens.
-AgentMemory 是可选 HTTP bridge，不是本包内的 Durable Memory store。上游是任意可达的 AgentMemory HTTP 服务（本机进程、反向代理、Tailscale 均可；不假设 Docker）。`agentmemory.enabled` 默认 false，独立于 Window `enabled`。开启后 Capture 挂在已有 `session_start` / `before_agent_start` / `tool_result` / `agent_end` / `session_shutdown` 上，fire-and-forget；主会话把 `mctx_memory` 换成 AgentMemory schema，并停掉本地 store 版 `mctx_memory` 与 historian 本地 promotion。可取消的 session manager 按 Pi session 隔离 remote capture segment，合并重复 start，并在 shutdown 结束全部 live bindings；失败不阻断 Window。Context Projection / outbox / ledger 尚未接入。
+AgentMemory 是可选 HTTP bridge，不是本包内的 Durable Memory store。上游是任意可达的 AgentMemory HTTP 服务（本机进程或反向代理均可；不假设 Docker）。`agentmemory.enabled` 默认 false，独立于 Window `enabled`。开启后 Capture 挂在已有 `session_start` / `before_agent_start` / `tool_result` / `agent_end` / `session_shutdown` 上，fire-and-forget；主会话把 `mctx_memory` 换成 AgentMemory schema，并停掉本地 store 版 `mctx_memory` 与 historian 本地 promotion。可取消的 session manager 按 Pi session 隔离 remote capture segment，合并重复 start，并在 shutdown 结束全部 live bindings；失败不阻断 Window。Context Projection、transactional outbox 与 recall ledger 由 Pi adapter 接入。
+
+Window 关闭但 AgentMemory 显式开启时，只保留 bridge 的 capture、双 lane search、outbox save、status/health 与 projection-only context 路径；不启用 Window 的 reduce、expand、note、Historian 或 native compaction 改写。`/ctx-status` 明确显示 `Window: disabled`，不把历史 Window 计数伪装成当前工作状态。
+
+Outbox 在 session activation 恢复投递，按最早 pending retry 或遗留 lease 到期时间安排一个有界 worker；shutdown 取消调度。Recall admission 失败记录为 observed failure，仍发布有效 Window，但不发布未提交的 recall。保留在 compaction kept tail 中的已准入 anchor 可重建到新 epoch；撤销 head 不得成为 replay 来源。
 
 ## Status token accounting
 

@@ -10,7 +10,12 @@ import {
 } from "./client";
 import { AgentMemoryOutbox } from "./outbox";
 import { type AgentMemoryIdentity, createAgentMemoryIdentityResolver } from "./project";
-import { type RecallAdmission, RecallLedger } from "./recall";
+import {
+	type RecallAdmission,
+	type RecallDraft,
+	RecallLedger,
+	type RecallPreparation,
+} from "./recall";
 import { AgentMemorySessionManager, resolvePiSessionId } from "./session";
 import { type AgentMemoryStatusSnapshot, AgentMemoryStatusTracker } from "./status";
 import { SqliteTurnTaintStore, type TurnTaintStore } from "./taint";
@@ -62,8 +67,9 @@ export type AgentMemoryRuntime = {
 		hostEntryIds?: readonly string[],
 	): void;
 	propagateCurrentTurnTaint(ctx: AgentMemoryHostContext, hostEntryIds: readonly string[]): void;
+	catchUpCurrentTurnTaint(ctx: AgentMemoryHostContext): void;
 	remoteSessionId(piSessionId: string): string | undefined;
-	admitAutomaticRecall(input: {
+	prepareAutomaticRecall(input: {
 		readonly cwd: string;
 		readonly sessionId: string;
 		readonly userEntryId: string;
@@ -72,7 +78,8 @@ export type AgentMemoryRuntime = {
 		readonly branchId?: string | undefined;
 		readonly generation?: number | undefined;
 		readonly signal?: AbortSignal | undefined;
-	}): Promise<RecallAdmission>;
+	}): Promise<RecallPreparation>;
+	commitAutomaticRecall(draft: RecallDraft): RecallAdmission;
 	queueMemory(input: {
 		readonly cwd: string;
 		readonly content: string;
@@ -194,17 +201,38 @@ function latestEntryId(ctx: AgentMemoryHostContext, role: string): string | unde
 	return undefined;
 }
 
+function currentTurnMemoryToolEntryIds(ctx: AgentMemoryHostContext): string[] {
+	const entries = branchMessageEntries(ctx);
+	let userIndex = -1;
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		if (entries[index]?.message.role === "user") {
+			userIndex = index;
+			break;
+		}
+	}
+	if (userIndex < 0) return [];
+	const hostEntryIds: string[] = [];
+	for (const entry of entries.slice(userIndex + 1)) {
+		if (
+			entry.message.role === "toolResult" &&
+			isExcludedMemoryTool(
+				typeof entry.message.toolName === "string" ? entry.message.toolName : undefined,
+			)
+		) {
+			hostEntryIds.push(entry.id, `${SYNTH_USER_ID_PREFIX}${entry.id}`);
+		}
+	}
+	return hostEntryIds;
+}
+
 function toolResultEntryId(
 	ctx: AgentMemoryHostContext,
 	toolCallId: string | undefined,
 ): string | undefined {
 	if (!toolCallId) return undefined;
-	for (const entry of branchMessageEntries(ctx)) {
-		if (entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId) {
-			return entry.id;
-		}
-	}
-	return undefined;
+	return branchMessageEntries(ctx).find(
+		(entry) => entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId,
+	)?.id;
 }
 
 export function overlayAgentMemoryEnv(
@@ -248,10 +276,14 @@ export function createAgentMemoryRuntime(
 		},
 	});
 	const taint = options.db ? new SqliteTurnTaintStore(options.db) : undefined;
-	const outbox = options.db ? new AgentMemoryOutbox(options.db, client) : undefined;
+	const outbox = options.db
+		? new AgentMemoryOutbox(options.db, client, undefined, (error) => {
+				status.recordFailure("memory", error);
+				log(`${PREFIX} outbox drain failed`, error);
+			})
+		: undefined;
 	const recall = options.db ? new RecallLedger(options.db) : undefined;
 	const taintedTurnBySession = new Map<string, string>();
-
 	const runtime: AgentMemoryRuntime = {
 		settings,
 		client,
@@ -276,6 +308,7 @@ export function createAgentMemoryRuntime(
 		},
 		identity,
 		ensureStarted(ctx) {
+			outbox?.resume();
 			void sessions.startForContext(ctx);
 		},
 		observe(ctx, hookType, data) {
@@ -306,19 +339,28 @@ export function createAgentMemoryRuntime(
 			if (!turnId) return;
 			taint?.mark({ sessionId, turnId, reason: "retrieval-derived", hostEntryIds });
 		},
+		catchUpCurrentTurnTaint(ctx) {
+			const sessionId = resolvePiSessionId(ctx);
+			const turnId = taintedTurnBySession.get(sessionId);
+			if (!turnId || latestEntryId(ctx, "user") !== turnId) return;
+			const hostEntryIds = currentTurnMemoryToolEntryIds(ctx);
+			if (hostEntryIds.length > 0) {
+				taint?.mark({ sessionId, turnId, reason: "retrieval-derived", hostEntryIds });
+			}
+		},
 		remoteSessionId(piSessionId) {
 			return sessions.getBinding(piSessionId)?.remoteSessionId;
 		},
-		async admitAutomaticRecall(input) {
+		async prepareAutomaticRecall(input) {
 			if (!recall) return { kind: "skipped", reason: "scope" };
 			const resolved = identity(input.cwd);
-			const epoch = recall.declarePreUpgradeEpoch({
+			const epoch = recall.preUpgradeEpoch({
 				sessionId: input.sessionId,
 				branchId: input.branchId,
 				generation: input.generation,
 			});
 			try {
-				const admission = await recall.admit({
+				return await recall.prepare({
 					sessionId: input.sessionId,
 					userEntryId: input.userEntryId,
 					query: input.query,
@@ -359,20 +401,29 @@ export function createAgentMemoryRuntime(
 							}));
 					},
 				});
-				if (admission.kind === "admitted") {
+			} catch (error) {
+				status.recordFailure("inject", error);
+				log(`${PREFIX} automatic recall failed`, error);
+				return { kind: "skipped", reason: "unavailable" };
+			}
+		},
+		commitAutomaticRecall(draft) {
+			if (!recall) return { kind: "skipped", reason: "scope" };
+			try {
+				const admission = recall.commit(draft);
+				if (admission.kind === "admitted" && !draft.reused) {
 					taint?.mark({
-						sessionId: input.sessionId,
-						turnId: input.userEntryId,
-						hostEntryIds: [input.userEntryId],
-						reason: `automatic-recall:${admission.event.id}`,
+						sessionId: draft.event.sessionId,
+						turnId: draft.event.userEntryId,
+						hostEntryIds: [draft.event.userEntryId],
+						reason: `automatic-recall:${draft.event.id}`,
 					});
 				}
 				status.recordSuccess("inject");
 				return admission;
 			} catch (error) {
 				status.recordFailure("inject", error);
-				log(`${PREFIX} automatic recall failed`, error);
-				return { kind: "skipped", reason: "unavailable" };
+				throw error;
 			}
 		},
 		async queueMemory(input) {
@@ -441,6 +492,7 @@ export function captureAssistantEnd(
 	ctx: AgentMemoryHostContext,
 	messages: readonly unknown[] | undefined,
 ): void {
+	runtime.catchUpCurrentTurnTaint(ctx);
 	if (!Array.isArray(messages)) return;
 	const output = assistantText(messages);
 	if (output.length === 0) return;

@@ -21,6 +21,13 @@ import { describe, expect, test } from "vitest";
 const INDEX_SRC = readFileSync(join(import.meta.dirname, "../src/index.ts"), "utf8");
 const HANDLER_SRC = readFileSync(join(import.meta.dirname, "../src/context-handler.ts"), "utf8");
 
+const sessionBeforeSwitchHandlers = [
+	...INDEX_SRC.matchAll(/pi\.on\("session_before_switch"[\s\S]*?\}\);/g),
+].map((match) => match[0]);
+const sessionShutdownHandlers = [
+	...INDEX_SRC.matchAll(/pi\.on\("session_shutdown"[\s\S]*?\n\s*\}\);/g),
+].map((match) => match[0]);
+
 describe("clearContextHandlerSession internals", () => {
 	// The function body must drain all three signal sets — historian
 	// or compressor publish (or hash change in before_agent_start) can
@@ -52,44 +59,44 @@ describe("clearContextHandlerSession internals", () => {
 	});
 });
 
-describe("session_before_switch handler wiring", () => {
-	const handler = INDEX_SRC.match(/pi\.on\("session_before_switch"[\s\S]*?\}\);/);
+describe("Window session_before_switch handler wiring", () => {
+	const body = sessionBeforeSwitchHandlers[sessionBeforeSwitchHandlers.length - 1] ?? "";
 
-	test("session_before_switch handler is registered", () => {
-		expect(handler).not.toBeNull();
+	test("handler is registered", () => {
+		expect(body).not.toBe("");
 	});
 
-	const body = handler?.[0] ?? "";
-
 	test("handler resolves the OUTGOING session id (not the new target)", () => {
-		// Pi fires this BEFORE the switch, so getSessionId() returns
-		// the still-current session — that's exactly what we want.
 		expect(body).toContain("getSessionId()");
 	});
 
-	test("handler calls clearContextHandlerSession", () => {
-		expect(body).toContain("clearContextHandlerSession(");
-	});
-
-	test("handler calls clearPiSystemPromptSession", () => {
+	test("handler drains Window and projection caches", () => {
 		expect(body).toContain("clearPiSystemPromptSession(");
+		expect(body).toContain("clearContextHandlerSession(");
 	});
 });
 
-describe("session_shutdown handler also drains per-session maps", () => {
-	const handler = INDEX_SRC.match(/pi\.on\("session_shutdown"[\s\S]*?\n\s*\}\);/);
+describe("bridge-only session_before_switch cleanup", () => {
+	const body = sessionBeforeSwitchHandlers[0] ?? "";
 
-	test("session_shutdown handler exists", () => {
-		expect(handler).not.toBeNull();
+	test("clears the outgoing projection cache without Window cleanup", () => {
+		expect(body).toContain("getSessionId?.()");
+		expect(body).toContain("clearContextHandlerSession(");
+		expect(body).not.toContain("clearPiSystemPromptSession(");
+	});
+});
+
+describe("session_shutdown handlers drain per-session maps", () => {
+	const windowBody = sessionShutdownHandlers[sessionShutdownHandlers.length - 1] ?? "";
+	const bridgeBody = sessionShutdownHandlers[0] ?? "";
+
+	test("Window shutdown handler exists and clears its context cache", () => {
+		expect(windowBody).not.toBe("");
+		expect(windowBody).toContain("clearContextHandlerSession(");
 	});
 
-	const body = handler?.[0] ?? "";
-
-	test("calls clearContextHandlerSession on shutdown", () => {
-		// Pre-audit: only clearPiSystemPromptSession was called. The
-		// context-handler caches were never drained on shutdown, so a
-		// long-lived process re-running the extension between shutdowns
-		// (e.g. via /reload) would leak.
-		expect(body).toContain("clearContextHandlerSession(");
+	test("bridge-only shutdown clears projection cache after its runtime drain", () => {
+		expect(bridgeBody).toContain("withTimeout(runtime.shutdown(), 5_000)");
+		expect(bridgeBody).toContain("clearContextHandlerSession(");
 	});
 });

@@ -167,6 +167,7 @@ describe("Pi Magic Context commands", () => {
 			db,
 			projectIdentity: "/tmp/project",
 			agentMemoryStatus,
+			agentMemoryRecallPreview: () => ["[memory] recalled decision"],
 		});
 		await handlers.get("ctx-status")?.("", createCtx());
 
@@ -174,8 +175,12 @@ describe("Pi Magic Context commands", () => {
 			"AgentMemory: health=degraded capture=healthy search=degraded inject=idle memory=healthy",
 		);
 		expect(sent[0]?.data.text).toContain("pending=2 leased=1 failed=3");
+		expect(sent[0]?.data.text).toContain(
+			"AgentMemory recall preview:\n- [memory] recalled decision",
+		);
 		expect(sent[0]?.data.details).toMatchObject({
 			agentMemory: { health: "degraded", outbox: { pending: 2, leased: 1, failed: 3 } },
+			agentMemoryRecallPreview: ["[memory] recalled decision"],
 		});
 	});
 

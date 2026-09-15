@@ -48,6 +48,8 @@ import { closeQuietly } from "#core/shared/sqlite-helpers";
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 import { tagTranscript } from "#core/shared/tag-transcript";
 
+import { RecallLedger } from "../src/agentmemory/recall";
+
 import { clearAutoSearchForPiSession } from "../src/auto-search-pi";
 import {
 	awaitInFlightHistorians,
@@ -1145,6 +1147,121 @@ describe("registerPiContextHandler", () => {
 				"message",
 			]);
 		} finally {
+			closeQuietly(db);
+		}
+	});
+	it("admits recall through the context projection and publishes only after transform", async () => {
+		const db = createTestDb();
+		const sessionId = "ses-context-recall";
+		try {
+			const ledger = new RecallLedger(db);
+			const published = vi.fn();
+			const fake = createFakePi();
+			registerPiContextHandler(fake.pi as never, {
+				db,
+				agentMemoryProjection: {
+					prepareRecall: async (request) =>
+						ledger.prepare({
+							sessionId: request.sessionId,
+							userEntryId: request.userEntryId,
+							query: request.query,
+							epoch: ledger.preUpgradeEpoch(request),
+							search: async () => [
+								{
+									id: "memory-context",
+									kind: "memory",
+									content: "Use the context projection boundary.",
+									digest: "digest-context",
+								},
+							],
+						}),
+					commitRecall: (draft) => ledger.commit(draft),
+					onRecallProjectionPublished: published,
+				},
+			});
+			const handler = fake.handlers.get("context") as (
+				event: { messages: never[] },
+				ctx: never,
+			) => Promise<{ messages: never[] }>;
+			const messages = [userMessage("Where was this decided?", 1), assistantMessage("Working", 2)];
+			const result = await handler({ messages: messages as never[] }, {
+				...fakeContext(sessionId, process.cwd(), ["entry-user", "entry-assistant"], messages),
+				getSystemPrompt: () => "test system prompt",
+			} as never);
+
+			expect(result.messages.map((message) => (message as { role?: string }).role)).toEqual([
+				"user",
+				"user",
+				"assistant",
+			]);
+			expect(textOf(result.messages[1] as never)).toContain("Use the context projection boundary.");
+			expect(published).toHaveBeenCalledWith(sessionId);
+			expect(
+				db.prepare("SELECT count(*) AS count FROM mctx_context_projection_heads").get(),
+			).toEqual({ count: 1 });
+		} finally {
+			clearContextHandlerSession(sessionId);
+			closeQuietly(db);
+		}
+	});
+	it("keeps projection heads isolated across Pi session-tree navigation", async () => {
+		const db = createTestDb();
+		const sessionId = "ses-tree-projection";
+		const ledger = new RecallLedger(db);
+		const fake = createFakePi();
+		const entries = [
+			{ type: "message", id: "root", parentId: null },
+			{ type: "message", id: "a", parentId: "root" },
+			{ type: "message", id: "b", parentId: "a" },
+			{ type: "message", id: "c", parentId: "b" },
+			{ type: "message", id: "x", parentId: "a" },
+			{ type: "message", id: "y", parentId: "x" },
+		];
+		const byId = new Map(entries.map((entry) => [entry.id, entry]));
+		let leafId = "c";
+		try {
+			registerPiContextHandler(fake.pi as never, {
+				db,
+				agentMemoryProjection: {
+					prepareRecall: async (request) =>
+						ledger.prepare({
+							sessionId: request.sessionId,
+							userEntryId: request.userEntryId,
+							query: request.query,
+							epoch: ledger.preUpgradeEpoch(request),
+							search: async () => [],
+						}),
+					commitRecall: (draft) => ledger.commit(draft),
+				},
+			});
+			const handler = fake.handlers.get("context") as (
+				event: { messages: never[] },
+				ctx: never,
+			) => Promise<{ messages: never[] }>;
+			const invoke = async (ids: readonly string[]) => {
+				const messages = ids.map((id, index) => userMessage(id, index + 1));
+				await handler({ messages: messages as never[] }, {
+					...fakeContext(sessionId, process.cwd(), [...ids], messages),
+					getSystemPrompt: () => "test system prompt",
+					sessionManager: {
+						getSessionId: () => sessionId,
+						getLeafId: () => leafId,
+						getEntry: (id: string) => byId.get(id),
+					},
+				} as never);
+			};
+			await invoke(["root", "a", "b", "c"]);
+			leafId = "y";
+			await invoke(["root", "a", "x", "y"]);
+			expect(
+				db
+					.prepare(
+						"SELECT branch_id AS branchId FROM mctx_context_projection_heads WHERE session_id = ? ORDER BY branch_id",
+					)
+					.all(sessionId),
+			).toEqual([{ branchId: "root" }, { branchId: "tree:y" }]);
+		} finally {
+			clearContextHandlerSession(sessionId);
 			closeQuietly(db);
 		}
 	});
@@ -3784,6 +3901,7 @@ describe("Pi branch projection cache", () => {
 		);
 		expect(initial?.map((entry) => (entry as { id: string }).id)).toEqual(["root", "a", "b", "c"]);
 		expect(getEntryCalls).toBe(4);
+		expect(contextHandlerInternals.getPiProjectionBranchIdForTests("ses-projection")).toBe("root");
 		contextHandlerInternals.readPiBranchEntriesForContext(context, "ses-projection");
 		expect(getEntryCalls).toBe(4);
 
@@ -3804,6 +3922,13 @@ describe("Pi branch projection cache", () => {
 				switched ?? undefined,
 			),
 		).toEqual(["root", "a", "x", "y"]);
+		expect(contextHandlerInternals.getPiProjectionBranchIdForTests("ses-projection")).toBe(
+			"tree:y",
+		);
+		leafId = "c";
+		contextHandlerInternals.readPiBranchEntriesForContext(context, "ses-projection");
+		expect(contextHandlerInternals.getPiProjectionBranchIdForTests("ses-projection")).toBe("root");
+		leafId = "y";
 
 		const cold = contextHandlerInternals.readPiBranchEntriesForContext(
 			context,
