@@ -105,6 +105,124 @@ describe("apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toContain("NINE\n");
 	});
 
+	test("enforces sequential anchors and rejects missing or ambiguous constrained matches", async () => {
+		const root = await temporaryDirectory();
+		await save(
+			root,
+			"value.txt",
+			"section one\ntarget one\nsection two\ntarget two\nsection three\ntarget three\n",
+		);
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: value.txt\n@@ section two\n-target two\n+changed two\n@@ missing\n-target\n+nope\n@@ section three\n-target three\n+changed three\n*** End Patch",
+		});
+		expect(result.operations[0]).toMatchObject({ status: "partial", appliedHunks: 2 });
+		expect(result.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "context_not_found", hunkIndex: 2 }] },
+		]);
+		expect(await load(root, "value.txt")).toBe(
+			"section one\ntarget one\nsection two\nchanged two\nsection three\nchanged three\n",
+		);
+
+		await save(root, "ambiguous.txt", "scope\ntarget\ntarget\n");
+		const ambiguous = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: ambiguous.txt\n@@ scope\n-target\n+changed\n*** End Patch",
+		});
+		expect(ambiguous.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "ambiguous_exact", hunkIndex: 1, candidateStartLines: [2, 3] }] },
+		]);
+
+		await save(root, "fuzzy.txt", "header\nscope\nconst value = 10;\n");
+		const belowThreshold = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: { ...fuzzy, minSimilarity: 0.99 },
+			patch:
+				"*** Begin Patch\n*** Update File: fuzzy.txt\n@@ scope\n-const value = 20;\n+changed\n*** End Patch",
+		});
+		expect(belowThreshold.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "fuzzy_below_threshold", hunkIndex: 1, best: { startLine: 3 } }] },
+		]);
+		expect(await load(root, "fuzzy.txt")).toBe("header\nscope\nconst value = 10;\n");
+	});
+
+	test("uses EOF to disambiguate repeated exact context at the final line", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "value.txt", "same\nsame\n");
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: value.txt\n@@\n-same\n+final\n*** End of File\n*** End Patch",
+		});
+		expect(result.rejected).toEqual([]);
+		expect(await load(root, "value.txt")).toBe("same\nfinal\n");
+	});
+
+	test("preserves CRLF, final newline state, mixed untouched bytes, EOF, and pure moves", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "mixed.txt", "unchanged\r\nold\nlast");
+		await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: mixed.txt\n@@\n-old\n+new\n@@\n-last\n\\ No newline at end of file\n+final\n\\ No newline at end of file\n*** End of File\n*** End Patch",
+		});
+		expect(await readFile(join(root, "mixed.txt"))).toEqual(Buffer.from("unchanged\r\nnew\nfinal"));
+
+		await save(root, "context.txt", "alpha\r\nbeta\ngamma\r\n");
+		await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: context.txt\n@@\n alpha\n+inserted\n beta\n gamma\n*** End Patch",
+		});
+		expect(await readFile(join(root, "context.txt"))).toEqual(
+			Buffer.from("alpha\r\ninserted\nbeta\ngamma\r\n"),
+		);
+
+		await save(root, "source.txt", "move\r\n");
+		const moved = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n*** Update File: source.txt\n*** Move to: destination.txt\n*** End Patch",
+		});
+		expect(moved.operations[0]).toMatchObject({
+			status: "applied",
+			addedLines: 0,
+			removedLines: 0,
+		});
+		expect(await readFile(join(root, "destination.txt"))).toEqual(Buffer.from("move\r\n"));
+	});
+
+	test("preserves EOF context, line boundaries, and source bytes together", async () => {
+		const root = await temporaryDirectory();
+		for (const [before, body, after] of [
+			["alpha\nbeta", "-beta\n+BETA", "alpha\nBETA"],
+			["alpha", " alpha\n+beta", "alpha\nbeta"],
+			["alpha", "+beta\n*** End of File", "alpha\nbeta"],
+			["scope", "@@ scope\n+beta", "scope\nbeta"],
+			["alpha\nbeta", "-beta", "alpha"],
+			["head\nold\nlast\n", "-old\n+NEW\n last\n*** End of File", "head\nNEW\nlast\n"],
+			["\uFEFFhead\nold\n", "-old\n+NEW", "\uFEFFhead\nNEW\n"],
+			["same\r\nsame\n", "-same\n same\n+new", "same\nnew\n"],
+		] as const) {
+			await save(root, "value.txt", before);
+			const result = await applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch: `*** Begin Patch\n*** Update File: value.txt\n@@\n${body}\n*** End Patch`,
+			});
+			expect(result.rejected, body).toEqual([]);
+			expect(await readFile(join(root, "value.txt")), body).toEqual(Buffer.from(after));
+		}
+	});
+
 	test("follows a parent symlink and writes through it", async () => {
 		const root = await temporaryDirectory();
 		const outside = await temporaryDirectory();
@@ -409,41 +527,33 @@ describe("apply-patch executor", () => {
 		expect(await load(root, "value.txt")).toBe("second\n");
 	});
 
-	test("applies ordered delete and add on the same path", async () => {
-		const root = await temporaryDirectory();
-		await save(root, "value.txt", "before\n");
-
-		const result = await applyPatchInWorkspace({
-			workspaceRoot: root,
-			policy: noFuzzy,
-			patch:
-				"*** Begin Patch\n" +
-				"*** Delete File: value.txt\n" +
-				"*** Add File: value.txt\n+after\n" +
-				"*** End Patch",
-		});
-
-		expect(result.changedPaths).toEqual(["value.txt"]);
-		expect(result.rejected).toEqual([]);
-		expect(await load(root, "value.txt")).toBe("after\n");
-	});
-
-	test("applies ordered add and delete on the same path", async () => {
-		const root = await temporaryDirectory();
-
-		const result = await applyPatchInWorkspace({
-			workspaceRoot: root,
-			policy: noFuzzy,
-			patch:
-				"*** Begin Patch\n" +
-				"*** Add File: value.txt\n+temporary\n" +
-				"*** Delete File: value.txt\n" +
-				"*** End Patch",
-		});
-
-		expect(result.changedPaths).toEqual(["value.txt"]);
-		expect(result.rejected).toEqual([]);
-		await expect(readFile(join(root, "value.txt"), "utf8")).rejects.toThrow();
+	test("applies ordered delete/add and add/delete on the same path", async () => {
+		const cases = [
+			{
+				initial: "before\n",
+				operations: "*** Delete File: value.txt\n*** Add File: value.txt\n+after\n",
+				expected: "after\n",
+			},
+			{
+				initial: undefined,
+				operations: "*** Add File: value.txt\n+temporary\n*** Delete File: value.txt\n",
+				expected: undefined,
+			},
+		];
+		for (const { initial, operations, expected } of cases) {
+			const root = await temporaryDirectory();
+			if (initial !== undefined) await save(root, "value.txt", initial);
+			const result = await applyPatchInWorkspace({
+				workspaceRoot: root,
+				policy: noFuzzy,
+				patch: `*** Begin Patch\n${operations}*** End Patch`,
+			});
+			expect(result.changedPaths).toEqual(["value.txt"]);
+			expect(result.rejected).toEqual([]);
+			if (expected === undefined)
+				await expect(readFile(join(root, "value.txt"), "utf8")).rejects.toThrow();
+			else expect(await load(root, "value.txt")).toBe(expected);
+		}
 	});
 
 	test("follows a leaf symlink on update and keeps the symlink", async () => {

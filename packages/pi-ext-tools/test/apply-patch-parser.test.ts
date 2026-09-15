@@ -46,6 +46,41 @@ describe("V4A patch parser", () => {
 		expect(patch.operations).toEqual(expected);
 	});
 
+	test("preserves consecutive anchors and EOF constraints while allowing pure moves", () => {
+		const operation = parseV4aPatch(
+			"*** Begin Patch\n" +
+				"*** Update File: source.txt\n" +
+				"*** Move to: destination.txt\n" +
+				"*** End Patch",
+		).operations[0];
+		if (operation === undefined || operation.kind !== "update") throw new Error("expected update");
+		expect(operation).toMatchObject({ moveTo: "destination.txt", hunks: [] });
+
+		const constrained = parseV4aPatch(
+			"*** Begin Patch\n*** Update File: value.txt\n@@ outer\n@@ inner\n-old\n+new\n*** End of File\n*** End Patch",
+		).operations[0];
+		if (constrained === undefined || constrained.kind !== "update")
+			throw new Error("expected update");
+		expect(constrained.hunks).toEqual([
+			{
+				anchor: "inner",
+				anchors: ["outer", "inner"],
+				endOfFile: true,
+				lines: [
+					{ kind: "remove", text: "old\n" },
+					{ kind: "add", text: "new\n" },
+				],
+			},
+		]);
+		for (const tail of ["+new", "*** End of File", "@@ later"]) {
+			expect(() =>
+				parseV4aPatch(
+					`*** Begin Patch\n*** Update File: value.txt\n-old\n*** End of File\n${tail}\n*** End Patch`,
+				),
+			).toThrow("End of File must be the final update constraint at line 5");
+		}
+	});
+
 	test("reports each complete operation before completing the patch", async (): Promise<void> => {
 		const reported: string[] = [];
 		const patch = await parseV4aPatchProgressively(
@@ -131,27 +166,33 @@ describe("V4A patch parser", () => {
 		]);
 	});
 
-	test("reports duplicate and touch-conflicting paths", () => {
-		const duplicate = parseV4aPatch(
-			"*** Begin Patch\n*** Delete File: x\n*** Add File: x\n+v\n*** End Patch",
-		);
-		const repeatedUpdate = parseV4aPatch(
-			"*** Begin Patch\n*** Update File: x\n-a\n+b\n*** Update File: x\n-b\n+c\n*** End Patch",
-		);
-		const selfMove = parseV4aPatch(
-			"*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch",
-		);
-		const moveTarget = parseV4aPatch(
-			"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
-		);
-		expect(findV4aPatchConflicts(duplicate)).toEqual([]);
-		expect(findV4aPatchConflicts(repeatedUpdate)).toEqual([]);
-		expect(findV4aPatchConflicts(selfMove)).toEqual([
-			{ path: "x", operationIndices: [0], message: "path touched more than once: x" },
-		]);
-		expect(findV4aPatchConflicts(moveTarget)).toEqual([
-			{ path: "y", operationIndices: [0, 1], message: "path touched more than once: y" },
-		]);
+	test("reports path conflicts without rejecting ordered same-path operations", () => {
+		const cases = [
+			{
+				patch: "*** Begin Patch\n*** Delete File: x\n*** Add File: x\n+v\n*** End Patch",
+				conflicts: [],
+			},
+			{
+				patch:
+					"*** Begin Patch\n*** Update File: x\n-a\n+b\n*** Update File: x\n-b\n+c\n*** End Patch",
+				conflicts: [],
+			},
+			{
+				patch: "*** Begin Patch\n*** Update File: x\n*** Move to: x\n-a\n+b\n*** End Patch",
+				conflicts: [
+					{ path: "x", operationIndices: [0], message: "path touched more than once: x" },
+				],
+			},
+			{
+				patch:
+					"*** Begin Patch\n*** Update File: x\n*** Move to: y\n-a\n+b\n*** Add File: y\n+v\n*** End Patch",
+				conflicts: [
+					{ path: "y", operationIndices: [0, 1], message: "path touched more than once: y" },
+				],
+			},
+		];
+		for (const { patch, conflicts } of cases)
+			expect(findV4aPatchConflicts(parseV4aPatch(patch))).toEqual(conflicts);
 	});
 
 	test("rejects no-op updates", () => {
@@ -231,13 +272,10 @@ describe("V4A prefix preview", () => {
 		"*** Delete File: gone.txt\n" +
 		"*** End Patch";
 
-	test("exposes a complete Add File header before any payload arrives", () => {
+	test("exposes only complete Add File headers", () => {
 		expect(previewV4aPatchPrefix("*** Begin Patch\n*** Add File: stream.txt\n", false)).toEqual([
 			{ kind: "add", path: "stream.txt", addedLines: 0, removedLines: 0 },
 		]);
-	});
-
-	test("does not expose a partial path", () => {
 		expect(previewV4aPatchPrefix("*** Begin Patch\n*** Add File: stream.tx", false)).toEqual([]);
 	});
 
