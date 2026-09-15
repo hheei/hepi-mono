@@ -82,6 +82,8 @@ per-call fuzzy option。本机 V4A path 可以是绝对或相对 path；相对 p
 到 workspace 外。已确认的本机 workspace 外变更会在模型 result 后给出 warning；判定不 `realpath`，因此
 workspace 内 symlink 指向外部不算外部写入。
 
+`@@ 文本` 按顺序限定后续 hunk 的搜索起点；缺失锚点拒绝该 hunk，范围内重复上下文仍拒绝歧义。`*** End of File` 限定文件末尾。纯移动使用 `Update File` + `Move to`，无需内容 hunk。Update 保留源文件换行风格与末尾换行状态；纯移动保留原始字节。
+
 mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从用户的 `PATH`、
 `MPATCH_BIN` 或网络取得 executable。bridge 的一次性 run handle 在文件循环、fuzzy 搜索和
 写入前协作检查取消 flag；写入发生在 Patch Core 的 sibling 临时文件上，replace 确认后才算 Changed。
@@ -93,6 +95,8 @@ grammar、body whitespace 与 path size 仍严格校验。本机 path lexical re
 mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
 
 `apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。
+
+发布前复核源基线，检测到准备期间的外部修改时拒绝覆盖。Move 在目标发布后、删除源前再次复核；源冲突时保留目标与源并报告部分成功。此检查与实际 rename/remove 之间仍有竞态窗口，不是原子 compare-and-swap，也不是对外部 writer 的锁。
 
 fuzzy policy 只读取 `pi-ext-tools.applyPatch.minSimilarity`。默认 `0.7`。`0` 关闭 fuzzy，
 只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置；project settings 只能收紧：设为 `0` 关闭 fuzzy，或提高 minSimilarity，不能放宽写入匹配条件。

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+	link,
 	lstat,
 	mkdir,
 	readdir,
@@ -75,16 +76,6 @@ export function isAgentPatchTemp(name: string): boolean {
 	return TEMP_RE.test(name);
 }
 
-function publishParentDir(path: string): string {
-	const index = path.lastIndexOf("/");
-	return index < 0 ? "." : path.slice(0, index);
-}
-
-function publishBaseName(path: string): string {
-	const index = path.lastIndexOf("/");
-	return index < 0 ? path : path.slice(index + 1);
-}
-
 export function fileTooLarge(size: number, path: string): Error {
 	return new Error(
 		`file_too_large (${size} > ${APPLY_PATCH_MAX_FILE_SIZE}) at ${path}; use another tool suitable for large-file edits.`,
@@ -99,17 +90,21 @@ export async function publishPreparedFile(
 	mode: number | undefined,
 	replaceExisting: boolean,
 	signal?: AbortSignal,
+	beforePublish?: () => Promise<void>,
 ): Promise<void> {
-	const directory = publishParentDir(path);
+	const slash = path.lastIndexOf("/");
+	const directory = slash < 0 ? "." : path.slice(0, slash);
 	if (directory !== ".") await fs.mkdirp(directory, signal);
-	const temp = `${directory === "." ? "" : `${directory}/`}${agentPatchTempName(publishBaseName(path))}`;
+	const base = slash < 0 ? path : path.slice(slash + 1);
+	const temp = `${directory === "." ? "" : `${directory}/`}${agentPatchTempName(base)}`;
 	try {
 		await fs.writeAtomic(temp, data, mode, signal);
+		await beforePublish?.();
 		if (replaceExisting) await fs.replace(temp, path, signal);
 		else await fs.renameNew(temp, path, signal);
 	} catch (error) {
 		if (!(error instanceof FsTransportError) || error.phase === "write")
-			await fs.unlink(temp, signal).catch(() => undefined);
+			await fs.unlink(temp).catch(() => undefined);
 		throw error;
 	}
 }
@@ -198,7 +193,8 @@ export function createLocalPatchFs(workspaceRoot: string): PatchFs {
 		},
 		async renameNew(from, to, signal) {
 			signal?.throwIfAborted();
-			await rename(abs(from), abs(to));
+			await link(abs(from), abs(to));
+			await unlink(abs(from)).catch(() => undefined);
 		},
 		async replace(from, to, signal) {
 			if (signal?.aborted) throw new FsTransportError("replace", false, "cancelled before replace");
@@ -250,8 +246,12 @@ function parseRemoteMeta(stdout: string): EntryMeta {
 	};
 }
 
+function shellQuote(path: string): string {
+	return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
 const META_SCRIPT = (path: string, follow: boolean): string => {
-	const quoted = `'${path.replaceAll("'", "'\\''")}'`;
+	const quoted = shellQuote(path);
 	return follow
 		? `p=${quoted}; if [ ! -e "$p" ]; then echo missing 0; elif [ -f "$p" ]; then echo file $(wc -c < "$p") $(stat -c %a "$p" 2>/dev/null || stat -f %OLp "$p"); elif [ -d "$p" ]; then echo directory 0; else echo other 0; fi`
 		: `p=${quoted}; if [ -L "$p" ]; then echo symlink 0 0; elif [ -f "$p" ]; then echo file $(wc -c < "$p") $(stat -c %a "$p" 2>/dev/null || stat -f %OLp "$p"); elif [ -d "$p" ]; then echo directory 0; elif [ -e "$p" ]; then echo other 0; else echo missing 0; fi`;
@@ -311,7 +311,7 @@ export function createSftpPatchFs(runtime: TargetRuntime, alias: string): PatchF
 			return parseRemoteMeta(await capture(META_SCRIPT(path, true), signal, SFTP_SMALL_TIMEOUT_MS));
 		},
 		async followLeaf(path, signal) {
-			const quoted = `'${path.replaceAll("'", "'\\''")}'`;
+			const quoted = shellQuote(path);
 			const resolved = (
 				await capture(
 					`if [ -L ${quoted} ]; then realpath ${quoted}; else printf '%s' ${quoted}; fi`,
@@ -333,11 +333,7 @@ export function createSftpPatchFs(runtime: TargetRuntime, alias: string): PatchF
 			}
 		},
 		async mkdirp(path, signal) {
-			await capture(
-				`mkdir -p ${`'${path.replaceAll("'", "'\\''")}'`}`,
-				signal,
-				SFTP_SMALL_TIMEOUT_MS,
-			);
+			await capture(`mkdir -p ${shellQuote(path)}`, signal, SFTP_SMALL_TIMEOUT_MS);
 		},
 		async writeAtomic(path, data, mode, signal) {
 			const local = join(tmpdir(), `hepi-apply-patch-put-${randomUUID()}`);
@@ -380,7 +376,7 @@ export function createSftpPatchFs(runtime: TargetRuntime, alias: string): PatchF
 		async list(path, signal) {
 			const result = await runtime.sshCapture(
 				alias,
-				`ls -A ${path === "" || path === "." ? "." : `'${path.replaceAll("'", "'\\''")}'`} 2>/dev/null || true`,
+				`ls -A ${path === "" || path === "." ? "." : shellQuote(path)} 2>/dev/null || true`,
 				{
 					...(signal === undefined ? {} : { signal }),
 					timeoutMs: SFTP_SMALL_TIMEOUT_MS,

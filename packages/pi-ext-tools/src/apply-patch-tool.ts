@@ -19,7 +19,6 @@ import {
 	applyPatchInWorkspace,
 	createSftpPatchFs,
 	loadFuzzyApplyPatchPolicy,
-	MutationBusyError,
 } from "./apply-patch/index.js";
 import {
 	createV4aPreviewCursor,
@@ -49,6 +48,7 @@ const APPLY_PATCH_PROMPT_SNIPPET =
 const APPLY_PATCH_PROMPT_GUIDELINES = [
 	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
 	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
+	"apply_patch: use `@@ text` to locate subsequent hunks and `*** End of File` to match the file end. Pure moves use Update File plus Move to without a content hunk. Ambiguous matches are rejected.",
 	"apply_patch: target is local or an authorized SSH alias. output is not supported. Confirmed path changes are never rolled back.",
 ];
 const RECOVERY_READ_TARGETS =
@@ -121,19 +121,19 @@ function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
 	const keys = Object.keys(params).filter((key) => key !== "target");
 	if (keys.length !== 1 || !("patch" in params) || typeof params.patch !== "string")
 		throw new Error("apply_patch requires exactly one string parameter: patch");
-	return { patch: params.patch };
-}
-
-function rejectedOperationCount(result: ApplyPatchInWorkspaceResult): number {
-	return new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)).size;
-}
-
-function unknownCount(result: ApplyPatchInWorkspaceResult): number {
-	return result.unconfirmed.length + result.notApplied.length;
+	return {
+		patch: params.patch,
+		...("target" in params && typeof params.target === "string" ? { target: params.target } : {}),
+	};
 }
 
 function statusFor(result: ApplyPatchInWorkspaceResult): ApplyPatchStatus {
-	if (rejectedOperationCount(result) === 0 && unknownCount(result) === 0) return "success";
+	if (
+		!result.rejected.some((rejection) => rejection.operationIndices.length > 0) &&
+		result.unconfirmed.length === 0 &&
+		result.notApplied.length === 0
+	)
+		return "success";
 	return result.changedPaths.length === 0 ? "failed" : "partial";
 }
 
@@ -146,36 +146,28 @@ function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
 	const path = rejection.paths.join(", ");
 	const prefix = `- ${operation}, ${path}`;
 	if (rejection.diagnostics.length === 0) return [`${prefix}: ${rejection.error}`];
-	return rejection.diagnostics.flatMap((diagnostic) => {
+	return rejection.diagnostics.map((diagnostic) => {
 		switch (diagnostic.kind) {
 			case "context_not_found":
-				return [`${prefix}, hunk ${diagnostic.hunkIndex}: context not found`];
+				return `${prefix}, hunk ${diagnostic.hunkIndex}: context not found`;
 			case "ambiguous_exact":
-				return [
-					`${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
-						.slice(0, MAX_CANDIDATES)
-						.join(", ")} (${diagnostic.candidateStartLines.length} candidates)`,
-				];
+				return `${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
+					.slice(0, MAX_CANDIDATES)
+					.join(", ")} (${diagnostic.candidateStartLines.length} candidates)`;
 			case "ambiguous_fuzzy":
-				return [
-					`${prefix}, hunk ${diagnostic.hunkIndex}: fuzzy context is ambiguous at ${diagnostic.candidates
-						.slice(0, MAX_CANDIDATES)
-						.map(
-							(candidate) =>
-								`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
-						)
-						.join(", ")} (${diagnostic.candidates.length} candidates)`,
-				];
+				return `${prefix}, hunk ${diagnostic.hunkIndex}: fuzzy context is ambiguous at ${diagnostic.candidates
+					.slice(0, MAX_CANDIDATES)
+					.map(
+						(candidate) =>
+							`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
+					)
+					.join(", ")} (${diagnostic.candidates.length} candidates)`;
 			case "fuzzy_below_threshold": {
 				const score = diagnostic.best.score.toFixed(2);
 				const threshold = diagnostic.threshold.toFixed(2);
 				return diagnostic.best.score > diagnostic.threshold * 0.7
-					? [
-							`${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy candidate lines ${diagnostic.best.startLine}-${diagnostic.best.startLine + diagnostic.best.length - 1}, score ${score} < required ${threshold}`,
-						]
-					: [
-							`${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy score ${score} < required ${threshold}`,
-						];
+					? `${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy candidate lines ${diagnostic.best.startLine}-${diagnostic.best.startLine + diagnostic.best.length - 1}, score ${score} < required ${threshold}`
+					: `${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy score ${score} < required ${threshold}`;
 			}
 			default:
 				throw new Error(`Unknown patch diagnostic: ${String(diagnostic)}`);
@@ -357,14 +349,7 @@ export function createApplyPatchTool(
 			renderApplyPatchResult(result, options.expanded, theme),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const startedAt = performance.now();
-			const { patch } = parseApplyPatchParameters(params);
-			const target =
-				typeof params === "object" &&
-				params !== null &&
-				"target" in params &&
-				typeof params.target === "string"
-					? params.target
-					: undefined;
+			const { patch, target } = parseApplyPatchParameters(params);
 			if (target === OUTPUT_TARGET) throw new Error("apply_patch does not support output targets.");
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
@@ -408,12 +393,7 @@ export function createApplyPatchTool(
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
-				const message =
-					error instanceof MutationBusyError
-						? error.message
-						: error instanceof Error
-							? error.message
-							: String(error);
+				const message = error instanceof Error ? error.message : String(error);
 				const recovery = failureRecovery(message);
 				throw new Error(
 					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,

@@ -6,16 +6,29 @@
 
 `apply_patch` 必须把一次 V4A request 的实际 Path Outcome，而不是请求 patch 或 renderer-local state，同时交给模型、TUI、Trace collapse 和 session resume。
 
+### 执行
+
 - local Linux/macOS/Windows 与 Unix-like SSH Target 共用同一套 Patch Core。没有 detached coordinator、request id 重连或 request-level rollback。
-- local V4A path 可为绝对或相对 path。相对 path 从 workspace root 解析，允许以 `..` 到 workspace 外；判断只做 lexical resolve，不 `realpath`，所以 workspace 内 symlink 指向外部不会被当成外部写入。实际 Changed 的 local path 在 lexical workspace 外时，模型 result 末尾必须给出一行 warning；Rejected、Unconfirmed 与 NotApplied 不警告。
 - 每个 path 独立 Publish：sibling 临时文件 + replace/remove 确认后才是 Changed。已确认 path 不撤回。
-- 语法错误、非 POSIX SSH、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace（local）或 SSH alias 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。一次调用应包含本次所有文件变更；多余的 `*** Begin Patch` / `*** End Patch` 只保留最外层一对。
-- patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
-- live progress 阶段为 `parsed`、`publishing` 与 `done`。model-time preview 与 `parsed` 都不代表已验证或已 Publish。
 - 同一 `Update File` 的 hunk 依 patch 顺序作用于同一 staging copy。失败 hunk 记为 Rejected，但不阻止后续 hunk 尝试；至少一个 hunk 成功时，以成功 hunk 的 staging 结果只 Publish 一次，并把该 operation 标为 `partial`。没有 hunk 成功时该 path 为 Rejected，原档不动。多个没有 `Move to` 的 `Update File` 按 patch 顺序作用于同一文件。`Update + Move to` 是 dest Publish 与 source delete 两次独立 mutation。
-- 仅 Changed+Rejected 且无 Unconfirmed/NotApplied 时为 `partial`、`isError: false`。出现 Unconfirmed 或 NotApplied 时 `isError: true`，已 Changed 的 path 仍报告。
-- V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
+- live progress 阶段为 `parsed`、`publishing` 与 `done`。model-time preview 与 `parsed` 都不代表已验证或已 Publish。
 - 完成后的 TUI 只读取实际结果。展开的 diff 是 Publish 当时的稳定 hunk snapshot，不重读可能已变化的 workspace。
+
+### 验证与并发
+
+- 语法错误、非 POSIX SSH、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace（local）或 SSH alias 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。
+- patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
+- V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
+- `@@ 文本` 是顺序定位锚点，不是注释；后续 hunk 只在锚点限定范围匹配，锚点不存在时不得退回全文搜索。`*** End of File` 将匹配限定在文件末尾。没有内容 hunk 的 `Update File` + `Move to` 是纯移动，保留源文件字节。
+- Update 保留源文件换行风格与末尾换行状态，未修改的混合换行行不应被全局归一化。
+- 发布前重新核对已读取的源基线；确定的外部修改归为 Rejected，不覆盖或删除该内容。Move 目标确认发布后，删除源前仍核对源；此时冲突保留已发布目标并报告源拒绝，不回滚目标。
+- 复核与 rename/remove 不是原子 compare-and-swap，检查后的外部写入仍存在竞态窗口；不得将此机制描述成阻止所有外部修改。
+
+### 诊断与恢复
+
+- local V4A path 可为绝对或相对 path。相对 path 从 workspace root 解析，允许以 `..` 到 workspace 外；判断只做 lexical resolve，不 `realpath`，所以 workspace 内 symlink 指向外部不会被当成外部写入。实际 Changed 的 local path 在 lexical workspace 外时，模型 result 末尾必须给出一行 warning；Rejected、Unconfirmed 与 NotApplied 不警告。
+- 仅 Changed+Rejected 且无 Unconfirmed/NotApplied 时为 `partial`、`isError: false`。出现 Unconfirmed 或 NotApplied 时 `isError: true`，已 Changed 的 path 仍报告。
+- 一次调用应包含本次所有文件变更；多余的 `*** Begin Patch` / `*** End Patch` 只保留最外层一对。
 
 ```text
 V4A patch
@@ -140,7 +153,7 @@ warning glyph `!` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 h
 - parser、path 与 native failure 保留稳定错误分类；parser errors 带 source line（若有）。transport 失败不能被静默重试。
 - 准备、fuzzy attempt 与 Publish 服从 `AbortSignal`。取消不撤回已 Changed 的 path。尚未发出 replace/remove 的为 NotApplied；已发出未见 ACK 的为 Unconfirmed。
 - local 无逾时，只靠取消。SFTP 单 path：传输 ≤1 MiB 为 30s，否则 60s；写 temp 逾时为 NotApplied，rename/rm 逾时为 Unconfirmed。
-- mutation lock 串行化 apply_patch、write 与 edit：local 按 workspace，SSH 按本机 alias，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。不检测也不阻止外部写入。
+- mutation lock 串行化 apply_patch、write 与 edit：local 按 workspace，SSH 按本机 alias，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。锁不能阻止外部写入；apply_patch 的源基线复核只提供上述尽力而为的冲突检测。
 - `/reload` 取消 execute，不重连进行中的 mutation。
 - 现有文件（含 Delete 与 Move 源）大于 32 MiB 在读完整内容前拒绝；Add/Update 结果也不得超过 32 MiB。
 - details 是 result persistence source；resume 和 global expand 从它渲染 completed outcome，不恢复 pending preview state。
@@ -157,4 +170,6 @@ warning glyph `!` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 h
 6. collapsed footer、warning partial glyph、expanded stable hunk diff、resume/global expand，以及 renderer 不读取 current workspace。
 7. 取消保留已 Changed path；后到的 mutation 排队直到锁释放或排队请求被取消；过大文件拒绝。
 8. 多个 `toolcall_delta` 在 `toolcall_end` / `execute()` 之前逐步更新 call preview；abort 在 execute 前不 Publish；两条并行 preview 的 state 不串线。
+9. 锚点定位、缺失锚点、范围内歧义、EOF 与纯移动；CRLF、LF、无末尾换行和未修改的混合换行行。
+10. 准备期间源发生外部修改时 Update/Delete/Move 拒绝；Move 目标发布后源冲突保留两者并如实报告。
 }

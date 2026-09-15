@@ -107,7 +107,9 @@ remote bash 不是包一层本机 `ssh` 的 local bash：
 
 ## remote apply_patch（ADR-0018）
 
-与 local 同一套 Patch Core。Unix-like SSH 走 SftpBackend：lstat/read/put/rename/rm，不是 sshfs，也不是远端 coordinator。workspace 为远端 `$HOME`。`✓` 只在 sibling 临时文件 replace 确认后。已确认 path 不 rollback。现有文件大于 32 MiB 拒绝。同 alias 跨 session 由本机平台原生 lock 串行化 apply_patch，忙则拒绝；不检测外部写入。SFTP 单 path：传输 ≤1 MiB 逾时 30s，否则 60s。Update 写穿 leaf symlink；Delete unlink 字面目录项。header 为 `apply_patch (host) N file(s)`；operation rows 为 warning 色 `host:path`。
+与 local 同一套 Patch Core。Unix-like SSH 走 SftpBackend：lstat/read/put/rename/rm，不是 sshfs，也不是远端 coordinator。workspace 为远端 `$HOME`。`✓` 只在 sibling 临时文件 replace 确认后。已确认 path 不 rollback。现有文件大于 32 MiB 拒绝。同 alias 跨 session 由本机平台原生 lock 串行化 apply_patch；后到的请求排队，可取消等待。SFTP 单 path：传输 ≤1 MiB 逾时 30s，否则 60s。Update 写穿 leaf symlink；Delete unlink 字面目录项。header 为 `apply_patch (host) N file(s)`；operation rows 为 warning 色 `host:path`。
+
+发布前复核源基线，检测到外部修改则拒绝；Move 目标发布后若源冲突，保留目标并报告源拒绝。检查与 rename/remove 之间仍有竞态窗口，不保证阻止任意外部写入。
 
 ## remote write / edit（ADR-0019，已实现）
 
