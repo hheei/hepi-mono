@@ -38,7 +38,7 @@ import { isRecord } from "../shared/record-type-guard";
 import { isSentinel } from "./sentinel";
 import type { MessageLike } from "./tag-messages";
 
-const NOTE_TOOL_NAMES = new Set(["mctx_note"]);
+const NOTE_TOOL_NAME = "mctx_note";
 const READ_ACTION = "read";
 
 /**
@@ -77,34 +77,21 @@ function isVisibleNoteReadPart(part: unknown): boolean {
 	// Tool input lives at `state.input`.
 	// for completed calls; in-flight calls may not have state populated yet
 	// but those don't surface a result anyway, so they shouldn't count.
-	if (part.type === "tool" && typeof part.tool === "string" && NOTE_TOOL_NAMES.has(part.tool)) {
+	if (part.type === "tool" && part.tool === NOTE_TOOL_NAME) {
 		const state = part.state;
-		if (isRecord(state) && isRecord(state.input)) {
-			return state.input.action === READ_ACTION;
-		}
-		return false;
+		return isRecord(state) && isRecord(state.input) && state.input.action === READ_ACTION;
 	}
 
 	// tool_use format used by some provider serializers.
-	if (part.type === "tool_use" && typeof part.name === "string" && NOTE_TOOL_NAMES.has(part.name)) {
-		if (isRecord(part.input)) {
-			return part.input.action === READ_ACTION;
-		}
-		return false;
+	if (part.type === "tool_use" && part.name === NOTE_TOOL_NAME) {
+		return isRecord(part.input) && part.input.action === READ_ACTION;
 	}
 
 	// tool-invocation format — args may be under `args` or `input` depending
 	// on serializer version; check both for forward-compat.
-	if (
-		part.type === "tool-invocation" &&
-		typeof part.toolName === "string" &&
-		NOTE_TOOL_NAMES.has(part.toolName)
-	) {
+	if (part.type === "tool-invocation" && part.toolName === NOTE_TOOL_NAME) {
 		const argsCandidate = part.args ?? part.input;
-		if (isRecord(argsCandidate)) {
-			return argsCandidate.action === READ_ACTION;
-		}
-		return false;
+		return isRecord(argsCandidate) && argsCandidate.action === READ_ACTION;
 	}
 
 	return false;
