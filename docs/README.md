@@ -4,25 +4,25 @@ This directory records high-level information for users and developers. Detailed
 
 ## User Guides
 
-- [Getting started](user/getting-started.md): install packages, run a local checkout, and preserve load order.
+- [Getting started](user/getting-started.md): published installation, local builds, and explicit extension loading.
 - [Package catalogue](user/packages.md): current HEPI packages and prerequisites.
 - Package READMEs under `packages/*/README.md`: installation and compatibility by package.
 
 ## Development
 
 - [Extension development](development/extension-development.md): feature workflow, package conventions, and focused verification.
-- [Isolated Pi development](development/pi-dev.md): run the local Pi host with only this repository's independent packages.
-- [pi-ext-core development](development/pi-ext-core.md): core and consumer-specific development rules.
+- [Local Pi development](development/pi-dev.md): incrementally build and load a fixed local extension set while retaining the default Pi profile.
+- [pi-ext-core development](development/pi-ext-core.md): ext-core and consumer-specific development rules.
 - [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
 
 ## Architecture
 
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
-- [Native bridge architecture](architecture/pi-ext-bridge.md): N-API shell boundary, vendored Brush/uutils ownership, and cancellation contract.
-- [Loadout architecture](architecture/loadout.md): planned tool registration, activation policy, Settings host, and Extension page router boundaries.
-- [Subagent execution architecture](architecture/subagents.md): planned completion, task, conversation, delivery, and concurrency boundaries.
-- [Unified grep architecture](architecture/grep.md): target FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
-- [Apply Patch result architecture](architecture/apply-patch.md): target V4A outcome, mpatch diagnostics, model recovery, stable diff, and Trace rendering.
+- [Native bridge architecture](architecture/pi-ext-bridge.md): N-API boundary, vendored mpatch, native PTY sessions, and cancellation/cleanup ownership.
+- [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
+- [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
+- [Unified grep architecture](architecture/grep.md): FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
+- [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, mpatch diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
 
 ## Feature Specifications
@@ -49,10 +49,14 @@ Research records evidence and prior reasoning. It does not override current code
 
 ## Source Of Truth
 
-When documents disagree, use this order:
+Use each source for the question it owns:
 
-1. Source code, its comments, and focused tests.
-2. `DESIGN.md` for HEPI UI and UX policy, and the `pi-development` skill's `references/DESIGN.md` for Pi source design guidance.
-3. Package README installation and compatibility notes.
-4. Current development and architecture guides.
-5. Research and completed plans.
+- Current implementation and observed behavior: source code and focused tests.
+- Required UI/UX behavior: [DESIGN.md](../DESIGN.md).
+- Repository engineering rules: [AGENTS.md](../AGENTS.md) and [DESIGN_TS.md](../DESIGN_TS.md).
+- Installation and compatibility: package manifests and package READMEs.
+- Intended boundaries and agreed decisions: current architecture guides, specifications, and ADRs; check their status before treating a target design as implemented.
+- Background evidence: research and historical plans, not current behavior contracts.
+
+When implementation and a required contract disagree, record the discrepancy and
+resolve it explicitly. Existing code does not automatically override an agreed specification.

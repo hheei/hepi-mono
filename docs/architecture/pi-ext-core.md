@@ -4,8 +4,9 @@
 
 已实现 v1：`@hheei/pi-ext-core` package、focused tests 与 lifecycle、Service、ExtensionPoint、
 JSON settings provider registry、Loadout managed-tool registration 均已建立。custom surface runtime、
-Extension page router 和 BTW popup consumer 已实现，边界见 [TUI 宿主架构](tui.md)。`pi-settings` host、
-Loadout router page 与 editor rail compositor 仍未实现；它们必须先完成 focused tests 和用户确认，才可实现行为。
+Extension page router 和 BTW popup consumer 已实现，边界见 [TUI 宿主架构](tui.md)。
+`pi-settings` host 与 Loadout router page 已由 `packages/pi-settings` 实现；
+editor rail compositor 仍属后续设计，不应与现有 Settings host 混为未实现能力。
 
 维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
 
