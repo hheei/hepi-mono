@@ -29,10 +29,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - name: Install system dependencies (ripgrep)
+      - name: Install system dependencies (ripgrep & fd)
         run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y ripgrep
+          sudo apt-get update && sudo apt-get install -y ripgrep fd-find
+          if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
           fi
       - uses: pnpm/action-setup@v4
         with:
