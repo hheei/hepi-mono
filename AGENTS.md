@@ -95,28 +95,14 @@ For small fixes/refactors: inspect callers, make the smallest sound change, upda
 
 For UI work: follow [`DESIGN.md`](http://DESIGN.md), reuse ext-core primitives where appropriate, keep output ANSI/cell-width safe, request rendering after state changes, and test affected narrow/wide layouts.
 
-## Release & CI
+## Release
 
-### CI & 发布机制
-- **自动化发布触发**：通过推送版本标签触发（例如 `git tag vX.Y.Z && git push origin vX.Y.Z`），或在 GitHub Actions 页面手动运行 `release.yml`。
-- **OIDC Trusted Publishing**：采用 npm 原生 OIDC 信任发布（`permissions: id-token: write`），无需维护长效静态 Token。
-  - 每个公开发布的包必须在 npm 对应包设置中配置 Trusted Publisher（Owner: `hheei`，Repository: `hepi-mono`，Workflow: `release.yml`）。
-  - 仓库 Secret 中可选配置 `NPM_TOKEN`（Classic Automation Token）作为未配 OIDC 或首次创建包时的回退兜底。
-- **CI 系统级依赖**：Linux 环境运行单测依赖外部 CLI：`ripgrep` (`rg`) 与 `fd-find`（Debian/Ubuntu 下必须确保软链接 `sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd`）。
-- **依赖拓扑与幂等性**：
-  - 核心基座包 `@hheei/pi-ext-core` 必须最优先发布，下游包使用 `"workspace:^X.Y.Z"` 依赖，由 `pnpm publish` 自动解析替换为真实版本。
-  - 发布脚本（`scripts/publish-packages.mjs`）内置幂等性检测，自动跳过 npm 已发布的同版本包，避免重复发布或重试中断。
-
-### 常用命令
 ```bash
-# 发布演练（Dry-run，不实际推送到 npm）
-pnpm run publish:dry-run
-
-# 本地发布（需终端交互 2FA 登录）
-pnpm run publish:packages
+pnpm run publish:dry-run                  # 预演
+git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布
 ```
 
-### Release Safety
+## Release Safety
 
 - **MUST** pass the full repository release gate and verify intended versions/dependency ranges before publishing.
 - **MUST** obtain explicit approval for the exact externally visible push/tag/publish/release action unless already authorized.
