@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-btw",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"description": "Side questions about the current Pi session.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -39,7 +39,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:0.0.0"
+		"@hheei/pi-ext-core": "workspace:^0.1.1"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.85.1",

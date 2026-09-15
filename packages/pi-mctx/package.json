@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-mctx",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Magic Context implementation and Pi adapter source baseline.",
 	"type": "module",
@@ -27,7 +27,7 @@
 	},
 	"dependencies": {
 		"@cortexkit/subc-client": "0.4.1",
-		"@hheei/pi-ext-core": "workspace:0.0.0",
+		"@hheei/pi-ext-core": "workspace:^0.1.1",
 		"@huggingface/transformers": "^4.1.0",
 		"@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
 		"ai-tokenizer": "^1.0.6",

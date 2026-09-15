@@ -197,7 +197,7 @@ importers:
   packages/pi-auto-title:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -216,7 +216,7 @@ importers:
   packages/pi-btw:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -235,7 +235,7 @@ importers:
   packages/pi-debug:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
       proper-lockfile:
         specifier: 4.1.2
@@ -260,7 +260,7 @@ importers:
   packages/pi-dollar-skill:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -279,7 +279,7 @@ importers:
   packages/pi-ext-addon:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -326,7 +326,7 @@ importers:
         specifier: ^0.10.3
         version: 0.10.6
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
       acorn:
         specifier: ^8.18.0
@@ -366,7 +366,7 @@ importers:
         specifier: 0.4.1
         version: 0.4.1
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
       '@huggingface/transformers':
         specifier: ^4.1.0
@@ -409,7 +409,7 @@ importers:
   packages/pi-settings:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -428,7 +428,7 @@ importers:
   packages/pi-status:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-agent-core':
@@ -447,7 +447,7 @@ importers:
   packages/pi-t2s:
     dependencies:
       '@hheei/pi-ext-core':
-        specifier: workspace:0.0.0
+        specifier: workspace:^0.1.1
         version: link:../pi-ext-core
       opencc-js:
         specifier: ^1.4.0
