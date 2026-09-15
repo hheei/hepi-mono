@@ -1,6 +1,6 @@
-# 统一 Grep 架构（目标）
+# 统一 Grep 架构
 
-> 状态：已同意、待实现。本文定义 `pi-ext-tools` 的目标 grep 合约；现有运行时行为见 [ext-tools README](../ext-tools/README.md)。术语以仓库根目录 [CONTEXT.md](../../CONTEXT.md) 为准。
+> 状态：已实现。本文记录 `pi-ext-tools` 的 grep 合约；当前运行时边界见 [ext-tools README](../ext-tools/README.md)。术语以仓库根目录 [CONTEXT.md](../../CONTEXT.md) 为准。
 
 ## 目标
 
@@ -22,21 +22,24 @@ FFF / rg result -> canonical Grep Result -> Output -> compact formatter -> conte
 
 Search Engine 选择只记录为内部 `details` provenance，不显示在 TUI 或模型 `content`。
 
-## Engine admission 与失败
+## Engine admission
 
-- `output://` 是 processed Output 的输入来源，使用 rg stdin，不是 Search Engine。
-- 只有 session `cwd` 等于 Git worktree root，且请求没有 `path`、`glob` 或 `ignoreCase: true` 时，才可以使用 FFF。
+- `output://` 是 processed Output 的输入来源，始终使用 rg stdin；它不是 Search Engine。非 local 的 authorized SSH target 也使用 remote rg。
+- 对 local filesystem search，只有启用 `grepEnhancement`、session `cwd` 等于 Git worktree root，且请求没有 `path`、`glob` 或 `ignoreCase: true` 时，才尝试 FFF。其他请求直接使用 rg。
 - FFF 保留自身的排序。rg 的 file groups 按 canonical path 字典序排列。
+- FFF 的 page cursor 仅用于一次 grep execute 内部取完结果。`grep` schema、模型 content 与 details 都不公开 cursor，也不维护 cursor store。
+
+## Fallback 与 operational recovery
+
 - FFF exact search 返回 `0 matches` 后，只能在同一 FFF runtime 内执行 fuzzy fallback；fuzzy matches 必须标记为 approximate，并在模型 summary 中写为 `N fuzzy matches in M files`。不能因此降级 rg。
 - FFF regex 编译失败时，grep 返回错误和 `regexFallbackError`；不使用 FFF 的 literal fallback 结果，也不降级 rg。
-- FFF runtime、index 或查询的 operational failure 时，丢弃此前 FFF pages，从头以 rg 重跑同一请求。不可混合 partial FFF 与 rg results。
+- FFF 查询返回 operational failure 时，丢弃此前 FFF pages，从头以 rg 重跑同一请求。不可混合 partial FFF 与 rg results。
 - 取消必须终止 rg child；FFF 在每个 page 边界检查取消并停止后续查询。两者都不发送 partial tool result。
-
-FFF 的 page cursor 仅用于一次 grep execute 内部取完结果。`grep` schema、模型 content 与 details 都不公开 cursor，也不维护 cursor store。
 
 ## Public input schema
 
-`grep` 完整采用 Pi `0.85.1` 的 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context` 与 `limit` schema。`path: "output://N"` 是合法的只读 source。删除 extension-only `exclude`、`caseSensitive` 与 `cursor`；不再维护参数翻译层。
+`grep` 的八个公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local、output 或 authorized SSH host。`path: "output://N"` 是合法的只读 source。
+
 
 ## Canonical Grep Result
 
