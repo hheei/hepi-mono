@@ -1,6 +1,6 @@
 {
 	"name": "hepi-mono",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"private": true,
 	"description": "Monorepo for HEPI Pi Coding Agent extensions.",
 	"type": "module",
@@ -16,7 +16,9 @@
 		"bun:compat": "bun scripts/bun-compat-smoke.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
 		"tui:replay": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay.ts",
-		"tui:replay:session": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay-session.ts"
+		"tui:replay:session": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay-session.ts",
+		"publish:packages": "node scripts/publish-packages.mjs",
+		"publish:dry-run": "node scripts/publish-packages.mjs --dry-run"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",

@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-tools",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"description": "Canonical Pi replacements for core coding tools.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -45,7 +45,7 @@
 	},
 	"dependencies": {
 		"@ff-labs/fff-node": "^0.10.3",
-		"@hheei/pi-ext-core": "workspace:0.0.0",
+		"@hheei/pi-ext-core": "workspace:^0.1.1",
 		"acorn": "^8.18.0",
 		"better-result": "^2.10.0",
 		"cli-highlight": "^2.1.11",

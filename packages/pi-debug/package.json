@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-debug",
-	"version": "0.0.0",
+	"version": "0.1.1",
 	"description": "Development diagnostics and TUI replay tools for Pi extensions.",
 	"type": "module",
 	"main": "src/index.ts",
@@ -35,7 +35,7 @@
 	],
 	"license": "MIT",
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:0.0.0",
+		"@hheei/pi-ext-core": "workspace:^0.1.1",
 		"proper-lockfile": "4.1.2"
 	},
 	"devDependencies": {

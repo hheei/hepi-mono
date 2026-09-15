@@ -22,21 +22,26 @@
 
 ## Tooling
 
-- **MUST** use pnpm from the repository root; `pnpm-lock.yaml` is the sole dependency lockfile.
-- For ordinary changes, format/check only changed TypeScript paths and run focused tests:
+直接在仓库根目录使用 `pnpm`（系统已安装独立版，无需 `corepack` 或 `npx` 包装）：
 
 ```bash
-pnpm exec biome check --write <changed-paths...>
-pnpm exec biome check <changed-paths...>
-pnpm exec vitest run <focused-test-path>
+# Biome: 检查并自动修复指定文件
+pnpm exec biome check --write <paths...>
 
+# Biome: 仅检查指定文件
+pnpm exec biome check <paths...>
+
+# 测试: 运行单个或多个指定测试文件
+pnpm exec vitest run <test-paths...>
+
+# 全量校验 (提交前)
+pnpm run check:fix
+pnpm run typecheck
+pnpm test
 ```
 
-- Use `pnpm run check:fix` only when the whole owned tree is intentionally in scope, and inspect its diff.
-- Run broader validation for shared/public contracts, package boundaries, dependency changes, and releases.
-- Keep Pi peer/dev dependencies on the root compatibility baseline. After changing their ranges, run `pnpm install`, verify a single resolved Pi version set, then typecheck.
-- Use focused package typechecks for local edits and root `pnpm run typecheck` for dependency or package-boundary changes.
-
+- 本地日常改动优先对变更文件运行 `biome check --write` 与对应单测。
+- 涉及共享接口、依赖或跨包边界变更时，运行根目录 `typecheck` 与完整 `test`。
 ## Package Boundaries
 
 - Each `packages/pi-<name>/` workspace owns one independent feature or cohesive feature family and exactly one `pi.extensions` entry.
