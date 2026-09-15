@@ -20,23 +20,28 @@ Independent extensions install separately:
 pi install npm:@hheei/pi-t2s
 ```
 
-New features will be published as independent extensions built on
-`@hheei/pi-ext-core`.
+Concrete extensions use `@hheei/pi-ext-core` as a shared foundation dependency;
+ext-core is not itself an installable Pi extension. See the
+[package catalogue](docs/user/packages.md) for available extensions and local-only packages.
 
-For a local checkout:
+For a local checkout, use Node.js >=22.19.0, pnpm >=12.4.1, and stable Rust for
+the `pi-ext-tools` native bridge. Run from the repository root:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
+pnpm --filter @hheei/pi-ext-core run build
+pnpm --filter @hheei/pi-ext-tools run build:native
+pnpm --filter @hheei/pi-ext-tools run build
 pi install ./packages/pi-ext-tools
 ```
 
-Use `-l` for project-local installation.
+Use `pi install -l ...` for project-local installation. For an uninstalled development
+run, see [Getting started](docs/user/getting-started.md).
 
 ## Repository Layout
 
 ```text
-packages/       HEPI-owned publishable workspaces
-  pi-*/           Independently installable extensions
+packages/       Extension workspaces, ext-core foundation, and local-only packages
 
 docs/
   user/         Cross-package usage
@@ -50,7 +55,9 @@ references/
   repos/        Ignored local clones
 
 scripts/        Repository development commands
-templates/      Extension generator inputs
+crates/         Native bridge and vendored Rust dependencies
 ```
+
+## Local State and References
 
 `graphify-out/`, `outputs/`, and `.pi/` are local generated state and are not versioned. External source clones under `references/repos/` are references only: they are not workspace packages, dependencies, or behavior contracts.

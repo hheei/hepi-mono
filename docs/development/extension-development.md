@@ -20,16 +20,16 @@ upstream Pi packages, but never on another concrete extension.
 
 ## Feature Workflow
 
-Before a user-requested feature is implemented:
+For substantial feature, architecture, persistence, lifecycle, public-contract, or UI/UX work:
 
 1. Inspect existing repository implementations and the relevant Pi API.
 2. Write or update the matching high-level `docs/<topic>/` document in Simplified Chinese. Describe the user-facing intent, module boundary, and public interface.
 3. Use `grill-me` to resolve the design with the user. Use `grill-with-docs` when the decision also needs ADRs or a shared glossary. Obtain explicit agreement.
-4. Create the actual code files and interface framework without detailed behavior.
-5. Write focused tests for the affected behavior.
-6. Implement the detailed behavior, then run focused verification.
+4. Build the smallest runnable end-to-end path and define only the public contract it needs.
+5. Add focused tests for uncovered observable behavior and implement the remaining details.
+6. Run focused verification, including the actual Pi surface when UI behavior changes.
 
-For UI or UX work, every plan and implementation must reference [DESIGN.md](../../DESIGN.md). Reuse `@hheei/pi-ext-core` UI primitives when they exist; do not copy aggregate UI into a new extension.
+Small fixes and local refactors may skip new design documents: inspect callers, make the smallest sound change, and verify affected behavior. For UI or UX work, follow [DESIGN.md](../../DESIGN.md) and reuse `@hheei/pi-ext-core` UI primitives where appropriate.
 
 ## Focused Verification
 
@@ -42,7 +42,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 Run checks only for the affected code:
 
 ```bash
-pnpm test -- <focused-test-path>
+pnpm exec vitest run <focused-test-path>
 pnpm exec biome check <changed paths...>
 ```
 
@@ -51,6 +51,17 @@ Apply formatting or safe lint fixes only to changed paths:
 ```bash
 pnpm exec biome check --write <changed paths...>
 ```
+
+Tests that exercise the native bridge require a prior build:
+
+```bash
+pnpm --filter @hheei/pi-ext-tools run build:native
+```
+
+For shared-interface, dependency, or cross-package changes, also run the root
+`pnpm run typecheck` and `pnpm test`. The full test command builds the native bridge
+before running Vitest. Release validation follows the repository release gate in
+[AGENTS.md](../../AGENTS.md).
 
 ## Extension Entry Point
 
@@ -76,19 +87,21 @@ export default function extension(pi: ExtensionAPI) {
 
 ## Local Testing in Pi
 
-Build and run the affected extension directly:
+Run from the repository root. Build ext-core before a dependent extension with a
+`dist/` entry; use the selected package's manifest for its actual build script and entry:
 
 ```bash
-cd packages/pi-<name>
-pnpm run build
-pi --no-extensions --no-skills -e dist/extension.js
+pnpm --filter @hheei/pi-ext-core run build
+pnpm --filter @hheei/pi-<name> run build
+pi --no-extensions --no-skills -e packages/pi-<name>/dist/extension.js
 ```
 
-Pass extra Pi flags normally:
+For `pi-ext-tools`, also build the native bridge before launching. Source-entry
+packages do not need a TypeScript build unless their manifest declares one.
+Additional Pi arguments can be appended to the command above.
 
-```bash
-pi --no-extensions --no-skills -e dist/extension.js --model openai/gpt-5
-```
+For the fixed repository development combination with incremental builds, see
+[Local Pi development](pi-dev.md).
 
 ## Package Checklist
 
@@ -101,15 +114,3 @@ Before considering an extension ready:
 - package README records installation or compatibility changes
 - focused tests cover the affected behavior
 
-## Agent Workflow
-
-When an agent adds or changes an extension:
-
-1. Read `AGENTS.md` and this document.
-2. Write or update the relevant Simplified Chinese high-level document, grill the request with the user, and reach agreement.
-3. Create the extension's files and interface framework.
-4. Write focused tests, then implement detailed behavior.
-5. Keep host UI ownership within the extension that renders it. For UI or UX, cite and follow [DESIGN.md](../../DESIGN.md).
-6. Run focused verification.
-7. Commit the independent feature or cohesive feature addition without unrelated user changes.
-8. Report changed files, commit, and verification results.

@@ -21,9 +21,9 @@ package when they share installation, lifecycle, and public API ownership. Split
 only when one of those boundaries differs. `pi-ext-core` is the one naming
 exception because it is not a Pi extension.
 
-`pi-ext-tools` is the planned Canonical tool owner for an explicit catalog of Pi upstream/basic
-tool replacements. It is a concrete extension, not a core module: it owns each catalog tool's
-upstream compatibility and renderer, while core transports registration. The catalog and integrated
+`pi-ext-tools` is the canonical tool owner for an explicit catalog of Pi upstream/basic
+tool replacements. It is a concrete extension, not an ext-core module: it owns each catalog tool's
+upstream compatibility and renderer, while ext-core transports registration. The catalog and integrated
 FFF enhancement boundary are defined in [pi-ext-tools 基础工具替换](../ext-tools/README.md).
 
 `@hheei/pi-ext-core` owns generic coordination mechanisms, plus the explicit Loadout and page-router
@@ -40,8 +40,8 @@ contracts recorded in its ADRs:
 It does not contain feature policy, register a Pi extension, or import a
 concrete extension. Its imports are side-effect free: it creates no Pi handler,
 timer, listener, session state, or rendering work until an extension explicitly
-registers a core API. Installing or loading core without extension packages has
-no Pi runtime cost. A feature package may depend on core and upstream Pi
+registers an ext-core API. Installing or loading ext-core without extension packages has
+no Pi runtime cost. A feature package may depend on ext-core and upstream Pi
 packages. It must not depend on another concrete extension.
 
 The project is in active development. Replace obsolete APIs and layouts instead
@@ -92,7 +92,7 @@ Public contracts must:
 - omit extension-specific behavior from `pi-ext-core`.
 
 Do not export a class hierarchy, a generic registry, or an adapter layer merely
-because one feature might reuse it later. A valuable, feature-neutral core
+because one feature might reuse it later. A valuable, feature-neutral ext-core
 mechanism may be introduced before a second concrete extension consumes it when
 its bounded middle-layer scope is explicit. The documented Loadout contract,
 Extension page router, Subagent execution contract, JSON settings transport,
@@ -103,7 +103,7 @@ state, or another speculative abstraction.
 
 Extensions cooperate through a runtime-scoped capability contract owned by
 `pi-ext-core`. A provider explicitly registers a narrow capability; a consumer
-queries or subscribes through core and works when the provider is absent.
+queries or subscribes through ext-core and works when the provider is absent.
 
 Every capability proposal records:
 
@@ -145,27 +145,21 @@ area. Test only the behavior changed by the current work:
 - UI: test only changed narrow and wide layouts, and validate in Pi or
   `tui-replay` when visible behavior changes.
 
-Use an integration test only when the risk crosses a package or Pi lifecycle
-boundary. Do not add broad snapshot suites or full-repository checks as routine
-feature verification.
+Use an integration test when the risk crosses a package or Pi lifecycle boundary.
+Shared-interface, dependency, and cross-package changes require root typechecking
+and the full test suite; local changes use focused verification. See the
+[development guide](../development/extension-development.md) for commands.
 
 ## Development Flow
 
-Before new feature work, inspect existing repository implementations and the
-relevant Pi API. Then write or update the matching high-level `docs/<topic>/`
-document in Simplified Chinese before creating code files. It records
-user-facing intent, package boundary, public interface, and agreed decisions.
-Reuse established architecture and naming where it fits; do not introduce an
-unrelated pattern without a concrete reason.
+Follow the [extension development workflow](../development/extension-development.md#feature-workflow).
+Substantial changes require an agreed design before implementation, followed by the
+smallest runnable end-to-end path and focused behavioral verification. Small fixes
+and local refactors may skip new design documents.
 
-After the user agrees through `grill-me` or `grill-with-docs`, create code files
-and the interface framework, write focused tests, then implement detailed
-behavior. This order is mandatory: documentation, framework, tests,
-implementation.
-
-Each independent feature or cohesive feature addition is one commit after its
-focused verification. Complete development only after committing every completed
-feature. Do not include unrelated worktree changes in that commit.
+Keep each feature or cohesive addition separate from unrelated worktree changes.
+Repository workflow and release rules are defined in [AGENTS.md](../../AGENTS.md),
+not duplicated here.
 
 ## Documentation
 
