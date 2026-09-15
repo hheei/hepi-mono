@@ -35,19 +35,6 @@ describe("hasVisibleNoteReadCall", () => {
 		expect(hasVisibleNoteReadCall(msgs)).toBe(true);
 	});
 
-	it("returns true for registered mctx_note tool_use reads", () => {
-		const msgs = [
-			assistantMsg("a-1", [
-				{
-					type: "tool_use",
-					name: "mctx_note",
-					input: { action: "read" },
-				},
-			]),
-		];
-		expect(hasVisibleNoteReadCall(msgs)).toBe(true);
-	});
-
 	it("returns true for `tool_use` part shape with action=read", () => {
 		const msgs = [
 			assistantMsg("a-1", [
