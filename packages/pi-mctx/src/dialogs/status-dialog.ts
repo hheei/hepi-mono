@@ -59,6 +59,7 @@ export interface StatusDialogDeps {
 		  }
 		| undefined;
 	agentMemoryStatus?: (() => AgentMemoryStatusSnapshot) | undefined;
+	agentMemoryRecallPreview?: ((sessionId: string) => readonly string[]) | undefined;
 }
 
 interface StatusDialogDetail {
@@ -116,6 +117,7 @@ interface StatusDialogDetail {
 	/** A detached /ctx-recomp or /ctx-session-upgrade is running in background. */
 	recompInFlight: boolean;
 	agentMemory: AgentMemoryStatusSnapshot | null;
+	agentMemoryRecallPreview: readonly string[];
 }
 
 export async function showStatusDialog(
@@ -300,6 +302,10 @@ function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): s
 	lines.push(`Pending drops: ${s.pendingOpsCount}`);
 	if (s.agentMemory) {
 		for (const line of formatAgentMemoryStatus(s.agentMemory)) lines.push(line);
+	}
+	if (s.agentMemoryRecallPreview.length > 0) {
+		lines.push(theme.fg("muted", "AgentMemory recall preview"));
+		for (const preview of s.agentMemoryRecallPreview) lines.push(`  ${preview}`);
 	}
 	lines.push(
 		`Cache TTL: ${s.cacheTtl} · last response ${
@@ -573,6 +579,7 @@ export function buildPiStatusDetail(
 				: null,
 		historianLastError: metaRow?.historian_last_error ?? null,
 		agentMemory: deps.agentMemoryStatus?.() ?? null,
+		agentMemoryRecallPreview: deps.agentMemoryRecallPreview?.(sessionId) ?? [],
 		cacheTtl,
 		lastResponseTime: meta.lastResponseTime,
 		cacheRemainingMs,

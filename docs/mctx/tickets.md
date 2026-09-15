@@ -188,7 +188,7 @@
 
 **依赖**：MCTX-06。
 
-状态：`[ ]`
+状态：`[x]`
 
 ## MCTX-08：TUI recall presentation 与 end-to-end hardening
 
@@ -215,7 +215,31 @@
 
 **依赖**：MCTX-07。
 
-状态：`[ ]`
+状态：`[x]`
+
+## 2026-09-15 全量验收
+
+MCTX-01～08 按当前规格完成本地实现验收；未将本地协议 fixture 的结果冒充部署服务验证。
+
+| 范围 | 验收证据 |
+| --- | --- |
+| 01 配置与身份 | 配置 precedence、secret 保护、默认关闭及 Window/bridge 独立开关测试；旧 project setting 不再参与解析 |
+| 02 Client/session | 六个 HTTP endpoint 的 loopback 测试、错误分类、start 合并、observe/shutdown race；真实 Pi SDK session start/end |
+| 03 Capture/taint | 凭据脱敏、memory tools 排除、真实 tool-result 先于持久化的顺序、user/tool/synthetic/assistant provenance 测试 |
+| 04 Search/outbox | 双 lane 与 scope/partial 测试；queued/delivered、失败 retry、进程恢复及未到期 lease 自动恢复；真实 SDK search/save 投递 |
+| 05 Schema/status | 新旧 schema 幂等、legacy row 保留；disabled/degraded 状态、status 零网络、显式 health、bridge-only shutdown/switch 清理 |
+| 06 Recall ledger | 相同 anchor 复用、相同文本不同 anchor 独立、scope/taint/stale/GC/receipt 测试 |
+| 07 Projection | clone-safe Pi context 身份、append/transition、admission failure 保留 Window；真实 SessionManager native compaction、持久化 branch 恢复、LKG 回放、延迟 recall 在 tree navigation 后拒绝 |
+| 08 TUI/闭环 | 实际 Pi TUI 在 Window 开/关两种模式显示 aboveEditor recall 与 `(+1)`；SQLite receipt 一次写入、status preview；窄/宽渲染及挂载失败测试 |
+
+最终验证：
+
+- `vitest run packages/pi-mctx/test`：274 个文件通过，2718 个用例通过，10 个既有用例跳过。
+- 根目录 `tsc --noEmit -p tsconfig.typecheck.json` 通过；受影响文件 Biome 通过。
+- `scripts/agentmemory-live-smoke.ts` 默认模式及 `--window-off` 均通过：实际 Pi SDK + loopback AgentMemory + 显式 fixture provider 完成请求；provider body 含 recall、session JSONL 不含 recall、重复 transform 不再次 search，shutdown 结束远端 session。
+- 10 个既有 skip 位于 `test/core/config/schema/magic-context.test.ts`（2）、`test/core/features/context-authority.test.ts`（2）、`test/core/hooks/system-prompt-hash.test.ts`（6）；本次新增 AgentMemory/Pi lifecycle 验收没有 skip。
+
+边界：没有连接部署中的 AgentMemory 或真实付费 provider；上述 smoke 是本地协议和真实 Pi host 集成验收，不是生产服务可用性、ranking 质量或部署验收。不涉及发布。
 
 ## 依赖图
 

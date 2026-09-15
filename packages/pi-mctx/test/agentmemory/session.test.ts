@@ -94,6 +94,32 @@ describe("AgentMemorySessionManager", () => {
 		expect(endSession).toHaveBeenCalledTimes(2);
 	});
 
+	it("waits for an aborted observation before ending its session", async () => {
+		const observe = vi.fn(
+			(_input: unknown, options?: { signal?: AbortSignal }) =>
+				new Promise<{ observationId: string }>((_resolve, reject) => {
+					options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+						once: true,
+					});
+				}),
+		);
+		const endSession = vi.fn(async () => {});
+		const manager = new AgentMemorySessionManager({
+			client: client({ observe, endSession }),
+			resolveIdentity: () => ({ project: "repository" }),
+			enabled: () => true,
+		});
+		const observed = manager.observeForContext(context("session-a"), {
+			hookType: "post_tool_use",
+			cwd: "/tmp/repository",
+			data: {},
+		});
+		await vi.waitFor(() => expect(observe).toHaveBeenCalledTimes(1));
+		await manager.shutdown();
+		await expect(observed).resolves.toBeUndefined();
+		expect(endSession).toHaveBeenCalledTimes(1);
+	});
+
 	it("makes concurrent shutdown callers await the same cleanup", async () => {
 		let release: (() => void) | undefined;
 		const endSession = vi.fn(

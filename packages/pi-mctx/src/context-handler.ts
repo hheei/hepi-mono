@@ -154,6 +154,11 @@ import { log, sessionLog } from "#core/shared/logger";
 import { isSaneLimit } from "#core/shared/models-dev-cache";
 import type { SubagentRunner } from "#core/shared/subagent-runner";
 import { TEXT_TAG_IDENTITY_MARKER, tagTranscript } from "#core/shared/tag-transcript";
+import {
+	type PreparedContextProjection,
+	prepareContextProjection,
+} from "./agentmemory/context-projection";
+import type { RecallAdmission, RecallDraft, RecallPreparation } from "./agentmemory/recall";
 import { clearAutoSearchForPiSession, runAutoSearchHintForPi } from "./auto-search-pi";
 import { clearPiEmbedSessionState } from "./commands/ctx-embed";
 import { sendCtxStatusMessage } from "./commands/pi-command-utils";
@@ -252,6 +257,9 @@ export const __test = {
 	buildEntryFingerprintMap,
 	buildPiToolOwnerMap,
 	readPiBranchEntriesForContext,
+	getPiProjectionBranchIdForTests(sessionId: string): string | undefined {
+		return piBranchProjectionBySession.get(sessionId)?.branchId;
+	},
 	getTaggedStableMessageIdsForTests(sessionId: string): ReadonlySet<string> {
 		return new Set(taggedStableMessageIdsBySession.get(sessionId));
 	},
@@ -494,14 +502,102 @@ interface PiBranchEntryLookup {
 
 interface PiBranchProjectionCache {
 	leafId: string;
+	branchId: string;
 	entries: readonly unknown[];
 	indexById: Map<string, number>;
 	lookup: PiBranchEntryLookup;
 }
 
 const piBranchProjectionBySession = new Map<string, PiBranchProjectionCache>();
+const piBranchIdByLeafBySession = new Map<string, Map<string, string>>();
 const piBranchLookupByProjection = new WeakMap<readonly unknown[], PiBranchEntryLookup>();
 
+function resolvePiProjectionBranchId(
+	sessionId: string,
+	leafId: string,
+	entries: readonly unknown[],
+	cached: PiBranchProjectionCache | undefined,
+): string {
+	let byLeaf = piBranchIdByLeafBySession.get(sessionId);
+	if (!byLeaf) {
+		byLeaf = new Map();
+		piBranchIdByLeafBySession.set(sessionId, byLeaf);
+	}
+	const known = byLeaf.get(leafId);
+	if (known) return known;
+	const extendsCachedBranch = cached
+		? entries.some(
+				(entry) =>
+					entry !== null &&
+					typeof entry === "object" &&
+					"id" in entry &&
+					entry.id === cached.leafId,
+			)
+		: false;
+	const branchId = cached && !extendsCachedBranch ? `tree:${leafId}` : (cached?.branchId ?? "root");
+	byLeaf.set(leafId, branchId);
+	return branchId;
+}
+
+function resolvePersistedPiProjectionBranchId(
+	db: ContextDatabase,
+	sessionId: string,
+	entries: readonly unknown[] | null,
+	fallback: PiBranchProjectionCache | undefined,
+): string | undefined {
+	if (!entries || !fallback) return fallback?.branchId;
+	try {
+		const rows = db
+			.prepare(
+				"SELECT branch_id AS branchId, tip_entry_id AS tipEntryId FROM mctx_branch_lineage WHERE session_id = ?",
+			)
+			.all(sessionId) as Array<{ branchId: string; tipEntryId: string | null }>;
+		if (rows.length === 0) return fallback.branchId;
+		const indexById = new Map<string, number>();
+		for (let index = 0; index < entries.length; index += 1) {
+			const entry = entries[index];
+			if (
+				entry !== null &&
+				typeof entry === "object" &&
+				"id" in entry &&
+				typeof entry.id === "string"
+			) {
+				indexById.set(entry.id, index);
+			}
+		}
+		let selected: { branchId: string; index: number } | undefined;
+		for (const row of rows) {
+			const index = row.tipEntryId === null ? undefined : indexById.get(row.tipEntryId);
+			if (index !== undefined && (selected === undefined || index > selected.index)) {
+				selected = { branchId: row.branchId, index };
+			}
+		}
+		return selected?.branchId ?? `tree:${fallback.leafId}`;
+	} catch {
+		return fallback.branchId;
+	}
+}
+
+function isPiProjectionBranchCurrent(
+	ctx: ExtensionContext,
+	sessionId: string,
+	tipEntryId: string | undefined,
+): boolean {
+	const manager = ctx.sessionManager as {
+		getSessionId?: (() => string | undefined) | undefined;
+		getBranch?: (() => unknown[]) | undefined;
+	};
+	if (manager.getSessionId?.() !== sessionId) return false;
+	if (!tipEntryId || typeof manager.getBranch !== "function") return true;
+	const entries = manager.getBranch();
+	return (
+		Array.isArray(entries) &&
+		entries.some(
+			(entry) =>
+				entry !== null && typeof entry === "object" && "id" in entry && entry.id === tipEntryId,
+		)
+	);
+}
 function logTransformTiming(sessionId: string, stage: string, start: number, extra?: string): void {
 	const elapsedMs = performance.now() - start;
 	const elapsed = elapsedMs.toFixed(1);
@@ -938,6 +1034,24 @@ export interface PiContextHandlerOptions {
 	 * the cortexkit DB with legacy host, so memories ARE cross-harness.
 	 */
 	autoSearch?: PiAutoSearchHandlerOptions | undefined;
+	/** AgentMemory recall is prepared in memory, then admitted with the provider projection. */
+	agentMemoryProjection?:
+		| {
+				prepareRecall(input: {
+					readonly cwd: string;
+					readonly sessionId: string;
+					readonly userEntryId: string;
+					readonly query: string;
+					readonly branchId?: string | undefined;
+					readonly generation?: number | undefined;
+					readonly signal?: AbortSignal | undefined;
+				}): Promise<RecallPreparation>;
+				commitRecall(draft: RecallDraft): RecallAdmission;
+				/** Best-effort interactive presentation of newly admitted recall. */
+				onRecallProjectionPublished?: ((sessionId: string) => void) | undefined;
+				readonly toolContract?: (() => unknown) | undefined;
+		  }
+		| undefined;
 	/**
 	 * Optional runtime option resolver. When provided, the handler reads it once
 	 * per pass for the current `ctx.cwd`; callers should memoize by directory.
@@ -1409,6 +1523,7 @@ function readPiBranchEntriesForContext(
 		| undefined;
 
 	const installProjection = (leafId: string, entries: readonly unknown[]): readonly unknown[] => {
+		const cached = piBranchProjectionBySession.get(sessionId);
 		const indexById = new Map<string, number>();
 		const lookup = getPiBranchEntryLookup(entries);
 		for (let index = 0; index < entries.length; index += 1) {
@@ -1418,7 +1533,13 @@ function readPiBranchEntriesForContext(
 				if (typeof id === "string") indexById.set(id, index);
 			}
 		}
-		const projection = { leafId, entries, indexById, lookup };
+		const projection = {
+			leafId,
+			branchId: resolvePiProjectionBranchId(sessionId, leafId, entries, cached),
+			entries,
+			indexById,
+			lookup,
+		};
 		piBranchProjectionBySession.set(sessionId, projection);
 		piBranchLookupByProjection.set(entries, lookup);
 		return entries;
@@ -1478,6 +1599,9 @@ function readPiBranchEntriesForContext(
 			) {
 				return installProjection(leafId, entries);
 			}
+			// The incremental lookup now belongs to the extended branch. Older
+			// immutable entry arrays must rebuild their own lookup if reused.
+			piBranchLookupByProjection.delete(cached.entries);
 			for (let index = 0; index < suffix.length; index += 1) {
 				const entry = suffix[index];
 				const id = (entry as { id: string }).id;
@@ -1489,6 +1613,7 @@ function readPiBranchEntriesForContext(
 			}
 			const projection = {
 				leafId,
+				branchId: resolvePiProjectionBranchId(sessionId, leafId, entries, cached),
 				entries,
 				indexById: cached.indexById,
 				lookup: cached.lookup,
@@ -1834,6 +1959,7 @@ export function registerPiContextHandler(
 		let lkgEntry: LkgEntryNote | null = null;
 		let lkgContextLimit: number | undefined;
 		let lkgLikeInput: MessageLike[] | undefined;
+		let projectionIsCurrent: (() => boolean) | undefined;
 		try {
 			const tFindSession = performance.now();
 			const sessionId = resolveSessionId(ctx);
@@ -1867,6 +1993,9 @@ export function registerPiContextHandler(
 
 			const tEntryBranch = performance.now();
 			const branchEntries = readPiBranchEntriesForContext(ctx, sessionId);
+			const projectionBranch = piBranchProjectionBySession.get(sessionId);
+			projectionIsCurrent = () =>
+				isPiProjectionBranchCurrent(ctx, sessionId, projectionBranch?.leafId);
 			schedulePiTransformDecisionResolve({
 				db: options.db,
 				sessionId,
@@ -1923,6 +2052,14 @@ export function registerPiContextHandler(
 			// strip), so post-mutation consumers must resolve by identity, not by
 			// the stale positional strictEntryIds.
 			const entryIdByRef = buildEntryIdByRefMap(branchEntries);
+			const eventEntryIdByRef = new Map<object, string>();
+			for (let index = 0; index < event.messages.length; index += 1) {
+				const message = event.messages[index];
+				const entryId = strictEntryIds?.[index];
+				if (message && typeof message === "object" && typeof entryId === "string") {
+					eventEntryIdByRef.set(message, entryId);
+				}
+			}
 			const previouslyTaggedIds = taggedStableMessageIdsBySession.get(sessionId);
 			const reusableMessageIds = new Set<string>();
 			if (strictEntryIds && previouslyTaggedIds) {
@@ -1942,9 +2079,18 @@ export function registerPiContextHandler(
 			const tLastUser = performance.now();
 			const latestUser = findLatestUserMessageIdPi(
 				event.messages as PiAgentMessage[],
-				buildPiMessageIdByIndex(event.messages as PiAgentMessage[], strictEntryIds),
+				buildPiMessageIdByIndex(
+					event.messages as PiAgentMessage[],
+					strictEntryIds,
+					false,
+					eventEntryIdByRef,
+				),
 			);
 			logTransformTiming(sessionId, "findLastUserMessageId", tLastUser);
+			const latestUserQuery =
+				options.agentMemoryProjection && latestUser
+					? extractMeaningfulUserTextPi(event.messages[latestUser.index] as PiAgentMessage)
+					: undefined;
 			const tMessageIndexScheduling = performance.now();
 			if (latestUser) {
 				const located = branchEntries
@@ -2881,6 +3027,57 @@ export function registerPiContextHandler(
 			}
 			logTransformTiming(sessionId, "stableIdSchemePersist", tStableIdSchemePersist);
 
+			let preparedProjection: PreparedContextProjection<PiAgentMessage> | undefined;
+			const agentMemoryProjection = options.agentMemoryProjection;
+			if (agentMemoryProjection) {
+				const messageIdByIndex = buildPiMessageIdByIndex(
+					outputMessages,
+					strictEntryIds,
+					false,
+					options.compactionOff ? eventEntryIdByRef : result.postCommitEntryIdByRef,
+				);
+				const projectionBranchId = resolvePersistedPiProjectionBranchId(
+					options.db,
+					sessionId,
+					branchEntries,
+					projectionBranch,
+				);
+				preparedProjection = await prepareContextProjection({
+					db: options.db,
+					sessionId,
+					...(projectionBranchId ? { branchId: projectionBranchId } : {}),
+					...(projectionBranch?.leafId ? { branchTipId: projectionBranch.leafId } : {}),
+					isCurrent: () => projectionIsCurrent?.() ?? true,
+					messages: outputMessages,
+					contract: {
+						model: ctx.model
+							? {
+									provider: ctx.model.provider,
+									id: ctx.model.id,
+									api: ctx.model.api,
+								}
+							: null,
+						systemPrompt: ctx.getSystemPrompt(),
+						tools: agentMemoryProjection.toolContract?.(),
+					},
+					resolveEntryId: (_message, index) => messageIdByIndex.get(index),
+					createRecallMessage: (content, event) => ({
+						role: "user",
+						content,
+						timestamp: 0,
+						synthetic: true,
+						anchorMessageId: event.userEntryId,
+					}),
+					currentUserEntryId: latestUser?.messageId,
+					currentQuery: latestUserQuery,
+					prepareRecall: (request) =>
+						agentMemoryProjection.prepareRecall({ cwd: projectDirectory, ...request }),
+					commitRecall: agentMemoryProjection.commitRecall,
+					...(ctx.signal ? { signal: ctx.signal } : {}),
+				});
+				outputMessages = [...preparedProjection.messages];
+			}
+
 			logTransformTiming(sessionId, "postTransformPhase", tPostTransform);
 
 			// Cast the rebuilt array back to the AgentMessage[] shape Pi's
@@ -2901,6 +3098,17 @@ export function registerPiContextHandler(
 				sessionId,
 				`transform completed in ${transformElapsedMs.toFixed(1)}ms (${outputMessages.length} messages, ${result.targetCount} targets, watermark: ${result.reasoningWatermark})`,
 			);
+			const projectionPublication = preparedProjection?.publish();
+			if (projectionPublication) {
+				outputMessages = [...projectionPublication.messages];
+				if (projectionPublication.recallFailure) {
+					const error = projectionPublication.recallFailure.error;
+					sessionLog(
+						sessionId,
+						`AgentMemory recall ${projectionPublication.recallFailure.stage} failed; published Window without new recall: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			}
 			if (!options.compactionOff && lkgLikeInput) {
 				const lkgOutput = piMessagesToLkg(outputMessages, {
 					entryIdByRef: result.postCommitEntryIdByRef,
@@ -2922,6 +3130,13 @@ export function registerPiContextHandler(
 					}
 				}
 			}
+			if (preparedProjection) {
+				try {
+					options.agentMemoryProjection?.onRecallProjectionPublished?.(sessionId);
+				} catch {
+					// Presentation is best effort and must never invalidate provider context.
+				}
+			}
 			return { messages: outputMessages } as {
 				messages: typeof event.messages;
 			};
@@ -2930,6 +3145,7 @@ export function registerPiContextHandler(
 			// swallow into native-compaction fallthrough.
 			if (isFailClosedBlockingError(err) && !baseOptions.compactionOff) throw err;
 			if (isLoudTransformAbort(err, baseOptions.compactionOff === true)) throw err;
+			if (projectionIsCurrent?.() === false) throw err;
 			if (!baseOptions.compactionOff && sessionIdForError && lkgEntry && lkgLikeInput) {
 				try {
 					const overflow = getOverflowState(baseOptions.db, sessionIdForError);
@@ -5229,6 +5445,7 @@ function applyNoteNudges(args: {
 	// stale positional `entryIds`: pruning against pre-splice positions could
 	// drop an anchor whose message is still present (just shifted) and therefore
 	// erase a still-needed replay. We derive it from `messageIdByIndex`, which is
+
 	// reference-resolved against the current array. Only prune when every current
 	// message resolved to a real id (a partial map could miss a present message
 	// and wrongly prune its anchor).
@@ -5251,21 +5468,22 @@ function applyNoteNudges(args: {
 
 /** Returns true when the message is a user role with non-empty text content. */
 function hasMeaningfulUserTextPi(message: PiAgentMessage): boolean {
-	if (message.role !== "user") return false;
+	return extractMeaningfulUserTextPi(message) !== undefined;
+}
+function extractMeaningfulUserTextPi(message: PiAgentMessage): string | undefined {
+	if (message.role !== "user") return undefined;
 	const content = (message as { content: unknown }).content;
-	if (typeof content === "string") return content.trim().length > 0;
-	if (!Array.isArray(content)) return false;
-	for (const part of content as Array<{ type?: unknown; text?: unknown }>) {
-		if (
-			part &&
-			part.type === "text" &&
-			typeof part.text === "string" &&
-			part.text.trim().length > 0
-		) {
-			return true;
-		}
-	}
-	return false;
+	if (typeof content === "string") return content.trim() || undefined;
+	if (!Array.isArray(content)) return undefined;
+	const text = (content as Array<{ type?: unknown; text?: unknown }>)
+		.filter(
+			(part): part is { type: "text"; text: string } =>
+				part?.type === "text" && typeof part.text === "string",
+		)
+		.map((part) => part.text.trim())
+		.filter(Boolean)
+		.join("\n");
+	return text || undefined;
 }
 
 type PiMessageIdByIndex = Map<number, string>;
@@ -5488,6 +5706,7 @@ export function clearContextHandlerSession(sessionId: string): void {
 	commitSeenLastPass.delete(sessionId);
 	liveModelBySession.delete(sessionId);
 	taggedStableMessageIdsBySession.delete(sessionId);
+	piBranchIdByLeafBySession.delete(sessionId);
 	const tagger = taggersBySession.get(sessionId);
 	if (tagger) {
 		tagger.cleanup(sessionId);

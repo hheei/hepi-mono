@@ -6,7 +6,6 @@ import {
 	DEFAULT_AGENTMEMORY_URL,
 	MagicContextConfigSchema,
 } from "#core/config/schema/magic-context";
-import { AgentMemoryClient, decodeAgentMemorySearchResults } from "../../src/agentmemory/client";
 import {
 	clearAgentMemoryProjectCache,
 	createAgentMemoryIdentityResolver,
@@ -25,73 +24,6 @@ const defaults = MagicContextConfigSchema.parse({}).agentmemory;
 
 afterEach(() => {
 	vi.unstubAllGlobals();
-});
-
-describe("AgentMemory HTTP client", () => {
-	it("posts to /agentmemory/remember and returns the memory id", async () => {
-		const fetchImpl = vi.fn(async () => {
-			return new Response(JSON.stringify({ success: true, memory: { id: "mem_1" } }), {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			});
-		});
-		const client = new AgentMemoryClient(
-			{ url: "http://127.0.0.1:3111" },
-			fetchImpl as typeof fetch,
-		);
-		const result = await client.remember({ content: "use pnpm", project: "hepi-mono" });
-		expect(result.memory.id).toBe("mem_1");
-		expect(fetchImpl).toHaveBeenCalledTimes(1);
-		expect(String(fetchImpl.mock.calls.at(0)?.at(0))).toBe(
-			"http://127.0.0.1:3111/agentmemory/remember",
-		);
-		expect(fetchImpl.mock.calls.at(0)?.at(1)).toMatchObject({ method: "POST" });
-	});
-
-	it("fails closed when requireHttps meets a bearer secret over remote HTTP", async () => {
-		const client = new AgentMemoryClient(
-			{ url: "http://example.test", secret: "tok", requireHttps: true },
-			vi.fn() as unknown as typeof fetch,
-		);
-		await expect(client.health()).rejects.toMatchObject({ kind: "insecure_transport" });
-	});
-
-	it("decodes nested search envelopes", () => {
-		expect(
-			decodeAgentMemorySearchResults({
-				results: [{ memory: { id: "m1", content: "fact" }, score: 0.9 }],
-				observations: [{ observation: { id: "o1", text: "saw it" } }],
-			}),
-		).toEqual([
-			{ id: "m1", content: "fact", kind: "memory", score: 0.9, digest: expect.any(String) },
-			{ id: "o1", content: "saw it", kind: "observation", digest: expect.any(String) },
-		]);
-	});
-
-	it("decodes snake-case search scope metadata", () => {
-		expect(
-			decodeAgentMemorySearchResults({
-				results: [
-					{
-						project_name: "hepi-mono",
-						session_id: "session-1",
-						agent_id: "agent-1",
-						memory: { id: "m1", content: "fact" },
-					},
-				],
-			}),
-		).toEqual([
-			{
-				id: "m1",
-				content: "fact",
-				kind: "memory",
-				project: "hepi-mono",
-				sessionId: "session-1",
-				agentId: "agent-1",
-				digest: expect.any(String),
-			},
-		]);
-	});
 });
 
 describe("AgentMemory runtime", () => {
@@ -204,7 +136,7 @@ describe("AgentMemory runtime", () => {
 		expect(client.health).toHaveBeenCalledTimes(callsBeforeRead);
 		await runtime.shutdown();
 	});
-	it("admits scoped automatic recall once per durable user anchor", async () => {
+	it("prepares automatic recall with project filtering", async () => {
 		const db = createTestDb();
 		const search = vi.fn(async () => ({
 			results: [
@@ -230,16 +162,16 @@ describe("AgentMemory runtime", () => {
 				branchId: "root",
 				generation: 0,
 			};
-			const first = await runtime.admitAutomaticRecall(input);
-			const retried = await runtime.admitAutomaticRecall(input);
+			const prepared = await runtime.prepareAutomaticRecall(input);
 
 			expect(search).toHaveBeenCalledTimes(1);
-			expect(first).toMatchObject({
-				kind: "admitted",
-				reused: false,
-				event: { userEntryId: "user-1", sources: [{ id: "matching" }] },
+			expect(prepared).toMatchObject({
+				kind: "prepared",
+				draft: {
+					reused: false,
+					event: { userEntryId: "user-1", sources: [{ id: "matching" }] },
+				},
 			});
-			expect(retried).toMatchObject({ kind: "admitted", reused: true });
 			await runtime.shutdown();
 		} finally {
 			closeQuietly(db);
@@ -259,7 +191,7 @@ describe("AgentMemory runtime", () => {
 		try {
 			const runtime = createAgentMemoryRuntime({ ...defaults, enabled: true }, client, { db });
 			await expect(
-				runtime.admitAutomaticRecall({
+				runtime.prepareAutomaticRecall({
 					cwd: "/tmp/hepi-mono",
 					sessionId: "session-failure",
 					userEntryId: "user-1",

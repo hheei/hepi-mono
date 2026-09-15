@@ -7,7 +7,7 @@ function schemaObjects(db: Database): string[] {
 	return (
 		db
 			.prepare(
-				"SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND (name LIKE 'agentmemory_%' OR name LIKE 'mctx_projection_%' OR name LIKE 'mctx_recall_%' OR name = 'mctx_branch_lineage') ORDER BY name",
+				"SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND (name LIKE 'agentmemory_%' OR name LIKE 'mctx_projection_%' OR name LIKE 'mctx_context_projection_%' OR name LIKE 'mctx_recall_%' OR name = 'mctx_branch_lineage') ORDER BY name",
 			)
 			.all() as Array<{ name: string }>
 	).map((row) => row.name);
@@ -27,6 +27,7 @@ describe("AgentMemory additive schema", () => {
 				"agentmemory_turn_taint",
 				"agentmemory_turn_taint_host_idx",
 				"mctx_branch_lineage",
+				"mctx_context_projection_heads",
 				"mctx_projection_epoch_reachability",
 				"mctx_projection_epochs",
 				"mctx_projection_epochs_active_idx",
@@ -35,6 +36,7 @@ describe("AgentMemory additive schema", () => {
 				"mctx_recall_dependencies",
 				"mctx_recall_events",
 				"mctx_recall_events_anchor_idx",
+				"mctx_recall_presentation_claims",
 				"mctx_recall_presentation_receipts",
 				"mctx_recall_recovery_refs",
 				"mctx_recall_sources",

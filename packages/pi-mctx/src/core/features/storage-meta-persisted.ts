@@ -2297,12 +2297,7 @@ export function getPendingPiCompactionMarkerState(
 	if (raw === null || raw === undefined || raw === "") return null;
 	try {
 		const parsed = JSON.parse(raw);
-		if (isPendingPiCompactionMarker(parsed)) {
-			return {
-				...parsed,
-				generation: typeof parsed.generation === "number" ? parsed.generation : 0,
-			};
-		}
+		if (isPendingPiCompactionMarker(parsed)) return parsed;
 	} catch {
 		// Fall through to clear malformed durable state below.
 	}

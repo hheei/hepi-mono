@@ -29,13 +29,10 @@ CREATE INDEX IF NOT EXISTS agentmemory_outbox_ready_idx
 `;
 
 export type AgentMemoryOutboxStatus = "queued" | "delivered" | "failed";
-export type AgentMemoryOutboxRow = {
+type AgentMemoryOutboxRow = {
 	readonly id: string;
-	readonly dedupeKey: string;
 	readonly input: RememberInput;
-	readonly state: "pending" | "leased" | "delivered" | "failed";
 	readonly attempts: number;
-	readonly lastError?: string | undefined;
 };
 
 export function ensureAgentMemoryOutboxSchema(db: Database): void {
@@ -50,23 +47,6 @@ function dedupeKey(input: RememberInput): string {
 		.digest("hex");
 }
 
-function rowToOutbox(row: Record<string, unknown>): AgentMemoryOutboxRow {
-	const input: RememberInput = {
-		content: String(row.content),
-		project: String(row.project),
-		...(typeof row.agent_id === "string" ? { agentId: row.agent_id } : {}),
-		...(typeof row.type === "string" ? { type: row.type } : {}),
-	};
-	return {
-		id: String(row.id),
-		dedupeKey: String(row.dedupe_key),
-		input,
-		state: row.state as AgentMemoryOutboxRow["state"],
-		attempts: Number(row.attempts),
-		...(typeof row.last_error === "string" ? { lastError: row.last_error } : {}),
-	};
-}
-
 export class AgentMemoryOutbox {
 	readonly #db: Database;
 	readonly #client: AgentMemoryClientPort;
@@ -74,11 +54,19 @@ export class AgentMemoryOutbox {
 	#draining: Promise<void> | undefined;
 	#accepting = true;
 	#closing: Promise<void> | undefined;
+	#retryTimer: NodeJS.Timeout | undefined;
+	readonly #onFailure: ((error: unknown) => void) | undefined;
 
-	constructor(db: Database, client: AgentMemoryClientPort, owner = `pi-${randomUUID()}`) {
+	constructor(
+		db: Database,
+		client: AgentMemoryClientPort,
+		owner = `pi-${randomUUID()}`,
+		onFailure?: (error: unknown) => void,
+	) {
 		this.#db = db;
 		this.#client = client;
 		this.#owner = owner;
+		this.#onFailure = onFailure;
 		ensureAgentMemoryOutboxSchema(db);
 	}
 
@@ -106,7 +94,7 @@ export class AgentMemoryOutbox {
 			);
 		const stored = this.#db
 			.prepare("SELECT id, state FROM agentmemory_outbox WHERE dedupe_key = ?")
-			.get(key) as { id: string; state: AgentMemoryOutboxRow["state"] };
+			.get(key) as { id: string; state: "pending" | "leased" | "delivered" | "failed" };
 		return {
 			status:
 				stored.state === "delivered"
@@ -123,20 +111,27 @@ export class AgentMemoryOutbox {
 		input: RememberInput,
 	): Promise<{ status: AgentMemoryOutboxStatus; id: string }> {
 		const queued = this.queue(input);
-		if (queued.status === "queued") void this.drain(1);
+		if (queued.status === "queued") this.#startBackgroundDrain(1);
 		return { status: queued.status, id: queued.id };
+	}
+
+	resume(): void {
+		if (!this.#accepting) return;
+		this.#startBackgroundDrain(16);
 	}
 
 	async drain(limit = 16): Promise<void> {
 		if (this.#draining !== undefined) return this.#draining;
 		this.#draining = this.#drain(limit).finally(() => {
 			this.#draining = undefined;
+			this.#scheduleNextRetry();
 		});
 		return this.#draining;
 	}
 
 	close(limit = 16): Promise<void> {
 		this.#accepting = false;
+		this.#clearRetryTimer();
 		this.#closing ??= this.#finishClose(limit);
 		return this.#closing;
 	}
@@ -145,22 +140,6 @@ export class AgentMemoryOutbox {
 		const active = this.#draining;
 		if (active !== undefined) await active;
 		await this.drain(limit);
-	}
-
-	pendingCount(): number {
-		const row = this.#db
-			.prepare(
-				"SELECT count(*) AS count FROM agentmemory_outbox WHERE state IN ('pending', 'leased')",
-			)
-			.get() as { count: number };
-		return Number(row.count);
-	}
-
-	failedCount(): number {
-		const row = this.#db
-			.prepare("SELECT count(*) AS count FROM agentmemory_outbox WHERE state = 'failed'")
-			.get() as { count: number };
-		return Number(row.count);
 	}
 
 	statusCounts(): { pending: number; leased: number; failed: number } {
@@ -183,6 +162,43 @@ export class AgentMemoryOutbox {
 		return row ? { message: row.last_error, at: Number(row.updated_at) } : null;
 	}
 
+	#startBackgroundDrain(limit: number): void {
+		void this.drain(limit).catch((error: unknown) => {
+			try {
+				this.#onFailure?.(error);
+			} catch {
+				// Reporting cannot leave a rejected background task.
+			}
+		});
+	}
+
+	#clearRetryTimer(): void {
+		if (this.#retryTimer !== undefined) clearTimeout(this.#retryTimer);
+		this.#retryTimer = undefined;
+	}
+
+	#scheduleNextRetry(): void {
+		if (!this.#accepting) return;
+		this.#clearRetryTimer();
+		const row = this.#db
+			.prepare(
+				`SELECT min(CASE
+					WHEN state = 'pending' THEN next_attempt_at
+					WHEN lease_until IS NULL THEN 0
+					ELSE lease_until + 1
+				END) AS next_attempt_at
+				FROM agentmemory_outbox
+				WHERE state IN ('pending', 'leased')`,
+			)
+			.get() as { next_attempt_at: number | null };
+		if (row.next_attempt_at === null) return;
+		const delay = Math.max(0, Number(row.next_attempt_at) - Date.now());
+		this.#retryTimer = setTimeout(() => {
+			this.#retryTimer = undefined;
+			this.#startBackgroundDrain(16);
+		}, delay);
+	}
+
 	async #drain(limit: number): Promise<void> {
 		const now = Date.now();
 		this.#db
@@ -202,9 +218,18 @@ export class AgentMemoryOutbox {
 				| Record<string, unknown>
 				| undefined;
 			if (!row) return;
-			const item = rowToOutbox(row);
-			if (item.attempts > 1) {
-				try {
+			const item: AgentMemoryOutboxRow = {
+				id: String(row.id),
+				input: {
+					content: String(row.content),
+					project: String(row.project),
+					...(typeof row.agent_id === "string" ? { agentId: row.agent_id } : {}),
+					...(typeof row.type === "string" ? { type: row.type } : {}),
+				},
+				attempts: Number(row.attempts),
+			};
+			try {
+				if (item.attempts > 1) {
 					const existing = decodeAgentMemorySearchResults(
 						await this.#client.search({
 							query: item.input.content,
@@ -222,12 +247,7 @@ export class AgentMemoryOutbox {
 						this.#markDelivered(item.id, existing.id);
 						continue;
 					}
-				} catch (error) {
-					this.#retry(item, error);
-					continue;
 				}
-			}
-			try {
 				const result = await this.#client.remember(item.input);
 				this.#markDelivered(item.id, result.memory.id);
 			} catch (error) {
@@ -260,5 +280,6 @@ export class AgentMemoryOutbox {
 				item.id,
 				this.#owner,
 			);
+		this.#scheduleNextRetry();
 	}
 }

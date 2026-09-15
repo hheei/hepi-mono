@@ -6,8 +6,8 @@
 
 - AgentMemory 是可选的外部 HTTP durable-memory 服务；
 - Window 在 AgentMemory 关闭、不可达或失败时继续工作；
-- `memory_search` 同时提供当前 session lane 与跨 session durable lane；
-- `memory_save` 通过本地 transactional outbox 可靠投递；
+- `mctx_search` 同时提供当前 session lane 与跨 session durable lane；
+- `mctx_memory` 通过本地 transactional outbox 可靠投递；
 - 自动 recall 以可审计、cache-stable 的 Context Projection 进入 provider context；
 - `/ctx-status` 能显示 Window、AgentMemory、recall、outbox 和后台任务的真实状态。
 
@@ -54,7 +54,7 @@ session_start
 turn/tool/assistant events
   -> redact + exclude memory tools
   -> fire-and-forget observe
-memory_save
+mctx_memory
   -> validate -> local outbox -> lease/retry/dedupe -> AgentMemory remember
 session_shutdown
   -> best-effort end every unended remote session
@@ -83,6 +83,10 @@ provider context transform
 - `append`：旧 body 是新 body 的 byte prefix，保留 cache；
 - `transition`：compaction、branch、model/system/tool contract、privacy withdrawal 或前缀改写，建立新 epoch；
 - `lkg`：本次 transform 失败时仅回放未撤销的 last-known-good。
+
+Pi 的消息 leaf 每次 append 都会变化，不能直接作为每轮新 branch。分支识别必须使用可恢复的 lineage/tip：普通 append 保留分支，实际 tree navigation 或前缀替换建立 transition；进程恢复仍能识别已发布分支。旧分支的异步 recall 不得提交到当前分支。
+
+Transition 只重建仍在当前 kept tail 中、且来自未撤销已发布 head 的 recall anchor；被移除 anchor 不继承。Admission 失败须记录错误并发布不含本次未准入 recall 的 Window，不能把有效 Window 整体丢弃。
 
 ## 4. 最小公共契约
 
@@ -119,8 +123,10 @@ client 必须区分 invalid URL、insecure transport、HTTP、network、timeout�
 
 首阶段只承诺：
 
-- `memory_search`：当前 session 与 durable memory 两个 lane，分组展示，不合并不可比 score；
-- `memory_save`：返回 queued/delivered/failed 的真实状态，不提前宣称远端已持久化。
+- `mctx_search`：当前 session 与 durable memory 两个 lane，分组展示，不合并不可比 score；
+- `mctx_memory`：返回 queued/delivered/failed 的真实状态，不提前宣称远端已持久化。
+
+工具名遵循 ADR 0020：开启 AgentMemory 只切换实现与 schema，不注册 `memory_*` 别名，也不双写本地 memory。
 
 不加入 `memory_health` model tool；健康检查保留为显式 `/agentmemory-health` 命令和 status snapshot。
 
@@ -139,8 +145,7 @@ Projection/recall 需要以下表族，初始化必须使用 additive DDL：
 - `mctx_recall_dependencies`
 - `mctx_recall_presentation_receipts`
 - `mctx_recall_recovery_refs`
-- `mctx_context_projection_states`
-- `mctx_context_projection_heads`
+- `mctx_context_projection_heads`（每个 session/branch 只保存当前投影状态与 body）
 
 ## 5. 失败、取消与并发语义
 
@@ -173,6 +178,8 @@ Projection/recall 需要以下表族，初始化必须使用 additive DDL：
 4. 通过受影响路径的 Biome、typecheck 和 focused Vitest；
 5. package README、`docs/architecture/pi-mctx.md`、ADR 0020 与实际配置/运行行为一致；
 6. 不存在 OMP-only import、静默 model/provider 路由或隐式启用 AgentMemory。
+
+2026-09-15 本地实现验收记录见 [tickets 的全量验收章节](tickets.md#2026-09-15-全量验收)，包含逐项证据、最终测试结果及部署服务验证边界。
 
 ## 8. 实施顺序
 

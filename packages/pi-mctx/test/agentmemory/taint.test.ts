@@ -60,11 +60,6 @@ describe("AgentMemory capture security", () => {
 		});
 		const branch: unknown[] = [
 			{ type: "message", id: "user-1", message: { role: "user", content: "find prior work" } },
-			{
-				type: "message",
-				id: "tool-1",
-				message: { role: "toolResult", toolCallId: "call-1", toolName: "mctx_search" },
-			},
 		];
 		const ctx = {
 			cwd: "/tmp/project",
@@ -77,6 +72,11 @@ describe("AgentMemory capture security", () => {
 				content: [{ type: "text", text: "recalled secret" }],
 			});
 			expect(observe).not.toHaveBeenCalled();
+			branch.push({
+				type: "message",
+				id: "tool-1",
+				message: { role: "toolResult", toolCallId: "call-1", toolName: "mctx_search" },
+			});
 			branch.push({
 				type: "message",
 				id: "assistant-1",

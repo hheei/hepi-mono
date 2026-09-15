@@ -41,6 +41,9 @@ export interface RegisterCtxStatusDeps {
 		| undefined;
 	dreamer?: { runnable?: boolean; scheduleSummary?: string } | undefined;
 	agentMemoryStatus?: (() => AgentMemoryStatusSnapshot) | undefined;
+	agentMemoryRecallPreview?: ((sessionId: string) => readonly string[]) | undefined;
+	/** When false, report bridge status without reading or presenting Window state. */
+	windowEnabled?: boolean | undefined;
 }
 
 export type CtxStatusRuntimeDeps = Omit<RegisterCtxStatusDeps, "resolveStatusDeps">;
@@ -70,6 +73,7 @@ export interface CtxStatusDetails {
 		failureCount: number;
 	};
 	agentMemory: AgentMemoryStatusSnapshot | null;
+	agentMemoryRecallPreview: readonly string[];
 }
 
 export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStatusDeps): void {
@@ -87,6 +91,19 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 					text: "## Magic Status\n\nNo active Pi session is available.",
 					level: "error",
 				});
+				return;
+			}
+			if (runtimeDeps.windowEnabled === false) {
+				const agentMemoryStatus = runtimeDeps.agentMemoryStatus?.();
+				const recallPreview = runtimeDeps.agentMemoryRecallPreview?.(sessionId) ?? [];
+				const statusText = [
+					"## Magic Status",
+					"",
+					"Window: disabled",
+					...(agentMemoryStatus ? ["", ...formatAgentMemoryStatus(agentMemoryStatus)] : []),
+					...formatRecallPreview(recallPreview).split("\n"),
+				].join("\n");
+				sendCtxStatusMessage(pi, { title: "/ctx-status", text: statusText, level: "info" });
 				return;
 			}
 
@@ -163,11 +180,12 @@ export function registerCtxStatusCommand(pi: ExtensionAPI, deps: RegisterCtxStat
 						...(pressure.contextLimit > 0 ? { contextLimit: pressure.contextLimit } : {}),
 					},
 				);
-				const agentMemory = currentDeps.agentMemoryStatus?.() ?? null;
-				const statusText = agentMemory
-					? `${windowStatusText}\n\n${formatAgentMemoryStatus(agentMemory).join("\n")}`
-					: windowStatusText;
 				const details = buildStatusDetails(currentDeps, sessionId);
+				const statusText = `${windowStatusText}${
+					details.agentMemory
+						? `\n\n${formatAgentMemoryStatus(details.agentMemory).join("\n")}`
+						: ""
+				}${formatRecallPreview(details.agentMemoryRecallPreview)}`;
 				sendCtxStatusMessage(
 					pi,
 					{ title: "/ctx-status", text: statusText, level: "info" },
@@ -223,6 +241,7 @@ function buildStatusDetails(deps: RegisterCtxStatusDeps, sessionId: string): Ctx
 		},
 		historian: readHistorianState(deps.db, sessionId, meta),
 		agentMemory: deps.agentMemoryStatus?.() ?? null,
+		agentMemoryRecallPreview: deps.agentMemoryRecallPreview?.(sessionId) ?? [],
 	};
 }
 
@@ -251,4 +270,9 @@ function readHistorianState(
 		lastError: row?.historian_last_error ?? null,
 		failureCount: row?.historian_failure_count ?? 0,
 	};
+}
+
+function formatRecallPreview(preview: readonly string[]): string {
+	if (preview.length === 0) return "";
+	return `\nAgentMemory recall preview:\n${preview.map((line) => `- ${line}`).join("\n")}`;
 }

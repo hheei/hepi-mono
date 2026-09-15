@@ -84,6 +84,11 @@ import { log } from "#core/shared/logger";
 import { resolveFallbackChain } from "#core/shared/resolve-fallbacks";
 import { setStoragePrivatePermissionEnforcement } from "#core/shared/storage-permissions";
 import {
+	createRecallPresenter,
+	type RecallPresenter,
+	readRecentRecallPreview,
+} from "./agentmemory/recall-presenter";
+import {
 	type AgentMemoryRuntime,
 	captureAssistantEnd,
 	capturePrompt,
@@ -637,6 +642,11 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// Resolve one global Pi settings snapshot before opening storage. The snapshot
 	// remains fixed until Pi re-evaluates this extension on /reload.
 	const bootConfig = loadPiConfig();
+	if (!bootConfig.enabled && !bootConfig.agentmemory.enabled) {
+		info("plugin and agentmemory bridge DISABLED via config — skipping registration");
+		clearPiMagicContextActive();
+		return;
+	}
 	setStoragePrivatePermissionEnforcement(bootConfig.storage.enforce_private_permissions);
 	setSqlitePragmaConfig({
 		cacheSizeMb: bootConfig.sqlite.cache_size_mb,
@@ -659,7 +669,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	// initializer rejects legacy databases before it writes anything.
 	if (!db) {
 		if (!bootConfig.enabled) {
-			info("plugin DISABLED via config (enabled: false) — skipping registration");
+			warn(
+				`AgentMemory bridge cannot start because storage is unavailable at ${dbPath}: ${openFailureCause ?? "unknown error"}`,
+			);
+			clearPiMagicContextActive();
 			return;
 		}
 		const reason: FailClosedReason = {
@@ -713,6 +726,186 @@ async function startPiMagicContextRuntime(
 ): Promise<void> {
 	const db = database;
 	ensureAgentMemorySchema(db);
+	let recallPresenter: RecallPresenter | undefined;
+	const registerRecallPresentation = (): void => {
+		registerExtensionLifecycle(pi, {
+			key: "@hheei/pi-mctx/agentmemory-recall",
+			start(context) {
+				const presenter = createRecallPresenter(pi, context.extension, context.signal, db);
+				recallPresenter = presenter;
+				context.resources.add("agentmemory-recall-presenter", () => {
+					presenter?.dispose();
+					if (recallPresenter === presenter) recallPresenter = undefined;
+				});
+				const sessionId = context.extension.sessionManager.getSessionId();
+				if (sessionId) presenter?.present(sessionId);
+			},
+		});
+	};
+	const recordAgentMemoryInitFailure = (status: AgentMemoryStatusTracker, error: unknown): void => {
+		status.recordFailure("health", error);
+		status.recordFailure("capture", error);
+		status.recordFailure("search", error);
+		status.recordFailure("inject", error);
+		status.recordFailure("memory", error);
+	};
+	const agentMemoryProjection = (runtime: AgentMemoryRuntime) => ({
+		prepareRecall: runtime.prepareAutomaticRecall,
+		commitRecall: runtime.commitAutomaticRecall,
+		toolContract: () => {
+			const active = new Set(pi.getActiveTools());
+			return pi
+				.getAllTools()
+				.filter((tool) => active.has(tool.name))
+				.map(({ name, description, parameters, promptGuidelines }) => ({
+					name,
+					description,
+					parameters,
+					promptGuidelines,
+				}));
+		},
+		onRecallProjectionPublished: (sessionId: string) => recallPresenter?.present(sessionId),
+	});
+	const registerAgentMemoryHealthCommand = (
+		runtime: AgentMemoryRuntime | undefined,
+		unavailable?: string,
+	): void => {
+		pi.registerCommand("agentmemory-health", {
+			description: "Check the upstream AgentMemory HTTP service",
+			handler: async () => {
+				if (!runtime) {
+					const failure =
+						unavailable ??
+						(config.agentmemory.enabled
+							? "agentmemory unavailable: bridge initialization failed"
+							: undefined);
+					sendCtxStatusMessage(pi, {
+						title: "/agentmemory-health",
+						text: failure ?? "agentmemory: disabled",
+						level: failure ? "error" : "info",
+					});
+					return;
+				}
+				try {
+					const health = await runtime.client.health();
+					runtime.recordHealthSuccess();
+					const status = health.status ?? health.health?.status ?? "ok";
+					sendCtxStatusMessage(pi, {
+						title: "/agentmemory-health",
+						text: `agentmemory: ${status}`,
+						level: "info",
+					});
+				} catch (error) {
+					runtime.recordHealthFailure(error);
+					sendCtxStatusMessage(pi, {
+						title: "/agentmemory-health",
+						text: `agentmemory unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						level: "error",
+					});
+				}
+			},
+		});
+	};
+	if (!config.enabled) {
+		const fallbackStatus = new AgentMemoryStatusTracker();
+		let runtime: AgentMemoryRuntime | undefined;
+		let bridgeFailure: unknown;
+		try {
+			runtime = createAgentMemoryRuntime(config.agentmemory, undefined, { db });
+			info(
+				config.agentmemory.capture
+					? "registered agentmemory HTTP bridge (Window disabled)"
+					: "registered agentmemory HTTP bridge (Window disabled; capture disabled)",
+			);
+		} catch (error) {
+			bridgeFailure = error;
+			recordAgentMemoryInitFailure(fallbackStatus, error);
+			warn(
+				`agentmemory bridge unavailable in Window-disabled mode: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+
+		if (runtime && config.agentmemory.memoryTools) {
+			registerMagicContextTools(pi, {
+				db,
+				memoryToolEnabled: false,
+				sessionScopedToolsDisabled: true,
+				compactionOff: true,
+				memorySaveTool: { queueMemory: runtime.queueMemory },
+				remoteSearch: {
+					client: runtime.client,
+					identity: runtime.identity,
+					remoteSessionId: runtime.remoteSessionId,
+					onSuccess: runtime.recordSearchSuccess,
+					onFailure: runtime.recordSearchFailure,
+				},
+			});
+			info("registered AgentMemory-only tools: mctx_search, mctx_memory");
+		}
+		if (runtime && config.agentmemory.inject) {
+			registerRecallPresentation();
+			registerPiContextHandler(pi, {
+				db,
+				compactionOff: true,
+				allowHomeProject: config.allow_home_project,
+				agentMemoryProjection: agentMemoryProjection(runtime),
+			});
+			info("registered AgentMemory recall projection (Window disabled)");
+		}
+
+		registerCtxStatusEntryRenderer(pi);
+		registerCtxStatusCommand(pi, {
+			db,
+			projectIdentity:
+				resolveProjectIdentityForSession(process.cwd(), config.allow_home_project) ?? "",
+			resolveProject: (ctx) => resolveCurrentProject(ctx, config.allow_home_project),
+			windowEnabled: false,
+			agentMemoryStatus:
+				runtime?.statusSnapshot ?? (() => fallbackStatus.snapshot(config.agentmemory, undefined)),
+			agentMemoryRecallPreview: (sessionId) => readRecentRecallPreview(db, sessionId),
+		});
+		info("registered bridge-only /ctx-status");
+		registerAgentMemoryHealthCommand(
+			runtime,
+			bridgeFailure instanceof Error
+				? `agentmemory unavailable: ${bridgeFailure.message}`
+				: "agentmemory unavailable: bridge initialization failed",
+		);
+
+		if (runtime) {
+			pi.on("session_start", (_event, ctx) => runtime?.ensureStarted(ctx));
+			pi.on(
+				"before_agent_start",
+				(event, ctx) => runtime && capturePrompt(runtime, ctx, event.prompt),
+			);
+			pi.on(
+				"agent_end",
+				(event, ctx) => runtime && captureAssistantEnd(runtime, ctx, event.messages),
+			);
+			pi.on("tool_result", (event, ctx) => runtime && captureToolResult(runtime, ctx, event));
+		}
+		pi.on("session_shutdown", async (_event, ctx) => {
+			if (runtime) {
+				try {
+					await withTimeout(runtime.shutdown(), 5_000);
+				} catch (error) {
+					warn("shutdown: agentmemory drain threw:", error);
+				}
+			}
+			const sessionId = ctx.sessionManager?.getSessionId?.();
+			if (typeof sessionId === "string" && sessionId.length > 0) {
+				clearContextHandlerSession(sessionId);
+			}
+			clearPiMagicContextActive();
+		});
+		pi.on("session_before_switch", (_event, ctx) => {
+			const sessionId = ctx.sessionManager?.getSessionId?.();
+			if (typeof sessionId === "string" && sessionId.length > 0) {
+				clearContextHandlerSession(sessionId);
+			}
+		});
+		return;
+	}
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-mctx/handoff",
 		start(context) {
@@ -798,13 +991,6 @@ async function startPiMagicContextRuntime(
 	// deleting on success (parity with the legacy host plugin).
 	setKeepSubagents(config.keep_subagents === true);
 
-	// Top-level disable: when `enabled: false` is set in config, register
-	// nothing — same fail-closed posture the legacy host plugin uses.
-	if (!config.enabled) {
-		info("plugin DISABLED via config (enabled: false) — skipping registration");
-		return;
-	}
-
 	const fallbackAgentMemoryStatus = new AgentMemoryStatusTracker();
 	let agentMemoryRuntime: AgentMemoryRuntime | undefined;
 	if (config.agentmemory.enabled) {
@@ -819,11 +1005,7 @@ async function startPiMagicContextRuntime(
 			warn(
 				`agentmemory bridge unavailable; Window continues: ${error instanceof Error ? error.message : String(error)}`,
 			);
-			fallbackAgentMemoryStatus.recordFailure("health", error);
-			fallbackAgentMemoryStatus.recordFailure("capture", error);
-			fallbackAgentMemoryStatus.recordFailure("search", error);
-			fallbackAgentMemoryStatus.recordFailure("inject", error);
-			fallbackAgentMemoryStatus.recordFailure("memory", error);
+			recordAgentMemoryInitFailure(fallbackAgentMemoryStatus, error);
 		}
 	} else {
 		info("agentmemory bridge: DISABLED");
@@ -831,6 +1013,9 @@ async function startPiMagicContextRuntime(
 	const agentMemoryStatus =
 		agentMemoryRuntime?.statusSnapshot ??
 		(() => fallbackAgentMemoryStatus.snapshot(config.agentmemory, undefined));
+	if (agentMemoryRuntime && config.agentmemory.inject) {
+		registerRecallPresentation();
+	}
 
 	const agentMemoryTools = Boolean(agentMemoryRuntime && config.agentmemory.memoryTools);
 
@@ -888,6 +1073,11 @@ async function startPiMagicContextRuntime(
 		historian: hist,
 		language: cfg.language,
 		autoSearch: auto,
+		...(agentMemoryRuntime && cfg.agentmemory.inject
+			? {
+					agentMemoryProjection: agentMemoryProjection(agentMemoryRuntime),
+				}
+			: {}),
 		resolveForProject: resolveContextOptionsForProject,
 		compactionOff,
 		allowHomeProject: cfg.allow_home_project,
@@ -1083,6 +1273,7 @@ async function startPiMagicContextRuntime(
 			scheduleSummary: summarizeDreamSchedule(bootProjectDeps.config.dreamer),
 		},
 		agentMemoryStatus,
+		agentMemoryRecallPreview: (sessionId) => readRecentRecallPreview(db, sessionId),
 		resolveStatusDeps: (ctx) => {
 			const current = resolveCurrentProjectDeps(ctx);
 			return {
@@ -1099,36 +1290,13 @@ async function startPiMagicContextRuntime(
 					scheduleSummary: summarizeDreamSchedule(current.config.dreamer),
 				},
 				agentMemoryStatus,
+				agentMemoryRecallPreview: (sessionId) => readRecentRecallPreview(db, sessionId),
 			};
 		},
 	});
 	info("registered /ctx-status");
-	if (agentMemoryRuntime) {
-		const healthClient = agentMemoryRuntime.client;
-		pi.registerCommand("agentmemory-health", {
-			description: "Check the upstream AgentMemory HTTP service",
-			handler: async () => {
-				try {
-					const health = await healthClient.health();
-					agentMemoryRuntime.recordHealthSuccess();
-					const status = health.status ?? health.health?.status ?? "ok";
-					sendCtxStatusMessage(pi, {
-						title: "/agentmemory-health",
-						text: `agentmemory: ${status}`,
-						level: "info",
-					});
-				} catch (error) {
-					agentMemoryRuntime.recordHealthFailure(error);
-					sendCtxStatusMessage(pi, {
-						title: "/agentmemory-health",
-						text: `agentmemory unavailable: ${error instanceof Error ? error.message : String(error)}`,
-						level: "error",
-					});
-				}
-			},
-		});
-		info("registered /agentmemory-health");
-	}
+	registerAgentMemoryHealthCommand(agentMemoryRuntime);
+	info("registered /agentmemory-health");
 
 	pi.on("session_before_compact", async (_event, ctx) =>
 		handlePiSessionBeforeCompact({ db, compactionOff, ctx }),
