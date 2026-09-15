@@ -18,10 +18,11 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 12.4.1
-      - name: Install system dependencies (ripgrep)
+      - name: Install system dependencies (ripgrep & fd)
         run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y ripgrep
+          sudo apt-get update && sudo apt-get install -y ripgrep fd-find
+          if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
           fi
       - uses: actions/setup-node@v4
         with:
