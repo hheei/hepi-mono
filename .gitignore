@@ -21,8 +21,8 @@ npm-debug.log*
 .pi-dev/
 .codex/
 outputs/
-graphify-out/*
-!graphify-out/graph.json
+graphify-out/
+.agents/
 pi-session-*.html
 
 # Public reference repositories are documented, not vendored.

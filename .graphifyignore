@@ -1,0 +1,13 @@
+# Graphify reads .gitignore automatically. These are additional non-product inputs.
+# Installed agent skills and Pi-host local development metadata do not describe
+# the repository's runtime architecture.
+.agents/
+.pi/
+.pi-dev/
+
+# Plans are historical context rather than current behavior (AGENTS.md).
+docs/plans/
+
+# Package manifests and license texts are repository bookkeeping, not architecture.
+**/package.json
+**/LICENSE
