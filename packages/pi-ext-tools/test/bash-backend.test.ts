@@ -13,7 +13,7 @@ import { createOutputRegistry, createToolTui } from "@hheei/pi-ext-core";
 import { expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import type { FffRuntimeState } from "../src/fff/lifecycle.js";
-import { DEFAULT_FFF_SETTINGS, DEFAULT_RTK_SETTINGS } from "../src/fff/settings.js";
+import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 
 initTheme(undefined, false);
@@ -95,6 +95,30 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 			{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
 		),
 	).rejects.toThrow("Invalid bash parameters");
+});
+
+test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const controller = new AbortController();
+	controller.abort();
+	const result = await bash.execute(
+		"bash-aborted-prespawn",
+		{ command: "printf spawned" },
+		controller.signal,
+		() => undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(result).toMatchObject({
+		content: [{ type: "text", text: "Bash aborted" }],
+		details: { error: "aborted" },
+	});
 });
 
 test("bash exposes only async use guidance", (): void => {
@@ -607,11 +631,9 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 			const state: FffRuntimeState = {
 				getRuntime: () => undefined,
 				getSettings: () => DEFAULT_FFF_SETTINGS,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getBashJobs: () => undefined,
 				getOutputs: () => createOutputRegistry(),
 				getTargetRuntime: () => runtime,
-				consumeRtkRewriteWarning: () => false,
 			};
 			registerBashTool(
 				{

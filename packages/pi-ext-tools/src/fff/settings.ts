@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import {
-	createJsonFlatSectionSettingsStorage,
 	createJsonSectionSettingsStorage,
 	defaultPiSettingsPaths,
 	type SettingsContext,
@@ -12,7 +11,6 @@ import { defaultShellPath } from "../bash-jobs.js";
 const SECTION = "pi-ext-tools";
 const GROUP = "fff";
 const BASH_GROUP = "bash";
-const RTK_GROUP = "rtk";
 const EDIT_GROUP = "edit";
 const TARGET_GROUP = "targets";
 const FFF_SETTINGS_DESCRIPTIONS = {
@@ -24,11 +22,6 @@ const FFF_SETTINGS_DESCRIPTIONS = {
 	autocomplete:
 		"Use the FFF index for @path autocomplete while preserving other autocomplete providers.",
 	grep: "Use FFF content search when its semantics are compatible with the requested grep operation.",
-} as const;
-const RTK_SETTINGS_DESCRIPTIONS = {
-	provider: "Configure optional RTK foreground Bash command rewriting.",
-	enabled: "Rewrite eligible foreground Bash commands through RTK after reload or a new session.",
-	path: "Optional RTK executable path. Leave empty to resolve rtk from the process PATH.",
 } as const;
 
 const EDIT_SETTINGS_DESCRIPTIONS = {
@@ -66,9 +59,6 @@ export function resolveEditCatalog(
 export interface FffSettingsProviderOptions {
 	readonly path?: string;
 }
-export interface RtkSettingsProviderOptions {
-	readonly path?: string;
-}
 
 export interface BashSettingsProviderOptions {
 	readonly path?: string;
@@ -92,19 +82,10 @@ export interface FffSettings {
 	readonly readEnhancement: boolean;
 	readonly findEnhancement: boolean;
 }
-export interface RtkSettings {
-	readonly enabled: boolean;
-	readonly path: string;
-}
 
 export interface TargetSettings {
 	readonly sshWhitelist: readonly string[];
 }
-
-export const DEFAULT_RTK_SETTINGS: RtkSettings = {
-	enabled: false,
-	path: "",
-};
 
 export const DEFAULT_TARGET_SETTINGS: TargetSettings = {
 	sshWhitelist: [],
@@ -163,13 +144,6 @@ export function fffSettingsFromState(state: SettingsState | undefined): FffSetti
 		findEnhancement: booleanAt(state, GROUP, "findEnhancement"),
 	};
 }
-export function rtkSettingsFromState(state: SettingsState | undefined): RtkSettings {
-	const values = state?.[RTK_GROUP];
-	return {
-		enabled: values?.rtk === true,
-		path: typeof values?.rtkPath === "string" ? values.rtkPath.trim() : "",
-	};
-}
 
 export function editModeFromState(state: SettingsState | undefined): EditMode {
 	return editModeFromValue(state?.[EDIT_GROUP]?.mode);
@@ -218,53 +192,6 @@ export function readEditMode(path = defaultPiSettingsPaths().globalPath): EditMo
 	} catch {
 		return DEFAULT_EDIT_MODE;
 	}
-}
-
-export async function loadRtkSettings(
-	provider: SettingsProvider,
-	context: SettingsContext,
-): Promise<RtkSettings> {
-	return rtkSettingsFromState(await provider.storage.load(context));
-}
-
-export function createRtkSettingsProvider(
-	options: RtkSettingsProviderOptions = {},
-): SettingsProvider {
-	return {
-		id: "pi-ext-tools.rtk",
-		title: "RTK",
-		origin: "@hheei/pi-ext-tools",
-		description: RTK_SETTINGS_DESCRIPTIONS.provider,
-		groups: [
-			{
-				id: RTK_GROUP,
-				title: "",
-				fields: [
-					{
-						id: "rtk",
-						label: "Enable RTK rewrite",
-						type: "boolean",
-						defaultValue: DEFAULT_RTK_SETTINGS.enabled,
-						description: RTK_SETTINGS_DESCRIPTIONS.enabled,
-						parse: (value) => value === "true",
-					},
-					{
-						id: "rtkPath",
-						label: "RTK executable path",
-						type: "path",
-						defaultValue: DEFAULT_RTK_SETTINGS.path,
-						description: RTK_SETTINGS_DESCRIPTIONS.path,
-						parse: (value) => value.trim(),
-					},
-				],
-			},
-		],
-		storage: createJsonFlatSectionSettingsStorage({
-			...(options.path === undefined ? {} : { path: options.path }),
-			section: SECTION,
-			group: RTK_GROUP,
-		}),
-	};
 }
 
 export async function loadFffSettings(
