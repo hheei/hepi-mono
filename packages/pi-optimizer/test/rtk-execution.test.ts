@@ -1,0 +1,119 @@
+import { tmpdir } from "node:os";
+import { Agent } from "@earendil-works/pi-agent-core";
+import {
+	type AssistantMessage,
+	createAssistantMessageEventStream,
+	type Model,
+} from "@earendil-works/pi-ai";
+import {
+	createBashTool,
+	type ExtensionAPI,
+	type ExtensionContext,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { expect, test, vi } from "vitest";
+import { createOptimizerInfo } from "../src/info.js";
+import { createRtkRuntime } from "../src/rtk.js";
+
+// A deterministic provider response exercises the real Pi agent/tool execution
+// pipeline without credentials or a network request. Bash itself is not mocked.
+const model: Model<"openai-completions"> = {
+	id: "optimizer-execution-test",
+	name: "Optimizer execution test",
+	api: "openai-completions",
+	provider: "optimizer-test",
+	baseUrl: "http://unused.invalid",
+	reasoning: false,
+	input: ["text"],
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	contextWindow: 4096,
+	maxTokens: 1024,
+};
+
+const inputSchema = Type.Object({ command: Type.String() });
+
+test("the real Pi agent executes rewritten native Bash arguments after recording a model-invisible audit", async () => {
+	const sessionManager = SessionManager.inMemory(tmpdir());
+	const info = createOptimizerInfo({
+		appendEntry: (type, data) => sessionManager.appendCustomEntry(type, data),
+		registerEntryRenderer: () => undefined,
+	});
+	const exec = vi.fn(async () => ({
+		code: 0,
+		stdout: "printf optimizer-rewritten",
+		stderr: "",
+		killed: false,
+	}));
+	const runtime = createRtkRuntime({ exec } as Pick<ExtensionAPI, "exec">, info);
+	const response: AssistantMessage = {
+		role: "assistant",
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		content: [
+			{
+				type: "toolCall",
+				id: "optimizer-bash-call",
+				name: "bash",
+				arguments: { command: "printf optimizer-original" },
+			},
+		],
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "toolUse",
+		timestamp: 0,
+	};
+	const agent = new Agent({
+		initialState: { model, tools: [createBashTool(tmpdir())] },
+		streamFn: () => {
+			const stream = createAssistantMessageEventStream();
+			stream.push({ type: "done", reason: "toolUse", message: response });
+			return stream;
+		},
+		beforeToolCall: async ({ toolCall, args }, signal) => {
+			if (!Value.Check(inputSchema, args)) throw new Error("Invalid Bash arguments");
+			await runtime.rewrite(
+				{ type: "tool_call", toolName: toolCall.name, toolCallId: toolCall.id, input: args },
+				{ signal } as ExtensionContext,
+				{ enabled: true, path: "configured-rtk" },
+			);
+			expect(sessionManager.getEntries()).toContainEqual(
+				expect.objectContaining({
+					type: "custom",
+					customType: "optimizer-info",
+					data: expect.objectContaining({
+						summary: expect.stringContaining("RTK ·"),
+						details: expect.objectContaining({
+							toolCallId: "optimizer-bash-call",
+							originalCommand: "printf optimizer-original",
+							executionCommand: "printf optimizer-rewritten",
+						}),
+					}),
+				}),
+			);
+			return undefined;
+		},
+		shouldStopAfterTurn: () => true,
+	});
+	await agent.prompt("Exercise the deterministic Bash call");
+	const result = agent.state.messages.find((message) => message.role === "toolResult");
+	expect(result).toMatchObject({
+		role: "toolResult",
+		toolCallId: "optimizer-bash-call",
+		isError: false,
+		content: [{ type: "text", text: "optimizer-rewritten" }],
+	});
+	expect(exec).toHaveBeenCalledTimes(1);
+	expect(JSON.stringify(sessionManager.buildSessionContext().messages)).not.toContain(
+		"optimizer-info",
+	);
+	runtime.reset();
+});

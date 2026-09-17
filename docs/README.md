@@ -22,7 +22,7 @@ This directory records high-level information for users and developers. Detailed
 - [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
 - [Unified grep architecture](architecture/grep.md): FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
-- [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
+- [pi-optimizer](optimizer/README.md): T2S、Caveman/Ponytail 提示词、可选 RTK 与统一设置入口。
 
 ## Feature Specifications
 

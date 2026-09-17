@@ -403,6 +403,31 @@ importers:
         specifier: ^22.19.19
         version: 22.20.2
 
+  packages/pi-optimizer:
+    dependencies:
+      '@hheei/pi-ext-core':
+        specifier: workspace:^0.1.1
+        version: link:../pi-ext-core
+      opencc-js:
+        specifier: ^1.4.0
+        version: 1.4.2
+      typebox:
+        specifier: 1.3.7
+        version: 1.3.7
+    devDependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: 0.85.1
+        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
+      '@earendil-works/pi-ai':
+        specifier: 0.85.1
+        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.85.1
+        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
+      '@earendil-works/pi-tui':
+        specifier: 0.85.1
+        version: 0.85.1(patch_hash=d90b53c5285a0a63d23c8ada785daed63fb030547235c0177286f223f2dad440)
+
   packages/pi-settings:
     dependencies:
       '@hheei/pi-ext-core':
@@ -427,31 +452,6 @@ importers:
       '@hheei/pi-ext-core':
         specifier: workspace:^0.1.1
         version: link:../pi-ext-core
-    devDependencies:
-      '@earendil-works/pi-agent-core':
-        specifier: 0.85.1
-        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
-      '@earendil-works/pi-ai':
-        specifier: 0.85.1
-        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.85.1
-        version: 0.85.1(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
-      '@earendil-works/pi-tui':
-        specifier: 0.85.1
-        version: 0.85.1(patch_hash=d90b53c5285a0a63d23c8ada785daed63fb030547235c0177286f223f2dad440)
-
-  packages/pi-t2s:
-    dependencies:
-      '@hheei/pi-ext-core':
-        specifier: workspace:^0.1.1
-        version: link:../pi-ext-core
-      opencc-js:
-        specifier: ^1.4.0
-        version: 1.4.2
-      typebox:
-        specifier: 1.3.7
-        version: 1.3.7
     devDependencies:
       '@earendil-works/pi-agent-core':
         specifier: 0.85.1
