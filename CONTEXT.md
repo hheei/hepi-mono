@@ -182,5 +182,5 @@ An Eval Tool Error handled by Eval Source. Its Nested Tool trace remains failed,
 _Avoid_: Automatic outer failure, suppressed trace
 
 **Foreground Nested Bash**:
-The only Bash execution admitted by the Eval Nested Catalog. It preserves normal foreground local or SSH target behavior but rejects async background jobs and PTY surfaces.
-_Avoid_: Nested background job, nested terminal
+The only Bash execution admitted by the Eval Nested Catalog. It preserves normal foreground local or SSH target behavior but rejects async background jobs.
+_Avoid_: Nested background job

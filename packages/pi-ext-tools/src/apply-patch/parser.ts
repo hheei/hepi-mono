@@ -355,8 +355,8 @@ export function findV4aPatchConflicts(patch: V4aPatch): readonly V4aPatchConflic
 export function compileV4aUpdateToUnifiedDiff(operation: V4aUpdateOperation): string {
 	if (operation.hunks.length === 0) return "";
 	const oldPath = `a/${operation.path}`;
-	// Moving remains a deterministic staging operation. mpatch only transforms
-	// the source file so unified diff headers cannot turn a fuzzy update into a rename.
+	// Move is a separate Publish/unlink. Unified-diff headers must not turn
+	// an update into a rename; jsdiff never chooses the destination path.
 	const newPath = `b/${operation.path}`;
 	const out: string[] = [`--- ${oldPath}\n`, `+++ ${newPath}\n`];
 

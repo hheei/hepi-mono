@@ -17,20 +17,11 @@ import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
 import type { ApplyPatchProgress } from "../src/apply-patch/outcome.js";
 import { parseV4aPatch } from "../src/apply-patch/parser.js";
-import {
-	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	type FuzzyApplyPatchPolicy,
-} from "../src/apply-patch/policy.js";
+import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
 
 const temporaryPaths: string[] = [];
-const noFuzzy: FuzzyApplyPatchPolicy = {
-	...DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	minSimilarity: 0,
-};
-const fuzzy: FuzzyApplyPatchPolicy = {
-	...DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	minSimilarity: 0.5,
-};
+const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
+const fuzzy: ApplyPatchPolicy = { fuzzFactor: 2 };
 
 async function temporaryDirectory(): Promise<string> {
 	const path = await mkdtemp(join(tmpdir(), "hepi-apply-patch-executor-"));
@@ -138,14 +129,14 @@ describe("apply-patch executor", () => {
 		]);
 
 		await save(root, "fuzzy.txt", "header\nscope\nconst value = 10;\n");
-		const belowThreshold = await applyPatchInWorkspace({
+		const missingOld = await applyPatchInWorkspace({
 			workspaceRoot: root,
-			policy: { ...fuzzy, minSimilarity: 0.99 },
+			policy: { fuzzFactor: 2 },
 			patch:
 				"*** Begin Patch\n*** Update File: fuzzy.txt\n@@ scope\n-const value = 20;\n+changed\n*** End Patch",
 		});
-		expect(belowThreshold.rejected).toMatchObject([
-			{ diagnostics: [{ kind: "fuzzy_below_threshold", hunkIndex: 1, best: { startLine: 3 } }] },
+		expect(missingOld.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "context_not_found", hunkIndex: 1 }] },
 		]);
 		expect(await load(root, "fuzzy.txt")).toBe("header\nscope\nconst value = 10;\n");
 	});
@@ -334,22 +325,44 @@ describe("apply-patch executor", () => {
 		expect(deleted?.before).not.toContain("line-199");
 	});
 
-	test("classifies near-context update as fuzzy when policy permits", async () => {
+	test("classifies a drifted context line as fuzzy only when fuzzFactor is enabled", async () => {
 		const root = await temporaryDirectory();
-		await save(root, "value.txt", "alpha\nchanged context\nomega\n");
+		const source = "drift-A\nctx-B\nold\nctx-C\n";
+		const patch =
+			"*** Begin Patch\n*** Update File: value.txt\n ctx-A\n ctx-B\n-old\n+new\n ctx-C\n*** End Patch";
+		await save(root, "value.txt", source);
+		const strict = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch,
+		});
+		expect(strict.changedPaths).toEqual([]);
+		expect(strict.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "context_not_found", hunkIndex: 1 }] },
+		]);
+		expect(await load(root, "value.txt")).toBe(source);
 
-		const result = await applyPatchInWorkspace({
+		const allowed = await applyPatchInWorkspace({
 			workspaceRoot: root,
 			policy: fuzzy,
-			patch:
-				"*** Begin Patch\n" +
-				"*** Update File: value.txt\n alpha\n expected context\n+inserted\n omega\n" +
-				"*** End Patch",
+			patch,
 		});
+		expect(allowed.exactUpdateCount).toBe(0);
+		expect(allowed.fuzzyUpdateCount).toBe(1);
+		expect(allowed.applied[0]?.outcomes[0]).toMatchObject({ match: "fuzzy" });
+		expect(allowed.applied[0]?.outcomes[0]).not.toHaveProperty("score");
+		expect(await load(root, "value.txt")).toBe("drift-A\nctx-B\nnew\nctx-C\n");
 
-		expect(result.exactUpdateCount).toBe(0);
-		expect(result.fuzzyUpdateCount).toBe(1);
-		expect(await load(root, "value.txt")).toBe("alpha\nchanged context\ninserted\nomega\n");
+		await save(root, "value.txt", "drift-A\nctx-B\nabsent\nctx-C\n");
+		const missingOld = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: fuzzy,
+			patch,
+		});
+		expect(missingOld.changedPaths).toEqual([]);
+		expect(missingOld.rejected).toMatchObject([
+			{ diagnostics: [{ kind: "context_not_found", hunkIndex: 1 }] },
+		]);
 	});
 
 	test("fails disabled fuzzy update without changing workspace", async () => {

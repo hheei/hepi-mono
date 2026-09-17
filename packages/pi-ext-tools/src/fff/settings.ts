@@ -33,7 +33,7 @@ const RTK_SETTINGS_DESCRIPTIONS = {
 
 const EDIT_SETTINGS_DESCRIPTIONS = {
 	provider: "Choose the static editing tool catalog for pi-ext-tools.",
-	mode: "auto uses apply_patch when the session model contains gpt, otherwise native edit/write. Pin native, Linux-only apply_patch, or none; reload or start a new session after saving.",
+	mode: "auto uses apply_patch when the session model contains gpt, otherwise native edit/write. Pin native, apply_patch, or none; reload or start a new session after saving.",
 } as const;
 const GPT_MODEL_TOKEN = "gpt";
 
@@ -66,7 +66,6 @@ export function resolveEditCatalog(
 export interface FffSettingsProviderOptions {
 	readonly path?: string;
 }
-
 export interface RtkSettingsProviderOptions {
 	readonly path?: string;
 }
@@ -85,7 +84,7 @@ export interface TargetSettingsProviderOptions {
 
 export interface FffSettings {
 	readonly shellPath: string;
-	/** KiB retained in each foreground or PTY Bash result before output spill. */
+	/** KiB retained in each foreground Bash result before output spill. */
 	readonly bashOutputTailKiB: number;
 	/** FFF behavior toggles only; tool activation belongs to pi-settings. */
 	readonly autocomplete: boolean;
@@ -93,7 +92,6 @@ export interface FffSettings {
 	readonly readEnhancement: boolean;
 	readonly findEnhancement: boolean;
 }
-
 export interface RtkSettings {
 	readonly enabled: boolean;
 	readonly path: string;
@@ -165,7 +163,6 @@ export function fffSettingsFromState(state: SettingsState | undefined): FffSetti
 		findEnhancement: booleanAt(state, GROUP, "findEnhancement"),
 	};
 }
-
 export function rtkSettingsFromState(state: SettingsState | undefined): RtkSettings {
 	const values = state?.[RTK_GROUP];
 	return {

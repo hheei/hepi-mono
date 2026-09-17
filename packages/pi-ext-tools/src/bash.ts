@@ -19,17 +19,15 @@ import {
 	createOutputRegistry,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
-	openTuiSurface,
 	registerManagedLoadoutTool,
 	type ToolCompletion,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
+import { Value } from "typebox/value";
 import { BashOutputSink } from "./bash-output.js";
-import { BashPtySurface, type BashPtySurfaceResult } from "./bash-pty-surface.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { PtySession } from "./native-bridge.js";
 import { isTargetError, LOCAL_TARGET, OUTPUT_TARGET, type TargetRuntime } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -38,9 +36,7 @@ const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
 	"Use `async` only for finite commands that may outlive this tool call.",
-	"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
-	"NEVER combine `pty` with `async`.",
-	"Remote `target` is an authorized SSH host; omit pty and async. Working directory is the remote home.",
+	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 const RTK_REWRITE_TIMEOUT_MS = 1_000;
@@ -59,22 +55,11 @@ const AsyncInput = Type.Object(
 		command: Type.String(),
 		timeout: Timeout,
 		async: Type.Literal(true),
-		pty: Type.Optional(Type.Literal(false)),
 		target: Target,
 	},
 	{ additionalProperties: false },
 );
-const PtyInput = Type.Object(
-	{
-		command: Type.String(),
-		timeout: Timeout,
-		pty: Type.Literal(true),
-		async: Type.Optional(Type.Literal(false)),
-		target: Target,
-	},
-	{ additionalProperties: false },
-);
-const BashInput = Type.Union([DefaultInput, AsyncInput, PtyInput]);
+const BashInput = Type.Union([DefaultInput, AsyncInput]);
 type Input = Static<typeof BashInput>;
 interface BashToolResult {
 	readonly content: readonly { readonly type: "text"; readonly text: string }[];
@@ -242,92 +227,6 @@ async function runForeground(
 	);
 }
 
-async function runPty(
-	pi: ExtensionAPI,
-	command: string,
-	context: ExtensionContext,
-	signal: AbortSignal | undefined,
-	shellPath: string | undefined,
-	timeoutSeconds: number | undefined,
-	tailBytes: number,
-	outputs: OutputRegistry,
-): Promise<BashToolResult> {
-	if (context.mode !== "tui" || process.env.PI_NO_PTY === "1")
-		return result("PTY Bash requires an interactive TUI with PTY enabled", {
-			error: "pty_unavailable",
-		});
-	const controller = new AbortController();
-	const sink = new BashOutputSink({ outputs, tailBytes });
-	const abort = (): void => controller.abort(signal?.reason);
-	signal?.addEventListener("abort", abort, { once: true });
-	let timeout: NodeJS.Timeout | undefined;
-	try {
-		const surface = await openTuiSurface<BashPtySurfaceResult>(pi, context, {
-			hostId: "@hheei/pi-ext-tools/bash-pty",
-			signal: controller.signal,
-			maxPending: 0,
-			overlay: true,
-			beforeRelease: () => clearTimeout(timeout),
-			create: ({ theme, close, requestRender }) => {
-				const shell = shellPath ?? (process.platform === "win32" ? "cmd.exe" : "/bin/sh");
-				const args = process.platform === "win32" ? ["/c", command] : ["-lc", command];
-				const session = new PtySession({
-					command: shell,
-					args,
-					cwd: context.cwd,
-					env: { TERM: "xterm-256color" },
-					rows: 16,
-					cols: 80,
-				});
-				const decoder = new TextDecoder();
-				const component = new BashPtySurface(command, session, theme, close);
-				if (timeoutSeconds !== undefined && timeoutSeconds > 0)
-					timeout = setTimeout(() => session.close(), timeoutSeconds * 1000);
-				void (async (): Promise<void> => {
-					try {
-						for (;;) {
-							const chunk = await session.read();
-							sink.push(chunk.output);
-							component.append(chunk.output, decoder);
-							requestRender();
-							if (chunk.eof) break;
-						}
-						const exit = await session.wait();
-						component.complete(exit, decoder);
-						requestRender();
-					} catch {
-						component.complete({ code: 1, signal: "terminated" }, decoder);
-						requestRender();
-					}
-				})();
-				return component;
-			},
-		});
-		if (surface.status === "aborted") return result("PTY Bash aborted", { error: "aborted" });
-		const outcome: BashPtySurfaceResult = surface.value;
-		const output = sink.finish();
-		return result(
-			`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
-			outcome.status === "completed"
-				? {
-						...output,
-						exitCode: outcome.exit.code,
-						...(outcome.exit.signal === undefined ? {} : { signal: outcome.exit.signal }),
-					}
-				: { ...output, error: "aborted" },
-		);
-	} catch (error) {
-		return result(
-			`Unable to start PTY Bash: ${error instanceof Error ? error.message : String(error)}`,
-			{
-				error: "pty_start_failed",
-			},
-		);
-	} finally {
-		signal?.removeEventListener("abort", abort);
-	}
-}
-
 function bashResultWarning(result: { readonly details: unknown }): boolean {
 	if (typeof result.details !== "object" || result.details === null) return false;
 	const details = result.details as Record<string, unknown>;
@@ -335,7 +234,6 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 		details.timedOut === true || (typeof details.exitCode === "number" && details.exitCode !== 0)
 	);
 }
-
 function fieldIsTrue(value: object, key: string): boolean {
 	return Object.getOwnPropertyDescriptor(value, key)?.value === true;
 }
@@ -343,7 +241,6 @@ function fieldIsTrue(value: object, key: string): boolean {
 function isRemoteBashTarget(target: unknown): target is string {
 	return typeof target === "string" && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
 }
-
 function skipRtkRewrite(command: string): boolean {
 	if (command.trim() === "") return true;
 	const body = command
@@ -440,18 +337,14 @@ async function runRemoteBash(
 		throw error;
 	}
 }
-
 function registerRtkForegroundRewrite(pi: ExtensionAPI, state: FffRuntimeState): void {
 	pi.on("tool_call", async (event, context) => {
 		const rtkSettings = state.getRtkSettings();
 		if (rtkSettings.enabled !== true || event.toolName !== "bash") return undefined;
 		const input = event.input;
+		if (!Value.Check(BashInput, input)) return undefined;
 		const target = Object.getOwnPropertyDescriptor(input, "target")?.value;
-		if (
-			fieldIsTrue(input, "async") ||
-			fieldIsTrue(input, "pty") ||
-			(typeof target === "string" && target !== LOCAL_TARGET)
-		)
+		if (fieldIsTrue(input, "async") || (typeof target === "string" && target !== LOCAL_TARGET))
 			return undefined;
 		const command = input.command;
 		if (typeof command !== "string" || command.trim() === "") return undefined;
@@ -513,6 +406,7 @@ export function registerBashTool(
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
+			if (!Value.Check(BashInput, params)) throw new Error("Invalid bash parameters");
 			if (params.target === OUTPUT_TARGET)
 				return result("bash does not support output targets.", {
 					error: "unauthorized",
@@ -520,11 +414,6 @@ export function registerBashTool(
 					target: params.target,
 				});
 			if (isRemoteBashTarget(params.target)) {
-				if ("pty" in params && params.pty === true)
-					return result("PTY Bash is local-only; omit pty for SSH targets.", {
-						error: "pty_unsupported",
-						target: params.target,
-					});
 				if ("async" in params && params.async === true)
 					return result("Async Bash is local-only; omit async for SSH targets.", {
 						error: "async_unsupported",
@@ -543,17 +432,6 @@ export function registerBashTool(
 					state?.getOutputs() ?? fallbackOutputs,
 				);
 			}
-			if ("pty" in params && params.pty === true)
-				return runPty(
-					pi,
-					params.command,
-					context,
-					signal,
-					state?.getSettings().shellPath,
-					params.timeout,
-					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
-					state?.getOutputs() ?? fallbackOutputs,
-				);
 			if ("async" in params && params.async === true) {
 				const jobs = state?.getBashJobs();
 				if (jobs === undefined)

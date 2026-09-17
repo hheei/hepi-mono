@@ -18,7 +18,7 @@ import {
 	type ApplyPatchRejection,
 	applyPatchInWorkspace,
 	createSftpPatchFs,
-	loadFuzzyApplyPatchPolicy,
+	loadApplyPatchPolicy,
 } from "./apply-patch/index.js";
 import {
 	createV4aPreviewCursor,
@@ -154,21 +154,6 @@ function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
 				return `${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
 					.slice(0, MAX_CANDIDATES)
 					.join(", ")} (${diagnostic.candidateStartLines.length} candidates)`;
-			case "ambiguous_fuzzy":
-				return `${prefix}, hunk ${diagnostic.hunkIndex}: fuzzy context is ambiguous at ${diagnostic.candidates
-					.slice(0, MAX_CANDIDATES)
-					.map(
-						(candidate) =>
-							`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
-					)
-					.join(", ")} (${diagnostic.candidates.length} candidates)`;
-			case "fuzzy_below_threshold": {
-				const score = diagnostic.best.score.toFixed(2);
-				const threshold = diagnostic.threshold.toFixed(2);
-				return diagnostic.best.score > diagnostic.threshold * 0.7
-					? `${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy candidate lines ${diagnostic.best.startLine}-${diagnostic.best.startLine + diagnostic.best.length - 1}, score ${score} < required ${threshold}`
-					: `${prefix}, hunk ${diagnostic.hunkIndex}: best fuzzy score ${score} < required ${threshold}`;
-			}
 			default:
 				throw new Error(`Unknown patch diagnostic: ${String(diagnostic)}`);
 		}
@@ -242,7 +227,7 @@ export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): str
 			.filter((outcome) => outcome.match === "fuzzy")
 			.map(
 				(outcome) =>
-					`- ${operation.paths.at(-1) ?? "unknown"}, ${operationText(operation.operationIndex)}, hunk ${outcome.hunkIndex}: lines ${outcome.startLine}-${outcome.startLine + outcome.length - 1}, similarity ${outcome.score?.toFixed(2) ?? "unknown"}`,
+					`- ${operation.paths.at(-1) ?? "unknown"}, ${operationText(operation.operationIndex)}, hunk ${outcome.hunkIndex}: lines ${outcome.startLine}-${outcome.startLine + outcome.length - 1}, fuzzy`,
 			),
 	);
 	const headline =
@@ -353,7 +338,7 @@ export function createApplyPatchTool(
 			if (target === OUTPUT_TARGET) throw new Error("apply_patch does not support output targets.");
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
-				const policy = await loadFuzzyApplyPatchPolicy({
+				const policy = await loadApplyPatchPolicy({
 					paths: defaultPiSettingsPaths(ctx.cwd),
 					...(signal === undefined ? {} : { signal }),
 				});

@@ -18,11 +18,10 @@ This directory records high-level information for users and developers. Detailed
 ## Architecture
 
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
-- [Native bridge architecture](architecture/pi-ext-bridge.md): N-API boundary, vendored mpatch, native PTY sessions, and cancellation/cleanup ownership.
 - [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
 - [Unified grep architecture](architecture/grep.md): FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
-- [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, mpatch diagnostics, model recovery, stable diff, and Trace rendering.
+- [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-t2s](t2s/README.md): Traditional-to-Simplified input conversion, settings migration, and lifecycle boundary.
 
 ## Feature Specifications
@@ -36,7 +35,7 @@ This directory records high-level information for users and developers. Detailed
 - [Pi upstream research](research/pi-upstream.md): upstream extension layering and the historical aggregate proposal.
 - [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.
 - [FFF search research](pi-fff.md): FFF SDK data model, precise match ranges, lifecycle, pagination, and Pi integration boundaries.
-- [Apply Patch model-information research](research/apply-patch-model-information.md): mpatch diagnostic evidence and V4A model-information design inputs.
+- [Apply Patch model-information research](research/apply-patch-model-information.md): historical mpatch diagnostic evidence and V4A model-information design inputs.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
 - [BTW implementation research](research/btw/implementation-research.md): comparison of four public BTW implementations.
 - [BTW reuse inventory](research/btw/reuse-inventory.md): code reuse decisions made before implementation.

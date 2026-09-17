@@ -10,7 +10,7 @@
 
 | 软件包 | 用途 |
 | --- | --- |
-| [`pi-ext-tools`](../../packages/pi-ext-tools/README.md) | Pi 编码工具替换、Todo 与 FFF 搜索增强；本地构建需要原生桥 |
+| [`pi-ext-tools`](../../packages/pi-ext-tools/README.md) | Pi 编码工具替换、Todo 与 FFF 搜索增强 |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` 界面与 Loadout 工具、技能和资源启用策略 |
 | [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 兼容补充，目前提供 assistant/thinking 局部选择 |
 | [`pi-dollar-skill`](../../packages/pi-dollar-skill/README.md) | `$skill-name` 自动补全与技能路径引用 |

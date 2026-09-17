@@ -134,7 +134,6 @@ function rejectNestedBash(args: unknown): void {
 	if (typeof args !== "object" || args === null || Array.isArray(args)) return;
 	const value = args as Record<string, unknown>;
 	if (value.async === true) throw new Error("Eval only permits foreground bash; omit async.");
-	if (value.pty === true) throw new Error("Eval does not permit PTY bash; omit pty.");
 }
 
 function traceFor(

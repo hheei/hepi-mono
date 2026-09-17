@@ -25,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -60,7 +59,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: pnpm/action-setup@v4
         with:
           version: 12.4.1
@@ -73,11 +71,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages (including native addon)
-        run: |
-          pnpm --filter @hheei/pi-ext-tools run build:native
-          pnpm run build
-
+      - name: Build all packages
+        run: pnpm run build
       - name: Publish public packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

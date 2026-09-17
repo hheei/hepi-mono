@@ -1,6 +1,7 @@
 import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
+import { BashInput } from "../src/bash.js";
 import { type EvalNestedToolName, EvalToolBridge, EvalToolError } from "../src/eval/bridge.js";
 
 const parameters = Type.Object({ path: Type.String() }, { additionalProperties: false });
@@ -15,6 +16,18 @@ function readTool(): ToolDefinition<typeof parameters> {
 			return { content: [{ type: "text", text: "contents" }], details: { text: "contents" } };
 		},
 	};
+}
+
+function bashTool(): ToolDefinition {
+	return {
+		name: "bash",
+		label: "bash",
+		description: "test",
+		parameters: BashInput,
+		async execute() {
+			throw new Error("bash execute should not run");
+		},
+	} as ToolDefinition;
 }
 
 describe("Eval tool bridge", () => {
@@ -32,8 +45,8 @@ describe("Eval tool bridge", () => {
 		).rejects.toThrow("Invalid arguments");
 	});
 
-	test("rejects nested background and PTY Bash before execution", async () => {
-		const bridge = new EvalToolBridge(new Map(), () => true);
+	test("rejects nested background Bash and invalid arguments before execution", async () => {
+		const bridge = new EvalToolBridge(new Map([["bash", bashTool()]]), () => true);
 		await expect(
 			bridge.call(
 				"bash",
@@ -46,12 +59,12 @@ describe("Eval tool bridge", () => {
 		await expect(
 			bridge.call(
 				"bash",
-				{ command: "pwd", pty: true },
+				{ command: "pwd", unsupported: true },
 				{} as ExtensionContext,
 				undefined,
 				() => {},
 			),
-		).rejects.toThrow("PTY bash");
+		).rejects.toThrow("Invalid arguments for bash.");
 	});
 
 	test("wraps execution failures with a persisted trace", async () => {

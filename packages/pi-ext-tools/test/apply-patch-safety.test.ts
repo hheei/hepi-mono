@@ -4,16 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { createLocalPatchFs, FsTransportError } from "../src/apply-patch/fs.js";
-import {
-	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	type FuzzyApplyPatchPolicy,
-} from "../src/apply-patch/policy.js";
+import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
 
 const temporaryPaths: string[] = [];
-const noFuzzy: FuzzyApplyPatchPolicy = {
-	...DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	minSimilarity: 0,
-};
+const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
 const movePatch =
 	"*** Begin Patch\n" +
 	"*** Update File: source.txt\n" +

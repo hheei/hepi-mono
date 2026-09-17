@@ -15,19 +15,18 @@ pi install npm:@hheei/pi-ext-tools
 
 ## 从本地源码安装
 
-前置条件：Node.js >=22.19.0、pnpm >=12.4.1；构建 `pi-ext-tools` 原生桥还需要 stable Rust。
+前置条件：Node.js >=22.19.0、pnpm >=12.4.1。
 以下命令均在仓库根目录执行，以 `pi-ext-tools` 为例：
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm --filter @hheei/pi-ext-core run build
-pnpm --filter @hheei/pi-ext-tools run build:native
 pnpm --filter @hheei/pi-ext-tools run build
 pi install ./packages/pi-ext-tools
 ```
 
 `--ignore-scripts` 不会生成构建产物，因此安装本地路径前必须显式构建。
-其他扩展按各自 `package.json` 的 `pi.extensions` 和构建脚本准备入口；原生桥构建只适用于 `pi-ext-tools`。
+其他扩展按各自 `package.json` 的 `pi.extensions` 和构建脚本准备入口。
 
 ## 不安装的开发运行
 

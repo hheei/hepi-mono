@@ -69,7 +69,7 @@ Detached Eval Work 在 cell 结束或 Kernel shutdown 后不属于 Transcript。
 
 Kernel 不读 Pi registry。每次 execute 由当前 Exposition 注入 invoke 表。
 
-Sibling v1 注入 admitted 集：`read`、`grep`、`find`、foreground `bash`，以及当前 Edit Mode 的 `edit`/`write` 或 `apply_patch`。排除 `eval`、`wait`、`bash_job`、Magic Context 与其它 extension tool。Nested Bash 拒绝 `async: true` 与 `pty: true`。
+Sibling v1 注入 admitted 集：`read`、`grep`、`find`、foreground `bash`，以及当前 Edit Mode 的 `edit`/`write` 或 `apply_patch`。排除 `eval`、`wait`、`bash_job`、Magic Context 与其它 extension tool。Nested Bash 拒绝 `async: true`。
 
 以后的 Code Mode 可以注入更宽的表，仍必须排除 `eval`、`wait` 与 Magic Context，且仍走 `pi-ext-tools` 的 explicit invoker，不能扫任意 registry。
 

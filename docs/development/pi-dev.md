@@ -5,7 +5,7 @@
 
 ## 使用
 
-前置条件：Node.js >=22.19.0、pnpm >=12.4.1，以及构建原生桥所需的 stable Rust。
+前置条件：Node.js >=22.19.0、pnpm >=12.4.1。
 在仓库根目录执行：
 
 ```bash
@@ -22,7 +22,7 @@ Pi 参数直接追加，例如 `scripts/pi-dev --model <provider/model>`。
 
 | 扩展 | 入口 | 启动前处理 |
 | --- | --- | --- |
-| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript 与 N-API 原生桥 |
+| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
 | `pi-dollar-skill` | `packages/pi-dollar-skill/dist/extension.js` | 增量构建 TypeScript |
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
 | `pi-mctx` | `packages/pi-mctx/src/index.ts` | Pi 直接加载 TypeScript 源码 |
@@ -32,9 +32,8 @@ Pi 参数直接追加，例如 `scripts/pi-dev --model <provider/model>`。
 
 ## 构建缓存
 
-- TypeScript 与原生桥分别保存输入指纹，写入 `.pi-dev/build.json`。
-- 首次运行、对应输入变化或所检查的构建产物缺失时触发构建；未变化时跳过。
-- 原生桥使用 Cargo 增量 `local` profile，产物为 `packages/pi-ext-tools/native/pi-ext-tools-bridge.node`。
+- TypeScript 保存输入指纹，写入 `.pi-dev/build.json`。
+- 首次运行、输入变化或所检查的构建产物缺失时触发构建；未变化时跳过。
 - 构建失败时不启动 Pi。
 
 ## 运行与认证边界
@@ -49,4 +48,4 @@ Pi 参数直接追加，例如 `scripts/pi-dev --model <provider/model>`。
 
 - **找不到本地 Pi CLI**：在仓库根目录完成依赖安装后重试。
 - **需要强制重建**：删除 `.pi-dev/build.json` 后重新启动。该文件只保存构建指纹，不包含认证、会话或 Pi 配置。
-- **构建失败**：根据启动器输出修复对应 TypeScript 或 Rust 构建错误；不要将未成功生成的入口当成可运行版本。
+- **构建失败**：根据启动器输出修复对应 TypeScript 构建错误；不要将未成功生成的入口当成可运行版本。
