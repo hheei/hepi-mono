@@ -17,7 +17,7 @@ pi install npm:@hheei/pi-ext-tools
 Independent extensions install separately:
 
 ```bash
-pi install npm:@hheei/pi-t2s
+pi install npm:@hheei/pi-optimizer
 ```
 
 Concrete extensions use `@hheei/pi-ext-core` as a shared foundation dependency;

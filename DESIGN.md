@@ -177,6 +177,8 @@ Design the same interaction model for narrow and wide terminals.
 
 ## Feature Specs
 
-[`DESIGN.md`](http://DESIGN.md) owns shared visual and interaction invariants. Exact dimensions, row counts, feature shortcuts, field layouts, command presentation, and other feature-specific behavior belong under `docs/design/`.
+[`DESIGN.md`](http://DESIGN.md) owns shared visual and interaction invariants. Exact dimensions, row counts, feature shortcuts, field layouts, command presentation, and other feature-specific behavior belong in the owning feature's design or architecture document.
 
 Promote a feature rule into this document only after it becomes a genuinely shared pattern.
+
+[`pi-optimizer`](docs/optimizer/README.md) 的 `/optimizer` 使用 Pi 原生选择与输入对话框；四项功能与 RTK 路径共享同一 Settings provider。Esc 取消当前层，不写入未确认值；会话关闭时通过 signal 关闭对话框。T2S、Prompt、RTK 的实际注入与设置结果通过原生 custom entry 即时显示为对话 info：默认 dim 摘要，展开完整 payload，错误以 warning 语义标明。记录支持 resume，Headless 消费 `entry_appended`；不进入模型上下文、不触发额外 turn。

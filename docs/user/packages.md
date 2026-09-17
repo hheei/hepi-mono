@@ -14,7 +14,7 @@
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` 界面与 Loadout 工具、技能和资源启用策略 |
 | [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 兼容补充，目前提供 assistant/thinking 局部选择 |
 | [`pi-dollar-skill`](../../packages/pi-dollar-skill/README.md) | `$skill-name` 自动补全与技能路径引用 |
-| [`pi-t2s`](../../packages/pi-t2s/README.md) | 输入中的繁体中文转简体 |
+| [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-auto-title`](../../packages/pi-auto-title/README.md) | 自动生成 Pi 会话标题 |
 | [`pi-btw`](../../packages/pi-btw/README.md) | 围绕当前会话提出旁路问题 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |

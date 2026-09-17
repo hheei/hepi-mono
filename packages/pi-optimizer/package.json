@@ -1,7 +1,7 @@
 {
-	"name": "@hheei/pi-t2s",
+	"name": "@hheei/pi-optimizer",
 	"version": "0.1.1",
-	"description": "Traditional-to-Simplified Chinese input conversion for Pi.",
+	"description": "Input conversion, prompt modes, and opt-in RTK command optimization for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -27,6 +27,9 @@
 		"pi-package",
 		"pi-extension",
 		"hepi",
+		"optimizer",
+		"caveman",
+		"rtk",
 		"traditional-chinese",
 		"simplified-chinese"
 	],
@@ -34,7 +37,7 @@
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/hheei/hepi-mono.git",
-		"directory": "packages/pi-t2s"
+		"directory": "packages/pi-optimizer"
 	},
 	"publishConfig": {
 		"access": "public"
