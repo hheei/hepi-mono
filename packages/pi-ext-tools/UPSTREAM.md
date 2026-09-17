@@ -31,13 +31,6 @@ resize tracker, highlight and split/unified render are synchronous, layout width
 comes from the TUI `render(width)` argument, and `ToolTui` owns header, rails,
 footer, and collapse.
 
-## mpatch native runtime
-
-`crates/vendor/mpatch/` contains the retained library source from
-[Romelium/mpatch](https://github.com/Romelium/mpatch) `v1.6.4`, licensed MIT.
-`pi-ext-bridge` links it into the package's N-API binary; no mpatch executable is
-bundled or launched. Local cancellation checks are maintained beside the source.
-
 ## Updating
 
 Fetch and inspect upstream before copying changes:

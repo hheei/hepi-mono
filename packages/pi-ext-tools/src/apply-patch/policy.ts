@@ -6,30 +6,20 @@ import {
 
 const SECTION = "pi-ext-tools";
 const GROUP = "applyPatch";
+const RETIRED_KEYS = ["minSimilarity", "maxConcurrentWorkers", "maxQueueDepth"] as const;
 
-export interface FuzzyApplyPatchPolicy {
-	readonly minSimilarity: number;
-	readonly maxConcurrentWorkers: number;
-	readonly maxQueueDepth: number;
+export interface ApplyPatchPolicy {
+	readonly fuzzFactor: number;
 }
 
-export interface LoadFuzzyApplyPatchPolicyOptions {
+export interface LoadApplyPatchPolicyOptions {
 	readonly paths?: PiSettingsPaths;
 	readonly signal?: AbortSignal;
 }
 
-export const DEFAULT_FUZZY_APPLY_PATCH_POLICY: FuzzyApplyPatchPolicy = {
-	minSimilarity: 0.7,
-	maxConcurrentWorkers: 2,
-	maxQueueDepth: 32,
+export const DEFAULT_APPLY_PATCH_POLICY: ApplyPatchPolicy = {
+	fuzzFactor: 0,
 };
-
-type PolicyKey = keyof FuzzyApplyPatchPolicy;
-const POLICY_KEYS: readonly PolicyKey[] = [
-	"minSimilarity",
-	"maxConcurrentWorkers",
-	"maxQueueDepth",
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -39,68 +29,30 @@ function invalid(layer: string, key: string, reason: string): never {
 	throw new Error(`${layer} setting ${SECTION}.${GROUP}.${key} ${reason}`);
 }
 
-function readLayer(layer: string, value: unknown): Partial<FuzzyApplyPatchPolicy> {
+function readLayer(layer: string, value: unknown): Partial<ApplyPatchPolicy> {
 	if (value === undefined) return {};
 	if (!isRecord(value)) invalid(layer, "<group>", "must be an object");
 	for (const key of Object.keys(value)) {
-		if (!POLICY_KEYS.some((candidate) => candidate === key))
-			invalid(layer, key, "is not supported");
+		if ((RETIRED_KEYS as readonly string[]).includes(key))
+			invalid(
+				layer,
+				key,
+				`is not supported; remove ${key} and set global ${SECTION}.${GROUP}.fuzzFactor to 0 or 2`,
+			);
+		if (key !== "fuzzFactor") invalid(layer, key, "is not supported");
 	}
-	const result: Partial<FuzzyApplyPatchPolicy> = {};
-	for (const key of POLICY_KEYS) {
-		if (!Object.hasOwn(value, key)) continue;
-		const item = value[key];
-		if (typeof item !== "number" || !Number.isFinite(item))
-			invalid(layer, key, "must be a finite number");
-		if (key === "minSimilarity") {
-			if (item < 0 || item > 1) invalid(layer, key, "must be between 0 and 1");
-		} else if (!Number.isInteger(item)) {
-			invalid(layer, key, "must be an integer");
-		} else if (key === "maxConcurrentWorkers" && (item < 1 || item > 16)) {
-			invalid(layer, key, "must be an integer from 1 to 16");
-		} else if (key === "maxQueueDepth" && (item < 1 || item > 512)) {
-			invalid(layer, key, "must be an integer from 1 to 512");
-		}
-		Object.assign(result, { [key]: item });
-	}
-	return result;
+	if (!Object.hasOwn(value, "fuzzFactor")) return {};
+	const item = value.fuzzFactor;
+	if (typeof item !== "number" || !Number.isFinite(item))
+		invalid(layer, "fuzzFactor", "must be a finite number");
+	if (!Number.isInteger(item) || item < 0 || item > 2)
+		invalid(layer, "fuzzFactor", "must be an integer from 0 to 2");
+	return { fuzzFactor: item };
 }
 
-function mergedPolicy(
-	global: Partial<FuzzyApplyPatchPolicy>,
-	project: Partial<FuzzyApplyPatchPolicy>,
-): FuzzyApplyPatchPolicy {
-	for (const key of POLICY_KEYS) {
-		if (!Object.hasOwn(project, key)) continue;
-		const value = project[key];
-		if (value === undefined) continue;
-		const baseline = global[key] ?? DEFAULT_FUZZY_APPLY_PATCH_POLICY[key];
-		if (typeof value === "number" && typeof baseline === "number") {
-			if (key === "minSimilarity" && value !== 0 && value < baseline)
-				invalid("project", key, `must be at least global value ${baseline}`);
-			if ((key === "maxConcurrentWorkers" || key === "maxQueueDepth") && value > baseline)
-				invalid("project", key, `must not exceed global value ${baseline}`);
-		}
-	}
-	return {
-		minSimilarity:
-			project.minSimilarity ??
-			global.minSimilarity ??
-			DEFAULT_FUZZY_APPLY_PATCH_POLICY.minSimilarity,
-		maxConcurrentWorkers:
-			project.maxConcurrentWorkers ??
-			global.maxConcurrentWorkers ??
-			DEFAULT_FUZZY_APPLY_PATCH_POLICY.maxConcurrentWorkers,
-		maxQueueDepth:
-			project.maxQueueDepth ??
-			global.maxQueueDepth ??
-			DEFAULT_FUZZY_APPLY_PATCH_POLICY.maxQueueDepth,
-	};
-}
-
-export async function loadFuzzyApplyPatchPolicy(
-	options: LoadFuzzyApplyPatchPolicyOptions = {},
-): Promise<FuzzyApplyPatchPolicy> {
+export async function loadApplyPatchPolicy(
+	options: LoadApplyPatchPolicyOptions = {},
+): Promise<ApplyPatchPolicy> {
 	const sections = await readMergedJsonSettingsSection({
 		paths: options.paths ?? defaultPiSettingsPaths(),
 		section: SECTION,
@@ -108,5 +60,12 @@ export async function loadFuzzyApplyPatchPolicy(
 	});
 	const globalSection = isRecord(sections.global) ? sections.global[GROUP] : undefined;
 	const projectSection = isRecord(sections.project) ? sections.project[GROUP] : undefined;
-	return mergedPolicy(readLayer("global", globalSection), readLayer("project", projectSection));
+	const global = readLayer("global", globalSection);
+	const project = readLayer("project", projectSection);
+	const baseline = global.fuzzFactor ?? DEFAULT_APPLY_PATCH_POLICY.fuzzFactor;
+	if (project.fuzzFactor !== undefined && project.fuzzFactor > baseline)
+		invalid("project", "fuzzFactor", `must not exceed global value ${baseline}`);
+	return {
+		fuzzFactor: project.fuzzFactor ?? global.fuzzFactor ?? DEFAULT_APPLY_PATCH_POLICY.fuzzFactor,
+	};
 }

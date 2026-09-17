@@ -19,7 +19,7 @@ const MAX_OUTPUT_BYTES_EACH = 1024 * 1024;
 const TARGET_PROMPT_MARKER = "<pi-ext-tools-targets>";
 const TARGET_PROMPT_LINES = [
 	"read, grep, find, edit, and write accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
-	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support pty, async, or output. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
+	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support async or output. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
 	"target: output reads persisted output ids; find, edit, write, bash, and apply_patch do not support output.",
 ] as const;
 

@@ -46,7 +46,7 @@ unknown target、未授权 alias、target/path capability 不匹配、或 remote
 | `read` | existing local behavior | read one Output id | SFTP text/image read |
 | `grep` | existing local/FFF behavior | search one Output id | remote `rg --json` |
 | `find` | existing local/FFF behavior | rejected | remote `rg --files` plus local non-FFF ranking |
-| `bash` | existing local foreground/pty/async | rejected | foreground `ssh` only；cwd 为远端 `$HOME` |
+| `bash` | existing local foreground/async | rejected | foreground `ssh` only；cwd 为远端 `$HOME` |
 | `apply_patch` | Patch Core + LocalBackend | rejected | Patch Core + SftpBackend（ADR-0018） |
 | `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
 
@@ -97,7 +97,7 @@ path = "/XXX"  -> remote filesystem absolute path
 
 remote bash 不是包一层本机 `ssh` 的 local bash：
 
-- 只接受 `local` 或已授权 SSH alias；`output`、`pty`、`async` 一律拒绝；
+- 只接受 `local` 或已授权 SSH alias；`output`、`async` 一律拒绝；
 - 不传本机 `ctx.cwd`、`shellPath` 或环境变量；远端 sshd 用该帐号 login shell；
 - cwd 为远端 `$HOME`（`cd "$HOME" && command`）；
 - 取消只终止本机 ssh session，不宣称远端 process 已死；结果是 interrupted；
@@ -161,7 +161,7 @@ path 类工具在当前 Trace 使用 warning 色 `host:path`；bash 使用 warni
 - local default、reserved target、legacy URL precedence、target conflict warning 与 unknown/unauthorized target；
 - whitelist snapshot/reload behavior、reserved collision、SSH config literal validation 与 no-probe load；
 - SFTP read text/image、remote `rg` conversion、timeout、abort、non-interactive authentication failure、POSIX rejection；
-- remote bash：SSH exec、home cwd、optional timeout、cancel、output/pty/async 拒绝、无 RTK、`(host)` header、details.target；
+- remote bash：SSH exec、home cwd、optional timeout、cancel、output/async 拒绝、无 RTK、`(host)` header、details.target；
 - remote path rules、FFF bypass、find snapshot cursor、scope limits 与 cursor expiry；
 - sidecar normal reload、caps、non-persistent fallback、invalid records、write failure、fork and Handoff ancestry resolution；
 - list<string> storage validation and Settings TUI narrow/wide add/edit/remove/reorder behavior;

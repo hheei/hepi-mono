@@ -77,7 +77,7 @@ test("bash never streams Pi host temporary output paths", async (): Promise<void
 	);
 });
 
-test("bash exposes PTY only in interactive TUI mode", async (): Promise<void> => {
+test("bash rejects unknown fields before any command starts", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -86,27 +86,18 @@ test("bash exposes PTY only in interactive TUI mode", async (): Promise<void> =>
 	} as unknown as ExtensionAPI);
 	const bash = tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("Expected bash tool");
-	expect(bash.parameters).toMatchObject({
-		anyOf: [
-			expect.anything(),
-			expect.anything(),
-			{ properties: { pty: { const: true } }, additionalProperties: false },
-		],
-	});
-	const result = await bash.execute(
-		"bash-pty-unavailable",
-		{ command: "printf unavailable", pty: true },
-		undefined,
-		undefined,
-		{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
-	);
-	expect(result).toMatchObject({
-		content: [{ type: "text", text: "PTY Bash requires an interactive TUI with PTY enabled" }],
-		details: { error: "pty_unavailable" },
-	});
+	await expect(
+		bash.execute(
+			"bash-invalid-parameters",
+			{ command: "printf unavailable", unsupported: true },
+			undefined,
+			undefined,
+			{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
+		),
+	).rejects.toThrow("Invalid bash parameters");
 });
 
-test("bash exposes only async and PTY use guidance", (): void => {
+test("bash exposes only async use guidance", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -119,9 +110,7 @@ test("bash exposes only async and PTY use guidance", (): void => {
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
 		"Use `async` only for finite commands that may outlive this tool call.",
-		"Use `pty` only for interactive terminal programs such as `sudo` or `ssh`.",
-		"NEVER combine `pty` with `async`.",
-		"Remote `target` is an authorized SSH host; omit pty and async. Working directory is the remote home.",
+		"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 	]);
 });
 
@@ -539,7 +528,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
 });
 
-test("bash rejects output, pty, and async on SSH targets", async (): Promise<void> => {
+test("bash rejects output and async on SSH targets", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -560,18 +549,6 @@ test("bash rejects output, pty, and async on SSH targets", async (): Promise<voi
 	).toMatchObject({
 		content: [{ type: "text", text: "bash does not support output targets." }],
 		details: { error: "unauthorized", target: "output" },
-	});
-	expect(
-		await bash.execute(
-			"bash-remote-pty",
-			{ command: "true", target: "ileqm", pty: true },
-			undefined,
-			undefined,
-			context,
-		),
-	).toMatchObject({
-		content: [{ type: "text", text: "PTY Bash is local-only; omit pty for SSH targets." }],
-		details: { error: "pty_unsupported", target: "ileqm" },
 	});
 	expect(
 		await bash.execute(

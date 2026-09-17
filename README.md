@@ -24,13 +24,12 @@ Concrete extensions use `@hheei/pi-ext-core` as a shared foundation dependency;
 ext-core is not itself an installable Pi extension. See the
 [package catalogue](docs/user/packages.md) for available extensions and local-only packages.
 
-For a local checkout, use Node.js >=22.19.0, pnpm >=12.4.1, and stable Rust for
-the `pi-ext-tools` native bridge. Run from the repository root:
+For a local checkout, use Node.js >=22.19.0 and pnpm >=12.4.1. Run from the
+repository root:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm --filter @hheei/pi-ext-core run build
-pnpm --filter @hheei/pi-ext-tools run build:native
 pnpm --filter @hheei/pi-ext-tools run build
 pi install ./packages/pi-ext-tools
 ```
@@ -55,7 +54,6 @@ references/
   repos/        Ignored local clones
 
 scripts/        Repository development commands
-crates/         Native bridge and vendored Rust dependencies
 ```
 
 ## Local State and References

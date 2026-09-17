@@ -12,7 +12,7 @@
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
-		"test": "pnpm --filter @hheei/pi-ext-tools run build:native && vitest run",
+		"test": "vitest run",
 		"bun:compat": "bun scripts/bun-compat-smoke.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
 		"tui:replay": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay.ts",

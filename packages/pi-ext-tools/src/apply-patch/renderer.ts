@@ -10,7 +10,7 @@ import { LinesBody } from "../pretty/lines-body.js";
 import type {
 	ApplyPatchHunkSnapshot,
 	ApplyPatchOperationProgress,
-	MpatchHunkOutcome,
+	PatchHunkOutcome,
 } from "./outcome.js";
 import { createV4aPreviewCursor, previewV4aPatchPrefix, type V4aPreviewCursor } from "./parser.js";
 
@@ -44,10 +44,7 @@ function row(operation: ApplyPatchOperationProgress, theme: Theme, host?: string
 						: operation.status === "not_applied"
 							? theme.fg("dim", "–")
 							: theme.fg("error", "✗");
-	const score =
-		operation.status === "fuzzy" && operation.score !== undefined
-			? ` ${theme.fg("dim", `(${operation.score.toFixed(2)})`)}`
-			: "";
+	const score = operation.status === "fuzzy" ? ` ${theme.fg("dim", "fuzzy")}` : "";
 	const hunkSummary =
 		operation.status === "partial" &&
 		operation.appliedHunks !== undefined &&
@@ -146,22 +143,13 @@ function snapshotLines(snapshot: ApplyPatchHunkSnapshot, theme: Theme, width: nu
 }
 
 function diagnosticText(
-	diagnostic: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>,
+	diagnostic: Exclude<PatchHunkOutcome, { readonly kind: "applied" }>,
 ): string {
 	switch (diagnostic.kind) {
 		case "context_not_found":
 			return "context not found";
 		case "ambiguous_exact":
 			return `exact context is ambiguous at lines ${diagnostic.candidateStartLines.join(", ")}`;
-		case "ambiguous_fuzzy":
-			return `fuzzy context is ambiguous at ${diagnostic.candidates
-				.map(
-					(candidate) =>
-						`lines ${candidate.startLine}-${candidate.startLine + candidate.length - 1}`,
-				)
-				.join(", ")}`;
-		case "fuzzy_below_threshold":
-			return `best fuzzy score ${diagnostic.best.score.toFixed(2)} < required ${diagnostic.threshold.toFixed(2)}`;
 	}
 }
 

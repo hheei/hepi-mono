@@ -72,10 +72,10 @@ apply_patch
 catalog 不从 `pi.getAllTools()` 或 active-tool inventory 自动推断。新增名称必须单独确认 upstream compatibility、
 tool schema、rendering、lifecycle、Loadout metadata 与 focused tests。
 
-## apply_patch 与 native mpatch runtime
+## apply_patch 与 jsdiff runtime
 
-`apply_patch` 使用 N-API bridge 内链接的 vendored mpatch `v1.6.4`，不分发或启动独立
-mpatch executable。它是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
+`apply_patch` 在纯 JavaScript worker 中用 jsdiff 匹配并改写文本，不分发或启动独立
+executable，也不依赖自有 N-API addon。它是 catalog 中唯一公开的 patch tool；其 JSON 参数固定为
 `{ "patch": "<Codex V4A text>" }`。它只接受 `*** Begin Patch` / `*** End Patch`、`Add File`、
 `Update File`、`Delete File` 与 `Move to` 组成的 Codex V4A grammar；不接受 raw Git diff、参数别名或
 per-call fuzzy option。本机 V4A path 可以是绝对或相对 path；相对 path 从 workspace root 解析，也可用 `..`
@@ -84,25 +84,19 @@ workspace 内 symlink 指向外部不算外部写入。
 
 `@@ 文本` 按顺序限定后续 hunk 的搜索起点；缺失锚点拒绝该 hunk，范围内重复上下文仍拒绝歧义。`*** End of File` 限定文件末尾。纯移动使用 `Update File` + `Move to`，无需内容 hunk。Update 保留源文件换行风格与末尾换行状态；纯移动保留原始字节。
 
-mpatch 是 `apply_patch` 的私有 fuzzy worker，不是独立 Pi tool，也不从用户的 `PATH`、
-`MPATCH_BIN` 或网络取得 executable。bridge 的一次性 run handle 在文件循环、fuzzy 搜索和
-写入前协作检查取消 flag；写入发生在 Patch Core 的 sibling 临时文件上，replace 确认后才算 Changed。
+jsdiff 只消费内部编译的单文件、单 hunk unified diff；路径由已解析的 V4A operation 决定。每个 Update 的全部 hunk 在一个短生命周期 worker 中顺序作用于内存 copy；取消 `terminate()` 该 worker。写入发生在 Patch Core 的 sibling 临时文件上，replace 确认后才算 Changed。
 
-mpatch 只接受 unified diff，不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
+jsdiff 不能替代 Codex V4A parser。tool 在 TypeScript 中严格解析
 V4A，但容忍 UTF-8 BOM、envelope 外空行与最外层 ` ```patch` / ` ```diff` 代码围栏；内部
 grammar、body whitespace 与 path size 仍严格校验。本机 path lexical resolve，但不是 workspace jail：绝对 path
 与 `..` 都可用，symlink 也不 `realpath` 追踪。某个 operation 的 path 冲突、source/destination 不合规或 hunk
 mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
 
-`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。
+`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。SSH Target 仍通过 `createSftpPatchFs()` 在本机读字节、计算，再 Publish；远端不需要 Node 或 jsdiff。
 
 发布前复核源基线，检测到准备期间的外部修改时拒绝覆盖。Move 在目标发布后、删除源前再次复核；源冲突时保留目标与源并报告部分成功。此检查与实际 rename/remove 之间仍有竞态窗口，不是原子 compare-and-swap，也不是对外部 writer 的锁。
 
-fuzzy policy 只读取 `pi-ext-tools.applyPatch.minSimilarity`。默认 `0.7`。`0` 关闭 fuzzy，
-只允许 exact apply；`1` 只接受 score 为 `1` 的 fuzzy candidate。user-global settings 可配置；project settings 只能收紧：设为 `0` 关闭 fuzzy，或提高 minSimilarity，不能放宽写入匹配条件。
-
-每次升级 mpatch 必须固定 release、验证每个 archive 的 SHA-256，并更新 package 的 upstream
-record 与 MIT notice。
+fuzzy policy 只读取 `pi-ext-tools.applyPatch.fuzzFactor`。默认 `0`。全局可显式设为整数 `2`；project 只能收紧，不能高于 global。旧 `minSimilarity`、`maxConcurrentWorkers`、`maxQueueDepth` 不被支持，也不映射到 `fuzzFactor`。开启 fuzzy 接受 jsdiff first-fit，不承诺 fuzzy 歧义检测。
 
 `read`、`grep`、`find`、`edit`、`write`、`bash`、`apply_patch` 每个名称只有一次 static managed definition。不存在 tool-definition
 priority、同名 fallback registration 或运行时 provider arbitration。`edit`、`write` 与 `apply_patch` 的 definition 在 construction
@@ -141,23 +135,17 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 均由 `pi-ext-tools` 管理；它不复用 Pi host `createBashToolDefinition()`。这是为了避免 Pi host 的
 `pi-bash-*.log` 与 extension output 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
 
-`pi-ext-tools` 的 `BashOutputSink` 是 foreground、async 与 PTY 的唯一输出策略 owner。它默认保留最后
-10 KiB 的 UTF-8-safe 可见 tail；foreground 与 PTY 仅在输出超过该限制时创建并持续写入 `output://N`，
+`pi-ext-tools` 的 `BashOutputSink` 是 foreground 与 async 的唯一输出策略 owner。它默认保留最后
+10 KiB 的 UTF-8-safe 可见 tail；foreground 仅在输出超过该限制时创建并持续写入 `output://N`，
 async 在启动时预留 output。所有终态 tool result 只携带 tail、截断 metadata 和 opaque output URI。
 settings 属于 concrete extension：`pi-ext-tools` 的 Bash settings 配置该 visible-tail 上限；ext-core 仅持有
 进程范围 output resource，不拥有输出大小、截断或 shell policy。
 
-PTY、stdin 回写、terminal resize 与后台 job 是独立 feature，不能由 `bash` tool 隐式 fallback 提供。
+### Optional optimizer integration
 
-### Optional RTK foreground rewrite
+RTK 重写策略、配置与生命周期现由独立 [`pi-optimizer`](../optimizer/README.md) 所有。`pi-ext-tools` 不再注册 RTK provider 或重写 hook；旧 `pi-ext-tools.rtk` / `rtkPath` 由 optimizer 原子迁移。未安装 optimizer 时 Bash 不自动改写。
 
-`pi-ext-tools.rtk` 是全局、默认关闭的 boolean setting；`pi-ext-tools.rtkPath` 是全局 string，默认空字符串。`rtkPath` 为空时通过 `PATH` 执行 `rtk`；非空时作为 RTK executable 的明确路径。保存后在 `/reload` 或下一 session 生效。两个字段是 `pi-ext-tools` section 的 direct primitive fields，RTK provider 写入时保留 `fff`、`bash` 与 `edit` sibling groups。旧 `pi-ext-tools.bash.rtkRewrite` 不迁移且不再读取。
-
-启用时，只在普通前台 `bash({ command, timeout? })` 调用前执行 `<rtkPath || "rtk"> rewrite <command>`，使用 1 秒 deadline。`async: true` 与 `pty: true` 保留原 command，不参与此 feature。
-
-RTK 是唯一 rewrite policy owner：extension 不注入 prompt、不维护 command allowlist，也不加入 RTK 的 output compaction、metrics、database path 或单独 config。为避免递归，空白 command、显式 `rtk` 以及 leading env assignment 后仍是 `rtk` 的 command（如 `FOO=bar rtk …`）会跳过 rewrite；这不是 rewrite policy。仅当 RTK 返回 exit `0` 或 `3`，且 stdout 是非空并不同于原 command 的完整 command string 时，extension 才原地替换 Pi `tool_call` input；因此 Pi 记录与工具 call renderer 显示实际执行 command。
-
-`rtk` 缺失、拒绝、空 stdout、超时或执行异常时，原 command 完整执行；每 session 仅显示一次 TUI warning。取消 rewrite 时静默保留原 command。无匹配时同样保留原 command，但不提示。该 fallback 不改变既有 Bash output URI、tail、timeout、abort、async job、PTY 或 renderer contract。focused tests 覆盖 disabled、success、no-match、missing/error/timeout、abort、empty 0/3、exit 2、whitespace、env-prefixed `rtk`、already-RTK、explicit path、lifecycle settings 与 async/PTY bypass。
+Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与 async 保持原行为。Bash 的 Output 仍保存实际子进程输出；执行 RTK 包装命令时，该输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
 
 ### Extension-owned async Bash
 
@@ -182,20 +170,7 @@ output URI 采用 ext-core process registry 分配的单调十进制 id：`outpu
 host filesystem path、也不得伪造 URI；ext-core 保留 URI 到 process-owned resource 的映射，并在 process exit 清理。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。`async` 与未来的 `pty` 参数互斥。普通不带 `async` 或 `pty` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。
-
-### PtySession native boundary
-
-`bash` 以显式 `pty: true` 提供 `PtySession`。它是 `pi-ext-bridge` 的最小 N-API
-边界：以明确的 command、cwd、env、rows、cols 创建一条 pseudo-terminal；调用方可写入 UTF-8 bytes、
-调整 rows/cols、读取 raw output bytes 并终止 child process group。每个实例独占 reader、writer、child 与关闭状态；
-`kill()`、`close()` 与 JS wrapper drop 必须幂等。close 后 child reaping 有 300 ms 上限，避免异常的
-platform PTY handle 阻塞 Pi；native output 不跨 session 保存。
-
-Pi host 仍拥有默认 Bash。只有 `mode === "tui"` 且 `PI_NO_PTY !== "1"` 的明确
-`bash({ pty: true })` 才能创建 ext-core-managed overlay surface；无 TUI 或被禁用时返回错误，绝不退回
-到 async job 或 host Bash。surface 使用一条 full-width shell frame，header 用 `bashMode`，output 用
-`muted`，并显示 `Esc` kill/dismiss hint，遵循 [DESIGN.md](../../DESIGN.md)。
+默认 shell 由平台环境决定。普通不带 `async` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。
 
 ## Tool Ownership
 
@@ -218,7 +193,7 @@ dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
 upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
 find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
-FFF settings 只读取和写入 `pi-ext-tools.fff`；Bash settings（shell path、output tail）只读取和写入 `pi-ext-tools.bash`；RTK settings 则直接读取和写入 `pi-ext-tools.rtk` 与 `pi-ext-tools.rtkPath`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
+FFF settings 只读取和写入 `pi-ext-tools.fff`；Bash settings（shell path、output tail）只读取和写入 `pi-ext-tools.bash`。RTK settings 已迁到 `pi-optimizer`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
 保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
 
 FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `text` 目录标题、`success` 匹配标签和 `text` 路径。

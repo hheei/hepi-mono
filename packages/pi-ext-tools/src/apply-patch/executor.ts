@@ -1,7 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
 	APPLY_PATCH_MAX_FILE_SIZE,
 	createLocalPatchFs,
@@ -12,8 +8,8 @@ import {
 	publishPreparedFile,
 	sftpTimeoutMs,
 } from "./fs.js";
+import { runJsDiffUpdate } from "./jsdiff.js";
 import { acquireMutationLock } from "./lock.js";
-import { type MpatchRunResult, runMpatch } from "./mpatch.js";
 import type {
 	ApplyPatchAppliedOperation,
 	ApplyPatchHunkSnapshot,
@@ -21,10 +17,10 @@ import type {
 	ApplyPatchOperationProgress,
 	ApplyPatchProgress,
 	ApplyPatchRejection,
-	MpatchHunkOutcome,
+	PreparedPatchUpdate,
+	RejectedPatchHunk,
 } from "./outcome.js";
 import {
-	compileV4aUpdateToUnifiedDiff,
 	findV4aPatchConflicts,
 	operationTouchedPaths,
 	parseV4aPatch,
@@ -33,7 +29,7 @@ import {
 	type V4aUpdateOperation,
 } from "./parser.js";
 import { assertPatchPath } from "./paths.js";
-import type { FuzzyApplyPatchPolicy } from "./policy.js";
+import type { ApplyPatchPolicy } from "./policy.js";
 
 const SNAPSHOT_MAX_LINES = 150;
 
@@ -41,33 +37,20 @@ export interface ApplyPatchInWorkspaceOptions {
 	readonly workspaceRoot: string;
 	readonly patch: string;
 	readonly parsedPatch?: V4aPatch;
-	readonly policy: FuzzyApplyPatchPolicy;
+	readonly policy: ApplyPatchPolicy;
 	readonly signal?: AbortSignal;
 	readonly onProgress?: (progress: ApplyPatchProgress) => void;
 	readonly fs?: PatchFs;
 	readonly lockKey?: string;
 }
 
-interface StageUpdateResult {
-	readonly mode: "exact" | "fuzzy" | undefined;
-	readonly outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[];
-	readonly rejected: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
-	readonly snapshots: readonly ApplyPatchHunkSnapshot[];
-	readonly after: Uint8Array;
-}
-
 class PatchUpdateError extends Error {
 	constructor(
 		message: string,
-		readonly diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[],
+		readonly diagnostics: readonly RejectedPatchHunk[],
 	) {
 		super(message);
 	}
-}
-
-function parentDir(path: string): string {
-	const index = path.lastIndexOf("/");
-	return index < 0 ? "." : path.slice(0, index);
 }
 
 function lineCount(content: Uint8Array | string | undefined): number {
@@ -100,31 +83,6 @@ function plannedDelta(
 	return hunkDelta(operation.hunks);
 }
 
-function appliedDelta(
-	operation: V4aPatchOperation,
-	outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[],
-): { readonly addedLines: number; readonly removedLines: number } {
-	if (operation.kind !== "update") return plannedDelta(operation, undefined);
-	let addedLines = 0;
-	let removedLines = 0;
-	for (const outcome of outcomes) {
-		const hunk = operation.hunks[outcome.hunkIndex - 1];
-		if (hunk === undefined) continue;
-		const delta = hunkDelta([hunk]);
-		addedLines += delta.addedLines;
-		removedLines += delta.removedLines;
-	}
-	return { addedLines, removedLines };
-}
-
-function progressScore(outcome: ApplyPatchAppliedOperation): number | undefined {
-	let score: number | undefined;
-	for (const hunk of outcome.outcomes)
-		if (hunk.match === "fuzzy" && hunk.score !== undefined)
-			score = score === undefined ? hunk.score : Math.min(score, hunk.score);
-	return score;
-}
-
 function progressTotals(operations: readonly ApplyPatchOperationProgress[]): {
 	readonly files: number;
 	readonly addedLines: number;
@@ -153,31 +111,6 @@ function splitTextLines(content: Uint8Array): readonly string[] {
 	return Object.freeze(lines);
 }
 
-function snapshotHunk(
-	path: string,
-	hunkIndex: number,
-	outcome: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>,
-	hunk: V4aUpdateOperation["hunks"][number],
-	before: Uint8Array,
-	after: Uint8Array,
-): ApplyPatchHunkSnapshot {
-	const beforeLines = splitTextLines(before);
-	const afterLines = splitTextLines(after);
-	const beforeStart = Math.max(0, outcome.startLine - 1 - 3);
-	const afterStart = Math.max(0, outcome.startLine - 1 - 3);
-	const beforeEnd = Math.min(beforeLines.length, outcome.startLine - 1 + outcome.length + 3);
-	const afterLength = hunk.lines.filter((line) => line.kind !== "remove").length;
-	const afterEnd = Math.min(afterLines.length, afterStart + afterLength + 6);
-	return Object.freeze({
-		path,
-		hunkIndex,
-		startLine: beforeStart + 1,
-		afterStartLine: afterStart + 1,
-		before: Object.freeze(beforeLines.slice(beforeStart, beforeEnd)),
-		after: Object.freeze(afterLines.slice(afterStart, afterEnd)),
-	});
-}
-
 function fileSnapshot(
 	path: string,
 	before: Uint8Array | undefined,
@@ -195,290 +128,6 @@ function fileSnapshot(
 			(after === undefined ? [] : splitTextLines(after)).slice(0, SNAPSHOT_MAX_LINES),
 		),
 	});
-}
-
-function hunkFailureSummary(
-	diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[],
-): string | undefined {
-	const diagnostic = diagnostics[0];
-	if (diagnostic === undefined) return undefined;
-	switch (diagnostic.kind) {
-		case "context_not_found":
-			return "context not found";
-		case "ambiguous_exact":
-			return "exact context is ambiguous";
-		case "ambiguous_fuzzy":
-			return "fuzzy context is ambiguous";
-		case "fuzzy_below_threshold":
-			return "fuzzy score below threshold";
-	}
-}
-
-function offsetRejectedOutcome(
-	outcome: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>,
-	hunkIndex: number,
-	prefixLines: number,
-): Exclude<MpatchHunkOutcome, { readonly kind: "applied" }> {
-	switch (outcome.kind) {
-		case "ambiguous_exact":
-			return {
-				...outcome,
-				hunkIndex,
-				candidateStartLines: outcome.candidateStartLines.map((line) => line + prefixLines),
-			};
-		case "ambiguous_fuzzy":
-			return {
-				...outcome,
-				hunkIndex,
-				candidates: outcome.candidates.map((candidate) => ({
-					...candidate,
-					startLine: candidate.startLine + prefixLines,
-				})),
-			};
-		case "fuzzy_below_threshold":
-			return {
-				...outcome,
-				hunkIndex,
-				best: { ...outcome.best, startLine: outcome.best.startLine + prefixLines },
-			};
-		default:
-			return { ...outcome, hunkIndex };
-	}
-}
-
-interface MpatchAttempt {
-	readonly result: MpatchRunResult;
-	readonly after?: Uint8Array;
-}
-
-async function checkedMpatch(
-	cwd: string,
-	operation: V4aUpdateOperation,
-	fuzzFactor: number,
-	signal?: AbortSignal,
-): Promise<MpatchAttempt> {
-	const source = join(cwd, ...operation.path.split("/"));
-	const before = await readFile(source, signal === undefined ? undefined : { signal });
-	const result = await runMpatch({
-		cwd,
-		unifiedDiff: compileV4aUpdateToUnifiedDiff(operation),
-		fuzzFactor,
-		dryRun: false,
-		...(signal === undefined ? {} : { signal }),
-	});
-	if (result.status !== 0) {
-		await writeFile(source, before, signal === undefined ? undefined : { signal });
-		return { result };
-	}
-	return { result, after: await readFile(source) };
-}
-
-interface TextLine {
-	readonly text: string;
-	readonly end: string;
-}
-
-function textLines(bytes: Uint8Array): readonly TextLine[] {
-	const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
-	const parts = text.split(/(\r\n|\n|\r)/);
-	const lines: TextLine[] = [];
-	for (let index = 0; index < parts.length; index += 2) {
-		const value = parts[index];
-		if (value === undefined || (index === parts.length - 1 && value === "")) continue;
-		lines.push({ text: value, end: parts[index + 1] ?? "" });
-	}
-	return lines;
-}
-
-function lineOffset(bytes: Uint8Array, count: number): number {
-	let offset = 0;
-	let lines = 0;
-	while (offset < bytes.length && lines < count) {
-		const byte = bytes[offset++];
-		if (byte === 13) {
-			if (bytes[offset] === 10) offset += 1;
-			lines += 1;
-		} else if (byte === 10) lines += 1;
-	}
-	return offset;
-}
-
-function anchorConstraint(
-	bytes: Uint8Array,
-	hunk: V4aUpdateOperation["hunks"][number],
-):
-	| { readonly prefixBytes: number; readonly prefixLines: number }
-	| Exclude<MpatchHunkOutcome, { readonly kind: "applied" }> {
-	let start = 0;
-	const lines = textLines(bytes);
-	const anchors = hunk.anchors ?? (hunk.anchor === undefined ? [] : [hunk.anchor]);
-	for (const anchor of anchors) {
-		const candidates: number[] = [];
-		for (let index = start; index < lines.length; index += 1)
-			if (lines[index]?.text.includes(anchor)) candidates.push(index);
-		if (candidates.length === 0) return { kind: "context_not_found", hunkIndex: 0 };
-		if (candidates.length > 1)
-			return {
-				kind: "ambiguous_exact",
-				hunkIndex: 0,
-				candidateStartLines: candidates.map((line) => line + 1),
-			};
-		start = (candidates[0] ?? 0) + 1;
-	}
-	return { prefixBytes: lineOffset(bytes, start), prefixLines: start };
-}
-
-function preserveUntouchedLines(
-	before: Uint8Array,
-	after: Uint8Array,
-	prefixLines: number,
-	startLine: number,
-	oldLength: number,
-	newLength: number,
-	hunk: V4aUpdateOperation["hunks"][number],
-): Uint8Array {
-	const original = textLines(before);
-	const changed = textLines(after);
-	const start = startLine - 1;
-	const preferred =
-		original[start]?.end || original[start - 1]?.end || original[start + oldLength]?.end || "\n";
-	const source = original.slice(start, start + oldLength);
-	const replacement = changed
-		.slice(start - prefixLines, start - prefixLines + newLength)
-		.map((line, index) => ({
-			text: line.text,
-			end: line.end === "" ? "" : original[start + index]?.end || preferred,
-		}));
-	let sourceIndex = 0;
-	let replacementIndex = 0;
-	for (const line of hunk.lines) {
-		const text = line.text.replace(/\r\n$|\n$|\r$/, "");
-		const sourceMatch =
-			line.kind === "add"
-				? -1
-				: source.findIndex((candidate, index) => index >= sourceIndex && candidate.text === text);
-		const replacementMatch =
-			line.kind === "remove"
-				? -1
-				: replacement.findIndex(
-						(candidate, index) => index >= replacementIndex && candidate.text === text,
-					);
-		if (sourceMatch >= 0) sourceIndex = sourceMatch + 1;
-		if (replacementMatch >= 0) replacementIndex = replacementMatch + 1;
-		if (line.kind !== "context" || sourceMatch < 0 || replacementMatch < 0) continue;
-		const sourceEnd = source[sourceMatch]?.end;
-		const replacementLine = replacement[replacementMatch];
-		if (sourceEnd !== undefined && replacementLine !== undefined && replacementLine.end !== "")
-			replacementLine.end = sourceEnd;
-	}
-	const result = [
-		...original.slice(0, start),
-		...replacement,
-		...original.slice(start + oldLength),
-	];
-	return new TextEncoder().encode(
-		result
-			.map((line, index) => {
-				const end =
-					index < result.length - 1
-						? line.end || preferred
-						: original.at(-1)?.end === ""
-							? ""
-							: line.end;
-				return `${line.text}${end}`;
-			})
-			.join(""),
-	);
-}
-
-const STAGING_PATH = "__apply_patch_target__";
-
-async function stageUpdate(
-	stagingRoot: string,
-	operation: V4aUpdateOperation,
-	policy: FuzzyApplyPatchPolicy,
-	signal?: AbortSignal,
-): Promise<StageUpdateResult> {
-	const outcomes: Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
-	const rejected: Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [];
-	const snapshots: ApplyPatchHunkSnapshot[] = [];
-	const source = join(stagingRoot, STAGING_PATH);
-	let mode: "exact" | "fuzzy" | undefined;
-	let after: Uint8Array = await readFile(source);
-	for (const [index, hunk] of operation.hunks.entries()) {
-		const hunkIndex = index + 1;
-		const beforeHunk = after;
-		const constraint = anchorConstraint(beforeHunk, hunk);
-		if ("kind" in constraint) {
-			rejected.push({ ...constraint, hunkIndex });
-			continue;
-		}
-		const delta = hunkDelta([hunk]);
-		const oldLength = hunk.lines.length - delta.addedLines;
-		const anchoredSuffix = beforeHunk.slice(constraint.prefixBytes);
-		const eofLines =
-			hunk.endOfFile === undefined ? 0 : Math.max(0, textLines(anchoredSuffix).length - oldLength);
-		const prefixBytes = constraint.prefixBytes + lineOffset(anchoredSuffix, eofLines);
-		const prefixLines = constraint.prefixLines + eofLines;
-		await writeFile(
-			source,
-			beforeHunk.slice(prefixBytes),
-			signal === undefined ? undefined : { signal },
-		);
-		const atomicOperation: V4aUpdateOperation = {
-			kind: "update",
-			path: STAGING_PATH,
-			hunks: [hunk],
-		};
-		let attempt = await checkedMpatch(stagingRoot, atomicOperation, 0, signal);
-		if (attempt.after === undefined && policy.minSimilarity !== 0)
-			attempt = await checkedMpatch(stagingRoot, atomicOperation, policy.minSimilarity, signal);
-		if (attempt.after === undefined) {
-			await writeFile(source, beforeHunk, signal === undefined ? undefined : { signal });
-			for (const outcome of attempt.result.outcomes)
-				if (outcome.kind !== "applied")
-					rejected.push(offsetRejectedOutcome(outcome, hunkIndex, prefixLines));
-			continue;
-		}
-		const rawOutcome = attempt.result.outcomes.find(
-			(outcome): outcome is Extract<MpatchHunkOutcome, { readonly kind: "applied" }> =>
-				outcome.kind === "applied",
-		);
-		if (rawOutcome === undefined) {
-			await writeFile(source, beforeHunk, signal === undefined ? undefined : { signal });
-			rejected.push({ kind: "context_not_found", hunkIndex });
-			continue;
-		}
-		const fullOutcome = {
-			...rawOutcome,
-			hunkIndex,
-			startLine: rawOutcome.startLine + prefixLines,
-		};
-		after = preserveUntouchedLines(
-			beforeHunk,
-			attempt.after,
-			prefixLines,
-			fullOutcome.startLine,
-			rawOutcome.length,
-			Math.max(0, rawOutcome.length + delta.addedLines - delta.removedLines),
-			hunk,
-		);
-		await writeFile(source, after, signal === undefined ? undefined : { signal });
-		outcomes.push(fullOutcome);
-		snapshots.push(
-			snapshotHunk(
-				operation.moveTo ?? operation.path,
-				hunkIndex,
-				fullOutcome,
-				hunk,
-				beforeHunk,
-				after,
-			),
-		);
-		if (rawOutcome.match === "fuzzy") mode = "fuzzy";
-		else mode ??= "exact";
-	}
-	return { mode, outcomes, rejected, snapshots, after };
 }
 
 function initialRejections(patch: V4aPatch): {
@@ -506,7 +155,7 @@ function rejection(
 	index: number,
 	paths: readonly string[],
 	error: unknown,
-	diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[] = [],
+	diagnostics: readonly RejectedPatchHunk[] = [],
 ): ApplyPatchRejection {
 	return Object.freeze({
 		operationIndices: Object.freeze([index]),
@@ -519,13 +168,13 @@ function rejection(
 async function prepareUpdateBytes(
 	fs: PatchFs,
 	operation: V4aUpdateOperation,
-	policy: FuzzyApplyPatchPolicy,
+	policy: ApplyPatchPolicy,
 	signal?: AbortSignal,
 ): Promise<{
 	readonly bytes: Uint8Array;
 	readonly before: Uint8Array;
 	readonly mode: number | undefined;
-	readonly stage: StageUpdateResult;
+	readonly stage: PreparedPatchUpdate;
 }> {
 	const followed = await fs.statFollow(operation.path, signal);
 	if (followed.kind === "missing")
@@ -535,23 +184,17 @@ async function prepareUpdateBytes(
 	if (followed.size > APPLY_PATCH_MAX_FILE_SIZE) throw fileTooLarge(followed.size, operation.path);
 	const before = await fs.readFollow(operation.path, signal, sftpTimeoutMs(followed.size));
 	if (before.length > APPLY_PATCH_MAX_FILE_SIZE) throw fileTooLarge(before.length, operation.path);
-	const stagingRoot = join(tmpdir(), `hepi-apply-patch-${randomUUID()}`);
-	await mkdir(stagingRoot);
-	try {
-		await writeFile(
-			join(stagingRoot, STAGING_PATH),
-			before,
-			followed.mode === undefined ? undefined : { mode: followed.mode },
-		);
-		const stage = await stageUpdate(stagingRoot, operation, policy, signal);
-		if (operation.hunks.length > 0 && stage.outcomes.length === 0)
-			throw new PatchUpdateError("One or more update hunks failed", stage.rejected);
-		if (stage.after.length > APPLY_PATCH_MAX_FILE_SIZE)
-			throw fileTooLarge(stage.after.length, operation.moveTo ?? operation.path);
-		return { bytes: stage.after, before, mode: followed.mode, stage };
-	} finally {
-		await rm(stagingRoot, { recursive: true, force: true });
-	}
+	const stage = await runJsDiffUpdate({
+		before,
+		operation,
+		fuzzFactor: policy.fuzzFactor,
+		...(signal === undefined ? {} : { signal }),
+	});
+	if (operation.hunks.length > 0 && stage.outcomes.length === 0)
+		throw new PatchUpdateError("One or more update hunks failed", stage.rejected);
+	if (stage.after.length > APPLY_PATCH_MAX_FILE_SIZE)
+		throw fileTooLarge(stage.after.length, operation.moveTo ?? operation.path);
+	return { bytes: stage.after, before, mode: followed.mode, stage };
 }
 
 function sourceChanged(path: string): Error {
@@ -643,7 +286,8 @@ async function applyDelete(
 interface UpdatePublishResult {
 	readonly outcome: ApplyPatchAppliedOperation;
 	readonly mode: "exact" | "fuzzy" | undefined;
-	readonly rejectedHunks: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
+	readonly rejectedHunks: readonly RejectedPatchHunk[];
+	readonly prepared: PreparedPatchUpdate;
 	readonly sourceError?: unknown;
 	readonly sourceUnknown?: boolean;
 }
@@ -652,7 +296,7 @@ async function applyUpdate(
 	fs: PatchFs,
 	index: number,
 	operation: V4aUpdateOperation,
-	policy: FuzzyApplyPatchPolicy,
+	policy: ApplyPatchPolicy,
 	signal?: AbortSignal,
 ): Promise<UpdatePublishResult> {
 	const prepared = await prepareUpdateBytes(fs, operation, policy, signal);
@@ -683,6 +327,7 @@ async function applyUpdate(
 		outcome,
 		mode: prepared.stage.mode,
 		rejectedHunks: prepared.stage.rejected,
+		prepared: prepared.stage,
 	};
 	if (operation.moveTo === undefined) return result;
 	try {
@@ -736,18 +381,18 @@ export async function applyPatchInWorkspace(
 		outcome?: ApplyPatchAppliedOperation,
 		update?: V4aUpdateOperation,
 		partialReason?: string,
+		prepared?: PreparedPatchUpdate,
 	): void => {
 		const current = progressOperations[index];
 		if (current === undefined) throw new Error(`Missing patch progress operation: ${index}`);
-		const score = status === "fuzzy" && outcome !== undefined ? progressScore(outcome) : undefined;
-		const { score: _score, ...rest } = current;
 		progressOperations[index] = Object.freeze({
-			...rest,
-			...(update === undefined || outcome === undefined
+			...current,
+			...(update === undefined
 				? {}
-				: appliedDelta(update, outcome.outcomes)),
+				: update.kind !== "update" || prepared === undefined
+					? plannedDelta(update, undefined)
+					: { addedLines: prepared.addedLines, removedLines: prepared.removedLines }),
 			status,
-			...(score === undefined ? {} : { score }),
 			...(status === "partial" && update !== undefined && outcome !== undefined
 				? {
 						appliedHunks: outcome.outcomes.length,
@@ -776,7 +421,10 @@ export async function applyPatchInWorkspace(
 		await gcAgentPatchTemps(
 			fs,
 			patch.operations.flatMap((operation) =>
-				operationTouchedPaths(operation).map((path) => parentDir(path)),
+				operationTouchedPaths(operation).map((path) => {
+					const separator = path.lastIndexOf("/");
+					return separator < 0 ? "." : path.slice(0, separator);
+				}),
 			),
 			options.signal,
 		);
@@ -804,9 +452,8 @@ export async function applyPatchInWorkspace(
 					applied.push(deleted.outcome);
 					const current = progressOperations[index];
 					if (current !== undefined) {
-						const { score: _score, ...rest } = current;
 						progressOperations[index] = Object.freeze({
-							...rest,
+							...current,
 							...plannedDelta(operation, deleted.before),
 							status: "applied" as const,
 						});
@@ -819,7 +466,9 @@ export async function applyPatchInWorkspace(
 					const partialReason =
 						published.rejectedHunks.length === 0
 							? undefined
-							: (hunkFailureSummary(published.rejectedHunks) ?? "hunk rejected");
+							: published.rejectedHunks[0]?.kind === "context_not_found"
+								? "context not found"
+								: "exact context is ambiguous";
 					if (published.rejectedHunks.length > 0)
 						rejected.push(
 							rejection(
@@ -832,7 +481,14 @@ export async function applyPatchInWorkspace(
 					if (published.sourceError !== undefined) {
 						if (published.sourceUnknown === true) {
 							unconfirmed.push(rejection(index, [operation.path], published.sourceError));
-							setStatus(index, "unconfirmed", published.outcome);
+							setStatus(
+								index,
+								"unconfirmed",
+								published.outcome,
+								operation,
+								undefined,
+								published.prepared,
+							);
 							halt = "unconfirmed";
 						} else {
 							rejected.push(rejection(index, [operation.path], published.sourceError));
@@ -842,6 +498,7 @@ export async function applyPatchInWorkspace(
 								published.outcome,
 								operation,
 								partialReason ?? String(published.sourceError),
+								published.prepared,
 							);
 						}
 					} else {
@@ -855,6 +512,7 @@ export async function applyPatchInWorkspace(
 							published.outcome,
 							operation,
 							partialReason,
+							published.prepared,
 						);
 					}
 				}

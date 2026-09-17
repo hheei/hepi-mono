@@ -1,108 +1,62 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import {
-	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	loadFuzzyApplyPatchPolicy,
-} from "../src/apply-patch/policy.js";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { DEFAULT_APPLY_PATCH_POLICY, loadApplyPatchPolicy } from "../src/apply-patch/policy.js";
 
-async function settingsPaths(): Promise<{ globalPath: string; projectPath: string; root: string }> {
+let paths: { globalPath: string; projectPath: string; root: string };
+
+beforeEach(async () => {
 	const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-policy-"));
-	return { root, globalPath: join(root, "global.json"), projectPath: join(root, "project.json") };
-}
+	paths = { root, globalPath: join(root, "global.json"), projectPath: join(root, "project.json") };
+});
+
+afterEach(async () => {
+	await rm(paths.root, { recursive: true, force: true });
+});
 
 async function save(path: string, applyPatch: Record<string, unknown>): Promise<void> {
 	await writeFile(path, JSON.stringify({ "pi-ext-tools": { applyPatch } }), "utf8");
 }
 
-describe("fuzzy apply-patch policy", () => {
-	test("uses defaults when settings are absent", async () => {
-		const paths = await settingsPaths();
-		try {
-			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual(DEFAULT_FUZZY_APPLY_PATCH_POLICY);
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
+describe("apply-patch policy", () => {
+	test("uses defaults and accepts global fuzzFactor bounds", async () => {
+		expect(await loadApplyPatchPolicy({ paths })).toEqual(DEFAULT_APPLY_PATCH_POLICY);
+		for (const fuzzFactor of [0, 2]) {
+			await save(paths.globalPath, { fuzzFactor });
+			expect(await loadApplyPatchPolicy({ paths })).toEqual({ fuzzFactor });
 		}
 	});
-	test("loads valid global settings", async () => {
-		const paths = await settingsPaths();
-		try {
-			await save(paths.globalPath, {
-				minSimilarity: 0.9,
-				maxConcurrentWorkers: 4,
-				maxQueueDepth: 100,
-			});
-			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
-				minSimilarity: 0.9,
-				maxConcurrentWorkers: 4,
-				maxQueueDepth: 100,
-			});
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
+
+	test("allows project tightening but not relaxation", async () => {
+		await save(paths.globalPath, { fuzzFactor: 2 });
+		for (const fuzzFactor of [0, 2]) {
+			await save(paths.projectPath, { fuzzFactor });
+			expect(await loadApplyPatchPolicy({ paths })).toEqual({ fuzzFactor });
 		}
+		await save(paths.globalPath, { fuzzFactor: 0 });
+		await save(paths.projectPath, { fuzzFactor: 2 });
+		await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
+			"project setting pi-ext-tools.applyPatch.fuzzFactor must not exceed global value 0",
+		);
 	});
-	test("allows project tightening only", async () => {
-		const paths = await settingsPaths();
-		try {
-			await save(paths.globalPath, {
-				minSimilarity: 0.8,
-				maxConcurrentWorkers: 4,
-				maxQueueDepth: 100,
-			});
-			await save(paths.projectPath, {
-				minSimilarity: 0.9,
-				maxConcurrentWorkers: 2,
-				maxQueueDepth: 20,
-			});
-			expect(await loadFuzzyApplyPatchPolicy({ paths })).toEqual({
-				minSimilarity: 0.9,
-				maxConcurrentWorkers: 2,
-				maxQueueDepth: 20,
-			});
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
-		}
-	});
-	test("allows a project to disable fuzzy matching with zero", async () => {
-		const paths = await settingsPaths();
-		try {
-			await save(paths.globalPath, { minSimilarity: 0.9 });
-			await save(paths.projectPath, { minSimilarity: 0 });
-			expect(await loadFuzzyApplyPatchPolicy({ paths })).toMatchObject({ minSimilarity: 0 });
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
-		}
-	});
-	test("rejects project weakening", async () => {
-		const paths = await settingsPaths();
-		try {
-			await save(paths.globalPath, { minSimilarity: 0.9, maxConcurrentWorkers: 2 });
-			await save(paths.projectPath, { minSimilarity: 0.8 });
-			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
-				"project setting pi-ext-tools.applyPatch.minSimilarity",
+
+	test("rejects invalid fuzz factors and retired matcher keys", async () => {
+		for (const fuzzFactor of [-1, 0.5, 3]) {
+			await save(paths.globalPath, { fuzzFactor });
+			await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
+				"global setting pi-ext-tools.applyPatch.fuzzFactor must be an integer from 0 to 2",
 			);
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
 		}
-	});
-	test("rejects invalid values with layer and key", async () => {
-		const paths = await settingsPaths();
-		try {
-			await save(paths.globalPath, { minSimilarity: null });
-			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
-				"global setting pi-ext-tools.applyPatch.minSimilarity",
+		for (const [key, value] of [
+			["minSimilarity", 0.7],
+			["maxConcurrentWorkers", 2],
+			["maxQueueDepth", 32],
+		] as const) {
+			await save(paths.globalPath, { [key]: value });
+			await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
+				`global setting pi-ext-tools.applyPatch.${key} is not supported`,
 			);
-			await save(paths.globalPath, { maxConcurrentWorkers: 0 });
-			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
-				"global setting pi-ext-tools.applyPatch.maxConcurrentWorkers",
-			);
-			await save(paths.globalPath, { allowFuzzy: false });
-			await expect(loadFuzzyApplyPatchPolicy({ paths })).rejects.toThrow(
-				"global setting pi-ext-tools.applyPatch.allowFuzzy is not supported",
-			);
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
 		}
 	});
 });

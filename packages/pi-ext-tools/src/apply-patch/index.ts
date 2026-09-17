@@ -21,7 +21,8 @@ export type {
 	ApplyPatchOperationProgress,
 	ApplyPatchProgress,
 	ApplyPatchRejection,
-	MpatchHunkOutcome,
+	PatchHunkOutcome,
+	PreparedPatchUpdate,
 } from "./outcome.js";
 export {
 	compileV4aUpdateToUnifiedDiff,
@@ -53,8 +54,8 @@ export {
 	type V4aUpdateOperation,
 } from "./parser.js";
 export {
-	DEFAULT_FUZZY_APPLY_PATCH_POLICY,
-	type FuzzyApplyPatchPolicy,
-	type LoadFuzzyApplyPatchPolicyOptions,
-	loadFuzzyApplyPatchPolicy,
+	type ApplyPatchPolicy,
+	DEFAULT_APPLY_PATCH_POLICY,
+	type LoadApplyPatchPolicyOptions,
+	loadApplyPatchPolicy,
 } from "./policy.js";

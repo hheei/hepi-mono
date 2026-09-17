@@ -1,33 +1,20 @@
-export type MpatchHunkOutcome =
+export type PatchHunkOutcome =
 	| {
 			readonly kind: "applied";
 			readonly hunkIndex: number;
 			readonly startLine: number;
 			readonly length: number;
-			readonly match: "exact" | "exact_ignoring_whitespace" | "fuzzy";
-			readonly score?: number;
+			readonly match: "exact" | "fuzzy";
 	  }
 	| { readonly kind: "context_not_found"; readonly hunkIndex: number }
 	| {
 			readonly kind: "ambiguous_exact";
 			readonly hunkIndex: number;
 			readonly candidateStartLines: readonly number[];
-	  }
-	| {
-			readonly kind: "ambiguous_fuzzy";
-			readonly hunkIndex: number;
-			readonly candidates: readonly { readonly startLine: number; readonly length: number }[];
-	  }
-	| {
-			readonly kind: "fuzzy_below_threshold";
-			readonly hunkIndex: number;
-			readonly best: {
-				readonly startLine: number;
-				readonly length: number;
-				readonly score: number;
-			};
-			readonly threshold: number;
 	  };
+
+export type AppliedPatchHunk = Extract<PatchHunkOutcome, { readonly kind: "applied" }>;
+export type RejectedPatchHunk = Exclude<PatchHunkOutcome, { readonly kind: "applied" }>;
 
 export interface ApplyPatchHunkSnapshot {
 	readonly path: string;
@@ -38,11 +25,21 @@ export interface ApplyPatchHunkSnapshot {
 	readonly after: readonly string[];
 }
 
+export interface PreparedPatchUpdate {
+	readonly after: Uint8Array;
+	readonly mode: "exact" | "fuzzy" | undefined;
+	readonly addedLines: number;
+	readonly removedLines: number;
+	readonly outcomes: readonly AppliedPatchHunk[];
+	readonly rejected: readonly RejectedPatchHunk[];
+	readonly snapshots: readonly ApplyPatchHunkSnapshot[];
+}
+
 export interface ApplyPatchAppliedOperation {
 	readonly operationIndex: number;
 	readonly kind: "add" | "delete" | "update";
 	readonly paths: readonly string[];
-	readonly outcomes: readonly Extract<MpatchHunkOutcome, { readonly kind: "applied" }>[];
+	readonly outcomes: readonly AppliedPatchHunk[];
 	readonly snapshots: readonly ApplyPatchHunkSnapshot[];
 }
 
@@ -50,7 +47,7 @@ export interface ApplyPatchRejection {
 	readonly operationIndices: readonly number[];
 	readonly paths: readonly string[];
 	readonly error: string;
-	readonly diagnostics: readonly Exclude<MpatchHunkOutcome, { readonly kind: "applied" }>[];
+	readonly diagnostics: readonly RejectedPatchHunk[];
 }
 
 export type ApplyPatchProgressStage = "parsed" | "publishing" | "done";
@@ -71,7 +68,6 @@ export type ApplyPatchOperationProgress = {
 	readonly addedLines: number;
 	readonly removedLines: number;
 	readonly status: ApplyPatchOperationStatus;
-	readonly score?: number;
 	readonly appliedHunks?: number;
 	readonly totalHunks?: number;
 	readonly partialReason?: string;

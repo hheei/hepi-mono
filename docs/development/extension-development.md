@@ -52,16 +52,9 @@ Apply formatting or safe lint fixes only to changed paths:
 pnpm exec biome check --write <changed paths...>
 ```
 
-Tests that exercise the native bridge require a prior build:
-
-```bash
-pnpm --filter @hheei/pi-ext-tools run build:native
-```
-
 For shared-interface, dependency, or cross-package changes, also run the root
-`pnpm run typecheck` and `pnpm test`. The full test command builds the native bridge
-before running Vitest. Release validation follows the repository release gate in
-[AGENTS.md](../../AGENTS.md).
+`pnpm run typecheck` and `pnpm test`. Release validation follows the repository
+release gate in [AGENTS.md](../../AGENTS.md).
 
 ## Extension Entry Point
 
@@ -96,8 +89,8 @@ pnpm --filter @hheei/pi-<name> run build
 pi --no-extensions --no-skills -e packages/pi-<name>/dist/extension.js
 ```
 
-For `pi-ext-tools`, also build the native bridge before launching. Source-entry
-packages do not need a TypeScript build unless their manifest declares one.
+Source-entry packages do not need a TypeScript build unless their manifest
+declares one.
 Additional Pi arguments can be appended to the command above.
 
 For the fixed repository development combination with incremental builds, see

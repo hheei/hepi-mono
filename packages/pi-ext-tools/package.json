@@ -10,7 +10,6 @@
 	},
 	"files": [
 		"dist",
-		"native",
 		"README.md",
 		"LICENSE",
 		"THIRD_PARTY_NOTICES.md",
@@ -22,9 +21,7 @@
 		]
 	},
 	"scripts": {
-		"build:native": "node ../../scripts/build-rust.mjs",
-		"test:native": "pnpm run build:native && vitest run ./test/native-shell.native.ts",
-		"build": "tsc -p tsconfig.build.json && node -e \"import { cpSync } from 'node:fs'; cpSync('src/eval/kernel/child.py', 'dist/eval/kernel/child.py')\"",
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"import { cpSync } from 'node:fs'; cpSync('src/eval/kernel/child.py', 'dist/eval/kernel/child.py')\"",
 		"prepack": "pnpm run build"
 	},
 	"keywords": [
@@ -62,7 +59,6 @@
 		"@earendil-works/pi-agent-core": "0.85.1",
 		"@earendil-works/pi-ai": "0.85.1",
 		"@earendil-works/pi-coding-agent": "0.85.1",
-		"@earendil-works/pi-tui": "0.85.1",
-		"@napi-rs/cli": "^3.5.0"
+		"@earendil-works/pi-tui": "0.85.1"
 	}
 }

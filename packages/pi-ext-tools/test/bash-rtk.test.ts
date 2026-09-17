@@ -93,7 +93,7 @@ test("RTK rewrites only default foreground Bash commands", async (): Promise<voi
 	const foreground = toolCall("git status");
 	await hook(foreground, context(notices));
 	await hook(toolCall("git status", { async: true }), context(notices));
-	await hook(toolCall("git status", { pty: true }), context(notices));
+	await hook(toolCall("git status", { unsupported: true }), context(notices));
 	await hook(toolCall("git status", { target: "ileqm" }), context(notices));
 	await hook(toolCall("git status", { target: "output" }), context(notices));
 	await hook(toolCall("rtk git status"), context(notices));

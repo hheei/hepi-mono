@@ -1354,7 +1354,7 @@ describe("pi-ext-tools catalog", () => {
 				"Changed:\n" +
 				"- value.txt: update (2/3 hunks applied)\n" +
 				"Rejected:\n" +
-				"- operation 1, value.txt, hunk 2: best fuzzy score 0.00 < required 0.70\n" +
+				"- operation 1, value.txt, hunk 2: context not found\n" +
 				"Recovery: read value.txt, then retry only rejected hunks from operation 1.\n" +
 				"Do not retry applied hunks.",
 		});

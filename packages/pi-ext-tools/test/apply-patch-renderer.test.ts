@@ -47,7 +47,6 @@ const details: ApplyPatchToolDetails = {
 			addedLines: 7,
 			removedLines: 1,
 			status: "fuzzy",
-			score: 0.72,
 		},
 		{
 			operationIndex: 3,
@@ -93,13 +92,13 @@ const details: ApplyPatchToolDetails = {
 };
 
 describe("apply_patch progress renderer", () => {
-	test("renders actual operation rows and fuzzy score", () => {
+	test("renders actual operation rows and fuzzy marker", () => {
 		const text = renderApplyPatchResult(details, false, theme as never)
 			.render(200)
 			.join("\n");
 		expect(text).toContain("✓ create src/created.ts +4");
 		expect(text).toContain("✓ modify src/updated.ts +6 -2");
-		expect(text).toContain("! modify src/fuzzy.ts +7 -1 (0.72)");
+		expect(text).toContain("! modify src/fuzzy.ts +7 -1 fuzzy");
 		expect(text).toContain("✗ delete src/rejected.ts -7");
 		expect(formatApplyPatchFooter(details)).toBe(
 			"created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s",
