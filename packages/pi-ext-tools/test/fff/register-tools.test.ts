@@ -8,7 +8,6 @@ import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extens
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
-import { DEFAULT_RTK_SETTINGS } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
@@ -110,7 +109,6 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => undefined,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () =>
 				({
 					find: async () => [
@@ -118,7 +116,6 @@ describe("FFF tool registration", () => {
 						{ path: "b.ts", matchType: "fuzzy", score: 1 },
 					],
 				}) as unknown as TargetRuntime,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
 		const find = host.tools[0];
@@ -174,9 +171,7 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => undefined,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () => undefined,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
 		const find = host.tools[0];
@@ -226,9 +221,7 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => undefined,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () => undefined,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
 		const find = host.tools[0];
@@ -282,9 +275,7 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () => undefined,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const host = harness();
 		registerGrepTool(host.pi, state);
@@ -329,9 +320,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -373,9 +362,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -411,9 +398,7 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () => undefined,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const grepHost = harness();
 		registerGrepTool(grepHost.pi, state);
@@ -480,7 +465,6 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () =>
 				({
 					createOutput: (text: string) => {
@@ -488,7 +472,6 @@ describe("FFF tool registration", () => {
 						return { id: "abc123", uri: "output://ignored", persistent: true };
 					},
 				}) as unknown as TargetRuntime,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const host = harness();
 		registerGrepTool(host.pi, state);
@@ -538,9 +521,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -597,9 +578,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -652,9 +631,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -710,7 +687,6 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () =>
 					({
 						validateRemotePath: () => undefined,
@@ -721,7 +697,6 @@ describe("FFF tool registration", () => {
 							]);
 						},
 					}) as unknown as TargetRuntime,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -771,9 +746,7 @@ describe("FFF tool registration", () => {
 				}),
 				getBashJobs: () => undefined,
 				getOutputs: () => outputs,
-				getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 				getTargetRuntime: () => undefined,
-				consumeRtkRewriteWarning: () => false,
 			} satisfies FffRuntimeState;
 			const host = harness();
 			registerGrepTool(host.pi, state);
@@ -829,9 +802,7 @@ describe("FFF tool registration", () => {
 			}),
 			getBashJobs: () => undefined,
 			getOutputs: () => outputs,
-			getRtkSettings: () => DEFAULT_RTK_SETTINGS,
 			getTargetRuntime: () => undefined,
-			consumeRtkRewriteWarning: () => false,
 		} satisfies FffRuntimeState;
 		const host = harness();
 		registerGrepTool(host.pi, state);

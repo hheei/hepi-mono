@@ -39,7 +39,6 @@ const BASH_PROMPT_GUIDELINES = [
 	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
-const RTK_REWRITE_TIMEOUT_MS = 1_000;
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const Target = Type.Optional(
 	Type.String({
@@ -234,58 +233,9 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 		details.timedOut === true || (typeof details.exitCode === "number" && details.exitCode !== 0)
 	);
 }
-function fieldIsTrue(value: object, key: string): boolean {
-	return Object.getOwnPropertyDescriptor(value, key)?.value === true;
-}
 
 function isRemoteBashTarget(target: unknown): target is string {
 	return typeof target === "string" && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
-}
-function skipRtkRewrite(command: string): boolean {
-	if (command.trim() === "") return true;
-	const body = command
-		.trimStart()
-		.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:(?:"[^"]*"|'(?:'\\''|[^'])*'|[^\s]+)\s+))+/, "")
-		.trimStart();
-	return body === "rtk" || body.startsWith("rtk ");
-}
-
-async function rewriteWithRtk(
-	pi: ExtensionAPI,
-	executable: string,
-	command: string,
-	signal: AbortSignal | undefined,
-): Promise<{
-	readonly command: string;
-	readonly warning?: string;
-}> {
-	if (skipRtkRewrite(command) || signal?.aborted) return { command };
-	try {
-		const rewritten = await pi.exec(executable, ["rewrite", command], {
-			timeout: RTK_REWRITE_TIMEOUT_MS,
-			...(signal === undefined ? {} : { signal }),
-		});
-		if (signal?.aborted) return { command };
-		if (rewritten.killed) return { command, warning: "RTK rewrite failed (timeout)" };
-		if (rewritten.code === 1) return { command };
-		const output = rewritten.stdout.trim();
-		if ((rewritten.code === 0 || rewritten.code === 3) && output !== "" && output !== command)
-			return { command: output };
-		if (rewritten.code === 0 || rewritten.code === 3) {
-			if (output === command) return { command };
-			return { command, warning: "RTK rewrite failed (rtk returned empty output)" };
-		}
-		return {
-			command,
-			warning: `RTK rewrite failed (${rewritten.stderr.trim() || `exit ${rewritten.code}`})`,
-		};
-	} catch (error) {
-		if (signal?.aborted) return { command };
-		return {
-			command,
-			warning: `RTK rewrite unavailable (${error instanceof Error ? error.message : String(error)})`,
-		};
-	}
 }
 
 async function runRemoteBash(
@@ -337,24 +287,6 @@ async function runRemoteBash(
 		throw error;
 	}
 }
-function registerRtkForegroundRewrite(pi: ExtensionAPI, state: FffRuntimeState): void {
-	pi.on("tool_call", async (event, context) => {
-		const rtkSettings = state.getRtkSettings();
-		if (rtkSettings.enabled !== true || event.toolName !== "bash") return undefined;
-		const input = event.input;
-		if (!Value.Check(BashInput, input)) return undefined;
-		const target = Object.getOwnPropertyDescriptor(input, "target")?.value;
-		if (fieldIsTrue(input, "async") || (typeof target === "string" && target !== LOCAL_TARGET))
-			return undefined;
-		const command = input.command;
-		if (typeof command !== "string" || command.trim() === "") return undefined;
-		const rewritten = await rewriteWithRtk(pi, rtkSettings.path || "rtk", command, context.signal);
-		if (rewritten.command !== command) input.command = rewritten.command;
-		if (rewritten.warning !== undefined && context.hasUI && state.consumeRtkRewriteWarning())
-			context.ui.notify(`${rewritten.warning}; running original Bash command`, "warning");
-		return undefined;
-	});
-}
 
 /** Pi original definition remains default execution; async is extension-owned and session-scoped. */
 export function registerBashTool(
@@ -362,7 +294,6 @@ export function registerBashTool(
 	state?: FffRuntimeState,
 	tui: ToolTui = createToolTui(),
 ): ToolDefinition {
-	if (state !== undefined) registerRtkForegroundRewrite(pi, state);
 	const {
 		renderCall: _upstreamRenderCall,
 		renderResult: upstreamRenderResult,
