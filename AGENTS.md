@@ -6,6 +6,7 @@
 - **AVOID** always-on reviewers, advisors, background agents, orchestration loops, and opaque automation.
 - **MUST** preserve complete results even when UI output is collapsed, and keep sensitive, privileged, expensive, or setup-heavy capabilities opt-in.
 - **SHOULD** build complex behavior from visible, composable primitives rather than hidden commands or modes.
+- **MUST** keep Graphify semantic-extraction graphs entirely in English: labels, descriptions, relationship names, and community names.
 
 **Product rule:** No hidden intent. No silent routing. No blind automation.
 
@@ -45,7 +46,7 @@ pnpm test
 ## Package Boundaries
 
 - Each `packages/pi-<name>/` workspace owns one independent feature or cohesive feature family and exactly one `pi.extensions` entry.
-- Concrete extensions **MUST** depend on `@hheei/pi-ext-core`, never directly on another concrete extension; cross-extension cooperation goes through ext-core-owned runtime capabilities.
+- Concrete extensions **SHOULD** use `@hheei/pi-ext-core` for shared primitives. A concrete extension **MAY** directly depend on another concrete extension when it is explicitly an integration/add-on and the dependency reflects real install/runtime ownership; document whether the dependency is required or optional, keep lifecycle and fallback behavior explicit, and avoid dependency cycles. Otherwise, prefer ext-core-owned runtime capabilities for optional cross-extension cooperation.
 - `@hheei/pi-ext-core` is a side-effect-free foundation package and **MUST NEVER** import concrete extensions.
 - Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the contract.
 - Avoid vendoring external repositories under `packages/`; if unavoidable, vendor the smallest surface and record the upstream URL/revision.
@@ -111,7 +112,7 @@ git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布
 - On failure, stop and report evidence. **NEVER** weaken tests, typing, validation, or compatibility constraints merely to make a release pass.
 ## Key Rules
 
-- **MUST** keep edits focused, typing strict, runtime boundaries validated, and concrete extensions independent.
+- **MUST** keep edits focused, typing strict, runtime boundaries validated, and concrete-extension dependencies intentional and acyclic.
 - **NEVER** silently route models, hide meaningful automation, preserve obsolete HEPI compatibility without need, or modify unrelated user work.
 - **SHOULD** prefer simple, visible, composable, and idempotent mechanisms.
 - Shared TypeScript baseline: `tsconfig.base.json`; packages extend it.
