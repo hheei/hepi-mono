@@ -27,6 +27,10 @@ _Avoid_: FFF result, rg result
 **Trace**:
 One complete Pi agent loop from `agent_start` through `agent_end`. When the next Trace begins, completed tools from every prior Trace collapse in an unexpanded view. On session resume, all historical tools are collapsed until globally expanded.
 
+**Subagent Run**:
+A parent-owned unit of delegated agent work whose identity, policy, lifecycle, and terminal outcome remain stable for that parent session.
+_Avoid_: Provider job
+
 **Handoff**:
 A user-initiated transition from a Source Session to a clean Continuation Session that carries Handoff Context without inheriting source execution state.
 _Avoid_: Session clone, fork

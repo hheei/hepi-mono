@@ -110,13 +110,15 @@ async function executeCoreTask(
 ): Promise<BtwExecutionResult> {
 	const handle = startSubagent(runtime.runtime, {
 		mode: "task",
-		session: createBtwChildFactory(runtime.runtime.extension, {
-			model,
-			systemPrompt: BTW_SYSTEM_PROMPT,
-		}),
+		execution: {
+			kind: "session",
+			factory: createBtwChildFactory(runtime.runtime.extension, {
+				model,
+				systemPrompt: BTW_SYSTEM_PROMPT,
+			}),
+		},
 		prompt: messages.map(serializeMainMessage).join("\n\n---\n\n"),
 		maxTurns: 3,
-		delivery: () => undefined,
 	});
 	request.handle = handle;
 	const result = await handle.result;

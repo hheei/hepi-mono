@@ -29,6 +29,7 @@ export type SubagentMode = "completion" | "task" | "conversation";
 export type SubagentStatus =
 	| "queued"
 	| "running"
+	| "blocked"
 	| "idle"
 	| "completed"
 	| "failed"
@@ -42,7 +43,7 @@ export type SubagentStatus =
  * verifies the same CPU, queue-memory, and result-retention limit.
  */
 export const DEFAULT_SUBAGENT_COORDINATOR_BUDGET = {
-	maxActiveTurns: 2,
+	maxActiveTurns: 8,
 	maxPending: 16,
 	maxRetainedTerminal: 32,
 } as const;
@@ -95,12 +96,39 @@ export interface ResolvedChildSessionFactory {
 	create(signal: AbortSignal): Promise<AgentSession>;
 }
 
+export interface ExternalTaskExecutionContext {
+	readonly id: SubagentId;
+	readonly signal: AbortSignal;
+	readonly maxTurns: number;
+	reportText(text: string): void;
+	reportTool(toolName: string, state: "start" | "end"): void;
+	reportState(state: "running" | "blocked"): void;
+}
+
+export interface ExternalTaskTerminalResult {
+	readonly status: "completed" | "failed" | "cancelled" | "limit_reached";
+	readonly output: string;
+	readonly softLimitReached: boolean;
+	readonly usage: ConversationUsage;
+	readonly failure?: string;
+}
+
+/** Consumer-owned external task operation executed inside core admission/cancellation. */
+export interface ResolvedExternalTaskExecution {
+	execute(context: ExternalTaskExecutionContext): Promise<ExternalTaskTerminalResult>;
+}
+
+export type ResolvedTaskExecution =
+	| { readonly kind: "session"; readonly factory: ResolvedChildSessionFactory }
+	| { readonly kind: "external"; readonly operation: ResolvedExternalTaskExecution };
+
 export interface TaskTerminalResult {
 	readonly id: SubagentId;
 	readonly mode: "task";
 	readonly status: "completed" | "failed" | "cancelled" | "limit_reached";
 	readonly output: string;
 	readonly softLimitReached: boolean;
+	readonly usage: ConversationUsage;
 	readonly failure?: string;
 }
 
@@ -114,13 +142,14 @@ export type TaskTerminalDeliverySink = (
 ) => void | Promise<void>;
 
 export interface TaskSubagentSpec {
-	/** Child-session task whose terminal output is delivered to the caller's sink. */
+	/** Resolved local child session or external operation owned by core after admission. */
 	readonly mode: "task";
-	readonly session: ResolvedChildSessionFactory;
+	readonly execution: ResolvedTaskExecution;
 	readonly prompt: string;
-	/** Positive soft turn cap. Core gives one wrap-up steer and five fixed grace turns. */
+	/** Positive soft turn cap. Session execution gets one wrap-up steer and five grace turns. */
 	readonly maxTurns: number;
-	readonly delivery: TaskTerminalDeliverySink;
+	/** Omit for inline consumption; a supplied sink runs once after terminalization. */
+	readonly delivery?: TaskTerminalDeliverySink;
 }
 
 export type ConversationInputMode = "queue" | "steer";
@@ -255,7 +284,7 @@ export interface SubagentToolEvent {
 export interface SubagentTurnEvent {
 	readonly kind: "turn";
 	readonly id: SubagentId;
-	readonly state: "queued" | "running" | "idle";
+	readonly state: "queued" | "running" | "blocked" | "idle";
 }
 
 export interface ConversationTerminalResult {
@@ -980,6 +1009,7 @@ function startTask(
 			status: "cancelled",
 			output: "",
 			softLimitReached: false,
+			usage: EMPTY_CONVERSATION_USAGE,
 		};
 		status = terminal.status;
 		record.terminal = terminal;
@@ -1003,17 +1033,46 @@ function startTask(
 						softLimitReached: false,
 						usage: EMPTY_CONVERSATION_USAGE,
 					};
-				} else {
-					session = await spec.session.create(controller.signal);
+				} else if (spec.execution.kind === "session") {
+					const factory = spec.execution.factory;
+					session = await factory.create(controller.signal);
 					terminal = await runSessionTurn(
 						id,
 						controller,
-						spec.session,
+						factory,
 						spec.prompt,
 						spec.maxTurns,
 						record,
 						session,
 					);
+				} else {
+					const external = await spec.execution.operation.execute({
+						id,
+						signal: controller.signal,
+						maxTurns: spec.maxTurns,
+						reportText(text) {
+							if (!controller.signal.aborted && record.terminal === undefined)
+								emit(record, { kind: "text", id, text });
+						},
+						reportTool(toolName, state) {
+							if (!controller.signal.aborted && record.terminal === undefined)
+								emit(record, { kind: "tool", id, toolName, state });
+						},
+						reportState(next) {
+							if (controller.signal.aborted || record.terminal !== undefined) return;
+							status = next;
+							emit(record, { kind: "turn", id, state: next });
+						},
+					});
+					terminal = controller.signal.aborted
+						? {
+								id,
+								status: "cancelled",
+								output: "",
+								softLimitReached: false,
+								usage: EMPTY_CONVERSATION_USAGE,
+							}
+						: { id, ...external };
 				}
 			} catch (error) {
 				terminal = controller.signal.aborted
@@ -1041,7 +1100,8 @@ function startTask(
 			settle(taskResult);
 			emit(record, { kind: "terminal", id, result: taskResult });
 			retainTerminal(coordinator, record);
-			void Promise.resolve(spec.delivery(taskResult, controller.signal)).catch(() => undefined);
+			if (spec.delivery !== undefined)
+				void Promise.resolve(spec.delivery(taskResult, controller.signal)).catch(() => undefined);
 		})
 	) {
 		releaseRecord(coordinator, record, false);

@@ -7,6 +7,7 @@ import {
 	lookupSubagent,
 	MAX_SUBAGENT_TRANSCRIPT_CHARS,
 	registerExtensionLifecycle,
+	type SubagentHandle,
 	startSubagent,
 } from "../src/index.js";
 import { createFakePiHost } from "./fixtures.js";
@@ -76,26 +77,28 @@ test("runs a task through the consumer-resolved child-session factory", async ()
 			});
 			const task = startSubagent(context, {
 				mode: "task",
-				session: {
-					async create() {
-						const messages: unknown[] = [];
-						return {
-							messages,
-							subscribe: () => () => undefined,
-							abort: () => undefined,
-							dispose: () => undefined,
-							async prompt() {
-								messages.push({
-									role: "assistant",
-									content: [{ type: "text", text: "done" }],
-								} as never);
-							},
-						} as never;
+				execution: {
+					kind: "session",
+					factory: {
+						async create() {
+							const messages: unknown[] = [];
+							return {
+								messages,
+								subscribe: () => () => undefined,
+								abort: () => undefined,
+								dispose: () => undefined,
+								async prompt() {
+									messages.push({
+										role: "assistant",
+										content: [{ type: "text", text: "done" }],
+									} as never);
+								},
+							} as never;
+						},
 					},
 				},
 				prompt: "finish",
 				maxTurns: 1,
-				delivery: () => undefined,
 			});
 			taskResult = task.result;
 			taskId = task.id;
@@ -108,6 +111,110 @@ test("runs a task through the consumer-resolved child-session factory", async ()
 	expect(lookupSubagent(lifecycle, taskId)).toBeDefined();
 	await host.emit("session_shutdown");
 	expect(lookupSubagent(lifecycle, taskId)).toBeUndefined();
+});
+
+test("runs an external task with progress through the shared coordinator", async () => {
+	const host = createFakePiHost();
+	const events: string[] = [];
+	let taskResult: Promise<unknown> | undefined;
+	registerExtensionLifecycle(host.pi, {
+		key: "@hheei/pi-external-task-test",
+		start(context) {
+			configureSubagentCoordinator(context, {
+				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+				maxActiveTurns: 1,
+			});
+			const task = startSubagent(context, {
+				mode: "task",
+				execution: {
+					kind: "external",
+					operation: {
+						async execute(execution) {
+							await Promise.resolve();
+							execution.reportState("running");
+							execution.reportText("working");
+							execution.reportTool("bash", "start");
+							execution.reportTool("bash", "end");
+							execution.reportState("blocked");
+							return {
+								status: "completed",
+								output: "external-done",
+								softLimitReached: false,
+								usage: { input: 1, output: 2, total: 3, cost: 0 },
+							};
+						},
+					},
+				},
+				prompt: "finish",
+				maxTurns: 1,
+			});
+			task.subscribe({
+				kinds: new Set(["text", "tool", "turn"]),
+				signal: context.signal,
+				onEvent(event) {
+					if (event.kind === "text") events.push(`text:${event.text}`);
+					if (event.kind === "tool") events.push(`tool:${event.toolName}:${event.state}`);
+					if (event.kind === "turn") events.push(`turn:${event.state}`);
+				},
+			});
+			taskResult = task.result;
+		},
+	});
+
+	await host.emit("session_start");
+	expect(await taskResult).toMatchObject({ status: "completed", output: "external-done" });
+	expect(events).toEqual([
+		"turn:running",
+		"text:working",
+		"tool:bash:start",
+		"tool:bash:end",
+		"turn:blocked",
+	]);
+	await host.emit("session_shutdown");
+});
+
+test("core cancellation overrides a late external task result", async () => {
+	const host = createFakePiHost();
+	let release: (() => void) | undefined;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let handle: SubagentHandle | undefined;
+	registerExtensionLifecycle(host.pi, {
+		key: "@hheei/pi-external-cancel-test",
+		start(context) {
+			configureSubagentCoordinator(context, {
+				...DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
+				maxActiveTurns: 1,
+			});
+			handle = startSubagent(context, {
+				mode: "task",
+				execution: {
+					kind: "external",
+					operation: {
+						async execute() {
+							await held;
+							return {
+								status: "completed",
+								output: "too-late",
+								softLimitReached: false,
+								usage: { input: 0, output: 0, total: 0, cost: 0 },
+							};
+						},
+					},
+				},
+				prompt: "finish",
+				maxTurns: 1,
+			});
+		},
+	});
+
+	await host.emit("session_start");
+	if (handle === undefined) throw new Error("Missing external task");
+	handle.cancel();
+	release?.();
+	expect(await handle.result).toMatchObject({ status: "cancelled", output: "" });
+	await host.emit("session_shutdown");
 });
 
 test("keeps one child session across sequential conversation messages", async () => {
