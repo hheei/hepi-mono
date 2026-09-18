@@ -1,0 +1,252 @@
+export const PROTOCOL_VERSION = 1 as const;
+export const REGISTRY_VERSION = 1 as const;
+
+export type ProtocolVersion = typeof PROTOCOL_VERSION;
+export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped" | "failed";
+export type ExecutionMode = "rpc" | "tui";
+export type SendMode = "steer" | "follow_up" | "auto";
+export type ContactReason = "progress_update" | "important_finding" | "need_decision" | "blocked";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type LaunchValueSource = "agent" | "parent";
+export type SubagentIntent = "active" | "stopped";
+export type PersistenceState = "never_flushed" | "flushed";
+
+export interface ChildIdentity {
+	readonly parentSessionId: string;
+	readonly subagentId: string;
+	readonly runtimeIdentity: string;
+	readonly endpoint: string;
+	readonly token: string;
+}
+
+/**
+ * The non-secret half of {@link ChildIdentity}: what a launch spec may contain and
+ * what may be persisted. The controller token is added by the launcher at spawn
+ * time and never written to a registry snapshot.
+ */
+export interface ChildBridgeEnvironment {
+	readonly parentSessionId: string;
+	readonly subagentId: string;
+	readonly runtimeIdentity: string;
+	readonly endpoint: string;
+}
+
+export interface PiInvocation {
+	/** Executable or runtime binary, never resolved through a shell. */
+	readonly command: string;
+	/** Host-resolved leading argv (for example an absolute `cli.js`). Feature flags are appended by the launch builder. */
+	readonly args: readonly string[];
+}
+
+export interface ResolvedAgentIdentity {
+	readonly name: string;
+	readonly displayName?: string;
+	readonly description?: string;
+	readonly hidden: boolean;
+	readonly sourcePath: string;
+	readonly instructions: string;
+}
+
+export interface ResolvedModel {
+	readonly provider: string;
+	readonly id: string;
+	readonly source: LaunchValueSource;
+}
+
+export interface ResolvedThinking {
+	readonly level: ThinkingLevel;
+	readonly source: LaunchValueSource;
+}
+
+export interface ExtensionSelection {
+	readonly discovery: boolean;
+	readonly paths: readonly string[];
+}
+
+export interface SkillSelection {
+	readonly discovery: boolean;
+	readonly paths: readonly string[];
+}
+
+export interface EffectiveLaunchConfig {
+	/** Logical child id; the same value the child bridge reports back. */
+	readonly subagentId: string;
+	readonly invocation: PiInvocation;
+	readonly cwd: string;
+	readonly sessionId: string;
+	/** Directory Pi uses for this child's session file; always passed explicitly so recovery can find the file. */
+	readonly sessionDir: string;
+	/** Known only once the session has been flushed to disk. */
+	readonly sessionPath?: string;
+	readonly agent: ResolvedAgentIdentity;
+	readonly model: ResolvedModel;
+	readonly thinking: ResolvedThinking;
+	readonly tools: readonly string[];
+	readonly excludeTools: readonly string[];
+	readonly extensions: ExtensionSelection;
+	readonly skills: SkillSelection;
+	readonly prompt: string;
+	readonly bridgeExtensionPath: string;
+}
+
+export interface ResolvedAgentPolicy {
+	readonly agent: ResolvedAgentIdentity;
+	readonly model: ResolvedModel;
+	readonly thinking: ResolvedThinking;
+	readonly tools: readonly string[];
+	readonly excludeTools: readonly string[];
+	readonly extensions: ExtensionSelection;
+	readonly skills: SkillSelection;
+}
+
+export interface RuntimeMetadata {
+	readonly runtimeIdentity: string;
+	readonly endpoint: string;
+	readonly pid?: number;
+}
+
+export interface UsageSummary {
+	readonly inputTokens: number;
+	readonly outputTokens: number;
+	readonly cacheReadTokens: number;
+	readonly cacheWriteTokens: number;
+	readonly costUsd: number | null;
+	readonly turns: number;
+}
+
+export interface SubagentRecord {
+	readonly subagentId: string;
+	readonly parentSessionId: string;
+	readonly revision: number;
+	readonly createdAt: string;
+	readonly updatedAt: string;
+	readonly sessionId: string;
+	readonly sessionPath?: string;
+	readonly cwd: string;
+	readonly initialTask: string;
+	readonly intent: SubagentIntent;
+	readonly state: SubagentState;
+	readonly mode: ExecutionMode;
+	readonly persistence: PersistenceState;
+	readonly launchConfig: EffectiveLaunchConfig;
+	readonly runtime?: RuntimeMetadata;
+	readonly latestSummary?: string;
+	readonly usage?: UsageSummary;
+	readonly interrupted?: string;
+	readonly unacknowledgedInput?: string;
+}
+
+export interface PublicSubagent {
+	readonly id: string;
+	readonly agent: string;
+	readonly state: SubagentState;
+	readonly mode: ExecutionMode;
+	readonly cwd: string;
+	readonly sessionId: string;
+	readonly summary?: string;
+	readonly usage?: UsageSummary;
+	readonly interrupted?: string;
+	readonly freshness: "live" | "last_known";
+}
+
+export interface OperationError {
+	readonly operation: string;
+	readonly childId?: string;
+	readonly reason: string;
+	readonly sideEffects: readonly string[];
+	readonly state?: SubagentState;
+	readonly safeToRetry: boolean;
+}
+
+export type OperationResult<T> = { readonly ok: true; readonly value: T } | OperationError;
+
+export interface SpawnSubagentInput {
+	readonly task: string;
+	readonly agent?: string;
+	readonly cwd?: string;
+}
+
+export interface SendSubagentInput {
+	readonly id: string;
+	readonly message: string;
+	readonly mode?: SendMode;
+}
+
+export interface ContactParentInput {
+	readonly reason: ContactReason;
+	readonly message: string;
+}
+
+/** Child bridge tool name; agent tool policy must never remove it. */
+export const CONTACT_PARENT_TOOL_NAME = "contact_parent" as const;
+
+/** Environment contract between a parent launch and the child branch of this extension. */
+export const BRIDGE_ENVIRONMENT_KEYS = {
+	parentSessionId: "PI_SUBAGENTS_PARENT_SESSION_ID",
+	childId: "PI_SUBAGENTS_CHILD_ID",
+	runtimeId: "PI_SUBAGENTS_RUNTIME_ID",
+	endpoint: "PI_SUBAGENTS_ENDPOINT",
+	token: "PI_SUBAGENTS_TOKEN",
+} as const;
+
+const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+/** Pi session ids reach argv and file names, so they must stay in Pi's accepted alphabet. */
+export function isSessionId(value: unknown): value is string {
+	return typeof value === "string" && SESSION_ID_PATTERN.test(value);
+}
+
+const THINKING_LEVELS: Record<string, true> = {
+	off: true,
+	minimal: true,
+	low: true,
+	medium: true,
+	high: true,
+	xhigh: true,
+	max: true,
+};
+
+export function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && THINKING_LEVELS[value] === true;
+}
+
+const SUBAGENT_STATES: Record<string, true> = {
+	starting: true,
+	running: true,
+	idle: true,
+	done: true,
+	stopped: true,
+	failed: true,
+};
+
+export function isSubagentState(value: unknown): value is SubagentState {
+	return typeof value === "string" && SUBAGENT_STATES[value] === true;
+}
+
+const EXECUTION_MODES: Record<string, true> = { rpc: true, tui: true };
+
+export function isExecutionMode(value: unknown): value is ExecutionMode {
+	return typeof value === "string" && EXECUTION_MODES[value] === true;
+}
+
+const SUBAGENT_INTENTS: Record<string, true> = { active: true, stopped: true };
+
+export function isSubagentIntent(value: unknown): value is SubagentIntent {
+	return typeof value === "string" && SUBAGENT_INTENTS[value] === true;
+}
+
+const PERSISTENCE_STATES: Record<string, true> = { never_flushed: true, flushed: true };
+
+export function isPersistenceState(value: unknown): value is PersistenceState {
+	return typeof value === "string" && PERSISTENCE_STATES[value] === true;
+}
+
+const LAUNCH_VALUE_SOURCES: Record<string, true> = { agent: true, parent: true };
+
+export function isLaunchValueSource(value: unknown): value is LaunchValueSource {
+	return typeof value === "string" && LAUNCH_VALUE_SOURCES[value] === true;
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
