@@ -1,0 +1,251 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { expect, test } from "vitest";
+import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
+import { CONTACT_PARENT_TOOL_NAME, type ThinkingLevel } from "../src/domain.js";
+
+const PARENT = {
+	model: { provider: "anthropic", id: "claude-sonnet-4" },
+	thinking: "medium" as ThinkingLevel,
+};
+
+/** Only the exact provider/id pairs listed here resolve; everything else is unknown. */
+const MODEL_REGISTRY = {
+	find(provider: string, modelId: string): unknown | undefined {
+		const known = ["anthropic/claude-sonnet-4", "openai/gpt-5-codex", "anthropic/claude-opus-4"];
+		return known.includes(`${provider}/${modelId}`) ? { provider, id: modelId } : undefined;
+	},
+};
+
+async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
+	const directory = await mkdtemp(join(tmpdir(), "pi-subagents-agents-"));
+	try {
+		return await run(directory);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}
+
+async function writeAgent(
+	directory: string,
+	scope: ".pi" | ".agents" | "home",
+	name: string,
+	content: string,
+): Promise<string> {
+	const path =
+		scope === "home"
+			? join(directory, "home", ".pi", "agent", "agents", `${name}.md`)
+			: scope === ".pi"
+				? join(directory, "project", ".pi", "agents", `${name}.md`)
+				: join(directory, "project", ".agents", "agents", `${name}.md`);
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, content, "utf8");
+	return path;
+}
+
+function resolve(directory: string, name: string, bridgeExtensionPath: string) {
+	return resolveAgent({
+		name,
+		cwd: join(directory, "project"),
+		homeDirectory: join(directory, "home"),
+		modelRegistry: MODEL_REGISTRY,
+		parent: PARENT,
+		bridgeExtensionPath,
+	});
+}
+
+test("agent discovery prefers the most specific scope for a duplicate name", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await writeAgent(directory, "home", "reviewer", "---\nname: reviewer\n---\nhome body\n");
+		await writeAgent(directory, ".agents", "reviewer", "---\nname: reviewer\n---\nagents body\n");
+		const pi = await writeAgent(
+			directory,
+			".pi",
+			"reviewer",
+			"---\nname: reviewer\n---\npi body\n",
+		);
+
+		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
+		expect(discovered.map((agent) => agent.path)).toEqual([pi]);
+
+		const resolved = await resolve(directory, "reviewer", bridge);
+		expect(resolved.agent.sourcePath).toBe(pi);
+		expect(resolved.agent.instructions).toBe("pi body");
+	});
+});
+
+test("prefers the project-local agents directory over the shared one", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await writeAgent(directory, "home", "reviewer", "---\nname: reviewer\n---\nhome body\n");
+		const agents = await writeAgent(
+			directory,
+			".agents",
+			"reviewer",
+			"---\nname: reviewer\n---\nagents body\n",
+		);
+		await expect(resolve(directory, "reviewer", bridge)).resolves.toMatchObject({
+			agent: { sourcePath: agents, instructions: "agents body" },
+		});
+	});
+});
+
+test("resolves agent overrides and reports where model and thinking came from", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await writeAgent(
+			directory,
+			".pi",
+			"reviewer",
+			[
+				"---",
+				"name: reviewer",
+				"display_name: Code Reviewer",
+				"description: Reviews diffs",
+				"hidden: true",
+				"model: openai/gpt-5-codex",
+				"thinking: high",
+				"tools: read, grep",
+				"---",
+				"Review the requested change.",
+			].join("\n"),
+		);
+
+		const resolved = await resolve(directory, "reviewer", bridge);
+		expect(resolved.agent.displayName).toBe("Code Reviewer");
+		expect(resolved.agent.description).toBe("Reviews diffs");
+		expect(resolved.agent.hidden).toBe(true);
+		expect(resolved.model).toEqual({ provider: "openai", id: "gpt-5-codex", source: "agent" });
+		expect(resolved.thinking).toEqual({ level: "high", source: "agent" });
+		expect(resolved.tools).toEqual(["read", "grep", CONTACT_PARENT_TOOL_NAME]);
+		expect(resolved.extensions.paths).toEqual([bridge]);
+		expect(resolved.skills).toEqual({ discovery: true, paths: [] });
+	});
+});
+
+test("inherits parent model and thinking explicitly when the definition omits them", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await writeAgent(directory, ".pi", "worker", "---\nname: worker\n---\nDo the work.\n");
+
+		const resolved = await resolve(directory, "worker", bridge);
+		expect(resolved.model).toEqual({
+			provider: "anthropic",
+			id: "claude-sonnet-4",
+			source: "parent",
+		});
+		expect(resolved.thinking).toEqual({ level: "medium", source: "parent" });
+		expect(resolved.tools).toEqual([]);
+	});
+});
+
+test("keeps the bridge extension while disabling discovery", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		const extra = join(directory, "extra.js");
+		await writeFile(bridge, "", "utf8");
+		await writeFile(extra, "", "utf8");
+		await writeAgent(
+			directory,
+			".pi",
+			"lean",
+			`---\nname: lean\nextensions: false\nskills: false\n---\nBe lean.\n`,
+		);
+
+		const resolved = await resolve(directory, "lean", bridge);
+		expect(resolved.extensions).toEqual({ discovery: false, paths: [bridge] });
+		expect(resolved.skills).toEqual({ discovery: false, paths: [] });
+
+		await writeAgent(
+			directory,
+			".pi",
+			"lean",
+			`---\nname: lean\nextensions:\n  - ${extra}\nskills:\n  - ${bridge}\n---\nBe lean.\n`,
+		);
+		const selected = await resolve(directory, "lean", bridge);
+		expect(selected.extensions).toEqual({ discovery: true, paths: [extra, bridge] });
+		expect(selected.skills).toEqual({ discovery: true, paths: [bridge] });
+	});
+});
+
+test("rejects unknown, unimplemented, and conflicting agent fields", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const cases: ReadonlyArray<{ readonly definition: string; readonly reason: RegExp }> = [
+			{
+				definition: "---\nname: worker\ncolour: red\n---\nbody\n",
+				reason: /unsupported field colour/u,
+			},
+			{ definition: "---\nname: worker\nmax_turns: 40\n---\nbody\n", reason: /max_turns/u },
+			{
+				definition: "---\nname: worker\npreload_skills: true\n---\nbody\n",
+				reason: /preload_skills/u,
+			},
+			{ definition: "---\nname: worker\n---\n\n", reason: /body must not be empty/u },
+			{
+				definition: "---\nname: worker\nhidden: yes\n---\nbody\n",
+				reason: /hidden must be boolean/u,
+			},
+			{ definition: "---\nname: other\n---\nbody\n", reason: /Unknown agent worker/u },
+		];
+		for (const item of cases) {
+			await writeAgent(directory, ".pi", "worker", item.definition);
+			await expect(resolve(directory, "worker", bridge)).rejects.toThrow(item.reason);
+		}
+	});
+});
+
+test("rejects unknown models, invalid thinking, and a disabled contact_parent bridge", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		const missing = join(directory, "missing.js");
+		await writeFile(bridge, "", "utf8");
+		const cases: ReadonlyArray<{ readonly definition: string; readonly reason: RegExp }> = [
+			{ definition: "---\nname: worker\nmodel: nope\n---\nbody\n", reason: /provider\/model-id/u },
+			{
+				definition: "---\nname: worker\nmodel: openai/gpt-3\n---\nbody\n",
+				reason: /unknown model openai\/gpt-3/u,
+			},
+			{
+				definition: "---\nname: worker\nthinking: extreme\n---\nbody\n",
+				reason: /thinking is invalid/u,
+			},
+			{
+				definition: "---\nname: worker\nexclude_tools: read, contact_parent\n---\nbody\n",
+				reason: /cannot disable the required contact_parent/u,
+			},
+			{
+				definition: "---\nname: worker\ntools: read\nexclude_tools: read\n---\nbody\n",
+				reason: /both allowed and excluded/u,
+			},
+			{
+				definition: `---\nname: worker\nextensions:\n  - ${missing}\n---\nbody\n`,
+				reason: /extensions entry does not exist/u,
+			},
+		];
+		for (const item of cases) {
+			await writeAgent(directory, ".pi", "worker", item.definition);
+			await expect(resolve(directory, "worker", bridge)).rejects.toThrow(item.reason);
+		}
+	});
+});
+
+test("reports an unknown agent name and an unreadable frontmatter document", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await expect(resolve(directory, "ghost", bridge)).rejects.toThrow(/Unknown agent ghost/u);
+		await writeAgent(directory, ".pi", "broken", "---\nname: broken\n---\n");
+		await writeAgent(directory, ".pi", "nameless", "---\ndescription: no name\n---\nbody\n");
+		await expect(resolve(directory, "nameless", bridge)).rejects.toThrow(
+			/name must be a non-empty string/u,
+		);
+	});
+});
