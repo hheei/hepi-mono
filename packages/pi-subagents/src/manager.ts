@@ -86,6 +86,11 @@ export interface SpawnResult {
 	readonly child: PublicSubagent;
 }
 
+export interface RecoveryResult {
+	readonly recovered: readonly string[];
+	readonly failures: readonly { readonly childId: string; readonly reason: string }[];
+}
+
 function failure(
 	operation: string,
 	reason: string,
@@ -178,6 +183,53 @@ export class SubagentManager {
 		this.#deps = deps;
 	}
 
+	/** Reattaches active persisted children without replaying any historical input. */
+	public async recover(): Promise<RecoveryResult> {
+		const connect = this.#deps.connect;
+		if (connect === undefined) return { recovered: [], failures: [] };
+		const records = (await this.#deps.registry.list()).filter(
+			(record) =>
+				record.intent === "active" && record.state !== "done" && record.state !== "stopped",
+		);
+		const outcomes = await Promise.all(
+			records.map(async (record) => {
+				try {
+					const runner = await withDeadline(connect(record), this.#deps.deadlineMs ?? 30_000);
+					this.#attach(record, runner);
+					const response = await runner.request("get_entries").catch(() => undefined);
+					const entries =
+						isRecord(response) && Array.isArray(response.entries) ? response.entries : [];
+					const projector = this.#projectors.get(record.subagentId);
+					projector?.rebuild(entries);
+					if (projector !== undefined) {
+						const snapshot = projector.snapshot();
+						await this.#update(record.subagentId, (current) => ({
+							...current,
+							state: snapshot.state,
+							...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
+							usage: snapshot.usage,
+							...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
+						}));
+					}
+					return { childId: record.subagentId };
+				} catch (error) {
+					return {
+						childId: record.subagentId,
+						reason: error instanceof Error ? error.message : String(error),
+					};
+				}
+			}),
+		);
+		return {
+			recovered: outcomes
+				.filter((outcome) => !("reason" in outcome))
+				.map((outcome) => outcome.childId),
+			failures: outcomes.filter(
+				(outcome): outcome is { childId: string; reason: string } => "reason" in outcome,
+			),
+		};
+	}
+
 	public async spawn(input: SpawnSubagentInput): Promise<SpawnResult | OperationError> {
 		if (input.task.trim() === "") return failure("spawn", "Task must not be empty");
 		try {
@@ -191,18 +243,7 @@ export class SubagentManager {
 				this.#deps.deadlineMs ?? 30_000,
 			);
 			const runner = await withDeadline(this.#deps.launch(record), this.#deps.deadlineMs ?? 30_000);
-			this.#runners.set(record.subagentId, runner);
-			const projector = createStateProjector("starting");
-			this.#projectors.set(record.subagentId, projector);
-			runner.onEvent((event) => {
-				void this.#mutate(record.subagentId, () =>
-					this.#observe(record.subagentId, event, runner),
-				).catch((error: unknown) => {
-					console.error(
-						`pi-subagents: failed to project event for ${record.subagentId}: ${error instanceof Error ? error.message : String(error)}`,
-					);
-				});
-			});
+			this.#attach(record, runner);
 			try {
 				await withDeadline(
 					runner.request("prompt", { message: input.task }),
@@ -515,6 +556,20 @@ export class SubagentManager {
 				usage: snapshot.usage,
 				...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
 			};
+		});
+	}
+	#attach(record: SubagentRecord, runner: RunnerLike): void {
+		this.#runners.get(record.subagentId)?.close();
+		this.#runners.set(record.subagentId, runner);
+		this.#projectors.set(record.subagentId, createStateProjector(record.state));
+		runner.onEvent((event) => {
+			void this.#mutate(record.subagentId, () =>
+				this.#observe(record.subagentId, event, runner),
+			).catch((error: unknown) => {
+				console.error(
+					`pi-subagents: failed to project event for ${record.subagentId}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
 		});
 	}
 	async #update(

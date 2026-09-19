@@ -8,6 +8,7 @@ import type {
 	ResolvedAgentIdentity,
 	ResolvedModel,
 	ResolvedThinking,
+	RuntimeClaim,
 	RuntimeMetadata,
 	SkillSelection,
 	SubagentRecord,
@@ -34,7 +35,10 @@ export type RegistryErrorCode =
 	| "duplicate_child"
 	| "unknown_child"
 	| "stale_revision"
-	| "runtime_mismatch";
+	| "runtime_mismatch"
+	| "claim_conflict"
+	| "claim_mismatch"
+	| "stopped_child";
 
 export class SubagentRegistryError extends Error {
 	readonly code: RegistryErrorCode;
@@ -71,6 +75,33 @@ export interface SubagentRegistry {
 		expectedRuntimeIdentity?: string,
 		signal?: AbortSignal,
 	): Promise<SubagentRecord>;
+	claim(
+		id: string,
+		expectedRevision: number,
+		claim: RuntimeClaim,
+		expectedRuntimeIdentity?: string,
+		expectedClaimId?: string,
+		signal?: AbortSignal,
+	): Promise<SubagentRecord>;
+	markClaimRunner(
+		id: string,
+		claimId: string,
+		runnerPid: number,
+		signal?: AbortSignal,
+	): Promise<SubagentRecord>;
+	activateClaim(
+		id: string,
+		claimId: string,
+		runnerPid: number,
+		signal?: AbortSignal,
+	): Promise<SubagentRecord>;
+	consumeReconnectClaim(
+		id: string,
+		claimId: string,
+		controllerTokenHash: string,
+		signal?: AbortSignal,
+	): Promise<SubagentRecord>;
+	releaseClaim(id: string, claimId: string, signal?: AbortSignal): Promise<SubagentRecord>;
 }
 
 export interface CreateSubagentRegistryOptions {
@@ -111,6 +142,7 @@ const RECORD_FIELDS: Record<string, true> = {
 	usage: true,
 	interrupted: true,
 	unacknowledgedInput: true,
+	claim: true,
 };
 
 const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
@@ -145,6 +177,17 @@ const MODEL_FIELDS: Record<string, true> = { provider: true, id: true, source: t
 const THINKING_FIELDS: Record<string, true> = { level: true, source: true };
 const SELECTION_FIELDS: Record<string, true> = { discovery: true, paths: true };
 const RUNTIME_FIELDS: Record<string, true> = { runtimeIdentity: true, endpoint: true, pid: true };
+const CLAIM_FIELDS: Record<string, true> = {
+	claimId: true,
+	kind: true,
+	holderIdentity: true,
+	holderPid: true,
+	runtimeIdentity: true,
+	endpoint: true,
+	controllerTokenHash: true,
+	createdAt: true,
+	runnerPid: true,
+};
 
 const USAGE_FIELDS: Record<string, true> = {
 	inputTokens: true,
@@ -319,6 +362,40 @@ function parseRuntime(value: unknown, path: string): RuntimeMetadata {
 	return Object.freeze({ runtimeIdentity, endpoint, pid });
 }
 
+function parseClaim(value: unknown, path: string): RuntimeClaim {
+	const raw = expectObject(value, "claim", path);
+	expectKeys(raw, CLAIM_FIELDS, "claim", path);
+	if (raw.kind !== "reconnect" && raw.kind !== "replacement") {
+		throw invalid(path, "claim.kind must be reconnect or replacement");
+	}
+	const holderPid = raw.holderPid;
+	if (typeof holderPid !== "number" || !Number.isInteger(holderPid) || holderPid <= 0) {
+		throw invalid(path, "claim.holderPid must be a positive integer");
+	}
+	const tokenHash = expectString(raw.controllerTokenHash, "claim.controllerTokenHash", path);
+	if (!/^[0-9a-f]{64}$/u.test(tokenHash)) {
+		throw invalid(path, "claim.controllerTokenHash must be a SHA-256 hex digest");
+	}
+	const runnerPid = raw.runnerPid;
+	if (
+		runnerPid !== undefined &&
+		(typeof runnerPid !== "number" || !Number.isInteger(runnerPid) || runnerPid <= 0)
+	) {
+		throw invalid(path, "claim.runnerPid must be a positive integer");
+	}
+	return Object.freeze({
+		claimId: expectString(raw.claimId, "claim.claimId", path),
+		kind: raw.kind,
+		holderIdentity: expectString(raw.holderIdentity, "claim.holderIdentity", path),
+		holderPid,
+		runtimeIdentity: expectString(raw.runtimeIdentity, "claim.runtimeIdentity", path),
+		endpoint: expectString(raw.endpoint, "claim.endpoint", path),
+		controllerTokenHash: tokenHash,
+		createdAt: expectIsoDate(raw.createdAt, "claim.createdAt", path),
+		...(runnerPid === undefined ? {} : { runnerPid }),
+	});
+}
+
 function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig {
 	const raw = expectObject(value, "launchConfig", path);
 	expectKeys(raw, LAUNCH_CONFIG_FIELDS, "launchConfig", path);
@@ -408,6 +485,7 @@ export function parseSubagentRecord(
 		throw invalid(path, `record ${key} claims a never-flushed session with a session path`);
 	}
 	const runtime = raw.runtime === undefined ? undefined : parseRuntime(raw.runtime, path);
+	const claim = raw.claim === undefined ? undefined : parseClaim(raw.claim, path);
 	const usage = raw.usage === undefined ? undefined : parseUsage(raw.usage, path);
 	const latestSummary = expectOptionalString(raw.latestSummary, "latestSummary", path);
 	const interrupted = expectOptionalString(raw.interrupted, "interrupted", path);
@@ -433,6 +511,7 @@ export function parseSubagentRecord(
 		persistence,
 		launchConfig,
 		...(runtime === undefined ? {} : { runtime }),
+		...(claim === undefined ? {} : { claim }),
 		...(latestSummary === undefined ? {} : { latestSummary }),
 		...(usage === undefined ? {} : { usage }),
 		...(interrupted === undefined ? {} : { interrupted }),
@@ -498,7 +577,7 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 	const readRecords = async (signal?: AbortSignal): Promise<Map<string, SubagentRecord>> =>
 		parseRoot(await readJsonSettingsRoot(path, signal), path, parentSessionId);
 
-	return {
+	const store: SubagentRegistry = {
 		path,
 		parentSessionId,
 		async get(id, signal) {
@@ -582,5 +661,143 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			if (stored === undefined) throw corrupt(path, `update of ${id} did not persist a record`);
 			return stored;
 		},
+		async claim(id, expectedRevision, candidate, expectedRuntimeIdentity, expectedClaimId, signal) {
+			return store.update(
+				id,
+				expectedRevision,
+				(current) => {
+					if (current.intent === "stopped") {
+						throw new SubagentRegistryError("stopped_child", `Child ${id} is stopped`);
+					}
+					if (
+						(expectedClaimId === undefined && current.claim !== undefined) ||
+						(expectedClaimId !== undefined && current.claim?.claimId !== expectedClaimId)
+					) {
+						throw new SubagentRegistryError("claim_conflict", `Child ${id} has another claim`);
+					}
+					if (candidate.kind === "reconnect") {
+						if (
+							current.runtime?.runtimeIdentity !== candidate.runtimeIdentity ||
+							current.runtime.endpoint !== candidate.endpoint
+						) {
+							throw new SubagentRegistryError(
+								"runtime_mismatch",
+								`Child ${id} runtime changed before reconnect claim`,
+							);
+						}
+					} else if (
+						expectedRuntimeIdentity === undefined
+							? current.runtime !== undefined
+							: current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
+					) {
+						throw new SubagentRegistryError(
+							"runtime_mismatch",
+							`Child ${id} runtime changed before replacement claim`,
+						);
+					}
+					return { ...current, claim: candidate };
+				},
+				undefined,
+				signal,
+			);
+		},
+		async markClaimRunner(id, claimId, runnerPid, signal) {
+			const current = await store.get(id, signal);
+			if (current === undefined)
+				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+			return store.update(
+				id,
+				current.revision,
+				(value) => {
+					if (value.claim?.claimId !== claimId || value.claim.kind !== "replacement") {
+						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);
+					}
+					return { ...value, claim: { ...value.claim, runnerPid } };
+				},
+				undefined,
+				signal,
+			);
+		},
+		async activateClaim(id, claimId, runnerPid, signal) {
+			const current = await store.get(id, signal);
+			if (current === undefined)
+				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+			return store.update(
+				id,
+				current.revision,
+				(value) => {
+					const claim = value.claim;
+					if (
+						claim?.claimId !== claimId ||
+						claim.kind !== "replacement" ||
+						(claim.runnerPid !== undefined && claim.runnerPid !== runnerPid) ||
+						value.intent === "stopped"
+					) {
+						throw new SubagentRegistryError(
+							"claim_mismatch",
+							`Child ${id} replacement claim is no longer valid`,
+						);
+					}
+					const { claim: _claim, ...withoutClaim } = value;
+					return {
+						...withoutClaim,
+						runtime: {
+							runtimeIdentity: claim.runtimeIdentity,
+							endpoint: claim.endpoint,
+							pid: runnerPid,
+						},
+					};
+				},
+				undefined,
+				signal,
+			);
+		},
+		async consumeReconnectClaim(id, claimId, controllerTokenHash, signal) {
+			const current = await store.get(id, signal);
+			if (current === undefined)
+				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+			return store.update(
+				id,
+				current.revision,
+				(value) => {
+					const claim = value.claim;
+					if (
+						claim?.claimId !== claimId ||
+						claim.kind !== "reconnect" ||
+						claim.controllerTokenHash !== controllerTokenHash ||
+						value.runtime?.runtimeIdentity !== claim.runtimeIdentity ||
+						value.intent === "stopped"
+					) {
+						throw new SubagentRegistryError(
+							"claim_mismatch",
+							`Child ${id} reconnect claim is no longer valid`,
+						);
+					}
+					const { claim: _claim, ...withoutClaim } = value;
+					return withoutClaim;
+				},
+				current.runtime?.runtimeIdentity,
+				signal,
+			);
+		},
+		async releaseClaim(id, claimId, signal) {
+			const current = await store.get(id, signal);
+			if (current === undefined)
+				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+			return store.update(
+				id,
+				current.revision,
+				(value) => {
+					if (value.claim?.claimId !== claimId) {
+						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);
+					}
+					const { claim: _claim, ...withoutClaim } = value;
+					return withoutClaim;
+				},
+				undefined,
+				signal,
+			);
+		},
 	};
+	return store;
 }

@@ -105,6 +105,23 @@ export interface RuntimeMetadata {
 	readonly pid?: number;
 }
 
+export type RuntimeClaimKind = "reconnect" | "replacement";
+
+/** Non-secret, durable ownership claim used to serialize reconnect and replacement. */
+export interface RuntimeClaim {
+	readonly claimId: string;
+	readonly kind: RuntimeClaimKind;
+	readonly holderIdentity: string;
+	readonly holderPid: number;
+	readonly runtimeIdentity: string;
+	readonly endpoint: string;
+	/** SHA-256 of the one-time controller token; the token itself is never persisted. */
+	readonly controllerTokenHash: string;
+	readonly createdAt: string;
+	/** Set by the runner before it starts the Pi writer. */
+	readonly runnerPid?: number;
+}
+
 export interface UsageSummary {
 	readonly inputTokens: number;
 	readonly outputTokens: number;
@@ -130,6 +147,7 @@ export interface SubagentRecord {
 	readonly persistence: PersistenceState;
 	readonly launchConfig: EffectiveLaunchConfig;
 	readonly runtime?: RuntimeMetadata;
+	readonly claim?: RuntimeClaim;
 	readonly latestSummary?: string;
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;

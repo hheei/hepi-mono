@@ -16,11 +16,13 @@
  * this runner's endpoint.
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { errorMessage, writeDiagnostic } from "./diagnostics.js";
 import type { ChildIdentity } from "./domain.js";
+import { createSubagentRegistry } from "./registry.js";
 import { startRunner } from "./runner.js";
 
 export const RUNNER_JOB_FLAG = "--job";
@@ -38,6 +40,7 @@ export const RunnerJobSchema = Type.Object(
 		cwd: Type.String({ minLength: 1 }),
 		sessionId: Type.String({ minLength: 1 }),
 		sessionPath: Type.Optional(Type.String({ minLength: 1 })),
+		claimId: Type.Optional(Type.String({ minLength: 1 })),
 		env: Type.Optional(Type.Record(Type.String(), Type.String())),
 	},
 	{ additionalProperties: false },
@@ -117,6 +120,11 @@ async function main(): Promise<void> {
 	if (cwd === undefined || !cwd.isDirectory()) {
 		throw new Error(`runner job cwd is not a directory: ${job.cwd}`);
 	}
+	const registry = createSubagentRegistry({ parentSessionId: identity.parentSessionId });
+	if (job.claimId !== undefined) {
+		await registry.markClaimRunner(identity.subagentId, job.claimId, process.pid);
+		await registry.activateClaim(identity.subagentId, job.claimId, process.pid);
+	}
 	const child = spawn(job.invocation.command, [...job.invocation.args], {
 		cwd: job.cwd,
 		env: {
@@ -137,9 +145,15 @@ async function main(): Promise<void> {
 		stderrTail = `${stderrTail}${chunk.toString("utf8")}`.slice(-STDERR_TAIL_BYTES);
 	});
 	try {
+		const recoveryRegistry = registry;
 		const runner = await startRunner({
 			identity,
 			process: child,
+			authorizeRecovery: async (claimId, token) => {
+				const tokenHash = createHash("sha256").update(token).digest("hex");
+				await recoveryRegistry.consumeReconnectClaim(identity.subagentId, claimId, tokenHash);
+				return true;
+			},
 			onDiagnostic: (line) => writeDiagnostic("runner", line),
 		});
 		writeDiagnostic(

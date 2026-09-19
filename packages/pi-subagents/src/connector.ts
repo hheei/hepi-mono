@@ -29,7 +29,8 @@ export interface RunnerConnectionOptions {
 	readonly maxPendingRequests?: number;
 	readonly requestTimeoutMs?: number;
 	readonly connectTimeoutMs?: number;
-	readonly role?: "controller" | "reporter";
+	readonly role?: "controller" | "reporter" | "recovery";
+	readonly claimId?: string;
 }
 
 /**
@@ -185,7 +186,8 @@ export class RunnerConnection {
 					{
 						version: PROTOCOL_VERSION,
 						type: "hello",
-						role: this.#options.role ?? "controller",
+						...(this.#options.role === undefined ? {} : { role: this.#options.role }),
+						...(this.#options.claimId === undefined ? {} : { claimId: this.#options.claimId }),
 						...this.#options.identity,
 						token: this.#options.token,
 					},

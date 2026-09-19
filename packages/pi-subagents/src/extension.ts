@@ -4,7 +4,7 @@ import type { ChildIdentity } from "./domain.js";
 import { isThinkingLevel } from "./domain.js";
 import { createParentChannel, SubagentManager } from "./manager.js";
 import { createSubagentRegistry } from "./registry.js";
-import { launchDetachedRunner } from "./runtime.js";
+import { launchDetachedRunner, recoverDetachedRunner } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
 import { isChildEnvironment, registerChildTools, registerParentTools } from "./tools.js";
 
@@ -108,7 +108,11 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				launch(record) {
 					return launchDetachedRunner({ registry, record, signal: runtime.signal });
 				},
+				connect(record) {
+					return recoverDetachedRunner({ registry, record, signal: runtime.signal });
+				},
 			});
+			await manager.recover();
 			registerParentTools(pi, manager);
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());
 		},
