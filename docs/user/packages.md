@@ -16,7 +16,6 @@
 | [`pi-dollar-skill`](../../packages/pi-dollar-skill/README.md) | `$skill-name` 自动补全与技能路径引用 |
 | [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-auto-title`](../../packages/pi-auto-title/README.md) | 自动生成 Pi 会话标题 |
-| [`pi-btw`](../../packages/pi-btw/README.md) | 围绕当前会话提出旁路问题 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-debug`](../../packages/pi-debug/README.md) | 开发诊断与确定性 TUI 回放 |
 

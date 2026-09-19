@@ -37,8 +37,6 @@ This directory records high-level information for users and developers. Detailed
 - [FFF search research](pi-fff.md): FFF SDK data model, precise match ranges, lifecycle, pagination, and Pi integration boundaries.
 - [Apply Patch model-information research](research/apply-patch-model-information.md): historical mpatch diagnostic evidence and V4A model-information design inputs.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
-- [BTW implementation research](research/btw/implementation-research.md): comparison of four public BTW implementations.
-- [BTW reuse inventory](research/btw/reuse-inventory.md): code reuse decisions made before implementation.
 
 Research records evidence and prior reasoning. It does not override current code, tests, package READMEs, or design specifications.
 

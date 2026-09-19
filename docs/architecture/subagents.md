@@ -36,7 +36,7 @@ timing 猜测。
 
 | Mode           | 执行边界                                                         | 结果与交互                                              |
 | -------------- | ------------------------------------------------------------ | -------------------------------------------------- |
-| `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 `/btw`、auto-title、分类、短摘要 |
+| `completion`   | 单次、无 tool 的模型生成；不创建 child session、transcript 或 input channel | caller 等待受限 completion result；用于 auto-title、分类、短摘要 |
 | `task` | 有限、多轮、可使用已解析 tool policy 的 child execution；每项必填有限 soft `maxTurns` | 一个 terminal result；必须通过 delivery sink 自动交给 parent adapter |
 | `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填 initial message、reply consumption 与有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply；用于 Advisor 等保留 child review context 的 consumer |
 
@@ -49,8 +49,8 @@ completion 的 failed terminal 保留用户可读 message，并携带 core-norma
 provider error 的数值 HTTP `status`/`statusCode` 与标准 transport `code` 提取结构化证据，未知 shape 必须
 标为 `unknown`，不能从 message 文本猜测。`authentication`、`invalid-request`、`configuration`、`transient`
 、`invalid-response` 和 `unknown` 是稳定分类；只有 consumer 自己拥有的有限 retry policy 才可对 `transient` 重试。core 不 retry，
-也不公开原始 Error object、provider response 或 credentials。这样 auto-title 与 BTW 共享可靠 terminal
-diagnostic，并各自维持有限 retry policy。
+也不公开原始 Error object、provider response 或 credentials，从而让 auto-title 获得可靠的 terminal
+diagnostic，并维持自己的有限 retry policy。
 
 ## Task Delivery
 
@@ -207,9 +207,3 @@ Concrete consumer 另测试 context anchor、parent queue/human-or-host-only ste
 所有 TUI 或 terminal delivery adapter 仍须由 owning extension 依据 `DESIGN.md` 做 focused narrow/wide
 验证和实际 Pi/TUI replay 验证。
 
-## 测试入口
-
-`@hheei/pi-ext-core/testing` 提供 deterministic model、scripted completion 与 child-session fixture，供 `/btw`
-和 Advisor 等 direct consumer 测试 transport、取消与 terminal state，而不访问网络或 Pi 私有字段。它不包含
-agent catalog、tool policy、prompt、delivery、scheduler 或 feature state；这些业务语义仍由 consumer fixture
-明确声明。该入口由 `/btw` 和 Advisor 两个真实 consumer 驱动，不能扩张成通用 mock framework。
