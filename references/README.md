@@ -12,10 +12,7 @@ Use `<owner>-<repo>` directory names. Documentation must cite the public URL and
 | [earendil-works/pi](https://github.com/earendil-works/pi) | `b4f293684bba718d59cc1157679bcf6157b3a7f5` (`v0.82.1`) | Project-only `pi-development` skill source reference |
 | [gabelul/bpx-mono](https://github.com/gabelul/bpx-mono) | `64567efe1177739b2eb110a746fff7c736c9468b` | Isolated advisor agents and result delivery |
 | [pasky/pi-omplike-advisor](https://github.com/pasky/pi-omplike-advisor) | `43eb9a976d751c06016a62b5423e2c6ddaff43a1` | Read-only advisor behavior |
-| [dbachelder/pi-btw](https://github.com/dbachelder/pi-btw) | `4f858102706910ee9d520a9666832f3103631b61` | Side-agent orchestration and transcript handling |
-| [Firstp1ck/npm-packages](https://github.com/Firstp1ck/npm-packages) | `7ff59ae4baa303ccbb66212355ecc335bee3a4c1` | BTW lifecycle, RPC/WebUI, and transfer boundaries |
-| [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `700c2d370353ca145d2658c61df1eee6297e8d80` | Ask, BTW, and package architecture |
-| [narumiruna/pi-extensions](https://github.com/narumiruna/pi-extensions) | `c5dc930cd85a6f661c3fd530fa62e44109c86070` | Plan and BTW implementations |
+| [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `700c2d370353ca145d2658c61df1eee6297e8d80` | Ask, Advisor, and package architecture |
 | [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) | `0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0` | Caveman prompt behavior |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | `16f29800fd2681bdf24f3eb4ccffe38be3baec6b` | Ponytail rules and companion workflows |
 | [ShpetimA/pi-fff](https://github.com/ShpetimA/pi-fff) | `694837d0644abc8527ebfa3ea50135e0f5d1ece4` | FFF runtime, tools, commands, formatting, and autocomplete behavior adapted for HEPI ownership |

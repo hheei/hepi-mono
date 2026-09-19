@@ -27,7 +27,7 @@ User exits B TUI
 detach
   │
   ▼
-B continues in RPC background
+B returns to RPC background mode and waits for new input
 ```
 
 本 extension 不是 workflow engine，也不是自製 multi-agent UI。
@@ -59,7 +59,7 @@ minimal recovery
 ```text
 RPC process A
      │
-     │ attach
+     │ attach（idle only）
      ▼
 TUI process B
      │
@@ -236,7 +236,7 @@ Pi dist/modes/rpc/rpc-types.d.ts、dist/modes/rpc/rpc-client.js
 Pi `createAgentSession` / `runRpcMode` 虽然公开，第一版不再引入 SDK 启动路线：
 RPC 和 native TUI 都沿用 Pi CLI 的资源加载、信任和配置规则，避免维护两套启动语义。
 Node `net` / `readline` 足以承载本地 JSON-line transport；沿用 Pi RPC payload，
-只为 handshake、pause、contact_parent 增加本 extension 必需的消息。
+只为 runner control、状态与 `contact_parent` 增加本 extension 必需的消息。
 所有跨进程输入都做运行时校验；TypeScript 类型本身不是输入校验。
 
 ---
@@ -639,7 +639,7 @@ child 仍用「同一份 extension entry」啟動：
 - -e 必須是絕對路徑（child 不保證與 parent 同 cwd）
 - --no-extensions 停用探索到的 user/project extensions
 - 因此 child 內只會載入本 extension 的 child branch：
-  messaging / status / pause
+  `contact_parent` + 接收 parent 消息
 - child branch 不註冊 SubagentManager、不註冊 spawn tool
   → 不會遞迴 spawn subagent
 ```
@@ -882,14 +882,14 @@ session JSONL polling
 
 ```text
 Main Pi extension
-  │  steer / follow-up / pause / status query
+  │  prompt / steer / follow-up / status query
   ▼
 ParentChannel
   ▼
 Child Pi
 
 Child Pi
-  │  contact_parent() / status / pause ack
+  │  contact_parent() / status
   ▼
 ParentChannel
   ▼
@@ -907,7 +907,7 @@ parent branch:
   SubagentManager / tools / shortcuts / ParentChannel host side
 
 child branch:
-  messaging / status / pause
+  `contact_parent` + 接收 parent 消息
   （不註冊 manager，不註冊 spawn tool → 不會遞迴 spawn）
 ```
 
@@ -986,10 +986,10 @@ stop
 Attach 是：
 
 ```text
-RPC → native Pi TUI
+idle RPC → native Pi TUI
 ```
 
-流程：
+V1 不做正在运行中的无缝热切换。流程：
 
 ```text
 user selects child
@@ -998,95 +998,70 @@ user selects child
 press attach shortcut
        │
        ▼
-mark attach requested
+serialize this child's transitions and stop accepting new parent input
        │
        ▼
-child 端 pause handshake
+query real Pi state
        │
-       ▼
-parent 收到 paused ack
+       ├── streaming / compacting / pending input → return busy, keep RPC
        │
-       ▼
-parent 不再送新的 steer/follow-up
-       │
-       ▼
-等舊 RPC process 確實退出（舊 writer 結束）
-       │
-       ▼
-HostAdapter.attach()
-       │
-       ▼
-pi --session <same-session>
-       │
-       ▼
-native Pi TUI
+       └── idle and session persisted
+               │
+               ▼
+       shut down old RPC and confirm process exit
+               │
+               ▼
+       HostAdapter.attach(same resolved launch policy)
+               │
+               ▼
+       native Pi TUI
 ```
+
+如果以后有明确需求，可以另加 `interrupt-and-attach`：显式 abort 当前 turn、等待 Pi 回到 idle，
+再走同一条 attach 路径。它必须向用户说明当前工作被中断；V1 不提供，也不伪装成无缝暂停。
 
 ---
 
 # 18. Safe Attach Boundary
 
-Attach 需要一個真正的 pause handshake，而不是只看 settled/idle。
-
-為什麼不能只看 settled：
+V1 的安全边界来自简单的顺序约束，不实现 child pause handshake 或 `turn_end` gate：
 
 ```text
-Pi 的 turn_end 只是一次 assistant turn 的事件，不是暫停訊號
-settled 之後，後續 steering / follow-up / queue 中的訊息仍會啟動下一個 turn
+1. SubagentManager 的 per-child transition queue 独占本次 attach
+2. 从此不再接受该 child 的新 prompt / steer / follow-up
+3. `get_state` 必须同时满足：
+   isStreaming = false
+   isCompacting = false
+   pendingMessageCount = 0
+4. session 文件已经落盘且 identity 匹配
+5. 请求 runner 关闭旧 RPC，并确认 Pi process 已退出
+6. 只有确认旧 writer 已退出，才启动 TUI
 ```
 
-流程：
+`turn_end` 不是 attach 条件；Pi 在 retry、compaction 和 queued continuation 全部处理完成后才会
+进入 idle。这里使用 Pi 的实际 state 查询，并靠 transition queue 防止检查后又接受新输入。
 
-```text
-1. parent 送出 pause 請求（帶 attach 意圖）
-2. child 內部的 pause handshake：目前正在執行的 tool call 全部結束後，
-   於 turn_end 邊界 await 住，並回 paused ack
-3. parent 收到 paused ack 後，不再送新的 steer/follow-up
-4. parent 等舊 RPC process 確實退出（舊 writer 結束）
-5. 只有到這一步才啟動 native TUI（新的 writer）
-```
-
-實作要點：
-
-```text
-pause handshake 在 child 內部 await，不吞掉正在執行的 tool
-旧 RPC 尚未进入退出阶段时，pause timeout / cancel 必须释放 gate、解除输入冻结并报错
-→ attach 失败并保留 RPC，不得直接切断正在执行的 tool
-stop / shutdown 必須先釋放 gate 再等待 process 結束，否則會 deadlock
-關閉路徑先設定 abort / closing 意圖以禁止下一個 turn，再釋放 gate，最後等待退出。
-不能直接 await 一個會等待 gate 的 abort/shutdown，再嘗試釋放 gate。
-child 已 idle 時直接在輸入閘門關閉後確認 paused，不等待不存在的下一次 turn_end。
-```
-
-不要只等待 `turn_end`，也不要用 session JSONL polling 推導安全邊界。
-
-输入冻结属于同一个 handoff：pause 请求开始后，runner 不再把新输入送入旧 writer。
-已接受但未消费的输入须保留并报告，不因 RPC 关闭丢失，也不跨模式静默重放。
-timeout/cancel 按下面的交接阶段规则处理输入冻结，不能对已退出或状态不明的 writer 恢复投递。Pi RPC `clear_queue` 可取回两类队列内容，
-但它不是 durability ack，不能独自承担 handoff transaction。
-
-开始交接前必须满足 §7 的首次落盘条件；文件尚未建立则明确拒绝 attach，保留现有 RPC。
+如果检查时 child busy，attach 立即返回可理解的 busy 错误，RPC 原样保留。不要等待一个无限期
+安全点，也不要在普通 attach 中 abort 正在执行的 tool。
 
 ## 旧 RPC 退出后的 attach 失败
 
-必须区分失败阶段；退出旧 RPC 后，不能再声称「保留原 RPC」：
+退出旧 RPC 后，不能再声称「保留原 RPC」：
 
-1. 旧 RPC 尚未进入退出阶段：释放 pause gate、解除输入冻结，保留旧 RPC，返回 attach 错误。
-2. 旧 RPC 已退出，且确认 TUI 未启动或已退出：清理本次创建的残留 attachment，
-   child 非 stopped 时通过现有 runner 恢复同一 session 的 RPC；runner 也已结束才按 §42 创建替代 runner。
-   RPC 只等待输入，不重放 pending messages；返回 attach 错误，并说明 RPC 是否已恢复。
-3. 旧 RPC 或新 TUI 是否仍存活无法确认（包括 host 调用超时但进程可能已经启动）：
-   不启动另一个 writer，不向不明 writer 恢复投递；按 §8.2 在 deadline 内返回错误，让 model 选择其他方法。
-   保留身份及观察信息，不凭 pane 创建失败或 ready 超时推断进程死亡。
+1. 尚未关闭旧 RPC：解除本次输入冻结，保留 RPC，返回 attach 错误。
+2. 旧 RPC 已退出，且确认 TUI 未启动或已退出：清理本次创建且仍归本 attachment 所有的资源；
+   child 非 stopped 时按 §42 恢复同一 session 的 RPC。新 RPC 只等待输入，不自动继续任务。
+3. TUI 是否已经启动无法确认（例如 host 调用超时）：不启动另一个 writer；保留身份和观察信息，
+   在有限 deadline 内返回错误。
 
-失败恢复也受 stop 意图、ownership 校验和有限 deadline 约束；恢复再失败时合并报告原始错误与恢复错误，
-不进入无限重试。仅清理本次创建且仍归该 attachment 管理的资源，不能误关已切换到其他 session 的 TUI。
+所有分支都不自动重放 pending input。恢复失败时同时报告 attach 错误和恢复错误，不无限重试。
 
 ---
 
 # 19. Native TUI
 
-Attach 後必須直接啟動：
+Attach 後必須直接啟動 native Pi TUI，并打开同一 session。命令必须由 §19 的统一 launch builder
+产生，不能简化成只执行：
 
 ```bash
 pi --session <same-session>
@@ -1121,94 +1096,76 @@ shortcuts
 
 ## Effective launch configuration
 
-RPC、TUI attach 與 restart 產生的 process 必須來自同一份 effective launch configuration：
+RPC、TUI attach 與 replacement runtime 必須來自同一份 resolved child policy：
 
 ```text
 session id / session path
 cwd
 agent definition
-effective model + thinking
-tool / extension allow-list
-system prompt assembly
+fixed tools / extensions / skills / system prompt
+initial model + thinking（只用于尚未落盘的首次启动）
 ```
 
 規則：
 
 ```text
-child 預設繼承 parent 當下的 model / thinking
-但這個繼承必須是顯式且可觀測的決策：
-不要靜默做 provider routing，也不要悄悄換 model
-session 建立後使用者若明確改 config（例如換 model），
-新 runtime 要看得見地採用新設定
-不要沿用舊值假裝繼承，也不要忽略後來的明確設定
+child 第一次启动时显式继承 parent 当下的 model / thinking
+这个决定必须可观察：不静默做 provider routing，也不悄悄换 model
+tools / extensions / skills / system prompt / cwd 是 child 创建时固定的 policy snapshot
+RPC、TUI 和 replacement runtime 始终复用这份权限 policy
 ```
+
+已落盘 session 的 model / thinking 由 Pi session 自己恢复：重新打开时不再传旧 parent 默认值或
+最初 snapshot 强制覆盖。这样用户在 TUI 中明确更换 model/thinking 后，后续 RPC 能沿用 Pi 已保存的
+选择，而本 extension 不需要维护动态配置同步系统。恢复模型不可用时，暴露 Pi 的 fallback 结果，
+不能静默声称仍使用原模型。
 
 具體 args 由本 extension 自己的 launch args builder 產生（不提升 MCTX `buildArgs`）。
 
 保持一条解析链：agent definition + parent 显式默认值 → effective config → launch spec。
-launch spec 包含已解析 invocation、argv、cwd 和必要的 child bridge 环境变量；
+launch spec 包含已解析 invocation、argv、cwd 和必要的 child bridge 环境变量；同一 persistence 状态下，
 RPC/TUI 只改变运行模式和 stdio/terminal 接法。HostAdapter 不重新解析 agent 或拼另一份 Pi 参数。
-模型用明确的 provider/id；恢复时采用 child 已保存的最新显式选择，不能用旧 parent 默认值覆盖。
-保存非 secret 的已解析 policy，避免重启时因 agent 文件变化而悄悄换配置；不复制 API key 到 registry。
+保存非 secret 的固定 policy，避免重启时因 agent 文件变化而悄悄换权限；不复制 API key 到 registry。
 
 ---
 
 # 20. Detach
 
-Detach 是 TUI 已不再使用受管理的 child session、但 child logical session 仍然存活的状态转换：
+Detach 是受管理的 TUI process 已确认退出，但 child logical session 仍然存在：
 
 ```text
-TUI process confirmed exited，或成功切换到不同 session 且旧 writer 已释放
-→ parent 已標記 stopped: do nothing
-→ 否則: detach 語義 → 用同一 session 啟動 RPC
+TUI process confirmed exited
+→ parent 已标记 stopped: do nothing
+→ 否则: 用同一 session 启动 RPC
+→ RPC 只等待新输入，不自动继续被中断的任务
 ```
 
-規則：
+规则：
 
 ```text
-process 確認退出（不管是 /quit、Ctrl+D、pane close 還是 TUI crash），
-且不是 parent stop → 就是 detach
-不要要求「正常退出」才恢復 RPC
-crash / pane close 與正常退出走同一條 detach 產品語義，
-差別只在於是否額外回報一次異常退出
+/quit、Ctrl+D、pane close 或 TUI crash 最终都走同一条 detach 产品语义
+必须确认 TUI process 退出，不能只凭 pane/host 事件推断
+crash 与正常退出的差别只在于额外报告异常
 ```
 
-进程退出路径必须确认 process 已退出，不能只凭 pane 关闭或 host 事件推断。
-session 切换路径按下面的规则确认交接，不要求 TUI process 退出。
-两条路径都保持原 child identity；RPC 重建只等待输入，不自动继续任务。
+## V1 不跟踪 TUI 内部的 session 切换
 
-## TUI 切换 session 也视为 detach
+用户在 attached TUI 中执行 `/new`、`/resume` 或 `/fork` 时，V1 不尝试立即把原 child 切回 RPC。
+整个 TUI process 在退出前都属于该 attachment；只有 process 真正退出后，才重新打开 registry 中记录的
+原 child session。
 
-用户在 child A 的 TUI 成功执行 `/new`、`/resume` 或 `/fork`，进入不同 session B：
+这个 trade-off 会让原 child 在用户切到其他 session 后暂时不在后台运行，但它删除了 session-switch
+ownership、旧身份撤销和中途恢复等复杂逻辑，也不会启动第二个受管理 writer。切换出来的新 session
+不会自动成为 subagent。
 
-```text
-确认 TUI 已进入 B，且 A 的旧 writer 已释放
-→ 解除 A 与该 TUI 的管理关系
-→ A 非 stopped：按恢复规则重建 A 的 RPC，只等待输入
-→ TUI 留在 B 供用户使用；B 不自动成为 subagent
-```
-
-- `session_before_switch` / `session_before_fork` 只代表切换请求，不能提前恢复 A。
-  `session_shutdown` 也不是旧 writer 已释放的充分证明；须确认切换成功及原 session 释放。
-  取消切换则保留原绑定；失败且 writer 状态不明时 fail closed，不启动第二个 writer。
-- `/resume` 当前同一 session 不算 detach；`/reload` 也不算离开当前 child。
-- 解除绑定后，parent 不再控制该 TUI 的 PID / pane，也不再接受它以 A 身份发出的消息。
-  撤销旧桥接身份与 attachment 回调；B 后续退出不能再次触发 A 的 detach，stop A 不能误杀 B。
-  启动环境中的 child 标识不能让 B 在 session replacement 或 reload 后重新冒充 A。
-- 用户直接 `/resume` 运行中的 A 或其他 child，保留 Pi 原生行为：不拦截、不自动 attach、不自动停止后台 writer。
-  接受绕过 attach 后可能出现两个 writer 的风险；本计划的单 writer 保证只覆盖扩展管理的操作，
-  不承诺阻止用户通过 Pi 原生命令或外部进程直接打开同一 session。
+用户绕过本 extension，直接从其他 Pi process `/resume` 同一 session 的行为不在单 writer 保证范围内；
+V1 不拦截 Pi 原生命令，也不尝试接管外部进程。
 
 ## 用户中断任务
 
-明确观察到用户中断正在执行的 child（包括 session 切换造成的中断）时，向主 agent 返回：
-
-> 用户暂停了子 agent，任务未完成；请确认用户意图，不要自动恢复执行。
-
-通知必须带 child 标识及已知的最后活动，status / latest summary 同时显示 interrupted。
-主 agent 应先确认用户意图，只有收到明确继续指令后才恢复任务；不自动重发初始任务或 pending messages。
-普通中断不等于 detach，也不等于 parent stop：若 TUI 仍在同一 session，就保留 TUI，不重建 RPC。
-若同时发生 detach，RPC 可以重建，但仅等待输入。crash 或来源不明的中断不能误报为用户主动暂停。
+如果 TUI 中明确观察到用户中断任务，向主 agent 报告 child 标识、最后活动和 `interrupted`；不自动恢复
+执行。TUI 仍存活时保持 attachment；TUI 退出后可以重建 RPC，但只等待明确的新输入。crash 或来源不明
+的中断不能描述成用户主动暂停。
 
 ---
 
@@ -1241,7 +1198,7 @@ Stop 與 detach 必須嚴格不同。
 
 ## Detach
 
-child TUI 退出，或成功切换到不同 session 并释放原 writer：
+child TUI process 已確認退出：
 
 ```text
 TUI → RPC
@@ -1317,16 +1274,17 @@ exit handler sees stopped
 do nothing
 ```
 
-如果 child 正卡在 attach 的 pause gate：
+如果 stop 与 attach 同时发生：
 
 ```text
-mark stopped
-→ 设置 closing / abort 意图，禁止下一轮
-→ 释放 pause gate（让等待中的 handshake/timeout 结束）
+先持久化 stopped / closing 意图
+→ 让在途 attach 在下一个可取消边界退出
+→ 若 attach 已关闭 RPC，则结束任何已启动或状态可确认的 TUI
 → 等待 terminate 完成
 ```
 
-順序顛倒會在 pause handshake 等 process 結束時造成 deadlock。
+stop/cancel 信号不能只排在 transition queue 尾部；否则正在等待 host 或 process 退出的 attach
+会阻塞 stop。所有等待都必须有 deadline，并在退出时按 runtimeIdentity 条件清理，不能误删新 runtime。
 
 ---
 
@@ -1481,7 +1439,7 @@ optionally close it
 | availability | 异步探测实际 host 能力，不只检查环境变量 |
 | attach input | §19 的完整 launch spec、title、取消 signal |
 | attach result | host/attachment 标识及可验证的启动结果 |
-| runtime observation | child bridge / runner 提供 writer 身份、ready 和退出证据；pane 消失不是退出证据 |
+| runtime observation | runner / launcher 提供 writer 身份、ready 和退出证据；pane 消失不是退出证据 |
 
 优先把 structured argv 交给 host；只有 host 接受 shell command 时才在 adapter 内统一 quoting。
 进程完成/异常通知复用 runner channel，不再造另一套状态发现服务。
@@ -1594,7 +1552,7 @@ stop selected subagent
 Attach：
 
 ```text
-RPC → TUI
+idle RPC → TUI
 ```
 
 Stop：
@@ -1671,16 +1629,17 @@ interrupted 與中斷前的最後活動
 
 | 数据 | RPC 路径 | TUI 路径 |
 | --- | --- | --- |
-| model/thinking、队列与 streaming 状态 | `get_state` | child bridge 从当前 context / lifecycle 读取 |
-| 最后 assistant 文本 | `get_last_assistant_text` | child bridge 从当前 branch/context 读取 |
+| model/thinking、队列与 streaming 状态 | `get_state` | 标记为 attached；不伪造实时模型或队列状态 |
+| 最后 assistant 文本 | `get_last_assistant_text` | 保留 attach 前最后快照，加上显式 `contact_parent` 报告 |
 | 详细消息 | 按需 `get_messages`，不持续镜像 | 使用 native TUI |
-| 累计统计 | `get_session_stats` | child bridge 在需要时从 readonly session entries 聚合 |
+| 累计统计 | `get_session_stats` | 显示 attach 前最后快照，detach 后由 RPC 完整刷新 |
 
-`get_state` 不是暂停证明，`isStreaming = false` 也不等于安全 handoff。
+V1 不让 child branch 解析 session entries 或维护第二套 telemetry，只负责双向消息与必要生命周期信号。
+TUI 状态必须明确标成 last-known，不能冒充实时值。单独的 `isStreaming = false` 也不是安全 handoff；
+attach 必须同时检查 §18 的完整 idle 条件，并在 transition queue 内停止接受新输入。
 SDK 的 `AgentSession.getSessionStats()` 不在 extension context 上；不能写成 `ctx.getSessionStats()`。
-最后输出采用当前 branch；累计 usage 按 Pi 的全 session entries 口径，含 compaction/branch summary
+最后输出采用当前 branch；RPC 返回的累计 usage 按 Pi 的全 session entries 口径，含 compaction/branch summary
 及带 usage 的 tool result，不能只统计当前 messages 或把 usage.cost 当成数字。
-这段必要的 TUI 聚合留在本 extension，以 Pi 返回值做一致性测试，不抽通用 telemetry 框架。
 重连后用完整快照替换旧快照，不叠加重放事件，避免重复计费统计。
 完整结果由 Pi session 保留；parent UI 折叠不截断结果，ext-core outputs 只作当前 parent scope 的检索辅助。
 
@@ -1983,9 +1942,8 @@ reconnect 與 detach 交錯 → 可能對同一個 session 開兩個 runtime
 复用 `packages/pi-ext-core/src/lifecycle.ts` 的 rejection-safe chain 写法即可，
 不提取 generic queue，不引入 global scheduler。
 
-stop/cancel 的取消信号不能排在正在等待的 pause gate 后面：
-先让在途 attach 知道要停止，设置 closing 意图并释放等待，再由队列串行完成退出。
-exit/ack 回调必须匹配当前 writer 身份，丢弃旧连接的迟到回调。
+stop/cancel 信号不能只排在正在运行的 attach 后面：先持久化 stopped / closing 意图并取消在途等待，
+再由队列串行完成退出。exit/response 回调必须匹配当前 writer 身份，丢弃旧连接的迟到回调。
 同一 parent session 被两个 Pi process 同时打开时，本地队列不够：
 runner 一次只接受一个有效控制连接，replacement 前撤销旧连接权限；不能默默双控制。
 
@@ -2039,8 +1997,7 @@ RPC runner 必須：
 不引入 global scheduler；不做集中式排程
 ```
 
-pause 訊號也走這條路徑：attach 前由 parent 送出 pause，
-child 端在 turn_end 邊界 await 並回 paused ack。
+attach 的 idle 检查、输入冻结与关闭请求也走 runner control 路径；runner 不实现另一套 pause 协议。
 
 runner 的 RPC adapter 只转发需要的 Pi 命令，并以 request ID 关联 response。
 事件与 response 分开处理；超时/断线必须结束在途请求，限制 frame 和 pending request 大小。
@@ -2088,8 +2045,8 @@ ParentChannel 是必要的雙向通道，不是 optional 的 child → parent �
 ```text
 child → parent reports（contact_parent）
 parent → child steering / follow-up
-pause 請求與 paused ack
 status query
+idle/close control
 parent identity isolation
 message delivery
 ```
@@ -2098,10 +2055,10 @@ message delivery
 
 ```text
 parent steer / follow-up ─┐
-pause / status query ─────┼─→ ParentChannel ─→ child
+idle / close query ───────┼─→ ParentChannel ─→ child
                           │
 child contact_parent ─────┼─→ ParentChannel ─→ parent
-status / paused ack ──────┘
+status / response ────────┘
 ```
 
 语义与 host 解耦，物理上复用 §4 的 runner endpoint，不再维护第二套 IPC 服务。
@@ -2123,9 +2080,8 @@ parent 暂时离线时只保留必要的待确认 report，并明确容量/失�
 discover .md definitions
 resolve precedence
 parse frontmatter（直接使用 Pi parseFrontmatter，不自寫 parser）
-resolve effective model
-resolve thinking
-resolve tools/extensions/skills
+resolve initial model/thinking for first launch
+resolve fixed tools/extensions/skills/prompt policy
 validate config
 ```
 
@@ -2157,7 +2113,7 @@ RPC runtime + 獨立存活 runner（擁有 child stdin/stdout、可重連 IPC en
 Pi session persistence
 minimal registry（含 parentSessionId 與 reconnect metadata）
 
-usage/cost tracking
+latest result/status（usage/cost display 延后到 Phase 5）
 child → parent communication（同一份 extension entry 的 child branch）
 parent steering
 雙向 ParentChannel
@@ -2208,23 +2164,21 @@ cmux detection
 HostAdapter
 
 attach shortcut
-child 端 pause handshake + paused ack
+per-child input freeze + complete idle check
 parent 等舊 RPC process 確實退出
-RPC → TUI handoff
-same effective launch configuration
+idle RPC → TUI handoff
+same fixed policy + Pi-restored session model/thinking
 ```
 
 Acceptance：
 
 ```text
-User selects a background child.
-Press attach.
-Parent 送出 pause；child 在目前 tool call 結束後於 turn_end 邊界 await，
-回 paused ack。
-Parent 收到 ack 後停止送出 steer/follow-up，並等舊 process 退出。
-Same Pi session opens as native Pi TUI.
-Conversation remains continuous.
-正在执行的 tool 不会被切断；旧 RPC 退出前的 pause timeout / cancel 释放 gate 并保留 RPC，退出后的失败按 §18 恢复。
+User selects an idle background child and presses attach.
+Parent serializes the transition, stops accepting new input, and verifies the complete idle condition.
+Parent closes RPC and confirms the old writer exited before starting TUI.
+Same Pi session opens as native Pi TUI; conversation remains continuous.
+Busy child returns a visible busy result without aborting its tool or closing RPC.
+Failure before RPC exit keeps RPC; failure after exit follows §18 recovery and never starts a second writer.
 ```
 
 ---
@@ -2239,7 +2193,7 @@ TUI process exit detection（確認 process 真的退出）
 pane closure
 TUI crash handling
 TUI → RPC recovery（不需「正常退出」前提）
-session 切换成功后的 detach 与旧 TUI 控制权撤销
+TUI 内部 `/new`、`/resume`、`/fork` 不触发中途 detach；process 退出后恢复原 child session
 用户主动中断通知主 agent，等待明确继续指令
 ```
 
@@ -2251,7 +2205,7 @@ Exiting child TUI never kills a non-stopped logical subagent.
 同一 session 在 RPC 復原。
 An RPC restart does not claim to resume an interrupted turn automatically.
 Stopped children never restart.
-成功切换到 B 后，A 回到 RPC 等待输入，B 不受 A 的 stop / 消息 / 退出回调影响。
+TUI 内切换到其他 session 不产生新的 subagent；TUI process 退出后只恢复 registry 中的原 child session。
 用户直接 /resume 运行中的 child 保留 Pi 原生行为，不提供防双 writer 拦截。
 用户中断任务会明确通知主 agent；进程恢复不触发任务续跑。
 ```
@@ -2265,7 +2219,7 @@ Stopped children never restart.
 ```text
 compact subagent status widget
 agent picker
-usage display
+usage/cost display
 notifications
 better latest-summary display
 host-specific polish
@@ -2322,7 +2276,7 @@ no special batch API
 ## Scenario C — Human inspection（attach）
 
 ```text
-child is running in RPC
+child is idle in RPC
 user selects it
 press attach
 ```
@@ -2330,14 +2284,13 @@ press attach
 Expected：
 
 ```text
-parent 送出 pause 請求
-child 在目前 tool call 結束後於 turn_end 邊界 await，回 paused ack
-parent 收到 ack 後不再送 steer/follow-up
-parent 等舊 RPC process 退出後才啟動 native TUI（單一 writer）
+parent 序列化 transition，停止接受新的 steer/follow-up
+完整 idle 条件满足后，请求关闭 RPC
+parent 确认旧 RPC process 退出后才启动 native TUI（單一 writer）
 native Pi TUI opens
 same session continues
-正在執行的 tool 不會被強制切斷
-旧 RPC 退出前的 pause timeout / cancel 释放 gate 并报错，RPC 保留；退出后的失败按 §18 处理。
+正在執行的 tool 不會被強制切斷：busy child 直接拒绝 attach，RPC 保留
+旧 RPC 退出后的启动失败按 §18 恢复，不谎报旧 RPC 仍存活
 ```
 
 ---
@@ -2383,7 +2336,7 @@ Expected：
 
 ```text
 mark stopped first
-若 child 卡在 pause gate，先设 closing 意图，再释放 gate 并完成 terminate
+cancel any in-flight attach wait, then terminate the confirmed current runtime
 do not restart
 ```
 
@@ -2439,20 +2392,20 @@ parent restart → reconnect 或新 RPC
 Expected：
 
 ```text
-三條路徑的 process 來自同一份 effective launch configuration
-（session、cwd、agent definition、model/thinking、
-tool/extension allow-list、system prompt assembly）
-child 繼承 parent 的 model/thinking 是顯式且可觀測的，沒有靜默 routing
-使用者在 session 建立後明確改 config，新 runtime 看得見地採用新設定
+三條路徑复用同一份固定权限 policy
+（session、cwd、agent definition、tools、extensions、skills、system prompt assembly）
+child 第一次启动时继承 parent model/thinking 的决定显式且可观测，没有静默 routing
+后续 runtime 的 model/thinking 由同一 Pi session 恢复，不用旧 parent 默认值覆盖
 ```
 
 实现复用边界时增加以下 focused 验收，不复制上游测试套件：
 
-1. 同一 config 生成的 RPC/TUI launch spec 仅有 mode/stdio 差异；带空格路径不被重新拆词。
+1. 同一 policy 生成的 RPC/TUI launch spec 仅有 mode/stdio 差异；带空格路径不被重新拆词；
+   reopening 不传旧 model/thinking 覆盖 Pi session 已保存的选择。
 2. tools allowlist 保留 contact_parent；未知模型、无效 frontmatter、未兑现 policy 启动前可见失败。
 3. registry 首次写入、并发更新、损坏输入、fork 隔离和旧 runtime 回调不误删新 metadata。
-4. reconnect 不重复累加 usage；TUI 聚合与 Pi session stats 口径一致，最后输出仍来自当前 branch。
-5. attach 等待时 stop/cancel 不死锁；parent reload 只释放本地连接/UI，存活 child 可重新连接。
+4. reconnect 不重复累加 usage；TUI 中统计明确为 last-known，detach 后以 Pi RPC 的完整快照替换。
+5. attach 的 idle 检查与关闭等待期间 stop/cancel 不死锁；parent reload 只释放本地连接/UI，存活 child 可重新连接。
 
 ## 本轮审查补充验收
 
@@ -2460,10 +2413,10 @@ child 繼承 parent 的 model/thinking 是顯式且可觀測的，沒有靜默 r
    claim 持有者在启动前后崩溃、stop 与启动交错时，不重复启动、不覆盖新 ownership，未知状态 fail closed。
 2. 首次 assistant 回复前崩溃，恢复仍保留原 session ID 与初始任务，报告 interrupted 且不自动重发；
    未落盘时 attach 被明确拒绝，已落盘文件缺失不被当作空白新 session。
-3. `/new`、`/resume`、`/fork` 成功进入不同 session 后，仅原 child 回到 RPC 等待输入；
-   切换取消或失败不提前恢复；新 session 不继承旧 child 身份，后续退出或 stop 不误控新 TUI。
-4. `/resume` 同一 session 与 `/reload` 不触发 detach；直接 resume 运行中的 child 不增加拦截或自动接管。
-5. 用户主动中断后，主 agent 收到明确暂停通知并被要求确认意图；无明确继续指令不恢复任务。
+3. attached TUI 内 `/new`、`/resume`、`/fork` 不触发中途 detach，也不产生新的 subagent；
+   TUI process 退出后只恢复 registry 中记录的原 child session，旧回调不误控新 runtime。
+4. 用户直接从外部 Pi `/resume` 同一 session 不增加拦截或自动接管，明确不在受管理单 writer 保证内。
+5. 用户主动中断后，主 agent 收到明确通知；无明确继续指令不恢复任务。
    普通中断不重建 RPC，crash 不冒充用户暂停；pending messages 不被静默重放。
 
 ## 失败恢复与错误返回验收

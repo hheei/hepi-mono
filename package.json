@@ -6,7 +6,7 @@
 	"type": "module",
 	"packageManager": "pnpm@12.4.1",
 	"scripts": {
-		"build": "pnpm --filter @hheei/pi-ext-core run build && pnpm --filter @hheei/pi-auto-title --filter @hheei/pi-btw --filter @hheei/pi-dollar-skill --filter @hheei/pi-ext-addon --filter @hheei/pi-ext-tools --filter @hheei/pi-settings --filter @hheei/pi-status --filter @hheei/pi-optimizer --filter @hheei/pi-subagents run build",
+		"build": "pnpm --filter @hheei/pi-ext-core run build && pnpm --filter @hheei/pi-auto-title --filter @hheei/pi-dollar-skill --filter @hheei/pi-ext-addon --filter @hheei/pi-ext-tools --filter @hheei/pi-settings --filter @hheei/pi-status --filter @hheei/pi-optimizer --filter @hheei/pi-subagents run build",
 		"check": "biome check . && pnpm run typecheck && pnpm test",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",

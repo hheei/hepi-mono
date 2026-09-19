@@ -1,10 +1,9 @@
 # TUI 宿主架构
 
 ## 状态
+第一阶段 core runtime 与 page router 已实现。此文定义 `@hheei/pi-ext-core` 的 TUI 宿主边界；它不定义任何 extension 的页面内容、设置 schema、命令、业务状态或交互 policy。
 
-第一阶段 core runtime、page router 与 BTW consumer 已实现。此文定义 `@hheei/pi-ext-core` 的 TUI 宿主边界；它不定义任何 extension 的页面内容、设置 schema、命令、业务状态或交互 policy。
-
-第一阶段实现并验证 custom surface runtime、page router 与 BTW consumer。`pi-settings` 已作为独立 host
+第一阶段实现并验证 custom surface runtime 与 page router。`pi-settings` 已作为独立 host
 实现，并提供完整 combined-provider Settings 与 Loadout page，core-managed widget 会在 Settings surface
 打开期间 suspend。第二阶段另行实现 editor/footer rail compositor，并迁移现有 statusbar；TODO 和
 subagent 仅在该 compositor 通过验证后接入。
@@ -17,7 +16,7 @@ subagent 仅在该 compositor 通过验证后接入。
 
 ## Custom Surface Runtime
 
-`ctx.ui.custom()` 是 page、popup 和即时问答共用的 Pi 挂载机制，但三者不是同一种 UI。core 提供内部共享 runtime，公开的 page router 和 popup host 各自定义内容 contract：
+`ctx.ui.custom()` 是 page 与即时交互共用的 Pi 挂载机制，但两者不是同一种 UI。core 提供内部共享 runtime，公开的 page router 定义页面内容 contract：
 
 - 一个 Pi runtime 同时仅运行一个 core-owned custom surface；
 - 各 host 必须以稳定 `hostId` 显式声明 `maxPending`，core 不提供隐藏队列容量；容量只统计该 host 的等待请求；
@@ -30,9 +29,6 @@ coordination、page-declared minimum content height 和 key fallback。active pa
 Left/Right 才由 router 切换 tabs。
 page 可以在完成自己的异步 flush 后请求 host close。所有 page visible content、state、actions 和 page-local
 interaction 都属于注册该页面的 extension。
-
-popup host 是另一份公开 contract。BTW 是第一份 consumer；Ask 只复用其 TUI host，保留自己的
-non-TUI dialog fallback、问卷 model 和结果 policy。
 
 ## Settings Host
 
