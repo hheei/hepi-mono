@@ -82,6 +82,53 @@ function memoryRegistry(
 			};
 			return store.current;
 		},
+		async claim(id, expectedRevision, claim) {
+			return store.update(id, expectedRevision, (current) => ({ ...current, claim }));
+		},
+		async markClaimRunner(id, claimId, runnerPid) {
+			const current = store.current;
+			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
+			return store.update(id, current.revision, (value) => ({
+				...value,
+				claim: { ...value.claim!, runnerPid },
+			}));
+		},
+		async activateClaim(id, claimId, runnerPid) {
+			const current = store.current;
+			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
+			return store.update(id, current.revision, (value) => {
+				const claim = value.claim!;
+				const { claim: _claim, ...rest } = value;
+				return {
+					...rest,
+					runtime: {
+						runtimeIdentity: claim.runtimeIdentity,
+						endpoint: claim.endpoint,
+						pid: runnerPid,
+					},
+				};
+			});
+		},
+		async consumeReconnectClaim(id, claimId, controllerTokenHash) {
+			const current = store.current;
+			if (
+				current?.claim?.claimId !== claimId ||
+				current.claim.controllerTokenHash !== controllerTokenHash
+			)
+				throw new Error("claim mismatch");
+			return store.update(id, current.revision, (value) => {
+				const { claim: _claim, ...rest } = value;
+				return rest;
+			});
+		},
+		async releaseClaim(id, claimId) {
+			const current = store.current;
+			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
+			return store.update(id, current.revision, (value) => {
+				const { claim: _claim, ...rest } = value;
+				return rest;
+			});
+		},
 	};
 	return store;
 }
@@ -242,5 +289,26 @@ describe("SubagentManager contracts", () => {
 		});
 		await new Promise<void>((resolve) => setTimeout(resolve, 0));
 		expect(delivered).toHaveBeenCalledWith(expect.objectContaining({ message: "found it" }));
+	});
+	test("recovers a persisted child without replaying its task", async () => {
+		const record = childRecord("idle");
+		const runner = new FakeRunner();
+		const registry = memoryRegistry(record);
+		const connect = vi.fn(async () => runner);
+		const manager = new SubagentManager({
+			parentSessionId: PARENT_ID,
+			registry,
+			resolve: async () => launchConfig(),
+			bootstrap: async () => record,
+			launch: async () => new FakeRunner(),
+			connect,
+		});
+
+		const result = await manager.recover();
+
+		expect(result).toEqual({ recovered: [CHILD_ID], failures: [] });
+		expect(connect).toHaveBeenCalledOnce();
+		expect(runner.requests).toEqual(["get_entries"]);
+		expect(await manager.get(CHILD_ID)).toMatchObject({ freshness: "live" });
 	});
 });

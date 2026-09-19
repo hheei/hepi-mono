@@ -283,3 +283,48 @@ test("drops foreign root keys while keeping every record", async (): Promise<voi
 		expect(written.updatedAt).toBe(new Date(1_000).toISOString());
 	});
 });
+
+test("serializes runtime claims and consumes a reconnect token once", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const path = join(directory, "registry.json");
+		const store = registry(path);
+		const child = record("sa_claim", join(directory, "work"), {
+			runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/runner.sock", pid: 123 },
+		});
+		await store.create(child);
+		const base = {
+			kind: "reconnect" as const,
+			holderPid: process.pid,
+			runtimeIdentity: "runtime-1",
+			endpoint: "/tmp/runner.sock",
+			createdAt: new Date(0).toISOString(),
+		};
+		const claims = [
+			{
+				...base,
+				claimId: "claim-a",
+				holderIdentity: "holder-a",
+				controllerTokenHash: "a".repeat(64),
+			},
+			{
+				...base,
+				claimId: "claim-b",
+				holderIdentity: "holder-b",
+				controllerTokenHash: "b".repeat(64),
+			},
+		];
+
+		const outcomes = await Promise.allSettled(
+			claims.map((claim) => store.claim("sa_claim", 1, claim, "runtime-1")),
+		);
+		expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+		const winner = (await store.get("sa_claim"))?.claim;
+		if (winner === undefined) throw new Error("claim winner missing");
+		await expect(
+			store.consumeReconnectClaim("sa_claim", winner.claimId, "f".repeat(64)),
+		).rejects.toMatchObject({ code: "claim_mismatch" });
+		await store.consumeReconnectClaim("sa_claim", winner.claimId, winner.controllerTokenHash);
+		expect((await store.get("sa_claim"))?.claim).toBeUndefined();
+	});
+});

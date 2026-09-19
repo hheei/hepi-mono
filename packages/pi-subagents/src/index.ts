@@ -2,6 +2,7 @@ export * from "./agent-resolver.js";
 export * from "./connector.js";
 export * from "./domain.js";
 export * from "./extension.js";
+export * from "./host-adapter.js";
 export * from "./json-lines.js";
 export * from "./launch-spec.js";
 export * from "./manager.js";

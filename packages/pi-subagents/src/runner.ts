@@ -60,6 +60,8 @@ export interface SubagentRunnerOptions {
 	readonly shutdownGraceMs?: number;
 	readonly killGraceMs?: number;
 	readonly onDiagnostic?: (line: string) => void;
+	/** Atomically consumes a durable recovery claim for a one-time controller token. */
+	readonly authorizeRecovery?: (claimId: string, token: string) => Promise<boolean>;
 }
 
 /** Observed end of the Pi child owned by the runner. */
@@ -116,6 +118,7 @@ class Runner {
 	readonly #shutdownGraceMs: number;
 	readonly #killGraceMs: number;
 	readonly #pendingHandshakes = new Map<Socket, PendingHandshake>();
+	readonly #authenticating = new Set<Socket>();
 	readonly #bufferedEvents: unknown[] = [];
 	readonly #detachEvents: () => void;
 	readonly #reporters = new Map<Socket, ReporterLink>();
@@ -128,6 +131,7 @@ class Runner {
 	#shutdownRequested = false;
 	#exit: RunnerExit | undefined;
 	#closing: Promise<RunnerExit> | undefined;
+	readonly #authorizeRecovery: ((claimId: string, token: string) => Promise<boolean>) | undefined;
 	#resolveClosed: ((exit: RunnerExit) => void) | undefined;
 
 	public constructor(options: SubagentRunnerOptions) {
@@ -144,6 +148,7 @@ class Runner {
 		this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? 10_000;
 		this.#shutdownGraceMs = options.shutdownGraceMs ?? 2_000;
 		this.#killGraceMs = options.killGraceMs ?? 1_000;
+		this.#authorizeRecovery = options.authorizeRecovery;
 		this.#adapter = new PiRpcAdapter({
 			process: options.process,
 			maxFrameBytes: this.#maxFrameBytes,
@@ -330,7 +335,12 @@ class Runner {
 					this.#handleRequest(controller, value);
 					return;
 				}
-				this.#authenticate(socket, value);
+				if (this.#authenticating.has(socket)) {
+					this.#diagnose("rejected connection: overlapping handshake frames");
+					this.#dropSocket(socket);
+					return;
+				}
+				void this.#authenticate(socket, value);
 			},
 		});
 		const timer = setTimeout(() => {
@@ -361,64 +371,83 @@ class Runner {
 	}
 
 	/** Only a connection that proves identity and token may control the runner. */
-	#authenticate(socket: Socket, value: unknown): void {
+	async #authenticate(socket: Socket, value: unknown): Promise<void> {
 		const handshake = this.#pendingHandshakes.get(socket);
 		if (handshake === undefined) {
 			socket.destroy();
 			return;
 		}
-		if (!isHelloFrame(value) || !this.#matchesIdentity(value)) {
+		if (!isHelloFrame(value) || !this.#matchesStaticIdentity(value)) {
 			this.#diagnose("rejected connection: handshake did not authenticate");
 			this.#dropSocket(socket);
 			return;
 		}
-		clearTimeout(handshake.timer);
-		this.#pendingHandshakes.delete(socket);
-		if (value.role === "reporter") {
-			const reporter: ReporterLink = { socket, detach: handshake.detach };
-			this.#reporters.set(socket, reporter);
+		this.#authenticating.add(socket);
+		try {
+			const authenticated =
+				value.role === "recovery"
+					? value.claimId !== undefined &&
+						this.#authorizeRecovery !== undefined &&
+						(await this.#authorizeRecovery(value.claimId, value.token))
+					: tokensMatch(value.token, this.identity.token);
+			if (!authenticated || socket.destroyed || !this.#pendingHandshakes.has(socket)) {
+				this.#diagnose("rejected connection: handshake did not authenticate");
+				this.#dropSocket(socket);
+				return;
+			}
+			clearTimeout(handshake.timer);
+			this.#pendingHandshakes.delete(socket);
+			if (value.role === "reporter") {
+				const reporter: ReporterLink = { socket, detach: handshake.detach };
+				this.#reporters.set(socket, reporter);
+				void writeJsonLine(
+					socket,
+					{ version: PROTOCOL_VERSION, type: "hello_ack" },
+					this.#maxFrameBytes,
+				).catch((error: unknown) => {
+					this.#diagnose(`reporter handshake write failed: ${errorMessage(error)}`);
+					this.#dropReporter(reporter);
+				});
+				return;
+			}
+			const previous = this.#controller;
+			if (previous !== undefined) {
+				this.#diagnose("revoking previous controller");
+				this.#controller = undefined;
+				this.#destroyController(
+					previous,
+					new Error("Controller replaced by a new authenticated connection"),
+				);
+			}
+			const link: ControllerLink = {
+				socket,
+				detach: handshake.detach,
+				requests: new Map(),
+				retired: new Set(),
+			};
+			this.#controller = link;
 			void writeJsonLine(
 				socket,
 				{ version: PROTOCOL_VERSION, type: "hello_ack" },
 				this.#maxFrameBytes,
-			).catch((error: unknown) => {
-				this.#diagnose(`reporter handshake write failed: ${errorMessage(error)}`);
-				this.#dropReporter(reporter);
-			});
-			return;
+			)
+				.then(() => {
+					this.#flushPendingReports(link);
+					this.#flushBufferedEvents(link);
+				})
+				.catch((error: unknown) => {
+					this.#diagnose(`controller handshake write failed: ${errorMessage(error)}`);
+					this.#dropController(link, toError(error));
+				});
+		} catch (error) {
+			this.#diagnose(`recovery authorization failed: ${errorMessage(error)}`);
+			this.#dropSocket(socket);
+		} finally {
+			this.#authenticating.delete(socket);
 		}
-		const previous = this.#controller;
-		if (previous !== undefined) {
-			this.#diagnose("revoking previous controller");
-			this.#controller = undefined;
-			this.#destroyController(
-				previous,
-				new Error("Controller replaced by a new authenticated connection"),
-			);
-		}
-		const link: ControllerLink = {
-			socket,
-			detach: handshake.detach,
-			requests: new Map(),
-			retired: new Set(),
-		};
-		this.#controller = link;
-		void writeJsonLine(
-			socket,
-			{ version: PROTOCOL_VERSION, type: "hello_ack" },
-			this.#maxFrameBytes,
-		)
-			.then(() => {
-				this.#flushPendingReports(link);
-				this.#flushBufferedEvents(link);
-			})
-			.catch((error: unknown) => {
-				this.#diagnose(`controller handshake write failed: ${errorMessage(error)}`);
-				this.#dropController(link, toError(error));
-			});
 	}
 
-	#matchesIdentity(frame: {
+	#matchesStaticIdentity(frame: {
 		readonly parentSessionId: string;
 		readonly subagentId: string;
 		readonly runtimeIdentity: string;
@@ -430,8 +459,7 @@ class Runner {
 			frame.parentSessionId === identity.parentSessionId &&
 			frame.subagentId === identity.subagentId &&
 			frame.runtimeIdentity === identity.runtimeIdentity &&
-			frame.endpoint === identity.endpoint &&
-			tokensMatch(frame.token, identity.token)
+			frame.endpoint === identity.endpoint
 		);
 	}
 

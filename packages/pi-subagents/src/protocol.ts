@@ -42,7 +42,10 @@ export const HelloFrameSchema = Type.Object(
 	{
 		version: Type.Literal(PROTOCOL_VERSION),
 		type: Type.Literal("hello"),
-		role: Type.Optional(Type.Union([Type.Literal("controller"), Type.Literal("reporter")])),
+		role: Type.Optional(
+			Type.Union([Type.Literal("controller"), Type.Literal("reporter"), Type.Literal("recovery")]),
+		),
+		claimId: Type.Optional(nonEmptyString),
 		...identityProperties,
 	},
 	{ additionalProperties: false },
