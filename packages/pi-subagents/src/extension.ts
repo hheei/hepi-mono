@@ -112,7 +112,20 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					return recoverDetachedRunner({ registry, record, signal: runtime.signal });
 				},
 			});
-			await manager.recover();
+			const recovery = await manager.recover();
+			if (recovery.failures.length > 0) {
+				pi.sendMessage(
+					{
+						customType: "pi-subagent-recovery-failure",
+						content: `Subagent recovery failed:\n${recovery.failures
+							.map((failure) => `- ${failure.childId}: ${failure.reason}`)
+							.join("\n")}`,
+						display: true,
+						details: recovery.failures,
+					},
+					{ triggerTurn: false },
+				);
+			}
 			registerParentTools(pi, manager);
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());
 		},

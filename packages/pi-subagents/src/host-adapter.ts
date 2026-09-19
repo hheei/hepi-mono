@@ -26,9 +26,7 @@ export interface HostCapability {
 	readonly available: boolean;
 	readonly reason: string;
 }
-export interface HostSelectionAttempt {
-	readonly capability: HostCapability;
-}
+export type HostSelectionAttempt = HostCapability;
 
 export type HostSelection =
 	| {
@@ -88,11 +86,11 @@ export async function selectHostAdapter(options: SelectHostAdapterOptions): Prom
 	for (const host of order) {
 		const adapter = options.adapters[host];
 		const capability = await adapter.probe();
-		attempts.push({ capability });
+		attempts.push(capability);
 		if (capability.available) {
 			const priorFailures = attempts
 				.slice(0, -1)
-				.map((attempt) => `${attempt.capability.host}: ${attempt.capability.reason}`)
+				.map((attempt) => `${attempt.host}: ${attempt.reason}`)
 				.join("; ");
 			return {
 				available: true,
@@ -107,9 +105,7 @@ export async function selectHostAdapter(options: SelectHostAdapterOptions): Prom
 			};
 		}
 	}
-	const failure = attempts
-		.map((attempt) => `${attempt.capability.host}: ${attempt.capability.reason}`)
-		.join("; ");
+	const failure = attempts.map((attempt) => `${attempt.host}: ${attempt.reason}`).join("; ");
 	return {
 		available: false,
 		selectedHost: null,
