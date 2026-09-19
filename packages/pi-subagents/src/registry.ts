@@ -180,12 +180,10 @@ const RUNTIME_FIELDS: Record<string, true> = { runtimeIdentity: true, endpoint: 
 const CLAIM_FIELDS: Record<string, true> = {
 	claimId: true,
 	kind: true,
-	holderIdentity: true,
 	holderPid: true,
 	runtimeIdentity: true,
 	endpoint: true,
 	controllerTokenHash: true,
-	createdAt: true,
 	runnerPid: true,
 };
 
@@ -386,12 +384,10 @@ function parseClaim(value: unknown, path: string): RuntimeClaim {
 	return Object.freeze({
 		claimId: expectString(raw.claimId, "claim.claimId", path),
 		kind: raw.kind,
-		holderIdentity: expectString(raw.holderIdentity, "claim.holderIdentity", path),
 		holderPid,
 		runtimeIdentity: expectString(raw.runtimeIdentity, "claim.runtimeIdentity", path),
 		endpoint: expectString(raw.endpoint, "claim.endpoint", path),
 		controllerTokenHash: tokenHash,
-		createdAt: expectIsoDate(raw.createdAt, "claim.createdAt", path),
 		...(runnerPid === undefined ? {} : { runnerPid }),
 	});
 }

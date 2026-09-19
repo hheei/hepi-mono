@@ -111,13 +111,11 @@ export type RuntimeClaimKind = "reconnect" | "replacement";
 export interface RuntimeClaim {
 	readonly claimId: string;
 	readonly kind: RuntimeClaimKind;
-	readonly holderIdentity: string;
 	readonly holderPid: number;
 	readonly runtimeIdentity: string;
 	readonly endpoint: string;
 	/** SHA-256 of the one-time controller token; the token itself is never persisted. */
 	readonly controllerTokenHash: string;
-	readonly createdAt: string;
 	/** Set by the runner before it starts the Pi writer. */
 	readonly runnerPid?: number;
 }

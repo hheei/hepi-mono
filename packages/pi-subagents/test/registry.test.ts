@@ -297,19 +297,16 @@ test("serializes runtime claims and consumes a reconnect token once", async (): 
 			holderPid: process.pid,
 			runtimeIdentity: "runtime-1",
 			endpoint: "/tmp/runner.sock",
-			createdAt: new Date(0).toISOString(),
 		};
 		const claims = [
 			{
 				...base,
 				claimId: "claim-a",
-				holderIdentity: "holder-a",
 				controllerTokenHash: "a".repeat(64),
 			},
 			{
 				...base,
 				claimId: "claim-b",
-				holderIdentity: "holder-b",
 				controllerTokenHash: "b".repeat(64),
 			},
 		];

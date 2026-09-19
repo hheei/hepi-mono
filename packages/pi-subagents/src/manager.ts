@@ -69,7 +69,7 @@ export interface RunnerLike {
 
 export interface ManagerDependencies {
 	readonly parentSessionId: string;
-	readonly registry: SubagentRegistry;
+	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update">;
 	readonly resolve: (input: SpawnSubagentInput) => Promise<EffectiveLaunchConfig>;
 	readonly bootstrap: (input: {
 		readonly parentSessionId: string;

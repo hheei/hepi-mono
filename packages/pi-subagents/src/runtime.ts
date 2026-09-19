@@ -158,12 +158,10 @@ async function claimRuntime(
 	const claim: RuntimeClaim = {
 		claimId: randomUUID(),
 		kind,
-		holderIdentity: randomUUID(),
 		holderPid: process.pid,
 		runtimeIdentity,
 		endpoint,
 		controllerTokenHash: createHash("sha256").update(token).digest("hex"),
-		createdAt: new Date().toISOString(),
 	};
 	const claimed = await registry.claim(
 		record.subagentId,
