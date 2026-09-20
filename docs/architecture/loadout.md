@@ -20,8 +20,8 @@ load order 依赖。
 `pi-settings` 是 managed-tool/resource contributor 的推荐 companion package，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority 或
 persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-settings` 不提供
-第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。global/project JSON
-使用 `pi-settings.loadout` section；格式错误或旧 boolean map schema 直接拒绝，不做兼容迁移。
+第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。global/project extension JSON
+使用顶层 `loadout` key；格式错误或旧 boolean map schema 直接拒绝，不做兼容迁移。
 
 ## Tool Registration
 

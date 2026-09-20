@@ -2,13 +2,13 @@ import type { SettingsProvider } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { combineSettingsProviders } from "../src/combined.js";
 
-function provider(id: string, calls: string[]): SettingsProvider {
+function provider(id: string, calls: string[], groupId = id): SettingsProvider {
 	return {
 		id,
 		title: id,
 		groups: [
 			{
-				id: "general",
+				id: groupId,
 				title: "General",
 				fields: [
 					{
@@ -23,12 +23,12 @@ function provider(id: string, calls: string[]): SettingsProvider {
 			},
 		],
 		storage: {
-			load: () => ({ general: { enabled: true } }),
+			load: () => ({ [groupId]: { enabled: true } }),
 			save: (state) => {
-				calls.push(`${id}:save:${String(state.general?.enabled)}`);
+				calls.push(`${id}:save:${String(state[groupId]?.enabled)}`);
 			},
 			validate: (state) => {
-				calls.push(`${id}:validate:${String(state.general?.enabled)}`);
+				calls.push(`${id}:validate:${String(state[groupId]?.enabled)}`);
 			},
 		},
 		onChange: (change) => {
@@ -38,43 +38,39 @@ function provider(id: string, calls: string[]): SettingsProvider {
 }
 
 describe("combined Settings provider", () => {
-	test("namespaces only colliding display groups and routes state back to each provider", async () => {
+	test("keeps registered group IDs and routes state back to each provider", async () => {
 		const calls: string[] = [];
 		const combined = combineSettingsProviders([provider("alpha", calls), provider("beta", calls)]);
-		expect(combined.groups.map((group) => group.id)).toEqual(["general", "beta:general"]);
+		expect(combined.groups.map((group) => group.id)).toEqual(["alpha", "beta"]);
 		expect(combined.groups.map((group) => group.title)).toEqual(["pi-alpha", "pi-beta"]);
 
 		const context = { sessionId: "test" };
 		const state = await combined.storage.load(context);
-		expect(state).toEqual({ general: { enabled: true }, "beta:general": { enabled: true } });
-		const next = { general: { enabled: false }, "beta:general": { enabled: true } };
+		expect(state).toEqual({ alpha: { enabled: true }, beta: { enabled: true } });
+		const next = { alpha: { enabled: false }, beta: { enabled: true } };
 		await combined.storage.validate?.(next, context);
 		await combined.onChange?.(
-			{ groupId: "general", fieldId: "enabled", value: false, state: next, previousValue: true },
+			{ groupId: "alpha", fieldId: "enabled", value: false, state: next, previousValue: true },
 			context,
 		);
 		await combined.storage.save(next, context);
 		expect(calls).toEqual([
 			"alpha:validate:false",
 			"beta:validate:true",
-			"alpha:change:general:enabled",
+			"alpha:change:alpha:enabled",
 			"alpha:save:false",
 			"beta:save:true",
 		]);
 	});
 
-	test("never overwrites an existing display mapping when a provider repeats a group ID", () => {
+	test("rejects a repeated registered group ID", () => {
 		const calls: string[] = [];
-		const repeated = provider("repeat", calls);
-		const combined = combineSettingsProviders([
-			provider("first", calls),
-			{ ...repeated, groups: [...repeated.groups, ...repeated.groups] },
-		]);
-		expect(combined.groups.map((group) => group.id)).toEqual([
-			"general",
-			"repeat:general",
-			"repeat:general:2",
-		]);
+		expect(() =>
+			combineSettingsProviders([
+				provider("first", calls, "general"),
+				provider("second", calls, "general"),
+			]),
+		).toThrow("Settings group id collision: general");
 	});
 
 	test("places a module header on its first visible group", () => {

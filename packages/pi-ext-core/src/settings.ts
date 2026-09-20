@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getGlobalState } from "./global-state.js";
 import {
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
 	readJsonSettingsRoot,
 	updateJsonSettingsRoot,
 } from "./json-settings.js";
@@ -110,6 +110,8 @@ export interface SettingsProvider {
 export interface SettingsRegistry {
 	register(provider: SettingsProvider): () => void;
 	replace(provider: SettingsProvider): () => void;
+	/** Reserves non-UI top-level ext_settings.json groups; any existing claim fails. */
+	registerGroups(owner: string, groupIds: readonly string[]): () => void;
 	list(options?: { readonly includeEmpty?: boolean }): readonly SettingsProvider[];
 	get(id: string): SettingsProvider | undefined;
 }
@@ -132,20 +134,54 @@ function validateDescriptions(provider: SettingsProvider): void {
 	}
 }
 
+interface SettingsGroupClaim {
+	readonly token: symbol;
+}
+
 class RuntimeSettingsRegistry implements SettingsRegistry {
 	readonly #providers = new Map<string, SettingsProvider>();
 	readonly #tokens = new Map<string, symbol>();
+	readonly #groupClaims = new Map<string, SettingsGroupClaim>();
 
 	register(provider: SettingsProvider): () => void {
 		validateDescriptions(provider);
 		if (this.#providers.has(provider.id))
 			throw new Error(`Settings provider id collision: ${provider.id}`);
+		this.assertGroupsAvailable(provider.groups.map((group) => group.id));
 		return this.set(provider);
 	}
 
 	replace(provider: SettingsProvider): () => void {
 		validateDescriptions(provider);
+		const existingToken = this.#tokens.get(provider.id);
+		this.assertGroupsAvailable(
+			provider.groups.map((group) => group.id),
+			existingToken,
+		);
+		if (existingToken !== undefined)
+			for (const [groupId, claim] of this.#groupClaims)
+				if (claim.token === existingToken) this.#groupClaims.delete(groupId);
 		return this.set(provider);
+	}
+
+	registerGroups(owner: string, groupIds: readonly string[]): () => void {
+		this.assertGroupsAvailable(groupIds);
+		const token = Symbol(owner);
+		for (const groupId of groupIds) this.#groupClaims.set(groupId, { token });
+		return () => {
+			for (const groupId of groupIds)
+				if (this.#groupClaims.get(groupId)?.token === token) this.#groupClaims.delete(groupId);
+		};
+	}
+
+	private assertGroupsAvailable(groupIds: readonly string[], allowedToken?: symbol): void {
+		const ownGroups = new Set<string>();
+		for (const groupId of groupIds) {
+			const claim = this.#groupClaims.get(groupId);
+			if (ownGroups.has(groupId) || (claim !== undefined && claim.token !== allowedToken))
+				throw new Error(`Settings group id collision: ${groupId}`);
+			ownGroups.add(groupId);
+		}
 	}
 
 	list(options: { readonly includeEmpty?: boolean } = {}): readonly SettingsProvider[] {
@@ -169,10 +205,13 @@ class RuntimeSettingsRegistry implements SettingsRegistry {
 		const token = Symbol(provider.id);
 		this.#providers.set(provider.id, provider);
 		this.#tokens.set(provider.id, token);
+		for (const group of provider.groups) this.#groupClaims.set(group.id, { token });
 		return () => {
 			if (this.#tokens.get(provider.id) !== token) return;
 			this.#tokens.delete(provider.id);
 			this.#providers.delete(provider.id);
+			for (const group of provider.groups)
+				if (this.#groupClaims.get(group.id)?.token === token) this.#groupClaims.delete(group.id);
 		};
 	}
 }
@@ -198,16 +237,8 @@ export function registerSettings(
 	return registry.register(provider);
 }
 
-export interface JsonSectionSettingsStorageOptions {
+export interface JsonSettingsStorageOptions {
 	readonly path?: string;
-	readonly section: string;
-	readonly group: string;
-}
-
-/** Maps one provider group onto direct primitive fields in a root JSON section. */
-export interface JsonFlatSectionSettingsStorageOptions {
-	readonly path?: string;
-	readonly section: string;
 	readonly group: string;
 }
 
@@ -226,22 +257,17 @@ function isSettingValue(value: unknown): value is SettingValue {
 }
 
 /**
- * Atomic global JSON section storage shared by independently installed settings providers.
- * It preserves sibling root sections through core's path lock, but providers still own
- * schema validation and whether a saved value changes their live feature state.
+ * Stores one globally registered settings group as a top-level ext_settings.json object.
+ * The registry rejects duplicate group IDs; atomic root updates preserve every sibling group.
  */
-export function createJsonSectionSettingsStorage(
-	options: JsonSectionSettingsStorageOptions,
-): SettingsStorage {
-	const resolvePath = (): string => options.path ?? defaultPiSettingsPaths().globalPath;
+export function createJsonSettingsStorage(options: JsonSettingsStorageOptions): SettingsStorage {
 	return {
-		async load(): Promise<SettingsState | undefined> {
-			const path = resolvePath();
-			const root = await readJsonSettingsRoot(path);
-			const section = root[options.section];
-			if (section !== undefined && !isRecord(section))
-				throw new Error(`Expected ${options.section} to be an object in ${path}`);
-			const group = section?.[options.group];
+		async load(context): Promise<SettingsState | undefined> {
+			const path = options.path ?? defaultExtensionSettingsPaths().globalPath;
+			const root = await readJsonSettingsRoot(path, context.signal);
+			const group = root[options.group];
+			if (group !== undefined && !isRecord(group))
+				throw new Error(`Expected ${options.group} to be an object in ${path}`);
 			if (!isRecord(group)) return undefined;
 			return {
 				[options.group]: Object.fromEntries(
@@ -251,61 +277,18 @@ export function createJsonSectionSettingsStorage(
 				),
 			};
 		},
-		async save(state): Promise<void> {
-			const path = resolvePath();
-			await updateJsonSettingsRoot(path, (root) => {
-				const section = root[options.section];
-				if (section !== undefined && !isRecord(section))
-					throw new Error(`Expected ${options.section} to be an object in ${path}`);
-				root[options.section] = {
-					...(section ?? {}),
-					[options.group]: { ...(state[options.group] ?? {}) },
-				};
-			});
-		},
-	};
-}
-
-/**
- * Atomic global JSON storage for a provider whose fields are direct keys in one
- * root section. Nested sibling groups are preserved; direct primitive keys belong
- * to this provider. The group remains an in-memory UI construct and is never written.
- */
-export function createJsonFlatSectionSettingsStorage(
-	options: JsonFlatSectionSettingsStorageOptions,
-): SettingsStorage {
-	const resolvePath = (): string => options.path ?? defaultPiSettingsPaths().globalPath;
-	return {
-		async load(): Promise<SettingsState | undefined> {
-			const path = resolvePath();
-			const root = await readJsonSettingsRoot(path);
-			const section = root[options.section];
-			if (section !== undefined && !isRecord(section))
-				throw new Error(`Expected ${options.section} to be an object in ${path}`);
-			if (!isRecord(section)) return undefined;
-			return {
-				[options.group]: Object.fromEntries(
-					Object.entries(section).filter((entry): entry is [string, SettingValue] =>
-						isSettingValue(entry[1]),
-					),
-				),
-			};
-		},
-		async save(state): Promise<void> {
-			const path = resolvePath();
-			await updateJsonSettingsRoot(path, (root) => {
-				const section = root[options.section];
-				if (section !== undefined && !isRecord(section))
-					throw new Error(`Expected ${options.section} to be an object in ${path}`);
-				root[options.section] = {
-					...Object.fromEntries(
-						Object.entries(section ?? {}).filter(
-							(entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]),
-						),
-					),
-					...(state[options.group] ?? {}),
-				};
-			});
+		async save(state, context): Promise<void> {
+			const path = options.path ?? defaultExtensionSettingsPaths().globalPath;
+			await updateJsonSettingsRoot(
+				path,
+				(root) => {
+					const group = root[options.group];
+					if (group !== undefined && !isRecord(group))
+						throw new Error(`Expected ${options.group} to be an object in ${path}`);
+					root[options.group] = { ...(state[options.group] ?? {}) };
+				},
+				context.signal,
+			);
 		},
 	};
 }

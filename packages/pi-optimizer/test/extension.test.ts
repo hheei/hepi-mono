@@ -27,7 +27,7 @@ afterEach(async () => {
 async function temporarySettings(root?: unknown): Promise<{ cwd: string; path: string }> {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-optimizer-"));
 	directories.push(cwd);
-	const path = join(cwd, "settings.json");
+	const path = join(cwd, "ext_settings.json");
 	if (root !== undefined) await writeFile(path, JSON.stringify(root));
 	return { cwd, path };
 }
@@ -148,7 +148,7 @@ describe("settings persistence", () => {
 	test("defaults absent settings and fails closed for malformed state", async () => {
 		expect(parseOptimizerSettings(undefined)).toEqual(DEFAULT_OPTIMIZER_SETTINGS);
 		const { path } = await temporarySettings({
-			"pi-optimizer": false,
+			t2s: false,
 			rootSibling: { kept: true },
 		});
 		const provider = createOptimizerSettingsProvider({ path });
@@ -157,7 +157,7 @@ describe("settings persistence", () => {
 		);
 		await provider.storage.save(DEFAULT_OPTIMIZER_SETTINGS, { sessionId: "s" });
 		expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-			"pi-optimizer": DEFAULT_OPTIMIZER_SETTINGS,
+			...DEFAULT_OPTIMIZER_SETTINGS,
 			rootSibling: { kept: true },
 		});
 	});
@@ -252,10 +252,8 @@ describe("extension session integration", () => {
 			command(host).handler("rtk on", rpc),
 		]);
 		expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
-			"pi-optimizer": {
-				caveman: { level: "full" },
-				rtk: { enabled: true, path: "" },
-			},
+			caveman: { level: "full" },
+			rtk: { enabled: true, path: "" },
 		});
 	});
 

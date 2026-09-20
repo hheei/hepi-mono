@@ -29,7 +29,7 @@ function isolateXdgEnv() {
 
 function writePiSettings(settings: Record<string, unknown>) {
 	const agentDir = mkdtempSync(join(tmpdir(), "magic-context-pi-settings-"));
-	writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ "pi-mctx": settings }));
+	writeFileSync(join(agentDir, "ext_settings.json"), JSON.stringify({ operational: settings }));
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 }
 

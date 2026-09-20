@@ -91,7 +91,7 @@ describe("Settings provider page", () => {
 			title,
 			groups: [
 				{
-					id: "general",
+					id: title.toLocaleLowerCase(),
 					title: "General",
 					fields: [
 						{
@@ -125,9 +125,7 @@ describe("Settings provider page", () => {
 		expect(await page.handleInput("\r")).toBe(true);
 		expect(await page.handleInput("\u001b[C")).toBe(false);
 		expect(saves).toHaveLength(2);
-		expect((saves[0] as { state: { general: { mode: string } } }).state.general.mode).toBe(
-			"manual",
-		);
+		expect((saves[0] as { state: { alpha: { mode: string } } }).state.alpha.mode).toBe("manual");
 	});
 
 	test("keeps a failed save draft visible and consumes router navigation", async () => {

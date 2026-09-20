@@ -4,10 +4,10 @@ import { basename, dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { lock } from "proper-lockfile";
 
-export interface PiSettingsPaths {
-	/** User-wide settings base, normally `<agent-dir>/settings.json`. */
+export interface ExtensionSettingsPaths {
+	/** User-wide extension settings, normally `<agent-dir>/ext_settings.json`. */
 	readonly globalPath: string;
-	/** Project-local override, normally `<cwd>/.pi/settings.json`. */
+	/** Project-local extension overrides, normally `<cwd>/.pi/ext_settings.json`. */
 	readonly projectPath: string;
 }
 
@@ -23,7 +23,7 @@ export interface MergedJsonSettingsSection {
 }
 
 export interface ReadMergedJsonSettingsSectionOptions {
-	readonly paths: PiSettingsPaths;
+	readonly paths: ExtensionSettingsPaths;
 	readonly section: string;
 	/** Optional caller-owned cancellation for both reads and the final merge boundary. */
 	readonly signal?: AbortSignal;
@@ -42,14 +42,14 @@ function isMissingFile(error: unknown): boolean {
 	return isRecord(error) && error.code === "ENOENT";
 }
 
-/** Resolves Pi's established global and project settings file locations. */
-export function defaultPiSettingsPaths(
+/** Resolves extension-owned global and project settings file locations. */
+export function defaultExtensionSettingsPaths(
 	cwd: string = process.cwd(),
 	agentDir: string = getAgentDir(),
-): PiSettingsPaths {
+): ExtensionSettingsPaths {
 	return {
-		globalPath: join(agentDir, "settings.json"),
-		projectPath: join(cwd, CONFIG_DIR_NAME, "settings.json"),
+		globalPath: join(agentDir, "ext_settings.json"),
+		projectPath: join(cwd, CONFIG_DIR_NAME, "ext_settings.json"),
 	};
 }
 

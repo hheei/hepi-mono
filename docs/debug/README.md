@@ -11,14 +11,12 @@
 
 ## 设置
 
-全局 `~/.pi/agent/settings.json` 使用：
+全局 `~/.pi/agent/ext_settings.json` 使用：
 
 ```json
 {
-  "pi-debug": {
-    "cache": {
-      "enabled": true
-    }
+  "cache": {
+    "enabled": true
   }
 }
 ```

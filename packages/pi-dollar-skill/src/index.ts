@@ -9,7 +9,7 @@ import {
 import type { SettingField, SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
 import { createDollarSkillAtomicEditor } from "./atomic-editor.js";
 import {
-	DOLLAR_SKILL_SETTINGS_SECTION,
+	DOLLAR_SKILL_SETTINGS_GROUP,
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
@@ -55,13 +55,13 @@ const maxSuggestionsField: SettingField<number> = {
 		Number.isInteger(value) && value >= 1 && value <= MAX_DOLLAR_SKILL_SUGGESTIONS
 			? undefined
 			: `Enter an integer from 1 to ${MAX_DOLLAR_SKILL_SUGGESTIONS}.`,
-	enabled: (state) => state[DOLLAR_SKILL_SETTINGS_SECTION]?.[ENABLED_FIELD] !== false,
+	enabled: (state) => state[DOLLAR_SKILL_SETTINGS_GROUP]?.[ENABLED_FIELD] !== false,
 };
 
 const fields: readonly SettingField[] = [enabledField, maxSuggestionsField];
 
 function configFromState(state: SettingsState): DollarSkillConfig {
-	return normalizeDollarSkillConfig(state[DOLLAR_SKILL_SETTINGS_SECTION]);
+	return normalizeDollarSkillConfig(state[DOLLAR_SKILL_SETTINGS_GROUP]);
 }
 
 export interface DollarSkillFeature {
@@ -165,12 +165,12 @@ export function createDollarSkillSettingsProvider(
 		title: "Dollar skill references",
 		origin: "@hheei/pi-dollar-skill",
 		description: "Skill autocomplete and prompt-time path references.",
-		groups: [{ id: DOLLAR_SKILL_SETTINGS_SECTION, title: "", fields }],
+		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {
 			async load() {
 				const config = await loadDollarSkillConfig(settingsDirectory);
 				return {
-					[DOLLAR_SKILL_SETTINGS_SECTION]: {
+					[DOLLAR_SKILL_SETTINGS_GROUP]: {
 						enabled: config.enabled,
 						maxSuggestions: config.maxSuggestions,
 					},

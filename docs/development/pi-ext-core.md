@@ -45,9 +45,9 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
   [Loadout 架构](../architecture/loadout.md)、
   [ADR 0004](../adr/0004-core-subagent-execution.md) 与
   [ADR 0007](../adr/0007-core-json-settings-substrate.md) 明确限定：分别是 Extension page router、
-  Loadout registration、root-session-scoped subagent execution 与 JSON settings file transport。
-  它们不得扩张为 page content、Loadout policy、Settings persistence、agent/config/UI/delivery policy、
-  clipboard policy、Pi private API facade 或 schema-driven framework。
+  Loadout registration、root-session-scoped subagent execution 与 extension JSON settings transport。
+  它们不得扩张为 page content、Loadout policy、feature schema/state、Settings UI、agent/config/UI/delivery
+  policy、clipboard policy、Pi private API facade 或 schema-driven framework。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session

@@ -6,7 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	createToolTui,
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
 	type ManagedLoadoutToolRegistration,
 	registerManagedTool,
 	type ToolTui,
@@ -339,7 +339,7 @@ export function createApplyPatchTool(
 			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
 				const policy = await loadApplyPatchPolicy({
-					paths: defaultPiSettingsPaths(ctx.cwd),
+					paths: defaultExtensionSettingsPaths(ctx.cwd),
 					...(signal === undefined ? {} : { signal }),
 				});
 				const remote = target !== undefined && target !== LOCAL_TARGET;

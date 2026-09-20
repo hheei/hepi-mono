@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionPageViewContext,
+	type ExtensionSettingsPaths,
 	type LoadoutResourceDetailContext,
-	type PiSettingsPaths,
 	registerLoadoutInventory,
 	registerLoadoutResource,
 	registerManagedLoadoutTool,
@@ -25,7 +25,7 @@ afterEach(async () => {
 	);
 });
 
-async function paths(): Promise<PiSettingsPaths> {
+async function paths(): Promise<ExtensionSettingsPaths> {
 	const root = await mkdtemp(join(tmpdir(), "pi-settings-loadout-page-"));
 	temporaryRoots.push(root);
 	return { globalPath: join(root, "agent.json"), projectPath: join(root, "project.json") };
@@ -182,7 +182,7 @@ describe("Loadout Settings page", () => {
 		expect(global).not.toContain("project_check");
 		await page.handleInput("\u001b[112;5u");
 		const project = page.component.render(100).join("\n");
-		expect(project).toContain("Project · /workspace/.pi/settings.json");
+		expect(project).toContain("Project · /workspace/.pi/ext_settings.json");
 		expect(project).toContain("project_check");
 		expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
 	});
@@ -455,7 +455,7 @@ describe("Loadout Settings page", () => {
 			await inherited.handleInput("\u001b[B");
 			await inherited.handleInput("\u001b[B");
 			const project = inherited.component.render(100).join("\n");
-			expect(project).toContain("Project · /workspace/.pi/settings.json");
+			expect(project).toContain("Project · /workspace/.pi/ext_settings.json");
 			expect(project).not.toContain("↵");
 			await inherited.handleInput("\r");
 			expect(inherited.component.render(100).join("\n")).not.toContain("Detail panel");
@@ -530,7 +530,7 @@ describe("Loadout Settings page", () => {
 		await page.handleInput(" ");
 		await page.handleInput("\u0010");
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
-			"pi-settings.loadout": { disabled: ["tool:read"] },
+			loadout: { disabled: ["tool:read"] },
 		});
 		expect(h.notifications).toEqual([]);
 		await page.close();

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
-	DOLLAR_SKILL_SETTINGS_SECTION,
+	DOLLAR_SKILL_SETTINGS_GROUP,
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
@@ -24,7 +24,7 @@ describe("dollar skill settings", () => {
 
 	test("round-trips its section without overwriting sibling settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-dollar-skill-"));
-		const settingsPath = join(cwd, "settings.json");
+		const settingsPath = join(cwd, "ext_settings.json");
 		await writeFile(
 			settingsPath,
 			JSON.stringify({ "pi-dollar-skill": { unrelated: true }, external: true }),
@@ -48,7 +48,7 @@ describe("dollar skill settings", () => {
 			saveDollarSkillConfig(cwd, { enabled: true, maxSuggestions: 3 }),
 			saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 }),
 		]);
-		expect(await readdir(cwd)).toEqual(["settings.json"]);
+		expect(await readdir(cwd)).toEqual(["ext_settings.json"]);
 	});
 
 	test("provider validates limits without changing a live feature", async () => {
@@ -60,7 +60,7 @@ describe("dollar skill settings", () => {
 		expect(limit?.validate?.(10)).toBeUndefined();
 		await provider.storage.save(
 			{
-				[DOLLAR_SKILL_SETTINGS_SECTION]: { enabled: false, maxSuggestions: 3 },
+				[DOLLAR_SKILL_SETTINGS_GROUP]: { enabled: false, maxSuggestions: 3 },
 			},
 			{ sessionId: "test", cwd: settingsDirectory },
 		);

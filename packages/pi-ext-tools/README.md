@@ -31,8 +31,8 @@ transaction. Absolute paths, relative paths, and out-of-workspace write warnings
 keep the existing `PatchFs` / `assertPatchPath()` / `resolvePatchPath()` / Publish
 rules; this is not a workspace sandbox.
 
-Matching is strict by default (`pi-ext-tools.applyPatch.fuzzFactor: 0`). A global
-setting may set `fuzzFactor` to the integer `2`. Project settings may only lower
+Matching is strict by default (`applyPatch.fuzzFactor: 0` in `ext_settings.json`). A global setting
+may set `fuzzFactor` to the integer `2`. Project extension settings may only lower
 that value, never raise it above global (missing global is 0). `fuzzFactor` is
 jsdiff's line-edit context tolerance, not a similarity score and not a maximum
 line offset. jsdiff still searches for an offset at `fuzzFactor: 0`; deleted lines

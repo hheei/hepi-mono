@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { createJsonSectionSettingsStorage } from "@hheei/pi-ext-core";
+import { createJsonSettingsStorage } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import {
 	AUTO_TITLE_MODEL_FIELD,
@@ -40,29 +40,28 @@ describe("Pi Auto Title", () => {
 		expect(() => parseModelRef("provider/model/extra")).toThrow();
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-"));
 		try {
-			const path = join(dir, "settings.json");
-			await writeFile(path, JSON.stringify({ packages: ["npm:unrelated-extension"], other: true }));
+			const path = join(dir, "ext_settings.json");
+			await writeFile(path, JSON.stringify({ unrelated: { enabled: true } }));
 			const storage = createAutoTitleStorage({ path });
 			await storage.save(
 				{ "auto-title": { autoTitle: true, autoTitleModel: "provider/model" } },
 				context(dir),
 			);
 			const root = JSON.parse(await readFile(path, "utf8"));
-			expect(root.packages).toEqual(["npm:unrelated-extension"]);
-			expect(root["pi-auto-title"]["auto-title"].autoTitle).toBe(true);
+			expect(root.unrelated).toEqual({ enabled: true });
+			expect(root["auto-title"].autoTitle).toBe(true);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
-	test("shares the settings write queue with other Pi Basics providers", async () => {
+	test("shares the extension settings write queue with other providers", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-concurrent-"));
 		try {
-			const path = join(dir, "settings.json");
+			const path = join(dir, "ext_settings.json");
 			const title = createAutoTitleStorage({ path });
-			const other = createJsonSectionSettingsStorage({
+			const other = createJsonSettingsStorage({
 				path,
-				section: "pi-auto-title",
 				group: "other",
 			});
 			await Promise.all([
@@ -70,7 +69,7 @@ describe("Pi Auto Title", () => {
 				other.save({ other: { enabled: true } }, context(dir)),
 			]);
 			const root = JSON.parse(await readFile(path, "utf8"));
-			expect(root["pi-auto-title"]).toEqual({
+			expect(root).toEqual({
 				"auto-title": { autoTitle: true },
 				other: { enabled: true },
 			});

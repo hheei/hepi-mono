@@ -1,8 +1,7 @@
-import { createJsonSectionSettingsStorage, type SettingsProvider } from "@hheei/pi-ext-core";
+import { createJsonSettingsStorage, type SettingsProvider } from "@hheei/pi-ext-core";
 import type { TargetSettingsProviderOptions } from "./settings.js";
 import { DEFAULT_TARGET_SETTINGS } from "./settings.js";
 
-const SECTION = "pi-ext-tools";
 const TARGET_GROUP = "targets";
 const TARGET_SETTINGS_DESCRIPTIONS = {
 	provider: "Choose which SSH aliases pi-ext-tools may expose to read, grep, and find.",
@@ -55,9 +54,8 @@ export function createTargetSettingsProvider(
 				],
 			},
 		],
-		storage: createJsonSectionSettingsStorage({
+		storage: createJsonSettingsStorage({
 			...(options.path === undefined ? {} : { path: options.path }),
-			section: SECTION,
 			group: TARGET_GROUP,
 		}),
 	};

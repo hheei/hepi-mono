@@ -19,5 +19,5 @@ export {
 	createDebugSettingsProvider,
 	DEBUG_ENABLED_FIELD,
 	DEBUG_SETTINGS_GROUP,
-	DEBUG_SETTINGS_SECTION,
+	DEBUG_SETTINGS_PROVIDER_ID,
 } from "./settings.js";

@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type CompletionSubagentHandle,
-	createJsonSectionSettingsStorage,
+	createJsonSettingsStorage,
 	createModelSelectionField,
 	type ExtensionLifecycleContext,
 	type ModelSelectionOption,
@@ -17,7 +17,7 @@ import {
 export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
-const SECTION = "pi-auto-title";
+const AUTO_TITLE_SETTINGS_PROVIDER_ID = "pi-auto-title";
 const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
@@ -71,9 +71,8 @@ export interface AutoTitleCoordinator {
 }
 
 export function createAutoTitleStorage(options: AutoTitleStorageOptions = {}): SettingsStorage {
-	return createJsonSectionSettingsStorage({
+	return createJsonSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
-		section: SECTION,
 		group: options.group ?? AUTO_TITLE_GROUP,
 	});
 }
@@ -129,7 +128,7 @@ export function createAutoTitleSettingsProvider(
 		options.path === undefined ? {} : { path: options.path },
 	);
 	return {
-		id: SECTION,
+		id: AUTO_TITLE_SETTINGS_PROVIDER_ID,
 		title: "Pi Auto Title",
 		origin: "@hheei/pi-auto-title",
 		groups: [

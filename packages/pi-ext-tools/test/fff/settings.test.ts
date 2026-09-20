@@ -38,7 +38,7 @@ describe("FFF settings", () => {
 	test("persists grouped FFF and Bash settings", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "hepi-fff-settings-"));
 		try {
-			const path = join(directory, "settings.json");
+			const path = join(directory, "ext_settings.json");
 			const fffProvider = createFffSettingsProvider({ path });
 			const bashProvider = createBashSettingsProvider({ path });
 			const context = { sessionId: "settings-test" };
@@ -59,10 +59,8 @@ describe("FFF settings", () => {
 				findEnhancement: true,
 			});
 			expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-				"pi-ext-tools": {
-					fff: { autocomplete: false },
-					bash: { outputTailKiB: 20 },
-				},
+				fff: { autocomplete: false },
+				bash: { outputTailKiB: 20 },
 			});
 		} finally {
 			await rm(directory, { recursive: true, force: true });
@@ -83,7 +81,7 @@ describe("FFF settings", () => {
 	test("loads and persists the static Edit Mode catalog setting", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "hepi-edit-settings-"));
 		try {
-			const path = join(directory, "settings.json");
+			const path = join(directory, "ext_settings.json");
 			const provider = createEditSettingsProvider({ path });
 			await provider.storage.save({ edit: { mode: "native" } }, { sessionId: "settings-test" });
 			expect(readEditMode(path)).toBe("native");
@@ -92,7 +90,7 @@ describe("FFF settings", () => {
 			expect(editModeFromState({ edit: { mode: "unsupported" } })).toBe(DEFAULT_EDIT_MODE);
 			expect(DEFAULT_EDIT_MODE).toBe("auto");
 			expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-				"pi-ext-tools": { edit: { mode: "native" } },
+				edit: { mode: "native" },
 			});
 		} finally {
 			await rm(directory, { recursive: true, force: true });

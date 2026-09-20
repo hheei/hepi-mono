@@ -59,11 +59,14 @@ Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core
 
 ## 设置
 
-Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider：`pi-mctx`。设置仅写入 Pi 全局 `settings.json` 的直接 `pi-mctx.<field>` 键；不读取项目级 `.pi/settings.json`，也不读取、导入或迁移 CortexKit 的 JSONC 配置。不要用 `@cortexkit/magic-context setup` 配置这个 fork；该命令只管理上游的配置文件。
+Pi MCTX 通过 `@hheei/pi-ext-core` 向 `/ext-settings` 注册唯一 provider `pi-mctx` 和全局唯一 group
+`operational`。设置仅写入全局 `<agentDir>/ext_settings.json` 的 `operational.<field>`，不读取项目级
+`.pi/ext_settings.json`，也不读取、导入或迁移 CortexKit 的 JSONC 配置。不要用
+`@cortexkit/magic-context setup` 配置这个 fork；该命令只管理上游配置文件。
 
 ```json
 {
-  "pi-mctx": {
+  "operational": {
     "enabled": true,
     "compactionEnabled": true,
     "systemPromptInjection": true,

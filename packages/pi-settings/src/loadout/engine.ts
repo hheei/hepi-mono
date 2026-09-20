@@ -2,13 +2,13 @@ import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/p
 import {
 	clearDisabledSkillKeys,
 	clearLoadoutToolActivation,
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
+	type ExtensionSettingsPaths,
 	isManagedLoadoutTool,
 	type LoadoutInventoryItem,
 	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
-	type PiSettingsPaths,
 	publishLoadoutToolActivation,
 	setDisabledSkillKeys,
 } from "@hheei/pi-ext-core";
@@ -28,7 +28,7 @@ interface SkillCommand {
 
 export interface LoadoutEngineOptions {
 	/** Override both global/project settings paths for tests or an embedding host. */
-	readonly paths?: PiSettingsPaths;
+	readonly paths?: ExtensionSettingsPaths;
 }
 
 /**
@@ -152,7 +152,7 @@ export function createLoadoutEngine(
 			// Capture Pi's baseline before policy takes effect. Unmanaged tools retain
 			// that baseline, so installing Loadout does not silently disable host tools.
 			if (active) throw new Error("Loadout engine is already active");
-			const paths = options.paths ?? defaultPiSettingsPaths(context.cwd);
+			const paths = options.paths ?? defaultExtensionSettingsPaths(context.cwd);
 			try {
 				configuration = await loadLoadoutConfiguration(context.cwd, signal, paths);
 				signal.throwIfAborted();

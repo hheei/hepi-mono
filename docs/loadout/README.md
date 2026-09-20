@@ -89,12 +89,12 @@ configuration 时显示 `inherit`，不猜测 provider。
 
 ## 配置与作用域
 
-配置段为 `pi-settings.loadout`。全局 `<agentDir>/settings.json` 与项目
-`<cwd>/.pi/settings.json` 各自使用同一段：
+配置使用顶层 `loadout` key。全局 `<agentDir>/ext_settings.json` 与项目
+`<cwd>/.pi/ext_settings.json` 各自使用同一结构：
 
 ```json
 {
-  "pi-settings.loadout": {
+  "loadout": {
     "disabled": ["tool:grep", "skill:review", "agent:Plan"],
     "enabled": ["tool:find", "agent:Explore"]
   }

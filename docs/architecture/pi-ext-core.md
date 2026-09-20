@@ -82,19 +82,27 @@ Pi 只估 session messages（最后一条有效 assistant usage + 之后 chars/4
 调用方自己读 `getContextUsage` / `getSystemPrompt` / `getAllTools`。默认 prefix 估算是 `ceil(chars/4)`；需要模型 tokenizer 的包传 `estimateTokens`。
 mctx 的 persisted `lastInputTokens`、m[0] 与 scheduler 仍由 `pi-mctx` 拥有；调度器不得用此函数替代 raw 0（imported-session 检测依赖 `usagePercentage===0`）。
 
-### JSON Settings
+### Extension JSON Settings
 
-`readMergedJsonSettingsSection()` 是 extension 的默认 configuration entry。它一次读取 Pi global 与
-project settings 文件的同名 object section，并同时返回未解释的 `global`、`project` 与递归合并后的 `merged`。
-plain object 按 key 递归合并；scalar、array、`null` 或类型不一致时 project value 覆盖 global value。
+extension 配置与 Pi host 原生配置分离：global 文件固定为 `<agentDir>/ext_settings.json`，project
+override 固定为 `<cwd>/.pi/ext_settings.json`。extension 不得把自己的字段写入 Pi 的 `settings.json`。
+
+`defaultExtensionSettingsPaths()` 返回这两个路径。`readMergedJsonSettingsSection()` 一次读取两层的同名
+object key，并同时返回未解释的 `global`、`project` 与递归合并后的 `merged`。plain object 按 key
+递归合并；scalar、array、`null` 或类型不一致时 project value 覆盖 global value。
+
+文件 root 不是 package namespace map。Settings provider 注册自己的全局唯一 group ID；拥有非 Settings UI
+配置的 extension 使用 `SettingsRegistry.registerGroups()` 预留同一个 collision domain 中的顶层 key。group/key 直接
+成为 `ext_settings.json` 的顶层属性。不同 package 可以自由选择 ID，但重复 ID 在注册时立即失败，不由 UI
+自动改名，也不会以 package 名再包一层。
 
 调用 `sourceOf(["nested", "key"])` 可定位 effective value 的来源：`global`、`project`、`mixed` 或
 `undefined`。`mixed` 只表示该 object 的有效 descendants 来自两层；调用者应继续查询具体 leaf path。key path
 是 string array，不解析 dotted key，避免配置键名歧义。
 
-API 不验证 section fields，也不决定某个 project override 是否可信。需要 security/trust 限制的 consumer 必须
-读取返回的 raw layers 并自行应用 policy；例如 project 不得选择 user-paid model 时，consumer 不能直接把
-`merged` 当作 active configuration。
+底层 JSON API 不验证 key fields，也不决定某个 project override 是否可信。需要 security/trust 限制的
+consumer 必须读取 raw layers 并自行应用 policy；例如 project 不得选择 user-paid model 时，consumer
+不能直接把 `merged` 当作 active configuration。
 
 ### Settings 值与 List Field
 

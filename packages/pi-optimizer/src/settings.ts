@@ -1,5 +1,5 @@
 import {
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
 	readJsonSettingsRoot,
 	type SettingGroup,
 	type SettingsProvider,
@@ -108,7 +108,7 @@ export function createOptimizerSettingsProvider(
 		readonly onSaved?: (settings: OptimizerSettings) => void;
 	} = {},
 ): SettingsProvider {
-	const path = options.path ?? defaultPiSettingsPaths().globalPath;
+	const path = options.path ?? defaultExtensionSettingsPaths().globalPath;
 	return {
 		id: "pi-optimizer",
 		title: "Optimizer",
@@ -117,18 +117,22 @@ export function createOptimizerSettingsProvider(
 		storage: {
 			async load(context): Promise<OptimizerSettings> {
 				const root = await readJsonSettingsRoot(path, context.signal);
-				return parseOptimizerSettings(root["pi-optimizer"]);
+				return parseOptimizerSettings({
+					...(root.t2s === undefined ? {} : { t2s: root.t2s }),
+					...(root.caveman === undefined ? {} : { caveman: root.caveman }),
+					...(root.ponytail === undefined ? {} : { ponytail: root.ponytail }),
+					...(root.rtk === undefined ? {} : { rtk: root.rtk }),
+				});
 			},
 			async save(state, context): Promise<void> {
 				const settings = parseOptimizerSettings(state);
 				await updateJsonSettingsRoot(
 					path,
 					(root) => {
-						const existing = root["pi-optimizer"];
-						root["pi-optimizer"] = {
-							...(Value.Check(objectSchema, existing) ? existing : {}),
-							...settings,
-						};
+						root.t2s = settings.t2s;
+						root.caveman = settings.caveman;
+						root.ponytail = settings.ponytail;
+						root.rtk = settings.rtk;
 					},
 					context.signal,
 				);
