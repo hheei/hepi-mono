@@ -1,30 +1,60 @@
 #!/usr/bin/env node
 
-import { execSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run") || process.env.DRY_RUN === "true";
 const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const rootManifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
 
 console.log(`[publish-packages] Starting publication check (dryRun: ${isDryRun}, CI: ${isCi})`);
 
-// 1. 获取工作区所有 package
-const output = execSync("pnpm m ls --json --depth -1", { encoding: "utf8" });
+const output = execFileSync("pnpm", ["m", "ls", "--json", "--depth", "-1"], {
+	cwd: repoRoot,
+	encoding: "utf8",
+});
 const allPackages = JSON.parse(output);
+if (!Array.isArray(allPackages))
+	throw new Error("pnpm workspace inventory did not return an array");
 
-// 2. 过滤掉 private 包，确保只发布 public 包
-const publicPackages = allPackages.filter((pkg) => !pkg.private);
+const publicPackages = allPackages.filter((pkg) => pkg && typeof pkg === "object" && !pkg.private);
+for (const pkg of publicPackages) {
+	if (
+		typeof pkg.name !== "string" ||
+		typeof pkg.version !== "string" ||
+		typeof pkg.path !== "string"
+	) {
+		throw new Error("pnpm returned an invalid public workspace record");
+	}
+	if (pkg.version !== rootManifest.version) {
+		throw new Error(
+			`${pkg.name} is ${pkg.version}, but the fixed repository release version is ${rootManifest.version}`,
+		);
+	}
+}
 
-// 3. 拓扑排序：确保 @hheei/pi-ext-core 优先发布
-publicPackages.sort((a, b) => {
-	if (a.name === "@hheei/pi-ext-core") return -1;
-	if (b.name === "@hheei/pi-ext-core") return 1;
-	return a.name.localeCompare(b.name);
+const releaseTag = process.env.GITHUB_REF?.startsWith("refs/tags/")
+	? process.env.GITHUB_REF.slice("refs/tags/".length)
+	: undefined;
+if (releaseTag && releaseTag !== `v${rootManifest.version}`) {
+	throw new Error(
+		`Release tag ${releaseTag} does not match repository version v${rootManifest.version}`,
+	);
+}
+
+publicPackages.sort((left, right) => {
+	if (left.name === "@hheei/pi-ext-core") return -1;
+	if (right.name === "@hheei/pi-ext-core") return 1;
+	return left.name.localeCompare(right.name);
 });
 
 console.log(
 	`[publish-packages] Found ${publicPackages.length} public packages to process:\n` +
-		publicPackages.map((p) => `  - ${p.name}@${p.version} (${p.path})`).join("\n"),
+		publicPackages.map((pkg) => `  - ${pkg.name}@${pkg.version} (${pkg.path})`).join("\n"),
 );
 
 let publishedCount = 0;
@@ -35,53 +65,43 @@ for (const pkg of publicPackages) {
 	console.log(`Processing: ${pkg.name}@${pkg.version}`);
 	console.log(`========================================`);
 
-	// 4. 幂等性检查：通过 npm view 检查是否已经在 registry 存在
+	const packageSpec = `${pkg.name}@${pkg.version}`;
+	const lookup = spawnSync("npm", ["view", packageSpec, "version", "--json"], {
+		cwd: repoRoot,
+		encoding: "utf8",
+	});
+	const lookupText = `${lookup.stdout ?? ""}\n${lookup.stderr ?? ""}`;
 	let isAlreadyPublished = false;
-	try {
-		const checkResult = execSync(`npm view "${pkg.name}@${pkg.version}" version`, {
-			stdio: ["pipe", "pipe", "ignore"],
-			encoding: "utf8",
-		}).trim();
-		if (checkResult === pkg.version) {
-			isAlreadyPublished = true;
-		}
-	} catch {
-		// npm view 失败（返回 404 / E404），说明版本尚未发布
-		isAlreadyPublished = false;
+	if (lookup.status === 0) {
+		isAlreadyPublished = JSON.parse(lookup.stdout.trim()) === pkg.version;
+	} else if (!lookupText.includes("E404")) {
+		throw new Error(`Unable to check ${packageSpec} on npm:\n${lookupText.trim()}`);
 	}
 
 	if (isAlreadyPublished) {
-		console.log(`✓ ${pkg.name}@${pkg.version} is already published on npm. Skipping.`);
+		console.log(`${packageSpec} is already published on npm. Skipping.`);
 		skippedCount++;
 		continue;
 	}
 
-	console.log(`🚀 Publishing ${pkg.name}@${pkg.version}...`);
-
+	console.log(`Publishing ${packageSpec}...`);
 	const publishArgs = ["--filter", pkg.name, "publish", "--access", "public", "--no-git-checks"];
-
-	if (isDryRun) {
-		publishArgs.push("--dry-run");
-	} else if (isCi) {
-		// CI 下支持 OIDC Trusted Publishing 生成发布凭证 (provenance)
-		publishArgs.push("--provenance");
-	}
+	if (isDryRun) publishArgs.push("--dry-run");
+	else if (isCi) publishArgs.push("--provenance");
 
 	const result = spawnSync("pnpm", publishArgs, {
+		cwd: repoRoot,
 		stdio: "inherit",
 		env: process.env,
 	});
-
 	if (result.status !== 0) {
-		console.error(`❌ Failed to publish ${pkg.name}@${pkg.version}`);
-		process.exit(result.status ?? 1);
+		throw new Error(`Failed to publish ${packageSpec} (exit ${result.status ?? "unknown"})`);
 	}
-
 	publishedCount++;
 }
 
 console.log(`\n========================================`);
-console.log(`Publish summary:`);
+console.log("Publish summary:");
 console.log(`  Published / Dry-run: ${publishedCount}`);
 console.log(`  Skipped (already on npm): ${skippedCount}`);
 console.log(`========================================\n`);

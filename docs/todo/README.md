@@ -36,17 +36,14 @@ completed task 只暂显到下一次 agent start。session tree 切换会从 fre
   Todo）后，blocked task 从 editor 上方 widget 隐藏。它不会再占 GUI 行，但不从 state 删除。
   隐藏前它以 `dim` 图标与删除线 subject 呈现，不使用 `warning`。
 
-## 迁移边界
+## 持久化边界
 
-迁移保留 tool name `todo`、command `/todos`、task 状态模型、用户可见 widget 行为，以及历史 session
-Todo state。`pi-ext-tools` 继续从既有 `todo` tool-result snapshot 与 `pi-todo:state` custom entry 恢复
-启动和 branch state；`pi-todo:*` 是 Todo persistence schema 名，不代表当前 package owner。每一次新
-tool result 仍携带 display snapshot，供该条结果 renderer 显示状态。
+Todo 保留 tool name `todo`、command `/todos`、task 状态模型、用户可见 widget 行为，以及 session Todo
+state。`pi-ext-tools` 从 `todo` tool-result snapshot 与 `pi-ext-tools:todo:state` custom entry 恢复启动和
+branch state；`pi-ext-tools:todo:*` 是稳定的 Todo persistence schema。每一次新 tool result 仍携带
+display snapshot，供该条结果 renderer 显示状态。
 
 widget key 为 `pi-ext-tools:todo`，使 runtime ownership 与 package 名称一致。
-
-独立 `pi-todo` package 已删除。旧发布版 `pi-todo` 与当前 `pi-ext-tools` 混装不受支持，因为 Pi 对
-同名 tool/command 的注册顺序没有可靠的升级语义。
 
 ## 实现注释
 
@@ -57,8 +54,8 @@ Todo 的关键注释必须说明实际约束，而不是复述类型或语句：
 - tool batch 必须说明先在候选 state 上验证、成功后才提交，避免任何 invalid operation 部分写入；
 - Pi event handler 必须说明它只读取当前 session runtime，并在 lifecycle disposal 后成为 no-op，避免
   Pi 无 unregister API 在 `/reload` 后调用 stale closure；
-- result `details.snapshot` 是 Todo 的 branch recovery data；`pi-todo:state` 只记录没有 tool result 的用户
-  suppression，并且两个 persistence type 都必须经 `stateFromSnapshot` 验证；
+- result `details.snapshot` 是 Todo 的 branch recovery data；`pi-ext-tools:todo:state` 只记录没有 tool result
+  的用户 suppression，并且两个 persistence type 都必须经 `stateFromSnapshot` 验证；
 - widget 注释必须说明它为何继续使用 native above-editor mount，以及 completed/blocked 可见性集合的
   ownership 和 reset 时机。
 

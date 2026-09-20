@@ -10,4 +10,4 @@ pi install npm:@hheei/pi-dollar-skill
 ```
 
 Configuration is stored under the `pi-dollar-skill` settings section. The
-feature is enabled by default. Requires Pi `>=0.83.0`.
+feature is enabled by default. Requires Pi `>=0.85.1`.

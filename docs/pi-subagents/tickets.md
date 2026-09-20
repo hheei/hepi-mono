@@ -9,7 +9,7 @@
 1. 修改 TypeScript 前先重读仓库根 `DESIGN_TS.md`，复用当前 package 与 ext-core 模式。
 2. 每个 ticket 先写/更新该 ticket 的 focused behavioral tests，再完成最小实现。
 3. 每个 model-facing tool、后台 transition 和 recovery failure 都必须可观察；未知状态返回错误，不无限等待。
-4. 不修改或兼容已撤回的 `pi-subagents-herdr`；不把 ext-core `startSubagent` 当作 durable runner。
+4. 不引入第二套 runner/provider，也不把 ext-core `startSubagent` 当作 durable runner。
 5. 每个 ticket 只运行列出的 focused checks；跨 package public export 或最后集成 ticket 再运行根 typecheck/full test。
 
 ---

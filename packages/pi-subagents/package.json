@@ -1,6 +1,7 @@
 {
 	"name": "@hheei/pi-subagents",
-	"version": "0.1.1",
+	"version": "0.1.2",
+	"private": true,
 	"description": "Independent background Pi subagent sessions with durable identity and RPC control.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -20,7 +21,7 @@
 	},
 	"scripts": {
 		"prepack": "pnpm run build",
-		"build": "tsc -p tsconfig.build.json"
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json"
 	},
 	"keywords": [
 		"pi",

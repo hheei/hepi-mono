@@ -76,7 +76,7 @@ export interface LoadoutInventoryRegistration extends LoadoutToolMetadata {}
 
 /**
  * A static HEPI tool declaration. Core owns the Pi registration transport so an
- * independently loaded contributor does not depend on pi-loadout load order.
+ * independently loaded contributor does not depend on the Loadout host's load order.
  * The owner stays stable across Pi reloads, allowing a new runner to replace the
  * old registration without allowing a second extension to claim the same name.
  */

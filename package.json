@@ -1,12 +1,13 @@
 {
 	"name": "hepi-mono",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"private": true,
 	"description": "Monorepo for HEPI Pi Coding Agent extensions.",
 	"type": "module",
 	"packageManager": "pnpm@12.4.1",
 	"scripts": {
 		"build": "pnpm --filter @hheei/pi-ext-core run build && pnpm --filter @hheei/pi-auto-title --filter @hheei/pi-dollar-skill --filter @hheei/pi-ext-addon --filter @hheei/pi-ext-tools --filter @hheei/pi-settings --filter @hheei/pi-status --filter @hheei/pi-optimizer --filter @hheei/pi-subagents run build",
+		"validate:packages": "node scripts/validate-package-artifacts.mjs",
 		"check": "biome check . && pnpm run typecheck && pnpm test",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
@@ -17,8 +18,8 @@
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
 		"tui:replay": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay.ts",
 		"tui:replay:session": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay-session.ts",
-		"publish:packages": "node scripts/publish-packages.mjs",
-		"publish:dry-run": "node scripts/publish-packages.mjs --dry-run"
+		"publish:packages": "pnpm run build && pnpm run validate:packages && node scripts/publish-packages.mjs",
+		"publish:dry-run": "pnpm run build && pnpm run validate:packages && node scripts/publish-packages.mjs --dry-run"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",

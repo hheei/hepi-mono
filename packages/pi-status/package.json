@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-status",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Response telemetry for Pi sessions.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -19,7 +19,7 @@
 		]
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
 		"prepack": "pnpm run build"
 	},
 	"keywords": [

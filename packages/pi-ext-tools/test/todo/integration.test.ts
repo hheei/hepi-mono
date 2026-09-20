@@ -658,7 +658,7 @@ describe("Todo integration", () => {
 		expect(reminder.messages).toHaveLength(2);
 		expect(reminder.messages[1]).toMatchObject({
 			role: "custom",
-			customType: "pi-todo:reminder",
+			customType: "pi-ext-tools:todo:reminder",
 			display: false,
 		});
 		expect(reminder.messages[1]?.content).toBe(
@@ -775,7 +775,7 @@ describe("Todo integration", () => {
 		expect(host.appended).toEqual([
 			{
 				type: "custom",
-				customType: "pi-todo:state",
+				customType: "pi-ext-tools:todo:state",
 				data: {
 					tasks: [
 						{ id: 1, subject: "Working", status: "suppressed" },

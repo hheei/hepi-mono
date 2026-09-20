@@ -218,6 +218,9 @@ importers:
       '@hheei/pi-ext-core':
         specifier: workspace:^0.1.1
         version: link:../pi-ext-core
+      jiti:
+        specifier: 2.7.0
+        version: 2.7.0
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2

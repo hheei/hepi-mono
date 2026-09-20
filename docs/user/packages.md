@@ -25,11 +25,15 @@
 不声明 Pi 扩展入口，不应作为独立功能通过 `pi install` 加载。
 维护约定见 [ext-core 开发指南](../development/pi-ext-core.md)。
 
-## 本地开发包
+## 本地与预发布包
 
 `@hheei/pi-mctx` 的 manifest 标记为 `private: true`，没有 `pi.extensions` 声明。
 仓库启动器直接加载其 `src/index.ts`，不要将它当作已发布的独立扩展安装。
 目标行为与迁移状态见 [pi-mctx 规格](../mctx/spec.md)和[实施 tickets](../mctx/tickets.md)。
+
+`@hheei/pi-subagents` 也标记为 `private: true`。当前 RPC runtime 可供仓库内开发和验证，
+但 recovery、原生 TUI handoff、用户操作面与最终发布 gate 尚未全部完成；状态见
+[pi-subagents tickets](../pi-subagents/tickets.md)。完成发布里程碑前不要把它作为 npm 扩展安装。
 
 ## 文档分工
 

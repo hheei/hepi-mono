@@ -31,18 +31,15 @@ This directory records high-level information for users and developers. Detailed
 
 ## Research
 
-- [Advisor research](research/advisor.md): advisor design comparison and original feature boundary.
-- [Pi upstream research](research/pi-upstream.md): upstream extension layering and the historical aggregate proposal.
 - [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.
 - [FFF search research](pi-fff.md): FFF SDK data model, precise match ranges, lifecycle, pagination, and Pi integration boundaries.
-- [Apply Patch model-information research](research/apply-patch-model-information.md): historical mpatch diagnostic evidence and V4A model-information design inputs.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
 
-Research records evidence and prior reasoning. It does not override current code, tests, package READMEs, or design specifications.
+Research records evidence for current code and design. It does not override source, tests, package READMEs, or specifications.
 
 ## Plans
 
-[`plans/`](plans/README.md) contains completed plans and durable historical decisions. Plans are context, not current behavior contracts.
+[`plans/`](plans/README.md) contains current implementation plans and safety constraints.
 
 ## Source Of Truth
 
@@ -52,8 +49,8 @@ Use each source for the question it owns:
 - Required UI/UX behavior: [DESIGN.md](../DESIGN.md).
 - Repository engineering rules: [AGENTS.md](../AGENTS.md) and [DESIGN_TS.md](../DESIGN_TS.md).
 - Installation and compatibility: package manifests and package READMEs.
-- Intended boundaries and agreed decisions: current architecture guides, specifications, and ADRs; check their status before treating a target design as implemented.
-- Background evidence: research and historical plans, not current behavior contracts.
+- Intended boundaries and agreed decisions: current architecture guides, specifications, and ADRs.
+- Background evidence: current research documents.
 
 When implementation and a required contract disagree, record the discrepancy and
 resolve it explicitly. Existing code does not automatically override an agreed specification.

@@ -1,5 +1,9 @@
 # @hheei/pi-subagents
 
+> Pre-release workspace: this package remains private until the recovery, native TUI handoff,
+> user-facing controls, and release-gate work tracked in
+> [`docs/pi-subagents/tickets.md`](../../docs/pi-subagents/tickets.md) is complete.
+
 Run several independent Pi child sessions from one Pi session, each with its own Pi session
 file, its own RPC runtime, and its own durable identity.
 

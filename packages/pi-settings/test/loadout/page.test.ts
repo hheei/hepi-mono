@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 async function paths(): Promise<PiSettingsPaths> {
-	const root = await mkdtemp(join(tmpdir(), "pi-loadout-page-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-settings-loadout-page-"));
 	temporaryRoots.push(root);
 	return { globalPath: join(root, "agent.json"), projectPath: join(root, "project.json") };
 }
@@ -530,7 +530,7 @@ describe("Loadout Settings page", () => {
 		await page.handleInput(" ");
 		await page.handleInput("\u0010");
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
-			"pi-loadout": { disabled: ["tool:read"] },
+			"pi-settings.loadout": { disabled: ["tool:read"] },
 		});
 		expect(h.notifications).toEqual([]);
 		await page.close();

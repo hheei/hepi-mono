@@ -6,7 +6,7 @@ Traditional-to-Simplified input conversion, Caveman/Ponytail prompt modes, and o
 pi install npm:@hheei/pi-optimizer
 ```
 
-This package replaces `@hheei/pi-t2s`. Remove the old package from your installation before loading optimizer so input conversion is not registered twice. Existing T2S settings and the former `pi-ext-tools.rtk` / `rtkPath` settings migrate automatically; unrelated settings are preserved. This does not import OMP configuration or install RTK.
+Settings are stored only under the `pi-optimizer` section. This package does not import OMP configuration or install RTK.
 
 ## Usage
 
