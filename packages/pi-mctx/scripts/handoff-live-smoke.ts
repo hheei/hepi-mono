@@ -242,7 +242,7 @@ function contextText(entry: CustomEntry): string {
 }
 
 function prepareRoot(existing?: string): { root: string; agentDir: string; cwd: string } {
-	const root = existing ?? mkdtempSync(join(tmpdir(), "pi-handoff-smoke-"));
+	const root = existing ?? mkdtempSync(join(tmpdir(), "mctx-handoff-smoke-"));
 	const agentDir = join(root, "agent");
 	const cwd = join(root, "project");
 	mkdirSync(agentDir, { recursive: true });

@@ -1,6 +1,6 @@
 # Magic Context Handoff
 
-> 状态：current behavior。`@hheei/pi-mctx` 拥有唯一 `/handoff`；旧 `@hheei/pi-handoff` package 已删除。
+> 状态：current behavior。`@hheei/pi-mctx` 拥有唯一 `/handoff`。
 
 ## 目标
 
@@ -283,17 +283,15 @@ history N tokens · recent 5 · summary N tokens
 
 展开后依次显示 authority、session history、recent messages、summary和 provenance，完整内容不做行数截断。所有 rows必须 ANSI/cell-width safe。
 
-## Compatibility 与交付
+## 交付边界
 
-`pi-mctx`默认注册唯一 `/handoff`，没有 feature flag、legacy mode或 handoff-specific settings。`packages/pi-handoff`及其 command/tests/package manifest全部删除，并通过 lockfile 清理 workspace lock state。
-
-既有 `hepi-handoff` custom messages不迁移；Pi仍按历史 JSONL恢复它们，新 MCTX不加 compatibility shim或特殊解释。
-
-功能只有在以下全部完成后才可称为完成：code、storage migration、TUI/RPC、renderers、recovery、旧 package删除、docs、automated tests和 real Pi smoke。不得留下 disabled path、TODO或 deferred contract。
+`pi-mctx` 默认注册唯一 `/handoff`，没有 feature flag、compatibility mode 或 handoff-specific settings。
+功能只有在 code、storage、TUI/RPC、renderers、recovery、automated tests 和 real Pi smoke 全部完成后
+才可称为完成；不得留下 disabled path、TODO 或 deferred contract。
 
 ## 验证
 
-Automated tests必须覆盖 pure serializer/budget/escaping、request state machine、lease concurrency、command preconditions、historian wrapup、no-tools completion、cancellation、staleness、全部 crash windows、replacement/discovery、context pipeline、memory/state reset、renderers、RPC/non-TUI和 legacy resume。
+Automated tests必须覆盖 pure serializer/budget/escaping、request state machine、lease concurrency、command preconditions、historian wrapup、no-tools completion、cancellation、staleness、全部 crash windows、replacement/discovery、context pipeline、memory/state reset、renderers和RPC/non-TUI。
 
 Real Pi smoke必须验证 Source → Completion → Continuation → first model input → reload/resume → destination historian fold → divergence rematerialization，并实际检查 provider failure、Esc cancellation和 post-replacement failure warning。
 

@@ -20,9 +20,8 @@ load order 依赖。
 `pi-settings` 是 managed-tool/resource contributor 的推荐 companion package，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority 或
 persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-settings` 不提供
-第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。它读取既有 `pi-loadout`
-global/project JSON sections；该 section name 是 persistence schema，不是 package owner。旧
-`pi-basics-loadout` state 与早期 `tools` / `skills` boolean map schema 不迁移。
+第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。global/project JSON
+使用 `pi-settings.loadout` section；格式错误或旧 boolean map schema 直接拒绝，不做兼容迁移。
 
 ## Tool Registration
 
@@ -86,8 +85,7 @@ skill enable/disable 由 `pi-settings` 自己管理；core 只提供 runtime-sco
 activation snapshot 发布；profile owner 读取 `agent:<name>` 的 effective state 后，将它与自身 profile
 settings 的 enabled state 相交。core 不读取 profile 文件，也不解释 agent policy。
 
-MCP placeholder 不属于新 Loadout inventory。旧实现没有 MCP discovery 或 runtime activation，
-因此不迁移其无效状态。
+MCP placeholder 不属于 Loadout inventory；没有经过 discovery 与 runtime activation 的资源不得登记为可切换项。
 
 ## Agent Profile Resource 与详情页
 
@@ -168,6 +166,5 @@ signal。页面遵守 `DESIGN.md` 的 token、稳定尺寸、narrow/wide 验证�
   preservation、conflict atomicity、scope persistence、dynamic tab add/remove、lazy factory、retry、
   key routing 和 close cleanup。
 
-不可逆边界的原因见 [ADR 0001](../adr/0001-core-extension-page-shell.md)、
-[ADR 0002](../adr/0002-core-loadout-contract.md) 与
-[ADR 0003](../adr/0003-independent-settings-host.md)。
+The irreversible boundary is the current contract above: ext-core owns registration and routing
+mechanisms, while `pi-settings` owns activation policy, persistence, and page content.

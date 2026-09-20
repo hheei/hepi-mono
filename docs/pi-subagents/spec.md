@@ -1,6 +1,6 @@
 # pi-subagents V1 规格
 
-本规格从 [`PLAN.md`](PLAN.md) 提炼可实现合同。`PLAN.md` 保留设计依据与 Pi API 核对记录；实现和验收以本文件为准，任务顺序见 [`tickets.md`](tickets.md)。
+本规格从 [`PLAN.md`](PLAN.md) 提炼 V1 目标合同。`PLAN.md` 保留设计依据与 Pi API 核对记录；实施状态与未完成范围以 [`tickets.md`](tickets.md) 为准，当前已落地行为以 package README、源码和测试为准。
 
 ## 1. 用户目标
 

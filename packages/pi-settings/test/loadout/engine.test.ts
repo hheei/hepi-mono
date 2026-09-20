@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function paths(): Promise<PiSettingsPaths> {
-	const root = await mkdtemp(join(tmpdir(), "pi-loadout-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-settings-loadout-"));
 	temporaryPaths.push(root);
 	return { globalPath: join(root, "global.json"), projectPath: join(root, "project.json") };
 }
@@ -66,11 +66,11 @@ describe("headless Loadout engine", () => {
 		const settings = await paths();
 		await writeFile(
 			settings.globalPath,
-			JSON.stringify({ "pi-loadout": { disabled: ["tool:find", "skill:format"] } }),
+			JSON.stringify({ "pi-settings.loadout": { disabled: ["tool:find", "skill:format"] } }),
 		);
 		await writeFile(
 			settings.projectPath,
-			JSON.stringify({ "pi-loadout": { enabled: ["tool:custom"] } }),
+			JSON.stringify({ "pi-settings.loadout": { enabled: ["tool:custom"] } }),
 		);
 		registerManagedLoadoutTool(
 			h.pi,
@@ -111,7 +111,7 @@ describe("headless Loadout engine", () => {
 		const settings = await paths();
 		await writeFile(
 			settings.globalPath,
-			JSON.stringify({ "pi-loadout": { disabled: ["tool:find"] } }),
+			JSON.stringify({ "pi-settings.loadout": { disabled: ["tool:find"] } }),
 		);
 		let failFirstSet = true;
 		const setActiveTools = h.pi.setActiveTools.bind(h.pi);
@@ -140,7 +140,7 @@ describe("headless Loadout engine", () => {
 		const settings = await paths();
 		await writeFile(
 			settings.globalPath,
-			JSON.stringify({ "pi-loadout": { disabled: ["agent:Explore"] } }),
+			JSON.stringify({ "pi-settings.loadout": { disabled: ["agent:Explore"] } }),
 		);
 		const dispose = registerLoadoutResource(h.pi, {
 			id: "agent:Explore",
@@ -206,11 +206,15 @@ describe("headless Loadout engine", () => {
 		const settings = await paths();
 		await writeFile(
 			settings.globalPath,
-			JSON.stringify({ "pi-loadout": { enabled: ["tool:find"], disabled: ["tool:grep"] } }),
+			JSON.stringify({
+				"pi-settings.loadout": { enabled: ["tool:find"], disabled: ["tool:grep"] },
+			}),
 		);
 		await writeFile(
 			settings.projectPath,
-			JSON.stringify({ "pi-loadout": { enabled: ["tool:find"], disabled: ["tool:find"] } }),
+			JSON.stringify({
+				"pi-settings.loadout": { enabled: ["tool:find"], disabled: ["tool:find"] },
+			}),
 		);
 		await updateLoadoutSelection({
 			cwd: process.cwd(),
@@ -238,10 +242,10 @@ describe("headless Loadout engine", () => {
 			projectPrivate: true,
 		});
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
-			"pi-loadout": { disabled: ["tool:grep"] },
+			"pi-settings.loadout": { disabled: ["tool:grep"] },
 		});
 		expect(JSON.parse(await readFile(settings.projectPath, "utf8"))).toEqual({
-			"pi-loadout": { disabled: ["tool:private"] },
+			"pi-settings.loadout": { disabled: ["tool:private"] },
 		});
 		await expectRejected(
 			() =>

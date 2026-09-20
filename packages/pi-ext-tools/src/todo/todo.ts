@@ -36,8 +36,8 @@ const TODO_LOADOUT_REGISTRATION = {
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
-const TODO_REMINDER_CUSTOM_TYPE = "pi-todo:reminder";
-const TODO_STATE_CUSTOM_TYPE = "pi-todo:state";
+const TODO_REMINDER_CUSTOM_TYPE = "pi-ext-tools:todo:reminder";
+const TODO_STATE_CUSTOM_TYPE = "pi-ext-tools:todo:state";
 const TODO_MAX_BODY_ROWS = 8;
 
 const todoTaskStatus = Type.String({

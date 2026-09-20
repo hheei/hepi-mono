@@ -96,6 +96,23 @@ Additional Pi arguments can be appended to the command above.
 For the fixed repository development combination with incremental builds, see
 [Local Pi development](pi-dev.md).
 
+## Release Preparation
+
+Public workspaces use the repository's fixed version. The release tag must be exactly
+`v<package.json version>`, and every public package must carry that same version; private
+workspaces are excluded from publication. A released version is immutable, so prepare a new
+repository version whenever any public package content changes.
+
+Run the dry-run from the repository root before requesting approval:
+
+```bash
+pnpm run publish:dry-run
+```
+
+The command rebuilds all publishable entries, inventories each npm tarball, checks manifest
+entry points and complete license text, and then simulates publication. A real tag or publish
+still requires explicit approval for that exact version and action.
+
 ## Package Checklist
 
 Before considering an extension ready:

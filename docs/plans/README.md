@@ -1,7 +1,8 @@
-# Completed Plans
+# Implementation Plans
 
-This directory keeps implementation context whose work has already landed. It does not contain active work queues or current behavior contracts.
+This directory contains plans that still constrain current implementation work:
 
-- [Decision archive](archive.md): concise durable decisions from completed extension features.
+- [Apply Patch semantic safety](apply-patch-semantics-safety.md)
+- [Extension-owned Bash capabilities](extension-owned-bash-capabilities.md)
 
-For current behavior, use source code, tests, package READMEs, [DESIGN.md](../../DESIGN.md), and the `pi-development` skill's `references/DESIGN.md`.
+Completed, rejected, and feature-removed plans are deleted rather than retained as behavior documentation.

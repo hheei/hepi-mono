@@ -39,16 +39,13 @@ runtime 的性能或界面。
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
 下沉到 core。
 
-已批准五个限定例外：core 公开 Loadout tool registration contract、提供 global Extension page router 与
+已批准五个限定例外：ext-core 公开 Loadout registration contract、提供 global Extension page router 与
 feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file
-transport 与 provider registry。
-它们的边界分别由
-[ADR 0002](../adr/0002-core-loadout-contract.md)、
-[ADR 0001](../adr/0001-core-extension-page-shell.md) 与
-[TUI 宿主架构](tui.md)、
-[ADR 0004](../adr/0004-core-subagent-execution.md)、
-[ADR 0007](../adr/0007-core-json-settings-substrate.md) 限制；core 不接管 Loadout policy、page content、
-Settings policy、feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
+transport 与 provider registry。[TUI 宿主架构](tui.md)、
+[ADR 0004](../adr/0004-core-subagent-execution.md) 与
+[ADR 0007](../adr/0007-core-json-settings-substrate.md) 分别限制 UI host、subagent execution 和 settings
+transport；[Loadout 架构](loadout.md)限制 registration 与 policy 的边界。ext-core 不接管 Loadout policy、
+page content、Settings policy、feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
 
 ## Pi 集成边界
 

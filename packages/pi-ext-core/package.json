@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-core",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Shared lifecycle and coordination primitives for independent Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -14,7 +14,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
 		"prepack": "pnpm run build"
 	},
 	"keywords": [

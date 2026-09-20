@@ -14,7 +14,7 @@ import {
 	parseLoadoutDelta,
 } from "./model.js";
 
-export const LOADOUT_SETTINGS_SECTION = "pi-loadout";
+export const LOADOUT_SETTINGS_SECTION = "pi-settings.loadout";
 
 export interface UpdateLoadoutSelectionOptions {
 	readonly cwd: string;

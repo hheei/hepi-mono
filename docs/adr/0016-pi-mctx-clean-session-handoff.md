@@ -1,8 +1,8 @@
 # pi-mctx 拥有 clean-session handoff
 
-> Status: accepted。`@hheei/pi-mctx` 拥有唯一 `/handoff`；`packages/pi-handoff` 已删除。
+> Status: accepted。`@hheei/pi-mctx` 拥有唯一 `/handoff`。
 
-`@hheei/pi-mctx` 是 `/handoff` 的唯一 owner。Handoff 通过命令触发的 no-tools Handoff Completion，让 Source Session 的当前主模型生成 Handoff Summary，再创建同 project identity、同 model、带 parent lineage 的 Continuation Session。重叠的 `packages/pi-handoff` 已删除，避免两套同名但语义不同的 handoff。
+`@hheei/pi-mctx` 是 `/handoff` 的唯一 owner。Handoff 通过命令触发的 no-tools Handoff Completion，让 Source Session 的当前主模型生成 Handoff Summary，再创建同 project identity、同 model、带 parent lineage 的 Continuation Session。
 
 Continuation Session 不是 fork，也不复制 Source Session 或其他 extension 的 session-scoped state，包括 compartment rows、tags、pending operations、source contents、watermarks、tag counter、tool lifecycle 与 extension-local queues。Workspace、project/user memory 等 project-scoped durable state 继续共享；parent lineage 只提供 provenance，不能解释为 state inheritance。
 
@@ -42,6 +42,5 @@ TUI `/handoff` 使用不可编辑的 compact progress surface，依次呈现 his
 
 `pi-mctx` 默认注册唯一 `/handoff`，不使用 feature flag、legacy mode或 handoff-specific settings；固定 recent five、16 MiB limit、derived summary reserve、current model、no tools与 no goal，只复用现有 historian/model/language/threshold settings。
 
-移除 `pi-handoff` package和重叠 `/handoff` command时不迁移既有 `hepi-handoff` custom messages，也不保留 compatibility shim。Pi继续按持久化 JSONL处理旧 message；新功能只识别 `magic-context:handoff`。
 
-只有 code、storage migration、TUI/RPC、renderers、recovery、旧 package删除、docs、automated tests与 real Pi smoke全部完成并通过 root typecheck/full repository tests后，才能视为功能完成；不得保留 disabled path、TODO或 deferred contract。本决策不授权 publish、tag、push或 release。
+只有 code、storage、TUI/RPC、renderers、recovery、docs、automated tests 与 real Pi smoke 全部完成并通过 root typecheck/full repository tests后，才能视为功能完成；不得保留 disabled path、TODO或 deferred contract。本决策不授权 publish、tag、push或 release。

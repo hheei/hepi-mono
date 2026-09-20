@@ -46,6 +46,8 @@ jobs:
 
       - name: Build all packages
         run: pnpm run build
+      - name: Validate package artifacts
+        run: pnpm run validate:packages
 
       - name: Run code check and test suite
         run: pnpm run check
@@ -73,6 +75,8 @@ jobs:
 
       - name: Build all packages
         run: pnpm run build
+      - name: Validate package artifacts
+        run: pnpm run validate:packages
       - name: Publish public packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

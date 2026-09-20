@@ -145,38 +145,6 @@ describe("optimizer info entries", () => {
 });
 
 describe("settings persistence", () => {
-	test("migrates owned legacy groups atomically while preserving siblings", async () => {
-		const { path } = await temporarySettings({
-			"pi-t2s": { "traditional-to-simplified": { mode: "off" }, sibling: { kept: true } },
-			"pi-ext-tools": { rtk: true, rtkPath: "/legacy/rtk", target: { keep: true } },
-			rootSibling: 1,
-		});
-		const provider = createOptimizerSettingsProvider({ path });
-		expect(await provider.storage.load({ sessionId: "s" })).toMatchObject({
-			t2s: { mode: "off" },
-			rtk: { enabled: true, path: "/legacy/rtk" },
-		});
-		expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-			"pi-optimizer": { t2s: { mode: "off" }, rtk: { enabled: true, path: "/legacy/rtk" } },
-			"pi-t2s": { sibling: { kept: true } },
-			"pi-ext-tools": { target: { keep: true } },
-			rootSibling: 1,
-		});
-	});
-
-	test("keeps existing groups ahead of legacy migration values", async () => {
-		const root = {
-			"pi-optimizer": { t2s: { mode: "t2s" }, rtk: { enabled: false, path: "" } },
-			"pi-basics": { "traditional-to-simplified": { mode: "off" } },
-			"pi-ext-tools": { rtk: true, rtkPath: "/legacy/rtk" },
-		};
-		const { path } = await temporarySettings(root);
-		expect(
-			await createOptimizerSettingsProvider({ path }).storage.load({ sessionId: "s" }),
-		).toMatchObject(root["pi-optimizer"]);
-		expect(JSON.parse(await readFile(path, "utf8"))).toEqual(root);
-	});
-
 	test("defaults absent settings and fails closed for malformed state", async () => {
 		expect(parseOptimizerSettings(undefined)).toEqual(DEFAULT_OPTIMIZER_SETTINGS);
 		const { path } = await temporarySettings({
