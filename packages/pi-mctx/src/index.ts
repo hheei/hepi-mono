@@ -10,8 +10,8 @@
  *   ${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/context.db
  *   (default ~/.pi/pi-mctx/context.db; sibling of the Pi agent dir)
  *
- * Config: direct global Pi `settings.json` fields under `pi-mctx`, registered through
- * `@hheei/pi-ext-core`. Settings changes apply on `/reload` or restart.
+ * Config: direct fields in the global `ext_settings.json` `operational` group, registered
+ * through `@hheei/pi-ext-core`. Settings changes apply on `/reload` or restart.
  */
 
 import { createRequire } from "node:module";

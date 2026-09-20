@@ -77,13 +77,12 @@ function keyList(value: unknown, path: string): readonly string[] {
 /** Validates one raw JSON settings section without collapsing global/project precedence. */
 export function parseLoadoutDelta(value: unknown): LoadoutDelta {
 	if (value === undefined) return { disabled: [], enabled: [] };
-	if (!isRecord(value)) throw new Error("Expected pi-settings.loadout to be an object");
+	if (!isRecord(value)) throw new Error("Expected loadout to be an object");
 	for (const key of Object.keys(value))
-		if (key !== "disabled" && key !== "enabled")
-			throw new Error(`Unknown pi-settings.loadout field: ${key}`);
+		if (key !== "disabled" && key !== "enabled") throw new Error(`Unknown loadout field: ${key}`);
 	return {
-		disabled: keyList(value.disabled, "pi-settings.loadout.disabled"),
-		enabled: keyList(value.enabled, "pi-settings.loadout.enabled"),
+		disabled: keyList(value.disabled, "loadout.disabled"),
+		enabled: keyList(value.enabled, "loadout.enabled"),
 	};
 }
 

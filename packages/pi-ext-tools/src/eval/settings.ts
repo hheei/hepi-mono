@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
 import {
-	createJsonSectionSettingsStorage,
-	defaultPiSettingsPaths,
+	createJsonSettingsStorage,
+	defaultExtensionSettingsPaths,
 	type SettingsProvider,
 } from "@hheei/pi-ext-core";
 
-const SECTION = "pi-ext-tools";
 const GROUP = "eval";
 
 export const DEFAULT_EVAL_ENABLED = false;
@@ -17,7 +16,7 @@ export interface EvalSettingsProviderOptions {
 }
 
 /** Eval activation is static so historical renderers always exist before resume rendering. */
-export function readEvalSettings(path = defaultPiSettingsPaths().globalPath): {
+export function readEvalSettings(path = defaultExtensionSettingsPaths().globalPath): {
 	readonly enabled: boolean;
 	readonly codeMode: boolean;
 	readonly pythonBin: string | undefined;
@@ -30,14 +29,7 @@ export function readEvalSettings(path = defaultPiSettingsPaths().globalPath): {
 				codeMode: DEFAULT_EVAL_CODE_MODE,
 				pythonBin: undefined,
 			};
-		const section = (root as Record<string, unknown>)[SECTION];
-		if (typeof section !== "object" || section === null || Array.isArray(section))
-			return {
-				enabled: DEFAULT_EVAL_ENABLED,
-				codeMode: DEFAULT_EVAL_CODE_MODE,
-				pythonBin: undefined,
-			};
-		const evalSettings = (section as Record<string, unknown>)[GROUP];
+		const evalSettings = (root as Record<string, unknown>)[GROUP];
 		if (typeof evalSettings !== "object" || evalSettings === null || Array.isArray(evalSettings))
 			return {
 				enabled: DEFAULT_EVAL_ENABLED,
@@ -60,7 +52,7 @@ export function readEvalSettings(path = defaultPiSettingsPaths().globalPath): {
 	}
 }
 
-export function readEvalEnabled(path = defaultPiSettingsPaths().globalPath): boolean {
+export function readEvalEnabled(path = defaultExtensionSettingsPaths().globalPath): boolean {
 	return readEvalSettings(path).enabled;
 }
 
@@ -107,9 +99,8 @@ export function createEvalSettingsProvider(
 				],
 			},
 		],
-		storage: createJsonSectionSettingsStorage({
+		storage: createJsonSettingsStorage({
 			...(options.path === undefined ? {} : { path: options.path }),
-			section: SECTION,
 			group: GROUP,
 		}),
 	};

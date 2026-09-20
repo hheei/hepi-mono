@@ -1,6 +1,6 @@
 import {
-	defaultPiSettingsPaths,
-	type PiSettingsPaths,
+	defaultExtensionSettingsPaths,
+	type ExtensionSettingsPaths,
 	readJsonSettingsSection,
 	updateJsonSettingsRoot,
 } from "@hheei/pi-ext-core";
@@ -14,11 +14,11 @@ import {
 	parseLoadoutDelta,
 } from "./model.js";
 
-export const LOADOUT_SETTINGS_SECTION = "pi-settings.loadout";
+export const LOADOUT_SETTINGS_KEY = "loadout";
 
 export interface UpdateLoadoutSelectionOptions {
 	readonly cwd: string;
-	readonly paths?: PiSettingsPaths;
+	readonly paths?: ExtensionSettingsPaths;
 	readonly scope: LoadoutScope;
 	readonly key: string;
 	readonly selection: LoadoutSelection;
@@ -30,7 +30,7 @@ export interface UpdateLoadoutSelectionOptions {
 
 export interface UpdateLoadoutSelectionsOptions {
 	readonly cwd: string;
-	readonly paths?: PiSettingsPaths;
+	readonly paths?: ExtensionSettingsPaths;
 	readonly scope: LoadoutScope;
 	readonly selections: readonly Omit<
 		UpdateLoadoutSelectionOptions,
@@ -83,11 +83,11 @@ export function applyLoadoutSelection(delta: LoadoutDelta, options: ScopedSelect
 export async function loadLoadoutConfiguration(
 	cwd: string,
 	signal: AbortSignal,
-	paths: PiSettingsPaths = defaultPiSettingsPaths(cwd),
+	paths: ExtensionSettingsPaths = defaultExtensionSettingsPaths(cwd),
 ): Promise<LoadoutConfiguration> {
 	const [global, project] = await Promise.all([
-		readJsonSettingsSection(paths.globalPath, LOADOUT_SETTINGS_SECTION, signal),
-		readJsonSettingsSection(paths.projectPath, LOADOUT_SETTINGS_SECTION, signal),
+		readJsonSettingsSection(paths.globalPath, LOADOUT_SETTINGS_KEY, signal),
+		readJsonSettingsSection(paths.projectPath, LOADOUT_SETTINGS_KEY, signal),
 	]);
 	signal.throwIfAborted();
 	return parseLoadoutConfiguration({ global, project });
@@ -119,18 +119,18 @@ export async function updateLoadoutSelections(
 	for (const selection of options.selections)
 		validateSelection({ ...selection, scope: options.scope });
 	if (options.selections.length === 0) return;
-	const paths = options.paths ?? defaultPiSettingsPaths(options.cwd);
+	const paths = options.paths ?? defaultExtensionSettingsPaths(options.cwd);
 	const path = options.scope === "global" ? paths.globalPath : paths.projectPath;
 	await updateJsonSettingsRoot(
 		path,
 		(root) => {
-			const current = parseLoadoutDelta(root[LOADOUT_SETTINGS_SECTION]);
+			const current = parseLoadoutDelta(root[LOADOUT_SETTINGS_KEY]);
 			const next = options.selections.reduce(
 				(delta, selection) => applyLoadoutSelection(delta, { ...selection, scope: options.scope }),
 				current,
 			);
-			if (isEmpty(next)) delete root[LOADOUT_SETTINGS_SECTION];
-			else root[LOADOUT_SETTINGS_SECTION] = jsonDelta(next);
+			if (isEmpty(next)) delete root[LOADOUT_SETTINGS_KEY];
+			else root[LOADOUT_SETTINGS_KEY] = jsonDelta(next);
 		},
 		options.signal,
 	);

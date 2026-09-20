@@ -26,19 +26,20 @@ recall sources as sanitized, bounded previews and performs no network request.
 The previous implementation remains excluded at `packages/xpi-mctx/` for
 historical comparison.
 
-Pi MCTX owns its persistence. Runtime settings are stored in Pi's global
-`settings.json` under `pi-mctx`; the database is stored under
+Pi MCTX owns its persistence. Runtime settings are stored in global
+`ext_settings.json` under the registered `operational` group; the database is stored under
 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/../pi-mctx/` (default `~/.pi/pi-mctx/`).
-It does not read, write, migrate, or merge the upstream CortexKit
-`magic-context.jsonc` files or `~/.local/share/cortexkit/magic-context/`.
+It does not read, write, migrate, or merge Pi's native `settings.json`, the upstream CortexKit
+`magic-context.jsonc` files, or `~/.local/share/cortexkit/magic-context/`.
 
 ## AgentMemory 配置与验收
 
-在 Pi 全局 `settings.json` 的 `pi-mctx` 下使用扁平配置键（不是嵌套的 `agentmemory` 对象），修改后 `/reload`：
+在全局 `<agentDir>/ext_settings.json` 的 `operational` group 中使用扁平配置键（不是嵌套的
+`agentmemory` 对象），修改后 `/reload`：
 
 ```json
 {
-  "pi-mctx": {
+  "operational": {
     "agentmemoryEnabled": true,
     "agentmemoryUrl": "http://127.0.0.1:3111",
     "agentmemoryCapture": true,

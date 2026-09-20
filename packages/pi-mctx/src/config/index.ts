@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	createJsonFlatSectionSettingsStorage,
-	defaultPiSettingsPaths,
+	createJsonSettingsStorage,
+	defaultExtensionSettingsPaths,
 	getRuntimeSettingsRegistry,
 	type SettingField,
 	type SettingsProvider,
@@ -17,7 +17,7 @@ import {
 import { setOutputReserveConfig } from "#core/shared/models-dev-cache";
 import { overlayAgentMemoryEnv } from "../agentmemory/runtime";
 
-export const PI_MCTX_SETTINGS_SECTION = "pi-mctx";
+export const PI_MCTX_SETTINGS_PROVIDER_ID = "pi-mctx";
 export const PI_MCTX_SETTINGS_GROUP = "operational";
 
 const ENABLED_FIELD = "enabled";
@@ -378,9 +378,11 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 
 function readPiMctxSettings(): SettingsState {
 	try {
-		const root = JSON.parse(readFileSync(defaultPiSettingsPaths().globalPath, "utf8")) as unknown;
+		const root = JSON.parse(
+			readFileSync(defaultExtensionSettingsPaths().globalPath, "utf8"),
+		) as unknown;
 		if (!isRecord(root)) return {};
-		const section = root[PI_MCTX_SETTINGS_SECTION];
+		const section = root[PI_MCTX_SETTINGS_GROUP];
 		if (!isRecord(section)) return {};
 		return {
 			[PI_MCTX_SETTINGS_GROUP]: Object.fromEntries(
@@ -394,7 +396,7 @@ function readPiMctxSettings(): SettingsState {
 	}
 }
 
-/** Returns one global Pi settings snapshot until the next extension reload. */
+/** Returns one global extension settings snapshot until the next extension reload. */
 export function loadPiConfig(): MagicContextConfig {
 	if (bootConfig !== undefined) return bootConfig;
 	bootConfig = resolvePiMctxSettings(readPiMctxSettings());
@@ -413,7 +415,7 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 	const dreamerEnabled =
 		DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true;
 	return {
-		id: PI_MCTX_SETTINGS_SECTION,
+		id: PI_MCTX_SETTINGS_PROVIDER_ID,
 		title: "Magic Context",
 		moduleName: "pi-mctx",
 		description: "Operational Magic Context controls. Changes apply after /reload or restart.",
@@ -683,8 +685,7 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 				],
 			},
 		],
-		storage: createJsonFlatSectionSettingsStorage({
-			section: PI_MCTX_SETTINGS_SECTION,
+		storage: createJsonSettingsStorage({
 			group: PI_MCTX_SETTINGS_GROUP,
 		}),
 	};

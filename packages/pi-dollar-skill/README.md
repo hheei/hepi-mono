@@ -9,5 +9,5 @@ Install with:
 pi install npm:@hheei/pi-dollar-skill
 ```
 
-Configuration is stored under the `pi-dollar-skill` settings section. The
-feature is enabled by default. Requires Pi `>=0.85.1`.
+Configuration is stored in the top-level `pi-dollar-skill` group of global
+`ext_settings.json`. The feature is enabled by default. Requires Pi `>=0.85.1`.

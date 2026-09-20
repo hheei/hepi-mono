@@ -8,6 +8,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
+	type ExtensionSettingsPaths,
 	isManagedLoadoutTool,
 	type LoadoutInventoryItem,
 	type LoadoutResourceDetail,
@@ -15,7 +16,6 @@ import {
 	type LoadoutResourceMetadata,
 	type LoadoutToolMetadata,
 	observeLoadoutInventory,
-	type PiSettingsPaths,
 } from "@hheei/pi-ext-core";
 import { type LoadoutEngine, loadoutToolPolicies } from "./engine.js";
 import {
@@ -65,7 +65,7 @@ type ListEntry =
 
 export interface LoadoutPageOptions {
 	/** Test/embedding override; normal Pi sessions use standard global/project paths. */
-	readonly paths?: PiSettingsPaths;
+	readonly paths?: ExtensionSettingsPaths;
 }
 
 function readableError(error: unknown): string {
@@ -105,8 +105,8 @@ function toolOrigin(tool: ToolInfo, metadata: LoadoutToolMetadata | undefined): 
 
 function scopeLabel(scope: LoadoutScope, cwd: string): string {
 	return scope === "global"
-		? "Global · ~/.pi/agent/settings.json"
-		: `Project · ${cwd}/.pi/settings.json`;
+		? "Global · ~/.pi/agent/ext_settings.json"
+		: `Project · ${cwd}/.pi/ext_settings.json`;
 }
 
 function rawSelection(

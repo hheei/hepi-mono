@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 async function save(path: string, applyPatch: Record<string, unknown>): Promise<void> {
-	await writeFile(path, JSON.stringify({ "pi-ext-tools": { applyPatch } }), "utf8");
+	await writeFile(path, JSON.stringify({ applyPatch }), "utf8");
 }
 
 describe("apply-patch policy", () => {
@@ -37,7 +37,7 @@ describe("apply-patch policy", () => {
 		await save(paths.globalPath, { fuzzFactor: 0 });
 		await save(paths.projectPath, { fuzzFactor: 2 });
 		await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
-			"project setting pi-ext-tools.applyPatch.fuzzFactor must not exceed global value 0",
+			"project setting applyPatch.fuzzFactor must not exceed global value 0",
 		);
 	});
 
@@ -45,7 +45,7 @@ describe("apply-patch policy", () => {
 		for (const fuzzFactor of [-1, 0.5, 3]) {
 			await save(paths.globalPath, { fuzzFactor });
 			await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
-				"global setting pi-ext-tools.applyPatch.fuzzFactor must be an integer from 0 to 2",
+				"global setting applyPatch.fuzzFactor must be an integer from 0 to 2",
 			);
 		}
 		for (const [key, value] of [
@@ -55,7 +55,7 @@ describe("apply-patch policy", () => {
 		] as const) {
 			await save(paths.globalPath, { [key]: value });
 			await expect(loadApplyPatchPolicy({ paths })).rejects.toThrow(
-				`global setting pi-ext-tools.applyPatch.${key} is not supported`,
+				`global setting applyPatch.${key} is not supported`,
 			);
 		}
 	});

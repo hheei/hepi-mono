@@ -424,13 +424,11 @@ describe("Eval kernel host", () => {
 	describe("Eval settings", () => {
 		test("reads Code Mode and trims pythonBin", async () => {
 			const directory = await mkdtemp(join(tmpdir(), "eval-settings-"));
-			const path = join(directory, "settings.json");
+			const path = join(directory, "ext_settings.json");
 			await writeFile(
 				path,
 				JSON.stringify({
-					"pi-ext-tools": {
-						eval: { enabled: true, codeMode: true, pythonBin: " /usr/bin/python3 " },
-					},
+					eval: { enabled: true, codeMode: true, pythonBin: " /usr/bin/python3 " },
 				}),
 			);
 			expect(readEvalSettings(path)).toEqual({
@@ -438,7 +436,7 @@ describe("Eval kernel host", () => {
 				codeMode: true,
 				pythonBin: "/usr/bin/python3",
 			});
-			await writeFile(path, JSON.stringify({ "pi-ext-tools": { eval: { pythonBin: "  " } } }));
+			await writeFile(path, JSON.stringify({ eval: { pythonBin: "  " } }));
 			expect(readEvalSettings(path)).toEqual({
 				enabled: false,
 				codeMode: false,

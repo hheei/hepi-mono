@@ -6,7 +6,7 @@ Traditional-to-Simplified input conversion, Caveman/Ponytail prompt modes, and o
 pi install npm:@hheei/pi-optimizer
 ```
 
-Settings are stored only under the `pi-optimizer` section. This package does not import OMP configuration or install RTK.
+Settings are stored as the top-level `t2s`, `caveman`, `ponytail`, and `rtk` groups in global `ext_settings.json`. This package does not import OMP configuration or install RTK.
 
 ## Usage
 

@@ -10,7 +10,7 @@ import {
 	createPiMctxSettingsProvider,
 	loadPiConfig,
 	PI_MCTX_SETTINGS_GROUP,
-	PI_MCTX_SETTINGS_SECTION,
+	PI_MCTX_SETTINGS_PROVIDER_ID,
 	registerPiMctxSettings,
 	resetPiMctxConfigForReload,
 	resolvePiMctxSettings,
@@ -196,18 +196,18 @@ describe("Pi MCTX settings", () => {
 		const pi = { events: {} } as ExtensionAPI;
 
 		registerPiMctxSettings(pi);
-		expect(getRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_SECTION)?.id).toBe(
-			PI_MCTX_SETTINGS_SECTION,
+		expect(getRuntimeSettingsRegistry(pi).get(PI_MCTX_SETTINGS_PROVIDER_ID)?.id).toBe(
+			PI_MCTX_SETTINGS_PROVIDER_ID,
 		);
 	});
 
-	it("reads Pi settings without consulting legacy magic-context JSONC", () => {
+	it("reads extension settings without consulting legacy magic-context JSONC", () => {
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-mctx-settings-test-"));
 		writeFileSync(
-			join(agentDir, "settings.json"),
+			join(agentDir, "ext_settings.json"),
 			JSON.stringify({
-				"pi-mctx": { historianEnabled: true, historianModel: "fork/provider-model" },
+				operational: { historianEnabled: true, historianModel: "fork/provider-model" },
 			}),
 		);
 		writeFileSync(

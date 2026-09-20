@@ -20,24 +20,24 @@ Settings / /optimizer -> validated persisted settings -> session state
 
 ## 配置契约
 
-单个 provider `pi-optimizer`，全局 settings.json 的 `pi-optimizer` section 使用以下分组：
+单个 provider `pi-optimizer` 在全局 `ext_settings.json` 注册四个顶层 group：
 
 ```json
 {
-  "pi-optimizer": {
-    "t2s": { "mode": "t2s" },
-    "caveman": { "level": "off" },
-    "ponytail": { "level": "off" },
-    "rtk": { "enabled": false, "path": "" }
-  }
+  "t2s": { "mode": "t2s" },
+  "caveman": { "level": "off" },
+  "ponytail": { "level": "off" },
+  "rtk": { "enabled": false, "path": "" }
 }
 ```
 
-Caveman 档位为 off/lite/full/ultra/micro；Ponytail 为 off/lite/full/ultra。未配置时 T2S 开启，其余关闭。RTK 可指定 executable path。边界严格验证，不以未知/无效值静默启用功能。
+Caveman 档位为 off/lite/full/ultra/micro；Ponytail 为 off/lite/full/ultra。未配置时 T2S 开启，其余关闭。
+RTK 可指定 executable path。四个 group 分别严格验证；未知或无效值不会静默启用功能。保存通过
+ext-core 的原子 extension settings transport 更新这四个注册 group，并保留其他顶层 sibling。
 
-配置只从 `pi-optimizer` section 读取并严格验证；缺失时使用默认值，未知或无效值不会静默启用功能。保存通过 ext-core 的原子 JSON settings transport 更新本 section，并保留其他 root/section sibling。
-
-Settings 与 `/optimizer` 共用 provider/storage。保存成功才更新活动会话，失败保留旧值并报告错误。Prompt 变化从下一轮生效，输入与命令变化只影响后续事件，不追改正在执行的调用。resume/fork 使用当前持久设置，不追加另一份可覆盖设置的 session-level 配置。非法配置时会话功能关闭，provider 仍可用于修复。
+Settings 与 `/optimizer` 共用 provider/storage。保存成功才更新活动会话，失败保留旧值并报告错误。
+Prompt 变化从下一轮生效，输入与命令变化只影响后续事件，不追改正在执行的调用。resume/fork 使用当前
+持久设置，不追加另一份可覆盖设置的 session-level 配置。非法配置时会话功能关闭，provider 仍可用于修复。
 
 ## 行为与安全边界
 

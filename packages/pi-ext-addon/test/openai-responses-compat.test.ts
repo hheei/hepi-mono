@@ -93,13 +93,13 @@ describe("OpenAI Responses compatibility", () => {
 		});
 	});
 
-	test("reads only the addon settings section", async () => {
+	test("reads only its registered settings group", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-ext-addon-responses-"));
 		await writeFile(
-			join(cwd, "settings.json"),
+			join(cwd, "ext_settings.json"),
 			JSON.stringify({
-				"pi-basics": { "openai-responses-compat": { stripAssistantMessageStatus: true } },
-				"pi-ext-addon": { "openai-responses-compat": { stripAssistantMessageStatus: true } },
+				unrelated: { stripAssistantMessageStatus: false },
+				"openai-responses-compat": { stripAssistantMessageStatus: true },
 			}),
 		);
 		let hook: ((event: { payload: unknown }, context: unknown) => Promise<unknown>) | undefined;
@@ -109,7 +109,7 @@ describe("OpenAI Responses compatibility", () => {
 					if (event === "before_provider_request") hook = handler;
 				},
 			} as never,
-			{ settingsFilePath: join(cwd, "settings.json") },
+			{ settingsFilePath: join(cwd, "ext_settings.json") },
 		);
 		if (hook === undefined) throw new Error("Expected before_provider_request hook");
 		expect(
@@ -125,12 +125,12 @@ describe("OpenAI Responses compatibility", () => {
 		);
 	});
 
-	test("saves only the addon settings section", async () => {
+	test("saves only its registered settings group", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-ext-addon-responses-save-"));
-		const settingsFilePath = join(cwd, "settings.json");
+		const settingsFilePath = join(cwd, "ext_settings.json");
 		await writeFile(
 			settingsFilePath,
-			JSON.stringify({ theme: "dark", "pi-basics": { rtk: { enabled: true } } }),
+			JSON.stringify({ theme: { dark: true }, rtk: { enabled: true } }),
 		);
 		const provider = createOpenAIResponsesCompatSettingsProvider({ settingsFilePath });
 		await provider.storage.save(
@@ -139,29 +139,25 @@ describe("OpenAI Responses compatibility", () => {
 		);
 		const saved: unknown = JSON.parse(await readFile(settingsFilePath, "utf8"));
 		expect(saved).toEqual({
-			theme: "dark",
-			"pi-basics": { rtk: { enabled: true } },
-			"pi-ext-addon": {
-				"openai-responses-compat": {
-					stripAssistantMessageStatus: true,
-					normalizeAssistantMessageId: true,
-				},
+			theme: { dark: true },
+			rtk: { enabled: true },
+			"openai-responses-compat": {
+				stripAssistantMessageStatus: true,
+				normalizeAssistantMessageId: true,
 			},
 		});
 	});
 
-	test("rejects invalid addon settings fields with paths", async () => {
+	test("rejects invalid registered settings fields with paths", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-ext-addon-responses-invalid-"));
-		const settingsFilePath = join(cwd, "settings.json");
+		const settingsFilePath = join(cwd, "ext_settings.json");
 		await writeFile(
 			settingsFilePath,
-			JSON.stringify({ "pi-ext-addon": { "openai-responses-compat": { unexpected: false } } }),
+			JSON.stringify({ "openai-responses-compat": { unexpected: false } }),
 		);
 		const provider = createOpenAIResponsesCompatSettingsProvider({ settingsFilePath });
 		const load = provider.storage.load;
 		if (load === undefined) throw new Error("Expected settings loader");
-		await expect(load({ cwd } as never)).rejects.toThrow(
-			"pi-ext-addon.openai-responses-compat.unexpected",
-		);
+		await expect(load({ cwd } as never)).rejects.toThrow("openai-responses-compat.unexpected");
 	});
 });

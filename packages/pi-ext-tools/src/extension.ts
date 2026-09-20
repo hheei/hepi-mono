@@ -1,10 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
+	getRuntimeSettingsRegistry,
 	getToolTui,
 	registerExtensionLifecycle,
 	registerToolTuiTrace,
 } from "@hheei/pi-ext-core";
+import { APPLY_PATCH_SETTINGS_KEY } from "./apply-patch/policy.js";
 import { registerApplyPatchGuard } from "./apply-patch-guard.js";
 import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
 import { createEvalRuntimeState, registerEvalLifecycle } from "./eval/lifecycle.js";
@@ -43,6 +45,12 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools/edit-catalog",
 		start(context): void {
+			context.resources.add(
+				"apply-patch-settings-group",
+				getRuntimeSettingsRegistry(pi).registerGroups("@hheei/pi-ext-tools/apply-patch", [
+					APPLY_PATCH_SETTINGS_KEY,
+				]),
+			);
 			session = context;
 			syncEditCatalog(context, context.extension.model);
 			activateEvalCatalog(context, evalEnabled);

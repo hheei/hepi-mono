@@ -8,8 +8,8 @@ import {
 	MAX_DOLLAR_SKILL_SUGGESTIONS,
 } from "./model.js";
 
-const SECTION = "pi-dollar-skill";
-export const DOLLAR_SKILL_SETTINGS_SECTION = SECTION;
+const GROUP = "pi-dollar-skill";
+export const DOLLAR_SKILL_SETTINGS_GROUP = GROUP;
 type JsonObject = Record<string, unknown>;
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -42,15 +42,15 @@ async function readRoot(path: string): Promise<JsonObject> {
 }
 
 export function dollarSkillSettingsPath(settingsDirectory = getAgentDir()): string {
-	return join(settingsDirectory, "settings.json");
+	return join(settingsDirectory, "ext_settings.json");
 }
 
 export async function loadDollarSkillConfig(
 	settingsDirectory = getAgentDir(),
 ): Promise<DollarSkillConfig> {
 	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
-	const section = root[SECTION];
-	return normalizeDollarSkillConfig(section);
+	const group = root[GROUP];
+	return normalizeDollarSkillConfig(group);
 }
 
 export async function saveDollarSkillConfig(
@@ -59,8 +59,8 @@ export async function saveDollarSkillConfig(
 ): Promise<void> {
 	const path = dollarSkillSettingsPath(settingsDirectory);
 	await updateJsonSettingsRoot(path, (root) => {
-		const existing = root[SECTION];
-		const section = isJsonObject(existing) ? { ...existing } : {};
-		root[SECTION] = { ...section, ...normalizeDollarSkillConfig(config) };
+		const existing = root[GROUP];
+		const group = isJsonObject(existing) ? { ...existing } : {};
+		root[GROUP] = { ...group, ...normalizeDollarSkillConfig(config) };
 	});
 }

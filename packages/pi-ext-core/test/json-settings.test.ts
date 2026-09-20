@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import {
-	createJsonFlatSectionSettingsStorage,
-	defaultPiSettingsPaths,
+	createJsonSettingsStorage,
+	defaultExtensionSettingsPaths,
 	readJsonSettingsRoot,
 	readJsonSettingsSection,
 	readMergedJsonSettingsSection,
@@ -20,10 +20,10 @@ async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise
 	}
 }
 
-test("resolves Pi settings paths", (): void => {
-	expect(defaultPiSettingsPaths("/project", "/agent")).toEqual({
-		globalPath: "/agent/settings.json",
-		projectPath: "/project/.pi/settings.json",
+test("resolves extension settings paths", (): void => {
+	expect(defaultExtensionSettingsPaths("/project", "/agent")).toEqual({
+		globalPath: "/agent/ext_settings.json",
+		projectPath: "/project/.pi/ext_settings.json",
 	});
 });
 
@@ -108,24 +108,20 @@ test("rejects non-object settings roots and sections", async (): Promise<void> =
 	});
 });
 
-test("persists direct fields while retaining nested section groups", async () => {
+test("persists one top-level registered group while retaining siblings", async () => {
 	await withDirectory(async (directory) => {
-		const path = join(directory, "settings.json");
-		await writeFile(
+		const path = join(directory, "ext_settings.json");
+		await writeFile(path, JSON.stringify({ sibling: { retained: true } }), "utf8");
+		const storage = createJsonSettingsStorage({
 			path,
-			JSON.stringify({ "pi-example": { grouped: { retained: true } } }),
-			"utf8",
-		);
-		const storage = createJsonFlatSectionSettingsStorage({
-			path,
-			section: "pi-example",
 			group: "operational",
 		});
 		const context = { sessionId: "test" };
 
 		await storage.save({ operational: { enabled: true, budget: 4_000 } }, context);
 		expect(await readJsonSettingsRoot(path)).toEqual({
-			"pi-example": { grouped: { retained: true }, enabled: true, budget: 4_000 },
+			sibling: { retained: true },
+			operational: { enabled: true, budget: 4_000 },
 		});
 		expect(await storage.load(context)).toEqual({
 			operational: { enabled: true, budget: 4_000 },

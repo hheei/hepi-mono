@@ -36,13 +36,13 @@ export {
 	registerExtensionHook,
 } from "./extension-point.js";
 export type {
+	ExtensionSettingsPaths,
 	JsonSettingsValueSource,
 	MergedJsonSettingsSection,
-	PiSettingsPaths,
 	ReadMergedJsonSettingsSectionOptions,
 } from "./json-settings.js";
 export {
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
 	readJsonSettingsRoot,
 	readJsonSettingsSection,
 	readMergedJsonSettingsSection,
@@ -103,8 +103,7 @@ export { createResponseStatusFeature } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {
-	JsonFlatSectionSettingsStorageOptions,
-	JsonSectionSettingsStorageOptions,
+	JsonSettingsStorageOptions,
 	SettingChange,
 	SettingField,
 	SettingGroup,
@@ -121,8 +120,7 @@ export type {
 	SettingValue,
 } from "./settings.js";
 export {
-	createJsonFlatSectionSettingsStorage,
-	createJsonSectionSettingsStorage,
+	createJsonSettingsStorage,
 	getRuntimeSettingsRegistry,
 	registerSettings,
 } from "./settings.js";

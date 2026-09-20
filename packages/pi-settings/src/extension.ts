@@ -9,6 +9,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { createLoadoutEngine } from "./loadout/engine.js";
 import { createLoadoutPage } from "./loadout/page.js";
+import { LOADOUT_SETTINGS_KEY } from "./loadout/storage.js";
 import { createSettingsPage } from "./settings-page.js";
 
 interface ActiveSettingsSession {
@@ -89,6 +90,12 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 			resources.add("settings-session", () => {
 				if (active === session) active = undefined;
 			});
+			resources.add(
+				"loadout-settings-group",
+				getRuntimeSettingsRegistry(pi).registerGroups("@hheei/pi-settings/loadout", [
+					LOADOUT_SETTINGS_KEY,
+				]),
+			);
 			await loadout.start(extension, signal);
 			resources.add("loadout-engine", () => loadout.dispose());
 			registerExtensionPage(

@@ -1,14 +1,13 @@
 import { readFileSync } from "node:fs";
 import {
-	createJsonSectionSettingsStorage,
-	defaultPiSettingsPaths,
+	createJsonSettingsStorage,
+	defaultExtensionSettingsPaths,
 	type SettingsContext,
 	type SettingsProvider,
 	type SettingsState,
 } from "@hheei/pi-ext-core";
 import { defaultShellPath } from "../bash-jobs.js";
 
-const SECTION = "pi-ext-tools";
 const GROUP = "fff";
 const BASH_GROUP = "bash";
 const EDIT_GROUP = "edit";
@@ -179,14 +178,11 @@ function editModeFromValue(value: unknown): EditMode {
 }
 
 /** Static catalog settings are read before tool registration; malformed files retain the default. */
-export function readEditMode(path = defaultPiSettingsPaths().globalPath): EditMode {
+export function readEditMode(path = defaultExtensionSettingsPaths().globalPath): EditMode {
 	try {
 		const root: unknown = JSON.parse(readFileSync(path, "utf8"));
 		if (typeof root !== "object" || root === null || Array.isArray(root)) return DEFAULT_EDIT_MODE;
-		const section = (root as Record<string, unknown>)[SECTION];
-		if (typeof section !== "object" || section === null || Array.isArray(section))
-			return DEFAULT_EDIT_MODE;
-		const edit = (section as Record<string, unknown>)[EDIT_GROUP];
+		const edit = (root as Record<string, unknown>)[EDIT_GROUP];
 		if (typeof edit !== "object" || edit === null || Array.isArray(edit)) return DEFAULT_EDIT_MODE;
 		return editModeFromValue((edit as Record<string, unknown>).mode);
 	} catch {
@@ -209,9 +205,8 @@ export async function loadFffSettings(
 export function createBashSettingsProvider(
 	options: BashSettingsProviderOptions = {},
 ): SettingsProvider {
-	const storage = createJsonSectionSettingsStorage({
+	const storage = createJsonSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
-		section: SECTION,
 		group: BASH_GROUP,
 	});
 	return {
@@ -258,9 +253,8 @@ export function createBashSettingsProvider(
 export function createFffSettingsProvider(
 	options: FffSettingsProviderOptions = {},
 ): SettingsProvider {
-	const storage = createJsonSectionSettingsStorage({
+	const storage = createJsonSettingsStorage({
 		...(options.path === undefined ? {} : { path: options.path }),
-		section: SECTION,
 		group: GROUP,
 	});
 	return {
@@ -346,9 +340,8 @@ export function createEditSettingsProvider(
 				],
 			},
 		],
-		storage: createJsonSectionSettingsStorage({
+		storage: createJsonSettingsStorage({
 			...(options.path === undefined ? {} : { path: options.path }),
-			section: SECTION,
 			group: EDIT_GROUP,
 		}),
 	};

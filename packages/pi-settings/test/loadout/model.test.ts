@@ -19,21 +19,19 @@ describe("Loadout policy", () => {
 		});
 		expect(() =>
 			parseLoadoutConfiguration({ global: { tools: { "tool:find": false } }, project: {} }),
-		).toThrow("Unknown pi-settings.loadout field: tools");
+		).toThrow("Unknown loadout field: tools");
 		expect(() => parseLoadoutConfiguration({ global: { enabled: ["find"] }, project: {} })).toThrow(
-			"Expected pi-settings.loadout.enabled to contain canonical tool:<name> or skill:<name> keys",
+			"Expected loadout.enabled to contain canonical tool:<name> or skill:<name> keys",
 		);
 		expect(() =>
 			parseLoadoutConfiguration({
 				global: { enabled: Array.from({ length: 4097 }, (_, index) => `tool:future-${index}`) },
 				project: {},
 			}),
-		).toThrow("Expected pi-settings.loadout.enabled to contain at most 4096 keys");
+		).toThrow("Expected loadout.enabled to contain at most 4096 keys");
 		expect(() =>
 			parseLoadoutConfiguration({ global: { enabled: [`tool:${"x".repeat(252)}`] }, project: {} }),
-		).toThrow(
-			"Expected pi-settings.loadout.enabled to contain canonical tool:<name> or skill:<name> keys",
-		);
+		).toThrow("Expected loadout.enabled to contain canonical tool:<name> or skill:<name> keys");
 	});
 
 	test("keeps a forced tool active despite global and project disable overrides", () => {

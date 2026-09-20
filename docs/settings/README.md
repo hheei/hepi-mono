@@ -37,10 +37,10 @@ Loadout 是 `pi-settings` 的单页 selector，不是二级 tab：Tools 与 Skil
 `○` 表示 effective disabled，`⊘` 表示 conflict locked/inactive，`→` 表示 selected row。所有 locked row
 在 Description 中说明 winner 与解除方式。
 
-页面顶部显示当前 scope 与实际文件路径：Global 为 `<agentDir>/settings.json`，Project 为
-`<cwd>/.pi/settings.json`。`Ctrl+P` 在 scope 之间切换，并在切换前 flush 正在离开的 scope；因此不会发生
-global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 与 display group；有 filter 时第一次
-`Esc` 清 filter，第二次才关闭页面。
+页面顶部显示当前 scope 与 extension 配置文件路径：Global 为 `<agentDir>/ext_settings.json`，Project 为
+`<cwd>/.pi/ext_settings.json`。Pi 原生 `settings.json` 不参与 extension 配置。`Ctrl+P` 在 scope 之间切换，
+并在切换前 flush 正在离开的 scope；因此不会发生 global/project 两个 JSON root 的部分提交。直接文字输入
+过滤 name 与 display group；有 filter 时第一次 `Esc` 清 filter，第二次才关闭页面。
 
 `Space` 只在当前 resource/scope 实际可达的选择集合中循环，绝不补出不存在的 inherit 状态：Global resource
 循环 `enabled <-> disabled`；Project global-visible resource 循环
@@ -54,10 +54,10 @@ global/project 两个 JSON root 的部分提交。直接文字输入过滤 name 
 
 ## Settings 页面
 
-Settings page 使用单棵组合树，而不是为每个 provider 创建 router page。
-`pi-settings` 将 core registry 的 provider groups 映射到一个 display tree：每个 extension/module 只显示一次
-header，之后列出其 group 和 field；发生 group ID collision 时只在 display tree 使用 namespaced ID，保存和
-callback 始终映射回 provider 原始 group ID。
+Settings page 使用单棵组合树，而不是为每个 provider 创建 router page。`pi-settings` 将 core registry
+的 provider groups 映射到一个 display tree：每个 extension/module 只显示一次 header，之后列出其 group
+和 field。group ID 是 `ext_settings.json` 的全局顶层 key；provider 可自由注册任意 ID，但同一 runtime
+中的重复 ID 会在注册时失败。UI、存储和 callback 始终使用该原始 ID，不自动添加 package namespace。
 
 宽终端布局与 Loadout 一致：左侧可滚动的 group/field list、中间仅溢出时显示的 scrollbar、右侧单一 selected
 field Description block。窄终端将 Description 放在列表之后。router 继续拥有 top tab strip 与 structural

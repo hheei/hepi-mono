@@ -6,8 +6,7 @@ import type {
 } from "@hheei/pi-ext-core";
 
 interface GroupMapping {
-	readonly displayId: string;
-	readonly originalId: string;
+	readonly groupId: string;
 	readonly moduleName: string;
 	readonly showModuleHeader: boolean;
 	readonly provider: SettingsProvider;
@@ -22,39 +21,32 @@ function providerModuleName(provider: SettingsProvider): string {
 	return provider.id.startsWith("pi-") ? provider.id : `pi-${provider.id}`;
 }
 
-/**
- * Projects independent provider groups into the legacy single Settings tree.
- * Display IDs solve UI collisions only; every storage and callback boundary is
- * mapped back to the provider's own group IDs before it crosses package ownership.
- */
+/** Projects independently registered, globally unique groups into one Settings tree. */
 export function combineSettingsProviders(providers: readonly SettingsProvider[]): SettingsProvider {
 	const usedGroupIds = new Set<string>();
 	const seenModules = new Set<string>();
 	const mappings: readonly GroupMapping[] = providers.flatMap((provider) => {
 		const moduleName = providerModuleName(provider);
 		return provider.groups.map((group, index) => {
-			const baseId = usedGroupIds.has(group.id) ? `${provider.id}:${group.id}` : group.id;
-			let displayId = baseId;
-			let suffix = 2;
-			while (usedGroupIds.has(displayId)) displayId = `${baseId}:${suffix++}`;
-			usedGroupIds.add(displayId);
+			if (usedGroupIds.has(group.id)) throw new Error(`Settings group id collision: ${group.id}`);
+			usedGroupIds.add(group.id);
 			const firstVisibleGroup = provider.groups.findIndex(
 				(candidate) => candidate.fields.length > 0,
 			);
 			const showModuleHeader = index === firstVisibleGroup && !seenModules.has(moduleName);
 			if (showModuleHeader) seenModules.add(moduleName);
-			return { displayId, originalId: group.id, moduleName, showModuleHeader, provider, group };
+			return { groupId: group.id, moduleName, showModuleHeader, provider, group };
 		});
 	});
 	const providerState = (state: SettingsState, provider: SettingsProvider): SettingsState =>
 		Object.fromEntries(
 			mappings
 				.filter((mapping) => mapping.provider === provider)
-				.map(({ displayId, originalId }) => [originalId, state[displayId] ?? {}]),
+				.map(({ groupId }) => [groupId, state[groupId] ?? {}]),
 		);
-	const groups = mappings.map(({ displayId, moduleName, showModuleHeader, provider, group }) => ({
+	const groups = mappings.map(({ groupId, moduleName, showModuleHeader, provider, group }) => ({
 		...group,
-		id: displayId,
+		id: groupId,
 		title: showModuleHeader ? moduleName : "",
 		fields: group.fields.map((field) => {
 			const enabled = field.enabled;
@@ -66,7 +58,7 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 					};
 		}),
 	}));
-	const owners = new Map(mappings.map((mapping) => [mapping.displayId, mapping]));
+	const owners = new Map(mappings.map((mapping) => [mapping.groupId, mapping]));
 
 	return {
 		id: "pi-settings",
@@ -88,14 +80,12 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 						Object.fromEntries(
 							mappings
 								.filter((mapping) => mapping.provider === provider)
-								.map(({ displayId, originalId }) => [displayId, state?.[originalId] ?? {}]),
+								.map(({ groupId }) => [groupId, state?.[groupId] ?? {}]),
 						),
 					),
 				);
 			},
 			async save(state: SettingsState, context: SettingsContext): Promise<void> {
-				// Keep provider writes ordered. Individual storage implementations own their
-				// atomic root update; unrelated provider files are not a transaction.
 				for (const provider of providers)
 					await provider.storage.save(providerState(state, provider), context);
 			},
@@ -115,11 +105,7 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 			const mapping = owners.get(change.groupId);
 			if (mapping?.provider.onChange === undefined) return;
 			await mapping.provider.onChange(
-				{
-					...change,
-					groupId: mapping.originalId,
-					state: providerState(change.state, mapping.provider),
-				},
+				{ ...change, state: providerState(change.state, mapping.provider) },
 				context,
 			);
 		},

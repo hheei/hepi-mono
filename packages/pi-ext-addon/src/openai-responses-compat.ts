@@ -1,12 +1,7 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	type ExtensionAPI,
-	type ExtensionContext,
-	getAgentDir,
-} from "@earendil-works/pi-coding-agent";
-import {
-	defaultPiSettingsPaths,
+	defaultExtensionSettingsPaths,
 	readJsonSettingsSection,
 	readMergedJsonSettingsSection,
 	type SettingField,
@@ -19,7 +14,6 @@ import {
 export const OPENAI_RESPONSES_COMPAT_GROUP = "openai-responses-compat";
 export const OPENAI_RESPONSES_COMPAT_FIELD = "stripAssistantMessageStatus";
 export const OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD = "normalizeAssistantMessageId";
-export const OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION = "pi-ext-addon";
 
 type JsonObject = Record<string, unknown>;
 
@@ -41,13 +35,11 @@ function configFromValues(values: JsonObject | undefined): OpenAIResponsesCompat
 			key !== OPENAI_RESPONSES_COMPAT_FIELD &&
 			key !== OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD
 		) {
-			throw new Error(
-				`Invalid settings at ${OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION}.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: unknown field`,
-			);
+			throw new Error(`Invalid settings at ${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: unknown field`);
 		}
 		if (typeof values[key] !== "boolean") {
 			throw new Error(
-				`Invalid settings at ${OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION}.${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: expected boolean`,
+				`Invalid settings at ${OPENAI_RESPONSES_COMPAT_GROUP}.${key}: expected boolean`,
 			);
 		}
 	}
@@ -75,31 +67,25 @@ function settingState(config: OpenAIResponsesCompatConfig): SettingsState {
 	};
 }
 
-function compatValues(section: JsonObject | undefined): JsonObject | undefined {
-	return section && isJsonObject(section[OPENAI_RESPONSES_COMPAT_GROUP])
-		? section[OPENAI_RESPONSES_COMPAT_GROUP]
-		: undefined;
-}
-
 async function loadConfig(
 	settingsFilePath: string | undefined,
 	context: Pick<SettingsContext, "cwd" | "signal"> | undefined,
 ): Promise<OpenAIResponsesCompatConfig> {
-	const section =
+	const values =
 		settingsFilePath === undefined
 			? (
 					await readMergedJsonSettingsSection({
-						paths: defaultPiSettingsPaths(context?.cwd),
-						section: OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION,
+						paths: defaultExtensionSettingsPaths(context?.cwd),
+						section: OPENAI_RESPONSES_COMPAT_GROUP,
 						...(context?.signal === undefined ? {} : { signal: context.signal }),
 					})
 				).merged
 			: await readJsonSettingsSection(
 					settingsFilePath,
-					OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION,
+					OPENAI_RESPONSES_COMPAT_GROUP,
 					context?.signal,
 				);
-	return configFromValues(compatValues(section));
+	return configFromValues(values);
 }
 
 function settingsContext(context: ExtensionContext): Pick<SettingsContext, "cwd" | "signal"> {
@@ -231,14 +217,13 @@ export function createOpenAIResponsesCompatSettingsProvider(
 				const config = configFromState(state);
 				const stateValues = state[OPENAI_RESPONSES_COMPAT_GROUP] ?? {};
 				await updateJsonSettingsRoot(
-					options.settingsFilePath ?? join(getAgentDir(), "settings.json"),
+					options.settingsFilePath ?? defaultExtensionSettingsPaths().globalPath,
 					(root) => {
-						const priorSection = isJsonObject(root[OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION])
-							? root[OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION]
+						const priorValues = isJsonObject(root[OPENAI_RESPONSES_COMPAT_GROUP])
+							? root[OPENAI_RESPONSES_COMPAT_GROUP]
 							: {};
-						const priorValues = compatValues(priorSection);
-						const nextValues = {
-							...(priorValues ?? {}),
+						root[OPENAI_RESPONSES_COMPAT_GROUP] = {
+							...priorValues,
 							...(OPENAI_RESPONSES_COMPAT_FIELD in stateValues
 								? { [OPENAI_RESPONSES_COMPAT_FIELD]: config.stripAssistantMessageStatus }
 								: {}),
@@ -249,10 +234,6 @@ export function createOpenAIResponsesCompatSettingsProvider(
 											config.normalizeAssistantMessageId,
 									}
 								: {}),
-						};
-						root[OPENAI_RESPONSES_COMPAT_SETTINGS_SECTION] = {
-							...priorSection,
-							[OPENAI_RESPONSES_COMPAT_GROUP]: nextValues,
 						};
 					},
 					context.signal,

@@ -14,8 +14,8 @@
 
 extension 在 `registerExtensionLifecycle()` 的 `start(context)` 中：
 
-1. 注册 core-owned settings provider，使用独立 `pi-auto-title` section 和 `auto-title` group；未安装 settings
-   surface 时 provider registration 是无副作用 fallback。
+1. 注册 ext-core-owned settings provider，使用全局唯一的 `auto-title` group；该 group 直接写入
+   `ext_settings.json` 顶层。未安装 settings surface 时 provider registration 是无副作用 fallback。
 2. 以相同真实 `ExtensionLifecycleContext` 配置 subagent coordinator，并把它传给 title completion adapter。
    不得手工构造 lifecycle-like object。
 3. 用 core model selection field/options 从当前 `modelRegistry` 构造 provider；title 的模型、thinking 固定为
@@ -32,4 +32,4 @@ status，不建立反向 package dependency。
 
 ## 配置与故障
 
-配置保存于全局 settings；新设置只在下一次 session start 或 reload 生效。没有可用认证模型或生成失败时，扩展显示通知且不改会话标题。
+配置保存于全局 `ext_settings.json`；新设置只在下一次 session start 或 reload 生效。没有可用认证模型或生成失败时，扩展显示通知且不改会话标题。
