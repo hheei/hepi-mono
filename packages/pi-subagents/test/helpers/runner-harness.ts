@@ -61,11 +61,13 @@ export async function startFakeRunner(
 ): Promise<FakeRunner> {
 	const directory = await createTempDirectory();
 	const identity = await createIdentity(options.name ?? "one", directory);
-	const child = spawnFakePi(options.piEnv);
+	const spawnWriter = (): ReturnType<typeof spawnFakePi> => spawnFakePi(options.piEnv);
+	const child = spawnWriter();
 	const diagnostics: string[] = [];
 	const runner = await startRunner({
 		identity,
 		process: child,
+		spawnWriter,
 		readyTimeoutMs: 5_000,
 		requestTimeoutMs: 2_000,
 		handshakeTimeoutMs: 1_000,

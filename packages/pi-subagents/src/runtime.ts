@@ -9,6 +9,7 @@ import type { ChildIdentity, RuntimeClaim, SubagentRecord } from "./domain.js";
 import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { RunnerLike } from "./manager.js";
 import type { SubagentRegistry } from "./registry.js";
+import { planSessionPlacement } from "./session-bootstrap.js";
 
 export interface LaunchDetachedRunnerOptions {
 	readonly registry: SubagentRegistry;
@@ -19,6 +20,16 @@ export interface LaunchDetachedRunnerOptions {
 function runtimeDirectory(): string {
 	const user = typeof process.getuid === "function" ? process.getuid() : "user";
 	return join(tmpdir(), `pi-subagents-${user}`);
+}
+
+const liveBridgeTokens = new Map<string, string>();
+
+export function rememberRuntimeToken(runtimeIdentity: string, token: string): void {
+	liveBridgeTokens.set(runtimeIdentity, token);
+}
+
+export function runtimeToken(runtimeIdentity: string): string | undefined {
+	return liveBridgeTokens.get(runtimeIdentity);
 }
 
 /** Starts the package runner as a detached process and returns its authenticated controller. */
@@ -82,6 +93,7 @@ export async function recoverDetachedRunner(
 				delayMs: 50,
 				...(options.signal === undefined ? {} : { signal: options.signal }),
 			});
+			rememberRuntimeToken(prepared.identity.runtimeIdentity, prepared.token);
 			return connection;
 		} catch (error) {
 			connection.close();
@@ -110,8 +122,8 @@ export async function recoverDetachedRunner(
 			record = afterFailure;
 		}
 	}
-
 	const expectedRuntimeIdentity = record.runtime?.runtimeIdentity;
+	record = await refreshSessionPlacement(options.registry, record, options.signal);
 	const prepared = await claimRuntime(
 		options.registry,
 		record,
@@ -236,6 +248,7 @@ async function startClaimedRunner(
 			...(signal === undefined ? {} : { signal }),
 		});
 		await unlink(jobPath).catch(() => undefined);
+		rememberRuntimeToken(identity.runtimeIdentity, token);
 		return connection;
 	} catch (error) {
 		connection.close();
@@ -259,6 +272,42 @@ async function requireCurrentRecord(
 	return record;
 }
 
+async function refreshSessionPlacement(
+	registry: SubagentRegistry,
+	record: SubagentRecord,
+	signal: AbortSignal | undefined,
+): Promise<SubagentRecord> {
+	const placement = await planSessionPlacement({
+		sessionId: record.sessionId,
+		cwd: record.cwd,
+		sessionDir: record.launchConfig.sessionDir,
+		persistence: record.persistence,
+		...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+	});
+	if (
+		placement.persistence === record.persistence &&
+		placement.sessionPath === record.sessionPath
+	) {
+		return record;
+	}
+	return registry.update(
+		record.subagentId,
+		record.revision,
+		(current) => ({
+			...current,
+			persistence: placement.persistence,
+			...(placement.sessionPath === undefined
+				? {}
+				: {
+						sessionPath: placement.sessionPath,
+						launchConfig: { ...current.launchConfig, sessionPath: placement.sessionPath },
+					}),
+		}),
+		record.runtime?.runtimeIdentity,
+		signal,
+	);
+}
+
 async function clearDeadHolderClaim(
 	registry: SubagentRegistry,
 	record: SubagentRecord,
@@ -274,30 +323,28 @@ async function clearDeadHolderClaim(
 	}
 	return registry.releaseClaim(record.subagentId, claim.claimId, signal);
 }
-async function isRecordedRunnerConfirmedDead(record: SubagentRecord): Promise<boolean> {
+
+export async function isRecordedRunnerConfirmedDead(record: SubagentRecord): Promise<boolean> {
 	const runtime = record.runtime;
 	if (runtime?.pid === undefined) return false;
 	if (process.platform !== "linux") return isPidConfirmedDead(runtime.pid);
 	try {
 		const environment = await readFile(`/proc/${runtime.pid}/environ`, "utf8");
-		const values = new Map(
-			environment
-				.split("\0")
-				.filter(Boolean)
-				.map((entry) => {
-					const separator = entry.indexOf("=");
-					return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
-				}),
-		);
-		return values.get("PI_SUBAGENTS_RUNTIME_ID") !== runtime.runtimeIdentity
-			? false
-			: isPidConfirmedDead(runtime.pid);
+		const identity = environment
+			.split("\0")
+			.filter(Boolean)
+			.map((entry) => {
+				const separator = entry.indexOf("=");
+				return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
+			})
+			.find(([key]) => key === "PI_SUBAGENTS_RUNTIME_ID")?.[1];
+		return identity !== runtime.runtimeIdentity;
 	} catch (error) {
 		return isErrno(error, "ENOENT");
 	}
 }
 
-function isPidConfirmedDead(pid: number): boolean {
+export function isPidConfirmedDead(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return false;

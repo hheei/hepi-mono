@@ -1,6 +1,15 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
-import { createParentChannel, type RunnerLike, SubagentManager } from "../src/manager.js";
+import type { AttachHost, HostAdapter, HostAttachment } from "../src/host-adapter.js";
+import {
+	createParentChannel,
+	type ManagerDependencies,
+	type RunnerLike,
+	SubagentManager,
+} from "../src/manager.js";
 import type { SubagentRegistry } from "../src/registry.js";
 
 const PARENT_ID = "parent-test";
@@ -27,6 +36,7 @@ function launchConfig(): EffectiveLaunchConfig {
 		skills: { discovery: false, paths: [] },
 		prompt: "Work.",
 		bridgeExtensionPath: "/tmp/extension.js",
+		interactive: false,
 	};
 }
 
@@ -135,15 +145,35 @@ function memoryRegistry(
 
 class FakeRunner implements RunnerLike {
 	public connected = true;
+	public busy = false;
+	public writerClosed = false;
 	public readonly requests: string[] = [];
 	public rejectSend = false;
 	public rejectPrompt = false;
+	public rejectCloseWriter = false;
+	public rejectStartRpc = false;
 	readonly #listeners = new Set<(event: unknown) => void>();
 
 	public async request(operation: Parameters<RunnerLike["request"]>[0]): Promise<unknown> {
 		this.requests.push(operation);
 		if (this.rejectPrompt && operation === "prompt") throw new Error("connection lost");
 		if (this.rejectSend && operation === "follow_up") throw new Error("connection lost");
+		if (operation === "get_state")
+			return {
+				isStreaming: this.busy,
+				isCompacting: false,
+				pendingMessageCount: 0,
+			};
+		if (operation === "close_writer") {
+			if (this.rejectCloseWriter) throw new Error("close_writer failed");
+			this.writerClosed = true;
+			return { closed: true };
+		}
+		if (operation === "start_rpc") {
+			if (this.rejectStartRpc) throw new Error("start_rpc failed");
+			this.writerClosed = false;
+			return { isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
+		}
 		if (operation === "shutdown") {
 			queueMicrotask(() => this.emit({ type: "agent_start" }));
 			this.connected = false;
@@ -170,6 +200,7 @@ function managerWith(
 	record: SubagentRecord,
 	runner: FakeRunner,
 	registry = memoryRegistry(record),
+	extra: Partial<ManagerDependencies> = {},
 ) {
 	const manager = new SubagentManager({
 		parentSessionId: PARENT_ID,
@@ -178,8 +209,77 @@ function managerWith(
 		bootstrap: async () => record,
 		launch: async () => runner,
 		deadlineMs: 1_000,
+		...extra,
 	});
 	return { manager, registry };
+}
+
+function readyHost(attach: HostAdapter["attach"]): AttachHost {
+	const adapter: HostAdapter = {
+		kind: "herdr",
+		probe: async () => ({ host: "herdr", available: true, reason: "ready" }),
+		attach,
+	};
+	return {
+		async select() {
+			return {
+				available: true,
+				selectedHost: "herdr",
+				adapter,
+				explicit: false,
+				reason: "ready",
+				attempts: [],
+			};
+		},
+	};
+}
+
+function hostAttachment(
+	cleanup: HostAttachment["cleanup"] = async () => ({
+		stdout: "",
+		stderr: "",
+		exitCode: 0,
+		timedOut: false,
+	}),
+): HostAttachment {
+	const identity = { host: "herdr" as const, attachmentId: "pane-1", createdBy: PARENT_ID };
+	return {
+		identity,
+		launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
+		async observe() {
+			return { identity, alive: true, known: true, detail: "ok" };
+		},
+		cleanup,
+	};
+}
+
+async function flushedSessionPath(sessionId = "session-test"): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-attach-"));
+	const sessionPath = join(dir, `${sessionId}.jsonl`);
+	await writeFile(sessionPath, `${JSON.stringify({ type: "session", id: sessionId, cwd: dir })}\n`);
+	return sessionPath;
+}
+
+function markIdleFlushed(
+	registry: { current: SubagentRecord | undefined },
+	sessionPath: string,
+	state: SubagentRecord["state"] = "idle",
+): void {
+	const current = registry.current!;
+	registry.current = {
+		...current,
+		state,
+		persistence: "flushed",
+		sessionPath,
+		launchConfig: { ...current.launchConfig, sessionPath },
+	};
+}
+
+function attachDeps(attach: HostAdapter["attach"]): Partial<ManagerDependencies> {
+	return {
+		bridgeToken: () => "bridge-token",
+		attachHost: readyHost(attach),
+	};
 }
 
 describe("SubagentManager contracts", () => {
@@ -250,15 +350,19 @@ describe("SubagentManager contracts", () => {
 		expect(registry.current?.state).toBe("stopped");
 		expect(registry.current?.runtime).toBeUndefined();
 	});
-
 	test("get and list stop calling a disconnected handle live", async () => {
 		const record = childRecord("starting");
 		const runner = new FakeRunner();
 		const { manager } = managerWith(record, runner);
 		await manager.spawn({ task: "Work.", agent: "worker" });
 		runner.connected = false;
-		expect(await manager.get(CHILD_ID)).toMatchObject({ freshness: "last_known" });
-		expect(await manager.list()).toEqual([expect.objectContaining({ freshness: "last_known" })]);
+		expect(await manager.get(CHILD_ID)).toMatchObject({
+			freshness: "last_known",
+			interactive: false,
+		});
+		expect(await manager.list()).toEqual([
+			expect.objectContaining({ freshness: "last_known", interactive: false }),
+		]);
 	});
 
 	test("delivers only an authenticated report for the current runtime", async () => {
@@ -288,10 +392,12 @@ describe("SubagentManager contracts", () => {
 			},
 		});
 		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		expect(delivered).toHaveBeenCalledWith(expect.objectContaining({ message: "found it" }));
+		expect(delivered).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "found it", agent: "worker", childId: CHILD_ID }),
+		);
 	});
 	test("recovers a persisted child without replaying its task", async () => {
-		const record = childRecord("idle");
+		const record = { ...childRecord("idle"), unacknowledgedInput: "Work." };
 		const runner = new FakeRunner();
 		const registry = memoryRegistry(record);
 		const connect = vi.fn(async () => runner);
@@ -309,6 +415,186 @@ describe("SubagentManager contracts", () => {
 		expect(result).toEqual({ recovered: [CHILD_ID], failures: [] });
 		expect(connect).toHaveBeenCalledOnce();
 		expect(runner.requests).toEqual(["get_entries"]);
-		expect(await manager.get(CHILD_ID)).toMatchObject({ freshness: "live" });
+		expect(await manager.get(CHILD_ID)).toMatchObject({
+			freshness: "live",
+			interrupted: "Parent recovered; pending input was not replayed",
+		});
+	});
+
+	test("skips stopped children and reports connect failures without hanging", async () => {
+		const stopped = { ...childRecord("stopped"), intent: "stopped" as const };
+		const registry = memoryRegistry(stopped);
+		const connect = vi.fn(async () => new FakeRunner());
+		const manager = new SubagentManager({
+			parentSessionId: PARENT_ID,
+			registry,
+			resolve: async () => launchConfig(),
+			bootstrap: async () => stopped,
+			launch: async () => new FakeRunner(),
+			connect,
+		});
+		expect(await manager.recover()).toEqual({ recovered: [], failures: [] });
+		expect(connect).not.toHaveBeenCalled();
+
+		const live = childRecord("idle");
+		registry.current = live;
+		connect.mockRejectedValueOnce(new Error("endpoint missing"));
+		expect(await manager.recover()).toEqual({
+			recovered: [],
+			failures: [{ childId: CHILD_ID, reason: "endpoint missing" }],
+		});
+		expect(await manager.get(CHILD_ID)).toMatchObject({ state: "idle", freshness: "last_known" });
+	});
+
+	test("notifies presentation listeners after spawn and exposes interactive", async () => {
+		const base = childRecord("starting");
+		const record = { ...base, launchConfig: { ...base.launchConfig, interactive: true } };
+		const runner = new FakeRunner();
+		const { manager } = managerWith(record, runner);
+		const seen: number[] = [];
+		const unsubscribe = manager.onChange(() => seen.push(seen.length));
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		expect(seen.length).toBeGreaterThan(0);
+		expect(await manager.get(CHILD_ID)).toMatchObject({
+			interactive: true,
+			freshness: "live",
+			agent: "worker",
+		});
+		unsubscribe();
+	});
+});
+
+describe("SubagentManager native TUI attach", () => {
+	test("attaches an idle flushed child and restores RPC after host cleanup", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async (spec) => {
+				expect(spec.mode).toBe("tui");
+				expect(spec.stdio).toBe("inherit");
+				expect(spec.env.PI_SUBAGENTS_TOKEN).toBe("bridge-token");
+				return hostAttachment();
+			}),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+
+		const attached = await manager.attach(CHILD_ID);
+		expect(attached).toMatchObject({
+			host: "herdr",
+			attachmentId: "pane-1",
+			child: { id: CHILD_ID, mode: "tui", state: "idle" },
+		});
+		expect(runner.writerClosed).toBe(true);
+		expect(runner.requests).toContain("close_writer");
+		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "tui" });
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
+
+		expect(await manager.send(CHILD_ID, "later")).toMatchObject({
+			reason: "Child input is frozen for attach",
+		});
+
+		const restored = await manager.restoreRpc(CHILD_ID);
+		expect(restored).toMatchObject({ id: CHILD_ID, mode: "rpc" });
+		expect(runner.requests).toContain("start_rpc");
+		expect(runner.writerClosed).toBe(false);
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
+		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
+	});
+
+	test("rejects attach when the session file is not flushed", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => hostAttachment()),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		registry.current = { ...registry.current!, state: "idle" };
+
+		expect(await manager.attach(CHILD_ID)).toMatchObject({
+			reason: "Session has not been flushed; attach refused",
+		});
+		expect(runner.requests).not.toContain("close_writer");
+	});
+
+	test("rejects attach while the child is still streaming", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		runner.busy = true;
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => hostAttachment()),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath, "running");
+
+		expect(await manager.attach(CHILD_ID)).toMatchObject({
+			reason: "Child is busy; attach requires a complete idle RPC turn",
+		});
+		expect(runner.requests).not.toContain("close_writer");
+	});
+
+	test("restores RPC when host attach fails after the writer closed", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => {
+				throw new Error("herdr pane failed");
+			}),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+
+		expect(await manager.attach(CHILD_ID)).toMatchObject({
+			reason: "herdr pane failed",
+		});
+		expect(runner.requests).toContain("close_writer");
+		expect(runner.requests).toContain("start_rpc");
+		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "rpc" });
+		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
+	});
+
+	test("aborts an in-flight attach before stop serializes", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		let resumeAttach: (() => void) | undefined;
+		const blocked = new Promise<void>((resolve) => {
+			resumeAttach = resolve;
+		});
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => {
+				await blocked;
+				return hostAttachment();
+			}),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+
+		const attachPromise = manager.attach(CHILD_ID);
+		await vi.waitFor(() => {
+			expect(runner.writerClosed).toBe(true);
+		});
+		const stopped = manager.stop(CHILD_ID);
+		resumeAttach?.();
+		expect(await attachPromise).toMatchObject({ reason: "Attach was cancelled" });
+		expect(await stopped).toMatchObject({ state: "stopped" });
 	});
 });

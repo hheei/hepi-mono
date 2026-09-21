@@ -16,12 +16,17 @@ export const RUNNER_OPERATIONS = [
 	"get_session_stats",
 	"shutdown",
 	"contact_parent",
+	"close_writer",
+	"start_rpc",
 ] as const;
 
 export type RunnerOperation = (typeof RUNNER_OPERATIONS)[number];
 
 /** Runner-local event emitted when the Pi child process exits. */
 export const RUNNER_EXIT_EVENT = "runner_exit" as const;
+
+/** Runner-local event emitted when only the RPC writer exited and the runner stayed up. */
+export const WRITER_EXIT_EVENT = "writer_exit" as const;
 
 /** Runner-local event emitted when buffered events had to be dropped. */
 export const RUNNER_EVENTS_DROPPED_EVENT = "runner_events_dropped" as const;
@@ -136,26 +141,10 @@ export const ContactReportPayloadSchema = Type.Object(
 export type HelloFrame = Static<typeof HelloFrameSchema>;
 export type HelloAckFrame = Static<typeof HelloAckFrameSchema>;
 export type RequestFrame = Static<typeof RequestFrameSchema>;
-export type RunnerError = Static<typeof RunnerErrorSchema>;
 export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type EventFrame = Static<typeof EventFrameSchema>;
 export type ServerFrame = Static<typeof ServerFrameSchema>;
-export type PromptPayload = Static<typeof PromptPayloadSchema>;
-export type GetEntriesPayload = Static<typeof GetEntriesPayloadSchema>;
 export type ContactReportPayload = Static<typeof ContactReportPayloadSchema>;
-
-export type ClientFrame = HelloFrame | RequestFrame;
-
-export interface RunnerExitEvent {
-	readonly type: typeof RUNNER_EXIT_EVENT;
-	readonly code: number | null;
-	readonly signal: string | null;
-}
-
-export interface RunnerEventsDroppedEvent {
-	readonly type: typeof RUNNER_EVENTS_DROPPED_EVENT;
-	readonly count: number;
-}
 
 export function isRunnerOperation(value: unknown): value is RunnerOperation {
 	return typeof value === "string" && (RUNNER_OPERATIONS as readonly string[]).includes(value);

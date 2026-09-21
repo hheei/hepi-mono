@@ -1,6 +1,6 @@
 # pi-subagents V1 Tickets
 
-本 backlog 实现 [`spec.md`](spec.md)。[`PLAN.md`](PLAN.md) 是设计依据，不是逐行施工清单。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
+本 backlog 实现 [`spec.md`](spec.md)。[`PLAN.md`](PLAN.md) 是核心生命周期设计依据；投递话术、interactive 策略与 widget 投影以 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) 为准。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
 
 状态：`[ ]` 未开始，`[~]` 进行中，`[x]` 完成，`[-]` 明确不做。
 
@@ -195,6 +195,105 @@
 
 ---
 
+## SUB-P1：投递话术与 child nudge
+
+**目标**：让模型把 `contact_parent` 当成完成/报告通道，而不是靠 `get_subagent` / `list_subagents` 轮询。
+
+**范围**
+
+- 按 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) §3.1 改写 parent/child 工具 description、spawn/send 的 promptSnippet，以及 `CHILD_BRIDGE_PROMPT`。
+- 从 maplezzk `subagent-done.ts` 借入 `scheduleAgentEndNudge`，改为提醒 `contact_parent`；不写 sidecar、不退出 session。
+- 保持 spawn 等到 ready；保持 `deliverAs: "nextTurn"`。
+- 同步 `spec.md` 投递段落与 package README 工具表。
+
+**不在本 ticket**
+
+- 不新增 tool、不改 runner/IPC、不做 widget、不写 activity 文件。
+
+**验收**
+
+- spawn/send 文案明确禁止轮询等待；`get`/`list` 标明只用于检查状态。
+- child 正常 `agent_end` 且本 turn 未 `contact_parent` 时，延迟 follow-up nudge；用户输入或再次 agent 活动取消 nudge。
+- 现有 spawn/send/contact 行为测试仍过。
+
+**验证**：tools/launch-spec/extension focused Vitest；package Biome。
+
+**依赖**：SUB-05。
+
+状态：`[x]`
+
+---
+
+## SUB-P2：activity sidecar
+
+状态：`[-]` 明确不做。maplezzk 用磁盘 JSON 当状态总线，是因为没有 runner IPC。本包观测走 Pi events + `contact_parent`；TUI 若需要粗标签，归 SUB-08 在现有 IPC 上加 frame。见计划 §3.2。
+
+---
+
+## SUB-P3：interactive 策略位
+
+**目标**：把 `interactive` 冻进 LaunchSpec。Interactive child 除 `contact_parent` 外不得 `triggerTurn` 叫醒 parent。
+
+**范围**
+
+- agent frontmatter `interactive: boolean`，缺省 `false`，非法值启动前失败。
+- 写入 `ResolvedAgentPolicy` / `EffectiveLaunchConfig`；RPC/TUI/restart 复用。
+- `PublicSubagent` 暴露只读 `interactive`。
+- Recovery failure 仍通知 parent（parent 自己的诊断）。不实现 snapshot stall ping。
+
+**不在本 ticket**
+
+- 不引入 `auto-exit`、activity 文件、`pi-subagent-stall`、widget。
+
+**验收**
+
+- 缺省 false；`true`/`false` 之外启动前失败。
+- 解析来源出现在 resolved policy。
+- 现有投递测试：`contact_parent` 两种模式都叫醒；无新的自动 stall 消息。
+
+**验证**：resolver + launch-spec + manager 投递 focused tests；package Biome。
+
+**依赖**：SUB-P1。
+
+状态：`[x]`
+
+---
+
+## SUB-P4：无边框 widget 投影
+
+**目标**：above-editor widget 只投影 registry 里的活 child，不持有第二份 running set，不画边框。
+
+**范围**
+
+- 按 `pi-ext-tools` Todo widget：`registerWidget` + 标题行 + child 行；`truncateToWidth` 与 theme token。
+- 可见：`starting | running | idle` 与 `mode === "tui"`；隐藏终态。
+- 无可见 child 时 `setVisible(false)`。刷新跟 list/state，不轮询文件。
+- 更新 `DESIGN.md` 一句 pi-subagents widget 合同，以及 spec §8。
+
+**不在本 ticket**
+
+- 不增加边框、`hiddenFromWidget`、attach 快捷键、agent picker、activity 读取。
+
+**验收**
+
+- widget 输入只能来自 `list()`；测试里改 registry 即改变渲染。
+- 窄/宽宽度不打乱 identity 与状态；reload 后无 widget 泄漏。
+- headless parent 不挂 widget。
+
+**验证**：widget 窄/宽 layout tests；extension lifecycle cleanup test；package Biome。
+
+**依赖**：SUB-P3。
+
+状态：`[x]`
+
+---
+
+## SUB-P-X：用户级 child 扩展挑选器
+
+状态：`[-]` 明确不做。Child 扩展只来自冻结的 agent `extensions` + 本包 `-e` bridge。见计划 §3.5。
+
+---
+
 ## SUB-06：实现 reload/restart recovery 与原子 replacement claim
 
 **目标**：parent branch消失后优先接回存活runner，只在旧runner和writer确认死亡时安全创建replacement。
@@ -229,7 +328,7 @@
 
 **依赖**：SUB-05。
 
-状态：`[~]`
+状态：`[x]`
 
 ---
 
@@ -264,7 +363,7 @@
 
 **依赖**：SUB-02、SUB-06。
 
-状态：`[ ]`
+状态：`[x]`
 
 ---
 
@@ -345,9 +444,9 @@
 - 使用Pi `ctx.ui.select`提供agent/child选择；用`setStatus`展示紧凑active/running/idle/interrupted/failed状态。
 - 接入attach与stop快捷键；快捷键调用现有manager operation，不复制transition逻辑。
 - 使用ext-core ToolTui展示spawn/send/get/list/stop完整结果；collapsed view保留artifact/output引用。
-- 仅在默认primitive无法满足时增加最小widget，并复用ext-core ANSI/cell-width/lifecycle primitives。
+- 活 child 列表 widget 由 SUB-P4 提供；本 ticket 只补 attach/stop 操作面，不再重做投影。
 - 更新package README、`docs/architecture/`高层设计和必要ADR；标明与ext-core in-process subagent execution contract的边界。
-- 将`PLAN.md`标记为设计来源，将`spec.md`标记为当前实现合同，tickets记录最终证据。
+- 将`PLAN.md`与`PLAN-delivery-presentation.md`标记为设计来源，将`spec.md`标记为当前实现合同，tickets记录最终证据。
 - 删除施工中产生的obsolete API、duplicate launch path、debug flags和compat shim。
 
 **验收**
@@ -367,7 +466,7 @@
 4. 分别验证一个可用host和host启动失败路径；记录未能在本机验证的外部host边界。
 5. 检查预期package version/dependency范围与publish dry-run，但未经明确批准不tag/push/publish。
 
-**依赖**：SUB-09。
+**依赖**：SUB-09、SUB-P4。
 
 状态：`[ ]`
 
@@ -385,6 +484,12 @@ SUB-03 Runner/IPC/Pi RPC
 SUB-04 Channel + core tools
   |
 SUB-05 Stop/status/usage       <- RPC-only usable milestone
+  | \
+  |  SUB-P1 话术 + nudge
+  |    |
+  |  SUB-P3 interactive 位
+  |    |
+  |  SUB-P4 无边框 widget
   |
 SUB-06 Recovery/claims
   |\
@@ -402,6 +507,10 @@ SUB-10 UX/docs/release gate
 ### M1：后台RPC闭环（SUB-01～SUB-05）
 
 主Pi可并行创建、通信、观察和停止children。此时不承诺跨parent restart recovery或native TUI attach。
+
+### M1b：投递与观测面（SUB-P1、SUB-P3、SUB-P4）
+
+模型不再靠轮询等待报告；interactive 冻进 policy；TUI parent 用无边框 widget 投影活 child。可与 SUB-06 并行。不引入 activity sidecar。
 
 ### M2：持久runtime恢复（SUB-06）
 

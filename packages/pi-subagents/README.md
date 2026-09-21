@@ -1,8 +1,8 @@
 # @hheei/pi-subagents
 
-> Pre-release workspace: this package remains private until the recovery, native TUI handoff,
-> user-facing controls, and release-gate work tracked in
-> [`docs/pi-subagents/tickets.md`](../../docs/pi-subagents/tickets.md) is complete.
+> Public development package: recovery, native TUI handoff, and user-facing controls
+> remain tracked in [`docs/pi-subagents/tickets.md`](../../docs/pi-subagents/tickets.md).
+> Publication does not mean those unfinished capabilities are available.
 
 Run several independent Pi child sessions from one Pi session, each with its own Pi session
 file, its own RPC runtime, and its own durable identity.
@@ -15,10 +15,10 @@ model-facing tools, the child branch registers only the reporting bridge.
 
 | Tool | Purpose |
 | --- | --- |
-| `spawn_subagent({ task, agent, cwd? })` | Resolve an agent definition and start one background RPC child. |
-| `send_subagent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. |
-| `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness. |
-| `list_subagents({})` | List children owned by this parent session. |
+| `spawn_subagent({ task, agent, cwd? })` | Start one background RPC child and return when the runtime is ready. Do not poll `get`/`list` for the child's work; reports arrive as `pi-subagent-report` messages. |
+| `send_subagent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. Do not poll afterwards. |
+| `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness. Use this for identity or state, not to wait. |
+| `list_subagents({})` | List children owned by this parent session. Use this for ids or current state, not to wait. |
 | `stop_subagent({ id })` | Persist a stopped intent, then end the runtime. |
 
 There is no batch-spawn tool: parallel children come from Pi's own parallel tool calls.
@@ -26,7 +26,13 @@ There is no batch-spawn tool: parallel children come from Pi's own parallel tool
 missing agent name fails before any process starts.
 
 The child branch registers exactly one tool, `contact_parent({ reason, message })`, with
-reasons `progress_update`, `important_finding`, `need_decision`, and `blocked`.
+reasons `progress_update`, `important_finding`, `need_decision`, and `blocked`. Calling it
+wakes the parent. If a child ends a turn without reporting, it may receive a follow-up
+nudge to call `contact_parent`; the child session is never auto-exited. Delay defaults to
+5s (`PI_SUBAGENTS_NUDGE_DELAY_MS`); set `PI_SUBAGENTS_NUDGE_DISABLE=1` to turn it off.
+
+`get_subagent` / `list_subagents` include `interactive`, `freshness`, and `updatedAt`.
+Reports delivered to the parent are titled with the agent display name and child id.
 
 ## Agent definitions
 
@@ -40,7 +46,8 @@ Agent Markdown files are discovered in this order, most specific first, by `name
 
 Frontmatter is parsed with Pi's `parseFrontmatter` and then validated against this
 package's schema. Supported fields: `name`, `display_name`, `description`, `hidden`,
-`model`, `thinking`, `tools`, `exclude_tools`, `extensions`, `skills`. The Markdown body
+`model`, `thinking`, `tools`, `exclude_tools`, `extensions`, `skills`, `interactive`.
+`interactive` defaults to `false` and is frozen into the launch snapshot. The Markdown body
 becomes the child's agent instructions.
 
 Validation happens before launch and fails closed:
@@ -68,6 +75,22 @@ opens an absent file, so a child can never silently acquire a random session id.
 `extensions: false` keeps this package's absolute `-e <entry>` bridge argument while
 disabling discovery, so a child never loses `contact_parent` and never gains a manager.
 
+## Presentation hosts
+
+A HostAdapter only carries a native TUI. It receives the same LaunchSpec the RPC runner
+uses, probes real host capability, and never re-resolves agent, model, or Pi flags.
+
+- Default selection is Herdr, then cmux. An explicit unavailable host fails visibly and
+  does not fall back.
+- Probe talks to the live session (`herdr pane current` inside `HERDR_ENV=1`, `cmux ping`
+  plus `capabilities`). A binary on PATH is not enough.
+- Herdr attach splits with `--cwd` / `--env` and runs the quoted command+argv. cmux attach
+  uses `new-split --command`. Neither path invents a second argv.
+- Observation uses host process APIs where they exist. A pane still being open is not
+  evidence that the Pi process is alive. Command timeout is not rollback: the attachment
+  is returned so the caller can inspect it, and nothing is closed automatically.
+- Cleanup closes only the pane or surface this transition created and still owns.
+
 ## Persistence
 
 Each parent session gets its own registry file under
@@ -85,6 +108,19 @@ persisted.
 Spawn order is fixed: resolve, persist intent, then start the runner. If the registry write
 fails, no child process is started, and a session that has already flushed must still prove
 its id on disk before anything opens it.
+
+Parent reload reconnects a surviving runner by `runtimeIdentity` and endpoint. Replacement
+starts only after the old runner PID is confirmed dead (a reused PID is not treated as
+ours). Pending input is marked interrupted and never replayed. A flushed session whose
+file is missing fails closed; a never-flushed child keeps its original session id.
+
+## Observation
+
+An interactive TUI parent shows an above-editor widget of live children (`starting`,
+`running`, `idle`, and non-terminal `mode === "tui"`). It is a projection of `list()`:
+no second running set, no border, no file polling. Rows use the agent display name when
+present, mark `last known` when the runner is not connected, and show elapsed time since
+the last registry update. Headless/RPC parents do not mount it.
 
 ## Notes
 
