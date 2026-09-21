@@ -42,6 +42,7 @@ function launchConfig(overrides: Partial<EffectiveLaunchConfig> = {}): Effective
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Review the change."),
 		bridgeExtensionPath: BRIDGE_PATH,
+		interactive: false,
 		...overrides,
 	};
 }
@@ -119,6 +120,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		PI_SUBAGENTS_CHILD_ID: BRIDGE.subagentId,
 		PI_SUBAGENTS_RUNTIME_ID: "runtime-1",
 		PI_SUBAGENTS_ENDPOINT: "/tmp/pi-subagents-1.sock",
+		PI_SUBAGENTS_AGENT: "reviewer",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
 	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
@@ -126,6 +128,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		"PI_SUBAGENTS_CHILD_ID",
 		"PI_SUBAGENTS_RUNTIME_ID",
 		"PI_SUBAGENTS_ENDPOINT",
+		"PI_SUBAGENTS_AGENT",
 		"PI_SUBAGENTS_TOKEN",
 	]);
 });
@@ -160,4 +163,6 @@ test("adds the child bridge preamble to the agent instructions", (): void => {
 	expect(prompt.startsWith("Review the change.\n\n")).toBe(true);
 	expect(prompt).toContain("delegated Pi subagent");
 	expect(prompt).toContain("contact_parent");
+	expect(prompt).toContain("Do not wait for the parent to poll you");
+	expect(prompt).toContain("you will be reminded");
 });

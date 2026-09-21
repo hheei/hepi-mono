@@ -38,6 +38,7 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
+		interactive: false,
 	};
 }
 
@@ -323,5 +324,69 @@ test("serializes runtime claims and consumes a reconnect token once", async (): 
 		).rejects.toMatchObject({ code: "claim_mismatch" });
 		await store.consumeReconnectClaim("sa_claim", winner.claimId, winner.controllerTokenHash);
 		expect((await store.get("sa_claim"))?.claim).toBeUndefined();
+	});
+});
+
+test("refuses to claim a stopped child and a stolen replacement", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const path = join(directory, "registry.json");
+		const store = registry(path);
+		const cwd = join(directory, "work");
+		await store.create(record("sa_stop", cwd, { intent: "stopped", state: "stopped" }));
+		await expect(
+			store.claim("sa_stop", 1, {
+				claimId: "claim-stop",
+				kind: "replacement",
+				holderPid: process.pid,
+				runtimeIdentity: "runtime-new",
+				endpoint: "/tmp/new.sock",
+				controllerTokenHash: "c".repeat(64),
+			}),
+		).rejects.toMatchObject({ code: "stopped_child" });
+
+		await store.create(
+			record("sa_live", cwd, {
+				runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/runner.sock", pid: 9 },
+			}),
+		);
+		const claimed = await store.claim(
+			"sa_live",
+			1,
+			{
+				claimId: "claim-a",
+				kind: "replacement",
+				holderPid: process.pid,
+				runtimeIdentity: "runtime-1",
+				endpoint: "/tmp/runner.sock",
+				controllerTokenHash: "d".repeat(64),
+			},
+			"runtime-1",
+		);
+		await expect(store.activateClaim("sa_live", "claim-b", process.pid)).rejects.toMatchObject({
+			code: "claim_mismatch",
+		});
+		expect(claimed.claim?.claimId).toBe("claim-a");
+	});
+});
+
+test("defaults missing launchConfig.interactive to false and rejects non-booleans", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const path = join(directory, "registry.json");
+		const store = registry(path);
+		await store.create(record("sa_aaaa", join(directory, "work")));
+		const saved = JSON.parse(await readFile(path, "utf8")) as {
+			records: Record<string, { launchConfig: { interactive?: unknown } }>;
+		};
+		const launch = saved.records.sa_aaaa?.launchConfig;
+		if (launch === undefined) throw new Error("launchConfig missing");
+		delete launch.interactive;
+		await writeFile(path, `${JSON.stringify(saved)}\n`, "utf8");
+		expect((await registry(path).get("sa_aaaa"))?.launchConfig.interactive).toBe(false);
+
+		launch.interactive = "yes";
+		await writeFile(path, `${JSON.stringify(saved)}\n`, "utf8");
+		await expect(registry(path).list()).rejects.toThrow(
+			/launchConfig.interactive must be boolean/u,
+		);
 	});
 });

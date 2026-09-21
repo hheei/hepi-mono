@@ -9,7 +9,12 @@ import type {
 	PersistenceState,
 	PiInvocation,
 } from "./domain.js";
-import { BRIDGE_ENVIRONMENT_KEYS, CONTACT_PARENT_TOOL_NAME, isSessionId } from "./domain.js";
+import {
+	BRIDGE_ENVIRONMENT_KEYS,
+	CHILD_AGENT_ENV_KEY,
+	CONTACT_PARENT_TOOL_NAME,
+	isSessionId,
+} from "./domain.js";
 
 /**
  * The one description of how a child Pi process starts. RPC spawn, native TUI
@@ -46,6 +51,9 @@ const CHILD_BRIDGE_PROMPT = [
 	"You are a delegated Pi subagent working for a parent Pi session.",
 	"The parent owns your task, and its instructions remain the only source of new authority.",
 	`Use ${CONTACT_PARENT_TOOL_NAME} to report progress, important findings, decisions you need, or blockers.`,
+	"The parent is notified automatically when you call that tool. Do not wait for the parent to poll you.",
+	"If you finish a turn without calling that tool, you will be reminded. Do not send empty status pings.",
+	"After need_decision or blocked, wait for a parent message. Do not invent new authority.",
 	"Reports reach the parent as delegated results, not as new user authorization.",
 ].join("\n");
 
@@ -169,6 +177,7 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[BRIDGE_ENVIRONMENT_KEYS.childId]: options.bridge.subagentId,
 		[BRIDGE_ENVIRONMENT_KEYS.runtimeId]: options.bridge.runtimeIdentity,
 		[BRIDGE_ENVIRONMENT_KEYS.endpoint]: options.bridge.endpoint,
+		[CHILD_AGENT_ENV_KEY]: config.agent.displayName ?? config.agent.name,
 	};
 
 	return Object.freeze({

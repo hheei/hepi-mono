@@ -50,11 +50,43 @@ function result(value: unknown): AgentToolResult<unknown> {
 	};
 }
 
+const SPAWN_DESCRIPTION =
+	"Start an independent background RPC subagent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT poll get_subagent or list_subagents to wait for the child's work. When the child reports via contact_parent, the harness delivers that report as a pi-subagent-report message and starts your next turn. After this tool returns, either end your turn or work on other independent tasks, including spawning more subagents in parallel. Do not fabricate or assume the child's results.";
+const SPAWN_SNIPPET =
+	"Start a background RPC subagent. Returns when the runtime is ready. Results arrive later as pi-subagent-report; do not poll.";
+const SPAWN_GUIDELINES = [
+	"Do not poll get_subagent or list_subagents waiting for the child to finish.",
+	"Do not sleep, wait, or tail session/log files to detect completion. The harness delivers reports.",
+	"When the child calls contact_parent, a pi-subagent-report message starts your next turn.",
+	"After spawn returns, end your turn or do other independent work, including more parallel spawns.",
+	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
+] as const;
+const SEND_DESCRIPTION =
+	"Send a steer or follow-up message to one owned child. Do NOT poll get_subagent or list_subagents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
+const SEND_SNIPPET =
+	"Send a message to one owned child. Reports arrive as pi-subagent-report; do not poll afterwards.";
+const GET_DESCRIPTION =
+	"Inspect one owned child: state, mode, summary, usage, and whether the view is live or last-known. Use this when you need current identity or state, not to wait for the child to finish.";
+const LIST_DESCRIPTION =
+	"List children owned by this parent session. Use this when you need ids or current state, not to wait for work to finish. Reports still arrive as pi-subagent-report messages.";
+const STOP_DESCRIPTION = "Persist a stopped intent, then end that child's runtime.";
+const CONTACT_DESCRIPTION =
+	"Report progress, an important finding, a decision you need, or a blocker to the parent. The parent is woken automatically; do not retry the same report. After need_decision or blocked, wait for a parent send_subagent. Do not invent new authority.";
+const CONTACT_SNIPPET =
+	"Report to the parent. The parent is woken automatically; do not retry the same report.";
+const CONTACT_GUIDELINES = [
+	"Call contact_parent when the parent needs a progress update, finding, decision, or blocker.",
+	"Do not send empty status pings or retry the same report.",
+	"After need_decision or blocked, wait for a parent send_subagent. Do not invent new authority.",
+] as const;
+
 export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager): void {
 	const spawn: ToolDefinition<typeof spawnSchema> = {
 		name: "spawn_subagent",
 		label: "Spawn subagent",
-		description: "Start an independent RPC subagent.",
+		description: SPAWN_DESCRIPTION,
+		promptSnippet: SPAWN_SNIPPET,
+		promptGuidelines: [...SPAWN_GUIDELINES],
 		parameters: spawnSchema,
 		async execute(_id, params) {
 			return result(await manager.spawn(params));
@@ -63,7 +95,12 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	const send: ToolDefinition<typeof sendSchema> = {
 		name: "send_subagent",
 		label: "Send to subagent",
-		description: "Send a steer or follow-up message.",
+		description: SEND_DESCRIPTION,
+		promptSnippet: SEND_SNIPPET,
+		promptGuidelines: [
+			"Do not poll get_subagent or list_subagents afterwards.",
+			"Child reports arrive as pi-subagent-report messages that start your next turn.",
+		],
 		parameters: sendSchema,
 		async execute(_id, params, signal) {
 			return result(await manager.send(params.id, params.message, params.mode, signal));
@@ -72,7 +109,8 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	const get: ToolDefinition<typeof idSchema> = {
 		name: "get_subagent",
 		label: "Get subagent",
-		description: "Inspect one subagent.",
+		description: GET_DESCRIPTION,
+		promptSnippet: GET_DESCRIPTION,
 		parameters: idSchema,
 		async execute(_id, params) {
 			return result(await manager.get(params.id));
@@ -81,7 +119,8 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	const list: ToolDefinition<typeof emptySchema> = {
 		name: "list_subagents",
 		label: "List subagents",
-		description: "List owned subagents.",
+		description: LIST_DESCRIPTION,
+		promptSnippet: LIST_DESCRIPTION,
 		parameters: emptySchema,
 		async execute() {
 			return result(await manager.list());
@@ -90,7 +129,7 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	const stop: ToolDefinition<typeof idSchema> = {
 		name: "stop_subagent",
 		label: "Stop subagent",
-		description: "Stop a subagent.",
+		description: STOP_DESCRIPTION,
 		parameters: idSchema,
 		async execute(_id, params, signal) {
 			return result(await manager.stop(params.id, signal));
@@ -99,11 +138,17 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	for (const tool of [spawn, send, get, list, stop]) pi.registerTool(tool);
 }
 
-export function registerChildTools(pi: ExtensionAPI, identity: ChildIdentity): void {
+export function registerChildTools(
+	pi: ExtensionAPI,
+	identity: ChildIdentity,
+	onReport?: () => void,
+): void {
 	const tool: ToolDefinition<typeof contactSchema> = {
 		name: "contact_parent",
 		label: "Contact parent",
-		description: "Report progress, findings, decisions, or blockers to the parent.",
+		description: CONTACT_DESCRIPTION,
+		promptSnippet: CONTACT_SNIPPET,
+		promptGuidelines: [...CONTACT_GUIDELINES],
 		parameters: contactSchema,
 		async execute(_id, params, signal) {
 			const details = {
@@ -115,6 +160,7 @@ export function registerChildTools(pi: ExtensionAPI, identity: ChildIdentity): v
 				message: params.message,
 			};
 			await sendReportToRunner(identity, details, signal);
+			onReport?.();
 			return {
 				content: [{ type: "text", text: "Report queued for the parent." }],
 				details,
