@@ -1,204 +1,78 @@
-# pi-mctx AgentMemory 与 Context Projection 迁移规格
+# pi-mctx Hindsight durable-memory backend 迁移规格
 
 ## 1. 用户目标
 
-让 `@hheei/pi-mctx` 在保持 Pi host、Node、pnpm 和现有 Window 行为不变的前提下，逐步达到 `omp-mctx` 当前 AgentMemory 集成能力：
+移除仓库自有的 AgentMemory backend 与 `/agentmemory/*` 协议，改用官方 Hindsight HTTP API
+作为 `@hheei/pi-mctx` 的 durable-memory backend，同时保持 Pi host、Window、Context Projection
+以及 `mctx_search` / `mctx_memory` 合同稳定。
 
-- AgentMemory 是可选的外部 HTTP durable-memory 服务；
-- Window 在 AgentMemory 关闭、不可达或失败时继续工作；
-- `mctx_search` 同时提供当前 session lane 与跨 session durable lane；
-- `mctx_memory` 通过本地 transactional outbox 可靠投递；
-- 自动 recall 以可审计、cache-stable 的 Context Projection 进入 provider context；
-- `/ctx-status` 能显示 Window、AgentMemory、recall、outbox 和后台任务的真实状态。
+Hindsight 是唯一的外部 durable-memory owner；pi-mctx 不复制 Hindsight 的 schema、fact extraction、
+ranking 或 consolidation。Pi 继续拥有本地 outbox、recall admission、projection epoch、LKG 和 TUI。
 
-本迁移不是把 OMP 目录整体复制到 Pi 包。`omp-mctx` 的 host、handoff、OMP 类型和 manifest 不属于本包；只迁移与上述用户目标直接相关的领域逻辑，并接入现有 Pi adapter。
-
-## 2. 当前边界
+## 2. 数据流与所有权
 
 ```text
 Pi host
   -> pi-mctx adapter: hooks / commands / tools / TUI / session lifecycle
   -> Window core: context transform / compaction / local session storage
-  -> AgentMemory bridge: HTTP client / capture / search / save / status
-  -> Context Projection: recall ledger / epochs / admission / replay
-  -> external AgentMemory service
+  -> Hindsight port: retain / recall / /version
+  -> Hindsight: bank / extraction / ranking / consolidation
+  -> Context Projection: admission / replay / provider-visible splice
 ```
-
-### 所有权
 
 | 所有者 | 负责 | 不负责 |
 | --- | --- | --- |
-| Pi host | session、provider conversion、native compaction、UI 生命周期 | AgentMemory schema 与 ranking |
-| `pi-mctx` Window | 本地 context window、compartment、tag、LKG、projection、recall admission | 远程 durable-memory 数据库 |
-| AgentMemory 服务 | 跨 session facts、ranking、graph、consolidation、REST | Pi Window、projection、TUI |
-| `pi-ext-core` | 通用 surface、widget、cleanup、lifecycle primitives | AgentMemory-specific state、recall policy |
+| Pi host | session、provider conversion、native compaction、UI 生命周期 | Hindsight schema 与 ranking |
+| `pi-mctx` | Window、projection、outbox、recall ledger、Pi lifecycle | durable-memory database |
+| Hindsight | bank、retain、recall、reflect、fact extraction、graph、consolidation | Pi Window、projection、TUI |
+| `pi-ext-core` | 通用 surface、widget、cleanup、lifecycle primitives | Hindsight-specific state |
 
-### 关键原则
+## 3. Backend 合同
 
-1. `agentmemory.enabled` 独立于 `compactionEnabled` 和 Window `enabled`，默认关闭。
-2. 外部请求、capture、recall、outbox 失败不得静默破坏或阻断 Window。
-3. 不在本地复制 AgentMemory backend schema，也不 dual-write 旧本地 memory 表与远端。
-4. 不直接引入 OMP 的 `src/host`、`@oh-my-pi/omptype`、handoff 或 OMP-specific shim。
-5. 所有新持久化表必须 additive、可重入、可识别版本；已有 legacy rows 不删除、不伪造迁移结果。
-6. recall 内容不得写入 session JSONL，不得伪装成 tool call；provider-visible recall 必须属于 projection。
-7. 所有异步 continuation 必须绑定 session、branch、generation、AbortSignal 和清理生命周期。
-8. AgentMemory project identity 默认按 `environment -> git root -> cwd` 推导；不再新增全局显式 project namespace 设置。
+- capture 与显式 `mctx_memory` → Hindsight `retain`。
+- automatic search 与 Context Projection recall → Hindsight `recall`。
+- explicit synthesis → Hindsight `reflect`；不进入 historian 或每轮 provider transform。
+- health → Hindsight `/version`。
+- project identity → Hindsight bank id。
+- Pi session/turn/branch/projection identity → Pi-owned ledger；必要的 metadata/tags 传给 Hindsight。
+- 旧远程 `session/start`、`session/end`、`observe`、`search`、`remember` 不再存在。
+- `agentmemory*` 设置键仅暂时保留为已有用户配置的兼容命名，底层语义全部是 Hindsight。
 
-## 3. 目标运行流
+`mctx_memory` 先写 Pi-owned SQLite transactional outbox，再由有界 retry worker 调用 Hindsight retain；
+未得到 Hindsight 成功响应前不得报告 delivered。重复 retain 必须使用稳定的 document/operation identity，
+避免重试制造重复 durable memory。
 
-### 3.1 Capture 与工具流
+## 4. Projection 与失败语义
 
-```text
-session_start
-  -> 建立/复用一个 AgentMemory session binding
-turn/tool/assistant events
-  -> redact + exclude memory tools
-  -> fire-and-forget observe
-mctx_memory
-  -> validate -> local outbox -> lease/retry/dedupe -> AgentMemory remember
-session_shutdown
-  -> best-effort end every unended remote session
-```
+Recall 结果必须经过 session、branch、generation、epoch、scope、taint 和 already-visible 检查；
+通过 admission 后才可作为 provider-visible projection。recall 不写 Pi JSONL，也不伪装成 tool call。
 
-Capture 是旁路能力：HTTP 失败只记录 observed failure，不影响 provider turn。
+Hindsight down、timeout、invalid response 或 cancellation：
 
-### 3.2 Automatic recall 与 projection
+- Window、native compaction、LKG 和 local session lane 继续工作；
+- remote lane 报告 degraded/partial；
+- 不提交空 recall event，不发布半成品 projection；
+- `/ctx-status` 只读本地 observed state，不探测网络；
+- `/agentmemory-health` 命令名保留，但只执行显式 Hindsight `/version` probe。
 
-```text
-provider context transform
-  -> rebuild local Window / LKG
-  -> declare current projection epoch
-  -> identify substantive user entry
-  -> reuse same anchor+epoch recall, or search AgentMemory
-  -> Scope Gate + stale generation filter
-  -> admit one Recall Event
-  -> splice after user entry, before assistant reply
-  -> present TUI widget when interactive
-  -> publish projection atomically
-```
+## 5. 不在范围内
 
-发布分类只有：
+- 不嵌入 Hindsight server、PostgreSQL 或本地 Hindsight database。
+- 不保留旧 AgentMemory HTTP backend 作为 fallback 或 dual-write 路径。
+- 不把 Hindsight `reflect` 隐式加入 historian。
+- 不把 Hindsight-specific capability 放入 `pi-ext-core`。
 
-- `unchanged`：body 与 contract 均未变；
-- `append`：旧 body 是新 body 的 byte prefix，保留 cache；
-- `transition`：compaction、branch、model/system/tool contract、privacy withdrawal 或前缀改写，建立新 epoch；
-- `lkg`：本次 transform 失败时仅回放未撤销的 last-known-good。
+## 6. 完成定义
 
-Pi 的消息 leaf 每次 append 都会变化，不能直接作为每轮新 branch。分支识别必须使用可恢复的 lineage/tip：普通 append 保留分支，实际 tree navigation 或前缀替换建立 transition；进程恢复仍能识别已发布分支。旧分支的异步 recall 不得提交到当前分支。
+1. runtime 不请求任何 `/agentmemory/*` endpoint。
+2. 官方 Hindsight TypeScript client 已接入 retain、recall、version，并有 focused tests。
+3. outbox retry/dedupe、recall admission、branch/reload/replay 行为有 focused coverage。
+4. backend 关闭或不可达时 Window 和 local lane 不回归。
+5. README、architecture、ADR、tickets 与实际配置和运行行为一致。
 
-Transition 只重建仍在当前 kept tail 中、且来自未撤销已发布 head 的 recall anchor；被移除 anchor 不继承。Admission 失败须记录错误并发布不含本次未准入 recall 的 Window，不能把有效 Window 整体丢弃。
+官方来源：
 
-## 4. 最小公共契约
-
-### 配置
-
-保留并扩展现有 `agentmemory` 配置：
-
-- `enabled`
-- `url`
-- `secret`
-- `agentId`
-- `capture`
-- `inject`
-- `historianRetrieval`
-- `memoryTools`
-- `requireHttps`
-
-删除/停止使用 `agentmemory.project` 与 `agentmemoryProject` 设置；保留 `AGENTMEMORY_PROJECT_NAME` 作为显式环境覆盖；其余由运行时自动解析。
-
-### AgentMemory bridge
-
-Bridge 至少提供：
-
-- `health`
-- `session/start`
-- `session/end`
-- `observe`
-- `search`
-- `remember`
-
-client 必须区分 invalid URL、insecure transport、HTTP、network、timeout、cancelled、invalid response；响应必须运行时校验。
-
-### Model-visible tools
-
-首阶段只承诺：
-
-- `mctx_search`：当前 session 与 durable memory 两个 lane，分组展示，不合并不可比 score；
-- `mctx_memory`：返回 queued/delivered/failed 的真实状态，不提前宣称远端已持久化。
-
-工具名遵循 ADR 0020：开启 AgentMemory 只切换实现与 schema，不注册 `memory_*` 别名，也不双写本地 memory。
-
-不加入 `memory_health` model tool；健康检查保留为显式 `/agentmemory-health` 命令和 status snapshot。
-
-### 持久化
-
-Projection/recall 需要以下表族，初始化必须使用 additive DDL：
-
-- `agentmemory_outbox`
-- `agentmemory_turn_taint`
-- `mctx_projection_epochs`
-- `mctx_projection_epoch_reachability`
-- `mctx_projection_heads`
-- `mctx_branch_lineage`
-- `mctx_recall_events`
-- `mctx_recall_sources`
-- `mctx_recall_dependencies`
-- `mctx_recall_presentation_receipts`
-- `mctx_recall_recovery_refs`
-- `mctx_context_projection_heads`（每个 session/branch 只保存当前投影状态与 body）
-
-## 5. 失败、取消与并发语义
-
-| 情况 | Window | Recall/bridge | Projection |
-| --- | --- | --- | --- |
-| AgentMemory down | 继续 | 不产生新 recall；工具返回显式 partial/error | 不变 |
-| capture 失败 | 继续 | 记录失败，不能阻断 turn | 不变 |
-| admission 抛错 | 继续 | 记录失败 | 仍尝试发布本次 Window |
-| transform 抛错 | 回放 LKG | 不发布新事件 | 不创建新 head |
-| privacy withdrawal | 继续 | 可 GC 不可达事件 | 撤销 head，不得回放 withdrawn LKG |
-| 新 generation/session/branch | 继续 | 旧请求标记 stale 并丢弃 | 只能提交当前 generation |
-| SQLite open contention | fail closed 或重试 | 不建立半初始化 runtime | 不使用内存伪 DB |
-
-## 6. 不在本规格范围
-
-- 搬迁 OMP host adapter、`@oh-my-pi/omptype` 或 `src/host`。
-- 搬迁 OMP handoff 实现。
-- 把 AgentMemory backend、ranking 或 consolidation 嵌入 `pi-mctx`。
-- 保留一个兼容旧 `ctx_*` durable-memory API 的 shim。
-- 重新设计现有 Pi native compaction、Historian、Dreamer、embedding provider。
-- 把 recall 写入普通 session transcript。
-
-## 7. 完成定义
-
-迁移完成必须满足：
-
-1. bridge 关闭时 Window、现有 `mctx_*` 工具和 native compaction 行为不回归；
-2. bridge 开启时 capture、search、save、recall、projection、status 形成可运行闭环；
-3. 所有新网络/SQLite/异步路径有 focused tests，覆盖失败、取消、重试、重复 transform、branch/epoch 变化和 head withdrawal；
-4. 通过受影响路径的 Biome、typecheck 和 focused Vitest；
-5. package README、`docs/architecture/pi-mctx.md`、ADR 0020 与实际配置/运行行为一致；
-6. 不存在 OMP-only import、静默 model/provider 路由或隐式启用 AgentMemory。
-
-2026-09-15 本地实现验收记录见 [tickets 的全量验收章节](tickets.md#2026-09-15-全量验收)，包含逐项证据、最终测试结果及部署服务验证边界。
-
-## 8. 实施顺序
-
-```text
-MCTX-01 基线与配置收敛
-        |
-MCTX-02 client/session/security
-        |
-MCTX-03 capture + taint + historian provenance
-        |
-MCTX-04 search + save + outbox
-        |
-MCTX-05 status + schema + runtime integration
-        |
-MCTX-06 recall ledger + admission
-        |
-MCTX-07 context projection + Pi transform
-        |
-MCTX-08 TUI presentation + end-to-end hardening
-```
-
-MCTX-06 与 MCTX-07 是唯一允许改变 provider-visible context contract 的阶段；在此之前，AgentMemory 只以 tool-first 方式工作。
+- [Hindsight TypeScript client](https://hindsight.vectorize.io/sdks/nodejs)
+- [Retain](https://hindsight.vectorize.io/developer/api/retain)
+- [Recall](https://hindsight.vectorize.io/developer/api/recall)
+- [Installation](https://hindsight.vectorize.io/developer/installation)

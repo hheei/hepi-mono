@@ -21,12 +21,6 @@ export interface RawMessageOrdinalEntry extends RawMessageOrdinalAnchor {
 	hasValidInfo: boolean;
 }
 
-export function isRawCompactionSummaryInfo(info: unknown): boolean {
-	if (info === null || typeof info !== "object" || Array.isArray(info)) return false;
-	const candidate = info as Record<string, unknown>;
-	return candidate.summary === true && candidate.finish === "stop";
-}
-
 export interface InMemoryMessageView {
 	id: string;
 	role: string;
@@ -39,21 +33,6 @@ export interface InMemoryTailResult {
 	messages: RawMessage[];
 	absoluteMessageCount: number;
 	anchorFound: boolean;
-}
-
-export function extractInMemoryMessageViews(
-	messages: readonly { info?: unknown; parts?: unknown }[],
-): InMemoryMessageView[] {
-	return messages.map((message) => {
-		const info = (message.info ?? {}) as Record<string, unknown>;
-		return {
-			id: typeof info.id === "string" ? info.id : "",
-			role: typeof info.role === "string" ? info.role : "unknown",
-			parts: Array.isArray(message.parts) ? message.parts : [],
-			...(info.summary === true ? { summary: true } : {}),
-			...(typeof info.finish === "string" ? { finish: info.finish } : {}),
-		};
-	});
 }
 
 /** Convert Pi's in-memory session tail to stable, absolute raw-message ordinals. */

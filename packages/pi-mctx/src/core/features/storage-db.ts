@@ -27,18 +27,9 @@ const pathByDatabase = new WeakMap<Database, string>();
 const PERMISSIONS_ENFORCEABLE = process.platform !== "win32";
 
 const defaultStoragePermissionFs = { chmodSync, mkdirSync };
-let storagePermissionFs = defaultStoragePermissionFs;
+const storagePermissionFs = defaultStoragePermissionFs;
 
 /** Test seam: captures permission-changing calls without changing real fixture modes. */
-export function __setStoragePermissionFsForTests(
-	overrides: Partial<typeof defaultStoragePermissionFs>,
-): void {
-	storagePermissionFs = { ...defaultStoragePermissionFs, ...overrides };
-}
-
-export function __resetStoragePermissionFsForTests(): void {
-	storagePermissionFs = defaultStoragePermissionFs;
-}
 
 /**
  * Create `dir` recursively. When private permissions are enabled, also create

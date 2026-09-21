@@ -122,8 +122,6 @@ export function modelSupportsVision(): false {
 
 export function clearModelsDevCache(): void {}
 
-export function resetAuthRewarmLatchForTest(): void {}
-
 export function getModelsDevCacheState(): {
 	apiLoaded: boolean;
 	apiCount: number;

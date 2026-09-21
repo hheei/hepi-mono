@@ -296,18 +296,6 @@ export function getCompartmentsByEndMessageId(
 	return rows.map(toCompartment);
 }
 
-export function replaceAllCompartments(
-	db: Database,
-	sessionId: string,
-	compartments: CompartmentInput[],
-): void {
-	const now = Date.now();
-	db.transaction(() => {
-		db.prepare("DELETE FROM compartments WHERE session_id = ?").run(sessionId);
-		insertCompartmentRows(db, sessionId, compartments, now);
-	})();
-}
-
 /**
  * Append new compartments without deleting existing ones.
  * Used by the incremental runner where existing compartments are preserved

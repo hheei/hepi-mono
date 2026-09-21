@@ -88,9 +88,6 @@ function shouldSuppressHistorianAlert(sessionId: string): boolean {
 }
 
 /** Clean up module-level session state on session deletion. */
-export function clearHistorianAlertState(sessionId: string): void {
-	lastHistorianAlertBySession.delete(sessionId);
-}
 
 export async function runCompartmentAgent(deps: CompartmentRunnerDeps): Promise<void> {
 	const {

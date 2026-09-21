@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { HindsightClient, HindsightError } from "@vectorize-io/hindsight-client";
 import { DEFAULT_AGENTMEMORY_URL } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import { createPlaintextBearerAuthGuard, plaintextBearerAuthMessage } from "./security";
@@ -209,32 +210,13 @@ export function decodeAgentMemorySearchResults(body: SearchResult): DecodedSearc
 	);
 }
 
-function successfulBody(value: unknown, endpoint: string): Record<string, unknown> {
-	const body = record(value);
-	if (!body) {
-		throw new AgentMemoryClientError(
-			"invalid_response",
-			endpoint,
-			"agentmemory returned a non-object JSON body",
-		);
-	}
-	if (body.success === false || body.ok === false) {
-		throw new AgentMemoryClientError(
-			"invalid_response",
-			endpoint,
-			"agentmemory reported an unsuccessful response",
-		);
-	}
-	return body;
-}
-
 export class AgentMemoryClient implements AgentMemoryClientPort {
-	readonly #baseUrl: string;
+	readonly #hindsight: HindsightClient;
 	readonly #secret: string;
 	readonly #guardPlaintextBearer: (baseUrl: string, secret?: string) => void;
-	readonly #fetch: typeof fetch;
+	readonly #baseUrl: string;
 
-	constructor(config: AgentMemoryClientConfig = {}, fetchImpl: typeof fetch = globalThis.fetch) {
+	constructor(config: AgentMemoryClientConfig = {}, _fetchImpl?: typeof fetch) {
 		const url = (config.url?.trim() || DEFAULT_AGENTMEMORY_URL).replace(/\/+$/, "");
 		try {
 			const parsed = new URL(url);
@@ -245,7 +227,7 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 			throw new AgentMemoryClientError(
 				"invalid_url",
 				"client",
-				`Invalid agentmemory URL: ${url}`,
+				`Invalid Hindsight URL: ${url}`,
 				undefined,
 				error,
 			);
@@ -254,184 +236,137 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 		this.#secret = config.secret?.trim() ?? "";
 		this.#guardPlaintextBearer = createPlaintextBearerAuthGuard({
 			requireHttps: config.requireHttps === true,
-			warn: (message) => log(`[magic-context][agentmemory] ${message}`),
+			warn: (message) => log(`[magic-context][hindsight] ${message}`),
 		});
-		this.#fetch = fetchImpl;
+		this.#hindsight = new HindsightClient({
+			baseUrl: url,
+			...(config.secret?.trim() ? { apiKey: config.secret.trim() } : {}),
+			userAgent: "@hheei/pi-mctx",
+		});
 	}
 
 	async health(options?: AgentMemoryRequestOptions): Promise<HealthResult> {
-		const body = successfulBody(
-			await this.#request("health", "GET", undefined, options, DEFAULT_TIMEOUTS.health),
-			"health",
-		);
-		const status = nonEmpty(body.status) ?? nonEmpty(record(body.health)?.status);
-		if (!status || !["ok", "healthy", "ready", "up"].includes(status.toLowerCase())) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				"health",
-				"agentmemory health response has no healthy status",
-			);
-		}
-		return body as HealthResult;
+		return this.#withRequest("health", options, DEFAULT_TIMEOUTS.health, async (signal) => {
+			await this.#hindsight.getVersion({ signal });
+			return { status: "healthy" };
+		});
 	}
 
 	async startSession(
 		input: StartSessionInput,
-		options?: AgentMemoryRequestOptions,
+		_options?: AgentMemoryRequestOptions,
 	): Promise<StartSessionResult> {
-		const body = successfulBody(
-			await this.#request("session/start", "POST", input, options, DEFAULT_TIMEOUTS.startSession),
-			"session/start",
-		);
-		const nested = record(body.session);
-		const returnedId = nonEmpty(body.sessionId) ?? nonEmpty(nested?.id) ?? nonEmpty(body.id);
-		return { sessionId: returnedId ?? input.sessionId };
+		// Hindsight has no remote session lifecycle. Session identity is carried by tags
+		// on retained documents and remains local to this compatibility port.
+		return { sessionId: input.sessionId };
 	}
 
 	async observe(input: ObserveInput, options?: AgentMemoryRequestOptions): Promise<ObserveResult> {
-		const body = successfulBody(
-			await this.#request(
-				"observe",
-				"POST",
-				{ timestamp: new Date().toISOString(), ...input },
-				options,
-				DEFAULT_TIMEOUTS.observe,
-			),
-			"observe",
-		);
-		const observationId = nonEmpty(body.observationId) ?? nonEmpty(body.id);
-		return observationId ? { observationId } : {};
+		return this.#withRequest("retain", options, DEFAULT_TIMEOUTS.observe, async (signal) => {
+			const response = await this.#hindsight.retain(
+				input.project ?? "default",
+				JSON.stringify(input.data),
+				{
+					context: input.hookType,
+					metadata: {
+						session_id: input.sessionId,
+						cwd: input.cwd ?? "",
+					},
+					tags: [`session:${input.sessionId}`, `hook:${input.hookType}`],
+					async: true,
+					...(input.timestamp ? { timestamp: input.timestamp } : {}),
+					signal,
+				},
+			);
+			return response.operation_id ? { observationId: response.operation_id } : {};
+		});
 	}
 
 	async search(input: SearchInput, options?: AgentMemoryRequestOptions): Promise<SearchResult> {
-		const body = successfulBody(
-			await this.#request(
-				"search",
-				"POST",
-				{ format: "full", ...input },
-				options,
-				DEFAULT_TIMEOUTS.search,
-			),
-			"search",
-		);
-		if (!["results", "observations", "memories"].some((key) => Array.isArray(body[key]))) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				"search",
-				"search response has no result list",
-			);
-		}
-		return body as SearchResult;
+		return this.#withRequest("recall", options, DEFAULT_TIMEOUTS.search, async (signal) => {
+			const response = await this.#hindsight.recall(input.project, input.query, {
+				maxTokens: Math.max(256, (input.limit ?? 10) * 256),
+				budget: "low",
+				includeEntities: true,
+				...(input.agentId ? { tags: [`agent:${input.agentId}`] } : {}),
+				signal,
+			});
+			return {
+				results: response.results.map((result) => ({
+					id: result.id,
+					content: result.text,
+					type: result.type,
+					project: input.project,
+				})),
+			};
+		});
 	}
 
 	async remember(
 		input: RememberInput,
 		options?: AgentMemoryRequestOptions,
 	): Promise<RememberResult> {
-		const body = successfulBody(
-			await this.#request("remember", "POST", input, options, DEFAULT_TIMEOUTS.remember),
-			"remember",
-		);
-		if (body.success !== true) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				"remember",
-				"remember response did not confirm success",
-			);
-		}
-		const memory = record(body.memory);
-		const id = nonEmpty(memory?.id);
-		if (!memory || !id) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				"remember",
-				"remember response has no memory id",
-			);
-		}
-		return { success: true, memory: { id } };
+		return this.#withRequest("retain", options, DEFAULT_TIMEOUTS.remember, async (signal) => {
+			const response = await this.#hindsight.retain(input.project, input.content, {
+				context: input.type ?? "explicit memory",
+				metadata: input.agentId ? { agent_id: input.agentId } : {},
+				async: false,
+				signal,
+			});
+			if (!response.success) {
+				throw new AgentMemoryClientError("invalid_response", "retain", "Hindsight retain failed");
+			}
+			const id =
+				response.operation_id ??
+				createHash("sha256").update(`${input.project}\0${input.content}`).digest("hex");
+			return { success: true, memory: { id } };
+		});
 	}
 
-	async endSession(sessionId: string, options?: AgentMemoryRequestOptions): Promise<void> {
-		const body = successfulBody(
-			await this.#request(
-				"session/end",
-				"POST",
-				{ sessionId },
-				options,
-				DEFAULT_TIMEOUTS.endSession,
-			),
-			"session/end",
-		);
-		if (body.ended === false) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				"session/end",
-				"session/end response did not confirm completion",
-			);
-		}
+	async endSession(_sessionId: string, _options?: AgentMemoryRequestOptions): Promise<void> {
+		// Hindsight retains durable bank data; there is no session to close remotely.
 	}
 
-	async #request(
-		pathname: string,
-		method: "GET" | "POST",
-		body: unknown,
+	async #withRequest<T>(
+		operation: string,
 		options: AgentMemoryRequestOptions | undefined,
 		defaultTimeoutMs: number,
-	): Promise<unknown> {
+		request: (signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
 		try {
 			this.#guardPlaintextBearer(this.#baseUrl, this.#secret);
 		} catch (error) {
 			throw new AgentMemoryClientError(
 				"insecure_transport",
-				pathname,
+				operation,
 				plaintextBearerAuthMessage(this.#baseUrl),
 				undefined,
 				error,
 			);
 		}
-		const headers = new Headers();
-		if (this.#secret) headers.set("Authorization", `Bearer ${this.#secret}`);
-		if (body !== undefined) headers.set("Content-Type", "application/json");
-		const timeoutMs = options?.timeoutMs ?? defaultTimeoutMs;
-		const timeoutSignal = AbortSignal.timeout(timeoutMs);
+		const timeoutSignal = AbortSignal.timeout(options?.timeoutMs ?? defaultTimeoutMs);
 		const signal = options?.signal
 			? AbortSignal.any([options.signal, timeoutSignal])
 			: timeoutSignal;
-		let response: Response;
 		try {
-			response = await this.#fetch(
-				`${this.#baseUrl}/agentmemory/${pathname.replace(/^\/+/, "")}`,
-				body === undefined
-					? { method, headers, signal }
-					: { method, headers, signal, body: JSON.stringify(body) },
-			);
+			return await request(signal);
 		} catch (error) {
-			const aborted = signal.aborted;
 			const timeout = timeoutSignal.aborted && options?.signal?.aborted !== true;
+			const status = error instanceof HindsightError ? error.statusCode : undefined;
+			const kind = timeout
+				? "timeout"
+				: signal.aborted
+					? "cancelled"
+					: error instanceof HindsightError
+						? status === undefined
+							? "invalid_response"
+							: "http"
+						: "network";
 			throw new AgentMemoryClientError(
-				timeout ? "timeout" : aborted ? "cancelled" : "network",
-				pathname,
-				timeout ? `agentmemory ${pathname} timed out` : `agentmemory ${pathname} request failed`,
-				undefined,
-				error,
-			);
-		}
-		if (!response.ok) {
-			throw new AgentMemoryClientError(
-				"http",
-				pathname,
-				`agentmemory ${pathname} returned HTTP ${response.status}`,
-				response.status,
-			);
-		}
-		try {
-			return await response.json();
-		} catch (error) {
-			throw new AgentMemoryClientError(
-				"invalid_response",
-				pathname,
-				`agentmemory ${pathname} returned invalid JSON`,
-				response.status,
+				kind,
+				operation,
+				timeout ? `Hindsight ${operation} timed out` : `Hindsight ${operation} request failed`,
+				status,
 				error,
 			);
 		}

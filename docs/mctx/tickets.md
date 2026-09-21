@@ -1,260 +1,62 @@
-# pi-mctx 迁移 Tickets
+# pi-mctx Hindsight backend migration tickets
 
-本 backlog 实现 [`spec.md`](spec.md)。每个 ticket 应单独提交，除非注明依赖；完成一个 ticket 后更新本文件状态和 spec/architecture 文档。Ticket 不允许顺手搬迁 OMP host、handoff 或无关 feature。
+本 backlog 的目标是移除旧 AgentMemory backend，改用官方 Hindsight client/API；上层 Pi lifecycle、outbox、recall ledger 和 Context Projection 保持不变。
 
 状态：`[ ]` 未开始，`[~]` 进行中，`[x]` 完成，`[-]` 明确不做。
 
-## MCTX-01：收敛 AgentMemory 配置与 project identity
+## HCTX-01：Hindsight client port
 
-**目标**：让 AgentMemory bridge 拥有独立、可审计的配置，并移除显式 project namespace。
+**目标**：将内部 client port 的实现替换为 `@vectorize-io/hindsight-client`。
 
-**范围**
+**范围**：
 
-- 对照上游 `src/agentmemory/config.ts`、`project.ts`、`security.ts`。
-- 将 project identity 固定为 `environment -> git root -> cwd`，但不再暴露 `agentmemory.project` 设置。
-- 删除 `agentmemoryProject` 的 active runtime/config schema 路径；保留 `AGENTMEMORY_PROJECT_NAME` 作为显式环境覆盖。
-- 保留 `agentId` 作为过滤维度，不作为安全边界。
-- 统一 `requireHttps` 与 secret 的 fail-closed 规则。
+- `retain` 承载 capture 与 explicit memory；`recall` 承载 search；`/version` 承载 health。
+- 删除旧 `/agentmemory/*` endpoint、远程 session lifecycle 和旧 response envelope 假设。
+- 保留 timeout、AbortSignal、HTTP/network/invalid-response 错误分类。
 
-**验收**
+**状态**：[x]
 
-- 空配置不创建 AgentMemory runtime。
-- 启用 bridge 时 project identity 可从 git root/cwd 稳定得到。
-- bearer secret 发往非 loopback plaintext HTTP 时按配置拒绝或显式告警。
-- 配置测试覆盖 setting、env、git root、cwd precedence 和 secret 保护。
-- README、architecture、ADR 不再宣称支持显式 project setting。
+## HCTX-02：配置、身份与文档
 
-**验证**：配置 focused tests、AgentMemory settings/security tests、changed paths Biome/typecheck。
+**目标**：将现有 `agentmemory*` 用户设置解释为 Hindsight backend 设置，project identity 映射为 bank id。
 
-**依赖**：无。
+**范围**：
 
-状态：`[x]`
+- 默认地址改为 Hindsight API `http://127.0.0.1:8888`。
+- 更新 README、architecture、spec、ADR 和 smoke fixture。
+- 记录 Hindsight Cloud/self-hosted 部署前提，不把 Hindsight server 打包进 Pi。
 
-## MCTX-02：迁移 AgentMemory client、session lifecycle 与 bridge runtime
+**状态**：[~]
 
-**目标**：建立可复用、可取消、不会阻断 Window 的 HTTP bridge。
+## HCTX-03：行为验证与旧 backend 清理
 
-**范围**
+**目标**：确认所有运行路径只使用 Hindsight，并移除旧协议测试/文案。
 
-- 将 OMP bridge 逻辑适配到现有 Pi lifecycle，不搬 `src/host`。
-- 拆分 client、session binding、bridge runtime；每个 Pi session activation 至多建立一个远端 capture segment。
-- 支持 health、start、end、observe、search、remember 所需的 typed client port。
-- 所有响应使用 `unknown` narrowing/既有 schema 方式校验。
-- timeout、AbortSignal、HTTP/network/invalid-response 错误必须保留错误种类。
-- session switch、resume、shutdown、late callback 必须幂等且不污染新 session。
+**验收**：
 
-**验收**
+- 搜索源码不再出现旧 `/agentmemory/*` runtime endpoint。
+- focused tests 覆盖 Hindsight retain/recall/version、失败、取消和 outbox retry。
+- focused typecheck、Biome 与 pi-mctx smoke 通过。
 
-- bridge disabled 时不构造 client、不发网络请求。
-- 同一 session 重复启动不重复调用非幂等 `session/start`。
-- shutdown 会 best-effort end 所有未结束 binding。
-- 请求取消不会留下 pending promise 或未清理 binding。
-- 外部服务失败不会抛穿到 Window transform。
+**状态**：[~]
 
-**验证**：runtime isolation/smoke、client error matrix、session lifecycle focused tests。
+## HCTX-04：projection 与显式 reflect 边界
 
-**依赖**：MCTX-01。
+**目标**：保持 Hindsight recall 经过 Pi-owned admission/projection；不把 reflect 隐式加入 historian 或 provider transform。
 
-状态：`[x]`
+**验收**：
 
-## MCTX-03：迁移 capture、redaction、taint 与 Historian provenance
+- stale、tainted、out-of-scope、already-visible recall 不能进入 provider-visible projection。
+- branch/reload/replay 下 admission 幂等。
+- reflect 只通过明确的用户/工具路径触发。
 
-**目标**：把 session/tool/assistant 观察异步送入 AgentMemory，同时防止凭据、memory recall 和 memory tool 输出成为错误的独立证据。
+**状态**：[x]
 
-**范围**
+## 不在范围内
 
-- 迁移 capture 事件映射和最大 observation 文本限制。
-- memory tools、credential-shaped values、secret values 必须排除或 redact。
-- 引入 `agentmemory_turn_taint` 及 host-entry/turn 的关联。
-- recall、memory tool output、由 recall 派生的内容不得作为 Historian independent evidence。
-- session shutdown 负责结束未完成 capture segment。
+- 不嵌入 Hindsight server、PostgreSQL、fact extraction、ranking 或 consolidation。
+- 不保留旧 AgentMemory HTTP 协议作为第二 backend 或 fallback。
+- 不把 recall 写入 Pi JSONL 或伪装成 tool call。
+- 不在 `pi-ext-core` 增加 Hindsight-specific capability。
 
-**验收**
-
-- 常见 secret/token/password/api-key 形态不会进入 observe payload。
-- `mctx_search`/`mctx_memory` 输出不会被重复 capture 成可提升事实。
-- capture 请求失败只记录 failure，不改变主 turn 结果。
-- taint 传播覆盖 user entry、tool result、assistant restatement 和 historian candidate。
-- capture 并发与 shutdown race 有 deterministic tests。
-
-**验证**：redaction、capture failure、taint/provenance focused tests。
-
-**依赖**：MCTX-02。
-
-状态：`[x]`
-
-## MCTX-04：迁移 unified `mctx_search` 与 transactional `mctx_memory`
-
-**目标**：提供 tool-first 的 durable memory 能力，不改变 provider context projection。
-
-**范围**
-
-- `mctx_search` 分离当前 session lane 与 AgentMemory lane；不把不可比 score 数值合并。
-- 远端结果经过 project/agent/session Scope Gate 和 active capture exclusion。
-- partial transport failure 返回健康 lane 和明确 partial 状态。
-- AgentMemory 模式下的 `mctx_memory` 先写本地 transactional outbox，再异步 remember；切换后端不改变 agent-facing 工具名。
-- outbox 支持 lease、retry、dedupe、delivery result 和 bounded drain。
-- 删除当前精简 `runtime.ts` 中重复的 direct-save/search API，完成 clean cutover。
-
-**验收**
-
-- search 结果含 source identity、project、session、agent、digest，不只返回 count。
-- 不会显示当前 active capture segment。
-- AgentMemory 模式下的 `mctx_memory` 在 outbox commit 前不声称 delivered。
-- 进程重启、重复 drain、远端 timeout 不造成重复 durable save。
-- bridge down 时 local session lane 仍可工作，状态明确为 partial/degraded。
-
-**验证**：search lane、scope gate、outbox crash/retry/dedupe focused tests。
-
-**依赖**：MCTX-02、MCTX-03。
-
-状态：`[x]`
-
-## MCTX-05：接入 schema、runtime registration 与统一 status
-
-**目标**：把 bridge 作为 Pi extension 的完整可观测能力接入，而不是孤立模块。
-
-**范围**
-
-- additive 初始化 `agentmemory_outbox`、`agentmemory_turn_taint` 及所需索引。
-- 在 `src/index.ts` 接入 session_start、before_agent_start、tool_result、agent_end、session_shutdown lifecycle。
-- `/agentmemory-health` 保留为显式 fresh probe。
-- `/ctx-status` 增加 bridge gates、observed health、capture/search/inject 状态、outbox pending/leased/failed、最近错误。
-- status 读取只读本地状态，不触发网络请求或重复写库。
-- 更新 README、architecture、ADR 0020，写清 `mctx_memory` 在 AgentMemory 模式下的实现与 schema 切换；agent-facing 名称保持不变。
-
-**验收**
-
-- 启用/禁用、健康/降级、outbox 状态在 TUI 和 headless status 中语义一致。
-- status refresh 无网络副作用。
-- schema 在新库和旧库上均可重复初始化。
-- Pi extension reload/shutdown 后没有 listener、timer、outbox drainer 泄漏。
-
-**验证**：fresh schema、runtime enable/isolation、status snapshot、reload/shutdown tests。
-
-**依赖**：MCTX-03、MCTX-04。
-
-状态：`[x]`
-
-## MCTX-06：迁移 Recall Ledger 与 Automatic Recall Admission
-
-**目标**：把远端 recall 变成绑定到具体 user entry 的可审计事件，但暂不改变 Window 的其余 compaction 算法。
-
-**范围**
-
-- additive 创建 projection epoch、branch lineage、recall event/source/dependency、presentation receipt、recovery ref 表。
-- 实现 `declarePreUpgradeEpoch`、active branch lookup、generation、stale discard、GC。
-- admission 以 user-entry anchor 为身份；同一 anchor+epoch 重试复用 snapshot。
-- Scope Gate、already-visible filter、taint mark 和 source metadata 必须在 admission 层完成。
-- backend failure 不阻断 Window，也不产生空的伪 recall event。
-
-**验收**
-
-- 相同 user entry 的重复 transform 不重复 remote search。
-- 相同文字但不同 user-entry id 会生成独立 event。
-- session/branch/epoch/generation 改变时旧异步结果无法提交。
-- admitted event 可从 durable ledger replay；不可达 event 可按 retention GC。
-- ledger schema 不把 recall 写进 session JSONL。
-
-**验证**：ledger invariants、admission reuse/stale/scope、GC/recovery focused tests。
-
-**依赖**：MCTX-05。
-
-状态：`[x]`
-
-## MCTX-07：接入 Context Projection 与 Pi context transform
-
-**目标**：让 provider-visible context 具备 stable baseline + append-only tail，并把 recall 正确插入 user turn 后、assistant reply 前。
-
-**范围**
-
-- 迁移 `context-projection.ts` 和 `context-projection-coordinator.ts` 的领域逻辑，改用现有 Pi message/session abstractions。
-- 实现 projection body digest、contract digest、unchanged/append/transition 分类。
-- transform 成功后原子发布 projection；失败只回放有效 LKG。
-- compaction、recomp、branch replacement、model/system/tool contract 改变时建立新 epoch。
-- privacy withdrawal 不得回放已撤销 head。
-- 保持现有 native compaction fence 和 Pi kept-tail reconciliation，不在 hook 内同步运行 Historian。
-
-**验收**
-
-- 未变化输入产生 byte-equivalent provider context。
-- 仅尾部 append 保留原 prefix。
-- contract 或前缀改变不会伪装成 append。
-- recall 出现在正确 user/assistant 边界且不会重复序列化。
-- transform 失败不会发布半成品 projection。
-- native compaction 前后 projection/ledger 状态可重建。
-
-**验证**：projection/coordinator、context transform、native compaction interaction、LKG failure tests。
-
-**依赖**：MCTX-06。
-
-状态：`[x]`
-
-## MCTX-08：TUI recall presentation 与 end-to-end hardening
-
-**目标**：在 interactive Pi 中展示 newly admitted recall，同时保持 headless/RPC 输出不重复注入。
-
-**范围**
-
-- 迁移 recall presentation receipts 和 `aboveEditor` widget。
-- 复用现有 ext-core surface/widget/ANSI width primitives；不新增 feature-specific color/token。
-- presentation 失败不影响 transform；claimed-but-not-presented 可在 lease 后重试。
-- `/ctx-status` Memory section 展示 bounded sanitized recall preview。
-- 补齐 package README、architecture、ADR、focused tests 和 live smoke。
-- 删除已过时精简 runtime、配置字段、注释、测试和旧 API。
-
-**验收**
-
-- interactive session 每个 event 在 presentation surface 至多显示一次。
-- headless/RPC 不出现 recall widget 或重复 recall 文本。
-- narrow/wide terminal 均保持 cell-width safe、bounded、可读。
-- TUI/widget/setWidget 抛错不会破坏 provider transform。
-- package focused suite、typecheck、Biome 和实际 Pi smoke 均通过。
-
-**验证**：presentation receipt/widget tests、narrow/wide render tests、actual Pi smoke、focused package gate。
-
-**依赖**：MCTX-07。
-
-状态：`[x]`
-
-## 2026-09-15 全量验收
-
-MCTX-01～08 按当前规格完成本地实现验收；未将本地协议 fixture 的结果冒充部署服务验证。
-
-| 范围 | 验收证据 |
-| --- | --- |
-| 01 配置与身份 | 配置 precedence、secret 保护、默认关闭及 Window/bridge 独立开关测试；旧 project setting 不再参与解析 |
-| 02 Client/session | 六个 HTTP endpoint 的 loopback 测试、错误分类、start 合并、observe/shutdown race；真实 Pi SDK session start/end |
-| 03 Capture/taint | 凭据脱敏、memory tools 排除、真实 tool-result 先于持久化的顺序、user/tool/synthetic/assistant provenance 测试 |
-| 04 Search/outbox | 双 lane 与 scope/partial 测试；queued/delivered、失败 retry、进程恢复及未到期 lease 自动恢复；真实 SDK search/save 投递 |
-| 05 Schema/status | 新旧 schema 幂等、legacy row 保留；disabled/degraded 状态、status 零网络、显式 health、bridge-only shutdown/switch 清理 |
-| 06 Recall ledger | 相同 anchor 复用、相同文本不同 anchor 独立、scope/taint/stale/GC/receipt 测试 |
-| 07 Projection | clone-safe Pi context 身份、append/transition、admission failure 保留 Window；真实 SessionManager native compaction、持久化 branch 恢复、LKG 回放、延迟 recall 在 tree navigation 后拒绝 |
-| 08 TUI/闭环 | 实际 Pi TUI 在 Window 开/关两种模式显示 aboveEditor recall 与 `(+1)`；SQLite receipt 一次写入、status preview；窄/宽渲染及挂载失败测试 |
-
-最终验证：
-
-- `vitest run packages/pi-mctx/test`：274 个文件通过，2718 个用例通过，10 个既有用例跳过。
-- 根目录 `tsc --noEmit -p tsconfig.typecheck.json` 通过；受影响文件 Biome 通过。
-- `scripts/agentmemory-live-smoke.ts` 默认模式及 `--window-off` 均通过：实际 Pi SDK + loopback AgentMemory + 显式 fixture provider 完成请求；provider body 含 recall、session JSONL 不含 recall、重复 transform 不再次 search，shutdown 结束远端 session。
-- 10 个既有 skip 位于 `test/core/config/schema/magic-context.test.ts`（2）、`test/core/features/context-authority.test.ts`（2）、`test/core/hooks/system-prompt-hash.test.ts`（6）；本次新增 AgentMemory/Pi lifecycle 验收没有 skip。
-
-边界：没有连接部署中的 AgentMemory 或真实付费 provider；上述 smoke 是本地协议和真实 Pi host 集成验收，不是生产服务可用性、ranking 质量或部署验收。不涉及发布。
-
-## 依赖图
-
-```text
-MCTX-01
-   |
-MCTX-02 ----+
-   |        |
-MCTX-03 ---+---- MCTX-04 ---- MCTX-05 ---- MCTX-06 ---- MCTX-07 ---- MCTX-08
-```
-
-## 每个 ticket 的提交规则
-
-- 一个 ticket 一个 cohesive commit；commit message 使用 `feat(pi-mctx): ...` 或 `fix(pi-mctx): ...`。
-- 不在 ticket 中运行项目级 formatter/check；只在最后的 MCTX-08 运行完整受影响路径验证。
-- 每个 ticket 必须更新对应 focused tests；若只搬迁已有行为，必须说明原测试如何覆盖。
-- 每次 schema、配置或用户可见行为变化都要同步更新 README/architecture/ADR，不把实现细节塞进高层 docs。
-- 完成 ticket 前检查 `git diff`，不得包含用户无关改动或 OMP-only 文件。
+参考官方文档：[TypeScript client](https://hindsight.vectorize.io/sdks/nodejs)、[Retain](https://hindsight.vectorize.io/developer/api/retain)、[Recall](https://hindsight.vectorize.io/developer/api/recall)、[Installation](https://hindsight.vectorize.io/developer/installation)。

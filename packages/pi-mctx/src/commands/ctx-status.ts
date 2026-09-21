@@ -274,5 +274,5 @@ function readHistorianState(
 
 function formatRecallPreview(preview: readonly string[]): string {
 	if (preview.length === 0) return "";
-	return `\nAgentMemory recall preview:\n${preview.map((line) => `- ${line}`).join("\n")}`;
+	return `\nHindsight recall preview:\n${preview.map((line) => `- ${line}`).join("\n")}`;
 }

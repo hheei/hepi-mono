@@ -148,9 +148,9 @@ describe("buildMagicContextSection: memory gating", () => {
 		);
 		expect(off).not.toContain("mctx_memory");
 		expect(off).not.toContain("Save to memory proactively");
-		expect(off).toContain("Use `mctx_search`");
+		expect(off).toContain("Use `recall`");
 		// no dangling blank line where the block was removed
-		expect(off).not.toContain("\n\nUse `mctx_search`");
+		expect(off).not.toContain("\n\nUse `recall`");
 	});
 
 	it("memory OFF gates the guidance in no-reduce mode too", () => {
@@ -166,7 +166,7 @@ describe("buildMagicContextSection: memory gating", () => {
 			false,
 		);
 		expect(off).not.toContain("mctx_memory");
-		expect(off).toContain("Use `mctx_search`");
+		expect(off).toContain("Use `recall`");
 	});
 });
 
@@ -265,7 +265,7 @@ describe("buildMagicContextSection — compaction-off guidance variant (#266 S4)
 
 	it("still covers memory, search, notes, and mctx_expand guidance", () => {
 		const out = buildMagicContextSection(null, 20, false, false, false, false);
-		expect(out).toContain("mctx_search");
+		expect(out).toContain("recall");
 		expect(out).toContain("mctx_expand");
 		expect(out).toContain("mctx_note");
 		expect(out).toContain("mctx_memory");
@@ -274,7 +274,7 @@ describe("buildMagicContextSection — compaction-off guidance variant (#266 S4)
 	it("frames mctx_expand as recovery for summaries / mctx_search hits, not tag-based recovery", () => {
 		const out = buildMagicContextSection(null, 20, false, false, false, false);
 		// The expand line in the no-reduce variant references <session-history>
-		// summary headings and mctx_search message ordinals — not §N§ tags.
+		// summary headings and recall message ordinals — not §N§ tags.
 		expect(out).toContain("mctx_expand");
 		expect(out).toContain("session-history");
 		expect(out).toContain("message ordinals");

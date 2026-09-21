@@ -134,7 +134,7 @@ function spliceRecallEvents<T>(
 			.join("\n");
 		result.push(
 			createRecallMessage(
-				`<system-reminder>\nAgentMemory recall for this user turn:\n${sources}\n</system-reminder>`,
+				`<system-reminder>\nHindsight recall for this user turn:\n${sources}\n</system-reminder>`,
 				event,
 			),
 		);

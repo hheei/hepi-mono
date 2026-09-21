@@ -14,12 +14,6 @@ export function isDreamerRunnable(config: {
 	return !!config.dreamer && config.dreamer.disable !== true;
 }
 
-export function isSidekickRunnable(config: {
-	sidekick?: { disable?: boolean | undefined } | null | undefined;
-}): boolean {
-	return !!config.sidekick && config.sidekick.disable !== true;
-}
-
 export function isHistorianRunnable(config: {
 	historian?: { disable?: boolean | undefined } | null | undefined;
 }): boolean {

@@ -374,7 +374,6 @@ export const EmbeddingConfigSchema = BaseEmbeddingConfigSchema.transform((data) 
 });
 
 export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
-export type EmbeddingFallbackProvider = z.infer<typeof EmbeddingFallbackProviderSchema>;
 
 export interface SubcConfig {
 	connection_file: string;
@@ -395,7 +394,7 @@ export interface ExperimentalConfig {
 	mural: ExperimentalMuralConfig;
 }
 
-export const DEFAULT_AGENTMEMORY_URL = "http://127.0.0.1:3111";
+export const DEFAULT_AGENTMEMORY_URL = "http://127.0.0.1:8888";
 
 export interface AgentMemoryConfig {
 	enabled: boolean;
@@ -418,7 +417,7 @@ export interface MagicContextConfig {
 	language?: string | undefined;
 	historian?: HistorianConfig | undefined;
 	dreamer?: DreamerConfig | undefined;
-	/** Optional HTTP bridge to an upstream AgentMemory service. Independent of Window `enabled`. */
+	/** Optional HTTP compatibility port backed by Hindsight. Independent of Window `enabled`. */
 	agentmemory: AgentMemoryConfig;
 
 	cache_ttl: string | { default: string; [modelKey: string]: string };
@@ -952,13 +951,13 @@ export const MagicContextConfigSchema = z
 					.boolean()
 					.default(false)
 					.describe(
-						"Enable the HTTP bridge to an upstream AgentMemory service. Independent of Window enabled.",
+						"Enable the Hindsight-backed durable-memory compatibility port. Independent of Window enabled.",
 					),
 				url: z
 					.string()
 					.trim()
 					.default(DEFAULT_AGENTMEMORY_URL)
-					.describe("AgentMemory HTTP base URL. AGENTMEMORY_URL overrides this."),
+					.describe("Hindsight API base URL. AGENTMEMORY_URL overrides this."),
 				secret: z
 					.string()
 					.default("")

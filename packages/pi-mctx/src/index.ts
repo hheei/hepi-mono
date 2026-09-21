@@ -60,7 +60,6 @@ import {
 	getOverflowState,
 	recordOverflowDetected,
 } from "#core/features/storage-meta-persisted";
-import { setCtxReduceRegisteredGlobally } from "#core/hooks/ctx-reduce-availability";
 import {
 	deriveHistorianChunkTokens,
 	resolveHistorianContextLimit,
@@ -954,10 +953,7 @@ async function startPiMagicContextRuntime(
 		`loaded v${PLUGIN_VERSION} | harness=pi | db=${dbPath} | ` +
 			`project=${projectIdentity} | dir=${projectDir}`,
 	);
-	// Pi tools are registered once per process, so this mode is intentionally
-	// boot-resolved rather than following later /cd project config changes.
 	const compactionOff = !isCompactionEnabled(config);
-	setCtxReduceRegisteredGlobally(!compactionOff);
 	if (!compactionOff) {
 		try {
 			const pendingPiMarkerSessions = getSessionsWithPendingPiMarker(db);

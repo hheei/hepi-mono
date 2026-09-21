@@ -18,14 +18,6 @@ export const DREAMER_MEMORY_MAPPER_AGENT = "dreamer-memory-mapper";
 
 /** Read-only tool profile shared by the memory-maintenance reader agent.
  *  No mctx_search (local-source checks only), no write/bash/mctx_memory. */
-export const DREAMER_MEMORY_MAPPER_ALLOWED_TOOLS = [
-	"read",
-	"grep",
-	"glob",
-	"aft_outline",
-	"aft_zoom",
-	"aft_search",
-] as const;
 
 // Pure-transform classifier for the classify-memories task: prompt in → ONE XML
 // manifest out, ZERO tools. classify scores metadata from the memory text alone
@@ -42,17 +34,6 @@ export const DREAMER_DOCS_AGENT = "dreamer-docs";
 
 /** Codebase-read + doc-write tool profile for the docs maintainer. No memory
  *  tools (it edits docs, not the memory store). */
-export const DREAMER_DOCS_ALLOWED_TOOLS = [
-	"read",
-	"grep",
-	"glob",
-	"bash",
-	"write",
-	"edit",
-	"aft_outline",
-	"aft_zoom",
-	"aft_search",
-] as const;
 
 // Pure JSON reviewer for the review-user-memories task: reads the candidate
 // observations the host renders and returns a JSON verdict the host applies. It
@@ -65,4 +46,3 @@ export const DREAMER_REVIEWER_AGENT = "dreamer-reviewer";
  *  only mctx_memory — not the former bash/write/edit/read/aft/mctx_search/mctx_note
  *  kitchen sink. Kept on the `dreamer` id so the mctx_memory dreamer-action gate
  *  recognizes it. */
-export const DREAMER_CURATE_ALLOWED_TOOLS = ["mctx_memory"] as const;

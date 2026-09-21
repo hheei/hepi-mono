@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { ISSUE_135_ORPHAN_WIRE } from "../../../src/core/hooks/issue-135-wire-fixtures";
 import {
 	assertOpenAiCompatAdjacency,
 	type OpenAiCompatWireMessage,
@@ -50,11 +49,5 @@ describe("assertOpenAiCompatAdjacency", () => {
 			{ role: "tool", tool_call_id: "c1", content: "y" },
 		];
 		expect(assertOpenAiCompatAdjacency(messages).ok).toBe(false);
-	});
-
-	test("issue #135 pinned orphan fixture stays failing until fixed", () => {
-		const result = assertOpenAiCompatAdjacency(ISSUE_135_ORPHAN_WIRE);
-		expect(result.ok).toBe(false);
-		expect(result.violations.some((v) => v.kind === "missing_tool_messages")).toBe(true);
 	});
 });

@@ -55,7 +55,9 @@ export function isRetrievalEvidence(evidence: HistorianEvidence): boolean {
 		(evidence.kind === "tool" &&
 			(toolName === "memory_search" ||
 				toolName === "mctx_search" ||
+				toolName === "recall" ||
 				toolName === "mctx_memory" ||
+				toolName === "retain" ||
 				toolName === "memory_save"))
 	);
 }

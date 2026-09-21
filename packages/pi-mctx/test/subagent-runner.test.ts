@@ -405,10 +405,8 @@ describe("subagent-runner pure helpers", () => {
 		expect(idx).toBeGreaterThan(-1);
 		expect(args[idx + 1]).toBe("mctx_memory");
 		expect(args).not.toContain("--no-tools");
-		// No codebase/shell built-ins survive the allow-list. (mctx_memory itself is
-		// registered by the lean extension when a real bundle path is present; in
-		// this dev/test env SUBAGENT_ENTRY_PATH is undefined so --extension and the
-		// dreamer-actions flag are absent — the strict allow-list is independent.)
+		// The public source entry registers mctx_memory in the child; the strict
+		// tool allow-list still strips every built-in code and shell tool.
 		const toolList = args[idx + 1];
 		for (const denied of ["read", "grep", "find", "ls", "bash", "write", "edit"]) {
 			expect(toolList).not.toContain(denied);
@@ -588,43 +586,21 @@ describe("subagent-runner pure helpers", () => {
 		}
 	});
 
-	// Subagent extension entry loading. These tests verify the
-	// runner's argv contract for loading Magic Context's lean subagent
-	// extension (./subagent-entry.js) inside spawned Pi child processes.
-	// The bundle is only present after `bun run build`; in unit tests
-	// running source via Bun directly, the dev fallback (no --extension)
-	// kicks in. Both shapes are valid and locked in.
-
-	it("dev mode (no bundle): does NOT pass --extension flag, so ctx_* tools are unavailable", () => {
-		// In dev mode (running .ts source), there's no dist/subagent-entry.js
-		// next to subagent-runner.ts, so resolveSubagentEntryPath() returns
-		// undefined and we skip the --extension flag. Discovered provider/AFT
-		// extensions still load; only Magic Context's explicit ctx_* entry is absent.
-		const args = buildArgsForTest({
-			...baseOptions,
-			agent: "historian",
-			model: "anthropic/claude-sonnet",
-		});
-		// Neither --extension nor the legacy -x alias should appear when
-		// the bundle isn't built (this test runs the source, not the
-		// dist build). Pinning this is what lets us run unit tests
-		// without a build step. -x was removed in Pi 0.71+ and now hard-fails.
-		expect(args).not.toContain("--extension");
-		expect(args).not.toContain("-x");
-		expect(args).not.toContain("--magic-context-dreamer-actions");
-	});
-
-	it("does not set --magic-context-dreamer-actions for non-dreamer agents", () => {
-		// Even if the bundle were present, only dreamer-equivalent agents should
-		// receive mctx_memory in the child extension. Historian, sidekick,
-		// compressor etc. stay without the dreamer flag.
+	it("loads the source entry only for tool-using agents and gates dreamer actions", () => {
+		const entry = new URL("../src/subagent-entry.ts", import.meta.url).pathname;
+		const sidekick = buildArgsForTest({ ...baseOptions, agent: "sidekick" });
+		const dreamer = buildArgsForTest({ ...baseOptions, agent: "dreamer" });
+		const historian = buildArgsForTest({ ...baseOptions, agent: "historian" });
+		expect(sidekick).toEqual(expect.arrayContaining(["--extension", entry]));
+		expect(dreamer).toEqual(
+			expect.arrayContaining(["--extension", entry, "--magic-context-dreamer-actions"]),
+		);
+		expect(historian).not.toContain("--extension");
+		expect(historian).not.toContain("-x");
 		for (const agent of ["historian", "sidekick", "compressor", "recomp"]) {
-			const args = buildArgsForTest({
-				...baseOptions,
-				agent,
-				model: "anthropic/claude-sonnet",
-			});
-			expect(args).not.toContain("--magic-context-dreamer-actions");
+			expect(buildArgsForTest({ ...baseOptions, agent })).not.toContain(
+				"--magic-context-dreamer-actions",
+			);
 		}
 	});
 });

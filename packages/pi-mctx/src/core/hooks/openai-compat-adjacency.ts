@@ -132,28 +132,3 @@ export function assertOpenAiCompatAdjacency(messages: OpenAiCompatWireMessage[])
 
 	return { ok: violations.length === 0, violations };
 }
-
-export function formatWireSlice(
-	messages: OpenAiCompatWireMessage[],
-	centerIndex: number,
-	radius = 2,
-): string {
-	const start = Math.max(0, centerIndex - radius);
-	const end = Math.min(messages.length, centerIndex + radius + 1);
-	return JSON.stringify(
-		messages.slice(start, end).map((m, idx) => ({
-			at: start + idx,
-			role: m.role,
-			content:
-				typeof m.content === "string"
-					? m.content.length > 80
-						? `${m.content.slice(0, 80)}…`
-						: m.content
-					: m.content,
-			tool_calls: m.tool_calls?.map((tc) => tc.id),
-			tool_call_id: m.tool_call_id,
-		})),
-		null,
-		2,
-	);
-}

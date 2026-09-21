@@ -24,7 +24,7 @@ describe("registerMagicContextTools", () => {
 				sessionScopedToolsDisabled: true,
 			});
 
-			expect(registered).toContain("mctx_search");
+			expect(registered).toContain("recall");
 			expect(registered).not.toContain("mctx_memory");
 			expect(registered).not.toContain("mctx_note");
 			expect(registered).not.toContain("mctx_expand");
@@ -60,12 +60,10 @@ describe("registerMagicContextTools", () => {
 					identity: () => ({ project: "hepi-mono" }),
 				},
 			});
-			expect([...registered.keys()]).toEqual(
-				expect.arrayContaining(["mctx_search", "mctx_memory"]),
+			expect([...registered.keys()]).toEqual(expect.arrayContaining(["recall", "retain"]));
+			expect(Object.keys(registered.get("retain")?.parameters.properties ?? {}).sort()).toEqual(
+				["content", "type"].sort(),
 			);
-			expect(
-				Object.keys(registered.get("mctx_memory")?.parameters.properties ?? {}).sort(),
-			).toEqual(["content", "type"].sort());
 		} finally {
 			closeQuietly(db);
 		}
@@ -83,7 +81,7 @@ describe("registerMagicContextTools", () => {
 
 			expect(registered).not.toContain("mctx_reduce");
 			expect(registered).toEqual(
-				expect.arrayContaining(["mctx_search", "mctx_memory", "mctx_note", "mctx_expand"]),
+				expect.arrayContaining(["recall", "mctx_memory", "mctx_note", "mctx_expand"]),
 			);
 		} finally {
 			closeQuietly(db);
@@ -117,7 +115,7 @@ describe("registerMagicContextTools", () => {
 			registerMagicContextTools(pi, { db });
 
 			const expectedFields: Record<string, string[]> = {
-				mctx_search: ["query", "limit", "sources"],
+				recall: ["query", "limit", "sources"],
 				mctx_memory: ["action", "content", "category", "ids", "limit", "reason"],
 				mctx_note: [
 					"action",
@@ -164,7 +162,7 @@ describe("registerMagicContextTools", () => {
 			} as never;
 			registerMagicContextTools(pi, { db });
 
-			const search = registered.find((tool) => tool.name === "mctx_search");
+			const search = registered.find((tool) => tool.name === "recall");
 			expect(search?.renderShell).toBe("self");
 			const theme = {
 				bg: (_role: string, text: string): string => text,
@@ -185,12 +183,9 @@ describe("registerMagicContextTools", () => {
 				isPartial: false,
 				isError: false,
 			};
-			const header = search
-				?.renderCall?.(context.args as never, theme as never, context as never)
-				.render(80)
-				.join("\n");
-			expect(header).toContain("Magic Context: Search");
-			expect(header).toContain("token usage");
+			const header = search?.renderCall?.(context.args as never, theme as never, context as never);
+			expect(JSON.stringify(header)).toContain("Recall");
+			expect(JSON.stringify(header)).toContain("token usage");
 			const body = search
 				?.renderResult?.(
 					{

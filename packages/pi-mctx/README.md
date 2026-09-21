@@ -4,12 +4,13 @@
 lives in `src/`; shared Magic Context implementation lives in `src/core/` and
 is private to this package through `#core/*` imports.
 
-Pi adapter 通过 `src/index.ts` 直接加载。Magic Context Window 继续由 Pi hooks 和
-本地 `context.db` 管理；可选 AgentMemory HTTP bridge 负责跨会话 durable memory。
-启用 bridge 后，agent-facing 工具名仍为 `mctx_search` / `mctx_memory`：search 将
-local session lane 与 AgentMemory lane 分开显示，memory write 先提交本地
-transactional outbox，再异步投递。`/ctx-status` 读取已观察的 bridge 状态与本地
-outbox 计数，不触发网络；`/agentmemory-health` 才执行显式 fresh probe。
+公开包的 Pi 扩展入口是 `src/index.ts`，随包分发源码并由 Pi 的 TypeScript 加载器加载；
+子代理的精简入口 `src/subagent-entry.ts` 同时随包分发。Magic Context Window 继续由 Pi hooks 和
+本地 `context.db` 管理；可选 Hindsight HTTP backend 负责跨会话 durable memory。
+启用 backend 后，agent-facing 工具名仍为 `mctx_search` / `mctx_memory`：search 将
+local session lane 与 Hindsight lane 分开显示，memory write 先提交本地 transactional outbox，再异步投递。
+`/ctx-status` 读取已观察的 backend 状态与本地 outbox 计数，不触发网络；`/agentmemory-health` 才执行显式
+fresh probe。
 Automatic recall admission is recorded in an additive Pi-owned ledger keyed by
 session, branch generation, projection epoch, and real user-entry ID. Repeated
 transforms replay the same immutable snapshot; stale, tainted, out-of-scope, and
@@ -32,7 +33,7 @@ Pi MCTX owns its persistence. Runtime settings are stored in global
 It does not read, write, migrate, or merge Pi's native `settings.json`, the upstream CortexKit
 `magic-context.jsonc` files, or `~/.local/share/cortexkit/magic-context/`.
 
-## AgentMemory 配置与验收
+## Hindsight 配置与验收
 
 在全局 `<agentDir>/ext_settings.json` 的 `operational` group 中使用扁平配置键（不是嵌套的
 `agentmemory` 对象），修改后 `/reload`：
@@ -41,7 +42,7 @@ It does not read, write, migrate, or merge Pi's native `settings.json`, the upst
 {
   "operational": {
     "agentmemoryEnabled": true,
-    "agentmemoryUrl": "http://127.0.0.1:3111",
+    "agentmemoryUrl": "http://127.0.0.1:8888",
     "agentmemoryCapture": true,
     "agentmemoryInject": true,
     "agentmemoryMemoryTools": true,
@@ -50,16 +51,23 @@ It does not read, write, migrate, or merge Pi's native `settings.json`, the upst
 }
 ```
 
-服务必须实现 AgentMemory HTTP 协议；以上 URL 只是本机配置示例，不会自动启动服务。
-`agentmemorySecret` 配置 bearer secret，`agentmemoryRequireHttps` 要求安全传输；不要把真实 secret 提交到仓库。
-`agentmemoryAgentId` 仅用于过滤。Project identity 依次取 `AGENTMEMORY_PROJECT_NAME`、git root basename、cwd basename，不支持 project setting。
+这些兼容字段现在连接 Hindsight API，而不再连接旧的 `/agentmemory/*` 协议。默认服务端是
+Hindsight `http://127.0.0.1:8888`；也可以使用 Hindsight Cloud 或 self-hosted URL。
+`agentmemorySecret` 作为 Hindsight API key，`agentmemoryRequireHttps` 要求安全传输；不要把真实
+secret 提交到仓库。project identity 映射为 Hindsight bank id，`agentmemoryAgentId` 仅用于 tags。
+
+Hindsight backend 的基本映射是：capture/remember → `retain`，automatic search → `recall`，health →
+`/version`；没有远程 session start/end，session identity 通过 retain metadata/tags 保留。
+参考官方 [TypeScript client](https://hindsight.vectorize.io/sdks/nodejs)、[retain](https://hindsight.vectorize.io/developer/api/retain)
+和 [recall](https://hindsight.vectorize.io/developer/api/recall) 文档。
+
 AgentMemory 默认关闭，开关独立于 Window 的 `enabled` 与 `compactionEnabled`。
 
-`/ctx-status` 只读取已观察状态；`/agentmemory-health` 显式探测服务，bridge 关闭时直接报告 disabled，不发起模型请求。
+`/ctx-status` 只读取已观察状态；`/agentmemory-health` 显式探测 Hindsight 服务，backend 关闭时直接报告 disabled。
 本地协议 smoke 使用真实 Pi SDK 和隔离数据库，连接 loopback HTTP fixture，不使用用户凭据或真实模型：
 
 ```bash
 pnpm --filter @hheei/pi-mctx exec node --no-warnings --import jiti/register scripts/agentmemory-live-smoke.ts
 ```
 
-该 smoke 验证 Pi 接入和 HTTP 协议闭环，不替代部署中的 AgentMemory 服务验收或真实 provider 请求验证。
+该 smoke 验证 Pi 接入和 Hindsight 兼容端口闭环，不替代部署中的 Hindsight 服务验收或真实 provider 请求验证。

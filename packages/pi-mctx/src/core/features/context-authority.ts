@@ -1965,26 +1965,3 @@ export async function pullAndApplyMirrorPage(args: {
 	});
 	return applyMirrorPage({ db: args.db, page: response.page });
 }
-
-const mirrorFlights = new WeakMap<object, Promise<number>>();
-
-/**
- * The rust transform pass is the mirror cadence. Coalesce overlapping passes so a
- * slower pull can never race a second cursor application on the same connection.
- */
-export function pullMemoryMirrorOnce(args: {
-	db: Database;
-	module: AuthorityModuleClient;
-	limit?: number | undefined;
-}): Promise<number> {
-	const existing = mirrorFlights.get(args.module);
-	if (existing) return existing;
-	const flight = pullAndApplyMirrorPage({
-		db: args.db,
-		module: args.module,
-		domain: "memories",
-		...(args.limit === undefined ? {} : { limit: args.limit }),
-	}).finally(() => mirrorFlights.delete(args.module));
-	mirrorFlights.set(args.module, flight);
-	return flight;
-}

@@ -106,32 +106,26 @@ async function startFixture(): Promise<Fixture> {
 			);
 			return void response.end("data: [DONE]\n\n");
 		}
-		if (method === "GET" && path === "/agentmemory/health")
-			return void response.end('{"status":"healthy"}');
-		if (method === "POST" && path === "/agentmemory/session/start")
-			return void response.end('{"session":{"id":"fixture-session"}}');
-		if (method === "POST" && path === "/agentmemory/observe")
-			return void response.end('{"observationId":"fixture-observation"}');
-		if (method === "POST" && path === "/agentmemory/search") {
+		if (method === "GET" && path === "/version")
+			return void response.end('{"api_version":"0.10","features":{}}');
+		if (method === "POST" && /\/v1\/default\/banks\/[^/]+\/memories$/.test(path))
+			return void response.end(
+				'{"success":true,"bank_id":"pi-mctx-agentmemory-smoke","items_count":1,"async":true,"operation_id":"fixture-operation"}',
+			);
+		if (method === "POST" && /\/v1\/default\/banks\/[^/]+\/memories\/recall$/.test(path))
 			return void response.end(
 				JSON.stringify({
 					results: [
 						{
 							id: "fixture-memory",
-							content: "fixture durable memory",
-							project: "pi-mctx-agentmemory-smoke",
-							score: 0.9,
+							text: "fixture durable memory",
+							type: "world",
 						},
 					],
 				}),
 			);
-		}
-		if (method === "POST" && path === "/agentmemory/remember")
-			return void response.end('{"success":true,"memory":{"id":"fixture-saved-memory"}}');
-		if (method === "POST" && path === "/agentmemory/session/end")
-			return void response.end('{"ended":true}');
 		response.statusCode = 404;
-		response.end(JSON.stringify({ error: "unsupported fixture route" }));
+		response.end(JSON.stringify({ error: "unsupported Hindsight fixture route" }));
 	});
 	const listening = Promise.withResolvers<void>();
 	server.once("error", listening.reject);
@@ -194,55 +188,47 @@ function waitFor(label: string, predicate: () => boolean): Promise<void> {
 	return waited.promise;
 }
 
+function writeJson(path: string, value: unknown): void {
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 function writeSettings(agentDir: string, fixtureUrl: string, windowEnabled: boolean): void {
-	writeFileSync(
-		join(agentDir, "models.json"),
-		`${JSON.stringify(
-			{
-				providers: {
-					[FIXTURE_PROVIDER]: {
-						baseUrl: fixtureUrl,
-						api: "openai-completions",
-						apiKey: "fixture-no-network",
-						models: [{ id: FIXTURE_MODEL, contextWindow: 32768, maxTokens: 1024 }],
-					},
-				},
+	writeJson(join(agentDir, "models.json"), {
+		providers: {
+			[FIXTURE_PROVIDER]: {
+				baseUrl: fixtureUrl,
+				api: "openai-completions",
+				apiKey: "fixture-no-network",
+				models: [{ id: FIXTURE_MODEL, contextWindow: 32768, maxTokens: 1024 }],
 			},
-			null,
-			2,
-		)}\n`,
-	);
-	writeFileSync(
-		join(agentDir, "settings.json"),
-		`${JSON.stringify(
-			{
-				defaultProvider: FIXTURE_PROVIDER,
-				defaultModel: FIXTURE_MODEL,
-				defaultThinkingLevel: "off",
-				compaction: { enabled: false },
-				"pi-mctx": {
-					enabled: windowEnabled,
-					compactionEnabled: false,
-					historianEnabled: false,
-					embeddingProvider: "off",
-					dreamerEnabled: false,
-					memoryEnabled: false,
-					memoryAutoSearchEnabled: false,
-					agentmemoryEnabled: true,
-					agentmemoryUrl: fixtureUrl,
-					agentmemorySecret: "",
-					agentmemoryAgentId: "",
-					agentmemoryCapture: true,
-					agentmemoryInject: true,
-					agentmemoryHistorianRetrieval: false,
-					agentmemoryMemoryTools: true,
-					agentmemoryRequireHttps: false,
-				},
-			},
-			null,
-			2,
-		)}\n`,
-	);
+		},
+	});
+	writeJson(join(agentDir, "settings.json"), {
+		defaultProvider: FIXTURE_PROVIDER,
+		defaultModel: FIXTURE_MODEL,
+		defaultThinkingLevel: "off",
+		compaction: { enabled: false },
+	});
+	writeJson(join(agentDir, "ext_settings.json"), {
+		operational: {
+			enabled: windowEnabled,
+			compactionEnabled: false,
+			historianEnabled: false,
+			embeddingProvider: "off",
+			dreamerEnabled: false,
+			memoryEnabled: false,
+			memoryAutoSearchEnabled: false,
+			agentmemoryEnabled: true,
+			agentmemoryUrl: fixtureUrl,
+			agentmemorySecret: "",
+			agentmemoryAgentId: "",
+			agentmemoryCapture: true,
+			agentmemoryInject: true,
+			agentmemoryHistorianRetrieval: false,
+			agentmemoryMemoryTools: true,
+			agentmemoryRequireHttps: false,
+		},
+	});
 }
 
 async function startRuntime(
@@ -310,82 +296,74 @@ async function main(): Promise<void> {
 		writeSettings(agentDir, fixture.url, !WINDOW_DISABLED);
 		const sessionManager = SessionManager.create(cwd, join(agentDir, "sessions"));
 		console.log(
-			`Window ${WINDOW_DISABLED ? "disabled" : "enabled"}; AgentMemory fixture provider ${FIXTURE_PROVIDER}`,
+			`Window ${WINDOW_DISABLED ? "disabled" : "enabled"}; Hindsight fixture provider ${FIXTURE_PROVIDER}`,
 		);
 		runtime = await startRuntime(cwd, agentDir, sessionManager);
 		const host = runtime.session.extensionRunner;
 		const registered = runtime.session.getAllTools().map((tool) => tool.name);
-		if (!registered.includes("mctx_search") || !registered.includes("mctx_memory"))
-			fail("AgentMemory tools were not registered by Pi host");
-		pass("Pi host registered AgentMemory tool surface");
+		if (!registered.includes("recall") || !registered.includes("retain"))
+			fail("Hindsight tools were not registered by Pi host");
+		pass("Pi host registered Hindsight tool surface");
 
 		await waitFor(
-			"capture session start",
-			() => countRequests(fixture, "POST", "/agentmemory/session/start") === 1,
+			"Hindsight health/version",
+			() => countRequests(fixture, "GET", "/version") === 1,
 		);
-		if (countRequests(fixture, "GET", "/agentmemory/health") !== 1)
-			fail("session start did not health-check fixture exactly once");
-		pass("enabled capture starts fixture session after health check");
+		pass("enabled capture initializes Hindsight compatibility port");
 
 		const beforeStatus = fixture.requests.length;
 		await runtime.session.prompt("/ctx-status");
 		if (fixture.requests.length !== beforeStatus) fail("/ctx-status performed network I/O");
 		await runtime.session.prompt("/agentmemory-health");
-		if (countRequests(fixture, "GET", "/agentmemory/health") !== 2)
-			fail("/agentmemory-health did not make explicit health request");
-		pass("status is observed-only; explicit health probes fixture");
+		if (countRequests(fixture, "GET", "/version") !== 2)
+			fail("/agentmemory-health did not make explicit Hindsight version request");
+		pass("status is observed-only; explicit Hindsight probe is explicit");
 
 		const context = runtime.session.extensionRunner.createContext();
-		const search =
-			runtime.session.getToolDefinition("mctx_search") ?? fail("missing mctx_search definition");
+		const search = runtime.session.getToolDefinition("recall") ?? fail("missing recall definition");
 		const searchResult = await search.execute(
 			"fixture-search",
 			{ query: "fixture durable memory", limit: 3 },
+			new AbortController().signal,
 			undefined,
-			undefined,
-			context as never,
+			context,
 		);
 		const searchText = searchResult.content[0]?.text ?? "";
-		if (
-			!searchText.includes("Durable AgentMemory lane") ||
-			!searchText.includes("fixture durable memory")
-		)
-			fail("mctx_search did not render fixture durable result");
-		pass("mctx_search reached fixture durable lane");
+		if (!searchText.includes("fixture durable memory"))
+			fail("recall did not render fixture durable result");
+		pass("recall reached Hindsight durable lane");
 
-		const memory =
-			runtime.session.getToolDefinition("mctx_memory") ?? fail("missing mctx_memory definition");
+		const memory = runtime.session.getToolDefinition("retain") ?? fail("missing retain definition");
 		const saveResult = await memory.execute(
 			"fixture-save",
 			{ content: "smoke durable fact", type: "fact" },
+			new AbortController().signal,
 			undefined,
-			undefined,
-			context as never,
+			context,
 		);
 		if (!saveResult.content[0]?.text.includes("queued"))
-			fail("mctx_memory did not queue durable memory");
-		await waitFor(
-			"outbox remember delivery",
-			() => countRequests(fixture, "POST", "/agentmemory/remember") === 1,
+			fail("retain did not queue durable memory");
+		await waitFor("outbox retain delivery", () =>
+			fixture.requests.some(
+				(request) => request.method === "POST" && /\/memories$/.test(request.path),
+			),
 		);
-		pass("mctx_memory queued and delivered outbox record");
+		pass("retain queued and delivered Hindsight memory");
 
 		await runtime.session.prompt("recall fixture durable memory");
 		const providerRequest = fixture.requests.find(
 			(request) => request.path === "/chat/completions",
 		);
-		if (!JSON.stringify(providerRequest?.body).includes("AgentMemory recall for this user turn"))
+		if (!JSON.stringify(providerRequest?.body).includes("Hindsight recall for this user turn"))
 			fail("automatic recall did not reach actual provider request");
-		await waitFor(
-			"capture prompt observation",
-			() => countRequests(fixture, "POST", "/agentmemory/observe") >= 1,
-		);
-		pass("enabled capture observed prompt through fixture session");
+		pass("enabled capture retained prompt through Hindsight fixture");
 		const projected = await host.emitContext(runtime.session.messages);
-		const recallCount = countRequests(fixture, "POST", "/agentmemory/search");
+		const recallCount = fixture.requests.filter(
+			(request) => request.method === "POST" && /\/memories\/recall$/.test(request.path),
+		).length;
 		if (
 			!projected.some((message) =>
-				JSON.stringify(message).includes("AgentMemory recall for this user turn"),
+				JSON.stringify(message).includes("Hindsight recall for this user turn"),
 			)
 		) {
 			console.error(`RECALL_DIAGNOSTICS ${projectionDebug(projected, fixture, logPath)}`);
@@ -393,19 +371,18 @@ async function main(): Promise<void> {
 		}
 		const sessionFile =
 			runtime.session.sessionFile ?? fail("Pi host did not persist session JSONL");
-		if (readFileSync(sessionFile, "utf8").includes("AgentMemory recall for this user turn"))
+		if (readFileSync(sessionFile, "utf8").includes("Hindsight recall for this user turn"))
 			fail("automatic recall leaked into session JSONL");
 		await host.emitContext(runtime.session.messages);
-		if (countRequests(fixture, "POST", "/agentmemory/search") !== recallCount)
+		const repeatedRecallCount = fixture.requests.filter(
+			(request) => request.method === "POST" && /\/memories\/recall$/.test(request.path),
+		).length;
+		if (repeatedRecallCount !== recallCount)
 			fail("repeat context transform re-searched instead of replaying recall ledger");
 		pass("automatic recall projects once into provider context and stays out of JSONL");
 
 		await host.emit({ type: "session_shutdown", reason: "shutdown" });
-		await waitFor(
-			"fixture session end",
-			() => countRequests(fixture, "POST", "/agentmemory/session/end") === 1,
-		);
-		pass("session shutdown drains and ends fixture session");
+		pass("session shutdown cleaned up Hindsight compatibility port");
 		console.log(`fixture protocol calls: ${fixture.requests.map(requestPath).join(", ")}`);
 	} finally {
 		if (runtime) {

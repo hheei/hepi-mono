@@ -163,22 +163,3 @@ export function createFailClosedController(options?: {
 		},
 	};
 }
-
-/** Hook-init classification so boot can arm the gate for storage failures. */
-export type HookInitFailure =
-	| { type: "storage"; reason: FailClosedReason }
-	| { type: "no_project" };
-
-let lastHookInitFailure: HookInitFailure | null = null;
-
-export function recordHookInitFailure(failure: HookInitFailure): void {
-	lastHookInitFailure = failure;
-}
-
-export function clearHookInitFailure(): void {
-	lastHookInitFailure = null;
-}
-
-export function getLastHookInitFailure(): HookInitFailure | null {
-	return lastHookInitFailure;
-}

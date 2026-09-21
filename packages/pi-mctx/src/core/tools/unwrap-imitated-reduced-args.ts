@@ -1,8 +1,3 @@
-export interface ImitatedReducedArgs {
-	reduced?: boolean | undefined;
-	summary?: string | undefined;
-}
-
 export type ImitatedArgRule =
 	| "string"
 	| "number"

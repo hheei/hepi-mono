@@ -32,7 +32,6 @@ function healCompartmentGaps(
 		const prev = compartments[i - 1];
 		const curr = compartments[i];
 		if (!prev || !curr) continue;
-		if (!prev || !curr) continue;
 		const gapStart = prev.endMessage + 1;
 		const gapEnd = curr.startMessage - 1;
 		const gapSize = gapEnd - gapStart + 1;

@@ -120,11 +120,6 @@ export interface MemoryCountsByStatus {
 	mergedIds: number[];
 }
 
-export interface InsertMemoryResult {
-	memory: Memory;
-	inserted: boolean;
-}
-
 interface MemoryCountByStatusRow {
 	id: number;
 	status: MemoryStatus;
@@ -227,14 +222,6 @@ function isMemorySourceType(value: unknown): value is MemorySourceType {
 
 function isVerificationStatus(value: unknown): value is VerificationStatus {
 	return typeof value === "string" && value in VERIFICATION_STATUS_LOOKUP;
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as { code?: unknown }).code === "SQLITE_CONSTRAINT_UNIQUE"
-	);
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -635,25 +622,6 @@ export function insertMemory(db: Database, input: MemoryInput): Memory {
  * bump seen_count/last_seen_at on the existing row and return it instead of
  * surfacing a transient write failure.
  */
-export function insertMemoryIdempotent(db: Database, input: MemoryInput): InsertMemoryResult {
-	try {
-		return { memory: insertMemory(db, input), inserted: true };
-	} catch (error) {
-		if (!isUniqueConstraintError(error)) {
-			throw error;
-		}
-		const normalizedHash = computeNormalizedHash(input.content);
-		const existing = getMemoryByHash(db, input.projectPath, input.category, normalizedHash);
-		if (!existing) {
-			throw error;
-		}
-		updateMemorySeenCount(db, existing.id);
-		return {
-			memory: getMemoryById(db, existing.id) ?? existing,
-			inserted: false,
-		};
-	}
-}
 
 export function getMemoryByHash(
 	db: Database,
