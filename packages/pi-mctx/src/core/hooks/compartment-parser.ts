@@ -161,23 +161,6 @@ function extractTier(inner: string, index: number): string | undefined {
  * re-parses flat `content` that the old strict parser stranded as legacy when a
  * model mismatched a tier's closing tag. Each tier is undefined when absent.
  */
-export function extractTiersFromInner(inner: string): {
-	p1?: string | undefined;
-	p2?: string | undefined;
-	p3?: string | undefined;
-	p4?: string | undefined;
-} {
-	const p1 = extractTier(inner, 0);
-	const p2 = extractTier(inner, 1);
-	const p3 = extractTier(inner, 2);
-	const p4 = extractTier(inner, 3);
-	return {
-		...(p1 === undefined ? {} : { p1 }),
-		...(p2 === undefined ? {} : { p2 }),
-		...(p3 === undefined ? {} : { p3 }),
-		...(p4 === undefined ? {} : { p4 }),
-	};
-}
 
 export function parseCompartmentOutput(text: string): ParsedCompartmentOutput {
 	const compartments: ParsedCompartment[] = [];

@@ -1684,18 +1684,6 @@ export function registerProjectInObservationMode(
 	return snapshotFor(registration);
 }
 
-export function unregisterProjectEmbedding(projectIdentity: string): void {
-	const prior = projectRegistrations.get(projectIdentity);
-	const shadow = shadowRegistrations.get(projectIdentity);
-	if (!prior && !shadow) return;
-	projectRegistrations.delete(projectIdentity);
-	shadowRegistrations.delete(projectIdentity);
-	dbForShadowQueue.delete(projectIdentity);
-	globalRegistrationGeneration += 1;
-	disposeProvider(prior?.provider ?? null);
-	disposeProvider(shadow?.provider ?? null);
-}
-
 export function getProjectEmbeddingSnapshot(
 	projectIdentity: string,
 ): ProjectEmbeddingRegistrationSnapshot | null {

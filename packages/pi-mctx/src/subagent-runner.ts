@@ -115,38 +115,11 @@ function resolvePiInvocation(): PiInvocation {
 	return { command: "pi", prefixArgs: [] };
 }
 
-/**
- * Resolve the path to the lean subagent extension entry that gets loaded
- * inside spawned Pi child processes. The bundle ships at
- * `dist/subagent-entry.js` next to `dist/index.js` (this module). We use
- * `import.meta.url` so the path resolves correctly regardless of where
- * the npm package is installed (or where it's symlinked from in dev).
- *
- * Falls back to undefined if the file isn't found at the expected
- * location — caller should treat that as a soft signal to skip the
- * `-x` flag (subagent will run without Magic Context tools, which is
- * acceptable for ctx_*-using agents in dev/test before the bundle exists).
- */
-function resolveSubagentEntryPath(): string | undefined {
-	try {
-		// Resolve from the current module's directory. In dev (running
-		// .ts via Bun) and in prod (running .js from dist/), this lands
-		// in the same directory as the runner itself.
-		const here = dirname(fileURLToPath(import.meta.url));
-		const candidate = resolvePath(here, "subagent-entry.js");
-		if (existsSync(candidate)) return candidate;
-
-		// Dev fallback: when running source from packages/pi-plugin/src/
-		// the .js bundle doesn't exist yet; skip the --extension flag so
-		// tests running pre-build don't fail. Production builds always
-		// have the bundle.
-		return undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-const SUBAGENT_ENTRY_PATH = resolveSubagentEntryPath();
+/** The public package ships source entries; Pi loads TypeScript extensions directly. */
+const SUBAGENT_ENTRY_PATH = resolvePath(
+	dirname(fileURLToPath(import.meta.url)),
+	"subagent-entry.ts",
+);
 
 /**
  * Grace period (ms) after we detect the terminal assistant message_end
@@ -1436,29 +1409,15 @@ export function buildArgs(
 		}
 	}
 
-	// Load Magic Context's lean subagent extension entry in children that need the
-	// scoped ctx_* tools. With no allowlist, discovered extensions remain enabled
-	// so provider and other auto-discovered extensions can register, while the full Magic Context entry sees
-	// MAGIC_CONTEXT_PI_SUBAGENT=1 and returns before wiring recursive hooks. The
-	// lean entry is explicitly loaded via --extension and is NOT guarded; it only
-	// registers subagent-scoped tools and never historian/dreamer/event handlers.
-	// When the bundle isn't present (e.g. running source from src/ without a build),
-	// skip the flag — the affected subagent simply lacks Magic Context ctx_* tools.
-	//
-	// We use the long form `--extension` (not the `-e` short form) to
-	// avoid clashes with extension-registered flags. Older Pi versions
-	// also exposed `-x`, but that alias was removed in 0.71+ — newer
-	// versions hard-fail with "Unknown option: -x".
-	// Do not load the lean Magic Context extension for historian/compressor style
-	// subagents. They do not use ctx_* tools, and loading the entry would add
-	// startup cost and an avoidable tool-registration surface. Tool-using agents
-	// (sidekick/dreamer) still receive the lean entry.
+	// Only sidekick/dreamer children need the shipped lean entry for scoped ctx_* tools.
+	// Use --extension: Pi removed the old -x alias and -e may clash with extension flags.
 	const subagentEntryPath = opts?.subagentEntryPath ?? SUBAGENT_ENTRY_PATH;
-	const shouldLoadSubagentExtension =
-		subagentEntryPath &&
-		(SEARCH_ONLY_SUBAGENT_TOOL_AGENTS.has(options.agent) ||
-			DREAMER_ACTION_AGENTS.has(options.agent));
-	if (shouldLoadSubagentExtension) {
+	if (
+		SEARCH_ONLY_SUBAGENT_TOOL_AGENTS.has(options.agent) ||
+		DREAMER_ACTION_AGENTS.has(options.agent)
+	) {
+		if (opts?.subagentEntryPath === undefined && !existsSync(subagentEntryPath))
+			throw new Error(`Magic Context child extension is missing: ${subagentEntryPath}`);
 		args.push("--extension", subagentEntryPath);
 
 		// Only dreamer subagents get mctx_memory in the child extension. Sidekick

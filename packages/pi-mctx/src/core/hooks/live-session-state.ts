@@ -54,19 +54,3 @@ export interface LiveSessionState {
 	 */
 	internalChildSessions: Set<string>;
 }
-
-export function createLiveSessionState(): LiveSessionState {
-	return {
-		liveModelBySession: new Map<string, { providerID: string; modelID: string }>(),
-		variantBySession: new Map<string, string | undefined>(),
-		agentBySession: new Map<string, string>(),
-		historyRefreshSessions: new Set<string>(),
-		deferredHistoryRefreshSessions: new Set<string>(),
-		systemPromptRefreshSessions: new Set<string>(),
-		pendingMaterializationSessions: new Set<string>(),
-		deferredMaterializationSessions: new Set<string>(),
-		sessionDirectoryBySession: new Map<string, string>(),
-		recompProgressBySession: new Map<string, RecompProgress>(),
-		internalChildSessions: new Set<string>(),
-	};
-}

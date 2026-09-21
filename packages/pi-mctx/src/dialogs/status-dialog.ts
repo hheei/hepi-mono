@@ -304,7 +304,7 @@ function renderInner(s: StatusDialogDetail, theme: Theme, innerWidth: number): s
 		for (const line of formatAgentMemoryStatus(s.agentMemory)) lines.push(line);
 	}
 	if (s.agentMemoryRecallPreview.length > 0) {
-		lines.push(theme.fg("muted", "AgentMemory recall preview"));
+		lines.push(theme.fg("muted", "Hindsight recall preview"));
 		for (const preview of s.agentMemoryRecallPreview) lines.push(`  ${preview}`);
 	}
 	lines.push(

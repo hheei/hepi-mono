@@ -34,9 +34,9 @@
  * trigger historian/dreamer/transform pipelines. Subagents only get the
  * tool surface — that's it.
  *
- * How parent passes this entry to the child:
+ * How parent passes this source entry to the child:
  *   MAGIC_CONTEXT_PI_SUBAGENT=1 pi --print \
- *     --extension /absolute/path/to/dist/subagent-entry.js \
+ *     --extension /absolute/path/to/src/subagent-entry.ts \
  *     --tools <agent-specific allow-list> \
  *     [other flags...]
  *

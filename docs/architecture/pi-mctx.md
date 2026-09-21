@@ -23,39 +23,35 @@ Pi host
 - Pi MCTX 自动模型提醒使用 Pi `custom` session message：模型内容保留 `<system-reminder>…</system-reminder>`，交互 transcript 通过 `registerMessageRenderer` 显示 `[magic context]` 块。Channel 1 的 gentle/firm 级别保持模型可见但不显示；仅 urgent 级别显示该块，Channel 2 始终显示。Channel 1 每次送达后至少等待三个已完成的 assistant turn 才能再次送达；该 live-only 冷却状态不写入数据库。不得向 `toolResult.content` 挂载自动提醒。仅 `pi.on("context")` 的临时 message 变换可在当前 provider 请求中注入内容；该数组不写入 session，也没有 transcript 表示。
 
 
-### AgentMemory bridge
+### Hindsight backend
 
 ```text
-Pi lifecycle hooks ──fire-and-forget──> AgentMemory session/capture runtime
+Pi lifecycle hooks ──fire-and-forget──> Hindsight retain
 mctx_search ──> local session lane
-            └─> scoped AgentMemory lane ──partial failure──> local lane remains healthy
-mctx_memory ──transaction──> context.db outbox ──lease/retry/dedupe──> /remember
+            └─> Hindsight recall lane ──partial failure──> local lane remains healthy
+mctx_memory ──transaction──> context.db outbox ──lease/retry/dedupe──> Hindsight retain
 automatic recall ──scope/taint gate──> projection epoch + durable recall ledger
 projection publish ──interactive TUI──> leased aboveEditor widget + receipt
 /ctx-status ──read only──> observed runtime snapshot + bounded recall preview
 headless/RPC ──> provider context only (no widget)
-session_shutdown ──abort/capped drain──> outbox + remote session cleanup
 ```
 
-`pi-mctx` owns bridge lifecycle、cancellation、SQLite outbox 和 status snapshot；上游
-AgentMemory owns durable memory。Outbox 与 taint tables 是 additive、可重入的本地
-coordination state，不是上游 memory schema。Agent-facing 名称固定为
-`mctx_search` / `mctx_memory`；启用 bridge 只替换实现，不增加 alias 或 dual-write。
-每个 Pi session 映射一个 remote capture segment；search 的 project/agent scope gate
-会排除当前 active segment。Bridge failure 不阻断 Window，search 仍返回 local lane
-并明确标记 partial/degraded。Status refresh 绝不发网络请求；fresh health 仅由用户
-显式调用 `/agentmemory-health`。
-Automatic recall admission 由 `pi-mctx` 在 additive ledger 中按
-`session + branch + generation + user-entry anchor` 保存 immutable snapshot。相同
-anchor/epoch 的并发或重试只搜索一次并 replay 同一结果；branch/generation 已变化的
-异步结果会作为 stale 丢弃。Scope、当前 remote segment、taint 与 already-visible gate
-在提交前执行，backend failure 只更新 degraded status，不产生空 event，也不阻断
-Window。Context Projection publish 后，interactive TUI 通过 ext-core-managed
-`aboveEditor` widget 展示 newly admitted sources；event 先取得短 lease，widget
-mount 成功后才写 presentation receipt，失败则由 lease expiry 重试。headless/RPC
-只接收 provider-visible projection，不挂载 widget，也不追加 transcript recall 文本。
-`/ctx-status` 最多展示三个 recent admitted source 的 sanitized bounded preview，且不发网络请求。
-Pi raw-session data is supplied only by the adapter's `RawMessageProvider`; core fails closed when no provider is installed. Shared storage is Pi-owned and has no import or migration path from a legacy OpenCode database. Legacy subagent-invocation rows retain their invocation IDs and token totals, but the retired cross-host `harness` telemetry column is removed by a transactional table rebuild; callers no longer write or read a host origin for those rows.
+`pi-mctx` owns the compatibility port lifecycle, cancellation, SQLite outbox and status
+snapshot. Hindsight owns durable memory, bank processing and recall ranking. The previous
+custom `/agentmemory/*` protocol and its remote session lifecycle are removed; Hindsight
+`retain` carries capture/remember data, `recall` supplies search, and session identity is
+represented by local ledger identity plus Hindsight metadata/tags. Agent-facing names remain
+`mctx_search` / `mctx_memory`; switching to Hindsight adds no aliases or dual-write path.
+
+Automatic recall admission is stored by `pi-mctx` in the additive ledger using
+`session + branch + generation + user-entry anchor`. Backend failure only updates degraded
+status and does not block Window. Context Projection publishes provider-visible recall only
+after scope, taint, stale-generation and already-visible checks. Interactive TUI presentation
+uses ext-core's `aboveEditor` widget; headless/RPC receives only provider context.
+
+`/ctx-status` never probes Hindsight. `/agentmemory-health` is retained as a compatibility
+command name for the configured Hindsight health/version probe.
+
 
 ## 设置
 
@@ -160,10 +156,11 @@ m[0]（cached wire bytes，否则 Σp1 compartments / live memories）+ compact
 不写回 `last_input_tokens`。print/rpc 没有 footer；
 调度器的 0.85 forward-pressure 缩放只用于 historian/emergency，不进入 status。
 
-Adapter source imports shared code through private `#core/*` specifiers. The package `imports` map resolves those specifiers to `src/core/**`. No public subpath export is added for core.
+Adapter 通过包内私有的 `#core/*` specifier 引用共享代码；`imports` 映射指向 `src/core/**`，不公开 core 子路径。
 
-
-`pi-mctx` is a private source extension. Development loads it through an explicit source path such as `scripts/pi-dev`; it is not published through a package `pi.extensions` entry. Root Vitest, `tsc -p tsconfig.typecheck.json`, and Biome already include this package.
+`pi-mctx` 作为公开的源码分发扩展发布：唯一 `pi.extensions` 入口为 `src/index.ts`，
+子代理入口 `src/subagent-entry.ts` 随包交付，由 Pi 的 TypeScript 扩展加载器加载。
+仓库启动器仍显式加载同一源码入口。开发状态不通过 `private` 隐藏；发布前须通过完整发布 gate。
 
 The completion check is `rg -i opencode packages/pi-mctx` returning no matches.
 

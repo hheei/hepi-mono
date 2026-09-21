@@ -3,7 +3,6 @@ import {
 	loadProtectedTailMeta,
 	markProtectedTailPolicyV3Seeded,
 	recordProtectedTailNoEligibleHead,
-	resetProtectedTailNoEligibleHead,
 } from "../features/storage-meta-persisted";
 import { getAllStatusTagTokenTotalsFlat } from "../features/storage-tags";
 import { escalationBands } from "../shared/escalation-bands";
@@ -115,16 +114,6 @@ export interface RawHistoryEligibility {
 	hasRawBeyondLastCompartment: boolean;
 }
 
-export interface ProactiveTriggerInfo {
-	boundary: ProtectedTailBoundarySnapshot;
-	hasProtectedEligibleHead: boolean;
-	trueRawEligibleTokens: number;
-	tcTokenEstimate: number;
-	messageCount: number;
-	commitClusterCount: number;
-	isMeaningful: boolean;
-}
-
 export interface BoundarySnapshotValidationResult {
 	ok: boolean;
 	reason?: "stale_snapshot" | "model_or_limit_changed" | undefined;
@@ -155,8 +144,6 @@ const NON_EMERGENCY_MAX_CAP = 250_000;
 const FORCE80_MAX_CAP = 500_000;
 const FORCE95_MAX_CAP = 750_000;
 const NORMAL_HYSTERESIS_TOKENS = 256;
-
-export const RECOVERY_NO_HEAD_LIMIT = 2;
 
 /** A tiny complete head is still worth summarizing at force pressure; below this, wait for a real arc/user turn. */
 export const MIN_FORCE_ELIGIBLE_TOKENS_CAP = 1_000;
@@ -973,10 +960,6 @@ export function recordHighPressureNoEligibleHead(
 		return 0;
 	}
 	return recordProtectedTailNoEligibleHead(db, snapshot.sessionId);
-}
-
-export function resetHighPressureNoEligibleHead(db: Database, sessionId: string): void {
-	resetProtectedTailNoEligibleHead(db, sessionId);
 }
 
 export function createDefaultBoundarySnapshotForTests(

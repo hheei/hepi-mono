@@ -1,9 +1,9 @@
 /**
  * Pi-side tool registration.
  *
- * Registers the stable `mctx_search` / optional `mctx_memory` surface plus
- * `mctx_note`, `mctx_expand`, and `mctx_reduce`. Storage configuration changes
- * tool implementations, never their agent-facing names.
+ * Registers the `recall` / optional native `mctx_memory` surface plus
+ * `retain`, `mctx_note`, `mctx_expand`, and `mctx_reduce`.
+ * Storage configuration changes implementations, never Hindsight tool names.
  *
  * `mctx_reduce` is part of the primary session-scoped surface. It is omitted
  * only for `--no-session` child processes where session-scoped tools would
@@ -46,8 +46,7 @@ export interface RegisterToolsOptions {
 	dreamerEnabled?: boolean | undefined;
 	/** Resolve smart-note enablement from the current cwd at tool-call time. */
 	resolveDreamerEnabled?: ((ctx: { cwd: string }) => boolean | undefined) | undefined;
-	/** When false, omit mctx_memory from the registered surface. Sidekick only
-	 *  needs read-only mctx_search; dreamer and the main agent keep mctx_memory. */
+	/** When false, omit the native mctx_memory tool from the registered surface. */
 	memoryToolEnabled?: boolean | undefined;
 	/** When true, omit session-scoped tools (mctx_note, mctx_expand) from the
 	 *  registered surface. Set by `--no-session` children (sidekick, dreamer):
@@ -57,7 +56,7 @@ export interface RegisterToolsOptions {
 	sessionScopedToolsDisabled?: boolean | undefined;
 	/** In compaction-off mode, omit mctx_reduce and keep the other Pi tools available. */
 	compactionOff?: boolean | undefined;
-	/** When set, register transactional AgentMemory through `mctx_memory`. */
+	/** When set, register Hindsight's explicit `retain` tool. */
 	memorySaveTool?:
 		| {
 				queueMemory(input: {

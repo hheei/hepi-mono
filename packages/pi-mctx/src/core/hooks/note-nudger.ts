@@ -286,10 +286,6 @@ export function clearNoteNudgeTriggerAndCooldown(db: Database, sessionId: string
 	lastDeliveredAt.delete(sessionId);
 }
 
-export function resetNoteNudgeCooldownOnly(sessionId: string): void {
-	lastDeliveredAt.delete(sessionId);
-}
-
 export function clearNoteNudgeTriggerOnly(db: Database, sessionId: string): void {
 	db.prepare(
 		"UPDATE session_meta SET note_nudge_trigger_pending = 0, note_nudge_trigger_message_id = '' WHERE session_id = ?",

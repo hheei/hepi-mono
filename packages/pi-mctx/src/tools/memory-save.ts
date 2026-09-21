@@ -25,9 +25,9 @@ export function createMemorySaveTool(options: {
 	}): Promise<{ status: "queued" | "delivered" | "failed"; id: string }>;
 }): ToolDefinition<typeof ParamsSchema> {
 	return {
-		name: "mctx_memory",
-		label: "Magic Context: Memory",
-		description: "Queue an explicit fact for durable AgentMemory delivery.",
+		name: "retain",
+		label: "Retain",
+		description: "Queue an explicit fact for durable Hindsight retention.",
 		parameters: ParamsSchema,
 		async execute(_id, params: SaveParams, _signal, _onUpdate, ctx) {
 			const content = params.content.trim();

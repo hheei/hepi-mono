@@ -15,7 +15,6 @@ export interface CuratePromptMemory {
 // focused per-task prompt below, so this is only the fallback identity for
 // a hidden task. Keep it minimal so a task never inherits another task's
 // instructions.
-export const DREAMER_SYSTEM_PROMPT = `You are a background maintenance agent for the magic-context system, running during a scheduled dream window. Your task and its full instructions arrive in the message below. Never read or quote secrets from .env, credentials, or key files, and never commit — the user handles git.`;
 
 // The 5-category project-memory taxonomy, shared by the tasks that actually touch
 // project memories (curate). Kept as one constant so the wording can't drift.

@@ -74,13 +74,6 @@ export function modelAcceptsEmptyContent(providerID?: string): boolean {
  * (e.g. a mantle variant) is also covered, matching how legacy host's own
  * `useMessageLevelOptions` gate matches bedrock.
  */
-export function variantChangeBustsProviderCache(providerID?: string): boolean {
-	if (providerID === undefined) return true;
-	if (providerID === "anthropic") return true;
-	if (providerID === "google-vertex-anthropic") return true;
-	if (providerID.includes("bedrock")) return true;
-	return false;
-}
 
 /**
  * Create an empty-text sentinel to replace a stripped message PART (not a

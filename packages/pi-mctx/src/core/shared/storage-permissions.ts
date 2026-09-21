@@ -16,6 +16,3 @@ export function shouldEnforcePrivateStoragePermissions(): boolean {
 }
 
 /** Test-only reset for suites that exercise both permission policies in one process. */
-export function __resetStoragePrivatePermissionEnforcementForTests(): void {
-	enforcePrivateStoragePermissions = true;
-}

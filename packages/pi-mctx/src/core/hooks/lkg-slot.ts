@@ -209,9 +209,3 @@ export function resetLkgSlotsForTest(): void {
 	totalBytes = 0;
 	persistenceBackend = undefined;
 }
-
-export function getLkgSlotStatsForTest(): { totalBytes: number; count: number } {
-	return { totalBytes, count: slots.size };
-}
-
-export const __resetLkgSlotStoreForTest = resetLkgSlotsForTest;

@@ -516,7 +516,3 @@ export function replayLkg(args: {
 	}
 	return { ok: true, messages: replayed };
 }
-
-export function validateLkgEntry(slot: LkgSlot, entryIds: string[]): boolean {
-	return entryIdsAreValid(slot, entryIds);
-}

@@ -128,11 +128,6 @@ export function normalizeMaterializeReason(
 	return rematerialized ? "pressure_refold" : null;
 }
 
-export function clearTransformDecisionSession(sessionId: string): void {
-	pendingPiDecisionBySession.delete(sessionId);
-	scheduledWriteTokensBySession.delete(sessionId);
-}
-
 export function recordPendingPiTransformDecision(
 	sessionId: string,
 	decision: PendingTransformDecision,

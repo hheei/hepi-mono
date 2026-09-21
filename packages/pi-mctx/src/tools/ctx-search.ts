@@ -1,17 +1,13 @@
 /**
- * Pi-side wrapper for the `mctx_search` tool.
+ * Pi-side wrapper for the `recall` tool.
  *
  * The core search logic in `unifiedSearch()` is harness-agnostic — it operates
- * over the shared SQLite store. The pi-plugin only needs to:
+ * over the shared SQLite store. The Pi plugin also appends the Hindsight lane
+ * when the compatibility backend is enabled.
  *
- *   1. Translate the LLM-provided arguments into the search options shape.
- *   2. Resolve session ID and project identity from the Pi extension context.
- *   3. Formats results for the LLM.
- *
- * `mctx_expand` is now registered alongside (see `./ctx-expand.ts`) — Pi
- * sessions are JSONL files, but the shared `readSessionChunk` reads
- * via the `RawMessageProvider` registry, so Pi just registers its own
- * provider for the duration of an expand call.
+ * `mctx_expand` is registered alongside (see `./ctx-expand.ts`) — Pi sessions
+ * are JSONL files, but the shared `readSessionChunk` reads via the
+ * `RawMessageProvider` registry.
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -199,8 +195,8 @@ export interface CtxSearchToolDeps {
 export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typeof ParamsSchema> {
 	const resolveProject = deps.resolveProjectIdentity ?? resolveProjectIdentityForSession;
 	return {
-		name: "mctx_search",
-		label: "Magic Context: Search",
+		name: "recall",
+		label: "Recall",
 		description: CTX_SEARCH_DESCRIPTION,
 		parameters: ParamsSchema,
 		async execute(_toolCallId, params: CtxSearchParams, _signal, _onUpdate, ctx) {
@@ -338,11 +334,11 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 										return `[${index + 1}] [${item.kind}] ${scope.join(" ")}\n${item.content}`;
 									})
 									.join("\n\n");
-					text += `\n\nDurable AgentMemory lane\n${durableText}`;
+					text += `\n\nDurable Hindsight lane\n${durableText}`;
 				} catch (error) {
 					deps.remoteSearch.onFailure?.(error);
 					const message = error instanceof Error ? error.message : String(error);
-					text += `\n\nDurable AgentMemory lane: partial/unavailable (${message})`;
+					text += `\n\nDurable Hindsight lane: partial/unavailable (${message})`;
 				}
 			}
 			return {

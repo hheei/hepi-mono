@@ -29,6 +29,8 @@ const EXCLUDED_TOOLS: Record<string, true> = {
 	ctx_search: true,
 	mctx_memory: true,
 	mctx_search: true,
+	recall: true,
+	retain: true,
 	memory_recall: true,
 	memory_save: true,
 	memory_search: true,

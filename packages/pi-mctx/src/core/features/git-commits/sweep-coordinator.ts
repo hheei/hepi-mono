@@ -12,7 +12,6 @@ export const GIT_SWEEP_LEASE_TTL_MS = 5 * 60 * 1000;
  * directory that becomes a real repo starts indexing within a day.
  */
 export const GIT_SWEEP_NON_INDEXABLE_REPROBE_MS = 24 * 60 * 60 * 1000;
-export const GIT_SWEEP_LEASE_RENEWAL_MS = 60 * 1000;
 
 export type GitSweepSkipReason = "lease_active" | "cooldown_active";
 

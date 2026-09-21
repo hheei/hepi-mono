@@ -12,19 +12,6 @@ import type { ContextUsage } from "./types";
 const emergencyRecoveryArmedSessions = new Set<string>();
 const providerOverflowReconfirmedSessions = new Set<string>();
 
-export function isEmergencyRecoveryArmed(sessionId: string): boolean {
-	return emergencyRecoveryArmedSessions.has(sessionId);
-}
-
-export function isProviderOverflowReconfirmed(sessionId: string): boolean {
-	return providerOverflowReconfirmedSessions.has(sessionId);
-}
-
-export function resetEmergencyRecoveryRegistryForTest(): void {
-	emergencyRecoveryArmedSessions.clear();
-	providerOverflowReconfirmedSessions.clear();
-}
-
 interface PersistedUsageRow {
 	last_context_percentage: number;
 	last_input_tokens: number;
@@ -1804,61 +1791,6 @@ export interface PersistedCompactionMarkerState {
 	boundaryOrdinal: number;
 	/** Message id of the compartment target used to resolve this marker. */
 	targetEndMessageId: string | null;
-}
-
-export function getPersistedCompactionMarkerState(
-	db: Database,
-	sessionId: string,
-): PersistedCompactionMarkerState | null {
-	const row = db
-		.prepare(
-			"SELECT compaction_marker_state, compaction_marker_target_end_message_id FROM session_meta WHERE session_id = ?",
-		)
-		.get(sessionId) as {
-		compaction_marker_state?: string | undefined;
-		compaction_marker_target_end_message_id?: string | null | undefined;
-	} | null;
-	const raw = row?.compaction_marker_state;
-	if (!raw || raw.length === 0) return null;
-	try {
-		const parsed = JSON.parse(raw);
-		if (
-			parsed &&
-			typeof parsed === "object" &&
-			typeof parsed.boundaryMessageId === "string" &&
-			typeof parsed.summaryMessageId === "string" &&
-			typeof parsed.compactionPartId === "string" &&
-			typeof parsed.summaryPartId === "string" &&
-			typeof parsed.boundaryOrdinal === "number"
-		) {
-			const targetEndMessageId =
-				typeof row?.compaction_marker_target_end_message_id === "string" &&
-				row.compaction_marker_target_end_message_id.length > 0
-					? row.compaction_marker_target_end_message_id
-					: typeof parsed.targetEndMessageId === "string" && parsed.targetEndMessageId.length > 0
-						? parsed.targetEndMessageId
-						: null;
-			return {
-				...(parsed as Omit<PersistedCompactionMarkerState, "targetEndMessageId">),
-				targetEndMessageId,
-			};
-		}
-	} catch {
-		// Intentional: corrupt JSON → treat as empty
-	}
-	return null;
-}
-
-export function setPersistedCompactionMarkerState(
-	db: Database,
-	sessionId: string,
-	state: PersistedCompactionMarkerState | null,
-): void {
-	ensureSessionMetaRow(db, sessionId);
-	const json = state ? JSON.stringify(state) : "";
-	db.prepare(
-		"UPDATE session_meta SET compaction_marker_state = ?, compaction_marker_target_end_message_id = ? WHERE session_id = ?",
-	).run(json, state?.targetEndMessageId ?? null, sessionId);
 }
 
 // ── Stripped placeholder message IDs ──

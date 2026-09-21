@@ -289,12 +289,6 @@ export function reduceHandoffPhase(
 	return { ok: false, reason: `illegal transition ${current} → ${next}` };
 }
 
-export function latestRequestRecord(
-	records: readonly HandoffRequestRecord[],
-): HandoffRequestRecord | undefined {
-	return records.length === 0 ? undefined : records[records.length - 1];
-}
-
 export function serializeRecentMessages(messages: readonly unknown[]): SerializeRecentResult {
 	const serialized: SerializedRecentMessage[] = [];
 	for (const message of messages) {

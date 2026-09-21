@@ -238,9 +238,9 @@ it("keeps local and durable lanes separate and excludes the active remote sessio
 			),
 		);
 		const text = result.content[0]?.text ?? "";
-		expect(tool.name).toBe("mctx_search");
+		expect(tool.name).toBe("recall");
 		expect(text).toContain("Current session/local lane");
-		expect(text).toContain("Durable AgentMemory lane");
+		expect(text).toContain("Durable Hindsight lane");
 		expect(text).toContain("prior durable fact");
 		expect(text).toContain("project=hepi-mono session=remote-prior agent=agent-1");
 		expect(text).not.toContain("current capture");
