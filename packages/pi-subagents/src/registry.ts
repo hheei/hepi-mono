@@ -161,6 +161,7 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	skills: true,
 	prompt: true,
 	bridgeExtensionPath: true,
+	interactive: true,
 };
 
 const AGENT_FIELDS: Record<string, true> = {
@@ -228,6 +229,17 @@ function expectString(value: unknown, label: string, path: string): string {
 function expectOptionalString(value: unknown, label: string, path: string): string | undefined {
 	if (value === undefined) return undefined;
 	return expectString(value, label, path);
+}
+
+function expectOptionalBoolean(
+	value: unknown,
+	label: string,
+	path: string,
+	fallback: boolean,
+): boolean {
+	if (value === undefined) return fallback;
+	if (typeof value !== "boolean") throw invalid(path, `${label} must be boolean`);
+	return value;
 }
 
 function expectIsoDate(value: unknown, label: string, path: string): string {
@@ -429,6 +441,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		skills: parseSkills(raw.skills, path),
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
+		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
 	});
 }
 

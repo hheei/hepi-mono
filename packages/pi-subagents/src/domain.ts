@@ -1,11 +1,10 @@
 export const PROTOCOL_VERSION = 1 as const;
 export const REGISTRY_VERSION = 1 as const;
 
-export type ProtocolVersion = typeof PROTOCOL_VERSION;
 export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped" | "failed";
 export type ExecutionMode = "rpc" | "tui";
 export type SendMode = "steer" | "follow_up" | "auto";
-export type ContactReason = "progress_update" | "important_finding" | "need_decision" | "blocked";
+
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type LaunchValueSource = "agent" | "parent";
 export type SubagentIntent = "active" | "stopped";
@@ -87,6 +86,8 @@ export interface EffectiveLaunchConfig {
 	readonly skills: SkillSelection;
 	readonly prompt: string;
 	readonly bridgeExtensionPath: string;
+	/** Frozen at spawn. Interactive children do not auto-wake the parent except via contact_parent. */
+	readonly interactive: boolean;
 }
 
 export interface ResolvedAgentPolicy {
@@ -97,6 +98,7 @@ export interface ResolvedAgentPolicy {
 	readonly excludeTools: readonly string[];
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
+	readonly interactive: boolean;
 }
 
 export interface RuntimeMetadata {
@@ -155,6 +157,7 @@ export interface SubagentRecord {
 export interface PublicSubagent {
 	readonly id: string;
 	readonly agent: string;
+	readonly displayName?: string;
 	readonly state: SubagentState;
 	readonly mode: ExecutionMode;
 	readonly cwd: string;
@@ -163,6 +166,9 @@ export interface PublicSubagent {
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;
 	readonly freshness: "live" | "last_known";
+	readonly interactive: boolean;
+	readonly createdAt: string;
+	readonly updatedAt: string;
 }
 
 export interface OperationError {
@@ -174,23 +180,10 @@ export interface OperationError {
 	readonly safeToRetry: boolean;
 }
 
-export type OperationResult<T> = { readonly ok: true; readonly value: T } | OperationError;
-
 export interface SpawnSubagentInput {
 	readonly task: string;
 	readonly agent?: string;
 	readonly cwd?: string;
-}
-
-export interface SendSubagentInput {
-	readonly id: string;
-	readonly message: string;
-	readonly mode?: SendMode;
-}
-
-export interface ContactParentInput {
-	readonly reason: ContactReason;
-	readonly message: string;
 }
 
 /** Child bridge tool name; agent tool policy must never remove it. */
@@ -204,6 +197,9 @@ export const BRIDGE_ENVIRONMENT_KEYS = {
 	endpoint: "PI_SUBAGENTS_ENDPOINT",
 	token: "PI_SUBAGENTS_TOKEN",
 } as const;
+
+/** Non-secret agent label for the child TUI identity line. Not part of handshake. */
+export const CHILD_AGENT_ENV_KEY = "PI_SUBAGENTS_AGENT" as const;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 

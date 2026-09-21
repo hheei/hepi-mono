@@ -220,6 +220,7 @@ export async function resolveSubagentLaunch(
 		skills: policy.skills,
 		prompt: assembleChildPrompt(policy.agent.instructions),
 		bridgeExtensionPath,
+		interactive: policy.interactive,
 	});
 }
 

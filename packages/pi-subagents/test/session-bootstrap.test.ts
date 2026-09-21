@@ -94,6 +94,7 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 		expect(config.extensions.paths).toEqual([bridge]);
 		expect(config.prompt).toContain("Do the work.");
 		expect(config.prompt).toContain("contact_parent");
+		expect(config.interactive).toBe(false);
 		expect(JSON.stringify(config)).not.toContain("PI_SUBAGENTS_TOKEN");
 	});
 });
@@ -336,5 +337,30 @@ test("wires registry, resolution, and bootstrap into one foundation surface", as
 		expect((await foundation.registry.list()).map((item) => item.subagentId)).toEqual([
 			config.subagentId,
 		]);
+	});
+});
+
+test("freezes interactive from the agent definition into launch config", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const cwd = join(directory, "work");
+		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+		await writeFile(
+			join(cwd, ".pi", "agents", "worker.md"),
+			"---\nname: worker\ninteractive: true\n---\nStay in the TUI.\n",
+			"utf8",
+		);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		const config = await resolveSubagentLaunch({
+			input: { task: "Review in TUI", agent: "worker" },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			invocation: { command: "/usr/bin/node", args: ["/usr/lib/pi/cli.js"] },
+			bridgeExtensionPath: bridge,
+		});
+
+		expect(config.interactive).toBe(true);
 	});
 });

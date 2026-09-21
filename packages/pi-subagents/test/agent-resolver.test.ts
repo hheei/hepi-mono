@@ -193,6 +193,10 @@ test("rejects unknown, unimplemented, and conflicting agent fields", async (): P
 				definition: "---\nname: worker\nhidden: yes\n---\nbody\n",
 				reason: /hidden must be boolean/u,
 			},
+			{
+				definition: "---\nname: worker\ninteractive: yes\n---\nbody\n",
+				reason: /interactive must be boolean/u,
+			},
 			{ definition: "---\nname: other\n---\nbody\n", reason: /Unknown agent worker/u },
 		];
 		for (const item of cases) {
@@ -247,5 +251,28 @@ test("reports an unknown agent name and an unreadable frontmatter document", asy
 		await expect(resolve(directory, "nameless", bridge)).rejects.toThrow(
 			/name must be a non-empty string/u,
 		);
+	});
+});
+
+test("defaults interactive to false and freezes an explicit true", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		await writeAgent(directory, ".pi", "worker", "---\nname: worker\n---\nbody\n");
+		expect((await resolve(directory, "worker", bridge)).interactive).toBe(false);
+		await writeAgent(
+			directory,
+			".pi",
+			"worker",
+			"---\nname: worker\ninteractive: true\n---\nbody\n",
+		);
+		expect((await resolve(directory, "worker", bridge)).interactive).toBe(true);
+		await writeAgent(
+			directory,
+			".pi",
+			"worker",
+			"---\nname: worker\ninteractive: false\n---\nbody\n",
+		);
+		expect((await resolve(directory, "worker", bridge)).interactive).toBe(false);
 	});
 });

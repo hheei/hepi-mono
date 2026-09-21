@@ -28,6 +28,7 @@ const SUPPORTED_FIELDS: Record<string, true> = {
 	exclude_tools: true,
 	extensions: true,
 	skills: true,
+	interactive: true,
 };
 
 /** Recognized candidate fields with no execution semantics yet; silently ignoring them is prohibited. */
@@ -261,6 +262,11 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 	const skills = await resourceSelection(discovered.frontmatter.skills, "skills", path);
 	const displayName = optionalString(discovered.frontmatter.display_name, "display_name", path);
 	const description = optionalString(discovered.frontmatter.description, "description", path);
+	const interactiveValue = discovered.frontmatter.interactive;
+	if (interactiveValue !== undefined && typeof interactiveValue !== "boolean") {
+		throw readableError(path, "interactive must be boolean");
+	}
+	const interactive = interactiveValue === true;
 
 	return Object.freeze({
 		agent: Object.freeze({
@@ -288,5 +294,6 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			discovery: skills.discovery,
 			paths: Object.freeze([...skills.paths]),
 		}),
+		interactive,
 	});
 }
