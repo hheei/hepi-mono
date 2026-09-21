@@ -1,4 +1,5 @@
 export * from "./agent-resolver.js";
+export * from "./child-nudge.js";
 export * from "./connector.js";
 export * from "./domain.js";
 export * from "./extension.js";
@@ -14,3 +15,4 @@ export * from "./runtime.js";
 export * from "./session-bootstrap.js";
 export * from "./state.js";
 export * from "./tools.js";
+export * from "./widget.js";

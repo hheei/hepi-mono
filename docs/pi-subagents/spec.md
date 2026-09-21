@@ -102,6 +102,8 @@ stop_subagent({ id: string })
 
 - 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
 - `spawn_subagent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
+- `spawn_subagent` / `send_subagent` 返回后，模型不得用 `get_subagent` / `list_subagents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
+- `get_subagent` / `list_subagents` 只用于需要当前身份或状态时，不是完成通道。
 - `send_subagent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
 - `get/list` 返回可确认的状态、mode、latest summary、interruption、usage 和 runtime observability；last-known 值不得伪装成实时值。
 - `stop_subagent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
@@ -117,7 +119,7 @@ contact_parent({
 })
 ```
 
-每条 report 携带 child identity、parent identity、原始任务锚点和当前状态。parent 把内容视为 delegated result，不视为新的用户授权。parent 离线时 runner 只保留有界的待确认报告；队列满时可见失败，不阻塞 child。
+每条 report 携带 child identity、parent identity、原始任务锚点和当前状态。parent 把内容视为 delegated result，不视为新的用户授权。parent 离线时 runner 只保留有界的待确认报告；队列满时可见失败，不阻塞 child。`contact_parent` 在 autonomous 与 interactive 两种 child 上都唤醒 parent。Child 正常 `agent_end` 且本 turn 未调用 `contact_parent`、用户未接管时，child branch 可发送 follow-up nudge，提醒调用 `contact_parent`；nudge 不得退出 session。
 
 ### 4.3 Agent definitions
 
@@ -133,9 +135,10 @@ contact_parent({
 
 - catalog：`name`、`display_name`、`description`、`hidden`；
 - runtime：`model`、`thinking`、`tools`、`exclude_tools`、`extensions`、`skills`；
+- policy：`interactive`（boolean，缺省 `false`；`true` 表示用户会在原生 TUI 操作该 child。除 `contact_parent` 外本包不得 `triggerTurn` 叫醒 parent。创建时冻进 launch config，RPC/TUI/restart 复用）；
 - Markdown body：固定 prompt assembly 的 agent instructions。
 
-未知字段、未知模型、无效 thinking、冲突的 tool policy 或被禁用的 `contact_parent` 在启动前报错。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
+未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive` 或被禁用的 `contact_parent` 在启动前报错。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
 
 ### 4.4 Effective launch configuration
 
@@ -147,6 +150,7 @@ session ID/path
 agent identity + prompt assembly
 provider/model + thinking
 final tool/extension/skill selection
+interactive policy
 child bridge environment
 ```
 
@@ -273,7 +277,8 @@ V1 UI保持最小：
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
 - attach/stop快捷键只调用同一SubagentManager语义操作；
-- 只有默认primitive无法满足窄/宽布局时才增加ext-core Surface/Widget。
+- TUI parent 用 ext-core above-editor widget 投影 `SubagentManager.list()` 中的活 child（`starting | running | idle`，以及 `mode === "tui"` 的非终态 child）。无边框、不持有第二份 running set、不轮询文件；elapsed 按 spawn 时间计、有可见 child 时每秒刷新；零可见 child 时隐藏。Headless/RPC parent 不挂 widget。
+- TUI child 显示一行无边框身份（agent 名、`contact_parent` 通道、当前 tool 数），不替代 parent widget，不成为控制面。
 
 Native child交互始终使用真实Pi TUI；不实现transcript viewer、RPC event mirror或terminal scraping。
 
@@ -304,6 +309,7 @@ V1不包含：
 - scheduler、mission、council、review loop或task DAG；
 - 自动worktree管理、cost-based interruption或通用budget engine；
 - custom transcript/TUI/renderer、terminal scraping或token streaming relay；
+- activity sidecar、session JSONL 轮询或基于缺文件的 stall ping；
 - 自动重新打开TUI、自动重放中断任务或未确认消息；
 - 阻止用户直接原生`/resume`同一session；
 - durable event ledger、process history、handoff history或通用cross-extension message bus；

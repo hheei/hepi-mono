@@ -19,6 +19,7 @@ import {
 	RUNNER_EVENTS_DROPPED_EVENT,
 	RUNNER_EXIT_EVENT,
 	successResponse,
+	WRITER_EXIT_EVENT,
 } from "./protocol.js";
 import { PiRpcAdapter, type PiRpcOperation, PiRpcTimeoutError } from "./rpc-adapter.js";
 
@@ -49,6 +50,11 @@ export interface SubagentRunnerOptions {
 	readonly identity: ChildIdentity;
 	/** The Pi `--mode rpc` child owned by this runner. */
 	readonly process: ChildProcessWithoutNullStreams;
+	/**
+	 * Recreates a Pi RPC writer with the same job. Required for attach recovery
+	 * (`start_rpc`) so the runner endpoint survives writer replacement.
+	 */
+	readonly spawnWriter?: () => ChildProcessWithoutNullStreams;
 	readonly maxFrameBytes?: number;
 	readonly maxPendingRequests?: number;
 	readonly maxBufferedEvents?: number;
@@ -105,8 +111,9 @@ export async function startRunner(options: SubagentRunnerOptions): Promise<Subag
 class Runner {
 	readonly endpoint: string;
 	readonly identity: ChildIdentity;
-	readonly #process: ChildProcessWithoutNullStreams;
-	readonly #adapter: PiRpcAdapter;
+	#process: ChildProcessWithoutNullStreams | undefined;
+	#adapter: PiRpcAdapter | undefined;
+	readonly #spawnWriter: (() => ChildProcessWithoutNullStreams) | undefined;
 	readonly #diagnose: (line: string) => void;
 	readonly #maxFrameBytes: number;
 	readonly #maxPendingRequests: number;
@@ -120,7 +127,7 @@ class Runner {
 	readonly #pendingHandshakes = new Map<Socket, PendingHandshake>();
 	readonly #authenticating = new Set<Socket>();
 	readonly #bufferedEvents: unknown[] = [];
-	readonly #detachEvents: () => void;
+	#detachEvents: (() => void) | undefined;
 	readonly #reporters = new Map<Socket, ReporterLink>();
 	readonly #pendingReports: ContactReportPayload[] = [];
 	#controller: ControllerLink | undefined;
@@ -129,6 +136,8 @@ class Runner {
 	#droppedEvents = 0;
 	#readyState: unknown = undefined;
 	#shutdownRequested = false;
+	#writerClosing = false;
+	#writerExit: { readonly code: number | null; readonly signal: string | null } | undefined;
 	#exit: RunnerExit | undefined;
 	#closing: Promise<RunnerExit> | undefined;
 	readonly #authorizeRecovery: ((claimId: string, token: string) => Promise<boolean>) | undefined;
@@ -138,6 +147,7 @@ class Runner {
 		this.endpoint = options.identity.endpoint;
 		this.identity = options.identity;
 		this.#process = options.process;
+		this.#spawnWriter = options.spawnWriter;
 		this.#diagnose = options.onDiagnostic ?? ((line: string) => writeDiagnostic("runner", line));
 		this.#maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
 		this.#maxPendingRequests = options.maxPendingRequests ?? DEFAULT_MAX_PENDING_REQUESTS;
@@ -149,24 +159,31 @@ class Runner {
 		this.#shutdownGraceMs = options.shutdownGraceMs ?? 2_000;
 		this.#killGraceMs = options.killGraceMs ?? 1_000;
 		this.#authorizeRecovery = options.authorizeRecovery;
+		this.#bindWriter(options.process);
+	}
+
+	#bindWriter(child: ChildProcessWithoutNullStreams): void {
+		this.#process = child;
+		this.#writerExit = undefined;
 		this.#adapter = new PiRpcAdapter({
-			process: options.process,
+			process: child,
 			maxFrameBytes: this.#maxFrameBytes,
 			maxPendingRequests: this.#maxPendingRequests,
 			requestTimeoutMs: this.#requestTimeoutMs,
 			onListenerError: (error) => this.#diagnose(`event listener failed: ${errorMessage(error)}`),
 		});
 		this.#detachEvents = this.#adapter.onEvent((event) => this.#broadcast(event));
+		child.once("exit", (code, signal) => this.#onChildExit(code, signal));
 	}
 
 	/** Confirms a real Pi RPC round trip, then publishes the endpoint. */
 	public async start(): Promise<unknown> {
-		this.#process.once("exit", (code, signal) => this.#onChildExit(code, signal));
+		const adapter = this.#adapter;
+		if (adapter === undefined) throw new Error("Pi RPC writer is not bound");
 		try {
-			this.#readyState = await this.#adapter.ready(AbortSignal.timeout(this.#readyTimeoutMs));
+			this.#readyState = await adapter.ready(AbortSignal.timeout(this.#readyTimeoutMs));
 		} catch (error) {
-			this.#detachEvents();
-			this.#adapter.close(toError(error));
+			this.#teardownWriter(toError(error));
 			throw new Error(`Pi RPC did not become ready: ${errorMessage(error)}`);
 		}
 		try {
@@ -199,8 +216,8 @@ class Runner {
 		} catch (error) {
 			this.#diagnose(`shutdown cleanup failed: ${errorMessage(error)}`);
 			const exit: RunnerExit = this.#exit ?? {
-				code: this.#process.exitCode,
-				signal: this.#process.signalCode,
+				code: this.#process?.exitCode ?? this.#writerExit?.code ?? null,
+				signal: this.#process?.signalCode ?? this.#writerExit?.signal ?? null,
 				reason,
 				requested: true,
 			};
@@ -227,11 +244,10 @@ class Runner {
 		this.#reporters.clear();
 		await this.#closeServer();
 		await this.#releaseChild();
-		this.#detachEvents();
-		this.#adapter.close(reason);
+		this.#teardownWriter(reason);
 		const exit: RunnerExit = this.#exit ?? {
-			code: this.#process.exitCode,
-			signal: this.#process.signalCode,
+			code: this.#process?.exitCode ?? this.#writerExit?.code ?? null,
+			signal: this.#process?.signalCode ?? this.#writerExit?.signal ?? null,
 			reason,
 			requested: true,
 		};
@@ -566,6 +582,24 @@ class Runner {
 			);
 			return;
 		}
+		if (operation === "close_writer") {
+			rememberRequestId(link.retired, id);
+			void this.#closeWriter()
+				.then(() => this.#respond(link, successResponse(id, { closed: true })))
+				.catch((error: unknown) =>
+					this.#respond(link, failureResponse(id, errorCode(error), errorMessage(error))),
+				);
+			return;
+		}
+		if (operation === "start_rpc") {
+			rememberRequestId(link.retired, id);
+			void this.#startRpc()
+				.then((data) => this.#respond(link, successResponse(id, data)))
+				.catch((error: unknown) =>
+					this.#respond(link, failureResponse(id, errorCode(error), errorMessage(error))),
+				);
+			return;
+		}
 		if (operation === "contact_parent") {
 			rememberRequestId(link.retired, id);
 			void this.#respond(
@@ -587,7 +621,11 @@ class Runner {
 		abort: AbortController,
 	): Promise<void> {
 		try {
-			const data = await this.#adapter.request(operation, payload, {
+			const adapter = this.#adapter;
+			if (adapter === undefined) {
+				throw new Error("RPC writer is not bound");
+			}
+			const data = await adapter.request(operation, payload, {
 				signal: abort.signal,
 				timeoutMs: this.#requestTimeoutMs,
 			});
@@ -663,15 +701,58 @@ class Runner {
 
 	#onChildExit(code: number | null, signal: string | null): void {
 		this.#diagnose(`Pi child exited (code=${String(code)}, signal=${String(signal)})`);
+		this.#writerExit = { code, signal };
+		if (this.#writerClosing && !this.#shutdownRequested) {
+			this.#broadcast({ type: WRITER_EXIT_EVENT, code, signal });
+			this.#teardownWriter(
+				new Error(`Pi RPC writer exited (code=${String(code)}, signal=${String(signal)})`),
+			);
+			this.#process = undefined;
+			return;
+		}
 		this.#broadcast({ type: RUNNER_EXIT_EVENT, code, signal });
 		this.#exit = {
 			code,
 			signal,
 			reason: new Error(`Pi child exited (code=${String(code)}, signal=${String(signal)})`),
-			// A child that dies while we are ending it was ended on purpose.
 			requested: this.#shutdownRequested,
 		};
 		void this.shutdown(this.#exit.reason);
+	}
+
+	async #closeWriter(): Promise<void> {
+		if (this.#process === undefined || this.#writerExit !== undefined) return;
+		this.#writerClosing = true;
+		try {
+			await this.#releaseChild();
+			if (!(await this.#waitForExit(this.#shutdownGraceMs + this.#killGraceMs))) {
+				throw new Error("RPC writer did not exit after close_writer");
+			}
+		} finally {
+			this.#writerClosing = false;
+		}
+	}
+
+	async #startRpc(): Promise<unknown> {
+		if (this.#process !== undefined && this.#writerExit === undefined) {
+			throw new Error("RPC writer is still bound");
+		}
+		if (this.#spawnWriter === undefined) {
+			throw new Error("RPC writer respawn is not configured");
+		}
+		this.#teardownWriter(new Error("Replacing RPC writer"));
+		this.#bindWriter(this.#spawnWriter());
+		const adapter = this.#adapter;
+		if (adapter === undefined) throw new Error("RPC writer is not bound");
+		this.#readyState = await adapter.ready(AbortSignal.timeout(this.#readyTimeoutMs));
+		return this.#readyState;
+	}
+
+	#teardownWriter(reason: Error): void {
+		this.#detachEvents?.();
+		this.#detachEvents = undefined;
+		this.#adapter?.close(reason);
+		this.#adapter = undefined;
 	}
 
 	#dropSocket(socket: Socket): void {
@@ -702,9 +783,10 @@ class Runner {
 	/** Aborts the current turn, then ends the Pi child within fixed deadlines. */
 	async #releaseChild(): Promise<void> {
 		const child = this.#process;
-		if (this.#exit === undefined && child.exitCode === null && child.signalCode === null) {
+		if (child === undefined) return;
+		if (this.#writerExit === undefined && child.exitCode === null && child.signalCode === null) {
 			try {
-				await this.#adapter.request("abort", undefined, { timeoutMs: 1_000 });
+				await this.#adapter?.request("abort", undefined, { timeoutMs: 1_000 });
 			} catch (error) {
 				this.#diagnose(`abort before shutdown failed: ${errorMessage(error)}`);
 			}
@@ -719,20 +801,21 @@ class Runner {
 	}
 
 	#waitForExit(timeoutMs: number): Promise<boolean> {
-		if (this.#exit !== undefined) return Promise.resolve(true);
+		if (this.#writerExit !== undefined || this.#process === undefined) return Promise.resolve(true);
 		if (this.#process.exitCode !== null || this.#process.signalCode !== null) {
 			return Promise.resolve(true);
 		}
+		const child = this.#process;
 		return new Promise((resolve) => {
 			const timer = setTimeout(() => {
-				this.#process.off("exit", onExit);
+				child.off("exit", onExit);
 				resolve(false);
 			}, timeoutMs);
 			const onExit = (): void => {
 				clearTimeout(timer);
 				resolve(true);
 			};
-			this.#process.once("exit", onExit);
+			child.once("exit", onExit);
 		});
 	}
 

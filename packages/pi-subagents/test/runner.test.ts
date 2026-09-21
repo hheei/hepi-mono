@@ -559,6 +559,29 @@ describe("runner IPC", () => {
 			await harness.dispose();
 		}
 	});
+
+	test("keeps the runner socket while replacing the RPC writer", async () => {
+		const harness = await startFakeRunner();
+		const connection = connectionFor(harness.identity);
+		try {
+			await connection.connect();
+			await expect(connection.request("get_state")).resolves.toMatchObject({
+				sessionId: "fake-session",
+			});
+			await expect(connection.request("close_writer")).resolves.toEqual({ closed: true });
+			await expect(connection.request("get_state")).rejects.toThrow(/RPC writer is not bound/);
+			await expect(connection.request("start_rpc")).resolves.toMatchObject({
+				sessionId: "fake-session",
+			});
+			await expect(connection.request("get_state")).resolves.toMatchObject({
+				sessionId: "fake-session",
+			});
+			expect(harness.runner.endpoint).toBe(harness.identity.endpoint);
+		} finally {
+			connection.close();
+			await harness.dispose();
+		}
+	});
 });
 
 /** Leaves a bound-then-killed socket file behind, exactly like a crashed runner. */

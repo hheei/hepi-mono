@@ -1,12 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { registerChildNudge } from "./child-nudge.js";
 import type { ChildIdentity } from "./domain.js";
-import { isThinkingLevel } from "./domain.js";
+import { CHILD_AGENT_ENV_KEY, isThinkingLevel } from "./domain.js";
+import {
+	createCmuxHostAdapter,
+	createHerdrHostAdapter,
+	selectHostAdapter,
+} from "./host-adapter.js";
 import { createParentChannel, SubagentManager } from "./manager.js";
 import { createSubagentRegistry } from "./registry.js";
-import { launchDetachedRunner, recoverDetachedRunner } from "./runtime.js";
+import { launchDetachedRunner, recoverDetachedRunner, runtimeToken } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
 import { isChildEnvironment, registerChildTools, registerParentTools } from "./tools.js";
+import { createChildIdentityWidget, createSubagentWidget } from "./widget.js";
 
 export interface SubagentsExtensionOptions {
 	readonly createManager: (pi: ExtensionAPI) => SubagentManager;
@@ -34,6 +41,25 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
 	};
 }
 
+function registerChildBranch(pi: ExtensionAPI, child: ChildIdentity): void {
+	const nudge = registerChildNudge(pi);
+	registerChildTools(pi, child, () => nudge.markReported());
+	const stop = new AbortController();
+	let identityWidget: { dispose(): void } | undefined;
+	pi.on("session_start", (_event, ctx) => {
+		const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
+		identityWidget = createChildIdentityWidget(pi, ctx, stop.signal, {
+			agent: process.env[CHILD_AGENT_ENV_KEY] ?? "",
+			toolCount: tools.length,
+		});
+	});
+	pi.on("session_shutdown", () => {
+		stop.abort();
+		identityWidget?.dispose();
+		nudge.dispose();
+	});
+}
+
 /** Test/integration seam for callers that own a fully composed manager. */
 export function createSubagentsExtension(
 	options: SubagentsExtensionOptions,
@@ -41,11 +67,12 @@ export function createSubagentsExtension(
 	return (pi) => {
 		const child = childIdentityFromEnv(process.env);
 		if (child !== undefined) {
-			registerChildTools(pi, child);
+			registerChildBranch(pi, child);
 			return;
 		}
 		const manager = options.createManager(pi);
 		registerParentTools(pi, manager);
+		registerAttachCommand(pi, manager);
 		pi.on("session_shutdown", () => manager.closeLocalConnections());
 	};
 }
@@ -56,10 +83,29 @@ export function validateChildEnvironment(
 	return childIdentityFromEnv(env);
 }
 
+function registerAttachCommand(pi: ExtensionAPI, manager: SubagentManager): void {
+	pi.registerCommand("attach-subagent", {
+		description: "Open an idle RPC child as a native Pi TUI. The session must already be flushed.",
+		handler: async (args, ctx) => {
+			const id = args.trim();
+			if (id === "") {
+				ctx.ui.notify("Usage: /attach-subagent <child-id>", "warning");
+				return;
+			}
+			const result = await manager.attach(id);
+			if ("reason" in result) {
+				ctx.ui.notify(`Attach failed: ${result.reason}`, "error");
+				return;
+			}
+			ctx.ui.notify(`Attached ${result.child.id} on ${result.host} (${result.attachmentId})`);
+		},
+	});
+}
+
 export default function piSubagentsExtension(pi: ExtensionAPI): void {
 	const child = childIdentityFromEnv(process.env);
 	if (child !== undefined) {
-		registerChildTools(pi, child);
+		registerChildBranch(pi, child);
 		return;
 	}
 	registerExtensionLifecycle(pi, {
@@ -73,7 +119,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					pi.sendMessage(
 						{
 							customType: "pi-subagent-report",
-							content: `[Subagent ${report.childId}: ${report.reason}]\n${report.message}`,
+							content: `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`,
 							display: true,
 							details: report,
 						},
@@ -81,7 +127,12 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					);
 				},
 			});
-			const manager = new SubagentManager({
+			let manager!: SubagentManager;
+			const ownsAttachment = (identity: {
+				readonly host: "herdr" | "cmux";
+				readonly attachmentId: string;
+			}) => manager.ownsHostAttachment(identity);
+			manager = new SubagentManager({
 				parentSessionId,
 				registry,
 				channel,
@@ -111,6 +162,24 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				connect(record) {
 					return recoverDetachedRunner({ registry, record, signal: runtime.signal });
 				},
+				bridgeToken: runtimeToken,
+				attachHost: {
+					select(preferredHost) {
+						return selectHostAdapter({
+							adapters: {
+								herdr: createHerdrHostAdapter({
+									ownerId: parentSessionId,
+									ownsAttachment,
+								}),
+								cmux: createCmuxHostAdapter({
+									ownerId: parentSessionId,
+									ownsAttachment,
+								}),
+							},
+							...(preferredHost === undefined ? {} : { preferredHost }),
+						});
+					},
+				},
 			});
 			const recovery = await manager.recover();
 			if (recovery.failures.length > 0) {
@@ -127,6 +196,17 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				);
 			}
 			registerParentTools(pi, manager);
+			registerAttachCommand(pi, manager);
+			const widget = createSubagentWidget(pi, context, runtime.signal);
+			const refreshWidget = (): void => {
+				void manager.list().then((children) => widget?.refresh(children));
+			};
+			const unsubscribe = manager.onChange(refreshWidget);
+			refreshWidget();
+			runtime.resources.add("subagent-widget", () => {
+				unsubscribe();
+				widget?.dispose();
+			});
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());
 		},
 	});

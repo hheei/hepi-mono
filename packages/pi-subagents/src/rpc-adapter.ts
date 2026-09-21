@@ -13,9 +13,12 @@ import {
 
 /**
  * Runner operations that map onto a real Pi `--mode rpc` command. Runner-local
- * shutdown and contact_parent operations are never forwarded to Pi.
+ * shutdown, writer handoff, and contact_parent operations are never forwarded to Pi.
  */
-export type PiRpcOperation = Exclude<RunnerOperation, "shutdown" | "contact_parent">;
+export type PiRpcOperation = Exclude<
+	RunnerOperation,
+	"shutdown" | "contact_parent" | "close_writer" | "start_rpc"
+>;
 
 /** A forwarded Pi RPC command did not answer within its deadline. */
 export class PiRpcTimeoutError extends Error {

@@ -8,13 +8,16 @@ import type {
 	SubagentState,
 } from "./domain.js";
 import { isRecord } from "./domain.js";
+import type { HostAttachment, HostKind, HostSelection } from "./host-adapter.js";
+import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
-import type { StateProjector } from "./state.js";
-import { createStateProjector } from "./state.js";
+import { planSessionPlacement } from "./session-bootstrap.js";
+import { createStateProjector, type StateProjector } from "./state.js";
 
 export interface ParentChannelReport {
 	readonly parentSessionId: string;
 	readonly childId: string;
+	readonly agent: string;
 	readonly task: string;
 	readonly status: SubagentState;
 	readonly reason: string;
@@ -59,12 +62,35 @@ export function createParentChannel(options: {
 export interface RunnerLike {
 	readonly connected: boolean;
 	request(
-		operation: "prompt" | "steer" | "follow_up" | "get_state" | "get_entries" | "shutdown",
+		operation:
+			| "prompt"
+			| "steer"
+			| "follow_up"
+			| "get_state"
+			| "get_entries"
+			| "shutdown"
+			| "close_writer"
+			| "start_rpc",
 		payload?: unknown,
 		options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal },
 	): Promise<unknown>;
 	close(): void;
 	onEvent(listener: (event: unknown) => void): () => void;
+}
+
+export interface AttachHost {
+	select(preferredHost?: HostKind): Promise<HostSelection>;
+}
+
+export interface AttachOptions {
+	readonly preferredHost?: HostKind;
+	readonly signal?: AbortSignal;
+}
+
+export interface AttachResult {
+	readonly child: PublicSubagent;
+	readonly host: HostKind;
+	readonly attachmentId: string;
 }
 
 export interface ManagerDependencies {
@@ -80,6 +106,8 @@ export interface ManagerDependencies {
 	readonly connect?: (record: SubagentRecord) => Promise<RunnerLike>;
 	readonly deadlineMs?: number;
 	readonly channel?: ParentChannel;
+	readonly attachHost?: AttachHost;
+	readonly bridgeToken?: (runtimeIdentity: string) => string | undefined;
 }
 
 export interface SpawnResult {
@@ -113,6 +141,9 @@ function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
 	return {
 		id: record.subagentId,
 		agent: record.launchConfig.agent.name,
+		...(record.launchConfig.agent.displayName === undefined
+			? {}
+			: { displayName: record.launchConfig.agent.displayName }),
 		state: record.state,
 		mode: record.mode,
 		cwd: record.cwd,
@@ -121,6 +152,9 @@ function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
 		...(record.usage === undefined ? {} : { usage: record.usage }),
 		...(record.interrupted === undefined ? {} : { interrupted: record.interrupted }),
 		freshness: live ? "live" : "last_known",
+		interactive: record.launchConfig.interactive,
+		createdAt: record.createdAt,
+		updatedAt: record.updatedAt,
 	};
 }
 
@@ -171,6 +205,16 @@ function sessionContainsUserInput(entries: readonly unknown[], expected: string)
 		return text === expected;
 	});
 }
+function isIdlePiState(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	return (
+		value.isStreaming === false && value.isCompacting === false && value.pendingMessageCount === 0
+	);
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+	if (signal?.aborted) throw new Error("Attach was cancelled");
+}
 
 export class SubagentManager {
 	readonly #deps: ManagerDependencies;
@@ -178,9 +222,33 @@ export class SubagentManager {
 	readonly #runners = new Map<string, RunnerLike>();
 	readonly #projectors = new Map<string, StateProjector>();
 	readonly #stopping = new Set<string>();
+	readonly #frozen = new Set<string>();
+	readonly #attachCancels = new Map<string, AbortController>();
+	readonly #hostAttachments = new Map<string, HostAttachment>();
+	readonly #listeners = new Set<() => void>();
 
 	public constructor(deps: ManagerDependencies) {
 		this.#deps = deps;
+	}
+
+	/** Presentation-only: widget and similar projections re-read list() after this. */
+	public onChange(listener: () => void): () => void {
+		this.#listeners.add(listener);
+		return () => {
+			this.#listeners.delete(listener);
+		};
+	}
+
+	#notify(): void {
+		for (const listener of this.#listeners) {
+			try {
+				listener();
+			} catch (error) {
+				console.error(
+					`pi-subagents: onChange listener failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
 	}
 
 	/** Reattaches active persisted children without replaying any historical input. */
@@ -201,16 +269,25 @@ export class SubagentManager {
 						isRecord(response) && Array.isArray(response.entries) ? response.entries : [];
 					const projector = this.#projectors.get(record.subagentId);
 					projector?.rebuild(entries);
-					if (projector !== undefined) {
-						const snapshot = projector.snapshot();
-						await this.#update(record.subagentId, (current) => ({
+					const snapshot = projector?.snapshot();
+					await this.#update(record.subagentId, (current) => {
+						const interrupted =
+							snapshot?.interrupted ??
+							(current.unacknowledgedInput === undefined
+								? current.interrupted
+								: (current.interrupted ?? "Parent recovered; pending input was not replayed"));
+						return {
 							...current,
-							state: snapshot.state,
-							...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
-							usage: snapshot.usage,
-							...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
-						}));
-					}
+							...(snapshot === undefined
+								? {}
+								: {
+										state: snapshot.state,
+										...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
+										usage: snapshot.usage,
+									}),
+							...(interrupted === undefined ? {} : { interrupted }),
+						};
+					});
 					return { childId: record.subagentId };
 				} catch (error) {
 					return {
@@ -220,6 +297,7 @@ export class SubagentManager {
 				}
 			}),
 		);
+		this.#notify();
 		return {
 			recovered: outcomes
 				.filter((outcome) => !("reason" in outcome))
@@ -242,6 +320,7 @@ export class SubagentManager {
 				}),
 				this.#deps.deadlineMs ?? 30_000,
 			);
+			this.#notify();
 			const runner = await withDeadline(this.#deps.launch(record), this.#deps.deadlineMs ?? 30_000);
 			this.#attach(record, runner);
 			try {
@@ -305,6 +384,8 @@ export class SubagentManager {
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
+			if (this.#frozen.has(id) || record.mode === "tui")
+				return failure("send", "Child input is frozen for attach", id, record.state);
 			if (
 				record.intent === "stopped" ||
 				record.state === "done" ||
@@ -367,6 +448,7 @@ export class SubagentManager {
 	}
 
 	public stop(id: string, signal?: AbortSignal): Promise<OperationError | PublicSubagent> {
+		this.#attachCancels.get(id)?.abort();
 		return this.#mutate(id, async () => {
 			if (this.#stopping.has(id)) return this.get(id);
 			this.#stopping.add(id);
@@ -428,6 +510,8 @@ export class SubagentManager {
 					runner.close();
 					this.#runners.delete(id);
 				}
+				await this.#releaseHost(id);
+				this.#frozen.delete(id);
 				const runtimeIdentity = stopped.runtime?.runtimeIdentity;
 				if (runtimeIdentity !== undefined) {
 					const current = await this.#deps.registry.get(id);
@@ -459,6 +543,230 @@ export class SubagentManager {
 		});
 	}
 
+	public ownsHostAttachment(identity: {
+		readonly host: HostKind;
+		readonly attachmentId: string;
+	}): boolean {
+		for (const attachment of this.#hostAttachments.values()) {
+			if (
+				attachment.identity.host === identity.host &&
+				attachment.identity.attachmentId === identity.attachmentId
+			)
+				return true;
+		}
+		return false;
+	}
+
+	public attach(id: string, options: AttachOptions = {}): Promise<AttachResult | OperationError> {
+		const cancel = new AbortController();
+		this.#attachCancels.set(id, cancel);
+		if (options.signal?.aborted) cancel.abort();
+		else options.signal?.addEventListener("abort", () => cancel.abort(), { once: true });
+		this.#frozen.add(id);
+		return this.#mutate(id, () =>
+			this.#runAttach(id, options.preferredHost, cancel.signal),
+		).finally(() => {
+			this.#attachCancels.delete(id);
+		});
+	}
+
+	public restoreRpc(id: string): Promise<OperationError | PublicSubagent> {
+		return this.#mutate(id, async () => {
+			await this.#releaseHost(id);
+			const runner = this.#runners.get(id);
+			if (runner === undefined || !runner.connected) {
+				this.#frozen.delete(id);
+				return failure("restore_rpc", "Child runtime is not live", id);
+			}
+			const restored = await this.#restoreRpc(id, runner);
+			this.#frozen.delete(id);
+			const record = await this.#deps.registry.get(id);
+			if (record === undefined) return failure("restore_rpc", "Unknown child", id);
+			if (restored.startsWith("RPC restore failed")) {
+				return failure("restore_rpc", restored, id, record.state, [restored], false);
+			}
+			return publicChild(record, true);
+		});
+	}
+
+	async #runAttach(
+		id: string,
+		preferredHost: HostKind | undefined,
+		signal: AbortSignal,
+	): Promise<AttachResult | OperationError> {
+		const failBeforeClose = async (
+			reason: string,
+			record: SubagentRecord | undefined,
+			sideEffects: readonly string[] = [],
+		): Promise<OperationError> => {
+			this.#frozen.delete(id);
+			return failure("attach", reason, id, record?.state, sideEffects, true);
+		};
+		try {
+			throwIfAborted(signal);
+			const record = await this.#deps.registry.get(id);
+			if (record === undefined) return failBeforeClose("Unknown child", undefined);
+			if (record.intent === "stopped" || record.state === "stopped" || record.state === "done")
+				return failBeforeClose("Child is not attachable", record);
+			if (record.mode === "tui") return failBeforeClose("Child is already attached as TUI", record);
+			const runner = this.#runners.get(id);
+			if (runner === undefined || !runner.connected)
+				return failBeforeClose("Child runtime is not live", record);
+			const hostApi = this.#deps.attachHost;
+			if (hostApi === undefined)
+				return failBeforeClose("No presentation host is configured", record);
+			const token =
+				record.runtime === undefined
+					? undefined
+					: this.#deps.bridgeToken?.(record.runtime.runtimeIdentity);
+			if (token === undefined)
+				return failBeforeClose("Bridge token is unavailable for TUI launch", record);
+			throwIfAborted(signal);
+			const selection = await hostApi.select(preferredHost);
+			if (!selection.available)
+				return failBeforeClose(selection.reason, record, ["RPC writer retained"]);
+			throwIfAborted(signal);
+			const state = await withDeadline(
+				runner.request("get_state", undefined, { signal }),
+				this.#deps.deadlineMs ?? 30_000,
+			);
+			if (!isIdlePiState(state))
+				return failBeforeClose("Child is busy; attach requires a complete idle RPC turn", record, [
+					"RPC writer retained",
+				]);
+			throwIfAborted(signal);
+			const placement = await planSessionPlacement({
+				sessionId: record.sessionId,
+				cwd: record.cwd,
+				sessionDir: record.launchConfig.sessionDir,
+				persistence: record.persistence,
+				...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+			});
+			if (placement.persistence !== "flushed" || placement.sessionPath === undefined)
+				return failBeforeClose("Session has not been flushed; attach refused", record, [
+					"RPC writer retained",
+				]);
+			const sessionPath = placement.sessionPath;
+			const flushed =
+				sessionPath === record.sessionPath && record.persistence === "flushed"
+					? record
+					: await this.#update(id, (current) => ({
+							...current,
+							persistence: "flushed",
+							sessionPath,
+							launchConfig: { ...current.launchConfig, sessionPath },
+						}));
+			throwIfAborted(signal);
+			await withDeadline(
+				runner.request("close_writer", undefined, { signal }),
+				this.#deps.deadlineMs ?? 30_000,
+			);
+			const writerClosed = true;
+			try {
+				throwIfAborted(signal);
+				const launch = buildLaunchSpec({
+					config: {
+						...flushed.launchConfig,
+						sessionPath,
+					},
+					invocation: flushed.launchConfig.invocation,
+					mode: "tui",
+					persistence: "flushed",
+					bridge: {
+						parentSessionId: flushed.parentSessionId,
+						subagentId: flushed.subagentId,
+						runtimeIdentity: flushed.runtime?.runtimeIdentity ?? "missing",
+						endpoint: flushed.runtime?.endpoint ?? "",
+					},
+				});
+				const attachment = await selection.adapter.attach({
+					...launch,
+					env: withBridgeToken(launch.env, token),
+				});
+				if (signal.aborted) {
+					await attachment.cleanup().catch(() => undefined);
+					throw new Error("Attach was cancelled");
+				}
+				const observed = await attachment.observe();
+				if (attachment.launch.timedOut && (!observed.known || !observed.alive)) {
+					await attachment.cleanup().catch(() => undefined);
+					const restored = await this.#restoreRpc(id, runner);
+					this.#frozen.delete(id);
+					return failure(
+						"attach",
+						"Host timed out and TUI writer was not confirmed",
+						id,
+						flushed.state,
+						[restored, "pending input was not replayed"],
+						false,
+					);
+				}
+				if (attachment.launch.timedOut && observed.alive) {
+					this.#hostAttachments.set(id, attachment);
+					await this.#update(id, (current) => ({ ...current, mode: "tui" }));
+					return failure(
+						"attach",
+						"Host timed out after TUI started; not starting another writer",
+						id,
+						"idle",
+						["TUI writer may be live", "RPC writer closed"],
+						false,
+					);
+				}
+				this.#hostAttachments.set(id, attachment);
+				const next = await this.#update(id, (current) => ({
+					...current,
+					mode: "tui",
+					state: "idle",
+				}));
+				return {
+					child: publicChild(next, true),
+					host: selection.selectedHost,
+					attachmentId: attachment.identity.attachmentId,
+				};
+			} catch (error) {
+				if (!writerClosed) throw error;
+				const restored = await this.#restoreRpc(id, runner);
+				this.#frozen.delete(id);
+				return failure(
+					"attach",
+					error instanceof Error ? error.message : String(error),
+					id,
+					flushed.state,
+					[restored, "pending input was not replayed"],
+					false,
+				);
+			}
+		} catch (error) {
+			this.#frozen.delete(id);
+			return failure(
+				"attach",
+				error instanceof Error ? error.message : String(error),
+				id,
+				undefined,
+				["RPC writer retained"],
+				true,
+			);
+		}
+	}
+
+	async #restoreRpc(id: string, runner: RunnerLike): Promise<string> {
+		try {
+			await withDeadline(runner.request("start_rpc"), this.#deps.deadlineMs ?? 30_000);
+			await this.#update(id, (current) => ({ ...current, mode: "rpc" }));
+			return "RPC writer restored; waiting for input";
+		} catch (error) {
+			return `RPC restore failed: ${error instanceof Error ? error.message : String(error)}`;
+		}
+	}
+
+	async #releaseHost(id: string): Promise<void> {
+		const attachment = this.#hostAttachments.get(id);
+		if (attachment === undefined) return;
+		this.#hostAttachments.delete(id);
+		await attachment.cleanup().catch(() => undefined);
+	}
+
 	public async contactParent(
 		id: string,
 		reason: string,
@@ -472,6 +780,7 @@ export class SubagentManager {
 			await this.#deps.channel.deliver({
 				parentSessionId: record.parentSessionId,
 				childId: id,
+				agent: record.launchConfig.agent.displayName ?? record.launchConfig.agent.name,
 				task: record.initialTask,
 				status: record.state,
 				reason,
@@ -493,6 +802,7 @@ export class SubagentManager {
 	public closeLocalConnections(): void {
 		for (const runner of this.#runners.values()) runner.close();
 		this.#runners.clear();
+		this.#notify();
 	}
 
 	async #observe(id: string, event: unknown, runner: RunnerLike): Promise<void> {
@@ -578,7 +888,9 @@ export class SubagentManager {
 	): Promise<SubagentRecord> {
 		const current = await this.#deps.registry.get(id);
 		if (current === undefined) throw new Error("Child disappeared");
-		return this.#deps.registry.update(id, current.revision, updater);
+		const next = await this.#deps.registry.update(id, current.revision, updater);
+		this.#notify();
+		return next;
 	}
 	#mutate<T>(id: string, action: () => Promise<T>): Promise<T> {
 		const previous = this.#chains.get(id) ?? Promise.resolve();

@@ -15,7 +15,7 @@
  * inherited by the Pi child so its child branch can identify itself and reach
  * this runner's endpoint.
  */
-import { spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { type Static, Type } from "typebox";
@@ -125,30 +125,34 @@ async function main(): Promise<void> {
 		await registry.markClaimRunner(identity.subagentId, job.claimId, process.pid);
 		await registry.activateClaim(identity.subagentId, job.claimId, process.pid);
 	}
-	const child = spawn(job.invocation.command, [...job.invocation.args], {
-		cwd: job.cwd,
-		env: {
-			...process.env,
-			...(job.env ?? {}),
-			[IDENTITY_ENV_KEYS.parentSessionId]: identity.parentSessionId,
-			[IDENTITY_ENV_KEYS.subagentId]: identity.subagentId,
-			[IDENTITY_ENV_KEYS.runtimeIdentity]: identity.runtimeIdentity,
-			[IDENTITY_ENV_KEYS.endpoint]: identity.endpoint,
-			[IDENTITY_ENV_KEYS.token]: identity.token,
-		},
-		stdio: ["pipe", "pipe", "pipe"],
-	});
 	let stderrTail = "";
-	child.stderr.on("data", (chunk: Buffer) => {
-		// Pi stderr is diagnostics only; mirror it and keep a bounded tail.
-		process.stderr.write(chunk);
-		stderrTail = `${stderrTail}${chunk.toString("utf8")}`.slice(-STDERR_TAIL_BYTES);
-	});
+	const spawnWriter = (): ChildProcessWithoutNullStreams => {
+		const next = spawn(job.invocation.command, [...job.invocation.args], {
+			cwd: job.cwd,
+			env: {
+				...process.env,
+				...(job.env ?? {}),
+				[IDENTITY_ENV_KEYS.parentSessionId]: identity.parentSessionId,
+				[IDENTITY_ENV_KEYS.subagentId]: identity.subagentId,
+				[IDENTITY_ENV_KEYS.runtimeIdentity]: identity.runtimeIdentity,
+				[IDENTITY_ENV_KEYS.endpoint]: identity.endpoint,
+				[IDENTITY_ENV_KEYS.token]: identity.token,
+			},
+			stdio: ["pipe", "pipe", "pipe"] as const,
+		});
+		next.stderr.on("data", (chunk: Buffer) => {
+			process.stderr.write(chunk);
+			stderrTail = `${stderrTail}${chunk.toString("utf8")}`.slice(-STDERR_TAIL_BYTES);
+		});
+		return next;
+	};
+	const child = spawnWriter();
 	try {
 		const recoveryRegistry = registry;
 		const runner = await startRunner({
 			identity,
 			process: child,
+			spawnWriter,
 			authorizeRecovery: async (claimId, token) => {
 				const tokenHash = createHash("sha256").update(token).digest("hex");
 				await recoveryRegistry.consumeReconnectClaim(identity.subagentId, claimId, tokenHash);

@@ -6,6 +6,9 @@ const execFileAsync = promisify(execFile);
 
 export type HostKind = "herdr" | "cmux";
 
+/** Where a host command failed: session/env, layout, or the launch command itself. */
+export type HostFailureClass = "environment" | "pane" | "command";
+
 export interface HostCommandResult {
 	readonly stdout: string;
 	readonly stderr: string;
@@ -118,11 +121,13 @@ export async function selectHostAdapter(options: SelectHostAdapterOptions): Prom
 }
 
 export class HostCommandError extends Error {
+	readonly kind: HostFailureClass;
 	readonly result: HostCommandResult;
 
-	constructor(message: string, result: HostCommandResult) {
+	constructor(kind: HostFailureClass, message: string, result: HostCommandResult) {
 		super(message);
 		this.name = "HostCommandError";
+		this.kind = kind;
 		this.result = result;
 	}
 }
@@ -142,13 +147,21 @@ export const systemHostCommandRunner: HostCommandRunner = {
 				stderr?: string;
 				code?: number | string;
 				killed?: boolean;
-				timedOut?: boolean;
+				signal?: string | null;
 			};
+			if (value.code === "ENOENT") {
+				return {
+					stdout: "",
+					stderr: `command not found: ${command}`,
+					exitCode: 127,
+					timedOut: false,
+				};
+			}
 			return {
 				stdout: value.stdout ?? "",
 				stderr: value.stderr ?? value.message ?? String(error),
 				exitCode: typeof value.code === "number" ? value.code : null,
-				timedOut: value.timedOut === true || value.killed === true,
+				timedOut: value.killed === true,
 			};
 		}
 	},
@@ -167,17 +180,23 @@ export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter
 	return {
 		kind: "herdr",
 		async probe(): Promise<HostCapability> {
-			if (process.env.HERDR_ENV !== "1")
+			if (process.env.HERDR_ENV !== "1") {
 				return { host: "herdr", available: false, reason: "HERDR_ENV is not 1" };
+			}
 			const current = await runner.run("herdr", ["pane", "current", "--current"], { timeoutMs });
-			if (current.timedOut)
+			if (current.timedOut) {
 				return { host: "herdr", available: false, reason: "herdr pane probe timed out" };
-			if (current.exitCode !== 0)
+			}
+			if (current.exitCode === 127) {
+				return { host: "herdr", available: false, reason: current.stderr };
+			}
+			if (current.exitCode !== 0) {
 				return {
 					host: "herdr",
 					available: false,
 					reason: `herdr pane probe failed: ${current.stderr}`,
 				};
+			}
 			const pane = parseHerdrPaneId(current.stdout);
 			return pane === undefined
 				? { host: "herdr", available: false, reason: "herdr probe returned no current pane id" }
@@ -186,35 +205,28 @@ export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter
 		async attach(spec): Promise<HostAttachment> {
 			const current = await runner.run("herdr", ["pane", "current", "--current"], { timeoutMs });
 			const parentPane = parseHerdrPaneId(current.stdout);
-			if (parentPane === undefined)
-				throw new HostCommandError("herdr current pane unavailable", current);
-			const split = await runner.run(
+			if (parentPane === undefined) {
+				throw new HostCommandError("pane", "herdr current pane unavailable", current);
+			}
+			const split = await runner.run("herdr", herdrSplitArgs(parentPane, spec), { timeoutMs });
+			const childPane = parseHerdrPaneId(split.stdout);
+			if (childPane === undefined) {
+				throw new HostCommandError("pane", "herdr split returned no child pane id", split);
+			}
+			// pane run sends text+Enter to the new shell. Timeout is not rollback: the pane
+			// already exists and the process may still start after the CLI deadline.
+			const launch = await runner.run(
 				"herdr",
-				[
-					"pane",
-					"split",
-					"--pane",
-					parentPane,
-					"--direction",
-					"right",
-					"--cwd",
-					spec.cwd,
-					"--no-focus",
-				],
+				["pane", "run", childPane, quotedArgv(spec.command, spec.argv)],
 				{ timeoutMs },
 			);
-			const childPane = parseHerdrPaneId(split.stdout);
-			if (childPane === undefined)
-				throw new HostCommandError("herdr split returned no child pane id", split);
-			const launch = await runner.run("herdr", ["pane", "run", childPane, shellCommand(spec)], {
-				timeoutMs,
-			});
 			return hostAttachment({
 				identity: { host: "herdr", attachmentId: childPane, createdBy: options.ownerId },
 				launch,
 				noun: "pane",
-				observe: () => runner.run("herdr", ["pane", "get", childPane], { timeoutMs }),
-				isAlive: (result) => result.exitCode === 0,
+				observe: () =>
+					runner.run("herdr", ["pane", "process-info", "--pane", childPane], { timeoutMs }),
+				isAlive: (result) => result.exitCode === 0 && herdrChildProcessIsRunning(result.stdout),
 				close: () => runner.run("herdr", ["pane", "close", childPane], { timeoutMs }),
 				ownsAttachment: options.ownsAttachment,
 			});
@@ -230,33 +242,39 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 		async probe(): Promise<HostCapability> {
 			const ping = await runner.run("cmux", ["ping"], { timeoutMs });
 			if (ping.timedOut) return { host: "cmux", available: false, reason: "cmux ping timed out" };
-			if (ping.exitCode !== 0)
+			if (ping.exitCode !== 0) {
 				return { host: "cmux", available: false, reason: `cmux unavailable: ${ping.stderr}` };
+			}
 			const capabilities = await runner.run("cmux", ["capabilities", "--json"], { timeoutMs });
-			if (capabilities.timedOut || capabilities.exitCode !== 0)
+			if (capabilities.timedOut || capabilities.exitCode !== 0) {
 				return { host: "cmux", available: false, reason: "cmux capability query failed" };
+			}
 			return { host: "cmux", available: true, reason: "cmux responded and exposed capabilities" };
 		},
 		async attach(spec): Promise<HostAttachment> {
 			const launch = await runner.run(
 				"cmux",
-				["new-split", "right", "--cwd", spec.cwd, "--command", shellCommand(spec)],
+				["--json", "new-split", "right", "--command", cmuxLaunchCommand(spec)],
 				{ timeoutMs },
 			);
 			const attachmentId = parseCmuxSurfaceId(launch.stdout);
-			if (attachmentId === undefined)
+			if (attachmentId === undefined) {
 				throw new HostCommandError(
+					"pane",
 					"cmux split returned no surface id; process state is unknown",
 					launch,
 				);
+			}
 			return hostAttachment({
 				identity: { host: "cmux", attachmentId, createdBy: options.ownerId },
 				launch,
 				noun: "surface",
-				observe: () => runner.run("cmux", ["list-panels", "--json"], { timeoutMs }),
+				observe: () => runner.run("cmux", ["--json", "list-panels"], { timeoutMs }),
 				isAlive: (result) => result.exitCode === 0 && containsString(result.stdout, attachmentId),
 				close: () =>
-					runner.run("cmux", ["close-surface", "--surface", attachmentId], { timeoutMs }),
+					runner.run("cmux", ["--json", "close-surface", "--surface", attachmentId], {
+						timeoutMs,
+					}),
 				ownsAttachment: options.ownsAttachment,
 			});
 		},
@@ -278,7 +296,7 @@ function hostAttachment(options: HostAttachmentOptions): HostAttachment {
 		const result = await options.observe();
 		return {
 			identity: options.identity,
-			alive: options.isAlive(result),
+			alive: !result.timedOut && options.isAlive(result),
 			known: !result.timedOut,
 			detail: result.stderr || result.stdout,
 		};
@@ -288,24 +306,54 @@ function hostAttachment(options: HostAttachmentOptions): HostAttachment {
 		launch: options.launch,
 		observe,
 		async cleanup(): Promise<HostCommandResult> {
-			if (!options.ownsAttachment(options.identity))
+			if (!options.ownsAttachment(options.identity)) {
 				return failedResult(`${options.noun} ownership was revoked`);
+			}
 			const observed = await observe();
-			if (!options.ownsAttachment(options.identity))
+			if (!options.ownsAttachment(options.identity)) {
 				return failedResult(`${options.noun} ownership was revoked during observation`);
-			if (!observed.known || !observed.alive)
-				return failedResult(`${options.noun} is no longer owned or observable`);
+			}
+			if (!observed.known) {
+				return failedResult(`${options.noun} observation timed out; not closing`);
+			}
 			return options.close();
 		},
 	};
 }
 
-function shellCommand(spec: LaunchSpec): string {
+function herdrSplitArgs(parentPane: string, spec: LaunchSpec): string[] {
+	const args = [
+		"pane",
+		"split",
+		"--pane",
+		parentPane,
+		"--direction",
+		"right",
+		"--cwd",
+		spec.cwd,
+		"--no-focus",
+	];
+	for (const [key, value] of Object.entries(spec.env)) {
+		args.push("--env", `${key}=${value}`);
+	}
+	return args;
+}
+
+/** Herdr `pane run` concatenates extra argv with spaces, so quoting happens here once. */
+function quotedArgv(command: string, argv: readonly string[]): string {
+	return [command, ...argv].map(shellQuote).join(" ");
+}
+
+/**
+ * cmux `new-split --command` is shell text. Encode cwd + env + argv without inventing Pi flags.
+ */
+function cmuxLaunchCommand(spec: LaunchSpec): string {
+	const directory = `cd ${shellQuote(spec.cwd)}`;
 	const environment = Object.entries(spec.env)
 		.map(([key, value]) => `${key}=${shellQuote(value)}`)
 		.join(" ");
-	return [environment, shellQuote(spec.command), ...spec.argv.map(shellQuote)]
-		.filter(Boolean)
+	return [directory, "&&", environment, quotedArgv(spec.command, spec.argv)]
+		.filter((part) => part.length > 0)
 		.join(" ");
 }
 
@@ -332,26 +380,67 @@ function parseHerdrPaneId(output: string): string | undefined {
 }
 
 function parseCmuxSurfaceId(output: string): string | undefined {
-	return parseJsonId(output, ["surface_id", "surfaceId", "id"]);
+	const named = parseJsonId(output, ["surface_id", "surfaceId"]);
+	if (named !== undefined) return named;
+	const generic = parseJsonId(output, ["id"], (value) => !value.startsWith("cli:"));
+	return generic;
 }
 
-function parseJsonId(output: string, keys: readonly string[]): string | undefined {
+function parseJsonId(
+	output: string,
+	keys: readonly string[],
+	accept: (value: string) => boolean = () => true,
+): string | undefined {
 	try {
-		const value: unknown = JSON.parse(output);
-		return findString(value, keys);
+		return findString(JSON.parse(output) as unknown, keys, accept);
 	} catch {
 		return undefined;
 	}
 }
 
-function findString(value: unknown, keys: readonly string[]): string | undefined {
+function findString(
+	value: unknown,
+	keys: readonly string[],
+	accept: (value: string) => boolean,
+): string | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	for (const key of keys) {
 		const candidate = (value as Record<string, unknown>)[key];
-		if (typeof candidate === "string" && candidate.length > 0) return candidate;
+		if (typeof candidate === "string" && candidate.length > 0 && accept(candidate)) {
+			return candidate;
+		}
 	}
 	for (const child of Object.values(value as Record<string, unknown>)) {
-		const found = findString(child, keys);
+		const found = findString(child, keys, accept);
+		if (found !== undefined) return found;
+	}
+	return undefined;
+}
+
+function herdrChildProcessIsRunning(output: string): boolean {
+	try {
+		const info = findNamedObject(JSON.parse(output) as unknown, "process_info");
+		if (info === undefined) return false;
+		const shellPid = typeof info.shell_pid === "number" ? info.shell_pid : undefined;
+		const foreground = info.foreground_processes;
+		if (!Array.isArray(foreground)) return false;
+		return foreground.some((proc) => {
+			if (typeof proc !== "object" || proc === null) return false;
+			const pid = (proc as { pid?: unknown }).pid;
+			return typeof pid === "number" && pid !== shellPid;
+		});
+	} catch {
+		return false;
+	}
+}
+
+function findNamedObject(value: unknown, name: string): Record<string, unknown> | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const record = value as Record<string, unknown>;
+	const direct = record[name];
+	if (typeof direct === "object" && direct !== null) return direct as Record<string, unknown>;
+	for (const child of Object.values(record)) {
+		const found = findNamedObject(child, name);
 		if (found !== undefined) return found;
 	}
 	return undefined;
