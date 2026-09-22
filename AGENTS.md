@@ -100,14 +100,17 @@ For UI work: follow [`DESIGN.md`](http://DESIGN.md), reuse ext-core primitives w
 
 ```bash
 pnpm run publish:dry-run                  # 预演
-git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布
+pnpm run publish:packages                 # 本地发布
+git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布（tag 仅作发布标记）
 ```
+
+各 `packages/pi-<name>/package.json` 自带 `version`，彼此独立，没有仓库级发布版本；root 的 `version` 只是私有 root 包自身的版本。发布时只会上传版本尚未存在于 npm 的包，因此改动的包自行 bump 版本，未改动的包保持原版本并被跳过。tag 不再需要等于任何包版本，它只触发 `release.yml`。`publish:packages` / `publish:dry-run` 会先 build 再校验产物。发布仍属高危且不可逆操作，需按 Release Safety 小节取得明确授权。
 
 ## Release Safety
 
 - **MUST** pass the full repository release gate and verify intended versions/dependency ranges before publishing.
 - **MUST** obtain explicit approval for the exact externally visible push/tag/publish/release action unless already authorized.
-- Use a dry-run when available and report exact packages, versions, or tags before publication.
+- Use a dry-run when available and report exact packages and versions before publication.
 - **NEVER** treat a successful push, tag, workflow trigger, or command exit as proof of publication; verify the actual CI/CD release result.
 - On failure, stop and report evidence. **NEVER** weaken tests, typing, validation, or compatibility constraints merely to make a release pass.
 ## Key Rules

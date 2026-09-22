@@ -25,8 +25,9 @@ pnpm --filter @hheei/pi-ext-tools run build
 pi install ./packages/pi-ext-tools
 ```
 
-`--ignore-scripts` 不会生成构建产物，因此安装本地路径前必须显式构建。
-其他扩展按各自 `package.json` 的 `pi.extensions` 和构建脚本准备入口。
+`--ignore-scripts` 不会生成构建产物，因此安装本地路径前必须显式构建需要 `dist/` 的包。
+`pi-mctx` 直接分发 `src/`，使用其 `src/index.ts` 入口，无需单独构建；其他扩展按各自
+`package.json` 的 `pi.extensions` 和构建脚本准备入口。
 
 ## 不安装的开发运行
 

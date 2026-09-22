@@ -42,7 +42,7 @@
 	},
 	"dependencies": {
 		"@ff-labs/fff-node": "^0.10.3",
-		"@hheei/pi-ext-core": "workspace:^0.1.1",
+		"@hheei/pi-ext-core": "workspace:^",
 		"acorn": "^8.18.0",
 		"better-result": "^2.10.0",
 		"cli-highlight": "^2.1.11",
@@ -51,7 +51,6 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=0.85.1",
-		"@earendil-works/pi-ai": ">=0.85.1",
 		"@earendil-works/pi-coding-agent": ">=0.85.1",
 		"@earendil-works/pi-tui": ">=0.85.1"
 	},

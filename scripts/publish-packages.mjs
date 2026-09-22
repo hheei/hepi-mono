@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run") || process.env.DRY_RUN === "true";
 const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const rootManifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
 
 console.log(`[publish-packages] Starting publication check (dryRun: ${isDryRun}, CI: ${isCi})`);
 
@@ -30,20 +27,6 @@ for (const pkg of publicPackages) {
 	) {
 		throw new Error("pnpm returned an invalid public workspace record");
 	}
-	if (pkg.version !== rootManifest.version) {
-		throw new Error(
-			`${pkg.name} is ${pkg.version}, but the fixed repository release version is ${rootManifest.version}`,
-		);
-	}
-}
-
-const releaseTag = process.env.GITHUB_REF?.startsWith("refs/tags/")
-	? process.env.GITHUB_REF.slice("refs/tags/".length)
-	: undefined;
-if (releaseTag && releaseTag !== `v${rootManifest.version}`) {
-	throw new Error(
-		`Release tag ${releaseTag} does not match repository version v${rootManifest.version}`,
-	);
 }
 
 publicPackages.sort((left, right) => {

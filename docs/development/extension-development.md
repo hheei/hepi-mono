@@ -98,20 +98,27 @@ For the fixed repository development combination with incremental builds, see
 
 ## Release Preparation
 
-Public workspaces use the repository's fixed version. The release tag must be exactly
-`v<package.json version>`, and every public package must carry that same version; private
-workspaces are excluded from publication. A released version is immutable, so prepare a new
-repository version whenever any public package content changes.
+Public workspaces version independently: each `packages/pi-<name>/package.json` owns its own
+`version`, and a release publishes only the packages whose version is not yet on npm, so
+packages that did not change keep their version and are skipped. Private workspaces are
+excluded from publication. A released version is immutable, so bump a package's own version
+whenever its content changes. There is no repository-wide release version; the root
+manifest's `version` is the private root package's own version and is not a release
+coordinate.
 
-Run the dry-run from the repository root before requesting approval:
+Run the release checks from the repository root before requesting approval:
 
 ```bash
+pnpm run build
+pnpm run validate:packages
 pnpm run publish:dry-run
 ```
 
-The command rebuilds all publishable entries, inventories each npm tarball, checks manifest
-entry points and complete license text, and then simulates publication. A real tag or publish
-still requires explicit approval for that exact version and action.
+The build step compiles packages with generated `dist/` artifacts; source-entry packages
+are validated from their declared files. The artifact-validation step then verifies every
+publishable package, and the final command inventories each npm tarball and simulates
+publication. A real tag or publish still requires explicit approval for that exact version
+and action.
 
 ## Package Checklist
 
