@@ -52,10 +52,6 @@ export function readEvalSettings(path = defaultExtensionSettingsPaths().globalPa
 	}
 }
 
-export function readEvalEnabled(path = defaultExtensionSettingsPaths().globalPath): boolean {
-	return readEvalSettings(path).enabled;
-}
-
 export function createEvalSettingsProvider(
 	options: EvalSettingsProviderOptions = {},
 ): SettingsProvider {

@@ -116,12 +116,6 @@ export function resolveDiffColors(theme?: DiffTheme): DiffColors {
 	};
 }
 
-/** Stable cache key for the resolved diff theme colors. */
-export function diffThemeCacheKey(theme?: DiffTheme): string {
-	const { theme: _theme, ...colors } = resolveDiffColors(theme);
-	return `${Object.values(colors).join("|")}|${BG_BASE}`;
-}
-
 // ---------------------------------------------------------------------------
 // Adaptive helpers + utilities
 // ---------------------------------------------------------------------------
@@ -309,21 +303,6 @@ export function summarize(a: number, d: number): string {
 	if (a > 0) parts.push(`+${a}`);
 	if (d > 0) parts.push(`-${d}`);
 	return parts.length ? parts.join(" ") : "no changes";
-}
-
-/** Apply active Pi theme colors to a plain diff summary at render time. */
-export function renderDiffSummary(summary: string, theme: FgTheme): string {
-	if (summary === "no changes") return theme.fg("toolDiffContext", summary);
-	return summary
-		.split(" ")
-		.map((part) =>
-			part.startsWith("+")
-				? theme.fg("toolDiffAdded", part)
-				: part.startsWith("-")
-					? theme.fg("toolDiffRemoved", part)
-					: part,
-		)
-		.join(" ");
 }
 
 // ---------------------------------------------------------------------------
