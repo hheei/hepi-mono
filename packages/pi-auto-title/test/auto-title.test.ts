@@ -409,7 +409,8 @@ describe("Pi Auto Title", () => {
 		coordinator.trigger(true);
 		expect(applied).toBe("Old title");
 		idle = true;
-		await sleep(200);
+		bus.emit("agent_settled");
+		await sleep(0);
 		expect(applied).toBe("My Session");
 		expect(
 			statuses.some((entry) => entry.text?.replace(ANSI_SGR, "").includes("Generating title")),

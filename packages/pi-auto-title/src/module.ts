@@ -326,7 +326,6 @@ export function createAutoTitleCoordinator(
 		.some((entry) => entry.type === "custom" && entry.customType === "pi-basics-auto-title");
 	let launchRequested = false;
 	let forceRequested = false;
-	let launchTimer: ReturnType<typeof setTimeout> | undefined;
 	let activeAgent: AutoTitleAgentAdapter | undefined;
 	const setStatus = (text?: string): void => ctx.ui.setStatus?.("auto-title", text);
 	let statusTimer: ReturnType<typeof setInterval> | undefined;
@@ -348,20 +347,11 @@ export function createAutoTitleCoordinator(
 	};
 	const stop = () => {
 		clearTimeout(timer);
-		clearTimeout(launchTimer);
 		timer = undefined;
-		launchTimer = undefined;
 		const agent = activeAgent;
 		activeAgent = undefined;
 		if (agent) attempted = false;
 		agent?.abort();
-	};
-	const scheduleForcedLaunch = () => {
-		if (disposed || !forceRequested || launchTimer !== undefined) return;
-		launchTimer = setTimeout(() => {
-			launchTimer = undefined;
-			launch();
-		}, 50);
 	};
 	// A revision snapshot guards the async completion against session switches,
 	// model changes, and a newer forced request before it writes the title.
@@ -373,10 +363,7 @@ export function createAutoTitleCoordinator(
 			(!forceRequested && (attempted || pi.getSessionName()))
 		)
 			return;
-		if (!ctx.isIdle()) {
-			scheduleForcedLaunch();
-			return;
-		}
+		if (!ctx.isIdle()) return;
 		const forced = forceRequested;
 		const prompt = autoTitleDescription(ctx);
 		if (!prompt) {
