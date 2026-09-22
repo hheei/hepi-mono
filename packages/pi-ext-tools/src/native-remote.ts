@@ -141,12 +141,6 @@ export function remoteMutationDetails(value: unknown): RemoteMutationDetails | u
 	};
 }
 
-export function isNativeRemoteMutationDetails(value: unknown): value is {
-	readonly [REMOTE_MUTATION_DETAILS]: RemoteMutationDetails;
-} {
-	return remoteMutationDetails(value) !== undefined;
-}
-
 export async function writeRemoteFile(
 	state: FffRuntimeState | undefined,
 	target: string,

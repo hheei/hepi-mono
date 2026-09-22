@@ -43,10 +43,6 @@ export function buildFffQuery(
 	return parts.join(" ");
 }
 
-export function containsRegexSyntax(pattern: string): boolean {
-	return /[.*+?^${}()|[\]\\]/.test(pattern);
-}
-
 /** Invalid regex input must use Pi's literal grep fallback, never a shell command. */
 export function isValidRegexPattern(pattern: string): boolean {
 	try {

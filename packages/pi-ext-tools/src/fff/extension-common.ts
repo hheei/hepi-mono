@@ -19,11 +19,6 @@ export function grepNeedsBuiltinFallback(params: {
 	return false;
 }
 
-export function normalizeMode(mode: string | undefined): "plain" | "regex" | "fuzzy" {
-	if (mode === "regex" || mode === "fuzzy") return mode;
-	return "plain";
-}
-
 export function normalizeOutputMode(
 	mode: string | undefined,
 ): "content" | "files_with_matches" | "count" | "usage" | undefined {

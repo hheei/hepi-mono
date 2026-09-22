@@ -30,7 +30,6 @@ export {
 	SEARCH_TIMEOUT_MS as DEFAULT_GREP_TIMEOUT_MS,
 } from "../search-timeout.js";
 export const MAX_MATCHES_PER_FILE = 200;
-export const AUTO_EXPAND_AFTER_CONTEXT = 6;
 export const MAX_AUTO_EXPAND_LINES = 5;
 export const CROPPED_MATCH_LINE_WIDTH = 180;
 export const GREP_CURSOR_PREFIX = "grep:";
