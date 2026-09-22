@@ -154,7 +154,9 @@ class FakeRunner implements RunnerLike {
 	public rejectCloseWriter = false;
 	public rejectStartRpc = false;
 	public pauseCancelled = false;
-	#pauseWaiter: { resolve: (value: unknown) => void; reject: (error: Error) => void } | undefined;
+	#pauseWaiter:
+		| { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }
+		| undefined;
 	readonly #listeners = new Set<(event: unknown) => void>();
 
 	public ackPause(generation = 1): void {
@@ -175,9 +177,9 @@ class FakeRunner implements RunnerLike {
 			};
 		if (operation === "pause") {
 			if (!this.busy) return { paused: true, idle: true, generation: 0 };
-			const { promise, resolve, reject } = Promise.withResolvers<unknown>();
-			this.#pauseWaiter = { resolve, reject };
-			return promise;
+			return new Promise((resolve, reject) => {
+				this.#pauseWaiter = { resolve, reject };
+			});
 		}
 		if (operation === "cancel_pause") {
 			this.pauseCancelled = true;

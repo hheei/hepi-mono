@@ -101,7 +101,7 @@ test("the real Pi agent executes rewritten native Bash arguments after recording
 			);
 			return undefined;
 		},
-		shouldStopAfterTurn: () => true,
+		finishTurn: () => ({ action: "end" }),
 	});
 	await agent.prompt("Exercise the deterministic Bash call");
 	const result = agent.state.messages.find((message) => message.role === "toolResult");

@@ -131,11 +131,17 @@ function restoreTodoState(context: ExtensionContext): TaskState {
 			entry.message.role === "toolResult" &&
 			entry.message.toolName === TODO_TOOL_NAME
 		) {
-			const state = stateFromSnapshot(entry.message.details?.snapshot);
+			const state = stateFromSnapshot(todoSnapshotFromDetails(entry.message.details));
 			if (state) return state;
 		}
 	}
 	return freshTaskState();
+}
+
+function todoSnapshotFromDetails(details: unknown): unknown {
+	if (details === null || typeof details !== "object" || Array.isArray(details)) return undefined;
+	if (!("snapshot" in details)) return undefined;
+	return details.snapshot;
 }
 
 export interface TodoFeature {

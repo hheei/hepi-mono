@@ -1,3 +1,3 @@
 # @hheei/pi-status
 
-Pi response telemetry extension. Requires Pi `>=0.85.1`.
+Pi response telemetry extension. Requires Pi `>=0.87.0`.
