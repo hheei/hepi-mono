@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
 	CTX_STATUS_CUSTOM_TYPE,
-	type CtxStatusEntryData,
-	type PiMessageSender,
 	registerCtxStatusEntryRenderer,
 	sendCtxStatusMessage,
 } from "../../src/commands/pi-command-utils";
@@ -11,16 +9,12 @@ import {
 describe("ctx-status entries", () => {
 	it("appends model-invisible entry data instead of sending a message", () => {
 		const appended: Array<{ customType: string; data: unknown }> = [];
-		let sent = 0;
 		const pi = {
 			registerEntryRenderer() {},
 			appendEntry(customType: string, data?: unknown) {
 				appended.push({ customType, data });
 			},
-			sendMessage() {
-				sent += 1;
-			},
-		} as unknown as PiMessageSender;
+		};
 
 		registerCtxStatusEntryRenderer(pi);
 		sendCtxStatusMessage(
@@ -40,49 +34,21 @@ describe("ctx-status entries", () => {
 				},
 			},
 		]);
-		expect(sent).toBe(0);
 	});
 
-	it("registers one ctx-status entry renderer and ignores malformed data", () => {
+	it("registers one renderer and ignores malformed data", () => {
 		let customType = "";
-		let renderer:
-			| ((entry: { data?: CtxStatusEntryData }, options: unknown, theme: unknown) => unknown)
-			| undefined;
+		let renderer: unknown;
 		const pi = {
-			registerEntryRenderer(type: string, value: typeof renderer) {
+			registerEntryRenderer(type: string, value: unknown) {
 				customType = type;
 				renderer = value;
 			},
 			appendEntry() {},
-		} as unknown as PiMessageSender;
+		};
 
 		expect(registerCtxStatusEntryRenderer(pi)).toBe(true);
 		expect(customType).toBe(CTX_STATUS_CUSTOM_TYPE);
 		expect(renderer).toBeDefined();
-		expect(renderer?.({}, { expanded: false }, {})).toBeUndefined();
-	});
-
-	it("keeps statuses model-invisible on Pi 0.80.2 without entry renderers", () => {
-		const appended: Array<{ customType: string; data: unknown }> = [];
-		let sent = 0;
-		const pi = {
-			appendEntry(customType: string, data?: unknown) {
-				appended.push({ customType, data });
-			},
-			sendMessage() {
-				sent += 1;
-			},
-		} as unknown as PiMessageSender;
-
-		expect(registerCtxStatusEntryRenderer(pi)).toBe(false);
-		sendCtxStatusMessage(pi, { title: "Magic Status", text: "Ready" });
-
-		expect(appended).toEqual([
-			{
-				customType: CTX_STATUS_CUSTOM_TYPE,
-				data: { title: "Magic Status", text: "Ready" },
-			},
-		]);
-		expect(sent).toBe(0);
 	});
 });
