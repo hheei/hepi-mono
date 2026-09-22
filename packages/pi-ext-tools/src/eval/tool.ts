@@ -167,7 +167,7 @@ export function createEvalTool(
 				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
 				else omittedRows += 1;
 				onUpdate?.({
-					content: [{ type: "text", text: transcript(rows, undefined) }],
+					content: [{ type: "text", text: transcript(rows) }],
 					details: {
 						format: "pi-ext-tools-eval",
 						rows,
@@ -222,16 +222,14 @@ export function createEvalTool(
 					text: `… ${omittedRows} more output row(s) omitted`,
 				});
 			}
-			const output = undefined;
 			const details = {
 				format: "pi-ext-tools-eval" as const,
 				rows,
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
-				...(output === undefined ? {} : { output }),
 			};
 			return {
-				content: [{ type: "text", text: transcript(rows, output) }],
+				content: [{ type: "text", text: transcript(rows) }],
 				details,
 			};
 		},
@@ -325,10 +323,7 @@ function renderNestedTrace(
 	}
 }
 
-function transcript(
-	rows: readonly EvalRow[],
-	output: { readonly id: string; readonly persisted?: boolean } | undefined,
-): string {
+function transcript(rows: readonly EvalRow[]): string {
 	const value = rows
 		.map((row) =>
 			row.kind === "tool"
@@ -338,9 +333,9 @@ function transcript(
 					: row.text,
 		)
 		.join("\n");
-	return output === undefined && value.length <= MAX_INLINE_TRANSCRIPT_CHARS
+	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
 		? value
-		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nFull eval transcript: output ${output?.id ?? "unavailable"}${output?.persisted === false ? " (not resumable)" : ""}`;
+		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nEval transcript truncated in tool result.`;
 }
 
 function resultText(result: AgentToolResult<unknown>): string {

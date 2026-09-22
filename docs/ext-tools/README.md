@@ -135,17 +135,13 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 均由 `pi-ext-tools` 管理；它不复用 Pi host `createBashToolDefinition()`。这是为了避免 Pi host 的
 `pi-bash-*.log` 与 extension output 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
 
-`pi-ext-tools` 的 `BashOutputSink` 是 foreground 与 async 的唯一输出策略 owner。它默认保留最后
-10 KiB 的 UTF-8-safe 可见 tail；foreground 仅在输出超过该限制时创建并持续写入 `output://N`，
-async 在启动时预留 output。所有终态 tool result 只携带 tail、截断 metadata 和 opaque output URI。
-settings 属于 concrete extension：`pi-ext-tools` 的 Bash settings 配置该 visible-tail 上限；ext-core 仅持有
-进程范围 output resource，不拥有输出大小、截断或 shell policy。
+`pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。
 
 ### Optional optimizer integration
 
 RTK 重写策略、配置与生命周期现由独立 [`pi-optimizer`](../optimizer/README.md) 所有。`pi-ext-tools` 不再注册 RTK provider 或重写 hook；旧 `pi-ext-tools.rtk` / `rtkPath` 由 optimizer 原子迁移。未安装 optimizer 时 Bash 不自动改写。
 
-Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与 async 保持原行为。Bash 的 Output 仍保存实际子进程输出；执行 RTK 包装命令时，该输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
+Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与 async 保持原行为。Bash result 只保留 bounded tail；执行 RTK 包装命令时，输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
 
 ### Extension-owned async Bash
 
@@ -154,20 +150,7 @@ session-scoped background job，并立即返回 opaque job id。已确认的后�
 通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
 但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
 
-后台 Bash 与发生截断的前台 Bash 都将完整 stdout/stderr 保存为 output；tool result 仅提示以 `read` 打开该 URI。
-后台任务完成消息仍带有限 tail，完整内容绝不内联。Bash job 与其 output 共用同一个线性序号：例如 job `1`
-的完整输出为 `output://1`。
-
-output 是 Pi 进程内共享、进程外隔离的 resource：同一 Pi host process 中的主 session 与 subagent session 都能
-`read` 同一个 URI，故 subagent 可以返回或创建 output URI；另一个 OS process 中的 registry 绝不解析它。output
-在 Pi process 退出时清理，而不能因创建它的单个 session shutdown 而失效。
-
-Pi host 的 internal URL registry 是所有 tool 的统一解析入口。extension 向 registry 注册受限 resolver；每个 tool
-可将接受的路径解析为 internal resource，并按自己的读写能力执行。output 是只读 resource：`read`、`grep`、
-`find` 等读取工具可消费它，写入工具必须拒绝它，不能把 output 当 workspace path。
-
-output URI 采用 ext-core process registry 分配的单调十进制 id：`output://123`。extension 不选择名称、不持有
-host filesystem path、也不得伪造 URI；ext-core 保留 URI 到 process-owned resource 的映射，并在 process exit 清理。
+后台任务完成消息带有限 tail 与截断状态，完整内容绝不内联。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
 默认 shell 由平台环境决定。普通不带 `async` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。

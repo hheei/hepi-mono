@@ -35,7 +35,6 @@ tool arguments { path?, target? }
 
 省略 `target` 与 `target: "local"` 等价。`local` 和 `output` 是保留名称；它们优先于同名 SSH alias。extension 加载时若白名单 SSH alias 与保留名称冲突，只显示一次 warning，并排除该 alias。
 
-legacy `output://N` 暂时保留为独立 internal URL branch。它优先于 `target`，不正则化为 target arguments；例如 `{ path: "output://12", target: "devbox" }` 仍由 legacy Output resolver 执行。该优先级避免调用参数宣称 remote、实际却读取 internal resource 而没有可观察解释。新产生的 recovery reference 使用 `{ target: "output", path: "<opaque-id>" }`；legacy URI 在新 contract 稳定后才另行 deprecate。
 
 unknown target、未授权 alias、target/path capability 不匹配、或 remote capability 缺失，都返回明确错误。任何失败不得 fallback 到 local 或其它 target。
 
@@ -50,7 +49,6 @@ unknown target、未授权 alias、target/path capability 不匹配、或 remote
 | `apply_patch` | Patch Core + LocalBackend | rejected | Patch Core + SftpBackend（ADR-0018） |
 | `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
 
-Output 没有 tree/directory 语义：`find({ target: "output" })` 一律拒绝。`read` 和 `grep` 的 output target 都要求 `path`。local 与 SSH `grep`/`find` 保留其原有的 optional search path。`bash` 与 `apply_patch` 不接受 `output`。
 
 ## Target 解析与授权
 

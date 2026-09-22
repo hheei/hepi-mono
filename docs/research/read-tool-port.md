@@ -2,7 +2,7 @@
 
 ## 范围与结论
 
-本记录比较三个一手实现：vendored Pix `pix-read`（revision `2d308c9f5252460c8c26515098af501bd3be8275`）、仓库已解析的 Pi host `0.84.0`、当前 `@hheei/pi-ext-tools`。只研究 `read` 的执行、schema、`content`/`details`、partial/cancel/error、`output://`、TUI renderer 与 frame；不改变任何实现。
+本记录比较三个一手实现：vendored Pix `pix-read`（revision `2d308c9f5252460c8c26515098af501bd3be8275`）、仓库已解析的 Pi host `0.84.0`、当前 `@hheei/pi-ext-tools`。只研究 `read` 的执行、schema、`content`/`details`、partial/cancel/error、TUI renderer 与 frame；不改变任何实现。
 
 **结论（建议）**：当前没有必须移植 Pix 的证据。`pi-ext-tools` 已复用 Pi 0.84.0 的 schema、文件读取、图像、截断、取消和错误语义；Pix 的主要增量是展示与默认 `limit=400`。若产品确认需要紧凑态文件预览，首选在现有 `packages/pi-ext-tools/src/read.ts` 增加一个只处理未展开成功文本结果的 renderer delta；不要复制 Pix 的 `details` 协议、全局折叠状态或 `cli-highlight` 依赖。
 
@@ -25,7 +25,6 @@ Pi host ToolExecutionComponent
   -> 当前注册的 read ToolDefinition
      -> withToolFrame.execute
         -> pi-ext-tools/read.execute
-           -> output:// ? OutputRegistry.read
            -> 否则 FFF resolvePath（可用且启用时）
            -> Pi createReadToolDefinition(context.cwd).execute
               -> resolve/read/access/image-or-text/truncate
@@ -34,7 +33,6 @@ Pi host ToolExecutionComponent
   -> Pi host self-render container / 图像组件
 ```
 
-当前扩展用 `createReadToolDefinition(process.cwd())` 取得 template 以保留名称、说明、TypeBox schema 和 renderer；每次执行又以 `context.cwd` 新建原生定义，避免 extension 构造时 cwd 泄漏到 tool call。它仅在原生执行前处理 `output://` 与 FFF 路径解析；关闭 `readEnhancement`、未建立 FFF runtime、解析失败或异常时均直接回退到原生执行。依据：`packages/pi-ext-tools/src/read.ts:15-49`。
 
 随后 `registerManagedLoadoutTool()` 用 `withToolFrame(tool, trace)` 注册该 definition；Loadout transport 最终调用 Pi 的 `registerTool`，不会替换 execute。依据：`packages/pi-ext-tools/src/read.ts:52-65`、`packages/pi-ext-core/src/loadout.ts:346-359`。
 
@@ -57,14 +55,6 @@ Pi 在 signal 已 abort 或执行中 abort 时 reject `Error("Operation aborted"
 Pi host 的 `ToolExecutionComponent` 把结果 `isError`、`isPartial`、展开状态、图像显示能力传给 renderer；renderer 抛错时 host 回退到文本输出。`renderShell: "self"` 时 host 不绘制默认 Box，但仍在结果 content 中发现图像并按 terminal capability 追加 Image component。依据：Pi `dist/modes/interactive/components/tool-execution.js:44-56,92-105,181-191,206-255`。
 
 Pix renderer 虽含“structured error”分支，但它只有在原生 `execute` 成功返回后才写入结构化 details；上述原生失败会 reject。因此该分支不是普通文件读取失败的已证实运行时路径；其单测使用人工构造的 details。依据：Pix `read.ts:70-97,122-170`、`packages/pix-read/src/read.test.ts:150-205`。
-
-### Output URI
-
-`OutputRegistry` 只接受 `output://` 后接正安全整数的 URI，内容写入 process-shared 临时文件；`read(uri, {offset, limit})` 按 Pi 的 1-based line offset/limit 返回文本，不公开 backing path。`dispose()` 特意不删除内容，进程退出负责清理。依据：`packages/pi-ext-core/src/output.ts:6-15,40-98`、`packages/pi-ext-core/test/output.test.ts:5-35`。
-
-当前 read 在 session lifecycle 已提供 registry 时优先处理 `output://`：它将原请求的 offset/limit 传给 registry，返回一个 text content，且不会调用 FFF 或 Pi 原生 reader。未知或格式错误 URI 的错误由 registry 抛出；若 registry 尚不可用，路径会回退原生 reader。依据：`packages/pi-ext-tools/src/read.ts:19-33`、`packages/pi-ext-tools/src/fff/lifecycle.ts:88-114`、`packages/pi-ext-core/src/lifecycle.ts:110-154`。
-
-这项集成是当前独有行为；Pix `pix-read` 没有 `output://` 分支。它保持分页语义，但 Output URI 没有文件扩展名、MIME、原生 truncation details 或命名元数据。
 
 ### TUI renderer 与 frame
 
