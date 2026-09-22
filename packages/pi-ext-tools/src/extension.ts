@@ -17,7 +17,7 @@ import { registerCommands } from "./fff/register-commands.js";
 import { type EditCatalog, readEditMode, resolveEditCatalog } from "./fff/settings.js";
 import { grepHasNoSearchablePaths } from "./grep.js";
 import { remoteMutationDetails } from "./native-remote.js";
-import { stripTargetPrompt, targetPromptBlock } from "./targets.js";
+import { applyTargetPromptSection } from "./targets.js";
 import { createTodoFeature } from "./todo/todo.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "./tools.js";
 
@@ -71,9 +71,7 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	registerEvalLifecycle(pi, evalState, evalEnabled, evalSettings.pythonBin);
 	pi.on("before_agent_start", (event) => {
 		if (session !== undefined) syncEditCatalog(session, session.extension.model);
-		const prompt = targetPromptBlock(state.getTargetRuntime());
-		if (prompt === undefined) return;
-		return { systemPrompt: `${stripTargetPrompt(event.systemPrompt).trimEnd()}\n\n${prompt}` };
+		applyTargetPromptSection(event.systemPromptOptions.sections, state.getTargetRuntime());
 	});
 	pi.on("model_select", (event) => {
 		if (session === undefined) return;

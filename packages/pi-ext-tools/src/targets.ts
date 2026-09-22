@@ -16,7 +16,7 @@ const OUTPUT_SIDECAR_SUFFIX = ".pi-ext-tools-output.jsonl";
 const MAX_OUTPUTS = 128;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES_EACH = 1024 * 1024;
-const TARGET_PROMPT_MARKER = "<pi-ext-tools-targets>";
+const TARGET_PROMPT_SECTION = "pi-ext-tools-targets";
 const TARGET_PROMPT_LINES = [
 	"read, grep, find, edit, and write accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
 	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support async or output. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
@@ -411,10 +411,8 @@ export class TargetRuntime {
 	prompt(): string {
 		const hosts = [...this.#allowedHosts].sort();
 		return [
-			TARGET_PROMPT_MARKER,
 			...TARGET_PROMPT_LINES,
 			`Authorized SSH targets: ${hosts.length === 0 ? "none" : hosts.join(", ")}`,
-			"</pi-ext-tools-targets>",
 		].join("\n");
 	}
 
@@ -776,12 +774,14 @@ export function targetPromptBlock(runtime: TargetRuntime | undefined): string | 
 	return runtime?.prompt();
 }
 
-export function stripTargetPrompt(systemPrompt: string): string {
-	const start = systemPrompt.indexOf(TARGET_PROMPT_MARKER);
-	if (start < 0) return systemPrompt;
-	const end = systemPrompt.indexOf("</pi-ext-tools-targets>", start);
-	return end < 0
-		? systemPrompt
-		: systemPrompt.slice(0, start).trimEnd() +
-				systemPrompt.slice(end + "</pi-ext-tools-targets>".length);
+export function applyTargetPromptSection(
+	sections: Record<string, string>,
+	runtime: TargetRuntime | undefined,
+): void {
+	const section = targetPromptBlock(runtime);
+	if (section === undefined) {
+		delete sections[TARGET_PROMPT_SECTION];
+		return;
+	}
+	sections[TARGET_PROMPT_SECTION] = section;
 }
