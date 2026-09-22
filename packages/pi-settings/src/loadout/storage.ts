@@ -16,26 +16,20 @@ import {
 
 export const LOADOUT_SETTINGS_KEY = "loadout";
 
-export interface UpdateLoadoutSelectionOptions {
-	readonly cwd: string;
-	readonly paths?: ExtensionSettingsPaths;
+interface ScopedSelection {
 	readonly scope: LoadoutScope;
 	readonly key: string;
 	readonly selection: LoadoutSelection;
 	readonly defaultActive: boolean;
 	/** Project-private resources have no global row and therefore cannot inherit. */
 	readonly projectPrivate?: boolean;
-	readonly signal?: AbortSignal;
 }
 
 export interface UpdateLoadoutSelectionsOptions {
 	readonly cwd: string;
 	readonly paths?: ExtensionSettingsPaths;
 	readonly scope: LoadoutScope;
-	readonly selections: readonly Omit<
-		UpdateLoadoutSelectionOptions,
-		"cwd" | "paths" | "scope" | "signal"
-	>[];
+	readonly selections: readonly Omit<ScopedSelection, "scope">[];
 	readonly signal?: AbortSignal;
 }
 
@@ -57,8 +51,6 @@ function without(entries: readonly string[], key: string): string[] {
 function withKey(entries: readonly string[], key: string): string[] {
 	return [...new Set([...entries, key])].sort((left, right) => left.localeCompare(right));
 }
-
-type ScopedSelection = Omit<UpdateLoadoutSelectionOptions, "cwd" | "paths" | "signal">;
 
 function shouldClear(options: ScopedSelection): boolean {
 	if (options.selection === "inherit") return true;
@@ -134,17 +126,4 @@ export async function updateLoadoutSelections(
 		},
 		options.signal,
 	);
-}
-
-/** Compatibility convenience for a single immediate selection. */
-export async function updateLoadoutSelection(
-	options: UpdateLoadoutSelectionOptions,
-): Promise<void> {
-	return updateLoadoutSelections({
-		cwd: options.cwd,
-		...(options.paths === undefined ? {} : { paths: options.paths }),
-		scope: options.scope,
-		selections: [options],
-		...(options.signal === undefined ? {} : { signal: options.signal }),
-	});
 }
