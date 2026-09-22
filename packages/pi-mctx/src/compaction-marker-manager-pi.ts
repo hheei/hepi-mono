@@ -21,7 +21,7 @@ export interface ApplyDeferredPiCompactionMarkerDeps {
 	readBranchEntries: () => unknown[];
 	appendCompaction: (
 		summary: string,
-		firstKeptEntryId: string,
+		firstKeptEntryId: string | null,
 		tokensBefore: number,
 		details?: unknown,
 		fromHook?: boolean,

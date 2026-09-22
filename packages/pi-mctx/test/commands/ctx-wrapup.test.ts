@@ -269,6 +269,7 @@ describe("Pi /ctx-wrapup", () => {
 				pi().api,
 				deps(db, {
 					runPiHistorianForWrapup: vi.fn(async (args) => {
+						expect(args.readBranchEntries?.()).toHaveLength(8);
 						appendRange(db, sessionId, 1, 3);
 						args.onPublished?.();
 					}),

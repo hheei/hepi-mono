@@ -44,7 +44,7 @@ import { buildPiCompactionSummary, findFirstKeptEntryId } from "./pi-historian-r
 export function stagePiRecompMarker(args: {
 	db: ContextDatabase;
 	sessionId: string;
-	ctx: unknown;
+	ctx: PiNativeCompactionContext;
 }): void {
 	const readBranchEntries = resolvePiReadBranchEntries(args.ctx);
 	if (!readBranchEntries) return;
@@ -95,7 +95,7 @@ export function stagePiRecompMarker(args: {
 export function queueAndApplyPiRecompMarker(args: {
 	db: ContextDatabase;
 	sessionId: string;
-	ctx: unknown;
+	ctx: PiNativeCompactionContext;
 }): void {
 	const appendCompaction = resolvePiAppendCompaction(args.ctx);
 	const readBranchEntries = resolvePiReadBranchEntries(args.ctx);
@@ -140,40 +140,41 @@ export function queueAndApplyPiRecompMarker(args: {
 	}
 }
 
+type PiNativeCompactionContext = {
+	readonly sessionManager?: {
+		appendCompaction?: (
+			summary: string,
+			firstKeptEntryId: string | null,
+			tokensBefore: number,
+			details?: unknown,
+			fromHook?: boolean,
+		) => string;
+		getBranch?: () => unknown;
+	};
+};
+
 function resolvePiAppendCompaction(
-	ctx: unknown,
+	ctx: PiNativeCompactionContext,
 ):
 	| ((
 			summary: string,
-			firstKeptEntryId: string,
+			firstKeptEntryId: string | null,
 			tokensBefore: number,
 			details?: unknown,
 			fromHook?: boolean,
 	  ) => string | undefined)
 	| undefined {
-	const sm = (ctx as { sessionManager?: unknown })?.sessionManager as
-		| {
-				appendCompaction?: (
-					summary: string,
-					firstKeptEntryId: string,
-					tokensBefore: number,
-					details?: unknown,
-					fromHook?: boolean,
-				) => string | undefined;
-		  }
-		| undefined;
-	if (typeof sm?.appendCompaction !== "function") return undefined;
-	return sm.appendCompaction.bind(sm);
+	const appendCompaction = ctx.sessionManager?.appendCompaction;
+	if (typeof appendCompaction !== "function") return undefined;
+	return appendCompaction.bind(ctx.sessionManager);
 }
 
-function resolvePiReadBranchEntries(ctx: unknown): (() => unknown[]) | undefined {
-	const sm = (ctx as { sessionManager?: unknown })?.sessionManager as
-		| { getBranch?: () => unknown[] }
-		| undefined;
-	if (typeof sm?.getBranch !== "function") return undefined;
+function resolvePiReadBranchEntries(ctx: PiNativeCompactionContext): (() => unknown[]) | undefined {
+	const getBranch = ctx.sessionManager?.getBranch;
+	if (typeof getBranch !== "function") return undefined;
 	return () => {
 		try {
-			const entries = sm.getBranch?.call(sm);
+			const entries = getBranch.call(ctx.sessionManager);
 			return Array.isArray(entries) ? entries : [];
 		} catch {
 			return [];

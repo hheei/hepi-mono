@@ -540,8 +540,5 @@ function formatExistingWrapup(state: ReturnType<typeof getWrapupInProgressState>
 }
 
 function readBranchEntries(ctx: ExtensionCommandContext): unknown[] {
-	const getBranch = (ctx.sessionManager as { getBranch?: () => unknown }).getBranch;
-	if (typeof getBranch !== "function") return [];
-	const branch = getBranch.call(ctx.sessionManager) as { entries?: unknown } | null | undefined;
-	return Array.isArray(branch?.entries) ? branch.entries : [];
+	return ctx.sessionManager.getBranch();
 }
