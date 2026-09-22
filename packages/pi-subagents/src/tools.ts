@@ -3,6 +3,7 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { getToolTui, registerToolTuiTrace } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendReportToRunner } from "./connector.js";
 import type { ChildIdentity, OperationError } from "./domain.js";
@@ -11,7 +12,7 @@ import type { SubagentManager } from "./manager.js";
 
 const spawnSchema = Type.Object({
 	task: Type.String({ minLength: 1 }),
-	agent: Type.Optional(Type.String()),
+	agent: Type.String({ minLength: 1 }),
 	cwd: Type.Optional(Type.String()),
 });
 const sendSchema = Type.Object({
@@ -81,6 +82,8 @@ const CONTACT_GUIDELINES = [
 ] as const;
 
 export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager): void {
+	if (typeof pi.on === "function") registerToolTuiTrace(pi);
+	const tui = getToolTui(pi);
 	const spawn: ToolDefinition<typeof spawnSchema> = {
 		name: "spawn_subagent",
 		label: "Spawn subagent",
@@ -135,14 +138,27 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 			return result(await manager.stop(params.id, signal));
 		},
 	};
-	for (const tool of [spawn, send, get, list, stop]) pi.registerTool(tool);
+	pi.registerTool(tui.frame(spawn, { summary: (args) => args.agent }));
+	pi.registerTool(tui.frame(send, { summary: (args) => args.id }));
+	pi.registerTool(tui.frame(get, { summary: (args) => args.id }));
+	pi.registerTool(tui.frame(list, { summary: () => "owned children" }));
+	pi.registerTool(tui.frame(stop, { summary: (args) => args.id }));
+}
+
+export interface RegisterChildToolsOptions {
+	readonly onReport?: () => void;
+	readonly isBound?: (sessionId: string) => boolean;
 }
 
 export function registerChildTools(
 	pi: ExtensionAPI,
 	identity: ChildIdentity,
-	onReport?: () => void,
+	onReportOrOptions?: (() => void) | RegisterChildToolsOptions,
 ): void {
+	const options: RegisterChildToolsOptions =
+		typeof onReportOrOptions === "function"
+			? { onReport: onReportOrOptions }
+			: (onReportOrOptions ?? {});
 	const tool: ToolDefinition<typeof contactSchema> = {
 		name: "contact_parent",
 		label: "Contact parent",
@@ -150,7 +166,13 @@ export function registerChildTools(
 		promptSnippet: CONTACT_SNIPPET,
 		promptGuidelines: [...CONTACT_GUIDELINES],
 		parameters: contactSchema,
-		async execute(_id, params, signal) {
+		async execute(_id, params, signal, _onUpdate, ctx) {
+			const sessionId = ctx.sessionManager.getSessionId();
+			if (options.isBound !== undefined && !options.isBound(sessionId)) {
+				throw new Error(
+					"This Pi session is not the bound subagent session; contact_parent is disabled.",
+				);
+			}
 			const details = {
 				type: "pi_subagent_report" as const,
 				parentSessionId: identity.parentSessionId,
@@ -158,9 +180,10 @@ export function registerChildTools(
 				runtimeIdentity: identity.runtimeIdentity,
 				reason: params.reason,
 				message: params.message,
+				sessionId,
 			};
 			await sendReportToRunner(identity, details, signal);
-			onReport?.();
+			options.onReport?.();
 			return {
 				content: [{ type: "text", text: "Report queued for the parent." }],
 				details,
@@ -168,25 +191,4 @@ export function registerChildTools(
 		},
 	};
 	pi.registerTool(tool);
-}
-
-export function isChildEnvironment(
-	env: NodeJS.ProcessEnv,
-): env is NodeJS.ProcessEnv &
-	Record<
-		| "PI_SUBAGENTS_PARENT_SESSION_ID"
-		| "PI_SUBAGENTS_CHILD_ID"
-		| "PI_SUBAGENTS_RUNTIME_ID"
-		| "PI_SUBAGENTS_ENDPOINT"
-		| "PI_SUBAGENTS_TOKEN",
-		string
-	> {
-	const keys = [
-		"PI_SUBAGENTS_PARENT_SESSION_ID",
-		"PI_SUBAGENTS_CHILD_ID",
-		"PI_SUBAGENTS_RUNTIME_ID",
-		"PI_SUBAGENTS_ENDPOINT",
-		"PI_SUBAGENTS_TOKEN",
-	] as const;
-	return keys.every((key) => typeof env[key] === "string" && env[key] !== "");
 }

@@ -148,14 +148,14 @@ async function main(): Promise<void> {
 	};
 	const child = spawnWriter();
 	try {
-		const recoveryRegistry = registry;
 		const runner = await startRunner({
 			identity,
 			process: child,
 			spawnWriter,
+			sessionId: job.sessionId,
 			authorizeRecovery: async (claimId, token) => {
 				const tokenHash = createHash("sha256").update(token).digest("hex");
-				await recoveryRegistry.consumeReconnectClaim(identity.subagentId, claimId, tokenHash);
+				await registry.consumeReconnectClaim(identity.subagentId, claimId, tokenHash);
 				return true;
 			},
 			onDiagnostic: (line) => writeDiagnostic("runner", line),

@@ -1,15 +1,18 @@
 # @hheei/pi-subagents
 
-> Public development package: recovery, native TUI handoff, and user-facing controls
-> remain tracked in [`docs/pi-subagents/tickets.md`](../../docs/pi-subagents/tickets.md).
-> Publication does not mean those unfinished capabilities are available.
-
 Run several independent Pi child sessions from one Pi session, each with its own Pi session
 file, its own RPC runtime, and its own durable identity.
 
 The package is a single concrete extension with one `pi.extensions` entry
 (`dist/extension.js`). The same entry runs on both sides: the parent branch registers the
-model-facing tools, the child branch registers only the reporting bridge.
+model-facing tools, commands, and widget; the child branch registers only the reporting
+bridge and session-leave reporting.
+
+Current behavior is defined by [`docs/pi-subagents/spec.md`](../../docs/pi-subagents/spec.md).
+[`docs/pi-subagents/PLAN.md`](../../docs/pi-subagents/PLAN.md) and
+[`docs/pi-subagents/PLAN-delivery-presentation.md`](../../docs/pi-subagents/PLAN-delivery-presentation.md)
+are design sources, not the live contract. Remaining pause-handshake work is tracked in
+[`docs/pi-subagents/tickets.md`](../../docs/pi-subagents/tickets.md) SUB-08.
 
 ## Parent tools
 
@@ -17,7 +20,7 @@ model-facing tools, the child branch registers only the reporting bridge.
 | --- | --- |
 | `spawn_subagent({ task, agent, cwd? })` | Start one background RPC child and return when the runtime is ready. Do not poll `get`/`list` for the child's work; reports arrive as `pi-subagent-report` messages. |
 | `send_subagent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. Do not poll afterwards. |
-| `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness. Use this for identity or state, not to wait. |
+| `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness, and inherited model/thinking. Use this for identity or state, not to wait. |
 | `list_subagents({})` | List children owned by this parent session. Use this for ids or current state, not to wait. |
 | `stop_subagent({ id })` | Persist a stopped intent, then end the runtime. |
 
@@ -31,7 +34,8 @@ wakes the parent. If a child ends a turn without reporting, it may receive a fol
 nudge to call `contact_parent`; the child session is never auto-exited. Delay defaults to
 5s (`PI_SUBAGENTS_NUDGE_DELAY_MS`); set `PI_SUBAGENTS_NUDGE_DISABLE=1` to turn it off.
 
-`get_subagent` / `list_subagents` include `interactive`, `freshness`, and `updatedAt`.
+`get_subagent` / `list_subagents` include `interactive`, `freshness`, `updatedAt`, and the
+resolved `model` / `thinking` with whether each came from the agent or the parent.
 Reports delivered to the parent are titled with the agent display name and child id.
 
 ## Agent definitions
@@ -80,6 +84,12 @@ disabling discovery, so a child never loses `contact_parent` and never gains a m
 A HostAdapter only carries a native TUI. It receives the same LaunchSpec the RPC runner
 uses, probes real host capability, and never re-resolves agent, model, or Pi flags.
 
+`/attach-subagent <id>` opens an RPC child as native Pi in Herdr or cmux. With no
+id, `/subagents` or the attach shortcut uses `ctx.ui.select`. An idle child switches
+immediately. A busy child waits for the current turn's `turn_end`, then closes the
+RPC writer. Timeout or cancel keeps the RPC writer and fails visibly. Session files
+that have never flushed refuse attach. There is no model-facing attach tool.
+
 - Default selection is Herdr, then cmux. An explicit unavailable host fails visibly and
   does not fall back.
 - Probe talks to the live session (`herdr pane current` inside `HERDR_ENV=1`, `cmux ping`
@@ -90,6 +100,15 @@ uses, probes real host capability, and never re-resolves agent, model, or Pi fla
   evidence that the Pi process is alive. Command timeout is not rollback: the attachment
   is returned so the caller can inspect it, and nothing is closed automatically.
 - Cleanup closes only the pane or surface this transition created and still owns.
+- After a confirmed TUI process exit (`/quit`, pane close, crash), the same runner restores
+  RPC on session A and waits for input. Crash adds an extra diagnostic. A pane event with a
+  still-live process does not detach.
+- `/new`, `/resume` other, and `/fork` unbind A only after the TUI is confirmed on session
+  B. A returns to RPC; B is a native Pi session, not a subagent, and cannot `contact_parent`
+  as A. `/reload` and `/resume` of A do not detach. This package does not intercept a
+  user opening the same session with native `/resume` outside the managed path.
+- A confirmed user interrupt (Pi `stopReason: aborted`) notifies the parent and stays on
+  the TUI. Nothing is auto-resumed.
 
 ## Persistence
 
@@ -114,13 +133,23 @@ starts only after the old runner PID is confirmed dead (a reused PID is not trea
 ours). Pending input is marked interrupted and never replayed. A flushed session whose
 file is missing fails closed; a never-flushed child keeps its original session id.
 
-## Observation
+## Observation and commands
 
 An interactive TUI parent shows an above-editor widget of live children (`starting`,
-`running`, `idle`, and non-terminal `mode === "tui"`). It is a projection of `list()`:
+`running`, `idle`). It is a projection of `list()`:
 no second running set, no border, no file polling. Rows use the agent display name when
 present, mark `last known` when the runner is not connected, and show elapsed time since
-the last registry update. Headless/RPC parents do not mount it.
+spawn. Headless/RPC parents do not mount it.
+
+`setStatus` shows a compact `running` / `idle` / `tui` / `failed` line, including
+`interrupted` when that diagnostic is set. `/subagents` lists, inspects, attaches, sends,
+or stops through `ctx.ui.select`. `/attach-subagent` and `/stop-subagent` accept an id or
+open the same picker. Shortcuts `ctrl+shift+a` and `ctrl+shift+s` call the same manager
+operations. Spawn/send/get/list/stop results render through ext-core ToolTui so collapsed
+output still keeps the full details.
+
+A TUI child shows one borderless identity line (agent, `contact_parent`, tool count). It
+is not a control surface.
 
 ## Notes
 

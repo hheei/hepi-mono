@@ -11,9 +11,17 @@ import type { RunnerLike } from "./manager.js";
 import type { SubagentRegistry } from "./registry.js";
 import { planSessionPlacement } from "./session-bootstrap.js";
 
+export interface RuntimeTokenStore {
+	remember(runtimeIdentity: string, token: string): void;
+	get(runtimeIdentity: string): string | undefined;
+	forget(runtimeIdentity: string): void;
+	clear(): void;
+}
+
 export interface LaunchDetachedRunnerOptions {
 	readonly registry: SubagentRegistry;
 	readonly record: SubagentRecord;
+	readonly tokens: RuntimeTokenStore;
 	readonly signal?: AbortSignal;
 }
 
@@ -22,14 +30,22 @@ function runtimeDirectory(): string {
 	return join(tmpdir(), `pi-subagents-${user}`);
 }
 
-const liveBridgeTokens = new Map<string, string>();
-
-export function rememberRuntimeToken(runtimeIdentity: string, token: string): void {
-	liveBridgeTokens.set(runtimeIdentity, token);
-}
-
-export function runtimeToken(runtimeIdentity: string): string | undefined {
-	return liveBridgeTokens.get(runtimeIdentity);
+export function createRuntimeTokenStore(): RuntimeTokenStore {
+	const tokens = new Map<string, string>();
+	return {
+		remember(runtimeIdentity, token) {
+			tokens.set(runtimeIdentity, token);
+		},
+		get(runtimeIdentity) {
+			return tokens.get(runtimeIdentity);
+		},
+		forget(runtimeIdentity) {
+			tokens.delete(runtimeIdentity);
+		},
+		clear() {
+			tokens.clear();
+		},
+	};
 }
 
 /** Starts the package runner as a detached process and returns its authenticated controller. */
@@ -56,6 +72,7 @@ export async function launchDetachedRunner(
 		prepared.token,
 		prepared.claim.claimId,
 		options.signal,
+		options.tokens,
 	);
 }
 
@@ -93,7 +110,12 @@ export async function recoverDetachedRunner(
 				delayMs: 50,
 				...(options.signal === undefined ? {} : { signal: options.signal }),
 			});
-			rememberRuntimeToken(prepared.identity.runtimeIdentity, prepared.token);
+			rememberClaimedToken(
+				options.tokens,
+				record,
+				prepared.identity.runtimeIdentity,
+				prepared.token,
+			);
 			return connection;
 		} catch (error) {
 			connection.close();
@@ -139,6 +161,7 @@ export async function recoverDetachedRunner(
 		prepared.token,
 		prepared.claim.claimId,
 		options.signal,
+		options.tokens,
 	);
 }
 
@@ -204,6 +227,7 @@ async function startClaimedRunner(
 	token: string,
 	claimId: string,
 	signal: AbortSignal | undefined,
+	tokens: RuntimeTokenStore,
 ): Promise<RunnerLike> {
 	const launch = buildLaunchSpec({
 		config: record.launchConfig,
@@ -248,7 +272,7 @@ async function startClaimedRunner(
 			...(signal === undefined ? {} : { signal }),
 		});
 		await unlink(jobPath).catch(() => undefined);
-		rememberRuntimeToken(identity.runtimeIdentity, token);
+		rememberClaimedToken(tokens, record, identity.runtimeIdentity, token);
 		return connection;
 	} catch (error) {
 		connection.close();
@@ -260,6 +284,17 @@ async function startClaimedRunner(
 		}
 		throw error;
 	}
+}
+
+function rememberClaimedToken(
+	tokens: RuntimeTokenStore,
+	record: SubagentRecord,
+	runtimeIdentity: string,
+	token: string,
+): void {
+	const previous = record.runtime?.runtimeIdentity;
+	tokens.remember(runtimeIdentity, token);
+	if (previous !== undefined && previous !== runtimeIdentity) tokens.forget(previous);
 }
 
 async function requireCurrentRecord(

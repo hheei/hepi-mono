@@ -16,6 +16,10 @@ export const RUNNER_OPERATIONS = [
 	"get_session_stats",
 	"shutdown",
 	"contact_parent",
+	"report_lifecycle",
+	"report_paused",
+	"pause",
+	"cancel_pause",
 	"close_writer",
 	"start_rpc",
 ] as const;
@@ -30,6 +34,15 @@ export const WRITER_EXIT_EVENT = "writer_exit" as const;
 
 /** Runner-local event emitted when buffered events had to be dropped. */
 export const RUNNER_EVENTS_DROPPED_EVENT = "runner_events_dropped" as const;
+
+/** Child-branch event: the TUI left the bound session, quit, or was interrupted. */
+export const CHILD_LIFECYCLE_EVENT = "child_lifecycle" as const;
+
+/** Runner-to-bridge event: hold the current turn_end until close_writer or cancel. */
+export const PAUSE_EVENT = "pause" as const;
+
+/** Runner-to-bridge event: release a previous pause generation. */
+export const CANCEL_PAUSE_EVENT = "cancel_pause" as const;
 
 const nonEmptyString = Type.String({ minLength: 1 });
 
@@ -48,7 +61,12 @@ export const HelloFrameSchema = Type.Object(
 		version: Type.Literal(PROTOCOL_VERSION),
 		type: Type.Literal("hello"),
 		role: Type.Optional(
-			Type.Union([Type.Literal("controller"), Type.Literal("reporter"), Type.Literal("recovery")]),
+			Type.Union([
+				Type.Literal("controller"),
+				Type.Literal("reporter"),
+				Type.Literal("recovery"),
+				Type.Literal("bridge"),
+			]),
 		),
 		claimId: Type.Optional(nonEmptyString),
 		...identityProperties,
@@ -134,6 +152,35 @@ export const ContactReportPayloadSchema = Type.Object(
 			Type.Literal("blocked"),
 		]),
 		message: nonEmptyString,
+		sessionId: Type.Optional(nonEmptyString),
+	},
+	{ additionalProperties: false },
+);
+
+export const ChildLifecyclePayloadSchema = Type.Object(
+	{
+		type: Type.Literal("child_lifecycle"),
+		parentSessionId: nonEmptyString,
+		childId: nonEmptyString,
+		runtimeIdentity: nonEmptyString,
+		kind: Type.Union([
+			Type.Literal("left_session"),
+			Type.Literal("tui_quit"),
+			Type.Literal("user_interrupt"),
+		]),
+		sessionId: nonEmptyString,
+		message: Type.Optional(Type.String()),
+	},
+	{ additionalProperties: false },
+);
+
+export const PauseReportPayloadSchema = Type.Object(
+	{
+		type: Type.Literal("report_paused"),
+		parentSessionId: nonEmptyString,
+		childId: nonEmptyString,
+		runtimeIdentity: nonEmptyString,
+		generation: Type.Integer({ minimum: 1 }),
 	},
 	{ additionalProperties: false },
 );
@@ -145,6 +192,8 @@ export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type EventFrame = Static<typeof EventFrameSchema>;
 export type ServerFrame = Static<typeof ServerFrameSchema>;
 export type ContactReportPayload = Static<typeof ContactReportPayloadSchema>;
+export type ChildLifecyclePayload = Static<typeof ChildLifecyclePayloadSchema>;
+export type PauseReportPayload = Static<typeof PauseReportPayloadSchema>;
 
 export function isRunnerOperation(value: unknown): value is RunnerOperation {
 	return typeof value === "string" && (RUNNER_OPERATIONS as readonly string[]).includes(value);
@@ -164,6 +213,14 @@ export function isRequestFrame(value: unknown): value is RequestFrame {
 
 export function isContactReportPayload(value: unknown): value is ContactReportPayload {
 	return Value.Check(ContactReportPayloadSchema, value);
+}
+
+export function isChildLifecyclePayload(value: unknown): value is ChildLifecyclePayload {
+	return Value.Check(ChildLifecyclePayloadSchema, value);
+}
+
+export function isPauseReportPayload(value: unknown): value is PauseReportPayload {
+	return Value.Check(PauseReportPayloadSchema, value);
 }
 
 export function isResponseFrame(value: unknown): value is ResponseFrame {

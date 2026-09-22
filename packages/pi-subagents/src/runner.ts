@@ -2,19 +2,24 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { errorMessage, toError, writeDiagnostic } from "./diagnostics.js";
+import { abortError, errorMessage, toError, writeDiagnostic } from "./diagnostics.js";
 import { type ChildIdentity, isRecord, PROTOCOL_VERSION } from "./domain.js";
 import { attachJsonLineReader, writeJsonLine } from "./json-lines.js";
 import {
+	CANCEL_PAUSE_EVENT,
+	CHILD_LIFECYCLE_EVENT,
 	type ContactReportPayload,
 	DEFAULT_MAX_BUFFERED_EVENTS,
 	DEFAULT_MAX_FRAME_BYTES,
 	DEFAULT_MAX_PENDING_REQUESTS,
 	eventFrame,
 	failureResponse,
+	isChildLifecyclePayload,
 	isContactReportPayload,
 	isHelloFrame,
+	isPauseReportPayload,
 	isRequestFrame,
+	PAUSE_EVENT,
 	type ResponseFrame,
 	RUNNER_EVENTS_DROPPED_EVENT,
 	RUNNER_EXIT_EVENT,
@@ -22,6 +27,7 @@ import {
 	WRITER_EXIT_EVENT,
 } from "./protocol.js";
 import { PiRpcAdapter, type PiRpcOperation, PiRpcTimeoutError } from "./rpc-adapter.js";
+import { isIdlePiState, shouldForwardPiEvent } from "./rpc-events.js";
 
 /** Bounded memory of finished request IDs, used to answer duplicate requests. */
 const MAX_RETIRED_REQUEST_IDS = 256;
@@ -46,6 +52,15 @@ interface ReporterLink {
 	readonly detach: () => void;
 }
 
+interface PauseWaiter {
+	readonly generation: number;
+	readonly resolve: (value: { paused: true; idle: boolean; generation: number }) => void;
+	readonly reject: (error: Error) => void;
+	readonly timer: NodeJS.Timeout;
+	readonly onAbort: () => void;
+	readonly signal?: AbortSignal;
+}
+
 export interface SubagentRunnerOptions {
 	readonly identity: ChildIdentity;
 	/** The Pi `--mode rpc` child owned by this runner. */
@@ -68,6 +83,8 @@ export interface SubagentRunnerOptions {
 	readonly onDiagnostic?: (line: string) => void;
 	/** Atomically consumes a durable recovery claim for a one-time controller token. */
 	readonly authorizeRecovery?: (claimId: string, token: string) => Promise<boolean>;
+	/** Bound child session; reporters for a different session are rejected after a leave. */
+	readonly sessionId?: string;
 }
 
 /** Observed end of the Pi child owned by the runner. */
@@ -141,6 +158,11 @@ class Runner {
 	#exit: RunnerExit | undefined;
 	#closing: Promise<RunnerExit> | undefined;
 	readonly #authorizeRecovery: ((claimId: string, token: string) => Promise<boolean>) | undefined;
+	#bridgeBound = true;
+	readonly #boundSessionId: string | undefined;
+	#bridge: ReporterLink | undefined;
+	#pauseGeneration = 0;
+	readonly #pauseWaiters: PauseWaiter[] = [];
 	#resolveClosed: ((exit: RunnerExit) => void) | undefined;
 
 	public constructor(options: SubagentRunnerOptions) {
@@ -159,6 +181,7 @@ class Runner {
 		this.#shutdownGraceMs = options.shutdownGraceMs ?? 2_000;
 		this.#killGraceMs = options.killGraceMs ?? 1_000;
 		this.#authorizeRecovery = options.authorizeRecovery;
+		this.#boundSessionId = options.sessionId;
 		this.#bindWriter(options.process);
 	}
 
@@ -172,7 +195,9 @@ class Runner {
 			requestTimeoutMs: this.#requestTimeoutMs,
 			onListenerError: (error) => this.#diagnose(`event listener failed: ${errorMessage(error)}`),
 		});
-		this.#detachEvents = this.#adapter.onEvent((event) => this.#broadcast(event));
+		this.#detachEvents = this.#adapter.onEvent((event) => {
+			if (shouldForwardPiEvent(event)) this.#broadcast(event);
+		});
 		child.once("exit", (code, signal) => this.#onChildExit(code, signal));
 	}
 
@@ -242,6 +267,8 @@ class Runner {
 		this.#pendingHandshakes.clear();
 		for (const reporter of this.#reporters.values()) this.#dropReporter(reporter);
 		this.#reporters.clear();
+		if (this.#bridge !== undefined) this.#dropBridge(this.#bridge);
+		this.#failPauseWaiters(new Error("Runner is shutting down"));
 		await this.#closeServer();
 		await this.#releaseChild();
 		this.#teardownWriter(reason);
@@ -341,7 +368,7 @@ class Runner {
 				this.#dropSocket(socket);
 			},
 			onValue: (value) => {
-				const reporter = this.#reporters.get(socket);
+				const reporter = this.#reporters.get(socket) ?? this.#bridgeFor(socket);
 				if (reporter !== undefined) {
 					this.#handleReporterRequest(reporter, value);
 					return;
@@ -376,6 +403,12 @@ class Runner {
 			if (reporter !== undefined) {
 				this.#reporters.delete(socket);
 				reporter.detach();
+				return;
+			}
+			if (this.#bridge?.socket === socket) {
+				this.#bridge.detach();
+				this.#bridge = undefined;
+				this.#diagnose("child bridge disconnected; runner keeps running");
 				return;
 			}
 			const controller = this.#controller;
@@ -423,6 +456,21 @@ class Runner {
 				).catch((error: unknown) => {
 					this.#diagnose(`reporter handshake write failed: ${errorMessage(error)}`);
 					this.#dropReporter(reporter);
+				});
+				return;
+			}
+			if (value.role === "bridge") {
+				const previous = this.#bridge;
+				if (previous !== undefined) this.#dropBridge(previous);
+				const bridge: ReporterLink = { socket, detach: handshake.detach };
+				this.#bridge = bridge;
+				void writeJsonLine(
+					socket,
+					{ version: PROTOCOL_VERSION, type: "hello_ack" },
+					this.#maxFrameBytes,
+				).catch((error: unknown) => {
+					this.#diagnose(`bridge handshake write failed: ${errorMessage(error)}`);
+					this.#dropBridge(bridge);
 				});
 				return;
 			}
@@ -480,17 +528,72 @@ class Runner {
 	}
 
 	#handleReporterRequest(link: ReporterLink, value: unknown): void {
-		if (
-			!isRequestFrame(value) ||
-			value.operation !== "contact_parent" ||
-			!isContactReportPayload(value.payload) ||
-			value.payload.parentSessionId !== this.identity.parentSessionId ||
-			value.payload.childId !== this.identity.subagentId ||
-			value.payload.runtimeIdentity !== this.identity.runtimeIdentity
-		) {
+		if (!isRequestFrame(value)) {
 			void this.#respondReporter(
 				link,
 				failureResponse("report", "invalid_report", "Reporter sent an invalid report"),
+			);
+			return;
+		}
+		if (value.operation === "report_lifecycle" && isChildLifecyclePayload(value.payload)) {
+			if (!this.#matchesReporterIdentity(value.payload)) {
+				void this.#respondReporter(
+					link,
+					failureResponse(value.id, "invalid_report", "Reporter sent an invalid report"),
+				);
+				return;
+			}
+			if (value.payload.kind === "left_session") this.#bridgeBound = false;
+			this.#broadcast({ ...value.payload, type: CHILD_LIFECYCLE_EVENT });
+			void this.#respondReporter(link, successResponse(value.id));
+			return;
+		}
+		if (value.operation === "report_paused" && isPauseReportPayload(value.payload)) {
+			if (!this.#matchesReporterIdentity(value.payload)) {
+				void this.#respondReporter(
+					link,
+					failureResponse(value.id, "invalid_report", "Reporter sent an invalid report"),
+				);
+				return;
+			}
+			this.#acceptPauseAck(value.payload.generation);
+			void this.#respondReporter(link, successResponse(value.id));
+			return;
+		}
+		if (
+			value.operation !== "contact_parent" ||
+			!isContactReportPayload(value.payload) ||
+			!this.#matchesReporterIdentity(value.payload)
+		) {
+			void this.#respondReporter(
+				link,
+				failureResponse(value.id, "invalid_report", "Reporter sent an invalid report"),
+			);
+			return;
+		}
+		if (!this.#bridgeBound) {
+			void this.#respondReporter(
+				link,
+				failureResponse(
+					value.id,
+					"bridge_unbound",
+					"Child bridge is no longer bound to this session",
+				),
+			);
+			return;
+		}
+		if (
+			value.payload.sessionId !== undefined &&
+			this.#boundSessionId !== undefined &&
+			value.payload.sessionId !== this.#boundSessionId
+		) {
+			void this.#respondReporter(
+				link,
+				failureResponse(
+					value.id,
+					"bridge_unbound",
+					"Report session is not the bound child session",
+				),
 			);
 			return;
 		}
@@ -503,16 +606,42 @@ class Runner {
 		);
 	}
 
+	#matchesReporterIdentity(payload: {
+		readonly parentSessionId: string;
+		readonly childId: string;
+		readonly runtimeIdentity: string;
+	}): boolean {
+		return (
+			payload.parentSessionId === this.identity.parentSessionId &&
+			payload.childId === this.identity.subagentId &&
+			payload.runtimeIdentity === this.identity.runtimeIdentity
+		);
+	}
+
 	async #respondReporter(link: ReporterLink, frame: ResponseFrame): Promise<void> {
 		try {
 			await writeJsonLine(link.socket, frame, this.#maxFrameBytes);
-		} finally {
-			this.#dropReporter(link);
+		} catch (error: unknown) {
+			this.#diagnose(`reporter response write failed: ${errorMessage(error)}`);
+			if (this.#bridge === link) this.#dropBridge(link);
+			else this.#dropReporter(link);
+			return;
 		}
+		if (this.#bridge !== link) this.#dropReporter(link);
 	}
 
 	#dropReporter(link: ReporterLink): void {
 		if (this.#reporters.get(link.socket) === link) this.#reporters.delete(link.socket);
+		link.detach();
+		if (!link.socket.destroyed) link.socket.destroy();
+	}
+
+	#bridgeFor(socket: Socket): ReporterLink | undefined {
+		return this.#bridge?.socket === socket ? this.#bridge : undefined;
+	}
+
+	#dropBridge(link: ReporterLink): void {
+		if (this.#bridge === link) this.#bridge = undefined;
 		link.detach();
 		if (!link.socket.destroyed) link.socket.destroy();
 	}
@@ -600,11 +729,35 @@ class Runner {
 				);
 			return;
 		}
-		if (operation === "contact_parent") {
+		if (operation === "pause") {
+			const abort = new AbortController();
+			link.requests.set(id, abort);
+			void this.#runPause(abort.signal)
+				.then((data) => this.#respond(link, successResponse(id, data)))
+				.catch((error: unknown) =>
+					this.#respond(link, failureResponse(id, errorCode(error), errorMessage(error))),
+				)
+				.finally(() => {
+					link.requests.delete(id);
+					rememberRequestId(link.retired, id);
+				});
+			return;
+		}
+		if (operation === "cancel_pause") {
+			rememberRequestId(link.retired, id);
+			this.#cancelPause("Controller cancelled pause");
+			void this.#respond(link, successResponse(id, { cancelled: true }));
+			return;
+		}
+		if (
+			operation === "contact_parent" ||
+			operation === "report_lifecycle" ||
+			operation === "report_paused"
+		) {
 			rememberRequestId(link.retired, id);
 			void this.#respond(
 				link,
-				failureResponse(id, "reporter_required", "contact_parent requires a reporter connection"),
+				failureResponse(id, "reporter_required", `${operation} requires a reporter connection`),
 			);
 			return;
 		}
@@ -701,6 +854,7 @@ class Runner {
 
 	#onChildExit(code: number | null, signal: string | null): void {
 		this.#diagnose(`Pi child exited (code=${String(code)}, signal=${String(signal)})`);
+		this.#failPauseWaiters(new Error("Pi child exited"));
 		this.#writerExit = { code, signal };
 		if (this.#writerClosing && !this.#shutdownRequested) {
 			this.#broadcast({ type: WRITER_EXIT_EVENT, code, signal });
@@ -718,6 +872,93 @@ class Runner {
 			requested: this.#shutdownRequested,
 		};
 		void this.shutdown(this.#exit.reason);
+	}
+
+	#notifyBridge(event: unknown): void {
+		const bridge = this.#bridge;
+		if (bridge === undefined) return;
+		void writeJsonLine(bridge.socket, eventFrame(event), this.#maxFrameBytes).catch(
+			(error: unknown) => {
+				this.#diagnose(`bridge event write failed: ${errorMessage(error)}`);
+				this.#dropBridge(bridge);
+			},
+		);
+	}
+
+	async #runPause(
+		signal: AbortSignal,
+	): Promise<{ paused: true; idle: boolean; generation: number }> {
+		if (signal.aborted) throw abortError();
+		const adapter = this.#adapter;
+		if (adapter !== undefined) {
+			try {
+				const state = await adapter.request("get_state", undefined, {
+					signal,
+					timeoutMs: this.#requestTimeoutMs,
+				});
+				if (isIdlePiState(state)) {
+					return { paused: true, idle: true, generation: this.#pauseGeneration };
+				}
+			} catch (error) {
+				if (signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+					throw toError(error);
+				}
+			}
+		}
+		return this.#waitForPauseAck(signal);
+	}
+
+	#waitForPauseAck(
+		signal: AbortSignal,
+	): Promise<{ paused: true; idle: boolean; generation: number }> {
+		if (signal.aborted) return Promise.reject(abortError());
+		this.#pauseGeneration += 1;
+		const generation = this.#pauseGeneration;
+		this.#notifyBridge({ type: PAUSE_EVENT, generation });
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.#cancelPause("Pause handshake timed out");
+			}, this.#requestTimeoutMs);
+			const onAbort = (): void => {
+				this.#cancelPause("Pause was cancelled");
+			};
+			this.#pauseWaiters.push({ generation, resolve, reject, timer, onAbort, signal });
+			if (signal.aborted) {
+				onAbort();
+				return;
+			}
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+	}
+
+	#acceptPauseAck(generation: number): void {
+		const waiters = this.#pauseWaiters.filter((waiter) => waiter.generation === generation);
+		if (waiters.length === 0) return;
+		this.#pauseWaiters.splice(
+			0,
+			this.#pauseWaiters.length,
+			...this.#pauseWaiters.filter((waiter) => waiter.generation !== generation),
+		);
+		for (const waiter of waiters) {
+			clearTimeout(waiter.timer);
+			waiter.signal?.removeEventListener("abort", waiter.onAbort);
+			waiter.resolve({ paused: true, idle: false, generation });
+		}
+	}
+
+	#cancelPause(reason: string): void {
+		this.#pauseGeneration += 1;
+		this.#notifyBridge({ type: CANCEL_PAUSE_EVENT, generation: this.#pauseGeneration });
+		this.#failPauseWaiters(new Error(reason));
+	}
+
+	#failPauseWaiters(error: Error): void {
+		const waiters = this.#pauseWaiters.splice(0, this.#pauseWaiters.length);
+		for (const waiter of waiters) {
+			clearTimeout(waiter.timer);
+			waiter.signal?.removeEventListener("abort", waiter.onAbort);
+			waiter.reject(error);
+		}
 	}
 
 	async #closeWriter(): Promise<void> {
@@ -742,6 +983,7 @@ class Runner {
 		}
 		this.#teardownWriter(new Error("Replacing RPC writer"));
 		this.#bindWriter(this.#spawnWriter());
+		this.#bridgeBound = true;
 		const adapter = this.#adapter;
 		if (adapter === undefined) throw new Error("RPC writer is not bound");
 		this.#readyState = await adapter.ready(AbortSignal.timeout(this.#readyTimeoutMs));

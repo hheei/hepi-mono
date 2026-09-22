@@ -29,7 +29,7 @@ export interface RunnerConnectionOptions {
 	readonly maxPendingRequests?: number;
 	readonly requestTimeoutMs?: number;
 	readonly connectTimeoutMs?: number;
-	readonly role?: "controller" | "reporter" | "recovery";
+	readonly role?: "controller" | "reporter" | "recovery" | "bridge";
 	readonly claimId?: string;
 }
 
@@ -258,6 +258,24 @@ export async function sendReportToRunner(
 	report: unknown,
 	signal?: AbortSignal,
 ): Promise<void> {
+	await sendReporterRequest(identity, "contact_parent", report, signal);
+}
+
+/** Sends one child lifecycle event through a short-lived authenticated reporter connection. */
+export async function sendLifecycleToRunner(
+	identity: ChildIdentity,
+	payload: unknown,
+	signal?: AbortSignal,
+): Promise<void> {
+	await sendReporterRequest(identity, "report_lifecycle", payload, signal);
+}
+
+async function sendReporterRequest(
+	identity: ChildIdentity,
+	operation: RunnerOperation,
+	payload: unknown,
+	signal?: AbortSignal,
+): Promise<void> {
 	const connection = new RunnerConnection({
 		endpoint: identity.endpoint,
 		identity,
@@ -266,7 +284,7 @@ export async function sendReportToRunner(
 	});
 	try {
 		await connection.connect(signal);
-		await connection.request("contact_parent", report, signal === undefined ? {} : { signal });
+		await connection.request(operation, payload, signal === undefined ? {} : { signal });
 	} finally {
 		connection.close();
 	}

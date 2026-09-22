@@ -240,9 +240,8 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 	const overlap = tools.find((tool) => excludeTools.includes(tool));
 	if (overlap !== undefined)
 		throw readableError(path, `tool ${overlap} is both allowed and excluded`);
-	// An allowlist scopes extension tools too, so the child bridge must stay inside it.
 	if (tools.length > 0 && !tools.includes(CONTACT_PARENT_TOOL_NAME)) {
-		tools.push(CONTACT_PARENT_TOOL_NAME);
+		throw readableError(path, `tools must include the required ${CONTACT_PARENT_TOOL_NAME} bridge`);
 	}
 
 	const thinkingValue = discovered.frontmatter.thinking;

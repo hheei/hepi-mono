@@ -3,14 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
-import type { AttachHost, HostAdapter, HostAttachment } from "../src/host-adapter.js";
+import type { HostAdapter, HostAttachment } from "../src/host-adapter.js";
 import {
-	createParentChannel,
+	type AttachHost,
 	type ManagerDependencies,
 	type RunnerLike,
 	SubagentManager,
 } from "../src/manager.js";
 import type { SubagentRegistry } from "../src/registry.js";
+import { createRuntimeTokenStore } from "../src/runtime.js";
 
 const PARENT_ID = "parent-test";
 const CHILD_ID = "sa_manager";
@@ -152,7 +153,15 @@ class FakeRunner implements RunnerLike {
 	public rejectPrompt = false;
 	public rejectCloseWriter = false;
 	public rejectStartRpc = false;
+	public pauseCancelled = false;
+	#pauseWaiter: { resolve: (value: unknown) => void; reject: (error: Error) => void } | undefined;
 	readonly #listeners = new Set<(event: unknown) => void>();
+
+	public ackPause(generation = 1): void {
+		this.busy = false;
+		this.#pauseWaiter?.resolve({ paused: true, idle: false, generation });
+		this.#pauseWaiter = undefined;
+	}
 
 	public async request(operation: Parameters<RunnerLike["request"]>[0]): Promise<unknown> {
 		this.requests.push(operation);
@@ -164,6 +173,18 @@ class FakeRunner implements RunnerLike {
 				isCompacting: false,
 				pendingMessageCount: 0,
 			};
+		if (operation === "pause") {
+			if (!this.busy) return { paused: true, idle: true, generation: 0 };
+			const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+			this.#pauseWaiter = { resolve, reject };
+			return promise;
+		}
+		if (operation === "cancel_pause") {
+			this.pauseCancelled = true;
+			this.#pauseWaiter?.reject(new Error("pause cancelled"));
+			this.#pauseWaiter = undefined;
+			return { cancelled: true };
+		}
 		if (operation === "close_writer") {
 			if (this.rejectCloseWriter) throw new Error("close_writer failed");
 			this.writerClosed = true;
@@ -241,15 +262,24 @@ function hostAttachment(
 		exitCode: 0,
 		timedOut: false,
 	}),
-): HostAttachment {
+	observeAlive = true,
+): HostAttachment & { setAlive(next: boolean): void } {
 	const identity = { host: "herdr" as const, attachmentId: "pane-1", createdBy: PARENT_ID };
+	let alive = observeAlive;
 	return {
 		identity,
 		launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
 		async observe() {
-			return { identity, alive: true, known: true, detail: "ok" };
+			return { identity, alive, known: true, detail: "ok" };
 		},
-		cleanup,
+		async cleanup() {
+			const result = await cleanup();
+			if (result.exitCode === 0 && !result.timedOut) alive = false;
+			return result;
+		},
+		setAlive(next) {
+			alive = next;
+		},
 	};
 }
 
@@ -276,8 +306,10 @@ function markIdleFlushed(
 }
 
 function attachDeps(attach: HostAdapter["attach"]): Partial<ManagerDependencies> {
+	const tokens = createRuntimeTokenStore();
+	tokens.remember("runtime-test", "bridge-token");
 	return {
-		bridgeToken: () => "bridge-token",
+		tokens,
 		attachHost: readyHost(attach),
 	};
 }
@@ -359,6 +391,8 @@ describe("SubagentManager contracts", () => {
 		expect(await manager.get(CHILD_ID)).toMatchObject({
 			freshness: "last_known",
 			interactive: false,
+			model: { provider: "test", id: "model", source: "parent" },
+			thinking: { level: "off", source: "parent" },
 		});
 		expect(await manager.list()).toEqual([
 			expect.objectContaining({ freshness: "last_known", interactive: false }),
@@ -367,7 +401,7 @@ describe("SubagentManager contracts", () => {
 
 	test("delivers only an authenticated report for the current runtime", async () => {
 		const delivered = vi.fn(async () => undefined);
-		const channel = createParentChannel({ deliverOnline: delivered });
+		const channel = { deliver: delivered };
 		const record = childRecord("starting");
 		const runner = new FakeRunner();
 		const registry = memoryRegistry(record);
@@ -506,6 +540,34 @@ describe("SubagentManager native TUI attach", () => {
 		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
 	});
 
+	test("does not restore RPC when host cleanup cannot confirm the TUI is gone", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () =>
+				hostAttachment(async () => ({
+					stdout: "",
+					stderr: "pane still owned",
+					exitCode: 1,
+					timedOut: false,
+				})),
+			),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		expect(await manager.attach(CHILD_ID)).toMatchObject({ host: "herdr" });
+		expect(await manager.restoreRpc(CHILD_ID)).toMatchObject({
+			operation: "restore_rpc",
+			reason: "pane still owned",
+		});
+		expect(runner.requests).not.toContain("start_rpc");
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
+	});
+
 	test("rejects attach when the session file is not flushed", async () => {
 		const record = childRecord("starting");
 		const runner = new FakeRunner();
@@ -524,7 +586,7 @@ describe("SubagentManager native TUI attach", () => {
 		expect(runner.requests).not.toContain("close_writer");
 	});
 
-	test("rejects attach while the child is still streaming", async () => {
+	test("attaches a busy child after the pause handshake acks", async () => {
 		const record = childRecord("starting");
 		const runner = new FakeRunner();
 		runner.busy = true;
@@ -538,10 +600,33 @@ describe("SubagentManager native TUI attach", () => {
 		await manager.spawn({ task: "Work.", agent: "worker" });
 		markIdleFlushed(registry, sessionPath, "running");
 
-		expect(await manager.attach(CHILD_ID)).toMatchObject({
-			reason: "Child is busy; attach requires a complete idle RPC turn",
+		const attached = manager.attach(CHILD_ID);
+		await vi.waitFor(() => {
+			expect(runner.requests).toContain("pause");
 		});
+		runner.ackPause();
+		expect(await attached).toMatchObject({ child: { id: CHILD_ID, mode: "tui" } });
+		expect(runner.requests).toContain("close_writer");
+	});
+
+	test("keeps RPC when a busy child does not pause in time", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		runner.busy = true;
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
+			...attachDeps(async () => hostAttachment()),
+			deadlineMs: 40,
+		});
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath, "running");
+
+		expect(await manager.attach(CHILD_ID)).toMatchObject({
+			reason: expect.stringContaining("Child did not pause before attach deadline"),
+		});
+		expect(runner.pauseCancelled).toBe(true);
 		expect(runner.requests).not.toContain("close_writer");
+		expect(runner.writerClosed).toBe(false);
 	});
 
 	test("restores RPC when host attach fails after the writer closed", async () => {
@@ -596,5 +681,139 @@ describe("SubagentManager native TUI attach", () => {
 		resumeAttach?.();
 		expect(await attachPromise).toMatchObject({ reason: "Attach was cancelled" });
 		expect(await stopped).toMatchObject({ state: "stopped" });
+	});
+
+	test("does not detach when a pane event arrives but the TUI process is still alive", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const attachment = hostAttachment();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => attachment),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		expect(await manager.attach(CHILD_ID)).toMatchObject({ host: "herdr" });
+		expect(await manager.inspectHost(CHILD_ID)).toMatchObject({ alive: true, known: true });
+		expect(runner.requests).not.toContain("start_rpc");
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
+	});
+
+	test("restores RPC after a confirmed TUI process exit", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const attachment = hostAttachment();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => attachment),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		await manager.attach(CHILD_ID);
+		attachment.setAlive(false);
+		expect(await manager.inspectHost(CHILD_ID)).toMatchObject({ id: CHILD_ID, mode: "rpc" });
+		expect(runner.requests).toContain("start_rpc");
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
+	});
+
+	test("unbinds A without closing the TUI after a confirmed session switch", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		let cleaned = 0;
+		const attachment = hostAttachment(async () => {
+			cleaned += 1;
+			return { stdout: "", stderr: "", exitCode: 0, timedOut: false };
+		});
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => attachment),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		await manager.attach(CHILD_ID);
+		runner.emit({
+			type: "child_lifecycle",
+			kind: "left_session",
+			parentSessionId: PARENT_ID,
+			childId: CHILD_ID,
+			runtimeIdentity: "runtime-test",
+			sessionId: "session-b",
+		});
+		await vi.waitFor(() => {
+			expect(runner.requests).toContain("start_rpc");
+		});
+		expect(cleaned).toBe(0);
+		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
+		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "rpc" });
+		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
+	});
+
+	test("notifies the parent on a confirmed TUI interrupt without restoring RPC", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const reports: Array<{ reason: string; message: string }> = [];
+		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
+			...attachDeps(async () => hostAttachment()),
+			channel: {
+				async deliver(report) {
+					reports.push({ reason: report.reason, message: report.message });
+				},
+			},
+		});
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		await manager.attach(CHILD_ID);
+		runner.emit({
+			type: "child_lifecycle",
+			kind: "user_interrupt",
+			parentSessionId: PARENT_ID,
+			childId: CHILD_ID,
+			runtimeIdentity: "runtime-test",
+			sessionId: "session-test",
+			message: "Task is unfinished and waiting for user intent. Last activity: editing.",
+		});
+		await vi.waitFor(() => {
+			expect(reports).toEqual([
+				{
+					reason: "user_interrupt",
+					message: "Task is unfinished and waiting for user intent. Last activity: editing.",
+				},
+			]);
+		});
+		expect(runner.requests).not.toContain("start_rpc");
+		expect(await manager.get(CHILD_ID)).toMatchObject({
+			mode: "tui",
+			interrupted: "Task is unfinished and waiting for user intent. Last activity: editing.",
+		});
+	});
+
+	test("does not restore a stopped child after TUI exit", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const sessionPath = await flushedSessionPath();
+		const { manager, registry } = managerWith(
+			record,
+			runner,
+			memoryRegistry(record),
+			attachDeps(async () => hostAttachment()),
+		);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		markIdleFlushed(registry, sessionPath);
+		await manager.attach(CHILD_ID);
+		expect(await manager.stop(CHILD_ID)).toMatchObject({ state: "stopped" });
+		expect(await manager.detach(CHILD_ID, { origin: "tui_exit" })).toMatchObject({
+			reason: "Stopped child is not restored",
+		});
+		expect(runner.requests.filter((operation) => operation === "start_rpc")).toEqual([]);
 	});
 });

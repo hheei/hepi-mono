@@ -7,21 +7,14 @@ const WIDGET_ID = "@hheei/pi-subagents:status";
 const CHILD_WIDGET_ID = "@hheei/pi-subagents:child-identity";
 const MAX_ROWS = 8;
 const ELAPSED_TICK_MS = 1_000;
+
 export interface SubagentWidget {
 	refresh(children: readonly PublicSubagent[]): void;
 	dispose(): void;
 }
 
 export function isWidgetVisibleChild(child: PublicSubagent): boolean {
-	if (child.state === "done" || child.state === "stopped" || child.state === "failed") {
-		return false;
-	}
-	return (
-		child.state === "starting" ||
-		child.state === "running" ||
-		child.state === "idle" ||
-		child.mode === "tui"
-	);
+	return child.state === "starting" || child.state === "running" || child.state === "idle";
 }
 
 function visibleChildren(children: readonly PublicSubagent[]): PublicSubagent[] {
@@ -57,12 +50,6 @@ export function formatElapsed(fromIso: string, nowMs = Date.now()): string {
 	return `${minutes}m ${seconds}s`;
 }
 
-function summarySnippet(summary: string | undefined): string {
-	if (summary === undefined) return "";
-	const text = summary.replace(/\s+/g, " ").trim();
-	return text;
-}
-
 export function renderSubagentWidget(
 	children: readonly PublicSubagent[],
 	width: number,
@@ -84,7 +71,7 @@ export function renderSubagentWidget(
 		const name = theme.fg("text", child.displayName ?? child.agent);
 		const elapsed = formatElapsed(child.createdAt, nowMs);
 		const age = elapsed === "" ? "" : `  ${theme.fg("dim", `· ${elapsed}`)}`;
-		const snippet = summarySnippet(child.summary);
+		const snippet = child.summary === undefined ? "" : child.summary.replace(/\s+/g, " ").trim();
 		const summary = snippet === "" ? "" : `  ${theme.fg("dim", snippet)}`;
 		const id = theme.fg("dim", child.id);
 		lines.push(

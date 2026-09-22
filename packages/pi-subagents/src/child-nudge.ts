@@ -16,10 +16,6 @@ const MIN_NUDGE_DELAY_MS = 1_000;
 const NUDGE_TEXT =
 	"You finished a turn without calling contact_parent. If the parent needs a progress update, important finding, decision, or blocker, call contact_parent now. Do not wait for the parent to poll you.";
 
-export function shouldMarkUserTookOver(agentStarted: boolean): boolean {
-	return agentStarted;
-}
-
 /** Return true only when the latest assistant message ended by the model stopping normally. */
 export function shouldScheduleAgentEndNudge(
 	messages: readonly { role?: string; stopReason?: string }[] | undefined,
@@ -33,14 +29,10 @@ export function shouldScheduleAgentEndNudge(
 	return false;
 }
 
-export function parseNudgeDelayMs(rawValue: string | undefined): number {
+function parseNudgeDelayMs(rawValue: string | undefined): number {
 	const parsed = Number.parseInt(rawValue ?? "", 10);
 	if (!Number.isFinite(parsed)) return DEFAULT_NUDGE_DELAY_MS;
 	return Math.max(MIN_NUDGE_DELAY_MS, parsed);
-}
-
-export function isNudgeDisabled(rawValue: string | undefined): boolean {
-	return rawValue === "1";
 }
 
 function agentEndMessages(
@@ -69,7 +61,7 @@ export function createChildNudgeController(
 	options: { readonly delayMs?: number; readonly disabled?: boolean } = {},
 ): ChildNudgeController {
 	const delayMs = options.delayMs ?? parseNudgeDelayMs(process.env.PI_SUBAGENTS_NUDGE_DELAY_MS);
-	const disabled = options.disabled ?? isNudgeDisabled(process.env.PI_SUBAGENTS_NUDGE_DISABLE);
+	const disabled = options.disabled ?? process.env.PI_SUBAGENTS_NUDGE_DISABLE === "1";
 	let reported = false;
 	let userInputAfterAgentEnd = false;
 	let agentStarted = false;
@@ -90,8 +82,7 @@ export function createChildNudgeController(
 			pi.on("input", () => {
 				userInputAfterAgentEnd = true;
 				clearTimer();
-				if (!shouldMarkUserTookOver(agentStarted)) return;
-				userTookOver = true;
+				if (agentStarted) userTookOver = true;
 			});
 			pi.on("before_agent_start", () => {
 				clearTimer();

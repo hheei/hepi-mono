@@ -29,7 +29,6 @@ export interface HostCapability {
 	readonly available: boolean;
 	readonly reason: string;
 }
-export type HostSelectionAttempt = HostCapability;
 
 export type HostSelection =
 	| {
@@ -38,14 +37,14 @@ export type HostSelection =
 			readonly adapter: HostAdapter;
 			readonly explicit: boolean;
 			readonly reason: string;
-			readonly attempts: readonly HostSelectionAttempt[];
+			readonly attempts: readonly HostCapability[];
 	  }
 	| {
 			readonly available: false;
 			readonly selectedHost: null;
 			readonly explicit: boolean;
 			readonly reason: string;
-			readonly attempts: readonly HostSelectionAttempt[];
+			readonly attempts: readonly HostCapability[];
 	  };
 
 export interface HostAttachmentIdentity {
@@ -85,7 +84,7 @@ const DEFAULT_HOST_ORDER: readonly HostKind[] = ["herdr", "cmux"];
 export async function selectHostAdapter(options: SelectHostAdapterOptions): Promise<HostSelection> {
 	const explicit = options.preferredHost !== undefined;
 	const order = explicit ? [options.preferredHost] : DEFAULT_HOST_ORDER;
-	const attempts: HostSelectionAttempt[] = [];
+	const attempts: HostCapability[] = [];
 	for (const host of order) {
 		const adapter = options.adapters[host];
 		const capability = await adapter.probe();

@@ -1,8 +1,13 @@
 import { spawn } from "node:child_process";
 import { stat, writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import { connectWithRetry, RunnerConnection, sendReportToRunner } from "../src/connector.js";
-import { type ChildIdentity, PROTOCOL_VERSION } from "../src/domain.js";
+import {
+	connectWithRetry,
+	RunnerConnection,
+	sendLifecycleToRunner,
+	sendReportToRunner,
+} from "../src/connector.js";
+import { type ChildIdentity, isRecord, PROTOCOL_VERSION } from "../src/domain.js";
 import { startRunner } from "../src/runner.js";
 import {
 	createIdentity,
@@ -68,8 +73,8 @@ describe("runner IPC", () => {
 			await waitFor(() => events.length >= 3);
 			expect(events).toEqual([
 				{ type: "agent_start" },
-				{ type: "noise", index: 0 },
-				{ type: "noise", index: 1 },
+				{ type: "message_update", index: 0 },
+				{ type: "message_update", index: 1 },
 			]);
 		} finally {
 			connection.close();
@@ -291,8 +296,8 @@ describe("runner IPC", () => {
 			await waitFor(() => events.length >= 3);
 			expect(events).toEqual([
 				{ type: "agent_start" },
-				{ type: "noise", index: 0 },
-				{ type: "noise", index: 1 },
+				{ type: "message_update", index: 0 },
+				{ type: "message_update", index: 1 },
 			]);
 			expect(harness.child.pid).toBe(childPid);
 			expect(harness.child.exitCode).toBeNull();
@@ -540,6 +545,33 @@ describe("runner IPC", () => {
 		}
 	});
 
+	test("rejects contact_parent from a session that has left the bound child", async () => {
+		const harness = await startFakeRunner();
+		try {
+			await sendLifecycleToRunner(harness.identity, {
+				type: "child_lifecycle",
+				parentSessionId: harness.identity.parentSessionId,
+				childId: harness.identity.subagentId,
+				runtimeIdentity: harness.identity.runtimeIdentity,
+				kind: "left_session",
+				sessionId: "session-b",
+			});
+			await expect(
+				sendReportToRunner(harness.identity, {
+					type: "pi_subagent_report",
+					parentSessionId: harness.identity.parentSessionId,
+					childId: harness.identity.subagentId,
+					runtimeIdentity: harness.identity.runtimeIdentity,
+					reason: "progress_update",
+					message: "from B",
+					sessionId: "session-b",
+				}),
+			).rejects.toThrow(/bridge_unbound/);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	test("rejects a report when the offline report queue is full", async () => {
 		const harness = await startFakeRunner({ runnerOptions: { maxBufferedEvents: 1 } });
 		try {
@@ -579,6 +611,92 @@ describe("runner IPC", () => {
 			expect(harness.runner.endpoint).toBe(harness.identity.endpoint);
 		} finally {
 			connection.close();
+			await harness.dispose();
+		}
+	});
+
+	test("acks pause immediately when the child is idle", async () => {
+		const harness = await startFakeRunner();
+		const connection = connectionFor(harness.identity);
+		try {
+			await connection.connect();
+			await expect(connection.request("pause")).resolves.toMatchObject({
+				paused: true,
+				idle: true,
+			});
+		} finally {
+			connection.close();
+			await harness.dispose();
+		}
+	});
+
+	test("notifies the child bridge and waits for report_paused when busy", async () => {
+		const harness = await startFakeRunner({
+			piEnv: { FAKE_PI_BUSY: "1" },
+			runnerOptions: { requestTimeoutMs: 2_000 },
+		});
+		const controller = connectionFor(harness.identity);
+		const bridge = new RunnerConnection({
+			endpoint: harness.identity.endpoint,
+			identity: harness.identity,
+			token: harness.identity.token,
+			role: "bridge",
+			connectTimeoutMs: 2_000,
+			requestTimeoutMs: 2_000,
+		});
+		const pauseEvents: unknown[] = [];
+		bridge.onEvent((event) => pauseEvents.push(event));
+		try {
+			await controller.connect();
+			await bridge.connect();
+			const paused = controller.request("pause");
+			await waitFor(() => pauseEvents.some((event) => isRecord(event) && event.type === "pause"));
+			const first = pauseEvents[0];
+			if (!isRecord(first) || typeof first.generation !== "number") {
+				throw new Error("pause event did not include a generation");
+			}
+			const generation = first.generation;
+			await expect(
+				bridge.request("report_paused", {
+					type: "report_paused",
+					parentSessionId: harness.identity.parentSessionId,
+					childId: harness.identity.subagentId,
+					runtimeIdentity: harness.identity.runtimeIdentity,
+					generation,
+				}),
+			).resolves.toBeUndefined();
+			await expect(paused).resolves.toMatchObject({ paused: true, idle: false, generation });
+		} finally {
+			controller.close();
+			bridge.close();
+			await harness.dispose();
+		}
+	});
+
+	test("times out pause and releases the child when no ack arrives", async () => {
+		const harness = await startFakeRunner({
+			piEnv: { FAKE_PI_BUSY: "1" },
+			runnerOptions: { requestTimeoutMs: 80 },
+		});
+		const controller = connectionFor(harness.identity);
+		const bridge = new RunnerConnection({
+			endpoint: harness.identity.endpoint,
+			identity: harness.identity,
+			token: harness.identity.token,
+			role: "bridge",
+			connectTimeoutMs: 2_000,
+			requestTimeoutMs: 2_000,
+		});
+		const events: unknown[] = [];
+		bridge.onEvent((event) => events.push(event));
+		try {
+			await controller.connect();
+			await bridge.connect();
+			await expect(controller.request("pause")).rejects.toThrow(/Pause handshake timed out/);
+			await waitFor(() => events.some((event) => isRecord(event) && event.type === "cancel_pause"));
+		} finally {
+			controller.close();
+			bridge.close();
 			await harness.dispose();
 		}
 	});

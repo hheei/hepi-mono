@@ -42,7 +42,7 @@ const write = (value) => {
 const sessionState = () => ({
 	sessionId,
 	thinkingLevel: "off",
-	isStreaming: false,
+	isStreaming: env.FAKE_PI_BUSY === "1",
 	isCompacting: false,
 	steeringMode: "all",
 	followUpMode: "all",
@@ -107,7 +107,8 @@ const handle = (command) => {
 			respond(undefined);
 			setTimeout(() => {
 				write({ type: "agent_start" });
-				for (let index = 0; index < noisyCount; index += 1) write({ type: "noise", index });
+				for (let index = 0; index < noisyCount; index += 1)
+					write({ type: "message_update", index });
 				if (exitAfter === command.type) process.exit(exitCode);
 			}, eventDelayMs);
 			return;

@@ -48,5 +48,10 @@ describe("state projection", () => {
 		});
 		projector.applyEvent({ type: "error", message: "boom" });
 		expect(projector.snapshot()).toMatchObject({ state: "failed", interrupted: "boom" });
+		projector.applyEvent({ type: "runner_events_dropped", count: 4 });
+		expect(projector.snapshot()).toMatchObject({
+			state: "failed",
+			interrupted: "Runner dropped 4 events; live state may be stale",
+		});
 	});
 });

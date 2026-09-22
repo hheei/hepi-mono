@@ -110,7 +110,7 @@ test("resolves agent overrides and reports where model and thinking came from", 
 				"hidden: true",
 				"model: openai/gpt-5-codex",
 				"thinking: high",
-				"tools: read, grep",
+				"tools: read, grep, contact_parent",
 				"---",
 				"Review the requested change.",
 			].join("\n"),
@@ -224,6 +224,10 @@ test("rejects unknown models, invalid thinking, and a disabled contact_parent br
 			{
 				definition: "---\nname: worker\nexclude_tools: read, contact_parent\n---\nbody\n",
 				reason: /cannot disable the required contact_parent/u,
+			},
+			{
+				definition: "---\nname: worker\ntools: read\n---\nbody\n",
+				reason: /must include the required contact_parent/u,
 			},
 			{
 				definition: "---\nname: worker\ntools: read\nexclude_tools: read\n---\nbody\n",

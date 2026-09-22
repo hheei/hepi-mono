@@ -12,6 +12,7 @@ import type {
 import {
 	BRIDGE_ENVIRONMENT_KEYS,
 	CHILD_AGENT_ENV_KEY,
+	CHILD_SESSION_ENV_KEY,
 	CONTACT_PARENT_TOOL_NAME,
 	isSessionId,
 } from "./domain.js";
@@ -178,6 +179,7 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[BRIDGE_ENVIRONMENT_KEYS.runtimeId]: options.bridge.runtimeIdentity,
 		[BRIDGE_ENVIRONMENT_KEYS.endpoint]: options.bridge.endpoint,
 		[CHILD_AGENT_ENV_KEY]: config.agent.displayName ?? config.agent.name,
+		[CHILD_SESSION_ENV_KEY]: config.sessionId,
 	};
 
 	return Object.freeze({
