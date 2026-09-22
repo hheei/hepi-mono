@@ -52,8 +52,6 @@ jobs:
       - name: Run code check and test suite
         run: pnpm run check
 
-      - name: Bun compatibility smoke
-        run: pnpm run bun:compat
 
   publish:
     name: Publish to npm

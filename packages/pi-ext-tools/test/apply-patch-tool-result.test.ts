@@ -221,21 +221,6 @@ describe("apply_patch tool_result contract", () => {
 		}
 	});
 
-	test("rejects output targets before mutation", async () => {
-		await expect(
-			createApplyPatchTool().execute(
-				"call-id",
-				{
-					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
-					target: "output",
-				},
-				undefined,
-				undefined,
-				{ cwd: process.cwd() } as never,
-			),
-		).rejects.toThrow("does not support output targets");
-	});
-
 	test("rejects SSH apply_patch when the target runtime is missing", async () => {
 		await expect(
 			createApplyPatchTool().execute(

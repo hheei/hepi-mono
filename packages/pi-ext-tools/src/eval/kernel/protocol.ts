@@ -1,4 +1,4 @@
-export type EvalLanguage = "javascript" | "python";
+export type EvalLanguage = "python";
 
 /** NDJSON line cap, including a 1 MiB eval source plus framing. */
 export const MAX_EVAL_FRAME_CHARS = 1_048_576 + 65_536;

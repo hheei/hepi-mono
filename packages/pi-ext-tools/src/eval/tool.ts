@@ -116,19 +116,13 @@ export interface EvalToolDetails {
 	readonly rows: readonly EvalRow[];
 	readonly durationMs: number;
 	readonly error?: string;
-	readonly output?: { readonly id: string; readonly persisted?: boolean };
 }
-
-type OutputCreator = (
-	text: string,
-) => { readonly id: string; readonly persisted?: boolean } | undefined;
 
 const activeRuns = new WeakSet<EvalRuntimeState>();
 
 export function createEvalTool(
 	state: EvalRuntimeState,
 	bridge: EvalToolBridge,
-	createOutput?: OutputCreator,
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
 	return {
 		name: "eval",
@@ -208,7 +202,6 @@ export function createEvalTool(
 						},
 					},
 					runSignal,
-					"python",
 					params.reset === true,
 				);
 				if (value !== undefined) {
@@ -229,11 +222,7 @@ export function createEvalTool(
 					text: `… ${omittedRows} more output row(s) omitted`,
 				});
 			}
-			const fullTranscript = transcriptRows.join("\n");
-			const output =
-				fullTranscript.length > MAX_INLINE_TRANSCRIPT_CHARS || omittedRows > 0
-					? createOutput?.(fullTranscript)
-					: undefined;
+			const output = undefined;
 			const details = {
 				format: "pi-ext-tools-eval" as const,
 				rows,
@@ -254,9 +243,8 @@ export function registerEvalTool(
 	state: EvalRuntimeState,
 	bridge: EvalToolBridge,
 	tui: ToolTui = createToolTui(),
-	createOutput?: OutputCreator,
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
-	const tool = createEvalTool(state, bridge, createOutput);
+	const tool = createEvalTool(state, bridge);
 	const framed = tui.frame(tool, {
 		summary: (args) => codeSummary((args as EvalParameters).code),
 		maxBodyLines: 20,

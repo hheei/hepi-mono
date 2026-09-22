@@ -4,7 +4,6 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createOutputRegistry } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashJobTool } from "../src/bash-job-tool.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
@@ -40,32 +39,6 @@ test("retains bounded combined output and reports completion", async (): Promise
 	expect(completed.status).toBe("completed");
 	expect(completed.truncated).toBe(true);
 	expect(Buffer.byteLength(completed.output)).toBeLessThanOrEqual(MAX_JOB_OUTPUT);
-});
-
-test("publishes completed output as an output without triggering a turn", async (): Promise<void> => {
-	const outputs = createOutputRegistry();
-	const messages: unknown[] = [];
-	const registry = new BashJobRegistry({
-		outputs,
-		pi: {
-			sendMessage(
-				message: Parameters<ExtensionAPI["sendMessage"]>[0],
-				options?: Parameters<ExtensionAPI["sendMessage"]>[1],
-			): void {
-				messages.push({ message, options });
-			},
-		} as unknown as ExtensionAPI,
-	});
-	registries.push(registry);
-	const started = registry.start("printf output-output", process.cwd());
-	const completed = await eventually(
-		() => registry.get(started.id),
-		(job) => job.status === "completed" && job.outputOutput !== undefined,
-	);
-	expect(completed.outputOutput).toMatch(/^output:\/\/[1-9]\d*$/);
-	expect(outputs.read(completed.outputOutput ?? "")).toBe("output-output");
-	expect(messages).toEqual([expect.objectContaining({ options: { triggerTurn: false } })]);
-	outputs.dispose();
 });
 
 test("stops an owned process group", async (): Promise<void> => {

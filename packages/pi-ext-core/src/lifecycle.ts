@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createDisposerRegistry, type DisposerRegistry } from "./disposer-registry.js";
-import { createOutputRegistry, type OutputRegistry } from "./output.js";
 import { abortServiceWaiters } from "./service.js";
 
 /**
@@ -13,7 +12,6 @@ export interface ExtensionLifecycleContext {
 	readonly extension: ExtensionContext;
 	readonly signal: AbortSignal;
 	readonly resources: DisposerRegistry;
-	readonly outputs: OutputRegistry;
 }
 
 export interface ExtensionLifecycleOptions {
@@ -84,8 +82,6 @@ function createLifecycleController(
 				if (active !== undefined) await shutdownUnlocked();
 				const controller = new AbortController();
 				const resources = createDisposerRegistry();
-				const outputs = createOutputRegistry();
-				resources.add("outputs", () => outputs.dispose());
 				const created: ActiveLifecycle = { controller, resources };
 				active = created;
 				try {
@@ -94,7 +90,6 @@ function createLifecycleController(
 						extension: context,
 						signal: controller.signal,
 						resources,
-						outputs,
 					});
 				} catch (error) {
 					active = undefined;

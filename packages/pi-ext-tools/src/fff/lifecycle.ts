@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
 	getRuntimeSettingsRegistry,
-	type OutputRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
 } from "@hheei/pi-ext-core";
@@ -27,7 +26,6 @@ export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
 	getBashJobs(): BashJobRegistry | undefined;
-	getOutputs(): OutputRegistry | undefined;
 	getTargetRuntime(): TargetRuntime | undefined;
 }
 
@@ -35,7 +33,6 @@ interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
 	jobs: BashJobRegistry | undefined;
-	outputs: OutputRegistry | undefined;
 	targets: TargetRuntime | undefined;
 }
 
@@ -46,14 +43,12 @@ export function createFffRuntimeState(): FffRuntimeState {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
-		getOutputs: () => runtimeStates.get(state)?.outputs,
 		getTargetRuntime: () => runtimeStates.get(state)?.targets,
 	};
 	runtimeStates.set(state, {
 		runtime: undefined,
 		settings: DEFAULT_FFF_SETTINGS,
 		jobs: undefined,
-		outputs: undefined,
 		targets: undefined,
 	});
 	return state;
@@ -124,10 +119,8 @@ async function startFffLifecycle(
 	state.settings = settings;
 	const runtime = new FffRuntime(context.extension.cwd);
 	state.runtime = runtime;
-	state.outputs = context.outputs;
 	const targetRuntime = await TargetRuntime.create(
 		{
-			outputs: context.outputs,
 			sessionManager: context.extension.sessionManager,
 			notify: (message, level) => context.extension.ui.notify(message, level),
 		},
@@ -135,7 +128,6 @@ async function startFffLifecycle(
 	);
 	state.targets = targetRuntime;
 	const jobs = new BashJobRegistry({
-		outputs: context.outputs,
 		pi,
 		tailBytes: settings.bashOutputTailKiB * 1024,
 	});
@@ -147,9 +139,6 @@ async function startFffLifecycle(
 	context.resources.add("bash-jobs", () => {
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;
-	});
-	context.resources.add("outputs-state", () => {
-		if (state.outputs === context.outputs) state.outputs = undefined;
 	});
 	context.resources.add("fff-runtime", () => {
 		runtime.dispose();

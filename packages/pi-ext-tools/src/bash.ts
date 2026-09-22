@@ -14,9 +14,7 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import type { OutputRegistry } from "@hheei/pi-ext-core";
 import {
-	createOutputRegistry,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	registerManagedLoadoutTool,
@@ -28,10 +26,9 @@ import { Value } from "typebox/value";
 import { BashOutputSink } from "./bash-output.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { isTargetError, LOCAL_TARGET, OUTPUT_TARGET, type TargetRuntime } from "./targets.js";
+import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const fallbackOutputs = createOutputRegistry();
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
@@ -42,7 +39,7 @@ const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeo
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const Target = Type.Optional(
 	Type.String({
-		description: "Execution target: local or an authorized SSH host; output is unsupported.",
+		description: "Execution target: local or an authorized SSH host; ",
 	}),
 );
 const DefaultInput = Type.Object(
@@ -181,10 +178,9 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	outputs: OutputRegistry,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
-	const sink = new BashOutputSink({ outputs, tailBytes });
+	const sink = new BashOutputSink({ tailBytes });
 	const update = (data: Buffer): void => {
 		sink.push(data);
 		const output = sink.snapshot();
@@ -207,14 +203,11 @@ async function runForeground(
 		exitCode = null;
 	}
 	const output = sink.finish();
-	return result(
-		`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
-		{
-			...output,
-			...(timedOut ? { timedOut: true } : {}),
-			exitCode,
-		},
-	);
+	return result(output.output, {
+		...output,
+		...(timedOut ? { timedOut: true } : {}),
+		exitCode,
+	});
 }
 
 function bashResultWarning(result: { readonly details: unknown }): boolean {
@@ -226,7 +219,7 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 }
 
 function isRemoteBashTarget(target: unknown): target is string {
-	return typeof target === "string" && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
+	return typeof target === "string" && target !== LOCAL_TARGET;
 }
 
 async function runRemoteBash(
@@ -237,10 +230,9 @@ async function runRemoteBash(
 	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	outputs: OutputRegistry,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted", target });
-	const sink = new BashOutputSink({ outputs, tailBytes });
+	const sink = new BashOutputSink({ tailBytes });
 	try {
 		const { code, timedOut } = await runtime.exec(target, command, {
 			...(signal === undefined ? {} : { signal }),
@@ -254,16 +246,13 @@ async function runRemoteBash(
 			},
 		});
 		const output = sink.finish();
-		return result(
-			`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
-			{
-				...output,
-				...(timedOut ? { timedOut: true } : {}),
-				exitCode: code,
-				target,
-				outcome: timedOut ? "timeout" : "ok",
-			},
-		);
+		return result(output.output, {
+			...output,
+			...(timedOut ? { timedOut: true } : {}),
+			exitCode: code,
+			target,
+			outcome: timedOut ? "timeout" : "ok",
+		});
 	} catch (error) {
 		const output = sink.finish();
 		if (isTargetError(error)) {
@@ -329,12 +318,6 @@ export function registerBashTool(
 			context: ExtensionContext,
 		) {
 			if (!Value.Check(BashInput, params)) throw new Error("Invalid bash parameters");
-			if (params.target === OUTPUT_TARGET)
-				return result("bash does not support output targets.", {
-					error: "unauthorized",
-					outcome: "unauthorized",
-					target: params.target,
-				});
 			if (isRemoteBashTarget(params.target)) {
 				if ("async" in params && params.async === true)
 					return result("Async Bash is local-only; omit async for SSH targets.", {
@@ -351,7 +334,6 @@ export function registerBashTool(
 					onUpdate,
 					params.timeout,
 					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
-					state?.getOutputs() ?? fallbackOutputs,
 				);
 			}
 			if ("async" in params && params.async === true) {
@@ -376,7 +358,6 @@ export function registerBashTool(
 						startedAt: job.startedAt,
 						timedOut: job.timedOut,
 						...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
-						...(job.outputOutput === undefined ? {} : { outputOutput: job.outputOutput }),
 					});
 				} catch (error) {
 					return result(
@@ -393,7 +374,6 @@ export function registerBashTool(
 				state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
 				params.timeout,
 				(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
-				state?.getOutputs() ?? fallbackOutputs,
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;

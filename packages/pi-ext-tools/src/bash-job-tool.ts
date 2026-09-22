@@ -47,7 +47,6 @@ export function registerBashJobTool(
 				startedAt: job.startedAt,
 				timedOut: job.timedOut,
 				...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
-				...(job.outputOutput === undefined ? {} : { outputOutput: job.outputOutput }),
 			};
 			return {
 				content: [
@@ -55,7 +54,7 @@ export function registerBashJobTool(
 						type: "text",
 						text:
 							params.action === "logs"
-								? JSON.stringify({ id: job.id, status: job.status, output: job.outputOutput })
+								? JSON.stringify({ id: job.id, status: job.status, output: job.output })
 								: JSON.stringify(metadata),
 					},
 				],

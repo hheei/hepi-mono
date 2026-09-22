@@ -89,8 +89,6 @@ export {
 	modelSelectionOptions,
 	thinkingGlyph,
 } from "./model-selection.js";
-export type { OutputRegistry, OutputUri } from "./output.js";
-export { createOutputRegistry } from "./output.js";
 export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,

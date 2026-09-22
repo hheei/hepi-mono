@@ -27,7 +27,6 @@ import {
 } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const ARTIFACT_PREFIX = "output:" + "//";
 const DEFAULT_LIMIT = 30;
 const FIND_DESCRIPTION =
 	"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.";
@@ -44,7 +43,7 @@ const FIND_PARAMETER_DESCRIPTIONS = {
 	path: "Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
 	limit: "Max results per page (default 30)",
 	cursor: "Pagination cursor from the previous result",
-	target: "Execution target: local or an authorized SSH host; output is unsupported",
+	target: "Execution target: local or an authorized SSH host",
 } as const;
 const NO_FIND_RESULTS = "No files found matching pattern";
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
@@ -148,10 +147,8 @@ async function executeFind(
 	state: FffRuntimeState,
 ) {
 	if (signal.aborted) throw new Error("Operation aborted");
-	if (params.path?.startsWith(ARTIFACT_PREFIX)) throw new Error("find cannot search output URLs");
 	const startedAt = performance.now();
 	if (params.target !== undefined && params.target !== "local") {
-		if (params.target === "output") throw new Error("find does not support target: output.");
 		const targetRuntime: TargetRuntime | undefined = state.getTargetRuntime();
 		if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
 		const resumed = params.cursor === undefined ? undefined : remoteCursorStore.get(params.cursor);

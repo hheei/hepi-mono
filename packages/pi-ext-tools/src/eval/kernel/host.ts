@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalToolError } from "../bridge.js";
 import type { EvalRuntimeHooks } from "../runtime.js";
@@ -53,14 +53,13 @@ export class EvalKernelHost {
 		code: string,
 		hooks: EvalRuntimeHooks,
 		signal?: AbortSignal,
-		language: EvalLanguage = "python",
 		reset = false,
 	): Promise<unknown> {
 		if (this.#disposed) throw new Error("Eval runtime is unavailable after session cleanup.");
 		signal?.throwIfAborted();
 		if (this.#execute !== undefined) throw new Error("Eval is already running in this session.");
-		if (reset) this.#dropKernel(language);
-		await this.#ensureChild(language);
+		if (reset) this.#dropKernel("python");
+		await this.#ensureChild("python");
 		const cellId = crypto.randomUUID();
 		return await new Promise<unknown>((resolve, reject) => {
 			const fail = (error: Error): void => {
@@ -75,10 +74,10 @@ export class EvalKernelHost {
 				if (this.#execute?.cellId === cellId) {
 					this.#execute.abortError = abortReason(signal);
 				}
-				this.#interrupt(language);
+				this.#interrupt("python");
 			};
 			this.#execute = {
-				language,
+				language: "python",
 				cellId,
 				hooks,
 				resolve: (value) => {
@@ -103,7 +102,7 @@ export class EvalKernelHost {
 			}
 			signal?.addEventListener("abort", onAbort, { once: true });
 			try {
-				this.#send(language, { type: "execute", cellId, code });
+				this.#send("python", { type: "execute", cellId, code });
 			} catch (error) {
 				fail(error instanceof Error ? error : new Error(String(error)));
 			}
@@ -267,15 +266,7 @@ export class EvalKernelHost {
 		const current = this.#execute;
 		if (current === undefined || current.language !== language) return;
 		current.aborted = true;
-		if (language === "python") this.#slots.get(language)?.child.kill("SIGINT");
-		else {
-			try {
-				this.#send(language, { type: "cancel", cellId: current.cellId });
-			} catch {
-				this.#kill(new Error("Eval was aborted."), language);
-				return;
-			}
-		}
+		this.#slots.get(language)?.child.kill("SIGINT");
 		current.escalate = setTimeout(() => {
 			this.#kill(current.abortError ?? new Error("Eval was aborted."), language);
 		}, this.#interruptMs);
@@ -300,38 +291,14 @@ export class EvalKernelHost {
 }
 
 function kernelCommand(
-	language: EvalLanguage,
+	_language: EvalLanguage,
 	pythonBin?: string,
 ): { file: string; args: string[] } {
-	if (language === "javascript") {
-		if (!isBunHost())
-			throw new Error("Eval language js requires a Bun host; use language py on Node.");
-		const child = javascriptChild();
-		return { file: javascriptRuntime(child), args: [child] };
-	}
 	return { file: pythonBinary(pythonBin), args: ["-u", pythonChild()] };
 }
 
-function javascriptRuntime(child: string): string {
-	if (!child.endsWith(".ts")) return process.execPath;
-	const base = process.execPath.split(/[/\\]/).pop();
-	if (base === "bun" || base === "bun.exe") return process.execPath;
-	return "bun";
-}
-
-function isBunHost(): boolean {
-	return typeof process.versions.bun === "string";
-}
-
-function javascriptChild(): string {
-	const directory = dirname(fileURLToPath(import.meta.url));
-	const source = join(directory, "child.ts");
-	if (existsSync(source)) return source;
-	return join(directory, "child.js");
-}
-
 function pythonChild(): string {
-	const directory = dirname(fileURLToPath(import.meta.url));
+	const directory = fileURLToPath(new URL(".", import.meta.url));
 	const nextToHost = join(directory, "child.py");
 	if (existsSync(nextToHost)) return nextToHost;
 	const fromPackageSrc = join(directory, "../../../src/eval/kernel/child.py");

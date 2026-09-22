@@ -75,19 +75,8 @@ export function registerTools(
 			(name, result) => nestedResultIsError(name, result),
 		),
 		tui,
-		(text) => {
-			const output = state.getTargetRuntime()?.createOutput(text);
-			if (output === undefined) return undefined;
-			return {
-				id: output.id,
-				persisted:
-					"persistent" in output &&
-					(output as { readonly persistent?: unknown }).persistent === true,
-			};
-		},
 	);
 }
-
 function nestedResultIsError(
 	name: EvalNestedToolName,
 	result: { readonly details?: unknown },

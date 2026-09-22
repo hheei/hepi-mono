@@ -22,7 +22,6 @@ import {
 } from "./apply-patch/index.js";
 import {
 	createV4aPreviewCursor,
-	parseV4aPatch,
 	previewV4aPatchFileCount,
 	type V4aPreviewCursor,
 } from "./apply-patch/parser.js";
@@ -34,10 +33,9 @@ import {
 } from "./apply-patch/renderer.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { LOCAL_TARGET, OUTPUT_TARGET } from "./targets.js";
+import { LOCAL_TARGET } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const OUTPUT_PREFIX = "output:" + "//";
 const MAX_CANDIDATES = 6;
 const APPLY_PATCH_DESCRIPTION =
 	"Apply one Codex V4A patch to the local workspace or an authorized SSH host. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
@@ -49,7 +47,7 @@ const APPLY_PATCH_PROMPT_GUIDELINES = [
 	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
 	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
 	"apply_patch: use `@@ text` to locate subsequent hunks and `*** End of File` to match the file end. Pure moves use Update File plus Move to without a content hunk. Ambiguous matches are rejected.",
-	"apply_patch: target is local or an authorized SSH alias. output is not supported. Confirmed path changes are never rolled back.",
+	"apply_patch: target is local or an authorized SSH alias. Confirmed path changes are never rolled back.",
 ];
 const RECOVERY_READ_TARGETS =
 	"Recovery: read every Unconfirmed path before attempting another mutation.";
@@ -107,15 +105,7 @@ export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchTool
 	);
 }
 
-export function modifiesOutputPath(patch: string): boolean {
-	return parseV4aPatch(patch).operations.some(
-		(operation) =>
-			operation.path.startsWith(OUTPUT_PREFIX) ||
-			("moveTo" in operation && operation.moveTo?.startsWith(OUTPUT_PREFIX) === true),
-	);
-}
-
-function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
+export function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
 	if (typeof params !== "object" || params === null || Array.isArray(params))
 		throw new Error("apply_patch requires exactly one string parameter: patch");
 	const keys = Object.keys(params).filter((key) => key !== "target");
@@ -335,8 +325,6 @@ export function createApplyPatchTool(
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const startedAt = performance.now();
 			const { patch, target } = parseApplyPatchParameters(params);
-			if (target === OUTPUT_TARGET) throw new Error("apply_patch does not support output targets.");
-			if (modifiesOutputPath(patch)) throw new Error("apply_patch cannot modify output URLs");
 			try {
 				const policy = await loadApplyPatchPolicy({
 					paths: defaultExtensionSettingsPaths(ctx.cwd),
