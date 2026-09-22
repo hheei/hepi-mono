@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { targetSettingsFromState } from "../src/fff/settings.js";
 import { createTargetSettingsProvider } from "../src/fff/target-settings.js";
 import {
+	applyTargetPromptSection,
 	isPosixUname,
 	isTargetError,
 	rejectUnsupportedTarget,
@@ -51,9 +52,37 @@ describe("pi-ext-tools target runtime", () => {
 			try {
 				expect(runtime.prompt()).toContain("dev");
 				expect(runtime.prompt()).toContain("bash and apply_patch accept local");
-				expect(runtime.prompt()).not.toContain("missing");
+				expect(runtime.prompt()).not.toContain("<pi-ext-tools-targets>");
 				expect(warnings).toHaveLength(1);
 				expect(() => runtime.validateRemotePath("../secret")).toThrow("..");
+			} finally {
+				await runtime.close();
+			}
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("applies and removes the Pi systemPrompt section without wrapping tags", async () => {
+		const directory = await temporaryDirectory();
+		try {
+			const runtime = await TargetRuntime.create(
+				{
+					outputs: createOutputRegistry(),
+					home: directory,
+					notify: () => undefined,
+				},
+				[],
+			);
+			try {
+				const sections: Record<string, string> = { other: "keep" };
+				applyTargetPromptSection(sections, runtime);
+				expect(sections.other).toBe("keep");
+				expect(sections["pi-ext-tools-targets"]).toContain("Authorized SSH targets: none");
+				expect(sections["pi-ext-tools-targets"]).not.toContain("<pi-ext-tools-targets>");
+				applyTargetPromptSection(sections, undefined);
+				expect(sections.other).toBe("keep");
+				expect(sections["pi-ext-tools-targets"]).toBeUndefined();
 			} finally {
 				await runtime.close();
 			}
