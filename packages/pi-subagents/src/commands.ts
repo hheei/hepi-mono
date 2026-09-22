@@ -157,22 +157,20 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 			await stopSelected(ctx, manager, args.trim());
 		},
 	});
-	if (typeof pi.registerShortcut === "function") {
-		pi.registerShortcut("ctrl+shift+a", {
-			description: "Attach idle subagent",
-			handler: (ctx) => {
-				if (ctx.mode !== "tui") return;
-				return attachSelected(ctx as ExtensionCommandContext, manager);
-			},
-		});
-		pi.registerShortcut("ctrl+shift+s", {
-			description: "Stop subagent",
-			handler: (ctx) => {
-				if (ctx.mode !== "tui") return;
-				return stopSelected(ctx as ExtensionCommandContext, manager);
-			},
-		});
-	}
+	pi.registerShortcut("ctrl+shift+a", {
+		description: "Attach idle subagent",
+		handler: (ctx) => {
+			if (ctx.mode !== "tui") return;
+			return attachSelected(ctx as ExtensionCommandContext, manager);
+		},
+	});
+	pi.registerShortcut("ctrl+shift+s", {
+		description: "Stop subagent",
+		handler: (ctx) => {
+			if (ctx.mode !== "tui") return;
+			return stopSelected(ctx as ExtensionCommandContext, manager);
+		},
+	});
 }
 
 export function bindParentStatus(

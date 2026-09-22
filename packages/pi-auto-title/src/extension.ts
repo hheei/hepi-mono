@@ -121,12 +121,8 @@ export default function piAutoTitleExtension(pi: ExtensionAPI): void {
 			run?.();
 		},
 	});
-	// Keep the historical key stable: changing it would leave a previous key's
-	// lifecycle handler live during an in-process /reload.
 	registerExtensionLifecycle(pi, { key: "pi-auto-title", start });
-	// Pi has no public unregister for these feature hooks. They remain harmless
-	// after /reload because the current coordinator is lifecycle-scoped and dispose
-	// clears its timers, agent, and session revision.
+	// Pi owns these registrations and removes them when the extension runtime is replaced.
 	pi.on("session_info_changed", (event) => coordinator?.sessionInfoChanged(event.name));
 	pi.on("before_agent_start", () => coordinator?.beforeAgentStart());
 	pi.on("agent_settled", () => coordinator?.agentSettled());

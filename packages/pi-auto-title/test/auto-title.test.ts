@@ -11,30 +11,12 @@ import {
 	createAutoTitleSettingsProvider,
 	createAutoTitleStorage,
 	parseModelRef,
-	renderTitleGenerationShimmer,
 	safeTitle,
-	TITLE_SHIMMER_LOOP_MS,
-	TITLE_SHIMMER_TRAVEL_CELLS,
-	TITLE_SHIMMER_WINDOW_CELLS,
 } from "../src/module.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
-const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const titleResponse = (title: string): string => JSON.stringify({ title });
-
-function testEvents() {
-	const handlers = new Map<string, (value: unknown) => void>();
-	return {
-		events: {
-			on: (channel: string, handler: (value: unknown) => void) => {
-				handlers.set(channel, handler);
-				return () => handlers.delete(channel);
-			},
-		},
-		emit: (channel: string, value: unknown = {}) => handlers.get(channel)?.(value),
-	};
-}
 
 describe("Pi Auto Title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
@@ -97,23 +79,6 @@ describe("Pi Auto Title", () => {
 		expect(safeTitle('Title: "Improve session search".')).toBeUndefined();
 		expect(safeTitle('{"title":"Fix cache","reason":"brief"}')).toBeUndefined();
 		expect(safeTitle("\n\n")).toBeUndefined();
-	});
-
-	test("renders a two-second right-half greyscale shimmer for title generation", () => {
-		const initial = renderTitleGenerationShimmer(0);
-		const middle = renderTitleGenerationShimmer(1_500);
-		expect(initial).toContain("\x1b[38;2;");
-		expect(initial.endsWith("\x1b[0m")).toBe(true);
-		expect(initial).not.toBe(middle);
-		expect(initial.replace(ANSI_SGR, "")).toBe("Generating title");
-		expect(renderTitleGenerationShimmer(0)).toBe(renderTitleGenerationShimmer(2_000));
-		expect(TITLE_SHIMMER_WINDOW_CELLS).toBe(4);
-		const peakAtFourthCell = renderTitleGenerationShimmer(
-			((4 + 5) / TITLE_SHIMMER_TRAVEL_CELLS) * TITLE_SHIMMER_LOOP_MS,
-		);
-		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110me");
-		expect(peakAtFourthCell).toContain("\x1b[38;2;255;255;255mr");
-		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110mn");
 	});
 
 	test("uses the shared fixed-off title model selection", () => {
@@ -224,7 +189,7 @@ describe("Pi Auto Title", () => {
 				ctx: {
 					sessionManager: { getEntries: () => [], getSessionId: () => "s" },
 					isIdle: () => true,
-					ui: { notify: () => undefined },
+					ui: { notify: () => undefined, setStatus: () => undefined },
 				},
 			} as never,
 			"provider/model",
@@ -235,7 +200,6 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("runs one isolated title agent and records completion after setting title", async () => {
-		const bus = testEvents();
 		let appended = 0;
 		const entries: Array<{ type: string; customType?: string }> = [];
 		let created = 0;
@@ -245,7 +209,6 @@ describe("Pi Auto Title", () => {
 			releasePrompt = resolve;
 		});
 		const pi = {
-			events: bus.events,
 			appendEntry: (customType: string) => {
 				appended++;
 				entries.push({ type: "custom", customType });
@@ -265,7 +228,7 @@ describe("Pi Auto Title", () => {
 				getSessionId: () => "s",
 			},
 			isIdle: () => true,
-			ui: { notify: () => undefined },
+			ui: { notify: () => undefined, setStatus: () => undefined },
 		};
 		const coordinator = createAutoTitleCoordinator(
 			{ pi, ctx } as never,
@@ -308,7 +271,6 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("generates after the first settled turn with short context", async () => {
-		const bus = testEvents();
 		const userText = "Fix login";
 		const assistantText = "Updated button";
 		const entries: Array<{
@@ -319,7 +281,6 @@ describe("Pi Auto Title", () => {
 		let generatedPrompt: string | undefined;
 		let applied: string | undefined;
 		const pi = {
-			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => applied,
 			setSessionName: (name: string) => {
@@ -332,7 +293,7 @@ describe("Pi Auto Title", () => {
 				getSessionId: () => "s",
 			},
 			isIdle: () => true,
-			ui: { notify: () => undefined },
+			ui: { notify: () => undefined, setStatus: () => undefined },
 		};
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
 			created++;
@@ -360,7 +321,7 @@ describe("Pi Auto Title", () => {
 				},
 			},
 		);
-		bus.emit("agent_settled");
+		coordinator.agentSettled();
 		await sleep(0);
 
 		expect(created).toBe(1);
@@ -372,12 +333,10 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("manual trigger waits for idle and replaces an existing title with short context", async () => {
-		const bus = testEvents();
 		let applied: string | undefined = "Old title";
 		let idle = false;
 		const statuses: Array<{ readonly key: string; readonly text: string | undefined }> = [];
 		const pi = {
-			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => applied,
 			setSessionName: (name: string) => {
@@ -404,27 +363,23 @@ describe("Pi Auto Title", () => {
 			abort: () => undefined,
 		}));
 
-		bus.emit("agent_settled");
+		coordinator.agentSettled();
 		expect(applied).toBe("Old title");
 		coordinator.trigger(true);
 		expect(applied).toBe("Old title");
 		idle = true;
-		bus.emit("agent_settled");
+		coordinator.agentSettled();
 		await sleep(0);
 		expect(applied).toBe("My Session");
-		expect(
-			statuses.some((entry) => entry.text?.replace(ANSI_SGR, "").includes("Generating title")),
-		).toBe(true);
+		expect(statuses.some((entry) => entry.text === "Generating title")).toBe(true);
 		expect(statuses.at(-1)).toEqual({ key: "auto-title", text: undefined });
 		coordinator.dispose();
 	});
 
 	test("retries after failure with a reloaded coordinator", async () => {
 		const entries: Array<{ type: string; customType?: string }> = [];
-		const bus = testEvents();
 		let created = 0;
 		const pi = {
-			events: bus.events,
 			appendEntry: (customType: string) => entries.push({ type: "custom", customType }),
 			getSessionName: () => undefined,
 			setSessionName: () => undefined,
@@ -438,7 +393,7 @@ describe("Pi Auto Title", () => {
 				getSessionId: () => "s",
 			},
 			isIdle: () => true,
-			ui: { notify: () => undefined },
+			ui: { notify: () => undefined, setStatus: () => undefined },
 		};
 		const createAgent = () => {
 			created++;
@@ -465,11 +420,9 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("retries after a title model returns an unusable result", async () => {
-		const bus = testEvents();
 		let created = 0;
 		let result: string | undefined;
 		const pi = {
-			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => result,
 			setSessionName: (name: string) => {
@@ -484,7 +437,7 @@ describe("Pi Auto Title", () => {
 				getSessionId: () => "s",
 			},
 			isIdle: () => true,
-			ui: { notify: () => undefined },
+			ui: { notify: () => undefined, setStatus: () => undefined },
 		};
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
 			created++;
@@ -501,7 +454,7 @@ describe("Pi Auto Title", () => {
 		await sleep(0);
 		expect(created).toBe(1);
 		expect(result).toBeUndefined();
-		bus.emit("agent_settled");
+		coordinator.agentSettled();
 		await sleep(0);
 		expect(created).toBe(2);
 		expect(result).toBe("Retry title");

@@ -97,13 +97,7 @@ export function createDollarSkillFeature(
 					),
 				);
 			}
-			if (
-				editorOwner?.sessionId === sessionId ||
-				context.mode !== "tui" ||
-				typeof context.ui.getEditorComponent !== "function" ||
-				typeof context.ui.setEditorComponent !== "function"
-			)
-				return;
+			if (editorOwner?.sessionId === sessionId || context.mode !== "tui") return;
 			editorOwner?.dispose();
 			const previousEditorFactory = context.ui.getEditorComponent();
 			let next: AtomicEditorOwner | undefined;
@@ -120,8 +114,8 @@ export function createDollarSkillFeature(
 				dispose() {
 					if (editorOwner !== next) return;
 					editorOwner = undefined;
-					if (context.ui.getEditorComponent?.() === installedEditorFactory)
-						context.ui.setEditorComponent?.(previousEditorFactory);
+					if (context.ui.getEditorComponent() === installedEditorFactory)
+						context.ui.setEditorComponent(previousEditorFactory);
 				},
 			};
 			editorOwner = next;

@@ -1,8 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createDisposerRegistry, type DisposerRegistry } from "./disposer-registry.js";
-import { getGlobalState } from "./global-state.js";
 import { createOutputRegistry, type OutputRegistry } from "./output.js";
-import { runtimeIdentity } from "./runtime-identity.js";
 import { abortServiceWaiters } from "./service.js";
 
 /**
@@ -19,7 +17,7 @@ export interface ExtensionLifecycleContext {
 }
 
 export interface ExtensionLifecycleOptions {
-	/** Stable extension package name, used to replace stale Pi reload handlers. */
+	/** Stable extension package name used in validation and diagnostics. */
 	readonly key: string;
 	/** Creates session-owned resources. Failure triggers registered cleanup. */
 	readonly start: (context: ExtensionLifecycleContext) => void | Promise<void>;
@@ -31,28 +29,11 @@ export function registerExtensionLifecycle(
 	options: ExtensionLifecycleOptions,
 ): void {
 	if (!options.key.trim()) throw new Error("Extension lifecycle key must not be empty");
-	const registrations = getLifecycleRegistrations(pi);
-	const previous = registrations.get(options.key);
-	const replacement = previous?.shutdown() ?? Promise.resolve();
-	// Keep replacement failures observable by the next start without creating an
-	// unhandled rejection when no subsequent session starts.
-	void replacement.catch(() => undefined);
-	const controller = createLifecycleController(pi, options, replacement);
-	const registration: LifecycleRegistration = {
-		token: Symbol(options.key),
-		shutdown: controller.shutdown,
-	};
-	registrations.set(options.key, registration);
-	const isCurrent = (): boolean => registrations.get(options.key)?.token === registration.token;
-
-	// Pi does not unregister old handlers on /reload. The runtime-scoped token
-	// makes stale handlers inert while the newest registration owns the session.
+	const controller = createLifecycleController(pi, options);
 	pi.on("session_start", async (_event, context) => {
-		if (!isCurrent()) return;
 		await controller.start(context);
 	});
 	pi.on("session_shutdown", async () => {
-		if (!isCurrent()) return;
 		await controller.shutdown();
 	});
 }
@@ -62,28 +43,9 @@ interface ActiveLifecycle {
 	readonly resources: DisposerRegistry;
 }
 
-interface LifecycleRegistration {
-	readonly token: symbol;
-	readonly shutdown: () => Promise<void>;
-}
-
-function getLifecycleRegistrations(pi: ExtensionAPI): Map<string, LifecycleRegistration> {
-	const registrations = getGlobalState(
-		"lifecycle-registrations",
-		(): WeakMap<object, Map<string, LifecycleRegistration>> => new WeakMap(),
-	);
-	const identity = runtimeIdentity(pi);
-	const current = registrations.get(identity);
-	if (current !== undefined) return current;
-	const created = new Map<string, LifecycleRegistration>();
-	registrations.set(identity, created);
-	return created;
-}
-
 function createLifecycleController(
 	pi: ExtensionAPI,
 	options: ExtensionLifecycleOptions,
-	replacement: Promise<void>,
 ): {
 	start(context: ExtensionContext): Promise<void>;
 	shutdown(): Promise<void>;
@@ -119,7 +81,6 @@ function createLifecycleController(
 	return {
 		start(context: ExtensionContext): Promise<void> {
 			return enqueue(async () => {
-				await replacement;
 				if (active !== undefined) await shutdownUnlocked();
 				const controller = new AbortController();
 				const resources = createDisposerRegistry();
@@ -150,10 +111,6 @@ function createLifecycleController(
 				}
 			});
 		},
-		shutdown: (): Promise<void> =>
-			enqueue(async () => {
-				await replacement;
-				await shutdownUnlocked();
-			}),
+		shutdown: (): Promise<void> => enqueue(shutdownUnlocked),
 	};
 }

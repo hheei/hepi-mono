@@ -49,17 +49,13 @@ page content、Settings policy、feature-owned schema/content、agent/config/del
 
 ## Pi 集成边界
 
-Pi extension 的公共入口是 `ExtensionAPI`。它提供 `pi.events` 以及
-`session_start` / `session_shutdown` 事件。独立 extension 在同一 Pi runtime 中会获得
-不同的 `ExtensionAPI` facade，但共享 `pi.events`。
+Pi extension 的公共入口是 `ExtensionAPI`。独立 extension 在同一 Pi runtime 中获得不同的
+`ExtensionAPI` facade，并通过共享 `pi.events` 协作；跨 extension 的 core registry 因此仍以
+runtime identity 存放在延迟创建的 `WeakMap` 中，不长期持有 session 或 extension instance。
 
-core 因此以 `pi.events` 作为 runtime identity；没有该字段时才以 `pi` 对象作为
-fallback。内部 runtime state 以 `WeakMap` 延迟存放，不会让 session 或 extension
-instance 被长期持有。
-
-Pi 没有为大部分 extension 注册面提供公开 unregister。core 的 lifecycle 注册必须以
-`runtime identity + stable feature key` 淘汰旧 generation，而不是假设旧 listener 能被
-移除。
+Pi 0.87 的 `pi.on()` 返回 disposer，session replacement 与 `/reload` 会使旧 runtime 失效并
+移除其 handler。core lifecycle 直接依赖这个宿主契约，不再维护跨 reload generation 或让旧
+listener 留在进程中；stable feature key 只用于公开 contract 的身份和诊断。
 
 ## 第一阶段公开接口
 
@@ -113,10 +109,10 @@ core 只验证 settings transport 所需的 JSON value shape，并提供 provide
 ### Lifecycle
 
 extension 通过 stable key 注册 session-scoped feature。core 串行 start/shutdown，启动
-失败时清理已创建资源；重复 reload 只允许最新 generation 处理事件。
+失败时清理已创建资源；Pi runtime replacement 负责淘汰旧 handler。
 
 stable key 必须是 extension 的 package name，例如 `@hheei/pi-example`。不得使用
-临时字符串或自动生成值；key 用于跨 reload 识别同一个 extension。
+临时字符串或自动生成值；key 用于身份校验和诊断。
 
 ```ts
 registerExtensionLifecycle(pi, {

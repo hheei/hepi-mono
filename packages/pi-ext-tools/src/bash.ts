@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
 	type AgentToolResult,
 	createBashToolDefinition,
+	createLocalBashOperations,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type Theme,
@@ -185,36 +185,27 @@ async function runForeground(
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
 	const sink = new BashOutputSink({ outputs, tailBytes });
-	const child = spawn(
-		shellPath,
-		process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command],
-		{ cwd: context.cwd, stdio: ["ignore", "pipe", "pipe"] },
-	);
-	let timedOut = false;
-	const terminate = (): void => {
-		child.kill();
-	};
-	signal?.addEventListener("abort", terminate, { once: true });
-	const timeout =
-		timeoutSeconds === undefined || timeoutSeconds <= 0
-			? undefined
-			: setTimeout(() => {
-					timedOut = true;
-					terminate();
-				}, timeoutSeconds * 1000);
 	const update = (data: Buffer): void => {
 		sink.push(data);
 		const output = sink.snapshot();
 		onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
 	};
-	child.stdout?.on("data", update);
-	child.stderr?.on("data", update);
-	const exitCode = await new Promise<number | null>((resolve, reject) => {
-		child.once("error", reject);
-		child.once("close", resolve);
-	});
-	clearTimeout(timeout);
-	signal?.removeEventListener("abort", terminate);
+	let exitCode: number | null;
+	let timedOut = false;
+	try {
+		exitCode = (
+			await createLocalBashOperations({ shellPath }).exec(command, context.cwd, {
+				onData: update,
+				...(signal === undefined ? {} : { signal }),
+				...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
+			})
+		).exitCode;
+	} catch (error) {
+		if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
+		if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
+		timedOut = true;
+		exitCode = null;
+	}
 	const output = sink.finish();
 	return result(
 		`${output.output}${output.truncated && output.outputUri ? `\n\n[Output truncated. Read ${output.outputUri} for full output.]` : ""}`,
