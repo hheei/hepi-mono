@@ -26,29 +26,11 @@ type CtxStatusEntryRenderer = (
 	theme: Theme,
 ) => Component | undefined;
 
-type PiEntryRendererRegistration = {
-	registerEntryRenderer?: <T = unknown>(
-		customType: string,
-		renderer: (
-			entry: CustomEntry<T>,
-			options: { expanded: boolean },
-			theme: Theme,
-		) => Component | undefined,
-	) => void;
-};
-
-export type PiMessageSender = Pick<ExtensionAPI, "appendEntry"> & PiEntryRendererRegistration;
+export type PiMessageSender = Pick<ExtensionAPI, "appendEntry" | "registerEntryRenderer">;
 
 export function resolveSessionId(ctx: ExtensionCommandContext): string | undefined {
-	const sm = ctx.sessionManager;
-	const getSessionId = (sm as { getSessionId?: () => string | undefined }).getSessionId;
-	if (typeof getSessionId !== "function") return undefined;
-	try {
-		const id = getSessionId.call(sm);
-		return typeof id === "string" && id.length > 0 ? id : undefined;
-	} catch {
-		return undefined;
-	}
+	const id = ctx.sessionManager.getSessionId();
+	return id.length > 0 ? id : undefined;
 }
 
 function statusTitleColor(level: CtxStatusLevel | undefined) {
@@ -82,19 +64,10 @@ export const renderCtxStatusEntry: CtxStatusEntryRenderer = (entry, _options, th
 	return box;
 };
 
-/**
- * Register the model-invisible status-entry renderer when the Pi runtime supports it.
- * Older Pi versions still persist status entries through appendEntry; they simply do
- * not render those entries in the TUI.
- */
+/** Register the model-invisible status-entry renderer. */
 export function registerCtxStatusEntryRenderer(pi: PiMessageSender): boolean {
-	if (typeof pi.registerEntryRenderer !== "function") return false;
-	try {
-		pi.registerEntryRenderer<CtxStatusEntryData>(CTX_STATUS_CUSTOM_TYPE, renderCtxStatusEntry);
-		return true;
-	} catch {
-		return false;
-	}
+	pi.registerEntryRenderer<CtxStatusEntryData>(CTX_STATUS_CUSTOM_TYPE, renderCtxStatusEntry);
+	return true;
 }
 
 export function sendCtxStatusMessage(
@@ -106,13 +79,6 @@ export function sendCtxStatusMessage(
 		...content,
 		details: details ?? content.details,
 	};
-
-	// Custom entries are persisted without entering model context. On older Pi
-	// versions they may be invisible in the TUI, but model safety takes priority.
-	if (typeof pi.appendEntry === "function") {
-		pi.appendEntry<CtxStatusEntryData>(CTX_STATUS_CUSTOM_TYPE, data);
-	}
-	// Minimal non-interactive API shims may omit appendEntry; logging remains the
-	// safe fallback and status text must never be routed through sendMessage.
+	pi.appendEntry<CtxStatusEntryData>(CTX_STATUS_CUSTOM_TYPE, data);
 	sessionLog("pi-status", `${content.title}: ${content.text}`);
 }
