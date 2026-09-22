@@ -3688,9 +3688,14 @@ describe("collectMessageEntryIdsStrict", () => {
 				{
 					sessionManager: {
 						getBranch: () => [
-							{ type: "message", id: "entry-1" },
-							{ type: "compaction", firstKeptEntryId: "entry-2" },
-							{ type: "message", id: "entry-2" },
+							{ type: "message", id: "entry-1", message: { role: "user", content: "old" } },
+							{
+								type: "compaction",
+								id: "compact-1",
+								firstKeptEntryId: "entry-2",
+								summary: "sum",
+							},
+							{ type: "message", id: "entry-2", message: { role: "user", content: "kept" } },
 						],
 					},
 				} as never,
@@ -3698,6 +3703,29 @@ describe("collectMessageEntryIdsStrict", () => {
 				"ses-strict",
 			),
 		).toEqual([undefined, "entry-2"]);
+	});
+
+	it("omits context_edit targets that Pi dropped from model context", () => {
+		expect(
+			collectMessageEntryIdsStrict(
+				{
+					sessionManager: {
+						getBranch: () => [
+							{ type: "message", id: "entry-a", message: { role: "user", content: "drop me" } },
+							{ type: "message", id: "entry-b", message: { role: "user", content: "keep me" } },
+							{
+								type: "context_edit",
+								id: "edit-a",
+								targetId: "entry-a",
+								replacement: null,
+							},
+						],
+					},
+				} as never,
+				1,
+				"ses-strict",
+			),
+		).toEqual(["entry-b"]);
 	});
 });
 

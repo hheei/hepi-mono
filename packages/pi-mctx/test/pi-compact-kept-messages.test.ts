@@ -39,6 +39,23 @@ describe("collectCompactKeptMessages", () => {
 			{ role: "assistant", content: [{ type: "text", text: "ok" }] },
 		]);
 	});
+
+	it("applies context_edit omissions inside the kept tail", () => {
+		expect(
+			collectCompactKeptMessages([
+				...compactedBranch,
+				{
+					type: "context_edit",
+					id: "edit-kept-user",
+					targetId: "kept-user",
+					replacement: null,
+				},
+			]),
+		).toEqual([
+			{ role: "user", content: "compacted earlier work" },
+			{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+		]);
+	});
 });
 
 describe("persistCompactKeptPromptEstimateIfCompacted", () => {
