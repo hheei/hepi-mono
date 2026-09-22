@@ -11,7 +11,10 @@ import {
 } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test } from "vitest";
 import { createLoadoutEngine } from "../../src/loadout/engine.js";
-import { updateLoadoutSelection } from "../../src/loadout/storage.js";
+import {
+	type UpdateLoadoutSelectionsOptions,
+	updateLoadoutSelections,
+} from "../../src/loadout/storage.js";
 
 const temporaryPaths: string[] = [];
 
@@ -201,6 +204,10 @@ describe("headless Loadout engine", () => {
 
 	test("writes scope deltas, clears fallback choices, and repairs the modified key", async () => {
 		const settings = await paths();
+		const update = (
+			scope: UpdateLoadoutSelectionsOptions["scope"],
+			selections: UpdateLoadoutSelectionsOptions["selections"],
+		) => updateLoadoutSelections({ cwd: process.cwd(), paths: settings, scope, selections });
 		await writeFile(
 			settings.globalPath,
 			JSON.stringify({
@@ -213,31 +220,16 @@ describe("headless Loadout engine", () => {
 				loadout: { enabled: ["tool:find"], disabled: ["tool:find"] },
 			}),
 		);
-		await updateLoadoutSelection({
-			cwd: process.cwd(),
-			paths: settings,
-			scope: "project",
-			key: "tool:find",
-			selection: "inherit",
-			defaultActive: true,
-		});
-		await updateLoadoutSelection({
-			cwd: process.cwd(),
-			paths: settings,
-			scope: "global",
-			key: "tool:find",
-			selection: "enabled",
-			defaultActive: true,
-		});
-		await updateLoadoutSelection({
-			cwd: process.cwd(),
-			paths: settings,
-			scope: "project",
-			key: "tool:private",
-			selection: "disabled",
-			defaultActive: true,
-			projectPrivate: true,
-		});
+		await update("project", [
+			{ key: "tool:find", selection: "inherit", defaultActive: true },
+			{
+				key: "tool:private",
+				selection: "disabled",
+				defaultActive: true,
+				projectPrivate: true,
+			},
+		]);
+		await update("global", [{ key: "tool:find", selection: "enabled", defaultActive: true }]);
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
 			loadout: { disabled: ["tool:grep"] },
 		});
@@ -246,51 +238,40 @@ describe("headless Loadout engine", () => {
 		});
 		await expectRejected(
 			() =>
-				updateLoadoutSelection({
-					cwd: process.cwd(),
-					paths: settings,
-					scope: "project",
-					key: "tool:private",
-					selection: "inherit",
-					defaultActive: true,
-					projectPrivate: true,
-				}),
+				update("project", [
+					{
+						key: "tool:private",
+						selection: "inherit",
+						defaultActive: true,
+						projectPrivate: true,
+					},
+				]),
 			"Project-private Loadout selection cannot inherit",
 		);
 		await expectRejected(
-			() =>
-				updateLoadoutSelection({
-					cwd: process.cwd(),
-					paths: settings,
-					scope: "global",
-					key: "find",
-					selection: "enabled",
-					defaultActive: true,
-				}),
+			() => update("global", [{ key: "find", selection: "enabled", defaultActive: true }]),
 			"Expected canonical tool:<name> or skill:<name> key",
 		);
 		await expectRejected(
 			() =>
-				updateLoadoutSelection({
-					cwd: process.cwd(),
-					paths: settings,
-					scope: "global",
-					key: "tool:private",
-					selection: "enabled",
-					defaultActive: false,
-					projectPrivate: true,
-				}),
+				update("global", [
+					{
+						key: "tool:private",
+						selection: "enabled",
+						defaultActive: false,
+						projectPrivate: true,
+					},
+				]),
 			"Project-private Loadout selection cannot use global scope",
 		);
-		await updateLoadoutSelection({
-			cwd: process.cwd(),
-			paths: settings,
-			scope: "project",
-			key: "tool:private",
-			selection: "enabled",
-			defaultActive: true,
-			projectPrivate: true,
-		});
+		await update("project", [
+			{
+				key: "tool:private",
+				selection: "enabled",
+				defaultActive: true,
+				projectPrivate: true,
+			},
+		]);
 		expect(JSON.parse(await readFile(settings.projectPath, "utf8"))).toEqual({});
 	});
 });
