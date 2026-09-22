@@ -5,6 +5,7 @@ import { SYNTH_USER_ID_PREFIX } from "../read-session-pi";
 import {
 	AgentMemoryClient,
 	type AgentMemoryClientPort,
+	createDisabledAgentMemoryClient,
 	decodeAgentMemorySearchResults,
 	type ObserveResult,
 } from "./client";
@@ -256,17 +257,22 @@ export function isExcludedMemoryTool(toolName: string | undefined): boolean {
 
 export function createAgentMemoryRuntime(
 	settings: AgentMemoryConfig,
-	client: AgentMemoryClientPort = new AgentMemoryClient({
-		url: settings.url,
-		secret: settings.secret,
-		requireHttps: settings.requireHttps,
-	}),
+	client?: AgentMemoryClientPort,
 	options: { db?: Database | undefined } = {},
 ): AgentMemoryRuntime {
+	const resolvedClient: AgentMemoryClientPort =
+		client ??
+		(settings.url?.trim()
+			? new AgentMemoryClient({
+					url: settings.url,
+					secret: settings.secret,
+					requireHttps: settings.requireHttps,
+				})
+			: createDisabledAgentMemoryClient());
 	const identity = createAgentMemoryIdentityResolver(settings);
 	const status = new AgentMemoryStatusTracker();
 	const sessions = new AgentMemorySessionManager({
-		client,
+		client: resolvedClient,
 		resolveIdentity: identity,
 		enabled: () => settings.enabled && settings.capture,
 		onSuccess: (operation) => {
@@ -279,7 +285,7 @@ export function createAgentMemoryRuntime(
 	});
 	const taint = options.db ? new SqliteTurnTaintStore(options.db) : undefined;
 	const outbox = options.db
-		? new AgentMemoryOutbox(options.db, client, undefined, (error) => {
+		? new AgentMemoryOutbox(options.db, resolvedClient, undefined, (error) => {
 				status.recordFailure("memory", error);
 				log(`${PREFIX} outbox drain failed`, error);
 			})
@@ -288,7 +294,7 @@ export function createAgentMemoryRuntime(
 	const taintedTurnBySession = new Map<string, string>();
 	const runtime: AgentMemoryRuntime = {
 		settings,
-		client,
+		client: resolvedClient,
 		sessions,
 		taint,
 		outbox,
@@ -372,7 +378,7 @@ export function createAgentMemoryRuntime(
 					search: async () => {
 						const activeRemoteSessionId = sessions.getBinding(input.sessionId)?.remoteSessionId;
 						return decodeAgentMemorySearchResults(
-							await client.search(
+							await resolvedClient.search(
 								{
 									query: input.query,
 									limit: 10,

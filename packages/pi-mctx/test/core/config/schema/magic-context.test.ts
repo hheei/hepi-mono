@@ -34,7 +34,7 @@ describe("MagicContextConfigSchema", () => {
 				},
 				agentmemory: {
 					enabled: false,
-					url: "http://127.0.0.1:3111",
+					url: "",
 					capture: true,
 					memoryTools: true,
 					requireHttps: false,
@@ -145,7 +145,7 @@ describe("MagicContextConfigSchema", () => {
 				},
 				agentmemory: {
 					enabled: false,
-					url: "http://127.0.0.1:3111",
+					url: "",
 					secret: "",
 					agentId: "",
 					capture: true,

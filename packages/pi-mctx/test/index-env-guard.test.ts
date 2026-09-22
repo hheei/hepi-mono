@@ -127,7 +127,7 @@ describe("Pi full extension subagent env guard", () => {
 			"magic-context:handoff",
 		]);
 		expect(registrations.events).toContain("before_agent_start");
-		expect(registrations.tools).toContain("mctx_search");
+		expect(registrations.tools).toContain("recall");
 		expect(registrations.commands).toContain("ctx-status");
 		// This path initializes and migrates a fresh SQLite database before registering
 		// the complete extension. In a 2-CPU Bun 1.3.14 Linux container it took
@@ -270,7 +270,7 @@ describe("Pi full extension subagent env guard", () => {
 		await magicContextPiExtension(registrations.pi);
 
 		expect(registrations.events).toContain("context");
-		expect(registrations.tools).toContain("mctx_search");
+		expect(registrations.tools).toContain("recall");
 		expect(registrations.tools).not.toContain("mctx_reduce");
 		expect(registrations.commands).toContain("agentmemory-health");
 		expect(fetchSpy).not.toHaveBeenCalled();

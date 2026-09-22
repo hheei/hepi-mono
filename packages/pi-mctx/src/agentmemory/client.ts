@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { HindsightClient, HindsightError } from "@vectorize-io/hindsight-client";
-import { DEFAULT_AGENTMEMORY_URL } from "#core/config/schema/magic-context";
 import { log } from "#core/shared/logger";
 import { createPlaintextBearerAuthGuard, plaintextBearerAuthMessage } from "./security";
 
@@ -115,6 +114,26 @@ export type AgentMemoryClientPort = {
 	remember(input: RememberInput, options?: AgentMemoryRequestOptions): Promise<RememberResult>;
 	endSession(sessionId: string, options?: AgentMemoryRequestOptions): Promise<void>;
 };
+export function createDisabledAgentMemoryClient(): AgentMemoryClientPort {
+	return {
+		async health() {
+			return { status: "disabled" };
+		},
+		async startSession(input) {
+			return { sessionId: input.sessionId };
+		},
+		async observe() {
+			return { observationId: "disabled" };
+		},
+		async search() {
+			return { results: [], memories: [], observations: [] };
+		},
+		async remember() {
+			throw new Error("AgentMemory client is disabled (no URL configured)");
+		},
+		async endSession() {},
+	};
+}
 
 export type AgentMemoryClientConfig = {
 	url?: string | undefined;
@@ -217,7 +236,10 @@ export class AgentMemoryClient implements AgentMemoryClientPort {
 	readonly #baseUrl: string;
 
 	constructor(config: AgentMemoryClientConfig = {}, _fetchImpl?: typeof fetch) {
-		const url = (config.url?.trim() || DEFAULT_AGENTMEMORY_URL).replace(/\/+$/, "");
+		const url = (config.url?.trim() || "").replace(/\/+$/, "");
+		if (!url) {
+			throw new AgentMemoryClientError("invalid_url", "client", "Missing or empty Hindsight URL");
+		}
 		try {
 			const parsed = new URL(url);
 			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {

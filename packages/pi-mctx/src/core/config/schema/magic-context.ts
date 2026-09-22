@@ -393,9 +393,6 @@ export interface ExperimentalMuralConfig {
 export interface ExperimentalConfig {
 	mural: ExperimentalMuralConfig;
 }
-
-export const DEFAULT_AGENTMEMORY_URL = "http://127.0.0.1:8888";
-
 export interface AgentMemoryConfig {
 	enabled: boolean;
 	url: string;
@@ -956,7 +953,7 @@ export const MagicContextConfigSchema = z
 				url: z
 					.string()
 					.trim()
-					.default(DEFAULT_AGENTMEMORY_URL)
+					.default("")
 					.describe("Hindsight API base URL. AGENTMEMORY_URL overrides this."),
 				secret: z
 					.string()
@@ -990,7 +987,7 @@ export const MagicContextConfigSchema = z
 			})
 			.default({
 				enabled: false,
-				url: DEFAULT_AGENTMEMORY_URL,
+				url: "",
 				secret: "",
 				agentId: "",
 				capture: true,

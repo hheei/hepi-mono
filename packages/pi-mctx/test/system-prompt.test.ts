@@ -29,7 +29,7 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 
 			expect(block).not.toBeNull();
 			expect(block).toContain(MAGIC_CONTEXT_GUIDANCE_MARKER);
-			expect(block).toContain("mctx_search");
+			expect(block).toContain("recall");
 			expect(block).toContain("mctx_memory");
 			expect(block).toContain("mctx_note");
 		} finally {
@@ -47,8 +47,8 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 				memorySaveMode: "agentmemory",
 			});
 
-			expect(block).toContain("mctx_search");
-			expect(block).toContain("mctx_memory");
+			expect(block).toContain("recall");
+			expect(block).toContain("retain");
 			expect(block).not.toContain("memory_search");
 			expect(block).not.toContain("memory_save");
 		} finally {
@@ -134,7 +134,7 @@ describe("buildMagicContextBlock v2 system-prompt parity", () => {
 
 			expect(block).toContain(MAGIC_CONTEXT_GUIDANCE_MARKER);
 			expect(block).not.toContain("mctx_reduce");
-			expect(block).toContain("mctx_search");
+			expect(block).toContain("recall");
 		} finally {
 			closeQuietly(db);
 		}
