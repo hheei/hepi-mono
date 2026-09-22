@@ -9,7 +9,6 @@
 ```text
 Pi grep call
     |
-    +-- output:// source --------------------------> rg stdin
     |
     +-- Git worktree root, no path/glob/ignoreCase -> FFF
     |                                                    |
@@ -17,14 +16,14 @@ Pi grep call
     |                                                    v
     +----------------------------------------------> rg
                                                          |
-FFF / rg result -> canonical Grep Result -> Output -> compact formatter -> content + details -> renderer
+FFF / rg result -> canonical Grep Result -> compact formatter -> content + details -> renderer
 ```
 
 Search Engine 选择只记录为内部 `details` provenance，不显示在 TUI 或模型 `content`。
 
 ## Engine admission
 
-- `output://` 是 processed Output 的输入来源，始终使用 rg stdin；它不是 Search Engine。非 local 的 authorized SSH target 也使用 remote rg。
+- 非 local 的 authorized SSH target 使用 remote rg。
 - 对 local filesystem search，只有启用 `grepEnhancement`、session `cwd` 等于 Git worktree root，且请求没有 `path`、`glob` 或 `ignoreCase: true` 时，才尝试 FFF。其他请求直接使用 rg。
 - FFF 保留自身的排序。rg 的 file groups 按 canonical path 字典序排列。
 - FFF 的 page cursor 仅用于一次 grep execute 内部取完结果。`grep` schema、模型 content 与 details 都不公开 cursor，也不维护 cursor store。
@@ -38,7 +37,7 @@ Search Engine 选择只记录为内部 `details` provenance，不显示在 TUI �
 
 ## Public input schema
 
-`grep` 的八个公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local、output 或 authorized SSH host。`path: "output://N"` 是合法的只读 source。
+`grep` 的八个公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local 或 authorized SSH host。
 
 
 ## Canonical Grep Result
@@ -64,23 +63,6 @@ compact formatter 在 canonical result 之后执行，规则参考 rtk：
 - 显示内容 trim whitespace，长行截到 80 characters，长 path compact。details 与 recovery 不丢失原始 canonical fields。
 - FFF 维持 FFF item/file 顺序；rg 以 path 字典序 group。
 
-## Output recovery
-
-每次 grep 将 cap 后、compact 前的完整人类可读 result 保存为 process-lifetime、read-only Output。compact formatter 的每个 omission 都指向该 Output 中的行范围：
-
-```text
-+42 matches omitted -> output://7:120-196
-+36 files omitted -> output://7:197-548
-```
-
-`output://7:120-196` 是显示标记，不是 read path。恢复时模型调用：
-
-```ts
-read({ path: "output://7", offset: 120, limit: 77 })
-```
-
-每个 file 的 25-match overflow 各有一个 marker；200-match global cap 后的所有剩余 files 合为一个连续 marker。`read` 必须将 native `offset` 和 `limit` 传给 Output resolver。写入工具拒绝 `output://`；旧 `artifact://` URI 一律拒绝，不保留 alias。
-
 ## TUI
 
 `renderCall` 显示 `grep /PATTERN/ in path`：`grep` 使用原工具的 accent、pattern 使用 `mdCode`、`in path` 与 body path 使用终端默认色（跨 Trace 为 `dim`），不套 theme `text`。find 与 bash 正文遵循同一套 tone。`renderResult` 显示 compact result、cap/recovery 状态；未展开时**整个 result 最多 15 行**，包括 expansion hint。每个文件块的 path 相对于 grep `path`；搜单个文件时省略 path heading。行号和 `│` 使用 `dim` 并按该文件最大行号宽度右对齐；`submatches` 使用 `success` highlight。Pi 的 `expanded` state 仍可展开已保存的 tool result。颜色不是唯一的信息载体；path、match/context 结构和 omission marker 必须在无颜色时可读。
@@ -89,12 +71,11 @@ read({ path: "output://7", offset: 120, limit: 77 })
 
 ## Ownership 与验证
 
-`pi-ext-tools` 拥有 engine admission、rg execution、FFF adapter、canonical result、compact formatter、renderer 及 Output resolver 接入。ext-core 只拥有 process-lifetime Output registry 和 URI/resource 生命周期，不拥有 grep policy、limits 或 rendering。
+`pi-ext-tools` 拥有 engine admission、rg execution、FFF adapter、canonical result、compact formatter 与 renderer；ext-core 不拥有 grep policy、limits 或 rendering。
 
 聚焦测试至少覆盖：
 
-- FFF / rg / Output source 都生成同一 canonical match 与 context contract；FFF range 映射正确。
+- FFF / rg 都生成同一 canonical match 与 context contract；FFF range 映射正确。
 - admission、exact `0 matches` 后的 FFF fuzzy fallback、regex error、FFF page failure 后完整 rg retry、取消与 Pi cap。
-- 25/file、200/global、context 不计 cap、FFF ordering、rg ordering、80-character trimming、path compact 与 Output line-range mapping。
-- `read` 对 `output://` 的 offset/limit、写入工具拒绝 Output、旧 `artifact://` rejection。
+- 25/file、200/global、context 不计 cap、FFF ordering、rg ordering、80-character trimming 与 path compact。
 - renderer 从 details 高亮 submatches，窄/宽 layout、无效 byte range、expanded state。

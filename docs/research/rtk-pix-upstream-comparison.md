@@ -55,11 +55,7 @@ config modal、全局 metrics 或 renderer 改写。这样保留现有 Bash 的�
 [`index.ts`](https://github.com/MasuRii/pi-rtk-optimizer/blob/d155d253cb2f1358e34e717d47a82ebccb08cb8e/src/index.ts#L345-L380)
 [`output-compactor.ts`](https://github.com/MasuRii/pi-rtk-optimizer/blob/d155d253cb2f1358e34e717d47a82ebccb08cb8e/src/output-compactor.ts#L404-L489)。
 
-**判断：** 不复用 compaction。`pi-ext-tools` 已将完整 output 存为 process-owned `output://` resource，并在终态 result 中只暴露
-tail 和 truncation 元数据；第二个 lossy filter 会损坏“完整结果可读”的既有契约，也会让 ToolTui footer 的输出/行数不再对应 native
-result。[Bash 设计](../ext-tools/README.md#bash-backend)
-[Bash footer](../../packages/pi-ext-tools/src/bash.ts#L57-L145)。若将来需要可观察性，最多加入一个非破坏性
-`details.rtk` 记录（`rewritten: boolean`、原命令长度、resolver），不得覆盖 `output`、`outputUri`、exit/timeout 字段或 content。
+**判断：** 不复用 compaction。`pi-ext-tools` 已有 bounded tail 与 truncation metadata；第二个 lossy filter 会进一步损坏模型可见结果。
 
 ## 3. async、PTY、取消与并发
 

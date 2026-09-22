@@ -4,12 +4,8 @@ Pi concrete extensions and ext-core use this language to keep tool contracts and
 
 ## Language
 
-**Output**:
-Processed text produced by a tool and retained behind an opaque, read-only identifier for inspection. Legacy `output://` URIs are process-lifetime internal resources; the planned Output Target uses a session-qualified opaque id and a session-bound sidecar, subject to its declared persistence status. An Output is not a workspace path or reusable search-result data model. In displayed legacy text, `output://N:START-END` denotes inclusive, one-based Output lines.
-_Avoid_: Artifact, artifact URL
-
 **Target**:
-An explicit tool execution destination. Omitted or `local` means the current local filesystem; `output` means a read-only Output resource; an SSH Target means an authorized OpenSSH Host alias. An internal URL in `path` remains a legacy resource identifier and takes precedence over Target.
+An explicit tool execution destination. Omitted or `local` means the current local filesystem; an SSH Target means an authorized OpenSSH Host alias.
 _Avoid_: Backend, route
 
 **SSH Target**:

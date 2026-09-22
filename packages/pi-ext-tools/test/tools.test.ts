@@ -83,6 +83,7 @@ describe("pi-ext-tools catalog", () => {
 			"edit",
 			"write",
 			"bash",
+			"ls",
 			"bash_job",
 			"apply_patch",
 			"eval",

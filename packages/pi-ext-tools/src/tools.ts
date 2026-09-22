@@ -24,6 +24,7 @@ import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js"
 import type { EditCatalog } from "./fff/settings.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
+import { registerLsTool } from "./ls.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
 import { registerWriteTool, WRITE_TOOL_REGISTRATION } from "./write.js";
@@ -64,6 +65,7 @@ export function registerTools(
 	nested.set("edit", registerEditTool(pi, tui, state));
 	nested.set("write", registerWriteTool(pi, tui, state));
 	nested.set("bash", registerBashTool(pi, state, tui));
+	registerLsTool(pi, tui);
 	registerBashJobTool(pi, state, tui);
 	nested.set("apply_patch", registerApplyPatchTool(pi, tui, state));
 	return registerEvalTool(

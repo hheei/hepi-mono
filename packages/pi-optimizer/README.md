@@ -40,7 +40,7 @@ RTK must already be installed. Optimizer owns the one rewrite hook; `pi-ext-tool
 
 Only local foreground Bash calls are eligible. SSH Targets, PTY, async calls, and already-RTK commands are skipped. Rewrites use the official `rtk rewrite` query plus conservative `bun test` / `find` corrections; overlays do not guess whether a Bun flag consumes a following argument. Query failures (including empty successful output) are recorded before the original command runs; an already-executed command is never automatically rerun. Native info entries preserve the original and execution commands.
 
-`output://` recovery preserves the executed subprocess output, which is already RTK-filtered. It cannot recover text discarded by RTK. Turn RTK off **before execution** when unfiltered output is needed.
+Tool results retain the bounded execution tail; output discarded by RTK cannot be recovered. Turn RTK off **before execution** when unfiltered output is needed.
 
 No edit/apply_patch guard, sudo policy, or tool-result warning filter is included.
 

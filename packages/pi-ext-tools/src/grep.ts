@@ -136,7 +136,7 @@ export type GrepToolDetails = {
 		readonly maxBytes: number;
 		readonly truncated: boolean;
 	};
-	readonly recovery: { readonly output: string };
+	readonly recovery: { readonly message: string };
 	readonly fff?: { readonly itemCount: number };
 	readonly timedOut?: boolean;
 	readonly target?: string;
@@ -453,7 +453,6 @@ function rangeFor(
 function compactOutput(
 	canonical: CanonicalResult,
 	full: FullOutput,
-	output: string,
 	context: number,
 	searchPath: string | undefined,
 	cwd: string,
@@ -497,7 +496,7 @@ function compactOutput(
 			if (range)
 				display.push({
 					type: "omission",
-					text: `+${files} files omitted -> ${output}:${range.start}-${range.end}`,
+					text: `+${files} files omitted; narrow the path or increase the limit to inspect them`,
 				});
 			break;
 		}
@@ -525,7 +524,7 @@ function compactOutput(
 			if (range)
 				display.push({
 					type: "omission",
-					text: `+${matches.length - visibleMatches.length} matches omitted -> ${output}:${range.start}-${range.end}`,
+					text: `+${matches.length - visibleMatches.length} matches omitted; narrow the path or increase the limit to inspect them`,
 				});
 		}
 	}
@@ -760,7 +759,9 @@ export function registerGrepTool(
 					totalLines: 0,
 					durationMs: Math.round(performance.now() - startedAt),
 					cap: { rows: 0, bytes: 0, maxRows: MAX_ROWS, maxBytes: MAX_BYTES, truncated: false },
-					recovery: { output: "" },
+					recovery: {
+						message: "Narrow the search path or increase the result limit to inspect more matches.",
+					},
 					outcome,
 					...targetFields,
 					...(outcome === "timeout" ? { timedOut: true } : {}),
@@ -812,13 +813,12 @@ export function registerGrepTool(
 				}
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
 				const full = fullOutput(canonical.events, canonical.incomplete);
-				const recoveryOutput =
+				const recoveryMessage =
 					"Narrow the search path or increase the result limit to inspect more matches.";
 
 				const display = compactOutput(
 					canonical,
 					full,
-					recoveryOutput,
 					normalizedContext(params.context),
 					params.path,
 					context.cwd,
@@ -847,7 +847,7 @@ export function registerGrepTool(
 						totalLines: canonical.events.length,
 						durationMs: Math.round(performance.now() - startedAt),
 						cap: canonical.cap,
-						recovery: { output: recoveryOutput },
+						recovery: { message: recoveryMessage },
 						outcome,
 						...targetFields,
 						...(canonical.timedOut ? { timedOut: true } : {}),
