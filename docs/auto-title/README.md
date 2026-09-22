@@ -6,7 +6,7 @@
 
 ## 边界
 
-- 扩展拥有标题 prompt、模型选择、输入裁剪、标题校验、状态栏 shimmer 与重试时机。
+- 扩展拥有标题 prompt、模型选择、输入裁剪、标题校验、静态状态提示与重试时机。
 - `@hheei/pi-ext-core` 提供 settings provider registration、生命周期资源清理与一次性 completion execution。
 - 扩展不持有模型 Agent 或 child-session lifecycle。
 
@@ -19,7 +19,7 @@ extension 在 `registerExtensionLifecycle()` 的 `start(context)` 中：
 2. 以相同真实 `ExtensionLifecycleContext` 配置 subagent coordinator，并把它传给 title completion adapter。
    不得手工构造 lifecycle-like object。
 3. 用 core model selection field/options 从当前 `modelRegistry` 构造 provider；title 的模型、thinking 固定为
-   `off`，prompt、标题校验、60 秒 deadline 和 shimmer 仍是 extension policy。
+   `off`，prompt、标题校验、60 秒 deadline 和 `Generating title` 状态提示仍是 extension policy。
 4. 将 settings unregistration、coordinator dispose、status cleanup 放入 lifecycle `resources`，使 reload 与
    session shutdown 幂等。
 

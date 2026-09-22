@@ -161,7 +161,7 @@ export function registerChildBridge(
 	const showIdentity = (ctx: ExtensionContext): void => {
 		disposeWidget();
 		if (!state.bound || ctx.mode !== "tui") return;
-		const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
+		const tools = pi.getAllTools();
 		identityWidget = createChildIdentityWidget(pi, ctx, stop.signal, {
 			agent: process.env[CHILD_AGENT_ENV_KEY] ?? "",
 			toolCount: tools.length,

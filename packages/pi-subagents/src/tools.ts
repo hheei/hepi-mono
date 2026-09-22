@@ -82,7 +82,7 @@ const CONTACT_GUIDELINES = [
 ] as const;
 
 export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager): void {
-	if (typeof pi.on === "function") registerToolTuiTrace(pi);
+	registerToolTuiTrace(pi);
 	const tui = getToolTui(pi);
 	const spawn: ToolDefinition<typeof spawnSchema> = {
 		name: "spawn_subagent",

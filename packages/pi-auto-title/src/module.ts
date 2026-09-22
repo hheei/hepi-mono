@@ -20,14 +20,7 @@ const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
 const TIMEOUT_MS = 60_000;
-export const TITLE_GENERATION_TEXT = "Generating title";
-export const TITLE_SHIMMER_LOOP_MS = 2_000;
-export const TITLE_SHIMMER_TRAVEL_CELLS = Array.from(TITLE_GENERATION_TEXT).length + 10;
-export const TITLE_SHIMMER_FRAME_MS = 100;
-export const TITLE_SHIMMER_WINDOW_CELLS = 4;
-const TITLE_SHIMMER_SIGMA = 2.5;
-const TITLE_SHIMMER_BASE = 110;
-const TITLE_SHIMMER_PEAK = 255;
+const TITLE_GENERATION_TEXT = "Generating title";
 export const AUTO_TITLE_SYSTEM_PROMPT = `Create a concise, searchable title for a coding session.
 
 Requirements:
@@ -203,23 +196,6 @@ export function safeTitle(value: string): string | undefined {
 	return title || undefined;
 }
 
-export function renderTitleGenerationShimmer(elapsedMs: number): string {
-	const characters = Array.from(TITLE_GENERATION_TEXT);
-	const elapsed = Math.max(0, elapsedMs) % TITLE_SHIMMER_LOOP_MS;
-	const wavePosition = (elapsed / TITLE_SHIMMER_LOOP_MS) * TITLE_SHIMMER_TRAVEL_CELLS - 5;
-	const styled = characters.map((character, index) => {
-		const distance = index - wavePosition;
-		const intensity =
-			distance < 0 || distance >= TITLE_SHIMMER_WINDOW_CELLS
-				? 0
-				: Math.exp(-(distance * distance) / (2 * TITLE_SHIMMER_SIGMA * TITLE_SHIMMER_SIGMA));
-		const channel = Math.round(
-			TITLE_SHIMMER_BASE + (TITLE_SHIMMER_PEAK - TITLE_SHIMMER_BASE) * intensity,
-		);
-		return `\x1b[38;2;${channel};${channel};${channel}m${character}`;
-	});
-	return `${styled.join("")}\x1b[0m`;
-}
 function messageText(content: unknown): string {
 	const text = Array.isArray(content)
 		? content
@@ -327,24 +303,9 @@ export function createAutoTitleCoordinator(
 	let launchRequested = false;
 	let forceRequested = false;
 	let activeAgent: AutoTitleAgentAdapter | undefined;
-	const setStatus = (text?: string): void => ctx.ui.setStatus?.("auto-title", text);
-	let statusTimer: ReturnType<typeof setInterval> | undefined;
-	const clearStatus = () => {
-		if (statusTimer !== undefined) clearInterval(statusTimer);
-		statusTimer = undefined;
-		setStatus(undefined);
-	};
-	// Status rendering is a feature concern. Core supplies the child-session
-	// execution primitive, but it does not own this transient UI or its cadence.
-	const startStatus = () => {
-		clearStatus();
-		const startedAt = Date.now();
-		const update = () => {
-			setStatus(renderTitleGenerationShimmer(Date.now() - startedAt));
-		};
-		update();
-		statusTimer = setInterval(update, TITLE_SHIMMER_FRAME_MS);
-	};
+	const setStatus = (text?: string): void => ctx.ui.setStatus("auto-title", text);
+	const clearStatus = (): void => setStatus(undefined);
+	const startStatus = (): void => setStatus(TITLE_GENERATION_TEXT);
 	const stop = () => {
 		clearTimeout(timer);
 		timer = undefined;
@@ -444,23 +405,6 @@ export function createAutoTitleCoordinator(
 		clearStatus();
 		stop();
 	};
-	const lifecycleUnsubs =
-		typeof pi.on === "function"
-			? []
-			: [
-					pi.events.on("session_info_changed", (event) => {
-						sessionInfoChanged(
-							event &&
-								typeof event === "object" &&
-								"name" in event &&
-								typeof event.name === "string"
-								? event.name
-								: undefined,
-						);
-					}),
-					pi.events.on("before_agent_start", beforeAgentStart),
-					pi.events.on("agent_settled", launch),
-				];
 	return {
 		trigger: (force = false) => {
 			if (disposed) return;
@@ -486,7 +430,6 @@ export function createAutoTitleCoordinator(
 			disposed = true;
 			revision++;
 			clearStatus();
-			for (const off of lifecycleUnsubs) off();
 			stop();
 		},
 	};

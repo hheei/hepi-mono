@@ -10,12 +10,13 @@
 /home/chlo/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent
 ```
 
-本记录基于已安装的 `@earendil-works/pi-coding-agent` `v0.85.1`。发行包包含编译产物和 source map；source map 的 `sourcesContent` 保留了对应 TypeScript 源码。查阅原生工具时优先使用：
+本记录按仓库当前开发基线 `@earendil-works/pi-coding-agent` `v0.87.0` 校验。发行包包含编译产物和
+source map；查阅原生工具与 extension contract 时优先使用工作区安装版本的：
 
 ```text
-dist/core/tools/grep.js.map
-dist/core/tools/find.js.map
-dist/modes/interactive/components/tool-execution.js.map
+dist/core/extensions/types.d.ts
+dist/core/tools/*.d.ts
+dist/core/session-manager.d.ts
 ```
 
 上游源码仓库：<https://github.com/earendil-works/pi-mono>。本地安装版本可能落后或领先于上游 `main`，设计和实现必须以所运行的版本为准。

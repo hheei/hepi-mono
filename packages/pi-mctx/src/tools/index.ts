@@ -110,7 +110,7 @@ function frameTool<T>(tui: ToolTui, tool: T): T {
 
 export function registerMagicContextTools(pi: ExtensionAPI, opts: RegisterToolsOptions): void {
 	const tui = getToolTui(pi);
-	if (typeof pi.on === "function") registerToolTuiTrace(pi);
+	registerToolTuiTrace(pi);
 	const resolveProjectIdentity = opts.resolveProjectIdentity
 		? (directory: string) => opts.resolveProjectIdentity?.({ cwd: directory })
 		: undefined;

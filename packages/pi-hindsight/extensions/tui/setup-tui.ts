@@ -183,11 +183,7 @@ async function handleIgnoreRepo(
 	);
 	if (!confirmed) return false;
 	const result = await createMemoryOperations(deps).configure(ctx.cwd, buildIgnoreRepoPatch());
-	try {
-		ctx.ui.setStatus?.("hindsight", undefined);
-	} catch {
-		// Best effort; some hosts may not expose setStatus on command UI.
-	}
+	ctx.ui.setStatus("hindsight", undefined);
 	ctx.ui.notify(
 		`Wrote ${result.path}: Hindsight disabled for this repo (enabled=false, status.style=off). Tools refuse calls until re-enabled via /hindsight.`,
 		"info",
