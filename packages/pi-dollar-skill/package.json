@@ -40,17 +40,13 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:^0.1.1"
+		"@hheei/pi-ext-core": "workspace:^"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.85.1",
-		"@earendil-works/pi-ai": ">=0.85.1",
 		"@earendil-works/pi-coding-agent": ">=0.85.1",
 		"@earendil-works/pi-tui": ">=0.85.1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "0.85.1",
-		"@earendil-works/pi-ai": "0.85.1",
 		"@earendil-works/pi-coding-agent": "0.85.1",
 		"@earendil-works/pi-tui": "0.85.1"
 	}

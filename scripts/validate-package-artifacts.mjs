@@ -6,7 +6,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const rootManifest = readJson(resolve(repoRoot, "package.json"));
+/** Every public workspace owns its release version; only the shape is enforced here. */
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const workspaceOutput = execFileSync("pnpm", ["m", "ls", "--json", "--depth", "-1"], {
 	cwd: repoRoot,
 	encoding: "utf8",
@@ -29,10 +30,8 @@ for (const workspace of publicPackages) {
 	) {
 		throw new Error("pnpm returned an invalid public workspace record");
 	}
-	if (workspace.version !== rootManifest.version) {
-		throw new Error(
-			`${workspace.name} is ${workspace.version}, but the fixed repository release version is ${rootManifest.version}`,
-		);
+	if (!SEMVER_PATTERN.test(workspace.version)) {
+		throw new Error(`${workspace.name} has an invalid release version: ${workspace.version}`);
 	}
 
 	const packageRoot = workspace.path;

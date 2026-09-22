@@ -35,20 +35,16 @@
 	],
 	"license": "MIT",
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:^0.1.1",
+		"@hheei/pi-ext-core": "workspace:^",
 		"jiti": "2.7.0",
 		"proper-lockfile": "4.1.2"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "0.85.1",
-		"@earendil-works/pi-ai": "0.85.1",
 		"@earendil-works/pi-coding-agent": "0.85.1",
 		"@earendil-works/pi-tui": "0.85.1",
 		"@types/proper-lockfile": "4.1.4"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-agent-core": ">=0.85.1",
-		"@earendil-works/pi-ai": ">=0.85.1",
 		"@earendil-works/pi-coding-agent": ">=0.85.1",
 		"@earendil-works/pi-tui": ">=0.85.1"
 	},

@@ -35,7 +35,7 @@
 	},
 	"dependencies": {
 		"@cortexkit/subc-client": "0.4.1",
-		"@hheei/pi-ext-core": "workspace:^0.1.1",
+		"@hheei/pi-ext-core": "workspace:^",
 		"@huggingface/transformers": "^4.1.0",
 		"@jitl/quickjs-singlefile-cjs-release-asyncify": "0.32.0",
 		"@vectorize-io/hindsight-client": "^0.8.6",
