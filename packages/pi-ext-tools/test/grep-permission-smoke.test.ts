@@ -8,7 +8,7 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
-import { createOutputRegistry, createToolTui } from "@hheei/pi-ext-core";
+import { createToolTui } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { registerGrepTool } from "../dist/grep.js";
 
@@ -21,7 +21,6 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 		initTheme("dark");
 		const cwd = await mkdtemp(join(tmpdir(), "hepi-grep-permission-render-"));
 		const blocked = join(cwd, "blocked");
-		const outputs = createOutputRegistry();
 		try {
 			await writeFile(join(cwd, "visible.txt"), "needle\n", "utf8");
 			await mkdir(blocked);
@@ -36,7 +35,6 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({ grepEnhancement: false }),
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} as never;
 			const tui = createToolTui();
@@ -85,7 +83,6 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 			expect(outputOccurrences(resumed, "Results may be incomplete")).toBe(1);
 		} finally {
 			await chmod(blocked, 0o700).catch(() => undefined);
-			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});

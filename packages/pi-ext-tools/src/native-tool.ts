@@ -12,14 +12,6 @@ export function createCanonicalExecutionTool<TParams extends TSchema, TDetails, 
 	return {
 		...template,
 		async execute(toolCallId, params, signal, onUpdate, context) {
-			if (
-				typeof params === "object" &&
-				params !== null &&
-				"path" in params &&
-				typeof params.path === "string" &&
-				params.path.startsWith("output://")
-			)
-				throw new Error("Write/edit cannot modify output URLs");
 			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
 		},
 	};

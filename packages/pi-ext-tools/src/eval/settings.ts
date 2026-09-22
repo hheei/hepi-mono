@@ -8,7 +8,6 @@ import {
 const GROUP = "eval";
 
 export const DEFAULT_EVAL_ENABLED = false;
-export const DEFAULT_EVAL_CODE_MODE = false;
 export const DEFAULT_EVAL_PYTHON_BIN = "";
 
 export interface EvalSettingsProviderOptions {
@@ -18,7 +17,6 @@ export interface EvalSettingsProviderOptions {
 /** Eval activation is static so historical renderers always exist before resume rendering. */
 export function readEvalSettings(path = defaultExtensionSettingsPaths().globalPath): {
 	readonly enabled: boolean;
-	readonly codeMode: boolean;
 	readonly pythonBin: string | undefined;
 } {
 	try {
@@ -26,27 +24,23 @@ export function readEvalSettings(path = defaultExtensionSettingsPaths().globalPa
 		if (typeof root !== "object" || root === null || Array.isArray(root))
 			return {
 				enabled: DEFAULT_EVAL_ENABLED,
-				codeMode: DEFAULT_EVAL_CODE_MODE,
 				pythonBin: undefined,
 			};
 		const evalSettings = (root as Record<string, unknown>)[GROUP];
 		if (typeof evalSettings !== "object" || evalSettings === null || Array.isArray(evalSettings))
 			return {
 				enabled: DEFAULT_EVAL_ENABLED,
-				codeMode: DEFAULT_EVAL_CODE_MODE,
 				pythonBin: undefined,
 			};
 		const fields = evalSettings as Record<string, unknown>;
 		const pythonBin = typeof fields.pythonBin === "string" ? fields.pythonBin.trim() : "";
 		return {
 			enabled: fields.enabled === true,
-			codeMode: fields.codeMode === true,
 			pythonBin: pythonBin === "" ? undefined : pythonBin,
 		};
 	} catch {
 		return {
 			enabled: DEFAULT_EVAL_ENABLED,
-			codeMode: DEFAULT_EVAL_CODE_MODE,
 			pythonBin: undefined,
 		};
 	}
@@ -59,7 +53,7 @@ export function createEvalSettingsProvider(
 		id: "pi-ext-tools.eval",
 		title: "Eval",
 		origin: "@hheei/pi-ext-tools",
-		description: "Enable trusted local JavaScript or Python Eval after reload or a new session.",
+		description: "Enable trusted local Python Eval after reload or a new session.",
 		groups: [
 			{
 				id: GROUP,
@@ -71,16 +65,7 @@ export function createEvalSettingsProvider(
 						type: "boolean",
 						defaultValue: DEFAULT_EVAL_ENABLED,
 						description:
-							"Run trusted local Python by default; JavaScript/TypeScript requires a Bun host. This is not a sandbox and is disabled by default.",
-						parse: (value) => value === "true",
-					},
-					{
-						id: "codeMode",
-						label: "Enable Code Mode",
-						type: "boolean",
-						defaultValue: DEFAULT_EVAL_CODE_MODE,
-						description:
-							"Reserve the explicit Code Mode activation after reload or a new session. It has no runtime effect until Code Mode is implemented.",
+							"Run trusted local Python. This is not a sandbox and is disabled by default.",
 						parse: (value) => value === "true",
 					},
 					{

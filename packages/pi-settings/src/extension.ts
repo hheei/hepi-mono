@@ -84,7 +84,7 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 	};
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-settings",
-		start: async ({ extension, signal, resources, outputs }) => {
+		start: async ({ extension, signal, resources }) => {
 			const session: ActiveSettingsSession = { signal };
 			active = session;
 			resources.add("settings-session", () => {
@@ -99,7 +99,7 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 			await loadout.start(extension, signal);
 			resources.add("loadout-engine", () => loadout.dispose());
 			registerExtensionPage(
-				{ pi, extension, signal, resources, outputs },
+				{ pi, extension, signal, resources },
 				{
 					id: "settings",
 					label: "Settings",
@@ -108,7 +108,7 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 				},
 			);
 			registerExtensionPage(
-				{ pi, extension, signal, resources, outputs },
+				{ pi, extension, signal, resources },
 				{
 					id: "loadout",
 					label: "Loadout",

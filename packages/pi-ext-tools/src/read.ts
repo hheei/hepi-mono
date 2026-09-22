@@ -39,7 +39,7 @@ const readSchema = Type.Object({
 	offset: Type.Optional(Type.Number()),
 	limit: Type.Optional(Type.Number()),
 	target: Type.Optional(
-		Type.String({ description: "Execution target: local, output, or an authorized SSH host" }),
+		Type.String({ description: "Execution target: local or an authorized SSH host" }),
 	),
 });
 
@@ -306,28 +306,10 @@ export function registerReadTool(
 		async execute(toolCallId, params, signal, onUpdate, context) {
 			const readParams = params as ReadToolParams;
 			const original = createReadToolDefinition(context.cwd);
-			const outputs = state.getOutputs();
-			if (outputs !== undefined && readParams.path.startsWith("output://"))
-				return withReadMetrics({
-					content: [
-						{
-							type: "text" as const,
-							text: outputs.read(readParams.path, {
-								...(readParams.offset === undefined ? {} : { offset: readParams.offset }),
-								...(readParams.limit === undefined ? {} : { limit: readParams.limit }),
-							}),
-						},
-					],
-					details: undefined,
-				});
 			const targetRuntime = state.getTargetRuntime();
 			if (readParams.target !== undefined && readParams.target !== "local") {
 				if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
 				try {
-					if (readParams.target === "output" && readParams.path.startsWith("output://"))
-						throw new Error(
-							"Use target: output with an output id, or omit target for legacy output:// URLs.",
-						);
 					const buffer = await targetRuntime.read(readParams.target, readParams.path, signal);
 					return withReadMetrics(remoteReadResult(buffer, readParams)) as Awaited<
 						ReturnType<typeof template.execute>

@@ -1,7 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createOutputRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { targetSettingsFromState } from "../src/fff/settings.js";
 import { createTargetSettingsProvider } from "../src/fff/target-settings.js";
@@ -42,7 +41,6 @@ describe("pi-ext-tools target runtime", () => {
 			const warnings: string[] = [];
 			const runtime = await TargetRuntime.create(
 				{
-					outputs: createOutputRegistry(),
 					home: directory,
 					sshConfigPath: config,
 					notify: (message) => warnings.push(message),
@@ -68,7 +66,6 @@ describe("pi-ext-tools target runtime", () => {
 		try {
 			const runtime = await TargetRuntime.create(
 				{
-					outputs: createOutputRegistry(),
 					home: directory,
 					notify: () => undefined,
 				},
@@ -83,71 +80,6 @@ describe("pi-ext-tools target runtime", () => {
 				applyTargetPromptSection(sections, undefined);
 				expect(sections.other).toBe("keep");
 				expect(sections["pi-ext-tools-targets"]).toBeUndefined();
-			} finally {
-				await runtime.close();
-			}
-		} finally {
-			await rm(directory, { recursive: true, force: true });
-		}
-	});
-
-	test("reads output targets and reloads persisted session outputs", async () => {
-		const directory = await temporaryDirectory();
-		const session = join(directory, "session.jsonl");
-		try {
-			await writeFile(session, "{}\n", "utf8");
-			const options = {
-				outputs: createOutputRegistry(),
-				home: directory,
-				sessionManager: {
-					getSessionId: () => "session-id",
-					getSessionFile: () => session,
-				},
-			};
-			const runtime = await TargetRuntime.create(options, []);
-			const output = runtime.createOutput("first\nsecond");
-			expect(output.persistent).toBe(true);
-			expect((await runtime.read("output", output.id)).toString("utf8")).toBe("first\nsecond");
-			await new Promise((resolve) => setTimeout(resolve, 25));
-			await runtime.close();
-
-			const sidecar = `${session}.pi-ext-tools-output.jsonl`;
-			expect((await readFile(sidecar, "utf8")).trim()).toContain(output.id);
-			const reloaded = await TargetRuntime.create(options, []);
-			try {
-				expect(reloaded.readOutput(output.id)).toBe("first\nsecond");
-			} finally {
-				await reloaded.close();
-			}
-		} finally {
-			await rm(directory, { recursive: true, force: true });
-		}
-	});
-
-	test("warns once when an output exceeds the persistence cap", async () => {
-		const directory = await temporaryDirectory();
-		const session = join(directory, "session.jsonl");
-		try {
-			await writeFile(session, "{}\n", "utf8");
-			const warnings: string[] = [];
-			const runtime = await TargetRuntime.create(
-				{
-					outputs: createOutputRegistry(),
-					home: directory,
-					sessionManager: {
-						getSessionId: () => "session-id",
-						getSessionFile: () => session,
-					},
-					notify: (message) => warnings.push(message),
-				},
-				[],
-			);
-			try {
-				const first = runtime.createOutput(`${"x".repeat(1024 * 1024 + 1)}`);
-				const second = runtime.createOutput(`${"y".repeat(1024 * 1024 + 1)}`);
-				expect(first.persistent).toBe(false);
-				expect(second.persistent).toBe(false);
-				expect(warnings).toHaveLength(1);
 			} finally {
 				await runtime.close();
 			}
@@ -176,45 +108,6 @@ describe("pi-ext-tools target runtime", () => {
 		} catch (error) {
 			expect(isTargetError(error)).toBe(true);
 			if (isTargetError(error)) expect(error.outcome).toBe("unauthorized");
-		}
-	});
-
-	test("follows parentSession ancestry and removes stale control sockets", async () => {
-		const directory = await temporaryDirectory();
-		try {
-			const parent = join(directory, "parent.jsonl");
-			const child = join(directory, "child.jsonl");
-			const outputId = "parent-output";
-			await writeFile(parent, "{\n", "utf8");
-			await writeFile(
-				`${parent}.pi-ext-tools-output.jsonl`,
-				`${JSON.stringify({ id: outputId, text: "from-parent" })}\n`,
-				"utf8",
-			);
-			await writeFile(child, `${JSON.stringify({ parentSession: parent })}\n`, "utf8");
-			const staleDir = join(directory, ".pi", "agent", "extensions", "pi-ext-tools");
-			const stale = join(staleDir, "dead.sock");
-			await mkdir(staleDir, { recursive: true });
-			await writeFile(stale, "", "utf8");
-			const runtime = await TargetRuntime.create(
-				{
-					outputs: createOutputRegistry(),
-					home: directory,
-					sessionManager: {
-						getSessionId: () => "child",
-						getSessionFile: () => child,
-					},
-				},
-				[],
-			);
-			try {
-				expect(runtime.readOutput(outputId)).toBe("from-parent");
-				await expect(readFile(stale, "utf8")).rejects.toThrow();
-			} finally {
-				await runtime.close();
-			}
-		} finally {
-			await rm(directory, { recursive: true, force: true });
 		}
 	});
 
@@ -274,7 +167,6 @@ describe("pi-ext-tools target runtime", () => {
 		try {
 			const runtime = await TargetRuntime.create(
 				{
-					outputs: createOutputRegistry(),
 					home: directory,
 					sshConfigPath: join(directory, "ssh-config"),
 					sessionManager: { getSessionId: () => sessionId },
@@ -320,7 +212,6 @@ describe("pi-ext-tools target runtime", () => {
 		try {
 			const runtime = await TargetRuntime.create(
 				{
-					outputs: createOutputRegistry(),
 					home: directory,
 					sshConfigPath: join(directory, "ssh-config"),
 				},
@@ -368,7 +259,6 @@ describe("pi-ext-tools target runtime", () => {
 		try {
 			const runtime = await TargetRuntime.create(
 				{
-					outputs: createOutputRegistry(),
 					home: directory,
 					sshConfigPath: join(directory, "ssh-config"),
 				},

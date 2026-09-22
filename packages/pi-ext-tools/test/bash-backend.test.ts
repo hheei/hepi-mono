@@ -9,7 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { createOutputRegistry, createToolTui } from "@hheei/pi-ext-core";
+import { createToolTui } from "@hheei/pi-ext-core";
 import { expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import type { FffRuntimeState } from "../src/fff/lifecycle.js";
@@ -552,7 +552,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
 });
 
-test("bash rejects output and async on SSH targets", async (): Promise<void> => {
+test("bash rejects async on SSH targets", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -562,18 +562,6 @@ test("bash rejects output and async on SSH targets", async (): Promise<void> => 
 	const bash = tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("Expected bash tool");
 	const context = { cwd: process.cwd() } as ExtensionContext;
-	expect(
-		await bash.execute(
-			"bash-output",
-			{ command: "true", target: "output" },
-			undefined,
-			undefined,
-			context,
-		),
-	).toMatchObject({
-		content: [{ type: "text", text: "bash does not support output targets." }],
-		details: { error: "unauthorized", target: "output" },
-	});
 	expect(
 		await bash.execute(
 			"bash-remote-async",
@@ -620,7 +608,6 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 	try {
 		const runtime = await TargetRuntime.create(
 			{
-				outputs: createOutputRegistry(),
 				home: directory,
 				sshConfigPath: join(directory, "ssh-config"),
 			},
@@ -632,7 +619,6 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				getRuntime: () => undefined,
 				getSettings: () => DEFAULT_FFF_SETTINGS,
 				getBashJobs: () => undefined,
-				getOutputs: () => createOutputRegistry(),
 				getTargetRuntime: () => runtime,
 			};
 			registerBashTool(

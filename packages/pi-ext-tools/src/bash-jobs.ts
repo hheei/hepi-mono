@@ -1,6 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { OutputRegistry } from "@hheei/pi-ext-core";
 import { BashOutputSink } from "./bash-output.js";
 
 export const MAX_JOB_OUTPUT = 1024 * 1024;
@@ -17,7 +16,6 @@ export interface BashJobSnapshot {
 	readonly truncated: boolean;
 	/** True only when this registry stopped the job after its requested timeout. */
 	readonly timedOut: boolean;
-	readonly outputOutput?: string;
 }
 
 interface Job {
@@ -31,7 +29,6 @@ interface Job {
 	timedOut: boolean;
 	process?: ChildProcess;
 	outputSink: BashOutputSink;
-	outputOutput?: string;
 	timeout?: NodeJS.Timeout;
 	terminalized: boolean;
 }
@@ -41,30 +38,26 @@ function shellDefault(): string {
 		: (process.env.SHELL ?? "/bin/sh");
 }
 function snapshot(job: Job): BashJobSnapshot {
-	const { process: _process, outputSink, outputOutput: _outputOutput, ...rest } = job;
+	const { process: _process, outputSink, ...rest } = job;
 	const output = outputSink.snapshot();
 	return {
 		...rest,
 		output: output.output,
 		truncated: output.truncated,
-		...(output.outputUri === undefined ? {} : { outputOutput: output.outputUri }),
 	};
 }
 
 export class BashJobRegistry {
 	readonly #jobs = new Map<string, Job>();
 	#closed: boolean = false;
-	readonly #outputs: OutputRegistry | undefined;
 	readonly #pi: ExtensionAPI | undefined;
 	readonly #tailBytes: number | undefined;
 	constructor(
 		options: {
-			readonly outputs?: OutputRegistry;
 			readonly pi?: ExtensionAPI;
 			readonly tailBytes?: number;
 		} = {},
 	) {
-		this.#outputs = options.outputs;
 		this.#pi = options.pi;
 		this.#tailBytes = options.tailBytes;
 	}
@@ -76,12 +69,9 @@ export class BashJobRegistry {
 	): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
 		const outputSink = new BashOutputSink({
-			...(this.#outputs === undefined ? {} : { outputs: this.#outputs }),
 			...(this.#tailBytes === undefined ? {} : { tailBytes: this.#tailBytes }),
-			reserveOutput: true,
 		});
-		const outputUri = outputSink.outputUri;
-		const id = outputUri?.slice("output://".length) ?? crypto.randomUUID();
+		const id = crypto.randomUUID();
 		const job: Job = {
 			id,
 			command,
@@ -133,7 +123,6 @@ export class BashJobRegistry {
 		if (job.terminalized) return;
 		job.terminalized = true;
 		const output = job.outputSink.finish();
-		if (output.outputUri !== undefined) job.outputOutput = output.outputUri;
 		if (!notify || this.#pi === undefined) return;
 		const tail = output.output.slice(-MAX_COMPLETION_TAIL);
 		this.#pi.sendMessage(
@@ -141,7 +130,7 @@ export class BashJobRegistry {
 				customType: "bash-job-complete",
 				content: `Bash job ${job.id} ${job.status}\n${tail}`,
 				display: true,
-				details: { jobId: job.id, status: job.status, tail, output: job.outputOutput },
+				details: { jobId: job.id, status: job.status, tail, output: output.output },
 			},
 			{ triggerTurn: false },
 		);

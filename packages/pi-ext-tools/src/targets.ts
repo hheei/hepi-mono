@@ -1,26 +1,18 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
-import type { OutputRegistry, OutputUri } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
-export const OUTPUT_TARGET = "output";
 export const REMOTE_TIMEOUT_MS = 20_000;
 export const CONTROL_PERSIST = "15m";
 export const MAX_REMOTE_FIND_PATHS = 1_024;
 export const MAX_REMOTE_FIND_BYTES = 256 * 1024;
-const OUTPUT_SIDECAR_SUFFIX = ".pi-ext-tools-output.jsonl";
-const MAX_OUTPUTS = 128;
-const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-const MAX_OUTPUT_BYTES_EACH = 1024 * 1024;
 const TARGET_PROMPT_SECTION = "pi-ext-tools-targets";
 const TARGET_PROMPT_LINES = [
-	"read, grep, find, edit, and write accept target: local, output, or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
-	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support async or output. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
-	"target: output reads persisted output ids; find, edit, write, bash, and apply_patch do not support output.",
+	"read, grep, find, edit, and write accept target: local or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
+	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support async. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
 ] as const;
 
 export type TargetOutcome =
@@ -41,28 +33,13 @@ type ProcessResult = {
 	readonly timedOut: boolean;
 };
 
-type OutputRecord = {
-	readonly id: string;
-	readonly text: string;
-};
-
-type SessionManagerLike = {
-	readonly getSessionId?: () => string;
-	readonly getSessionFile?: () => string | undefined;
-};
+type SessionManagerLike = object;
 
 type TargetRuntimeOptions = {
-	readonly outputs: OutputRegistry;
 	readonly sessionManager?: SessionManagerLike;
 	readonly notify?: Notify;
 	readonly home?: string;
 	readonly sshConfigPath?: string;
-};
-
-export type TargetOutput = {
-	readonly id: string;
-	readonly uri: OutputUri;
-	readonly persistent: boolean;
 };
 
 export type RemoteFindCandidate = {
@@ -127,7 +104,7 @@ export function rejectUnsupportedTarget(tool: string, params: unknown): void {
 	if (typeof params !== "object" || params === null) return;
 	const target = Reflect.get(params, "target");
 	if (target === undefined || target === LOCAL_TARGET) return;
-	throw new TargetError("unauthorized", `${tool} does not support remote or output targets.`);
+	throw new TargetError("unauthorized", `${tool} does not support remote targets.`);
 }
 
 export function remoteShellQuote(value: string): string {
@@ -183,28 +160,6 @@ function literalHostAliases(config: string): ReadonlySet<string> {
 	return aliases;
 }
 
-function sessionPath(sessionManager: SessionManagerLike | undefined): string | undefined {
-	try {
-		return sessionManager?.getSessionFile?.();
-	} catch {
-		return undefined;
-	}
-}
-
-function parentSessionFile(value: unknown): string | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	const parent = Reflect.get(value, "parentSession");
-	return typeof parent === "string" && parent !== "" ? parent : undefined;
-}
-
-function outputRecord(value: unknown): OutputRecord | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	const id = Reflect.get(value, "id");
-	const text = Reflect.get(value, "text");
-	if (typeof id !== "string" || typeof text !== "string") return undefined;
-	return { id, text };
-}
-
 function missingRemoteCommand(result: ProcessResult, command: string): boolean {
 	if (result.code === 127) return true;
 	const stderr = result.stderr.toString("utf8");
@@ -229,16 +184,6 @@ async function removeStaleControlSockets(root: string): Promise<void> {
 		if (check?.code === 0) continue;
 		await rm(path, { force: true }).catch(() => undefined);
 	}
-}
-
-function sessionId(sessionManager: SessionManagerLike | undefined): string {
-	try {
-		const value = sessionManager?.getSessionId?.();
-		if (value !== undefined && value !== "") return value;
-	} catch {
-		// Fall through to a process-local identity for hosts without sessions.
-	}
-	return "process";
 }
 
 async function runProcess(
@@ -320,31 +265,18 @@ async function runProcess(
 }
 
 export class TargetRuntime {
-	readonly #outputs: OutputRegistry;
 	readonly #notify: Notify;
 	readonly #home: string;
 	readonly #sshConfigPath: string;
-	readonly #sessionId: string;
-	readonly #sessionFile: string | undefined;
-	readonly #sidecarPath: string | undefined;
-	readonly #outputUris = new Map<string, OutputUri>();
 	readonly #allowedHosts = new Set<string>();
 	readonly #posixHosts = new Map<string, boolean>();
-	#persistedCount = 0;
-	#persistedBytes = 0;
 	#warningShown = false;
-	#persistWarningShown = false;
 	#closed = false;
 
 	private constructor(options: TargetRuntimeOptions, allowedHosts: readonly string[]) {
-		this.#outputs = options.outputs;
 		this.#notify = options.notify ?? (() => undefined);
 		this.#home = options.home ?? homedir();
 		this.#sshConfigPath = options.sshConfigPath ?? join(this.#home, ".ssh", "config");
-		this.#sessionId = sessionId(options.sessionManager);
-		this.#sessionFile = sessionPath(options.sessionManager);
-		this.#sidecarPath =
-			this.#sessionFile === undefined ? undefined : `${this.#sessionFile}${OUTPUT_SIDECAR_SUFFIX}`;
 		for (const host of allowedHosts) this.#allowedHosts.add(host);
 	}
 
@@ -357,12 +289,11 @@ export class TargetRuntime {
 			"utf8",
 		).catch(() => "");
 		const configured = literalHostAliases(config);
-		let warned = configured.has(LOCAL_TARGET) || configured.has(OUTPUT_TARGET);
+		let warned = configured.has(LOCAL_TARGET);
 		const valid: string[] = [];
 		for (const host of whitelist) {
 			if (
 				host === LOCAL_TARGET ||
-				host === OUTPUT_TARGET ||
 				host === "." ||
 				host === ".." ||
 				host.startsWith("-") ||
@@ -384,7 +315,6 @@ export class TargetRuntime {
 		await removeStaleControlSockets(
 			join(runtime.#home, ".pi", "agent", "extensions", "pi-ext-tools"),
 		);
-		await runtime.loadSidecars();
 		return runtime;
 	}
 
@@ -394,14 +324,8 @@ export class TargetRuntime {
 		this.#notify(message, "warning");
 	}
 
-	private warnNonPersistent(): void {
-		if (this.#persistWarningShown) return;
-		this.#persistWarningShown = true;
-		this.#notify("Unable to persist output; it remains available only in this session.", "warning");
-	}
-
 	isRemoteTarget(target: string | undefined): boolean {
-		return target !== undefined && target !== LOCAL_TARGET && target !== OUTPUT_TARGET;
+		return target !== undefined && target !== LOCAL_TARGET;
 	}
 
 	isAllowedHost(target: string): boolean {
@@ -416,42 +340,6 @@ export class TargetRuntime {
 		].join("\n");
 	}
 
-	createOutput(text: string): TargetOutput {
-		const uri = this.#outputs.create(text);
-		const id = `${this.#sessionId}:${randomUUID()}`;
-		this.#outputUris.set(id, uri);
-		const bytes = Buffer.byteLength(text, "utf8");
-		const sidecar = this.#sidecarPath;
-		if (sidecar === undefined) return { id, uri, persistent: false };
-		const canPersist =
-			bytes <= MAX_OUTPUT_BYTES_EACH &&
-			this.#persistedCount < MAX_OUTPUTS &&
-			this.#persistedBytes + bytes <= MAX_OUTPUT_BYTES;
-		if (!canPersist) {
-			this.warnNonPersistent();
-			return { id, uri, persistent: false };
-		}
-		const record = `${JSON.stringify({ id, text } satisfies OutputRecord)}\n`;
-		try {
-			appendFileSync(sidecar, record, "utf8");
-		} catch {
-			this.warnNonPersistent();
-			return { id, uri, persistent: false };
-		}
-		this.#persistedCount += 1;
-		this.#persistedBytes += bytes;
-		return { id, uri, persistent: true };
-	}
-
-	readOutput(
-		id: string,
-		options: { readonly offset?: number; readonly limit?: number } = {},
-	): string {
-		const uri = this.#outputUris.get(id);
-		if (uri === undefined) throw new Error("Unknown output target or unavailable output session.");
-		return this.#outputs.read(uri, options);
-	}
-
 	validateRemotePath(path: string): void {
 		this.remotePath(path);
 	}
@@ -462,7 +350,6 @@ export class TargetRuntime {
 		signal?: AbortSignal,
 		timeoutMs: number = REMOTE_TIMEOUT_MS,
 	): Promise<Buffer> {
-		if (target === OUTPUT_TARGET) return Buffer.from(this.readOutput(path), "utf8");
 		if (target === undefined || target === LOCAL_TARGET)
 			return await readFile(posix.isAbsolute(path) ? path : join(process.cwd(), path));
 		this.assertHost(target);
@@ -721,52 +608,6 @@ export class TargetRuntime {
 			"-o",
 			`ControlPath=${path}`,
 		];
-	}
-
-	private async loadSidecars(): Promise<void> {
-		if (this.#sidecarPath === undefined) return;
-		const files: string[] = [];
-		let current: string | undefined = this.#sessionFile;
-		const seen = new Set<string>();
-		while (current !== undefined && !seen.has(current)) {
-			seen.add(current);
-			files.push(`${current}${OUTPUT_SIDECAR_SUFFIX}`);
-			const header = await readFile(current, "utf8").catch(() => "");
-			const first = header.split(/\r?\n/u)[0];
-			try {
-				current = parentSessionFile(first === undefined ? undefined : JSON.parse(first));
-			} catch {
-				current = undefined;
-			}
-		}
-		for (const file of files.reverse()) await this.loadSidecar(file);
-	}
-
-	private async loadSidecar(path: string): Promise<void> {
-		const text = await readFile(path, "utf8").catch(() => "");
-		if (text === "") return;
-		let invalid = false;
-		for (const line of text.split(/\r?\n/u)) {
-			if (line.trim() === "") continue;
-			try {
-				const record = outputRecord(JSON.parse(line));
-				if (record === undefined || this.#outputUris.has(record.id))
-					throw new Error("invalid or duplicate output record");
-				const bytes = Buffer.byteLength(record.text, "utf8");
-				if (
-					bytes > MAX_OUTPUT_BYTES_EACH ||
-					this.#persistedCount >= MAX_OUTPUTS ||
-					this.#persistedBytes + bytes > MAX_OUTPUT_BYTES
-				)
-					continue;
-				this.#outputUris.set(record.id, this.#outputs.create(record.text));
-				this.#persistedCount += 1;
-				this.#persistedBytes += bytes;
-			} catch {
-				invalid = true;
-			}
-		}
-		if (invalid) this.#notify(`Ignored invalid pi-ext-tools output records in ${path}.`, "warning");
 	}
 }
 

@@ -17,8 +17,6 @@ import {
 } from "./targets.js";
 
 const OWNER = "@hheei/pi-ext-tools";
-const OUTPUT_PREFIX = "output://";
-const ARTIFACT_PREFIX = "artifact://";
 const DEFAULT_LIMIT = 100;
 const MAX_ROWS = 2_000;
 const MAX_BYTES = 50 * 1024;
@@ -40,7 +38,7 @@ const GREP_PARAMETER_DESCRIPTIONS = {
 	literal: "Treat pattern as literal string instead of regex (default: false)",
 	context: "Number of lines to show before and after each match (default: 0)",
 	limit: "Maximum number of matches to return (default: 100)",
-	target: "Execution target: local, output, or an authorized SSH host",
+	target: "Execution target: local or an authorized SSH host",
 } as const;
 const RG_REGEX_PARSE_HINT =
 	"Hint: `{` starts a quantifier. For a literal brace, the decoded pattern needs exactly one backslash before `{`. Exact text: retry with literal=true.";
@@ -406,8 +404,6 @@ function pathRelativeToSearch(
 	searchPath: string | undefined,
 	cwd: string,
 ): string {
-	if (eventPath.startsWith(OUTPUT_PREFIX) || eventPath.startsWith(ARTIFACT_PREFIX))
-		return eventPath === (searchPath ?? eventPath) ? "" : eventPath;
 	const from = resolve(cwd, searchPath?.trim() ? searchPath.trim() : ".");
 	const rel = relative(from, resolve(cwd, eventPath)).split(sep).join("/");
 	if (rel === "" || rel === ".") return "";
@@ -652,8 +648,7 @@ async function runRg(
 	});
 	abortIfNeeded(signal);
 	const stdout = collected.stdout;
-	const fallbackPath =
-		outputText === undefined ? (params.path ?? ".") : (params.path ?? "output://unknown");
+	const fallbackPath = params.path ?? ".";
 	const events = stdout
 		.split("\n")
 		.filter(Boolean)
@@ -773,29 +768,16 @@ export function registerGrepTool(
 			});
 			try {
 				abortIfNeeded(signal);
-				if (params.path?.startsWith(ARTIFACT_PREFIX))
-					throw new Error("artifact:// URLs are no longer supported; use output:// URLs.");
-				const outputs = state.getOutputs();
 				const targetRuntime = state.getTargetRuntime();
-				let outputText: string | undefined;
 				let engine: GrepToolDetails["engine"] = "rg";
 				let canonical: CanonicalResult | undefined;
-				if (params.path?.startsWith(OUTPUT_PREFIX) === true) {
-					outputText = outputs?.read(params.path);
-				} else if (params.target !== undefined && params.target !== "local") {
+				if (params.target !== undefined && params.target !== "local") {
 					if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
-					if (params.target === "output") {
-						if (params.path === undefined || params.path === "")
-							throw new Error("target: output requires an output id in path.");
-						outputText = targetRuntime.readOutput(params.path);
-					} else canonical = await runRemoteRg(params, params.target, targetRuntime, signal);
+					canonical = await runRemoteRg(params, params.target, targetRuntime, signal);
 				}
-				if (params.path?.startsWith(OUTPUT_PREFIX) && outputText === undefined)
-					throw new Error("Unknown output URL or unavailable output registry.");
 
-				let fff: GrepToolDetails["fff"] | undefined;
 				if (canonical === undefined) {
-					if (outputText === undefined && (await useFff(params, context.cwd, state))) {
+					if (await useFff(params, context.cwd, state)) {
 						const runtime = state.getRuntime();
 						if (runtime === undefined) throw new Error("FFF runtime became unavailable.");
 						const result = await runtime.grepSearch({
@@ -824,23 +806,14 @@ export function registerGrepTool(
 								),
 								...(result.value.timedOut ? { timedOut: true } : {}),
 							};
-							fff = { itemCount: result.value.items.length };
 						} else canonical = await runRg(params, context.cwd, undefined, signal);
 					} else if (canonical === undefined)
-						canonical = await runRg(params, context.cwd, outputText, signal);
+						canonical = await runRg(params, context.cwd, undefined, signal);
 				}
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
-				if (outputs === undefined) throw new Error("Output registry is unavailable.");
 				const full = fullOutput(canonical.events, canonical.incomplete);
-				const created = targetRuntime?.createOutput(full.text);
-				let recoveryId = created?.id;
-				if (recoveryId === undefined) {
-					const fallback = outputs.create(full.text);
-					recoveryId = fallback.startsWith(OUTPUT_PREFIX)
-						? fallback.slice(OUTPUT_PREFIX.length)
-						: fallback;
-				}
-				const recoveryOutput = `target=output path=${recoveryId}`;
+				const recoveryOutput =
+					"Narrow the search path or increase the result limit to inspect more matches.";
 
 				const display = compactOutput(
 					canonical,
@@ -861,12 +834,7 @@ export function registerGrepTool(
 								: canonical.timedOut
 									? GREP_TIMEOUT_RECOVERY
 									: "No matches found";
-				const outcome =
-					canonical.timedOut === true
-						? "timeout"
-						: created?.persistent === false
-							? "non_persistent"
-							: "ok";
+				const outcome = canonical.timedOut === true ? "timeout" : "ok";
 				return {
 					content: [{ type: "text" as const, text: resultText }],
 					details: {
@@ -882,8 +850,6 @@ export function registerGrepTool(
 						recovery: { output: recoveryOutput },
 						outcome,
 						...targetFields,
-						...(created === undefined ? {} : { persistent: created.persistent }),
-						...(fff === undefined ? {} : { fff }),
 						...(canonical.timedOut ? { timedOut: true } : {}),
 						...(canonical.incomplete === undefined ? {} : { incomplete: canonical.incomplete }),
 					} satisfies GrepToolDetails,

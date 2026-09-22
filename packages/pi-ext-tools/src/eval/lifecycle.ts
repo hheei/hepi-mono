@@ -6,7 +6,6 @@ import {
 } from "@hheei/pi-ext-core";
 import { clearEvalNestedLive } from "./bridge.js";
 import { EvalKernelHost } from "./kernel/host.js";
-import type { EvalLanguage } from "./kernel/protocol.js";
 import type { EvalRuntimeHooks } from "./runtime.js";
 import { createEvalSettingsProvider } from "./settings.js";
 
@@ -15,7 +14,6 @@ export interface EvalExecutor {
 		code: string,
 		hooks: EvalRuntimeHooks,
 		signal?: AbortSignal,
-		language?: EvalLanguage,
 		reset?: boolean,
 	): Promise<unknown>;
 	dispose(): void;

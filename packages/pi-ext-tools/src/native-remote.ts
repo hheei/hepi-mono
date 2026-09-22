@@ -12,7 +12,7 @@ import {
 	sftpTimeoutMs,
 } from "./apply-patch/index.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { LOCAL_TARGET, OUTPUT_TARGET } from "./targets.js";
+import { LOCAL_TARGET } from "./targets.js";
 
 export const REMOTE_MUTATION_DETAILS = "__piExtToolsRemoteMutation";
 
@@ -82,7 +82,6 @@ function failedOutcome(
 
 function remoteFs(state: FffRuntimeState | undefined, target: string, path: string): PatchFs {
 	if (target === LOCAL_TARGET) throw new Error("Local targets must use the Pi native executor.");
-	if (target === OUTPUT_TARGET) throw new Error("write and edit do not support output targets.");
 	const runtime = state?.getTargetRuntime();
 	if (runtime === undefined) throw new Error("Target runtime is unavailable.");
 	if (!runtime.isAllowedHost(target))

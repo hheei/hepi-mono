@@ -2,7 +2,6 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createOutputRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
@@ -108,7 +107,6 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getOutputs: () => undefined,
 			getTargetRuntime: () =>
 				({
 					find: async () => [
@@ -170,7 +168,6 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getOutputs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
@@ -220,7 +217,6 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getOutputs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
@@ -239,7 +235,6 @@ describe("FFF tool registration", () => {
 	});
 
 	test("allows only FFF fuzzy fallback for canonical grep", async () => {
-		const outputs = createOutputRegistry();
 		const fuzzyPath = `src/${"nested/".repeat(20)}example.ts`;
 		let request: { fuzzyFallbackOnly?: boolean } | undefined;
 		const state = {
@@ -274,7 +269,6 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getOutputs: () => outputs,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		const host = harness();
@@ -306,7 +300,6 @@ describe("FFF tool registration", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-empty-path-"));
 		try {
 			await writeFile(join(cwd, "needle.ts"), "const needle = true;\n");
-			const outputs = createOutputRegistry();
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
@@ -319,7 +312,6 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -348,7 +340,6 @@ describe("FFF tool registration", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-regex-hint-"));
 		try {
 			await writeFile(join(cwd, "needle.ts"), "properties: { patch\n");
-			const outputs = createOutputRegistry();
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
@@ -361,7 +352,6 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -382,128 +372,8 @@ describe("FFF tool registration", () => {
 		}
 	});
 
-	test("searches output text with grep and rejects it from find", async () => {
-		const outputs = createOutputRegistry();
-		const path = outputs.create("before\nNeedle\nafter");
-		const state = {
-			getRuntime: () => undefined,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autocomplete: true,
-				grepEnhancement: true,
-				readEnhancement: true,
-				findEnhancement: true,
-				statusUI: true,
-			}),
-			getBashJobs: () => undefined,
-			getOutputs: () => outputs,
-			getTargetRuntime: () => undefined,
-		} satisfies FffRuntimeState;
-		const grepHost = harness();
-		registerGrepTool(grepHost.pi, state);
-		const grep = grepHost.tools[0];
-		if (grep === undefined) throw new Error("grep was not registered");
-		const grepResult = await grep.execute(
-			"grep-output",
-			{ pattern: "Needle", path },
-			undefined,
-			undefined,
-			{ cwd: process.cwd() } as never,
-		);
-		expect(grepResult.content).toEqual([{ type: "text", text: "1 matches in 1 files\n2:Needle" }]);
-
-		const longPath = outputs.create(`${"prefix ".repeat(20)}needle${" suffix".repeat(20)}`);
-		const longResult = await grep.execute(
-			"grep-long-output",
-			{ pattern: "needle", path: longPath },
-			undefined,
-			undefined,
-			{ cwd: process.cwd() } as never,
-		);
-		const longDetails = longResult.details as {
-			readonly display: readonly {
-				readonly type: string;
-				readonly text: string;
-				readonly truncatedLeft?: boolean;
-				readonly truncatedRight?: boolean;
-			}[];
-		};
-		const longMatch = longDetails.display.find((line) => line.type === "match");
-		if (longMatch === undefined) throw new Error("Missing long grep match");
-		expect(longMatch.text).toContain("needle");
-		expect(longMatch.text.startsWith("prefix ")).toBe(true);
-		expect(longMatch.text.endsWith("suffix")).toBe(true);
-		expect(Array.from(longMatch.text).length).toBeGreaterThan(80);
-		expect(longMatch.truncatedLeft).toBe(false);
-		expect(longMatch.truncatedRight).toBe(false);
-
-		const findHost = harness();
-		registerFindTool(findHost.pi, state);
-		const find = findHost.tools[0];
-		if (find === undefined) throw new Error("find was not registered");
-		await expect(
-			find.execute("find-output", { pattern: "Needle", path }, undefined, undefined, {
-				cwd: process.cwd(),
-			} as never),
-		).rejects.toThrow("find cannot search output URLs");
-	});
-
-	test("writes new grep recoveries as target=output path ids", async () => {
-		const outputs = createOutputRegistry();
-		const created: string[] = [];
-		const state = {
-			getRuntime: () => undefined,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autocomplete: true,
-				grepEnhancement: false,
-				readEnhancement: false,
-				findEnhancement: false,
-				statusUI: true,
-			}),
-			getBashJobs: () => undefined,
-			getOutputs: () => outputs,
-			getTargetRuntime: () =>
-				({
-					createOutput: (text: string) => {
-						created.push(text);
-						return { id: "abc123", uri: "output://ignored", persistent: true };
-					},
-				}) as unknown as TargetRuntime,
-		} satisfies FffRuntimeState;
-		const host = harness();
-		registerGrepTool(host.pi, state);
-		const grep = host.tools[0];
-		if (grep === undefined) throw new Error("grep was not registered");
-		const cwd = await mkdtemp(join(tmpdir(), "hepi-grep-recovery-"));
-		try {
-			await writeFile(join(cwd, "hit.ts"), "const needle = true;\n", "utf8");
-			const result = await grep.execute(
-				"grep-recovery",
-				{ pattern: "needle", path: "hit.ts" },
-				undefined,
-				undefined,
-				{ cwd } as never,
-			);
-			const details = result.details as {
-				readonly recovery: { readonly output: string };
-				readonly outcome?: string;
-				readonly persistent?: boolean;
-			};
-			expect(details.recovery.output).toBe("target=output path=abc123");
-			expect(details.outcome).toBe("ok");
-			expect(details.persistent).toBe(true);
-			expect(created.length).toBe(1);
-		} finally {
-			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
 	test("shows grep hits relative to the search path and omits a single-file heading", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-rel-"));
-		const outputs = createOutputRegistry();
 		try {
 			await mkdir(join(cwd, "src"));
 			await writeFile(join(cwd, "src/a.ts"), "needle\n");
@@ -520,7 +390,6 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -555,56 +424,6 @@ describe("FFF tool registration", () => {
 			expect(fileText.text).toContain("1:needle");
 			expect(fileText.text).not.toContain("a.ts\n");
 		} finally {
-			outputs.dispose();
-			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
-	test("maps compact grep omissions to recoverable output lines", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-"));
-		const outputs = createOutputRegistry();
-		try {
-			await writeFile(join(cwd, "many.txt"), Array.from({ length: 26 }, () => "needle").join("\n"));
-			const state = {
-				getRuntime: () => undefined,
-				getSettings: () => ({
-					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autocomplete: true,
-					grepEnhancement: true,
-					readEnhancement: true,
-					findEnhancement: true,
-					statusUI: true,
-				}),
-				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
-				getTargetRuntime: () => undefined,
-			} satisfies FffRuntimeState;
-			const host = harness();
-			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("grep was not registered");
-			const result = await grep.execute(
-				"grep-many",
-				{ pattern: "needle", path: "many.txt", limit: 26 },
-				undefined,
-				undefined,
-				{ cwd } as never,
-			);
-			const details = result.details as {
-				readonly display: readonly { readonly text: string }[];
-				readonly recovery: { readonly output: string };
-			};
-			expect(
-				details.display.some((line) =>
-					/^\+1 matches omitted -> target=output path=\S+:\d+-\d+$/.test(line.text),
-				),
-			).toBe(true);
-			expect(details.recovery.output.startsWith("target=output path=")).toBe(true);
-			const recoveryId = details.recovery.output.slice("target=output path=".length);
-			expect(outputs.read(`output://${recoveryId}`)).toContain("26:needle");
-		} finally {
-			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
@@ -612,7 +431,6 @@ describe("FFF tool registration", () => {
 	test("preserves readable grep matches and records inaccessible paths", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-permission-"));
 		const blocked = join(cwd, "blocked");
-		const outputs = createOutputRegistry();
 		try {
 			await writeFile(join(cwd, "visible.txt"), "needle\n", "utf8");
 			await mkdir(blocked);
@@ -630,7 +448,6 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -656,19 +473,13 @@ describe("FFF tool registration", () => {
 					diagnostics: [expect.stringContaining("Permission denied")],
 				},
 			});
-			const recovery = (result.details as { readonly recovery: { readonly output: string } })
-				.recovery;
-			const recoveryId = recovery.output.slice("target=output path=".length);
-			expect(outputs.read(`output://${recoveryId}`)).toContain("Permission denied");
 		} finally {
 			await chmod(blocked, 0o700).catch(() => undefined);
-			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
 	test("preserves remote grep matches after an access-denied diagnostic", async () => {
-		const outputs = createOutputRegistry();
 		try {
 			const stdout = [
 				'{"type":"match","data":{"path":{"text":"visible.txt"},"lines":{"text":"needle\\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}',
@@ -686,11 +497,9 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () =>
 					({
 						validateRemotePath: () => undefined,
-						createOutput: () => undefined,
 						grep: async () => {
 							throw new RemoteGrepAccessDeniedError(stdout, [
 								"rg: /root: Permission denied (os error 13)",
@@ -721,14 +530,12 @@ describe("FFF tool registration", () => {
 				},
 			});
 		} finally {
-			outputs.dispose();
 		}
 	});
 
 	test("returns a typed error when grep cannot search any requested path", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-inaccessible-"));
 		const blocked = join(cwd, "blocked");
-		const outputs = createOutputRegistry();
 		try {
 			await mkdir(blocked);
 			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
@@ -745,7 +552,6 @@ describe("FFF tool registration", () => {
 					statusUI: true,
 				}),
 				getBashJobs: () => undefined,
-				getOutputs: () => outputs,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
 			const host = harness();
@@ -772,13 +578,11 @@ describe("FFF tool registration", () => {
 			});
 		} finally {
 			await chmod(blocked, 0o700).catch(() => undefined);
-			outputs.dispose();
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
 	test("surfaces a grep timeout as a narrow-scope recovery", async () => {
-		const outputs = createOutputRegistry();
 		const state = {
 			getRuntime: () =>
 				({
@@ -801,7 +605,6 @@ describe("FFF tool registration", () => {
 				statusUI: true,
 			}),
 			getBashJobs: () => undefined,
-			getOutputs: () => outputs,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		const host = harness();
