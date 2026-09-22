@@ -1,6 +1,6 @@
 # @hheei/pi-optimizer
 
-Traditional-to-Simplified input conversion, Caveman/Ponytail prompt modes, and opt-in RTK command optimization for Pi `>=0.85.1`.
+Traditional-to-Simplified input conversion, Caveman/Ponytail prompt modes, and opt-in RTK command optimization for Pi `>=0.87.0`.
 
 ```bash
 pi install npm:@hheei/pi-optimizer
