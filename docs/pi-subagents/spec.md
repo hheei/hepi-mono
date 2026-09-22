@@ -34,7 +34,7 @@ Pi child session 保存对话。PID、socket、RPC connection、pane ID 和 surf
 | Pi host | session JSONL、原生 RPC、原生 TUI、model registry | child ownership、handoff、跨 parent 恢复 |
 | `pi-subagents` parent branch | agent/config resolution、manager、tools、registry、transition、delivery policy、HostAdapter | 重画 Pi TUI、通用 scheduler |
 | 独立 runner | 持有 child stdio、可重连 IPC、单控制连接、RPC/TUI writer 生命周期 | 全局调度、agent policy 解析 |
-| `pi-subagents` child branch | `contact_parent`、status、pause handshake、child identity validation | manager、spawn tool、递归 child |
+| `pi-subagents` child branch | `contact_parent`、pause/`turn_end` gate、child identity validation | manager、spawn tool、递归 child |
 | ext-core | parent lifecycle、JSON 原子更新、ToolTui、可选 surface/widget primitives | durable child supervisor、跨进程 IPC、handoff policy |
 | Herdr/cmux | terminal/pane 承载和进程观察 | child identity、语义消息、session persistence |
 
@@ -61,7 +61,9 @@ spawn_subagent
 ```text
 RPC writer
   -> freeze new input
-  -> child pause handshake at safe turn boundary
+  -> idle: close_writer
+  -> running: pause, wait for current Pi turn (one LLM + its tools),
+     hold finishTurn/turn_end until close_writer or timeout
   -> confirm old writer exited
   -> HostAdapter starts native Pi TUI on same session
   -> user exits or leaves managed session
@@ -91,7 +93,7 @@ load parent-scoped registry
 V1 只注册五个 semantic tools：
 
 ```ts
-spawn_subagent({ task: string, agent?: string, cwd?: string })
+spawn_subagent({ task: string, agent: string, cwd?: string })
 send_subagent({ id: string, message: string, mode?: "steer" | "follow_up" | "auto" })
 get_subagent({ id: string })
 list_subagents({})
@@ -101,11 +103,12 @@ stop_subagent({ id: string })
 规则：
 
 - 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
+- `spawn_subagent` 必须给出明确 agent name；V1 没有内置默认 agent，缺名或解析失败在启动前失败。
 - `spawn_subagent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
 - `spawn_subagent` / `send_subagent` 返回后，模型不得用 `get_subagent` / `list_subagents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
 - `get_subagent` / `list_subagents` 只用于需要当前身份或状态时，不是完成通道。
 - `send_subagent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
-- `get/list` 返回可确认的状态、mode、latest summary、interruption、usage 和 runtime observability；last-known 值不得伪装成实时值。
+- `get/list` 返回可确认的状态、mode、latest summary、interruption、usage、runtime observability，以及冻结的 model/thinking 及其来源（agent 或 parent）；last-known 值不得伪装成实时值。
 - `stop_subagent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
 
 ### 4.2 Child-facing tool
@@ -197,6 +200,7 @@ Runner 是独立进程，自己持有 Pi child stdin/stdout。使用本地 Unix 
 - 单一有效 controller；replacement 会撤销旧连接权限；
 - handshake 验证 protocol version、parentSessionId、subagentId、runtimeIdentity；
 - request/response 由 request ID 关联，events 与 responses 分流；
+- parent 侧不转发 token/`message_update`/`tool_execution_update` 等 partial；只保留 `turn_*`、`agent_*`、`contact_parent` 与 lifecycle；busy/idle 以 `get_state` 为准；
 - frame、pending requests、report queue 均有固定上限；
 - timeout、disconnect、abort 和 malformed input 会结束相关请求，不留下 pending promise；
 - Pi stdout 只承载 RPC JSONL，诊断写 stderr。
@@ -232,19 +236,27 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 
 - running child：明确 `steer` 或遵循 `auto` policy；不得靠屏幕状态猜测。
 - idle child：follow-up/prompt。
-- TUI child：child branch 使用 Pi `sendUserMessage` 的明确 steer/follow-up 语义。
-- paused、stopping、stopped、done 或 ownership 不明时拒绝。
+- TUI child 或正在 attach 冻结的 child：拒绝 send。
+- stopped、done 或 ownership 不明时拒绝。
 - 已接受但未确认持久化的输入被记录为待确认，断线后不静默重放。
 
 ### 7.3 Attach
 
-- 开始时冻结新输入，并保存未消费输入状态。
-- idle child 可关闭输入 gate 后直接确认 paused；active child 等当前 tool call 完成，在安全 turn boundary 返回 paused ack。
-- paused ack 后 parent 不再发送 steer/follow-up，等待旧 RPC writer 确认退出。
-- 只有旧 writer 已退出才启动 native Pi TUI；TUI 必须使用同一 session 和 effective config。
-- pause timeout/cancel 若发生在旧 RPC 退出前，释放 gate并保留 RPC。
-- 旧 RPC 已退出但 HostAdapter/TUI 启动失败时，确认没有活 TUI writer后恢复 RPC等待输入；attach 仍返回错误。
-- writer 状态不明时不启动第二个 writer，并按失败合同返回。
+Attach 把同一 child session 交给 native Pi TUI。需要 Pi `>=0.87.0`（`TurnEndEvent` 边界与 `finishTurn` 调度）。idle 路径已落地；running 路径见 [`tickets.md`](tickets.md) SUB-08。
+
+一次 Pi turn = 一次 LLM 回复 + 该轮全部 tool。安全点是 `turn_end`/`finishTurn`：本 turn 工具已落盘、下一次 provider 请求尚未发出。不在单个 in-flight tool 中途切；不等 `agent_end` / `agent_settled`；不用 RPC `abort`（它会等到 session idle）。
+
+- 开始时冻结新输入。
+- session 未落盘时拒绝 attach 并保留 RPC。
+- idle（`get_state`：非 streaming/compacting，pendingMessageCount=0）：直接 close_writer。
+- running：versioned pause；child 在 Pi 0.87.0 的 `turn_end` 里 await（该钩子挂在 `finishTurn` 上）。`continue: false` 不能禁止下一轮；必须卡住钩子。pause 期间 `cache_warming_decision` 返回 `{ action: "stop" }`。acked 后可选 `clear_queue`，再 close_writer。
+- 扩展不得 `return { continue: true }` 来强制下一请求。
+- 有限 deadline；超时/cancel 发生在旧 RPC 退出前：放钩子、解冻、保留 RPC、可见失败。不 abort 正在跑的 tool。
+- stop/cancel 可打断 pause gate，不能排在 gate 后死锁。
+- 确认 writer 退出后，用同一 LaunchSpec（mode=tui）经 HostAdapter 启动 native Pi TUI。
+- close_writer 之前的失败保留 RPC；writer 已退出但 TUI 未确认启动时恢复 RPC 等待输入，attach 仍返回错误且不重放 pending input。
+- TUI 实际已启动但 host 超时：不启动第二个 writer。
+- writer 状态不明时不启动第二个 writer。
 
 ### 7.4 Detach 与 session switch
 
@@ -277,7 +289,7 @@ V1 UI保持最小：
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
 - attach/stop快捷键只调用同一SubagentManager语义操作；
-- TUI parent 用 ext-core above-editor widget 投影 `SubagentManager.list()` 中的活 child（`starting | running | idle`，以及 `mode === "tui"` 的非终态 child）。无边框、不持有第二份 running set、不轮询文件；elapsed 按 spawn 时间计、有可见 child 时每秒刷新；零可见 child 时隐藏。Headless/RPC parent 不挂 widget。
+- TUI parent 用 ext-core above-editor widget 投影 `SubagentManager.list()` 中的活 child（`starting | running | idle`；`done | stopped | failed` 为终态，一律隐藏，与 mode 无关）。无边框、不持有第二份 running set、不轮询文件；elapsed 按 spawn 时间计、有可见 child 时每秒刷新；零可见 child 时隐藏。Headless/RPC parent 不挂 widget。
 - TUI child 显示一行无边框身份（agent 名、`contact_parent` 通道、当前 tool 数），不替代 parent widget，不成为控制面。
 
 Native child交互始终使用真实Pi TUI；不实现transcript viewer、RPC event mirror或terminal scraping。

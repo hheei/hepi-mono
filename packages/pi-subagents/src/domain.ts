@@ -167,6 +167,8 @@ export interface PublicSubagent {
 	readonly interrupted?: string;
 	readonly freshness: "live" | "last_known";
 	readonly interactive: boolean;
+	readonly model: ResolvedModel;
+	readonly thinking: ResolvedThinking;
 	readonly createdAt: string;
 	readonly updatedAt: string;
 }
@@ -182,7 +184,7 @@ export interface OperationError {
 
 export interface SpawnSubagentInput {
 	readonly task: string;
-	readonly agent?: string;
+	readonly agent: string;
 	readonly cwd?: string;
 }
 
@@ -200,6 +202,9 @@ export const BRIDGE_ENVIRONMENT_KEYS = {
 
 /** Non-secret agent label for the child TUI identity line. Not part of handshake. */
 export const CHILD_AGENT_ENV_KEY = "PI_SUBAGENTS_AGENT" as const;
+
+/** Bound Pi session id for the child branch. Not part of the runner handshake. */
+export const CHILD_SESSION_ENV_KEY = "PI_SUBAGENTS_SESSION_ID" as const;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 

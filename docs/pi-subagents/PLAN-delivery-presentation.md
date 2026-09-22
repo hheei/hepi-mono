@@ -93,8 +93,8 @@ Registry / `SubagentManager.list()` 是身份真源。Widget 不得持有第二�
 
 投影规则：
 
-- 显示 `starting | running | idle`，以及 `mode === "tui"` 的活 child；
-- 不显示 `done | stopped | failed`；
+- 显示 `starting | running | idle`；
+- 不显示 `done | stopped | failed`（与 mode 无关）；
 - headless/RPC parent 不挂 widget（ext-core `registerWidget` 已按 `extension.mode === "tui"` 处理）；
 - 零可见 child 时 `setVisible(false)`。
 

@@ -8,6 +8,7 @@ import type { EffectiveLaunchConfig, RuntimeClaim, SubagentRecord } from "../src
 import { assembleChildPrompt } from "../src/launch-spec.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import {
+	createRuntimeTokenStore,
 	isPidConfirmedDead,
 	isRecordedRunnerConfirmedDead,
 	recoverDetachedRunner,
@@ -161,7 +162,11 @@ test("reconnects a surviving runner without starting a replacement or replaying 
 				runtime,
 			}),
 		);
-		const recovered = await recoverDetachedRunner({ registry, record });
+		const recovered = await recoverDetachedRunner({
+			registry,
+			record,
+			tokens: createRuntimeTokenStore(),
+		});
 		try {
 			await expect(recovered.request("get_state")).resolves.toMatchObject({
 				sessionId: "fake-session",
@@ -202,9 +207,13 @@ test("refuses replacement while a holder or claimed runner is still live", async
 				),
 			}),
 		);
-		await expect(recoverDetachedRunner({ registry, record: liveHolder })).rejects.toThrow(
-			/already claimed by a live or unknown owner/u,
-		);
+		await expect(
+			recoverDetachedRunner({
+				registry,
+				record: liveHolder,
+				tokens: createRuntimeTokenStore(),
+			}),
+		).rejects.toThrow(/already claimed by a live or unknown owner/u);
 
 		const runnerPid = sleepProcess();
 		const liveRunner = await registry.create(
@@ -227,9 +236,13 @@ test("refuses replacement while a holder or claimed runner is still live", async
 				),
 			}),
 		);
-		await expect(recoverDetachedRunner({ registry, record: liveRunner })).rejects.toThrow(
-			/live or unknown claimed runner/u,
-		);
+		await expect(
+			recoverDetachedRunner({
+				registry,
+				record: liveRunner,
+				tokens: createRuntimeTokenStore(),
+			}),
+		).rejects.toThrow(/live or unknown claimed runner/u);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
@@ -253,9 +266,13 @@ test("refuses replacement when a flushed session file is missing", async () => {
 				},
 			}),
 		);
-		await expect(recoverDetachedRunner({ registry, record })).rejects.toThrow(
-			/Recorded session file is missing/u,
-		);
+		await expect(
+			recoverDetachedRunner({
+				registry,
+				record,
+				tokens: createRuntimeTokenStore(),
+			}),
+		).rejects.toThrow(/Recorded session file is missing/u);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

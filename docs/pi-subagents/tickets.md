@@ -266,7 +266,7 @@
 **范围**
 
 - 按 `pi-ext-tools` Todo widget：`registerWidget` + 标题行 + child 行；`truncateToWidth` 与 theme token。
-- 可见：`starting | running | idle` 与 `mode === "tui"`；隐藏终态。
+- 可见：`starting | running | idle`；隐藏终态（`done | stopped | failed`）。
 - 无可见 child 时 `setVisible(false)`。刷新跟 list/state，不轮询文件。
 - 更新 `DESIGN.md` 一句 pi-subagents widget 合同，以及 spec §8。
 
@@ -371,34 +371,44 @@
 
 **目标**：在不中断当前tool call、不丢输入且不产生第二个writer的前提下，把同一child session交给native Pi TUI。
 
-**范围**
+**V1 已落地（idle-only）**：idle RPC child 可 `/attach-subagent`；busy child 可见失败并保留 RPC；冻结 send、close_writer、HostAdapter 启动同一 LaunchSpec 的 native TUI、失败恢复 RPC 且不重放 pending input。
+
+**范围（剩余：active pause handshake，Pi `>=0.87.0`）**
+
+本包 peer/devDependency 升到 `@earendil-works/pi-coding-agent` `>=0.87.0` / `0.87.0`；不在本 ticket 全仓 bump `pi-tui` patch。
+
+- runner 丢掉 `message_update` / `tool_execution_update` 等 partial，只向 parent 转发 `turn_*`、`agent_*`、`contact_parent`、lifecycle。
+- ParentChannel/child branch：versioned pause、paused ack、closing/cancel、input gate。
+- idle：关 gate 后直接 ack。
+- running：等当前 Pi turn（一次 LLM + 该轮全部 tool）结束；child 在 `turn_end` 里 await，直到 parent `close_writer` 或 cancel/timeout。该钩子在 0.87.0 里挂在 `finishTurn` 上，能挡住下一轮 LLM 和 turn 后 compaction。
+- 不得把 `continue: false` 当 stop；不得 `continue: true`；不得等 `agent_end`/`agent_settled`；不得用 RPC `abort`。
+- pause 挂起时 `cache_warming_decision` 返回 `{ action: "stop" }`；ack 后可选 `clear_queue`。
+- pause timeout/cancel 发生在旧 RPC 退出前：放钩子、解冻、保留 RPC、可见失败。不 abort 正在跑的 tool。
+
+**已完成范围**
 
 - 增加human attach action/shortcut和manager internal operation；暂不新增model-facing attach tool。
-- 在ParentChannel/child branch实现versioned pause request、paused ack、closing/cancel和input gate。
-- attach开始即冻结新输入；保留已接受未消费输入并在结果/status中报告。
-- idle child关gate后直接ack；active child等待当前tool call完成，在安全turn boundary暂停，不把`turn_end`本身当pause。
-- ack后禁止parent steer/follow-up，关闭RPC writer并确认process/stdio writer退出。
+- attach开始即冻结新输入；busy 时不解冻失败前保留 RPC。
+- 确认 idle 后禁止parent steer/follow-up，关闭RPC writer并确认process/stdio writer退出。
 - 旧writer确认退出后调用SUB-07 HostAdapter，用同session/effective config启动native TUI。
-- pause timeout/cancel发生在旧RPC退出前：释放gate、解除冻结、保留RPC并返回错误。
 - 旧RPC已退出、TUI确认未启动/已退出：恢复RPC等待输入，attach仍报错并包含恢复结果。
 - 新TUI/旧writer状态不明：不启动其他writer，保留observability并在deadline内报错。
-- stop/shutdown先设置closing/abort并释放gate，再由transition chain完成终止。
 
-**验收**
+**验收（idle 路径）**
 
-- running child attach时，正在执行的tool不被强切；paused ack前不会启动TUI。
 - idle child不等待不存在的下一次turn_end。
-- ack后到TUI ready期间同session始终至多一个受管理writer。
-- pause timeout/cancel保留旧RPC；已退出后pane创建失败恢复RPC但不静默重放输入。
+- 关闭 writer 到 TUI ready期间同session始终至多一个受管理writer。
+- 已退出后pane创建失败恢复RPC但不静默重放输入。
 - host timeout但TUI实际启动时不重复启动writer、不虚报rollback。
 - attach等待期间stop/cancel不死锁，transition queue最终释放。
 - session尚未首次落盘时明确拒绝attach并保留RPC。
+- running child 在本 turn 的 `turn_end` 卡住并 ack 后才 close_writer；超时则保留 RPC。
 
-**验证**：pause gate/idle/running tests；input freeze/uncertain delivery tests；attach-stop race tests；host failure matrix；真实RPC→native TUI smoke并核对conversation continuity。
+**验证**：idle attach tests 保持；pause gate tests（idle ack、turn_end hold、timeout 放钩子、stop 不死锁、cache warming stop、partial events 不转发）；package 对 Pi 0.87.0 typecheck。全仓 pin 不在本 ticket。
 
 **依赖**：SUB-06、SUB-07。
 
-状态：`[ ]`
+状态：idle attach `[x]`；active pause handshake `[x]`
 
 ---
 
@@ -427,11 +437,11 @@
 - 直接原生`/resume`运行中A保持Pi行为，不增加拦截或自动接管。
 - 用户中断通知包含child和last activity；没有明确继续输入时不重发initial/pending task。
 
-**验证**：process/pane exit matrix；session switch/fork/resume/reload behavioral tests；bridge credential revocation tests；interrupt origin tests；真实TUI→RPC detach smoke。
+**验证**：manager process/pane/session-switch/interrupt tests；child-bridge reload vs leave tests；runner `bridge_unbound` after `left_session`；package Vitest/Biome/typecheck. 真实 Herdr/cmux TUI→RPC smoke 取决于本机 host，未作为默认 CI。
 
 **依赖**：SUB-08。
 
-状态：`[ ]`
+状态：`[x]`（idle detach / session switch / interrupt；running pause handshake 仍属 SUB-08）
 
 ---
 
@@ -460,15 +470,14 @@
 
 **验证**
 
-1. 运行package Biome、focused Vitest和package typecheck。
-2. 运行根目录`pnpm run check:fix`、`pnpm run typecheck`、`pnpm test`。
-3. 在真实Pi中完成：parallel spawn → send → child report → attach → TUI交互 → detach → parent reload reconnect → stop。
-4. 分别验证一个可用host和host启动失败路径；记录未能在本机验证的外部host边界。
-5. 检查预期package version/dependency范围与publish dry-run，但未经明确批准不tag/push/publish。
+1. 运行 package Biome、focused Vitest 和 package typecheck。
+2. 根目录全量 gate 在本 ticket 收口时执行；外部 tag/push/publish 仍需明确批准。
+3. 真实 Pi attach→TUI→detach 依赖可用 Herdr 或 cmux；host 启动失败路径由 HostAdapter 单测覆盖。
+4. Scenario A–I 由 package 单测覆盖后台 spawn/send/stop、idle attach、detach/switch/interrupt、recovery 与 UX 投影；不是真实 multiplexer smoke。
 
 **依赖**：SUB-09、SUB-P4。
 
-状态：`[ ]`
+状态：`[x]`（UX/docs/package gate；全仓 release dry-run 与真实 TUI smoke 仍需本机 host）
 
 ---
 

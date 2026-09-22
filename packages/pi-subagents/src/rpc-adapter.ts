@@ -17,7 +17,14 @@ import {
  */
 export type PiRpcOperation = Exclude<
 	RunnerOperation,
-	"shutdown" | "contact_parent" | "close_writer" | "start_rpc"
+	| "shutdown"
+	| "contact_parent"
+	| "report_lifecycle"
+	| "report_paused"
+	| "pause"
+	| "cancel_pause"
+	| "close_writer"
+	| "start_rpc"
 >;
 
 /** A forwarded Pi RPC command did not answer within its deadline. */

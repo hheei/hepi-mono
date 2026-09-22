@@ -5,7 +5,6 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { ThinkingLevel } from "../src/domain.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import {
-	createSubagentFoundation,
 	findSessionFile,
 	inspectSessionFile,
 	persistSubagentIntent,
@@ -103,7 +102,7 @@ test("requires an explicit agent name instead of inventing a default", async ():
 	await withDirectory(async (directory) => {
 		await expect(
 			resolveSubagentLaunch({
-				input: { task: "Do something" },
+				input: { task: "Do something", agent: "   " },
 				cwd: directory,
 				parent: PARENT,
 				modelRegistry: MODEL_REGISTRY,
@@ -308,35 +307,6 @@ test("does not start a child when the registry write fails", async (): Promise<v
 			}),
 		).rejects.toThrow(/Invalid JSON/u);
 		expect(await readFile(registryPath, "utf8")).toBe("{not json");
-	});
-});
-
-test("wires registry, resolution, and bootstrap into one foundation surface", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
-		const cwd = join(directory, "work");
-		await writeAgent(cwd);
-		const bridge = join(directory, "bridge.js");
-		await writeFile(bridge, "", "utf8");
-		const foundation = createSubagentFoundation({
-			parentSessionId: PARENT_SESSION_ID,
-			parent: PARENT,
-			modelRegistry: MODEL_REGISTRY,
-			cwd,
-			invocation: { command: "/usr/bin/node", args: ["/usr/lib/pi/cli.js"] },
-			bridgeExtensionPath: bridge,
-			registryPath: join(directory, "registry.json"),
-		});
-
-		const config = await foundation.resolve({ task: "Work", agent: "worker" });
-		const record = await foundation.bootstrap({
-			parentSessionId: PARENT_SESSION_ID,
-			task: "Work",
-			launchConfig: config,
-		});
-		expect(record.subagentId).toBe(config.subagentId);
-		expect((await foundation.registry.list()).map((item) => item.subagentId)).toEqual([
-			config.subagentId,
-		]);
 	});
 });
 

@@ -8,9 +8,11 @@ import type {
 	SubagentState,
 } from "./domain.js";
 import { isRecord } from "./domain.js";
-import type { HostAttachment, HostKind, HostSelection } from "./host-adapter.js";
+import type { HostAttachment, HostCommandResult, HostKind, HostSelection } from "./host-adapter.js";
 import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
+import { isIdlePiState } from "./rpc-events.js";
+import type { RuntimeTokenStore } from "./runtime.js";
 import { planSessionPlacement } from "./session-bootstrap.js";
 import { createStateProjector, type StateProjector } from "./state.js";
 
@@ -26,37 +28,6 @@ export interface ParentChannelReport {
 
 export interface ParentChannel {
 	deliver(report: ParentChannelReport): Promise<void>;
-	online(): void;
-	offline(): void;
-	drain(): readonly ParentChannelReport[];
-}
-
-export function createParentChannel(options: {
-	readonly capacity?: number;
-	readonly deliverOnline: (report: ParentChannelReport) => Promise<void>;
-}): ParentChannel {
-	const capacity = Math.max(1, options.capacity ?? 32);
-	const queue: ParentChannelReport[] = [];
-	let connected = true;
-	return {
-		async deliver(report) {
-			if (connected) {
-				await options.deliverOnline(report);
-				return;
-			}
-			if (queue.length >= capacity) throw new Error("Parent report queue is full");
-			queue.push(report);
-		},
-		online() {
-			connected = true;
-		},
-		offline() {
-			connected = false;
-		},
-		drain() {
-			return queue.splice(0, queue.length);
-		},
-	};
 }
 
 export interface RunnerLike {
@@ -69,6 +40,8 @@ export interface RunnerLike {
 			| "get_state"
 			| "get_entries"
 			| "shutdown"
+			| "pause"
+			| "cancel_pause"
 			| "close_writer"
 			| "start_rpc",
 		payload?: unknown,
@@ -93,6 +66,16 @@ export interface AttachResult {
 	readonly attachmentId: string;
 }
 
+export type DetachOrigin = "tui_exit" | "tui_crash" | "session_switch" | "manual";
+
+export interface DetachOptions {
+	readonly origin: DetachOrigin;
+	/** Close the host pane. False when session B still owns that TUI process. */
+	readonly closeHost?: boolean;
+	/** Operation label reported in failures; defaults to "detach". */
+	readonly operation?: string;
+}
+
 export interface ManagerDependencies {
 	readonly parentSessionId: string;
 	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update">;
@@ -105,9 +88,10 @@ export interface ManagerDependencies {
 	readonly launch: (record: SubagentRecord) => Promise<RunnerLike>;
 	readonly connect?: (record: SubagentRecord) => Promise<RunnerLike>;
 	readonly deadlineMs?: number;
+	readonly watchIntervalMs?: number;
 	readonly channel?: ParentChannel;
 	readonly attachHost?: AttachHost;
-	readonly bridgeToken?: (runtimeIdentity: string) => string | undefined;
+	readonly tokens?: RuntimeTokenStore;
 }
 
 export interface SpawnResult {
@@ -153,6 +137,8 @@ function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
 		...(record.interrupted === undefined ? {} : { interrupted: record.interrupted }),
 		freshness: live ? "live" : "last_known",
 		interactive: record.launchConfig.interactive,
+		model: record.launchConfig.model,
+		thinking: record.launchConfig.thinking,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 	};
@@ -205,15 +191,13 @@ function sessionContainsUserInput(entries: readonly unknown[], expected: string)
 		return text === expected;
 	});
 }
-function isIdlePiState(value: unknown): boolean {
-	if (!isRecord(value)) return false;
-	return (
-		value.isStreaming === false && value.isCompacting === false && value.pendingMessageCount === 0
-	);
-}
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
 	if (signal?.aborted) throw new Error("Attach was cancelled");
+}
+
+function hostCleanupFailed(result: HostCommandResult): boolean {
+	return result.timedOut || result.exitCode !== 0;
 }
 
 export class SubagentManager {
@@ -225,6 +209,8 @@ export class SubagentManager {
 	readonly #frozen = new Set<string>();
 	readonly #attachCancels = new Map<string, AbortController>();
 	readonly #hostAttachments = new Map<string, HostAttachment>();
+	readonly #hostWatches = new Map<string, AbortController>();
+	readonly #tuiQuitExpected = new Set<string>();
 	readonly #listeners = new Set<() => void>();
 
 	public constructor(deps: ManagerDependencies) {
@@ -449,6 +435,7 @@ export class SubagentManager {
 
 	public stop(id: string, signal?: AbortSignal): Promise<OperationError | PublicSubagent> {
 		this.#attachCancels.get(id)?.abort();
+		this.#stopHostWatch(id);
 		return this.#mutate(id, async () => {
 			if (this.#stopping.has(id)) return this.get(id);
 			this.#stopping.add(id);
@@ -514,6 +501,7 @@ export class SubagentManager {
 				this.#frozen.delete(id);
 				const runtimeIdentity = stopped.runtime?.runtimeIdentity;
 				if (runtimeIdentity !== undefined) {
+					this.#deps.tokens?.forget(runtimeIdentity);
 					const current = await this.#deps.registry.get(id);
 					if (current !== undefined) {
 						stopped = await this.#deps.registry.update(
@@ -571,21 +559,33 @@ export class SubagentManager {
 	}
 
 	public restoreRpc(id: string): Promise<OperationError | PublicSubagent> {
+		return this.detach(id, { origin: "manual", closeHost: true, operation: "restore_rpc" });
+	}
+
+	public detach(id: string, options: DetachOptions): Promise<OperationError | PublicSubagent> {
+		return this.#mutate(id, () => this.#runDetach(id, options));
+	}
+
+	public inspectHost(
+		id: string,
+	): Promise<
+		| OperationError
+		| PublicSubagent
+		| { readonly alive: boolean; readonly known: boolean; readonly detail: string }
+	> {
 		return this.#mutate(id, async () => {
-			await this.#releaseHost(id);
-			const runner = this.#runners.get(id);
-			if (runner === undefined || !runner.connected) {
-				this.#frozen.delete(id);
-				return failure("restore_rpc", "Child runtime is not live", id);
+			const attachment = this.#hostAttachments.get(id);
+			if (attachment === undefined) {
+				return failure("inspect_host", "No host attachment is owned", id);
 			}
-			const restored = await this.#restoreRpc(id, runner);
-			this.#frozen.delete(id);
-			const record = await this.#deps.registry.get(id);
-			if (record === undefined) return failure("restore_rpc", "Unknown child", id);
-			if (restored.startsWith("RPC restore failed")) {
-				return failure("restore_rpc", restored, id, record.state, [restored], false);
+			const observed = await attachment.observe();
+			if (!observed.known || observed.alive) {
+				return { alive: observed.alive, known: observed.known, detail: observed.detail };
 			}
-			return publicChild(record, true);
+			return this.#runDetach(id, {
+				origin: this.#tuiQuitExpected.has(id) ? "tui_exit" : "tui_crash",
+				closeHost: true,
+			});
 		});
 	}
 
@@ -618,7 +618,7 @@ export class SubagentManager {
 			const token =
 				record.runtime === undefined
 					? undefined
-					: this.#deps.bridgeToken?.(record.runtime.runtimeIdentity);
+					: this.#deps.tokens?.get(record.runtime.runtimeIdentity);
 			if (token === undefined)
 				return failBeforeClose("Bridge token is unavailable for TUI launch", record);
 			throwIfAborted(signal);
@@ -630,10 +630,27 @@ export class SubagentManager {
 				runner.request("get_state", undefined, { signal }),
 				this.#deps.deadlineMs ?? 30_000,
 			);
-			if (!isIdlePiState(state))
-				return failBeforeClose("Child is busy; attach requires a complete idle RPC turn", record, [
-					"RPC writer retained",
-				]);
+			if (!isIdlePiState(state)) {
+				try {
+					await withDeadline(
+						runner.request("pause", undefined, { signal }),
+						this.#deps.deadlineMs ?? 30_000,
+					);
+				} catch (error) {
+					try {
+						await runner.request("cancel_pause");
+					} catch {
+						// Keep RPC; attach still fails below.
+					}
+					return failBeforeClose(
+						error instanceof Error && error.message === "Attach was cancelled"
+							? error.message
+							: `Child did not pause before attach deadline: ${error instanceof Error ? error.message : String(error)}`,
+						record,
+						["RPC writer retained"],
+					);
+				}
+			}
 			throwIfAborted(signal);
 			const placement = await planSessionPlacement({
 				sessionId: record.sessionId,
@@ -684,13 +701,29 @@ export class SubagentManager {
 					env: withBridgeToken(launch.env, token),
 				});
 				if (signal.aborted) {
-					await attachment.cleanup().catch(() => undefined);
-					throw new Error("Attach was cancelled");
+					this.#hostAttachments.set(id, attachment);
+					const restored = await this.#restoreRpcAfterHost(id, runner);
+					this.#frozen.delete(id);
+					return failure("attach", "Attach was cancelled", id, flushed.state, [restored], false);
 				}
 				const observed = await attachment.observe();
-				if (attachment.launch.timedOut && (!observed.known || !observed.alive)) {
-					await attachment.cleanup().catch(() => undefined);
-					const restored = await this.#restoreRpc(id, runner);
+				if (attachment.launch.timedOut && !observed.known) {
+					this.#hostAttachments.set(id, attachment);
+					this.#watchHost(id);
+					await this.#update(id, (current) => ({ ...current, mode: "tui" }));
+					this.#frozen.delete(id);
+					return failure(
+						"attach",
+						"Host timed out and TUI writer state is unknown; not starting another writer",
+						id,
+						flushed.state,
+						["RPC writer closed", "TUI writer state unknown"],
+						false,
+					);
+				}
+				if (attachment.launch.timedOut && !observed.alive) {
+					this.#hostAttachments.set(id, attachment);
+					const restored = await this.#restoreRpcAfterHost(id, runner);
 					this.#frozen.delete(id);
 					return failure(
 						"attach",
@@ -703,6 +736,7 @@ export class SubagentManager {
 				}
 				if (attachment.launch.timedOut && observed.alive) {
 					this.#hostAttachments.set(id, attachment);
+					this.#watchHost(id);
 					await this.#update(id, (current) => ({ ...current, mode: "tui" }));
 					return failure(
 						"attach",
@@ -714,6 +748,7 @@ export class SubagentManager {
 					);
 				}
 				this.#hostAttachments.set(id, attachment);
+				this.#watchHost(id);
 				const next = await this.#update(id, (current) => ({
 					...current,
 					mode: "tui",
@@ -726,7 +761,7 @@ export class SubagentManager {
 				};
 			} catch (error) {
 				if (!writerClosed) throw error;
-				const restored = await this.#restoreRpc(id, runner);
+				const restored = await this.#restoreRpcAfterHost(id, runner);
 				this.#frozen.delete(id);
 				return failure(
 					"attach",
@@ -750,6 +785,15 @@ export class SubagentManager {
 		}
 	}
 
+	async #restoreRpcAfterHost(id: string, runner: RunnerLike): Promise<string> {
+		try {
+			await this.#releaseHost(id);
+		} catch (error) {
+			return `RPC not restored: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		return this.#restoreRpc(id, runner);
+	}
+
 	async #restoreRpc(id: string, runner: RunnerLike): Promise<string> {
 		try {
 			await withDeadline(runner.request("start_rpc"), this.#deps.deadlineMs ?? 30_000);
@@ -761,10 +805,118 @@ export class SubagentManager {
 	}
 
 	async #releaseHost(id: string): Promise<void> {
+		this.#stopHostWatch(id);
 		const attachment = this.#hostAttachments.get(id);
 		if (attachment === undefined) return;
+		const result = await attachment.cleanup();
+		if (hostCleanupFailed(result)) {
+			throw new Error(result.stderr || result.stdout || "Host cleanup failed");
+		}
+		const observed = await attachment.observe();
+		if (!observed.known || observed.alive) {
+			throw new Error(
+				observed.known
+					? `TUI writer still alive after cleanup: ${observed.detail}`
+					: `TUI writer state unknown after cleanup: ${observed.detail}`,
+			);
+		}
 		this.#hostAttachments.delete(id);
-		await attachment.cleanup().catch(() => undefined);
+	}
+
+	#stopHostWatch(id: string): void {
+		const watch = this.#hostWatches.get(id);
+		if (watch === undefined) return;
+		watch.abort();
+		this.#hostWatches.delete(id);
+	}
+
+	#watchHost(id: string): void {
+		this.#stopHostWatch(id);
+		const attachment = this.#hostAttachments.get(id);
+		if (attachment === undefined) return;
+		const stop = new AbortController();
+		this.#hostWatches.set(id, stop);
+		const intervalMs = this.#deps.watchIntervalMs ?? 1_000;
+		const tick = (): void => {
+			if (stop.signal.aborted) return;
+			if (this.#hostAttachments.get(id) !== attachment) return;
+			void attachment.observe().then((observed) => {
+				if (stop.signal.aborted) return;
+				if (this.#hostAttachments.get(id) !== attachment) return;
+				if (!observed.known || observed.alive) return;
+				const origin = this.#tuiQuitExpected.has(id) ? "tui_exit" : "tui_crash";
+				this.#tuiQuitExpected.delete(id);
+				void this.detach(id, { origin, closeHost: true }).catch((error: unknown) => {
+					console.error(
+						`pi-subagents: detach after TUI exit failed for ${id}: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				});
+			});
+		};
+		const timer = setInterval(tick, intervalMs);
+		stop.signal.addEventListener(
+			"abort",
+			() => {
+				clearInterval(timer);
+			},
+			{ once: true },
+		);
+		tick();
+	}
+
+	async #runDetach(id: string, options: DetachOptions): Promise<OperationError | PublicSubagent> {
+		const operation = options.operation ?? "detach";
+		const record = await this.#deps.registry.get(id);
+		if (record === undefined) return failure(operation, "Unknown child", id);
+		if (record.intent === "stopped" || record.state === "stopped") {
+			this.#stopHostWatch(id);
+			return failure(operation, "Stopped child is not restored", id, "stopped", [], false);
+		}
+		if (record.mode !== "tui") {
+			return publicChild(record, this.#runners.get(id)?.connected === true);
+		}
+		this.#stopHostWatch(id);
+		if (options.closeHost === false) {
+			this.#hostAttachments.delete(id);
+		} else {
+			try {
+				await this.#releaseHost(id);
+			} catch (error) {
+				this.#frozen.delete(id);
+				return failure(
+					operation,
+					error instanceof Error ? error.message : String(error),
+					id,
+					record.state,
+					["TUI writer was not confirmed gone"],
+					false,
+				);
+			}
+		}
+		const runner = this.#runners.get(id);
+		if (runner === undefined || !runner.connected) {
+			this.#frozen.delete(id);
+			return failure(operation, "Child runtime is not live", id);
+		}
+		const restored = await this.#restoreRpc(id, runner);
+		this.#frozen.delete(id);
+		const next = await this.#deps.registry.get(id);
+		if (next === undefined) return failure(operation, "Unknown child", id);
+		if (restored.startsWith("RPC restore failed")) {
+			return failure(operation, restored, id, next.state, [restored], false);
+		}
+		if (options.origin === "tui_crash") {
+			await this.#update(id, (current) => ({
+				...current,
+				interrupted: "TUI exited abnormally; RPC restored waiting for input",
+			}));
+			await this.contactParent(
+				id,
+				"tui_crash",
+				"Child TUI exited abnormally. RPC was restored and is waiting for input. Pending work was not replayed.",
+			);
+		}
+		return publicChild((await this.#deps.registry.get(id)) ?? next, true);
 	}
 
 	public async contactParent(
@@ -800,8 +952,10 @@ export class SubagentManager {
 	}
 
 	public closeLocalConnections(): void {
+		for (const id of [...this.#hostWatches.keys()]) this.#stopHostWatch(id);
 		for (const runner of this.#runners.values()) runner.close();
 		this.#runners.clear();
+		this.#deps.tokens?.clear();
 		this.#notify();
 	}
 
@@ -832,20 +986,66 @@ export class SubagentManager {
 			}
 			return;
 		}
+		if (value.type === "child_lifecycle") {
+			const record = await this.#deps.registry.get(id);
+			if (
+				record === undefined ||
+				record.intent === "stopped" ||
+				typeof value.kind !== "string" ||
+				typeof value.parentSessionId !== "string" ||
+				typeof value.childId !== "string" ||
+				typeof value.runtimeIdentity !== "string" ||
+				value.parentSessionId !== record.parentSessionId ||
+				value.childId !== id ||
+				value.runtimeIdentity !== record.runtime?.runtimeIdentity
+			)
+				return;
+			if (value.kind === "tui_quit") {
+				this.#tuiQuitExpected.add(id);
+				return;
+			}
+			if (value.kind === "user_interrupt") {
+				const message =
+					typeof value.message === "string" && value.message !== ""
+						? value.message
+						: "Task is unfinished and waiting for user intent.";
+				await this.#update(id, (current) => ({
+					...current,
+					interrupted: message,
+				}));
+				await this.contactParent(id, "user_interrupt", message);
+				return;
+			}
+			if (value.kind === "left_session") {
+				await this.#runDetach(id, { origin: "session_switch", closeHost: false });
+			}
+			return;
+		}
 		const projector = this.#projectors.get(id);
 		if (projector === undefined) return;
 		projector.applyEvent(event);
 		let confirmedInput: string | undefined;
-		if (value.type === "agent_end") {
+		if (value.type === "agent_end" || value.type === "runner_events_dropped") {
 			const response = await runner.request("get_entries").catch(() => undefined);
 			const entries = isRecord(response) && Array.isArray(response.entries) ? response.entries : [];
 			projector.rebuild(entries);
-			const record = await this.#deps.registry.get(id);
-			if (
-				record?.unacknowledgedInput !== undefined &&
-				sessionContainsUserInput(entries, record.unacknowledgedInput)
-			)
-				confirmedInput = record.unacknowledgedInput;
+			if (value.type === "agent_end") {
+				const record = await this.#deps.registry.get(id);
+				if (
+					record?.unacknowledgedInput !== undefined &&
+					sessionContainsUserInput(entries, record.unacknowledgedInput)
+				)
+					confirmedInput = record.unacknowledgedInput;
+			} else {
+				const piState = await runner.request("get_state").catch(() => undefined);
+				if (isIdlePiState(piState)) projector.applyEvent({ type: "agent_settled" });
+				else if (
+					isRecord(piState) &&
+					(piState.isStreaming === true || piState.isCompacting === true)
+				) {
+					projector.applyEvent({ type: "agent_start" });
+				}
+			}
 		}
 		if (value.type === "runner_exit") {
 			this.#runners.delete(id);

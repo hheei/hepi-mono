@@ -32,6 +32,7 @@ const hello = { version: PROTOCOL_VERSION, type: "hello", ...identity };
 describe("runner protocol frames", () => {
 	test("accepts a complete hello frame and rejects incomplete ones", () => {
 		expect(isHelloFrame(hello)).toBe(true);
+		expect(isHelloFrame({ ...hello, role: "bridge" })).toBe(true);
 		const { endpoint: _endpoint, ...withoutEndpoint } = hello;
 		expect(isHelloFrame(withoutEndpoint)).toBe(false);
 		expect(isHelloFrame({ ...hello, version: PROTOCOL_VERSION + 1 })).toBe(false);

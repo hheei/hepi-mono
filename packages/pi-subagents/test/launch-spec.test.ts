@@ -121,6 +121,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		PI_SUBAGENTS_RUNTIME_ID: "runtime-1",
 		PI_SUBAGENTS_ENDPOINT: "/tmp/pi-subagents-1.sock",
 		PI_SUBAGENTS_AGENT: "reviewer",
+		PI_SUBAGENTS_SESSION_ID: "01J7-session",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
 	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
@@ -129,6 +130,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		"PI_SUBAGENTS_RUNTIME_ID",
 		"PI_SUBAGENTS_ENDPOINT",
 		"PI_SUBAGENTS_AGENT",
+		"PI_SUBAGENTS_SESSION_ID",
 		"PI_SUBAGENTS_TOKEN",
 	]);
 });

@@ -137,6 +137,12 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 				state = "failed";
 				interrupted =
 					typeof value.message === "string" ? value.message : "Runner reported an error";
+			} else if (value.type === "runner_events_dropped") {
+				const count = typeof value.count === "number" ? value.count : undefined;
+				interrupted =
+					count === undefined
+						? "Runner dropped events; live state may be stale"
+						: `Runner dropped ${count} events; live state may be stale`;
 			} else if (value.type === "runner_exit" || value.type === "exit") {
 				state = value.code === 0 ? "done" : "failed";
 				if (value.code !== 0)

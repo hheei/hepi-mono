@@ -19,7 +19,6 @@ import {
 	resolvePiInvocation,
 } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
-import { createSubagentRegistry } from "./registry.js";
 
 /** Bounded read for a session header; the first line holds the whole identity of the file. */
 const HEADER_READ_BYTES = 64 * 1024;
@@ -275,65 +274,4 @@ export async function persistSubagentIntent(
 		}),
 		unacknowledgedInput: task,
 	});
-}
-
-export interface BootstrapSubagentInput {
-	readonly parentSessionId: string;
-	readonly task: string;
-	readonly launchConfig: EffectiveLaunchConfig;
-}
-
-/** The foundation wiring one extension session needs: registry, resolution, and bootstrap. */
-export interface SubagentFoundation {
-	readonly parentSessionId: string;
-	readonly registry: SubagentRegistry;
-	readonly resolve: (input: SpawnSubagentInput) => Promise<EffectiveLaunchConfig>;
-	readonly bootstrap: (input: BootstrapSubagentInput) => Promise<SubagentRecord>;
-}
-
-export interface CreateSubagentFoundationOptions {
-	readonly parentSessionId: string;
-	readonly parent: ParentAgentDefaults;
-	readonly modelRegistry: ModelRegistryLike;
-	readonly cwd: string;
-	readonly invocation?: PiInvocation;
-	readonly bridgeExtensionPath?: string;
-	readonly homeDirectory?: string;
-	readonly registryPath?: string;
-	readonly now?: () => Date;
-}
-
-export function createSubagentFoundation(
-	options: CreateSubagentFoundationOptions,
-): SubagentFoundation {
-	const { parentSessionId } = options;
-	const registry = createSubagentRegistry({
-		parentSessionId,
-		...(options.registryPath === undefined ? {} : { filePath: options.registryPath }),
-		...(options.now === undefined ? {} : { now: options.now }),
-	});
-	return {
-		parentSessionId,
-		registry,
-		resolve: (input) =>
-			resolveSubagentLaunch({
-				input,
-				cwd: options.cwd,
-				parent: options.parent,
-				modelRegistry: options.modelRegistry,
-				...(options.invocation === undefined ? {} : { invocation: options.invocation }),
-				...(options.bridgeExtensionPath === undefined
-					? {}
-					: { bridgeExtensionPath: options.bridgeExtensionPath }),
-				...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
-			}),
-		bootstrap: (input) =>
-			persistSubagentIntent({
-				registry,
-				parentSessionId: input.parentSessionId,
-				task: input.task,
-				launchConfig: input.launchConfig,
-				...(options.now === undefined ? {} : { now: options.now }),
-			}),
-	};
 }
