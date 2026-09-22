@@ -333,3 +333,58 @@ it("fails closed for durable results without matching scope identity", async () 
 		closeQuietly(db);
 	}
 });
+
+it("combines local results with the durable provider lane", async () => {
+	const db = createTestDb();
+	const spy = vi.spyOn(searchModule, "unifiedSearch").mockResolvedValue([
+		{
+			source: "memory",
+			content: "local project rule",
+			score: 0.95,
+			memoryId: 1,
+			category: "PROJECT_RULES",
+			matchType: "semantic",
+		} satisfies UnifiedSearchResult,
+	]);
+	const searchMock = vi.fn(async () => ({
+		observations: [
+			{ id: "durable-1", narrative: "cross-session architectural decision", project: "hepi-mono" },
+		],
+	}));
+	try {
+		const tool = createCtxSearchTool({
+			db,
+			remoteSearch: {
+				client: {
+					health: vi.fn(),
+					startSession: vi.fn(),
+					observe: vi.fn(),
+					search: searchMock,
+					remember: vi.fn(),
+					endSession: vi.fn(),
+				},
+				identity: () => ({ project: "hepi-mono" }),
+			},
+		});
+		const result = asToolResult(
+			await tool.execute(
+				"call-durable-direct",
+				{ query: "decision" },
+				new AbortController().signal,
+				undefined,
+				fakeContext("ses-search") as never,
+			),
+		);
+		const text = result.content[0]?.text ?? "";
+		expect(tool.name).toBe("recall");
+		expect(text).toContain("Current session/local lane");
+		expect(text).toContain("local project rule");
+		expect(text).toContain("Durable Hindsight lane");
+		expect(text).toContain("cross-session architectural decision");
+		expect(text).toContain("[observation]");
+		expect(searchMock).toHaveBeenCalledTimes(1);
+	} finally {
+		spy.mockRestore();
+		closeQuietly(db);
+	}
+});

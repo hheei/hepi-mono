@@ -1184,13 +1184,7 @@ async function startPiMagicContextRuntime(
 			: {}),
 	});
 	info(
-		[
-			"mctx_search",
-			"mctx_memory",
-			"mctx_note",
-			"mctx_expand",
-			...(compactionOff ? [] : ["mctx_reduce"]),
-		]
+		["recall", "mctx_memory", "mctx_note", "mctx_expand", ...(compactionOff ? [] : ["mctx_reduce"])]
 			.join(", ")
 			.replace(/^/, "registered tools: "),
 	);

@@ -327,10 +327,10 @@ export function createCtxSearchTool(deps: CtxSearchToolDeps): ToolDefinition<typ
 										const scope = [
 											`id=${item.id}`,
 											`digest=${item.digest}`,
-											`project=${item.project}`,
+											item.project ? `project=${item.project}` : undefined,
 											`session=${item.sessionId ?? "unscoped"}`,
 											`agent=${item.agentId ?? "unscoped"}`,
-										];
+										].filter(Boolean);
 										return `[${index + 1}] [${item.kind}] ${scope.join(" ")}\n${item.content}`;
 									})
 									.join("\n\n");

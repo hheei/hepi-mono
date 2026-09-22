@@ -2,10 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-	DEFAULT_AGENTMEMORY_URL,
-	MagicContextConfigSchema,
-} from "#core/config/schema/magic-context";
+import { MagicContextConfigSchema } from "#core/config/schema/magic-context";
 import {
 	clearAgentMemoryProjectCache,
 	createAgentMemoryIdentityResolver,
@@ -37,7 +34,7 @@ describe("AgentMemory runtime", () => {
 		mkdirSync(plain);
 		clearAgentMemoryProjectCache();
 		try {
-			expect(defaults.url).toBe(DEFAULT_AGENTMEMORY_URL);
+			expect(defaults.url).toBe("");
 			expect(
 				overlayAgentMemoryEnv(defaults, {
 					AGENTMEMORY_URL: "https://am.example/v1/",
