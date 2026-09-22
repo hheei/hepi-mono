@@ -4,18 +4,16 @@
 
 已确认。`read`、`grep`、`find`、`bash`、`apply_patch`、`edit`、`write` 已实现 SSH Target。`apply_patch` 是逐 path Publish（见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)）；ADR-0017 已作废。`edit` / `write` 共用该 Publish 与 mutation lock（见 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)）。真实 Pi `ToolExecutionComponent` smoke 已覆盖。
 
-`pi-ext-tools` 为可见且显式的 target 选择。它不把 remote workspace、Output 与 local filesystem 伪装成同一种 URL，也不静默切换 transport 或 SSH destination。
+`pi-ext-tools` 为可见且显式的 target 选择。它不把 remote workspace 与 local filesystem 伪装成同一种 URL，也不静默切换 transport 或 SSH destination。
 
 ## 用户目标
 
-同一个 tool 参数形状可以明确选择本地、内部 Output 或已授权的 SSH host：
+同一个 tool 参数形状可以明确选择本地或已授权的 SSH host：
 
 ```text
 tool arguments { path?, target? }
         |
-        +-- internal URL in path -> legacy internal resolver
         +-- target omitted / local -> local filesystem
-        +-- target output -> session-bound Output
         +-- target SSH alias -> authorized SSH host
 ```
 
@@ -28,26 +26,25 @@ tool arguments { path?, target? }
 ```json
 { "path": "src/config.ts" }
 { "path": "src/config.ts", "target": "local" }
-{ "path": "opaque-output-id", "target": "output" }
 { "path": "src/config.ts", "target": "devbox" }
 { "command": "uname -s", "target": "devbox" }
 ```
 
-省略 `target` 与 `target: "local"` 等价。`local` 和 `output` 是保留名称；它们优先于同名 SSH alias。extension 加载时若白名单 SSH alias 与保留名称冲突，只显示一次 warning，并排除该 alias。
+省略 `target` 与 `target: "local"` 等价。`local` 是保留名称；它优先于同名 SSH alias。extension 加载时若白名单 SSH alias 与保留名称冲突，只显示一次 warning，并排除该 alias。
 
 
 unknown target、未授权 alias、target/path capability 不匹配、或 remote capability 缺失，都返回明确错误。任何失败不得 fallback 到 local 或其它 target。
 
 ### 能力矩阵
 
-| Tool | local | output | SSH alias |
-| --- | --- | --- | --- |
-| `read` | existing local behavior | read one Output id | SFTP text/image read |
-| `grep` | existing local/FFF behavior | search one Output id | remote `rg --json` |
-| `find` | existing local/FFF behavior | rejected | remote `rg --files` plus local non-FFF ranking |
-| `bash` | existing local foreground/async | rejected | foreground `ssh` only；cwd 为远端 `$HOME` |
-| `apply_patch` | Patch Core + LocalBackend | rejected | Patch Core + SftpBackend（ADR-0018） |
-| `edit` / `write` | existing local Pi native | rejected | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
+| Tool | local | SSH alias |
+| --- | --- | --- |
+| `read` | existing local behavior | SFTP text/image read |
+| `grep` | existing local/FFF behavior | remote `rg --json` |
+| `find` | existing local/FFF behavior | remote `rg --files` plus local non-FFF ranking |
+| `bash` | existing local foreground/async | foreground `ssh` only；cwd 为远端 `$HOME` |
+| `apply_patch` | Patch Core + LocalBackend | Patch Core + SftpBackend（ADR-0018） |
+| `edit` / `write` | existing local Pi native | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
 
 
 ## Target 解析与授权
@@ -60,7 +57,7 @@ SSH target 是 OpenSSH config 的 literal `Host` alias，不是任意 `user@host
 - project settings 不得扩大 whitelist；
 - settings 修改在 `/reload`、新 session 或新 Pi process 后才生效，当前 session snapshot 不变。
 
-extension 在 load/reload 时解析并验证 whitelist，生成同一份 bounded target catalog。该 catalog 注入每回合 system prompt，列出 `local`、`output` 与已授权 SSH aliases，说明 remote 的 POSIX、timeout 与 search boundary。最多注入 32 个 aliases；不在 tool execution 前连接或 probe host。settings validation 同样限制 whitelist 为最多 32 个不重复 aliases。
+extension 在 load/reload 时解析并验证 whitelist，生成同一份 bounded target catalog。该 catalog 注入每回合 system prompt，列出 `local` 与已授权 SSH aliases，说明 remote 的 POSIX、timeout 与 search boundary。最多注入 32 个 aliases；不在 tool execution 前连接或 probe host。settings validation 同样限制 whitelist 为最多 32 个不重复 aliases。
 
 ## SSH 执行
 
@@ -128,31 +125,15 @@ remote `find` 先通过 `rg --files` 取得 snapshot，再在 extension 本地�
 
 snapshot 只要超过 `1024` paths 或 `256 KiB`，立即以 scope-too-broad 失败，不返回看似完整的部分结果。符合限制的 snapshot 由 cursor record 保存 target、query、排序候选与 page index；后续 page 不重新查询 remote filesystem。cursor 在 reload 或 expiry 后明确报 invalid/expired。
 
-## Session-bound Output 持久化
-
-新的 Output id 是 opaque 且 session-qualified。每一个 persisted session 的 sidecar 是：
-
-```text
-<session-file>.pi-ext-tools-output.jsonl
-```
-
-它独立于 Pi session JSONL；extension 绝不向 Pi session JSONL 插入非 Pi entry。output finalization 才 append 一条完整 record，不为 streamed append chunks 写盘，也不为每笔记录主动 `fsync`。
-
-一个 sidecar 最多保存 128 个 Outputs、8 MiB UTF-8 payload，且单个 Output 最多 1 MiB。超量时不能截断内容：Output 保留为当前 process 可读的 non-persistent resource，tool result/details 明确标示该状态并显示一次 warning；resume/restart 后该 id 不可读取。没有 Pi session file 的 `--no-session` mode 同样使用 process-only Output。
-
-sidecar reload 逐行验证。invalid record、duplicate id、或 crash 留下的不完整行被跳过并只 warning 一次；后续有效 records 仍可恢复。persist append 失败同样保留 process-only resource，不能把未完整写入的内容宣称为 persistent success。
-
-fork 不复制 payload。resolver 以 opaque session-qualified id 在当前 session 与其明确 parent ancestry sidecar 中查找；Handoff Continuation 也可沿已记录的 Source Session lineage 查找。它不扫描无关 session，也不把 Output 变成跨项目的全局 catalog。
-
 ## 渲染与持久化
 
-ToolTui 仍拥有 frame、collapse 与 resume lifecycle；target backend 只提供 canonical result/details。每一个 persisted remote result 都记录足够的 target/path/typed outcome，以便 resume 仅从 persisted data 重画，不需要重新建立 SSH connection。target conflict、non-persistent Output 与 remote dependency/cancellation/timeout 都是 typed result states，不能只作为 transient notification。
+ToolTui 仍拥有 frame、collapse 与 resume lifecycle；target backend 只提供 canonical result/details。每一个 persisted remote result 都记录足够的 target/path/typed outcome，以便 resume 仅从 persisted data 重画，不需要重新建立 SSH connection。target conflict、remote dependency/cancellation/timeout 都是 typed result states，不能只作为 transient notification。
 
 path 类工具在当前 Trace 使用 warning 色 `host:path`；bash 使用 warning 色 `(host)`。collapsed / 后续 Trace 去掉 warning 色，整段 dim。
 
 ## 所有权、清理与测试
 
-`pi-ext-tools` 拥有 target parsing、authorization、transport process lifecycle、Output sidecar policy、canonical result conversion、cursor snapshots 与 target-aware rendering。`pi-ext-core` 只扩展 feature-neutral Settings contract，以支持 `list<string>` value 和 field type；它不拥有 SSH、Output、whitelist 或 any target policy。`pi-settings` 只提供 list editor UI。
+`pi-ext-tools` 拥有 target parsing、authorization、transport process lifecycle、canonical result conversion、cursor snapshots 与 target-aware rendering。`pi-ext-core` 只扩展 feature-neutral Settings contract，以支持 `list<string>` value 和 field type；它不拥有 SSH、Output、whitelist 或 any target policy。`pi-settings` 只提供 list editor UI。
 
 实现必须覆盖：
 
@@ -161,6 +142,5 @@ path 类工具在当前 Trace 使用 warning 色 `host:path`；bash 使用 warni
 - SFTP read text/image、remote `rg` conversion、timeout、abort、non-interactive authentication failure、POSIX rejection；
 - remote bash：SSH exec、home cwd、optional timeout、cancel、output/async 拒绝、无 RTK、`(host)` header、details.target；
 - remote path rules、FFF bypass、find snapshot cursor、scope limits 与 cursor expiry；
-- sidecar normal reload、caps、non-persistent fallback、invalid records、write failure、fork and Handoff ancestry resolution；
-- list<string> storage validation and Settings TUI narrow/wide add/edit/remove/reorder behavior;
+- - list<string> storage validation and Settings TUI narrow/wide add/edit/remove/reorder behavior;
 - real Pi lifecycle smoke checks for target tool rendering, partial/final states and resumed historical output.

@@ -57,7 +57,7 @@ const EDIT_PARAMETERS = Type.Object(
 		),
 		target: Type.Optional(
 			Type.String({
-				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+				description: "local or an authorized SSH alias. Omit for local.",
 			}),
 		),
 	},

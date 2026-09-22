@@ -76,7 +76,7 @@ export const APPLY_PATCH_PARAMETERS = Type.Object(
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
 		target: Type.Optional(
 			Type.String({
-				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+				description: "local or an authorized SSH alias. Omit for local.",
 			}),
 		),
 	},

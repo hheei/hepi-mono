@@ -180,8 +180,7 @@ export function renderApplyPatchCall(
 		args !== null &&
 		"target" in args &&
 		typeof args.target === "string" &&
-		args.target !== "local" &&
-		args.target !== "output"
+		args.target !== "local"
 			? args.target
 			: undefined;
 	const body = new Container();
@@ -217,9 +216,7 @@ export function renderApplyPatchResult(
 	if (details === undefined) return new Text("", 0, 0);
 	const operationRows = operations(details);
 	const host =
-		details.target !== undefined && details.target !== "local" && details.target !== "output"
-			? details.target
-			: undefined;
+		details.target !== undefined && details.target !== "local" ? details.target : undefined;
 	if (!expanded) {
 		const body = new Container();
 		for (const operation of operationRows)

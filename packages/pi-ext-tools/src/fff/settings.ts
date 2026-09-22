@@ -15,7 +15,7 @@ const TARGET_GROUP = "targets";
 const FFF_SETTINGS_DESCRIPTIONS = {
 	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
 	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
-	outputTail: "Visible Bash output retained before full output spills to an output.",
+	outputTail: "Visible Bash output retained in each result tail.",
 	read: "Use FFF path resolution to improve read operations when safely applicable.",
 	find: "Use FFF indexed file search to improve find operations when enabled.",
 	autocomplete:
@@ -73,7 +73,7 @@ export interface TargetSettingsProviderOptions {
 
 export interface FffSettings {
 	readonly shellPath: string;
-	/** KiB retained in each foreground Bash result before output spill. */
+	/** KiB retained in each foreground Bash result. */
 	readonly bashOutputTailKiB: number;
 	/** FFF behavior toggles only; tool activation belongs to pi-settings. */
 	readonly autocomplete: boolean;
