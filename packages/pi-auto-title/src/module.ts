@@ -1,4 +1,3 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type CompletionSubagentHandle,
@@ -6,7 +5,6 @@ import {
 	createModelSelectionField,
 	type ExtensionLifecycleContext,
 	type ModelSelectionOption,
-	modelSelectionOptions,
 	type SettingField,
 	type SettingsContext,
 	type SettingsProvider,
@@ -26,8 +24,6 @@ export const TITLE_GENERATION_TEXT = "Generating title";
 export const TITLE_SHIMMER_LOOP_MS = 2_000;
 export const TITLE_SHIMMER_TRAVEL_CELLS = Array.from(TITLE_GENERATION_TEXT).length + 10;
 export const TITLE_SHIMMER_FRAME_MS = 100;
-export const TITLE_SHIMMER_STEP_CELLS =
-	TITLE_SHIMMER_TRAVEL_CELLS / (TITLE_SHIMMER_LOOP_MS / TITLE_SHIMMER_FRAME_MS);
 export const TITLE_SHIMMER_WINDOW_CELLS = 4;
 const TITLE_SHIMMER_SIGMA = 2.5;
 const TITLE_SHIMMER_BASE = 110;
@@ -82,12 +78,6 @@ export function parseModelRef(value: string): { provider: string; model: string 
 	if (split.length !== 2 || !split[0] || !split[1] || split.some((part) => part.includes("\\")))
 		throw new Error("Model must be exact provider/model");
 	return { provider: split[0], model: split[1] };
-}
-
-export function autoTitleModelOptions(
-	models: Iterable<{ readonly provider: string; readonly id: string; readonly name?: string }>,
-): readonly AutoTitleModelOption[] {
-	return modelSelectionOptions(models);
 }
 
 function autoTitleFields(modelOptions: readonly AutoTitleModelOption[]): readonly SettingField[] {
@@ -207,7 +197,6 @@ export function safeTitle(value: string): string | undefined {
 	if (!isTitleResponse(response) || /[\r\n]/.test(response.title)) return undefined;
 	const title = response.title
 		.replace(/[.?!:;,。！？：；，]+$/g, "")
-		.replace(/[.?!:;,。！？：；，]+$/g, "")
 		.replace(/\s+/g, " ")
 		.slice(0, 60)
 		.trim();
@@ -284,23 +273,8 @@ function autoTitleDescription(ctx: ExtensionContext): string | undefined {
 }
 
 export interface AutoTitleAgentAdapter {
-	prompt(prompt: string): Promise<void>;
+	run(prompt: string): Promise<string | undefined>;
 	abort(): void;
-	waitForIdle(): Promise<void>;
-	result(): string | undefined;
-}
-
-export function completedTitleText(messages: readonly AgentMessage[]): string | undefined {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message?.role !== "assistant") continue;
-		if (message.stopReason !== "stop") return undefined;
-		return message.content
-			.filter((part) => part.type === "text")
-			.map((part) => part.text)
-			.join(" ");
-	}
-	return undefined;
 }
 
 export type AutoTitleAgentFactory = (
@@ -317,9 +291,8 @@ export function createCoreAutoTitleAgent(
 	if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
 		throw new Error(`Unavailable title model: ${modelRef}`);
 	let handle: CompletionSubagentHandle | undefined;
-	let output: string | undefined;
 	return {
-		prompt: async (prompt) => {
+		run: async (prompt) => {
 			if (runtime.lifecycle === undefined)
 				throw new Error("Auto-title completion lifecycle unavailable");
 			handle = startSubagent(runtime.lifecycle, {
@@ -332,13 +305,9 @@ export function createCoreAutoTitleAgent(
 			const result = await handle.result;
 			if (result.status !== "completed")
 				throw new Error(result.status === "failed" ? result.failure.message : result.status);
-			output = result.output;
+			return result.output;
 		},
 		abort: () => handle?.cancel(),
-		// `prompt` already awaits the core completion handle; there is no second
-		// host queue to drain for this adapter.
-		waitForIdle: async () => {},
-		result: () => output,
 	};
 }
 
@@ -386,7 +355,6 @@ export function createAutoTitleCoordinator(
 		activeAgent = undefined;
 		if (agent) attempted = false;
 		agent?.abort();
-		if (agent) void agent.waitForIdle().catch(() => undefined);
 	};
 	const scheduleForcedLaunch = () => {
 		if (disposed || !forceRequested || launchTimer !== undefined) return;
@@ -440,8 +408,7 @@ export function createAutoTitleCoordinator(
 		}, TIMEOUT_MS);
 		void (async () => {
 			try {
-				await agent.prompt(prompt);
-				await agent.waitForIdle();
+				const output = await agent.run(prompt);
 				if (
 					disposed ||
 					activeAgent !== agent ||
@@ -450,7 +417,7 @@ export function createAutoTitleCoordinator(
 					(!forced && pi.getSessionName())
 				)
 					return;
-				const title = safeTitle(agent.result() ?? "");
+				const title = safeTitle(output ?? "");
 				if (!title) {
 					attempted = false;
 					ctx.ui.notify("Automatic title model returned no usable title", "warning");

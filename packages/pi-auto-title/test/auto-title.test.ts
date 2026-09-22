@@ -2,23 +2,18 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createJsonSettingsStorage } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import {
 	AUTO_TITLE_MODEL_FIELD,
 	AUTO_TITLE_SYSTEM_PROMPT,
-	autoTitleModelOptions,
-	completedTitleText,
 	createAutoTitleCoordinator,
 	createAutoTitleSettingsProvider,
 	createAutoTitleStorage,
 	parseModelRef,
 	renderTitleGenerationShimmer,
 	safeTitle,
-	TITLE_SHIMMER_FRAME_MS,
 	TITLE_SHIMMER_LOOP_MS,
-	TITLE_SHIMMER_STEP_CELLS,
 	TITLE_SHIMMER_TRAVEL_CELLS,
 	TITLE_SHIMMER_WINDOW_CELLS,
 } from "../src/module.js";
@@ -27,12 +22,19 @@ const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
 const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const titleResponse = (title: string): string => JSON.stringify({ title });
-const titleMessage = (stopReason: AssistantMessage["stopReason"], text: string): AssistantMessage =>
-	({
-		role: "assistant",
-		content: [{ type: "text", text }],
-		stopReason,
-	}) as unknown as AssistantMessage;
+
+function testEvents() {
+	const handlers = new Map<string, (value: unknown) => void>();
+	return {
+		events: {
+			on: (channel: string, handler: (value: unknown) => void) => {
+				handlers.set(channel, handler);
+				return () => handlers.delete(channel);
+			},
+		},
+		emit: (channel: string, value: unknown = {}) => handlers.get(channel)?.(value),
+	};
+}
 
 describe("Pi Auto Title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
@@ -97,18 +99,6 @@ describe("Pi Auto Title", () => {
 		expect(safeTitle("\n\n")).toBeUndefined();
 	});
 
-	test("uses title text only from a completed assistant message", () => {
-		expect(completedTitleText([titleMessage("stop", "Fix title extraction")])).toBe(
-			"Fix title extraction",
-		);
-		expect(
-			completedTitleText([
-				titleMessage("length", "We need answer title in Chinese. Need concise searchable 2-6"),
-			]),
-		).toBeUndefined();
-		expect(completedTitleText([titleMessage("toolUse", "Unexpected tool call")])).toBeUndefined();
-	});
-
 	test("renders a two-second right-half greyscale shimmer for title generation", () => {
 		const initial = renderTitleGenerationShimmer(0);
 		const middle = renderTitleGenerationShimmer(1_500);
@@ -117,11 +107,6 @@ describe("Pi Auto Title", () => {
 		expect(initial).not.toBe(middle);
 		expect(initial.replace(ANSI_SGR, "")).toBe("Generating title");
 		expect(renderTitleGenerationShimmer(0)).toBe(renderTitleGenerationShimmer(2_000));
-		expect((TITLE_SHIMMER_LOOP_MS / TITLE_SHIMMER_FRAME_MS) * TITLE_SHIMMER_STEP_CELLS).toBe(
-			TITLE_SHIMMER_TRAVEL_CELLS,
-		);
-		expect(TITLE_SHIMMER_FRAME_MS).toBe(100);
-		expect(TITLE_SHIMMER_STEP_CELLS).toBeCloseTo(1.3, 3);
 		expect(TITLE_SHIMMER_WINDOW_CELLS).toBe(4);
 		const peakAtFourthCell = renderTitleGenerationShimmer(
 			((4 + 5) / TITLE_SHIMMER_TRAVEL_CELLS) * TITLE_SHIMMER_LOOP_MS,
@@ -129,23 +114,6 @@ describe("Pi Auto Title", () => {
 		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110me");
 		expect(peakAtFourthCell).toContain("\x1b[38;2;255;255;255mr");
 		expect(peakAtFourthCell).toContain("\x1b[38;2;110;110;110mn");
-	});
-
-	test("lists available models as selectable provider/model options", () => {
-		const options = autoTitleModelOptions([
-			{ provider: "openai", id: "gpt-5", name: "GPT-5" },
-			{ provider: "anthropic", id: "claude-haiku", name: "Haiku" },
-		]);
-		expect(options.map((option) => option.value)).toEqual([
-			"",
-			"anthropic/claude-haiku",
-			"openai/gpt-5",
-		]);
-		expect(options.map((option) => option.label)).toEqual([
-			"Not set",
-			"anthropic/claude-haiku",
-			"openai/gpt-5",
-		]);
 	});
 
 	test("uses the shared fixed-off title model selection", () => {
@@ -267,7 +235,7 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("runs one isolated title agent and records completion after setting title", async () => {
-		const handlers = new Map<string, (value: unknown) => void>();
+		const bus = testEvents();
 		let appended = 0;
 		const entries: Array<{ type: string; customType?: string }> = [];
 		let created = 0;
@@ -277,12 +245,7 @@ describe("Pi Auto Title", () => {
 			releasePrompt = resolve;
 		});
 		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
-				},
-			},
+			events: bus.events,
 			appendEntry: (customType: string) => {
 				appended++;
 				entries.push({ type: "custom", customType });
@@ -311,18 +274,17 @@ describe("Pi Auto Title", () => {
 				created++;
 				expect(model).toBe("provider/model");
 				return {
-					prompt: async (prompt) => {
+					run: async (prompt) => {
 						expect(prompt).toBe(
 							`Primary user request:\n${LONG_SESSION_CONTEXT}\n\nFirst assistant result:\nInitial result\n\nLatest user clarification:\nUse pi-auto-title`,
 						);
 						expect(prompt).not.toContain("noise");
 						await promptDone;
+						return titleResponse("Generated title");
 					},
 					abort: () => {
 						aborted++;
 					},
-					waitForIdle: async () => undefined,
-					result: () => titleResponse("Generated title"),
 				};
 			},
 		);
@@ -346,7 +308,7 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("generates after the first settled turn with short context", async () => {
-		const handlers = new Map<string, (value: unknown) => void>();
+		const bus = testEvents();
 		const userText = "Fix login";
 		const assistantText = "Updated button";
 		const entries: Array<{
@@ -357,12 +319,7 @@ describe("Pi Auto Title", () => {
 		let generatedPrompt: string | undefined;
 		let applied: string | undefined;
 		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
-				},
-			},
+			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => applied,
 			setSessionName: (name: string) => {
@@ -380,12 +337,11 @@ describe("Pi Auto Title", () => {
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
 			created++;
 			return {
-				prompt: async (prompt) => {
+				run: async (prompt) => {
 					generatedPrompt = prompt;
+					return titleResponse("Fix mobile login button");
 				},
 				abort: () => undefined,
-				waitForIdle: async () => undefined,
-				result: () => titleResponse("Fix mobile login button"),
 			};
 		});
 
@@ -404,7 +360,7 @@ describe("Pi Auto Title", () => {
 				},
 			},
 		);
-		handlers.get("agent_settled")?.({});
+		bus.emit("agent_settled");
 		await sleep(0);
 
 		expect(created).toBe(1);
@@ -416,17 +372,12 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("manual trigger waits for idle and replaces an existing title with short context", async () => {
-		const handlers = new Map<string, (value: unknown) => void>();
+		const bus = testEvents();
 		let applied: string | undefined = "Old title";
 		let idle = false;
 		const statuses: Array<{ readonly key: string; readonly text: string | undefined }> = [];
 		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
-				},
-			},
+			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => applied,
 			setSessionName: (name: string) => {
@@ -449,13 +400,11 @@ describe("Pi Auto Title", () => {
 			},
 		};
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => ({
-			prompt: async () => undefined,
+			run: async () => titleResponse("  My   Session  "),
 			abort: () => undefined,
-			waitForIdle: async () => undefined,
-			result: () => titleResponse("  My   Session  "),
 		}));
 
-		handlers.get("agent_settled")?.({});
+		bus.emit("agent_settled");
 		expect(applied).toBe("Old title");
 		coordinator.trigger(true);
 		expect(applied).toBe("Old title");
@@ -471,15 +420,10 @@ describe("Pi Auto Title", () => {
 
 	test("retries after failure with a reloaded coordinator", async () => {
 		const entries: Array<{ type: string; customType?: string }> = [];
-		const handlers = new Map<string, (value: unknown) => void>();
+		const bus = testEvents();
 		let created = 0;
 		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
-				},
-			},
+			events: bus.events,
 			appendEntry: (customType: string) => entries.push({ type: "custom", customType }),
 			getSessionName: () => undefined,
 			setSessionName: () => undefined,
@@ -498,12 +442,10 @@ describe("Pi Auto Title", () => {
 		const createAgent = () => {
 			created++;
 			return {
-				prompt: async () => {
+				run: async () => {
 					throw new Error("failed");
 				},
 				abort: () => undefined,
-				waitForIdle: async () => undefined,
-				result: () => undefined,
 			};
 		};
 
@@ -522,16 +464,11 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("retries after a title model returns an unusable result", async () => {
-		const handlers = new Map<string, (value: unknown) => void>();
+		const bus = testEvents();
 		let created = 0;
 		let result: string | undefined;
 		const pi = {
-			events: {
-				on: (channel: string, handler: (value: unknown) => void) => {
-					handlers.set(channel, handler);
-					return () => handlers.delete(channel);
-				},
-			},
+			events: bus.events,
 			appendEntry: () => undefined,
 			getSessionName: () => result,
 			setSessionName: (name: string) => {
@@ -551,13 +488,11 @@ describe("Pi Auto Title", () => {
 		const coordinator = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
 			created++;
 			return {
-				prompt: async () => undefined,
-				abort: () => undefined,
-				waitForIdle: async () => undefined,
-				result: () =>
+				run: async () =>
 					created === 1
 						? "We need answer title in Chinese. Need concise searchable 2-6"
 						: titleResponse("Retry title"),
+				abort: () => undefined,
 			};
 		});
 
@@ -565,7 +500,7 @@ describe("Pi Auto Title", () => {
 		await sleep(0);
 		expect(created).toBe(1);
 		expect(result).toBeUndefined();
-		handlers.get("agent_settled")?.({});
+		bus.emit("agent_settled");
 		await sleep(0);
 		expect(created).toBe(2);
 		expect(result).toBe("Retry title");
