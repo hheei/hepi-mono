@@ -180,6 +180,7 @@ import { lkgMessagesToPi, piMessagesToLkg } from "./lkg-pi";
 import { hasVisibleNoteReadCallPi } from "./note-visibility-pi";
 import { resolvePiUsableContextLimit } from "./pi-context-limit";
 import { type PiHistorianDeps, runPiHistorian } from "./pi-historian-runner";
+import { alignedIdsFromPiBranchEntries } from "./pi-session-projection";
 import {
 	convertEntriesToRawMessages,
 	findLastModelKeyFromBranch,
@@ -1123,42 +1124,15 @@ function resolveSessionId(ctx: ExtensionContext): string | undefined {
  */
 /**
  * Collect SessionEntry ids that align 1:1 with `event.messages` —
- * the same `AgentMessage[]` Pi's `buildSessionContext()` produces.
+ * the same `AgentMessage[]` Pi's `buildSessionProjection()` produces.
  *
- * Critical: `getBranch()` returns the entire path from leaf to root,
- * INCLUDING entries that pre-date the latest compaction. Filtering
- * `getBranch()` for `type === "message"` would yield a much larger
- * array than `event.messages`, breaking the index alignment that
- * `<session-history>` boundary trim relies on. We must replicate
- * `buildSessionContext`'s compaction-aware emission order so the
- * resulting `entryIds[]` lines up with `event.messages` exactly.
- *
- * Algorithm — mirrors @earendil-works/pi-coding-agent's
- * `buildSessionContext` implementation (see node_modules/.../core/
- * session-manager.js:108 and our copy of the algorithm in this repo's
- * earlier debug session for `ses_21cba3abaffenqSinaCFbAFF3E`):
- *
- *   1. Find the LATEST compaction entry on the branch (if any).
- *   2. If a compaction exists:
- *      - Emit `undefined` at index 0 for the synthetic compaction
- *        summary message (which has no SessionEntry id).
- *      - Skip every entry before `compaction.firstKeptEntryId`.
- *      - Then emit one id per entry from `firstKeptEntryId` up to
- *        (but not including) the compaction entry itself, plus every
- *        entry AFTER the compaction.
- *      - Each emitted id is the SessionEntry's id for `message` /
- *        `custom_message` / `branch_summary` (the three types that
- *        produce an AgentMessage); other types produce no message
- *        and are simply skipped.
- *   3. If no compaction exists: emit one id per emit-eligible entry
- *      across the full branch path, in path order.
+ * `getBranch()` is the raw path, including pre-compaction history and
+ * `context_edit` entries. The host projection applies the compaction
+ * window and context edits, so ids line up with cloned context messages.
  *
  * Returns `undefined` only when the SessionManager API is unavailable
- * or throws — those are real "we cannot determine alignment" cases.
- * When we successfully traverse the path, we ALWAYS return an array;
- * if the result length doesn't match `expectedLength` we log the
- * divergence (with diagnostics) and still return our best-effort
- * mapping rather than silently disabling the trim.
+ * or throws. Length mismatches still return a padded/sliced best-effort
+ * mapping unless `strict` is set.
  */
 function collectMessageEntryIds(
 	ctx: ExtensionContext,
@@ -1169,7 +1143,6 @@ function collectMessageEntryIds(
 	const sm = ctx.sessionManager as
 		| {
 				getBranch?: ((fromId?: string) => unknown[]) | undefined;
-				getLeafId?: (() => string | undefined) | undefined;
 		  }
 		| undefined;
 	if (typeof sm?.getBranch !== "function") return undefined;
@@ -1182,124 +1155,24 @@ function collectMessageEntryIds(
 	}
 	if (!Array.isArray(entries)) return undefined;
 
-	// Find the latest compaction entry (walk from end → start; same
-	// algorithm Pi's getLatestCompactionEntry uses).
-	let compactionIndex = -1;
-	let firstKeptEntryId: string | undefined;
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const e = entries[i] as {
-			type?: unknown | undefined;
-			firstKeptEntryId?: unknown | undefined;
-		} | null;
-		if (e && typeof e === "object" && e.type === "compaction") {
-			compactionIndex = i;
-			if (typeof e.firstKeptEntryId === "string") {
-				firstKeptEntryId = e.firstKeptEntryId;
-			}
-			break;
+	const ids = alignedIdsFromPiBranchEntries(entries);
+	if (ids.length === expectedLength) return ids;
+
+	log(
+		`[magic-context][pi]${sessionId ? `[${sessionId}]` : ""} collectMessageEntryIds length mismatch: ` +
+			`expected=${expectedLength} got=${ids.length} (totalBranchEntries=${entries.length})` +
+			` — best-effort mapping returned; boundary trim may not match exactly`,
+	);
+	if (strict) return undefined;
+	if (ids.length < expectedLength) {
+		const padded: (string | undefined)[] = [];
+		for (let i = 0; i < expectedLength - ids.length; i++) {
+			padded.push(undefined);
 		}
+		padded.push(...ids);
+		return padded;
 	}
-
-	const ids: (string | undefined)[] = [];
-
-	// Helper: is this entry type one that produces an AgentMessage in
-	// buildSessionContext? Same three types: message, custom_message,
-	// branch_summary (the latter only when summary is set). Note that
-	// branch_summary entries with `summary === undefined` are skipped
-	// by buildSessionContext but we accept all branch_summary entries
-	// here for robustness — the worst case is we emit an extra id that
-	// never matches a compartment boundary, which is harmless.
-	const isEmitEligible = (entry: unknown): entry is { id: string } => {
-		if (!entry || typeof entry !== "object") return false;
-		const t = (entry as { type?: unknown }).type;
-		const id = (entry as { id?: unknown }).id;
-		if (typeof id !== "string") return false;
-		if (t === "message") return true;
-		if (t === "custom_message") return true;
-		if (t === "branch_summary") {
-			const summary = (entry as { summary?: unknown }).summary;
-			return typeof summary === "string" && summary.length > 0;
-		}
-		return false;
-	};
-
-	if (compactionIndex >= 0) {
-		// Index 0 = synthetic compaction summary — no SessionEntry id.
-		ids.push(undefined);
-
-		// Pre-compaction: emit ids from firstKeptEntryId (inclusive) up to
-		// compactionIndex (exclusive). If firstKeptEntryId is undefined or
-		// not found, emit nothing for the pre-compaction window (that's
-		// what buildSessionContext does).
-		if (firstKeptEntryId !== undefined) {
-			let foundFirstKept = false;
-			for (let i = 0; i < compactionIndex; i++) {
-				const entry = entries[i];
-				const entryId = (entry as { id?: unknown } | null)?.id;
-				if (typeof entryId === "string" && entryId === firstKeptEntryId) {
-					foundFirstKept = true;
-				}
-				if (!foundFirstKept) continue;
-				if (isEmitEligible(entry)) {
-					ids.push(entry.id);
-				}
-			}
-		}
-
-		// Post-compaction: emit ids for every emit-eligible entry after
-		// the compaction marker.
-		for (let i = compactionIndex + 1; i < entries.length; i++) {
-			const entry = entries[i];
-			if (isEmitEligible(entry)) {
-				ids.push(entry.id);
-			}
-		}
-	} else {
-		// No compaction — emit one id per emit-eligible entry across the
-		// full path.
-		for (const entry of entries) {
-			if (isEmitEligible(entry)) {
-				ids.push(entry.id);
-			}
-		}
-	}
-
-	// Length mismatch is a real bug somewhere (probably a SessionEntry
-	// type we're not handling correctly), but we still return our best
-	// guess so the trim is robust. Log so future divergence shows up.
-	if (ids.length !== expectedLength) {
-		const sm2 = sm as {
-			getBranch?: ((fromId?: string) => unknown[]) | undefined;
-		};
-		const totalEntries = entries.length;
-		log(
-			`[magic-context][pi]${sessionId ? `[${sessionId}]` : ""} collectMessageEntryIds length mismatch: ` +
-				`expected=${expectedLength} got=${ids.length} (compactionIndex=${compactionIndex} ` +
-				`firstKeptEntryId=${firstKeptEntryId ?? "<none>"} totalBranchEntries=${totalEntries})` +
-				` — best-effort mapping returned; boundary trim may not match exactly`,
-		);
-		if (strict) return undefined;
-		// Defensively fall back: if we have FEWER ids than expected, pad
-		// with undefined at the front (covers historical compaction-summary
-		// cases where Pi prepended a synthetic message we missed). If we
-		// have MORE ids than expected, slice from the END (post-compaction
-		// matters most for boundary lookup).
-		const _unused = sm2; // satisfy lint about unused alias above
-		void _unused;
-		if (ids.length < expectedLength) {
-			const padded: (string | undefined)[] = [];
-			for (let i = 0; i < expectedLength - ids.length; i++) {
-				padded.push(undefined);
-			}
-			padded.push(...ids);
-			return padded;
-		}
-		// ids.length > expectedLength — slice from the end (the most
-		// recent entries are the ones we need for boundary lookup).
-		return ids.slice(ids.length - expectedLength);
-	}
-
-	return ids;
+	return ids.slice(ids.length - expectedLength);
 }
 
 export function collectMessageEntryIdsStrict(
@@ -1438,56 +1311,13 @@ function addPiBranchEntryToLookup(lookup: PiBranchEntryLookup, entry: unknown): 
 	else lookup.entryIdsByFingerprint.set(fingerprint, [row.id]);
 }
 
-function isPiContextEmitEligible(entry: unknown): entry is { id: string } {
-	if (!entry || typeof entry !== "object") return false;
-	const row = entry as { type?: unknown; id?: unknown; summary?: unknown };
-	if (typeof row.id !== "string") return false;
-	return (
-		row.type === "message" ||
-		row.type === "custom_message" ||
-		(row.type === "branch_summary" && typeof row.summary === "string" && row.summary.length > 0)
-	);
-}
-
-function buildPiAlignedEntryIds(entries: readonly unknown[]): (string | undefined)[] {
-	let compactionIndex = -1;
-	let firstKeptEntryId: string | undefined;
-	for (let index = entries.length - 1; index >= 0; index -= 1) {
-		const row = entries[index] as { type?: unknown; firstKeptEntryId?: unknown } | undefined;
-		if (row?.type !== "compaction") continue;
-		compactionIndex = index;
-		firstKeptEntryId = typeof row.firstKeptEntryId === "string" ? row.firstKeptEntryId : undefined;
-		break;
-	}
-	if (compactionIndex < 0) {
-		return entries.filter(isPiContextEmitEligible).map((entry) => entry.id);
-	}
-
-	const ids: (string | undefined)[] = [undefined];
-	if (firstKeptEntryId !== undefined) {
-		let foundFirstKept = false;
-		for (let index = 0; index < compactionIndex; index += 1) {
-			const entry = entries[index];
-			if ((entry as { id?: unknown } | undefined)?.id === firstKeptEntryId) {
-				foundFirstKept = true;
-			}
-			if (foundFirstKept && isPiContextEmitEligible(entry)) ids.push(entry.id);
-		}
-	}
-	for (let index = compactionIndex + 1; index < entries.length; index += 1) {
-		const entry = entries[index];
-		if (isPiContextEmitEligible(entry)) ids.push(entry.id);
-	}
-	return ids;
-}
-
 function getPiBranchEntryLookup(entries: readonly unknown[]): PiBranchEntryLookup {
 	const cached = piBranchLookupByProjection.get(entries);
 	if (cached) return cached;
 	const lookup: PiBranchEntryLookup = {
 		entryIdByMessageRef: new Map(),
 		entryIdsByFingerprint: new Map(),
-		alignedEntryIds: buildPiAlignedEntryIds(entries),
+		alignedEntryIds: alignedIdsFromPiBranchEntries(entries),
 	};
 	for (const entry of entries) addPiBranchEntryToLookup(lookup, entry);
 	piBranchLookupByProjection.set(entries, lookup);
@@ -1595,7 +1425,10 @@ function readPiBranchEntriesForContext(
 		if (cached && cachedAncestorIndex === cached.entries.length - 1) {
 			const entries = [...cached.entries, ...suffix];
 			if (
-				suffix.some((entry) => (entry as { type?: unknown } | undefined)?.type === "compaction")
+				suffix.some((entry) => {
+					const type = (entry as { type?: unknown } | undefined)?.type;
+					return type === "compaction" || type === "context_edit";
+				})
 			) {
 				return installProjection(leafId, entries);
 			}
@@ -1607,10 +1440,8 @@ function readPiBranchEntriesForContext(
 				const id = (entry as { id: string }).id;
 				cached.indexById.set(id, cached.entries.length + index);
 				addPiBranchEntryToLookup(cached.lookup, entry);
-				if (isPiContextEmitEligible(entry)) {
-					cached.lookup.alignedEntryIds.push(entry.id);
-				}
 			}
+			cached.lookup.alignedEntryIds.push(...alignedIdsFromPiBranchEntries(suffix));
 			const projection = {
 				leafId,
 				branchId: resolvePiProjectionBranchId(sessionId, leafId, entries, cached),
