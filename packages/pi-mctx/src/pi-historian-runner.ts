@@ -375,7 +375,7 @@ export interface PiHistorianDeps {
 	appendCompaction?:
 		| ((
 				summary: string,
-				firstKeptEntryId: string,
+				firstKeptEntryId: string | null,
 				tokensBefore: number,
 				details?: unknown,
 				fromHook?: boolean,

@@ -3561,26 +3561,25 @@ function spawnPiHistorianRun(args: {
 }
 
 function resolvePiAppendCompaction(ctx: ExtensionContext): PiHistorianDeps["appendCompaction"] {
-	const sm = ctx.sessionManager as
-		| {
-				appendCompaction?: (
-					summary: string,
-					firstKeptEntryId: string,
-					tokensBefore: number,
-					details?: unknown,
-					fromHook?: boolean,
-				) => string | undefined;
-		  }
-		| undefined;
-	if (typeof sm?.appendCompaction !== "function") return undefined;
-	return sm.appendCompaction.bind(sm);
+	const sessionManager = ctx.sessionManager as ExtensionContext["sessionManager"] & {
+		appendCompaction?: (
+			summary: string,
+			firstKeptEntryId: string | null,
+			tokensBefore: number,
+			details?: unknown,
+			fromHook?: boolean,
+		) => string;
+	};
+	const appendCompaction = sessionManager.appendCompaction;
+	if (typeof appendCompaction !== "function") return undefined;
+	return appendCompaction.bind(sessionManager);
 }
 
 function resolvePiReadBranchEntries(ctx: ExtensionContext): (() => unknown[]) | undefined {
-	const sm = ctx.sessionManager as { getBranch?: () => unknown[] } | undefined;
-	if (typeof sm?.getBranch !== "function") return undefined;
+	const getBranch = ctx.sessionManager.getBranch;
+	if (typeof getBranch !== "function") return undefined;
 	return () => {
-		const entries = sm.getBranch?.call(sm);
+		const entries = getBranch.call(ctx.sessionManager);
 		if (!Array.isArray(entries)) {
 			throw new Error("Pi sessionManager.getBranch() did not return an array");
 		}
