@@ -44,7 +44,7 @@ const WRITE_PARAMETERS = Type.Object(
 		content: Type.String({ description: "Content to write to the file" }),
 		target: Type.Optional(
 			Type.String({
-				description: "local or an authorized SSH alias. Omit for local. Does not support output.",
+				description: "local or an authorized SSH alias. Omit for local.",
 			}),
 		),
 	},

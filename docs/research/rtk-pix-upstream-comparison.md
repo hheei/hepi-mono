@@ -108,7 +108,7 @@ file + rename。其 default config 同时默认开启 rewrite、binary guard 和
 | resolver：`which`/`where`、首个非空 stdout path、`--version` 探测 | 可复用，但仅在 opt-in setting 启用后调用 | platform 差异已有明确处理；仍应把真实 path 暴露在 result/UI metadata。 |
 | Pix `splitChain` / `rewriteChain` / prompt injection | 不复用 | parser 不是完整 shell grammar；allowlist 会与 RTK 漂移；prompt 是 always-on token 和行为修改。 |
 | 上游 config modal、`/rtk` command、metrics、notice trackers | 不复用 | `pi-ext-tools` 已拥有 setting/lifecycle/TUI；没有第二个 consumer 证明需要通用抽象。 |
-| 上游 output sanitizer/compactor、read/grep mutations | 不复用 | 破坏现有 output URI、tail、ToolTui 和完整结果契约；超出 Bash rewrite 范围。 |
+| 上游 output sanitizer/compactor、read/grep mutations | 不复用 | 破坏现有 bounded tail、ToolTui 和结果契约；超出 Bash rewrite 范围。 |
 | Windows pipeline safety fixups、`RTK_DB_PATH` env prelude | 不复用 V1 | 针对上游自行插入 export 与 Windows pipe 行为；移除 prelude 后无直接需求。 |
 
 ## 最小后续方案
