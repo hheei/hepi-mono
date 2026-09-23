@@ -6,6 +6,7 @@
 	"type": "module",
 	"packageManager": "pnpm@12.4.1",
 	"scripts": {
+		"pi-dev": "scripts/pi-dev",
 		"build": "pnpm --filter @hheei/pi-ext-core run build && pnpm --filter @hheei/pi-auto-title --filter @hheei/pi-dollar-skill --filter @hheei/pi-ext-addon --filter @hheei/pi-ext-tools --filter @hheei/pi-settings --filter @hheei/pi-status --filter @hheei/pi-optimizer --filter @hheei/pi-subagents run build",
 		"validate:packages": "node scripts/validate-package-artifacts.mjs",
 		"check": "biome check . && pnpm run typecheck && pnpm test",

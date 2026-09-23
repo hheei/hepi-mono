@@ -1,6 +1,6 @@
 # 本仓库 Pi 开发启动
 
-`scripts/pi-dev` 增量构建固定的本地扩展组合，并通过 Node 启动仓库依赖中的 Pi host。
+`pi-dev`（或 `scripts/pi-dev`）增量构建固定的本地扩展组合，并通过 Node 启动 Pi host。
 它替换本次进程的默认扩展发现，不写入 Pi 配置；认证、模型、会话和资源仍沿用 Pi 默认路径。
 
 ## 使用
@@ -10,11 +10,11 @@
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
-scripts/pi-dev
+pi-dev # 或 scripts/pi-dev
 ```
 
-Pi 参数直接追加，例如 `scripts/pi-dev --model <provider/model>`。
-启动器从 `packages/pi-ext-tools/node_modules/@earendil-works/pi-coding-agent` 解析 Pi CLI。
+Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
+启动器优先解析全局安装的 Pi CLI（或 `PI_CLI` 环境变量），回退时从 `packages/pi-ext-tools/node_modules/@earendil-works/pi-coding-agent` 解析本地 Pi CLI。
 
 ## 固定加载组合
 
@@ -22,11 +22,15 @@ Pi 参数直接追加，例如 `scripts/pi-dev --model <provider/model>`。
 
 | 扩展 | 入口 | 启动前处理 |
 | --- | --- | --- |
-| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
+| `pi-auto-title` | `packages/pi-auto-title/dist/extension.js` | 增量构建 TypeScript |
 | `pi-dollar-skill` | `packages/pi-dollar-skill/dist/extension.js` | 增量构建 TypeScript |
+| `pi-ext-addon` | `packages/pi-ext-addon/dist/extension.js` | 增量构建 TypeScript |
+| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
+| `pi-optimizer` | `packages/pi-optimizer/dist/extension.js` | 增量构建 TypeScript |
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
+| `pi-status` | `packages/pi-status/dist/extension.js` | 增量构建 TypeScript |
+| `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
 | `pi-mctx` | `packages/pi-mctx/src/index.ts` | Pi 直接加载 TypeScript 源码 |
-
 `pi-ext-core` 在上述 TypeScript 扩展之前构建，但不会作为扩展加载。
 没有包选择环境变量；仅运行某个扩展时，使用[开始使用](../user/getting-started.md)中的直接加载命令。
 

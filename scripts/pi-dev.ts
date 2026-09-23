@@ -1,17 +1,58 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
-const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
-const dollarSkillPackageDir = path.join(packageRoot, "pi-dollar-skill");
-const settingsPackageDir = path.join(packageRoot, "pi-settings");
 const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const buildCacheDir = path.join(root, ".pi-dev");
+const builtPackageNames = [
+	"pi-auto-title",
+	"pi-dollar-skill",
+	"pi-ext-addon",
+	"pi-ext-tools",
+	"pi-optimizer",
+	"pi-settings",
+	"pi-status",
+	"pi-subagents",
+] as const;
+const builtPackageDirs = builtPackageNames
+	.map((name) => path.join(packageRoot, name))
+	.filter(existsSync);
+const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
+
+function resolveGlobalPiCli(): string | undefined {
+	if (process.env.PI_CLI && existsSync(process.env.PI_CLI)) {
+		return process.env.PI_CLI;
+	}
+	try {
+		const whichCmd = process.platform === "win32" ? "where" : "which";
+		const stdout = spawnSync(whichCmd, ["pi"], { encoding: "utf8" }).stdout?.trim();
+		if (!stdout) return undefined;
+		const firstLine = stdout.split(/\r?\n/)[0]?.trim();
+		if (!firstLine) return undefined;
+		const real = realpathSync(firstLine);
+		if (existsSync(real) && real.includes("pi-coding-agent")) {
+			return real;
+		}
+	} catch {
+		// Fall back to candidate paths.
+	}
+	return undefined;
+}
+
+const globalPiCli = resolveGlobalPiCli();
 const piCliCandidates = [
+	globalPiCli,
 	path.join(
 		toolsPackageDir,
 		"node_modules",
@@ -29,11 +70,11 @@ const piCliCandidates = [
 		"dist",
 		"cli.js",
 	),
-];
+	path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"),
+].filter((candidate): candidate is string => Boolean(candidate));
 const piCli = piCliCandidates.find((candidate) => existsSync(candidate));
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const requiredBuildDirectories = [path.join(packageRoot, "pi-ext-core")].filter(existsSync);
-
 if (!piCli) {
 	console.error("Missing local Pi. Run pnpm install from the repository root.");
 	process.exit(1);
@@ -85,12 +126,7 @@ function runWorkspaceScript(directory: string, script: string): void {
 
 mkdirSync(buildCacheDir, { recursive: true });
 const buildStatePath = path.join(buildCacheDir, "build.json");
-const buildDirectories = [
-	...requiredBuildDirectories,
-	toolsPackageDir,
-	dollarSkillPackageDir,
-	settingsPackageDir,
-];
+const buildDirectories = [...requiredBuildDirectories, ...builtPackageDirs];
 const typescriptFingerprint = buildFingerprint(buildDirectories);
 let cachedTypeScriptFingerprint: string | undefined;
 try {
@@ -116,16 +152,16 @@ if (needsTypeScriptBuild) {
 	writeFileSync(buildStatePath, `${JSON.stringify({ typescriptFingerprint })}\n`);
 }
 
-const extensionArgs = [
-	"--extension",
-	path.join(toolsPackageDir, "dist", "extension.js"),
-	"--extension",
-	path.join(dollarSkillPackageDir, "dist", "extension.js"),
-	"--extension",
-	path.join(settingsPackageDir, "dist", "extension.js"),
-	"--extension",
-	mctxExtensionPath,
-];
+const extensionArgs: string[] = [];
+for (const directory of builtPackageDirs) {
+	const extensionPath = path.join(directory, "dist", "extension.js");
+	if (existsSync(extensionPath)) {
+		extensionArgs.push("--extension", extensionPath);
+	}
+}
+if (existsSync(mctxExtensionPath)) {
+	extensionArgs.push("--extension", mctxExtensionPath);
+}
 const childEnv = { ...process.env };
 delete childEnv.OPENAI_API_KEY;
 const result = spawnSync(
