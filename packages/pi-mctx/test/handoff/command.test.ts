@@ -122,7 +122,9 @@ describe("handoff command", () => {
 		const warnings: string[] = [];
 		try {
 			await runHandoffCommand(
-				{} as never,
+				{
+					appendEntry() {},
+				} as never,
 				{
 					db,
 					compactionOff: false,
@@ -181,7 +183,7 @@ describe("handoff command", () => {
 		try {
 			expect(acquireHandoffLease(db, "sess-1", "other", "req-hold", "summarizing")).not.toBeNull();
 			await runHandoffCommand(
-				{} as never,
+				{ appendEntry() {} } as never,
 				{
 					db,
 					compactionOff: false,

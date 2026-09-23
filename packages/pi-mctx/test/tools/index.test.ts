@@ -16,6 +16,7 @@ describe("registerMagicContextTools", () => {
 				registerCommand: (name: string) => {
 					commands.push(name);
 				},
+				on: () => undefined,
 			} as never;
 
 			registerMagicContextTools(pi, {
@@ -47,6 +48,7 @@ describe("registerMagicContextTools", () => {
 				}) => {
 					registered.set(tool.name, tool);
 				},
+				on: () => undefined,
 				registerCommand: () => undefined,
 			} as never;
 			registerMagicContextTools(pi, {
@@ -75,6 +77,7 @@ describe("registerMagicContextTools", () => {
 			const registered: string[] = [];
 			const pi = {
 				registerTool: (tool: { name: string }) => registered.push(tool.name),
+				on: () => undefined,
 				registerCommand: () => undefined,
 			} as never;
 			registerMagicContextTools(pi, { db, compactionOff: true });
@@ -109,6 +112,7 @@ describe("registerMagicContextTools", () => {
 						additionalProperties?: unknown;
 					};
 				}) => registered.set(tool.name, tool),
+				on: () => undefined,
 				registerCommand: () => undefined,
 			} as never;
 
@@ -212,6 +216,7 @@ describe("registerMagicContextTools", () => {
 				registerTool: (tool: { name: string; execute: (...args: never[]) => unknown }) => {
 					registered.set(tool.name, tool);
 				},
+				on: () => undefined,
 				registerCommand: () => undefined,
 			} as never;
 
