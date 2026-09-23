@@ -1,13 +1,15 @@
 # @hheei/pi-ext-tools
 
-Canonical owner for Pi `read`, `grep`, `find`, `edit`, `write`, `bash`, strict Codex V4A
-`apply_patch`, `todo`, and FFF-only `fff_multi_grep`. Todo includes `/todos`, task scheduling,
-reminders, and the editor widget. `apply_patch` matches and rewrites text in pure
+Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
+`bash_job`, strict Codex V4A `apply_patch`, opt-in `eval`, and `todo`.
+Todo includes `/todos`, task scheduling, reminders, and the editor widget.
+`apply_patch` matches and rewrites text in pure
 JavaScript with jsdiff; it never requires a user-managed executable or a package-owned
 native addon. `@hheei/pi-ext-core` is a production dependency, not a separately loaded
 Pi extension. Install `@hheei/pi-settings` separately for the Settings and Loadout UI.
 
-FFF runtime, commands, autocomplete, and enhancement settings are included.
+FFF runtime, commands, autocomplete, and enhancement settings are included;
+`fff_multi_grep` is not registered as a model tool.
 
 ## apply_patch
 

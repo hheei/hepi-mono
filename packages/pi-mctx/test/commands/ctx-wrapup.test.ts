@@ -128,6 +128,7 @@ function pi() {
 	const sent: Array<{ message: { content: string } }> = [];
 	return {
 		api: {
+			appendEntry() {},
 			sendMessage(message: { content: string }) {
 				sent.push({ message });
 			},
