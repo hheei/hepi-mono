@@ -156,7 +156,7 @@ export function createDollarSkillSettingsProvider(
 ): SettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
-		id: "pi-dollar-skill",
+		id: "dollar-skill",
 		title: "Dollar skill references",
 		origin: "@hheei/pi-ext-addon",
 		description: "Skill autocomplete and prompt-time path references.",

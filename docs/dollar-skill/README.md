@@ -5,11 +5,11 @@
 `SKILL.md` 路径。仅已加载的 skill 可引用；非 TUI 模式仍执行输入替换。编辑器将已知
 引用作为原子单元移动和删除。此功能为 opt-in，預設關閉。
 
-配置存于 `pi-dollar-skill` 顶层 section：
+配置存于 `dollar-skill` 顶层 section（亦兼容旧 `pi-dollar-skill`）：
 
 ```json
 {
-  "pi-dollar-skill": {
+  "dollar-skill": {
     "enabled": false,
     "maxSuggestions": 50
   }
