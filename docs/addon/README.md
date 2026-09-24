@@ -10,15 +10,13 @@ API 为 `openai-responses` 时重写该 payload。它可移除 assistant 与 rea
 的 `status`，并将 assistant 的 `item_` ID 改为 `msg_pi_` ID。其他 provider、input
 item 与 payload 保持不变。
 
-扩展通过 ext-core 注册 settings provider。配置存于 `pi-ext-addon` 顶层 section：
+扩展通过 ext-core 注册 settings provider。配置存于 `openai-responses-compat` 顶层 section：
 
 ```json
 {
-  "pi-ext-addon": {
-    "openai-responses-compat": {
-      "stripAssistantMessageStatus": true,
-      "normalizeAssistantMessageId": true
-    }
+  "openai-responses-compat": {
+    "stripAssistantMessageStatus": true,
+    "normalizeAssistantMessageId": true
   }
 }
 ```
