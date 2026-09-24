@@ -1,4 +1,47 @@
-export { default, default as piExtAddonExtension } from "./extension.js";
+export {
+	AUTO_TITLE_FIELD,
+	AUTO_TITLE_GROUP,
+	AUTO_TITLE_MODEL_FIELD,
+	AUTO_TITLE_SETTINGS_PROVIDER_ID,
+	AUTO_TITLE_SYSTEM_PROMPT,
+	type AutoTitleAgentAdapter,
+	type AutoTitleAgentFactory,
+	type AutoTitleCoordinator,
+	type AutoTitleModelOption,
+	type AutoTitleRuntime,
+	type AutoTitleSettingsOptions,
+	type AutoTitleStorageOptions,
+	createAutoTitleCoordinator,
+	createAutoTitleSettingsProvider,
+	createAutoTitleStorage,
+	createCoreAutoTitleAgent,
+	parseModelRef,
+	safeTitle,
+} from "./auto-title.js";
+export {
+	createDollarSkillAtomicEditor,
+	createDollarSkillAutocompleteProvider,
+	createDollarSkillFeature,
+	createDollarSkillSettingsProvider,
+	DEFAULT_DOLLAR_SKILL_CONFIG,
+	DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS,
+	DOLLAR_SKILL_SETTINGS_GROUP,
+	type DollarSkillCommand,
+	type DollarSkillConfig,
+	type DollarSkillFeature,
+	type DollarSkillToken,
+	dollarSkillSettingsPath,
+	expandDollarSkillReferences,
+	extractDollarSkillToken,
+	getDollarSkillSuggestions,
+	loadDollarSkillConfig,
+	MAX_DOLLAR_SKILL_SUGGESTIONS,
+	normalizeDollarSkillConfig,
+	registerDollarSkillInputTransform,
+	saveDollarSkillConfig,
+} from "./dollar-skill/index.js";
+export { default } from "./extension.js";
+
 export {
 	applyOpenAIResponsesCompat,
 	createOpenAIResponsesCompatFeature,
@@ -9,6 +52,5 @@ export {
 	OPENAI_RESPONSES_NORMALIZE_MESSAGE_ID_FIELD,
 	type OpenAIResponsesCompatConfig,
 	type OpenAIResponsesCompatFeature,
-	type OpenAIResponsesCompatOptions,
 	stripAssistantMessageStatus,
 } from "./openai-responses-compat.js";

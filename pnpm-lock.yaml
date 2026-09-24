@@ -194,16 +194,6 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@22.20.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
 
-  packages/pi-auto-title:
-    dependencies:
-      '@hheei/pi-ext-core':
-        specifier: workspace:^
-        version: link:../pi-ext-core
-    devDependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.87.0
-        version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
-
   packages/pi-debug:
     dependencies:
       '@hheei/pi-ext-core':
@@ -226,7 +216,7 @@ importers:
         specifier: 4.1.4
         version: 4.1.4
 
-  packages/pi-dollar-skill:
+  packages/pi-ext-addon:
     dependencies:
       '@hheei/pi-ext-core':
         specifier: workspace:^
@@ -238,16 +228,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.87.0
         version: 0.87.0(patch_hash=d90b53c5285a0a63d23c8ada785daed63fb030547235c0177286f223f2dad440)
-
-  packages/pi-ext-addon:
-    dependencies:
-      '@hheei/pi-ext-core':
-        specifier: workspace:^
-        version: link:../pi-ext-core
-    devDependencies:
-      '@earendil-works/pi-coding-agent':
-        specifier: 0.87.0
-        version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
 
   packages/pi-ext-core:
     dependencies:

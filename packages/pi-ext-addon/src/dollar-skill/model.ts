@@ -26,7 +26,7 @@ export interface DollarSkillConfig {
 }
 
 export const DEFAULT_DOLLAR_SKILL_CONFIG: DollarSkillConfig = {
-	enabled: true,
+	enabled: false,
 	maxSuggestions: DEFAULT_DOLLAR_SKILL_MAX_SUGGESTIONS,
 };
 

@@ -22,8 +22,6 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 
 | 扩展 | 入口 | 启动前处理 |
 | --- | --- | --- |
-| `pi-auto-title` | `packages/pi-auto-title/dist/extension.js` | 增量构建 TypeScript |
-| `pi-dollar-skill` | `packages/pi-dollar-skill/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-addon` | `packages/pi-ext-addon/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
 | `pi-optimizer` | `packages/pi-optimizer/dist/extension.js` | 增量构建 TypeScript |

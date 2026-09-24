@@ -12,7 +12,7 @@ import {
 	createAutoTitleStorage,
 	parseModelRef,
 	safeTitle,
-} from "../src/module.js";
+} from "../src/auto-title.js";
 
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);

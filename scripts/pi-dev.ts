@@ -16,8 +16,6 @@ const packageRoot = path.join(root, "packages");
 const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const buildCacheDir = path.join(root, ".pi-dev");
 const builtPackageNames = [
-	"pi-auto-title",
-	"pi-dollar-skill",
 	"pi-ext-addon",
 	"pi-ext-tools",
 	"pi-optimizer",
