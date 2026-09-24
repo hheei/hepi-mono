@@ -1,10 +1,14 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type CompletionSubagentHandle,
+	clampThinkingLevel,
 	createJsonSettingsStorage,
 	createModelSelectionField,
 	type ExtensionLifecycleContext,
+	type ModelSelectionCandidate,
 	type ModelSelectionOption,
+	type ModelSelectionRegistry,
+	type ModelThinkingLevel,
 	type SettingField,
 	type SettingsContext,
 	type SettingsProvider,
@@ -73,7 +77,25 @@ export function parseModelRef(value: string): { provider: string; model: string 
 	return { provider: split[0], model: split[1] };
 }
 
-function autoTitleFields(modelOptions: readonly AutoTitleModelOption[]): readonly SettingField[] {
+function resolveAutoTitleThinkingLevel(
+	modelRef: string,
+	modelRegistry?: ModelSelectionRegistry<ModelSelectionCandidate>,
+): ModelThinkingLevel {
+	if (!modelRef) return "off";
+	try {
+		const { provider, model: modelId } = parseModelRef(modelRef);
+		const model = modelRegistry?.find?.(provider, modelId);
+		if (model) return clampThinkingLevel(model as never, "off");
+	} catch {
+		// Ignore invalid or empty ref
+	}
+	return "off";
+}
+
+function autoTitleFields(
+	modelOptions: readonly AutoTitleModelOption[],
+	modelRegistry?: ModelSelectionRegistry<ModelSelectionCandidate>,
+): readonly SettingField[] {
 	return [
 		{
 			id: AUTO_TITLE_FIELD,
@@ -92,7 +114,8 @@ function autoTitleFields(modelOptions: readonly AutoTitleModelOption[]): readonl
 			label: "title model",
 			description: "Choose the model used for title generation.",
 			modelOptions,
-			thinking: "off",
+			thinking: (value) => resolveAutoTitleThinkingLevel(value, modelRegistry),
+			enabled: (state) => state[AUTO_TITLE_GROUP]?.[AUTO_TITLE_FIELD] === true,
 		}),
 	];
 }
@@ -100,6 +123,7 @@ function autoTitleFields(modelOptions: readonly AutoTitleModelOption[]): readonl
 export interface AutoTitleSettingsOptions {
 	readonly path?: string;
 	readonly modelOptions?: readonly AutoTitleModelOption[];
+	readonly modelRegistry?: ModelSelectionRegistry<ModelSelectionCandidate>;
 	readonly validate?: (value: string, ctx: SettingsContext) => Promise<void> | void;
 	readonly prepareEnable?: (model?: string) => Promise<void> | void;
 	readonly onSettingsChange?: (enabled: boolean, model: string) => Promise<void> | void;
@@ -118,7 +142,10 @@ export function createAutoTitleSettingsProvider(
 			{
 				id: AUTO_TITLE_GROUP,
 				title: "",
-				fields: autoTitleFields(options.modelOptions ?? [{ value: "", label: "Not set" }]),
+				fields: autoTitleFields(
+					options.modelOptions ?? [{ value: "", label: "Not set" }],
+					options.modelRegistry,
+				),
 			},
 		],
 		storage: backingStorage,
@@ -271,12 +298,13 @@ export function createCoreAutoTitleAgent(
 		run: async (prompt) => {
 			if (runtime.lifecycle === undefined)
 				throw new Error("Auto-title completion lifecycle unavailable");
+			const thinkingLevel = clampThinkingLevel(model, "off");
 			handle = startSubagent(runtime.lifecycle, {
 				mode: "completion",
 				model,
 				prompt,
 				systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
-				thinkingLevel: "off",
+				thinkingLevel,
 			});
 			const result = await handle.result;
 			if (result.status !== "completed")

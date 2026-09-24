@@ -82,9 +82,11 @@ export type {
 	ModelSelectionRegistry,
 	ModelThinkingCycle,
 	ModelThinkingLevel,
+	ModelThinkingResolver,
 } from "./model-selection.js";
 export {
 	authenticatedModelSelectionOptions,
+	clampThinkingLevel,
 	createModelSelectionField,
 	modelSelectionOptions,
 	thinkingGlyph,

@@ -1,16 +1,22 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	authenticatedModelSelectionOptions,
+	clampThinkingLevel,
 	createJsonSettingsStorage,
+	createModelSelectionField,
 	defaultExtensionSettingsPaths,
 	getRuntimeSettingsRegistry,
+	type ModelSelectionCandidate,
+	type ModelSelectionOption,
+	type ModelSelectionRegistry,
+	type ModelThinkingLevel,
 	type SettingField,
 	type SettingsProvider,
 	type SettingsState,
 	type SettingValue,
 } from "@hheei/pi-ext-core";
 import {
-	DEFAULT_LOCAL_EMBEDDING_MODEL,
 	type MagicContextConfig,
 	MagicContextConfigSchema,
 } from "#core/config/schema/magic-context";
@@ -41,23 +47,7 @@ const HISTORIAN_TIMEOUT_FIELD = "historianTimeoutMs";
 const HISTORY_BUDGET_FIELD = "historyBudgetPercentage";
 const COMMIT_CLUSTER_TRIGGER_ENABLED_FIELD = "commitClusterTriggerEnabled";
 const COMMIT_CLUSTER_MIN_CLUSTERS_FIELD = "commitClusterMinClusters";
-const DREAMER_ENABLED_FIELD = "dreamerEnabled";
-const DREAMER_MODEL_FIELD = "dreamerModel";
-const DREAMER_INJECT_DOCS_FIELD = "dreamerInjectDocs";
 const SIDEKICK_MODEL_FIELD = "sidekickModel";
-const EMBEDDING_PROVIDER_FIELD = "embeddingProvider";
-const EMBEDDING_MODEL_FIELD = "embeddingModel";
-const EMBEDDING_ENDPOINT_FIELD = "embeddingEndpoint";
-const EMBEDDING_API_KEY_ENV_FIELD = "embeddingApiKeyEnv";
-const AGENTMEMORY_ENABLED_FIELD = "agentmemoryEnabled";
-const AGENTMEMORY_URL_FIELD = "agentmemoryUrl";
-const AGENTMEMORY_SECRET_FIELD = "agentmemorySecret";
-const AGENTMEMORY_AGENT_ID_FIELD = "agentmemoryAgentId";
-const AGENTMEMORY_CAPTURE_FIELD = "agentmemoryCapture";
-const AGENTMEMORY_INJECT_FIELD = "agentmemoryInject";
-const AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD = "agentmemoryHistorianRetrieval";
-const AGENTMEMORY_MEMORY_TOOLS_FIELD = "agentmemoryMemoryTools";
-const AGENTMEMORY_REQUIRE_HTTPS_FIELD = "agentmemoryRequireHttps";
 
 const DEFAULT_CONFIG = MagicContextConfigSchema.parse({});
 let bootConfig: MagicContextConfig | undefined;
@@ -117,20 +107,6 @@ function textField(args: {
 	};
 }
 
-function environmentVariableField(args: {
-	id: string;
-	label: string;
-	description: string;
-}): SettingField<string> {
-	return {
-		...textField(args),
-		validate: (value) =>
-			value === "" || /^[A-Z_][A-Z0-9_]*$/.test(value)
-				? undefined
-				: "Enter an uppercase environment variable name.",
-	};
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -183,38 +159,8 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 		HISTORIAN_ENABLED_FIELD,
 		DEFAULT_CONFIG.historian?.disable !== true,
 	);
-	const dreamerEnabled = settingBoolean(
-		state,
-		DREAMER_ENABLED_FIELD,
-		DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true,
-	);
 	const historianModel = settingText(state, HISTORIAN_MODEL_FIELD);
-	const dreamerModel = settingText(state, DREAMER_MODEL_FIELD);
 	const sidekickModel = settingText(state, SIDEKICK_MODEL_FIELD);
-	const embeddingProvider = settingText(state, EMBEDDING_PROVIDER_FIELD);
-	const embeddingModel = settingText(state, EMBEDDING_MODEL_FIELD);
-	const embeddingEndpoint = settingText(state, EMBEDDING_ENDPOINT_FIELD);
-	const embeddingApiKeyEnv = settingText(state, EMBEDDING_API_KEY_ENV_FIELD);
-	const embeddingApiKey =
-		embeddingApiKeyEnv && /^[A-Z_][A-Z0-9_]*$/.test(embeddingApiKeyEnv)
-			? process.env[embeddingApiKeyEnv]
-			: undefined;
-	const embedding =
-		embeddingProvider === "off"
-			? { provider: "off" as const }
-			: embeddingProvider === "openai-compatible" && embeddingModel && embeddingEndpoint
-				? {
-						provider: "openai-compatible" as const,
-						model: embeddingModel,
-						endpoint: embeddingEndpoint,
-						...(embeddingApiKey ? { api_key: embeddingApiKey } : {}),
-					}
-				: embeddingProvider === "local"
-					? {
-							provider: "local" as const,
-							model: embeddingModel ?? DEFAULT_LOCAL_EMBEDDING_MODEL,
-						}
-					: DEFAULT_CONFIG.embedding;
 
 	const parsed = MagicContextConfigSchema.parse({
 		enabled: settingBoolean(state, ENABLED_FIELD, DEFAULT_CONFIG.enabled),
@@ -334,40 +280,8 @@ export function resolvePiMctxSettings(state: SettingsState = {}): MagicContextCo
 				),
 			},
 		},
-		embedding,
-		dreamer: dreamerEnabled
-			? {
-					...(dreamerModel ? { model: dreamerModel } : {}),
-					inject_docs: settingBoolean(
-						state,
-						DREAMER_INJECT_DOCS_FIELD,
-						DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
-					),
-				}
-			: undefined,
-		agentmemory: {
-			enabled: settingBoolean(state, AGENTMEMORY_ENABLED_FIELD, DEFAULT_CONFIG.agentmemory.enabled),
-			url: settingText(state, AGENTMEMORY_URL_FIELD) ?? DEFAULT_CONFIG.agentmemory.url,
-			secret: settingText(state, AGENTMEMORY_SECRET_FIELD) ?? "",
-			agentId: settingText(state, AGENTMEMORY_AGENT_ID_FIELD) ?? "",
-			capture: settingBoolean(state, AGENTMEMORY_CAPTURE_FIELD, DEFAULT_CONFIG.agentmemory.capture),
-			inject: settingBoolean(state, AGENTMEMORY_INJECT_FIELD, DEFAULT_CONFIG.agentmemory.inject),
-			historianRetrieval: settingBoolean(
-				state,
-				AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD,
-				DEFAULT_CONFIG.agentmemory.historianRetrieval,
-			),
-			memoryTools: settingBoolean(
-				state,
-				AGENTMEMORY_MEMORY_TOOLS_FIELD,
-				DEFAULT_CONFIG.agentmemory.memoryTools,
-			),
-			requireHttps: settingBoolean(
-				state,
-				AGENTMEMORY_REQUIRE_HTTPS_FIELD,
-				DEFAULT_CONFIG.agentmemory.requireHttps,
-			),
-		},
+		embedding: DEFAULT_CONFIG.embedding,
+		agentmemory: DEFAULT_CONFIG.agentmemory,
 		...(sidekickModel ? { sidekick: { model: sidekickModel } } : {}),
 	});
 	return {
@@ -409,11 +323,44 @@ export function resetPiMctxConfigForReload(): void {
 	bootConfig = undefined;
 }
 
-export function createPiMctxSettingsProvider(): SettingsProvider {
+function parseModelRef(value: string): { provider: string; model: string } | undefined {
+	const split = value.trim().split("/");
+	if (split.length !== 2 || !split[0] || !split[1] || split.some((part) => part.includes("\\")))
+		return undefined;
+	return { provider: split[0], model: split[1] };
+}
+
+function resolveHistorianThinkingLevel(
+	modelRef: string,
+	modelRegistry?: ModelSelectionRegistry<ModelSelectionCandidate>,
+): ModelThinkingLevel {
+	if (!modelRef) return "off";
+	const ref = parseModelRef(modelRef);
+	if (!ref) return "off";
+	try {
+		const model = modelRegistry?.find?.(ref.provider, ref.model);
+		if (model) return clampThinkingLevel(model as never, "off");
+	} catch {
+		// Ignore lookup failures
+	}
+	return "off";
+}
+
+export interface PiMctxSettingsOptions {
+	readonly modelRegistry?: ModelSelectionRegistry<ModelSelectionCandidate>;
+	readonly modelOptions?: readonly ModelSelectionOption[];
+}
+
+export function createPiMctxSettingsProvider(
+	options: PiMctxSettingsOptions = {},
+): SettingsProvider {
 	const memory = DEFAULT_CONFIG.memory;
 	const historianEnabled = DEFAULT_CONFIG.historian?.disable !== true;
-	const dreamerEnabled =
-		DEFAULT_CONFIG.dreamer !== undefined && DEFAULT_CONFIG.dreamer.disable !== true;
+	const modelOptions =
+		options.modelOptions ??
+		(options.modelRegistry
+			? authenticatedModelSelectionOptions(options.modelRegistry)
+			: [{ value: "", label: "Not set" }]);
 	return {
 		id: PI_MCTX_SETTINGS_PROVIDER_ID,
 		title: "Magic Context",
@@ -531,11 +478,14 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 						defaultValue: historianEnabled,
 						description: "Enable historian runs that prepare and summarize long session context.",
 					}),
-					textField({
+					createModelSelectionField({
 						id: HISTORIAN_MODEL_FIELD,
 						label: "historian model",
 						description:
 							"Pi provider/model ID for historian runs, for example github-copilot/gpt-5.4. Leave empty to disable historian calls.",
+						modelOptions,
+						thinking: (value) => resolveHistorianThinkingLevel(value, options.modelRegistry),
+						enabled: (state) => state[PI_MCTX_SETTINGS_GROUP]?.[HISTORIAN_ENABLED_FIELD] !== false,
 					}),
 					booleanField({
 						id: HISTORIAN_TWO_PASS_FIELD,
@@ -571,116 +521,11 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 						description: "Require this many commit clusters before triggering historian work.",
 						minimum: 1,
 					}),
-					booleanField({
-						id: DREAMER_ENABLED_FIELD,
-						label: "dreamer (deprecated)",
-						defaultValue: dreamerEnabled,
-						description:
-							"Deprecated. Opt in to Dreamer background tasks. Default is off; existing implementation still runs when enabled.",
-					}),
-					textField({
-						id: DREAMER_MODEL_FIELD,
-						label: "dreamer model (deprecated)",
-						description:
-							"Deprecated. Pi provider/model ID for Dreamer tasks. Leave empty to use existing task session-model fallback where available.",
-					}),
-					booleanField({
-						id: DREAMER_INJECT_DOCS_FIELD,
-						label: "dreamer project docs (deprecated)",
-						defaultValue: DEFAULT_CONFIG.dreamer?.inject_docs ?? true,
-						description:
-							"Deprecated. Inject project documentation into Dreamer task prompts after reload.",
-					}),
 					textField({
 						id: SIDEKICK_MODEL_FIELD,
 						label: "sidekick model",
 						description:
 							"Pi provider/model ID for sidekick retrieval runs. Leave empty to disable sidekick calls.",
-					}),
-					textField({
-						id: EMBEDDING_PROVIDER_FIELD,
-						label: "embedding provider (deprecated)",
-						defaultValue: DEFAULT_CONFIG.embedding.provider,
-						description:
-							"Deprecated. Embedding backend: off (default), local, or openai-compatible.",
-					}),
-					textField({
-						id: EMBEDDING_MODEL_FIELD,
-						label: "embedding model (deprecated)",
-						defaultValue:
-							DEFAULT_CONFIG.embedding.provider === "local" ? DEFAULT_CONFIG.embedding.model : "",
-						description:
-							"Deprecated. Local or remote embedding model ID. Remote mode requires this value and an endpoint.",
-					}),
-					textField({
-						id: EMBEDDING_ENDPOINT_FIELD,
-						label: "embedding endpoint (deprecated)",
-						description:
-							"Deprecated. OpenAI-compatible embedding API endpoint. Applies only in remote mode.",
-					}),
-					environmentVariableField({
-						id: EMBEDDING_API_KEY_ENV_FIELD,
-						label: "embedding API key env (deprecated)",
-						description:
-							"Deprecated. Environment variable containing the remote embedding API key. The key itself is never saved in Pi settings.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_ENABLED_FIELD,
-						label: "agentmemory",
-						defaultValue: DEFAULT_CONFIG.agentmemory.enabled,
-						description:
-							"Enable the HTTP bridge to an upstream AgentMemory service after reload. Independent of Window enabled.",
-					}),
-					textField({
-						id: AGENTMEMORY_URL_FIELD,
-						label: "agentmemory URL",
-						defaultValue: DEFAULT_CONFIG.agentmemory.url,
-						description: "AgentMemory HTTP base URL. AGENTMEMORY_URL overrides this after reload.",
-					}),
-					textField({
-						id: AGENTMEMORY_SECRET_FIELD,
-						label: "agentmemory secret",
-						description:
-							"Optional Bearer token for AgentMemory. AGENTMEMORY_SECRET overrides this. Prefer the environment variable.",
-					}),
-					textField({
-						id: AGENTMEMORY_AGENT_ID_FIELD,
-						label: "agentmemory agent id",
-						description: "Optional AgentMemory agent id tag. AGENT_ID overrides this after reload.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_CAPTURE_FIELD,
-						label: "agentmemory capture",
-						defaultValue: DEFAULT_CONFIG.agentmemory.capture,
-						description:
-							"Observe prompts, tool results, and assistant turns over HTTP when the bridge is enabled.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_INJECT_FIELD,
-						label: "agentmemory automatic recall",
-						defaultValue: DEFAULT_CONFIG.agentmemory.inject,
-						description:
-							"Admit automatic AgentMemory recall through Context Projection after reload.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_HISTORIAN_RETRIEVAL_FIELD,
-						label: "agentmemory historian retrieval",
-						defaultValue: DEFAULT_CONFIG.agentmemory.historianRetrieval,
-						description: "Allow Historian retrieval from AgentMemory after reload.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_MEMORY_TOOLS_FIELD,
-						label: "agentmemory memory tools",
-						defaultValue: DEFAULT_CONFIG.agentmemory.memoryTools,
-						description:
-							"Register unified mctx_search and transactional mctx_memory when the bridge is enabled.",
-					}),
-					booleanField({
-						id: AGENTMEMORY_REQUIRE_HTTPS_FIELD,
-						label: "agentmemory require HTTPS",
-						defaultValue: DEFAULT_CONFIG.agentmemory.requireHttps,
-						description:
-							"Fail closed when a Bearer secret would cross plaintext HTTP to a non-loopback host.",
 					}),
 				],
 			},
@@ -692,6 +537,9 @@ export function createPiMctxSettingsProvider(): SettingsProvider {
 }
 
 /** Replaces stale providers when Pi reloads the extension. */
-export function registerPiMctxSettings(pi: ExtensionAPI): () => void {
-	return getRuntimeSettingsRegistry(pi).replace(createPiMctxSettingsProvider());
+export function registerPiMctxSettings(
+	pi: ExtensionAPI,
+	options: PiMctxSettingsOptions = {},
+): () => void {
+	return getRuntimeSettingsRegistry(pi).replace(createPiMctxSettingsProvider(options));
 }

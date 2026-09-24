@@ -1,6 +1,11 @@
-import type { SettingField, SettingOption, SettingTabCycle } from "./settings.js";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
+import type { SettingField, SettingOption, SettingsState, SettingTabCycle } from "./settings.js";
+
+export { clampThinkingLevel };
 
 export type ModelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export type ModelThinkingResolver = (modelRef: string, related: unknown) => ModelThinkingLevel;
 
 /** A settings-host option whose value is the exact `provider/model` reference. */
 export interface ModelSelectionOption extends SettingOption<string> {
@@ -18,6 +23,7 @@ export interface ModelSelectionRegistry<T extends ModelSelectionCandidate> {
 	getAvailable?(): readonly T[];
 	/** Authentication filtering belongs to the host registry, not core. */
 	hasConfiguredAuth(model: T): boolean;
+	find?(provider: string, id: string): T | undefined;
 }
 
 /** Declarative thinking-level cycle rendered beside a model field by a settings host. */
@@ -35,7 +41,8 @@ export interface CreateModelSelectionFieldOptions {
 	readonly label: string;
 	readonly description: string;
 	readonly modelOptions: readonly ModelSelectionOption[];
-	readonly thinking: ModelThinkingLevel | ModelThinkingCycle;
+	readonly thinking: ModelThinkingLevel | ModelThinkingCycle | ModelThinkingResolver;
+	readonly enabled?: (state: SettingsState) => boolean;
 }
 
 /** Maps untrusted setting values to a stable display glyph, with `?` as fallback. */
@@ -78,19 +85,25 @@ export function createModelSelectionField(
 	// The field stores only the model reference. Thinking is a related display/control
 	// value so core does not persist or own a second model-selection state machine.
 	const fixedThinking = typeof options.thinking === "string" ? options.thinking : undefined;
-	const cycle = typeof options.thinking === "string" ? undefined : options.thinking;
-	const thinking = (related: unknown): ModelThinkingLevel =>
-		related === "off" ||
-		related === "minimal" ||
-		related === "low" ||
-		related === "medium" ||
-		related === "high" ||
-		related === "xhigh" ||
-		related === "max"
+	const cycle =
+		typeof options.thinking === "object" && options.thinking !== null
+			? options.thinking
+			: undefined;
+	const resolver = typeof options.thinking === "function" ? options.thinking : undefined;
+	const thinking = (value: string, related: unknown): ModelThinkingLevel => {
+		if (resolver !== undefined) return resolver(value, related);
+		return related === "off" ||
+			related === "minimal" ||
+			related === "low" ||
+			related === "medium" ||
+			related === "high" ||
+			related === "xhigh" ||
+			related === "max"
 			? related
 			: cycle === undefined
 				? (fixedThinking ?? "off")
 				: cycle.defaultValue;
+	};
 	const tabCycle: SettingTabCycle | undefined =
 		cycle === undefined ? undefined : { ...cycle, separator: " " };
 	const modelText = (value: string): string => value.trim() || "Not set";
@@ -101,13 +114,15 @@ export function createModelSelectionField(
 		defaultValue: "",
 		description: options.description,
 		options: options.modelOptions,
-		formatDisplay: (value, related) => `${thinkingGlyph(thinking(related))} ${modelText(value)}`,
-		formatDescription: (value, related) => `${modelText(value)} ${thinking(related)}`,
+		formatDisplay: (value, related) =>
+			`${thinkingGlyph(thinking(value, related))} ${modelText(value)}`,
+		formatDescription: (value, related) => `${modelText(value)} ${thinking(value, related)}`,
 		parse: (draft) => draft,
 		validate: (value) =>
 			typeof value === "string" && value.length > 0 && !/^[^/\s]+\/[^/\s]+$/u.test(value)
 				? "Use provider/model"
 				: undefined,
+		...(options.enabled === undefined ? {} : { enabled: options.enabled }),
 		...(tabCycle === undefined ? {} : { tabCycle }),
 	};
 }

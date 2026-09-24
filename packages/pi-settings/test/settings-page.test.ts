@@ -116,8 +116,8 @@ describe("Settings provider page", () => {
 		const h = context();
 		const page = await createSettingsPage({ list: () => providers } as never, h.value);
 		const rendered = page.component.render(100).join("\n");
-		expect(rendered).toContain("⧉ pi-alpha");
-		expect(rendered).toContain("⧉ pi-beta");
+		expect(rendered).toContain("◆ pi-alpha");
+		expect(rendered).toContain("◆ pi-beta");
 		expect(rendered).toContain("Origin: @hheei/pi-settings");
 
 		expect(await page.handleInput(" ")).toBe(true);
@@ -187,7 +187,7 @@ describe("Settings provider page", () => {
 		expect(initial[19]).toContain("↕ navigate");
 		expect(initial.some((line) => line[56] === "█" || line[56] === "│")).toBe(true);
 		for (let index = 0; index < 12; index++) await page.handleInput("\u001b[B");
-		expect(page.component.render(100)[10]).toContain("→ Field 12");
+		expect(page.component.render(100)[11]).toContain("→ Field 12");
 		const replay = await replayTui({
 			columns: 100,
 			rows: 20,
@@ -319,5 +319,57 @@ describe("Settings provider page", () => {
 		await page.handleInput("\u001b");
 		expect(await page.handleInput("\u001b[C")).toBe(false);
 		expect(saved.at(-1)).toEqual({ targets: { sshWhitelist: ["prod"] } });
+	});
+
+	test("skips disabled fields during navigation and drops focus when a field becomes disabled", async () => {
+		const provider: SettingsProvider = {
+			id: "toggle-test",
+			title: "Toggle Test",
+			groups: [
+				{
+					id: "grp",
+					title: "Group",
+					fields: [
+						{
+							id: "toggle",
+							label: "Toggle",
+							type: "boolean",
+							defaultValue: false,
+							description: "Enables child field",
+							parse: (v) => v === "true",
+						},
+						{
+							id: "dependent",
+							label: "Dependent",
+							type: "text",
+							defaultValue: "val",
+							description: "Only when toggle is on",
+							parse: (v) => v,
+							enabled: (state) => state.grp?.toggle === true,
+						},
+						{
+							id: "another",
+							label: "Another",
+							type: "text",
+							defaultValue: "other",
+							description: "Always enabled",
+							parse: (v) => v,
+						},
+					],
+				},
+			],
+			storage: {
+				load: () => ({ grp: { toggle: false, dependent: "val", another: "other" } }),
+				save: () => undefined,
+			},
+		};
+		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+		// Initially toggle is selected (first enabled)
+		let rendered = page.component.render(80).join("\n");
+		expect(rendered).toContain("→ Toggle");
+		// Navigate down - should skip "Dependent" because it's disabled, and select "Another"
+		await page.handleInput("\u001b[B"); // Down arrow
+		rendered = page.component.render(80).join("\n");
+		expect(rendered).toContain("→ Another");
 	});
 });
