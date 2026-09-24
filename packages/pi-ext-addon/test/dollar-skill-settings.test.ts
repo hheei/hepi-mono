@@ -25,21 +25,27 @@ describe("dollar skill settings", () => {
 	test("round-trips its section without overwriting sibling settings", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-dollar-skill-"));
 		const settingsPath = join(cwd, "ext_settings.json");
-		await writeFile(
-			settingsPath,
-			JSON.stringify({ "pi-dollar-skill": { unrelated: true }, external: true }),
-		);
+		await writeFile(settingsPath, JSON.stringify({ external: true }));
 		await saveDollarSkillConfig(cwd, { enabled: false, maxSuggestions: 7 });
 		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: false, maxSuggestions: 7 });
 		const parsed: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
 		expect(parsed).toEqual({
-			"pi-dollar-skill": {
-				unrelated: true,
+			"dollar-skill": {
 				enabled: false,
 				maxSuggestions: 7,
 			},
 			external: true,
 		});
+	});
+
+	test("reads legacy pi-dollar-skill section if modern dollar-skill section is absent", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "pi-dollar-skill-legacy-"));
+		const settingsPath = join(cwd, "ext_settings.json");
+		await writeFile(
+			settingsPath,
+			JSON.stringify({ "pi-dollar-skill": { enabled: true, maxSuggestions: 15 } }),
+		);
+		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: true, maxSuggestions: 15 });
 	});
 
 	test("uses unique temporary files for concurrent saves", async () => {

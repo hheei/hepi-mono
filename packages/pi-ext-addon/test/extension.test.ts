@@ -76,16 +76,14 @@ describe("pi-ext-addon extension lifecycle", () => {
 			await emit(handlers, "session_start", { reason: "startup" }, fakeExtension(dir));
 
 			const registry = getRuntimeSettingsRegistry(pi);
-			expect(registry.get("pi-ext-addon-openai-responses-compat")?.id).toBe(
-				"pi-ext-addon-openai-responses-compat",
-			);
-			expect(registry.get("pi-dollar-skill")?.id).toBe("pi-dollar-skill");
-			expect(registry.get("pi-auto-title")?.id).toBe("pi-auto-title");
+			expect(registry.get("openai-responses-compat")?.id).toBe("openai-responses-compat");
+			expect(registry.get("dollar-skill")?.id).toBe("dollar-skill");
+			expect(registry.get("auto-title")?.id).toBe("auto-title");
 
 			await emit(handlers, "session_shutdown", {}, fakeExtension(dir));
-			expect(registry.get("pi-ext-addon-openai-responses-compat")).toBeUndefined();
-			expect(registry.get("pi-dollar-skill")).toBeUndefined();
-			expect(registry.get("pi-auto-title")).toBeUndefined();
+			expect(registry.get("openai-responses-compat")).toBeUndefined();
+			expect(registry.get("dollar-skill")).toBeUndefined();
+			expect(registry.get("auto-title")).toBeUndefined();
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

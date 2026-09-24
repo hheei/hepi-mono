@@ -205,7 +205,7 @@ export function createOpenAIResponsesCompatSettingsProvider(
 	options: OpenAIResponsesCompatOptions = {},
 ): SettingsProvider {
 	return {
-		id: "pi-ext-addon-openai-responses-compat",
+		id: OPENAI_RESPONSES_COMPAT_GROUP,
 		title: "OpenAI Responses compatibility",
 		origin: "@hheei/pi-ext-addon",
 		groups: [{ id: OPENAI_RESPONSES_COMPAT_GROUP, title: "", fields }],

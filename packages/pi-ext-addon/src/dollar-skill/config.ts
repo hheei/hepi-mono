@@ -8,7 +8,8 @@ import {
 	MAX_DOLLAR_SKILL_SUGGESTIONS,
 } from "./model.js";
 
-const GROUP = "pi-dollar-skill";
+const GROUP = "dollar-skill";
+const LEGACY_GROUP = "pi-dollar-skill";
 export const DOLLAR_SKILL_SETTINGS_GROUP = GROUP;
 type JsonObject = Record<string, unknown>;
 
@@ -49,7 +50,7 @@ export async function loadDollarSkillConfig(
 	settingsDirectory = getAgentDir(),
 ): Promise<DollarSkillConfig> {
 	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
-	const group = root[GROUP];
+	const group = root[GROUP] ?? root[LEGACY_GROUP];
 	return normalizeDollarSkillConfig(group);
 }
 

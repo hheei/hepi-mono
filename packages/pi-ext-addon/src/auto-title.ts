@@ -15,7 +15,7 @@ import {
 export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
-export const AUTO_TITLE_SETTINGS_PROVIDER_ID = "pi-auto-title";
+export const AUTO_TITLE_SETTINGS_PROVIDER_ID = "auto-title";
 const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
@@ -112,7 +112,7 @@ export function createAutoTitleSettingsProvider(
 	);
 	return {
 		id: AUTO_TITLE_SETTINGS_PROVIDER_ID,
-		title: "Pi Auto Title",
+		title: "Auto session title",
 		origin: "@hheei/pi-ext-addon",
 		groups: [
 			{
