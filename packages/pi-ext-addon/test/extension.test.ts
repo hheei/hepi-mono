@@ -2,15 +2,16 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getRuntimeSettingsRegistry, registerLoadoutResource } from "@hheei/pi-ext-core";
+import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
-import piAutoTitleExtension from "../src/extension.js";
+import piExtAddonExtension from "../src/extension.js";
 
 function fakePi() {
 	const handlers = new Map<
 		string,
 		Array<(event: unknown, context?: unknown) => void | Promise<void>>
 	>();
+	const commands = new Map<string, unknown>();
 	const pi = {
 		on: (channel: string, handler: (event: unknown, context?: unknown) => void | Promise<void>) => {
 			const list = handlers.get(channel) ?? [];
@@ -21,9 +22,12 @@ function fakePi() {
 				if (index >= 0) list.splice(index, 1);
 			};
 		},
-		registerCommand: () => undefined,
+		registerCommand: (name: string, config: unknown) => {
+			commands.set(name, config);
+		},
+		getCommands: () => [],
 	} as unknown as ExtensionAPI;
-	return { pi, handlers };
+	return { pi, handlers, commands };
 }
 
 async function emit(
@@ -46,45 +50,41 @@ function fakeExtension(cwd: string): ExtensionContext {
 			find: () => undefined,
 		},
 		cwd,
-		ui: { notify: () => undefined },
+		ui: {
+			notify: () => undefined,
+			setStatus: () => undefined,
+			addAutocompleteProvider: () => undefined,
+			getEditorComponent: () => undefined,
+			setEditorComponent: () => undefined,
+		},
 		mode: "tui",
 		hasUI: true,
 	} as unknown as ExtensionContext;
 }
 
-describe("pi-auto-title extension lifecycle", () => {
-	test("registers /ext-settings, contributes no Loadout agent resource, and unregisters on shutdown", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "pi-auto-title-ext-"));
+describe("pi-ext-addon extension lifecycle", () => {
+	test("registers all three addon settings providers and cleans up on shutdown", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-ext-"));
 		try {
-			const { pi, handlers } = fakePi();
-			piAutoTitleExtension(pi);
+			const { pi, handlers, commands } = fakePi();
+			piExtAddonExtension(pi);
 
+			expect(commands.has("auto-title")).toBe(true);
 			expect(handlers.get("session_start")?.length).toBeGreaterThan(0);
 			expect(handlers.get("session_shutdown")?.length).toBeGreaterThan(0);
 
 			await emit(handlers, "session_start", { reason: "startup" }, fakeExtension(dir));
 
 			const registry = getRuntimeSettingsRegistry(pi);
+			expect(registry.get("pi-ext-addon-openai-responses-compat")?.id).toBe(
+				"pi-ext-addon-openai-responses-compat",
+			);
+			expect(registry.get("pi-dollar-skill")?.id).toBe("pi-dollar-skill");
 			expect(registry.get("pi-auto-title")?.id).toBe("pi-auto-title");
 
-			// Auto Title must not register a Loadout resource: registering the
-			// same id manually must not collide (it would throw if already taken).
-			const disposeResource = registerLoadoutResource(pi, {
-				id: "agent:auto-title",
-				kind: "agent",
-				group: "hepi",
-				label: "Auto Title",
-				description: "Generate concise session titles automatically.",
-				summary: "Automatic session titles",
-				owner: "@hheei/pi-auto-title",
-				priority: 50,
-				conflictSets: [],
-				defaultActive: true,
-				projectPrivate: false,
-			});
-			disposeResource();
-
 			await emit(handlers, "session_shutdown", {}, fakeExtension(dir));
+			expect(registry.get("pi-ext-addon-openai-responses-compat")).toBeUndefined();
+			expect(registry.get("pi-dollar-skill")).toBeUndefined();
 			expect(registry.get("pi-auto-title")).toBeUndefined();
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

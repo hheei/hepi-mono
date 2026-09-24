@@ -1,5 +1,3 @@
-export { default } from "./extension.js";
-
 import {
 	CustomEditor,
 	type ExtensionAPI,
@@ -128,8 +126,8 @@ export function createDollarSkillFeature(
 		isActive: () => activeSessionId !== undefined,
 		isSkillEnabled,
 		getConfig: () => config,
-		setConfig(value) {
-			config = normalizeDollarSkillConfig(value);
+		setConfig(next) {
+			config = next;
 		},
 	};
 }
@@ -151,13 +149,16 @@ export function registerDollarSkillInputTransform(
 }
 
 export function createDollarSkillSettingsProvider(
-	options: { readonly settingsDirectory?: string } = {},
+	options: {
+		readonly settingsDirectory?: string;
+		readonly onChange?: (config: DollarSkillConfig) => void;
+	} = {},
 ): SettingsProvider {
 	const settingsDirectory = options.settingsDirectory ?? getAgentDir();
 	return {
 		id: "pi-dollar-skill",
 		title: "Dollar skill references",
-		origin: "@hheei/pi-dollar-skill",
+		origin: "@hheei/pi-ext-addon",
 		description: "Skill autocomplete and prompt-time path references.",
 		groups: [{ id: DOLLAR_SKILL_SETTINGS_GROUP, title: "", fields }],
 		storage: {
@@ -173,6 +174,7 @@ export function createDollarSkillSettingsProvider(
 			async save(state: SettingsState) {
 				const config = configFromState(state);
 				await saveDollarSkillConfig(settingsDirectory, config);
+				options.onChange?.(config);
 			},
 		},
 	};

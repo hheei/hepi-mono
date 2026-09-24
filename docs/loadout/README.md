@@ -23,7 +23,7 @@ Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能
 Agent resource 可选贡献一个 nested settings detail。选中有 detail 的行后，`Enter` 把右侧
 Description lane 切换为该 detail；窄终端把同一 detail 堆叠在列表下方。Loadout 只拥有焦点、布局与
 导航；contributor 复用自己 settings provider 的 schema、storage、validation 与 live-policy callback，
-不复制 JSON 格式或把 feature state 下沉到 Loadout。`pi-auto-title` 不注册 `agent` resource，始终经 `/ext-settings` 显示自己的 settings；`Agents` group 的行
+不复制 JSON 格式或把 feature state 下沉到 Loadout。Auto Title 不注册 `agent` resource，始终经 `/ext-settings` 显示自己的 settings；`Agents` group 的行
 只来自已登记的 agent contributor。
 Agent contributor 的 profile 可提供 detail；没有 backing 文件的 profile 首次保存时
 按当前 scope clone；Global 落到 Pi agent 目录的 `agents/`，Project 落到 `<cwd>/.pi/agents/`，body

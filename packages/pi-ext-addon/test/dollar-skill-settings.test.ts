@@ -7,8 +7,8 @@ import {
 	loadDollarSkillConfig,
 	normalizeDollarSkillConfig,
 	saveDollarSkillConfig,
-} from "../src/config.js";
-import { createDollarSkillSettingsProvider } from "../src/index.js";
+} from "../src/dollar-skill/config.js";
+import { createDollarSkillSettingsProvider } from "../src/dollar-skill/index.js";
 
 describe("dollar skill settings", () => {
 	test("normalizes untrusted values", () => {
@@ -17,7 +17,7 @@ describe("dollar skill settings", () => {
 			maxSuggestions: 50,
 		});
 		expect(normalizeDollarSkillConfig({ enabled: "no", maxSuggestions: 1.5 })).toEqual({
-			enabled: true,
+			enabled: false,
 			maxSuggestions: 50,
 		});
 	});

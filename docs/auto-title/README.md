@@ -1,8 +1,8 @@
 # 自动标题
 
-`@hheei/pi-auto-title` 在首个稳定对话后生成简短、可检索的会话标题，也提供 `/auto-title` 手动重试。
+`@hheei/pi-ext-addon` 内置的自动标题能力在首个稳定对话后生成简短、可检索的会话标题，也提供 `/auto-title` 手动重试。此功能为 opt-in，預設關閉。
 
-当前实现由 `@hheei/pi-auto-title` 独立拥有；本文记录其 lifecycle、settings 与失败边界。
+当前实现由 `@hheei/pi-ext-addon` 拥有；本文记录其 lifecycle、settings 与失败边界。
 
 ## 边界
 
@@ -27,7 +27,7 @@ extension 不注册 Loadout `agent` resource：Auto Title 不会出现在 Loadou
 设置始终经 `/ext-settings` 显示。coordinator 只由 `auto-title` 的 enabled 开关门控——关闭时取消
 当前标题任务并阻止新任务，重新启用后按已保存设置恢复。
 
-`pi-auto-title` 不依赖其它 concrete extension；status rail 继续按稳定 key `auto-title` 显示 extension 已发布的
+自动标题不依赖其它 concrete extension；status rail 继续按稳定 key `auto-title` 显示 extension 已发布的
 status，不建立反向 package dependency。
 
 ## 配置与故障

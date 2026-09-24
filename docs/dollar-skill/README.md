@@ -1,19 +1,19 @@
 # Pi Dollar Skill
 
-`@hheei/pi-dollar-skill` 为 Pi 提供 `$skill-name` 自动补全和输入替换。Pi
+`@hheei/pi-ext-addon` 内置的 Dollar Skill 能力为 Pi 提供 `$skill-name` 自动补全和输入替换。Pi
 发现 skill 后，TUI 编辑器可补全 `$skill-name`；发送输入时，已知引用替换为对应的
 `SKILL.md` 路径。仅已加载的 skill 可引用；非 TUI 模式仍执行输入替换。编辑器将已知
-引用作为原子单元移动和删除。
+引用作为原子单元移动和删除。此功能为 opt-in，預設關閉。
 
 配置存于 `pi-dollar-skill` 顶层 section：
 
 ```json
 {
   "pi-dollar-skill": {
-    "enabled": true,
+    "enabled": false,
     "maxSuggestions": 50
   }
 }
 ```
 
-默认启用。不读取或迁移已冻结的 `pi-basics.dollarSkillReferences` 配置。
+默认关闭（opt-in）。不读取或迁移已冻结的 `pi-basics.dollarSkillReferences` 配置。

@@ -1,8 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
-import { createDollarSkillFeature, registerDollarSkillInputTransform } from "../src/index.js";
-import type { DollarSkillCommand } from "../src/model.js";
+import {
+	createDollarSkillFeature,
+	registerDollarSkillInputTransform,
+} from "../src/dollar-skill/index.js";
+import type { DollarSkillCommand } from "../src/dollar-skill/model.js";
 
 type EditorFactory = NonNullable<
 	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
@@ -62,14 +65,15 @@ function harness(
 }
 
 describe("dollar skill feature", () => {
-	test("installs TUI autocomplete and scopes transforms to the active session", () => {
+	test("is opt-in: disabled by default until explicitly enabled", () => {
 		const host = harness("tui");
 		const feature = createDollarSkillFeature(host.pi);
 		registerDollarSkillInputTransform(host.pi, feature);
-		expect(host.inputHandler?.({ text: "$librarian", source: "interactive" })).toBeUndefined();
 		feature.start(host.ctx);
-		expect(host.wrapper).toBeDefined();
-		expect(host.editorFactory).toBeDefined();
+		expect(feature.getConfig().enabled).toBe(false);
+		expect(host.inputHandler?.({ text: "Use $librarian.", source: "interactive" })).toBeUndefined();
+
+		feature.setConfig({ enabled: true, maxSuggestions: 50 });
 		expect(host.inputHandler?.({ text: "Use $librarian.", source: "interactive" })).toEqual({
 			action: "transform",
 			text: "Use /skills/librarian/SKILL.md.",
@@ -80,9 +84,10 @@ describe("dollar skill feature", () => {
 		expect(host.inputHandler?.({ text: "$librarian", source: "interactive" })).toBeUndefined();
 	});
 
-	test("forwards live skill status to autocomplete", async () => {
+	test("forwards live skill status to autocomplete when enabled", async () => {
 		const host = harness("tui");
 		const feature = createDollarSkillFeature(host.pi, () => false);
+		feature.setConfig({ enabled: true, maxSuggestions: 50 });
 		feature.start(host.ctx);
 		const current: AutocompleteProvider = {
 			async getSuggestions() {
@@ -127,6 +132,7 @@ describe("dollar skill feature", () => {
 			host.pi,
 			(command) => command.sourceInfo?.scope === "project",
 		);
+		feature.setConfig({ enabled: true, maxSuggestions: 50 });
 		registerDollarSkillInputTransform(host.pi, feature);
 		feature.start(host.ctx);
 
@@ -139,6 +145,7 @@ describe("dollar skill feature", () => {
 	test("keeps input expansion but skips autocomplete outside TUI", () => {
 		const host = harness("json");
 		const feature = createDollarSkillFeature(host.pi);
+		feature.setConfig({ enabled: true, maxSuggestions: 20 });
 		registerDollarSkillInputTransform(host.pi, feature);
 		feature.start(host.ctx);
 		expect(host.wrapper).toBeUndefined();
