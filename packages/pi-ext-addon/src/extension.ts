@@ -23,16 +23,9 @@ import {
 	loadDollarSkillConfig,
 	registerDollarSkillInputTransform,
 } from "./dollar-skill/index.js";
-import {
-	createOpenAIResponsesCompatFeature,
-	createOpenAIResponsesCompatSettingsProvider,
-} from "./openai-responses-compat.js";
 
-/** Registers Pi compatibility addons, dollar skill completion, and automatic title generation. */
+/** Registers Pi opt-in host enhancement features: dollar skill references and auto session titles. */
 export default function piExtAddonExtension(pi: ExtensionAPI): void {
-	const responsesCompat = createOpenAIResponsesCompatFeature(pi);
-	const responsesSettings = createOpenAIResponsesCompatSettingsProvider();
-
 	const dollarSkill = createDollarSkillFeature(pi, (command) => isSkillEnabled(pi, command.name));
 	registerDollarSkillInputTransform(pi, dollarSkill);
 	const dollarSkillSettings = createDollarSkillSettingsProvider({
@@ -66,15 +59,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			const sessionId = runtime.extension.sessionManager.getSessionId();
 			const settingsRegistry = getRuntimeSettingsRegistry(pi);
 
-			// 1. OpenAI Responses compat
-			runtime.resources.add(
-				"openai-responses-compat-settings",
-				registerSettings(responsesSettings, settingsRegistry),
-			);
-			await responsesCompat.start({ ctx: runtime.extension });
-			runtime.resources.add("openai-responses-compat", () => responsesCompat.dispose(sessionId));
-
-			// 2. Dollar skill (opt-in)
+			// 1. Dollar skill (opt-in)
 			runtime.resources.add(
 				"dollar-skill-settings",
 				registerSettings(dollarSkillSettings, settingsRegistry),
@@ -90,7 +75,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			dollarSkill.start(runtime.extension);
 			runtime.resources.add("dollar-skill", () => dollarSkill.dispose(sessionId));
 
-			// 3. Auto title (opt-in)
+			// 2. Auto title (opt-in)
 			ensureSubagentCoordinator(runtime);
 			const modelOptions = authenticatedModelSelectionOptions(runtime.extension.modelRegistry);
 			let autoTitleSettingsState: SettingsState = {
