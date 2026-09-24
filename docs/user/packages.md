@@ -12,7 +12,7 @@
 | --- | --- |
 | [`pi-ext-tools`](../../packages/pi-ext-tools/README.md) | Pi 编码工具替换、Todo 与 FFF 搜索增强 |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` 界面与 Loadout 工具、技能和资源启用策略 |
-| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 扩展补丁集合（OpenAI Responses 兼容、`$skill-name` 补全、Auto Title 自动会话标题） |
+| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 扩展集合（`$skill-name` 自动补全、Auto Title 自动会话标题等 opt-in 功能） |
 | [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-debug`](../../packages/pi-debug/README.md) | 开发诊断与确定性 TUI 回放 |

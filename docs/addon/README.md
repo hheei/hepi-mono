@@ -1,32 +1,17 @@
 # Pi Ext Addon
 
-`@hheei/pi-ext-addon` 提供 Pi host 的窄兼容性补丁，处理部分 OpenAI Responses
-gateway 不接受 replayed input item 的 `status` 字段的问题。
+`@hheei/pi-ext-addon` 是 Pi host 的可選增強集合，提供獨立、opt-in 的功能擴展。
 
-## 边界
+## 包含功能
 
-Pi host 在 `before_provider_request` 提供请求 payload；`pi-ext-addon` 仅在模型
-API 为 `openai-responses` 时重写该 payload。它可移除 assistant 与 reasoning item
-的 `status`，并将 assistant 的 `item_` ID 改为 `msg_pi_` ID。其他 provider、input
-item 与 payload 保持不变。
+1. **Dollar Skill References (`dollar-skill`)**：
+   * `$skill-name` 自動補全、輸入展開為 skill 檔案路徑與原子編輯器移動/刪除。
+   * 預設關閉（opt-in），配置項位於 `dollar-skill`（相容舊 `pi-dollar-skill`）。
+2. **Auto Session Title (`auto-title`)**：
+   * 在首個穩定對話輪次後自動生成簡潔會話標題，亦可手動透過 `/auto-title` 觸發。
+   * 預設關閉（opt-in），配置項位於 `auto-title`。
 
-扩展通过 ext-core 注册 settings provider。配置存于 `openai-responses-compat` 顶层 section：
+## 設定
 
-```json
-{
-  "openai-responses-compat": {
-    "stripAssistantMessageStatus": true,
-    "normalizeAssistantMessageId": true
-  }
-}
-```
-
-不读取或迁移已冻结 `pi-basics.openai-responses-compat` 配置。未安装 addon 时，Pi host
-不重写请求；配置默认关闭。每个 Pi session 缓存加载后的配置，并在 lifecycle cleanup
-时删除；已注册的 provider hook 在 session 尚未启动时按需读取配置，支持 extension reload。
-
-## 接口
-
-包入口导出 extension default、`applyOpenAIResponsesCompat()`、
-`normalizeAssistantMessageId()`、`stripAssistantMessageStatus()` 与 settings/feature
-factory。没有跨扩展 capability。
+所有功能均在 `/ext-settings` 中獨立提供設定面板與開關。
+每個 Pi session 在 lifecycle cleanup 時清理對應的 hook 與資源。

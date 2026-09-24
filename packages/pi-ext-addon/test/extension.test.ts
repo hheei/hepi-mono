@@ -63,7 +63,7 @@ function fakeExtension(cwd: string): ExtensionContext {
 }
 
 describe("pi-ext-addon extension lifecycle", () => {
-	test("registers all three addon settings providers and cleans up on shutdown", async () => {
+	test("registers addon settings providers and cleans up on shutdown", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-ext-"));
 		try {
 			const { pi, handlers, commands } = fakePi();
@@ -76,12 +76,10 @@ describe("pi-ext-addon extension lifecycle", () => {
 			await emit(handlers, "session_start", { reason: "startup" }, fakeExtension(dir));
 
 			const registry = getRuntimeSettingsRegistry(pi);
-			expect(registry.get("openai-responses-compat")?.id).toBe("openai-responses-compat");
 			expect(registry.get("dollar-skill")?.id).toBe("dollar-skill");
 			expect(registry.get("auto-title")?.id).toBe("auto-title");
 
 			await emit(handlers, "session_shutdown", {}, fakeExtension(dir));
-			expect(registry.get("openai-responses-compat")).toBeUndefined();
 			expect(registry.get("dollar-skill")).toBeUndefined();
 			expect(registry.get("auto-title")).toBeUndefined();
 		} finally {
