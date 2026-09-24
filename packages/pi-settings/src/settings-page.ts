@@ -269,19 +269,22 @@ export async function createSettingsPage(
 		}
 		return result;
 	};
+	const isEnabled = (row: FieldRow): boolean => row.field.enabled?.(draft) !== false;
+	const isSelectableItem = (item: ListItem): boolean =>
+		item.kind !== "field" || isEnabled(item.row);
 	const selectable = (): readonly ListItem[] => items().filter((item) => item.kind !== "group");
 	const selectedItem = (): ListItem | undefined => {
 		const available = selectable();
 		const existing = available.find((item) => item.id === selectedId);
-		if (existing !== undefined) return existing;
-		selectedId = available[0]?.id;
-		return available[0];
+		if (existing !== undefined && isSelectableItem(existing)) return existing;
+		const fallback = available.find(isSelectableItem);
+		selectedId = fallback?.id;
+		return fallback;
 	};
 	const selectedField = (): FieldRow | undefined => {
 		const item = selectedItem();
 		return item?.kind === "field" ? item.row : undefined;
 	};
-	const isEnabled = (row: FieldRow): boolean => row.field.enabled?.(draft) !== false;
 	const requestRender = (): void => context.requestRender();
 	const stopMarquee = (): void => {
 		if (marqueeTimer !== undefined) clearTimeout(marqueeTimer);
@@ -390,7 +393,7 @@ export async function createSettingsPage(
 		let next = Math.max(0, Math.min(available.length - 1, index + offset));
 		while (next >= 0 && next < available.length) {
 			const candidate = available[next];
-			if (candidate?.kind !== "field" || isEnabled(candidate.row)) break;
+			if (candidate !== undefined && isSelectableItem(candidate)) break;
 			next += offset < 0 ? -1 : 1;
 		}
 		if (next < 0 || next >= available.length) return;
@@ -588,9 +591,10 @@ export async function createSettingsPage(
 				const list = [
 					// Reserve one cell after the query so a full search does not touch the list boundary.
 					`> ${truncateToWidth(search || "_", Math.max(0, listWidth - 3))} `,
+					"",
 					...visible.map((item) => {
 						if (item.kind === "group")
-							return theme.bold(truncateToWidth(`⧉ ${item.label}`, listWidth));
+							return theme.bold(theme.fg("accent", truncateToWidth(`◆ ${item.label}`, listWidth)));
 						if (item.kind === "panel") {
 							const label = `${item.id === selected?.id ? "→" : " "} ◈ ${item.panel.label ?? item.panel.id}`;
 							return item.id === selected?.id ? theme.fg("accent", theme.bold(label)) : label;

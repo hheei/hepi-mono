@@ -34,7 +34,7 @@ export function registerOptimizerCommand(
 			const label = (control: (typeof controls)[number]): string => {
 				const state: SettingsState = session.settings;
 				const value = state[control.group]?.[control.field.id];
-				return `${control.title}: ${typeof value === "boolean" ? (value ? "on" : "off") : stripVTControlCharacters(String(value ?? "")).replace(/\s+/gu, " ") || "(default: rtk)"}`;
+				return `${control.title}: ${typeof value === "boolean" ? (value ? "on" : "off") : stripVTControlCharacters(String(value ?? "")).replace(/\s+/gu, " ") || "(auto)"}`;
 			};
 			const save = async (command: string, rawValue: string): Promise<void> => {
 				try {

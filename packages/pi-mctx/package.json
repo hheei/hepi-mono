@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-mctx",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Magic Context implementation and Pi adapter for HEPI.",
 	"type": "module",
 	"main": "src/index.ts",

@@ -43,14 +43,7 @@ describe("Pi MCTX settings", () => {
 				historyBudgetPercentage: 0.2,
 				commitClusterTriggerEnabled: false,
 				commitClusterMinClusters: 5,
-				dreamerEnabled: true,
-				dreamerModel: "openai/gpt-5.4",
-				dreamerInjectDocs: false,
 				sidekickModel: "openai/gpt-5-mini",
-				embeddingProvider: "openai-compatible",
-				embeddingModel: "text-embedding-3-small",
-				embeddingEndpoint: "https://embeddings.example.test/v1",
-				embeddingApiKeyEnv: "PI_MCTX_TEST_EMBEDDING_KEY",
 			},
 		});
 
@@ -74,42 +67,7 @@ describe("Pi MCTX settings", () => {
 		expect(config.historian_timeout_ms).toBe(600_000);
 		expect(config.history_budget_percentage).toBe(0.2);
 		expect(config.commit_cluster_trigger).toEqual({ enabled: false, min_clusters: 5 });
-		expect(config.dreamer).toMatchObject({
-			model: "openai/gpt-5.4",
-			inject_docs: false,
-		});
-		expect(config.dreamer?.tasks.verify.schedule).toBe("0 3 * * *");
 		expect(config.sidekick).toMatchObject({ model: "openai/gpt-5-mini" });
-		expect(config.embedding).toEqual({
-			provider: "openai-compatible",
-			model: "text-embedding-3-small",
-			endpoint: "https://embeddings.example.test/v1",
-		});
-	});
-
-	it("uses only a configured environment variable for remote embedding credentials", () => {
-		const key = "PI_MCTX_TEST_EMBEDDING_KEY";
-		const prior = process.env[key];
-		process.env[key] = "test-secret";
-		try {
-			const config = resolvePiMctxSettings({
-				[PI_MCTX_SETTINGS_GROUP]: {
-					embeddingProvider: "openai-compatible",
-					embeddingModel: "text-embedding-3-small",
-					embeddingEndpoint: "https://embeddings.example.test/v1",
-					embeddingApiKeyEnv: key,
-				},
-			});
-			expect(config.embedding).toEqual({
-				provider: "openai-compatible",
-				model: "text-embedding-3-small",
-				endpoint: "https://embeddings.example.test/v1",
-				api_key: "test-secret",
-			});
-		} finally {
-			if (prior === undefined) delete process.env[key];
-			else process.env[key] = prior;
-		}
 	});
 
 	it("falls back per invalid persisted field without rejecting valid siblings", () => {
@@ -118,9 +76,6 @@ describe("Pi MCTX settings", () => {
 				enabled: false,
 				memoryAutoSearchScoreThreshold: 0.96,
 				historianTimeoutMs: 59_999,
-				dreamerEnabled: "on",
-				embeddingProvider: "openai-compatible",
-				embeddingModel: "text-embedding-3-small",
 			},
 		});
 
@@ -129,20 +84,6 @@ describe("Pi MCTX settings", () => {
 			defaults.memory.auto_search.score_threshold,
 		);
 		expect(config.historian_timeout_ms).toBe(defaults.historian_timeout_ms);
-		expect(config.dreamer).toBeUndefined();
-		expect(config.embedding).toEqual(defaults.embedding);
-	});
-
-	it("ignores the retired explicit AgentMemory project setting", () => {
-		const config = resolvePiMctxSettings({
-			[PI_MCTX_SETTINGS_GROUP]: {
-				agentmemoryEnabled: true,
-				agentmemoryProject: "must-not-route",
-			},
-		});
-
-		expect(config.agentmemory.enabled).toBe(true);
-		expect(config.agentmemory).not.toHaveProperty("project");
 	});
 
 	it("registers direct operational settings for all supported controls", () => {
@@ -172,24 +113,17 @@ describe("Pi MCTX settings", () => {
 			"historyBudgetPercentage",
 			"commitClusterTriggerEnabled",
 			"commitClusterMinClusters",
-			"dreamerEnabled",
-			"dreamerModel",
-			"dreamerInjectDocs",
 			"sidekickModel",
-			"embeddingProvider",
-			"embeddingModel",
-			"embeddingEndpoint",
-			"embeddingApiKeyEnv",
-			"agentmemoryEnabled",
-			"agentmemoryUrl",
-			"agentmemorySecret",
-			"agentmemoryAgentId",
-			"agentmemoryCapture",
-			"agentmemoryInject",
-			"agentmemoryHistorianRetrieval",
-			"agentmemoryMemoryTools",
-			"agentmemoryRequireHttps",
 		]);
+
+		const historianModelField = group?.fields.find((field) => field.id === "historianModel");
+		expect(historianModelField?.type).toBe("enum");
+		expect(
+			historianModelField?.enabled?.({ [PI_MCTX_SETTINGS_GROUP]: { historianEnabled: false } }),
+		).toBe(false);
+		expect(
+			historianModelField?.enabled?.({ [PI_MCTX_SETTINGS_GROUP]: { historianEnabled: true } }),
+		).toBe(true);
 	});
 
 	it("registers its provider in the ext-core runtime registry", () => {

@@ -162,93 +162,9 @@ describe("Pi full extension subagent env guard", () => {
 		expect(registrations.sendUserMessage).not.toHaveBeenCalled();
 	}, 15_000);
 
-	it("keeps AgentMemory active without Window when both bridge and memory tools are enabled", async () => {
+	it("registers nothing when Window is disabled", async () => {
 		isolateXdgEnv();
-		writePiSettings({
-			enabled: false,
-			compactionEnabled: true,
-			agentmemoryEnabled: true,
-			agentmemoryUrl: "http://127.0.0.1:1",
-			agentmemoryMemoryTools: true,
-			agentmemoryRequireHttps: false,
-		});
-		const fetchSpy = vi.fn();
-		vi.stubGlobal("fetch", fetchSpy);
-		const registrations = createCountingPi();
-
-		await magicContextPiExtension(registrations.pi);
-
-		expect(registrations.commands).toEqual(["ctx-status", "agentmemory-health"]);
-		expect(registrations.entryRenderers).toEqual(["ctx-status"]);
-		expect(registrations.events).toContain("context");
-		expect(registrations.events).toContain("session_start");
-		expect(registrations.events).toContain("before_agent_start");
-		expect(registrations.events).toContain("agent_end");
-		expect(registrations.events).toContain("tool_result");
-		expect(registrations.events).toContain("session_shutdown");
-		const statusCommand = registrations.commandDefinitions.get("ctx-status") as {
-			handler: (
-				args: string,
-				ctx: { cwd: string; hasUI: boolean; sessionManager: { getSessionId: () => string } },
-			) => Promise<void>;
-		};
-		await statusCommand.handler("", {
-			hasUI: false,
-			cwd: process.cwd(),
-			sessionManager: { getSessionId: () => "bridge-only-session" },
-		});
-		expect(registrations.appendEntry).toHaveBeenLastCalledWith(
-			"ctx-status",
-			expect.objectContaining({
-				title: "/ctx-status",
-				text: expect.stringContaining("Window: disabled"),
-			}),
-		);
-		expect(registrations.tools).not.toContain("mctx_note");
-		expect(registrations.tools).not.toContain("mctx_expand");
-		expect(registrations.tools).not.toContain("mctx_reduce");
-		expect(fetchSpy).not.toHaveBeenCalled();
-	}, 15_000);
-
-	it.each([
-		false,
-		true,
-	])("reports an enabled but invalid bridge as unavailable (Window=%s)", async (enabled) => {
-		isolateXdgEnv();
-		writePiSettings({
-			enabled,
-			agentmemoryEnabled: true,
-			agentmemoryUrl: "not-a-url",
-			agentmemoryMemoryTools: true,
-		});
-		const fetchSpy = vi.fn();
-		vi.stubGlobal("fetch", fetchSpy);
-		const registrations = createCountingPi();
-
-		await magicContextPiExtension(registrations.pi);
-
-		if (!enabled) {
-			expect(registrations.tools).toEqual([]);
-			expect(registrations.commands).toEqual(["ctx-status", "agentmemory-health"]);
-		}
-		const healthCommand = registrations.commandDefinitions.get("agentmemory-health") as {
-			handler: () => Promise<void>;
-		};
-		await healthCommand.handler();
-		expect(registrations.appendEntry).toHaveBeenLastCalledWith(
-			"ctx-status",
-			expect.objectContaining({
-				title: "/agentmemory-health",
-				text: expect.stringContaining("agentmemory unavailable:"),
-				level: "error",
-			}),
-		);
-		expect(fetchSpy).not.toHaveBeenCalled();
-	}, 15_000);
-
-	it("registers nothing when both Window and AgentMemory are disabled", async () => {
-		isolateXdgEnv();
-		writePiSettings({ enabled: false, compactionEnabled: false, agentmemoryEnabled: false });
+		writePiSettings({ enabled: false, compactionEnabled: false });
 		const registrations = createCountingPi();
 
 		await magicContextPiExtension(registrations.pi);
@@ -260,9 +176,9 @@ describe("Pi full extension subagent env guard", () => {
 		expect(registrations.messageRenderers).toEqual([]);
 	}, 15_000);
 
-	it("keeps Window active but omits reduce when compaction is disabled without AgentMemory", async () => {
+	it("keeps Window active but omits reduce when compaction is disabled", async () => {
 		isolateXdgEnv();
-		writePiSettings({ enabled: true, compactionEnabled: false, agentmemoryEnabled: false });
+		writePiSettings({ enabled: true, compactionEnabled: false });
 		const fetchSpy = vi.fn();
 		vi.stubGlobal("fetch", fetchSpy);
 		const registrations = createCountingPi();

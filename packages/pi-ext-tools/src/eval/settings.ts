@@ -74,7 +74,8 @@ export function createEvalSettingsProvider(
 						type: "path",
 						defaultValue: DEFAULT_EVAL_PYTHON_BIN,
 						description:
-							"Interpreter used by the default Python kernel. Empty uses python3 or python on PATH. Changes apply after reload or a new session.",
+							"Interpreter used by the default Python kernel. (auto) uses python3 or python on PATH. Changes apply after reload or a new session.",
+						format: (value) => (value ? String(value) : "(auto)"),
 						parse: (value) => value.trim(),
 					},
 				],

@@ -1190,6 +1190,11 @@ async function startPiMagicContextRuntime(
 	);
 
 	pi.on("session_start", async (event, ctx) => {
+		if (ctx.modelRegistry) {
+			registerPiMctxSettings(pi, {
+				modelRegistry: ctx.modelRegistry,
+			});
+		}
 		await handlePiCloneSessionStart(event, ctx, {
 			db,
 			signalPendingMarker: signalPiDeferredCompactionMarkerDrain,

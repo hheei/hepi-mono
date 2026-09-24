@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-settings",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Settings surface host and Loadout policy for Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",

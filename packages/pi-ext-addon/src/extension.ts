@@ -101,6 +101,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			};
 			const autoTitleProvider = createAutoTitleSettingsProvider({
 				modelOptions,
+				modelRegistry: runtime.extension.modelRegistry,
 				validate: async (value) => {
 					const ref = parseModelRef(value);
 					const model = runtime.extension.modelRegistry.find(ref.provider, ref.model);

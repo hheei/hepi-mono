@@ -41,6 +41,7 @@ const modes = [
 	{
 		id: "t2s",
 		title: "T2S",
+		label: "T2S mode",
 		field: "mode",
 		values: ["t2s", "off"],
 		description:
@@ -49,6 +50,7 @@ const modes = [
 	{
 		id: "caveman",
 		title: "Caveman",
+		label: "Caveman mode",
 		field: "level",
 		values: CAVEMAN_LEVELS,
 		description: "Control the Caveman prompt compression level used on subsequent agent turns.",
@@ -56,19 +58,20 @@ const modes = [
 	{
 		id: "ponytail",
 		title: "Ponytail",
+		label: "Ponytail mode",
 		field: "level",
 		values: PONYTAIL_LEVELS,
 		description: "Control the Ponytail prompt level used on subsequent agent turns.",
 	},
 ] as const;
 const groups: readonly SettingGroup[] = [
-	...modes.map<SettingGroup>(({ id, title, field, values, description }) => ({
+	...modes.map<SettingGroup>(({ id, title, label, field, values, description }) => ({
 		id,
 		title,
 		fields: [
 			{
 				id: field,
-				label: "Mode",
+				label,
 				type: "enum",
 				defaultValue: values[0],
 				description,
@@ -95,7 +98,9 @@ const groups: readonly SettingGroup[] = [
 				label: "RTK path",
 				type: "path",
 				defaultValue: "",
-				description: "Optional absolute or PATH-resolved executable used for RTK command rewrites.",
+				description:
+					"Optional absolute or PATH-resolved executable used for RTK command rewrites. (auto) detects rtk on PATH.",
+				format: (value) => (value ? String(value) : "(auto)"),
 				parse: (draft) => draft.trim(),
 			},
 		],
