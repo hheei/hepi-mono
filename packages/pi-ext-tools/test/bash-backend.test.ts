@@ -10,13 +10,26 @@ import type {
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { createToolTui } from "@hheei/pi-ext-core";
+import { Value } from "typebox/value";
 import { expect, test } from "vitest";
-import { registerBashTool } from "../src/bash.js";
+import { BashInput, registerBashTool } from "../src/bash.js";
 import type { FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 
 initTheme(undefined, false);
+
+test("bash uses one flat object schema for strict tool providers", (): void => {
+	expect(BashInput).toMatchObject({ type: "object", additionalProperties: false });
+	expect(BashInput).not.toHaveProperty("anyOf");
+	expect(BashInput.properties).toHaveProperty("command");
+	expect(BashInput.properties).toHaveProperty("async");
+	expect(Value.Check(BashInput, { command: "pwd" })).toBe(true);
+	expect(Value.Check(BashInput, { command: "pwd", async: false })).toBe(true);
+	expect(Value.Check(BashInput, { command: "pwd", async: true })).toBe(true);
+	expect(Value.Check(BashInput, {})).toBe(false);
+	expect(Value.Check(BashInput, { command: "" })).toBe(false);
+});
 
 test("bash executes through Pi host original backend", async (): Promise<void> => {
 	const tools: ToolDefinition[] = [];
@@ -95,6 +108,25 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 			{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
 		),
 	).rejects.toThrow("Invalid bash parameters");
+});
+
+test("bash accepts null strict optional fields as omitted", async (): Promise<void> => {
+	const tools: ToolDefinition[] = [];
+	registerBashTool({
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+	} as unknown as ExtensionAPI);
+	const bash = tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("Expected bash tool");
+	const result = await bash.execute(
+		"bash-null-optional-fields",
+		{ command: "printf normalized", timeout: null, async: null, target: null },
+		undefined,
+		undefined,
+		{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
+	);
+	expect(result.content).toEqual([{ type: "text", text: "normalized" }]);
 });
 
 test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {

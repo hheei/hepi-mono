@@ -42,21 +42,26 @@ const Target = Type.Optional(
 		description: "Execution target: local or an authorized SSH host; ",
 	}),
 );
-const DefaultInput = Type.Object(
-	{ command: Type.String(), timeout: Timeout, target: Target },
-	{ additionalProperties: false },
-);
-const AsyncInput = Type.Object(
+const BashInput = Type.Object(
 	{
-		command: Type.String(),
+		command: Type.String({ minLength: 1 }),
 		timeout: Timeout,
-		async: Type.Literal(true),
+		async: Type.Optional(Type.Boolean({ description: "Run the command as a background job." })),
 		target: Target,
 	},
 	{ additionalProperties: false },
 );
-const BashInput = Type.Union([DefaultInput, AsyncInput]);
 type Input = Static<typeof BashInput>;
+
+function normalizeBashInput(value: unknown): unknown {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+	const input = { ...(value as Record<string, unknown>) };
+	if (input.timeout === null) delete input.timeout;
+	if (input.async === null) delete input.async;
+	if (input.target === null) delete input.target;
+	return input;
+}
+
 interface BashToolResult {
 	readonly content: readonly { readonly type: "text"; readonly text: string }[];
 	readonly details: Record<string, unknown>;
@@ -317,26 +322,28 @@ export function registerBashTool(
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
-			if (!Value.Check(BashInput, params)) throw new Error("Invalid bash parameters");
-			if (isRemoteBashTarget(params.target)) {
-				if ("async" in params && params.async === true)
+			const normalizedParams = normalizeBashInput(params);
+			if (!Value.Check(BashInput, normalizedParams)) throw new Error("Invalid bash parameters");
+			const validatedParams = normalizedParams;
+			if (isRemoteBashTarget(validatedParams.target)) {
+				if ("async" in validatedParams && validatedParams.async === true)
 					return result("Async Bash is local-only; omit async for SSH targets.", {
 						error: "async_unsupported",
-						target: params.target,
+						target: validatedParams.target,
 					});
 				const runtime = state?.getTargetRuntime();
 				if (runtime === undefined) throw new Error("Target runtime is unavailable.");
 				return runRemoteBash(
-					params.target,
-					params.command,
+					validatedParams.target,
+					validatedParams.command,
 					runtime,
 					signal,
 					onUpdate,
-					params.timeout,
+					validatedParams.timeout,
 					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
 				);
 			}
-			if ("async" in params && params.async === true) {
+			if ("async" in validatedParams && validatedParams.async === true) {
 				const jobs = state?.getBashJobs();
 				if (jobs === undefined)
 					return result("Async Bash unavailable outside active session", {
@@ -344,10 +351,12 @@ export function registerBashTool(
 					});
 				try {
 					const job = jobs.start(
-						params.command,
+						validatedParams.command,
 						context.cwd,
 						state?.getSettings().shellPath,
-						params.timeout === undefined ? undefined : Math.max(0, params.timeout * 1000),
+						validatedParams.timeout === undefined
+							? undefined
+							: Math.max(0, validatedParams.timeout * 1000),
 					);
 					return result(`Started Bash job ${job.id}`, {
 						id: job.id,
@@ -367,12 +376,12 @@ export function registerBashTool(
 				}
 			}
 			return runForeground(
-				params.command,
+				validatedParams.command,
 				context,
 				signal,
 				onUpdate,
 				state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
-				params.timeout,
+				validatedParams.timeout,
 				(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
 			);
 		},
