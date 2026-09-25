@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import { getEditOperations } from "../src/edit.js";
 import { parseDiff } from "../src/pretty/diff.js";
@@ -15,6 +16,15 @@ describe("LinesBody", () => {
 		expect(body.render(80)).toEqual(["width 80"]);
 		expect(body.render(40)).toEqual(["width 40"]);
 		expect(paints).toBe(2);
+	});
+
+	test("bounds painter rows to the terminal width", (): void => {
+		const body = new LinesBody(() => [
+			"- **连续交互**：保持较长的上下文历史能够持续命中 Prompt Cache",
+		]);
+		const rows = body.render(20);
+		expect(rows).toHaveLength(1);
+		expect(visibleWidth(rows[0] ?? "")).toBeLessThanOrEqual(20);
 	});
 });
 
