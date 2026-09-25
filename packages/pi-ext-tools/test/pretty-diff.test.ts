@@ -26,6 +26,24 @@ describe("LinesBody", () => {
 		expect(rows).toHaveLength(1);
 		expect(visibleWidth(rows[0] ?? "")).toBeLessThanOrEqual(20);
 	});
+
+	test("does not render rows for zero width", (): void => {
+		let paintedWidth = -1;
+		const body = new LinesBody((width) => {
+			paintedWidth = width;
+			return ["content"];
+		});
+
+		expect(body.render(0)).toEqual([]);
+		expect(paintedWidth).toBe(-1);
+	});
+
+	test("keeps the final visible width bounded after truncation", (): void => {
+		const body = new LinesBody(() => ["x".repeat(41)]);
+		const rows = body.render(40);
+
+		expect(visibleWidth(rows[0] ?? "")).toBeLessThanOrEqual(40);
+	});
 });
 
 describe("parseDiff", () => {

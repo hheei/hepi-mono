@@ -234,11 +234,17 @@ describe("session-ledger V3 progress helpers", () => {
 		entries.push(message("asst-future", nowSec + 120));
 		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
 
-		// Discards aborted or error assistant messages
+		// Does not fall back through an unfinished latest assistant message
 		entries.push(message("asst-aborted", nowSec - 1, "aborted"));
-		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+		expect(findPersistedSettledTime(entries, nowSec)).toBeUndefined();
 
 		entries.push(message("asst-error", nowSec - 1, "error"));
-		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+		expect(findPersistedSettledTime(entries, nowSec)).toBeUndefined();
+
+		entries.push(message("asst-tool-use", nowSec, "toolUse"));
+		expect(findPersistedSettledTime(entries, nowSec)).toBeUndefined();
+
+		entries.push({ id: "user-2", type: "message", message: { role: "user", content: "pending" } });
+		expect(findPersistedSettledTime(entries, nowSec)).toBeUndefined();
 	});
 });

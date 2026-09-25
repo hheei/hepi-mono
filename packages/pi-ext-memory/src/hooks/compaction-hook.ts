@@ -11,6 +11,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 	pi.on(
 		"session_before_compact",
 		async (event: SessionBeforeCompactEvent, ctx: ExtensionContext) => {
+			const sessionGeneration = runtime.sessionGeneration;
 			if (runtime.compactHookInFlight) {
 				if (ctx.hasUI) {
 					ctx.ui.notify(
@@ -23,7 +24,8 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 
 			runtime.compactHookInFlight = true;
 			try {
-				await runtime.ensureConfig(ctx.cwd);
+				await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
+				if (!runtime.isSessionCurrent(sessionGeneration)) return { cancel: true };
 				const { preparation, branchEntries } = event;
 				const { firstKeptEntryId, tokensBefore } = preparation;
 				const projection = buildCompactionProjection(branchEntries as Entry[], firstKeptEntryId, {
@@ -48,7 +50,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 					},
 				};
 			} finally {
-				runtime.compactHookInFlight = false;
+				if (runtime.isSessionCurrent(sessionGeneration)) runtime.compactHookInFlight = false;
 			}
 		},
 	);
