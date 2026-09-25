@@ -202,7 +202,7 @@ describe("Todo integration", () => {
 		expect(TODO_PROMPT_GUIDELINES).toEqual([
 			"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 			"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
-			"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
+			"Scheduling is automatic; active task is already in_progress. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
 		]);
 		expect(Value.Check(TODO_PARAMETERS, { action: "list" })).toBe(false);
 		expect(Value.Check(TODO_PARAMETERS, { operations: [] })).toBe(false);
@@ -404,7 +404,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #1 #2\nNext: #1 First.");
+		expect(created.content[0]?.text).toBe("Created #1 #2\nin_progress: #1 First.");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
 				{ id: 1, subject: "First", status: "in_progress" },
@@ -425,7 +425,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nNext: #2 Second.");
+		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nin_progress: #2 Second.");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
 				{ id: 1, subject: "First", status: "blocked" },
@@ -463,7 +463,7 @@ describe("Todo integration", () => {
 		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
 		expect(listed.content[0]?.text).toContain("◐ #2 Second");
 		expect(listed.content[0]?.text).toContain("⊘ #1 First");
-		expect(listed.content[0]?.text?.endsWith("Next: #2 Second.")).toBe(true);
+		expect(listed.content[0]?.text?.endsWith("in_progress: #2 Second.")).toBe(true);
 
 		const noChange = await tool.execute(
 			"call-5",
@@ -487,7 +487,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(changedWithNoOp.content[0]?.text).toBe(
-			"#2 is already `Second`\nUpdated #3\nNext: #2 Second.",
+			"#2 is already `Second`\nUpdated #3\nin_progress: #2 Second.",
 		);
 
 		const allBlocked = await tool.execute(
@@ -554,7 +554,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("◐ #1 Restored\nNext: #1 Restored.");
+		expect(listed.content[0]?.text).toBe("◐ #1 Restored\nin_progress: #1 Restored.");
 		host.setBranch([
 			branchResult({
 				tasks: [{ id: 2, subject: "Tree state", status: "pending" }],
@@ -570,7 +570,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("◐ #2 Tree state\nNext: #2 Tree state.");
+		expect(listed.content[0]?.text).toBe("◐ #2 Tree state\nin_progress: #2 Tree state.");
 	});
 
 	test("hides blocked work after two later assistant turns without Todo changes", async () => {
@@ -769,7 +769,7 @@ describe("Todo integration", () => {
 
 		await host.commands[0]!.handler("suppress #1", host.ctx);
 		expect(host.notifications[2]).toEqual({
-			message: "Suppressed #1\nNext: #2 Pending.",
+			message: "Suppressed #1\nin_progress: #2 Pending.",
 			level: "info",
 		});
 		expect(host.appended).toEqual([
@@ -821,7 +821,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(created.content[0]?.text).toBe("Created #3\nNext: #2 Pending.");
+		expect(created.content[0]?.text).toBe("Created #3\nin_progress: #2 Pending.");
 		await host.emit("session_tree");
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications.at(-1)).toEqual({

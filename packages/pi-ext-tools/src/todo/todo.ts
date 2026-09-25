@@ -96,7 +96,7 @@ export const TODO_PROMPT_SNIPPET = "Manage a task list to track multi-step progr
 export const TODO_PROMPT_GUIDELINES = [
 	"Use `todo` for work with 3+ concrete steps or multiple user-requested tasks; skip trivial work.",
 	"Create the full known task list in one atomic batch. Keep subjects short, imperative, and outcome-oriented; do not add bookkeeping tasks for routine commands.",
-	"Scheduling is automatic. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
+	"Scheduling is automatic; active task is already in_progress. Update only when state changes: use `completed` after verification, `blocked` only when work cannot continue, and `in_progress` to switch active work or resume blocked work. Do not repeatedly list or restate current state.",
 ] as const;
 
 /**
@@ -216,7 +216,7 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 
 function formatTodoGuidance(state: TaskState): string {
 	const active = activeTodoTask(state);
-	if (active) return `Next: #${active.id} ${active.subject}.`;
+	if (active) return `in_progress: #${active.id} ${active.subject}.`;
 	return "Finished all todos.";
 }
 
