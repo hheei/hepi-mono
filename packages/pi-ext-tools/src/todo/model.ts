@@ -15,7 +15,7 @@ export interface TaskState {
 }
 
 export type TodoOperation =
-	| { readonly action: "create"; readonly subject: string }
+	| { readonly action: "create"; readonly subject: string; readonly status?: AgentTaskStatus }
 	| {
 			readonly action: "update";
 			readonly id: number;
@@ -187,18 +187,32 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 			continue;
 		}
 		if (action === "create") {
-			if (!hasOnlyKeys(operation, ["action", "subject"]) || typeof operation.subject !== "string")
+			if (
+				!hasOnlyKeys(operation, ["action", "subject", "status"]) ||
+				typeof operation.subject !== "string"
+			)
 				return fail("Invalid create fields", index);
 			const subjectIssue = subjectError(operation.subject);
 			if (subjectIssue) return fail(subjectIssue, index);
+			if (operation.status !== undefined && !isAgentTaskStatus(operation.status))
+				return fail("Invalid status", index);
 			const subject = operation.subject.trim();
+			const status: AgentTaskStatus = operation.status ?? "pending";
 			if (draft.nextId >= Number.MAX_SAFE_INTEGER) return fail("Task id space exhausted", index);
 			const task: Task = {
 				id: draft.nextId,
 				subject,
-				status: "pending",
+				status,
 			};
-			draft.tasks = [...draft.tasks, task];
+			const existingTasks =
+				status === "in_progress"
+					? draft.tasks.map((existing) =>
+							existing.status === "in_progress"
+								? { ...existing, status: "pending" as const }
+								: existing,
+						)
+					: draft.tasks;
+			draft.tasks = [...existingTasks, task];
 			draft.nextId++;
 			changed = true;
 			operations.push({ index, action, changed: true, id: task.id });
