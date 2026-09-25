@@ -1,4 +1,4 @@
-import type { Component } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 
 export class LinesBody implements Component {
 	private cached: { readonly width: number; readonly rows: string[] } | undefined;
@@ -7,7 +7,10 @@ export class LinesBody implements Component {
 
 	render(width: number): string[] {
 		if (this.cached?.width === width) return this.cached.rows;
-		const rows = this.paint(width);
+		const availableWidth = Math.max(1, width);
+		const rows = this.paint(availableWidth).map((line) =>
+			truncateToWidth(line, availableWidth, "..."),
+		);
 		this.cached = { width, rows };
 		return rows;
 	}
