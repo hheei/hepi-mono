@@ -1,102 +1,153 @@
-## Product Constraints
+## 产品约束
 
-- **MUST** keep meaningful reads, commands, edits, delegation, retries, fallbacks, and model changes inspectable.
-- **NEVER** silently select, replace, or route models/providers; subagents should inherit the caller's model unless explicitly overridden.
-- **SHOULD** keep baseline prompts and tool schemas small, loading skills, references, catalogs, and volatile metadata only when needed.
-- **AVOID** always-on reviewers, advisors, background agents, orchestration loops, and opaque automation.
-- **MUST** preserve complete results even when UI output is collapsed, and keep sensitive, privileged, expensive, or setup-heavy capabilities opt-in.
-- **SHOULD** build complex behavior from visible, composable primitives rather than hidden commands or modes.
-- **MUST** keep Graphify semantic-extraction graphs entirely in English: labels, descriptions, relationship names, and community names.
+- **必须**让重要的读取、命令、编辑、委派、重试、回退和模型变更可检查。
+- **禁止**静默选择、替换或路由模型/供应商；子 agent 应继承调用方的模型，除非明确指定覆盖。
+- **应该**保持基础提示和工具 schema 精简，只在需要时加载技能、参考资料、目录和易变元数据。
+- **避免**默认启用 reviewer、advisor、后台 agent、编排循环和不透明自动化。
+- **必须**在 UI 折叠输出时仍保留完整结果，并让敏感、特权、昂贵或需要复杂配置的能力显式 opt-in。
+- **应该**用可见、可组合的基础能力构建复杂行为，避免隐藏命令或模式。
+- **必须**让 Graphify 的语义提取图完全使用英文：标签、描述、关系名称和社区名称都必须是英文。
 
-**Product rule:** No hidden intent. No silent routing. No blind automation.
+**产品原则：**不隐藏意图，不静默路由，不盲目自动化。
 
-## Engineering
+## 工程约束
 
-- **SHOULD** delete obsolete APIs, layouts, adapters, and compatibility layers after checking callers, persistence, resume/fork behavior, and public contracts.
-- **NEVER** add speculative abstractions, extension points, compatibility shims, or configuration for unconfirmed requirements.
-- Build the smallest runnable end-to-end path first; split only at real ownership, lifecycle, concurrency, or public-contract boundaries.
-- **MUST** preserve validation, cancellation, cleanup, concurrency safety, error propagation, accessibility, and data safety.
-- Before adding infrastructure, inspect existing implementations, dependencies, standard/platform APIs, and relevant upstream references.
-- **AVOID** temporary adapters, unnecessary dependencies, duplicated infrastructure, and file splitting done only to reduce file length.
-- **MUST** keep unrelated user changes untouched.
-- read `DESIGN_TS.md` before write any typescript.
+- **应该**在检查调用方、持久化、恢复/分叉行为和公共契约后，删除废弃的 API、布局、适配器和兼容层。
+- **禁止**为未经确认的需求增加推测性抽象、扩展点、兼容层或配置。
+- 先为必要行为建立可运行的端到端路径；package 边界和抽象应根据真实的 ownership、生命周期、并发和公共契约责任来选择。
+- **必须**保留验证、取消、清理、并发安全、错误传播、可访问性和数据安全。
+- 添加基础设施前，先检查现有实现、依赖、标准/平台 API 和相关上游参考。
+- **避免**临时适配器、不必要的依赖、重复的基础设施，以及仅为缩短文件长度而拆分文件。
+- **必须**保持与本任务无关的用户修改不变。
+- 建立可持续维护的清晰架构；不要为了让本次 diff 最小而牺牲边界、可读性、可测试性或未来演进。代码架构应以长期总复杂度低、责任清楚、符合 repo 既有方向为目标。
+- 本次功能先实现必要的可运行路径，但不要因此把本应稳定的公共契约、生命周期、错误处理或数据边界草率地塞进临时代码。
+- 修改 TypeScript 前必须阅读 `DESIGN_TS.md`。
 
-## Tooling
+## 工具
 
 直接在仓库根目录使用 `pnpm`（系统已安装独立版，无需 `corepack` 或 `npx` 包装）：
 
 ```bash
-# Biome: 检查并自动修复指定文件
-pnpm exec biome check --write <paths...>
+- 只检查本次改动的文件
+pnpm exec biome check <changed-files...>
 
-# Biome: 仅检查指定文件
-pnpm exec biome check <paths...>
+# 只对本次改动的文件自动修复
+pnpm exec biome check --write <changed-files...>
 
-# 测试: 运行单个或多个指定测试文件
+# 单个或多个测试文件
 pnpm exec vitest run <test-paths...>
 
-# 全量校验 (提交前)
-pnpm run check:fix
+# 单个 package 的编译检查（该 package 提供 build 脚本时）
+pnpm --filter <package-name> run build
+
+# 完整仓库检查：Biome check + typecheck + test
+pnpm run check
+
+# 全仓库 typecheck 或 test（仅在 Verification policy 规定的升级条件满足时运行）
 pnpm run typecheck
 pnpm test
+
+# 会修改整个仓库的 Biome 修复命令，仅在明确需要全仓格式修复时使用
+pnpm run check:fix
 ```
 
-- 本地日常改动优先对变更文件运行 `biome check --write` 与对应单测。
-- 涉及共享接口、依赖或跨包边界变更时，运行根目录 `typecheck` 与完整 `test`。
-## Package Boundaries
+### Verification policy
 
-- Each `packages/pi-<name>/` workspace owns one independent feature or cohesive feature family and exactly one `pi.extensions` entry.
-- Concrete extensions **SHOULD** use `@hheei/pi-ext-core` for shared primitives. A concrete extension **MAY** directly depend on another concrete extension when it is explicitly an integration/add-on and the dependency reflects real install/runtime ownership; document whether the dependency is required or optional, keep lifecycle and fallback behavior explicit, and avoid dependency cycles. Otherwise, prefer ext-core-owned runtime capabilities for optional cross-extension cooperation.
-- `@hheei/pi-ext-core` is a side-effect-free foundation package and **MUST NEVER** import concrete extensions.
-- Keep runtime state session-scoped and cleanup idempotent unless persistence is explicitly part of the contract.
-- Avoid vendoring external repositories under `packages/`; if unavoidable, vendor the smallest surface and record the upstream URL/revision.
-- Events are notifications, not shared state or RPC.
+- 验证范围必须匹配变更范围。默认执行“最低足够验证”，不要因为任务结束或习惯而自动执行全量 `typecheck` 和 `test`。
+- 先识别变更类型，再选择验证级别：
+  - 仅 Markdown、配置注释或非代码文档：不跑 TypeScript/test；必要时只检查改动文件的格式。
+  - 仅样式、格式或不影响运行时的 TUI 文本：跑改动文件的 Biome；有对应快照/渲染测试时跑该测试文件。
+  - 单一 package 的实现或测试：跑改动文件的 Biome、受影响的测试文件，以及该 package 的 `build`（若存在）。
+  - 修改共享模块、公共导出、跨 package import、根配置、依赖、脚本、类型声明或测试基础设施：升级到 `pnpm run typecheck`，并运行受影响的测试；只有行为可能跨全仓传播时才加 `pnpm test`。
+  - 无法可靠界定影响范围、涉及发布产物/包边界，或用户明确要求完整门禁：才运行 `pnpm run check`。不要用 `check:fix` 代替完整检查。
+- 全量命令不能作为局部修改的默认收尾动作。若升级验证范围，必须在进度或最终报告中说明触发原因。
+- 测试失败时先修复或报告失败原因；禁止为了让验证通过而跳过测试、放宽类型检查或修改无关代码。
+- `check:fix` 会修改整个仓库，只在用户明确要求全仓格式修复或确实需要全局格式迁移时使用；普通局部检查使用指定文件的 Biome 命令。
 
-## Architecture Vocabulary
+## TypeScript 规范
 
-Use these names consistently:
+TypeScript 的目标是让设计更清楚，不是把每个值都包成类型、guard、helper 和 fallback。保持 strict，但优先保持实现短、直接、符合现有代码库的风格。
 
-- **Pi host** — `@earendil-works/pi-coding-agent`; owns the session, extension runner, editor, terminal, and native UI.
-- **ext-core** — `@hheei/pi-ext-core`; owns reusable lifecycle, cancellation, cleanup, surfaces, widgets, and coordination primitives.
-- **Concrete extension** — independently installable `packages/pi-<name>/`; owns feature state, commands/tools, schemas, policy, and rendering.
-- **Surface** — ext-core-managed custom TUI lifetime.
-- **Widget** — editor-adjacent presentation managed by ext-core.
+- 编写或修改 TypeScript 前先读 `DESIGN_TS.md`。不要放宽 strict、`noUncheckedIndexedAccess` 或 `exactOptionalPropertyTypes` 来掩盖问题。
+- 先找现有的 API、schema、类型、类型守卫和相邻模块的写法。能直接使用就不要重新包一层；标准库或 Pi/runtime 已经提供的能力，不要手写替代品。
+- 先问“这个不变量真的可能被破坏吗？”只在真实边界验证不可信数据：文件、JSON、环境变量、网络、第三方数据和 `catch` 的错误值。不要为理论上不可能的状态增加检查、空值分支、fallback 或新 helper。
+- `unknown` 应优先停留在不可信边界，完成必要的验证后立即收窄。只有函数本身就是通用边界，或确实需要由调用方负责收窄时，才让它继续传递；不要为了消除 `unknown` 而加入没有实际收益的 wrapper 或 assertion，也不要把它传遍业务层。
+- `undefined`、`null` 和 optional property 只在产品语义确实代表“没有值”时使用。不要为了通过编译，把字段改成 optional 或加上 `| undefined`。
+- 不用显式 `any`、`@ts-ignore`、`@ts-nocheck`、`as unknown as T` 或无依据的非空断言来消除错误。真正的互操作缺口可以用窄范围 `as`，并让依据靠近该行；测试 fixture 可在明确不变量下使用非空断言。
+- 导出函数、公共数据结构和跨 package 契约要有清楚的类型；内部变量让 TypeScript 推断即可，不要逐行补上没有信息量的类型注解。
+- Promise 必须被 `await`、返回、处理 rejection，或用 `void` 明确表示有意丢弃。不要用类型断言掩盖取消、清理、错误传播或资源生命周期。
 
-**NEVER** use unqualified “core” as an owner name.
+### 简化与抽象判断
 
-Architecture proposals should state, in order:
+- 没有第二个调用方、第二种实现或清楚的边界时，不要抽一次性函数、wrapper、interface、config 或 adapter。先把直接实现写清楚。
+- 不要因为“未来可能重用”而抽象。只有当抽象现在就能消除重复、固定重要不变量、隔离稳定的公共契约，或让多个调用方明显更简单时，才提出“可以抽成 API”的选项，并说明收益、成本和影响范围。
+- 如果抽象会改变公共 API、跨 package 边界，或增加持久化/生命周期，就先询问用户再扩大实现。
+- 不要为了“更严格”堆 checking、guard、helper、重试或 fallback。每增加一层，都要能指出它防止的真实错误或降低的总复杂度。这不是禁止良好抽象；如果一个抽象能让架构更稳定、更一致、更容易演进，应优先采用它。
+- 实现范围可以先聚焦于必要功能，但架构判断应选择最聪明且可持续的方案，而不是一味追求最少文件、最少函数或最小 diff。
+- 需要在正确性和简洁性之间取舍时，保留一个清楚的边界验证，删除沿途重复的防御代码。
 
-1. user-visible goal and main data/control-flow change;
-2. ownership, consumers, cleanup, cancellation, fallback, and concurrency where relevant;
-3. a small ASCII flow/state machine when useful;
-4. the smallest public contract and focused tests before file-level details.
+### 与用户沟通
 
-## Documentation
+- 先给简单的整体图景：改了什么、为什么、风险在哪里、验证到哪里。除非用户追问，不要用大量类型、调用链或实现细节淹没结论。
+- 如果可行性不足、需求互相冲突、需要大范围重构，或抽 API 会影响公共契约，先明确告知用户，再提出可持续的方案和清楚取舍；不要默默把小需求扩大成大型工程，也不要为了保留“最小改动”而留下临时架构。
+- 对可选的抽象或较大改动，先列出简短选项和取舍，询问用户是否要升级范围；局部修正则直接完成，不要为小事反复请示。
 
-- Keep `docs/` high-level; implementation details and TypeScript API contracts belong near the code.
-- **MUST** document public-contract, architecture, persistence, and meaningful UI/UX changes before implementation; small bug fixes and local refactors may skip new design docs.
-- High-level design docs should use Simplified Chinese.
-- Document non-obvious invariants around persistence, migration, cancellation, concurrency, validation, fallback, and critical UI behavior.
-- Follow `docs/architecture/[extension-reference.md](http://extension-reference.md)` for new extensions.
-- [`DESIGN.md`](http://DESIGN.md) is the UI/UX specification and **MUST** be updated when an agreed UI/UX contract changes.
-- Treat `docs/plans/` as historical context, not current behavior.
+- 本地日常改动优先对变更文件执行 Biome 和对应测试；不要自动执行全量验证。
+- 每次完成修改后，在最终报告列出实际执行的验证命令及结果；没有执行的全量检查要明确写出，不得暗示已通过。
+## Package 边界
 
-## Workflow
+- 每个 `packages/pi-<name>/` workspace 负责一个独立功能或内聚的功能族，并且只能有一个 `pi.extensions` 条目。
+- 具体 extension **应该**使用 `@hheei/pi-ext-core` 的共享基础能力。具体 extension **可以**直接依赖另一个具体 extension，但必须明确它是集成/附加功能，且依赖关系反映真实的安装和运行时 ownership；必须记录该依赖是必需还是可选，明确生命周期和回退行为，并避免依赖循环。除此之外，可选的跨 extension 协作应优先使用 ext-core 提供的运行时能力。
+- `@hheei/pi-ext-core` 是无副作用的基础 package，**绝不能**导入具体 extension。
+- 除非持久化明确属于契约，否则运行时状态应限定在 session 内，清理操作必须幂等。
+- 避免在 `packages/` 下 vendoring 外部仓库；如果无法避免，只 vendor 最小必要范围，并记录上游 URL 和 revision。
+- 事件是通知，不是共享状态或 RPC。
 
-For substantial feature, architecture, persistence, lifecycle/concurrency, public-contract, or UI/UX changes:
+## 架构术语
 
-1. Inspect repository and relevant upstream implementations.
-2. Write/update the high-level design document and explain the proposed boundary/interface.
-3. Use `grill-me` or `grill-with-docs` for non-trivial design decisions and reach agreement.
-4. Build the smallest runnable end-to-end path and define the smallest required public contract.
-5. Add focused tests, implement details, and run focused verification.
-6. Commit cohesive changes separately and **NEVER** include unrelated user work.
+统一使用以下名称：
 
-For small fixes/refactors: inspect callers, make the smallest sound change, update focused tests when behavior changes, and run focused formatting/type/test verification.
+- **Pi host**：`@earendil-works/pi-coding-agent`；负责 session、extension runner、editor、terminal 和原生 UI。
+- **ext-core**：`@hheei/pi-ext-core`；负责可复用的生命周期、取消、清理、surface、widget 和协作基础能力。
+- **具体 extension**：可独立安装的 `packages/pi-<name>/`；负责功能状态、命令/工具、schema、策略和渲染。
+- **Surface**：由 ext-core 管理的自定义 TUI 生命周期。
+- **Widget**：贴近 editor 的展示组件，由 ext-core 管理。
 
-For UI work: follow [`DESIGN.md`](http://DESIGN.md), reuse ext-core primitives where appropriate, keep output ANSI/cell-width safe, request rendering after state changes, and test affected narrow/wide layouts.
+**禁止**使用不带限定词的 “core” 作为 ownership 名称。
 
-## Release
+架构方案应按以下顺序说明：
+
+1. 用户可见的目标，以及主要的数据/控制流变化；
+2. ownership、消费者、清理、取消、回退和并发（如适用）；
+3. 必要时提供简短的 ASCII 流程/状态机；
+4. 根据长期 ownership 定义合适的公共契约和聚焦测试，再说明文件级细节；契约范围不要超出实际责任。
+
+## 文档
+
+- `docs/` 保持高层次；实现细节和 TypeScript API 契约放在代码附近。
+- **必须**在实现前记录公共契约、架构、持久化和重要 UI/UX 变更；小型 bug 修复和局部重构可以不新增设计文档。
+- 高层设计文档应使用简体中文。
+- 记录持久化、迁移、取消、并发、验证、回退和关键 UI 行为中不明显的不变量。
+- 新 extension 遵循 `docs/architecture/[extension-reference.md](http://extension-reference.md)`。
+- [`DESIGN.md`](http://DESIGN.md) 是 UI/UX 规范；达成一致的 UI/UX 契约发生变化时，**必须**更新它。
+- 将 `docs/plans/` 视为历史背景，不视为当前行为的来源。
+
+## 工作流
+
+对于重要功能、架构、持久化、生命周期/并发、公共契约或 UI/UX 变更：
+
+1. 检查仓库和相关上游实现。
+2. 编写或更新高层设计文档，并说明建议的边界/接口。
+3. 对非平凡设计决策使用 `grill-me` 或 `grill-with-docs`，并达成一致。
+4. 为必要行为建立可运行的端到端路径，并定义与 ownership 相称的公共契约；不要为了减少初始改动而留下临时架构。
+5. 增加聚焦测试，实现细节，并运行聚焦验证。
+6. 分别提交内聚的变更，**绝不能**包含与任务无关的用户修改。
+
+对于小型修复/重构：检查调用方，进行合理范围的修改；行为发生变化时更新聚焦测试，并运行聚焦的格式、类型和测试验证。
+
+对于 UI 工作：遵循 [`DESIGN.md`](http://DESIGN.md)，适当复用 ext-core 基础能力，确保输出 ANSI/单元格宽度安全，在状态变化后请求重新渲染，并测试受影响的窄/宽布局。
+
+## 发布
 
 ```bash
 pnpm run publish:dry-run                  # 预演
@@ -104,19 +155,20 @@ pnpm run publish:packages                 # 本地发布
 git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布（tag 仅作发布标记）
 ```
 
-各 `packages/pi-<name>/package.json` 自带 `version`，彼此独立，没有仓库级发布版本；root 的 `version` 只是私有 root 包自身的版本。发布时只会上传版本尚未存在于 npm 的包，因此改动的包自行 bump 版本，未改动的包保持原版本并被跳过。tag 不再需要等于任何包版本，它只触发 `release.yml`。`publish:packages` / `publish:dry-run` 会先 build 再校验产物。发布仍属高危且不可逆操作，需按 Release Safety 小节取得明确授权。
+各 `packages/pi-<name>/package.json` 自带 `version`，彼此独立；root 的 `version` 只是私有 root package 自身的版本。发布时只会上传 npm 中尚不存在的 package 版本，未改动的 package 保持原版本并被跳过。tag 不需要等于任何 package 版本，它只触发 `release.yml`。`publish:packages` / `publish:dry-run` 会先 build，再校验产物。发布仍属于高风险且不可逆的操作，必须遵守下面的发布安全规则并取得明确授权。
 
-## Release Safety
+## 发布安全
 
-- **MUST** pass the full repository release gate and verify intended versions/dependency ranges before publishing.
-- **MUST** obtain explicit approval for the exact externally visible push/tag/publish/release action unless already authorized.
-- Use a dry-run when available and report exact packages and versions before publication.
-- **NEVER** treat a successful push, tag, workflow trigger, or command exit as proof of publication; verify the actual CI/CD release result.
-- On failure, stop and report evidence. **NEVER** weaken tests, typing, validation, or compatibility constraints merely to make a release pass.
-## Key Rules
+- **必须**通过完整的仓库发布门禁，并核对目标版本和依赖范围后才能发布。
+- **必须**获得针对确切的外部 push/tag/publish/release 操作的明确批准，除非用户已经授权该确切操作。
+- 在可用时先运行 dry-run，并在发布前报告确切的 package 和版本。
+- **绝不能**把 push、tag、工作流触发成功或命令退出成功当作发布成功的证明；必须核实实际的 CI/CD 发布结果。
+- 失败时停止并报告证据。**绝不能**为了让发布通过而削弱测试、类型、验证或兼容性约束。
 
-- **MUST** keep edits focused, typing strict, runtime boundaries validated, and concrete-extension dependencies intentional and acyclic.
-- **NEVER** silently route models, hide meaningful automation, preserve obsolete HEPI compatibility without need, or modify unrelated user work.
-- **SHOULD** prefer simple, visible, composable, and idempotent mechanisms.
-- Shared TypeScript baseline: `tsconfig.base.json`; packages extend it.
+## 关键规则
+
+- **必须**保持修改聚焦、类型严格、运行时边界经过验证，并确保具体 extension 的依赖关系有明确意图且无循环。
+- **绝不能**静默路由模型、隐藏有意义的自动化，或无必要地保留废弃的 HEPI 兼容逻辑；也不能修改与任务无关的用户工作。
+- **应该**优先选择简单、可见、可组合且幂等的机制。
+- 共享 TypeScript 基线是 `tsconfig.base.json`；各 package 应继承它。
 
