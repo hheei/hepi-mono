@@ -31,7 +31,6 @@ export type StreamableModelRegistry = {
 				  }
 				| undefined)
 		| undefined;
-	getRegisteredProviderIds?: (() => string[]) | undefined;
 };
 
 /**

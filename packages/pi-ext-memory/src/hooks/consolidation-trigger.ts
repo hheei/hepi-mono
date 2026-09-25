@@ -61,25 +61,6 @@ type ReflectorStageResult = {
 	effectiveReflectionCoverageId?: string;
 };
 
-function sourceEntriesAfter(entries: Entry[], index: number): Entry[] {
-	return entries.slice(index + 1).filter(isSourceEntry);
-}
-
-function appendEntry(pi: ExtensionAPI, customType: string, data: unknown): void {
-	pi.appendEntry(customType, data);
-}
-
-function mergeReflections(existing: Reflection[], additional: Reflection[]): Reflection[] {
-	const seen = new Set(existing.map((reflection) => reflection.id));
-	const merged = [...existing];
-	for (const reflection of additional) {
-		if (seen.has(reflection.id)) continue;
-		seen.add(reflection.id);
-		merged.push(reflection);
-	}
-	return merged;
-}
-
 /**
  * Real current context tokens from the session (provider-reported usage, the
  * same basis the footer percentage uses). Falls back to undefined when the
@@ -94,7 +75,6 @@ function realContextTokens(ctx: ConsolidationCtx): number | undefined {
 
 function stageDue(
 	entries: Entry[],
-	_runtime: Runtime,
 	currentTokens: number | undefined,
 	customType: V3MemoryCustomType,
 	rawEstimateFn: (entries: Entry[]) => number,
@@ -118,7 +98,6 @@ function anyStageDue(
 	return (
 		stageDue(
 			entries,
-			runtime,
 			currentTokens,
 			OM_OBSERVATIONS_RECORDED,
 			rawTokensSinceObservationCoverage,
@@ -126,7 +105,6 @@ function anyStageDue(
 		) ||
 		stageDue(
 			entries,
-			runtime,
 			currentTokens,
 			OM_REFLECTIONS_RECORDED,
 			rawTokensSinceReflectionCoverage,
@@ -341,7 +319,7 @@ async function runObserverStage(
 	if (!resolved) return "abort";
 
 	const lastCoverageIdx = latestCoverageIndex(entries, OM_OBSERVATIONS_RECORDED);
-	const backlogEntries = sourceEntriesAfter(entries, lastCoverageIdx);
+	const backlogEntries = entries.slice(lastCoverageIdx + 1).filter(isSourceEntry);
 
 	// Budget the text that is actually sent to the observer, including source
 	// labels and rendered message content. Complete entries are kept intact.
@@ -439,7 +417,7 @@ async function runObserverStage(
 		observationTokens: observations.reduce((sum, observation) => sum + observation.tokenCount, 0),
 		coversUpToId,
 	});
-	appendEntry(pi, OM_OBSERVATIONS_RECORDED, data);
+	pi.appendEntry(OM_OBSERVATIONS_RECORDED, data);
 	debugLog("observer.appended", { count: observations.length, coversUpToId });
 	if (shouldNotifyWorker(runtime, ctx))
 		ctx.ui?.notify(
@@ -496,7 +474,7 @@ async function runReflectorStage(
 
 	const data = buildReflectionsRecordedData(reflections, observationCoverageId);
 	if (!data) return { outcome: "continue", sameRunReflections: [] };
-	appendEntry(pi, OM_REFLECTIONS_RECORDED, data);
+	pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
 	return {
 		outcome: "continue",
 		sameRunReflections: reflections,
@@ -559,7 +537,15 @@ async function runDropperStage(
 	const resolved = await resolveModel("dropper");
 	if (!resolved) return "abort";
 
-	const reflectionsForDropper = mergeReflections(folded.reflections, sameRunReflections);
+	const seenReflectionIds = new Set(folded.reflections.map((reflection) => reflection.id));
+	const reflectionsForDropper = [
+		...folded.reflections,
+		...sameRunReflections.filter((reflection) => {
+			if (seenReflectionIds.has(reflection.id)) return false;
+			seenReflectionIds.add(reflection.id);
+			return true;
+		}),
+	];
 	const droppedIds = await runDropper({
 		model: resolved.model as unknown as Model<Api>,
 		apiKey: resolved.apiKey,
@@ -588,6 +574,6 @@ async function runDropperStage(
 		dataBuilt: data !== undefined,
 		appended: data !== undefined,
 	});
-	if (data) appendEntry(pi, OM_OBSERVATIONS_DROPPED, data);
+	if (data) pi.appendEntry(OM_OBSERVATIONS_DROPPED, data);
 	return "continue";
 }
