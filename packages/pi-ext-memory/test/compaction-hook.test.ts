@@ -51,6 +51,9 @@ function setup(args: {
 		},
 		compactHookInFlight: args.compactHookInFlight ?? false,
 		idleCompactInFlight: args.idleCompactInFlight ?? false,
+		sessionGeneration: 1,
+		lifecycleSignal: undefined,
+		isSessionCurrent: vi.fn((generation: number) => generation === 1),
 		observerPromise: new Promise(() => {}),
 		resolveModel: vi.fn(() => {
 			throw new Error("resolveModel must not be called");

@@ -282,11 +282,28 @@ export function findPersistedSettledTime(
 ): number | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
+		if (!entry || !isSourceEntry(entry)) continue;
+		if (
+			entry.type !== "message" ||
+			!isObject(entry.message) ||
+			entry.message.role !== "assistant" ||
+			entry.message.stopReason === "toolUse" ||
+			entry.message.stopReason === "aborted" ||
+			entry.message.stopReason === "error"
+		) {
+			return undefined;
+		}
+		break;
+	}
+
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
 		if (!entry) continue;
 		const isCompletedAssistant =
 			entry.type === "message" &&
 			isObject(entry.message) &&
 			entry.message.role === "assistant" &&
+			entry.message.stopReason !== "toolUse" &&
 			entry.message.stopReason !== "aborted" &&
 			entry.message.stopReason !== "error";
 		const isCompaction = entry.type === "compaction";
