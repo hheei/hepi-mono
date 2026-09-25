@@ -177,16 +177,34 @@ export function bindParentStatus(
 	_pi: ExtensionAPI,
 	context: ExtensionContext,
 	manager: SubagentManager,
+	signal?: AbortSignal,
 ): () => void {
+	let disposed = false;
 	const refresh = (): void => {
-		void manager.list().then((children) => {
-			context.ui.setStatus(STATUS_KEY, formatStatusLine(children));
-		});
+		if (disposed || signal?.aborted) return;
+		void manager
+			.list()
+			.then((children) => {
+				if (disposed || signal?.aborted) return;
+				try {
+					context.ui.setStatus(STATUS_KEY, formatStatusLine(children));
+				} catch {
+					// Context may be stale after session replacement or reload.
+				}
+			})
+			.catch(() => {});
 	};
 	const unsubscribe = manager.onChange(refresh);
 	refresh();
 	return () => {
+		if (disposed) return;
+		disposed = true;
 		unsubscribe();
-		context.ui.setStatus(STATUS_KEY, undefined);
+		if (signal?.aborted) return;
+		try {
+			context.ui.setStatus(STATUS_KEY, undefined);
+		} catch {
+			// Context may be stale after session replacement or reload.
+		}
 	};
 }
