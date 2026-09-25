@@ -146,10 +146,17 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			registerParentCommands(pi, manager);
 			const widget = createSubagentWidget(pi, context, runtime.signal);
 			const refreshWidget = (): void => {
-				void manager.list().then((children) => widget?.refresh(children));
+				if (runtime.signal.aborted) return;
+				void manager
+					.list()
+					.then((children) => {
+						if (runtime.signal.aborted) return;
+						widget?.refresh(children);
+					})
+					.catch(() => {});
 			};
 			const unsubscribe = manager.onChange(refreshWidget);
-			const unbindStatus = bindParentStatus(pi, context, manager);
+			const unbindStatus = bindParentStatus(pi, context, manager, runtime.signal);
 			refreshWidget();
 			runtime.resources.add("subagent-widget", () => {
 				unsubscribe();
