@@ -496,6 +496,47 @@ describe("ToolTui", () => {
 		expect(collapsedResult?.render(80).map((line) => line.trimEnd())).toEqual(["<dim>0ms</dim>"]);
 	});
 
+	test("promotes a streamed call to the current trace when execution starts", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({
+			...tool(),
+			name: "bash",
+			label: "bash",
+			renderCall: (args, receivedTheme): Text =>
+				new Text(
+					receivedTheme.fg("muted", String((args as { command?: string }).command ?? "")),
+					0,
+				),
+		});
+		tui.beginTrace();
+		const previewContext = {
+			...(context(true) as object),
+			executionStarted: false,
+		} as never;
+		framed.renderCall?.({ command: "printf hello" }, theme, previewContext);
+
+		const executionContext = {
+			...(context(false) as object),
+			executionStarted: true,
+		} as never;
+		const result = framed.renderResult?.(
+			{ content: [{ type: "text", text: "result body" }], details: undefined },
+			{ expanded: false, isPartial: false },
+			theme,
+			executionContext,
+		);
+		expect(result?.render(80).join("\n")).toContain("result body");
+
+		tui.beginTrace();
+		const historical = framed.renderResult?.(
+			{ content: [{ type: "text", text: "result body" }], details: undefined },
+			{ expanded: false, isPartial: false },
+			theme,
+			{ ...(context(false) as object), executionStarted: false } as never,
+		);
+		expect(historical?.render(80).join("\n")).not.toContain("result body");
+	});
+
 	test("keeps a collapsed metrics footer when the tool returns a blank footer", async (): Promise<void> => {
 		const tui = createToolTui();
 		const framed = tui.frame(tool(), { footer: () => "" });

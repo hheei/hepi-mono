@@ -362,6 +362,10 @@ class ToolTraceController {
 		const existing = this.tools.get(toolCallId);
 		if (existing !== undefined) {
 			existing.invalidate = invalidate;
+			// A tool can be rendered once while its arguments are still streaming.
+			// Promote that preview record when execution starts so it is not treated
+			// as a prior trace after the host switches to the execution phase.
+			if (executionStarted && existing.trace < this.trace) existing.trace = this.trace;
 			return existing;
 		}
 		const tool = { trace: executionStarted ? this.trace : -1, invalidate };

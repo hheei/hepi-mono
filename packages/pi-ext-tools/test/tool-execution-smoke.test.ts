@@ -37,6 +37,34 @@ function framedBody(component: ToolExecutionComponent): readonly string[] {
 }
 
 describe("ToolExecutionComponent smoke", () => {
+	test("keeps the bash command visible across streamed arguments and execution start", (): void => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const tui = createToolTui();
+		registerBashTool(pi, undefined, tui);
+		const bash = registered.find((tool) => tool.name === "bash");
+		if (bash === undefined) throw new Error("Expected bash tool");
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		const component = new ToolExecutionComponent(
+			"bash",
+			"streamed-bash",
+			{},
+			undefined,
+			bash,
+			ui,
+			process.cwd(),
+		);
+		component.render(100);
+		component.updateArgs({ command: "printf hello" });
+		component.markExecutionStarted();
+		expect(stripTerminalSequences(component.render(100).join("\n"))).toContain("printf hello");
+	});
+
 	test("renders one persisted eval body after invalidation and resume", async (): Promise<void> => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];
