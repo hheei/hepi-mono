@@ -29,6 +29,8 @@ const builtPackageNames = [
 	"pi-status",
 	"pi-subagents",
 ] as const;
+// External extension packages loaded directly without local repository build.
+const externalPackageNames = ["npm:pi-web-access"] as const;
 const builtPackageDirs = builtPackageNames
 	.map((name) => path.join(packageRoot, name))
 	.filter(existsSync);
@@ -162,6 +164,9 @@ for (const directory of builtPackageDirs) {
 	if (existsSync(extensionPath)) {
 		extensionArgs.push("--extension", extensionPath);
 	}
+}
+for (const pkg of externalPackageNames) {
+	extensionArgs.push("--extension", pkg);
 }
 const childEnv = { ...process.env };
 delete childEnv.OPENAI_API_KEY;
