@@ -13,13 +13,13 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageRoot = path.join(root, "packages");
-const mctxExtensionPath = path.join(packageRoot, "pi-mctx", "src", "index.ts");
 const buildCacheDir = path.join(root, ".pi-dev");
 // Extensions built and loaded automatically by pi-dev.
 // Explicitly excluded from autoloading:
 // - pi-ext-core: shared library, not a standalone extension entry
 // - pi-hindsight: separated durable-memory lifecycle, not autoloaded in pi-dev
 // - pi-debug: manual inspection tooling
+// - pi-mctx: deprecated Magic Context extension, not autoloaded in pi-dev
 const builtPackageNames = [
 	"pi-ext-addon",
 	"pi-ext-tools",
@@ -161,9 +161,6 @@ for (const directory of builtPackageDirs) {
 	if (existsSync(extensionPath)) {
 		extensionArgs.push("--extension", extensionPath);
 	}
-}
-if (existsSync(mctxExtensionPath)) {
-	extensionArgs.push("--extension", mctxExtensionPath);
 }
 const childEnv = { ...process.env };
 delete childEnv.OPENAI_API_KEY;
