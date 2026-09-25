@@ -23,11 +23,13 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | 扩展 | 入口 | 启动前处理 |
 | --- | --- | --- |
 | `pi-ext-addon` | `packages/pi-ext-addon/dist/extension.js` | 增量构建 TypeScript |
+| `pi-ext-memory` | `packages/pi-ext-memory/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
 | `pi-optimizer` | `packages/pi-optimizer/dist/extension.js` | 增量构建 TypeScript |
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
 | `pi-status` | `packages/pi-status/dist/extension.js` | 增量构建 TypeScript |
 | `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
+| `pi-web-access` | `npm:pi-web-access` | 外部包（无需本地构建） |
 
 `pi-ext-core` 在上述 TypeScript 扩展之前构建，但不会作为扩展加载。
 `pi-hindsight` 与 `pi-debug` 明确不纳入 `pi-dev` 自动加载组合（需要单独测试或使用时通过 `--extension` 显式加载）。
