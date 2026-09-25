@@ -44,6 +44,16 @@
 - **不增加**隐式自动数据迁移代码；
 - 用户需显式将其 `observational-memory` 配置迁移至 `ext_settings.json`。
 
+### 2.4 异步加载与版本边界
+
+配置读取使用 ext-core 的 `readMergedJsonSettingsSection()`，因此 `loadConfig()` 是异步
+函数。Pi 的 `session_start` lifecycle handler 必须等待 session 配置加载完成后才返回；后续
+事件处理器只读取该 session 的配置快照，不在每个事件中重复 I/O。读取使用 lifecycle signal，
+session shutdown 或替换时取消未完成的文件读取，且不写入旧 session 的 runtime 状态。
+
+本扩展的最低 Pi 版本为 `0.87.0`。worker 使用 Pi 的 `ModelRegistry.streamSimple` 组合流，
+不再保留 `getRegisteredProviderConfig` 或 `@earendil-works/pi-ai/compat` fallback。
+
 ---
 
 ## 3. 配置格式参考

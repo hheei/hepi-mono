@@ -25,6 +25,7 @@ function captureHandler(
 		}),
 	};
 	const runtime = {
+		configLoaded: true,
 		ensureConfig: vi.fn(),
 		config: {
 			compactAfterTokens: args.compactAfterTokens ?? 3,

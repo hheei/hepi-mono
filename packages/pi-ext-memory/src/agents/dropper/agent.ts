@@ -69,7 +69,7 @@ interface RunDropperArgs {
 	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
 	maxOutputTokens?: number | undefined;
 	thinkingLevel?: ModelThinkingLevel | undefined;
-	modelRegistry?: StreamableModelRegistry | undefined;
+	modelRegistry: StreamableModelRegistry;
 	streamSimple?: WorkerStreamSimple | undefined;
 }
 
@@ -310,7 +310,7 @@ export async function runDropper(args: RunDropperArgs): Promise<string[] | undef
 		context,
 		config,
 		signal,
-		resolveWorkerStreamSimple(model, args.modelRegistry, args.streamSimple),
+		resolveWorkerStreamSimple(args.modelRegistry, args.streamSimple),
 	);
 	for await (const event of stream) {
 		// Tool execution collects candidate ids.

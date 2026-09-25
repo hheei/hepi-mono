@@ -52,7 +52,7 @@ export function registerViewCommand(
 		description:
 			"Print and copy observational memory content (visible by default, full for recorded memory)",
 		handler: async (args, ctx) => {
-			runtime.ensureConfig(ctx.cwd);
+			await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
 			const entries = ctx.sessionManager.getBranch() as Entry[];
 			const mode = firstArg(args);
 

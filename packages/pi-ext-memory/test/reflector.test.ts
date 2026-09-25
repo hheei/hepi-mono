@@ -25,6 +25,7 @@ function fakeAgentLoop(
 
 describe("runReflector maxTokens clamping", () => {
 	const args = {
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		reflections: [],
 		observations: [observation("aaaaaaaaaaaa"), observation("bbbbbbbbbbbb")],
@@ -90,6 +91,7 @@ describe("V3 reflector agent", () => {
 	const obsB = observation("bbbbbbbbbbbb");
 	const baseArgs = {
 		model: {} as any,
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		reflections: [],
 		observations: [obsA, obsB],

@@ -35,7 +35,7 @@ describe("V3 config", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("uses V3 defaults", () => {
+	it("uses V3 defaults", async () => {
 		expect(DEFAULTS).toEqual({
 			observeAfterTokens: 10000,
 			reflectAfterTokens: 20000,
@@ -50,10 +50,10 @@ describe("V3 config", () => {
 			passive: false,
 			debugLog: false,
 		});
-		expect(loadConfig(cwd, {})).toEqual(DEFAULTS);
+		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
 	});
 
-	it("merges global, project, and env V3 settings in order", () => {
+	it("merges global, project, and env V3 settings in order", async () => {
 		writeJson(join(agentDir, "ext_settings.json"), {
 			"observational-memory": {
 				observeAfterTokens: 10,
@@ -77,7 +77,7 @@ describe("V3 config", () => {
 			},
 		});
 
-		expect(loadConfig(cwd, { PI_OBSERVATIONAL_MEMORY_PASSIVE: "true" })).toMatchObject({
+		expect(await loadConfig(cwd, { PI_OBSERVATIONAL_MEMORY_PASSIVE: "true" })).toMatchObject({
 			observeAfterTokens: 100,
 			reflectAfterTokens: 20,
 			compactAfterTokens: 30,
@@ -92,19 +92,19 @@ describe("V3 config", () => {
 		});
 	});
 
-	it("accepts max as a valid model thinking level", () => {
+	it("accepts max as a valid model thinking level", async () => {
 		writeJson(join(cwd, ".pi", "ext_settings.json"), {
 			"observational-memory": {
 				model: { provider: "anthropic", id: "claude", thinking: "max" },
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toMatchObject({
+		expect(await loadConfig(cwd, {})).toMatchObject({
 			model: { provider: "anthropic", id: "claude", thinking: "max" },
 		});
 	});
 
-	it("ignores invalid V3 values", () => {
+	it("ignores invalid V3 values", async () => {
 		writeJson(join(cwd, ".pi", "ext_settings.json"), {
 			"observational-memory": {
 				observeAfterTokens: -1,
@@ -120,23 +120,23 @@ describe("V3 config", () => {
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toEqual(DEFAULTS);
+		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
 	});
 
-	it("derives observation pool target from the final max when omitted", () => {
+	it("derives observation pool target from the final max when omitted", async () => {
 		writeJson(join(cwd, ".pi", "ext_settings.json"), {
 			"observational-memory": {
 				observationsPoolMaxTokens: 40,
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toMatchObject({
+		expect(await loadConfig(cwd, {})).toMatchObject({
 			observationsPoolMaxTokens: 40,
 			observationsPoolTargetTokens: 20,
 		});
 	});
 
-	it("falls back to derived target when explicit target is invalid for the final max", () => {
+	it("falls back to derived target when explicit target is invalid for the final max", async () => {
 		writeJson(join(agentDir, "ext_settings.json"), {
 			"observational-memory": {
 				observationsPoolMaxTokens: 100,
@@ -149,13 +149,13 @@ describe("V3 config", () => {
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toMatchObject({
+		expect(await loadConfig(cwd, {})).toMatchObject({
 			observationsPoolMaxTokens: 40,
 			observationsPoolTargetTokens: 20,
 		});
 	});
 
-	it("ignores old V2 settings without warnings or aliases", () => {
+	it("ignores old V2 settings without warnings or aliases", async () => {
 		writeJson(join(cwd, ".pi", "ext_settings.json"), {
 			"observational-memory": {
 				observationThresholdTokens: 10,
@@ -170,10 +170,10 @@ describe("V3 config", () => {
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toEqual(DEFAULTS);
+		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
 	});
 
-	it("strictly ignores legacy settings.json without fallback compatibility", () => {
+	it("strictly ignores legacy settings.json without fallback compatibility", async () => {
 		writeJson(join(agentDir, "settings.json"), {
 			"observational-memory": {
 				observeAfterTokens: 99,
@@ -187,7 +187,7 @@ describe("V3 config", () => {
 			},
 		});
 
-		expect(loadConfig(cwd, {})).toEqual(DEFAULTS);
+		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
 	});
 
 	it("parses passive env override", () => {
@@ -197,7 +197,7 @@ describe("V3 config", () => {
 	});
 
 	describe("compactAfterTokens ratio mode", () => {
-		it("accepts compactAfterTokensMode and compactAfterTokensRatio", () => {
+		it("accepts compactAfterTokensMode and compactAfterTokensRatio", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensMode: "ratio",
@@ -205,59 +205,59 @@ describe("V3 config", () => {
 				},
 			});
 
-			expect(loadConfig(cwd, {})).toMatchObject({
+			expect(await loadConfig(cwd, {})).toMatchObject({
 				compactAfterTokensMode: "ratio",
 				compactAfterTokensRatio: 0.5,
 			});
 		});
 
-		it("rejects invalid mode values and falls back to default calibrated", () => {
+		it("rejects invalid mode values and falls back to default calibrated", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensMode: "auto",
 				},
 			});
 
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensMode: "calibrated" });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensMode: "calibrated" });
 		});
 
-		it("rejects ratio outside (0, 1) and falls back to default", () => {
+		it("rejects ratio outside (0, 1) and falls back to default", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensRatio: 0,
 				},
 			});
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
 
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensRatio: 1,
 				},
 			});
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
 
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensRatio: 1.5,
 				},
 			});
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
 
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensRatio: -0.2,
 				},
 			});
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
 		});
 
-		it("rejects non-numeric ratio and falls back to default", () => {
+		it("rejects non-numeric ratio and falls back to default", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"observational-memory": {
 					compactAfterTokensRatio: "0.5",
 				},
 			});
-			expect(loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
 		});
 	});
 

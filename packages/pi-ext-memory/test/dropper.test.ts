@@ -24,6 +24,7 @@ function fakeAgentLoop(
 
 describe("runDropper maxTokens clamping", () => {
 	const args = {
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		reflections: [reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"])],
 		observations: [
@@ -94,6 +95,7 @@ describe("V3 dropper agent", () => {
 	const critical = observation("cccccccccccc", { relevance: "critical" });
 	const baseArgs = {
 		model: {} as any,
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		reflections: [reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"])],
 		observations: [obsA, obsB, critical],

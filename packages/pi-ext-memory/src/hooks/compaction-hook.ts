@@ -23,7 +23,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 
 			runtime.compactHookInFlight = true;
 			try {
-				runtime.ensureConfig(ctx.cwd);
+				await runtime.ensureConfig(ctx.cwd);
 				const { preparation, branchEntries } = event;
 				const { firstKeptEntryId, tokensBefore } = preparation;
 				const projection = buildCompactionProjection(branchEntries as Entry[], firstKeptEntryId, {
