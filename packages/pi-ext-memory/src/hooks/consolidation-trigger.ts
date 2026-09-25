@@ -155,7 +155,9 @@ function makeModelResolver(
 		}
 		debugLog(`${stage}.model_unavailable`, { reason: cached.reason });
 		if (!runtime.resolveFailureNotified && ctx.hasUI && ctx.ui) {
-			ctx.ui.notify(`Observational memory: ${stage} skipped — ${cached.reason}`, "warning");
+			try {
+				ctx.ui.notify(`Observational memory: ${stage} skipped — ${cached.reason}`, "warning");
+			} catch {}
 			runtime.resolveFailureNotified = true;
 		}
 		return undefined;
@@ -183,13 +185,22 @@ function debugSessionMetadata(ctx: ConsolidationCtx): { sessionId?: string; sess
 	}
 }
 
+function combineSignals(
+	a: AbortSignal | undefined,
+	b: AbortSignal | undefined,
+): AbortSignal | undefined {
+	if (!a) return b;
+	if (!b) return a;
+	return AbortSignal.any([a, b]);
+}
+
 async function maybeLaunchConsolidation(
 	pi: ExtensionAPI,
 	runtime: Runtime,
 	ctx: ConsolidationCtx,
 ): Promise<void> {
 	if (!runtime.configLoaded) {
-		await runtime.ensureConfig(ctx.cwd, ctx.signal ?? runtime.lifecycleSignal);
+		await runtime.ensureConfig(ctx.cwd, combineSignals(ctx.signal, runtime.lifecycleSignal));
 	}
 	if (runtime.config.passive === true) return;
 	if (runtime.consolidationInFlight) return;
@@ -206,7 +217,7 @@ async function maybeLaunchConsolidation(
 		modelRegistry: ctx.modelRegistry,
 		getContextUsage: ctx.getContextUsage,
 		sessionManager: ctx.sessionManager,
-		signal: ctx.signal ?? runtime.lifecycleSignal,
+		signal: combineSignals(ctx.signal, runtime.lifecycleSignal),
 		sessionGeneration: runtime.sessionGeneration,
 	};
 
@@ -231,15 +242,20 @@ export async function runConsolidationPipeline(
 	runtime: Runtime,
 	ctx: ConsolidationCtx,
 ): Promise<void> {
-	if (ctx.signal?.aborted) return;
+	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
 	const resolveModel = makeModelResolver(runtime, ctx);
 
 	runtime.consolidationPhase = "observer";
 	try {
 		const observerOutcome = await runObserverStage(pi, runtime, ctx, resolveModel);
-		if (observerOutcome === "abort" || ctx.signal?.aborted) return;
+		if (
+			observerOutcome === "abort" ||
+			ctx.signal?.aborted ||
+			runtime.isSessionCurrent?.(ctx.sessionGeneration) === false
+		)
+			return;
 	} catch (error) {
-		if (ctx.signal?.aborted) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
 		debugLog("observer.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "observer", error),
 		});
@@ -250,9 +266,14 @@ export async function runConsolidationPipeline(
 	let reflectorResult: ReflectorStageResult;
 	try {
 		reflectorResult = await runReflectorStage(pi, runtime, ctx, resolveModel);
-		if (reflectorResult.outcome === "abort" || ctx.signal?.aborted) return;
+		if (
+			reflectorResult.outcome === "abort" ||
+			ctx.signal?.aborted ||
+			runtime.isSessionCurrent?.(ctx.sessionGeneration) === false
+		)
+			return;
 	} catch (error) {
-		if (ctx.signal?.aborted) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
 		debugLog("reflector.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "reflector", error),
 		});
@@ -270,7 +291,7 @@ export async function runConsolidationPipeline(
 			reflectorResult.effectiveReflectionCoverageId,
 		);
 	} catch (error) {
-		if (ctx.signal?.aborted) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
 		debugLog("dropper.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "dropper", error),
 		});
@@ -422,13 +443,24 @@ async function runObserverStage(
 		observationTokens: observations.reduce((sum, observation) => sum + observation.tokenCount, 0),
 		coversUpToId,
 	});
-	pi.appendEntry(OM_OBSERVATIONS_RECORDED, data);
+	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false)
+		return "abort";
+	try {
+		pi.appendEntry(OM_OBSERVATIONS_RECORDED, data);
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : String(error);
+		if (msg.includes("stale")) return "abort";
+		throw error;
+	}
 	debugLog("observer.appended", { count: observations.length, coversUpToId });
-	if (shouldNotifyWorker(runtime, ctx))
-		ctx.ui?.notify(
-			`Observational memory: ${observations.length} observation${observations.length === 1 ? "" : "s"} recorded`,
-			"info",
-		);
+	if (shouldNotifyWorker(runtime, ctx)) {
+		try {
+			ctx.ui?.notify(
+				`Observational memory: ${observations.length} observation${observations.length === 1 ? "" : "s"} recorded`,
+				"info",
+			);
+		} catch {}
+	}
 	return "continue";
 }
 
@@ -479,7 +511,16 @@ async function runReflectorStage(
 
 	const data = buildReflectionsRecordedData(reflections, observationCoverageId);
 	if (!data) return { outcome: "continue", sameRunReflections: [] };
-	pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
+	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) {
+		return { outcome: "abort", sameRunReflections: [] };
+	}
+	try {
+		pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : String(error);
+		if (msg.includes("stale")) return { outcome: "abort", sameRunReflections: [] };
+		throw error;
+	}
 	return {
 		outcome: "continue",
 		sameRunReflections: reflections,
@@ -579,6 +620,16 @@ async function runDropperStage(
 		dataBuilt: data !== undefined,
 		appended: data !== undefined,
 	});
-	if (data) pi.appendEntry(OM_OBSERVATIONS_DROPPED, data);
+	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false)
+		return "continue";
+	if (data) {
+		try {
+			pi.appendEntry(OM_OBSERVATIONS_DROPPED, data);
+		} catch (error) {
+			const msg = error instanceof Error ? error.message : String(error);
+			if (msg.includes("stale")) return "continue";
+			throw error;
+		}
+	}
 	return "continue";
 }

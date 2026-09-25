@@ -33,6 +33,8 @@ The extension loads config once for its runtime. After changing settings, restar
     "reflectAfterTokens": 20000,
     "observerChunkMaxTokens": 60000,
     "compactAfterTokens": 81000,
+    "idleCompactionTtl": "1800s",
+    "idleCompactionMinTokens": 75000,
     "observationsPoolMaxTokens": 20000,
     "observationsPoolTargetTokens": 10000,
     "agentMaxTurns": 16,
@@ -58,6 +60,8 @@ You can omit everything. Defaults work for ordinary sessions, and if `model` is 
 | `reflectAfterTokens` | positive integer | `20000` | Raw/source token threshold for reflector runs; successful reflection creates dropper maintenance opportunities. |
 | `observerChunkMaxTokens` | positive integer | derived; minimum `256` | Maximum estimated tokens sent to one observer run. Unset: 20% of the resolved memory model's context window, or `60000` when unknown. |
 | `compactAfterTokens` | positive integer | `81000` | Estimated source-entry threshold for proactive auto-compaction, counted after the latest compaction boundary. |
+| `idleCompactionTtl` | duration string, number, or boolean | `"1800s"` | Idle duration threshold before triggering background proactive compaction. Numbers and numeric strings are in seconds (e.g. `1800` or `"1800"` = 1800s). Unit strings like `"1800s"`, `"30m"`, `"1h"` are supported. Set to `"never"`, `false`, or `0` to disable. |
+| `idleCompactionMinTokens` | positive integer | `75000` | Minimum uncompacted tokens required to qualify for idle compaction. |
 | `observationsPoolMaxTokens` | positive integer | `20000` | Normal compaction-projection observation-token pressure that makes compaction do a full fold. |
 | `observationsPoolTargetTokens` | positive integer below max | half of `observationsPoolMaxTokens` | Folded active observation target used by post-reflection dropper maintenance. |
 | `agentMaxTurns` | positive integer | `16` | Shared nested-agent turn cap for observer, reflector, and dropper. |
@@ -109,6 +113,24 @@ The auto-compaction trigger runs from Pi's `agent_settled` hook, after retries, 
 This trigger does not wait for observer, reflector, or dropper work. Actual compaction summary creation happens later in `session_before_compact`. A non-empty V3 projection is rendered deterministically and model-free; an empty projection delegates to Pi's native summarizer so prior context is not replaced by an empty summary.
 
 Pi's own window-pressure compaction and manual compaction can still happen independently of this proactive trigger.
+
+## `idleCompactionTtl` and `idleCompactionMinTokens`
+
+Defaults: `idleCompactionTtl = "1800s"` (30 minutes), `idleCompactionMinTokens = 75000`.
+
+Most LLM providers have a Prompt Cache TTL of ~5 minutes. When a user is actively chatting, preserving a longer dialogue history continuously hits the cache. When a user steps away for an extended period (idle for >= 1800 seconds / 30 minutes), the server-side cache has expired (cold cache).
+
+`idleCompactionTtl` acts as a local idle heuristic: when the session is idle for at least this duration, and uncompacted source tokens are at or above `idleCompactionMinTokens`, the extension schedules a quiet background compaction so that when the user returns later, the cold session usually starts with a compact, summarized context. Overdue cold-resume work uses a short startup debounce, and Pi may require a retry if a prompt arrives while compaction is still running.
+
+### Preconditions for idle compaction
+Idle compaction triggers only when all of the following conditions are met:
+1. `idleCompactionTtl` is enabled (not `"never"`, `false`, or `0`).
+2. The agent is idle (`ctx.isIdle() === true`).
+3. Uncompacted tokens since last compaction are `>= idleCompactionMinTokens`.
+4. There are new source messages strictly after the latest compaction boundary (ledger-derived deduplication).
+5. The memory projection (`foldLedger`) contains valid observations or reflections. If empty, idle compaction is skipped to prevent falling back to a slow, costly native LLM summarizer.
+
+If the user submits a new prompt before the idle timer fires, the timer is immediately cancelled to preserve active cache.
 
 ## `observationsPoolMaxTokens`
 

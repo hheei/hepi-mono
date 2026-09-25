@@ -254,3 +254,53 @@ export function rawTokensSinceLastCompaction(entries: Entry[]): number {
 	if (firstKeptIndex === -1) return rawTokensAfterIndex(entries, compactionIndex);
 	return rawTokensAfterIndex(entries, firstKeptIndex - 1);
 }
+
+/**
+ * Count the number of source entries (messages, custom messages, branch summaries)
+ * that have occurred strictly after the latest compaction boundary.
+ *
+ * If no compaction has occurred yet, returns the total count of source entries.
+ * If compaction occurred and no new source entries have arrived, returns 0.
+ */
+export function countSourceEntriesAfterCompaction(entries: Entry[]): number {
+	const compactionIndex = findLastCompactionIndex(entries);
+	let count = 0;
+	for (let i = compactionIndex + 1; i < entries.length; i++) {
+		const entry = entries[i];
+		if (entry && isSourceEntry(entry)) count++;
+	}
+	return count;
+}
+
+/**
+ * Scan entries in reverse to find the latest completed assistant message or compaction entry
+ * with a valid, non-future timestamp. Returns the timestamp in epoch seconds, or undefined.
+ */
+export function findPersistedSettledTime(
+	entries: Entry[],
+	nowSec: number = Math.floor(Date.now() / 1000),
+): number | undefined {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry) continue;
+		const isCompletedAssistant =
+			entry.type === "message" &&
+			isObject(entry.message) &&
+			entry.message.role === "assistant" &&
+			entry.message.stopReason !== "aborted" &&
+			entry.message.stopReason !== "error";
+		const isCompaction = entry.type === "compaction";
+		if (isCompletedAssistant || isCompaction) {
+			if (typeof entry.timestamp === "string" && entry.timestamp.length > 0) {
+				const parsed = Date.parse(entry.timestamp);
+				if (!Number.isNaN(parsed) && parsed > 0) {
+					const timestampSec = Math.floor(parsed / 1000);
+					if (timestampSec > 0 && timestampSec <= nowSec) {
+						return timestampSec;
+					}
+				}
+			}
+		}
+	}
+	return undefined;
+}

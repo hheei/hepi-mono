@@ -40,6 +40,16 @@ export interface Config {
 	compactAfterTokens: number;
 	compactAfterTokensMode: CompactAfterTokensMode;
 	compactAfterTokensRatio: number;
+	/**
+	 * Idle duration before triggering proactive background compaction.
+	 * Formats: "30m", "1h", "300s", or raw seconds.
+	 * Set to "never", false, or 0 to disable.
+	 */
+	idleCompactionTtlSeconds?: number | undefined;
+	/**
+	 * Minimum uncompacted tokens required to qualify for idle compaction.
+	 */
+	idleCompactionMinTokens: number;
 	observationsPoolMaxTokens: number;
 	observationsPoolTargetTokens: number;
 	agentMaxTurns: number;
@@ -63,6 +73,8 @@ export const DEFAULTS: Config = {
 	compactAfterTokens: 81_000,
 	compactAfterTokensMode: "calibrated",
 	compactAfterTokensRatio: 0.68,
+	idleCompactionTtlSeconds: 1800,
+	idleCompactionMinTokens: 75_000,
 	observationsPoolMaxTokens: 20_000,
 	observationsPoolTargetTokens: 10_000,
 	agentMaxTurns: 16,
@@ -168,6 +180,66 @@ function validTargetOrUndefined(value: unknown, maxTokens: number): number | und
 	return target !== undefined && target < maxTokens ? target : undefined;
 }
 
+const DURATION_REGEX = /^([0-9]+(?:\.[0-9]+)?)\s*([smhd])$/i;
+
+const UNIT_MULTIPLIERS_SECONDS: Record<string, number> = {
+	s: 1,
+	m: 60,
+	h: 3600,
+	d: 86400,
+};
+
+/** Maximum delay allowed by Node.js setTimeout (2^31 - 1 ms) expressed in integer seconds. */
+export const MAX_TIMEOUT_SECONDS = Math.floor(2_147_483_647 / 1000);
+
+/**
+ * Parse an idle compaction TTL duration string, number, or boolean into integer seconds.
+ *
+ * Explicit disable values: `false`, `0`, `""`, or `"never"` (case-insensitive) -> `undefined`.
+ * Raw numbers or numeric strings are interpreted as seconds (e.g. 1800 -> 1800).
+ * Duration strings with units ("30s", "30m", "1h", "2d") -> parsed into seconds.
+ * Unrecognized, invalid, or overflowing formats fall back to `fallbackSeconds` (default 1800s).
+ */
+export function parseDurationToSeconds(
+	value: unknown,
+	fallbackSeconds: number | undefined = DEFAULTS.idleCompactionTtlSeconds,
+): number | undefined {
+	if (value === false || value === 0 || value === "") return undefined;
+	if (typeof value === "string" && value.trim().toLowerCase() === "never") return undefined;
+
+	if (typeof value === "number") {
+		if (Number.isFinite(value) && value > 0 && value <= MAX_TIMEOUT_SECONDS) {
+			const seconds = Math.floor(value);
+			return seconds > 0 ? seconds : fallbackSeconds;
+		}
+		return fallbackSeconds;
+	}
+
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (/^[0-9]+$/.test(trimmed)) {
+			const parsed = Number(trimmed);
+			if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_TIMEOUT_SECONDS) {
+				return parsed;
+			}
+			return fallbackSeconds;
+		}
+		const match = DURATION_REGEX.exec(trimmed);
+		if (match?.[1] && match[2]) {
+			const num = Number(match[1]);
+			const unit = match[2].toLowerCase();
+			const multiplier = UNIT_MULTIPLIERS_SECONDS[unit];
+			if (Number.isFinite(num) && num > 0 && multiplier !== undefined) {
+				const sec = Math.floor(num * multiplier);
+				if (sec > 0 && sec <= MAX_TIMEOUT_SECONDS) return sec;
+			}
+		}
+		return fallbackSeconds;
+	}
+
+	return fallbackSeconds;
+}
+
 function derivedObservationPoolTarget(maxTokens: number): number {
 	return Math.floor(maxTokens / 2);
 }
@@ -233,6 +305,13 @@ function normalizeSettingsConfig(value: Record<string, unknown>): Partial<Config
 	}
 	const ratio = validRatioOrUndefined(value.compactAfterTokensRatio);
 	if (ratio !== undefined) normalized.compactAfterTokensRatio = ratio;
+	if (value.idleCompactionTtl !== undefined) {
+		normalized.idleCompactionTtlSeconds = parseDurationToSeconds(value.idleCompactionTtl);
+	}
+	const idleMinTokens = positiveIntegerOrUndefined(value.idleCompactionMinTokens);
+	if (idleMinTokens !== undefined) {
+		normalized.idleCompactionMinTokens = idleMinTokens;
+	}
 	if (typeof value.showWorkerNotifications === "boolean")
 		normalized.showWorkerNotifications = value.showWorkerNotifications;
 	if (typeof value.passive === "boolean") normalized.passive = value.passive;

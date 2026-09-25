@@ -182,7 +182,13 @@ describe("Runtime V3 behavior", () => {
 		const model = { provider: "openai-codex", id: "gpt-5-codex" };
 		const registry = {
 			...modelRegistry({ auth: { ok: false, error: "refresh failed" } }),
-			isUsingOAuth: vi.fn((candidate: any) => candidate?.provider === "openai-codex"),
+			isUsingOAuth: vi.fn(
+				(candidate: unknown) =>
+					typeof candidate === "object" &&
+					candidate !== null &&
+					"provider" in candidate &&
+					candidate.provider === "openai-codex",
+			),
 		};
 
 		const result = await runtime.resolveModel({ model, modelRegistry: registry, hasUI: false });
@@ -236,6 +242,18 @@ describe("Runtime V3 behavior", () => {
 		release?.();
 		await oldTask;
 		expect(runtime.consolidationInFlight).toBe(true);
+	});
+
+	it("clears the idle compaction timer when the session signal aborts", async () => {
+		const runtime = new Runtime();
+		const controller = new AbortController();
+		const generation = await runtime.startSession("/tmp/hepi-memory-test", controller.signal);
+		runtime.pendingIdleCompactionTimer = setTimeout(() => undefined, 60_000);
+
+		controller.abort();
+
+		expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		runtime.endSession(generation);
 	});
 
 	it("tracks consolidation task state", async () => {

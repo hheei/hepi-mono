@@ -31,6 +31,10 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 				});
 				const summary = renderSummary(projection.reflections, projection.observations);
 				if (summary.length === 0) {
+					if (runtime.idleCompactInFlight) {
+						// Idle compaction must never fallback to slow/expensive native LLM summarizer
+						return { cancel: true };
+					}
 					// Decline ownership so Pi's native summarizer preserves the pre-cut context.
 					return;
 				}
