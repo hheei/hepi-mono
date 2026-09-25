@@ -15,10 +15,27 @@ import {
 	textCustomMessage,
 } from "./fixtures/session.js";
 
+interface CompactionHookTestResult {
+	cancel?: boolean;
+	compaction?: {
+		summary: string;
+		firstKeptEntryId: string;
+		tokensBefore: number;
+		details: {
+			type: string;
+			version: number;
+			fullFold: boolean;
+			observations: Array<{ id: string }>;
+			reflections: Array<{ id: string }>;
+		};
+	};
+}
+
 function setup(args: {
 	entries: TestEntry[];
 	observationsPoolMaxTokens?: number;
 	compactHookInFlight?: boolean;
+	idleCompactInFlight?: boolean;
 }) {
 	let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
 	const pi = {
@@ -33,13 +50,17 @@ function setup(args: {
 			observationsPoolMaxTokens: args.observationsPoolMaxTokens ?? 20_000,
 		},
 		compactHookInFlight: args.compactHookInFlight ?? false,
+		idleCompactInFlight: args.idleCompactInFlight ?? false,
 		observerPromise: new Promise(() => {}),
 		resolveModel: vi.fn(() => {
 			throw new Error("resolveModel must not be called");
 		}),
 		ensureConfig: vi.fn(),
 	};
-	registerCompactionHook(pi as any, runtime as any);
+	registerCompactionHook(
+		pi as unknown as Parameters<typeof registerCompactionHook>[0],
+		runtime as unknown as Parameters<typeof registerCompactionHook>[1],
+	);
 	if (!handler) throw new Error("compaction handler was not registered");
 	const ctx = {
 		cwd: "/tmp/project",
@@ -72,6 +93,18 @@ describe("V3 compaction hook", () => {
 		expect(runtime.compactHookInFlight).toBe(false);
 	});
 
+	it("cancels compaction when projection is empty during idle compaction", async () => {
+		const entries = [textCustomMessage("raw-1", "aaaa")];
+		const { run, runtime, pi } = setup({ entries, idleCompactInFlight: true });
+
+		const result = await run("raw-1");
+
+		expect(result).toEqual({ cancel: true });
+		expect(runtime.resolveModel).not.toHaveBeenCalled();
+		expect(pi.appendEntry).not.toHaveBeenCalled();
+		expect(runtime.compactHookInFlight).toBe(false);
+	});
+
 	it("first normal compaction writes covered observations without orphan reflections", async () => {
 		const obs1 = observation("aaaaaaaaaaaa", { sourceEntryIds: ["raw-1"], tokenCount: 10 });
 		const ref1 = reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"]);
@@ -82,15 +115,13 @@ describe("V3 compaction hook", () => {
 		];
 		const { run } = setup({ entries, observationsPoolMaxTokens: 100 });
 
-		const result = (await run("raw-1")) as any;
+		const result = (await run("raw-1")) as CompactionHookTestResult;
 
-		expect(result.compaction.details.fullFold).toBe(false);
-		expect(result.compaction.details.observations.map((obs: any) => obs.id)).toEqual([
-			"aaaaaaaaaaaa",
-		]);
-		expect(result.compaction.details.reflections).toEqual([]);
-		expect(result.compaction.summary).toContain("## Observations");
-		expect(result.compaction.summary).not.toContain("## Reflections");
+		expect(result.compaction?.details.fullFold).toBe(false);
+		expect(result.compaction?.details.observations.map((obs) => obs.id)).toEqual(["aaaaaaaaaaaa"]);
+		expect(result.compaction?.details.reflections).toEqual([]);
+		expect(result.compaction?.summary).toContain("## Observations");
+		expect(result.compaction?.summary).not.toContain("## Reflections");
 	});
 
 	it("writes a normal V3 projection without applying new reflections or drops", async () => {
@@ -116,22 +147,20 @@ describe("V3 compaction hook", () => {
 		];
 		const { run } = setup({ entries, observationsPoolMaxTokens: 100 });
 
-		const result = (await run("raw-2")) as any;
+		const result = (await run("raw-2")) as CompactionHookTestResult;
 
-		expect(result.compaction.details).toMatchObject({
+		expect(result.compaction?.details).toMatchObject({
 			type: "om.folded",
 			version: 1,
 			fullFold: false,
 		});
-		expect(result.compaction.details.observations.map((obs: any) => obs.id)).toEqual([
+		expect(result.compaction?.details.observations.map((obs) => obs.id)).toEqual([
 			"aaaaaaaaaaaa",
 			"bbbbbbbbbbbb",
 		]);
-		expect(result.compaction.details.reflections.map((ref: any) => ref.id)).toEqual([
-			"eeeeeeeeeeee",
-		]);
-		expect(result.compaction.summary).toContain("## Reflections\n[eeeeeeeeeeee]");
-		expect(result.compaction.summary).toContain("## Observations");
+		expect(result.compaction?.details.reflections.map((ref) => ref.id)).toEqual(["eeeeeeeeeeee"]);
+		expect(result.compaction?.summary).toContain("## Reflections\n[eeeeeeeeeeee]");
+		expect(result.compaction?.summary).toContain("## Observations");
 	});
 
 	it("writes a full V3 projection when observation pool pressure reaches the threshold", async () => {
@@ -157,13 +186,11 @@ describe("V3 compaction hook", () => {
 		];
 		const { run } = setup({ entries, observationsPoolMaxTokens: 100 });
 
-		const result = (await run("raw-2")) as any;
+		const result = (await run("raw-2")) as CompactionHookTestResult;
 
-		expect(result.compaction.details.fullFold).toBe(true);
-		expect(result.compaction.details.observations.map((obs: any) => obs.id)).toEqual([
-			"bbbbbbbbbbbb",
-		]);
-		expect(result.compaction.details.reflections.map((ref: any) => ref.id)).toEqual([
+		expect(result.compaction?.details.fullFold).toBe(true);
+		expect(result.compaction?.details.observations.map((obs) => obs.id)).toEqual(["bbbbbbbbbbbb"]);
+		expect(result.compaction?.details.reflections.map((ref) => ref.id)).toEqual([
 			"eeeeeeeeeeee",
 			"ffffffffffff",
 		]);

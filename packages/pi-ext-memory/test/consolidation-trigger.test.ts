@@ -1165,5 +1165,27 @@ describe("observer chunk cap", () => {
 			expect(pi.appendEntry).not.toHaveBeenCalled();
 			expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("failed"), "warning");
 		});
+
+		it("silently aborts when appendEntry throws a stale context error", async () => {
+			mockAgents.runObserver.mockResolvedValueOnce([
+				{
+					id: "obs_000000000001",
+					text: "Observation text",
+					tokenCount: 10,
+					sourceTokenCount: 100,
+				},
+			]);
+
+			const entries = [textCustomMessage("raw-1", "a".repeat(800))];
+			const { fire, runLaunchedWork, pi, ctx } = setup({ entries });
+			pi.appendEntry.mockImplementationOnce(() => {
+				throw new Error("This extension ctx is stale after session replacement or reload.");
+			});
+
+			fire();
+			await expect(runLaunchedWork()).resolves.toBeUndefined();
+
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("failed"), "warning");
+		});
 	});
 });

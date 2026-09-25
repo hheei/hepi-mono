@@ -127,6 +127,7 @@ export class Runtime {
 	consolidationPromise: Promise<void> | null = null;
 	consolidationPhase: ConsolidationPhase | undefined;
 	compactInFlight = false;
+	idleCompactInFlight = false;
 	compactHookInFlight = false;
 	resolveFailureNotified = false;
 	lastObserverError: string | undefined;
@@ -134,6 +135,8 @@ export class Runtime {
 	lastDropperError: string | undefined;
 	lifecycleSignal?: AbortSignal | undefined;
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
+	pendingIdleCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
+	private lifecycleAbortCleanup: (() => void) | undefined;
 	/** provider -> epoch ms of the last availability re-check (see `recheckProviderCredential`). */
 	availabilityRecheckedAt = new Map<string, number>();
 	/** Deliberate-empty backoff (#23): skip observer re-fires over the same span until enough new tokens arrive. */
@@ -146,7 +149,10 @@ export class Runtime {
 		| undefined;
 
 	async startSession(cwd: string, signal: AbortSignal): Promise<number> {
+		this.lifecycleAbortCleanup?.();
+		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
+		this.clearPendingIdleCompactionTimer();
 		this.sessionGeneration += 1;
 		this.config = { ...DEFAULTS };
 		this.configLoaded = false;
@@ -155,6 +161,7 @@ export class Runtime {
 		this.consolidationPromise = null;
 		this.consolidationPhase = undefined;
 		this.compactInFlight = false;
+		this.idleCompactInFlight = false;
 		this.compactHookInFlight = false;
 		this.resolveFailureNotified = false;
 		this.lastObserverError = undefined;
@@ -163,19 +170,26 @@ export class Runtime {
 		this.availabilityRecheckedAt.clear();
 		this.observerEmptyBackoff = undefined;
 		this.lifecycleSignal = signal;
+		const clearIdleTimer = () => this.clearPendingIdleCompactionTimer();
+		signal.addEventListener("abort", clearIdleTimer, { once: true });
+		this.lifecycleAbortCleanup = () => signal.removeEventListener("abort", clearIdleTimer);
 		await this.ensureConfig(cwd, signal);
 		return this.sessionGeneration;
 	}
 
 	endSession(generation: number): void {
 		if (!this.isSessionCurrent(generation)) return;
+		this.lifecycleAbortCleanup?.();
+		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
+		this.clearPendingIdleCompactionTimer();
 		this.lifecycleSignal = undefined;
 		this.sessionGeneration += 1;
 		this.consolidationInFlight = false;
 		this.consolidationPromise = null;
 		this.consolidationPhase = undefined;
 		this.compactInFlight = false;
+		this.idleCompactInFlight = false;
 		this.compactHookInFlight = false;
 	}
 
@@ -199,6 +213,13 @@ export class Runtime {
 		}
 	}
 
+	clearPendingIdleCompactionTimer(): void {
+		if (this.pendingIdleCompactionTimer !== undefined) {
+			clearTimeout(this.pendingIdleCompactionTimer);
+			this.pendingIdleCompactionTimer = undefined;
+		}
+	}
+
 	async resolveModel(ctx: ResolveCtx): Promise<ResolveResult> {
 		let model = ctx.model;
 		if (this.config.model) {
@@ -206,10 +227,12 @@ export class Runtime {
 			if (configured) {
 				model = configured;
 			} else if (ctx.hasUI && ctx.ui) {
-				ctx.ui.notify(
-					`Observational memory: configured model ${this.config.model.provider}/${this.config.model.id} not found, using session model`,
-					"warning",
-				);
+				try {
+					ctx.ui.notify(
+						`Observational memory: configured model ${this.config.model.provider}/${this.config.model.id} not found, using session model`,
+						"warning",
+					);
+				} catch {}
 			}
 		}
 		if (!model)
@@ -406,8 +429,12 @@ export class Runtime {
 			} catch (error) {
 				if (this.lifecycleSignal?.aborted === true || !this.isSessionCurrent(generation)) return;
 				const errorMessage = error instanceof Error ? error.message : String(error);
-				if (ctx.hasUI && ctx.ui)
-					ctx.ui.notify(`Observational memory: consolidation failed: ${errorMessage}`, "warning");
+				if (errorMessage.includes("stale")) return;
+				if (ctx.hasUI && ctx.ui) {
+					try {
+						ctx.ui.notify(`Observational memory: consolidation failed: ${errorMessage}`, "warning");
+					} catch {}
+				}
 			} finally {
 				if (this.isSessionCurrent(generation)) {
 					this.consolidationInFlight = false;
@@ -422,12 +449,15 @@ export class Runtime {
 
 	recordConsolidationStageError(ctx: LaunchCtx, phase: ConsolidationPhase, error: unknown): string {
 		const message = error instanceof Error ? error.message : String(error);
-		if (!this.isSessionCurrent(ctx.sessionGeneration)) return message;
+		if (!this.isSessionCurrent(ctx.sessionGeneration) || message.includes("stale")) return message;
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;
 		if (phase === "dropper") this.lastDropperError = message;
-		if (this.lifecycleSignal?.aborted !== true && ctx.hasUI && ctx.ui)
-			ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+		if (this.lifecycleSignal?.aborted !== true && ctx.hasUI && ctx.ui) {
+			try {
+				ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+			} catch {}
+		}
 		return message;
 	}
 }

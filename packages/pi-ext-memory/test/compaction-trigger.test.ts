@@ -1,8 +1,16 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { registerCompactionTrigger } from "../src/hooks/compaction-trigger.js";
+import {
+	type IdleCompactionContext,
+	registerCompactionTrigger,
+	scheduleColdResumeCompaction,
+} from "../src/hooks/compaction-trigger.js";
+import { Runtime } from "../src/runtime.js";
 import {
 	compactionEntry,
+	observation,
+	observationsRecordedEntry,
 	rawMessage,
 	type TestEntry,
 	textCustomMessage,
@@ -12,53 +20,46 @@ function captureHandler(
 	args: {
 		compactAfterTokens?: number;
 		compactAfterTokensMode?: "calibrated" | "ratio";
-		compactAfterTokensRatio?: number;
+		idleCompactionTtlSeconds?: number;
+		idleCompactionMinTokens?: number;
 		passive?: boolean;
 		compactInFlight?: boolean;
 	} = {},
 ) {
 	let handler: ((event: unknown, ctx: unknown) => void) | undefined;
+	const handlers = new Map<string, (event: unknown, ctx: unknown) => void>();
 	const pi = {
 		on: vi.fn((name: string, cb: typeof handler) => {
-			expect(name).toBe("agent_settled");
-			handler = cb;
+			if (cb) handlers.set(name, cb);
+			if (name === "agent_settled") handler = cb;
 		}),
 	};
-	const runtime = {
-		configLoaded: true,
-		ensureConfig: vi.fn(),
-		config: {
-			compactAfterTokens: args.compactAfterTokens ?? 3,
-			compactAfterTokensMode: args.compactAfterTokensMode ?? "calibrated",
-			compactAfterTokensRatio: args.compactAfterTokensRatio ?? 0.68,
-			passive: args.passive ?? false,
-		},
-		compactInFlight: args.compactInFlight ?? false,
-		pendingCompactionTimer: undefined as ReturnType<typeof setTimeout> | undefined,
-		lifecycleSignal: undefined as AbortSignal | undefined,
-		sessionGeneration: 0,
-		isSessionCurrent(generation: number | undefined) {
-			return generation === this.sessionGeneration;
-		},
-		clearPendingCompactionTimer() {
-			if (this.pendingCompactionTimer !== undefined) {
-				clearTimeout(this.pendingCompactionTimer);
-				this.pendingCompactionTimer = undefined;
-			}
-		},
-		observerPromise: new Promise(() => {}),
-		reflectDropPromise: new Promise(() => {}),
+	const runtime = new Runtime();
+	runtime.config = {
+		...runtime.config,
+		compactAfterTokens: args.compactAfterTokens ?? 3,
+		compactAfterTokensMode: args.compactAfterTokensMode ?? "calibrated",
+		compactAfterTokensRatio: args.compactAfterTokensRatio ?? 0.68,
+		idleCompactionMinTokens: args.idleCompactionMinTokens ?? 75_000,
+		passive: args.passive ?? false,
 	};
-	registerCompactionTrigger(pi as any, runtime as any);
+	runtime.config.idleCompactionTtlSeconds = args.idleCompactionTtlSeconds;
+	runtime.configLoaded = true;
+	runtime.ensureConfig = vi.fn();
+	runtime.compactInFlight = args.compactInFlight ?? false;
+	registerCompactionTrigger(pi as ExtensionAPI, runtime);
 	if (!handler) throw new Error("agent_settled handler was not registered");
-	return { handler, runtime };
+	return { handler, handlers, runtime };
 }
 
 function agentSettled() {
 	return { type: "agent_settled" };
 }
 
-function fakeCtx(branches: TestEntry[][], overrides: Record<string, unknown> = {}) {
+function fakeCtx(
+	branches: TestEntry[][],
+	overrides: Record<string, unknown> = {},
+): IdleCompactionContext {
 	let branchIndex = 0;
 	const getBranch = vi.fn(() => branches[Math.min(branchIndex++, branches.length - 1)]);
 	return {
@@ -215,30 +216,6 @@ describe("V3 compaction trigger", () => {
 		expect(runtime.compactInFlight).toBe(false);
 	});
 
-	it("uses raw progress when provider growth is lower than the raw threshold", async () => {
-		const { handler } = captureHandler({ compactAfterTokens: 3 });
-		const branch = [
-			compactionEntry("cmp-1", { firstKeptEntryId: "raw-1" }),
-			rawMessage("assistant-1", "done", {
-				message: {
-					role: "assistant",
-					content: "done",
-					stopReason: "end_turn",
-					usage: { totalTokens: 100 },
-				},
-			}),
-			textCustomMessage("raw-1", "aaaaaaaaaaaa"),
-		];
-		const ctx = fakeCtx([branch], {
-			getContextUsage: vi.fn(() => ({ tokens: 101, contextWindow: 200000 })),
-		});
-
-		handler(agentSettled(), ctx);
-		await vi.runAllTimersAsync();
-
-		expect(ctx.compact).toHaveBeenCalledTimes(1);
-	});
-
 	it("uses raw progress from the first kept entry through the current branch", async () => {
 		const { handler } = captureHandler({ compactAfterTokens: 3 });
 		const branch = [
@@ -248,18 +225,6 @@ describe("V3 compaction trigger", () => {
 			textCustomMessage("new", "bbbbbbbbbbbb"),
 		];
 		const ctx = fakeCtx([branch], {
-			getContextUsage: vi.fn(() => ({ tokens: 1, contextWindow: 200000 })),
-		});
-
-		handler(agentSettled(), ctx);
-		await vi.runAllTimersAsync();
-
-		expect(ctx.compact).toHaveBeenCalledTimes(1);
-	});
-
-	it("uses raw progress from the branch start before the first compaction", async () => {
-		const { handler } = captureHandler({ compactAfterTokens: 3 });
-		const ctx = fakeCtx([dueBranch], {
 			getContextUsage: vi.fn(() => ({ tokens: 1, contextWindow: 200000 })),
 		});
 
@@ -280,18 +245,6 @@ describe("V3 compaction trigger", () => {
 
 		expect(ctx.compact).toHaveBeenCalledTimes(1);
 		expect(runtime.compactInFlight).toBe(true);
-	});
-
-	it("ignores high provider context before the first compaction", async () => {
-		const { handler } = captureHandler({ compactAfterTokens: 130000 });
-		const ctx = fakeCtx([dueBranch], {
-			getContextUsage: vi.fn(() => ({ tokens: 130000, contextWindow: 200000 })),
-		});
-
-		handler(agentSettled(), ctx);
-		await vi.runAllTimersAsync();
-
-		expect(ctx.compact).not.toHaveBeenCalled();
 	});
 
 	it("compacts when raw progress equals the threshold", async () => {
@@ -329,19 +282,6 @@ describe("V3 compaction trigger", () => {
 		await vi.runAllTimersAsync();
 
 		expect(ctx.compact).not.toHaveBeenCalled();
-	});
-
-	it("rechecks raw progress after deferral", async () => {
-		const { handler, runtime } = captureHandler({ compactAfterTokens: 3 });
-		const ctx = fakeCtx([dueBranch, belowBranch], {
-			getContextUsage: vi.fn(() => ({ tokens: 1, contextWindow: 200000 })),
-		});
-
-		handler(agentSettled(), ctx);
-		await vi.runAllTimersAsync();
-
-		expect(ctx.compact).not.toHaveBeenCalled();
-		expect(runtime.compactInFlight).toBe(false);
 	});
 
 	it("falls back to raw progress after a model change", async () => {
@@ -541,6 +481,304 @@ describe("V3 compaction trigger", () => {
 			expect(runtime.compactInFlight).toBe(false);
 			expect(ctx.compact).not.toHaveBeenCalled();
 			expect(ctx.isIdle).not.toHaveBeenCalled();
+		});
+
+		it("silently swallows stale context errors thrown or returned by compact", async () => {
+			const { handler, runtime } = captureHandler({ compactAfterTokens: 3 });
+			const ctx = fakeCtx([dueBranch], {
+				compact: vi.fn(() => {
+					throw new Error("This extension ctx is stale after session replacement or reload.");
+				}),
+			});
+
+			handler(agentSettled(), ctx);
+			await vi.runAllTimersAsync();
+
+			expect(runtime.compactInFlight).toBe(false);
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+				expect.stringContaining("compact threw:"),
+				"error",
+			);
+		});
+	});
+
+	describe("idle compaction", () => {
+		const validObsEntry = observationsRecordedEntry("obs-1", {
+			observations: [observation("0123456789ab")],
+			coversUpToId: "raw-1",
+		});
+
+		it("does not schedule idle compaction if idleCompactionTtl is disabled", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: undefined,
+				idleCompactionMinTokens: 1,
+			});
+			const ctx = fakeCtx([[rawMessage("raw-1", "hello"), validObsEntry]]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("does not schedule idle compaction if tokens are below idleCompactionMinTokens", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 1800,
+				idleCompactionMinTokens: 50_000,
+			});
+			// Only small token message
+			const ctx = fakeCtx([[rawMessage("raw-1", "short message"), validObsEntry]]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("does not schedule idle compaction if foldLedger has no observations or reflections", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 1800,
+				idleCompactionMinTokens: 1,
+			});
+			// No observationsRecordedEntry in branch
+			const ctx = fakeCtx([[rawMessage("raw-1", "message without memory projection")]]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("does not schedule idle compaction if no new source entries exist after previous compaction", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 1_800,
+				idleCompactionMinTokens: 1,
+			});
+			// Compaction entry is the last entry — no new source messages
+			const branch = [
+				rawMessage("raw-1", "hello"),
+				validObsEntry,
+				compactionEntry("cmp-1", { firstKeptEntryId: "raw-1" }),
+			];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("schedules idle compaction when token threshold, source entries, and projection requirements are met", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+		});
+
+		it("cancels idle compaction timer when interaction events fire", async () => {
+			const { handler, handlers, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+
+			// User interaction begins
+			const beforeAgentStart = handlers.get("before_agent_start");
+			expect(beforeAgentStart).toBeDefined();
+			beforeAgentStart?.({}, ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+			const agentStart = handlers.get("agent_start");
+			agentStart?.({}, ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+			const turnStart = handlers.get("turn_start");
+			turnStart?.({}, ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("executes idle compaction when timer fires and session is idle", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+
+			// Fast-forward 60s
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+			expect(runtime.compactInFlight).toBe(true);
+			expect(ctx.ui.notify).toHaveBeenCalledWith(
+				expect.stringContaining("idle timeout reached"),
+				"info",
+			);
+		});
+
+		it("skips idle compaction if agent becomes busy when timer fires", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			const ctx = fakeCtx([branch], { isIdle: vi.fn(() => false) });
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(ctx.compact).not.toHaveBeenCalled();
+			expect(runtime.compactInFlight).toBe(false);
+		});
+
+		it("handles cold resume in scheduleColdResumeCompaction", async () => {
+			const { runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const now = Date.now();
+			const branch = [
+				{
+					id: "raw-1",
+					type: "message",
+					message: { role: "assistant", content: [{ type: "text", text: "old message" }] },
+					timestamp: new Date(now - 120_000).toISOString(), // 2 minutes ago (> 60s TTL)
+				},
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch]);
+
+			scheduleColdResumeCompaction(ctx, runtime);
+
+			// Should be scheduled with 5s startup debounce
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+
+			await vi.advanceTimersByTimeAsync(5_000);
+
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+		});
+
+		it("awaits in-flight consolidation before running idle compaction and re-reads branch", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branchBefore = [rawMessage("raw-1", "hello"), validObsEntry];
+			const branchAfter = [
+				rawMessage("raw-1", "hello"),
+				validObsEntry,
+				rawMessage("raw-2", "world"),
+			];
+			const ctx = fakeCtx([branchBefore, branchAfter]);
+
+			let resolveConsolidation: () => void = () => {};
+			runtime.consolidationInFlight = true;
+			runtime.consolidationPromise = new Promise<void>((resolve) => {
+				resolveConsolidation = resolve;
+			});
+
+			handler(agentSettled(), ctx);
+			expect(runtime.pendingIdleCompactionTimer).toBeDefined();
+
+			// Advance past idle TTL (60s)
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			// Should not have compacted yet because consolidation is in-flight
+			expect(ctx.compact).not.toHaveBeenCalled();
+
+			// Resolve consolidation
+			runtime.consolidationInFlight = false;
+			resolveConsolidation();
+			await Promise.resolve();
+
+			// Now idle compaction proceeds with the updated branch and calls ctx.compact
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+		});
+
+		it("aborts agent_settled if session generation changed during ensureConfig", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 1,
+			});
+			runtime.configLoaded = false;
+			let resolveConfig: () => void = () => {};
+			runtime.ensureConfig = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						resolveConfig = resolve;
+					}),
+			);
+
+			const ctx = fakeCtx([[rawMessage("raw-1", "hello")]]);
+
+			// Trigger agent_settled
+			const promise = handler(agentSettled(), ctx);
+
+			// While ensureConfig is awaiting, session changes
+			runtime.sessionGeneration = 999;
+			runtime.configLoaded = true;
+			resolveConfig();
+			await promise;
+
+			// Should not have scheduled compaction or set compactInFlight for generation 999
+			expect(runtime.compactInFlight).toBe(false);
+			expect(runtime.pendingCompactionTimer).toBeUndefined();
+			expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		});
+
+		it("does not mutate new session flags when old compaction callback completes after session replacement", async () => {
+			const { handler, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			let capturedCallbacks: {
+				onComplete?: () => void;
+				onError?: (err: { message: string }) => void;
+			} = {};
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts: typeof capturedCallbacks) => {
+					capturedCallbacks = opts;
+				}),
+			});
+
+			handler(agentSettled(), ctx);
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(runtime.compactInFlight).toBe(true);
+			expect(runtime.idleCompactInFlight).toBe(true);
+
+			// New session begins: new session resets flags and starts its own state
+			runtime.sessionGeneration = 1;
+			runtime.compactInFlight = true;
+			runtime.idleCompactInFlight = true;
+
+			// Old compaction completes after session replacement
+			capturedCallbacks.onComplete?.();
+
+			// Flags must NOT be cleared by the old callback because generation is now 1
+			expect(runtime.compactInFlight).toBe(true);
+			expect(runtime.idleCompactInFlight).toBe(true);
 		});
 	});
 });

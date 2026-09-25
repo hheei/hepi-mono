@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	countSourceEntriesAfterCompaction,
+	type Entry,
 	earlierCoverageMarkerId,
 	entryIndexById,
+	findPersistedSettledTime,
 	isSourceEntry,
 	latestCoverageIndex,
 	latestCoverageMarkerId,
@@ -176,5 +179,66 @@ describe("session-ledger V3 progress helpers", () => {
 		];
 
 		expect(rawTokensSinceLastCompaction(entries)).toBe(3); // raw-1 + raw-2 from live tail starting at firstKeptEntryId
+	});
+
+	it("counts source entries strictly after latest compaction", () => {
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			textCustomMessage("raw-2", "bbbb"),
+			compactionEntry("cmp-1", { firstKeptEntryId: "raw-2" }),
+		];
+		// Immediately after compaction, no new source entries exist
+		expect(countSourceEntriesAfterCompaction(entries)).toBe(0);
+
+		// When new user message arrives after compaction
+		entries.push(textCustomMessage("raw-3", "cccc"));
+		expect(countSourceEntriesAfterCompaction(entries)).toBe(1);
+
+		// With multiple messages after compaction
+		entries.push(textCustomMessage("raw-4", "dddd"));
+		expect(countSourceEntriesAfterCompaction(entries)).toBe(2);
+	});
+
+	it("counts all source entries when no compaction has occurred", () => {
+		const entries = [textCustomMessage("raw-1", "aaaa"), textCustomMessage("raw-2", "bbbb")];
+		expect(countSourceEntriesAfterCompaction(entries)).toBe(2);
+	});
+
+	it("finds persisted settled time in epoch seconds from latest completed assistant or compaction entry", () => {
+		const nowSec = 1700000000;
+		const message = (id: string, timestamp: number, stopReason?: string): Entry => ({
+			id,
+			type: "message",
+			message: { role: "assistant", content: id, ...(stopReason ? { stopReason } : {}) },
+			timestamp: new Date(timestamp * 1000).toISOString(),
+		});
+		const entries: Entry[] = [
+			{ id: "user-1", type: "message", message: { role: "user", content: "hello" } },
+			message("asst-1", nowSec - 5),
+		];
+
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 5);
+
+		// When a compaction entry is later
+		entries.push({
+			id: "cmp-1",
+			type: "compaction",
+			timestamp: new Date((nowSec - 2) * 1000).toISOString(),
+		});
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+
+		// Discards future timestamps
+		entries.push(message("asst-near-future", nowSec + 1));
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+
+		entries.push(message("asst-future", nowSec + 120));
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+
+		// Discards aborted or error assistant messages
+		entries.push(message("asst-aborted", nowSec - 1, "aborted"));
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
+
+		entries.push(message("asst-error", nowSec - 1, "error"));
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 2);
 	});
 });

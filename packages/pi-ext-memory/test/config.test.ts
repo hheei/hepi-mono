@@ -10,7 +10,15 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 	getAgentDir: () => mock.agentDir,
 }));
 
-import { DEFAULTS, loadConfig, readEnvConfig, resolveCompactAfterTokens } from "../src/config.js";
+import {
+	type Config,
+	DEFAULTS,
+	loadConfig,
+	MAX_TIMEOUT_SECONDS,
+	parseDurationToSeconds,
+	readEnvConfig,
+	resolveCompactAfterTokens,
+} from "../src/config.js";
 
 function writeJson(path: string, value: unknown) {
 	mkdirSync(join(path, ".."), { recursive: true });
@@ -42,6 +50,8 @@ describe("V3 config", () => {
 			compactAfterTokens: 81000,
 			compactAfterTokensMode: "calibrated",
 			compactAfterTokensRatio: 0.68,
+			idleCompactionTtlSeconds: 1800,
+			idleCompactionMinTokens: 75_000,
 			observationsPoolMaxTokens: 20000,
 			observationsPoolTargetTokens: 10000,
 			agentMaxTurns: 16,
@@ -263,56 +273,122 @@ describe("V3 config", () => {
 
 	describe("resolveCompactAfterTokens", () => {
 		it("returns the calibrated value in calibrated mode", () => {
-			const config = {
+			const config: Config = {
 				...DEFAULTS,
 				compactAfterTokensMode: "calibrated",
 				compactAfterTokens: 81000,
-			} as any;
+			};
 			expect(resolveCompactAfterTokens(config, 1_000_000)).toBe(81000);
 		});
 
 		it("returns calibrated value regardless of context window in calibrated mode", () => {
-			const config = {
+			const config: Config = {
 				...DEFAULTS,
 				compactAfterTokensMode: "calibrated",
 				compactAfterTokens: 81000,
-			} as any;
+			};
 			expect(resolveCompactAfterTokens(config, undefined)).toBe(81000);
 			expect(resolveCompactAfterTokens(config, 0)).toBe(81000);
 		});
 
 		it("scales by context window in ratio mode", () => {
-			const config = {
+			const config: Config = {
 				...DEFAULTS,
 				compactAfterTokensMode: "ratio",
 				compactAfterTokensRatio: 0.5,
 				compactAfterTokens: 81000,
-			} as any;
+			};
 			expect(resolveCompactAfterTokens(config, 1_000_000)).toBe(500_000);
 			expect(resolveCompactAfterTokens(config, 200_000)).toBe(100_000);
 		});
 
 		it("floors fractional results to an integer >= 1", () => {
-			const config = {
+			const config: Config = {
 				...DEFAULTS,
 				compactAfterTokensMode: "ratio",
 				compactAfterTokensRatio: 0.5,
 				compactAfterTokens: 81000,
-			} as any;
+			};
 			expect(resolveCompactAfterTokens(config, 3)).toBe(1);
 			expect(resolveCompactAfterTokens(config, 1)).toBe(1);
 		});
 
 		it("falls back to calibrated value when context window is unavailable in ratio mode", () => {
-			const config = {
+			const config: Config = {
 				...DEFAULTS,
 				compactAfterTokensMode: "ratio",
 				compactAfterTokensRatio: 0.5,
 				compactAfterTokens: 81000,
-			} as any;
+			};
 			expect(resolveCompactAfterTokens(config, undefined)).toBe(81000);
 			expect(resolveCompactAfterTokens(config, 0)).toBe(81000);
 			expect(resolveCompactAfterTokens(config, -1)).toBe(81000);
+		});
+	});
+
+	describe("parseDurationToSeconds", () => {
+		it("parses valid unit duration strings", () => {
+			expect(parseDurationToSeconds("30m")).toBe(30 * 60);
+			expect(parseDurationToSeconds("5m")).toBe(5 * 60);
+			expect(parseDurationToSeconds("1h")).toBe(60 * 60);
+			expect(parseDurationToSeconds("1.5h")).toBe(90 * 60);
+			expect(parseDurationToSeconds("300s")).toBe(300);
+			expect(parseDurationToSeconds("2d")).toBe(2 * 24 * 60 * 60);
+		});
+
+		it("parses numeric strings and numbers as seconds", () => {
+			expect(parseDurationToSeconds("60")).toBe(60);
+			expect(parseDurationToSeconds(120)).toBe(120);
+			expect(parseDurationToSeconds("1800")).toBe(1800);
+			expect(parseDurationToSeconds(1800)).toBe(1800);
+			expect(parseDurationToSeconds(0.5)).toBe(DEFAULTS.idleCompactionTtlSeconds);
+		});
+
+		it("disables on explicit disable values", () => {
+			expect(parseDurationToSeconds(false)).toBeUndefined();
+			expect(parseDurationToSeconds(0)).toBeUndefined();
+			expect(parseDurationToSeconds("")).toBeUndefined();
+			expect(parseDurationToSeconds("never")).toBeUndefined();
+			expect(parseDurationToSeconds("NEVER")).toBeUndefined();
+		});
+
+		it("falls back to fallbackSeconds on unrecognized formats or negative numbers", () => {
+			expect(parseDurationToSeconds("invalid")).toBe(DEFAULTS.idleCompactionTtlSeconds);
+			expect(parseDurationToSeconds(-100)).toBe(DEFAULTS.idleCompactionTtlSeconds);
+			expect(parseDurationToSeconds("foo5m")).toBe(DEFAULTS.idleCompactionTtlSeconds);
+			expect(parseDurationToSeconds(true)).toBe(DEFAULTS.idleCompactionTtlSeconds);
+		});
+
+		it("falls back to fallbackSeconds when duration exceeds Node setTimeout limit MAX_TIMEOUT_SECONDS", () => {
+			expect(parseDurationToSeconds(MAX_TIMEOUT_SECONDS + 1)).toBe(
+				DEFAULTS.idleCompactionTtlSeconds,
+			);
+			expect(parseDurationToSeconds("9999999999999")).toBe(DEFAULTS.idleCompactionTtlSeconds);
+			expect(parseDurationToSeconds("3000d")).toBe(DEFAULTS.idleCompactionTtlSeconds);
+		});
+	});
+
+	describe("idle compaction config loading", () => {
+		it("loads custom idleCompaction settings", async () => {
+			writeJson(join(cwd, ".pi", "ext_settings.json"), {
+				"observational-memory": {
+					idleCompactionTtl: "1h",
+					idleCompactionMinTokens: 50_000,
+				},
+			});
+			const config = await loadConfig(cwd, {});
+			expect(config.idleCompactionTtlSeconds).toBe(3600);
+			expect(config.idleCompactionMinTokens).toBe(50_000);
+		});
+
+		it("disables idle compaction when configured with never or false", async () => {
+			writeJson(join(cwd, ".pi", "ext_settings.json"), {
+				"observational-memory": {
+					idleCompactionTtl: "never",
+				},
+			});
+			const config = await loadConfig(cwd, {});
+			expect(config.idleCompactionTtlSeconds).toBeUndefined();
 		});
 	});
 });

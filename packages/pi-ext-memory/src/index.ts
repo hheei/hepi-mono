@@ -3,7 +3,10 @@ import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerViewCommand } from "./commands/view.js";
 import { registerCompactionHook } from "./hooks/compaction-hook.js";
-import { registerCompactionTrigger } from "./hooks/compaction-trigger.js";
+import {
+	registerCompactionTrigger,
+	scheduleColdResumeCompaction,
+} from "./hooks/compaction-trigger.js";
 import { registerConsolidationTrigger } from "./hooks/consolidation-trigger.js";
 import { Runtime } from "./runtime.js";
 import { registerRecallTool } from "./tools/recall-observation.js";
@@ -26,6 +29,7 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 			resources.add("observational-memory-runtime", () => {
 				runtime.endSession(generation);
 			});
+			scheduleColdResumeCompaction(extension, runtime);
 		},
 	});
 }
