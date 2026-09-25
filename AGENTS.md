@@ -172,3 +172,16 @@ git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布（tag 仅作�
 - **应该**优先选择简单、可见、可组合且幂等的机制。
 - 共享 TypeScript 基线是 `tsconfig.base.json`；各 package 应继承它。
 
+## graphify
+
+本项目在 `graphify-out/` 中维护知识图谱，包含核心节点、社区结构和跨文件关系。
+
+当用户输入 `/graphify` 时，必须先使用已安装的 Graphify skill 或相关指令，再执行其他操作。
+
+规则：
+
+- 当 `graphify-out/graph.json` 存在时，对于代码库问题应先运行 `graphify query "<question>"`。查询关系时使用 `graphify path "<A>" "<B>"`，查询单个概念时使用 `graphify explain "<concept>"`。这些命令返回范围受控的子图，通常比 `GRAPH_REPORT.md` 或原始 grep 输出小得多。
+- hook 或增量更新产生未提交的 `graphify-out/` 文件是正常的，不应因此跳过 Graphify。只有任务本身是排查过期或错误的 Graphify 输出，或用户明确要求不要使用 Graphify 时，才跳过它。
+- 如果存在 `graphify-out/wiki/index.md`，进行广泛导航时优先使用它，不要直接浏览原始源代码。
+- 只有进行广泛架构审查，或 query/path/explain 没有提供足够上下文时，才读取 `graphify-out/GRAPH_REPORT.md`。
+- 修改代码后运行 `graphify update .`，保持图谱最新。该操作只进行 AST 更新，不产生 API 成本。
