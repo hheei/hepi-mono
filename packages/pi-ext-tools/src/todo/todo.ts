@@ -51,6 +51,7 @@ const todoOperation = Type.Union([
 		{
 			action: Type.Literal("create"),
 			subject: Type.String({ minLength: 1 }),
+			status: Type.Optional(agentTaskStatus),
 		},
 		{ additionalProperties: false },
 	),

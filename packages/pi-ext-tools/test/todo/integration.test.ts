@@ -223,6 +223,21 @@ describe("Todo integration", () => {
 			Value.Check(TODO_PARAMETERS, {
 				operations: [{ action: "create", subject: "Task", status: "pending" }],
 			}),
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", status: "in_progress" }],
+			}),
+		).toBe(true);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", status: "suppressed" }],
+			}),
+		).toBe(false);
+		expect(
+			Value.Check(TODO_PARAMETERS, {
+				operations: [{ action: "create", subject: "Task", status: "invalid" }],
+			}),
 		).toBe(false);
 		expect(
 			Value.Check(TODO_PARAMETERS, {
@@ -829,5 +844,35 @@ describe("Todo integration", () => {
 				"0/1 completed\n── In Progress ──\n◐ #2 Pending\n── Suppressed ──\n× #1 Working  user suppressed",
 			level: "info",
 		});
+	});
+
+	test("accepts optional status in create operations", async () => {
+		const host = harness("json");
+		const feature = createTodoFeature(host.pi, { now: () => 1_000 });
+		await feature.start(host.runtime);
+		const tool = host.tools[0]!;
+
+		const created = await tool.execute(
+			"call-with-status",
+			{
+				operations: [
+					{ action: "create", subject: "Initial Active", status: "in_progress" },
+					{ action: "create", subject: "Initial Pending", status: "pending" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(created.content[0]?.text).toBe("Created #1 #2\nin_progress: #1 Initial Active.");
+		expect(created.details.snapshot).toEqual({
+			tasks: [
+				{ id: 1, subject: "Initial Active", status: "in_progress" },
+				{ id: 2, subject: "Initial Pending", status: "pending" },
+			],
+			nextId: 3,
+		});
+
+		await feature.dispose(host.ctx.sessionManager.getSessionId());
 	});
 });
