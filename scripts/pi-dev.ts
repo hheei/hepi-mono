@@ -22,6 +22,7 @@ const buildCacheDir = path.join(root, ".pi-dev");
 // - pi-mctx: deprecated Magic Context extension, not autoloaded in pi-dev
 const builtPackageNames = [
 	"pi-ext-addon",
+	"pi-ext-memory",
 	"pi-ext-tools",
 	"pi-optimizer",
 	"pi-settings",

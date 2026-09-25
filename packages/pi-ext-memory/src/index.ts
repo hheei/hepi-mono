@@ -22,14 +22,9 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-memory",
 		start({ extension, signal, resources }) {
-			runtime.ensureConfig(extension.cwd);
-			runtime.lifecycleSignal = signal;
+			const generation = runtime.startSession(extension.cwd, signal);
 			resources.add("observational-memory-runtime", () => {
-				runtime.clearPendingCompactionTimer();
-				runtime.lifecycleSignal = undefined;
-				runtime.consolidationInFlight = false;
-				runtime.compactInFlight = false;
-				runtime.compactHookInFlight = false;
+				runtime.endSession(generation);
 			});
 		},
 	});
