@@ -127,6 +127,7 @@ describe("agent stream error logging", () => {
 					priorObservations: [],
 					chunk: "[Source entry id: entry-a]\nSome content.",
 					allowedSourceEntryIds: ["entry-a"],
+					modelRegistry: { streamSimple: (() => undefined) as any },
 					agentLoop: failingLoop,
 				}),
 			).rejects.toBeInstanceOf(ObserverStreamError);

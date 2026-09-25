@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { defaultExtensionSettingsPaths } from "@hheei/pi-ext-core";
+import { defaultExtensionSettingsPaths, readMergedJsonSettingsSection } from "@hheei/pi-ext-core";
 
 export interface ConfiguredModel {
 	provider: string;
@@ -161,7 +160,7 @@ const SETTINGS_KEY = "observational-memory";
 const PASSIVE_ENV = "PI_OBSERVATIONAL_MEMORY_PASSIVE";
 
 function positiveIntegerOrUndefined(value: unknown): number | undefined {
-	return Number.isInteger(value) && typeof value === "number" && value > 0 ? value : undefined;
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function validTargetOrUndefined(value: unknown, maxTokens: number): number | undefined {
@@ -252,27 +251,23 @@ export function readEnvConfig(env: NodeJS.ProcessEnv = process.env): Partial<Con
 	return {};
 }
 
-function readNamespacedConfig(path: string): Partial<Config> {
-	if (!existsSync(path)) return {};
-	try {
-		const raw = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
-		const nested = raw[SETTINGS_KEY];
-		return isRecord(nested) ? normalizeSettingsConfig(nested) : {};
-	} catch {
-		return {};
-	}
-}
-
-export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): Config {
+export async function loadConfig(
+	cwd: string,
+	env: NodeJS.ProcessEnv = process.env,
+	signal?: AbortSignal,
+): Promise<Config> {
 	const paths = defaultExtensionSettingsPaths(cwd);
-	const globalConfig = readNamespacedConfig(paths.globalPath);
-	const projectConfig = readNamespacedConfig(paths.projectPath);
+	const settings = await readMergedJsonSettingsSection({
+		paths,
+		section: SETTINGS_KEY,
+		...(signal ? { signal } : {}),
+	});
+	const fileConfig = normalizeSettingsConfig(settings.merged);
 	const envConfig = readEnvConfig(env);
 	const merged = {
 		...DEFAULTS,
 		observationsPoolTargetTokens: undefined,
-		...globalConfig,
-		...projectConfig,
+		...fileConfig,
 		...envConfig,
 	};
 	const target =

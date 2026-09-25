@@ -5,7 +5,6 @@ import type {
 	Model,
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { streamSimple as compatStreamSimple } from "@earendil-works/pi-ai/compat";
 
 export type WorkerStreamSimple = (
 	model: Model<Api>,
@@ -13,25 +12,8 @@ export type WorkerStreamSimple = (
 	options?: SimpleStreamOptions,
 ) => AssistantMessageEventStream;
 
-/**
- * Duck-typed subset of Pi's extension ModelRegistry.
- *
- * `streamSimple` is the host-composed path (Pi #8964). Until that lands on the
- * facade, `getRegisteredProviderConfig` exposes each `registerProvider`
- * `streamSimple` handler by provider id. Use only the model's exact provider
- * and require matching API metadata as a consistency check.
- */
-export type StreamableModelRegistry = {
-	streamSimple?: WorkerStreamSimple | undefined;
-	getRegisteredProviderConfig?:
-		| ((providerId: string) =>
-				| {
-						api?: string | undefined;
-						streamSimple?: WorkerStreamSimple | undefined;
-				  }
-				| undefined)
-		| undefined;
-};
+/** Pi 0.87's extension ModelRegistry worker streaming surface. */
+export type StreamableModelRegistry = { streamSimple: WorkerStreamSimple };
 
 /**
  * Resolve the stream function background workers must pass to `agentLoop`.
@@ -42,27 +24,10 @@ export type StreamableModelRegistry = {
  * what crashes Pi with `No API provider registered for api: …` (#30).
  */
 export function resolveWorkerStreamSimple(
-	model: Model<Api>,
-	modelRegistry?: StreamableModelRegistry | null,
+	modelRegistry: StreamableModelRegistry,
 	override?: WorkerStreamSimple,
 ): WorkerStreamSimple {
 	if (override) return override;
 
-	const registryStream = modelRegistry?.streamSimple;
-	if (typeof registryStream === "function") {
-		return (nextModel, context, options) =>
-			registryStream.call(modelRegistry, nextModel, context, options);
-	}
-
-	try {
-		const config = modelRegistry?.getRegisteredProviderConfig?.(model.provider);
-		const composed = config?.streamSimple;
-		if (config?.api === model.api && typeof composed === "function") {
-			return composed;
-		}
-	} catch {
-		// Incomplete host/test doubles still use the built-in compat dispatcher.
-	}
-
-	return compatStreamSimple;
+	return (nextModel, context, options) => modelRegistry.streamSimple(nextModel, context, options);
 }

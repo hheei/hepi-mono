@@ -37,10 +37,11 @@ describe("runObserver maxTokens clamping", () => {
 	}
 
 	const args = {
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		priorReflections: [],
 		priorObservations: [],
-		chunk: "[Source entry id: entry-a]\nUser asked for a memory update.",
+		chunk: "[Source entry id: entry-a]\\nUser asked for a memory update.",
 		allowedSourceEntryIds: ["entry-a"],
 	};
 
@@ -93,6 +94,7 @@ describe("OBSERVATION_TIMESTAMP_PATTERN", () => {
 describe("runObserver", () => {
 	const baseArgs = {
 		model: {} as any,
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		apiKey: "test",
 		priorReflections: [],
 		priorObservations: [],

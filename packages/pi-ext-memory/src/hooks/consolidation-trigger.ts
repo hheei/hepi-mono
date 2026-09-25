@@ -163,12 +163,11 @@ function makeModelResolver(
 }
 
 export function registerConsolidationTrigger(pi: ExtensionAPI, runtime: Runtime): void {
-	pi.on("agent_start", (_event, ctx) => {
-		maybeLaunchConsolidation(pi, runtime, ctx as unknown as ConsolidationCtx);
-	});
-	pi.on("turn_end", (_event, ctx) => {
-		maybeLaunchConsolidation(pi, runtime, ctx as unknown as ConsolidationCtx);
-	});
+	const onActivity = async (_event: unknown, ctx: unknown): Promise<void> => {
+		await maybeLaunchConsolidation(pi, runtime, ctx as unknown as ConsolidationCtx);
+	};
+	pi.on("agent_start", onActivity);
+	pi.on("turn_end", onActivity);
 }
 
 function debugSessionMetadata(ctx: ConsolidationCtx): { sessionId?: string; sessionFile?: string } {
@@ -184,8 +183,14 @@ function debugSessionMetadata(ctx: ConsolidationCtx): { sessionId?: string; sess
 	}
 }
 
-function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: ConsolidationCtx): void {
-	runtime.ensureConfig(ctx.cwd);
+async function maybeLaunchConsolidation(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+): Promise<void> {
+	if (!runtime.configLoaded) {
+		await runtime.ensureConfig(ctx.cwd, ctx.signal ?? runtime.lifecycleSignal);
+	}
 	if (runtime.config.passive === true) return;
 	if (runtime.consolidationInFlight) return;
 
@@ -381,7 +386,7 @@ async function runObserverStage(
 			maxTurns: runtime.config.agentMaxTurns,
 			maxOutputTokens: runtime.config.agentMaxTokens,
 			thinkingLevel: runtime.config.model?.thinking ?? "low",
-			modelRegistry: ctx.modelRegistry as StreamableModelRegistry | undefined,
+			modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 			signal: ctx.signal,
 		});
 	} catch (error) {
@@ -466,7 +471,7 @@ async function runReflectorStage(
 		maxTurns: runtime.config.agentMaxTurns,
 		maxOutputTokens: runtime.config.agentMaxTokens,
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry as StreamableModelRegistry | undefined,
+		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 		signal: ctx.signal,
 	});
 	if (ctx.signal?.aborted) return { outcome: "abort", sameRunReflections: [] };
@@ -557,7 +562,7 @@ async function runDropperStage(
 		maxTurns: runtime.config.agentMaxTurns,
 		maxOutputTokens: runtime.config.agentMaxTokens,
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry as StreamableModelRegistry | undefined,
+		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 		signal: ctx.signal,
 	});
 	if (ctx.signal?.aborted) return "abort";

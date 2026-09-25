@@ -45,7 +45,7 @@ interface RunReflectorArgs {
 	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
 	maxOutputTokens?: number | undefined;
 	thinkingLevel?: ModelThinkingLevel | undefined;
-	modelRegistry?: StreamableModelRegistry | undefined;
+	modelRegistry: StreamableModelRegistry;
 	streamSimple?: WorkerStreamSimple | undefined;
 }
 
@@ -236,7 +236,7 @@ export async function runReflector(args: RunReflectorArgs): Promise<Reflection[]
 		context,
 		config,
 		signal,
-		resolveWorkerStreamSimple(model, args.modelRegistry, args.streamSimple),
+		resolveWorkerStreamSimple(args.modelRegistry, args.streamSimple),
 	);
 	for await (const event of stream) {
 		// Tool execution collects records.

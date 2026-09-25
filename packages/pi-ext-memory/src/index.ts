@@ -21,8 +21,8 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-memory",
-		start({ extension, signal, resources }) {
-			const generation = runtime.startSession(extension.cwd, signal);
+		async start({ extension, signal, resources }) {
+			const generation = await runtime.startSession(extension.cwd, signal);
 			resources.add("observational-memory-runtime", () => {
 				runtime.endSession(generation);
 			});

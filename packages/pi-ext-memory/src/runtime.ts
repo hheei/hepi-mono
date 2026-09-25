@@ -120,6 +120,7 @@ export interface LaunchCtx {
 export class Runtime {
 	config: Config = { ...DEFAULTS };
 	configLoaded = false;
+	private configPromise: Promise<void> | undefined;
 	/** Monotonic owner id; async work must not mutate state after this changes. */
 	sessionGeneration = 0;
 	consolidationInFlight = false;
@@ -144,11 +145,12 @@ export class Runtime {
 		  }
 		| undefined;
 
-	startSession(cwd: string, signal: AbortSignal): number {
+	async startSession(cwd: string, signal: AbortSignal): Promise<number> {
 		this.clearPendingCompactionTimer();
 		this.sessionGeneration += 1;
 		this.config = { ...DEFAULTS };
 		this.configLoaded = false;
+		this.configPromise = undefined;
 		this.consolidationInFlight = false;
 		this.consolidationPromise = null;
 		this.consolidationPhase = undefined;
@@ -161,7 +163,7 @@ export class Runtime {
 		this.availabilityRecheckedAt.clear();
 		this.observerEmptyBackoff = undefined;
 		this.lifecycleSignal = signal;
-		this.ensureConfig(cwd);
+		await this.ensureConfig(cwd, signal);
 		return this.sessionGeneration;
 	}
 
@@ -181,10 +183,13 @@ export class Runtime {
 		return generation === undefined || generation === this.sessionGeneration;
 	}
 
-	ensureConfig(cwd: string): void {
+	async ensureConfig(cwd: string, signal?: AbortSignal): Promise<void> {
 		if (this.configLoaded) return;
-		this.config = loadConfig(cwd);
-		this.configLoaded = true;
+		this.configPromise ??= loadConfig(cwd, process.env, signal).then((config) => {
+			this.config = config;
+			this.configLoaded = true;
+		});
+		await this.configPromise;
 	}
 
 	clearPendingCompactionTimer(): void {
@@ -395,12 +400,22 @@ export class Runtime {
 		this.lastObserverError = undefined;
 		this.lastReflectorError = undefined;
 		this.lastDropperError = undefined;
-		const promise = this.launchTrackedTask(ctx, "consolidation", work, () => {
-			if (!this.isSessionCurrent(generation)) return;
-			this.consolidationInFlight = false;
-			this.consolidationPhase = undefined;
-			if (this.consolidationPromise === promise) this.consolidationPromise = null;
-		});
+		const promise = (async () => {
+			try {
+				await work();
+			} catch (error) {
+				if (this.lifecycleSignal?.aborted === true || !this.isSessionCurrent(generation)) return;
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				if (ctx.hasUI && ctx.ui)
+					ctx.ui.notify(`Observational memory: consolidation failed: ${errorMessage}`, "warning");
+			} finally {
+				if (this.isSessionCurrent(generation)) {
+					this.consolidationInFlight = false;
+					this.consolidationPhase = undefined;
+					this.consolidationPromise = null;
+				}
+			}
+		})();
 		this.consolidationPromise = promise;
 		return promise;
 	}
@@ -414,29 +429,5 @@ export class Runtime {
 		if (this.lifecycleSignal?.aborted !== true && ctx.hasUI && ctx.ui)
 			ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
 		return message;
-	}
-
-	private launchTrackedTask(
-		ctx: LaunchCtx,
-		label: string,
-		work: () => Promise<void>,
-		onFinally: (error: string | undefined) => void,
-	): Promise<void> {
-		const hasUI = ctx.hasUI;
-		const ui = ctx.ui;
-		const generation = ctx.sessionGeneration;
-		return (async () => {
-			let errorMessage: string | undefined;
-			try {
-				await work();
-			} catch (error) {
-				if (this.lifecycleSignal?.aborted === true || !this.isSessionCurrent(generation)) return;
-				errorMessage = error instanceof Error ? error.message : String(error);
-				if (hasUI && ui)
-					ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");
-			} finally {
-				onFinally(errorMessage);
-			}
-		})();
 	}
 }

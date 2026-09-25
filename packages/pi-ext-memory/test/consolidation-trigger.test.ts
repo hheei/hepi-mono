@@ -78,6 +78,7 @@ function setup(args: {
 	};
 	let launchedWork: (() => Promise<void>) | undefined;
 	const runtime = {
+		configLoaded: true,
 		config: {
 			showWorkerNotifications: args.showWorkerNotifications ?? true,
 			passive: args.passive ?? false,
@@ -132,7 +133,7 @@ function setup(args: {
 		hasUI: true,
 		ui: { notify: vi.fn() },
 		model: { provider: "session" },
-		modelRegistry: {},
+		modelRegistry: { streamSimple: (() => undefined) as any },
 		sessionManager: {
 			getBranch: () => entries,
 			getSessionId: () => sessionId,

@@ -198,7 +198,7 @@ describe("Runtime V3 behavior", () => {
 	it("resets session-owned state and rejects stale consolidation mutations", async () => {
 		const runtime = new Runtime();
 		const first = new AbortController();
-		const firstGeneration = runtime.startSession("/tmp/hepi-memory-test", first.signal);
+		const firstGeneration = await runtime.startSession("/tmp/hepi-memory-test", first.signal);
 		runtime.configLoaded = true;
 		runtime.resolveFailureNotified = true;
 		runtime.availabilityRecheckedAt.set("anthropic", Date.now());
@@ -218,7 +218,7 @@ describe("Runtime V3 behavior", () => {
 		);
 
 		const second = new AbortController();
-		const secondGeneration = runtime.startSession("/tmp/hepi-memory-test", second.signal);
+		const secondGeneration = await runtime.startSession("/tmp/hepi-memory-test", second.signal);
 		runtime.consolidationInFlight = true;
 		runtime.recordConsolidationStageError(
 			{ hasUI: false, sessionGeneration: firstGeneration },
