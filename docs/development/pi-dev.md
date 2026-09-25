@@ -28,9 +28,10 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
 | `pi-status` | `packages/pi-status/dist/extension.js` | 增量构建 TypeScript |
 | `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
-| `pi-mctx` | `packages/pi-mctx/src/index.ts` | Pi 直接加载 TypeScript 源码 |
+
 `pi-ext-core` 在上述 TypeScript 扩展之前构建，但不会作为扩展加载。
 `pi-hindsight` 与 `pi-debug` 明确不纳入 `pi-dev` 自动加载组合（需要单独测试或使用时通过 `--extension` 显式加载）。
+`pi-mctx` 已被弃用（deprecated），不再纳入 `pi-dev` 自动加载组合。
 没有包选择环境变量；仅运行某个扩展时，使用[开始使用](../user/getting-started.md)中的直接加载命令。
 
 ## 构建缓存

@@ -1,5 +1,6 @@
 /**
- * Magic Context — Pi coding agent extension.
+ * @deprecated Magic Context — Pi coding agent extension.
+ * This package is deprecated and excluded from pi-dev.
  *
  * Loaded once per Pi session by the Pi extension bootstrap.
  * Registers session lifecycle hooks: tools, transform pipeline (tagging + drops),

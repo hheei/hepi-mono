@@ -1,5 +1,8 @@
 # @hheei/pi-mctx
 
+> [!WARNING]
+> **DEPRECATED**: `@hheei/pi-mctx` 已弃用，不再维护，并已从 `pi-dev` 默认加载组合中移除。代码保留仅供历史对比与迁移参考。
+
 `@hheei/pi-mctx` is the single Magic Context package for HEPI. Its Pi adapter
 lives in `src/`; shared Magic Context implementation lives in `src/core/` and
 is private to this package through `#core/*` imports.
