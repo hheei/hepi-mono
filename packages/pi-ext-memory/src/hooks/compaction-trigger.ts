@@ -8,9 +8,7 @@ function isActiveSession(
 	generation: number | undefined,
 	signal: AbortSignal | undefined,
 ): boolean {
-	const current =
-		typeof runtime.isSessionCurrent === "function" ? runtime.isSessionCurrent(generation) : true;
-	return current && signal?.aborted !== true;
+	return runtime.isSessionCurrent(generation) && signal?.aborted !== true;
 }
 
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
@@ -43,12 +41,11 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			);
 
 		runtime.compactInFlight = true;
-		runtime.clearPendingCompactionTimer?.();
+		runtime.clearPendingCompactionTimer();
 		runtime.pendingCompactionTimer = setTimeout(() => {
 			runtime.pendingCompactionTimer = undefined;
 			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) {
-				if (runtime.isSessionCurrent?.(sessionGeneration) !== false)
-					runtime.compactInFlight = false;
+				if (runtime.isSessionCurrent(sessionGeneration)) runtime.compactInFlight = false;
 				return;
 			}
 			try {

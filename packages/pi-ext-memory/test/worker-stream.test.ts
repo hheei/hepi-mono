@@ -66,7 +66,6 @@ describe("resolveWorkerStreamSimple", () => {
 
 		expect(
 			resolveWorkerStreamSimple(customApiModel, {
-				getRegisteredProviderIds: () => ["other", "cursor"],
 				getRegisteredProviderConfig,
 			}),
 		).toBe(cursorStream);
@@ -87,7 +86,6 @@ describe("resolveWorkerStreamSimple", () => {
 
 		expect(
 			resolveWorkerStreamSimple(minimaxModel, {
-				getRegisteredProviderIds: () => ["anthropic"],
 				getRegisteredProviderConfig,
 			}),
 		).toBe(compatStreamSimple);

@@ -7,16 +7,6 @@ import type {
 import type { Runtime } from "../runtime.js";
 import { buildCompactionProjection, type Entry, renderSummary } from "../session-ledger/index.js";
 
-const DEFAULT_OBSERVATIONS_POOL_MAX_TOKENS = 20_000;
-
-function observationsPoolMaxTokens(runtime: Runtime): number {
-	const value = (runtime.config as { observationsPoolMaxTokens?: unknown })
-		.observationsPoolMaxTokens;
-	return typeof value === "number" && Number.isFinite(value) && value > 0
-		? value
-		: DEFAULT_OBSERVATIONS_POOL_MAX_TOKENS;
-}
-
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
 	pi.on(
 		"session_before_compact",
@@ -37,7 +27,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 				const { preparation, branchEntries } = event;
 				const { firstKeptEntryId, tokensBefore } = preparation;
 				const projection = buildCompactionProjection(branchEntries as Entry[], firstKeptEntryId, {
-					observationsPoolMaxTokens: observationsPoolMaxTokens(runtime),
+					observationsPoolMaxTokens: runtime.config.observationsPoolMaxTokens,
 				});
 				const summary = renderSummary(projection.reflections, projection.observations);
 				if (summary.length === 0) {
