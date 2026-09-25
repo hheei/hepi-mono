@@ -1,0 +1,61 @@
+{
+	"name": "@hheei/pi-ext-memory",
+	"version": "0.1.0",
+	"description": "Observational memory extension for Pi — cache-friendly tiered compaction with observations and reflections.",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": "./dist/index.js"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"dist/extension.js"
+		]
+	},
+	"scripts": {
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+		"prepack": "pnpm run build"
+	},
+	"keywords": [
+		"pi",
+		"pi-agent",
+		"pi-package",
+		"extension",
+		"observational-memory",
+		"memory",
+		"compaction"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"directory": "packages/pi-ext-memory"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@hheei/pi-ext-core": "workspace:^",
+		"typebox": "^1.1.38"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": ">=0.87.0",
+		"@earendil-works/pi-ai": ">=0.87.0",
+		"@earendil-works/pi-coding-agent": ">=0.87.0",
+		"@earendil-works/pi-tui": ">=0.87.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-agent-core": "^0.87.0",
+		"@earendil-works/pi-ai": "^0.87.0",
+		"@earendil-works/pi-coding-agent": "^0.87.0",
+		"@earendil-works/pi-tui": "^0.87.0",
+		"@types/node": "^22.0.0",
+		"typescript": "^5.6.0"
+	}
+}
