@@ -114,11 +114,14 @@ export interface ResolveCtx {
 export interface LaunchCtx {
 	hasUI: boolean;
 	ui?: { notify: Notify } | undefined;
+	sessionGeneration?: number | undefined;
 }
 
 export class Runtime {
 	config: Config = { ...DEFAULTS };
 	configLoaded = false;
+	/** Monotonic owner id; async work must not mutate state after this changes. */
+	sessionGeneration = 0;
 	consolidationInFlight = false;
 	consolidationPromise: Promise<void> | null = null;
 	consolidationPhase: ConsolidationPhase | undefined;
@@ -140,6 +143,43 @@ export class Runtime {
 				tokensAtEmpty: number;
 		  }
 		| undefined;
+
+	startSession(cwd: string, signal: AbortSignal): number {
+		this.clearPendingCompactionTimer();
+		this.sessionGeneration += 1;
+		this.config = { ...DEFAULTS };
+		this.configLoaded = false;
+		this.consolidationInFlight = false;
+		this.consolidationPromise = null;
+		this.consolidationPhase = undefined;
+		this.compactInFlight = false;
+		this.compactHookInFlight = false;
+		this.resolveFailureNotified = false;
+		this.lastObserverError = undefined;
+		this.lastReflectorError = undefined;
+		this.lastDropperError = undefined;
+		this.availabilityRecheckedAt.clear();
+		this.observerEmptyBackoff = undefined;
+		this.lifecycleSignal = signal;
+		this.ensureConfig(cwd);
+		return this.sessionGeneration;
+	}
+
+	endSession(generation: number): void {
+		if (!this.isSessionCurrent(generation)) return;
+		this.clearPendingCompactionTimer();
+		this.lifecycleSignal = undefined;
+		this.sessionGeneration += 1;
+		this.consolidationInFlight = false;
+		this.consolidationPromise = null;
+		this.consolidationPhase = undefined;
+		this.compactInFlight = false;
+		this.compactHookInFlight = false;
+	}
+
+	isSessionCurrent(generation: number | undefined): boolean {
+		return generation === undefined || generation === this.sessionGeneration;
+	}
 
 	ensureConfig(cwd: string): void {
 		if (this.configLoaded) return;
@@ -349,12 +389,14 @@ export class Runtime {
 	}
 
 	launchConsolidationTask(ctx: LaunchCtx, work: () => Promise<void>): Promise<void> {
+		const generation = ctx.sessionGeneration ?? this.sessionGeneration;
 		this.consolidationInFlight = true;
 		this.consolidationPhase = undefined;
 		this.lastObserverError = undefined;
 		this.lastReflectorError = undefined;
 		this.lastDropperError = undefined;
 		const promise = this.launchTrackedTask(ctx, "consolidation", work, () => {
+			if (!this.isSessionCurrent(generation)) return;
 			this.consolidationInFlight = false;
 			this.consolidationPhase = undefined;
 			if (this.consolidationPromise === promise) this.consolidationPromise = null;
@@ -365,6 +407,7 @@ export class Runtime {
 
 	recordConsolidationStageError(ctx: LaunchCtx, phase: ConsolidationPhase, error: unknown): string {
 		const message = error instanceof Error ? error.message : String(error);
+		if (!this.isSessionCurrent(ctx.sessionGeneration)) return message;
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;
 		if (phase === "dropper") this.lastDropperError = message;
@@ -381,12 +424,13 @@ export class Runtime {
 	): Promise<void> {
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
+		const generation = ctx.sessionGeneration;
 		return (async () => {
 			let errorMessage: string | undefined;
 			try {
 				await work();
 			} catch (error) {
-				if (this.lifecycleSignal?.aborted === true) return;
+				if (this.lifecycleSignal?.aborted === true || !this.isSessionCurrent(generation)) return;
 				errorMessage = error instanceof Error ? error.message : String(error);
 				if (hasUI && ui)
 					ui.notify(`Observational memory: ${label} failed: ${errorMessage}`, "warning");

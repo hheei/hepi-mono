@@ -3,6 +3,16 @@ import { resolveCompactAfterTokens } from "../config.js";
 import type { Runtime } from "../runtime.js";
 import { type Entry, rawTokensSinceLastCompaction } from "../session-ledger/index.js";
 
+function isActiveSession(
+	runtime: Runtime,
+	generation: number | undefined,
+	signal: AbortSignal | undefined,
+): boolean {
+	const current =
+		typeof runtime.isSessionCurrent === "function" ? runtime.isSessionCurrent(generation) : true;
+	return current && signal?.aborted !== true;
+}
+
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
 	// Pi emits agent_settled only after retries, automatic compaction, and queued
 	// continuation have finished, so retry policy stays owned by Pi.
@@ -23,6 +33,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		// may outlive the extension ctx (stale after session replacement/reload).
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
+		const lifecycleSignal = runtime.lifecycleSignal;
+		const sessionGeneration = runtime.sessionGeneration;
 
 		if (hasUI)
 			ui?.notify(
@@ -34,8 +46,9 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		runtime.clearPendingCompactionTimer?.();
 		runtime.pendingCompactionTimer = setTimeout(() => {
 			runtime.pendingCompactionTimer = undefined;
-			if (runtime.lifecycleSignal?.aborted === true) {
-				runtime.compactInFlight = false;
+			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) {
+				if (runtime.isSessionCurrent?.(sessionGeneration) !== false)
+					runtime.compactInFlight = false;
 				return;
 			}
 			try {
@@ -65,16 +78,14 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 				}
 				ctx.compact({
 					onComplete: () => {
+						if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 						runtime.compactInFlight = false;
-						if (hasUI && runtime.lifecycleSignal?.aborted !== true)
-							ui?.notify("Observational memory: compaction complete", "info");
+						if (hasUI) ui?.notify("Observational memory: compaction complete", "info");
 					},
 					onError: (error: { message: string }) => {
+						if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 						runtime.compactInFlight = false;
-						if (
-							error.message === "Compaction cancelled" ||
-							runtime.lifecycleSignal?.aborted === true
-						) {
+						if (error.message === "Compaction cancelled") {
 							// We already notified the user with the real reason before returning { cancel: true }.
 							return;
 						}
@@ -82,6 +93,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 					},
 				});
 			} catch (error) {
+				if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 				runtime.compactInFlight = false;
 				const msg = error instanceof Error ? error.message : String(error);
 				if (hasUI) ui?.notify(`Observational memory: compact threw: ${msg}`, "error");

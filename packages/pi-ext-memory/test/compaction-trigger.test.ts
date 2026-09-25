@@ -35,6 +35,10 @@ function captureHandler(
 		compactInFlight: args.compactInFlight ?? false,
 		pendingCompactionTimer: undefined as ReturnType<typeof setTimeout> | undefined,
 		lifecycleSignal: undefined as AbortSignal | undefined,
+		sessionGeneration: 0,
+		isSessionCurrent(generation: number | undefined) {
+			return generation === this.sessionGeneration;
+		},
 		clearPendingCompactionTimer() {
 			if (this.pendingCompactionTimer !== undefined) {
 				clearTimeout(this.pendingCompactionTimer);
@@ -483,6 +487,41 @@ describe("V3 compaction trigger", () => {
 
 			expect(ctx.compact).not.toHaveBeenCalled();
 			expect(ctx.isIdle).not.toHaveBeenCalled();
+		});
+
+		it("ignores a late compact result from an older session", async () => {
+			const { handler, runtime } = captureHandler({ compactAfterTokens: 3 });
+			let callbacks:
+				| {
+						onComplete: () => void;
+						onError: (error: { message: string }) => void;
+				  }
+				| undefined;
+			const ctx = fakeCtx([dueBranch], {
+				compact: vi.fn((options: typeof callbacks) => {
+					callbacks = options;
+				}),
+			});
+
+			runtime.sessionGeneration = 1;
+			handler(agentSettled(), ctx);
+			await vi.runAllTimersAsync();
+			expect(callbacks).toBeDefined();
+
+			runtime.sessionGeneration = 2;
+			runtime.compactInFlight = false;
+			callbacks?.onComplete();
+			callbacks?.onError({ message: "late compaction failure" });
+
+			expect(runtime.compactInFlight).toBe(false);
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+				"Observational memory: compaction complete",
+				"info",
+			);
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+				"Observational memory: late compaction failure",
+				"error",
+			);
 		});
 
 		it("skips compaction and UI notifications if lifecycleSignal is aborted before callback runs", async () => {

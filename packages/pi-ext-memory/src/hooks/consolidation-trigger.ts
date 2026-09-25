@@ -50,6 +50,7 @@ type ConsolidationCtx = {
 		getSessionFile?: () => string | undefined;
 	};
 	signal?: AbortSignal | undefined;
+	sessionGeneration?: number | undefined;
 };
 
 type StageOutcome = "continue" | "abort";
@@ -223,6 +224,7 @@ function maybeLaunchConsolidation(pi: ExtensionAPI, runtime: Runtime, ctx: Conso
 		getContextUsage: ctx.getContextUsage,
 		sessionManager: ctx.sessionManager,
 		signal: ctx.signal ?? runtime.lifecycleSignal,
+		sessionGeneration: runtime.sessionGeneration,
 	};
 
 	const sessionMetadata = debugSessionMetadata(ctx);

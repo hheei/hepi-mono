@@ -195,6 +195,49 @@ describe("Runtime V3 behavior", () => {
 		});
 	});
 
+	it("resets session-owned state and rejects stale consolidation mutations", async () => {
+		const runtime = new Runtime();
+		const first = new AbortController();
+		const firstGeneration = runtime.startSession("/tmp/hepi-memory-test", first.signal);
+		runtime.configLoaded = true;
+		runtime.resolveFailureNotified = true;
+		runtime.availabilityRecheckedAt.set("anthropic", Date.now());
+		runtime.observerEmptyBackoff = {
+			sessionIdentity: "first",
+			coverageId: "coverage",
+			tokensAtEmpty: 3,
+		};
+
+		let release: (() => void) | undefined;
+		const oldTask = runtime.launchConsolidationTask(
+			{ hasUI: false, sessionGeneration: firstGeneration },
+			async () =>
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+		);
+
+		const second = new AbortController();
+		const secondGeneration = runtime.startSession("/tmp/hepi-memory-test", second.signal);
+		runtime.consolidationInFlight = true;
+		runtime.recordConsolidationStageError(
+			{ hasUI: false, sessionGeneration: firstGeneration },
+			"observer",
+			new Error("stale failure"),
+		);
+
+		expect(secondGeneration).toBeGreaterThan(firstGeneration);
+		expect(runtime.configLoaded).toBe(true);
+		expect(runtime.resolveFailureNotified).toBe(false);
+		expect(runtime.availabilityRecheckedAt).toEqual(new Map());
+		expect(runtime.observerEmptyBackoff).toBeUndefined();
+		expect(runtime.lastObserverError).toBeUndefined();
+
+		release?.();
+		await oldTask;
+		expect(runtime.consolidationInFlight).toBe(true);
+	});
+
 	it("tracks consolidation task state", async () => {
 		const runtime = new Runtime();
 		let release: (() => void) | undefined;
