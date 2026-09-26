@@ -7,8 +7,8 @@
 ## 1. 背景与目标
 
 在原设计中，扩展配置直接内嵌于 Pi 宿主的主配置文件中：
-- 全局路径：`~/.pi/agent/settings.json` 下的 `"observational-memory"` 对象
-- 项目级路径：`<cwd>/.pi/settings.json` 下的 `"observational-memory"` 对象
+- 全局路径：`~/.pi/agent/settings.json` 下的 `"pi-ext-memory"` 对象
+- 项目级路径：`<cwd>/.pi/settings.json` 下的 `"pi-ext-memory"` 对象
 
 然而，在 HEPI Monorepo 体系下，所有 concrete extension 的持久化配置统一遵循 ext-core 定义的 `ext_settings.json` 契约，以解耦宿主核心配置与扩展配置。
 
@@ -25,10 +25,10 @@
 
 1. **全局配置 (Global)**：
    - 路径：`<agentDir>/ext_settings.json`（通常为 `~/.pi/agent/ext_settings.json`）
-   - Section Key：`"observational-memory"`
+   - Section Key：`"pi-ext-memory"`
 2. **项目级配置 (Project)**：
    - 路径：`<cwd>/.pi/ext_settings.json`
-   - Section Key：`"observational-memory"`
+   - Section Key：`"pi-ext-memory"`
 
 ### 2.2 优先级合并规则
 
@@ -42,7 +42,7 @@
 遵循 Monorepo **“Product rule: No hidden intent. No silent routing. No blind automation.”** 与工程规则 **“NEVER add speculative abstractions, extension points, compatibility shims”**：
 - **不保留**对旧 `settings.json` 的 fallback 双读逻辑；
 - **不增加**隐式自动数据迁移代码；
-- 用户需显式将其 `observational-memory` 配置迁移至 `ext_settings.json`。
+- 用户需显式将其旧 `settings.json` 配置迁移至 `ext_settings.json` 的 `"pi-ext-memory"` 键下。
 
 ### 2.4 异步加载与版本边界
 
@@ -58,11 +58,11 @@ session shutdown 或替换时取消未完成的文件读取，且不写入旧 se
 
 ## 3. 配置格式参考
 
-在 `ext_settings.json` 中，配置组织在顶层的 `"observational-memory"` 键下：
+在 `ext_settings.json` 中，配置组织在顶层的 `"pi-ext-memory"` 键下：
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "model": {
       "provider": "anthropic",
       "id": "claude-3-7-sonnet-latest",

@@ -168,7 +168,7 @@ export function resolveObserverChunkMaxTokens(
 	return OBSERVER_CHUNK_FALLBACK_MAX_TOKENS;
 }
 
-const SETTINGS_KEY = "observational-memory";
+const SETTINGS_KEY = "pi-ext-memory";
 const PASSIVE_ENV = "PI_OBSERVATIONAL_MEMORY_PASSIVE";
 
 function positiveIntegerOrUndefined(value: unknown): number | undefined {

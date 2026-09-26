@@ -42,6 +42,7 @@
 	},
 	"dependencies": {
 		"@hheei/pi-ext-core": "workspace:^",
+		"@vectorize-io/hindsight-client": "^0.9.0",
 		"typebox": "^1.1.38"
 	},
 	"peerDependencies": {

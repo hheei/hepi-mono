@@ -48,12 +48,14 @@ pi --extension ./packages/pi-ext-memory/src/index.ts
 
 ## 配置说明
 
-Settings live under the `observational-memory` namespace in either:
+Settings live under the `pi-ext-memory` namespace in either:
 
 * Global: `~/.pi/agent/ext_settings.json`
 * Project-local: `<cwd>/.pi/ext_settings.json`
 
 Project settings override global settings.
+
+The namespace was renamed from `observational-memory` to `pi-ext-memory`. The old key is no longer read, so rename it in both files after upgrading.
 
 `PI_OBSERVATIONAL_MEMORY_PASSIVE` can override only `passive`.
 
@@ -61,7 +63,7 @@ A typical config:
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "observeAfterTokens": 10000,
     "reflectAfterTokens": 20000,
     "compactAfterTokens": 81000,
@@ -99,7 +101,7 @@ the trigger scale with the active model's `contextWindow`:
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "compactAfterTokens": 81000,
     "compactAfterTokensMode": "ratio",
     "compactAfterTokensRatio": 0.5
@@ -177,6 +179,7 @@ For details and tuning guidance, see [`docs/configuration.md`](docs/configuratio
 | `/om:view`          | Shows current visible memory and attempts to copy the rendered memory text to the clipboard.                                                   |
 | `/om:view full`     | Shows the full current memory state for the branch and attempts to copy the rendered memory text to the clipboard.                             |
 | `recall` agent tool | Recovers source evidence for a 12-character observation/reflection id on the current branch. It is not semantic search or a transcript browser. |
+| `hindsight_*` tools   | Opt-in cross-session long-term memory (see [Hindsight long-term memory](#hindsight-long-term-memory)). Registered only while `hindsight.enabled` is `true`. |
 
 `/om:view` copies only the rendered memory content. The success/failure line shown in Pi is not included in the clipboard text. If clipboard support is unavailable, the command still prints the memory view and shows a warning. Before the first V3 compaction, visible memory can be empty because nothing has been folded into `om.folded` details; use `/om:view full` to inspect recorded branch memory.
 
@@ -231,6 +234,87 @@ Current behavior:
 
 ---
 
+## Hindsight long-term memory
+
+Observational memory is session-scoped: it compacts the conversation you are in. Hindsight adds **cross-session, repository-level memory** on top of it, and is **off unless you explicitly turn it on**. When the option is disabled nothing is registered, no Hindsight config file is read, and no request is made.
+
+It talks to a Hindsight deployment through the official `@vectorize-io/hindsight-client` SDK, reusing the same service as the Hindsight coding-agent integration.
+
+### Configuration
+
+```json
+{
+  "pi-ext-memory": {
+    "hindsight": {
+      "enabled": false,
+      "apiUrl": "https://api.hindsight.vectorize.io",
+      "apiToken": "",
+      "bankId": "",
+      "autoRecall": true,
+      "retainSessions": true,
+      "reflectBudget": "high",
+      "reflectToolTimeoutMs": 45000,
+      "readTimeoutMs": 15000,
+      "maxMemoryChars": 8000,
+      "configPath": "~/.hindsight/coding-agent.json"
+    }
+  }
+}
+```
+
+Values are resolved in this order, each layer overriding the ones below it:
+
+1. `pi-ext-memory.hindsight` in project `ext_settings.json`
+2. `pi-ext-memory.hindsight` in global `ext_settings.json`
+3. `HINDSIGHT_API_URL`, `HINDSIGHT_API_TOKEN`, `HINDSIGHT_BANK_ID`, `HINDSIGHT_CONFIG`
+4. `banks.<bankId>` in the fallback file (its `retainTags` and `retainMetadata` are inherited)
+5. The fallback file's top-level `apiUrl` / `bankId`
+6. The defaults above
+
+`enabled` is only read from settings, never from the environment.
+
+### Bank routing and repository isolation
+
+The bank is chosen by the first rule that applies:
+
+1. `hindsight.bankId`
+2. `mapPathToBank` in the fallback file, longest matching path prefix
+3. `bankIdTemplate` in the fallback file, with `{gitProject}` replaced by the repository name
+4. The fallback file's `bankId`
+5. `coding-agent::{gitProject}`, derived from the git root
+
+The repository name is the git root directory name, so every subdirectory of a checkout resolves the same way.
+
+A bank derived per repository (rules 3 and 5) is a **dedicated bank**. Any other bank is treated as a **shared bank**: every retained turn is stamped with a `repo:<name>` tag plus the bank's configured tags and metadata, and reads pass that tag as a filter. `hindsight_diagnose` reports which mode is in effect.
+
+Use a dedicated bank when repositories must not influence each other. With a shared bank, isolation depends on the server honoring tag filters, and pages are bank-wide.
+
+### Behavior
+
+* **First turn.** The preamble explaining the memory and its tools is appended to the system prompt, together with the current knowledge-page index.
+* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits are appended inside a `<memory>` container. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
+* **Turn end.** The run's user/assistant turns are reduced to a compact transcript (tool results and injected memory dropped, failed or aborted responses skipped) and written back in order, one request at a time. The operation id is derived from the bank, session, and batch content, so a retry or a repeated `agent_end` folds server-side instead of duplicating.
+* **Session end.** Pending writeback is flushed within a five-second grace period, then cancelled. A failed writeback is recorded and never interrupts the conversation.
+
+### Tools
+
+All eight tools are registered with the `hindsight_` prefix and are unavailable while the option is off:
+
+| Tool | Purpose |
+| ---- | ------- |
+| `hindsight_search_knowledge_pages` | Hybrid page search; first stop for questions the project's accumulated knowledge can answer. |
+| `hindsight_list_knowledge_pages` | Page index with titles and descriptions. |
+| `hindsight_read_knowledge_page` | Full page markdown by id. |
+| `hindsight_reflect` | Deep agentic synthesis over the repository's full memory. |
+| `hindsight_capture_initiative` | Create or update a tracked initiative page. |
+| `hindsight_ingest_document` | Store durable notes, and correct stale memory with `Correction: <topic>`. |
+| `hindsight_sync_status` | Server version, page count, document total. |
+| `hindsight_diagnose` | Effective bank, routing source, isolation mode, endpoint, token presence, reachability, writeback state. Never prints the token. |
+
+If the deployment does not support knowledge pages (404/405/501), the three page tools answer with `Knowledge pages are unavailable on this Hindsight server. Use hindsight_reflect for memory reasoning.` instead of failing.
+
+---
+
 ## Migrating from V2
 
 V3 is **not backwards compatible** with V2 memory or settings.
@@ -279,7 +363,7 @@ V3 equivalent:
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "observeAfterTokens": 10000,
     "reflectAfterTokens": 20000,
     "compactAfterTokens": 81000,
