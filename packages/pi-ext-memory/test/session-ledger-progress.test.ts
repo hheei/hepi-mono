@@ -18,6 +18,7 @@ import {
 import {
 	branchSummary,
 	compactionEntry,
+	customMessage,
 	observation,
 	observationsDroppedEntry,
 	observationsRecordedEntry,
@@ -217,6 +218,10 @@ describe("session-ledger V3 progress helpers", () => {
 			message("asst-1", nowSec - 5),
 		];
 
+		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 5);
+
+		entries.push(customMessage("custom-1", "extension event"));
+		entries.push(branchSummary("branch-1", "summary"));
 		expect(findPersistedSettledTime(entries, nowSec)).toBe(nowSec - 5);
 
 		// When a compaction entry is later
