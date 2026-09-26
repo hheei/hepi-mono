@@ -14,8 +14,6 @@ For each request it records SHA-256 digests for:
 - the provider envelope outside prompt-bearing fields
 - tools or functions
 - system or developer instructions
-- Magic Context m[0]
-- Magic Context m[1]
 - the remaining conversation
 - every provider input item
 - cumulative input prefixes ending at recognized module boundaries
@@ -115,11 +113,9 @@ Recognized names:
 - `envelope`: non-content provider options
 - `tools`: tool or function definitions
 - `system`: top-level instructions and system/developer input items
-- `magic-context:m0`: project/user memory and project context injection
-- `magic-context:m1`: session-history injection
 - `conversation`: all other input items
 
-`magic-context:m0` and `magic-context:m1` are diagnostic classifications, not provider-native boundaries. They are recognized from Magic Context markers. Missing or changed markers can cause an item to be classified as `conversation`.
+`system` is a diagnostic classification based on the item role, not a provider-native boundary. Any other injected block, whatever wrote it, lands in `conversation`.
 
 ### Adjacent-request comparison
 
@@ -235,9 +231,7 @@ Use `changedModules` as a shortlist:
 - `envelope`: inspect model, provider, reasoning, cache retention, response format, and extension options
 - `tools`: inspect active-tool changes, extension loadout changes, or nondeterministic schema generation
 - `system`: inspect context files, extension instructions, dates, generated metadata, and model-specific prompts
-- `magic-context:m0`: inspect memory/profile/project-context injection
-- `magic-context:m1`: inspect session-history materialization, drop, historian, or compaction activity
-- `conversation`: inspect old message mutation versus normal suffix append
+- `conversation`: inspect old message mutation versus normal suffix append, including memory or history blocks injected by extensions
 
 A module hash shows that serialized content changed. It does not identify the semantic field or extension responsible for the change.
 
@@ -261,7 +255,7 @@ The provider input preserved the previous item prefix.
 Typical evidence:
 
 - `appendOnly=false` once
-- `magic-context:m1` or `conversation` changed
+- `conversation` changed
 - `firstChangedItem.index` points into old history
 - `cacheRead` drops for that request
 - later requests return to `appendOnly=true` and cache reads recover
@@ -310,26 +304,25 @@ This rules out a serialized payload change visible to this extension. Remaining 
 
 It does not prove a specific provider implementation failure.
 
-## Magic Context drop analysis
+## Injected-block drop analysis
 
-For a suspected `mctx_reduce` or automatic drop issue:
+For a suspected intentional rewrite of old history, such as a compaction or a memory reduction:
 
-1. Find the request where `magic-context:m1.hash` first changes.
+1. Find the request where `conversation.hash` first changes.
 2. Confirm `appendOnly=false` on that request.
 3. Treat that request's cache bust as expected.
 4. Inspect the next two or more requests.
-5. Verify m[0], m[1], tools, system, and envelope hashes remain stable.
+5. Verify the `tools`, `system`, and `envelope` hashes remain stable.
 6. Verify later requests are append-only.
 7. Compare subsequent `cacheRead` values.
 
-If cache reads recover, drop materialization behaved normally. If hashes remain stable but reads do not recover, collect the log and provider incident timing. If m[1] keeps changing, inspect Magic Context transform and materialization logs for repeated execution.
+If cache reads recover, the rewrite behaved normally. If hashes remain stable but reads do not recover, collect the log and provider incident timing. If `conversation` keeps changing, inspect the owning extension's transform and materialization logs for repeated execution.
 
 ## Limits
 
 - Hashes describe JavaScript serialized payloads, not provider-side token streams.
 - Cache boundaries may occur inside an input item; `commonPrefixItems` reports only whole-item boundaries.
 - Module recognition is provider-shape-aware but heuristic. Unknown providers can place data in fields this version does not classify.
-- Magic Context module recognition depends on known textual markers.
 - The extension sees its position in the event handler chain. Load it last.
 - Provider cache accounting can be absent, delayed, rounded, or provider-specific.
 - Hash equality is strong evidence of serialized equality. It is not evidence that the provider admitted or retained the prefix.
