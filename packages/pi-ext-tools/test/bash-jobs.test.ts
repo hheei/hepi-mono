@@ -313,6 +313,35 @@ test("bash async returns a task id and one terminal delivery", async (): Promise
 	expect(sent[0]?.content).toContain("task-output");
 });
 
+test("reports a background task that cannot start", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state: FffRuntimeState = {
+		...runtimeState(tasks),
+		getBashJobs: () =>
+			({
+				start: () => {
+					throw new Error("registry is disposed");
+				},
+			}) as never,
+	};
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+	const result = await bash.execute(
+		"bash-start-failure",
+		{ command: "printf never", async: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(result.content).toEqual([
+		{ type: "text", text: "Unable to start background task: registry is disposed" },
+	]);
+	expect(result.details).toMatchObject({ error: "start_failed" });
+	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-1", status: "failed" });
+});
+
 test("task tools report unavailable before session start", async (): Promise<void> => {
 	const host = toolHost();
 	registerTaskTools(host.pi, createFffRuntimeState());
@@ -442,4 +471,152 @@ test("renders task tool headers inside narrow terminal widths", async (): Promis
 			?.render(30) ?? [];
 	expect(collapsed).toHaveLength(1);
 	for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
+});
+
+test("terminalizes a job whose shell cannot be spawned", async (): Promise<void> => {
+	const registry = jobRegistry();
+	const endings: string[] = [];
+	const started = registry.start({
+		command: "printf never",
+		cwd: process.cwd(),
+		shellPath: "/nonexistent/pi-ext-tools-shell",
+		onTerminal: (job) => void endings.push(`${job.status}:${job.output}`),
+	});
+	const finished = await eventually(
+		() => endings[0],
+		(value) => value !== undefined,
+	);
+	expect(finished).toContain("failed");
+	expect(finished).toContain("ENOENT");
+	expect(registry.get(started.id)?.status).toBe("failed");
+	await sleep(20);
+	expect(endings).toHaveLength(1);
+});
+
+test("keeps canonical terminal details over producer detail", async (): Promise<void> => {
+	const { pi, sent } = taskHost();
+	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+	tasks.create({
+		type: "bash",
+		purpose: "printf done",
+		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
+	});
+	tasks.settle("bash-1", {
+		status: "completed",
+		output: "done",
+		truncated: false,
+		detail: { taskId: "forged", type: "agent", status: "failed", truncated: true, jobId: "job" },
+	});
+	await sleep(0);
+	expect(sent[0]?.details).toMatchObject({
+		taskId: "bash-1",
+		type: "bash",
+		status: "completed",
+		truncated: false,
+		jobId: "job",
+	});
+});
+
+test("bounds the records left by repeated start failures", (): void => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	for (let attempt = 0; attempt < 80; attempt += 1)
+		expect(() =>
+			tasks.create({
+				type: "bash",
+				purpose: "cannot start",
+				begin: () => {
+					throw new Error("spawn failed");
+				},
+			}),
+		).toThrow("spawn failed");
+	// Failed startups are terminal records, so they obey the same 64-record retention cap.
+	expect(tasks.list(true).length).toBeLessThanOrEqual(64);
+});
+
+test("reports a terminal result that was not delivered", async (): Promise<void> => {
+	const pi = {
+		sendMessage(): void {
+			throw new Error("no session");
+		},
+	} as unknown as ExtensionAPI;
+	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+	const host = toolHost();
+	registerTaskTools(host.pi, runtimeState(tasks));
+	const list = host.tools.find((tool) => tool.name === "list_tasks");
+	if (list === undefined) throw new Error("list_tasks was not registered");
+	tasks.create({
+		type: "bash",
+		purpose: "npm run build",
+		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
+	});
+	tasks.settle("bash-1", { status: "completed", output: "done", truncated: false });
+	const listed = await list.execute(
+		"list",
+		{ includeTerminal: true },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
+	expect(listed.content).toEqual([
+		{ type: "text", text: expect.stringContaining("bash-1 completed · npm run build") },
+	]);
+	expect(listed.content).toEqual([
+		{ type: "text", text: expect.stringContaining("result not delivered") },
+	]);
+});
+
+function taskFrame(tool: ToolDefinition, args: unknown, toolCallId: string): string {
+	return (
+		tool
+			.renderCall?.(args, plainTheme, {
+				isPartial: false,
+				isError: false,
+				executionStarted: true,
+				expanded: false,
+				lastComponent: undefined,
+				state: {},
+				toolCallId,
+				invalidate: (): void => undefined,
+			} as never)
+			?.render(80)
+			.join("\n") ?? ""
+	);
+}
+
+test("warns on stop_tasks only when an id did not stop", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const host = toolHost();
+	registerTaskTools(host.pi, runtimeState(tasks), createToolTui());
+	const stop = host.tools.find((tool) => tool.name === "stop_tasks");
+	if (stop === undefined) throw new Error("stop_tasks was not registered");
+	tasks.create({
+		type: "bash",
+		purpose: "npm run build",
+		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
+	});
+	await stop.execute(
+		"stop-live",
+		{ ids: ["bash-1"] },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
+	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-live")).toContain("✓ stop_tasks bash-1");
+	tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false });
+	await stop.execute(
+		"stop-done",
+		{ ids: ["bash-1"] },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
+	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-done")).toContain("✓ stop_tasks bash-1");
+	await stop.execute(
+		"stop-missing",
+		{ ids: ["bash-9"] },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
+	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("! stop_tasks bash-9");
 });

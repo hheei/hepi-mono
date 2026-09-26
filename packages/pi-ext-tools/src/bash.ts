@@ -346,9 +346,10 @@ export function registerBashTool(
 				);
 			}
 			if ("async" in validatedParams && validatedParams.async === true) {
+				const settings = state?.getSettings();
 				const tasks = state?.getTasks();
 				const jobs = state?.getBashJobs();
-				if (tasks === undefined || jobs === undefined)
+				if (settings === undefined || tasks === undefined || jobs === undefined)
 					return result("Async Bash unavailable outside active session", {
 						error: "session_unavailable",
 					});
@@ -358,7 +359,7 @@ export function registerBashTool(
 						jobs,
 						command: validatedParams.command,
 						cwd: context.cwd,
-						shellPath: state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
+						shellPath: settings.shellPath,
 						...(validatedParams.timeout === undefined
 							? {}
 							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
@@ -374,7 +375,7 @@ export function registerBashTool(
 					);
 				} catch (error) {
 					return result(
-						`Unable to start Bash job: ${error instanceof Error ? error.message : String(error)}`,
+						`Unable to start background task: ${error instanceof Error ? error.message : String(error)}`,
 						{ error: "start_failed" },
 					);
 				}
