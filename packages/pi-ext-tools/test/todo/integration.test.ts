@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type LoadoutToolMetadata, observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { TodoSnapshot } from "../../src/todo/state.js";
 import {
 	createTodoFeature,
@@ -155,6 +155,10 @@ function branchResult(snapshot: TodoSnapshot) {
 }
 
 describe("Todo integration", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	test("registers sourced batch schema, prompt, command, and lifecycle hooks", () => {
 		const host = harness();
 		const controller = new AbortController();
@@ -616,6 +620,38 @@ describe("Todo integration", () => {
 		await host.emit("turn_end", { message: { role: "assistant", stopReason: "toolUse" } });
 		expect(typeof host.widgets.at(-1)?.content).toBe("function");
 		await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
+		expect(host.widgets.at(-1)?.content).toBeUndefined();
+	});
+
+	test("hides blocked work after the grace period without another assistant turn", async () => {
+		vi.useFakeTimers();
+		const host = harness();
+		const feature = createTodoFeature(host.pi);
+		await feature.start(host.runtime);
+		const tool = host.tools[0]!;
+		await tool.execute(
+			"create",
+			{ operations: [{ action: "create", subject: "Blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
+		await tool.execute(
+			"block",
+			{ operations: [{ action: "update", id: 1, status: "blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
+		expect(typeof host.widgets.at(-1)?.content).toBe("function");
+		expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+		vi.advanceTimersByTime(TODO_REMINDER_IDLE_MS - 1);
+		expect(typeof host.widgets.at(-1)?.content).toBe("function");
+		vi.advanceTimersByTime(1);
+		expect(vi.getTimerCount()).toBe(0);
 		expect(host.widgets.at(-1)?.content).toBeUndefined();
 	});
 
