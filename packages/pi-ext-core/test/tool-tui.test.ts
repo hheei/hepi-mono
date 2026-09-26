@@ -537,6 +537,29 @@ describe("ToolTui", () => {
 		expect(historical?.render(80).join("\n")).not.toContain("result body");
 	});
 
+	test("collapses a promoted call on later traces that still report execution start", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame(tool());
+		const result: AgentToolResult<unknown> = {
+			content: [{ type: "text", text: "result body" }],
+			details: undefined,
+		};
+		tui.beginTrace();
+		framed.renderCall?.({}, theme, {
+			...(context(true) as object),
+			executionStarted: false,
+		} as never);
+		framed.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false));
+
+		tui.beginTrace();
+		expect(
+			framed
+				.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false))
+				.render(80)
+				.join("\n"),
+		).not.toContain("result body");
+	});
+
 	test("keeps a collapsed metrics footer when the tool returns a blank footer", async (): Promise<void> => {
 		const tui = createToolTui();
 		const framed = tui.frame(tool(), { footer: () => "" });

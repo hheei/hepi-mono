@@ -308,7 +308,11 @@ class ToolTraceController {
 	}
 
 	begin(toolCallId: string): void {
-		this.tools.set(toolCallId, { trace: this.trace, startedAt: performance.now() });
+		this.tools.set(toolCallId, {
+			trace: this.trace,
+			executionStarted: true,
+			startedAt: performance.now(),
+		});
 	}
 
 	complete(toolCallId: string, warning = false): ToolCompletion {
@@ -364,11 +368,19 @@ class ToolTraceController {
 			existing.invalidate = invalidate;
 			// A tool can be rendered once while its arguments are still streaming.
 			// Promote that preview record when execution starts so it is not treated
-			// as a prior trace after the host switches to the execution phase.
-			if (executionStarted && existing.trace < this.trace) existing.trace = this.trace;
+			// as a prior trace after the host switches to the execution phase. The
+			// promotion happens once: later traces must still be able to collapse it.
+			if (executionStarted && !existing.executionStarted) {
+				existing.executionStarted = true;
+				if (existing.trace < this.trace) existing.trace = this.trace;
+			}
 			return existing;
 		}
-		const tool = { trace: executionStarted ? this.trace : -1, invalidate };
+		const tool = {
+			trace: executionStarted ? this.trace : -1,
+			executionStarted,
+			invalidate,
+		};
 		this.tools.set(toolCallId, tool);
 		return tool;
 	}
@@ -398,6 +410,7 @@ class ToolTraceController {
 
 type ToolRecord = {
 	trace: number;
+	executionStarted: boolean;
 	startedAt?: number;
 	completion?: ToolCompletion;
 	latest?: AgentToolResult<unknown>;
