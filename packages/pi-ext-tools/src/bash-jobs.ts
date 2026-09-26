@@ -102,11 +102,14 @@ export class BashJobRegistry {
 		child.stderr?.on("data", (data: Buffer) => {
 			if (!this.#closed) job.outputSink.push(data);
 		});
-		child.once("error", () => {
+		child.once("error", (error) => {
 			if (job.status === "running") {
+				if (!this.#closed) job.outputSink.push(Buffer.from(`${error.message}\n`));
 				job.status = "failed";
 				job.endedAt = Date.now();
 			}
+			// `close` usually follows a spawn failure, but a post-spawn error may not report one.
+			this.#terminalize(job, !this.#closed);
 		});
 		child.once("close", (code, signal) => {
 			clearTimeout(job.timeout);

@@ -45,7 +45,9 @@ function readIds(value: unknown): string[] | undefined {
 function taskLine(task: AsyncTaskSnapshot): string {
 	const marks = [
 		elapsed(task.startedAt, task.endedAt),
-		...(task.status === "running" ? [] : ["result delivered"]),
+		...(task.status === "running"
+			? []
+			: [task.delivered ? "result delivered" : "result not delivered"]),
 	];
 	return `${task.id} ${task.status} · ${task.purpose} (${marks.join(" · ")})`;
 }
@@ -240,12 +242,11 @@ function stopWarning(details: unknown): boolean {
 	if (typeof details !== "object" || details === null) return false;
 	const tasks = (details as { readonly tasks?: unknown }).tasks;
 	if (!Array.isArray(tasks)) return false;
-	return tasks.some(
-		(task) =>
-			typeof task === "object" &&
-			task !== null &&
-			(task as { readonly status?: unknown }).status !== "stop_requested",
-	);
+	return tasks.some((task) => {
+		if (typeof task !== "object" || task === null) return false;
+		const status = (task as { readonly status?: unknown }).status;
+		return status === "stop_failed" || status === "not_found";
+	});
 }
 
 export { IdsParams as TaskIdsInput, ListParams as ListTasksInput };
