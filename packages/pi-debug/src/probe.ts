@@ -54,8 +54,6 @@ const CONTENT_KEYS = new Set([
 	"instructions",
 ]);
 
-const M0_MARKERS = ["<project-memory>", "<user-memory>", "<project-context>", "<user-profile>"];
-
 export function snapshotProviderPayload(payload: unknown): PayloadSnapshot {
 	const object = isJsonObject(payload) ? payload : {};
 	const inputEntry = findInput(object);
@@ -92,14 +90,13 @@ export function snapshotProviderPayload(payload: unknown): PayloadSnapshot {
 		);
 	}
 
-	for (const name of ["magic-context:m0", "magic-context:m1", "conversation"] as const) {
-		const indices = indicesOf(classified, name);
-		if (indices.length === 0) continue;
+	const conversationIndices = indicesOf(classified, "conversation");
+	if (conversationIndices.length > 0) {
 		modules.push(
 			moduleDigest(
-				name,
-				indices.map((index) => inputEntry.items[index]),
-				indices,
+				"conversation",
+				conversationIndices.map((index) => inputEntry.items[index]),
+				conversationIndices,
 				inputEntry.items,
 			),
 		);
@@ -191,9 +188,6 @@ function findInput(object: JsonObject): {
 
 function classifyInputItem(item: unknown): string {
 	if (isJsonObject(item) && (item.role === "system" || item.role === "developer")) return "system";
-	const serialized = serialize(item);
-	if (serialized.includes("<session-history")) return "magic-context:m1";
-	if (M0_MARKERS.some((marker) => serialized.includes(marker))) return "magic-context:m0";
 	return "conversation";
 }
 

@@ -17,9 +17,9 @@ const basePayload = {
 	tools: [{ type: "function", name: "read", parameters: { type: "object" } }],
 	input: [
 		{ role: "developer", content: "system secret" },
-		{ role: "user", content: "<project-memory>m0 secret</project-memory>" },
-		{ role: "user", content: "<session-history>m1 secret</session-history>" },
-		{ role: "user", content: "conversation secret" },
+		{ role: "user", content: "first turn secret" },
+		{ role: "user", content: "second turn secret" },
+		{ role: "user", content: "third turn secret" },
 	],
 };
 
@@ -34,14 +34,13 @@ describe("provider payload probe", () => {
 			"envelope",
 			"tools",
 			"system",
-			"magic-context:m0",
-			"magic-context:m1",
 			"conversation",
 		]);
 		expect(JSON.stringify(logged)).not.toContain("secret");
-		expect(snapshot.modules.find((module) => module.name === "magic-context:m1")?.startIndex).toBe(
-			2,
-		);
+		const conversation = snapshot.modules.find((module) => module.name === "conversation");
+		expect(conversation?.itemCount).toBe(3);
+		expect(conversation?.startIndex).toBe(1);
+		expect(conversation?.endIndex).toBe(3);
 	});
 
 	test("distinguishes append-only growth from an old-prefix mutation", () => {
@@ -58,14 +57,14 @@ describe("provider payload probe", () => {
 		const mutated = snapshotProviderPayload({
 			...basePayload,
 			input: basePayload.input.map((item, index) =>
-				index === 2 ? { ...item, content: "<session-history>changed</session-history>" } : item,
+				index === 2 ? { ...item, content: "changed turn" } : item,
 			),
 		});
 		const mutationComparison = comparePayloadSnapshots(first, mutated);
 		expect(mutationComparison.appendOnly).toBe(false);
 		expect(mutationComparison.commonPrefixItems).toBe(2);
 		expect(mutationComparison.firstChangedItem?.index).toBe(2);
-		expect(mutationComparison.changedModules).toContain("magic-context:m1");
+		expect(mutationComparison.changedModules).toContain("conversation");
 	});
 });
 
