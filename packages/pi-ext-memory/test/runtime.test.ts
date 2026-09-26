@@ -244,6 +244,32 @@ describe("Runtime V3 behavior", () => {
 		expect(runtime.consolidationInFlight).toBe(true);
 	});
 
+	it("records worker runs and provider-reported cost, and resets them per session", async () => {
+		const runtime = new Runtime();
+		const first = new AbortController();
+		await runtime.startSession("/tmp/hepi-memory-test", first.signal);
+
+		runtime.recordWorkerRun("observer");
+		runtime.recordWorkerRun("observer");
+		runtime.recordWorkerRun("reflector");
+		expect(runtime.recordWorkerCost(0.0025)).toBe(0.0025);
+		expect(runtime.recordWorkerCost(0.001)).toBe(0.001);
+		// Unreported and free runs must not move the spend total, and must report nothing recorded.
+		expect(runtime.recordWorkerCost(0)).toBe(0);
+		expect(runtime.recordWorkerCost(Number.NaN)).toBe(0);
+
+		expect(runtime.workerCost.runs).toEqual({ observer: 2, reflector: 1, dropper: 0 });
+		expect(runtime.workerCost.totalUsd).toBeCloseTo(0.0035, 10);
+
+		const second = new AbortController();
+		await runtime.startSession("/tmp/hepi-memory-test", second.signal);
+
+		expect(runtime.workerCost).toEqual({
+			totalUsd: 0,
+			runs: { observer: 0, reflector: 0, dropper: 0 },
+		});
+	});
+
 	it("clears the idle compaction timer when the session signal aborts", async () => {
 		const runtime = new Runtime();
 		const controller = new AbortController();

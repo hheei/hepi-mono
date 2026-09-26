@@ -10,6 +10,7 @@ import {
 	registerRecallTool,
 } from "../src/tools/recall-observation.js";
 import {
+	gateEntry,
 	observation,
 	observationsDroppedEntry,
 	observationsRecordedEntry,
@@ -160,5 +161,36 @@ describe("V3 recall tool", () => {
 
 		expect(result.details?.status).toBe("not_found");
 		expect(text).toContain("No observation or reflection with id aaaaaaaaaaaa was found");
+	});
+
+	it("answers with the disabled notice instead of a memory when the session gate is off", async () => {
+		const obs = observation("aaaaaaaaaaaa");
+		const entries = [
+			observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+			rawMessage("raw-1", "source text"),
+			gateEntry("gate-1", false),
+		];
+
+		const { result, text } = await execute("aaaaaaaaaaaa", entries);
+
+		expect(result.details?.status).toBe("disabled");
+		expect(text).toContain("Observational memory is off for this session");
+		expect(text).toContain("/om on");
+		expect(text).not.toContain("source text");
+	});
+
+	it("recalls normally again after the gate is turned back on", async () => {
+		const obs = observation("aaaaaaaaaaaa");
+		const entries = [
+			observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+			rawMessage("raw-1", "source text"),
+			gateEntry("gate-1", false),
+			gateEntry("gate-2", true),
+		];
+
+		const { result, text } = await execute("aaaaaaaaaaaa", entries);
+
+		expect(result.details?.status).toBe("ok");
+		expect(text).toContain("source text");
 	});
 });

@@ -14,7 +14,11 @@ vi.mock("../src/agents/reflector/agent.js", () => ({ runReflector: mockAgents.ru
 vi.mock("../src/agents/dropper/agent.js", () => ({ runDropper: mockAgents.runDropper }));
 
 import { ObserverStreamError } from "../src/agents/observer/agent.js";
-import { registerConsolidationTrigger } from "../src/hooks/consolidation-trigger.js";
+import {
+	type ConsolidationCtx,
+	registerConsolidationTrigger,
+	runForcedConsolidation,
+} from "../src/hooks/consolidation-trigger.js";
 import type { ResolveResult, Runtime } from "../src/runtime.js";
 import {
 	OM_OBSERVATIONS_DROPPED,
@@ -22,6 +26,7 @@ import {
 	OM_REFLECTIONS_RECORDED,
 } from "../src/session-ledger/index.js";
 import {
+	gateEntry,
 	observation,
 	observationsDroppedEntry,
 	observationsRecordedEntry,
@@ -96,6 +101,7 @@ function setup(args: {
 		},
 		consolidationInFlight: args.consolidationInFlight ?? false,
 		consolidationPhase: undefined as "observer" | "reflector" | "dropper" | undefined,
+		workerCost: { totalUsd: 0, runs: { observer: 0, reflector: 0, dropper: 0 } },
 		resolveFailureNotified: false,
 		lastObserverError: undefined as string | undefined,
 		lastReflectorError: undefined as string | undefined,
@@ -103,6 +109,7 @@ function setup(args: {
 		lifecycleSignal: undefined as AbortSignal | undefined,
 		observerEmptyBackoff: undefined as Runtime["observerEmptyBackoff"],
 		ensureConfig: vi.fn(),
+		isSessionCurrent: vi.fn(() => true),
 		resolveModel: vi.fn<() => Promise<ResolveResult>>(async () => ({
 			ok: true,
 			model: { reasoning: true },
@@ -113,6 +120,14 @@ function setup(args: {
 			runtime.consolidationInFlight = true;
 			launchedWork = work;
 			return Promise.resolve();
+		}),
+		recordWorkerRun: vi.fn((stage: "observer" | "reflector" | "dropper") => {
+			runtime.workerCost.runs[stage] += 1;
+		}),
+		recordWorkerCost: vi.fn((costUsd: number) => {
+			if (!Number.isFinite(costUsd) || costUsd <= 0) return 0;
+			runtime.workerCost.totalUsd += costUsd;
+			return costUsd;
 		}),
 		recordConsolidationStageError: vi.fn(
 			(ctx, phase: "observer" | "reflector" | "dropper", error: unknown) => {
@@ -454,12 +469,12 @@ describe("V3 consolidation trigger", () => {
 				expect.stringMatching(/^Observational memory: observer running on ~\d+-token chunk$/),
 				"info",
 			],
-			["Observational memory: 1 observation recorded", "info"],
 			["Observational memory: reflector running (~2 tokens)", "info"],
 			[
 				"Observational memory: dropper running after reflection — active observation pool ~19 / 5 target tokens (380%)",
 				"info",
 			],
+			["Observational memory: consolidation complete (+1 obs, +1 refl, -1 dropped)", "info"],
 		]);
 	});
 
@@ -1187,5 +1202,203 @@ describe("observer chunk cap", () => {
 
 			expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("failed"), "warning");
 		});
+	});
+});
+
+describe("forced consolidation and worker accounting", () => {
+	const obs = observation("aaaaaaaaaaaa", { sourceEntryIds: ["raw-1"], tokenCount: 10 });
+	const ref = reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"]);
+	const entries = [textCustomMessage("raw-1", "aaaaaaaa")];
+	const highThresholds = { observeAfterTokens: 1_000_000, reflectAfterTokens: 1_000_000 };
+
+	it("runs below the thresholds when forced", async () => {
+		mockAgents.runObserver.mockResolvedValueOnce([obs]);
+		mockAgents.runReflector.mockResolvedValueOnce([ref]);
+		const harness = setup({ entries, ...highThresholds });
+
+		await runForcedConsolidation(
+			harness.pi as never,
+			harness.runtime as unknown as Runtime,
+			harness.ctx as unknown as ConsolidationCtx,
+		);
+		await harness.runLaunchedWork();
+
+		expect(mockAgents.runObserver).toHaveBeenCalledOnce();
+		expect(mockAgents.runReflector).toHaveBeenCalledOnce();
+	});
+
+	it("leaves the same below-threshold work alone on the automatic path", async () => {
+		const harness = setup({ entries, ...highThresholds });
+
+		harness.fire();
+		await harness.runLaunchedWork();
+
+		expect(mockAgents.runObserver).not.toHaveBeenCalled();
+	});
+
+	it("clears the deliberate-empty backoff when the operator forces a run", async () => {
+		const harness = setup({ entries, ...highThresholds });
+		harness.runtime.observerEmptyBackoff = {
+			sessionIdentity: "session-1",
+			coverageId: undefined,
+			tokensAtEmpty: 1,
+		};
+
+		await runForcedConsolidation(
+			harness.pi as never,
+			harness.runtime as unknown as Runtime,
+			harness.ctx as unknown as ConsolidationCtx,
+		);
+		await harness.runLaunchedWork();
+
+		expect(mockAgents.runObserver).toHaveBeenCalledOnce();
+	});
+
+	it("does not launch when the session gate is off", async () => {
+		const harness = setup({ entries: [...entries, gateEntry("gate-1", false)] });
+
+		harness.fire();
+		await harness.runLaunchedWork();
+
+		expect(mockAgents.runObserver).not.toHaveBeenCalled();
+	});
+
+	it("counts one run per stage and accumulates reported cost", async () => {
+		mockAgents.runObserver.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				args.onCost?.(0.0025);
+				return [obs];
+			},
+		);
+		mockAgents.runReflector.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				args.onCost?.(0.001);
+				return [ref];
+			},
+		);
+		mockAgents.runDropper.mockResolvedValueOnce(["aaaaaaaaaaaa"]);
+		const harness = setup({ entries, observationsPoolTargetTokens: 5 });
+
+		harness.fire();
+		await harness.runLaunchedWork();
+
+		expect(harness.runtime.workerCost.runs).toEqual({ observer: 1, reflector: 1, dropper: 1 });
+		expect(harness.runtime.workerCost.totalUsd).toBeCloseTo(0.0035, 10);
+	});
+
+	it("reports the run delta and the cost of that run", async () => {
+		mockAgents.runObserver.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				args.onCost?.(0.0025);
+				return [obs];
+			},
+		);
+		const harness = setup({ entries });
+
+		harness.fire();
+		await harness.runLaunchedWork();
+
+		expect(harness.ctx.ui.notify).toHaveBeenLastCalledWith(
+			"Observational memory: consolidation complete (+1 obs) · $0.0025",
+			"info",
+		);
+	});
+
+	it("leaves the observer alone when a forced run has no new conversation", async () => {
+		const harness = setup({
+			entries: [
+				...entries,
+				observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+			],
+			...highThresholds,
+		});
+
+		await runForcedConsolidation(
+			harness.pi as never,
+			harness.runtime as unknown as Runtime,
+			harness.ctx as unknown as ConsolidationCtx,
+		);
+		await harness.runLaunchedWork();
+
+		// Nothing uncovered: an observer call could only answer "nothing".
+		expect(mockAgents.runObserver).not.toHaveBeenCalled();
+		// The reflector still re-reads the existing observations that force asked for.
+		expect(mockAgents.runReflector).toHaveBeenCalledOnce();
+	});
+
+	it("does not bill a replaced session for a worker that outlives it", async () => {
+		const harness = setup({ entries, ...highThresholds });
+		mockAgents.runObserver.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				// The session is replaced while the worker's stream is still draining; the
+				// provider still reports the usage of that final request.
+				harness.runtime.isSessionCurrent.mockReturnValue(false);
+				args.onCost?.(0.0025);
+				return [obs];
+			},
+		);
+
+		await runForcedConsolidation(
+			harness.pi as never,
+			harness.runtime as unknown as Runtime,
+			harness.ctx as unknown as ConsolidationCtx,
+		);
+		await harness.runLaunchedWork();
+
+		expect(harness.runtime.recordWorkerCost).not.toHaveBeenCalled();
+		expect(harness.runtime.workerCost.totalUsd).toBe(0);
+	});
+
+	it("keeps the late cost of an earlier run out of the next run's summary", async () => {
+		const harness = setup({ entries, ...highThresholds });
+		let staleOnCost: ((usd: number) => void) | undefined;
+		mockAgents.runObserver.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				// First run: the stream is still open when the pipeline gets awaited.
+				staleOnCost = args.onCost;
+				return [];
+			},
+		);
+
+		const runOnce = () =>
+			runForcedConsolidation(
+				harness.pi as never,
+				harness.runtime as unknown as Runtime,
+				harness.ctx as unknown as ConsolidationCtx,
+			);
+		await runOnce();
+		await harness.runLaunchedWork();
+
+		mockAgents.runObserver.mockImplementationOnce(
+			async (args: { onCost?: (usd: number) => void }) => {
+				// The first run's worker reports its final usage event during the second run.
+				staleOnCost?.(0.0025);
+				args.onCost?.(0);
+				return [obs];
+			},
+		);
+		await runOnce();
+		await harness.runLaunchedWork();
+
+		// The money was spent in this session, so the session total does count it...
+		expect(harness.runtime.workerCost.totalUsd).toBe(0.0025);
+		// ...but the second run must not present it as its own.
+		expect(harness.ctx.ui.notify).toHaveBeenLastCalledWith(
+			"Observational memory: consolidation complete (+1 obs)",
+			"info",
+		);
+	});
+
+	it("stays silent when a completed run changed nothing", async () => {
+		const harness = setup({ entries });
+
+		harness.fire();
+		await harness.runLaunchedWork();
+
+		expect(mockAgents.runObserver).toHaveBeenCalledOnce();
+		expect(harness.ctx.ui.notify).not.toHaveBeenCalledWith(
+			expect.stringContaining("consolidation complete"),
+			"info",
+		);
 	});
 });

@@ -1,6 +1,7 @@
 import { estimateEntryTokens } from "../tokens.js";
 import {
 	type Entry,
+	isGateEntry,
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_RECORDED,
@@ -156,6 +157,34 @@ export function contextTokensFromUsage(usage: unknown): number | undefined {
 		return sum > 0 ? sum : undefined;
 	}
 	return undefined;
+}
+
+/**
+ * Provider-reported USD cost of one usage payload, or undefined when the provider
+ * reports nothing usable. A reported `0` (free or unpriced models) reads as
+ * "unreported" so it never inflates the spend line.
+ */
+export function contextCostFromUsage(usage: unknown): number | undefined {
+	if (!usage || typeof usage !== "object") return undefined;
+	const cost = (usage as { cost?: unknown }).cost;
+	if (!cost || typeof cost !== "object") return undefined;
+	const total = (cost as { total?: unknown }).total;
+	return typeof total === "number" && Number.isFinite(total) && total > 0 ? total : undefined;
+}
+
+/**
+ * Whether observational memory is enabled on this branch (`/om on` / `/om off`).
+ *
+ * The gate is a ledger entry rather than a runtime flag so it follows the branch:
+ * `/tree` switches and `/resume` restore whatever that branch recorded, and no cached
+ * flag can go stale. A branch that never recorded a gate entry is enabled.
+ */
+export function latestGateEnabled(entries: Entry[]): boolean {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry && isGateEntry(entry)) return entry.data.enabled;
+	}
+	return true;
 }
 
 function validAssistantContextTokens(entry: Entry): number | undefined {

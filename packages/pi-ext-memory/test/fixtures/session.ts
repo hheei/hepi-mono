@@ -32,6 +32,7 @@ export type TestReflection = {
 export const V3_OBSERVATIONS_RECORDED = "om.observations.recorded";
 export const V3_REFLECTIONS_RECORDED = "om.reflections.recorded";
 export const V3_OBSERVATIONS_DROPPED = "om.observations.dropped";
+export const V3_GATE = "om.gate";
 export const V3_FOLDED = "om.folded";
 export const V2_OBSERVATION = "om.observation";
 export const V2_DETAILS_TYPE = "observational-memory";
@@ -198,6 +199,22 @@ export function observationsDroppedEntry(
 		timestamp: DEFAULT_TIMESTAMP,
 		customType: V3_OBSERVATIONS_DROPPED,
 		data: args,
+		...overrides,
+	};
+}
+
+export function gateEntry(
+	id: string,
+	enabled: boolean,
+	overrides: Partial<TestEntry> = {},
+): TestEntry {
+	return {
+		type: "custom",
+		id,
+		parentId: null,
+		timestamp: DEFAULT_TIMESTAMP,
+		customType: V3_GATE,
+		data: { enabled },
 		...overrides,
 	};
 }

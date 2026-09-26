@@ -54,6 +54,26 @@ session shutdown 或替换时取消未完成的文件读取，且不写入旧 se
 本扩展的最低 Pi 版本为 `0.87.0`。worker 使用 Pi 的 `ModelRegistry.streamSimple` 组合流，
 不再保留 `getRegisteredProviderConfig` 或 `@earendil-works/pi-ai/compat` fallback。
 
+### 2.5 会话门控条目 (`om.gate`)
+
+`/om on` / `/om off` 通过 `pi.appendEntry("om.gate", { enabled })` 写入当前分支，
+因此门控状态是**派生值**而非缓存标志：读取方调用 `latestGateEnabled(branch)`，取分支上最新
+一条 `om.gate` 条目；分支上没有该条目时视为开启。
+
+不变量：
+
+- `om.gate` 是 `type: "custom"` 的元数据条目，不是 source entry，不参与
+  `foldLedger()` 投影，也不推进 observation/reflection/compaction 的任何 token 时钟；
+- 因为状态在分支上，`/tree` 切换分支与 `/resume` 自动还原当时的状态，不存在异步写入或
+  会话切换导致的过期标志；
+- 门控为 off 时，consolidation / compaction trigger / compaction hook / idle compaction
+  一律提前返回，`recall` 工具返回显式禁用说明而非空记忆；这些短路发生在读取分支之后，
+  所以不依赖额外状态同步；
+- `passive` 配置与门控正交：门控决定“这个会话是否运行记忆”，`passive` 决定“自动化 worker
+  是否自动跑”；两者都需要明确文档化，避免出现两套“关闭”语义。
+- 门控不做取消：关闭门控不会中止已经开始的一次 consolidation/compaction（它们按 session
+generation 与 lifecycle signal 自行收敛），只阻止后续触发与新的手动命令。
+
 ---
 
 ## 3. 配置格式参考

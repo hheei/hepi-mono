@@ -1,8 +1,10 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
 import { registerStatusCommand } from "../src/commands/status.js";
 import {
 	compactionEntry,
+	gateEntry,
 	memoryDetails,
 	observation,
 	observationsDroppedEntry,
@@ -43,6 +45,7 @@ function setup(args: {
 		consolidationPhase: undefined,
 		compactInFlight: false,
 		compactHookInFlight: false,
+		workerCost: { totalUsd: 0, runs: { observer: 0, reflector: 0, dropper: 0 } },
 		lastObserverError: undefined,
 		lastReflectorError: undefined,
 		lastDropperError: undefined,
@@ -220,6 +223,40 @@ describe("V3 /om:status", () => {
 		expect(output).not.toContain("Consolidation: running (");
 	});
 
+	it("reports an on gate and zero worker spend by default", async () => {
+		const output = await setup({ entries: [] }).run();
+
+		expect(output).toContain("── Mode ──");
+		expect(output).toContain("Gate: on");
+		expect(output).toContain("── Cost ──");
+		expect(output).toContain("Worker spend:  $0.0000 (0 runs)");
+	});
+
+	it("reports a gated-off session and the per-stage worker spend", async () => {
+		const output = await setup({
+			entries: [gateEntry("gate-1", false)],
+			runtime: {
+				workerCost: {
+					totalUsd: 0.0125,
+					runs: { observer: 2, reflector: 1, dropper: 1 },
+				},
+			},
+		}).run();
+
+		expect(output).toContain("Gate: off — memory is not read, written, or recalled this session");
+		expect(output).toContain("Worker spend:  $0.0125 (4 runs: 2 obs, 1 refl, 1 drop)");
+	});
+
+	it("appends a timeline strip for the current branch", async () => {
+		const output = await setup({
+			entries: [textCustomMessage("raw-1", "x".repeat(4000))],
+		}).run();
+
+		expect(output).toContain("om timeline");
+		expect(output).toContain("1 cell");
+		expect(output).toContain("▶ tip");
+	});
+
 	describe("ratio mode", () => {
 		it("shows the context-window-scaled threshold in the Next compaction line", async () => {
 			const output = await setup({
@@ -306,5 +343,26 @@ describe("V3 /om:status", () => {
 
 			expect(output).toContain("Next compaction:  ~0 / 30 estimated source tokens (0%)");
 		});
+	});
+
+	it("bounds every line to the terminal width", async () => {
+		const columns = process.stdout.columns;
+		process.stdout.columns = 40;
+		try {
+			const output = await setup({
+				entries: [textCustomMessage("raw-1", "x".repeat(4000))],
+				model: { contextWindow: 200_000 },
+			}).run();
+
+			// Pi fails a render whose line overflows the terminal, and the status report is
+			// emitted as one `notify` string: the bound has to hold per line.
+			for (const line of output.split("\n")) {
+				expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+			}
+			expect(output).toContain("om timeline");
+			expect(output).toContain("▶");
+		} finally {
+			process.stdout.columns = columns;
+		}
 	});
 });

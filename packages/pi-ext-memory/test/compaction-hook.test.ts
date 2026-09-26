@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { registerCompactionHook } from "../src/hooks/compaction-hook.js";
 import {
 	compactionEntry,
+	gateEntry,
 	memoryDetails,
 	observation,
 	observationsDroppedEntry,
@@ -120,6 +121,38 @@ describe("V3 compaction hook", () => {
 		expect(result).toEqual({ cancel: true });
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 		expect(runtime.compactHookInFlight).toBe(false);
+	});
+
+	it("hands compaction back to Pi when the session gate is off", async () => {
+		const obs = observation("aaaaaaaaaaaa");
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+			gateEntry("gate-1", false),
+		];
+		const { run, runtime, pi } = setup({ entries });
+
+		const result = await run("raw-1");
+
+		// Declining ownership (rather than cancelling) lets Pi's own summarizer run.
+		expect(result).toBeUndefined();
+		expect(pi.appendEntry).not.toHaveBeenCalled();
+		expect(runtime.compactHookInFlight).toBe(false);
+	});
+
+	it("takes compaction back over once the gate is on again", async () => {
+		const obs = observation("aaaaaaaaaaaa");
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+			gateEntry("gate-1", false),
+			gateEntry("gate-2", true),
+		];
+		const { run } = setup({ entries });
+
+		const result = (await run("raw-1")) as CompactionHookTestResult;
+
+		expect(result?.compaction?.summary).toContain("aaaaaaaaaaaa");
 	});
 
 	it("first normal compaction writes covered observations without orphan reflections", async () => {

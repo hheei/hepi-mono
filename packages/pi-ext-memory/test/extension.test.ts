@@ -35,7 +35,10 @@ describe("observationalMemory extension entry", () => {
 		expect(registeredEvents).toContain("session_before_compact");
 
 		// Commands
+		expect(commands).toHaveProperty("om");
 		expect(commands).toHaveProperty("om:status");
+		expect(commands).toHaveProperty("om:consolidate");
+		expect(commands).toHaveProperty("om:compact");
 		expect(commands).toHaveProperty("om:view");
 
 		// Tool

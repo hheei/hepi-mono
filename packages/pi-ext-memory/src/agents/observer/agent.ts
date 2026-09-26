@@ -10,7 +10,11 @@ import type { Static } from "typebox";
 import { hashId } from "../../ids.js";
 import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import { nowTimestamp, truncateRecordContent } from "../../serialize.js";
-import type { Observation, Relevance } from "../../session-ledger/index.js";
+import {
+	contextCostFromUsage,
+	type Observation,
+	type Relevance,
+} from "../../session-ledger/index.js";
 import { observationLineTokenCount } from "../../tokens.js";
 import { logAgentStreamError } from "../stream-errors.js";
 import {
@@ -37,6 +41,8 @@ interface RunObserverArgs {
 	thinkingLevel?: ModelThinkingLevel | undefined;
 	modelRegistry: StreamableModelRegistry;
 	streamSimple?: WorkerStreamSimple | undefined;
+	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
+	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RelevanceSchema = Type.Union([
@@ -255,8 +261,12 @@ ${conversation}`;
 		// Watch for a terminal API/stream failure so it is not conflated with
 		// a deliberate empty result.
 		const message = (
-			event as { message?: { role?: string; stopReason?: string; errorMessage?: string } }
+			event as {
+				message?: { role?: string; stopReason?: string; errorMessage?: string; usage?: unknown };
+			}
 		).message;
+		const cost = contextCostFromUsage(message?.usage);
+		if (cost !== undefined) args.onCost?.(cost);
 		if (
 			message?.role === "assistant" &&
 			(message.stopReason === "error" || message.stopReason === "aborted")

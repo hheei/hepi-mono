@@ -5,7 +5,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { Runtime } from "../runtime.js";
-import { buildCompactionProjection, type Entry, renderSummary } from "../session-ledger/index.js";
+import {
+	buildCompactionProjection,
+	type Entry,
+	latestGateEnabled,
+	renderSummary,
+} from "../session-ledger/index.js";
 
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
 	pi.on(
@@ -13,6 +18,9 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 		async (event: SessionBeforeCompactEvent, ctx: ExtensionContext) => {
 			const sessionGeneration = runtime.sessionGeneration;
 			const lifecycleSignal = runtime.lifecycleSignal;
+			// Gate off: memory is not driving this session, so leave compaction to Pi's
+			// own summarizer rather than answering on its behalf.
+			if (!latestGateEnabled(event.branchEntries as Entry[])) return;
 			if (runtime.compactHookInFlight) {
 				if (ctx.hasUI) {
 					ctx.ui.notify(
