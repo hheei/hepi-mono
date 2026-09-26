@@ -1,9 +1,17 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { BashOutputSink } from "./bash-output.js";
 
 export const MAX_JOB_OUTPUT = 1024 * 1024;
-const MAX_COMPLETION_TAIL = 10_000;
+
+export interface BashJobRequest {
+	readonly command: string;
+	readonly cwd: string;
+	readonly shellPath?: string;
+	readonly timeoutMs?: number;
+	/** Called once when the job reaches a terminal state and the registry is still open. */
+	readonly onTerminal?: (job: BashJobSnapshot) => void;
+}
+
 export interface BashJobSnapshot {
 	readonly id: string;
 	readonly command: string;
@@ -31,6 +39,7 @@ interface Job {
 	outputSink: BashOutputSink;
 	timeout?: NodeJS.Timeout;
 	terminalized: boolean;
+	onTerminal?: (job: BashJobSnapshot) => void;
 }
 function shellDefault(): string {
 	return process.platform === "win32"
@@ -50,23 +59,15 @@ function snapshot(job: Job): BashJobSnapshot {
 export class BashJobRegistry {
 	readonly #jobs = new Map<string, Job>();
 	#closed: boolean = false;
-	readonly #pi: ExtensionAPI | undefined;
 	readonly #tailBytes: number | undefined;
 	constructor(
 		options: {
-			readonly pi?: ExtensionAPI;
 			readonly tailBytes?: number;
 		} = {},
 	) {
-		this.#pi = options.pi;
 		this.#tailBytes = options.tailBytes;
 	}
-	start(
-		command: string,
-		cwd: string,
-		shellPath = shellDefault(),
-		timeoutMs?: number,
-	): BashJobSnapshot {
+	start(request: BashJobRequest): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
 		const outputSink = new BashOutputSink({
 			...(this.#tailBytes === undefined ? {} : { tailBytes: this.#tailBytes }),
@@ -74,19 +75,25 @@ export class BashJobRegistry {
 		const id = crypto.randomUUID();
 		const job: Job = {
 			id,
-			command,
-			cwd,
+			command: request.command,
+			cwd: request.cwd,
 			status: "running",
 			exitCode: null,
 			startedAt: Date.now(),
 			timedOut: false,
 			outputSink,
 			terminalized: false,
+			...(request.onTerminal === undefined ? {} : { onTerminal: request.onTerminal }),
 		};
+		const shellPath = request.shellPath ?? shellDefault();
 		const child = spawn(
 			shellPath,
-			process.platform === "win32" ? ["/d", "/s", "/c", command] : ["-c", command],
-			{ cwd, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] },
+			process.platform === "win32" ? ["/d", "/s", "/c", request.command] : ["-c", request.command],
+			{
+				cwd: request.cwd,
+				detached: process.platform !== "win32",
+				stdio: ["ignore", "pipe", "pipe"],
+			},
 		);
 		job.process = child;
 		child.stdout?.on("data", (data: Buffer) => {
@@ -110,11 +117,11 @@ export class BashJobRegistry {
 			}
 			this.#terminalize(job, !this.#closed);
 		});
-		if (timeoutMs !== undefined && timeoutMs > 0) {
+		if (request.timeoutMs !== undefined && request.timeoutMs > 0) {
 			job.timeout = setTimeout(() => {
 				job.timedOut = true;
 				this.stop(id);
-			}, timeoutMs);
+			}, request.timeoutMs);
 		}
 		this.#jobs.set(id, job);
 		return snapshot(job);
@@ -122,18 +129,9 @@ export class BashJobRegistry {
 	#terminalize(job: Job, notify: boolean): void {
 		if (job.terminalized) return;
 		job.terminalized = true;
-		const output = job.outputSink.finish();
-		if (!notify || this.#pi === undefined) return;
-		const tail = output.output.slice(-MAX_COMPLETION_TAIL);
-		this.#pi.sendMessage(
-			{
-				customType: "bash-job-complete",
-				content: `Bash job ${job.id} ${job.status}\n${tail}`,
-				display: true,
-				details: { jobId: job.id, status: job.status, tail, output: output.output },
-			},
-			{ triggerTurn: false },
-		);
+		job.outputSink.finish();
+		if (!notify) return;
+		job.onTerminal?.(snapshot(job));
 	}
 	get(id: string): BashJobSnapshot | undefined {
 		const job = this.#jobs.get(id);

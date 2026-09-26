@@ -27,12 +27,14 @@ import { BashOutputSink } from "./bash-output.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
+import { startBashTask } from "./tasks/bash-task.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
-	"Use `async` only for finite commands that may outlive this tool call.",
+	"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
+	"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
 	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
@@ -344,30 +346,32 @@ export function registerBashTool(
 				);
 			}
 			if ("async" in validatedParams && validatedParams.async === true) {
+				const tasks = state?.getTasks();
 				const jobs = state?.getBashJobs();
-				if (jobs === undefined)
+				if (tasks === undefined || jobs === undefined)
 					return result("Async Bash unavailable outside active session", {
 						error: "session_unavailable",
 					});
 				try {
-					const job = jobs.start(
-						validatedParams.command,
-						context.cwd,
-						state?.getSettings().shellPath,
-						validatedParams.timeout === undefined
-							? undefined
-							: Math.max(0, validatedParams.timeout * 1000),
-					);
-					return result(`Started Bash job ${job.id}`, {
-						id: job.id,
-						command: job.command,
-						cwd: job.cwd,
-						status: job.status,
-						exitCode: job.exitCode,
-						startedAt: job.startedAt,
-						timedOut: job.timedOut,
-						...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
+					const task = startBashTask({
+						tasks,
+						jobs,
+						command: validatedParams.command,
+						cwd: context.cwd,
+						shellPath: state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
+						...(validatedParams.timeout === undefined
+							? {}
+							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
 					});
+					return result(
+						`Started background task ${task.id}. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.`,
+						{
+							taskId: task.id,
+							type: task.type,
+							status: task.status,
+							purpose: task.purpose,
+						},
+					);
 				} catch (error) {
 					return result(
 						`Unable to start Bash job: ${error instanceof Error ? error.message : String(error)}`,

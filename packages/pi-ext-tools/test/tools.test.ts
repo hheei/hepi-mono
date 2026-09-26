@@ -84,7 +84,9 @@ describe("pi-ext-tools catalog", () => {
 			"write",
 			"bash",
 			"ls",
-			"bash_job",
+			"list_tasks",
+			"wait_tasks",
+			"stop_tasks",
 			"apply_patch",
 			"eval",
 		]);

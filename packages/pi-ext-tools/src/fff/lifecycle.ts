@@ -7,6 +7,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
 import { TargetRuntime } from "../targets.js";
+import { AsyncTaskRegistry } from "../tasks/registry.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -25,6 +26,7 @@ import { createTargetSettingsProvider } from "./target-settings.js";
 export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
+	getTasks(): AsyncTaskRegistry | undefined;
 	getBashJobs(): BashJobRegistry | undefined;
 	getTargetRuntime(): TargetRuntime | undefined;
 }
@@ -32,6 +34,7 @@ export interface FffRuntimeState {
 interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
+	tasks: AsyncTaskRegistry | undefined;
 	jobs: BashJobRegistry | undefined;
 	targets: TargetRuntime | undefined;
 }
@@ -42,12 +45,14 @@ export function createFffRuntimeState(): FffRuntimeState {
 	const state: FffRuntimeState = {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
+		getTasks: (): AsyncTaskRegistry | undefined => runtimeStates.get(state)?.tasks,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 		getTargetRuntime: () => runtimeStates.get(state)?.targets,
 	};
 	runtimeStates.set(state, {
 		runtime: undefined,
 		settings: DEFAULT_FFF_SETTINGS,
+		tasks: undefined,
 		jobs: undefined,
 		targets: undefined,
 	});
@@ -127,8 +132,9 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
+	const tasks = new AsyncTaskRegistry({ pi });
+	state.tasks = tasks;
 	const jobs = new BashJobRegistry({
-		pi,
 		tailBytes: settings.bashOutputTailKiB * 1024,
 	});
 	state.jobs = jobs;
@@ -137,6 +143,8 @@ async function startFffLifecycle(
 		if (state.targets === targetRuntime) state.targets = undefined;
 	});
 	context.resources.add("bash-jobs", () => {
+		tasks.dispose();
+		if (state.tasks === tasks) state.tasks = undefined;
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;
 	});

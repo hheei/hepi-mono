@@ -11,7 +11,6 @@ import {
 	registerApplyPatchTool,
 } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
-import { registerBashJobTool } from "./bash-job-tool.js";
 import { EDIT_TOOL_REGISTRATION, registerEditTool } from "./edit.js";
 import { type EvalNestedToolName, EvalToolBridge } from "./eval/bridge.js";
 import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.js";
@@ -27,6 +26,7 @@ import { registerGrepTool } from "./grep.js";
 import { registerLsTool } from "./ls.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
+import { registerTaskTools } from "./task-tools.js";
 import { registerWriteTool, WRITE_TOOL_REGISTRATION } from "./write.js";
 
 const NATIVE_EDIT_REGISTRATIONS = [EDIT_TOOL_REGISTRATION, WRITE_TOOL_REGISTRATION] as const;
@@ -66,7 +66,7 @@ export function registerTools(
 	nested.set("write", registerWriteTool(pi, tui, state));
 	nested.set("bash", registerBashTool(pi, state, tui));
 	registerLsTool(pi, tui);
-	registerBashJobTool(pi, state, tui);
+	registerTaskTools(pi, state, tui);
 	nested.set("apply_patch", registerApplyPatchTool(pi, tui, state));
 	return registerEvalTool(
 		pi,

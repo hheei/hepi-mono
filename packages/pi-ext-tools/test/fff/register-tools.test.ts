@@ -106,6 +106,7 @@ describe("FFF tool registration", () => {
 				findEnhancement: false,
 				statusUI: true,
 			}),
+			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () =>
 				({
@@ -167,6 +168,7 @@ describe("FFF tool registration", () => {
 				findEnhancement: true,
 				statusUI: true,
 			}),
+			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
@@ -216,6 +218,7 @@ describe("FFF tool registration", () => {
 				findEnhancement: true,
 				statusUI: true,
 			}),
+			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
@@ -268,6 +271,7 @@ describe("FFF tool registration", () => {
 				findEnhancement: true,
 				statusUI: true,
 			}),
+			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
@@ -311,6 +315,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
@@ -351,6 +356,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
@@ -389,6 +395,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
@@ -447,6 +454,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
@@ -496,6 +504,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () =>
 					({
@@ -551,6 +560,7 @@ describe("FFF tool registration", () => {
 					findEnhancement: true,
 					statusUI: true,
 				}),
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
@@ -604,6 +614,7 @@ describe("FFF tool registration", () => {
 				findEnhancement: true,
 				statusUI: true,
 			}),
+			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;

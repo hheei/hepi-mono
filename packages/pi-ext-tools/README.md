@@ -1,7 +1,8 @@
 # @hheei/pi-ext-tools
 
 Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
-`bash_job`, strict Codex V4A `apply_patch`, opt-in `eval`, and `todo`.
+`list_tasks`, `wait_tasks`, `stop_tasks`, strict Codex V4A `apply_patch`,
+opt-in `eval`, and `todo`.
 Todo includes `/todos`, task scheduling, reminders, and the editor widget.
 `apply_patch` matches and rewrites text in pure
 JavaScript with jsdiff; it never requires a user-managed executable or a package-owned
