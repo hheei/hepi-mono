@@ -266,23 +266,6 @@ README「Status」仍写 **Early** + mock 测试 500+ +「真实模型集成是�
 - 前缀缓存 vs 一次折太大触发风控（GLM 3007，#189 staged shrink）
 - OpenCode 2.x plugin API 相邻 dev build 形状不同，V2 plugin 必须 defensive，失败则静默退回纯 proxy（#754）
 
-## 和 hepi-mono 的关系（对照，非 billion-context 文档原文）
-
-> 本节写作时的对照对象是 `pi-mctx`（Pi 宿主内的 context store / knowledge injection：session/project memory、notes、handoff）。该包已在后续提交中移除；本节保留为当时的对照记录。
-
-当时的 `pi-mctx` 是 **Pi 宿主内的 context store / knowledge injection**。billion-context 是 **模型 API 前方的 fold 代理**：改的是发给上游的 message 列表，不拥有 Pi 的 memory/note/search 合同。
-
-若只想在 Oh My Pi / omp 上用它：官方路径是 `bili omp` 或独立 `billion-context-pi`。不要把它的 `compress` 工具语义直接抄进宿主侧扩展——owner、生命周期、取消、持久化边界都不同。两者的工具名也不是同一套合同。
-
-可借鉴的设计想法（若将来讨论宿主侧 compaction）：
-
-- 增量、可逆、保 prefix cache，而不是一刀 `/compact`
-- 模型写摘要 + 引擎做 ref/保护/nudge
-- 确认 marker 不可当作状态源
-- plugin vs proxy 两种载体，避免伪造 tool call / 多 system message
-
-这些只是对照观察，不是迁移任务。
-
 ## 主要源文件地图（克隆 `src/`）
 
 | 路径 | 职责 |
