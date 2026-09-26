@@ -1,4 +1,8 @@
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
@@ -10,6 +14,13 @@ import type {
 
 const OWNER = "@hheei/pi-ext-tools";
 const NO_ACTIVE_TASK_SESSION = "No active task session";
+
+function unavailable(): AgentToolResult<{ readonly error: string }> {
+	return {
+		content: [{ type: "text", text: NO_ACTIVE_TASK_SESSION }],
+		details: { error: "session_unavailable" },
+	};
+}
 const ID_DESCRIPTION =
 	"Background task ids such as bash-1; single-task calls pass a one-element array.";
 const Ids = Type.Array(Type.String({ minLength: 1 }), {
@@ -102,11 +113,7 @@ export function registerTaskTools(
 		parameters: ListParams,
 		async execute(_id, params: ListInput) {
 			const tasks = state.getTasks();
-			if (tasks === undefined)
-				return {
-					content: [{ type: "text", text: NO_ACTIVE_TASK_SESSION }],
-					details: { error: "session_unavailable" },
-				};
+			if (tasks === undefined) return unavailable();
 			const listed = tasks.list(params.includeTerminal === true);
 			return {
 				content: [{ type: "text", text: listText(listed, params.includeTerminal === true) }],
@@ -132,11 +139,7 @@ export function registerTaskTools(
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput, signal) {
 			const tasks = state.getTasks();
-			if (tasks === undefined)
-				return {
-					content: [{ type: "text", text: NO_ACTIVE_TASK_SESSION }],
-					details: { error: "session_unavailable" },
-				};
+			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
 				return {
@@ -172,11 +175,7 @@ export function registerTaskTools(
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput) {
 			const tasks = state.getTasks();
-			if (tasks === undefined)
-				return {
-					content: [{ type: "text", text: NO_ACTIVE_TASK_SESSION }],
-					details: { error: "session_unavailable" },
-				};
+			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
 				return {
@@ -248,5 +247,3 @@ function stopWarning(details: unknown): boolean {
 		return status === "stop_failed" || status === "not_found";
 	});
 }
-
-export { IdsParams as TaskIdsInput, ListParams as ListTasksInput };

@@ -34,9 +34,9 @@ function terminalFrom(job: BashJobSnapshot): AsyncTaskTerminal {
 			? "timed_out"
 			: job.status === "completed"
 				? "completed"
-				: job.status === "failed"
-					? "failed"
-					: "cancelled",
+				: job.status === "stopped"
+					? "cancelled"
+					: "failed",
 		output: job.output,
 		truncated: job.truncated,
 		detail: {

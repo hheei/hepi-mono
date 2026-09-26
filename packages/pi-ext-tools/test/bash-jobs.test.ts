@@ -175,6 +175,7 @@ test("delivers one bounded terminal message per task", async (): Promise<void> =
 		status: "completed",
 		output: "x".repeat(MAX_TASK_MESSAGE_CHARS + 500),
 		truncated: false,
+		detail: { taskId: "forged", type: "agent", status: "failed", truncated: false, jobId: "job" },
 	});
 	tasks.settle("bash-1", { status: "failed", output: "late", truncated: false });
 	await sleep(0);
@@ -182,6 +183,14 @@ test("delivers one bounded terminal message per task", async (): Promise<void> =
 	expect(sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
 	expect(sent[0]?.content).toContain("bash-1 finished: completed");
 	expect(sent[0]?.content.length).toBeLessThan(MAX_TASK_MESSAGE_CHARS + 400);
+	// Producer detail cannot forge the canonical delivery fields.
+	expect(sent[0]?.details).toMatchObject({
+		taskId: "bash-1",
+		type: "bash",
+		status: "completed",
+		truncated: true,
+		jobId: "job",
+	});
 	const waited = await tasks.wait(["bash-1"]);
 	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivered: true });
 	expect(tasks.list()).toHaveLength(0);
@@ -407,9 +416,24 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 	);
 	expect(waited.content[0]).toMatchObject({ type: "text" });
 	expect((waited.content[0] as { text: string }).text).toContain("bash-1 cancelled");
-	expect(waited.details).toMatchObject({ tasks: [{ id: "bash-1", status: "cancelled" }] });
+	expect(waited.details).toMatchObject({
+		tasks: [{ id: "bash-1", status: "cancelled", delivered: false }],
+	});
 	const empty = await list.execute("list", {}, undefined, undefined, {} as ExtensionContext);
 	expect(empty.content).toEqual([{ type: "text", text: "No running background tasks." }]);
+	const finished = await list.execute(
+		"list-finished",
+		{ includeTerminal: true },
+		undefined,
+		undefined,
+		{} as ExtensionContext,
+	);
+	expect(finished.content).toEqual([
+		{ type: "text", text: expect.stringContaining("bash-1 cancelled · npm run build") },
+	]);
+	expect(finished.content).toEqual([
+		{ type: "text", text: expect.stringContaining("result not delivered") },
+	]);
 	for (const tool of [wait, stop]) {
 		const rejected = await tool.execute(
 			"invalid",
@@ -493,30 +517,6 @@ test("terminalizes a job whose shell cannot be spawned", async (): Promise<void>
 	expect(endings).toHaveLength(1);
 });
 
-test("keeps canonical terminal details over producer detail", async (): Promise<void> => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
-	tasks.create({
-		type: "bash",
-		purpose: "printf done",
-		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
-	});
-	tasks.settle("bash-1", {
-		status: "completed",
-		output: "done",
-		truncated: false,
-		detail: { taskId: "forged", type: "agent", status: "failed", truncated: true, jobId: "job" },
-	});
-	await sleep(0);
-	expect(sent[0]?.details).toMatchObject({
-		taskId: "bash-1",
-		type: "bash",
-		status: "completed",
-		truncated: false,
-		jobId: "job",
-	});
-});
-
 test("bounds the records left by repeated start failures", (): void => {
 	const tasks = tracked(new AsyncTaskRegistry());
 	for (let attempt = 0; attempt < 80; attempt += 1)
@@ -531,38 +531,6 @@ test("bounds the records left by repeated start failures", (): void => {
 		).toThrow("spawn failed");
 	// Failed startups are terminal records, so they obey the same 64-record retention cap.
 	expect(tasks.list(true).length).toBeLessThanOrEqual(64);
-});
-
-test("reports a terminal result that was not delivered", async (): Promise<void> => {
-	const pi = {
-		sendMessage(): void {
-			throw new Error("no session");
-		},
-	} as unknown as ExtensionAPI;
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
-	const host = toolHost();
-	registerTaskTools(host.pi, runtimeState(tasks));
-	const list = host.tools.find((tool) => tool.name === "list_tasks");
-	if (list === undefined) throw new Error("list_tasks was not registered");
-	tasks.create({
-		type: "bash",
-		purpose: "npm run build",
-		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
-	});
-	tasks.settle("bash-1", { status: "completed", output: "done", truncated: false });
-	const listed = await list.execute(
-		"list",
-		{ includeTerminal: true },
-		undefined,
-		undefined,
-		{} as ExtensionContext,
-	);
-	expect(listed.content).toEqual([
-		{ type: "text", text: expect.stringContaining("bash-1 completed · npm run build") },
-	]);
-	expect(listed.content).toEqual([
-		{ type: "text", text: expect.stringContaining("result not delivered") },
-	]);
 });
 
 function taskFrame(tool: ToolDefinition, args: unknown, toolCallId: string): string {

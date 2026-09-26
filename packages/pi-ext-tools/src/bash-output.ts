@@ -1,9 +1,5 @@
 export const DEFAULT_VISIBLE_TAIL_BYTES = 10 * 1024;
 
-export interface BashOutputSinkOptions {
-	readonly tailBytes?: number;
-}
-
 export interface BashOutputResult {
 	readonly output: string;
 	readonly truncated: boolean;
@@ -19,8 +15,8 @@ export class BashOutputSink {
 	#endsWithNewline = true;
 	#finished: BashOutputResult | undefined;
 
-	constructor(options: BashOutputSinkOptions = {}) {
-		this.#tailBytes = options.tailBytes ?? DEFAULT_VISIBLE_TAIL_BYTES;
+	constructor(tailBytes?: number) {
+		this.#tailBytes = tailBytes ?? DEFAULT_VISIBLE_TAIL_BYTES;
 		if (!Number.isSafeInteger(this.#tailBytes) || this.#tailBytes < 1)
 			throw new Error("tailBytes must be a positive safe integer");
 	}
