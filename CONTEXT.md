@@ -27,42 +27,6 @@ One complete Pi agent loop from `agent_start` through `agent_end`. When the next
 A parent-owned unit of delegated agent work whose identity, policy, lifecycle, and terminal outcome remain stable for that parent session.
 _Avoid_: Provider job
 
-**Handoff**:
-A user-initiated transition from a Source Session to a clean Continuation Session that carries Handoff Context without inheriting source execution state.
-_Avoid_: Session clone, fork
-
-**Handoff Context**:
-The immutable, model-visible record of knowledge carried by a Handoff. It contains historical context and the Handoff Summary, not mutable compression or tool state from the Source Session.
-_Avoid_: Handoff artifact, handoff payload
-
-**Source Session**:
-The active primary Pi session in which a Handoff is requested and its Handoff Summary is produced.
-_Avoid_: Parent session, handoff source
-
-**Continuation Session**:
-The clean Pi session created by a Handoff under the Source Session's project identity and model, linked to that session only for provenance.
-_Avoid_: Destination session, child session
-
-**Handoff Summary**:
-The continuation-focused summary produced by the Source Session's active primary model through a Handoff Completion.
-_Avoid_: Historian summary, compaction summary
-
-**Source Context Snapshot**:
-The immutable historical view fixed after handoff wrapup and before the Handoff Completion. It is the source evidence carried into the Continuation Session alongside the Handoff Summary.
-_Avoid_: Session clone, live source context
-
-**Handoff Completion**:
-The command-triggered, no-tools model completion that produces a Handoff Summary without creating an interactive conversation turn.
-_Avoid_: Handoff Trace, agent turn, subagent conversation
-
-**Handoff Request**:
-The durable Source Session record of an initiated Handoff and its recoverable progress. It belongs only to the Source Session and is never inherited by the Continuation Session.
-_Avoid_: Pending operation, handoff job
-
-**Handoff Attempt**:
-The durable record that binds a replacement session to one Handoff Request while Handoff Context installation is unfinished or failed. A replacement session is not a Continuation Session until it contains the valid Handoff Context for that request.
-_Avoid_: Continuation Session, retry
-
 **Collapsed Tool Footer**:
 A tool-owned, metrics-only completion summary rendered when a prior Trace is collapsed. It never parses model content. Failed or cancelled tools render only a concise reason plus duration.
 
@@ -107,7 +71,7 @@ The policy that decides which tools the model sees versus which tools exist only
 _Avoid_: Separate Code Mode runtime, provider-specific eval
 
 **Eval Kernel**:
-The killable per-language subprocess that executes Eval Source, preserves completed-run scope, and performs Nested Tool invokes through an injected table. JavaScript and Python share one host protocol. Python uses `pi-ext-tools.eval.pythonBin` when set, otherwise `python3`/`python` on PATH. Reload, resume, handoff, and session cleanup dispose the kernel; JavaScript or Python memory is not restored.
+The killable per-language subprocess that executes Eval Source, preserves completed-run scope, and performs Nested Tool invokes through an injected table. JavaScript and Python share one host protocol. Python uses `pi-ext-tools.eval.pythonBin` when set, otherwise `python3`/`python` on PATH. Reload, resume, and session cleanup dispose the kernel; JavaScript or Python memory is not restored.
 _Avoid_: Shared VM, in-process eval, notebook kernel, inline host eval, Jupyter, vendored V8 isolate, Pi registry
 
 **Eval Reset**:
@@ -122,7 +86,7 @@ _Avoid_: Inline run, queued job
 The per-extension-instance owner of Eval Kernels, the Eval Lease, and the Nested Catalog Policy used by the active Exposition. It does not execute source in the Pi host process.
 _Avoid_: Host AsyncFunction, process-global runtime on pi.events
 **Nested Tool**:
-A tool invoked from Eval Source through the kernel's injected invoke table. It retains that tool's schema validation, authorization, cancellation, and normalized result contract. Eval, wait, and Magic Context tools are never Nested Tools.
+A tool invoked from Eval Source through the kernel's injected invoke table. It retains that tool's schema validation, authorization, cancellation, and normalized result contract. Eval, wait, and the task-control tools are never Nested Tools.
 _Avoid_: Direct registry access, recursive eval
 
 **Eval Activation**:
@@ -142,7 +106,7 @@ The ordered model-visible execution record for one Eval: printed text, Nested To
 _Avoid_: TUI trace, details payload
 
 **Eval Nested Catalog Policy**:
-The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes the task-control tools, Eval, wait, Magic Context, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval, wait, and Magic Context. The kernel never reads the Pi registry.
+The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes the task-control tools, Eval, wait, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval and wait. The kernel never reads the Pi registry.
 _Avoid_: Pi registry, all active tools, hardcoded kernel catalog
 
 **Eval Tool Error**:

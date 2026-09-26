@@ -62,7 +62,7 @@
 - 为 registry root、child record、runtime metadata、first-flush state 和 launch config 增加 runtime validation/version。
 - 实现 ownership/revision/runtimeIdentity 条件更新，防止旧 callback 删除或覆盖新 runtime。
 - 定义唯一 launch-spec builder：解析 Pi invocation、argv、cwd、session、model/thinking、resources、prompt和bridge env。
-- 若 MCTX 仍是 Pi invocation resolution 的第二调用方，只提取该已证实 helper 到 ext-core public export；否则保留 package-local。
+- 只有出现第二个 Pi invocation resolution 调用方时，才把该已证实 helper 提取到 ext-core public export；否则保留 package-local。
 - spawn bootstrap 在进程启动前生成 child/session ID，保存 initial task、target session path和effective config。
 - 区分never-flushed与flushed session；never-flushed recovery显式复用原session ID，flushed recovery核对path/header/session ID。
 

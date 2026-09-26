@@ -98,7 +98,7 @@ Registry / `SubagentManager.list()` 是身份真源。Widget 不得持有第二�
 - headless/RPC parent 不挂 widget（ext-core `registerWidget` 已按 `extension.mode === "tui"` 处理）；
 - 零可见 child 时 `setVisible(false)`。
 
-实现**对齐** `packages/pi-ext-tools/src/todo/widget.ts` 与 AgentMemory recall widget：
+实现**对齐** `packages/pi-ext-tools/src/todo/widget.ts` 的 widget 约定：
 
 - `registerWidget` + `requestRender`，不要直接 `ctx.ui.setWidget`；
 - 无边框、无硬编码 RGB；

@@ -11,14 +11,6 @@ pnpm install --frozen-lockfile --ignore-scripts -> pnpm run build -> pnpm run ch
 - Vitest 使用 workspace source alias，不依赖尚未构建的 workspace `dist`。
 - `test.sh` 用临时 HOME、TMPDIR 与 pnpm home 运行测试，不读取用户凭据或本地 Pi 状态。
 - Bun 不是默认 test runner。它仅作为显式 compatibility runtime：Pi standalone binary、Bun-host smoke，以及产品明确要求的 Bun child runtime。
-- `pi-mctx` 的 SQLite adapter 保持 Node `node:sqlite` 与 Bun `bun:sqlite` 双路径；Node 是默认 coverage，Bun 兼容 smoke 另行运行。
-- `pi-mctx/scripts/handoff-live-smoke.ts` 是显式、需要凭据和网络的 Node handoff host smoke，不属于默认测试 gate。它通过 Jiti 加载 TypeScript source，并在 Node 与 Bun 条件下解析同一套 `#core/*` source imports。
-- Vitest 的 `packages/*/test/**/*.test.ts` 已覆盖 `pi-mctx` 测试。Root `tsc -p tsconfig.typecheck.json` 与 Biome 已纳入整个 `packages/pi-mctx`（src、test、scripts）。
-
-```text
-pnpm --filter @hheei/pi-mctx run smoke:handoff -- all
-```
-
 ## 依赖与发布
 
 - 内部依赖使用 `workspace:^` 别名（故意不带显式版本），由 pnpm 在 workspace 中链接本地 package，并在 `pnpm publish`/`pnpm pack` 时自动改写为该包当时的实际版本（例如 `^0.1.2`）。这样各包独立发版时不需要手工同步内部范围；只在需要收窄兼容范围时才写显式版本。`npm pack` 不会做该改写，因此发布与产物校验都必须走 pnpm。首次发布或升级时必须先发布 `@hheei/pi-ext-core`，再确认所有内部范围仍能解析到已发布版本。
