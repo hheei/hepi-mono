@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import {
 	type IdleCompactionContext,
@@ -20,7 +20,8 @@ function captureHandler(
 	args: {
 		compactAfterTokens?: number;
 		compactAfterTokensMode?: "calibrated" | "ratio";
-		idleCompactionTtlSeconds?: number;
+		compactAfterTokensRatio?: number;
+		idleCompactionTtlSeconds?: number | undefined;
 		idleCompactionMinTokens?: number;
 		passive?: boolean;
 		compactInFlight?: boolean;
@@ -47,7 +48,7 @@ function captureHandler(
 	runtime.configLoaded = true;
 	runtime.ensureConfig = vi.fn();
 	runtime.compactInFlight = args.compactInFlight ?? false;
-	registerCompactionTrigger(pi as ExtensionAPI, runtime);
+	registerCompactionTrigger(pi as unknown as ExtensionAPI, runtime);
 	if (!handler) throw new Error("agent_settled handler was not registered");
 	return { handler, handlers, runtime };
 }
@@ -56,10 +57,20 @@ function agentSettled() {
 	return { type: "agent_settled" };
 }
 
-function fakeCtx(
-	branches: TestEntry[][],
-	overrides: Record<string, unknown> = {},
-): IdleCompactionContext {
+/**
+ * Test double for the handler ctx. Pi's ExtensionContext also carries `model`
+ * and `getContextUsage`, and assertions need a concrete `ui`.
+ */
+type FakeCtx = Omit<IdleCompactionContext, "ui" | "sessionManager" | "isIdle" | "compact"> & {
+	ui: { notify: Mock<(message: string, level?: "info" | "warning" | "error") => void> };
+	sessionManager: { getBranch: Mock };
+	isIdle: Mock;
+	compact: Mock;
+	model?: { contextWindow?: number } | undefined;
+	getContextUsage?: Mock | undefined;
+};
+
+function fakeCtx(branches: TestEntry[][], overrides: Record<string, unknown> = {}): FakeCtx {
 	let branchIndex = 0;
 	const getBranch = vi.fn(() => branches[Math.min(branchIndex++, branches.length - 1)]);
 	return {
@@ -660,6 +671,7 @@ describe("V3 compaction trigger", () => {
 				{
 					id: "raw-1",
 					type: "message",
+					parentId: null,
 					message: { role: "assistant", content: [{ type: "text", text: "old message" }] },
 					timestamp: new Date(now - 120_000).toISOString(), // 2 minutes ago (> 60s TTL)
 				},
