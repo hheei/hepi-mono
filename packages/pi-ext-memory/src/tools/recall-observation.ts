@@ -9,6 +9,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
 import type { Observation, Reflection } from "../session-ledger/index.js";
+import { latestGateEnabled } from "../session-ledger/index.js";
 import {
 	type Entry,
 	type RecalledObservation,
@@ -19,6 +20,10 @@ import { estimateEntryTokens } from "../tokens.js";
 
 export const RECALL_OBSERVATION_TOOL_NAME = "recall";
 
+/** Answer for a session whose gate is off, so the model learns why instead of seeing an empty memory. */
+export const RECALL_DISABLED_TEXT =
+	"Observational memory is off for this session, so nothing can be recalled. Ask the user to run /om on to enable it.";
+
 const MEMORY_ID_PATTERN = /^[a-f0-9]{12}$/;
 
 type RecallObservationToolStatus =
@@ -27,7 +32,8 @@ type RecallObservationToolStatus =
 	| "invalid_id"
 	| "not_found"
 	| "no_source"
-	| "source_unavailable";
+	| "source_unavailable"
+	| "disabled";
 
 type ObservationDetails = Pick<Observation, "id" | "content" | "timestamp" | "relevance"> & {
 	status?: "active" | "dropped";
@@ -440,7 +446,7 @@ function tokenSummary(tokens: number): string {
 }
 
 function isFailureStatus(status: RecallObservationToolStatus): boolean {
-	return status === "invalid_id" || status === "not_found";
+	return status === "invalid_id" || status === "not_found" || status === "disabled";
 }
 
 function observationCountForHeader(details: RecallObservationToolDetails): number {
@@ -560,6 +566,10 @@ function noteRows(
 		);
 		return notes;
 	}
+	if (details.status === "disabled") {
+		notes.push(noteLine("memory off", RECALL_DISABLED_TEXT));
+		return notes;
+	}
 	if (details.collision)
 		notes.push(noteLine("id collision", `multiple memory items share ${details.memoryId}`));
 	if (details.observations.some((match) => match.observation.status === "dropped"))
@@ -676,6 +686,12 @@ export const recallObservationTool = defineTool({
 			return textResult(message, emptyDetails("invalid_id", memoryId, message));
 		}
 		const branchEntries = ctx.sessionManager.getBranch() as Entry[];
+		if (!latestGateEnabled(branchEntries)) {
+			return textResult(
+				RECALL_DISABLED_TEXT,
+				emptyDetails("disabled", memoryId, RECALL_DISABLED_TEXT),
+			);
+		}
 		const result = recallMemorySources(branchEntries, memoryId);
 		if (result.status === "not_found") {
 			const message = `No observation or reflection with id ${memoryId} was found on the current branch.`;

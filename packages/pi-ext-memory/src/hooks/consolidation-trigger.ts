@@ -20,6 +20,7 @@ import {
 	isSourceEntry,
 	latestCoverageIndex,
 	latestCoverageMarkerId,
+	latestGateEnabled,
 	type Observation,
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
@@ -35,7 +36,7 @@ import {
 
 type ResolvedModel = Extract<ResolveResult, { ok: true }>;
 
-type ConsolidationCtx = {
+export type ConsolidationCtx = {
 	cwd: string;
 	hasUI: boolean;
 	ui?: { notify: (message: string, type?: "warning" | "info" | "error") => void } | undefined;
@@ -51,6 +52,8 @@ type ConsolidationCtx = {
 	};
 	signal?: AbortSignal | undefined;
 	sessionGeneration?: number | undefined;
+	/** `/om:consolidate`: ignore the observation/reflection token thresholds for this run. */
+	force?: boolean | undefined;
 };
 
 type StageOutcome = "continue" | "abort";
@@ -115,6 +118,29 @@ function anyStageDue(
 
 function shouldNotifyWorker(runtime: Runtime, ctx: ConsolidationCtx): boolean {
 	return runtime.config.showWorkerNotifications && ctx.hasUI;
+}
+
+/** Cost observed inside one consolidation run, kept apart from the session-wide total. */
+type RunCost = { usd: number };
+
+/**
+ * Account worker spend to the session that launched this run, and to the run itself.
+ *
+ * `runtime.workerCost` is per-session and reset by `startSession`, but a worker from a
+ * replaced session can still deliver one final usage event after its abort, and a worker
+ * from an aborted run of the *same* session can do the same while the next run is already
+ * executing. The session total cannot tell those apart, so the run keeps its own sum and
+ * reports that one; only the session total is subject to the generation check.
+ */
+function costRecorder(
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+	runCost: RunCost,
+): (costUsd: number) => void {
+	return (costUsd) => {
+		if (runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+		runCost.usd += runtime.recordWorkerCost(costUsd);
+	};
 }
 
 function makeModelResolver(
@@ -206,10 +232,18 @@ async function maybeLaunchConsolidation(
 	if (runtime.consolidationInFlight) return;
 
 	const entries = ctx.sessionManager.getBranch() as Entry[];
+	if (!latestGateEnabled(entries)) return;
 	if (!anyStageDue(entries, runtime, realContextTokens(ctx))) return;
 
-	const runId = `consolidation-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
-	const consolidationCtx: ConsolidationCtx = {
+	void launchPipeline(pi, runtime, ctx, false);
+}
+
+function buildConsolidationCtx(
+	ctx: ConsolidationCtx,
+	runtime: Runtime,
+	force: boolean,
+): ConsolidationCtx {
+	return {
 		cwd: ctx.cwd,
 		hasUI: ctx.hasUI,
 		ui: ctx.ui,
@@ -219,10 +253,27 @@ async function maybeLaunchConsolidation(
 		sessionManager: ctx.sessionManager,
 		signal: combineSignals(ctx.signal, runtime.lifecycleSignal),
 		sessionGeneration: runtime.sessionGeneration,
+		...(force ? { force: true } : {}),
 	};
+}
 
+/**
+ * Launch one consolidation cycle through the shared in-flight lock.
+ *
+ * The returned promise settles when the pipeline finishes, so a caller that wants to
+ * report the outcome (a command) can await it.
+ */
+function launchPipeline(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+	force: boolean,
+): Promise<void> {
+	const consolidationCtx = buildConsolidationCtx(ctx, runtime, force);
 	const sessionMetadata = debugSessionMetadata(ctx);
-	void runtime.launchConsolidationTask(ctx, async () =>
+	const runId = `consolidation-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+
+	return runtime.launchConsolidationTask(ctx, async () =>
 		withDebugLogContext(
 			{
 				enabled: runtime.config.debugLog === true,
@@ -237,47 +288,133 @@ async function maybeLaunchConsolidation(
 	);
 }
 
+/**
+ * `/om:consolidate`: run one consolidation cycle now, ignoring the token thresholds.
+ *
+ * Resolves when the pipeline finished (or declined to run), so the command can report
+ * the delta before its handler returns.
+ *
+ * The caller owns session-currency validation and must do it in the same tick as this
+ * call: the run is stamped with `runtime.sessionGeneration` here, and a consolidation
+ * launched against a replaced session cannot be told apart from a current one afterwards.
+ */
+export function runForcedConsolidation(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+): Promise<void> {
+	return launchPipeline(pi, runtime, ctx, true);
+}
+
+type FoldCounts = { observations: number; reflections: number; dropped: number };
+
+function foldCounts(entries: Entry[]): FoldCounts {
+	const folded = foldLedger(entries);
+	return {
+		observations: folded.observations.length,
+		reflections: folded.reflections.length,
+		dropped: folded.droppedObservationIds.size,
+	};
+}
+
+/**
+ * One line reporting what this run actually added, plus what it cost.
+ *
+ * Silent when nothing changed: every stage already explains its own skips, so a
+ * "completed, nothing changed" line would only add noise. Best-effort: a session that was
+ * replaced mid-run must not turn a finished run into a failure notification.
+ */
+function notifyRunSummary(
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+	before: FoldCounts,
+	costUsd: number,
+): void {
+	if (!shouldNotifyWorker(runtime, ctx)) return;
+	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+
+	let after: FoldCounts;
+	try {
+		after = foldCounts(ctx.sessionManager.getBranch() as Entry[]);
+	} catch {
+		return;
+	}
+	const parts: string[] = [];
+	const observations = after.observations - before.observations;
+	const reflections = after.reflections - before.reflections;
+	const dropped = after.dropped - before.dropped;
+	if (observations > 0) parts.push(`+${observations} obs`);
+	if (reflections > 0) parts.push(`+${reflections} refl`);
+	if (dropped > 0) parts.push(`-${dropped} dropped`);
+	if (parts.length === 0) return;
+	const cost = costUsd > 0 ? ` · $${costUsd.toFixed(4)}` : "";
+	try {
+		ctx.ui?.notify(
+			`Observational memory: consolidation complete (${parts.join(", ")})${cost}`,
+			"info",
+		);
+	} catch {}
+}
+
 export async function runConsolidationPipeline(
 	pi: ExtensionAPI,
 	runtime: Runtime,
 	ctx: ConsolidationCtx,
 ): Promise<void> {
 	if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+	const before = foldCounts(ctx.sessionManager.getBranch() as Entry[]);
+	const runCost: RunCost = { usd: 0 };
+
+	const aborted = await runPipelineStages(pi, runtime, ctx, runCost);
+	if (aborted) return;
+	notifyRunSummary(runtime, ctx, before, runCost.usd);
+}
+
+/** Returns true when the run aborted or a stage failed, so no run summary is reported. */
+async function runPipelineStages(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+	runCost: RunCost,
+): Promise<boolean> {
 	const resolveModel = makeModelResolver(runtime, ctx);
+	const recordCost = costRecorder(runtime, ctx, runCost);
 
 	runtime.consolidationPhase = "observer";
 	try {
-		const observerOutcome = await runObserverStage(pi, runtime, ctx, resolveModel);
+		const observerOutcome = await runObserverStage(pi, runtime, ctx, resolveModel, recordCost);
 		if (
 			observerOutcome === "abort" ||
 			ctx.signal?.aborted ||
 			runtime.isSessionCurrent?.(ctx.sessionGeneration) === false
 		)
-			return;
+			return true;
 	} catch (error) {
-		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false)
+			return true;
 		debugLog("observer.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "observer", error),
 		});
-		return;
+		return true;
 	}
 
 	runtime.consolidationPhase = "reflector";
 	let reflectorResult: ReflectorStageResult;
 	try {
-		reflectorResult = await runReflectorStage(pi, runtime, ctx, resolveModel);
+		reflectorResult = await runReflectorStage(pi, runtime, ctx, resolveModel, recordCost);
 		if (
 			reflectorResult.outcome === "abort" ||
 			ctx.signal?.aborted ||
 			runtime.isSessionCurrent?.(ctx.sessionGeneration) === false
 		)
-			return;
+			return true;
 	} catch (error) {
-		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false)
+			return true;
 		debugLog("reflector.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "reflector", error),
 		});
-		return;
+		return true;
 	}
 
 	runtime.consolidationPhase = "dropper";
@@ -289,13 +426,18 @@ export async function runConsolidationPipeline(
 			resolveModel,
 			reflectorResult.sameRunReflections,
 			reflectorResult.effectiveReflectionCoverageId,
+			recordCost,
 		);
 	} catch (error) {
-		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false) return;
+		if (ctx.signal?.aborted || runtime.isSessionCurrent?.(ctx.sessionGeneration) === false)
+			return true;
 		debugLog("dropper.error", {
 			errorMessage: runtime.recordConsolidationStageError(ctx, "dropper", error),
 		});
+		return true;
 	}
+
+	return false;
 }
 
 async function runObserverStage(
@@ -303,6 +445,7 @@ async function runObserverStage(
 	runtime: Runtime,
 	ctx: ConsolidationCtx,
 	resolveModel: (stage: "observer") => Promise<ResolvedModel | undefined>,
+	recordCost: (costUsd: number) => void,
 ): Promise<StageOutcome> {
 	if (ctx.signal?.aborted) return "abort";
 	const entries = ctx.sessionManager.getBranch() as Entry[];
@@ -312,7 +455,9 @@ async function runObserverStage(
 			? realTokensSinceAnchor(entries, OM_OBSERVATIONS_RECORDED, currentTokens)
 			: undefined;
 	const tokens = real !== undefined ? real : rawTokensSinceObservationCoverage(entries); // fallback: no usage baseline / basis change
-	if (tokens < runtime.config.observeAfterTokens) return "continue";
+	// `force` lowers the threshold on purpose; whether there is anything to observe at all is
+	// decided by the empty-chunk check below, which runs before the model call.
+	if (!ctx.force && tokens < runtime.config.observeAfterTokens) return "continue";
 
 	const sessionMetadata = debugSessionMetadata(ctx);
 	const sessionIdentity = sessionMetadata.sessionId ?? sessionMetadata.sessionFile;
@@ -330,7 +475,7 @@ async function runObserverStage(
 			tokens >= backoff.tokensAtEmpty + runtime.config.observeAfterTokens
 		) {
 			runtime.observerEmptyBackoff = undefined;
-		} else {
+		} else if (!ctx.force) {
 			debugLog("observer.empty_backoff", {
 				tokens,
 				resumeAtTokens: backoff.tokensAtEmpty + runtime.config.observeAfterTokens,
@@ -394,6 +539,7 @@ async function runObserverStage(
 	});
 
 	let observations: Observation[] | undefined;
+	runtime.recordWorkerRun("observer");
 	try {
 		observations = await runObserver({
 			model: resolved.model as unknown as Model<Api>,
@@ -409,6 +555,7 @@ async function runObserverStage(
 			thinkingLevel: runtime.config.model?.thinking ?? "low",
 			modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 			signal: ctx.signal,
+			onCost: recordCost,
 		});
 	} catch (error) {
 		if (ctx.signal?.aborted) return "abort";
@@ -453,14 +600,6 @@ async function runObserverStage(
 		throw error;
 	}
 	debugLog("observer.appended", { count: observations.length, coversUpToId });
-	if (shouldNotifyWorker(runtime, ctx)) {
-		try {
-			ctx.ui?.notify(
-				`Observational memory: ${observations.length} observation${observations.length === 1 ? "" : "s"} recorded`,
-				"info",
-			);
-		} catch {}
-	}
 	return "continue";
 }
 
@@ -469,6 +608,7 @@ async function runReflectorStage(
 	runtime: Runtime,
 	ctx: ConsolidationCtx,
 	resolveModel: (stage: "reflector") => Promise<ResolvedModel | undefined>,
+	recordCost: (costUsd: number) => void,
 ): Promise<ReflectorStageResult> {
 	if (ctx.signal?.aborted) return { outcome: "abort", sameRunReflections: [] };
 	const entries = ctx.sessionManager.getBranch() as Entry[];
@@ -478,7 +618,7 @@ async function runReflectorStage(
 			? realTokensSinceAnchor(entries, OM_REFLECTIONS_RECORDED, currentTokens)
 			: undefined;
 	const reflectionTokens = real !== undefined ? real : rawTokensSinceReflectionCoverage(entries); // fallback: no usage baseline / basis change
-	if (reflectionTokens < runtime.config.reflectAfterTokens)
+	if (!ctx.force && reflectionTokens < runtime.config.reflectAfterTokens)
 		return { outcome: "continue", sameRunReflections: [] };
 
 	const observationCoverageId = latestCoverageMarkerId(entries, OM_OBSERVATIONS_RECORDED);
@@ -493,6 +633,7 @@ async function runReflectorStage(
 	if (!resolved) return { outcome: "abort", sameRunReflections: [] };
 
 	const folded = foldLedger(entries);
+	runtime.recordWorkerRun("reflector");
 	const reflections = await runReflector({
 		model: resolved.model as unknown as Model<Api>,
 		apiKey: resolved.apiKey,
@@ -505,6 +646,7 @@ async function runReflectorStage(
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
 		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 		signal: ctx.signal,
+		onCost: recordCost,
 	});
 	if (ctx.signal?.aborted) return { outcome: "abort", sameRunReflections: [] };
 	if (!reflections) return { outcome: "continue", sameRunReflections: [] };
@@ -535,6 +677,7 @@ async function runDropperStage(
 	resolveModel: (stage: "dropper") => Promise<ResolvedModel | undefined>,
 	sameRunReflections: Reflection[],
 	sameRunReflectionCoverageId: string | undefined,
+	recordCost: (costUsd: number) => void,
 ): Promise<StageOutcome> {
 	if (ctx.signal?.aborted) return "abort";
 	if (!sameRunReflectionCoverageId || sameRunReflections.length === 0) {
@@ -592,6 +735,7 @@ async function runDropperStage(
 			return true;
 		}),
 	];
+	runtime.recordWorkerRun("dropper");
 	const droppedIds = await runDropper({
 		model: resolved.model as unknown as Model<Api>,
 		apiKey: resolved.apiKey,
@@ -605,6 +749,7 @@ async function runDropperStage(
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
 		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
 		signal: ctx.signal,
+		onCost: recordCost,
 	});
 	if (ctx.signal?.aborted) return "abort";
 	const coversUpToId = earlierCoverageMarkerId(

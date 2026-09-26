@@ -2,6 +2,11 @@ export const OM_OBSERVATIONS_RECORDED = "om.observations.recorded";
 export const OM_REFLECTIONS_RECORDED = "om.reflections.recorded";
 export const OM_OBSERVATIONS_DROPPED = "om.observations.dropped";
 export const OM_FOLDED = "om.folded";
+/**
+ * Session gate entry (`/om on` / `/om off`). It is metadata, not memory: the fold
+ * ignores it, and it is not a source entry, so it never moves a token clock.
+ */
+export const OM_GATE = "om.gate";
 
 export const RELEVANCE_VALUES = ["low", "medium", "high", "critical"] as const;
 export type Relevance = (typeof RELEVANCE_VALUES)[number];
@@ -51,6 +56,10 @@ export type ReflectionsRecordedEntryData = {
 export type ObservationsDroppedEntryData = {
 	observationIds: string[];
 	coversUpToId: string;
+};
+
+export type GateEntryData = {
+	enabled: boolean;
 };
 
 export type MemoryDetails = {
@@ -185,6 +194,18 @@ export function isObservationsDroppedEntry(entry: Entry): entry is Entry & {
 		entry.customType === OM_OBSERVATIONS_DROPPED &&
 		isObservationsDroppedData(entry.data)
 	);
+}
+
+export function isGateData(value: unknown): value is GateEntryData {
+	return isPlainRecord(value) && typeof value.enabled === "boolean";
+}
+
+export function isGateEntry(entry: Entry): entry is Entry & {
+	type: "custom";
+	customType: typeof OM_GATE;
+	data: GateEntryData;
+} {
+	return entry.type === "custom" && entry.customType === OM_GATE && isGateData(entry.data);
 }
 
 export function buildObservationsRecordedData(

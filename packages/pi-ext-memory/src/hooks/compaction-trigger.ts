@@ -6,6 +6,7 @@ import {
 	type Entry,
 	findPersistedSettledTime,
 	foldLedger,
+	latestGateEnabled,
 	rawTokensSinceLastCompaction,
 } from "../session-ledger/index.js";
 
@@ -52,6 +53,8 @@ async function runIdleCompaction(
 		if (!ctx.isIdle()) return;
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
+		// The gate may have been turned off while this timer was pending.
+		if (!latestGateEnabled(entries)) return;
 		if (!hasIdleCompactionWork(entries, runtime)) return;
 
 		const hasUI = ctx.hasUI;
@@ -135,6 +138,7 @@ export function scheduleColdResumeCompaction(ctx: IdleCompactionContext, runtime
 
 	const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 	if (!entries) return;
+	if (!latestGateEnabled(entries)) return;
 
 	const nowSec = Math.floor(Date.now() / 1000);
 	const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
@@ -168,6 +172,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
+		if (!latestGateEnabled(entries)) return;
 		const progress = rawTokensSinceLastCompaction(entries);
 		const contextWindow =
 			typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : undefined;
@@ -207,6 +212,12 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 					}
 					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 					if (!currentEntries) {
+						runtime.compactInFlight = false;
+						return;
+					}
+					// The gate may have been turned off after the threshold was reached but before
+					// this deferred callback ran; `agent_settled`'s check is not this check.
+					if (!latestGateEnabled(currentEntries)) {
 						runtime.compactInFlight = false;
 						return;
 					}

@@ -9,6 +9,7 @@ import {
 import { Runtime } from "../src/runtime.js";
 import {
 	compactionEntry,
+	gateEntry,
 	observation,
 	observationsRecordedEntry,
 	rawMessage,
@@ -146,6 +147,42 @@ describe("V3 compaction trigger", () => {
 		expect(ctx.compact).not.toHaveBeenCalled();
 	});
 
+	it("skips the threshold path while the session gate is off", async () => {
+		const { handler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([[...dueBranch, gateEntry("gate-1", false)]]);
+
+		handler(agentSettled(), ctx);
+		await vi.runAllTimersAsync();
+
+		expect(runtime.compactInFlight).toBe(false);
+		expect(runtime.pendingCompactionTimer).toBeUndefined();
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
+	it("skips the idle-timer path while the session gate is off", async () => {
+		const { handler, runtime } = captureHandler({
+			compactAfterTokens: 1_000,
+			idleCompactionTtlSeconds: 60,
+			idleCompactionMinTokens: 1,
+		});
+		const entries = [
+			...dueBranch,
+			observationsRecordedEntry("om-obs", {
+				observations: [observation("aaaaaaaaaaaa")],
+				coversUpToId: "raw-1",
+			}),
+			textCustomMessage("raw-2", "bbbb"),
+			gateEntry("gate-1", false),
+		];
+		const ctx = fakeCtx([entries]);
+
+		handler(agentSettled(), ctx);
+		await vi.runAllTimersAsync();
+
+		expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		expect(ctx.compact).not.toHaveBeenCalled();
+	});
+
 	it("does not await observer or reflect/drop promises before compacting", async () => {
 		const { handler } = captureHandler({ compactAfterTokens: 3 });
 		const ctx = fakeCtx([dueBranch]);
@@ -184,6 +221,17 @@ describe("V3 compaction trigger", () => {
 			"Observational memory: compaction skipped — another compaction already ran before deferred compaction",
 			"info",
 		);
+	});
+
+	it("re-checks the session gate after the deferral", async () => {
+		const { handler, runtime } = captureHandler({ compactAfterTokens: 3 });
+		const ctx = fakeCtx([dueBranch, [...dueBranch, gateEntry("gate-2", false)]]);
+
+		handler(agentSettled(), ctx);
+		await vi.runAllTimersAsync();
+
+		expect(ctx.compact).not.toHaveBeenCalled();
+		expect(runtime.compactInFlight).toBe(false);
 	});
 
 	it("counts raw tokens since the latest Pi compaction using V3 progress helpers", async () => {

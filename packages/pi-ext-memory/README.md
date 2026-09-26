@@ -175,11 +175,38 @@ For details and tuning guidance, see [`docs/configuration.md`](docs/configuratio
 
 | Surface             | What it does                                                                                                                                    |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/om:status`        | Shows memory counts, plain `+N` / `-N` visible/full drift suffixes, progress clocks, visible and active observation pool pressure, passive/in-flight state, and last worker errors. |
+| `/om`               | Reports whether observational memory is on or off for this session.                                                                             |
+| `/om on` / `/om off`| Turns the session gate on or off. The state is a ledger entry on the current branch, so `/tree` switches and `/resume` restore it automatically. |
+| `/om:status`        | Shows gate/passive mode, memory counts, plain `+N` / `-N` visible/full drift suffixes, progress clocks, visible and active observation pool pressure, worker spend, in-flight state, last worker errors, and a timeline strip of the branch. |
+| `/om:consolidate`   | Runs one consolidation cycle now (observer → reflector → dropper) instead of waiting for the token thresholds.                                   |
+| `/om:compact`       | Compacts the session now instead of waiting for the compaction threshold or the idle timer, using the memory summary rather than Pi's native summarizer. |
 | `/om:view`          | Shows current visible memory and attempts to copy the rendered memory text to the clipboard.                                                   |
 | `/om:view full`     | Shows the full current memory state for the branch and attempts to copy the rendered memory text to the clipboard.                             |
 | `recall` agent tool | Recovers source evidence for a 12-character observation/reflection id on the current branch. It is not semantic search or a transcript browser. |
 | `hindsight_*` tools   | Opt-in cross-session long-term memory (see [Hindsight long-term memory](#hindsight-long-term-memory)). Registered only while `hindsight.enabled` is `true`. |
+
+### Session gate vs. passive mode
+
+The two switches are orthogonal:
+
+* **Gate (`/om on` / `/om off`)** decides whether observational memory runs at all in this session. While it is off, the hooks return immediately, idle timers are dropped, and `recall` answers with a disabled notice instead of a memory. The gate is stored as an `om.gate` ledger entry on the branch, so switching branches with `/tree` or resuming a session restores the state that branch recorded. A branch that never recorded one is on.
+* **`passive`** is a configuration value. With the gate on and `passive: true`, automatic background workers and auto-compaction stay idle while `/om:consolidate`, `/om:compact`, `/om:view`, and `recall` remain available.
+
+### Manual commands
+
+`/om:consolidate` shares the same in-flight lock as the automatic path: it declines while another consolidation or a compaction is running, and it declines when there is nothing uncovered and no memory yet. It ignores the `observeAfterTokens` / `reflectAfterTokens` thresholds, but the dropper still only removes observations when the active pool is over `observationsPoolTargetTokens`.
+
+`/om:compact` waits for an in-flight consolidation to finish (so the summary covers the newest memories), then refuses to start when nothing new arrived since the last compaction or when the fold holds no observations and no reflections. That refusal is deliberate: an empty projection makes the compaction hook decline ownership and Pi would fall back to its slow, unbounded native summarizer.
+
+### Worker spend and timeline
+
+`/om:status` reports provider-reported worker spend for the session (`usage.cost.total` accumulated per worker call) and appends a timeline strip of the current branch:
+
+```text
+timeline legend:  ▓ compacted   ▒ memory pool   ░ raw backlog   ┊ cut   ▶ tip
+```
+
+`▓` is history a compaction already replaced with a memory summary, `▒` is history the observer has covered that still lives as observations, `░` is raw backlog waiting for the observer, `┊` marks a compaction cutoff, and `▶` is the branch tip. The strip is scaled to the terminal width, and cost is run-time telemetry only: it is never written to the ledger and never rolls back on a `/tree` switch, because the API calls it accounts for already happened.
 
 `/om:view` copies only the rendered memory content. The success/failure line shown in Pi is not included in the clipboard text. If clipboard support is unavailable, the command still prints the memory view and shows a warning. Before the first V3 compaction, visible memory can be empty because nothing has been folded into `om.folded` details; use `/om:view full` to inspect recorded branch memory.
 

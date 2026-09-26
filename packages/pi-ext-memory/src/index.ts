@@ -1,5 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { registerCompactCommand } from "./commands/compact.js";
+import { registerConsolidateCommand } from "./commands/consolidate.js";
+import { registerGateCommand } from "./commands/gate.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerViewCommand } from "./commands/view.js";
 import { type HindsightSession, startHindsightSession } from "./hindsight/session.js";
@@ -25,6 +28,9 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	registerCompactionHook(pi, runtime);
 
 	registerStatusCommand(pi, runtime);
+	registerGateCommand(pi);
+	registerConsolidateCommand(pi, runtime);
+	registerCompactCommand(pi, runtime);
 	registerViewCommand(pi, runtime);
 	registerRecallTool(pi);
 

@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { observationPoolMetrics } from "../agents/dropper/pool.js";
 import { resolveCompactAfterTokens } from "../config.js";
 import type { Runtime } from "../runtime.js";
@@ -7,11 +8,13 @@ import {
 	type Entry,
 	foldLedger,
 	fullProjection,
+	latestGateEnabled,
 	rawTokensSinceLastCompaction,
 	rawTokensSinceObservationCoverage,
 	rawTokensSinceReflectionCoverage,
 	visibleProjection,
 } from "../session-ledger/index.js";
+import { renderTimeline } from "./timeline.js";
 
 function pct(current: number, total: number): number {
 	return total > 0 ? Math.round((current / total) * 100) : 0;
@@ -32,6 +35,31 @@ function removedSuffix(count: number): string | undefined {
 function appendSuffixes(line: string, suffixes: (string | undefined)[]): string {
 	const rendered = suffixes.filter((suffix): suffix is string => suffix !== undefined);
 	return rendered.length > 0 ? `${line} ${rendered.join(" ")}` : line;
+}
+
+/**
+ * Terminal width for the status report.
+ *
+ * Pi fails a render whose line overflows the terminal, so every line is bounded to the real
+ * width; fall back to the conventional 80 columns when the host does not report one.
+ */
+function terminalWidth(): number {
+	const columns = process.stdout.columns;
+	return typeof columns === "number" && columns > 0 ? columns : 80;
+}
+
+function workerCostLines(runtime: Runtime): string[] {
+	const { runs } = runtime.workerCost;
+	const total = runs.observer + runs.reflector + runs.dropper;
+	const breakdown =
+		total === 0
+			? "(0 runs)"
+			: `(${total} run${total === 1 ? "" : "s"}: ${runs.observer} obs, ${runs.reflector} refl, ${runs.dropper} drop)`;
+	return [
+		"",
+		"── Cost ──",
+		`Worker spend:  $${runtime.workerCost.totalUsd.toFixed(4)} ${breakdown}`,
+	];
 }
 
 export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void {
@@ -72,14 +100,17 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
 			const passiveLines =
 				runtime.config.passive === true
 					? [
-							"── Mode ──",
 							"Passive: automatic memory workers and auto-compaction disabled; manual/Pi compaction, commands, and recall remain active",
-							"",
 						]
 					: [];
 
 			const lines = [
+				"── Mode ──",
+				latestGateEnabled(entries)
+					? "Gate: on"
+					: "Gate: off — memory is not read, written, or recalled this session (use /om on)",
 				...passiveLines,
+				"",
 				"── Memory ──",
 				observationLine,
 				reflectionLine,
@@ -103,6 +134,8 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
 				if (runtime.compactHookInFlight) lines.push("Compaction hook: running");
 			}
 
+			lines.push(...workerCostLines(runtime));
+
 			if (runtime.lastObserverError || runtime.lastReflectorError || runtime.lastDropperError) {
 				lines.push("", "── Last error ──");
 				if (runtime.lastObserverError) lines.push(`Observer: ${runtime.lastObserverError}`);
@@ -110,7 +143,14 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
 				if (runtime.lastDropperError) lines.push(`Dropper: ${runtime.lastDropperError}`);
 			}
 
-			ctx.ui.notify(lines.join("\n"), "info");
+			const width = terminalWidth();
+			// Flattened into individual lines: the bound below applies per line, not to the whole
+			// multi-line strip block.
+			lines.push("", ...renderTimeline(entries, width).split("\n"));
+
+			// Pi fails a render whose line overflows the terminal and does not wrap `notify`
+			// text for us, so every line is bounded here — not only the timeline strip.
+			ctx.ui.notify(lines.map((line) => truncateToWidth(line, width, "…")).join("\n"), "info");
 		},
 	});
 }

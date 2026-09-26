@@ -62,6 +62,23 @@ type Notify = (message: string, type?: NotifyLevel) => void;
 export type ConsolidationPhase = "observer" | "reflector" | "dropper";
 
 /**
+ * Session-scoped worker spend and run counts, for `/om:status`.
+ *
+ * Deliberately in-memory: cost is a host run-time metric, so it is never appended to the
+ * ledger (that would pollute the fold and the projections). It is also never rolled back
+ * by a `/tree` switch, because the API calls it accounts for were really made.
+ */
+export interface WorkerCostStats {
+	/** Provider-reported USD across every worker call this session. */
+	totalUsd: number;
+	runs: Record<ConsolidationPhase, number>;
+}
+
+function emptyWorkerCostStats(): WorkerCostStats {
+	return { totalUsd: 0, runs: { observer: 0, reflector: 0, dropper: 0 } };
+}
+
+/**
  * Whether pi positively reports a working credential source for this model's provider.
  *
  * `ModelRegistry.hasConfiguredAuth(model)` is true when pi's availability check
@@ -129,6 +146,7 @@ export class Runtime {
 	compactInFlight = false;
 	idleCompactInFlight = false;
 	compactHookInFlight = false;
+	workerCost: WorkerCostStats = emptyWorkerCostStats();
 	resolveFailureNotified = false;
 	lastObserverError: string | undefined;
 	lastReflectorError: string | undefined;
@@ -163,6 +181,7 @@ export class Runtime {
 		this.compactInFlight = false;
 		this.idleCompactInFlight = false;
 		this.compactHookInFlight = false;
+		this.workerCost = emptyWorkerCostStats();
 		this.resolveFailureNotified = false;
 		this.lastObserverError = undefined;
 		this.lastReflectorError = undefined;
@@ -218,6 +237,23 @@ export class Runtime {
 			clearTimeout(this.pendingIdleCompactionTimer);
 			this.pendingIdleCompactionTimer = undefined;
 		}
+	}
+
+	/** Count one worker model call, whether or not the provider reports a cost. */
+	recordWorkerRun(stage: ConsolidationPhase): void {
+		this.workerCost.runs[stage] += 1;
+	}
+
+	/**
+	 * Add one provider-reported worker cost. Unreported (`undefined`) and free (`0`) are ignored.
+	 *
+	 * Returns the amount that was recorded (`0` when it was ignored) so a caller that keeps
+	 * its own per-run total stays exactly in step with this session-wide one.
+	 */
+	recordWorkerCost(costUsd: number): number {
+		if (!Number.isFinite(costUsd) || costUsd <= 0) return 0;
+		this.workerCost.totalUsd += costUsd;
+		return costUsd;
 	}
 
 	async resolveModel(ctx: ResolveCtx): Promise<ResolveResult> {

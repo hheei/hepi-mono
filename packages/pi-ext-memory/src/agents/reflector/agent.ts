@@ -12,6 +12,7 @@ import { hashId } from "../../ids.js";
 import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import { truncateRecordContent } from "../../serialize.js";
 import {
+	contextCostFromUsage,
 	type Observation,
 	type Reflection,
 	reflectionToSummaryLine,
@@ -47,6 +48,8 @@ interface RunReflectorArgs {
 	thinkingLevel?: ModelThinkingLevel | undefined;
 	modelRegistry: StreamableModelRegistry;
 	streamSimple?: WorkerStreamSimple | undefined;
+	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
+	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RecordReflectionsSchema = Type.Object({
@@ -241,6 +244,8 @@ export async function runReflector(args: RunReflectorArgs): Promise<Reflection[]
 	for await (const event of stream) {
 		// Tool execution collects records.
 		logAgentStreamError("reflector", event);
+		const cost = contextCostFromUsage((event as { message?: { usage?: unknown } }).message?.usage);
+		if (cost !== undefined) args.onCost?.(cost);
 	}
 	await stream.result();
 	const acceptedReflections = Array.from(accumulated.values());

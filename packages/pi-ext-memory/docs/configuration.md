@@ -201,13 +201,26 @@ Workers stream through Pi's composed provider runtime, not `@earendil-works/pi-a
 
 Default: `true`.
 
-When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages). Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om:*` command output remain visible.
+When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages) and the end-of-run summary line. Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om:*` command output remain visible.
+
+With notifications on, a run that recorded something ends with a single delta line, for example `consolidation complete (+3 obs, +1 refl, -2 dropped) · $0.0038`. A run that changed nothing stays silent, because each stage already explains its own skip.
+
+The cost shown there is provider-reported (`usage.cost.total`, summed over the run) and is never persisted: it is per-session run-time telemetry, so it does not survive `/reload` and does not roll back on a `/tree` switch.
 
 ## `passive`
 
 Default: `false`.
 
-When `true`, the extension does not proactively run the observer, reflector/dropper lane, or auto-compaction trigger. Manual/Pi compaction hooks, `/om:status`, `/om:view`, and `recall` remain available.
+When `true`, the extension does not proactively run the observer, reflector/dropper lane, or auto-compaction trigger. Manual/Pi compaction hooks, `/om:status`, `/om:view`, `/om:consolidate`, `/om:compact`, and `recall` remain available.
+
+This is a configuration value, so it applies to every session. For a single session, use the gate instead:
+
+```text
+/om off     # memory is not read, written, or recalled in this session
+/om on      # re-enable it
+```
+
+The gate is stored as an `om.gate` ledger entry on the current branch, so `/tree` and `/resume` restore the state that branch recorded; a branch that never recorded one counts as on. While the gate is off, all memory hooks return immediately, idle compaction timers are dropped, and the `recall` tool answers with a disabled notice.
 
 Environment override:
 

@@ -10,6 +10,7 @@ import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
 import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import {
+	contextCostFromUsage,
 	type Observation,
 	type Reflection,
 	reflectionToSummaryLine,
@@ -71,6 +72,8 @@ interface RunDropperArgs {
 	thinkingLevel?: ModelThinkingLevel | undefined;
 	modelRegistry: StreamableModelRegistry;
 	streamSimple?: WorkerStreamSimple | undefined;
+	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
+	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RELEVANCE_DROP_RANK: Record<Observation["relevance"], number> = {
@@ -315,6 +318,8 @@ export async function runDropper(args: RunDropperArgs): Promise<string[] | undef
 	for await (const event of stream) {
 		// Tool execution collects candidate ids.
 		logAgentStreamError("dropper", event);
+		const cost = contextCostFromUsage((event as { message?: { usage?: unknown } }).message?.usage);
+		if (cost !== undefined) args.onCost?.(cost);
 	}
 	await stream.result();
 	const droppedIds = selectDropCandidates(

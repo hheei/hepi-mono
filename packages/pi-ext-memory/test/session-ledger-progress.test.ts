@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	contextCostFromUsage,
 	countSourceEntriesAfterCompaction,
 	type Entry,
 	earlierCoverageMarkerId,
@@ -9,6 +10,7 @@ import {
 	isSourceEntry,
 	latestCoverageIndex,
 	latestCoverageMarkerId,
+	latestGateEnabled,
 	rawTokensAfterIndex,
 	rawTokensSinceDropCoverage,
 	rawTokensSinceLastCompaction,
@@ -19,6 +21,7 @@ import {
 	branchSummary,
 	compactionEntry,
 	customMessage,
+	gateEntry,
 	observation,
 	observationsDroppedEntry,
 	observationsRecordedEntry,
@@ -251,5 +254,51 @@ describe("session-ledger V3 progress helpers", () => {
 
 		entries.push({ id: "user-2", type: "message", message: { role: "user", content: "pending" } });
 		expect(findPersistedSettledTime(entries, nowSec)).toBeUndefined();
+	});
+});
+
+describe("session gate state", () => {
+	it("is on by default and follows the newest gate entry", () => {
+		expect(latestGateEnabled([])).toBe(true);
+		expect(latestGateEnabled([textCustomMessage("raw-1", "abcd")])).toBe(true);
+		expect(latestGateEnabled([gateEntry("gate-1", false)])).toBe(false);
+		expect(latestGateEnabled([gateEntry("gate-1", false), gateEntry("gate-2", true)])).toBe(true);
+		expect(latestGateEnabled([gateEntry("gate-1", true), gateEntry("gate-2", false)])).toBe(false);
+	});
+
+	it("ignores malformed gate data instead of trusting it", () => {
+		const bogus = {
+			type: "custom",
+			id: "gate-bad",
+			customType: "om.gate",
+			data: { enabled: "yes" },
+		};
+		expect(latestGateEnabled([bogus])).toBe(true);
+		expect(latestGateEnabled([bogus, gateEntry("gate-1", false)])).toBe(false);
+	});
+
+	it("reads the branch only: an off gate before an on gate is superseded", () => {
+		const entries = [
+			observationsRecordedEntry("om-obs", {
+				observations: [observation("aaaaaaaaaaaa")],
+				coversUpToId: "raw-1",
+			}),
+			gateEntry("gate-1", false),
+			textCustomMessage("raw-1", "abcd"),
+		];
+		expect(latestGateEnabled(entries)).toBe(false);
+	});
+});
+
+describe("provider-reported cost", () => {
+	it("reads usage.cost.total and refuses empty or non-positive totals", () => {
+		expect(contextCostFromUsage({ cost: { total: 0.0125 } })).toBeCloseTo(0.0125, 10);
+		expect(contextCostFromUsage({ cost: { total: 0 } })).toBeUndefined();
+		expect(contextCostFromUsage({ cost: { total: -1 } })).toBeUndefined();
+		expect(contextCostFromUsage({ cost: { total: Number.NaN } })).toBeUndefined();
+		expect(contextCostFromUsage({ cost: {} })).toBeUndefined();
+		expect(contextCostFromUsage({ totalTokens: 10 })).toBeUndefined();
+		expect(contextCostFromUsage(undefined)).toBeUndefined();
+		expect(contextCostFromUsage("expensive")).toBeUndefined();
 	});
 });
