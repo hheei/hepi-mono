@@ -7,6 +7,7 @@ export interface Task {
 	readonly id: number;
 	readonly subject: string;
 	readonly status: TaskStatus;
+	readonly updatedAt?: number;
 }
 
 export interface TaskState {
@@ -78,7 +79,7 @@ function subjectError(subject: string): string | undefined {
 	return undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -113,11 +114,20 @@ export function validateTaskState(value: unknown): TaskState | undefined {
 			return undefined;
 		if (typeof valueTask.subject !== "string" || subjectError(valueTask.subject)) return undefined;
 		if (!STATUSES.includes(valueTask.status as TaskStatus)) return undefined;
+		if (
+			valueTask.updatedAt !== undefined &&
+			(typeof valueTask.updatedAt !== "number" ||
+				!Number.isFinite(valueTask.updatedAt) ||
+				valueTask.updatedAt < 0)
+		) {
+			return undefined;
+		}
 		ids.add(valueTask.id);
 		tasks.push({
 			id: valueTask.id,
 			subject: valueTask.subject,
 			status: valueTask.status as TaskStatus,
+			...(valueTask.updatedAt !== undefined ? { updatedAt: valueTask.updatedAt } : {}),
 		});
 	}
 	const maxId = tasks.reduce((max, task) => Math.max(max, task.id), 0);
@@ -136,13 +146,24 @@ function firstPending(tasks: readonly Task[]): Task | undefined {
 		.sort((left, right) => left.id - right.id)[0];
 }
 
-export function activateFirstPending(state: TaskState): TaskState {
+export function isValidTimestamp(now: unknown): now is number {
+	return typeof now === "number" && Number.isFinite(now) && now >= 0;
+}
+
+export function activateFirstPending(state: TaskState, now?: number): TaskState {
 	if (state.tasks.some((task) => task.status === "in_progress")) return state;
 	const next = firstPending(state.tasks);
 	if (!next) return state;
+	const timestamp = isValidTimestamp(now) ? Math.floor(now) : undefined;
 	return {
 		tasks: state.tasks.map((task) =>
-			task.id === next.id ? { ...task, status: "in_progress" } : task,
+			task.id === next.id
+				? {
+						...task,
+						status: "in_progress",
+						...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+					}
+				: task,
 		),
 		nextId: state.nextId,
 	};
@@ -153,7 +174,11 @@ export function activateFirstPending(state: TaskState): TaskState {
  * any validation or transition failure returns the original state, so callers
  * can safely render "No change made" without compensating partial writes.
  */
-export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult {
+export function applyTodo(state: TaskState, params: TodoParams, now?: number): ApplyTodoResult {
+	if (now !== undefined && !isValidTimestamp(now)) {
+		return { ok: false, state, error: "Invalid timestamp" };
+	}
+	const timestamp = now !== undefined ? Math.floor(now) : undefined;
 	if (!isRecord(params) || !Array.isArray(params.operations) || params.operations.length === 0) {
 		return { ok: false, state, error: "operations must be a non-empty array" };
 	}
@@ -203,12 +228,17 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 				id: draft.nextId,
 				subject,
 				status,
+				...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
 			};
 			const existingTasks =
 				status === "in_progress"
 					? draft.tasks.map((existing) =>
 							existing.status === "in_progress"
-								? { ...existing, status: "pending" as const }
+								? {
+										...existing,
+										status: "pending" as const,
+										...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+									}
 								: existing,
 						)
 					: draft.tasks;
@@ -254,14 +284,23 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		if (current.status === "completed" && status !== "completed") {
 			return fail(`Invalid status transition from completed to ${status}`, index);
 		}
-		const next = { ...current, subject, status };
+		const next = {
+			...current,
+			subject,
+			status,
+			...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+		};
 		// Pi permits exactly one active task. Starting a pending or blocked task is
 		// an explicit switch, not an error: demote the previous active task inside
 		// this same draft so the invariant never leaks between batch operations.
 		const candidateTasks = draft.tasks.map((task) => {
 			if (task.id === id) return next;
 			if (status === "in_progress" && task.status === "in_progress") {
-				return { ...task, status: "pending" as const };
+				return {
+					...task,
+					status: "pending" as const,
+					...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+				};
 			}
 			return task;
 		});
@@ -279,12 +318,92 @@ export function applyTodo(state: TaskState, params: TodoParams): ApplyTodoResult
 		const next = firstPending(draft.tasks);
 		if (next) {
 			draft.tasks = draft.tasks.map((task) =>
-				task.id === next.id ? { ...task, status: "in_progress" } : task,
+				task.id === next.id
+					? {
+							...task,
+							status: "in_progress",
+							...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+						}
+					: task,
 			);
 		}
 	}
 	if (!changed) return { ok: true, changed: false, state, operations };
 	return { ok: true, changed: true, state: draft, operations };
+}
+
+export type CancelTodosResult =
+	| {
+			readonly ok: true;
+			readonly changed: boolean;
+			readonly state: TaskState;
+			readonly cancelledIds: readonly number[];
+	  }
+	| { readonly ok: false; readonly state: TaskState; readonly error: string };
+
+export function cancelTodosByUser(
+	state: TaskState,
+	ids: readonly number[],
+	now?: number,
+): CancelTodosResult {
+	if (now !== undefined && !isValidTimestamp(now)) {
+		return { ok: false, state, error: "Invalid timestamp" };
+	}
+	const timestamp = now !== undefined ? Math.floor(now) : undefined;
+	if (!validateTaskState(state)) return { ok: false, state, error: "Invalid task state" };
+	if (!Array.isArray(ids) || ids.length === 0) {
+		return { ok: false, state, error: "At least one task id is required" };
+	}
+	for (const id of ids) {
+		if (!isPositiveInteger(id)) return { ok: false, state, error: `Invalid task id: ${id}` };
+		const current = findTask(state.tasks, id);
+		if (!current) return { ok: false, state, error: `Task #${id} does not exist` };
+		if (current.status === "completed") {
+			return { ok: false, state, error: `Task #${id} is already completed` };
+		}
+	}
+
+	const targetIds = new Set(ids);
+	const cancelledIds: number[] = [];
+	let hasChanges = false;
+	let tasks = state.tasks.map((task) => {
+		if (targetIds.has(task.id) && task.status !== "suppressed") {
+			cancelledIds.push(task.id);
+			hasChanges = true;
+			return {
+				...task,
+				status: "suppressed" as const,
+				...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+			};
+		}
+		return task;
+	});
+
+	if (!hasChanges) {
+		return { ok: true, changed: false, state, cancelledIds: [] };
+	}
+
+	if (!tasks.some((task) => task.status === "in_progress")) {
+		const next = firstPending(tasks);
+		if (next) {
+			tasks = tasks.map((task) =>
+				task.id === next.id
+					? {
+							...task,
+							status: "in_progress" as const,
+							...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+						}
+					: task,
+			);
+		}
+	}
+
+	return {
+		ok: true,
+		changed: true,
+		state: { tasks, nextId: state.nextId },
+		cancelledIds,
+	};
 }
 
 export type SuppressTodoResult =
@@ -295,26 +414,8 @@ export type SuppressTodoResult =
 	  }
 	| { readonly ok: false; readonly state: TaskState; readonly error: string };
 
-export function suppressTodoByUser(state: TaskState, id: number): SuppressTodoResult {
-	if (!validateTaskState(state)) return { ok: false, state, error: "Invalid task state" };
-	if (!isPositiveInteger(id)) return { ok: false, state, error: "Task id must be positive" };
-	const current = findTask(state.tasks, id);
-	if (!current) return { ok: false, state, error: `Task #${id} does not exist` };
-	if (current.status === "completed") {
-		return { ok: false, state, error: `Task #${id} is already completed` };
-	}
-	if (current.status === "suppressed") return { ok: true, changed: false, state };
-
-	let tasks = state.tasks.map((task) =>
-		task.id === id ? { ...task, status: "suppressed" as const } : task,
-	);
-	if (!tasks.some((task) => task.status === "in_progress")) {
-		const next = firstPending(tasks);
-		if (next) {
-			tasks = tasks.map((task) =>
-				task.id === next.id ? { ...task, status: "in_progress" as const } : task,
-			);
-		}
-	}
-	return { ok: true, changed: true, state: { tasks, nextId: state.nextId } };
+export function suppressTodoByUser(state: TaskState, id: number, now?: number): SuppressTodoResult {
+	const result = cancelTodosByUser(state, [id], now);
+	if (!result.ok) return result;
+	return { ok: true, changed: result.changed, state: result.state };
 }

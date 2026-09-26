@@ -13,7 +13,7 @@ export function snapshotFromState(state: TaskState): TodoSnapshot {
 }
 
 /** Validates one tool result's display snapshot; it never restores session state. */
-export function stateFromSnapshot(value: unknown): TaskState | undefined {
+export function stateFromSnapshot(value: unknown, now?: number): TaskState | undefined {
 	const state = validateTaskState(value);
-	return state ? activateFirstPending(state) : undefined;
+	return state ? activateFirstPending(state, now) : undefined;
 }
