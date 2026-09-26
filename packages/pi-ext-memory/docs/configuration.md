@@ -2,7 +2,7 @@
 
 This page documents the current V3 configuration for `pi-observational-memory`.
 
-V3 keeps the existing `observational-memory` settings namespace, but the setting names changed. Old V2 keys are not aliases; they are ignored. If you are upgrading, read [Migrating from V2](#migrating-from-v2).
+V3 keeps the existing `pi-ext-memory` settings namespace, but the setting names changed. Old V2 keys are not aliases; they are ignored. If you are upgrading, read [Migrating from V2](#migrating-from-v2).
 
 ## Where settings live
 
@@ -18,7 +18,7 @@ All extension-owned settings live under:
 
 ```json
 {
-  "observational-memory": {}
+  "pi-ext-memory": {}
 }
 ```
 
@@ -28,7 +28,7 @@ The extension loads config once for its runtime. After changing settings, restar
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "observeAfterTokens": 10000,
     "reflectAfterTokens": 20000,
     "observerChunkMaxTokens": 60000,
@@ -45,12 +45,17 @@ The extension loads config once for its runtime. After changing settings, restar
     },
     "showWorkerNotifications": true,
     "passive": false,
-    "debugLog": false
+    "debugLog": false,
+    "hindsight": {
+      "enabled": false
+    }
   }
 }
 ```
 
 You can omit everything. Defaults work for ordinary sessions, and if `model` is unset the memory workers use the current session model.
+
+The `hindsight` block is a separate opt-in feature and is documented in [Hindsight long-term memory](#hindsight-long-term-memory).
 
 ## Settings reference
 
@@ -178,7 +183,7 @@ Set `model` when you want the observer, reflector, and dropper to use a cheaper 
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "model": {
       "provider": "openrouter",
       "id": "google/gemma-4-31b-it",
@@ -272,7 +277,7 @@ Old V2 memory entries and old V2 compaction details are ignored by V3. Start a n
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "observeAfterTokens": 20000,
     "reflectAfterTokens": 50000,
     "agentMaxTurns": 8,
@@ -287,7 +292,7 @@ Tradeoff: fewer background model calls, but memory updates lag longer, observati
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "observeAfterTokens": 750,
     "reflectAfterTokens": 3000,
     "agentMaxTurns": 16,
@@ -302,7 +307,7 @@ Tradeoff: more background model calls.
 
 ```json
 {
-  "observational-memory": {
+  "pi-ext-memory": {
     "passive": true
   }
 }
@@ -318,4 +323,46 @@ PI_OBSERVATIONAL_MEMORY_PASSIVE=1 pi
 
 - [concepts.md](concepts.md) — vocabulary and mental model.
 - [how-it-works.md](how-it-works.md) — lifecycle and data shapes.
-- [../README.md](../README.md) — quick start and V2 migration summary.
+- [../README.md](../README.md) — quick start, Hindsight long-term memory, and V2 migration summary.
+
+## Hindsight long-term memory
+
+The `hindsight` section is a separate, **opt-in** feature: cross-session repository memory served by a Hindsight deployment. It is disabled unless `enabled` is literally `true`, and while disabled it registers no agent tools, reads no Hindsight config file, and makes no request.
+
+```json
+{
+  "pi-ext-memory": {
+    "hindsight": {
+      "enabled": false,
+      "apiUrl": "https://api.hindsight.vectorize.io",
+      "apiToken": "",
+      "bankId": "",
+      "autoRecall": true,
+      "retainSessions": true,
+      "reflectBudget": "high",
+      "reflectToolTimeoutMs": 45000,
+      "readTimeoutMs": 15000,
+      "maxMemoryChars": 8000,
+      "configPath": "~/.hindsight/coding-agent.json"
+    }
+  }
+}
+```
+
+| Setting | Type | Default | What it controls |
+| --- | --- | ---: | --- |
+| `enabled` | boolean | `false` | Turns the feature on. Only `true` enables it; it is never read from the environment. |
+| `apiUrl` | string | cloud API URL | Hindsight endpoint. |
+| `apiToken` | string | unset | Bearer token. Never printed by `hindsight_diagnose`. |
+| `bankId` | string | derived | Pins the bank instead of deriving it from the repository. Setting it makes the bank shared. |
+| `autoRecall` | boolean | `true` | Runs a knowledge-page search for each prompt and injects the hits inside a `<memory>` container. Retrieval only — `hindsight_reflect` is never automatic. |
+| `retainSessions` | boolean | `true` | Writes the run's turns back to Hindsight at turn end. |
+| `reflectBudget` | `low`/`mid`/`high` | `high` | Reasoning budget for `hindsight_reflect`. |
+| `reflectToolTimeoutMs` | positive integer | `45000` | Deadline for one reflect call. |
+| `readTimeoutMs` | positive integer | `15000` | Deadline for page, search, retain, and status calls. |
+| `maxMemoryChars` | positive integer | `8000` | Hard cap on injected memory per turn; the rest is truncated with an explicit marker. |
+| `configPath` | string | `~/.hindsight/coding-agent.json` | Fallback config file, read only when the feature is enabled. `~` is expanded. |
+
+Values come from the project settings, the global settings, the `HINDSIGHT_*` environment variables, then the fallback file, then these defaults — each layer overriding the ones below it. A missing or malformed fallback file is ignored rather than fatal.
+
+Invalid values fall back to their default. `bankId` is chosen by `hindsight.bankId`, then the fallback file's `mapPathToBank` (longest matching path prefix), then its `bankIdTemplate` with `{gitProject}` substituted, then its `bankId`, then `coding-agent::{gitProject}` from the git root. Banks derived per repository are dedicated; every other bank is shared, and retained turns then carry a `repo:<name>` tag plus the bank's `retainTags` and `retainMetadata`.
