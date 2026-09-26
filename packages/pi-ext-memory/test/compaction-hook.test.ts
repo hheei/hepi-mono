@@ -36,6 +36,7 @@ function setup(args: {
 	observationsPoolMaxTokens?: number;
 	compactHookInFlight?: boolean;
 	idleCompactInFlight?: boolean;
+	lifecycleSignal?: AbortSignal;
 }) {
 	let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
 	const pi = {
@@ -52,7 +53,7 @@ function setup(args: {
 		compactHookInFlight: args.compactHookInFlight ?? false,
 		idleCompactInFlight: args.idleCompactInFlight ?? false,
 		sessionGeneration: 1,
-		lifecycleSignal: undefined,
+		lifecycleSignal: args.lifecycleSignal,
 		isSessionCurrent: vi.fn((generation: number) => generation === 1),
 		observerPromise: new Promise(() => {}),
 		resolveModel: vi.fn(() => {
@@ -104,6 +105,19 @@ describe("V3 compaction hook", () => {
 
 		expect(result).toEqual({ cancel: true });
 		expect(runtime.resolveModel).not.toHaveBeenCalled();
+		expect(pi.appendEntry).not.toHaveBeenCalled();
+		expect(runtime.compactHookInFlight).toBe(false);
+	});
+
+	it("cancels when the captured lifecycle signal is aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const entries = [textCustomMessage("raw-1", "aaaa")];
+		const { run, runtime, pi } = setup({ entries, lifecycleSignal: controller.signal });
+
+		const result = await run("raw-1");
+
+		expect(result).toEqual({ cancel: true });
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 		expect(runtime.compactHookInFlight).toBe(false);
 	});
