@@ -114,6 +114,7 @@ interface ActiveTodoRuntime {
 	reminderWindowStartedAtMs: number;
 	todoChangedThisTurn: boolean;
 	blockedQuietTurns: Map<number, number>;
+	blockedHideTimers: Map<number, ReturnType<typeof setTimeout>>;
 }
 
 /** Restores the latest durable snapshot on the active session branch. */
@@ -531,17 +532,49 @@ function todoToolTuiFooter(
 	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
-function reconcileBlockedQuietTurns(current: ActiveTodoRuntime, nextState: TaskState): void {
+function scheduleBlockedHide(current: ActiveTodoRuntime, id: number): void {
+	const timer = setTimeout(() => {
+		if (
+			current.blockedHideTimers.get(id) !== timer ||
+			current.state.tasks.every((task) => task.id !== id || task.status !== "blocked")
+		) {
+			return;
+		}
+		current.blockedQuietTurns.delete(id);
+		current.blockedHideTimers.delete(id);
+		current.widget?.hideBlocked([id]);
+	}, TODO_REMINDER_IDLE_MS);
+	current.blockedHideTimers.set(id, timer);
+}
+
+function reconcileBlockedQuietTurns(
+	current: ActiveTodoRuntime,
+	nextState: TaskState,
+	previousState: TaskState = current.state,
+): void {
 	for (const task of nextState.tasks) {
-		const previous = current.state.tasks.find((candidate) => candidate.id === task.id);
+		const previous = previousState.tasks.find((candidate) => candidate.id === task.id);
 		if (task.status === "blocked" && previous?.status !== "blocked") {
 			current.blockedQuietTurns.set(task.id, 0);
+			scheduleBlockedHide(current, task.id);
 		}
-		if (task.status !== "blocked") current.blockedQuietTurns.delete(task.id);
+		if (task.status !== "blocked") {
+			current.blockedQuietTurns.delete(task.id);
+			const timer = current.blockedHideTimers.get(task.id);
+			if (timer !== undefined) {
+				clearTimeout(timer);
+				current.blockedHideTimers.delete(task.id);
+			}
+		}
 	}
 	for (const id of current.blockedQuietTurns.keys()) {
 		if (!nextState.tasks.some((task) => task.id === id && task.status === "blocked")) {
 			current.blockedQuietTurns.delete(id);
+			const timer = current.blockedHideTimers.get(id);
+			if (timer !== undefined) {
+				clearTimeout(timer);
+				current.blockedHideTimers.delete(id);
+			}
 		}
 	}
 }
@@ -552,6 +585,11 @@ function hideExpiredBlockedTasks(current: ActiveTodoRuntime): void {
 	for (const [id, quietTurns] of current.blockedQuietTurns) {
 		if (quietTurns + 1 >= 2) {
 			current.blockedQuietTurns.delete(id);
+			const timer = current.blockedHideTimers.get(id);
+			if (timer !== undefined) {
+				clearTimeout(timer);
+				current.blockedHideTimers.delete(id);
+			}
 			expired.push(id);
 		} else {
 			current.blockedQuietTurns.set(id, quietTurns + 1);
@@ -591,8 +629,9 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 					throw new Error(`${message}\nNo change made.`);
 				}
 				if (result.changed) {
-					reconcileBlockedQuietTurns(current, result.state);
+					const previousState = current.state;
 					current.state = result.state;
+					reconcileBlockedQuietTurns(current, result.state, previousState);
 					current.idleTurns = 0;
 					current.reminderWindowStartedAtMs = now();
 					current.todoChangedThisTurn = true;
@@ -652,8 +691,9 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				ctx.ui.notify(`Todo #${id} is already suppressed`, "info");
 				return;
 			}
-			reconcileBlockedQuietTurns(current, result.state);
+			const previousState = current.state;
 			current.state = result.state;
+			reconcileBlockedQuietTurns(current, result.state, previousState);
 			current.idleTurns = 0;
 			current.reminderWindowStartedAtMs = now();
 			current.todoChangedThisTurn = true;
@@ -732,6 +772,13 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
 		current.state = restoreTodoState(ctx);
 		current.blockedQuietTurns.clear();
+		for (const timer of current.blockedHideTimers.values()) clearTimeout(timer);
+		current.blockedHideTimers.clear();
+		for (const task of current.state.tasks) {
+			if (task.status !== "blocked") continue;
+			current.blockedQuietTurns.set(task.id, 0);
+			scheduleBlockedHide(current, task.id);
+		}
 		current.idleTurns = 0;
 		current.reminderWindowStartedAtMs = now();
 		current.todoChangedThisTurn = false;
@@ -759,15 +806,23 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				reminderWindowStartedAtMs: now(),
 				todoChangedThisTurn: false,
 				blockedQuietTurns: new Map(),
+				blockedHideTimers: new Map(),
 				widget: undefined,
 			};
 			current.widget = createTodoWidget(pi, context, signal ?? new AbortController().signal, state);
+			for (const task of state.tasks) {
+				if (task.status !== "blocked") continue;
+				current.blockedQuietTurns.set(task.id, 0);
+				scheduleBlockedHide(current, task.id);
+			}
 			active = current;
 		},
 		async dispose(sessionId) {
 			const current = active;
 			if (!current || current.sessionId !== sessionId) return;
 			try {
+				for (const timer of current.blockedHideTimers.values()) clearTimeout(timer);
+				current.blockedHideTimers.clear();
 				await current.widget?.dispose();
 			} finally {
 				// Clear the shared pointer last so in-flight handlers either finish against

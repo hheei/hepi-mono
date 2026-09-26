@@ -33,7 +33,8 @@ completed task 只暂显到下一次 agent start。session tree 切换会从 fre
 - blocked task 保留在 runtime state，仍可通过 `/todos` 和该次 tool result 查询，但不会驱动 guidance 或
   hidden reminder；
 - block 操作所在 turn 不计数。其后的两次有效 assistant turn（`stop` 或 `toolUse`，且该 turn 未更新
-  Todo）后，blocked task 从 editor 上方 widget 隐藏。它不会再占 GUI 行，但不从 state 删除。
+  Todo）后，或经过 `TODO_REMINDER_IDLE_MS` grace window 后，blocked task 从 editor 上方 widget 隐藏。
+  它不会再占 GUI 行，但不从 state 删除；session tree 切换、状态解除与 session dispose 会清理计时器。
   隐藏前它以 `dim` 图标与删除线 subject 呈现，不使用 `warning`。
 
 ## 持久化边界
