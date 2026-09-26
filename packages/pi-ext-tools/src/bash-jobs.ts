@@ -41,16 +41,22 @@ interface Job {
 	terminalized: boolean;
 	onTerminal?: (job: BashJobSnapshot) => void;
 }
-function shellDefault(): string {
+export function defaultShellPath(): string {
 	return process.platform === "win32"
 		? (process.env.ComSpec ?? "cmd.exe")
 		: (process.env.SHELL ?? "/bin/sh");
 }
 function snapshot(job: Job): BashJobSnapshot {
-	const { process: _process, outputSink, ...rest } = job;
-	const output = outputSink.snapshot();
+	const output = job.outputSink.snapshot();
 	return {
-		...rest,
+		id: job.id,
+		command: job.command,
+		cwd: job.cwd,
+		status: job.status,
+		exitCode: job.exitCode,
+		startedAt: job.startedAt,
+		timedOut: job.timedOut,
+		...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
 		output: output.output,
 		truncated: output.truncated,
 	};
@@ -60,18 +66,12 @@ export class BashJobRegistry {
 	readonly #jobs = new Map<string, Job>();
 	#closed: boolean = false;
 	readonly #tailBytes: number | undefined;
-	constructor(
-		options: {
-			readonly tailBytes?: number;
-		} = {},
-	) {
-		this.#tailBytes = options.tailBytes;
+	constructor(tailBytes?: number) {
+		this.#tailBytes = tailBytes;
 	}
 	start(request: BashJobRequest): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
-		const outputSink = new BashOutputSink({
-			...(this.#tailBytes === undefined ? {} : { tailBytes: this.#tailBytes }),
-		});
+		const outputSink = new BashOutputSink(this.#tailBytes);
 		const id = crypto.randomUUID();
 		const job: Job = {
 			id,
@@ -85,7 +85,7 @@ export class BashJobRegistry {
 			terminalized: false,
 			...(request.onTerminal === undefined ? {} : { onTerminal: request.onTerminal }),
 		};
-		const shellPath = request.shellPath ?? shellDefault();
+		const shellPath = request.shellPath ?? defaultShellPath();
 		const child = spawn(
 			shellPath,
 			process.platform === "win32" ? ["/d", "/s", "/c", request.command] : ["-c", request.command],
@@ -172,7 +172,4 @@ export class BashJobRegistry {
 		for (const id of this.#jobs.keys()) this.stop(id);
 		this.#jobs.clear();
 	}
-}
-export function defaultShellPath(): string {
-	return shellDefault();
 }

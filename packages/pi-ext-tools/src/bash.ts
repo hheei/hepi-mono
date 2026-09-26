@@ -23,6 +23,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
+import { defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
@@ -31,7 +32,6 @@ import { startBashTask } from "./tasks/bash-task.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
-const BASH_PROMPT_SNIPPET = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
 	"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
 	"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
@@ -75,25 +75,14 @@ function detailsRecord(value: unknown): Readonly<Record<string, unknown>> {
 		: {};
 }
 
-function lineCount(text: string): number {
-	if (text === "") return 0;
-	return text.replace(/\r?\n$/, "").split(/\r?\n/).length;
-}
-
 function bashFooter(
 	result: AgentToolResult<unknown>,
 	completion: ToolCompletion | undefined,
 ): string {
 	const details = detailsRecord(result.details);
-	const output =
-		typeof details.output === "string"
-			? details.output
-			: result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+	const output = typeof details.output === "string" ? details.output : outputText(result);
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
-	const lines =
-		typeof details.totalLines === "number" && Number.isFinite(details.totalLines)
-			? details.totalLines
-			: lineCount(output);
+	const lines = outputTotalLines(result, output);
 	const duration =
 		completion?.durationMs === undefined
 			? "completed"
@@ -112,20 +101,24 @@ function logicalOutputLines(output: string): string[] {
 }
 
 function outputTotalLines(result: AgentToolResult<unknown>, output: string): number {
-	const details = detailsRecord(result.details);
-	return typeof details.totalLines === "number" && Number.isFinite(details.totalLines)
-		? details.totalLines
-		: lineCount(output);
+	const total = detailsRecord(result.details).totalLines;
+	if (typeof total === "number" && Number.isFinite(total)) return total;
+	return output === "" ? 0 : output.replace(/\r?\n$/, "").split(/\r?\n/).length;
 }
 
 function outputText(result: AgentToolResult<unknown>): string {
 	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 }
 
-function bashBodyLine(theme: Theme, line: string): string {
-	const stripped = stripTerminalSequences(line);
-	const dimmed = theme.fg("dim", stripped);
-	return theme.fg("text", stripped) === dimmed ? dimmed : stripped;
+function outputStreamer(
+	sink: BashOutputSink,
+	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+): (data: Buffer) => void {
+	return (data) => {
+		sink.push(data);
+		const output = sink.snapshot();
+		onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
+	};
 }
 
 class BashOutputBody implements Component {
@@ -156,7 +149,7 @@ class BashOutputBody implements Component {
 		const visible = lines.slice(-take);
 		const hidden = hiddenTotal - visible.length;
 		const rows = visible.map((line) =>
-			truncateToWidth(bashBodyLine(this.theme, line), available, truncation),
+			truncateToWidth(stripTerminalSequences(line), available, truncation),
 		);
 		if (!needsHint) {
 			this.cached = { width, rows };
@@ -187,12 +180,8 @@ async function runForeground(
 	tailBytes: number,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
-	const sink = new BashOutputSink({ tailBytes });
-	const update = (data: Buffer): void => {
-		sink.push(data);
-		const output = sink.snapshot();
-		onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
-	};
+	const sink = new BashOutputSink(tailBytes);
+	const update = outputStreamer(sink, onUpdate);
 	let exitCode: number | null;
 	let timedOut = false;
 	try {
@@ -239,18 +228,14 @@ async function runRemoteBash(
 	tailBytes: number,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted", target });
-	const sink = new BashOutputSink({ tailBytes });
+	const sink = new BashOutputSink(tailBytes);
 	try {
 		const { code, timedOut } = await runtime.exec(target, command, {
 			...(signal === undefined ? {} : { signal }),
 			...(timeoutSeconds === undefined || timeoutSeconds <= 0
 				? {}
 				: { timeoutMs: timeoutSeconds * 1000 }),
-			onData: (data) => {
-				sink.push(data);
-				const output = sink.snapshot();
-				onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
-			},
+			onData: outputStreamer(sink, onUpdate),
 		});
 		const output = sink.finish();
 		return result(output.output, {
@@ -290,7 +275,7 @@ export function registerBashTool(
 	const tool = {
 		...template,
 		description: BASH_DESCRIPTION,
-		promptSnippet: BASH_PROMPT_SNIPPET,
+		promptSnippet: BASH_DESCRIPTION,
 		promptGuidelines: BASH_PROMPT_GUIDELINES,
 		parameters: BashInput,
 		renderResult(
@@ -324,9 +309,9 @@ export function registerBashTool(
 			onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
-			const normalizedParams = normalizeBashInput(params);
-			if (!Value.Check(BashInput, normalizedParams)) throw new Error("Invalid bash parameters");
-			const validatedParams = normalizedParams;
+			const validatedParams = normalizeBashInput(params);
+			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
+			const settings = state?.getSettings();
 			if (isRemoteBashTarget(validatedParams.target)) {
 				if ("async" in validatedParams && validatedParams.async === true)
 					return result("Async Bash is local-only; omit async for SSH targets.", {
@@ -342,11 +327,10 @@ export function registerBashTool(
 					signal,
 					onUpdate,
 					validatedParams.timeout,
-					(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
+					(settings?.bashOutputTailKiB ?? 10) * 1024,
 				);
 			}
 			if ("async" in validatedParams && validatedParams.async === true) {
-				const settings = state?.getSettings();
 				const tasks = state?.getTasks();
 				const jobs = state?.getBashJobs();
 				if (settings === undefined || tasks === undefined || jobs === undefined)
@@ -385,9 +369,9 @@ export function registerBashTool(
 				context,
 				signal,
 				onUpdate,
-				state?.getSettings().shellPath ?? process.env.SHELL ?? "/bin/sh",
+				settings?.shellPath ?? defaultShellPath(),
 				validatedParams.timeout,
-				(state?.getSettings().bashOutputTailKiB ?? 10) * 1024,
+				(settings?.bashOutputTailKiB ?? 10) * 1024,
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;

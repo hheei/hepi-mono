@@ -134,9 +134,7 @@ async function startFffLifecycle(
 	state.targets = targetRuntime;
 	const tasks = new AsyncTaskRegistry({ pi });
 	state.tasks = tasks;
-	const jobs = new BashJobRegistry({
-		tailBytes: settings.bashOutputTailKiB * 1024,
-	});
+	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;
 	context.resources.add("targets", async () => {
 		await targetRuntime.close();
