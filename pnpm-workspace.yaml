@@ -3,8 +3,6 @@ packages:
 
 allowBuilds:
   esbuild: true
-  onnxruntime-node: true
-  sharp: true
   protobufjs: false
   "@google/genai": false
 

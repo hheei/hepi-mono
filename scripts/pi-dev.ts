@@ -17,9 +17,7 @@ const buildCacheDir = path.join(root, ".pi-dev");
 // Extensions built and loaded automatically by pi-dev.
 // Explicitly excluded from autoloading:
 // - pi-ext-core: shared library, not a standalone extension entry
-// - pi-hindsight: separated durable-memory lifecycle, not autoloaded in pi-dev
 // - pi-debug: manual inspection tooling
-// - pi-mctx: deprecated Magic Context extension, not autoloaded in pi-dev
 const builtPackageNames = [
 	"pi-ext-addon",
 	"pi-ext-memory",

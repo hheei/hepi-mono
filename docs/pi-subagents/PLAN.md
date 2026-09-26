@@ -173,9 +173,9 @@ parent cleanup 只解除连接和 UI 订阅，不结束 runner 或 child。
 
 ```text
 Pi invocation resolution
-来源：packages/pi-mctx/src/subagent-runner.ts
-      resolvePiInvocation / resolveBundledPiCli（当前为内部实现）
-在 MCTX 与本 extension 都改为调用同一 helper 时，提取到 pi-ext-core。
+来源：已移除的 MCTX subagent-runner
+      resolvePiInvocation / resolveBundledPiCli（当时为内部实现）
+在出现第二个调用方时，才提取该已证实 helper 到 pi-ext-core。
 在 Main Pi 内解析 Node/Bun/packaged runtime 与 Pi CLI 路径，交给 runner；
 runner 自己的 argv 不是 Main Pi CLI 路径，不能重新猜测。
 ```
@@ -196,7 +196,7 @@ Cleanup：parent 直接用 registerExtensionLifecycle 提供的 resources / sign
 明確不提升到 `pi-ext-core`：
 
 ```text
-MCTX 的 buildArgs（packages/pi-mctx/src/subagent-runner.ts）
+MCTX 的 buildArgs（已移除的 subagent-runner）
 → launch args 由本 extension 自己一份 builder 產生
 agent definition 的欄位驗證與 model/thinking/tool policy
 parent-child identity 與 message routing
@@ -212,7 +212,7 @@ ext-core lifecycle / UI helper     → 可在 parent 端使用，但不要把存
 startSubagent                      → shutdown 時會取消 subagent，無法提供存活保證
 provideService / getService        → 同 process service registry，不是 IPC
 patch 的 socket lock stale-unlink  → 不是安全的 ownership 證明
-MCTX SQLite outbox / lease         → 不整包引入
+MCTX SQLite outbox / lease         → 不引入已移除實作的持久化層
 ```
 
 也不要重新實作 custom transcript、Pi renderer、session JSONL event store。
@@ -1120,7 +1120,7 @@ RPC、TUI 和 replacement runtime 始终复用这份权限 policy
 选择，而本 extension 不需要维护动态配置同步系统。恢复模型不可用时，暴露 Pi 的 fallback 结果，
 不能静默声称仍使用原模型。
 
-具體 args 由本 extension 自己的 launch args builder 產生（不提升 MCTX `buildArgs`）。
+具體 args 由本 extension 自己的 launch args builder 產生（不提升已移除實作的 `buildArgs`）。
 
 保持一条解析链：agent definition + parent 显式默认值 → effective config → launch spec。
 launch spec 包含已解析 invocation、argv、cwd 和必要的 child bridge 环境变量；同一 persistence 状态下，

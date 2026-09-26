@@ -16,8 +16,6 @@
 | [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-debug`](../../packages/pi-debug/README.md) | 开发诊断与确定性 TUI 回放 |
-| [`pi-mctx`](../../packages/pi-mctx/README.md) | Magic Context：context window、historian、compaction 与 session history |
-| [`pi-hindsight`](../../packages/pi-hindsight/README.md) | Hindsight-backed 长期记忆与 memory lifecycle，仍在开发中 |
 | [`pi-subagents`](../../packages/pi-subagents/README.md) | 独立后台 Pi 子代理会话，仍在开发中 |
 
 ## 共享基础包

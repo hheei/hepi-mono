@@ -254,17 +254,13 @@ packages/pi-ext-memory/src/
 2. 本地 JSONL 离线重试队列、全套 TUI 和 scope 迁移属于过度设计。
 3. 被 `scripts/pi-dev.ts` 显式排除，属于未维护代码。
 
-**退役与迁移清单**：
+**退役与迁移清单（已完成）**：
 1. **阶段一（实现与验证）**：完成 `pi-ext-memory` 中的 Hindsight 模块，并通过所有单元测试与聚焦验证。
-2. **阶段二（架构与文档归档）**：
-   - 审查并更新 `docs/adr/0011-mctx-owns-automatic-knowledge-injection.md`，标注随着 `pi-mctx` 废弃和 `pi-hindsight` 退役，该 ADR 正式历史归档。
-   - 更新 `docs/development/pi-dev.md` 和 `scripts/pi-dev.ts`，移除沉睡包相关的构建和排除项注释。
-   - 更新相关架构文档中对独立 `pi-hindsight` 的引用说明。
-3. **阶段三（构建与解绑）**：
-   - 从 `pnpm-workspace.yaml` 与根目录 `package.json` 的依赖/构建链路中解绑 `@hheei/pi-hindsight`。
-4. **阶段四（物理删除）**：
-   - 彻底删除 `packages/pi-hindsight/` 目录及其测试代码。
-   - 运行全仓 `pnpm exec biome check`、`pnpm run typecheck` 确认无残留死引用。
+2. **阶段二（架构与文档归档）**：删除仅服务于这些包的 ADR 与架构文档，并从现存文档、`biome.json`、`tsconfig.typecheck.json`、`vitest.config.ts` 中移除失效引用。
+3. **阶段三（构建与解绑）**：`scripts/pi-dev.ts` 不再列出被排除的包；根 `package.json` 的 build 链从未包含它们。
+4. **阶段四（物理删除）**：`packages/pi-hindsight/`、`packages/pi-mctx/` 及其 `dist/`、`test/` 一并删除，`pnpm install` 重建 lockfile 后确认无残留死引用。
+
+`packages/pi-mctx` 与 `pi-hindsight` 在同一次改动中一并移除：`pi-mctx` 的 durable-memory owner 也是 Hindsight，其能力已由本模块的会话内长记忆路径取代；两者同时消失后，`docs/adr/0011-mctx-owns-automatic-knowledge-injection.md` 所仲裁的"唯一注入者"冲突不再存在。
 
 ---
 
@@ -337,7 +333,7 @@ pnpm exec vitest run packages/pi-ext-memory/test/hindsight/
 
 ### 7.2 尚未纳入第一阶段的范围
 
-- `packages/pi-hindsight` 的退役与物理删除（§5），需要独立提交并伴随 ADR 0011 归档。
+- `packages/pi-hindsight` 与 `packages/pi-mctx` 的退役与物理删除（§5）已在后续提交中完成。
 - 冷启动自动 Seeding（§4.4 阶段二）仍然明确推迟。
 - `hindsight_sync_status` 目前报告服务器版本、知识页可用性与文档总数；未接入后台 seeding/摄取任务的进度，因为 SDK 未暴露该聚合状态。
 

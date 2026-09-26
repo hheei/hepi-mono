@@ -76,7 +76,6 @@ Pi 只估 session messages（最后一条有效 assistant usage + 之后 chars/4
 - `tokens === null` 或缺少：compaction 后未知。不用 prefix 冒充，`tokens` / `percent` 为 `undefined`。
 
 调用方自己读 `getContextUsage` / `getSystemPrompt` / `getAllTools`。默认 prefix 估算是 `ceil(chars/4)`；需要模型 tokenizer 的包传 `estimateTokens`。
-mctx 的 persisted `lastInputTokens`、m[0] 与 scheduler 仍由 `pi-mctx` 拥有；调度器不得用此函数替代 raw 0（imported-session 检测依赖 `usagePercentage===0`）。
 
 ### Extension JSON Settings
 
@@ -328,4 +327,4 @@ packages/pi-ext-core/
 15. v1 只支持 Pi 完整 reload lifecycle，不提供单一 Service HMR replace 后门。
 16. Pi 串行 session start 下，consumer 不得 await `waitForService()`；改以自行处理的
     non-blocking continuation 等待 provider。
-17. `resolvePiContextUsage()` 只解释 Pi live usage；不下沉 mctx persisted pressure、m[0] 或 historian 阈值。
+17. `resolvePiContextUsage()` 只解释 Pi live usage；不解释 consumer 自己持久化的 context pressure 或阈值。

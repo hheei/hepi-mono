@@ -13,10 +13,6 @@ export default defineConfig({
 	resolve: {
 		alias: [
 			{
-				find: "#core",
-				replacement: fileURLToPath(new URL("./packages/pi-mctx/src/core", import.meta.url)),
-			},
-			{
 				find: /^@hheei\/pi-ext-core$/,
 				replacement: fileURLToPath(new URL("./packages/pi-ext-core/src/index.ts", import.meta.url)),
 			},

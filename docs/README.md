@@ -24,11 +24,6 @@ This directory records high-level information for users and developers. Detailed
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-optimizer](optimizer/README.md): T2S、Caveman/Ponytail 提示词、可选 RTK 与统一设置入口。
 
-## Feature Specifications
-
-- [pi-mctx AgentMemory 与 Context Projection 迁移规格](mctx/spec.md)：目标边界、数据流、公共契约、失败语义与完成定义。
-- [pi-mctx 迁移 tickets](mctx/tickets.md)：按依赖顺序可独立提交和验收的实施 backlog。
-
 ## Research
 
 - [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.

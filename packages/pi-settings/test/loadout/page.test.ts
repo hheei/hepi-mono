@@ -118,16 +118,16 @@ describe("Loadout Settings page", () => {
 	test("hides unpublished managed tools and keeps published forced tools read-only", async () => {
 		const h = setup();
 		h.tools.push({
-			name: "ctx_reduce",
-			description: "Reduce MCTX history.",
+			name: "legacy_tool",
+			description: "Reduce stored history.",
 			parameters: Type.Object({}),
-			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "mctx" },
+			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "legacy" },
 		});
-		registerManagedTool(h.pi, { id: "ctx_reduce", owner: "test-tool" }, {
-			name: "ctx_reduce",
+		registerManagedTool(h.pi, { id: "legacy_tool", owner: "test-tool" }, {
+			name: "legacy_tool",
 		} as never);
 		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-		expect(page.component.render(100).join("\n")).not.toContain("ctx_reduce");
+		expect(page.component.render(100).join("\n")).not.toContain("legacy_tool");
 		const cleanups: Array<() => void | Promise<void>> = [];
 		const resources = {
 			add(_key: string, cleanup: () => void | Promise<void>): void {
@@ -135,14 +135,14 @@ describe("Loadout Settings page", () => {
 			},
 		};
 		registerLoadoutInventory({ pi: h.pi, resources } as never, {
-			id: "ctx_reduce",
-			group: "Magic Context",
+			id: "legacy_tool",
+			group: "Legacy",
 			priority: 0,
 			conflictSets: [],
 			defaultActive: true,
 			forcedActive: true,
 		});
-		expect(page.component.render(100).join("\n")).toContain("ctx_reduce");
+		expect(page.component.render(100).join("\n")).toContain("legacy_tool");
 		await page.handleInput("\u001b[B");
 		expect(page.component.render(100).join("\n")).toContain("Status: ● Forced active");
 		await page.handleInput(" ");

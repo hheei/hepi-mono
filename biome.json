@@ -101,16 +101,6 @@
 					}
 				}
 			}
-		},
-		{
-			"includes": ["packages/pi-mctx/**/*.ts"],
-			"linter": {
-				"rules": {
-					"complexity": {
-						"noExcessiveCognitiveComplexity": "off"
-					}
-				}
-			}
 		}
 	],
 	"javascript": {
