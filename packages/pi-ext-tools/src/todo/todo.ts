@@ -3,9 +3,15 @@ import { Text } from "@earendil-works/pi-tui";
 import { getToolTui, registerManagedLoadoutTool, registerToolTuiTrace } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
+	COMPLETED_DISPLAY_DURATION_MS,
+	createTodoFooterStatusController,
+	type TodoFooterStatusController,
+} from "./footer-status.js";
+import {
 	applyTodo,
+	cancelTodosByUser,
 	freshTaskState,
-	suppressTodoByUser,
+	isRecord,
 	type Task,
 	type TaskState,
 	type TaskStatus,
@@ -14,10 +20,9 @@ import {
 	type TodoParams,
 } from "./model.js";
 import { snapshotFromState, stateFromSnapshot } from "./state.js";
-import { createTodoWidget, type TodoWidget } from "./widget.js";
 
 export const TODO_TOOL_NAME = "todo";
-export const TODO_COMMAND_NAME = "todos";
+export const TODO_COMMAND_NAME = "todo";
 
 /**
  * Core owns the Pi registration transport for every HEPI executable tool. This
@@ -109,31 +114,30 @@ export const TODO_PROMPT_GUIDELINES = [
 interface ActiveTodoRuntime {
 	readonly sessionId: string;
 	state: TaskState;
-	widget: TodoWidget | undefined;
+	footerController: TodoFooterStatusController;
 	idleTurns: number;
 	reminderWindowStartedAtMs: number;
 	todoChangedThisTurn: boolean;
-	blockedQuietTurns: Map<number, number>;
-	blockedHideTimers: Map<number, ReturnType<typeof setTimeout>>;
 }
 
 /** Restores the latest durable snapshot on the active session branch. */
-function restoreTodoState(context: ExtensionContext): TaskState {
+function restoreTodoState(context: ExtensionContext, now?: number): TaskState {
 	const entries = context.sessionManager.getBranch();
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
 		if (entry === undefined) continue;
 		if (entry.type === "custom" && entry.customType === TODO_STATE_CUSTOM_TYPE) {
-			const state = stateFromSnapshot(entry.data);
+			const state = stateFromSnapshot(entry.data, now);
 			if (state) return state;
 			continue;
 		}
 		if (
 			entry.type === "message" &&
+			isRecord(entry.message) &&
 			entry.message.role === "toolResult" &&
 			entry.message.toolName === TODO_TOOL_NAME
 		) {
-			const state = stateFromSnapshot(todoSnapshotFromDetails(entry.message.details));
+			const state = stateFromSnapshot(todoSnapshotFromDetails(entry.message.details), now);
 			if (state) return state;
 		}
 	}
@@ -155,6 +159,7 @@ export interface TodoFeature {
 
 export interface TodoFeatureOptions {
 	readonly now?: () => number;
+	readonly clock?: () => number;
 }
 
 /**
@@ -242,6 +247,31 @@ function formatTodoList(state: TaskState, status?: TaskStatus): string {
 		.sort((left, right) => left.id - right.id);
 	if (tasks.length === 0) return "No todos.";
 	return tasks.map((task) => formatTaskLine(task)).join("\n");
+}
+
+function formatActiveAndRecentTodos(state: TaskState, now: number = Date.now()): string {
+	const activeOrPending = state.tasks.filter(
+		(task) => task.status === "in_progress" || task.status === "pending",
+	);
+	const recentDoneOrBlocked = state.tasks.filter(
+		(task) =>
+			(task.status === "completed" || task.status === "blocked") &&
+			task.updatedAt !== undefined &&
+			now - task.updatedAt < COMPLETED_DISPLAY_DURATION_MS,
+	);
+	if (activeOrPending.length === 0 && recentDoneOrBlocked.length === 0) {
+		return "No active or recent todos. Use /todo list to view all.";
+	}
+	const lines: string[] = [];
+	if (activeOrPending.length > 0) {
+		lines.push("── Active ──");
+		for (const task of activeOrPending) lines.push(formatTaskLine(task));
+	}
+	if (recentDoneOrBlocked.length > 0) {
+		lines.push("── Recent (last 3m) ──");
+		for (const task of recentDoneOrBlocked) lines.push(formatTaskLine(task));
+	}
+	return lines.join("\n");
 }
 
 function formatTodosCommand(state: TaskState): string {
@@ -532,75 +562,10 @@ function todoToolTuiFooter(
 	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
-function scheduleBlockedHide(current: ActiveTodoRuntime, id: number): void {
-	const timer = setTimeout(() => {
-		if (
-			current.blockedHideTimers.get(id) !== timer ||
-			current.state.tasks.every((task) => task.id !== id || task.status !== "blocked")
-		) {
-			return;
-		}
-		current.blockedQuietTurns.delete(id);
-		current.blockedHideTimers.delete(id);
-		current.widget?.hideBlocked([id]);
-	}, TODO_REMINDER_IDLE_MS);
-	current.blockedHideTimers.set(id, timer);
-}
-
-function reconcileBlockedQuietTurns(
-	current: ActiveTodoRuntime,
-	nextState: TaskState,
-	previousState: TaskState = current.state,
-): void {
-	for (const task of nextState.tasks) {
-		const previous = previousState.tasks.find((candidate) => candidate.id === task.id);
-		if (task.status === "blocked" && previous?.status !== "blocked") {
-			current.blockedQuietTurns.set(task.id, 0);
-			scheduleBlockedHide(current, task.id);
-		}
-		if (task.status !== "blocked") {
-			current.blockedQuietTurns.delete(task.id);
-			const timer = current.blockedHideTimers.get(task.id);
-			if (timer !== undefined) {
-				clearTimeout(timer);
-				current.blockedHideTimers.delete(task.id);
-			}
-		}
-	}
-	for (const id of current.blockedQuietTurns.keys()) {
-		if (!nextState.tasks.some((task) => task.id === id && task.status === "blocked")) {
-			current.blockedQuietTurns.delete(id);
-			const timer = current.blockedHideTimers.get(id);
-			if (timer !== undefined) {
-				clearTimeout(timer);
-				current.blockedHideTimers.delete(id);
-			}
-		}
-	}
-}
-
-/** Advances independent retirement clocks only after effective non-Todo assistant turns. */
-function hideExpiredBlockedTasks(current: ActiveTodoRuntime): void {
-	const expired: number[] = [];
-	for (const [id, quietTurns] of current.blockedQuietTurns) {
-		if (quietTurns + 1 >= 2) {
-			current.blockedQuietTurns.delete(id);
-			const timer = current.blockedHideTimers.get(id);
-			if (timer !== undefined) {
-				clearTimeout(timer);
-				current.blockedHideTimers.delete(id);
-			}
-			expired.push(id);
-		} else {
-			current.blockedQuietTurns.set(id, quietTurns + 1);
-		}
-	}
-	if (expired.length > 0) current.widget?.hideBlocked(expired);
-}
-
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
 	const now = options.now ?? (() => performance.now());
+	const clock = options.clock ?? (() => Date.now());
 	registerToolTuiTrace(pi);
 	const tool = getToolTui(pi).frame(
 		{
@@ -623,18 +588,17 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 				// applyTodo validates the entire candidate batch before returning a new
 				// state. Keep the live state untouched on every error to preserve atomicity.
 				const todoParams = params as TodoParams;
-				const result = applyTodo(current.state, todoParams);
+				const result = applyTodo(current.state, todoParams, clock());
 				if (!result.ok) {
 					const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
 					throw new Error(`${message}\nNo change made.`);
 				}
 				if (result.changed) {
-					const previousState = current.state;
 					current.state = result.state;
-					reconcileBlockedQuietTurns(current, result.state, previousState);
 					current.idleTurns = 0;
 					current.reminderWindowStartedAtMs = now();
 					current.todoChangedThisTurn = true;
+					current.footerController.update(current.state);
 				}
 				const listOperation =
 					todoParams.operations.length === 1 && todoParams.operations[0]?.action === "list"
@@ -660,10 +624,10 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 	registerManagedLoadoutTool(pi, TODO_LOADOUT_REGISTRATION, tool);
 
 	pi.registerCommand(TODO_COMMAND_NAME, {
-		description: "Show todos or suppress one as the user",
+		description: "Manage todos: /todo [list | clear | cancel #ID...]",
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/todos requires interactive mode", "error");
+				ctx.ui.notify("/todo requires interactive mode", "error");
 				return;
 			}
 			const current = active;
@@ -673,42 +637,72 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			}
 			const input = args.trim();
 			if (input === "") {
+				ctx.ui.notify(formatActiveAndRecentTodos(current.state, clock()), "info");
+				return;
+			}
+			const [subcommand, ...rest] = input.split(/\s+/);
+			const sub = subcommand?.toLowerCase();
+			if (sub === "list" && rest.length === 0) {
 				ctx.ui.notify(formatTodosCommand(current.state), "info");
 				return;
 			}
-			const match = /^suppress\s+#?([1-9]\d*)$/i.exec(input);
-			const id = canonicalPositiveInteger(match?.[1]);
-			if (id === undefined) {
-				ctx.ui.notify("Usage: /todos [suppress #ID]", "error");
+			if (sub === "clear" && rest.length === 0) {
+				current.state = freshTaskState();
+				current.idleTurns = 0;
+				current.reminderWindowStartedAtMs = now();
+				current.todoChangedThisTurn = true;
+				current.footerController.update(current.state);
+				pi.appendEntry(TODO_STATE_CUSTOM_TYPE, snapshotFromState(current.state));
+				ctx.ui.notify("Cleared all todos.", "info");
 				return;
 			}
-			const result = suppressTodoByUser(current.state, id);
-			if (!result.ok) {
-				ctx.ui.notify(result.error, "error");
+			if (sub === "cancel") {
+				if (rest.length === 0) {
+					ctx.ui.notify("Usage: /todo cancel #ID...", "error");
+					return;
+				}
+				const rawIdsPart = rest.join(" ").trim();
+				const tokens = rawIdsPart.split(/[\s,]+/).filter(Boolean);
+				const ids: number[] = [];
+				for (const token of tokens) {
+					const idMatch = /^#?([1-9]\d*)$/.exec(token);
+					const id = canonicalPositiveInteger(idMatch?.[1]);
+					if (id === undefined) {
+						ctx.ui.notify(`Invalid task id: ${token}`, "error");
+						return;
+					}
+					ids.push(id);
+				}
+				const result = cancelTodosByUser(current.state, ids, clock());
+				if (!result.ok) {
+					ctx.ui.notify(result.error, "error");
+					return;
+				}
+				if (!result.changed) {
+					ctx.ui.notify("Requested todos are already cancelled", "info");
+					return;
+				}
+				current.state = result.state;
+				current.idleTurns = 0;
+				current.reminderWindowStartedAtMs = now();
+				current.todoChangedThisTurn = true;
+				current.footerController.update(current.state);
+				pi.appendEntry(TODO_STATE_CUSTOM_TYPE, snapshotFromState(current.state));
+				const lines = [
+					`Cancelled ${result.cancelledIds.map((id) => `#${id}`).join(" ")}`,
+					formatTodoGuidance(result.state),
+				];
+				ctx.ui.notify(lines.join("\n"), "info");
 				return;
 			}
-			if (!result.changed) {
-				ctx.ui.notify(`Todo #${id} is already suppressed`, "info");
-				return;
-			}
-			const previousState = current.state;
-			current.state = result.state;
-			reconcileBlockedQuietTurns(current, result.state, previousState);
-			current.idleTurns = 0;
-			current.reminderWindowStartedAtMs = now();
-			current.todoChangedThisTurn = true;
-			current.widget?.refresh(current.state);
-			// Commands do not create a tool result, so persist this user-only state change.
-			pi.appendEntry(TODO_STATE_CUSTOM_TYPE, snapshotFromState(current.state));
-			const lines = [`Suppressed #${id}`, formatTodoGuidance(result.state)];
-			ctx.ui.notify(lines.join("\n"), "info");
+			ctx.ui.notify("Usage: /todo [list | clear | cancel #ID...]", "error");
 		},
 	});
 
 	// These subscriptions intentionally remain feature-owned: reminder timing,
-	// widget retirement, and session-tree semantics are Todo policy, not core
-	// coordination. The ActiveTodoRuntime guard above makes retained Pi handlers
-	// harmless after lifecycle cleanup or /reload.
+	// and session-tree semantics are Todo policy, not core coordination.
+	// The ActiveTodoRuntime guard above makes retained Pi handlers harmless
+	// after lifecycle cleanup or /reload.
 	pi.on("context", async (event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
@@ -753,7 +747,6 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			current.todoChangedThisTurn = false;
 			return;
 		}
-		hideExpiredBlockedTasks(current);
 		if (!activeTodoTask(current.state)) {
 			current.idleTurns = 0;
 			current.reminderWindowStartedAtMs = now();
@@ -761,69 +754,46 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 		}
 		current.idleTurns++;
 	});
-	pi.on("agent_start", async (_event, ctx) => {
-		const current = active;
-		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		current.widget?.hideCompleted();
-	});
 
 	pi.on("session_tree", async (_event, ctx) => {
 		const current = active;
 		if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-		current.state = restoreTodoState(ctx);
-		current.blockedQuietTurns.clear();
-		for (const timer of current.blockedHideTimers.values()) clearTimeout(timer);
-		current.blockedHideTimers.clear();
-		for (const task of current.state.tasks) {
-			if (task.status !== "blocked") continue;
-			current.blockedQuietTurns.set(task.id, 0);
-			scheduleBlockedHide(current, task.id);
-		}
+		current.state = restoreTodoState(ctx, clock());
 		current.idleTurns = 0;
 		current.reminderWindowStartedAtMs = now();
 		current.todoChangedThisTurn = false;
-		current.widget?.hide();
-		current.widget?.refresh(current.state, false);
+		current.footerController.update(current.state);
 	});
 	pi.on("tool_execution_end", async (event, ctx) => {
 		if (event.toolName !== TODO_TOOL_NAME || event.isError) return;
 		try {
 			const current = active;
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) return;
-			current.widget?.refresh(current.state);
+			current.footerController.update(current.state);
 		} catch {
-			// Widget refresh is best-effort; the successful tool result remains renderable.
+			// Footer update is best-effort
 		}
 	});
 
 	return {
 		start(context, signal) {
-			const state = restoreTodoState(context);
+			const state = restoreTodoState(context, clock());
 			const current: ActiveTodoRuntime = {
 				sessionId: context.sessionManager.getSessionId(),
 				state,
 				idleTurns: 0,
 				reminderWindowStartedAtMs: now(),
 				todoChangedThisTurn: false,
-				blockedQuietTurns: new Map(),
-				blockedHideTimers: new Map(),
-				widget: undefined,
+				footerController: createTodoFooterStatusController(context.ui, signal, clock),
 			};
-			current.widget = createTodoWidget(pi, context, signal ?? new AbortController().signal, state);
-			for (const task of state.tasks) {
-				if (task.status !== "blocked") continue;
-				current.blockedQuietTurns.set(task.id, 0);
-				scheduleBlockedHide(current, task.id);
-			}
+			current.footerController.update(state);
 			active = current;
 		},
 		async dispose(sessionId) {
 			const current = active;
 			if (!current || current.sessionId !== sessionId) return;
 			try {
-				for (const timer of current.blockedHideTimers.values()) clearTimeout(timer);
-				current.blockedHideTimers.clear();
-				await current.widget?.dispose();
+				current.footerController.dispose();
 			} finally {
 				// Clear the shared pointer last so in-flight handlers either finish against
 				// their matching session or observe no active runtime on their next event.

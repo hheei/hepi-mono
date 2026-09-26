@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	applyTodo,
+	cancelTodosByUser,
 	freshTaskState,
 	suppressTodoByUser,
 	type TaskState,
@@ -195,8 +196,107 @@ describe("todo model", () => {
 				],
 			},
 			{ nextId: 2, tasks: [{ id: 1, subject: "x", status: "unknown" }] },
+			{
+				nextId: 2,
+				tasks: [{ id: 1, subject: "x", status: "pending", updatedAt: -1 }],
+			},
 		]) {
 			expect(validateTaskState(malformed)).toBeUndefined();
 		}
+	});
+
+	test("tracks updatedAt timestamps on create, update, and auto-advance", () => {
+		const result = applyTodo(
+			freshTaskState(),
+			{ operations: [create("first"), create("second")] },
+			1000,
+		);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.state.tasks[0]?.updatedAt).toBe(1000);
+		expect(result.state.tasks[1]?.updatedAt).toBe(1000);
+
+		const updated = applyTodo(
+			result.state,
+			{ operations: [update(1, { status: "completed" })] },
+			2000,
+		);
+		expect(updated.ok).toBe(true);
+		if (!updated.ok) return;
+		// Task 1 completed at 2000
+		expect(updated.state.tasks[0]?.status).toBe("completed");
+		expect(updated.state.tasks[0]?.updatedAt).toBe(2000);
+		// Task 2 auto-advanced to in_progress at 2000
+		expect(updated.state.tasks[1]?.status).toBe("in_progress");
+		expect(updated.state.tasks[1]?.updatedAt).toBe(2000);
+	});
+
+	test("cancelTodosByUser cancels batch atomically and advances next pending", () => {
+		const initial = stateOf(freshTaskState(), [
+			create("first"),
+			create("second"),
+			create("third"),
+		]).state;
+
+		// Cancel task 1 and 2 in one batch
+		const cancelled = cancelTodosByUser(initial, [1, 2], 3000);
+		expect(cancelled.ok).toBe(true);
+		if (!cancelled.ok) return;
+		expect(cancelled.changed).toBe(true);
+		expect(cancelled.cancelledIds).toEqual([1, 2]);
+		expect(cancelled.state.tasks[0]?.status).toBe("suppressed");
+		expect(cancelled.state.tasks[0]?.updatedAt).toBe(3000);
+		expect(cancelled.state.tasks[1]?.status).toBe("suppressed");
+		expect(cancelled.state.tasks[1]?.updatedAt).toBe(3000);
+		// Task 3 auto-promoted to in_progress
+		expect(cancelled.state.tasks[2]?.status).toBe("in_progress");
+		expect(cancelled.state.tasks[2]?.updatedAt).toBe(3000);
+
+		// Atomic rollback: if any id is invalid or completed, whole batch fails
+		const completedState = stateOf(cancelled.state, [update(3, { status: "completed" })]).state;
+		const failBatch = cancelTodosByUser(completedState, [999, 1]);
+		expect(failBatch.ok).toBe(false);
+		if (failBatch.ok) return;
+		expect(failBatch.error).toBe("Task #999 does not exist");
+		expect(failBatch.state).toBe(completedState);
+
+		const failCompleted = cancelTodosByUser(completedState, [3]);
+		expect(failCompleted.ok).toBe(false);
+		if (failCompleted.ok) return;
+		expect(failCompleted.error).toBe("Task #3 is already completed");
+	});
+
+	test("validates now timestamp in applyTodo and cancelTodosByUser", () => {
+		const state = freshTaskState();
+		expect(applyTodo(state, { operations: [create("Test")] }, NaN)).toEqual({
+			ok: false,
+			state,
+			error: "Invalid timestamp",
+		});
+		expect(applyTodo(state, { operations: [create("Test")] }, -1)).toEqual({
+			ok: false,
+			state,
+			error: "Invalid timestamp",
+		});
+		expect(applyTodo(state, { operations: [create("Test")] }, Infinity)).toEqual({
+			ok: false,
+			state,
+			error: "Invalid timestamp",
+		});
+
+		const created = applyTodo(state, { operations: [create("Test")] }, 1000);
+		expect(created.ok).toBe(true);
+		if (!created.ok) return;
+
+		expect(cancelTodosByUser(created.state, [1], NaN)).toEqual({
+			ok: false,
+			state: created.state,
+			error: "Invalid timestamp",
+		});
+		expect(cancelTodosByUser(created.state, [1], -50)).toEqual({
+			ok: false,
+			state: created.state,
+			error: "Invalid timestamp",
+		});
 	});
 });

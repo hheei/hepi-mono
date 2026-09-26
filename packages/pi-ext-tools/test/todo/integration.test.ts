@@ -72,6 +72,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		Array<(event: Record<string, unknown>, ctx: ExtensionContext) => unknown | Promise<unknown>>
 	>();
 	const notifications: Array<{ message: string; level?: string }> = [];
+	const statuses: Array<{ key: string; text: string | undefined }> = [];
 	const widgets: Array<{ key: string; content: unknown; options?: unknown }> = [];
 	const appended: Array<{ type: "custom"; customType: string; data: unknown }> = [];
 	let branch: unknown[] = [];
@@ -113,6 +114,9 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 			notify(message: string, level?: string) {
 				notifications.push(level === undefined ? { message } : { message, level });
 			},
+			setStatus(key: string, text: string | undefined) {
+				statuses.push({ key, text });
+			},
 			setWidget(key: string, content: unknown, options?: unknown) {
 				widgets.push({ key, content, options });
 			},
@@ -131,6 +135,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		commands,
 		events,
 		notifications,
+		statuses,
 		widgets,
 		appended,
 		setBranch(next: unknown[]) {
@@ -172,7 +177,7 @@ describe("Todo integration", () => {
 		createTodoFeature(host.pi);
 		const tool = host.tools[0]!;
 
-		expect(host.commands.map(({ name }) => name)).toEqual(["todos"]);
+		expect(host.commands.map(({ name }) => name)).toEqual(["todo"]);
 		expect(host.tools.map(({ name }) => name)).toEqual(["todo"]);
 		expect(
 			inventory.map((items) =>
@@ -407,7 +412,7 @@ describe("Todo integration", () => {
 
 	test("executes ordered atomic batches and returns display snapshots", async () => {
 		const host = harness("json");
-		const feature = createTodoFeature(host.pi);
+		const feature = createTodoFeature(host.pi, { clock: () => 1_000 });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
 
@@ -426,8 +431,8 @@ describe("Todo integration", () => {
 		expect(created.content[0]?.text).toBe("Created #1 #2\nin_progress: #1 First.");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
-				{ id: 1, subject: "First", status: "in_progress" },
-				{ id: 2, subject: "Second", status: "pending" },
+				{ id: 1, subject: "First", status: "in_progress", updatedAt: 1_000 },
+				{ id: 2, subject: "Second", status: "pending", updatedAt: 1_000 },
 			],
 			nextId: 3,
 		});
@@ -447,9 +452,9 @@ describe("Todo integration", () => {
 		expect(mixed.content[0]?.text).toBe("Updated #1\nCreated #3\nin_progress: #2 Second.");
 		expect(mixed.details.snapshot).toEqual({
 			tasks: [
-				{ id: 1, subject: "First", status: "blocked" },
-				{ id: 2, subject: "Second", status: "in_progress" },
-				{ id: 3, subject: "Replacement", status: "pending" },
+				{ id: 1, subject: "First", status: "blocked", updatedAt: 1_000 },
+				{ id: 2, subject: "Second", status: "in_progress", updatedAt: 1_000 },
+				{ id: 3, subject: "Replacement", status: "pending", updatedAt: 1_000 },
 			],
 			nextId: 4,
 		});
@@ -592,67 +597,89 @@ describe("Todo integration", () => {
 		expect(listed.content[0]?.text).toBe("◐ #2 Tree state\nin_progress: #2 Tree state.");
 	});
 
-	test("hides blocked work after two later assistant turns without Todo changes", async () => {
-		const host = harness();
-		const feature = createTodoFeature(host.pi);
-		await feature.start(host.runtime);
-		const tool = host.tools[0]!;
-		await tool.execute(
-			"create",
-			{ operations: [{ action: "create", subject: "Blocked" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		const blocked = await tool.execute(
-			"block",
-			{ operations: [{ action: "update", id: 1, status: "blocked" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		expect(blocked.content[0]?.text).toBe("Updated #1\nFinished all todos.");
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-
-		await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
-		await host.emit("turn_end", { message: { role: "assistant", stopReason: "toolUse" } });
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-		await host.emit("turn_end", { message: { role: "assistant", stopReason: "stop" } });
-		expect(host.widgets.at(-1)?.content).toBeUndefined();
-	});
-
-	test("hides blocked work after the grace period without another assistant turn", async () => {
+	test("updates footer status on task status transitions and hides after window expires", async () => {
 		vi.useFakeTimers();
 		const host = harness();
-		const feature = createTodoFeature(host.pi);
+		let clock = 100_000;
+		const feature = createTodoFeature(host.pi, { clock: () => clock });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
+
+		// Initially empty -> status undefined
+		expect(host.statuses.at(-1)?.text).toBeUndefined();
+
+		// Create active task -> ◐ #1 Work
 		await tool.execute(
 			"create",
-			{ operations: [{ action: "create", subject: "Blocked" }] },
+			{ operations: [{ action: "create", subject: "Work" }] },
 			undefined,
 			undefined,
 			host.ctx,
 		);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		await tool.execute(
-			"block",
-			{ operations: [{ action: "update", id: 1, status: "blocked" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-		expect(vi.getTimerCount()).toBeGreaterThan(0);
+		expect(host.statuses.at(-1)?.text).toBe("◐ #1 Work");
 
-		vi.advanceTimersByTime(TODO_REMINDER_IDLE_MS - 1);
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-		vi.advanceTimersByTime(1);
-		expect(vi.getTimerCount()).toBe(0);
-		expect(host.widgets.at(-1)?.content).toBeUndefined();
+		// Complete task -> ✓ #1 Work
+		await tool.execute(
+			"complete",
+			{ operations: [{ action: "update", id: 1, status: "completed" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(host.statuses.at(-1)?.text).toBe("✓ #1 Work");
+
+		// After 3 minutes, completed task expires -> undefined
+		clock += 3 * 60 * 1000 + 1;
+		vi.advanceTimersByTime(3 * 60 * 1000 + 1);
+		expect(host.statuses.at(-1)?.text).toBeUndefined();
+
+		// Create another and block it -> ⊘ #2 Blocked
+		await tool.execute(
+			"create2",
+			{ operations: [{ action: "create", subject: "Blocked task", status: "blocked" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(host.statuses.at(-1)?.text).toBe("⊘ #2 Blocked task");
+
+		// After 15 seconds, blocked task expires -> undefined
+		clock += 15 * 1000 + 1;
+		vi.advanceTimersByTime(15 * 1000 + 1);
+		expect(host.statuses.at(-1)?.text).toBeUndefined();
+
+		// Create two tasks: #3 and #4
+		clock += 1000;
+		await tool.execute(
+			"create-multi",
+			{
+				operations: [
+					{ action: "create", subject: "First step" },
+					{ action: "create", subject: "Second step" },
+				],
+			},
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		expect(host.statuses.at(-1)?.text).toBe("◐ #3 First step");
+
+		// Complete #3 -> #4 auto-advances to in_progress
+		clock += 1000;
+		await tool.execute(
+			"complete-first",
+			{ operations: [{ action: "update", id: 3, status: "completed" }] },
+			undefined,
+			undefined,
+			host.ctx,
+		);
+		// Shows completed #3 for 15 seconds even though #4 is in_progress
+		expect(host.statuses.at(-1)?.text).toBe("✓ #3 First step");
+
+		// After 15 seconds, transitions to in_progress #4
+		clock += 15 * 1000 + 1;
+		vi.advanceTimersByTime(15 * 1000 + 1);
+		expect(host.statuses.at(-1)?.text).toBe("◐ #4 Second step");
 	});
 
 	test("injects a transient repeating reminder after turn and time thresholds", async () => {
@@ -744,8 +771,8 @@ describe("Todo integration", () => {
 			(await host.emit("context", { messages: [{ role: "user", content: "too soon" }] }))[0],
 		).toBeUndefined();
 
-		await host.commands[0]!.handler("suppress #1", host.ctx);
-		await host.commands[0]!.handler("suppress #2", host.ctx);
+		await host.commands[0]!.handler("cancel #1", host.ctx);
+		await host.commands[0]!.handler("cancel #2", host.ctx);
 		clock += TODO_REMINDER_IDLE_MS;
 		for (let turn = 0; turn < TODO_REMINDER_IDLE_TURNS; turn++) {
 			await host.emit("turn_start");
@@ -756,43 +783,10 @@ describe("Todo integration", () => {
 		).toBeUndefined();
 	});
 
-	test("shows completed rendering until the next agent start without clearing state or ids", async () => {
+	test("supports /todo subcommands: default, list, clear, and cancel", async () => {
 		const host = harness();
-		const feature = createTodoFeature(host.pi);
-		await feature.start(host.runtime);
-		const tool = host.tools[0]!;
-		await tool.execute(
-			"complete",
-			{
-				operations: [
-					{ action: "create", subject: "Done" },
-					{ action: "update", id: 1, status: "completed" },
-				],
-			},
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-		await host.emit("agent_start");
-		expect(host.widgets.at(-1)?.content).toBeUndefined();
-		const created = await tool.execute(
-			"next",
-			{ operations: [{ action: "create", subject: "Next" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		expect(created.details.snapshot.tasks.map(({ id }) => id)).toEqual([1, 2]);
-		expect(created.details.snapshot.nextId).toBe(3);
-		await host.emit("tool_execution_end", { toolName: TODO_TOOL_NAME, isError: false });
-		expect(typeof host.widgets.at(-1)?.content).toBe("function");
-	});
-
-	test("lets the user suppress a task and makes it immutable to the agent", async () => {
-		const host = harness();
-		const feature = createTodoFeature(host.pi);
+		const clock = 100_000;
+		const feature = createTodoFeature(host.pi, { clock: () => clock });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
 		await tool.execute(
@@ -807,20 +801,46 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
+
+		// /todo (default: active + recent)
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[0]).toEqual({
+			message: "── Active ──\n◐ #1 Working\n○ #2 Pending",
+			level: "info",
+		});
+
+		// /todo list (all) - case-insensitive
+		await host.commands[0]!.handler("LIST", host.ctx);
+		expect(host.notifications[1]).toEqual({
 			message: "0/2 completed\n── In Progress ──\n◐ #1 Working\n── Pending ──\n○ #2 Pending",
 			level: "info",
 		});
-		await host.commands[0]!.handler("extra", host.ctx);
-		expect(host.notifications[1]).toEqual({
-			message: "Usage: /todos [suppress #ID]",
+
+		// /todo invalid / pseudo-cancel command does not match cancel prefix
+		await host.commands[0]!.handler("cancelXYZ", host.ctx);
+		expect(host.notifications[2]).toEqual({
+			message: "Usage: /todo [list | clear | cancel #ID...]",
 			level: "error",
 		});
 
-		await host.commands[0]!.handler("suppress #1", host.ctx);
-		expect(host.notifications[2]).toEqual({
-			message: "Suppressed #1\nin_progress: #2 Pending.",
+		// /todo list extra tokens
+		await host.commands[0]!.handler("list extra", host.ctx);
+		expect(host.notifications[3]).toEqual({
+			message: "Usage: /todo [list | clear | cancel #ID...]",
+			level: "error",
+		});
+
+		// /todo cancel with no args
+		await host.commands[0]!.handler("cancel", host.ctx);
+		expect(host.notifications[4]).toEqual({
+			message: "Usage: /todo cancel #ID...",
+			level: "error",
+		});
+
+		// /todo cancel #1 - case-insensitive
+		await host.commands[0]!.handler("Cancel #1", host.ctx);
+		expect(host.notifications[5]).toEqual({
+			message: "Cancelled #1\nin_progress: #2 Pending.",
 			level: "info",
 		});
 		expect(host.appended).toEqual([
@@ -829,14 +849,15 @@ describe("Todo integration", () => {
 				customType: "pi-ext-tools:todo:state",
 				data: {
 					tasks: [
-						{ id: 1, subject: "Working", status: "suppressed" },
-						{ id: 2, subject: "Pending", status: "in_progress" },
+						{ id: 1, subject: "Working", status: "suppressed", updatedAt: 100_000 },
+						{ id: 2, subject: "Pending", status: "in_progress", updatedAt: 100_000 },
 					],
 					nextId: 3,
 				},
 			},
 		]);
 
+		// Cannot modify cancelled/suppressed task by agent
 		let failure: unknown;
 		try {
 			await tool.execute(
@@ -851,40 +872,25 @@ describe("Todo integration", () => {
 		}
 		expect(failure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
 
-		let deleteFailure: unknown;
-		try {
-			await tool.execute(
-				"delete-suppressed",
-				{ operations: [{ action: "delete", id: 1 }] },
-				undefined,
-				undefined,
-				host.ctx,
-			);
-		} catch (error) {
-			deleteFailure = error;
-		}
-		expect(deleteFailure).toEqual(new Error("Task #1 is suppressed.\nNo change made."));
+		// /todo clear
+		await host.commands[0]!.handler("clear", host.ctx);
+		expect(host.notifications.at(-1)).toEqual({
+			message: "Cleared all todos.",
+			level: "info",
+		});
+		expect(host.statuses.at(-1)?.text).toBeUndefined();
 
-		const created = await tool.execute(
-			"replacement",
-			{ operations: [{ action: "create", subject: "Replacement" }] },
-			undefined,
-			undefined,
-			host.ctx,
-		);
-		expect(created.content[0]?.text).toBe("Created #3\nin_progress: #2 Pending.");
-		await host.emit("session_tree");
+		// /todo after clear
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications.at(-1)).toEqual({
-			message:
-				"0/1 completed\n── In Progress ──\n◐ #2 Pending\n── Suppressed ──\n× #1 Working  user suppressed",
+			message: "No active or recent todos. Use /todo list to view all.",
 			level: "info",
 		});
 	});
 
 	test("accepts optional status in create operations", async () => {
 		const host = harness("json");
-		const feature = createTodoFeature(host.pi, { now: () => 1_000 });
+		const feature = createTodoFeature(host.pi, { now: () => 1_000, clock: () => 1_000 });
 		await feature.start(host.runtime);
 		const tool = host.tools[0]!;
 
@@ -903,8 +909,8 @@ describe("Todo integration", () => {
 		expect(created.content[0]?.text).toBe("Created #1 #2\nin_progress: #1 Initial Active.");
 		expect(created.details.snapshot).toEqual({
 			tasks: [
-				{ id: 1, subject: "Initial Active", status: "in_progress" },
-				{ id: 2, subject: "Initial Pending", status: "pending" },
+				{ id: 1, subject: "Initial Active", status: "in_progress", updatedAt: 1_000 },
+				{ id: 2, subject: "Initial Pending", status: "pending", updatedAt: 1_000 },
 			],
 			nextId: 3,
 		});
