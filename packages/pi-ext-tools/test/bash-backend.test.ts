@@ -165,7 +165,8 @@ test("bash exposes only async use guidance", (): void => {
 	expect(bash.description).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
-		"Use `async` only for finite commands that may outlive this tool call.",
+		"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
+		"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
 		"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 	]);
 });
@@ -650,6 +651,7 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 			const state: FffRuntimeState = {
 				getRuntime: () => undefined,
 				getSettings: () => DEFAULT_FFF_SETTINGS,
+				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => runtime,
 			};

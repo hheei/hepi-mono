@@ -146,9 +146,22 @@ Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，�
 ### Extension-owned async Bash
 
 `bash` 可显式接受 `async: true`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
-session-scoped background job，并立即返回 opaque job id。已确认的后续设计是：任务进入终态后，extension
-通过 Pi host 的 custom message 主动把 job id、终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，
-但不触发新的 agent turn，使主 session 无需轮询即可查看完成结果而不产生非请求的模型工作。
+session-scoped background job，并在 `AsyncTaskRegistry` 中登记为一个 model-visible task，立即返回 `bash-N`。
+任务进入终态后，extension 通过 Pi host 的 custom message（`pi-ext-tools:task-terminal`）把 task id、终态、
+截断标记和有限 tail 放入当前 session；消息持久化并显示，但**不触发**新的 agent turn。async job 不绑定原 tool
+call 的 AbortSignal，工具调用返回后任务继续运行。
+
+Task-control 契约（`src/tasks/registry.ts`）是唯一的状态源：
+
+- id 按 family 单调分配（`bash-1`、`bash-2`…），每个 session 从 1 开始，不持久化。
+- 一次终态只投递一条 completion message；`wait_tasks` 与 completion delivery 不重复注入。
+- registry 只负责 id、状态、一次性投递与 list/wait/stop 查询；进程 spawn、输出 tail、取消
+  仍由 producer 拥有（Bash 即 `BashJobRegistry`），registry 不执行也不调度。
+- 终态记录保留最近 64 条，更早的终态 task 不再可查询，避免长 session 无界增长。
+
+模型可见的控制面只有三个工具：`list_tasks({ includeTerminal? })`、`wait_tasks({ ids })`、
+`stop_tasks({ ids })`。单任务操作使用单元素 `ids` 数组。`wait_tasks` 是一个 barrier：只在下一步确实需要结果时调用；
+host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 只发出取消请求，最终状态仍由一致路径的 completion delivery 报告。
 
 后台任务完成消息带有限 tail 与截断状态，完整内容绝不内联。
 

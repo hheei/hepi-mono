@@ -67,10 +67,10 @@ function evalMutationGuideline(catalog: EditCatalog): string {
 
 function evalNestedGuideline(catalog: EditCatalog): string {
 	if (catalog === "apply_patch")
-		return "eval: nested tools are read, grep, find, foreground bash, and apply_patch. No eval, wait, bash_job, or other extension tools. Nested bash rejects async.";
+		return "eval: nested tools are read, grep, find, foreground bash, and apply_patch. No eval, wait, or other extension tools. Nested bash rejects async.";
 	if (catalog === "none")
-		return "eval: nested tools are read, grep, find, and foreground bash. No file-mutation tools, eval, wait, bash_job, or other extension tools. Nested bash rejects async.";
-	return "eval: nested tools are read, grep, find, foreground bash, edit, and write. No eval, wait, bash_job, or other extension tools. Nested bash rejects async.";
+		return "eval: nested tools are read, grep, find, and foreground bash. No file-mutation tools, eval, wait, or other extension tools. Nested bash rejects async.";
+	return "eval: nested tools are read, grep, find, foreground bash, edit, and write. No eval, wait, or other extension tools. Nested bash rejects async.";
 }
 
 export const EVAL_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {

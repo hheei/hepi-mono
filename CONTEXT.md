@@ -142,7 +142,7 @@ The ordered model-visible execution record for one Eval: printed text, Nested To
 _Avoid_: TUI trace, details payload
 
 **Eval Nested Catalog Policy**:
-The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes bash_job, Eval, wait, Magic Context, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval, wait, and Magic Context. The kernel never reads the Pi registry.
+The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes the task-control tools, Eval, wait, Magic Context, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval, wait, and Magic Context. The kernel never reads the Pi registry.
 _Avoid_: Pi registry, all active tools, hardcoded kernel catalog
 
 **Eval Tool Error**:
