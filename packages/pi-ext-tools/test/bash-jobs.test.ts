@@ -18,7 +18,7 @@ import {
 	MAX_TASK_MESSAGE_CHARS,
 	TASK_TERMINAL_CUSTOM_TYPE,
 } from "../src/tasks/registry.js";
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { framedHost, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 const registries: BashJobRegistry[] = [];
@@ -404,10 +404,9 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 
 test("renders task tool headers inside narrow terminal widths", async (): Promise<void> => {
 	const tasks = tracked(new AsyncTaskRegistry());
-	const host = toolHost();
-	const tui = createToolTui();
-	registerTaskTools(host.pi, runtimeState(tasks), tui);
-	const wait = toolFor(host.tools, "wait_tasks");
+	const { pi, tools, tui } = framedHost();
+	registerTaskTools(pi, runtimeState(tasks), tui);
+	const wait = toolFor(tools, "wait_tasks");
 	for (const context of [
 		{ isPartial: true, executionStarted: false, expanded: false },
 		{ isPartial: false, executionStarted: true, expanded: false },
@@ -616,10 +615,9 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 	initTheme("dark");
 	const tasks = tracked(new AsyncTaskRegistry());
 	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
-	const host = toolHost();
-	const tui = createToolTui();
-	registerBashTool(host.pi, state, tui);
-	const bash = toolFor(host.tools, "bash");
+	const { pi, tools, tui } = framedHost();
+	registerBashTool(pi, state, tui);
+	const bash = toolFor(tools, "bash");
 
 	const res = await runTool(bash, "bash-tui-auto-async", {
 		command: 'node -e "setTimeout(() => {}, 200)"',

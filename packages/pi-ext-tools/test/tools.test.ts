@@ -9,13 +9,13 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
-import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
 import { startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "../src/tools.js";
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { framedHost, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
 
 const temporaryPaths: string[] = [];
@@ -641,10 +641,9 @@ describe("pi-ext-tools catalog", () => {
 		initTheme("dark");
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "before\n", "utf8");
-		const host = toolHost();
-		const tui = createToolTui();
-		registerTools(host.pi, undefined, tui);
-		const edit = toolFor(host.tools, "edit");
+		const { pi, tools, tui } = framedHost();
+		registerTools(pi, undefined, tui);
+		const edit = toolFor(tools, "edit");
 		const args = { path: "value.txt", edits: [{ oldText: "before", newText: "after" }] };
 		const ui = { requestRender: (): void => undefined } as unknown as TUI;
 		const component = new ToolExecutionComponent(

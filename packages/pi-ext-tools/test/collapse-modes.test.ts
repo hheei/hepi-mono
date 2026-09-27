@@ -12,7 +12,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { AUTO_COLLAPSE_DELAY_MS, createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { registerTools } from "../src/tools.js";
-import { mountTool, toolFor, toolHost } from "./fixtures/harness.js";
+import { framedHost, mountTool, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 const BODY_LINE = "readable body line 30";
@@ -66,10 +66,9 @@ async function mounted(
 /** The tool frames the extension registers, plus the ToolTui they were framed with. */
 function registeredTools(): { readonly tools: readonly ToolDefinition[]; readonly tui: ToolTui } {
 	initTheme("dark");
-	const tui = createToolTui();
-	const host = toolHost(["read"]);
-	registerTools(host.pi, undefined, tui);
-	return { tools: host.tools, tui };
+	const { pi, tools, tui } = framedHost(["read"]);
+	registerTools(pi, undefined, tui);
+	return { tools, tui };
 }
 
 function rendered(component: ToolExecutionComponent): string {

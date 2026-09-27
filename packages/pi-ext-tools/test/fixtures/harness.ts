@@ -50,7 +50,7 @@ export function framedHost(
 const silentUi = { requestRender: (): void => undefined } as unknown as TUI;
 
 /** A tool definition in the shape Pi accepts when mounting a call. */
-export type MountedTool = NonNullable<ConstructorParameters<typeof ToolExecutionComponent>[4]>;
+type MountedTool = NonNullable<ConstructorParameters<typeof ToolExecutionComponent>[4]>;
 
 /** Mounts a registered tool the way Pi does: one component per call, at a given cwd. */
 export function mountTool(
