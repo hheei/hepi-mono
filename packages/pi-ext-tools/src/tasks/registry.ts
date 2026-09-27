@@ -213,6 +213,11 @@ export class AsyncTaskRegistry {
 		this.#settle(record, terminal);
 	}
 
+	get(id: string): AsyncTaskSnapshot | undefined {
+		const record = this.#records.get(id);
+		return record === undefined ? undefined : snapshot(record);
+	}
+
 	list(includeTerminal = false): readonly AsyncTaskSnapshot[] {
 		return [...this.#records.values()]
 			.filter((record) => includeTerminal || record.status === "running")
