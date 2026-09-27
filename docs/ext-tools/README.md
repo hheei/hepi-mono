@@ -181,7 +181,8 @@ async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 P
 
 ## FFF enhancement
 
-FFF runtime、commands、autocomplete 与 settings 都在本 package 的 `src/fff/`。session start 读取 settings snapshot、
+FFF runtime、commands、autocomplete 与 settings 都在本 package 的 `src/fff/`。命令面只有 `/fff status` 与 `/fff reindex`；
+session start 读取 settings snapshot、
 创建 session-scoped runtime、注册 settings/autocomplete，并异步 warm index；shutdown/reload 通过 lifecycle resources
 dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
 

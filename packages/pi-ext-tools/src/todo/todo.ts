@@ -1,6 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { getToolTui, registerManagedLoadoutTool, registerToolTuiTrace } from "@hheei/pi-ext-core";
+import {
+	getToolTui,
+	registerManagedLoadoutTool,
+	registerToolTuiTrace,
+	subcommandCompletions,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	COMPLETED_DISPLAY_DURATION_MS,
@@ -625,6 +630,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 
 	pi.registerCommand(TODO_COMMAND_NAME, {
 		description: "Manage todos: /todo [list | clear | cancel #ID...]",
+		getArgumentCompletions: subcommandCompletions(["list", "clear", "cancel"]),
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("/todo requires interactive mode", "error");
