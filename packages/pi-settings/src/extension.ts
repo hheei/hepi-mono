@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Skill } from "@earendil-works/pi-coding-agent";
 import {
-	getDisabledSkillKeys,
 	getRuntimeSettingsRegistry,
+	isSkillEnabled,
 	openExtensionPageRouter,
 	registerExtensionLifecycle,
 	registerExtensionPage,
@@ -19,25 +19,9 @@ interface ActiveSettingsSession {
 /** Loadout is a page of the Settings router, so this is the only command surface. */
 const SETTINGS_COMMAND = "ext-settings";
 
-const AVAILABLE_SKILLS_SECTION =
-	/\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
-const AVAILABLE_SKILL_ENTRY =
-	/\n {2}<skill>\n {4}<name>([^<\n]+)<\/name>\n[\s\S]*?\n {2}<\/skill>/g;
-
-/** Pi exposes generated skill XML, so filter only the documented skill entries before each turn. */
-export function filterDisabledSkillsFromSystemPrompt(
-	systemPrompt: string,
-	disabledSkillKeys: ReadonlySet<string>,
-): string {
-	if (disabledSkillKeys.size === 0) return systemPrompt;
-	const section = systemPrompt.match(AVAILABLE_SKILLS_SECTION)?.[0];
-	if (section === undefined) return systemPrompt;
-	const filtered = section.replace(AVAILABLE_SKILL_ENTRY, (entry, name: string) =>
-		disabledSkillKeys.has(`skill:${name}`) ? "" : entry,
-	);
-	return filtered.includes("\n  <skill>")
-		? systemPrompt.replace(section, filtered)
-		: systemPrompt.replace(section, "");
+/** Keeps the skills Loadout still enables; Pi renders the skill section from this list. */
+export function filterEnabledSkills(pi: ExtensionAPI, skills: readonly Skill[]): Skill[] {
+	return skills.filter((skill) => isSkillEnabled(pi, skill.name));
 }
 
 /** Owns Settings and Loadout policy plus their two direct page-router entries. */
@@ -46,11 +30,10 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 	const loadout = createLoadoutEngine(pi);
 	pi.on("before_agent_start", (event) => {
 		if (active === undefined || active.signal.aborted) return;
-		const systemPrompt = filterDisabledSkillsFromSystemPrompt(
-			event.systemPrompt,
-			getDisabledSkillKeys(pi),
-		);
-		return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
+		const skills = event.systemPromptOptions.skills;
+		const enabled = filterEnabledSkills(pi, skills);
+		// Pi builds the skill section from this list, so a disabled skill never reaches the prompt.
+		if (enabled.length !== skills.length) event.systemPromptOptions.skills = enabled;
 	});
 	const openSettings = async (
 		initialPageId: string | undefined,

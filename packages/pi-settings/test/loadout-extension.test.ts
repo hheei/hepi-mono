@@ -1,46 +1,33 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Skill } from "@earendil-works/pi-coding-agent";
+import { setDisabledSkillKeys } from "@hheei/pi-ext-core";
 import { expect, test } from "vitest";
-import {
-	filterDisabledSkillsFromSystemPrompt,
-	default as piSettingsExtension,
-} from "../src/extension.js";
+import { filterEnabledSkills, default as piSettingsExtension } from "../src/extension.js";
 
 type CommandHandler = (args: string, context: ExtensionCommandContext) => Promise<void>;
 
-const SKILLS_PROMPT = `Before
+function skill(name: string): Skill {
+	return {
+		name,
+		description: `${name} skill.`,
+		filePath: `/skills/${name}/SKILL.md`,
+		baseDir: `/skills/${name}`,
+		sourceInfo: {
+			path: `/skills/${name}/SKILL.md`,
+			source: "skills",
+			scope: "user",
+			origin: "package",
+		},
+		disableModelInvocation: false,
+	};
+}
 
-The following skills provide specialized instructions for specific tasks.
-Use the read tool to load a skill's file when the task matches its description.
-When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.
-
-<available_skills>
-  <skill>
-    <name>enabled</name>
-    <description>Enabled skill.</description>
-    <location>/skills/enabled/SKILL.md</location>
-  </skill>
-  <skill>
-    <name>disabled</name>
-    <description>Disabled skill.</description>
-    <location>/skills/disabled/SKILL.md</location>
-  </skill>
-</available_skills>
-After`;
-
-test("removes Loadout-disabled skills from Pi's available-skills prompt section", () => {
-	const filtered = filterDisabledSkillsFromSystemPrompt(SKILLS_PROMPT, new Set(["skill:disabled"]));
-	expect(filtered).toContain("<name>enabled</name>");
-	expect(filtered).not.toContain("<name>disabled</name>");
-	expect(filtered).toContain("After");
-});
-
-test("removes an empty available-skills prompt section", () => {
-	const filtered = filterDisabledSkillsFromSystemPrompt(
-		SKILLS_PROMPT,
-		new Set(["skill:enabled", "skill:disabled"]),
-	);
-	expect(filtered).not.toContain("<available_skills>");
-	expect(filtered).toBe("Before\nAfter");
+test("keeps only the skills Loadout still enables", () => {
+	const pi = { events: {} } as unknown as ExtensionAPI;
+	setDisabledSkillKeys(pi, ["disabled"]);
+	const enabled = filterEnabledSkills(pi, [skill("enabled"), skill("disabled")]);
+	expect(enabled.map((entry) => entry.name)).toEqual(["enabled"]);
+	// Nothing disabled: the list is passed through unchanged.
+	expect(filterEnabledSkills(pi, [skill("enabled")])).toHaveLength(1);
 });
 
 test("registers /ext-settings only and rejects unavailable command contexts", async () => {
