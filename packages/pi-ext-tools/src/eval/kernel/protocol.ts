@@ -41,7 +41,8 @@ export type ChildToHostMessage =
 			readonly type: "done";
 			readonly cellId: string;
 			readonly ok: true;
-			readonly value: unknown;
+			/** Missing means the cell produced no value at all (for example a bare `print`). */
+			readonly value?: unknown;
 	  }
 	| {
 			readonly type: "done";

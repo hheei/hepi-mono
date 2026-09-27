@@ -259,7 +259,13 @@ def _execute(cell_id: str, code: str) -> None:
         exec(compiled, _NS, _NS)
         value = _NS.pop("__eval_final__", None) if has_value else None
         _wait_capture_idle()
-        send({"type": "done", "cellId": cell_id, "ok": True, "value": clone_value(value)})
+        done: dict[str, Any] = {"type": "done", "cellId": cell_id, "ok": True}
+        # A None value carries no information for the host and would render a bare `null`
+        # row on every print/assignment cell, so omit it the way Python's own displayhook
+        # suppresses None.
+        if value is not None:
+            done["value"] = clone_value(value)
+        send(done)
     except KeyboardInterrupt:
         _wait_capture_idle()
         send({"type": "done", "cellId": cell_id, "ok": False, "error": "Eval was aborted."})

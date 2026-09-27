@@ -181,6 +181,56 @@ describe("ToolExecutionComponent smoke", () => {
 		}
 	});
 
+	test("renders eval output without a null row for value-less cells", async (): Promise<void> => {
+		initTheme("dark");
+		const registered: ToolDefinition[] = [];
+		const pi = {
+			registerTool(tool: ToolDefinition): void {
+				registered.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const state = createEvalRuntimeState();
+		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
+		const tui = createToolTui();
+		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
+		const tool = registered[0]!;
+		const ui = { requestRender: (): void => undefined } as unknown as TUI;
+		const render = async (code: string): Promise<string> => {
+			tui.beginTrace();
+			const component = new ToolExecutionComponent(
+				"eval",
+				`null-row-${code}`,
+				{ code },
+				undefined,
+				tool,
+				ui,
+				process.cwd(),
+			);
+			component.markExecutionStarted();
+			component.updateResult({
+				...(await tool.execute(`null-row-${code}`, { code }, undefined, undefined, {
+					cwd: process.cwd(),
+				} as never)),
+				isError: false,
+			});
+			return stripTerminalSequences(component.render(100).join("\n"));
+		};
+		try {
+			// `print` returns None, so the row would read `null` if the kernel reported it.
+			const printed = await render('print("NO_NULL_MARKER")');
+			expect(printed).toContain("NO_NULL_MARKER");
+			expect(printed).not.toContain("null");
+
+			const assigned = await render("x = 5");
+			expect(assigned).not.toContain("null");
+
+			// A real value is still reported.
+			expect(await render("1 + 1")).toContain("2");
+		} finally {
+			stopRuntime();
+		}
+	});
+
 	test("renders one final bash result after partial updates and invalidations", async (): Promise<void> => {
 		initTheme("dark");
 		const registered: ToolDefinition[] = [];
