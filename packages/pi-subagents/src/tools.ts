@@ -63,9 +63,9 @@ const SPAWN_GUIDELINES = [
 	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
 ] as const;
 const SEND_DESCRIPTION =
-	"Send a steer or follow-up message to one owned child. Do NOT poll get_subagent or list_subagents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
+	"Send a steer or follow-up message to one owned child. You can send to active or finished (done) children; finished children will automatically wake up and resume with their previous session context. Do NOT poll get_subagent or list_subagents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
 const SEND_SNIPPET =
-	"Send a message to one owned child. Reports arrive as pi-subagent-report; do not poll afterwards.";
+	"Send a message to one owned child (auto-resumes if finished). Reports arrive as pi-subagent-report; do not poll afterwards.";
 const GET_DESCRIPTION =
 	"Inspect one owned child: state, mode, summary, usage, and whether the view is live or last-known. Use this when you need current identity or state, not to wait for the child to finish.";
 const LIST_DESCRIPTION =

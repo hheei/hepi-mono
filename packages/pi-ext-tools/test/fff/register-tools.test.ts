@@ -6,7 +6,7 @@ import { inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
-import { DEFAULT_FFF_SETTINGS } from "../../src/fff/settings.js";
+import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
@@ -19,6 +19,26 @@ const noRuntimeStubs = {
 	getBashJobs: (): undefined => undefined,
 	getTargetRuntime: (): undefined => undefined,
 };
+
+/**
+ * An fff runtime state for these tests. The collaborators the tools never reach
+ * come from the stubs above; the caller passes the runtime and settings it is
+ * exercising, and `shellPath` is pinned because the default reads `$SHELL`.
+ */
+function runtimeState(
+	options: {
+		readonly runtime?: ReturnType<FffRuntimeState["getRuntime"]>;
+		readonly settings?: Partial<FffSettings>;
+		readonly targetRuntime?: ReturnType<FffRuntimeState["getTargetRuntime"]>;
+	} = {},
+): FffRuntimeState {
+	return {
+		...noRuntimeStubs,
+		getRuntime: () => options.runtime,
+		getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh", ...options.settings }),
+		getTargetRuntime: () => options.targetRuntime,
+	} satisfies FffRuntimeState;
+}
 
 describe("FFF tool registration", () => {
 	test("preserves Pi grep literal and regex mode semantics", () => {
@@ -82,24 +102,15 @@ describe("FFF tool registration", () => {
 
 	test("joins remote find pages with real newlines and records target details", async () => {
 		const host = toolHost();
-		const state = {
-			...noRuntimeStubs,
-			getRuntime: () => undefined,
-			getSettings: () => ({
-				...DEFAULT_FFF_SETTINGS,
-				shellPath: "sh",
-				grepEnhancement: false,
-				readEnhancement: false,
-				findEnhancement: false,
-			}),
-			getTargetRuntime: () =>
-				({
-					find: async () => [
-						{ path: "a.ts", matchType: "path", score: 2 },
-						{ path: "b.ts", matchType: "fuzzy", score: 1 },
-					],
-				}) as unknown as TargetRuntime,
-		} satisfies FffRuntimeState;
+		const state = runtimeState({
+			settings: { grepEnhancement: false, readEnhancement: false, findEnhancement: false },
+			targetRuntime: {
+				find: async () => [
+					{ path: "a.ts", matchType: "path", score: 2 },
+					{ path: "b.ts", matchType: "fuzzy", score: 1 },
+				],
+			} as unknown as TargetRuntime,
+		});
 		registerFindTool(host.pi, state);
 		const find = toolFor(host.tools, "find");
 		const result = await find.execute(
@@ -140,11 +151,9 @@ describe("FFF tool registration", () => {
 				}),
 			} as never,
 		});
-		const state = {
-			...noRuntimeStubs,
-			getRuntime: () => runtime,
-			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-		} satisfies FffRuntimeState;
+		const state = runtimeState({
+			runtime,
+		});
 		registerFindTool(host.pi, state);
 		const find = toolFor(host.tools, "find");
 
@@ -179,11 +188,9 @@ describe("FFF tool registration", () => {
 				}),
 			} as never,
 		});
-		const state = {
-			...noRuntimeStubs,
-			getRuntime: () => runtime,
-			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-		} satisfies FffRuntimeState;
+		const state = runtimeState({
+			runtime,
+		});
 		registerFindTool(host.pi, state);
 		const find = toolFor(host.tools, "find");
 
@@ -201,31 +208,28 @@ describe("FFF tool registration", () => {
 	test("allows only FFF fuzzy fallback for canonical grep", async () => {
 		const fuzzyPath = `src/${"nested/".repeat(20)}example.ts`;
 		let request: { fuzzyFallbackOnly?: boolean } | undefined;
-		const state = {
-			...noRuntimeStubs,
-			getRuntime: () =>
-				({
-					grepSearch: async (value: { fuzzyFallbackOnly?: boolean }) => {
-						request = value;
-						return {
-							ok: true,
-							value: {
-								items: [
-									{
-										relativePath: fuzzyPath,
-										lineNumber: 4,
-										lineContent: "near needle",
-										matchRanges: [[5, 11]],
-									},
-								],
-								linesTruncated: false,
-								approximate: "fuzzy",
-							},
-						};
-					},
-				}) as never,
-			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-		} satisfies FffRuntimeState;
+		const state = runtimeState({
+			runtime: {
+				grepSearch: async (value: { fuzzyFallbackOnly?: boolean }) => {
+					request = value;
+					return {
+						ok: true,
+						value: {
+							items: [
+								{
+									relativePath: fuzzyPath,
+									lineNumber: 4,
+									lineContent: "near needle",
+									matchRanges: [[5, 11]],
+								},
+							],
+							linesTruncated: false,
+							approximate: "fuzzy",
+						},
+					};
+				},
+			} as never,
+		});
 		const host = toolHost();
 		registerGrepTool(host.pi, state);
 		const grep = toolFor(host.tools, "grep");
@@ -254,11 +258,7 @@ describe("FFF tool registration", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-empty-path-"));
 		try {
 			await writeFile(join(cwd, "needle.ts"), "const needle = true;\n");
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			} satisfies FffRuntimeState;
+			const state = runtimeState();
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -284,17 +284,9 @@ describe("FFF tool registration", () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-regex-hint-"));
 		try {
 			await writeFile(join(cwd, "needle.ts"), "properties: { patch\n");
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({
-					...DEFAULT_FFF_SETTINGS,
-					shellPath: "sh",
-					grepEnhancement: false,
-					readEnhancement: true,
-					findEnhancement: true,
-				}),
-			} satisfies FffRuntimeState;
+			const state = runtimeState({
+				settings: { grepEnhancement: false, readEnhancement: true, findEnhancement: true },
+			});
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -318,11 +310,7 @@ describe("FFF tool registration", () => {
 			await mkdir(join(cwd, "src"));
 			await writeFile(join(cwd, "src/a.ts"), "needle\n");
 			await writeFile(join(cwd, "src/b.ts"), "needle\n");
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			} satisfies FffRuntimeState;
+			const state = runtimeState();
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -366,17 +354,9 @@ describe("FFF tool registration", () => {
 			await mkdir(blocked);
 			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
 			await chmod(blocked, 0o000);
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({
-					...DEFAULT_FFF_SETTINGS,
-					shellPath: "sh",
-					grepEnhancement: false,
-					readEnhancement: true,
-					findEnhancement: true,
-				}),
-			} satisfies FffRuntimeState;
+			const state = runtimeState({
+				settings: { grepEnhancement: false, readEnhancement: true, findEnhancement: true },
+			});
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -411,26 +391,17 @@ describe("FFF tool registration", () => {
 				'{"type":"match","data":{"path":{"text":"visible.txt"},"lines":{"text":"needle\\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}',
 				'{"type":"summary","data":{"stats":{"searches":1}}}',
 			].join("\n");
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({
-					...DEFAULT_FFF_SETTINGS,
-					shellPath: "sh",
-					grepEnhancement: false,
-					readEnhancement: true,
-					findEnhancement: true,
-				}),
-				getTargetRuntime: () =>
-					({
-						validateRemotePath: () => undefined,
-						grep: async () => {
-							throw new RemoteGrepAccessDeniedError(stdout, [
-								"rg: /root: Permission denied (os error 13)",
-							]);
-						},
-					}) as unknown as TargetRuntime,
-			} satisfies FffRuntimeState;
+			const state = runtimeState({
+				settings: { grepEnhancement: false, readEnhancement: true, findEnhancement: true },
+				targetRuntime: {
+					validateRemotePath: () => undefined,
+					grep: async () => {
+						throw new RemoteGrepAccessDeniedError(stdout, [
+							"rg: /root: Permission denied (os error 13)",
+						]);
+					},
+				} as unknown as TargetRuntime,
+			});
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -463,17 +434,9 @@ describe("FFF tool registration", () => {
 			await mkdir(blocked);
 			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
 			await chmod(blocked, 0o000);
-			const state = {
-				...noRuntimeStubs,
-				getRuntime: () => undefined,
-				getSettings: () => ({
-					...DEFAULT_FFF_SETTINGS,
-					shellPath: "sh",
-					grepEnhancement: false,
-					readEnhancement: true,
-					findEnhancement: true,
-				}),
-			} satisfies FffRuntimeState;
+			const state = runtimeState({
+				settings: { grepEnhancement: false, readEnhancement: true, findEnhancement: true },
+			});
 			const host = toolHost();
 			registerGrepTool(host.pi, state);
 			const grep = toolFor(host.tools, "grep");
@@ -502,21 +465,18 @@ describe("FFF tool registration", () => {
 	});
 
 	test("surfaces a grep timeout as a narrow-scope recovery", async () => {
-		const state = {
-			...noRuntimeStubs,
-			getRuntime: () =>
-				({
-					grepSearch: async () => ({
-						ok: true,
-						value: {
-							items: [],
-							linesTruncated: false,
-							timedOut: true,
-						},
-					}),
-				}) as never,
-			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-		} satisfies FffRuntimeState;
+		const state = runtimeState({
+			runtime: {
+				grepSearch: async () => ({
+					ok: true,
+					value: {
+						items: [],
+						linesTruncated: false,
+						timedOut: true,
+					},
+				}),
+			} as never,
+		});
 		const host = toolHost();
 		registerGrepTool(host.pi, state);
 		const grep = toolFor(host.tools, "grep");

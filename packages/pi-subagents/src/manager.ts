@@ -23,6 +23,7 @@ import { createStateProjector, type StateProjector } from "./state.js";
  * latency the check actually needs.
  */
 const HOST_WATCH_INTERVAL_MS = 5_000;
+export const SUBAGENT_IDLE_TIMEOUT_MS = 30_000;
 
 export interface ParentChannelReport {
 	readonly parentSessionId: string;
@@ -97,6 +98,7 @@ export interface ManagerDependencies {
 	readonly connect?: (record: SubagentRecord) => Promise<RunnerLike>;
 	readonly deadlineMs?: number;
 	readonly watchIntervalMs?: number;
+	readonly idleTimeoutMs?: number;
 	readonly channel?: ParentChannel;
 	readonly attachHost?: AttachHost;
 	readonly tokens?: RuntimeTokenStore;
@@ -213,6 +215,7 @@ export class SubagentManager {
 	readonly #chains = new Map<string, Promise<unknown>>();
 	readonly #runners = new Map<string, RunnerLike>();
 	readonly #projectors = new Map<string, StateProjector>();
+	readonly #idleTimers = new Map<string, NodeJS.Timeout>();
 	readonly #stopping = new Set<string>();
 	readonly #frozen = new Set<string>();
 	readonly #attachCancels = new Map<string, AbortController>();
@@ -231,6 +234,84 @@ export class SubagentManager {
 		return () => {
 			this.#listeners.delete(listener);
 		};
+	}
+
+	public dispose(): void {
+		for (const timer of this.#idleTimers.values()) {
+			clearTimeout(timer);
+		}
+		this.#idleTimers.clear();
+	}
+
+	#scheduleIdleHibernate(id: string): void {
+		this.#clearIdleHibernate(id);
+		const timer = setTimeout(() => {
+			this.#idleTimers.delete(id);
+			void this.#hibernate(id).catch((error) => {
+				console.error(`pi-subagents: failed to hibernate idle child ${id}: ${errorMessage(error)}`);
+			});
+		}, this.#deps.idleTimeoutMs ?? SUBAGENT_IDLE_TIMEOUT_MS);
+		timer.unref?.();
+		this.#idleTimers.set(id, timer);
+	}
+
+	#clearIdleHibernate(id: string): void {
+		const timer = this.#idleTimers.get(id);
+		if (timer !== undefined) {
+			clearTimeout(timer);
+			this.#idleTimers.delete(id);
+		}
+	}
+
+	async #hibernate(id: string): Promise<void> {
+		await this.#mutate(id, async () => {
+			const record = await this.#deps.registry.get(id);
+			if (record === undefined || record.state !== "idle" || record.intent === "stopped") {
+				return;
+			}
+			const runner = this.#runners.get(id);
+			if (runner !== undefined) {
+				try {
+					await withDeadline(
+						runner.request("shutdown", undefined),
+						this.#deps.deadlineMs ?? 10_000,
+					).catch(() => undefined);
+				} finally {
+					runner.close();
+					this.#runners.delete(id);
+				}
+			}
+			let sessionPath = record.sessionPath;
+			let persistence = record.persistence;
+			try {
+				const placement = await planSessionPlacement({
+					sessionId: record.sessionId,
+					cwd: record.cwd,
+					sessionDir: record.launchConfig.sessionDir,
+					persistence: record.persistence,
+					...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+				});
+				if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
+					sessionPath = placement.sessionPath;
+					persistence = "flushed";
+				}
+			} catch {
+				// ignore session placement discovery failure
+			}
+			await this.#update(id, (current) => {
+				if (current.state !== "idle" || current.intent === "stopped") return current;
+				return {
+					...current,
+					state: "done",
+					persistence,
+					...(sessionPath === undefined ? {} : { sessionPath }),
+					launchConfig:
+						sessionPath === undefined
+							? current.launchConfig
+							: { ...current.launchConfig, sessionPath },
+				};
+			});
+		});
 	}
 
 	#notify(): void {
@@ -366,34 +447,81 @@ export class SubagentManager {
 		mode: SendMode = "auto",
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
+		this.#clearIdleHibernate(id);
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
 			if (this.#frozen.has(id) || record.mode === "tui")
 				return failure("send", "Child input is frozen for attach", id, record.state);
-			if (
-				record.intent === "stopped" ||
-				record.state === "done" ||
-				record.state === "failed" ||
-				record.state === "stopped"
-			)
+			if (record.intent === "stopped" || record.state === "stopped")
+				return failure("send", "Child is stopped", id, record.state);
+			if (record.state === "failed")
 				return failure("send", "Child is not accepting input", id, record.state);
-			const runner = this.#runners.get(id);
-			if (runner === undefined)
-				return failure("send", "Child runtime is not live", id, record.state, [], true);
-			const state = record.state;
-			const operation =
-				mode === "auto"
+
+			let runner = this.#runners.get(id);
+			let isResumed = false;
+
+			// Auto-Resume: if the child finished/hibernated (done) or runner disconnected, resume it
+			if (runner === undefined || record.state === "done") {
+				let sessionPath = record.sessionPath;
+				let persistence = record.persistence;
+				try {
+					const placement = await planSessionPlacement({
+						sessionId: record.sessionId,
+						cwd: record.cwd,
+						sessionDir: record.launchConfig.sessionDir,
+						persistence: record.persistence,
+						...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+					});
+					if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
+						sessionPath = placement.sessionPath;
+						persistence = "flushed";
+					}
+				} catch {
+					// ignore
+				}
+				const resumedRecord = await this.#update(id, (current) => ({
+					...current,
+					state: "starting",
+					persistence,
+					...(sessionPath === undefined ? {} : { sessionPath }),
+					launchConfig:
+						sessionPath === undefined
+							? current.launchConfig
+							: { ...current.launchConfig, sessionPath },
+				}));
+				try {
+					runner = await withDeadline(
+						this.#deps.launch(resumedRecord),
+						this.#deps.deadlineMs ?? 30_000,
+					);
+					this.#attach(resumedRecord, runner);
+					isResumed = true;
+				} catch (error) {
+					return failure(
+						"send",
+						`Failed to resume subagent: ${errorMessage(error)}`,
+						id,
+						"failed",
+						[],
+						true,
+					);
+				}
+			}
+
+			const state = isResumed ? "starting" : record.state;
+			const operation = isResumed
+				? "prompt"
+				: mode === "auto"
 					? state === "running"
 						? "steer"
-						: state === "idle"
-							? "follow_up"
-							: undefined
+						: "follow_up"
 					: mode;
 			if (operation === undefined)
 				return failure("send", "Cannot infer send mode from unknown state", id, state);
 			const pending = await this.#update(id, (current) => ({
 				...current,
+				state: "running",
 				unacknowledgedInput: message,
 				interrupted:
 					"Input delivery was accepted for dispatch but is not yet confirmed in the session",
@@ -433,6 +561,7 @@ export class SubagentManager {
 	}
 
 	public stop(id: string, signal?: AbortSignal): Promise<OperationError | PublicSubagent> {
+		this.#clearIdleHibernate(id);
 		this.#attachCancels.get(id)?.abort();
 		this.#stopHostWatch(id);
 		return this.#mutate(id, async () => {
@@ -923,6 +1052,7 @@ export class SubagentManager {
 	}
 
 	public closeLocalConnections(): void {
+		this.dispose();
 		for (const id of [...this.#hostWatches.keys()]) this.#stopHostWatch(id);
 		for (const runner of this.#runners.values()) runner.close();
 		this.#runners.clear();
@@ -1038,6 +1168,11 @@ export class SubagentManager {
 				...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
 			};
 		});
+		if (snapshot.state === "idle") {
+			this.#scheduleIdleHibernate(id);
+		} else {
+			this.#clearIdleHibernate(id);
+		}
 	}
 	#attach(record: SubagentRecord, runner: RunnerLike): void {
 		this.#runners.get(record.subagentId)?.close();

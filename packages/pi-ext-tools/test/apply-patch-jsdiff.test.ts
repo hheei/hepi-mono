@@ -1,26 +1,14 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { runJsDiffUpdate } from "../src/apply-patch/jsdiff.js";
 import { acquireMutationLock } from "../src/apply-patch/lock.js";
 import { parseV4aPatch, type V4aUpdateOperation } from "../src/apply-patch/parser.js";
 import { DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
+import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryPaths: string[] = [];
-
-async function temporaryDirectory(): Promise<string> {
-	const path = await mkdtemp(join(tmpdir(), "hepi-apply-patch-jsdiff-"));
-	temporaryPaths.push(path);
-	return path;
-}
-
-afterEach(async (): Promise<void> => {
-	await Promise.all(
-		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
-});
+const temporaryDirectory = temporaryDirectories("hepi-apply-patch-jsdiff-");
 
 function updateOperation(patch: string): V4aUpdateOperation {
 	const parsed = parseV4aPatch(patch).operations[0];

@@ -7,6 +7,38 @@ import {
 import type { TUI } from "@earendil-works/pi-tui";
 import { createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 
+/** The render context Pi hands a tool renderer, with every field it passes. */
+export interface RenderContextInput {
+	readonly args: unknown;
+	readonly toolCallId: string;
+	readonly cwd: string;
+	readonly state?: unknown;
+	readonly executionStarted?: boolean;
+	readonly expanded?: boolean;
+	readonly isPartial?: boolean;
+}
+
+/**
+ * Builds one. Renderers read a few fields each, so tests spread these defaults
+ * and override only what the renderer under test looks at.
+ */
+export function renderContextFor(options: RenderContextInput): never {
+	return {
+		args: options.args,
+		toolCallId: options.toolCallId,
+		invalidate: (): void => undefined,
+		state: options.state ?? {},
+		cwd: options.cwd,
+		executionStarted: options.executionStarted ?? true,
+		argsComplete: true,
+		showImages: false,
+		expanded: options.expanded ?? false,
+		isPartial: options.isPartial ?? false,
+		isError: false,
+		lastComponent: undefined,
+	} as never;
+}
+
 /** A pi double that captures the tools an extension registers. */
 export function toolHost(activeTools: readonly string[] = ["read", "bash", "edit", "write"]): {
 	readonly pi: ExtensionAPI;

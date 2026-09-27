@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type ExtensionContext,
@@ -10,30 +9,19 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import { afterEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
 import { startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "../src/tools.js";
-import { framedHost, toolFor, toolHost } from "./fixtures/harness.js";
+import { framedHost, renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
+import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryPaths: string[] = [];
+const temporaryDirectory = temporaryDirectories("hepi-ext-tools-");
+
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
 const renderCallContext = { isError: false, isPartial: true, lastComponent: undefined } as never;
-const renderCallContextValues = { isError: false, isPartial: true, lastComponent: undefined };
-
-afterEach(async (): Promise<void> => {
-	await Promise.all(
-		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
-});
-
-async function temporaryDirectory(): Promise<string> {
-	const path = await mkdtemp(join(tmpdir(), "hepi-ext-tools-"));
-	temporaryPaths.push(path);
-	return path;
-}
 
 function activate(host: ReturnType<typeof toolHost>, catalog: EditCatalog): void {
 	activateEditCatalog(
@@ -512,38 +500,27 @@ describe("pi-ext-tools catalog", () => {
 		const write = toolFor(host.tools, "write");
 		const args = { path: "value.ts", content: "alpha\nbeta\n" };
 		const state = {};
-		write.renderCall?.(args, plainTheme, {
+		write.renderCall?.(
 			args,
-			toolCallId: "write-preview",
-			invalidate: (): void => undefined,
-			state,
-			cwd,
-			executionStarted: false,
-			argsComplete: true,
-			showImages: false,
-			expanded: false,
-			lastComponent: undefined,
-			isPartial: false,
-			isError: false,
-		} as never);
+			plainTheme,
+			renderContextFor({
+				args,
+				toolCallId: "write-preview",
+				cwd: cwd,
+				state,
+				executionStarted: false,
+			}),
+		);
 		const result = await write.execute("write-preview", args, undefined, undefined, {
 			cwd,
 		} as ExtensionContext);
 		const rendered = write
-			.renderResult?.(result, { isPartial: false, expanded: false }, plainTheme, {
-				args,
-				toolCallId: "write-preview",
-				invalidate: (): void => undefined,
-				state,
-				cwd,
-				executionStarted: true,
-				argsComplete: true,
-				showImages: false,
-				expanded: false,
-				lastComponent: undefined,
-				isPartial: false,
-				isError: false,
-			} as never)
+			.renderResult?.(
+				result,
+				{ isPartial: false, expanded: false },
+				plainTheme,
+				renderContextFor({ args, toolCallId: "write-preview", cwd: cwd, state }),
+			)
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
@@ -578,18 +555,11 @@ describe("pi-ext-tools catalog", () => {
 			},
 		} as unknown as ExtensionContext);
 		const header = edit
-			.renderCall?.(args, roleTheme, {
-				...renderCallContextValues,
+			.renderCall?.(
 				args,
-				toolCallId: "edit-preview",
-				invalidate: (): void => undefined,
-				state: {},
-				cwd,
-				executionStarted: true,
-				argsComplete: true,
-				showImages: false,
-				expanded: false,
-			} as never)
+				roleTheme,
+				renderContextFor({ args, toolCallId: "edit-preview", cwd: cwd, isPartial: true }),
+			)
 			.render(100)
 			.map((line) => line.trimEnd())
 			.join("\n");
@@ -599,20 +569,12 @@ describe("pi-ext-tools catalog", () => {
 		expect(header).not.toContain("+2 -2");
 		expect(header).not.toContain("1 files");
 		const rendered = edit
-			.renderResult?.(result, { isPartial: false, expanded: false }, roleTheme, {
-				args,
-				toolCallId: "edit-preview",
-				invalidate: (): void => undefined,
-				state: {},
-				cwd,
-				executionStarted: true,
-				argsComplete: true,
-				showImages: false,
-				expanded: false,
-				lastComponent: undefined,
-				isPartial: false,
-				isError: false,
-			} as never)
+			.renderResult?.(
+				result,
+				{ isPartial: false, expanded: false },
+				roleTheme,
+				renderContextFor({ args, toolCallId: "edit-preview", cwd: cwd }),
+			)
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
@@ -722,20 +684,12 @@ describe("pi-ext-tools catalog", () => {
 			},
 		};
 		const rendered = edit
-			.renderResult?.(result, { isPartial: false, expanded: true }, plainTheme, {
-				args,
-				toolCallId: "legacy-edit",
-				invalidate: (): void => undefined,
-				state: {},
-				cwd: "/workspace",
-				executionStarted: true,
-				argsComplete: true,
-				showImages: false,
-				expanded: true,
-				lastComponent: undefined,
-				isPartial: false,
-				isError: false,
-			} as never)
+			.renderResult?.(
+				result,
+				{ isPartial: false, expanded: true },
+				plainTheme,
+				renderContextFor({ args, toolCallId: "legacy-edit", cwd: "/workspace", expanded: true }),
+			)
 			.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
 			.join("\n");
@@ -785,20 +739,12 @@ describe("pi-ext-tools catalog", () => {
 			},
 		} as unknown as ExtensionContext);
 		const rows = edit
-			.renderResult?.(result, { isPartial: false, expanded: false }, roleTheme, {
-				args,
-				toolCallId: "edit-clip",
-				invalidate: (): void => undefined,
-				state: {},
-				cwd,
-				executionStarted: true,
-				argsComplete: true,
-				showImages: false,
-				expanded: false,
-				lastComponent: undefined,
-				isPartial: false,
-				isError: false,
-			} as never)
+			.renderResult?.(
+				result,
+				{ isPartial: false, expanded: false },
+				roleTheme,
+				renderContextFor({ args, toolCallId: "edit-clip", cwd: cwd }),
+			)
 			.render(40);
 		if (rows === undefined) throw new Error("edit renderer is missing");
 		const contextRows = rows.filter((line) => stripTerminalSequences(line).includes("keep "));
@@ -1221,20 +1167,7 @@ describe("pi-ext-tools catalog", () => {
 					fg: (_role: string, text: string): string => text,
 					bold: (text: string): string => text,
 				} as Theme,
-				{
-					args,
-					toolCallId: "write-snippet",
-					invalidate: (): void => undefined,
-					state: {},
-					cwd,
-					executionStarted: true,
-					argsComplete: true,
-					showImages: false,
-					expanded: false,
-					lastComponent: undefined,
-					isPartial: false,
-					isError: false,
-				} as never,
+				renderContextFor({ args, toolCallId: "write-snippet", cwd: cwd }),
 			)
 			?.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
@@ -1265,20 +1198,12 @@ describe("pi-ext-tools catalog", () => {
 					fg: (_role: string, text: string): string => text,
 					bold: (text: string): string => text,
 				} as Theme,
-				{
+
+				renderContextFor({
 					args: { path: "value.txt", content: "NEW\n" },
 					toolCallId: "write-legacy",
-					invalidate: (): void => undefined,
-					state: {},
 					cwd: ".",
-					executionStarted: true,
-					argsComplete: true,
-					showImages: false,
-					expanded: false,
-					lastComponent: undefined,
-					isPartial: false,
-					isError: false,
-				} as never,
+				}),
 			)
 			?.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
@@ -1331,20 +1256,12 @@ describe("pi-ext-tools catalog", () => {
 					fg: (_role: string, text: string): string => text,
 					bold: (text: string): string => text,
 				} as Theme,
-				{
+
+				renderContextFor({
 					args: { path: "huge.txt", content: "small\n" },
 					toolCallId: "write-huge",
-					invalidate: (): void => undefined,
-					state: {},
-					cwd,
-					executionStarted: true,
-					argsComplete: true,
-					showImages: false,
-					expanded: false,
-					lastComponent: undefined,
-					isPartial: false,
-					isError: false,
-				} as never,
+					cwd: cwd,
+				}),
 			)
 			?.render(100)
 			.map((line) => stripTerminalSequences(line).trimEnd())
