@@ -13,6 +13,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { DEBUG_LOG_RELATIVE_PATH, withDebugLogContext } from "../src/debug-log.js";
 import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
 import { testModel } from "./fixtures/model.js";
+import { newConfiguredRuntime } from "./fixtures/runtime.js";
 
 /**
  * The ambient-credential outage was invisible for eight weeks partly because the
@@ -44,8 +45,7 @@ describe("resolveModel debug diagnostics", () => {
 	}
 
 	async function resolve(registry: ModelRegistryLike, model: Model<Api>) {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		return withDebugLogContext({ enabled: true }, () =>
 			runtime.resolveModel({ model, modelRegistry: registry, hasUI: false }),
 		);
