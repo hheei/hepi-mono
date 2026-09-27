@@ -105,17 +105,19 @@ function nextRemoteCursor(
 	return cursor;
 }
 
-function excluded(path: string, value: string | string[] | undefined): boolean {
-	const patterns = value === undefined ? [] : Array.isArray(value) ? value : [value];
-	return patterns.some((pattern) => {
+function createExcludePredicate(value: string | string[] | undefined): (path: string) => boolean {
+	if (value === undefined) return () => false;
+	const patterns = (Array.isArray(value) ? value : [value]).filter((p) => p.trim() !== "");
+	if (patterns.length === 0) return () => false;
+	const regexes = patterns.map((pattern) => {
 		let escaped = "";
 		for (const character of pattern) {
 			if ("\\.^$+()[]{}|".includes(character)) escaped += "\\";
 			escaped += character;
 		}
-		const expression = `^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`;
-		return new RegExp(expression, "u").test(path);
+		return new RegExp(`^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`, "u");
 	});
+	return (path: string) => regexes.some((re) => re.test(path));
 }
 
 function rejectWhenAborted(signal: AbortSignal): Promise<never> {
@@ -157,10 +159,11 @@ async function executeFind(
 		if (resumed !== undefined && resumed.target !== params.target)
 			throw new Error("Find cursor belongs to another target.");
 		const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
+		const isExcluded = createExcludePredicate(params.exclude);
 		const candidates =
 			resumed?.candidates ??
 			(await targetRuntime.find(params.target, params.path, params.pattern, signal)).filter(
-				(candidate) => !excluded(candidate.path, params.exclude),
+				(candidate) => !isExcluded(candidate.path),
 			);
 		const pageIndex = resumed?.pageIndex ?? 0;
 		const page = candidates.slice(pageIndex * limit, (pageIndex + 1) * limit);

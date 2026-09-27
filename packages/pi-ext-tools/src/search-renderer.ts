@@ -37,6 +37,12 @@ const FIND_CURSOR = /^cursor:\s+/;
 const EMPTY_FIND_BODY = /^(?:No files found matching pattern)?$/;
 
 function resultText(result: AgentToolResult<unknown>): string {
+	if (result.content.length === 1) {
+		const first = result.content[0];
+		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
+			return (first as { text: string }).text;
+		}
+	}
 	return result.content
 		.filter((part) => part.type === "text")
 		.map((part) => ("text" in part ? part.text : ""))

@@ -89,15 +89,29 @@ function globExpression(pattern: string): RegExp {
 	return new RegExp(`${expression}$`);
 }
 
+export function createExcludeMatcher(
+	exclude: string | readonly string[] | undefined,
+): (path: string) => boolean {
+	const patterns = excludePatterns(exclude);
+	if (patterns.length === 0) return () => false;
+	const matchers = patterns.map((pattern) => {
+		if (pattern.endsWith("/")) {
+			return (normalized: string) => normalized.startsWith(pattern);
+		}
+		const regex = globExpression(pattern);
+		return (normalized: string) => regex.test(normalized);
+	});
+	return (path: string) => {
+		const normalized = (path.includes("\\") ? path.replace(/\\/g, "/") : path).replace(/^\.\//, "");
+		return matchers.some((matcher) => matcher(normalized));
+	};
+}
+
 export function isExcludedPath(
 	path: string,
 	exclude: string | readonly string[] | undefined,
 ): boolean {
-	const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
-	return excludePatterns(exclude).some((pattern) => {
-		if (pattern.endsWith("/")) return normalized.startsWith(pattern);
-		return globExpression(pattern).test(normalized);
-	});
+	return createExcludeMatcher(exclude)(path);
 }
 
 export function filterNativeFindText(
@@ -105,7 +119,8 @@ export function filterNativeFindText(
 	exclude: string | readonly string[] | undefined,
 ): string {
 	if (exclude === undefined) return text;
-	const visible = text.split("\n").filter((line) => line && !isExcludedPath(line, exclude));
+	const isExcluded = createExcludeMatcher(exclude);
+	const visible = text.split("\n").filter((line) => line && !isExcluded(line));
 	return visible.join("\n") || "No files found matching pattern";
 }
 
@@ -114,9 +129,10 @@ export function filterNativeGrepText(
 	exclude: string | readonly string[] | undefined,
 ): string {
 	if (exclude === undefined) return text;
+	const isExcluded = createExcludeMatcher(exclude);
 	const visible = text.split("\n").filter((line) => {
 		const match = line.match(/^(.*?)(?::|-)(\d+)(?::|-)/);
-		return match === null || !isExcludedPath(match[1] ?? "", exclude);
+		return match === null || !isExcluded(match[1] ?? "");
 	});
 	return visible.join("\n") || "No matches found.";
 }
