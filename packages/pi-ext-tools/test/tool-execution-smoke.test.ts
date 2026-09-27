@@ -29,6 +29,20 @@ function outputOccurrences(component: ToolExecutionComponent, output: string): n
 	return stripTerminalSequences(component.render(100).join("\n")).split(output).length - 1;
 }
 
+/**
+ * Counts rendered lines that consist of exactly `output`.
+ *
+ * Substring counting cannot be used for numeric output: the eval footer renders
+ * `<duration>ms`, so an eval that happens to take 42ms makes "42" appear twice without
+ * any duplicated body. Loaded machines stretch the cold-kernel startup into the 40ms
+ * range, which made that assertion flake.
+ */
+function outputLines(component: ToolExecutionComponent, output: string): number {
+	return stripTerminalSequences(component.render(100).join("\n"))
+		.split("\n")
+		.filter((line) => line.trim() === output).length;
+}
+
 function framedBody(component: ToolExecutionComponent): readonly string[] {
 	const lines = stripTerminalSequences(component.render(100).join("\n")).split("\n");
 	const openingRail = lines.findIndex((line) => line.includes("─"));
@@ -95,10 +109,10 @@ describe("ToolExecutionComponent smoke", () => {
 				cwd: process.cwd(),
 			} as never);
 			component.updateResult({ ...result, isError: false });
-			expect(outputOccurrences(component, "42")).toBe(1);
+			expect(outputLines(component, "42")).toBe(1);
 			component.invalidate();
 			component.invalidate();
-			expect(outputOccurrences(component, "42")).toBe(1);
+			expect(outputLines(component, "42")).toBe(1);
 
 			tui.beginTrace();
 			const resumed = new ToolExecutionComponent(
@@ -112,7 +126,7 @@ describe("ToolExecutionComponent smoke", () => {
 			);
 			resumed.setExpanded(true);
 			resumed.updateResult({ ...result, isError: false });
-			expect(outputOccurrences(resumed, "42")).toBe(1);
+			expect(outputLines(resumed, "42")).toBe(1);
 		} finally {
 			stopRuntime();
 		}
@@ -156,12 +170,12 @@ describe("ToolExecutionComponent smoke", () => {
 			);
 			if (partial === undefined) throw new Error("Expected eval partial output");
 			component.updateResult({ ...partial, isError: false }, true);
-			expect(outputOccurrences(component, "42")).toBe(1);
+			expect(outputLines(component, "42")).toBe(1);
 			component.updateResult({ ...final, isError: false });
-			expect(outputOccurrences(component, "42")).toBe(1);
+			expect(outputLines(component, "42")).toBe(1);
 			component.invalidate();
 			component.invalidate();
-			expect(outputOccurrences(component, "42")).toBe(1);
+			expect(outputLines(component, "42")).toBe(1);
 		} finally {
 			stopRuntime();
 		}
@@ -778,7 +792,7 @@ describe("ToolExecutionComponent smoke", () => {
 		if (tool === undefined) throw new Error("todo tool was not registered");
 		const context = {
 			mode: "json",
-			ui: { notify(): void {}, setWidget(): void {} },
+			ui: { notify(): void {}, setWidget(): void {}, setStatus(): void {} },
 			sessionManager: { getSessionId: () => "todo-host-smoke", getBranch: () => [] },
 		} as never;
 		await feature.start(context);
