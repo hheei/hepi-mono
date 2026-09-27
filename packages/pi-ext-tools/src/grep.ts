@@ -1,7 +1,14 @@
 import { spawn } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
+import {
+	createToolTui,
+	errorMessage,
+	registerManagedTool,
+	runCommand,
+	type ToolTui,
+	throwIfAborted,
+} from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { inferFffGrepMode } from "./fff/extension-common.js";
 import type { GrepMatch } from "./fff/fff.js";
@@ -158,10 +165,6 @@ type FullOutput = {
 	readonly text: string;
 	readonly eventLines: ReadonlyMap<GrepEvent, number>;
 };
-
-function abortIfNeeded(signal: AbortSignal | undefined): void {
-	if (signal?.aborted) throw new Error("Operation aborted");
-}
 
 function normalizedLimit(limit: number | undefined): number {
 	return Math.max(1, Math.min(Math.floor(limit ?? DEFAULT_LIMIT), MAX_ROWS));
@@ -587,66 +590,30 @@ async function runRg(
 	if (context > 0) args.push("--context", String(context));
 	args.push("--", params.pattern);
 	if (outputText === undefined) args.push(params.path ?? ".");
-	const collected = await new Promise<{
-		stdout: string;
-		timedOut: boolean;
-		incomplete?: GrepIncomplete;
-	}>((resolveOutput, reject) => {
-		abortIfNeeded(signal);
-		const child = spawn("rg", args, {
-			cwd,
-			stdio: [outputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-		});
-		const output: Buffer[] = [];
-		const errorOutput: Buffer[] = [];
-		let aborted = false;
-		let timedOut = false;
-		const onAbort = () => {
-			aborted = true;
-			child.kill();
-		};
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill();
-		}, SEARCH_TIMEOUT_MS);
-		signal?.addEventListener("abort", onAbort, { once: true });
-		const finish = (fn: () => void): void => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			fn();
-		};
-		child.stdout?.on("data", (chunk: Buffer) => output.push(chunk));
-		child.stderr?.on("data", (chunk: Buffer) => errorOutput.push(chunk));
-		child.once("error", (error) => {
-			finish(() => reject(new Error(`Failed to run ripgrep: ${error.message}`)));
-		});
-		child.once("close", (code) => {
-			finish(() => {
-				if (aborted && !timedOut) return reject(new Error("Operation aborted"));
-				const stdout = Buffer.concat(output).toString("utf8");
-				if (timedOut) return resolveOutput({ stdout, timedOut: true });
-				if (code !== 0 && code !== 1) {
-					const stderr = Buffer.concat(errorOutput).toString("utf8");
-					const diagnostics = code === 2 ? accessDeniedDiagnostics(stderr) : undefined;
-					if (diagnostics !== undefined)
-						return resolveOutput({
-							stdout,
-							timedOut: false,
-							incomplete: {
-								reason: "access_denied",
-								diagnostics,
-								noSearchablePaths: !searchedAnyFile(stdout),
-							},
-						});
-					return reject(new Error(stderr.trim() || `ripgrep exited with code ${code}`));
-				}
-				resolveOutput({ stdout, timedOut: false });
-			});
-		});
-		if (outputText !== undefined) child.stdin?.end(outputText);
+	const collected = await runCommand("rg", args, {
+		cwd,
+		...(outputText === undefined ? {} : { input: outputText }),
+		...(signal === undefined ? {} : { signal }),
+		timeoutMs: SEARCH_TIMEOUT_MS,
+	}).catch((error: unknown) => {
+		throwIfAborted(signal);
+		throw new Error(`Failed to run ripgrep: ${errorMessage(error)}`);
 	});
-	abortIfNeeded(signal);
-	const stdout = collected.stdout;
+	throwIfAborted(signal);
+	const stdout = collected.stdout.toString("utf8");
+	let incomplete: GrepIncomplete | undefined;
+	if (!collected.timedOut && collected.code !== 0 && collected.code !== 1) {
+		const stderr = collected.stderr.toString("utf8");
+		const diagnostics = collected.code === 2 ? accessDeniedDiagnostics(stderr) : undefined;
+		if (diagnostics === undefined)
+			throw new Error(stderr.trim() || `ripgrep exited with code ${collected.code}`);
+		incomplete = {
+			reason: "access_denied",
+			diagnostics,
+			noSearchablePaths: !searchedAnyFile(stdout),
+		};
+	}
+	throwIfAborted(signal);
 	const fallbackPath = params.path ?? ".";
 	const events = stdout
 		.split("\n")
@@ -662,7 +629,7 @@ async function runRg(
 	return {
 		...capEvents(rgOrder(events), normalizedLimit(params.limit), context),
 		...(collected.timedOut ? { timedOut: true } : {}),
-		...(collected.incomplete === undefined ? {} : { incomplete: collected.incomplete }),
+		...(incomplete === undefined ? {} : { incomplete }),
 	};
 }
 
@@ -768,7 +735,7 @@ export function registerGrepTool(
 				} satisfies GrepToolDetails,
 			});
 			try {
-				abortIfNeeded(signal);
+				throwIfAborted(signal);
 				const targetRuntime = state.getTargetRuntime();
 				let engine: GrepToolDetails["engine"] = "rg";
 				let canonical: CanonicalResult | undefined;
@@ -791,7 +758,7 @@ export function registerGrepTool(
 							fuzzyFallbackOnly: true,
 							...(signal === undefined ? {} : { signal }),
 						});
-						abortIfNeeded(signal);
+						throwIfAborted(signal);
 						if (result.ok && result.value.regexFallbackError !== undefined) {
 							const error = new Error(`FFF regex error: ${result.value.regexFallbackError}`);
 							Object.assign(error, { regexFallbackError: result.value.regexFallbackError });

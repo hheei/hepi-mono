@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { formatDuration } from "./tool-result.js";
 
 export interface ResponseStatusFeature {
 	start(context: ExtensionContext): void;
@@ -10,12 +11,6 @@ function formatCompactNumber(value: number): string {
 	if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
 	if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/u, "")}K`;
 	return String(Math.round(value));
-}
-
-function formatDuration(value: number | null): string {
-	if (value === null || !Number.isFinite(value) || value < 0) return "?";
-	if (value < 1_000) return `${Math.round(value)}ms`;
-	return `${(value / 1_000).toFixed(1)}s`;
 }
 
 function formatRate(value: number | null): string {
@@ -55,7 +50,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 				`↱ ${formatCompactNumber(usage.input)}`,
 				`↳ ${formatCompactNumber(usage.output)}`,
 				`⚇ ${formatCompactNumber(usage.cacheRead)}`,
-				`⏱ ${formatDuration(totalTimeMs)}`,
+				`⏱ ${formatDuration(totalTimeMs ?? undefined) ?? "?"}`,
 				`⚡ ${formatRate(tokensPerSecond)}/s`,
 			].join("  "),
 			"info",

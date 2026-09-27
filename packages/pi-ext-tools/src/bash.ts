@@ -17,6 +17,7 @@ import {
 import {
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
+	formatDuration,
 	registerManagedTool,
 	type ToolCompletion,
 	type ToolTui,
@@ -91,12 +92,7 @@ function bashFooter(
 	const output = typeof details.output === "string" ? details.output : outputText(result);
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
 	const lines = outputTotalLines(result, output);
-	const duration =
-		completion?.durationMs === undefined
-			? "completed"
-			: completion.durationMs < 1_000
-				? `${completion.durationMs}ms`
-				: `${(completion.durationMs / 1_000).toFixed(1)}s`;
+	const duration = formatDuration(completion?.durationMs) ?? "completed";
 	return `exit ${exitCode} · ${counted(lines, "line")} · ${duration}`;
 }
 

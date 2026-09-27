@@ -4,7 +4,9 @@ import {
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
+	agentResultText,
 	createToolTui,
+	formatDuration,
 	registerManagedTool,
 	type ToolCompletion,
 	type ToolTui,
@@ -57,32 +59,13 @@ export function parseLsMetrics(text: string): LsMetrics {
 	};
 }
 
-function durationText(durationMs: number | undefined): string | undefined {
-	return typeof durationMs === "number" && Number.isFinite(durationMs)
-		? `${Math.max(0, Math.round(durationMs))}ms`
-		: undefined;
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	if (result.content.length === 1) {
-		const first = result.content[0];
-		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
-			return (first as { text: string }).text;
-		}
-	}
-	return result.content
-		.filter((part) => part.type === "text")
-		.map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
-		.join("\n");
-}
-
 export function lsCollapsedFooter(
 	result: AgentToolResult<unknown>,
 	completion: ToolCompletion | undefined,
 ): string | undefined {
-	const text = resultText(result);
+	const text = agentResultText(result);
 	const metrics = parseLsMetrics(text);
-	const duration = durationText(completion?.durationMs);
+	const duration = formatDuration(completion?.durationMs);
 
 	if (metrics.empty) {
 		return ["(empty directory)", duration].filter(Boolean).join(" · ");

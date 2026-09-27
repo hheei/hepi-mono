@@ -9,7 +9,12 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { DEFAULT_MAX_BODY_LINES, type ToolCompletion } from "@hheei/pi-ext-core";
+import {
+	agentResultText,
+	DEFAULT_MAX_BODY_LINES,
+	formatDuration,
+	type ToolCompletion,
+} from "@hheei/pi-ext-core";
 import { counted } from "./counted.js";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "./grep.js";
 import { RST } from "./pretty/ansi.js";
@@ -35,15 +40,6 @@ const EXPAND_HINT = "ctrl+o to expand";
 const TRUNCATION_MARKER = "…";
 const FIND_CURSOR = /^cursor:\s+/;
 const EMPTY_FIND_BODY = /^(?:No files found matching pattern)?$/;
-
-function resultText(result: AgentToolResult<unknown>): string {
-	const [only] = result.content;
-	if (result.content.length === 1 && only?.type === "text") return only.text;
-	return result.content
-		.filter((part) => part.type === "text")
-		.map((part) => ("text" in part ? part.text : ""))
-		.join("\n");
-}
 
 function grepDetails(value: unknown): GrepToolDetails | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -226,10 +222,6 @@ class GrepResultComponent implements Component {
 	invalidate(): void {}
 }
 
-function durationText(durationMs: number): string {
-	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
-}
-
 export function grepCollapsedFooter(
 	result: AgentToolResult<unknown>,
 	completion: ToolCompletion | undefined,
@@ -246,7 +238,14 @@ export function grepCollapsedFooter(
 				Reflect.get(event, "type") === "match" &&
 				Reflect.get(event, "approximate") === true,
 		);
-	return `${counted(details.totalMatched, fuzzy ? "fuzzy" : "match", fuzzy ? "fuzzies" : "matches")} · ${counted(details.totalFiles, "file")} · ${counted(details.totalLines, "line")} · ${durationText(completion?.durationMs ?? details.durationMs)}`;
+	return [
+		counted(details.totalMatched, fuzzy ? "fuzzy" : "match", fuzzy ? "fuzzies" : "matches"),
+		counted(details.totalFiles, "file"),
+		counted(details.totalLines, "line"),
+		formatDuration(completion?.durationMs ?? details.durationMs),
+	]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
 }
 
 function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): number {
@@ -269,7 +268,9 @@ export function renderGrepResult(
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	const details = grepDetails(result.details);
 	if (context.isError || details === undefined) {
-		text.setText(context.isError ? theme.fg("error", resultText(result)) : resultText(result));
+		text.setText(
+			context.isError ? theme.fg("error", agentResultText(result)) : agentResultText(result),
+		);
 		return text;
 	}
 	const display = details.display.filter(
@@ -390,7 +391,7 @@ function findFooter(details: FindToolDetails, completion?: ToolCompletion): stri
 		fuzzyFilename > 0 ? counted(fuzzyFilename, "fuzzy file") : undefined,
 		fuzzyPath > 0 ? counted(fuzzyPath, "fuzzy path") : undefined,
 		counted(findBodyLines(details).length, "line"),
-		durationText(completion?.durationMs ?? details.durationMs),
+		formatDuration(completion?.durationMs ?? details.durationMs),
 	];
 	return parts.filter((part): part is string => part !== undefined).join(" · ");
 }
@@ -412,8 +413,8 @@ export function renderFindResult(
 	const details = findDetails(result.details);
 	if (context.isError || details === undefined) {
 		const text = context.isError
-			? theme.fg("error", resultText(result))
-			: resultText(result)
+			? theme.fg("error", agentResultText(result))
+			: agentResultText(result)
 					.split("\n")
 					.filter((line) => !FIND_CURSOR.test(line))
 					.join("\n");

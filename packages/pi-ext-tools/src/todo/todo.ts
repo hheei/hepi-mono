@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import {
+	formatDuration,
 	getToolTui,
 	registerManagedTool,
 	registerToolTuiTrace,
@@ -532,9 +533,8 @@ function todoToolTuiFooter(
 	if (active.length > 0) parts.push(`active ${active.map((task) => `#${task.id}`).join(" ")}`);
 	const pending = tasks.filter((task) => task.status === "pending").length;
 	if (pending > 0) parts.push(`${pending} pending`);
-	const duration = completion?.durationMs;
-	if (duration !== undefined)
-		parts.push(duration < 1_000 ? `${duration}ms` : `${(duration / 1_000).toFixed(1)}s`);
+	const duration = formatDuration(completion?.durationMs);
+	if (duration !== undefined) parts.push(duration);
 	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 

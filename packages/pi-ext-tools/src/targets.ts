@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
+import { runCommand } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
 export const REMOTE_TIMEOUT_MS = 20_000;
@@ -186,6 +186,11 @@ async function removeStaleControlSockets(root: string): Promise<void> {
 	}
 }
 
+/**
+ * Runs one remote command through the shared one-shot runner and restores the
+ * domain outcomes `TargetRuntime` callers depend on: a broad scan and a timeout
+ * are `TargetError`s here, not a result flag.
+ */
 async function runProcess(
 	command: string,
 	args: readonly string[],
@@ -199,69 +204,29 @@ async function runProcess(
 		readonly onData?: ((chunk: Buffer) => void) | undefined;
 	},
 ): Promise<ProcessResult> {
-	return await new Promise<ProcessResult>((resolveResult, reject) => {
-		const child = spawn(command, args, {
-			...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-			stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-		});
-		const stdout: Buffer[] = [];
-		const stderr: Buffer[] = [];
-		let stdoutBytes = 0;
-		let timedOut = false;
-		let settled = false;
-		const finish = (callback: () => void): void => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			options.signal?.removeEventListener("abort", abort);
-			callback();
-		};
-		const abort = (): void => {
-			child.kill();
-			finish(() => reject(new TargetError("cancelled", "Operation aborted")));
-		};
-		const timer =
-			options.timeoutMs === undefined
-				? undefined
-				: setTimeout(() => {
-						timedOut = true;
-						child.kill();
-					}, options.timeoutMs);
-		options.signal?.addEventListener("abort", abort, { once: true });
-		const push = (chunk: Buffer, stream: Buffer[]): void => {
-			stream.push(chunk);
-			options.onData?.(chunk);
-		};
-		child.stdout?.on("data", (chunk: Buffer) => {
-			stdoutBytes += chunk.length;
-			if (options.maxStdoutBytes !== undefined && stdoutBytes > options.maxStdoutBytes) {
-				child.kill();
-				finish(() => reject(new RemoteScopeTooBroadError()));
-				return;
-			}
-			push(chunk, stdout);
-		});
-		child.stderr?.on("data", (chunk: Buffer) => push(chunk, stderr));
-		child.once("error", (error) => finish(() => reject(error)));
-		child.once("close", (code) => {
-			finish(() => {
-				if (timedOut && options.timeoutAsError !== false)
-					return reject(
-						new TargetError(
-							"timeout",
-							`Remote operation timed out after ${REMOTE_TIMEOUT_MS / 1000} seconds.`,
-						),
-					);
-				resolveResult({
-					stdout: Buffer.concat(stdout),
-					stderr: Buffer.concat(stderr),
-					code: code ?? 1,
-					timedOut,
-				});
-			});
-		});
-		if (options.input !== undefined) child.stdin?.end(options.input);
+	const result = await runCommand(command, args, {
+		...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+		...(options.input === undefined ? {} : { input: options.input }),
+		...(options.signal === undefined ? {} : { signal: options.signal }),
+		...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+		...(options.maxStdoutBytes === undefined ? {} : { maxStdoutBytes: options.maxStdoutBytes }),
+		...(options.onData === undefined ? {} : { onData: options.onData }),
+	}).catch((error: unknown) => {
+		if (options.signal?.aborted === true) throw new TargetError("cancelled", "Operation aborted");
+		throw error;
 	});
+	if (result.stdoutTruncated) throw new RemoteScopeTooBroadError();
+	if (result.timedOut && options.timeoutAsError !== false)
+		throw new TargetError(
+			"timeout",
+			`Remote operation timed out after ${REMOTE_TIMEOUT_MS / 1000} seconds.`,
+		);
+	return {
+		stdout: result.stdout,
+		stderr: result.stderr,
+		code: result.code,
+		timedOut: result.timedOut,
+	};
 }
 
 export class TargetRuntime {

@@ -8,6 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import {
+	agentResultText,
 	createToolTui,
 	type ManagedToolRegistration,
 	registerManagedTool,
@@ -270,7 +271,7 @@ function renderEvalResult(
 	bridge: EvalToolBridge,
 ): Component {
 	const details = result.details;
-	if (!isEvalToolDetails(details)) return new Text(resultText(result), 0, 0);
+	if (!isEvalToolDetails(details)) return new Text(agentResultText(result), 0, 0);
 	const body = new Container();
 	for (const row of details.rows) {
 		if (row.kind !== "tool") {
@@ -331,16 +332,6 @@ function transcript(rows: readonly EvalRow[]): string {
 	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
 		? value
 		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nEval transcript truncated in tool result.`;
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	return result.content
-		.filter(
-			(part): part is Extract<(typeof result.content)[number], { readonly type: "text" }> =>
-				part.type === "text",
-		)
-		.map((part) => part.text)
-		.join("\n");
 }
 
 function codeSummary(code: string): string {

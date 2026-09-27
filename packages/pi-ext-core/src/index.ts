@@ -27,6 +27,7 @@ export type {
 } from "./custom-surface.js";
 export { openTuiSurface, TuiSurfaceQueueFullError } from "./custom-surface.js";
 export type { Cleanup, CleanupFailure, DisposerRegistry } from "./disposer-registry.js";
+export { abortError, errorMessage, throwIfAborted } from "./errors.js";
 export type {
 	ExtensionPointHandle,
 	ExtensionPointKey,
@@ -89,6 +90,8 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
+export type { CommandOptions, CommandResult } from "./process.js";
+export { runCommand, shellQuote } from "./process.js";
 export type { ResponseStatusFeature } from "./response-status.js";
 export { createResponseStatusFeature } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
@@ -173,6 +176,7 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export { agentResultText, formatDuration } from "./tool-result.js";
 export type { ToolCollapseMode, ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
 export {
 	AUTO_COLLAPSE_DELAY_MS,

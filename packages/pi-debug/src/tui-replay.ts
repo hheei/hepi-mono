@@ -1,13 +1,13 @@
 #!/usr/bin/env -S node --no-warnings --import jiti/register
 // biome-ignore-all lint/suspicious/noControlCharactersInRegex: ANSI parser intentionally matches terminal controls.
 // biome-ignore-all lint/suspicious/noUnnecessaryConditions: ReplayAction switch handles all runtime action variants.
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { runCommand } from "@hheei/pi-ext-core";
 import { lock } from "proper-lockfile";
 
 export const DEFAULT_REPLAY_COLUMNS = 50;
@@ -57,19 +57,11 @@ async function captureProcess(
 	args: readonly string[],
 	cwd: string,
 ): Promise<CapturedProcess> {
-	const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-	const stdout: Buffer[] = [];
-	const stderr: Buffer[] = [];
-	child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-	child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-	const exitCode = await new Promise<number>((resolve, reject) => {
-		child.once("error", reject);
-		child.once("close", (code) => resolve(code ?? 1));
-	});
+	const result = await runCommand(command, args, { cwd });
 	return {
-		stdout: Buffer.concat(stdout).toString("utf8"),
-		stderr: Buffer.concat(stderr).toString("utf8"),
-		exitCode,
+		stdout: result.stdout.toString("utf8"),
+		stderr: result.stderr.toString("utf8"),
+		exitCode: result.code,
 	};
 }
 
