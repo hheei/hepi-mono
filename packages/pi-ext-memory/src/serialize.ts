@@ -15,7 +15,7 @@ function formatTimestamp(v: number | string | undefined): string {
 	return Number.isNaN(d.getTime()) ? "????-??-?? ??:??" : fmtLocal(d);
 }
 
-function formatRecallTimestamp(...values: Array<number | string | undefined>): string {
+export function formatRecallTimestamp(...values: Array<number | string | undefined>): string {
 	for (const v of values) {
 		if (v === undefined) continue;
 		const d = new Date(v);
@@ -69,7 +69,7 @@ function textOnly(content: unknown): string {
 		.join("\n");
 }
 
-export function serializeConversation(messages: Message[]): string {
+function serializeConversation(messages: Message[]): string {
 	return messages
 		.map((msg): string | null => {
 			const time = formatTimestamp(msg.timestamp);
@@ -140,7 +140,7 @@ function renderCustomMessage(entry: RenderableEntry, options: { recallFormat: bo
 	return `[${tag} @ ${time}]: ${text}`;
 }
 
-export function serializeBranchEntries(entries: RenderableEntry[]): string {
+function serializeBranchEntries(entries: RenderableEntry[]): string {
 	const blocks: string[] = [];
 	for (const entry of entries) {
 		if (entry.type === "message" && entry.message) {

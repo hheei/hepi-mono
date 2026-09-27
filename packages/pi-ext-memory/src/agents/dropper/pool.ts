@@ -13,7 +13,7 @@ export type ObservationPoolMetrics = {
 	ready: boolean;
 };
 
-export function observationTokenSum(observations: readonly Observation[]): number {
+function observationTokenSum(observations: readonly Observation[]): number {
 	// Count the full rendered line (id + timestamp + relevance + content), not
 	// bare content: the pool budget caps how much observation text is re-rendered
 	// into future contexts, and every line carries metadata overhead.
@@ -24,10 +24,6 @@ export function observationPoolFullness(observationTokens: number, targetTokens:
 	if (!Number.isFinite(observationTokens) || observationTokens <= 0) return 0;
 	if (!Number.isFinite(targetTokens) || targetTokens <= 0) return 0;
 	return observationTokens / targetTokens;
-}
-
-export function droppableObservationCount(observations: readonly Observation[]): number {
-	return observations.length;
 }
 
 export function maxDropCountForPool(
@@ -57,7 +53,7 @@ export function observationPoolMetrics(
 	const observationTokens = observationTokenSum(observations);
 	const fullness = observationPoolFullness(observationTokens, targetTokens);
 	const activeObservationCount = observations.length;
-	const droppableCount = droppableObservationCount(observations);
+	const droppableCount = observations.length;
 	const tokensOverTarget = Math.max(0, observationTokens - targetTokens);
 	const maxDropsAllowed = maxDropCountForPool(observations, observationTokens, targetTokens);
 	const overTarget =

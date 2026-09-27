@@ -8,7 +8,11 @@ import {
 	registerManagedTool,
 	textToolResult,
 } from "@hheei/pi-ext-core";
-import { fmtLocal, renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
+import {
+	formatRecallTimestamp,
+	renderRecallSourceEntries,
+	renderRecallSourceEntry,
+} from "../serialize.js";
 import type { Observation, Reflection } from "../session-ledger/index.js";
 import { latestGateEnabled } from "../session-ledger/index.js";
 import {
@@ -86,15 +90,6 @@ export type RecallObservationToolDetails = {
 	message?: string;
 };
 
-function formatDisplayTimestamp(...values: Array<number | string | undefined>): string {
-	for (const v of values) {
-		if (v === undefined) continue;
-		const d = new Date(v);
-		if (!Number.isNaN(d.getTime())) return fmtLocal(d);
-	}
-	return "Unknown time";
-}
-
 function textContentBlocks(content: unknown): Array<Record<string, unknown>> {
 	return Array.isArray(content)
 		? content.filter(
@@ -114,7 +109,7 @@ function sourceOriginAndQualifiers(entry: Entry): {
 } {
 	if (entry.type === "message" && entry.message && typeof entry.message === "object") {
 		const msg = entry.message as Message;
-		const timestamp = formatDisplayTimestamp(msg.timestamp, entry.timestamp);
+		const timestamp = formatRecallTimestamp(msg.timestamp, entry.timestamp);
 		if (msg.role === "user") return { origin: "User", timestamp, qualifiers: [] };
 		if (msg.role === "assistant") {
 			const toolCalls = uniqueStrings(
@@ -138,7 +133,7 @@ function sourceOriginAndQualifiers(entry: Entry): {
 	if (entry.type === "custom_message") {
 		return {
 			origin: "Custom message",
-			timestamp: formatDisplayTimestamp(entry.timestamp),
+			timestamp: formatRecallTimestamp(entry.timestamp),
 			qualifiers:
 				typeof entry.customType === "string" && entry.customType
 					? [`custom: ${entry.customType}`]
@@ -148,12 +143,12 @@ function sourceOriginAndQualifiers(entry: Entry): {
 	if (entry.type === "branch_summary")
 		return {
 			origin: "Branch summary",
-			timestamp: formatDisplayTimestamp(entry.timestamp),
+			timestamp: formatRecallTimestamp(entry.timestamp),
 			qualifiers: [],
 		};
 	return {
 		origin: entry.type || "Entry",
-		timestamp: formatDisplayTimestamp(entry.timestamp),
+		timestamp: formatRecallTimestamp(entry.timestamp),
 		qualifiers: [],
 	};
 }
@@ -442,7 +437,7 @@ function observationCountForHeader(details: RecallObservationToolDetails): numbe
 	return isObservationOnly(details) ? details.matches.length : details.observations.length;
 }
 
-export function formatRecallHeaderForTui(details: RecallObservationToolDetails): string {
+function formatRecallHeaderForTui(details: RecallObservationToolDetails): string {
 	if (isFailureStatus(details.status)) return "× failure";
 	const parts = ["✓ success"];
 	if (details.reflections.length > 0) parts.push(plural(details.reflections.length, "reflection"));
@@ -589,7 +584,7 @@ function noteRows(
 	return notes;
 }
 
-export function formatRecallResultForTui(
+function formatRecallResultForTui(
 	result: AgentToolResult<RecallObservationToolDetails>,
 	expanded: boolean,
 ): string {

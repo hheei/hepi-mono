@@ -1,32 +1,14 @@
-import {
-	type AgentContext,
-	type AgentLoopConfig,
-	type AgentTool,
-	agentLoop,
-} from "@earendil-works/pi-agent-core";
-import type {
-	Api,
-	Message,
-	Model,
-	ModelThinkingLevel,
-	ProviderHeaders,
-} from "@earendil-works/pi-ai";
+import type { AgentContext, AgentTool } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
-import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import {
-	contextCostFromUsage,
 	type Observation,
 	type Reflection,
 	reflectionToSummaryLine,
 } from "../../session-ledger/index.js";
-import { logAgentStreamError } from "../stream-errors.js";
-import {
-	resolveWorkerStreamSimple,
-	type StreamableModelRegistry,
-	type WorkerStreamSimple,
-} from "../worker-stream.js";
+import { runWorkerAgent, type WorkerLoopArgs } from "../run-agent.js";
 import {
 	coverageTierForObservation,
 	observationToDropperLine,
@@ -64,24 +46,10 @@ export {
 
 import { textToolResult } from "@hheei/pi-ext-core";
 
-interface RunDropperArgs {
-	model: Model<Api>;
-	apiKey?: string | undefined;
-	headers?: ProviderHeaders | undefined;
-	env?: Record<string, string> | undefined;
+interface RunDropperArgs extends WorkerLoopArgs {
 	reflections: Reflection[];
 	observations: Observation[];
 	targetTokens: number;
-	signal?: AbortSignal | undefined;
-	agentLoop?: typeof agentLoop | undefined;
-	maxTurns?: number | undefined;
-	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
-	maxOutputTokens?: number | undefined;
-	thinkingLevel?: ModelThinkingLevel | undefined;
-	modelRegistry: StreamableModelRegistry;
-	streamSimple?: WorkerStreamSimple | undefined;
-	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
-	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RELEVANCE_DROP_RANK: Record<Observation["relevance"], number> = {
@@ -173,7 +141,7 @@ export function selectDropCandidates(
 }
 
 export async function runDropper(args: RunDropperArgs): Promise<string[] | undefined> {
-	const { model, apiKey, headers, env, reflections, observations, targetTokens, signal } = args;
+	const { reflections, observations, targetTokens } = args;
 	if (observations.length === 0) return undefined;
 
 	const metrics = observationPoolMetrics(observations, targetTokens);
@@ -286,45 +254,7 @@ export async function runDropper(args: RunDropperArgs): Promise<string[] | undef
 		messages: [{ role: "system", content: DROPPER_SYSTEM, timestamp: Date.now() }],
 		tools: [dropObservations as unknown as AgentTool],
 	};
-	const reasoning = model.reasoning;
-	const thinkingLevel = args.thinkingLevel ?? "low";
-	const effectiveMaxTurns = args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
-	let turnCount = 0;
-	const config: AgentLoopConfig = {
-		model,
-		...(apiKey !== undefined ? { apiKey } : {}),
-		...(headers !== undefined ? { headers } : {}),
-		...(env !== undefined ? { env } : {}),
-		maxTokens: boundedMaxTokens(model, args.maxOutputTokens ?? AGENT_LOOP_MAX_TOKENS),
-		convertToLlm: (msgs) => msgs as Message[],
-		toolExecution: "sequential",
-		...(reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
-		...(effectiveMaxTurns !== undefined
-			? {
-					finishTurn: (turn) => {
-						if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted")
-							return;
-						return ++turnCount >= effectiveMaxTurns ? { action: "end" } : undefined;
-					},
-				}
-			: {}),
-	};
-
-	const loop = args.agentLoop ?? agentLoop;
-	const stream = loop(
-		prompts,
-		context,
-		config,
-		signal,
-		resolveWorkerStreamSimple(args.modelRegistry, args.streamSimple),
-	);
-	for await (const event of stream) {
-		// Tool execution collects candidate ids.
-		logAgentStreamError("dropper", event);
-		const cost = contextCostFromUsage((event as { message?: { usage?: unknown } }).message?.usage);
-		if (cost !== undefined) args.onCost?.(cost);
-	}
-	await stream.result();
+	await runWorkerAgent("dropper", args, prompts, context);
 	const droppedIds = selectDropCandidates(
 		proposedDropIds,
 		observations,

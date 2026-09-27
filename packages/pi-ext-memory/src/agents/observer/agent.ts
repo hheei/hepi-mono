@@ -1,55 +1,20 @@
-import {
-	type AgentContext,
-	type AgentLoopConfig,
-	type AgentTool,
-	agentLoop,
-} from "@earendil-works/pi-agent-core";
-import type {
-	Api,
-	Message,
-	Model,
-	ModelThinkingLevel,
-	ProviderHeaders,
-} from "@earendil-works/pi-ai";
+import type { AgentContext, AgentTool } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { textToolResult } from "@hheei/pi-ext-core";
 import type { Static } from "typebox";
 import { hashId } from "../../ids.js";
-import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import { nowTimestamp, truncateRecordContent } from "../../serialize.js";
-import {
-	contextCostFromUsage,
-	type Observation,
-	type Relevance,
-} from "../../session-ledger/index.js";
+import type { Observation, Relevance } from "../../session-ledger/index.js";
 import { observationLineTokenCount } from "../../tokens.js";
-import { logAgentStreamError } from "../stream-errors.js";
-import {
-	resolveWorkerStreamSimple,
-	type StreamableModelRegistry,
-	type WorkerStreamSimple,
-} from "../worker-stream.js";
+import { runWorkerAgent, type WorkerLoopArgs } from "../run-agent.js";
 import { OBSERVER_SYSTEM } from "./prompts.js";
 
-interface RunObserverArgs {
-	model: Model<Api>;
-	apiKey?: string | undefined;
-	headers?: ProviderHeaders | undefined;
-	env?: Record<string, string> | undefined;
+interface RunObserverArgs extends WorkerLoopArgs {
 	priorReflections: string[];
 	priorObservations: string[];
 	chunk: string;
 	allowedSourceEntryIds: string[];
-	signal?: AbortSignal | undefined;
-	agentLoop?: typeof agentLoop | undefined;
-	maxTurns?: number | undefined;
-	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
-	maxOutputTokens?: number | undefined;
-	thinkingLevel?: ModelThinkingLevel | undefined;
-	modelRegistry: StreamableModelRegistry;
-	streamSimple?: WorkerStreamSimple | undefined;
-	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
-	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RelevanceSchema = Type.Union([
@@ -127,17 +92,7 @@ export function normalizeSourceEntryIds(
 }
 
 export async function runObserver(args: RunObserverArgs): Promise<Observation[] | undefined> {
-	const {
-		model,
-		apiKey,
-		headers,
-		env,
-		priorReflections,
-		priorObservations,
-		chunk,
-		allowedSourceEntryIds,
-		signal,
-	} = args;
+	const { priorReflections, priorObservations, chunk, allowedSourceEntryIds } = args;
 	const conversation = chunk.trim();
 	if (!conversation) return undefined;
 
@@ -225,66 +180,10 @@ ${conversation}`;
 		tools: [recordObservations as unknown as AgentTool],
 	};
 
-	const reasoning = model.reasoning;
-	const thinkingLevel = args.thinkingLevel ?? "low";
-	const effectiveMaxTurns = args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
-	let turnCount = 0;
-	const config: AgentLoopConfig = {
-		model,
-		...(apiKey !== undefined ? { apiKey } : {}),
-		...(headers !== undefined ? { headers } : {}),
-		...(env !== undefined ? { env } : {}),
-		maxTokens: boundedMaxTokens(model, args.maxOutputTokens ?? AGENT_LOOP_MAX_TOKENS),
-		convertToLlm: (msgs) => msgs as Message[],
-		toolExecution: "sequential",
-		...(reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
-		...(effectiveMaxTurns !== undefined
-			? {
-					finishTurn: (turn) => {
-						if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted")
-							return;
-						turnCount++;
-						return turnCount >= effectiveMaxTurns ? { action: "end" } : undefined;
-					},
-				}
-			: {}),
-	};
-
-	const loop = args.agentLoop ?? agentLoop;
-	const stream = loop(
-		prompts,
-		context,
-		config,
-		signal,
-		resolveWorkerStreamSimple(args.modelRegistry, args.streamSimple),
-	);
-	let streamError: { stopReason: string; errorMessage?: string } | undefined;
-	for await (const event of stream) {
-		// Drain events; the tool's execute already collects records.
-		logAgentStreamError("observer", event);
-		// Watch for a terminal API/stream failure so it is not conflated with
-		// a deliberate empty result.
-		const message = (
-			event as {
-				message?: { role?: string; stopReason?: string; errorMessage?: string; usage?: unknown };
-			}
-		).message;
-		const cost = contextCostFromUsage(message?.usage);
-		if (cost !== undefined) args.onCost?.(cost);
-		if (
-			message?.role === "assistant" &&
-			(message.stopReason === "error" || message.stopReason === "aborted")
-		) {
-			streamError = {
-				stopReason: message.stopReason,
-				...(message.errorMessage !== undefined ? { errorMessage: message.errorMessage } : {}),
-			};
-		}
-	}
-	await stream.result();
+	const streamError = await runWorkerAgent("observer", args, prompts, context);
 
 	if (accumulated.size === 0) {
-		if (streamError)
+		if (streamError !== undefined)
 			throw new ObserverStreamError(streamError.stopReason, streamError.errorMessage);
 		return undefined;
 	}
