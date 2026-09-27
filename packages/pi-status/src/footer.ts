@@ -1,17 +1,11 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatCompactNumber, type ThemeLike } from "@hheei/pi-ext-core";
 
 type FooterFactory = NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>;
 export type ReadonlyFooterDataProvider = Parameters<FooterFactory>[2];
 export type FooterTheme = Parameters<FooterFactory>[1];
-
-export interface FooterThemeLike {
-	fg(
-		color: "dim" | "muted" | "success" | "warning" | "error" | "accent" | "text",
-		text: string,
-	): string;
-}
 
 /** Formats cwd replacing HOME with ~ */
 export function formatCwdForFooter(cwd: string, home: string | undefined): string {
@@ -27,18 +21,6 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 
 	if (!isInsideHome) return cwd;
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
-}
-
-/** Formats context window capacity compactly: 100000 -> 100K, 1000000 -> 1M */
-export function formatCompactWindow(window: number): string {
-	if (!Number.isFinite(window) || window <= 0) return "0";
-	if (window >= 1_000_000) {
-		return `${(window / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`;
-	}
-	if (window >= 1_000) {
-		return `${(window / 1_000).toFixed(1).replace(/\.0$/u, "")}K`;
-	}
-	return String(Math.round(window));
 }
 
 /**
@@ -68,10 +50,10 @@ export function formatFooterModel(
 export function formatFooterContext(
 	contextUsage: { readonly percent?: number | null; readonly contextWindow?: number } | undefined,
 	defaultWindow: number | undefined,
-	theme: FooterThemeLike,
+	theme: ThemeLike,
 ): string {
 	const window = contextUsage?.contextWindow ?? defaultWindow ?? 0;
-	const windowStr = formatCompactWindow(window);
+	const windowStr = window > 0 ? formatCompactNumber(window) : "0";
 	const percentValue = contextUsage?.percent;
 	const percentStr =
 		percentValue !== null && percentValue !== undefined ? `${Math.round(percentValue)}%` : "?%";

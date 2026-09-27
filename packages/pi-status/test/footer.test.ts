@@ -4,7 +4,6 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	CompactFooterComponent,
 	type FooterTheme,
-	formatCompactWindow,
 	formatCwdForFooter,
 	formatFooterContext,
 	formatFooterModel,
@@ -27,15 +26,6 @@ describe("compact footer formatting", () => {
 		expect(formatCwdForFooter("/home/user", "/home/user")).toBe("~");
 		expect(formatCwdForFooter("/var/log", "/home/user")).toBe("/var/log");
 		expect(formatCwdForFooter("/some/path", undefined)).toBe("/some/path");
-	});
-
-	test("formats compact context window numbers", () => {
-		expect(formatCompactWindow(0)).toBe("0");
-		expect(formatCompactWindow(100_000)).toBe("100K");
-		expect(formatCompactWindow(128_000)).toBe("128K");
-		expect(formatCompactWindow(200_000)).toBe("200K");
-		expect(formatCompactWindow(1_000_000)).toBe("1M");
-		expect(formatCompactWindow(2_000_000)).toBe("2M");
 	});
 
 	test("formats footer model with provider and thinking level", () => {
