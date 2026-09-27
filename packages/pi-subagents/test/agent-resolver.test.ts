@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
 import { CONTACT_PARENT_TOOL_NAME, type ThinkingLevel } from "../src/domain.js";
+import { withTempDir } from "./helpers/tmp-dir.js";
 
 const PARENT = {
 	model: { provider: "anthropic", id: "claude-sonnet-4" },
@@ -17,15 +17,6 @@ const MODEL_REGISTRY = {
 		return known.includes(`${provider}/${modelId}`) ? { provider, id: modelId } : undefined;
 	},
 };
-
-async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
-	const directory = await mkdtemp(join(tmpdir(), "pi-subagents-agents-"));
-	try {
-		return await run(directory);
-	} finally {
-		await rm(directory, { recursive: true, force: true });
-	}
-}
 
 async function writeAgent(
 	directory: string,
@@ -56,7 +47,7 @@ function resolve(directory: string, name: string, bridgeExtensionPath: string) {
 }
 
 test("agent discovery prefers the most specific scope for a duplicate name", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await writeAgent(directory, "home", "reviewer", "---\nname: reviewer\n---\nhome body\n");
@@ -78,7 +69,7 @@ test("agent discovery prefers the most specific scope for a duplicate name", asy
 });
 
 test("prefers the project-local agents directory over the shared one", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await writeAgent(directory, "home", "reviewer", "---\nname: reviewer\n---\nhome body\n");
@@ -95,7 +86,7 @@ test("prefers the project-local agents directory over the shared one", async ():
 });
 
 test("resolves agent overrides and reports where model and thinking came from", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await writeAgent(
@@ -129,7 +120,7 @@ test("resolves agent overrides and reports where model and thinking came from", 
 });
 
 test("inherits parent model and thinking explicitly when the definition omits them", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await writeAgent(directory, ".pi", "worker", "---\nname: worker\n---\nDo the work.\n");
@@ -146,7 +137,7 @@ test("inherits parent model and thinking explicitly when the definition omits th
 });
 
 test("keeps the bridge extension while disabling discovery", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		const extra = join(directory, "extra.js");
 		await writeFile(bridge, "", "utf8");
@@ -175,7 +166,7 @@ test("keeps the bridge extension while disabling discovery", async (): Promise<v
 });
 
 test("expands a leading ~ in resource selections against the home directory", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		const home = join(directory, "home");
 		await writeFile(bridge, "", "utf8");
@@ -199,7 +190,7 @@ test("expands a leading ~ in resource selections against the home directory", as
 });
 
 test("rejects unknown, unimplemented, and conflicting agent fields", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		const cases: ReadonlyArray<{ readonly definition: string; readonly reason: RegExp }> = [
@@ -231,7 +222,7 @@ test("rejects unknown, unimplemented, and conflicting agent fields", async (): P
 });
 
 test("rejects unknown models, invalid thinking, and a disabled contact_parent bridge", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		const missing = join(directory, "missing.js");
 		await writeFile(bridge, "", "utf8");
@@ -270,7 +261,7 @@ test("rejects unknown models, invalid thinking, and a disabled contact_parent br
 });
 
 test("reports an unknown agent name and an unreadable frontmatter document", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await expect(resolve(directory, "ghost", bridge)).rejects.toThrow(/Unknown agent ghost/u);
@@ -283,7 +274,7 @@ test("reports an unknown agent name and an unreadable frontmatter document", asy
 });
 
 test("defaults interactive to false and freezes an explicit true", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
 		await writeAgent(directory, ".pi", "worker", "---\nname: worker\n---\nbody\n");

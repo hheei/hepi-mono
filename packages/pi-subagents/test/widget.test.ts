@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
-import type { PublicSubagent } from "../src/domain.js";
 import {
 	createChildIdentityWidget,
 	createSubagentWidget,
@@ -10,6 +9,7 @@ import {
 	renderChildIdentityWidget,
 	renderSubagentWidget,
 } from "../src/widget.js";
+import { child } from "./helpers/records.js";
 
 const identityTheme = {
 	fg: (_color: string, text: string) => text,
@@ -19,24 +19,6 @@ function recordingTheme() {
 	return {
 		fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 	} as unknown as Theme;
-}
-
-function child(overrides: Partial<PublicSubagent> = {}): PublicSubagent {
-	return {
-		id: "sa_aaaaaaaaaaaa",
-		agent: "worker",
-		state: "running",
-		mode: "rpc",
-		cwd: "/tmp/work",
-		sessionId: "session-1",
-		freshness: "live",
-		interactive: false,
-		model: { provider: "test", id: "model", source: "parent" },
-		thinking: { level: "off", source: "parent" },
-		createdAt: "2026-01-01T00:00:00.000Z",
-		updatedAt: "2026-01-01T00:00:00.000Z",
-		...overrides,
-	};
 }
 
 describe("subagent widget projection", () => {

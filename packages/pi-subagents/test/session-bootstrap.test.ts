@@ -11,6 +11,7 @@ import {
 	planSessionPlacement,
 	resolveSubagentLaunch,
 } from "../src/session-bootstrap.js";
+import { withTempDir } from "./helpers/tmp-dir.js";
 
 const PARENT_SESSION_ID = "01J7-parent";
 const PARENT = {
@@ -23,15 +24,6 @@ const MODEL_REGISTRY = {
 			? { provider, id: modelId }
 			: undefined,
 };
-
-async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
-	const directory = await mkdtemp(join(tmpdir(), "pi-subagents-bootstrap-"));
-	try {
-		return await run(directory);
-	} finally {
-		await rm(directory, { recursive: true, force: true });
-	}
-}
 
 async function writeAgent(cwd: string, body = "Do the work."): Promise<void> {
 	const path = join(cwd, ".pi", "agents", "worker.md");
@@ -71,7 +63,7 @@ async function writeSessionFile(
 }
 
 test("resolves one launch configuration with ids, bridge, and parent-derived policy", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
@@ -99,7 +91,7 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 });
 
 test("requires an explicit agent name instead of inventing a default", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		await expect(
 			resolveSubagentLaunch({
 				input: { task: "Do something", agent: "   " },
@@ -113,7 +105,7 @@ test("requires an explicit agent name instead of inventing a default", async ():
 });
 
 test("persists the spawn intent before any process starts and keeps the task recoverable", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
@@ -155,7 +147,7 @@ test("persists the spawn intent before any process starts and keeps the task rec
 });
 
 test("refuses to persist an intent whose registry belongs to another parent session", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
@@ -184,7 +176,7 @@ test("refuses to persist an intent whose registry belongs to another parent sess
 });
 
 test("never mints a new identity for a never-flushed session and adopts a flushed file", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		const sessionDir = join(directory, "sessions");
 		const fresh = await planSessionPlacement({ sessionId: "01J7-child", cwd, sessionDir });
@@ -208,7 +200,7 @@ test("never mints a new identity for a never-flushed session and adopts a flushe
 });
 
 test("fails closed when a flushed session is missing, corrupt, or carries another id", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		const sessionDir = join(directory, "sessions");
 		const path = await writeSessionFile(sessionDir, "01J7-child", cwd);
@@ -244,7 +236,7 @@ test("fails closed when a flushed session is missing, corrupt, or carries anothe
 });
 
 test("promotes a never-flushed child to flushed once its file exists", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
@@ -280,7 +272,7 @@ test("promotes a never-flushed child to flushed once its file exists", async ():
 });
 
 test("does not start a child when the registry write fails", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
@@ -311,7 +303,7 @@ test("does not start a child when the registry write fails", async (): Promise<v
 });
 
 test("freezes interactive from the agent definition into launch config", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
 		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
 		await writeFile(
