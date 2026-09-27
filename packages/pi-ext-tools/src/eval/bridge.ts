@@ -37,7 +37,6 @@ export class EvalToolError extends Error {
 	}
 }
 
-const MAX_NESTED_LIVE = 500;
 const nestedLive = new Map<string, AgentToolResult<unknown>>();
 
 export function evalNestedLiveResult(toolCallId: string): AgentToolResult<unknown> | undefined {
@@ -84,10 +83,6 @@ export class EvalToolBridge {
 		try {
 			const result = await tool.execute(toolCallId, args as never, signal, undefined, context);
 			nestedLive.set(toolCallId, result);
-			if (nestedLive.size > MAX_NESTED_LIVE) {
-				const oldest = nestedLive.keys().next().value;
-				if (oldest !== undefined) nestedLive.delete(oldest);
-			}
 			if (this.#isErrorResult(name, result)) {
 				const trace = traceFor(
 					name,

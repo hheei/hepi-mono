@@ -87,7 +87,6 @@ function uniqueById(entries: Entry[]): Entry[] {
 }
 
 function uniqueStrings(values: string[]): string[] {
-	if (values.length <= 1) return values;
 	return Array.from(new Set(values));
 }
 
@@ -100,9 +99,7 @@ function indexLedger(entries: Entry[]): {
 	const reflections: IndexedReflection[] = [];
 	const droppedIds = new Set<string>();
 
-	for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-		const entry = entries[entryIndex];
-		if (!entry) continue;
+	for (const [entryIndex, entry] of entries.entries()) {
 		if (isObservationsRecordedEntry(entry)) {
 			entry.data.observations.forEach((observation, recordIndex) => {
 				observations.push({ observation, entryId: entry.id, entryIndex, recordIndex });

@@ -40,10 +40,7 @@ type ProjectionFoldOptions = {
 
 function entryIndexById(entries: Entry[]): Map<string, number> {
 	const indexes = new Map<string, number>();
-	for (let i = 0; i < entries.length; i++) {
-		const entry = entries[i];
-		if (entry !== undefined) indexes.set(entry.id, i);
-	}
+	for (const [i, entry] of entries.entries()) indexes.set(entry.id, i);
 	return indexes;
 }
 
