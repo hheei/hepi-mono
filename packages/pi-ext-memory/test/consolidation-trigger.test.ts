@@ -138,7 +138,7 @@ function setup(args: {
 				if (phase === "observer") runtime.lastObserverError = message;
 				if (phase === "reflector") runtime.lastReflectorError = message;
 				if (phase === "dropper") runtime.lastDropperError = message;
-				ctx.ui?.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+				ctx.ui?.notify(`om: ${phase} failed: ${message}`, "warning");
 				return message;
 			},
 		),
@@ -481,16 +481,13 @@ describe("V3 consolidation trigger", () => {
 		await runLaunchedWork();
 
 		expect(ctx.ui.notify.mock.calls).toEqual([
+			[expect.stringMatching(/^om: observer running on [\d.<>]+k tokens chunk$/), "info"],
+			["om: reflector running (<0.1k tokens)", "info"],
 			[
-				expect.stringMatching(/^Observational memory: observer running on ~\d+-token chunk$/),
+				"om: dropper running after reflection — active observation pool <0.1k / <0.1k target tokens (380%)",
 				"info",
 			],
-			["Observational memory: reflector running (~2 tokens)", "info"],
-			[
-				"Observational memory: dropper running after reflection — active observation pool ~19 / 5 target tokens (380%)",
-				"info",
-			],
-			["Observational memory: consolidation complete (+1 obs, +1 refl, -1 dropped)", "info"],
+			["om: consolidation complete (+1 obs, +1 refl, -1 dropped)", "info"],
 		]);
 	});
 
@@ -547,12 +544,9 @@ describe("V3 consolidation trigger", () => {
 		await runLaunchedWork();
 
 		expect(ctx.ui.notify.mock.calls).toEqual([
+			[expect.stringMatching(/^om: observer running on [\d.<>]+k tokens chunk$/), "info"],
 			[
-				expect.stringMatching(/^Observational memory: observer running on ~\d+-token chunk$/),
-				"info",
-			],
-			[
-				"Observational memory: observer found nothing new in this chunk (coverage unchanged; will retry later)",
+				"om: observer found nothing new in this chunk (coverage unchanged; will retry later)",
 				"info",
 			],
 		]);
@@ -625,7 +619,7 @@ describe("V3 consolidation trigger", () => {
 
 		expect(runtime.lastObserverError).toContain("prompt is too long");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			'Observational memory: observer failed: observer stream ended with stopReason "error": prompt is too long: 5198507 tokens > 1000000 maximum',
+			'om: observer failed: observer stream ended with stopReason "error": prompt is too long: 5198507 tokens > 1000000 maximum',
 			"warning",
 		);
 		expect(ctx.ui.notify).not.toHaveBeenCalledWith(
@@ -646,10 +640,7 @@ describe("V3 consolidation trigger", () => {
 		await runLaunchedWork();
 
 		expect(pi.appendEntry).not.toHaveBeenCalled();
-		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"Observational memory: observer skipped — no model",
-			"warning",
-		);
+		expect(ctx.ui.notify).toHaveBeenCalledWith("om: observer skipped — no model", "warning");
 	});
 
 	it("re-reads branch so observer append can unblock reflector in the same consolidation run", async () => {
@@ -1320,7 +1311,7 @@ describe("forced consolidation and worker accounting", () => {
 		await harness.runLaunchedWork();
 
 		expect(harness.ctx.ui.notify).toHaveBeenLastCalledWith(
-			"Observational memory: consolidation complete (+1 obs) · $0.0025",
+			"om: consolidation complete (+1 obs) · $0.0025",
 			"info",
 		);
 	});
@@ -1405,7 +1396,7 @@ describe("forced consolidation and worker accounting", () => {
 		expect(harness.runtime.workerCost.totalUsd).toBe(0.0025);
 		// ...but the second run must not present it as its own.
 		expect(harness.ctx.ui.notify).toHaveBeenLastCalledWith(
-			"Observational memory: consolidation complete (+1 obs)",
+			"om: consolidation complete (+1 obs)",
 			"info",
 		);
 	});

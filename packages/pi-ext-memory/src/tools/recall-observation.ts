@@ -19,7 +19,7 @@ export const RECALL_OBSERVATION_TOOL_NAME = "recall";
 
 /** Answer for a session whose gate is off, so the model learns why instead of seeing an empty memory. */
 export const RECALL_DISABLED_TEXT =
-	"Observational memory is off for this session, so nothing can be recalled. Ask the user to run /om on to enable it.";
+	"om is off for this session, so nothing can be recalled. Ask the user to run /om on to enable it.";
 
 const MEMORY_ID_PATTERN = /^[a-f0-9]{12}$/;
 

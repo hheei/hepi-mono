@@ -52,7 +52,7 @@ describe("Runtime V3 behavior", () => {
 
 		expect(result).toMatchObject({ ok: true, model: sessionModel });
 		expect(notify).toHaveBeenCalledWith(
-			"Observational memory: configured model anthropic/missing not found, using session model",
+			"om: configured model anthropic/missing not found, using session model",
 			"warning",
 		);
 	});
@@ -341,18 +341,9 @@ describe("Runtime V3 behavior", () => {
 		expect(runtime.lastObserverError).toBe("observe failed");
 		expect(runtime.lastReflectorError).toBe("reflect failed");
 		expect(runtime.lastDropperError).toBe("drop failed");
-		expect(notify).toHaveBeenCalledWith(
-			"Observational memory: observer failed: observe failed",
-			"warning",
-		);
-		expect(notify).toHaveBeenCalledWith(
-			"Observational memory: reflector failed: reflect failed",
-			"warning",
-		);
-		expect(notify).toHaveBeenCalledWith(
-			"Observational memory: dropper failed: drop failed",
-			"warning",
-		);
+		expect(notify).toHaveBeenCalledWith("om: observer failed: observe failed", "warning");
+		expect(notify).toHaveBeenCalledWith("om: reflector failed: reflect failed", "warning");
+		expect(notify).toHaveBeenCalledWith("om: dropper failed: drop failed", "warning");
 	});
 
 	it("keeps compaction flags independent", () => {

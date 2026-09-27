@@ -169,7 +169,7 @@ describe("V3 recall tool", () => {
 		const { result, text } = await execute("aaaaaaaaaaaa", entries);
 
 		expect(result.details?.status).toBe("disabled");
-		expect(text).toContain("Observational memory is off for this session");
+		expect(text).toContain("om is off for this session");
 		expect(text).toContain("/om on");
 		expect(text).not.toContain("source text");
 	});

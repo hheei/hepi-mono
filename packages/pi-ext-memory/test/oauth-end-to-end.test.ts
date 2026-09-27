@@ -282,7 +282,7 @@ describe("OAuth provider end-to-end consolidation", () => {
 
 		const skipped = notices.find((message) => message.includes("skipped"));
 		expect(skipped).toBe(
-			"Observational memory: observer skipped — authentication failed for provider \"openai-codex\" — OAuth credentials may have expired; run '/login openai-codex' to re-authenticate",
+			"om: observer skipped — authentication failed for provider \"openai-codex\" — OAuth credentials may have expired; run '/login openai-codex' to re-authenticate",
 		);
 		expect(appended).toEqual([]);
 

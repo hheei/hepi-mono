@@ -119,7 +119,7 @@ describe("V3 compaction trigger", () => {
 
 		expect(ctx.compact).toHaveBeenCalledTimes(1);
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"Observational memory: compaction threshold reached (~3 estimated source tokens); triggering compaction",
+			"om: compaction threshold reached (<0.1k estimated source tokens); triggering compaction",
 			"info",
 		);
 	});
@@ -203,7 +203,7 @@ describe("V3 compaction trigger", () => {
 		expect(ctx.compact).not.toHaveBeenCalled();
 		expect(runtime.compactInFlight).toBe(false);
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"Observational memory: compaction deferred — agent became busy before compaction",
+			"om: compaction deferred — agent became busy before compaction",
 			"info",
 		);
 	});
@@ -218,7 +218,7 @@ describe("V3 compaction trigger", () => {
 		expect(ctx.compact).not.toHaveBeenCalled();
 		expect(runtime.compactInFlight).toBe(false);
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"Observational memory: compaction skipped — another compaction already ran before deferred compaction",
+			"om: compaction skipped — another compaction already ran before deferred compaction",
 			"info",
 		);
 	});
@@ -514,14 +514,8 @@ describe("V3 compaction trigger", () => {
 			callbacks?.onError({ message: "late compaction failure" });
 
 			expect(runtime.compactInFlight).toBe(false);
-			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
-				"Observational memory: compaction complete",
-				"info",
-			);
-			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
-				"Observational memory: late compaction failure",
-				"error",
-			);
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith("om: compaction complete", "info");
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith("om: late compaction failure", "error");
 		});
 
 		it("skips compaction and UI notifications if lifecycleSignal is aborted before callback runs", async () => {

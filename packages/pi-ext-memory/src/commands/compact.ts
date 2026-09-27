@@ -29,11 +29,11 @@ export async function runCompactCommand(
 	// minutes, and the gate, the in-flight flags and even the session can change in it.
 	const refuse = (entries: Entry[]): boolean => {
 		if (!latestGateEnabled(entries)) {
-			notify("Observational memory is off for this session (use /om on to enable).", "info");
+			notify("om is off for this session (use /om on to enable).", "info");
 			return true;
 		}
 		if (runtime.compactInFlight || runtime.compactHookInFlight) {
-			notify("Observational memory: a compaction is already in progress.", "warning");
+			notify("om: a compaction is already in progress.", "warning");
 			return true;
 		}
 		return false;
@@ -45,7 +45,7 @@ export async function runCompactCommand(
 
 	// A pending consolidation writes the memories this compaction would summarize.
 	if (runtime.consolidationInFlight && runtime.consolidationPromise) {
-		notify("Observational memory: waiting for the running consolidation first…", "info");
+		notify("om: waiting for the running consolidation first…", "info");
 		try {
 			await runtime.consolidationPromise;
 		} catch {
@@ -58,12 +58,12 @@ export async function runCompactCommand(
 	entries = ctx.sessionManager.getBranch() as Entry[];
 	if (refuse(entries)) return;
 	if (countSourceEntriesAfterCompaction(entries) === 0) {
-		notify("Observational memory: nothing new to compact since the last compaction.", "info");
+		notify("om: nothing new to compact since the last compaction.", "info");
 		return;
 	}
 	const folded = foldLedger(entries);
 	if (folded.activeObservations.length === 0 && folded.reflections.length === 0) {
-		notify("Observational memory: no memories to compact (run /om consolidate first).", "info");
+		notify("om: no memories to compact (run /om consolidate first).", "info");
 		return;
 	}
 
@@ -72,24 +72,24 @@ export async function runCompactCommand(
 		runtime.isSessionCurrent(sessionGeneration) && lifecycleSignal?.aborted !== true;
 
 	runtime.compactInFlight = true;
-	notify("Observational memory: compacting…", "info");
+	notify("om: compacting…", "info");
 	try {
 		ctx.compact({
 			onComplete: () => {
 				if (!isCurrent()) return;
 				runtime.compactInFlight = false;
-				notify("Observational memory: compaction complete.", "info");
+				notify("om: compaction complete.", "info");
 			},
 			onError: (error: { message: string }) => {
 				if (!isCurrent()) return;
 				runtime.compactInFlight = false;
 				if (error.message === "Compaction cancelled" || error.message.includes("stale")) return;
-				notify(`Observational memory: ${error.message}`, "error");
+				notify(`om: ${error.message}`, "error");
 			},
 		});
 	} catch (error) {
 		runtime.compactInFlight = false;
 		const message = errorMessage(error);
-		notify(`Observational memory: compaction could not start: ${message}`, "error");
+		notify(`om: compaction could not start: ${message}`, "error");
 	}
 }

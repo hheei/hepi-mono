@@ -339,7 +339,7 @@ describe("Todo integration", () => {
 			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
 		).toContain("todo #1");
 		const active = tool.renderResult?.(created, {}, theme, { isError: false });
-		expect(renderToolComponent(active)).toContain("+ 󰪠 #1 First");
+		expect(renderToolComponent(active)).toContain("󰪠 #1 First");
 		expect(renderToolComponent(active)).toContain("active #1");
 
 		const completed = await tool.execute(

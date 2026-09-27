@@ -29,7 +29,7 @@ export function registerOmCommand(
 	options: OmCommandOptions = {},
 ): void {
 	pi.registerCommand("om", {
-		description: `Observational memory: /om [${OM_SUBCOMMANDS.join(" | ")}] (view takes "full")`,
+		description: `om: /om [${OM_SUBCOMMANDS.join(" | ")}] (view takes "full")`,
 		getArgumentCompletions: subcommandCompletions([...OM_SUBCOMMANDS, "view full"]),
 		handler: async (args, ctx: ExtensionCommandContext): Promise<void> => {
 			const { verb, rest } = splitSubcommand(typeof args === "string" ? args : "");

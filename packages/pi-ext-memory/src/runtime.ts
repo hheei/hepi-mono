@@ -276,7 +276,7 @@ export class Runtime {
 			} else if (ctx.hasUI && ctx.ui) {
 				try {
 					ctx.ui.notify(
-						`Observational memory: configured model ${this.config.model.provider}/${this.config.model.id} not found, using session model`,
+						`om: configured model ${this.config.model.provider}/${this.config.model.id} not found, using session model`,
 						"warning",
 					);
 				} catch {}
@@ -472,7 +472,7 @@ export class Runtime {
 				if (message.includes("stale")) return;
 				if (ctx.hasUI && ctx.ui) {
 					try {
-						ctx.ui.notify(`Observational memory: consolidation failed: ${message}`, "warning");
+						ctx.ui.notify(`om: consolidation failed: ${message}`, "warning");
 					} catch {}
 				}
 			} finally {
@@ -495,7 +495,7 @@ export class Runtime {
 		if (phase === "dropper") this.lastDropperError = message;
 		if (this.lifecycleSignal?.aborted !== true && ctx.hasUI && ctx.ui) {
 			try {
-				ctx.ui.notify(`Observational memory: ${phase} failed: ${message}`, "warning");
+				ctx.ui.notify(`om: ${phase} failed: ${message}`, "warning");
 			} catch {}
 		}
 		return message;

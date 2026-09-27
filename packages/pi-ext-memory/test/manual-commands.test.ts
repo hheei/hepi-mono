@@ -365,9 +365,7 @@ describe("/om compact", () => {
 		const replacedRun = replaced.run();
 		await Promise.resolve();
 		replacedWait.release();
-		expect(await replacedRun).toEqual([
-			"Observational memory: waiting for the running consolidation first…",
-		]);
+		expect(await replacedRun).toEqual(["om: waiting for the running consolidation first…"]);
 		expect(replaced.compactCalls).toHaveLength(0);
 	});
 });

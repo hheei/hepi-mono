@@ -28,15 +28,15 @@ export async function runConsolidateCommand(
 	// entry can be obsolete by the time the pipeline actually launches.
 	const refuse = (entries: Entry[]): boolean => {
 		if (!latestGateEnabled(entries)) {
-			notify("Observational memory is off for this session (use /om on to enable).", "info");
+			notify("om is off for this session (use /om on to enable).", "info");
 			return true;
 		}
 		if (runtime.consolidationInFlight) {
-			notify("Observational memory: a consolidation is already in progress.", "warning");
+			notify("om: a consolidation is already in progress.", "warning");
 			return true;
 		}
 		if (runtime.compactInFlight) {
-			notify("Observational memory: a compaction is in progress; retry afterwards.", "warning");
+			notify("om: a compaction is in progress; retry afterwards.", "warning");
 			return true;
 		}
 		return false;
@@ -55,10 +55,7 @@ export async function runConsolidateCommand(
 		folded.activeObservations.length === 0 &&
 		folded.reflections.length === 0
 	) {
-		notify(
-			"Observational memory: nothing to consolidate yet (no uncovered conversation and no memories).",
-			"info",
-		);
+		notify("om: nothing to consolidate yet (no uncovered conversation and no memories).", "info");
 		return;
 	}
 

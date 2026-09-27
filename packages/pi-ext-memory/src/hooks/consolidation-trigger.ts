@@ -34,6 +34,7 @@ import {
 	reflectionToSummaryLine,
 	type V3MemoryCustomType,
 } from "../session-ledger/index.js";
+import { formatTokensK } from "../tokens.js";
 
 type ResolvedModel = Extract<ResolveResult, { ok: true }>;
 
@@ -188,7 +189,7 @@ function makeModelResolver(
 		debugLog(`${stage}.model_unavailable`, { reason: cached.reason });
 		if (!runtime.resolveFailureNotified && ctx.hasUI && ctx.ui) {
 			try {
-				ctx.ui.notify(`Observational memory: ${stage} skipped — ${cached.reason}`, "warning");
+				ctx.ui.notify(`om: ${stage} skipped — ${cached.reason}`, "warning");
 			} catch {}
 			runtime.resolveFailureNotified = true;
 		}
@@ -355,10 +356,7 @@ function notifyRunSummary(
 	if (parts.length === 0) return;
 	const cost = costUsd > 0 ? ` · $${costUsd.toFixed(4)}` : "";
 	try {
-		ctx.ui?.notify(
-			`Observational memory: consolidation complete (${parts.join(", ")})${cost}`,
-			"info",
-		);
+		ctx.ui?.notify(`om: consolidation complete (${parts.join(", ")})${cost}`, "info");
 	} catch {}
 }
 
@@ -517,10 +515,7 @@ async function runObserverStage(
 	const priorObservations = memory.observations.map(observationToSummaryLine);
 
 	if (shouldNotifyWorker(runtime, ctx))
-		ctx.ui?.notify(
-			`Observational memory: observer running on ~${chunkTokens.toLocaleString()}-token chunk`,
-			"info",
-		);
+		ctx.ui?.notify(`om: observer running on ${formatTokensK(chunkTokens)} tokens chunk`, "info");
 	debugLog("observer.start", {
 		tokens,
 		chunkTokens,
@@ -569,7 +564,7 @@ async function runObserverStage(
 		runtime.observerEmptyBackoff = { sessionIdentity, coverageId, tokensAtEmpty: tokens };
 		if (shouldNotifyWorker(runtime, ctx))
 			ctx.ui?.notify(
-				"Observational memory: observer found nothing new in this chunk (coverage unchanged; will retry later)",
+				"om: observer found nothing new in this chunk (coverage unchanged; will retry later)",
 				"info",
 			);
 		return "continue";
@@ -617,10 +612,7 @@ async function runReflectorStage(
 	if (!observationCoverageId) return { outcome: "continue", sameRunReflections: [] };
 
 	if (shouldNotifyWorker(runtime, ctx))
-		ctx.ui?.notify(
-			`Observational memory: reflector running (~${reflectionTokens.toLocaleString()} tokens)`,
-			"info",
-		);
+		ctx.ui?.notify(`om: reflector running (${formatTokensK(reflectionTokens)} tokens)`, "info");
 	const resolved = await resolveModel("reflector");
 	if (!resolved) return { outcome: "abort", sameRunReflections: [] };
 
@@ -712,7 +704,7 @@ async function runDropperStage(
 
 	if (shouldNotifyWorker(runtime, ctx))
 		ctx.ui?.notify(
-			`Observational memory: dropper running after reflection — active observation pool ~${metrics.observationTokens.toLocaleString()} / ${metrics.targetTokens.toLocaleString()} target tokens (${Math.round(metrics.fullness * 100).toLocaleString()}%)`,
+			`om: dropper running after reflection — active observation pool ${formatTokensK(metrics.observationTokens)} / ${formatTokensK(metrics.targetTokens)} target tokens (${Math.round(metrics.fullness * 100).toLocaleString()}%)`,
 			"info",
 		);
 	const resolved = await resolveModel("dropper");
