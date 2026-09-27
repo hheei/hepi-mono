@@ -16,14 +16,16 @@ export function isSourceEntry(entry: Entry): boolean {
 
 export function entryIndexById(entries: Entry[]): Map<string, number> {
 	const idToIndex = new Map<string, number>();
-	for (const [i, entry] of entries.entries()) idToIndex.set(entry.id, i);
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		if (entry !== undefined) idToIndex.set(entry.id, i);
+	}
 	return idToIndex;
 }
 
 export function entryIndexForId(entries: Entry[], entryId: string | undefined): number {
 	if (!entryId) return -1;
-	const idx = entryIndexById(entries).get(entryId);
-	return idx ?? -1;
+	return entries.findIndex((entry) => entry.id === entryId);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -88,12 +90,12 @@ export function earlierCoverageMarkerId(
 ): string | undefined {
 	if (!firstId) return secondId;
 	if (!secondId) return firstId;
+	if (firstId === secondId) return firstId;
 
-	const idToIndex = entryIndexById(entries);
-	const firstIndex = idToIndex.get(firstId);
-	const secondIndex = idToIndex.get(secondId);
-	if (firstIndex === undefined) return secondIndex === undefined ? undefined : secondId;
-	if (secondIndex === undefined) return firstId;
+	const firstIndex = entries.findIndex((entry) => entry.id === firstId);
+	const secondIndex = entries.findIndex((entry) => entry.id === secondId);
+	if (firstIndex === -1) return secondIndex === -1 ? undefined : secondId;
+	if (secondIndex === -1) return firstId;
 	return firstIndex <= secondIndex ? firstId : secondId;
 }
 
@@ -151,9 +153,21 @@ export function contextTokensFromUsage(usage: unknown): number | undefined {
 			? u.totalTokens
 			: undefined;
 	if (total !== undefined) return total;
-	const parts = [u.input, u.output, u.cacheRead, u.cacheWrite];
-	if (parts.every((p) => typeof p === "number" && Number.isFinite(p))) {
-		const sum = parts.reduce<number>((acc, p) => acc + (p ?? 0), 0);
+	const input = u.input;
+	const output = u.output;
+	const cacheRead = u.cacheRead;
+	const cacheWrite = u.cacheWrite;
+	if (
+		typeof input === "number" &&
+		Number.isFinite(input) &&
+		typeof output === "number" &&
+		Number.isFinite(output) &&
+		typeof cacheRead === "number" &&
+		Number.isFinite(cacheRead) &&
+		typeof cacheWrite === "number" &&
+		Number.isFinite(cacheWrite)
+	) {
+		const sum = input + output + cacheRead + cacheWrite;
 		return sum > 0 ? sum : undefined;
 	}
 	return undefined;
