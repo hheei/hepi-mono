@@ -653,10 +653,6 @@ function createController(signal: AbortSignal): AbortController {
 	return controller;
 }
 
-function failureMessage(error: unknown): string {
-	return errorMessage(error);
-}
-
 function assistantText(message: AssistantMessage | undefined): string {
 	if (message === undefined) return "";
 	return message.content
@@ -946,7 +942,7 @@ function startCompletion(
 							mode: "completion",
 							status: "failed",
 							output: "",
-							failure: classifyCompletionFailure(error, failureMessage(error)),
+							failure: classifyCompletionFailure(error, errorMessage(error)),
 						};
 			}
 			status = terminal.status;
@@ -1087,7 +1083,7 @@ function startTask(
 							output: "",
 							softLimitReached: false,
 							usage: EMPTY_CONVERSATION_USAGE,
-							failure: failureMessage(error),
+							failure: errorMessage(error),
 						};
 			} finally {
 				session?.dispose();
@@ -1195,7 +1191,7 @@ async function runSessionTurn(
 					output,
 					softLimitReached,
 					usage,
-					failure: failureMessage(error),
+					failure: errorMessage(error),
 				};
 	} finally {
 		unsubscribe();
@@ -1281,7 +1277,7 @@ function startConversation(
 				try {
 					session = await spec.session.create(controller.signal);
 				} catch (error) {
-					terminal(failureMessage(error));
+					terminal(errorMessage(error));
 					current = undefined;
 					return;
 				}

@@ -267,8 +267,6 @@ export function sanitizeAnsi(value: string): string {
 	return sanitizeTerminal(value, true);
 }
 
-const staticAnsi = sanitizeAnsi;
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return isRecord(value) ? value : undefined;
 }
@@ -470,7 +468,7 @@ export function createTextReplayFrame(
 	text: string,
 	options: TextReplayFrameOptions = {},
 ): ReplayFrame {
-	const lines = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n").map(staticAnsi);
+	const lines = text.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n").map(sanitizeAnsi);
 	if (lines.length > 1 && lines.at(-1) === "") lines.pop();
 	const naturalColumns = Math.max(1, ...lines.map((line) => visibleWidth(line)));
 	const columns = positiveInteger(options.columns ?? naturalColumns, "columns");
@@ -682,7 +680,7 @@ export function finalFrameSvg(frame: ReplayFrame): string {
 	const cellWidth = 8.4;
 	const lineHeight = 18;
 	const padding = 12;
-	const lines = [...viewFrame(frame, { color: true })].map(staticAnsi);
+	const lines = [...viewFrame(frame, { color: true })].map(sanitizeAnsi);
 	const style: AnsiSvgStyle = {
 		color: "#d8dee9",
 		bold: false,
@@ -711,7 +709,7 @@ ${content}
 }
 
 export function finalFrameAnsi(frame: ReplayFrame): string {
-	return `${staticAnsi(viewFrame(frame, { color: true }).join("\n"))}\x1b[0m\n`;
+	return `${sanitizeAnsi(viewFrame(frame, { color: true }).join("\n"))}\x1b[0m\n`;
 }
 
 export async function writeReplaySnapshot(
@@ -752,7 +750,7 @@ export async function writeReplayArtifacts(
 ): Promise<ReplayArtifacts> {
 	const now = new Date();
 	const replayPlain = `${formatReplay(result)}\n`;
-	const replayAnsi = `${staticAnsi(formatReplay(result, { color: true }))}\x1b[0m\n`;
+	const replayAnsi = `${sanitizeAnsi(formatReplay(result, { color: true }))}\x1b[0m\n`;
 	const finalPlain = `${viewFrame(result.last).join("\n")}\n`;
 	const finalAnsi = finalFrameAnsi(result.last);
 	const finalScreenshot = finalFrameSvg(result.last);

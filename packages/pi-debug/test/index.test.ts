@@ -23,6 +23,30 @@ const basePayload = {
 	],
 };
 
+type DebugHandler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+type DebugCommand = { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> };
+
+function debugHost(): {
+	readonly handlers: Map<string, DebugHandler>;
+	readonly commands: Map<string, DebugCommand>;
+	readonly pi: {
+		on(event: string, handler: DebugHandler): void;
+		registerCommand(name: string, command: DebugCommand): void;
+	};
+} {
+	const handlers = new Map<string, DebugHandler>();
+	const commands = new Map<string, DebugCommand>();
+	const pi = {
+		on(event: string, handler: DebugHandler) {
+			handlers.set(event, handler);
+		},
+		registerCommand(name: string, command: DebugCommand) {
+			commands.set(name, command);
+		},
+	};
+	return { handlers, commands, pi };
+}
+
 describe("provider payload probe", () => {
 	test("hashes logical cache modules without retaining prompt text", () => {
 		const snapshot = snapshotProviderPayload(basePayload);
@@ -85,19 +109,7 @@ describe("debug extension", () => {
 	test("does not write provider diagnostics while disabled", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-"));
 		const logPath = join(directory, "requests.jsonl");
-		const handlers = new Map<
-			string,
-			(event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown
-		>();
-		const pi = {
-			on(
-				event: string,
-				handler: (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown,
-			) {
-				handlers.set(event, handler);
-			},
-			registerCommand() {},
-		};
+		const { handlers, pi } = debugHost();
 		registerCacheDebug(pi as never, { logPath, isEnabled: () => false });
 		const ctx = {
 			sessionManager: { getSessionId: () => "session-1" },
@@ -111,33 +123,8 @@ describe("debug extension", () => {
 	test("correlates request hashes with provider usage in JSONL", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-"));
 		const logPath = join(directory, "requests.jsonl");
-		const handlers = new Map<
-			string,
-			(event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown
-		>();
-		const commands = new Map<
-			string,
-			{
-				handler: (args: string, ctx: Record<string, unknown>) => Promise<void>;
-			}
-		>();
 		const notifications: string[] = [];
-		const pi = {
-			on(
-				event: string,
-				handler: (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown,
-			) {
-				handlers.set(event, handler);
-			},
-			registerCommand(
-				name: string,
-				command: {
-					handler: (args: string, ctx: Record<string, unknown>) => Promise<void>;
-				},
-			) {
-				commands.set(name, command);
-			},
-		};
+		const { handlers, commands, pi } = debugHost();
 		registerCacheDebug(pi as never, { logPath });
 
 		const ctx = {

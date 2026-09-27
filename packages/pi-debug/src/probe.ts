@@ -1,10 +1,6 @@
 import { createHash } from "node:crypto";
 import { isRecord } from "@hheei/pi-ext-core";
 
-interface JsonObject {
-	readonly [key: string]: unknown;
-}
-
 export interface ValueDigest {
 	readonly hash: string;
 	readonly bytes: number;
@@ -177,7 +173,7 @@ export function requestLogSnapshot(snapshot: PayloadSnapshot): Omit<PayloadSnaps
 	};
 }
 
-function findInput(object: JsonObject): {
+function findInput(object: Record<string, unknown>): {
 	readonly key: "input" | "messages" | "contents" | null;
 	readonly items: readonly unknown[];
 } {
@@ -226,18 +222,18 @@ function moduleDigest(
 	};
 }
 
-function pickPresent(object: JsonObject, keys: readonly string[]): JsonObject {
+function pickPresent(
+	object: Record<string, unknown>,
+	keys: readonly string[],
+): Record<string, unknown> {
 	return Object.fromEntries(keys.filter((key) => key in object).map((key) => [key, object[key]]));
 }
 
 function digest(value: unknown): ValueDigest {
-	const serialized = serialize(value);
+	// A value JSON cannot express (undefined, a function) still needs a stable digest.
+	const serialized = JSON.stringify(value) ?? "undefined";
 	return {
 		hash: createHash("sha256").update(serialized).digest("hex"),
 		bytes: Buffer.byteLength(serialized, "utf8"),
 	};
-}
-
-function serialize(value: unknown): string {
-	return JSON.stringify(value) ?? "undefined";
 }
