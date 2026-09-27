@@ -4,11 +4,12 @@ import {
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
+	setPromptSection,
 } from "@hheei/pi-ext-core";
 import { createOptimizerInfo } from "./info.js";
 import { convertInputText } from "./model.js";
 import { type OptimizerSession, registerOptimizerCommand } from "./opt.js";
-import { buildOptimizerPrompt } from "./prompt.js";
+import { buildOptimizerPrompt, OPTIMIZER_PROMPT_SECTION } from "./prompt.js";
 import { createRtkRuntime } from "./rtk.js";
 import {
 	createOptimizerSettingsProvider,
@@ -49,7 +50,7 @@ export default function piOptimizerExtension(
 			.filter(Boolean)
 			.join(" · ");
 		info(`Prompt · ${modes}`, { prompt });
-		return { systemPrompt: [event.systemPrompt, prompt].filter(Boolean).join("\n\n") };
+		setPromptSection(event.systemPromptOptions.sections, OPTIMIZER_PROMPT_SECTION, prompt);
 	});
 	pi.on("tool_call", async (event, context) => {
 		const session = getSession(context);

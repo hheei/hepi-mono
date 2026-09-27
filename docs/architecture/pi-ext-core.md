@@ -142,6 +142,10 @@ core 还承载一批小而稳定的工具函数。它们进入 core 的唯一理
 - `isRecord()`：唯一 plain-object narrowing guard。数组不满足它，避免包内自行实现时出现
   “数组也是 record” 的分歧。
 - `expandHome()`：展开配置中的 `~` / `~/…`；caller 需要绝对路径时自行 resolve。
+- `setPromptSection()`：写入或删除 `event.systemPromptOptions.sections` 中的一个具名 section。Pi 按
+  section diff 每个 request，所以扩展注入 prompt 时不得把文本拼到 `event.systemPrompt` 上：拼接会让
+  Pi 每轮重发整段 prompt，也让注入内容无法被单独替换。section 名为小写标识符（可含数字、`-`、`_`），
+  传 `undefined` 或全空白即删除。
 
 这些函数保持无副作用：只依赖 node 标准库与 type-only 的 host 类型，不读取 session、settings、
 terminal 或 registry。需要 strategy、policy、持久化或渲染的能力仍归 concrete extension。

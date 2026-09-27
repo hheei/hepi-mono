@@ -9,6 +9,9 @@ import { buildCavemanPrompt } from "./caveman.js";
 import { buildPonytailPrompt } from "./ponytail.js";
 import type { OptimizerSettings } from "./settings.js";
 
+/** Prompt section Pi keeps and diffs per turn; renamed only with the extension. */
+export const OPTIMIZER_PROMPT_SECTION = "pi-optimizer";
+
 const RTK_PROMPT = `# RTK — token-optimized command wrapper
 
 For an eligible local, foreground bash command, RTK may safely optimize supported commands (for example, \`rtk git status\`). Do not prefix every command unconditionally: leave unsupported commands and commands outside that local foreground bash scope raw. The runtime determines eligibility and applies the configured executable path safely.
