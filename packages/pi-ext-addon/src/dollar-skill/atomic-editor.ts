@@ -1,5 +1,5 @@
 import { Editor, type EditorComponent, getKeybindings } from "@earendil-works/pi-tui";
-import type { DollarSkillCommand } from "./model.js";
+import { bareSkillName, type DollarSkillCommand } from "./model.js";
 
 const ATOMIC_REFERENCE_PATTERN = /(^|[\s([{])\$([A-Za-z][A-Za-z0-9-]*)(?=$|[^A-Za-z0-9:-])/g;
 // The editor wrapper owns movement and deletion only for references Pi can resolve.
@@ -26,10 +26,6 @@ interface CursorEditor extends EditorComponent {
 interface KeybindingsLike {
 	matches(data: string, keybinding: AtomicKeybinding): boolean;
 	getKeys?(keybinding: AtomicKeybinding): readonly string[];
-}
-
-function bareSkillName(name: string): string {
-	return name.startsWith("skill:") ? name.slice("skill:".length) : name;
 }
 
 function isCursorEditor(editor: EditorComponent): editor is CursorEditor {
