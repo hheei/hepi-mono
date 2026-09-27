@@ -339,7 +339,7 @@ describe("Todo integration", () => {
 			renderToolComponent(tool.renderCall?.(createParams, theme, createRenderContext)),
 		).toContain("todo #1");
 		const active = tool.renderResult?.(created, {}, theme, { isError: false });
-		expect(renderToolComponent(active)).toContain("+ ◐ #1 First");
+		expect(renderToolComponent(active)).toContain("+ 󰪠 #1 First");
 		expect(renderToolComponent(active)).toContain("active #1");
 
 		const completed = await tool.execute(
@@ -350,7 +350,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		const done = tool.renderResult?.(completed, {}, theme, { isError: false });
-		expect(renderToolComponent(done)).toContain("✓ #1 ~First~");
+		expect(renderToolComponent(done)).toContain("󰄴 #1 ~First~");
 
 		const nextParams = {
 			operations: [
@@ -382,7 +382,7 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		const blocked = tool.renderResult?.(blockedResult, {}, theme, { isError: false });
-		expect(renderToolComponent(blocked)).toContain("⊘ #3 ~Third~");
+		expect(renderToolComponent(blocked)).toContain("󰀪 #3 ~Third~");
 
 		const failed = tool.renderResult?.(
 			{ content: [] },
@@ -468,8 +468,8 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		expect(listed.details.snapshot.tasks.find(({ id }) => id === 2)?.status).toBe("in_progress");
-		expect(listed.content[0]?.text).toContain("◐ #2 Second");
-		expect(listed.content[0]?.text).toContain("⊘ #1 First");
+		expect(listed.content[0]?.text).toContain("󰪠 #2 Second");
+		expect(listed.content[0]?.text).toContain("󰀪 #1 First");
 		expect(listed.content[0]?.text?.endsWith("in_progress: #2 Second.")).toBe(true);
 
 		const noChange = await tool.execute(
@@ -561,7 +561,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("◐ #1 Restored\nin_progress: #1 Restored.");
+		expect(listed.content[0]?.text).toBe("󰪠 #1 Restored\nin_progress: #1 Restored.");
 		host.setBranch([
 			branchResult({
 				tasks: [{ id: 2, subject: "Tree state", status: "pending" }],
@@ -577,7 +577,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(listed.content[0]?.text).toBe("◐ #2 Tree state\nin_progress: #2 Tree state.");
+		expect(listed.content[0]?.text).toBe("󰪠 #2 Tree state\nin_progress: #2 Tree state.");
 	});
 
 	test("updates footer status on task status transitions and hides after window expires", async () => {
@@ -591,7 +591,7 @@ describe("Todo integration", () => {
 		// Initially empty -> status undefined
 		expect(host.statuses.at(-1)?.text).toBeUndefined();
 
-		// Create active task -> ◐ #1 Work
+		// Create active task -> 󰪠 #1 Work
 		await tool.execute(
 			"create",
 			{ operations: [{ action: "create", subject: "Work" }] },
@@ -599,9 +599,9 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(host.statuses.at(-1)?.text).toBe("◐ #1 Work");
+		expect(host.statuses.at(-1)?.text).toBe("󰪠 #1 Work");
 
-		// Complete task -> ✓ #1 Work
+		// Complete task -> 󰄴 #1 Work
 		await tool.execute(
 			"complete",
 			{ operations: [{ action: "update", id: 1, status: "completed" }] },
@@ -609,14 +609,14 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(host.statuses.at(-1)?.text).toBe("✓ #1 Work");
+		expect(host.statuses.at(-1)?.text).toBe("󰄴 #1 Work");
 
 		// After 3 minutes, completed task expires -> undefined
 		clock += 3 * 60 * 1000 + 1;
 		vi.advanceTimersByTime(3 * 60 * 1000 + 1);
 		expect(host.statuses.at(-1)?.text).toBeUndefined();
 
-		// Create another and block it -> ⊘ #2 Blocked
+		// Create another and block it -> 󰀪 #2 Blocked
 		await tool.execute(
 			"create2",
 			{ operations: [{ action: "create", subject: "Blocked task", status: "blocked" }] },
@@ -624,7 +624,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(host.statuses.at(-1)?.text).toBe("⊘ #2 Blocked task");
+		expect(host.statuses.at(-1)?.text).toBe("󰀪 #2 Blocked task");
 
 		// After 15 seconds, blocked task expires -> undefined
 		clock += 15 * 1000 + 1;
@@ -645,7 +645,7 @@ describe("Todo integration", () => {
 			undefined,
 			host.ctx,
 		);
-		expect(host.statuses.at(-1)?.text).toBe("◐ #3 First step");
+		expect(host.statuses.at(-1)?.text).toBe("󰪠 #3 First step");
 
 		// Complete #3 -> #4 auto-advances to in_progress
 		clock += 1000;
@@ -657,12 +657,12 @@ describe("Todo integration", () => {
 			host.ctx,
 		);
 		// Shows completed #3 for 15 seconds even though #4 is in_progress
-		expect(host.statuses.at(-1)?.text).toBe("✓ #3 First step");
+		expect(host.statuses.at(-1)?.text).toBe("󰄴 #3 First step");
 
 		// After 15 seconds, transitions to in_progress #4
 		clock += 15 * 1000 + 1;
 		vi.advanceTimersByTime(15 * 1000 + 1);
-		expect(host.statuses.at(-1)?.text).toBe("◐ #4 Second step");
+		expect(host.statuses.at(-1)?.text).toBe("󰪠 #4 Second step");
 	});
 
 	test("injects a transient repeating reminder after turn and time thresholds", async () => {
@@ -788,14 +788,14 @@ describe("Todo integration", () => {
 		// /todo (default: active + recent)
 		await host.commands[0]!.handler("", host.ctx);
 		expect(host.notifications[0]).toEqual({
-			message: "── Active ──\n◐ #1 Working\n○ #2 Pending",
+			message: "── Active ──\n󰪠 #1 Working\n󰄰 #2 Pending",
 			level: "info",
 		});
 
 		// /todo list (all) - case-insensitive
 		await host.commands[0]!.handler("LIST", host.ctx);
 		expect(host.notifications[1]).toEqual({
-			message: "0/2 completed\n── In Progress ──\n◐ #1 Working\n── Pending ──\n○ #2 Pending",
+			message: "0/2 completed\n── In Progress ──\n󰪠 #1 Working\n── Pending ──\n󰄰 #2 Pending",
 			level: "info",
 		});
 
