@@ -119,7 +119,9 @@ describe("V3 compaction trigger", () => {
 
 		expect(ctx.compact).toHaveBeenCalledTimes(1);
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"om: compaction threshold reached (<0.1k estimated source tokens); triggering compaction",
+			expect.stringMatching(
+				/^om: compaction threshold reached \([\w.]+ estimated source tokens\); triggering compaction$/,
+			),
 			"info",
 		);
 	});

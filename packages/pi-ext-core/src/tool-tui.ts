@@ -8,6 +8,7 @@ import type {
 import {
 	type Component,
 	Container,
+	ScrollView,
 	Text,
 	truncateToWidth,
 	visibleWidth,
@@ -37,6 +38,9 @@ export type ToolCollapseMode = "auto" | "pertrace" | "off" | "on";
 
 /** Delay between one long-output result completing and its `auto` collapse. */
 export const AUTO_COLLAPSE_DELAY_MS = 15_000;
+
+/** Retry interval when auto-collapse is postponed due to user scrolling up. */
+export const AUTO_COLLAPSE_RETRY_DELAY_MS = 3_000;
 
 export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
@@ -70,6 +74,7 @@ export interface ToolTui {
 	/** Drops every tool record and pending collapse timer of the finished session. */
 	resetSession(): void;
 	setToolCollapseMode(mode: ToolCollapseMode): void;
+	setScrolledUpPredicate(predicate: (() => boolean) | undefined): void;
 	frame<TParams extends TSchema, TDetails, TState>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 		presentation?: ToolTuiPresentation<TParams, TDetails>,
@@ -328,6 +333,11 @@ class ToolTraceController {
 	private trace = 0;
 	private mode: ToolCollapseMode = "auto";
 	private readonly tools = new Map<string, ToolRecord>();
+	private isScrolledUp: (() => boolean) | undefined;
+
+	setScrolledUpPredicate(predicate: (() => boolean) | undefined): void {
+		this.isScrolledUp = predicate;
+	}
 
 	setMode(mode: ToolCollapseMode): void {
 		if (this.mode === mode) return;
@@ -479,11 +489,20 @@ class ToolTraceController {
 			tool.timerCollapsed = true;
 			return;
 		}
-		const timer = setTimeout(() => {
+		const attempt = (): void => {
 			delete tool.collapseTimer;
+			// If user is currently scrolled up reading historical output,
+			// postpone auto-collapse so we don't disrupt their reading or reset viewport to bottom.
+			if (this.isScrolledUp?.() === true) {
+				const retryTimer = setTimeout(attempt, AUTO_COLLAPSE_RETRY_DELAY_MS);
+				retryTimer.unref();
+				tool.collapseTimer = retryTimer;
+				return;
+			}
 			tool.timerCollapsed = true;
 			tool.invalidate?.();
-		}, AUTO_COLLAPSE_DELAY_MS);
+		};
+		const timer = setTimeout(attempt, AUTO_COLLAPSE_DELAY_MS);
 		timer.unref();
 		tool.collapseTimer = timer;
 	}
@@ -689,6 +708,9 @@ export function createToolTui(): ToolTui {
 		setToolCollapseMode(mode: ToolCollapseMode): void {
 			trace.setMode(mode);
 		},
+		setScrolledUpPredicate(predicate: (() => boolean) | undefined): void {
+			trace.setScrolledUpPredicate(predicate);
+		},
 		frame<TParams extends TSchema, TDetails, TState>(
 			tool: ToolDefinition<TParams, TDetails, TState>,
 			presentation: ToolTuiPresentation<TParams, TDetails> = {},
@@ -844,8 +866,79 @@ export function getToolTui(pi: ExtensionAPI): ToolTui {
 	return stateFor(pi).tui;
 }
 
+let scrollViewProtectionInstalled = false;
+
+/**
+ * Installs viewport protection on ScrollView so that when content shrinks
+ * (such as tool body collapsing), a user who scrolled up to read history is NOT
+ * forcefully reset to the bottom or re-anchored to `followingEnd = true`.
+ */
+export function installScrollViewViewportProtection(): void {
+	if (scrollViewProtectionInstalled) return;
+	scrollViewProtectionInstalled = true;
+
+	const proto = ScrollView.prototype as {
+		updateLayout?: (
+			contentHeight: number,
+			viewportHeight: number,
+			requestRender: () => void,
+		) => void;
+	};
+	const originalUpdateLayout = proto.updateLayout;
+	if (typeof originalUpdateLayout !== "function") return;
+
+	type ScrollViewInternal = {
+		isFollowingEnd: boolean;
+		contentHeight: number;
+		followingEnd: boolean;
+		followSuppressedAtEnd?: boolean;
+	};
+
+	proto.updateLayout = function (
+		this: ScrollView,
+		contentHeight: number,
+		viewportHeight: number,
+		requestRender: () => void,
+	): void {
+		const target = this as unknown as ScrollViewInternal;
+		const wasFollowingEnd = target.isFollowingEnd;
+		const previousContentHeight = target.contentHeight;
+
+		originalUpdateLayout.call(this, contentHeight, viewportHeight, requestRender);
+
+		// If user was viewing content above (not following end) and content shrunk
+		// (e.g. tool body collapsed), keep user's unanchored reading state rather
+		// than forcefully snapping followingEnd back to true.
+		if (!wasFollowingEnd && contentHeight < previousContentHeight) {
+			target.followingEnd = false;
+			target.followSuppressedAtEnd = true;
+		}
+	};
+}
+
+/**
+ * Detects whether the active TUI renderer is scrolled up away from the bottom.
+ * Returns true if the user has scrolled up to view prior lines.
+ */
+export function isTuiScrolledUp(tui: unknown): boolean {
+	if (!tui || typeof tui !== "object") return false;
+	if ("isFollowingOutput" in tui && typeof tui.isFollowingOutput === "boolean") {
+		return !tui.isFollowingOutput;
+	}
+	if ("getPrimaryScrollView" in tui && typeof tui.getPrimaryScrollView === "function") {
+		const sv = (
+			tui as { getPrimaryScrollView: () => { isFollowingEnd?: boolean } }
+		).getPrimaryScrollView();
+		if (sv && typeof sv.isFollowingEnd === "boolean") {
+			return !sv.isFollowingEnd;
+		}
+	}
+	return false;
+}
+
 /** Installs one trace lifecycle binding for each extension runtime. */
 export function registerToolTuiTrace(pi: ExtensionAPI): void {
+	installScrollViewViewportProtection();
 	const registrations = traceRegistrations();
 	if (registrations.has(pi)) return;
 	registrations.add(pi);
