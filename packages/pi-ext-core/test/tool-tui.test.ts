@@ -818,11 +818,68 @@ async function settle(harness: LongToolHarness): Promise<string[]> {
 }
 
 describe("ToolTui collapse modes", () => {
-	test("defaults to auto and reports the active mode", (): void => {
+	test("recomputes frame rows only when the width changes", (): void => {
+		let painted = 0;
+		const counted = {
+			bg: (_role: string, text: string): string => {
+				painted += 1;
+				return text;
+			},
+			fg: (_role: string, text: string): string => {
+				painted += 1;
+				return text;
+			},
+			bold: (text: string): string => text,
+		} as Theme;
 		const tui = createToolTui();
-		expect(tui.getToolCollapseMode()).toBe("auto");
-		tui.setToolCollapseMode("pertrace");
-		expect(tui.getToolCollapseMode()).toBe("pertrace");
+		const framed = tui.frame(
+			{ ...tool(), renderResult: () => new Text("body", 0, 0) },
+			{
+				headerLine: "truncate",
+				longOutput: true,
+				footer: () => "1,234 matches · 123 files · 4,000 lines",
+			},
+		);
+		const result = { content: [], details: undefined };
+		const frame = framed.renderResult?.(
+			result,
+			{ expanded: false, isPartial: false },
+			counted,
+			context(false),
+		);
+		const first = frame?.render(40) ?? [];
+		const afterFirst = painted;
+		const second = frame?.render(40) ?? [];
+		expect(second).toEqual(first);
+		expect(painted).toBe(afterFirst);
+		frame?.render(41);
+		expect(painted).toBeGreaterThan(afterFirst);
+	});
+
+	test("reuses the rows of a collapsed frame while the width is unchanged", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame(
+			{ ...tool(), renderResult: () => new Text("body", 0, 0) },
+			{ footer: () => "123 matches · 12 files · 400 lines · 1.2s" },
+		);
+		const ctx = context(false);
+		// The first render registers the call in the current trace; the next one is prior to it.
+		framed.renderResult?.(
+			{ content: [], details: undefined },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		tui.beginTrace();
+		const summary = framed.renderResult?.(
+			{ content: [], details: undefined },
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+		expect(summary?.render(40)).toBe(summary?.render(40));
+		const header = framed.renderCall?.({ pattern: "needle" }, theme, ctx);
+		expect(header?.render(40)).toBe(header?.render(40));
 	});
 
 	test("auto collapses a long tool one delay after completion", async (): Promise<void> => {
