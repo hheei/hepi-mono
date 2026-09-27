@@ -1,7 +1,15 @@
-import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "@hheei/pi-ext-core";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { lsCollapsedFooter, parseLsMetrics, registerLsTool } from "../src/ls.js";
+
+/** `lsCollapsedFooter` only reads `content`, and the host type requires `details`. */
+function textResult(text: string): AgentToolResult<unknown> {
+	return { content: [{ type: "text", text }], details: undefined };
+}
 
 describe("ls tool metrics and collapsed view", () => {
 	test("parses metrics from various ls outputs", () => {
@@ -55,32 +63,22 @@ describe("ls tool metrics and collapsed view", () => {
 	});
 
 	test("formats collapsed footer correctly", () => {
-		const emptyResult: AgentToolResult<unknown> = {
-			content: [{ type: "text", text: "(empty directory)" }],
-		};
+		const emptyResult = textResult("(empty directory)");
 		expect(lsCollapsedFooter(emptyResult, { durationMs: 5 })).toBe("(empty directory) · 5ms");
 		expect(lsCollapsedFooter(emptyResult, undefined)).toBe("(empty directory)");
 
-		const mixedResult: AgentToolResult<unknown> = {
-			content: [{ type: "text", text: "src/\ntest/\nREADME.md\npackage.json\n" }],
-		};
+		const mixedResult = textResult("src/\ntest/\nREADME.md\npackage.json\n");
 		expect(lsCollapsedFooter(mixedResult, { durationMs: 12 })).toBe(
 			"4 entries (2 dirs, 2 files) · 12ms",
 		);
 
-		const singleDirResult: AgentToolResult<unknown> = {
-			content: [{ type: "text", text: "src/\n" }],
-		};
+		const singleDirResult = textResult("src/\n");
 		expect(lsCollapsedFooter(singleDirResult, undefined)).toBe("1 dir");
 
-		const singleFileResult: AgentToolResult<unknown> = {
-			content: [{ type: "text", text: "README.md\n" }],
-		};
+		const singleFileResult = textResult("README.md\n");
 		expect(lsCollapsedFooter(singleFileResult, { durationMs: 3 })).toBe("1 file · 3ms");
 
-		const truncatedResult: AgentToolResult<unknown> = {
-			content: [{ type: "text", text: "a/\nb\n[Truncated: 500 entries]" }],
-		};
+		const truncatedResult = textResult("a/\nb\n[Truncated: 500 entries]");
 		expect(lsCollapsedFooter(truncatedResult, { durationMs: 40 })).toBe(
 			"2 entries (truncated) · 40ms",
 		);
