@@ -8,7 +8,11 @@ import {
 } from "../src/index.js";
 
 /** The overlay options Pi hands to `ui.custom`'s second argument. */
-type HostCustomOptions = NonNullable<Parameters<ExtensionCommandContext["ui"]["custom"]>[1]>;
+interface HostCustomOptions {
+	readonly overlay?: boolean;
+	readonly overlayOptions?: OverlayOptions | (() => OverlayOptions);
+	readonly onHandle?: (handle: OverlayHandle) => void;
+}
 
 function settle(): Promise<void> {
 	return Promise.resolve().then(() => Promise.resolve());
@@ -32,7 +36,7 @@ interface MountedSurface {
 function host(
 	options: {
 		readonly ui?: Record<string, unknown>;
-		readonly onCustom?: (surface: MountedSurface, customOptions?: unknown) => void;
+		readonly onCustom?: (surface: MountedSurface, customOptions?: HostCustomOptions) => void;
 	} = {},
 ) {
 	const events: string[] = [];
@@ -52,7 +56,7 @@ function host(
 					keybindings: never,
 					done: (value: T) => void,
 				) => Component,
-				customOptions?: unknown,
+				customOptions?: HostCustomOptions,
 			): Promise<T> {
 				let resolveSurface: (value: T) => void = () => undefined;
 				let rejectSurface: (error: unknown) => void = () => undefined;

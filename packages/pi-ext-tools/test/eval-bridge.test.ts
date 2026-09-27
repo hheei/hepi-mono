@@ -140,7 +140,13 @@ describe("Eval tool bridge", () => {
 					{ kind: "text" as const, text: "line 1" },
 					{
 						kind: "tool" as const,
-						trace: { name: "read" as const, text: "file.ts", args: "{}" },
+						trace: {
+							name: "read" as const,
+							text: "file.ts",
+							args: "{}",
+							details: { path: "file.ts" },
+							durationMs: 12,
+						},
 					},
 				],
 				durationMs: 50,
@@ -152,7 +158,7 @@ describe("Eval tool bridge", () => {
 			partialResult,
 			{ expanded: false, isPartial: true },
 			{ fg: (_c: string, t: string) => t } as never,
-			undefined,
+			{} as never,
 		);
 		expect(partialComp?.render(80)).toEqual([]);
 
@@ -165,7 +171,13 @@ describe("Eval tool bridge", () => {
 					{ kind: "text" as const, text: "streamed line" },
 					{
 						kind: "tool" as const,
-						trace: { name: "read" as const, text: "file.ts", args: "{}" },
+						trace: {
+							name: "read" as const,
+							text: "file.ts",
+							args: "{}",
+							details: { path: "file.ts" },
+							durationMs: 12,
+						},
 					},
 					{ kind: "result" as const, text: "42" },
 				],
@@ -176,7 +188,7 @@ describe("Eval tool bridge", () => {
 			finalResult,
 			{ expanded: false, isPartial: false },
 			{ fg: (_c: string, t: string) => t } as never,
-			undefined,
+			{} as never,
 		);
 		expect(finalComp?.render(80)[0]?.trim()).toBe("42");
 	});
