@@ -85,7 +85,7 @@ function setup(entries: TestEntry[] = []) {
 describe("/om gate", () => {
 	it("reports the current state without writing an entry", async () => {
 		const gate = setup();
-		expect(await gate.run()).toContain("Observational memory is on for this session");
+		expect(await gate.run()).toContain("om is on for this session");
 		expect(gate.pi.appendEntry).not.toHaveBeenCalled();
 	});
 
@@ -130,7 +130,7 @@ describe("/om gate", () => {
 
 	it("reads the newest gate entry so a later toggle wins", async () => {
 		const gate = setup([gateEntry("gate-1", false), gateEntry("gate-2", true)]);
-		expect(await gate.run()).toContain("Observational memory is on");
+		expect(await gate.run()).toContain("om is on");
 	});
 
 	it("keeps the gate entry out of the memory fold and the token clocks", async () => {

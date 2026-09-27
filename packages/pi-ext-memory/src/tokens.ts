@@ -47,3 +47,19 @@ export function estimateEntryTokens(entry: {
 	}
 	return 0;
 }
+
+/**
+ * Formats token count compactly using k suffix (e.g. 7.1k, 12k, 100k, <0.1k)
+ * Avoids exact numbers or tilde prefixes.
+ */
+export function formatTokensK(tokens: number): string {
+	if (!Number.isFinite(tokens) || tokens <= 0) return "0k";
+	if (tokens < 100) return "<0.1k";
+	if (tokens < 1_000) {
+		const val = (tokens / 1_000).toFixed(1);
+		return `${val}k`;
+	}
+	const k = tokens / 1_000;
+	if (k >= 100) return `${Math.round(k)}k`;
+	return `${k.toFixed(1).replace(/\.0$/u, "")}k`;
+}

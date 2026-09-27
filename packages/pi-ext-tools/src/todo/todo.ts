@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import {
 	formatDuration,
 	getToolTui,
+	isRecord,
 	registerManagedTool,
 	registerToolTuiTrace,
 	subcommandCompletions,
@@ -17,7 +18,6 @@ import {
 	applyTodo,
 	cancelTodosByUser,
 	freshTaskState,
-	isRecord,
 	TASK_GLYPH,
 	TASK_TONE,
 	type Task,
@@ -489,7 +489,7 @@ function mutationRows(details: TodoToolDetails, theme: Theme): string[] {
 			const task = details.state.tasks.find((candidate) => candidate.id === operation.id);
 			if (operation.action === "delete") return theme.fg("dim", `− #${operation.id ?? "?"}`);
 			if (operation.action === "create")
-				return task === undefined ? `+ #${operation.id ?? "?"}` : `+ ${taskRow(task, theme)}`;
+				return task === undefined ? `#${operation.id ?? "?"}` : taskRow(task, theme);
 			return task === undefined ? `#${operation.id ?? "?"}` : taskRow(task, theme);
 		});
 	return rows.length === 0 ? [theme.fg("dim", "No changes.")] : rows;

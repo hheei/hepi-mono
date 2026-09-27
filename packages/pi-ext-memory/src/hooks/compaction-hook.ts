@@ -24,7 +24,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 			if (runtime.compactHookInFlight) {
 				if (ctx.hasUI) {
 					ctx.ui.notify(
-						"Observational memory: another compaction is already in progress; cancelling duplicate",
+						"om: another compaction is already in progress; cancelling duplicate",
 						"warning",
 					);
 				}

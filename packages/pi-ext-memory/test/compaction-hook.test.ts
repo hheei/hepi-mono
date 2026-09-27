@@ -278,7 +278,7 @@ describe("V3 compaction hook", () => {
 
 		await expect(run("raw-1")).resolves.toEqual({ cancel: true });
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
-			"Observational memory: another compaction is already in progress; cancelling duplicate",
+			"om: another compaction is already in progress; cancelling duplicate",
 			"warning",
 		);
 	});

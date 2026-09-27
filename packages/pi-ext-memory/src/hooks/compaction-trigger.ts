@@ -10,6 +10,7 @@ import {
 	latestGateEnabled,
 	rawTokensSinceLastCompaction,
 } from "../session-ledger/index.js";
+import { formatTokensK } from "../tokens.js";
 
 function isActiveSession(
 	runtime: Runtime,
@@ -65,7 +66,7 @@ async function runIdleCompaction(
 			try {
 				const secs = runtime.config.idleCompactionTtlSeconds;
 				ui?.notify(
-					`Observational memory: idle timeout reached (~${secs}s elapsed); compacting cold context in background`,
+					`om: idle timeout reached (${secs}s elapsed); compacting cold context in background`,
 					"info",
 				);
 			} catch {}
@@ -80,7 +81,7 @@ async function runIdleCompaction(
 				runtime.compactInFlight = false;
 				if (hasUI) {
 					try {
-						ui?.notify("Observational memory: idle compaction complete", "info");
+						ui?.notify("om: idle compaction complete", "info");
 					} catch {}
 				}
 			},
@@ -91,7 +92,7 @@ async function runIdleCompaction(
 				if (error.message === "Compaction cancelled" || error.message.includes("stale")) return;
 				if (hasUI) {
 					try {
-						ui?.notify(`Observational memory: ${error.message}`, "error");
+						ui?.notify(`om: ${error.message}`, "error");
 					} catch {}
 				}
 			},
@@ -104,7 +105,7 @@ async function runIdleCompaction(
 		if (msg.includes("stale")) return;
 		if (ctx.hasUI) {
 			try {
-				ctx.ui?.notify(`Observational memory: idle compact threw: ${msg}`, "error");
+				ctx.ui?.notify(`om: idle compact threw: ${msg}`, "error");
 			} catch {}
 		}
 	}
@@ -189,7 +190,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			runtime.clearPendingIdleCompactionTimer();
 			if (hasUI)
 				ui?.notify(
-					`Observational memory: compaction threshold reached (~${progress.toLocaleString()} estimated source tokens); triggering compaction`,
+					`om: compaction threshold reached (${formatTokensK(progress)} estimated source tokens); triggering compaction`,
 					"info",
 				);
 
@@ -205,10 +206,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 					if (!ctx.isIdle()) {
 						runtime.compactInFlight = false;
 						if (hasUI)
-							ui?.notify(
-								"Observational memory: compaction deferred — agent became busy before compaction",
-								"info",
-							);
+							ui?.notify("om: compaction deferred — agent became busy before compaction", "info");
 						return;
 					}
 					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
@@ -227,7 +225,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 						runtime.compactInFlight = false;
 						if (hasUI)
 							ui?.notify(
-								"Observational memory: compaction skipped — another compaction already ran before deferred compaction",
+								"om: compaction skipped — another compaction already ran before deferred compaction",
 								"info",
 							);
 						return;
@@ -238,7 +236,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 							runtime.compactInFlight = false;
 							if (hasUI) {
 								try {
-									ui?.notify("Observational memory: compaction complete", "info");
+									ui?.notify("om: compaction complete", "info");
 								} catch {
 									// Ignore stale ui notify
 								}
@@ -253,7 +251,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 							}
 							if (hasUI) {
 								try {
-									ui?.notify(`Observational memory: ${error.message}`, "error");
+									ui?.notify(`om: ${error.message}`, "error");
 								} catch {
 									// Ignore stale ui notify
 								}
@@ -267,7 +265,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 					if (msg.includes("stale")) return;
 					if (hasUI) {
 						try {
-							ui?.notify(`Observational memory: compact threw: ${msg}`, "error");
+							ui?.notify(`om: compact threw: ${msg}`, "error");
 						} catch {
 							// Ignore stale ui notify
 						}
