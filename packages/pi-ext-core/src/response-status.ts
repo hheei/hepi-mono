@@ -40,6 +40,8 @@ export function formatRate(value: number | null): string {
 	return value === null || !Number.isFinite(value) || value < 0 ? "?" : value.toFixed(1);
 }
 
+export type ColorFn = (text: string) => string;
+
 /**
  * Formats duration with semantic color:
  * - < 5s: success (green)
@@ -62,16 +64,27 @@ export function formatDurationColor(durationMs: number | null, theme: ThemeLike)
 /**
  * Formats full telemetry string:
  * ↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s
+ * When a ColorFn is provided, styles the entire status following the bottom rail's thinking border color.
  */
-export function formatTelemetryStatus(metrics: TelemetryMetrics, theme: ThemeLike): string {
+export function formatTelemetryStatus(
+	metrics: TelemetryMetrics,
+	color: ThemeLike | ColorFn,
+): string {
 	const tokens = [
 		`↑${formatCompactNumber(metrics.input)}`,
 		`↓${formatCompactNumber(metrics.output)}`,
 		`⇲${formatCompactNumber(metrics.cacheRead)}`,
 	].join(" ");
-	const duration = formatDurationColor(metrics.durationMs, theme);
-	const rate = theme.fg("dim", `󰓅${formatRate(metrics.tokensPerSecond)}/s`);
-	return `${theme.fg("dim", tokens)}  ${duration} ${rate}`;
+	const durationStr = formatDuration(metrics.durationMs ?? undefined) ?? "?";
+	const rateStr = `󰓅${formatRate(metrics.tokensPerSecond)}/s`;
+	const fullText = `${tokens}  󰔛${durationStr} ${rateStr}`;
+
+	if (typeof color === "function") {
+		return color(fullText);
+	}
+	const duration = formatDurationColor(metrics.durationMs, color);
+	const rate = color.fg("dim", rateStr);
+	return `${color.fg("dim", tokens)}  ${duration} ${rate}`;
 }
 
 export interface BottomRailBorderOptions {
@@ -126,7 +139,7 @@ export function renderBottomRailBorder(options: BottomRailBorderOptions): string
 
 export function wrapEditorBottomRail(
 	editor: EditorComponent,
-	getStatus: () => string | undefined,
+	getStatus: (borderColor: (text: string) => string) => string | undefined,
 ): EditorComponent {
 	const target = editor as unknown as {
 		renderBottomBorder?: (width: number, hiddenLineCount: number) => string;
@@ -134,15 +147,19 @@ export function wrapEditorBottomRail(
 	};
 	if (typeof target.renderBottomBorder !== "function") return editor;
 
+	if (typeof target.borderColor !== "function") {
+		target.borderColor = (text: string) => text;
+	}
+
 	const originalRenderBottomBorder = target.renderBottomBorder.bind(editor);
 	target.renderBottomBorder = (width: number, hiddenLineCount: number): string => {
-		const status = getStatus();
+		const borderColor = target.borderColor?.bind(target) ?? ((text: string) => text);
+		const status = getStatus(borderColor);
 		return renderBottomRailBorder({
 			width,
 			hiddenLineCount,
 			statusText: status,
-			borderColor: (text) =>
-				typeof target.borderColor === "function" ? target.borderColor(text) : text,
+			borderColor,
 			fallback: originalRenderBottomBorder,
 		});
 	};
@@ -157,56 +174,114 @@ interface TuiLike {
 	requestRender(): void;
 }
 
+export const TELEMETRY_DISMISS_DELAY_MS = 15_000;
+
+/** Patches the runtime ScrollView prototype on the actual TUI renderer if available. */
+export function patchActualTuiScrollView(tui: unknown): void {
+	if (!tui || typeof tui !== "object") return;
+	let sv: unknown;
+	if (
+		"getPrimaryScrollView" in tui &&
+		typeof (tui as { getPrimaryScrollView: unknown }).getPrimaryScrollView === "function"
+	) {
+		sv = (tui as { getPrimaryScrollView: () => unknown }).getPrimaryScrollView();
+	}
+	if (!sv && "renderer" in tui && (tui as { renderer?: unknown }).renderer) {
+		const renderer = (tui as { renderer: unknown }).renderer;
+		if (renderer && typeof renderer === "object") {
+			if (
+				"getPrimaryScrollView" in renderer &&
+				typeof (renderer as { getPrimaryScrollView: unknown }).getPrimaryScrollView === "function"
+			) {
+				sv = (renderer as { getPrimaryScrollView: () => unknown }).getPrimaryScrollView();
+			}
+			if (!sv && "implicitScrollView" in renderer) {
+				sv = (renderer as { implicitScrollView: unknown }).implicitScrollView;
+			}
+		}
+	}
+	if (!sv || typeof sv !== "object") return;
+	const targetObj = Object.hasOwn(sv, "updateLayout")
+		? (sv as {
+				updateLayout?: (
+					contentHeight: number,
+					viewportHeight: number,
+					requestRender: () => void,
+				) => void;
+				_viewportPatched?: boolean;
+			})
+		: (Object.getPrototypeOf(sv) as {
+				updateLayout?: (
+					contentHeight: number,
+					viewportHeight: number,
+					requestRender: () => void,
+				) => void;
+				_viewportPatched?: boolean;
+			});
+	if (!targetObj || targetObj._viewportPatched) return;
+	targetObj._viewportPatched = true;
+
+	const originalUpdateLayout = targetObj.updateLayout;
+	if (typeof originalUpdateLayout !== "function") return;
+
+	targetObj.updateLayout = function (
+		contentHeight: number,
+		viewportHeight: number,
+		requestRender: () => void,
+	): void {
+		const target = this as unknown as {
+			isFollowingEnd?: boolean;
+			contentHeight?: number;
+			followingEnd?: boolean;
+			followSuppressedAtEnd?: boolean;
+		};
+		const wasFollowingEnd = target.isFollowingEnd;
+		const prevContentHeight = target.contentHeight ?? 0;
+
+		originalUpdateLayout.call(this, contentHeight, viewportHeight, requestRender);
+
+		if (!wasFollowingEnd && contentHeight < prevContentHeight) {
+			target.followingEnd = false;
+			target.followSuppressedAtEnd = true;
+		}
+	};
+}
+
 /**
- * Manages live response telemetry rendered dynamically on the editor bottom rail.
- * Eliminates noisy turn notifications by embedding status into the bottom border.
+ * Manages response telemetry rendered on the editor bottom rail.
+ * Shows upon response completion and automatically dismisses after 15 seconds.
  */
 export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFeature {
 	let activeSessionId: string | undefined;
 	let activeContext: ExtensionContext | undefined;
 	let turnStartedAtMs: number | undefined;
-	let currentStatusText: string | undefined;
+	let currentMetrics: TelemetryMetrics | undefined;
 	let previousEditorFactory: EditorFactory | undefined;
 	let installedEditorFactory: EditorFactory | undefined;
 	let activeTui: TuiLike | undefined;
-	let activeTheme: ThemeLike | undefined;
-	let liveTimer: NodeJS.Timeout | undefined;
+	let dismissTimer: NodeJS.Timeout | undefined;
 
-	const clearLiveTimer = (): void => {
-		if (liveTimer !== undefined) {
-			clearInterval(liveTimer);
-			liveTimer = undefined;
+	const clearDismissTimer = (): void => {
+		if (dismissTimer !== undefined) {
+			clearTimeout(dismissTimer);
+			dismissTimer = undefined;
 		}
 	};
 
 	const ownsContext = (ctx: ExtensionContext): boolean =>
 		activeSessionId !== undefined && ctx.sessionManager.getSessionId() === activeSessionId;
 
-	const currentTheme = (): ThemeLike =>
-		activeTheme ?? activeContext?.ui.theme ?? { fg: (_c, t) => t };
-
 	pi.on("agent_start", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
-		clearLiveTimer();
+		clearDismissTimer();
 	});
 
 	pi.on("turn_start", (event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = event.timestamp ?? Date.now();
-		clearLiveTimer();
-
-		// Start dynamic timer to update elapsed duration on the bottom rail
-		liveTimer = setInterval(() => {
-			if (turnStartedAtMs === undefined) return;
-			const elapsedMs = Date.now() - turnStartedAtMs;
-			currentStatusText = formatDurationColor(elapsedMs, currentTheme());
-			activeTui?.requestRender();
-		}, 100);
-		liveTimer.unref();
-
-		// Initial frame
-		currentStatusText = formatDurationColor(0, currentTheme());
+		clearDismissTimer();
+		currentMetrics = undefined;
 		activeTui?.requestRender();
 	});
 
@@ -214,30 +289,38 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		if (!ownsContext(ctx) || event.message.role !== "assistant") return;
 		const startedAtMs = turnStartedAtMs;
 		turnStartedAtMs = undefined;
-		clearLiveTimer();
+		clearDismissTimer();
 
-		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") return;
+		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
+			currentMetrics = undefined;
+			activeTui?.requestRender();
+			return;
+		}
 
 		const totalTimeMs = startedAtMs === undefined ? null : Date.now() - startedAtMs;
 		const { usage } = event.message;
 		const tokensPerSecond = totalTimeMs === null ? null : usage.output / (totalTimeMs / 1_000);
 
-		const metrics: TelemetryMetrics = {
+		currentMetrics = {
 			input: usage.input,
 			output: usage.output,
 			cacheRead: usage.cacheRead,
 			durationMs: totalTimeMs,
 			tokensPerSecond,
 		};
-
-		currentStatusText = formatTelemetryStatus(metrics, currentTheme());
 		activeTui?.requestRender();
+
+		dismissTimer = setTimeout(() => {
+			dismissTimer = undefined;
+			currentMetrics = undefined;
+			activeTui?.requestRender();
+		}, TELEMETRY_DISMISS_DELAY_MS);
+		dismissTimer.unref?.();
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
-		clearLiveTimer();
 		activeTui?.requestRender();
 	});
 
@@ -248,25 +331,28 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			activeSessionId = context.mode === "tui" ? sessionId : undefined;
 			activeContext = context.mode === "tui" ? context : undefined;
 			turnStartedAtMs = undefined;
-			clearLiveTimer();
+			currentMetrics = undefined;
+			clearDismissTimer();
 
 			if (context.mode !== "tui") return;
 
-			activeTheme = context.ui.theme;
 			previousEditorFactory = context.ui.getEditorComponent();
 			installedEditorFactory = (tui, theme, keybindings) => {
 				activeTui = tui;
+				patchActualTuiScrollView(tui);
 				getToolTui(pi).setScrolledUpPredicate(() => isTuiScrolledUp(activeTui));
 				const baseEditor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
 					new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-				return wrapEditorBottomRail(baseEditor, () => currentStatusText);
+				return wrapEditorBottomRail(baseEditor, (borderColor) =>
+					currentMetrics ? formatTelemetryStatus(currentMetrics, borderColor) : undefined,
+				);
 			};
 			context.ui.setEditorComponent(installedEditorFactory);
 		},
 		dispose(sessionId) {
 			if (activeSessionId !== sessionId) return;
-			clearLiveTimer();
+			clearDismissTimer();
 			getToolTui(pi).setScrolledUpPredicate(undefined);
 			if (
 				activeContext !== undefined &&
@@ -278,11 +364,10 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			activeSessionId = undefined;
 			activeContext = undefined;
 			turnStartedAtMs = undefined;
-			currentStatusText = undefined;
+			currentMetrics = undefined;
 			previousEditorFactory = undefined;
 			installedEditorFactory = undefined;
 			activeTui = undefined;
-			activeTheme = undefined;
 		},
 	};
 }

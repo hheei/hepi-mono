@@ -11,7 +11,9 @@ import {
 	formatDurationColor,
 	formatRate,
 	formatTelemetryStatus,
+	patchActualTuiScrollView,
 	renderBottomRailBorder,
+	TELEMETRY_DISMISS_DELAY_MS,
 	wrapEditorBottomRail,
 } from "../src/index.js";
 
@@ -139,41 +141,64 @@ describe("response status", () => {
 		expect(status).toBe("[dim:↑5.3K ↓924 ⇲62.5K]  [warning:󰔛9.7s] [dim:󰓅95.1/s]");
 	});
 
-	test("renders bottom rail without notifications and reflects metrics in editor bottom border", () => {
-		const h = harness();
-		const feature = createResponseStatusFeature(h.pi);
-		feature.start(h.ctx);
+	test("formats full telemetry with ColorFn following bottom rail border color", () => {
+		const metrics = {
+			input: 5_300,
+			output: 924,
+			cacheRead: 62_500,
+			durationMs: 9_700,
+			tokensPerSecond: 95.1,
+		};
+		const colorFn = (text: string) => `[border:${text}]`;
+		const status = formatTelemetryStatus(metrics, colorFn);
+		expect(status).toBe("[border:↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s]");
+	});
 
-		expect(h.editorFactory).toBeDefined();
-		const editor = h.editorFactory?.(
-			h.tui,
-			mockTheme as unknown as EditorTheme,
-			{} as KeybindingsManager,
-		);
-		expect(editor).toBeDefined();
-
-		const mockEd = editor as unknown as MockEditor;
-
-		let now = 1_000;
-		const originalNow = Date.now;
-		Date.now = () => now;
+	test("renders bottom rail on completion, follows borderColor, and dismisses after 15s", async () => {
+		vi.useFakeTimers();
 		try {
+			const h = harness();
+			const originalFactory: EditorFactory = () => new MockEditor();
+			h.ctx.ui.setEditorComponent(originalFactory);
+
+			const feature = createResponseStatusFeature(h.pi);
+			feature.start(h.ctx);
+
+			expect(h.editorFactory).toBeDefined();
+			const editor = h.editorFactory?.(
+				h.tui,
+				mockTheme as unknown as EditorTheme,
+				{} as KeybindingsManager,
+			);
+			expect(editor).toBeDefined();
+
+			const mockEd = editor as unknown as MockEditor;
+
+			// turn_start: rail should be empty (no dynamic tick noise)
 			h.emit("agent_start", {});
-			h.emit("turn_start", { timestamp: now });
-			now = 8_100;
+			h.emit("turn_start", { timestamp: 1_000 });
+			const borderDuringTurn = mockEd.renderBottomBorder(80, 0);
+			expect(borderDuringTurn).toBe("─".repeat(80));
+
+			// message_end: telemetry appears using mockEd.borderColor
+			vi.setSystemTime(8_100);
 			h.emit("message_end", { message: assistant(654, 213, 83_000) });
 
 			// Verify ctx.ui.notify was NOT called (no noisy turn notifications)
 			expect(h.notifications).toEqual([]);
 
-			// Verify the editor bottom rail now displays the response telemetry
+			// Verify the editor bottom rail now displays the response telemetry with borderColor [b:...]
 			const bottomBorder = mockEd.renderBottomBorder(80, 0);
-			expect(bottomBorder).toContain("[dim:↑654 ↓213 ⇲83K]");
-			expect(bottomBorder).toContain("[warning:󰔛7.1s]");
-			expect(bottomBorder).toContain("[dim:󰓅30.0/s]");
-		} finally {
-			Date.now = originalNow;
+			expect(bottomBorder).toContain("[b:↑654 ↓213 ⇲83K  󰔛7.1s 󰓅30.0/s]");
+
+			// 15 seconds pass: telemetry automatically dismisses
+			await vi.advanceTimersByTimeAsync(TELEMETRY_DISMISS_DELAY_MS);
+			const dismissedBorder = mockEd.renderBottomBorder(80, 0);
+			expect(dismissedBorder).toBe("─".repeat(80));
+
 			feature.dispose("session");
+		} finally {
+			vi.useRealTimers();
 		}
 	});
 
@@ -197,16 +222,34 @@ describe("response status", () => {
 		expect(target.renderBottomBorder(40, 0)).toContain("TEST_STATUS");
 	});
 
-	test("disposes cleanly and restores previous editor factory", () => {
-		const h = harness();
-		const originalFactory: EditorFactory = () => new MockEditor();
-		h.ctx.ui.setEditorComponent(originalFactory);
+	test("patchActualTuiScrollView protects followingEnd from content shrinkage", () => {
+		class MockScrollView {
+			isFollowingEnd = false;
+			contentHeight = 100;
+			followingEnd = false;
+			followSuppressedAtEnd = false;
+			updateLayout(
+				this: MockScrollView,
+				_contentHeight: number,
+				_viewportHeight: number,
+				_requestRender: () => void,
+			): void {
+				// Simulates native unpatched updateLayout snapping followingEnd to true
+				this.followingEnd = true;
+				this.followSuppressedAtEnd = false;
+			}
+		}
+		const mockSv = new MockScrollView();
+		const mockTui = {
+			getPrimaryScrollView: () => mockSv,
+		};
+		patchActualTuiScrollView(mockTui);
 
-		const feature = createResponseStatusFeature(h.pi);
-		feature.start(h.ctx);
-		expect(h.editorFactory).not.toBe(originalFactory);
+		// Content shrinks from 100 to 50
+		mockSv.updateLayout(50, 40, () => {});
 
-		feature.dispose("session");
-		expect(h.editorFactory).toBe(originalFactory);
+		// Patched updateLayout must retain followingEnd = false and set followSuppressedAtEnd = true
+		expect(mockSv.followingEnd).toBe(false);
+		expect(mockSv.followSuppressedAtEnd).toBe(true);
 	});
 });

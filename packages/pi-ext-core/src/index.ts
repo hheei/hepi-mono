@@ -97,6 +97,7 @@ export { setPromptSection } from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
 	BottomRailBorderOptions,
+	ColorFn,
 	ResponseStatusFeature,
 	TelemetryMetrics,
 	ThemeLike,
@@ -107,7 +108,9 @@ export {
 	formatDurationColor,
 	formatRate,
 	formatTelemetryStatus,
+	patchActualTuiScrollView,
 	renderBottomRailBorder,
+	TELEMETRY_DISMISS_DELAY_MS,
 	wrapEditorBottomRail,
 } from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
