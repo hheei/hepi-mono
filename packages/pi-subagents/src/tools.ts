@@ -6,7 +6,7 @@ import type {
 import { getToolTui, isRecord, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendReportToRunner } from "./connector.js";
-import type { ChildIdentity, OperationError } from "./domain.js";
+import type { ChildIdentity, OperationError, PublicSubagent } from "./domain.js";
 
 import type { SubagentManager } from "./manager.js";
 
@@ -81,6 +81,25 @@ const CONTACT_GUIDELINES = [
 	"After need_decision or blocked, wait for a parent send_subagent. Do not invent new authority.",
 ] as const;
 
+function spawnFooter(result: AgentToolResult<unknown>): string | undefined {
+	const details = result.details as { readonly child?: PublicSubagent } | undefined;
+	const child = details?.child;
+	if (child !== undefined && typeof child.id === "string") {
+		const agent = child.displayName ?? child.agent;
+		return `#${child.id} · ${agent}`;
+	}
+	return undefined;
+}
+
+function listFooter(result: AgentToolResult<unknown>): string | undefined {
+	const details = result.details as readonly unknown[] | undefined;
+	if (Array.isArray(details)) {
+		const count = details.length;
+		return count === 1 ? "1 child" : `${count} children`;
+	}
+	return undefined;
+}
+
 export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager): void {
 	registerToolTuiTrace(pi);
 	const tui = getToolTui(pi);
@@ -138,11 +157,38 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 			return result(await manager.stop(params.id, signal));
 		},
 	};
-	pi.registerTool(tui.frame(spawn, { summary: (args) => args.agent }));
-	pi.registerTool(tui.frame(send, { summary: (args) => args.id }));
-	pi.registerTool(tui.frame(get, { summary: (args) => args.id }));
-	pi.registerTool(tui.frame(list, { summary: () => "owned children" }));
-	pi.registerTool(tui.frame(stop, { summary: (args) => args.id }));
+	pi.registerTool(
+		tui.frame(spawn, {
+			summary: (args) => args.agent,
+			headerLine: "truncate",
+			footer: spawnFooter,
+		}),
+	);
+	pi.registerTool(
+		tui.frame(send, {
+			summary: (args) => args.id,
+			headerLine: "truncate",
+		}),
+	);
+	pi.registerTool(
+		tui.frame(get, {
+			summary: (args) => args.id,
+			headerLine: "truncate",
+		}),
+	);
+	pi.registerTool(
+		tui.frame(list, {
+			summary: () => "owned children",
+			headerLine: "truncate",
+			footer: listFooter,
+		}),
+	);
+	pi.registerTool(
+		tui.frame(stop, {
+			summary: (args) => args.id,
+			headerLine: "truncate",
+		}),
+	);
 }
 
 export interface RegisterChildToolsOptions {
@@ -155,6 +201,8 @@ export function registerChildTools(
 	identity: ChildIdentity,
 	options: RegisterChildToolsOptions = {},
 ): void {
+	registerToolTuiTrace(pi);
+	const tui = getToolTui(pi);
 	const tool: ToolDefinition<typeof contactSchema> = {
 		name: "contact_parent",
 		label: "Contact parent",
@@ -183,5 +231,10 @@ export function registerChildTools(
 			return textToolResult("Report queued for the parent.", details);
 		},
 	};
-	pi.registerTool(tool);
+	pi.registerTool(
+		tui.frame(tool, {
+			summary: (args) => args.reason,
+			headerLine: "truncate",
+		}),
+	);
 }

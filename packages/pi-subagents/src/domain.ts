@@ -5,6 +5,27 @@ export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped"
 export type ExecutionMode = "rpc" | "tui";
 export type SendMode = "steer" | "follow_up" | "auto";
 
+export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
+	starting: "󰄰",
+	running: "󰪠",
+	idle: "󰄰",
+	done: "󰄴",
+	stopped: "󰅚",
+	failed: "󰅚",
+};
+
+export const SUBAGENT_TONE: Record<
+	SubagentState,
+	"muted" | "warning" | "accent" | "success" | "dim" | "error"
+> = {
+	starting: "muted",
+	running: "warning",
+	idle: "accent",
+	done: "success",
+	failed: "error",
+	stopped: "dim",
+};
+
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type LaunchValueSource = "agent" | "parent";
 export type SubagentIntent = "active" | "stopped";

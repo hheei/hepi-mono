@@ -36,7 +36,7 @@ describe("parent status line", () => {
 				child({ displayName: "Reviewer", state: "idle", mode: "tui", interrupted: "paused" }),
 				child({ agent: "scout", state: "failed" }),
 			]),
-		).toBe("Reviewer tui interrupted · scout failed");
+		).toBe("󰄰 Reviewer tui interrupted · 󰅚 scout failed");
 	});
 
 	test("bindParentStatus safely handles stale context during refresh and disposal", async () => {
@@ -62,7 +62,7 @@ describe("parent status line", () => {
 		const unbind = bindParentStatus({} as ExtensionAPI, context, manager, controller.signal);
 
 		await Promise.resolve();
-		expect(setStatus).toHaveBeenCalledWith("pi-subagents", "worker running");
+		expect(setStatus).toHaveBeenCalledWith("pi-subagents", "󰪠 worker running");
 
 		// Simulate stale context throwing error
 		Object.defineProperty(context, "ui", {
