@@ -39,9 +39,9 @@ runtime 的性能或界面。
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
 下沉到 core。
 
-已批准五个限定例外：ext-core 公开 Loadout registration contract、提供 global Extension page router 与
-feature-neutral TUI host、拥有 root-session-scoped subagent execution contract，并提供 JSON settings file
-transport 与 provider registry。[TUI 宿主架构](tui.md)、
+已批准六个限定例外：ext-core 公开 Loadout registration contract、提供 global Extension page router 与
+feature-neutral TUI host、拥有 root-session-scoped subagent execution contract、提供 JSON settings file
+transport 与 provider registry，并提供 slash command 的 subcommand 参数补全匹配 helper。[TUI 宿主架构](tui.md)、
 [ADR 0004](../adr/0004-core-subagent-execution.md) 与
 [ADR 0007](../adr/0007-core-json-settings-substrate.md) 分别限制 UI host、subagent execution 和 settings
 transport；[Loadout 架构](loadout.md)限制 registration 与 policy 的边界。ext-core 不接管 Loadout policy、
@@ -61,8 +61,30 @@ listener 留在进程中；stable feature key 只用于公开 contract 的身份
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime、Extension page router API、Subagent execution contract 与 Pi context usage 解析。Subagent execution contract 的边界见
+Loadout registration、custom surface runtime、Extension page router API、Subagent execution contract、Pi context usage 解析
+与 subcommand 参数补全匹配。Subagent execution contract 的边界见
 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
+
+### Subcommand 参数补全
+
+Pi 把 `registerCommand(name, options)` 的 `options.getArgumentCompletions(argumentPrefix)` 直接交给 TUI
+补全器：只有 `/cmd <args>` 形态触发，`argumentPrefix` 是第一个空格之后的完整文本，接受建议后整段参数
+文本被替换为 `item.value`（宿主实现在 `@earendil-works/pi-tui` 的 `CombinedAutocompleteProvider`）。
+`argumentHint` 只有内置命令和 prompt template 有，extension 拿不到，因此命令 description 仍需自带
+子命令清单。
+
+`subcommandCompletions(subcommands, options?)` 只负责这一层的**匹配**：按空白切分
+`argumentPrefix`，第一个 token 尚未完成时补全 subcommand；已完成时读取 `options.args[verb]` 这张固定
+参数表继续补全。匹配忽略大小写（与各 extension 在 handler 里忽略大小写地解析 verb 一致），返回
+`null` 表示没有建议，此时 TUI 不做任何替换。
+
+边界：
+
+- 具体有哪些 subcommand、每个 subcommand 的参数、命令策略与执行仍属于 concrete extension。core 不注册
+  命令、不持有状态、不读 `ExtensionContext`、不安装 listener，也不提供动态候选（运行时 id、page id
+  等由 extension 自己实现该回调）。
+- 建议的 `value` 始终是**完整参数文本**（例如 `view full`），因为 host 替换的是整段参数而不是最后一个
+  token；`label` 只显示最后的 token。
 
 ### Pi context usage
 
