@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
 import {
 	createJsonSettingsStorage,
-	defaultExtensionSettingsPaths,
 	type SettingsContext,
 	type SettingsProvider,
 	type SettingsState,
 } from "@hheei/pi-ext-core";
 import { defaultShellPath } from "../bash-jobs.js";
+import { readGlobalSettingsGroup } from "../global-settings.js";
 
 const GROUP = "fff";
 const BASH_GROUP = "bash";
@@ -199,16 +198,8 @@ function editModeFromValue(value: unknown): EditMode {
 }
 
 /** Static catalog settings are read before tool registration; malformed files retain the default. */
-export function readEditMode(path = defaultExtensionSettingsPaths().globalPath): EditMode {
-	try {
-		const root: unknown = JSON.parse(readFileSync(path, "utf8"));
-		if (typeof root !== "object" || root === null || Array.isArray(root)) return DEFAULT_EDIT_MODE;
-		const edit = (root as Record<string, unknown>)[EDIT_GROUP];
-		if (typeof edit !== "object" || edit === null || Array.isArray(edit)) return DEFAULT_EDIT_MODE;
-		return editModeFromValue((edit as Record<string, unknown>).mode);
-	} catch {
-		return DEFAULT_EDIT_MODE;
-	}
+export function readEditMode(path?: string): EditMode {
+	return editModeFromValue(readGlobalSettingsGroup(EDIT_GROUP, path)?.mode);
 }
 
 export async function loadFffSettings(

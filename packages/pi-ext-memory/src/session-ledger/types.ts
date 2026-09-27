@@ -1,3 +1,5 @@
+import { isRecord } from "@hheei/pi-ext-core";
+
 export const OM_OBSERVATIONS_RECORDED = "om.observations.recorded";
 export const OM_REFLECTIONS_RECORDED = "om.reflections.recorded";
 export const OM_OBSERVATIONS_DROPPED = "om.observations.dropped";
@@ -95,12 +97,8 @@ function isTokenCount(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object";
-}
-
 export function isObservation(value: unknown): value is Observation {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		isMemoryId(value.id) &&
 		isNonEmptyString(value.content) &&
@@ -112,7 +110,7 @@ export function isObservation(value: unknown): value is Observation {
 }
 
 export function isReflection(value: unknown): value is Reflection {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		isMemoryId(value.id) &&
 		isNonEmptyString(value.content) &&
@@ -123,7 +121,7 @@ export function isReflection(value: unknown): value is Reflection {
 }
 
 export function isObservationsRecordedData(value: unknown): value is ObservationsRecordedEntryData {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		Array.isArray(value.observations) &&
 		value.observations.length > 0 &&
@@ -133,7 +131,7 @@ export function isObservationsRecordedData(value: unknown): value is Observation
 }
 
 export function isReflectionsRecordedData(value: unknown): value is ReflectionsRecordedEntryData {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		Array.isArray(value.reflections) &&
 		value.reflections.length > 0 &&
@@ -143,12 +141,12 @@ export function isReflectionsRecordedData(value: unknown): value is ReflectionsR
 }
 
 export function isObservationsDroppedData(value: unknown): value is ObservationsDroppedEntryData {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return isNonEmptyStringArray(value.observationIds) && isNonEmptyString(value.coversUpToId);
 }
 
 export function isMemoryDetails(value: unknown): value is MemoryDetails {
-	if (!isPlainRecord(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		value.type === OM_FOLDED &&
 		value.version === 1 &&
@@ -197,7 +195,7 @@ export function isObservationsDroppedEntry(entry: Entry): entry is Entry & {
 }
 
 export function isGateData(value: unknown): value is GateEntryData {
-	return isPlainRecord(value) && typeof value.enabled === "boolean";
+	return isRecord(value) && typeof value.enabled === "boolean";
 }
 
 export function isGateEntry(entry: Entry): entry is Entry & {

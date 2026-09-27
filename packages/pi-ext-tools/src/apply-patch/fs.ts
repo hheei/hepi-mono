@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, win32 } from "node:path";
+import { shellQuote } from "@hheei/pi-ext-core";
 import { TargetError, type TargetRuntime } from "../targets.js";
 import { resolvePatchPath } from "./paths.js";
 
@@ -244,10 +245,6 @@ function parseRemoteMeta(stdout: string): EntryMeta {
 		size: Number.isFinite(size) ? size : 0,
 		...(mode === undefined || !Number.isFinite(mode) ? {} : { mode }),
 	};
-}
-
-function shellQuote(path: string): string {
-	return `'${path.replaceAll("'", "'\\''")}'`;
 }
 
 const META_SCRIPT = (path: string, follow: boolean): string => {

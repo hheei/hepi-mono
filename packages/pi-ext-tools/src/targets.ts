@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
-import { runCommand, setPromptSection } from "@hheei/pi-ext-core";
+import { runCommand, setPromptSection, shellQuote } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
 export const REMOTE_TIMEOUT_MS = 20_000;
@@ -105,10 +105,6 @@ export function rejectUnsupportedTarget(tool: string, params: unknown): void {
 	const target = Reflect.get(params, "target");
 	if (target === undefined || target === LOCAL_TARGET) return;
 	throw new TargetError("unauthorized", `${tool} does not support remote targets.`);
-}
-
-export function remoteShellQuote(value: string): string {
-	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function isGlob(value: string): boolean {
@@ -474,7 +470,7 @@ export class TargetRuntime {
 		const pathMatcher = isGlob(path ?? "") ? globRegex(path ?? "") : undefined;
 		const output = await this.grep(
 			target,
-			`rg --files --hidden --color=never -- ${remoteShellQuote(remotePath)}`,
+			`rg --files --hidden --color=never -- ${shellQuote(remotePath)}`,
 			signal,
 			MAX_REMOTE_FIND_BYTES + 1,
 		);
@@ -578,13 +574,9 @@ export class TargetRuntime {
 	}
 }
 
-export function targetPromptBlock(runtime: TargetRuntime | undefined): string | undefined {
-	return runtime?.prompt();
-}
-
 export function applyTargetPromptSection(
 	sections: Record<string, string>,
 	runtime: TargetRuntime | undefined,
 ): void {
-	setPromptSection(sections, TARGET_PROMPT_SECTION, targetPromptBlock(runtime));
+	setPromptSection(sections, TARGET_PROMPT_SECTION, runtime?.prompt());
 }

@@ -1,4 +1,4 @@
-import { errorMessage, runCommand } from "@hheei/pi-ext-core";
+import { errorMessage, runCommand, shellQuote } from "@hheei/pi-ext-core";
 import type { LaunchSpec } from "./launch-spec.js";
 
 export type HostKind = "herdr" | "cmux";
@@ -361,10 +361,6 @@ function cmuxLaunchCommand(spec: LaunchSpec): string {
 	return [directory, "&&", environment, quotedArgv(spec.command, spec.argv)]
 		.filter((part) => part.length > 0)
 		.join(" ");
-}
-
-function shellQuote(value: string): string {
-	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function containsString(output: string, target: string): boolean {
