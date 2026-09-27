@@ -92,8 +92,21 @@ export type {
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { runCommand, shellQuote } from "./process.js";
-export type { ResponseStatusFeature } from "./response-status.js";
-export { createResponseStatusFeature } from "./response-status.js";
+export type {
+	BottomRailBorderOptions,
+	ResponseStatusFeature,
+	TelemetryMetrics,
+	ThemeLike,
+} from "./response-status.js";
+export {
+	createResponseStatusFeature,
+	formatCompactNumber,
+	formatDurationColor,
+	formatRate,
+	formatTelemetryStatus,
+	renderBottomRailBorder,
+	wrapEditorBottomRail,
+} from "./response-status.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {
