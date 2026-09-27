@@ -10,6 +10,7 @@ import {
 	type LoadoutResourceMetadata,
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
+import { LIST_HINT_ROWS, PANEL_ROWS, pad, scrollbar, VISIBLE_ROWS } from "../page-chrome.js";
 import { fitRow } from "../row-fit.js";
 import type { LoadoutEngine } from "./engine.js";
 import {
@@ -21,12 +22,6 @@ import {
 	skillConfigurationKey,
 } from "./model.js";
 import { applyLoadoutSelection, updateLoadoutSelections } from "./storage.js";
-
-// The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
-const PANEL_ROWS = 20;
-const LIST_HEADER_ROWS = 2;
-const LIST_HINT_ROWS = 1;
-const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS;
 
 interface ResourceItem {
 	readonly key: string;
@@ -56,10 +51,6 @@ type ListEntry =
 export interface LoadoutPageOptions {
 	/** Test/embedding override; normal Pi sessions use standard global/project paths. */
 	readonly paths?: ExtensionSettingsPaths;
-}
-
-function readableError(error: unknown): string {
-	return errorMessage(error);
 }
 
 /** Maps an SGR wheel report to list movement; other terminal input stays untouched. */
@@ -129,10 +120,6 @@ function applyDraft(
 		: { global: cloneDelta(configuration.global), project: delta };
 }
 
-function pad(value: string, width: number): string {
-	return `${value}${" ".repeat(Math.max(0, width - visibleWidth(value)))}`;
-}
-
 /**
  * One glyph per raw Loadout selection: `●` explicitly enabled, `○` explicitly
  * disabled, `◌` inherited (no local decision; the effective state follows the
@@ -179,23 +166,6 @@ function truncateHeadPath(value: string, width: number): string {
 		kept = candidate;
 	}
 	return `…/${kept}`;
-}
-
-function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
-	if (total <= VISIBLE_ROWS) return Array.from({ length: PANEL_ROWS }, () => "");
-	const track = VISIBLE_ROWS;
-	const thumbHeight = Math.max(1, Math.round((track * VISIBLE_ROWS) / total));
-	const maxTop = Math.max(1, total - VISIBLE_ROWS);
-	const thumbTop = Math.round(((track - thumbHeight) * top) / maxTop);
-	// Header and hint rows have no rail; only the list viewport receives the vertical indicator.
-	return Array.from({ length: PANEL_ROWS }, (_, index) => {
-		const trackIndex = index - LIST_HEADER_ROWS;
-		return trackIndex >= thumbTop && trackIndex < thumbTop + thumbHeight
-			? theme.fg("text", "█")
-			: trackIndex >= 0 && trackIndex < track
-				? theme.fg("muted", "│")
-				: "";
-	});
 }
 
 function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration): ResourceItem {
@@ -333,7 +303,7 @@ export function createLoadoutPage(
 		} catch (error: unknown) {
 			drafts.delete(scope);
 			context.command.ui.notify(
-				`Loadout changes were not saved: ${readableError(error)}`,
+				`Loadout changes were not saved: ${errorMessage(error)}`,
 				"warning",
 			);
 			return;
@@ -342,7 +312,7 @@ export function createLoadoutPage(
 			await engine.reload();
 		} catch (error: unknown) {
 			context.command.ui.notify(
-				`Loadout changes were not applied: ${readableError(error)}`,
+				`Loadout changes were not applied: ${errorMessage(error)}`,
 				"warning",
 			);
 		}
