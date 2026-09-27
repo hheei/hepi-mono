@@ -373,7 +373,7 @@ describe("Pi Auto Title", () => {
 		coordinator.agentSettled();
 		await sleep(0);
 		expect(applied).toBe("My Session");
-		expect(statuses.some((entry) => entry.text === "Generating title")).toBe(true);
+		expect(statuses.some((entry) => entry.text?.includes("generating title..."))).toBe(true);
 		expect(statuses.at(-1)).toEqual({ key: "auto-title", text: undefined });
 		coordinator.dispose();
 	});

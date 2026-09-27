@@ -25,7 +25,9 @@ const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
 const TIMEOUT_MS = 60_000;
-const TITLE_GENERATION_TEXT = "Generating title";
+export const TITLE_SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"] as const;
+export const TITLE_GENERATION_TEXT = "generating title...";
+export const TITLE_SPINNER_INTERVAL_MS = 120;
 export const AUTO_TITLE_SYSTEM_PROMPT = `Create a concise, searchable title for a coding session.
 
 Requirements:
@@ -332,12 +334,40 @@ export function createAutoTitleCoordinator(
 	let launchRequested = false;
 	let forceRequested = false;
 	let activeAgent: AutoTitleAgentAdapter | undefined;
+	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+	let spinnerIndex = 0;
+
 	const setStatus = (text?: string): void => ctx.ui.setStatus("auto-title", text);
-	const clearStatus = (): void => setStatus(undefined);
-	const startStatus = (): void => setStatus(TITLE_GENERATION_TEXT);
+	const clearStatus = (): void => {
+		if (spinnerTimer !== undefined) {
+			clearInterval(spinnerTimer);
+			spinnerTimer = undefined;
+		}
+		setStatus(undefined);
+	};
+	const formatStatus = (frame: string): string => {
+		const theme = ctx.ui.theme;
+		if (theme) {
+			return `${theme.fg("accent", frame)} ${theme.fg("dim", TITLE_GENERATION_TEXT)}`;
+		}
+		return `${frame} ${TITLE_GENERATION_TEXT}`;
+	};
+	const startStatus = (): void => {
+		clearStatus();
+		spinnerIndex = 0;
+		const tick = (): void => {
+			const frame = TITLE_SPINNER_FRAMES[spinnerIndex % TITLE_SPINNER_FRAMES.length] ?? "✻";
+			spinnerIndex++;
+			setStatus(formatStatus(frame));
+		};
+		tick();
+		spinnerTimer = setInterval(tick, TITLE_SPINNER_INTERVAL_MS);
+		spinnerTimer.unref?.();
+	};
 	const stop = () => {
 		clearTimeout(timer);
 		timer = undefined;
+		clearStatus();
 		const agent = activeAgent;
 		activeAgent = undefined;
 		if (agent) attempted = false;
