@@ -7,6 +7,7 @@ import { errorMessage, setPromptSection } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 import {
 	type HindsightGateway,
+	type HindsightPageHit,
 	type HindsightPageSummary,
 	openHindsightGateway,
 } from "./client.js";
@@ -18,6 +19,12 @@ import { buildHindsightTurns } from "./transcript.js";
 
 /** Knowledge-page hits injected before a turn when auto-recall is on. */
 export const AUTO_RECALL_PAGE_LIMIT = 3;
+
+/** What this turn actually put into the prompt, so the extension can show it to the user. */
+export interface HindsightInjection {
+	readonly summary: string;
+	readonly pages: readonly HindsightPageHit[];
+}
 
 /**
  * Prompt sections this extension owns. Pi diffs sections per request, so the preamble is sent
@@ -67,18 +74,26 @@ export class HindsightSession {
 	 * read is not paid for again. Sections are independent: a turn whose recall is
 	 * unchanged sends no prompt update at all.
 	 */
-	async beforeAgentStart(event: BeforeAgentStartEvent): Promise<void> {
-		if (this.#lifecycleSignal.aborted) return;
+	async beforeAgentStart(event: BeforeAgentStartEvent): Promise<HindsightInjection | undefined> {
+		if (this.#lifecycleSignal.aborted) return undefined;
 		const sections = event.systemPromptOptions.sections;
 		const firstTurn = this.#firstTurn;
 		this.#firstTurn = false;
 
+		const summary: string[] = [];
 		if (firstTurn) {
 			setPromptSection(sections, PREAMBLE_SECTION, await this.#renderPreamble());
+			summary.push("memory guide");
 		}
+		let pages: HindsightPageHit[] = [];
 		if (this.resolved.config.autoRecall && event.prompt.trim().length > 0) {
-			setPromptSection(sections, RECALL_SECTION, await this.#recallForPrompt(event.prompt));
+			const recalled = await this.#recallForPrompt(event.prompt);
+			setPromptSection(sections, RECALL_SECTION, recalled.text);
+			pages = [...recalled.pages];
+			if (pages.length > 0)
+				summary.push(`recalled ${pages.length} page${pages.length === 1 ? "" : "s"}`);
 		}
+		return summary.length === 0 ? undefined : { summary: summary.join(" + "), pages };
 	}
 
 	async #renderPreamble(): Promise<string> {
@@ -105,22 +120,23 @@ export class HindsightSession {
 		});
 	}
 
-	async #recallForPrompt(prompt: string): Promise<string | undefined> {
-		let fragments: string[];
+	async #recallForPrompt(
+		prompt: string,
+	): Promise<{ readonly text: string | undefined; readonly pages: readonly HindsightPageHit[] }> {
+		let hits: HindsightPageHit[];
 		try {
-			const hits = await this.gateway.searchPages(
-				prompt,
-				AUTO_RECALL_PAGE_LIMIT,
-				this.#lifecycleSignal,
-			);
-			fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
+			hits = await this.gateway.searchPages(prompt, AUTO_RECALL_PAGE_LIMIT, this.#lifecycleSignal);
 		} catch (error) {
 			debugLog("hindsight.auto_recall_failed", {
 				error: errorMessage(error),
 			});
-			return undefined;
+			return { text: undefined, pages: [] };
 		}
-		return renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars);
+		const fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
+		return {
+			text: renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars),
+			pages: hits,
+		};
 	}
 
 	/** Queues this run's turns for writeback. */
