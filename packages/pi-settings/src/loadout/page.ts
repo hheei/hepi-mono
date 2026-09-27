@@ -258,8 +258,8 @@ export function createLoadoutPage(
 			);
 	};
 
-	const entries = (): readonly ListEntry[] => {
-		const items = resources();
+	const entries = (catalog?: readonly ResourceItem[]): readonly ListEntry[] => {
+		const items = catalog ?? resources();
 		const skills = items.filter((item) => item.kind === "skill");
 		const agents = items.filter((item) => item.kind !== "skill");
 		return [
@@ -355,16 +355,18 @@ export function createLoadoutPage(
 		minRows: 20,
 		component: {
 			render(width: number): string[] {
+				// One catalog build per frame: every row asks which item is selected.
 				const items = resources();
 				if (selected >= items.length) selected = Math.max(0, items.length - 1);
+				const selectedItemValue = items[selected];
 				const activeDetail =
 					detailKey === undefined
 						? undefined
 						: items.find((item) => item.key === detailKey)?.detail;
 				if (detailKey !== undefined && activeDetail === undefined) detailKey = undefined;
-				const allEntries = entries();
+				const allEntries = entries(items);
 				const selectedEntry = allEntries.findIndex(
-					(entry) => entry.kind === "item" && entry.item.key === selectedItem()?.key,
+					(entry) => entry.kind === "item" && entry.item.key === selectedItemValue?.key,
 				);
 				if (selectedEntry >= 0) {
 					// Keep keyboard navigation centered until the viewport reaches either list boundary.
@@ -390,7 +392,7 @@ export function createLoadoutPage(
 						if (entry.kind === "group") return theme.bold(fitRow(entry.label, listWidth));
 						const item = entry.item;
 						const status = selectionGlyph(rawSelection(item, scope, configuration));
-						const selectedRow = item.key === selectedItem()?.key;
+						const selectedRow = item.key === selectedItemValue?.key;
 						// Only explicitly enabled rows advertise the Enter shortcut:
 						// an inherited or disabled row has no edit path, and the
 						// row's activation (inherit/enabled/disabled) is owned by
@@ -412,7 +414,7 @@ export function createLoadoutPage(
 						`↕ navigate · ^p ${scope === "global" ? "project" : "global"} · ␣ change · ⎋ ${search ? "clear" : "close"}`,
 					),
 				);
-				const selectedResource = selectedItem();
+				const selectedResource = selectedItemValue;
 				// The Description lane keeps the resource header (name/kind, origin,
 				// status) in both states; an open detail composes its rows below it
 				// instead of replacing the header.
