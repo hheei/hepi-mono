@@ -70,6 +70,10 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 保存设置会立即应用到当前 session；重新载入会重新读取保存值。15 秒定时器不会跨过 `agent_start`、session
 reset 或 shutdown。折叠只影响可见外框，不改变模型可见的 `content`、持久化 details 或 Ctrl+O 展开。
 
+折叠后的 frame 在任意宽度下都是两行：一行 header 与一行 summary，两者都超宽时以 dim `…` 截断而不换行
+（header 未折叠时仍按宽度换行，除非工具声明 `headerLine: "truncate"`）。折叠前那一行 summary 是 typed
+footer；它不解析模型可见的 `content`。
+
 ## v1 Catalog
 
 v1 的显式 catalog 是：
