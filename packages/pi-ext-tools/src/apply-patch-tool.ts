@@ -7,6 +7,7 @@ import type {
 import {
 	createToolTui,
 	defaultExtensionSettingsPaths,
+	errorMessage,
 	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
@@ -360,7 +361,7 @@ export function createApplyPatchTool(
 					},
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message = errorMessage(error);
 				const recovery = failureRecovery(message);
 				throw new Error(
 					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,

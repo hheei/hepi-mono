@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	errorMessage,
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
@@ -57,7 +58,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 		} catch (error) {
 			if (state.writeFailed) return;
 			state.writeFailed = true;
-			const message = error instanceof Error ? error.message : String(error);
+			const message = errorMessage(error);
 			ctx.ui.notify(`Cache debug logging failed: ${message}`, "error");
 		}
 	};
@@ -176,7 +177,7 @@ export default function piDebugExtension(pi: ExtensionAPI): void {
 				await provider.onLoad?.(state ?? {}, context);
 			} catch (error) {
 				runtime.extension.ui.notify(
-					`Unable to load Pi Debug settings: ${error instanceof Error ? error.message : String(error)}`,
+					`Unable to load Pi Debug settings: ${errorMessage(error)}`,
 					"error",
 				);
 			}

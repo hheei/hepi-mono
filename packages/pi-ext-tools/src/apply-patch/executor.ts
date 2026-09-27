@@ -1,3 +1,4 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import {
 	APPLY_PATCH_MAX_FILE_SIZE,
 	createLocalPatchFs,
@@ -160,7 +161,7 @@ function rejection(
 	return Object.freeze({
 		operationIndices: Object.freeze([index]),
 		paths: Object.freeze([...paths]),
-		error: error instanceof Error ? error.message : String(error),
+		error: errorMessage(error),
 		diagnostics: Object.freeze([...diagnostics]),
 	});
 }

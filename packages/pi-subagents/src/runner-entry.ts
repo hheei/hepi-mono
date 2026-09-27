@@ -18,9 +18,10 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { errorMessage, writeDiagnostic } from "./diagnostics.js";
+import { writeDiagnostic } from "./diagnostics.js";
 import type { ChildIdentity } from "./domain.js";
 import { createSubagentRegistry } from "./registry.js";
 import { startRunner } from "./runner.js";

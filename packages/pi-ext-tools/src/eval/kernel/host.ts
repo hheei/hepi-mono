@@ -2,6 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:chil
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { EvalToolError } from "../bridge.js";
 import type { EvalRuntimeHooks } from "../runtime.js";
 import {
@@ -232,7 +233,7 @@ export class EvalKernelHost {
 						? { name: error.name, message: error.message, trace: error.trace }
 						: {
 								name: error instanceof Error ? error.name : "Error",
-								message: error instanceof Error ? error.message : String(error),
+								message: errorMessage(error),
 							},
 			});
 		}

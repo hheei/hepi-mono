@@ -9,6 +9,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { registerChildNudge } from "./child-nudge.js";
 import { connectWithRetry, RunnerConnection, sendLifecycleToRunner } from "./connector.js";
 import type { ChildIdentity } from "./domain.js";
@@ -110,9 +111,7 @@ function reportLifecycle(
 		sessionId,
 		...(message === undefined || message === "" ? {} : { message }),
 	}).catch((error: unknown) => {
-		console.error(
-			`pi-subagents: failed to report ${kind}: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		console.error(`pi-subagents: failed to report ${kind}: ${errorMessage(error)}`);
 	});
 }
 
@@ -149,9 +148,7 @@ export function registerChildBridge(
 	});
 	const connectPause = options.connect ?? defaultConnectPause;
 	void connectPause(pauseSocket, stop.signal).catch((error: unknown) => {
-		console.error(
-			`pi-subagents: pause bridge failed: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		console.error(`pi-subagents: pause bridge failed: ${errorMessage(error)}`);
 	});
 	let identityWidget: { dispose(): void } | undefined;
 	const disposeWidget = (): void => {
@@ -237,9 +234,7 @@ export function registerChildBridge(
 			await pauseSocket.reportPaused(generation, stop.signal);
 		} catch (error: unknown) {
 			if (stop.signal.aborted) return;
-			console.error(
-				`pi-subagents: failed to ack pause: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			console.error(`pi-subagents: failed to ack pause: ${errorMessage(error)}`);
 		}
 		await gate.wait(stop.signal);
 	});

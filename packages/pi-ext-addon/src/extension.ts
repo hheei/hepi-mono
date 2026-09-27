@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	authenticatedModelSelectionOptions,
 	ensureSubagentCoordinator,
+	errorMessage,
 	getRuntimeSettingsRegistry,
 	isSkillEnabled,
 	registerExtensionLifecycle,
@@ -68,7 +69,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 				dollarSkill.setConfig(await loadDollarSkillConfig());
 			} catch (error) {
 				runtime.extension.ui.notify(
-					`Unable to load dollar skill settings: ${error instanceof Error ? error.message : String(error)}`,
+					`Unable to load dollar skill settings: ${errorMessage(error)}`,
 					"error",
 				);
 			}
@@ -143,7 +144,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 				}
 			} catch (error) {
 				runtime.extension.ui.notify(
-					`Unable to load HEPI automatic title settings: ${error instanceof Error ? error.message : String(error)}`,
+					`Unable to load HEPI automatic title settings: ${errorMessage(error)}`,
 					"error",
 				);
 			}

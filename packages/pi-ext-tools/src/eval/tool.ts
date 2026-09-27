@@ -10,6 +10,7 @@ import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
 	createToolTui,
+	errorMessage,
 	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
@@ -205,7 +206,7 @@ export function createEvalTool(
 					append(`result: ${text}`, { kind: "result", text: boundedText(text) });
 				}
 			} catch (error) {
-				failure = error instanceof Error ? error.message : String(error);
+				failure = errorMessage(error);
 				append(`error: ${failure}`, { kind: "text", text: `error: ${boundedText(failure)}` });
 			} finally {
 				activeRuns.delete(state);

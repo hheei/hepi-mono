@@ -1,3 +1,4 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
 	OperationError,
@@ -237,9 +238,7 @@ export class SubagentManager {
 			try {
 				listener();
 			} catch (error) {
-				console.error(
-					`pi-subagents: onChange listener failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				console.error(`pi-subagents: onChange listener failed: ${errorMessage(error)}`);
 			}
 		}
 	}
@@ -285,7 +284,7 @@ export class SubagentManager {
 				} catch (error) {
 					return {
 						childId: record.subagentId,
-						reason: error instanceof Error ? error.message : String(error),
+						reason: errorMessage(error),
 					};
 				}
 			}),
@@ -333,12 +332,12 @@ export class SubagentManager {
 					failureState = "failed";
 				} catch (updateError) {
 					console.error(
-						`pi-subagents: failed to persist initial delivery uncertainty for ${record.subagentId}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,
+						`pi-subagents: failed to persist initial delivery uncertainty for ${record.subagentId}: ${errorMessage(updateError)}`,
 					);
 				}
 				return failure(
 					"spawn",
-					error instanceof Error ? error.message : String(error),
+					errorMessage(error),
 					record.subagentId,
 					failureState,
 					[
@@ -357,14 +356,7 @@ export class SubagentManager {
 				child: publicChild((await this.#deps.registry.get(record.subagentId)) ?? record, true),
 			};
 		} catch (error) {
-			return failure(
-				"spawn",
-				error instanceof Error ? error.message : String(error),
-				undefined,
-				undefined,
-				[],
-				true,
-			);
+			return failure("spawn", errorMessage(error), undefined, undefined, [], true);
 		}
 	}
 
@@ -414,7 +406,7 @@ export class SubagentManager {
 			} catch (error) {
 				return failure(
 					"send",
-					error instanceof Error ? error.message : String(error),
+					errorMessage(error),
 					id,
 					pending.state,
 					["input persisted as unacknowledged before dispatch"],
@@ -451,14 +443,7 @@ export class SubagentManager {
 				record = await this.#deps.registry.get(id);
 			} catch (error) {
 				this.#stopping.delete(id);
-				return failure(
-					"stop",
-					error instanceof Error ? error.message : String(error),
-					id,
-					undefined,
-					[],
-					true,
-				);
+				return failure("stop", errorMessage(error), id, undefined, [], true);
 			}
 			if (record === undefined) {
 				this.#stopping.delete(id);
@@ -473,14 +458,7 @@ export class SubagentManager {
 				}));
 			} catch (error) {
 				this.#stopping.delete(id);
-				return failure(
-					"stop",
-					error instanceof Error ? error.message : String(error),
-					id,
-					record.state,
-					[],
-					true,
-				);
+				return failure("stop", errorMessage(error), id, record.state, [], true);
 			}
 			const runner = this.#runners.get(id);
 			if (runner === undefined && stopped.runtime !== undefined) {
@@ -526,7 +504,7 @@ export class SubagentManager {
 			} catch (error) {
 				return failure(
 					"stop",
-					error instanceof Error ? error.message : String(error),
+					errorMessage(error),
 					id,
 					"stopped",
 					["stopped intent persisted", "runtime termination may be incomplete"],
@@ -652,7 +630,7 @@ export class SubagentManager {
 					return failBeforeClose(
 						error instanceof Error && error.message === "Attach was cancelled"
 							? error.message
-							: `Child did not pause before attach deadline: ${error instanceof Error ? error.message : String(error)}`,
+							: `Child did not pause before attach deadline: ${errorMessage(error)}`,
 						record,
 						["RPC writer retained"],
 					);
@@ -772,7 +750,7 @@ export class SubagentManager {
 				this.#frozen.delete(id);
 				return failure(
 					"attach",
-					error instanceof Error ? error.message : String(error),
+					errorMessage(error),
 					id,
 					flushed.state,
 					[restored, "pending input was not replayed"],
@@ -781,14 +759,7 @@ export class SubagentManager {
 			}
 		} catch (error) {
 			this.#frozen.delete(id);
-			return failure(
-				"attach",
-				error instanceof Error ? error.message : String(error),
-				id,
-				undefined,
-				["RPC writer retained"],
-				true,
-			);
+			return failure("attach", errorMessage(error), id, undefined, ["RPC writer retained"], true);
 		}
 	}
 
@@ -796,7 +767,7 @@ export class SubagentManager {
 		try {
 			await this.#releaseHost(id);
 		} catch (error) {
-			return `RPC not restored: ${error instanceof Error ? error.message : String(error)}`;
+			return `RPC not restored: ${errorMessage(error)}`;
 		}
 		return this.#restoreRpc(id, runner);
 	}
@@ -807,7 +778,7 @@ export class SubagentManager {
 			await this.#update(id, (current) => ({ ...current, mode: "rpc" }));
 			return "RPC writer restored; waiting for input";
 		} catch (error) {
-			return `RPC restore failed: ${error instanceof Error ? error.message : String(error)}`;
+			return `RPC restore failed: ${errorMessage(error)}`;
 		}
 	}
 
@@ -855,7 +826,7 @@ export class SubagentManager {
 				this.#tuiQuitExpected.delete(id);
 				void this.detach(id, { origin, closeHost: true }).catch((error: unknown) => {
 					console.error(
-						`pi-subagents: detach after TUI exit failed for ${id}: ${error instanceof Error ? error.message : String(error)}`,
+						`pi-subagents: detach after TUI exit failed for ${id}: ${errorMessage(error)}`,
 					);
 				});
 			});
@@ -892,7 +863,7 @@ export class SubagentManager {
 				this.#frozen.delete(id);
 				return failure(
 					operation,
-					error instanceof Error ? error.message : String(error),
+					errorMessage(error),
 					id,
 					record.state,
 					["TUI writer was not confirmed gone"],
@@ -947,14 +918,7 @@ export class SubagentManager {
 			});
 			return { delivered: true };
 		} catch (error) {
-			return failure(
-				"contact_parent",
-				error instanceof Error ? error.message : String(error),
-				id,
-				record.state,
-				[],
-				true,
-			);
+			return failure("contact_parent", errorMessage(error), id, record.state, [], true);
 		}
 	}
 
@@ -1084,7 +1048,7 @@ export class SubagentManager {
 				this.#observe(record.subagentId, event, runner),
 			).catch((error: unknown) => {
 				console.error(
-					`pi-subagents: failed to project event for ${record.subagentId}: ${error instanceof Error ? error.message : String(error)}`,
+					`pi-subagents: failed to project event for ${record.subagentId}: ${errorMessage(error)}`,
 				);
 			});
 		});

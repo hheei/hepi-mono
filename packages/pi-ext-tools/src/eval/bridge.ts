@@ -3,7 +3,7 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { agentResultText } from "@hheei/pi-ext-core";
+import { agentResultText, errorMessage } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 
 export const EVAL_NESTED_TOOL_NAMES = [
@@ -114,7 +114,7 @@ export class EvalToolBridge {
 				text: "",
 				details: undefined,
 				durationMs: Math.round(performance.now() - startedAt),
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessage(error),
 				toolCallId,
 			};
 			onTrace(trace);

@@ -1,3 +1,4 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import type { StructuredPatch, StructuredPatchHunk } from "diff";
 import type {
 	AppliedPatchHunk,
@@ -481,7 +482,7 @@ async function main(): Promise<void> {
 	} catch (error) {
 		send({
 			kind: "error",
-			message: error instanceof Error ? error.message : String(error),
+			message: errorMessage(error),
 		});
 	}
 }

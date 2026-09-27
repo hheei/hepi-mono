@@ -3,7 +3,7 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, errorMessage, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
@@ -304,12 +304,7 @@ export function registerFindTool(
 						content: [
 							{
 								type: "text" as const,
-								text:
-									outcome === "timeout"
-										? FIND_TIMEOUT_RECOVERY
-										: error instanceof Error
-											? error.message
-											: String(error),
+								text: outcome === "timeout" ? FIND_TIMEOUT_RECOVERY : errorMessage(error),
 							},
 						],
 						details: {

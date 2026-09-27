@@ -5,6 +5,7 @@ import {
 	createJsonSettingsStorage,
 	createModelSelectionField,
 	type ExtensionLifecycleContext,
+	errorMessage,
 	type ModelSelectionCandidate,
 	type ModelSelectionOption,
 	type ModelSelectionRegistry,
@@ -367,10 +368,7 @@ export function createAutoTitleCoordinator(
 			agent = createAgent(runtime, modelRef);
 		} catch (error) {
 			forceRequested = false;
-			ctx.ui.notify(
-				`Unable to start automatic title: ${error instanceof Error ? error.message : String(error)}`,
-				"warning",
-			);
+			ctx.ui.notify(`Unable to start automatic title: ${errorMessage(error)}`, "warning");
 			return;
 		}
 		forceRequested = false;
@@ -407,7 +405,7 @@ export function createAutoTitleCoordinator(
 					ctx.ui.notify(
 						timedOut
 							? "Automatic title generation timed out"
-							: `Automatic title generation failed: ${error instanceof Error ? error.message : String(error)}`,
+							: `Automatic title generation failed: ${errorMessage(error)}`,
 						"warning",
 					);
 				}
