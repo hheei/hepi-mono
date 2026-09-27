@@ -40,14 +40,24 @@ function child(overrides: Partial<PublicSubagent> = {}): PublicSubagent {
 }
 
 describe("subagent widget projection", () => {
-	test("hides terminal states and keeps live plus TUI children", () => {
-		expect(isWidgetVisibleChild(child({ state: "done" }))).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "stopped" }))).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "failed" }))).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "idle" }))).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "starting" }))).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "failed", mode: "tui" }))).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "running", mode: "tui" }))).toBe(true);
+	test("hides terminal states after window and keeps live plus TUI children", () => {
+		// Outside the 15-second retain window: hidden
+		const longAgo = Date.parse("2026-01-01T00:01:00.000Z");
+		expect(isWidgetVisibleChild(child({ state: "done" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "stopped" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "failed" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "failed", mode: "tui" }), longAgo)).toBe(false);
+
+		// Inside the 15-second retain window: visible so user can see final outcome
+		const recent = Date.parse("2026-01-01T00:00:10.000Z");
+		expect(isWidgetVisibleChild(child({ state: "done" }), recent)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "stopped" }), recent)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "failed" }), recent)).toBe(true);
+
+		// Non-terminal states: always visible
+		expect(isWidgetVisibleChild(child({ state: "idle" }), longAgo)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "starting" }), longAgo)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "running", mode: "tui" }), longAgo)).toBe(true);
 		expect(formatElapsed("2026-01-01T00:00:00.000Z", Date.parse("2026-01-01T00:05:00.000Z"))).toBe(
 			"5m 0s",
 		);
@@ -76,12 +86,12 @@ describe("subagent widget projection", () => {
 	test("uses theme tokens instead of hardcoded colors", () => {
 		const now = Date.parse("2026-01-01T00:00:12.000Z");
 		const running = renderSubagentWidget([child()], 200, recordingTheme(), now);
-		expect(running[0]).toContain("<accent>●</accent>");
+		expect(running[0]).toContain("<warning>󰪠</warning>");
 		expect(running[0]).toContain("<text>Subagents (1)</text>");
 		expect(running[1]).toContain("<text>worker</text>");
-		expect(running[1]).toContain("<accent>running</accent>");
+		expect(running[1]).toContain("<accent>#sa_aaaaaaaaaaaa</accent>");
+		expect(running[1]).toContain("<warning>running</warning>");
 		expect(running[1]).toContain("<dim>· 12s</dim>");
-		expect(running[1]).toContain("<dim>sa_aaaaaaaaaaaa</dim>");
 
 		const interrupted = renderSubagentWidget(
 			[child({ state: "idle", interrupted: "waiting for confirm" })],

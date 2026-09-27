@@ -4,7 +4,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { splitSubcommand, subcommandCompletions } from "@hheei/pi-ext-core";
-import type { PublicSubagent } from "./domain.js";
+import { type PublicSubagent, SUBAGENT_GLYPH } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 
 const STATUS_KEY = "pi-subagents";
@@ -17,10 +17,11 @@ export function formatStatusLine(children: readonly PublicSubagent[]): string | 
 	if (visible.length === 0) return undefined;
 	return visible
 		.map((child) => {
+			const glyph = SUBAGENT_GLYPH[child.state] ?? "󰄰";
 			const name = child.displayName ?? child.agent;
 			const mode = child.mode === "tui" ? "tui" : child.state;
 			const flag = child.interrupted !== undefined ? " interrupted" : "";
-			return `${name} ${mode}${flag}`;
+			return `${glyph} ${name} ${mode}${flag}`;
 		})
 		.join(" · ");
 }
@@ -38,8 +39,9 @@ function notifyResult(
 }
 
 function childLabel(child: PublicSubagent): string {
+	const glyph = SUBAGENT_GLYPH[child.state] ?? "󰄰";
 	const name = child.displayName ?? child.agent;
-	return `${name} ${child.id} ${child.state}/${child.mode}`;
+	return `${glyph} ${name} #${child.id} ${child.state}/${child.mode}`;
 }
 
 async function pickChild(
