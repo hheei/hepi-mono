@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { registerGateCommand } from "../src/commands/gate.js";
+import { registerOmCommand } from "../src/commands/om.js";
+import type { Runtime } from "../src/runtime.js";
 import {
 	foldLedger,
 	latestGateEnabled,
@@ -26,11 +27,23 @@ type GateCtx = {
 function setup(entries: TestEntry[] = []) {
 	let branch = [...entries];
 	let handler: ((args: unknown, ctx: GateCtx) => Promise<void>) | undefined;
+	let completions: ((prefix: string) => { value: string; label: string }[] | null) | undefined;
 	const pi = {
-		registerCommand: vi.fn((name: string, command: { handler: typeof handler }) => {
-			expect(name).toBe("om");
-			handler = command.handler;
-		}),
+		registerCommand: vi.fn(
+			(
+				name: string,
+				command: {
+					handler: typeof handler;
+					getArgumentCompletions?:
+						| ((prefix: string) => { value: string; label: string }[] | null)
+						| undefined;
+				},
+			) => {
+				expect(name).toBe("om");
+				handler = command.handler;
+				completions = command.getArgumentCompletions;
+			},
+		),
 		appendEntry: vi.fn((customType: string, data: unknown) => {
 			const id = `appended-${pi.appendEntry.mock.calls.length}`;
 			branch = [
@@ -47,7 +60,7 @@ function setup(entries: TestEntry[] = []) {
 			return id;
 		}),
 	};
-	registerGateCommand(pi as unknown as ExtensionAPI);
+	registerOmCommand(pi as unknown as ExtensionAPI, {} as unknown as Runtime);
 	if (!handler) throw new Error("/om handler not registered");
 
 	const notify = vi.fn();
@@ -58,6 +71,7 @@ function setup(entries: TestEntry[] = []) {
 	};
 	return {
 		pi,
+		completions: () => completions,
 		run: async (args?: string) => {
 			await handler!(args, ctx);
 			return notify.mock.calls.at(-1)?.[0] as string;
@@ -99,11 +113,18 @@ describe("/om gate", () => {
 		expect(gate.pi.appendEntry).not.toHaveBeenCalled();
 	});
 
-	it("rejects unknown options and points at the usage line", async () => {
+	it("rejects unknown subcommands and points at the usage line", async () => {
 		const gate = setup();
 		const message = await gate.run("maybe");
-		expect(message).toContain('Unknown option "maybe"');
-		expect(message).toContain("Usage: /om [on|off]");
+		expect(message).toContain('Unknown subcommand "maybe"');
+		expect(message).toContain("Usage: /om on|off|status|view|consolidate|compact");
+		expect(gate.pi.appendEntry).not.toHaveBeenCalled();
+	});
+
+	it("rejects a stray word after on or off instead of ignoring it", async () => {
+		const gate = setup();
+		const message = await gate.run("on maybe");
+		expect(message).toContain("Usage: /om on|off|status|view|consolidate|compact");
 		expect(gate.pi.appendEntry).not.toHaveBeenCalled();
 	});
 
@@ -127,5 +148,12 @@ describe("/om gate", () => {
 		expect(folded.activeObservations).toHaveLength(1);
 		// A gate entry is not a source entry, so it must not move coverage clocks.
 		expect(rawTokensSinceObservationCoverage(entries)).toBe(0);
+	});
+
+	it("completes its subcommands and the view argument", () => {
+		const completions = setup().completions();
+		expect(completions?.("vi")).toEqual([{ value: "view", label: "view" }]);
+		expect(completions?.("view f")).toEqual([{ value: "view full", label: "full" }]);
+		expect(completions?.("nope")).toBeNull();
 	});
 });

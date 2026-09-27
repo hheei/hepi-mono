@@ -201,7 +201,7 @@ Workers stream through Pi's composed provider runtime, not `@earendil-works/pi-a
 
 Default: `true`.
 
-When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages) and the end-of-run summary line. Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om:*` command output remain visible.
+When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages) and the end-of-run summary line. Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om` subcommand output remain visible.
 
 With notifications on, a run that recorded something ends with a single delta line, for example `consolidation complete (+3 obs, +1 refl, -2 dropped) · $0.0038`. A run that changed nothing stays silent, because each stage already explains its own skip.
 
@@ -211,7 +211,7 @@ The cost shown there is provider-reported (`usage.cost.total`, summed over the r
 
 Default: `false`.
 
-When `true`, the extension does not proactively run the observer, reflector/dropper lane, or auto-compaction trigger. Manual/Pi compaction hooks, `/om:status`, `/om:view`, `/om:consolidate`, `/om:compact`, and `recall` remain available.
+When `true`, the extension does not proactively run the observer, reflector/dropper lane, or auto-compaction trigger. Manual/Pi compaction hooks, `/om status`, `/om view`, `/om consolidate`, `/om compact`, and `recall` remain available.
 
 This is a configuration value, so it applies to every session. For a single session, use the gate instead:
 

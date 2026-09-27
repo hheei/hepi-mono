@@ -663,7 +663,7 @@ export const recallObservationTool = defineTool({
 		id: Type.String({
 			pattern: "^[a-f0-9]{12}$",
 			description:
-				"12-character lowercase hex observation or reflection id shown in compacted memory, /om:view, or a previous recall result. Must be a specific id; this tool does not search by topic.",
+				"12-character lowercase hex observation or reflection id shown in compacted memory, /om view, or a previous recall result. Must be a specific id; this tool does not search by topic.",
 		}),
 	}),
 	renderCall(args) {

@@ -52,7 +52,7 @@ export type ConsolidationCtx = {
 	};
 	signal?: AbortSignal | undefined;
 	sessionGeneration?: number | undefined;
-	/** `/om:consolidate`: ignore the observation/reflection token thresholds for this run. */
+	/** `/om consolidate`: ignore the observation/reflection token thresholds for this run. */
 	force?: boolean | undefined;
 };
 
@@ -289,7 +289,7 @@ function launchPipeline(
 }
 
 /**
- * `/om:consolidate`: run one consolidation cycle now, ignoring the token thresholds.
+ * `/om consolidate`: run one consolidation cycle now, ignoring the token thresholds.
  *
  * Resolves when the pipeline finished (or declined to run), so the command can report
  * the delta before its handler returns.

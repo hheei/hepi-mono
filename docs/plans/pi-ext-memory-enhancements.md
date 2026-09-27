@@ -255,6 +255,11 @@
 
 本计划已实施完成（提交于本次变更）。以下记录实际落地时对设计稿的修正：
 
+> 命令名已统一：本文（含 3.2 等设计章节）里的 `/om:status`、`/om:view`、`/om:consolidate`、
+> `/om:compact` 在实现中改为一族子命令 `/om status`、`/om view`、`/om consolidate`、`/om compact`
+> （`/om on|off` 不变）。设计章节保留原命名作为历史记录，行为以 `packages/pi-ext-memory/README.md`
+> 与 `docs/architecture/ext-memory.md` 为准。
+
 | 设计稿 | 实际实现 | 修正原因 |
 | --- | --- | --- |
 | 门控状态存在 `Runtime` 标志位，并在 `session_start` 时反向扫描分支加载 | 完全取消缓存标志：`latestGateEnabled(branch)` 每次从分支派生 | 缓存标志在 `/tree` 中途切分支时会过期；分支派生让 `/tree` 与 `/resume` 天然正确，且无需在生命周期里同步状态 |
@@ -268,6 +273,8 @@
 
 已落地的测试（均有灵敏度验证，回退对应实现即会失败）：
 
+- 命令分发：`test/gate-command.test.ts` 覆盖 `/om` 子命令解析（未知子命令、`on|off` 多余参数）、
+  `test/status-command.test.ts`、`test/view-command.test.ts`、`test/manual-commands.test.ts` 均通过 `/om` 分发入口调用；
 - 门控：`test/gate-command.test.ts`（7 例）、`test/session-ledger-progress.test.ts` 门控与成本段、
   `test/consolidation-trigger.test.ts` 与 `test/compaction-trigger.test.ts` / `test/compaction-hook.test.ts` 的短路用例、
   `test/recall-tool.test.ts` 的禁用与恢复用例；
