@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -135,10 +136,7 @@ export class CompactFooterComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const cwd = formatCwdForFooter(
-			this.#extension.sessionManager.getCwd(),
-			process.env.HOME || process.env.USERPROFILE,
-		);
+		const cwd = formatCwdForFooter(this.#extension.sessionManager.getCwd(), homedir());
 		const branch = this.#footerData.getGitBranch();
 		const pwdWithBranch = branch !== undefined && branch !== "" ? `${cwd} (${branch})` : cwd;
 		const line1Left = this.#theme.fg("dim", pwdWithBranch);
