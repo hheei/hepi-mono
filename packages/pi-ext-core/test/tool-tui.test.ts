@@ -813,6 +813,29 @@ describe("ToolTui collapse modes", () => {
 		expect(harness.bodyRenders).toBe(0);
 	});
 
+	test("truncates a collapsed summary row instead of wrapping it", async (): Promise<void> => {
+		const tui = createToolTui();
+		tui.setToolCollapseMode("on");
+		const framed = tui.frame(
+			{ ...tool(false), renderResult: () => new Text("result body", 0, 0) },
+			{
+				longOutput: true,
+				footer: () => "123 matches · 12 files · 400 lines · 1.2s · one more detail",
+			},
+		);
+		const result = await framed.execute("call-1", {}, undefined, undefined, {
+			cwd: process.cwd(),
+		} as ExtensionContext);
+		const rows =
+			framed
+				.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false))
+				.render(40)
+				.map((line) => line.trimEnd()) ?? [];
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toContain("<dim>…</dim>");
+		expect(rows[0]).not.toContain("one more detail");
+	});
+
 	test("on suppresses streaming updates of a long tool", async (): Promise<void> => {
 		const tui = createToolTui();
 		tui.setToolCollapseMode("on");

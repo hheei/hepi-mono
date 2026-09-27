@@ -196,6 +196,52 @@ describe("tool frame collapse modes", () => {
 		expect(stripTerminalSequences(header?.[0] ?? "").endsWith("…")).toBe(true);
 	});
 
+	test("collapses a narrow grep frame to a truncated header and summary", async (): Promise<void> => {
+		initTheme("dark");
+		const tui = createToolTui();
+		const host = harness();
+		registerTools(host.pi, undefined, tui);
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		if (grep === undefined) throw new Error("grep was not registered");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const context = {
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			toolCallId: "grep-narrow",
+			executionStarted: true,
+			expanded: false,
+			invalidate: (): void => undefined,
+		};
+		const args = { pattern: "very-long-needle", path: "a/very/long/search/path" };
+		grep.renderCall?.(args, plainTheme, context as never);
+		tui.beginTrace();
+		const result = {
+			content: [{ type: "text" as const, text: "match" }],
+			details: {
+				format: "canonical-grep",
+				display: [] as unknown[],
+				totalMatched: 1_234,
+				totalFiles: 123,
+				totalLines: 4_000,
+				durationMs: 1_234,
+			},
+		};
+		const rows = [
+			...(grep.renderCall?.(args, plainTheme, context as never).render(40) ?? []),
+			...(grep
+				.renderResult?.(result, { expanded: false, isPartial: false }, plainTheme, context as never)
+				.render(40) ?? []),
+		];
+		expect(rows).toHaveLength(2);
+		expect(stripTerminalSequences(rows[0] ?? "")).toContain("…");
+		expect(stripTerminalSequences(rows[1] ?? "")).toContain("…");
+	});
+
 	test("keeps the model-visible result identical", async (): Promise<void> => {
 		initTheme("dark");
 		const tui = createToolTui();

@@ -580,6 +580,23 @@ function singleLineHeader(header: FrameHeader, width: number, theme: Theme): str
 	return `${truncateToWidth(header.primary, width - suffixWidth, truncation)}${header.suffix}`;
 }
 
+/**
+ * One collapsed frame row never wraps; a long typed footer is cut with a dim `…` so a
+ * collapsed frame stays exactly one header row plus one summary row at every width.
+ */
+class SingleLineRow implements Component {
+	constructor(
+		private readonly text: string,
+		private readonly theme: Theme,
+	) {}
+
+	render(width: number): string[] {
+		return [truncateToWidth(this.text, Math.max(1, width), this.theme.fg("dim", "…"))];
+	}
+
+	invalidate(): void {}
+}
+
 function compactBodyLines(
 	lines: readonly string[],
 	maxBodyLines: number,
@@ -759,7 +776,7 @@ export function createToolTui(): ToolTui {
 							context.isError && !isWarning
 								? defaultFooter(restoredCompletion, true)
 								: (footer ?? defaultFooter(restoredCompletion, false));
-						return new Text(theme.fg("dim", summary), 0, 0);
+						return new SingleLineRow(theme.fg("dim", summary), theme);
 					}
 					const body =
 						renderResult?.(result, options, toneTheme(unboxedTheme(theme), historical), {
