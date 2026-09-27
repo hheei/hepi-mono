@@ -44,7 +44,7 @@ function dim(text: string): string {
 	return `${ANSI_DIM}${text}${ANSI_DIM_RESET}`;
 }
 
-function bareSkillName(name: string): string {
+export function bareSkillName(name: string): string {
 	return name.startsWith("skill:") ? name.slice("skill:".length) : name;
 }
 
