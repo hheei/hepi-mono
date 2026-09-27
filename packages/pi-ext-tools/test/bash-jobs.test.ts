@@ -923,21 +923,6 @@ function taskControlHost(): TaskControlHost {
 	};
 }
 
-/** Session state whose task registry is attached once the session registry exists. */
-function lateBoundState(overrides?: Partial<FffSettings>): {
-	readonly state: FffRuntimeState;
-	readonly attach: (tasks: AsyncTaskRegistry) => void;
-} {
-	let current: AsyncTaskRegistry | undefined;
-	const base = runtimeState(undefined, overrides);
-	return {
-		state: { ...base, getTasks: () => current },
-		attach: (tasks) => {
-			current = tasks;
-		},
-	};
-}
-
 function withoutTaskTools(active: readonly string[]): readonly string[] {
 	return active.filter((id) => !TASK_TOOL_IDS.includes(id));
 }
@@ -948,11 +933,16 @@ function taskControlSession(overrides?: Partial<FffSettings>): {
 	readonly tasks: AsyncTaskRegistry;
 } {
 	const host = taskControlHost();
-	const session = lateBoundState(overrides);
-	registerTaskTools(host.pi, session.state);
-	registerBashTool(host.pi, session.state);
+	// The session registry is attached only once `startTaskControl` has created it.
+	let current: AsyncTaskRegistry | undefined;
+	const state: FffRuntimeState = {
+		...runtimeState(undefined, overrides),
+		getTasks: () => current,
+	};
+	registerTaskTools(host.pi, state);
+	registerBashTool(host.pi, state);
 	const tasks = tracked(startTaskControl(host.context));
-	session.attach(tasks);
+	current = tasks;
 	return { host, tasks };
 }
 

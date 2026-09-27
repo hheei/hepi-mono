@@ -17,6 +17,12 @@ import { registerTools } from "../src/tools.js";
 
 const BODY_LINE = "readable body line 30";
 const temporaryPaths: string[] = [];
+/** A theme that adds no styling, so rows can be asserted as plain text. */
+const plainTheme = {
+	bg: (_role: string, text: string): string => text,
+	fg: (_role: string, text: string): string => text,
+	bold: (text: string): string => text,
+} as Theme;
 
 afterEach(async (): Promise<void> => {
 	await Promise.all(
@@ -155,45 +161,25 @@ describe("tool frame collapse modes", () => {
 		registerTools(host.pi, undefined, tui);
 		const bash = host.tools.find((candidate) => candidate.name === "bash");
 		if (bash === undefined) throw new Error("bash was not registered");
-		const plainTheme = {
-			bg: (_role: string, text: string): string => text,
-			fg: (_role: string, text: string): string => text,
-			bold: (text: string): string => text,
-		} as Theme;
-		const header = bash
-			.renderCall?.({ command: "first line\nsecond line\nthird line" }, plainTheme, {
-				isError: false,
-				isPartial: true,
-				lastComponent: undefined,
-			} as never)
-			.render(200);
-		expect(header).toHaveLength(1);
-		expect(header?.[0]).toContain("first line; second line; third line");
-	});
+		const headerOf = (command: string, width: number): string[] =>
+			bash
+				.renderCall?.({ command }, plainTheme, {
+					isError: false,
+					isPartial: true,
+					lastComponent: undefined,
+				} as never)
+				.render(width) ?? [];
 
-	test("keeps a long bash command on one truncated header row", async (): Promise<void> => {
-		initTheme("dark");
-		const tui = createToolTui();
-		const host = harness();
-		registerTools(host.pi, undefined, tui);
-		const bash = host.tools.find((candidate) => candidate.name === "bash");
-		if (bash === undefined) throw new Error("bash was not registered");
-		const plainTheme = {
-			bg: (_role: string, text: string): string => text,
-			fg: (_role: string, text: string): string => text,
-			bold: (text: string): string => text,
-		} as Theme;
-		const command = `docker run --rm -v /tmp:/tmp alpine sh -c "echo one; echo two"`;
-		const header = bash
-			.renderCall?.({ command }, plainTheme, {
-				isError: false,
-				isPartial: true,
-				lastComponent: undefined,
-			} as never)
-			.render(40);
-		expect(header).toHaveLength(1);
-		expect(header?.[0]).toContain("…");
-		expect(stripTerminalSequences(header?.[0] ?? "").endsWith("…")).toBe(true);
+		// A multi-line command is flattened onto one row, joined at its own separators...
+		const flattened = headerOf("first line\nsecond line\nthird line", 200);
+		expect(flattened).toHaveLength(1);
+		expect(flattened[0]).toContain("first line; second line; third line");
+
+		// ...and a command too long for the terminal is cut on that same single row.
+		const long = `docker run --rm -v /tmp:/tmp alpine sh -c "echo one; echo two"`;
+		const truncated = headerOf(long, 40);
+		expect(truncated).toHaveLength(1);
+		expect(stripTerminalSequences(truncated[0] ?? "").endsWith("…")).toBe(true);
 	});
 
 	test("keeps every uncollapsed frame row inside a narrow terminal", async (): Promise<void> => {
@@ -203,11 +189,6 @@ describe("tool frame collapse modes", () => {
 		registerTools(host.pi, undefined, tui);
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
 		if (grep === undefined) throw new Error("grep was not registered");
-		const plainTheme = {
-			bg: (_role: string, text: string): string => text,
-			fg: (_role: string, text: string): string => text,
-			bold: (text: string): string => text,
-		} as Theme;
 		const context = {
 			isError: false,
 			isPartial: false,
@@ -246,11 +227,6 @@ describe("tool frame collapse modes", () => {
 		registerTools(host.pi, undefined, tui);
 		const grep = host.tools.find((candidate) => candidate.name === "grep");
 		if (grep === undefined) throw new Error("grep was not registered");
-		const plainTheme = {
-			bg: (_role: string, text: string): string => text,
-			fg: (_role: string, text: string): string => text,
-			bold: (text: string): string => text,
-		} as Theme;
 		const context = {
 			isError: false,
 			isPartial: false,
