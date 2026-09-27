@@ -159,4 +159,22 @@ describe("dollar skill feature", () => {
 		feature.setConfig({ enabled: false, maxSuggestions: 20 });
 		expect(host.inputHandler?.({ text: "$librarian", source: "interactive" })).toBeUndefined();
 	});
+
+	test("preserves embedWorkingStatus on created custom editor", () => {
+		const host = harness("tui");
+		const feature = createDollarSkillFeature(host.pi);
+		feature.setConfig({ enabled: true, maxSuggestions: 50 });
+		feature.start(host.ctx);
+		expect(host.editorFactory).toBeDefined();
+		const editor = host.editorFactory?.(
+			{} as unknown as import("@earendil-works/pi-tui").TUI,
+			{} as unknown as import("@earendil-works/pi-tui").Theme,
+			{
+				matches: () => false,
+				getKeys: () => [],
+			} as unknown as import("@earendil-works/pi-tui").KeybindingsManager,
+		);
+		expect(editor).toBeDefined();
+		expect((editor as unknown as { embedWorkingStatus?: boolean }).embedWorkingStatus).toBe(true);
+	});
 });
