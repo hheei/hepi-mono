@@ -99,26 +99,26 @@ function emptyWorkerCostStats(): WorkerCostStats {
  * provider pi could not authenticate at all (no key, no ambient source). That must
  * keep failing: it is the ordinary "not logged in" state, not ambient auth.
  *
- * Defensive: older pi versions and partial test doubles may not expose this, and an
- * unknown answer must not be read as "authenticated".
+ * A missing or throwing answer must not be read as "authenticated".
  */
-function hasConfiguredProviderCredential(registry: unknown, model: unknown): boolean {
+function hasConfiguredProviderCredential(registry: ModelRegistryLike, model: unknown): boolean {
 	try {
-		return (
-			(registry as { hasConfiguredAuth?: (m: unknown) => unknown }).hasConfiguredAuth?.(model) ===
-			true
-		);
+		return registry.hasConfiguredAuth?.(model) === true;
 	} catch {
 		return false;
 	}
 }
 
+/**
+ * The slice of Pi's `ModelRegistry` facade this runtime resolves credentials through.
+ * Every member stays optional so a credential-free test double can leave one out.
+ */
 export interface ModelRegistryLike {
 	find?: ((provider: string, id: string) => unknown) | undefined;
 	getApiKeyAndHeaders?: ((model: unknown) => Promise<unknown>) | undefined;
 	isUsingOAuth?: ((model: unknown) => boolean) | undefined;
-	hasConfiguredAuth?: ((provider: string) => boolean) | undefined;
-	refresh?: ((options?: unknown) => Promise<void>) | undefined;
+	hasConfiguredAuth?: ((model: unknown) => boolean) | undefined;
+	refresh?: ((options?: unknown) => Promise<unknown>) | undefined;
 }
 
 export interface ResolveCtx {
@@ -387,7 +387,7 @@ export class Runtime {
 	 * populated availability snapshot. Bounded and rate-limited; never throws.
 	 */
 	private async recheckProviderCredential(
-		registry: unknown,
+		registry: ModelRegistryLike,
 		model: unknown,
 		provider: string,
 	): Promise<boolean> {
@@ -396,7 +396,7 @@ export class Runtime {
 		if (last !== undefined && now - last < AVAILABILITY_RECHECK_REARM_MS) return false;
 		this.availabilityRecheckedAt.set(provider, now);
 
-		const refresh = (registry as { refresh?: (options?: unknown) => Promise<unknown> }).refresh;
+		const refresh = registry.refresh;
 		if (typeof refresh !== "function") {
 			debugLog("resolve.availability_recheck", {
 				provider,
@@ -413,12 +413,8 @@ export class Runtime {
 		try {
 			// allowNetwork:false — a credential re-check must not wait on a model-catalog fetch.
 			// providers:[provider] — scope the work, and the snapshot writes, to the one provider.
-			//
-			// Both are honoured from pi 0.84; on pi 0.81 the facade is `refresh()` with no
-			// parameters, delegating to `runtime.reloadConfig()`, which reloads models.json and
-			// then runs a FULL, network-permitted availability pass. Passing the options is
-			// harmless there, but the work is wider and slower — hence the race below rather
-			// than relying on the abort signal, which that version never sees.
+			// A refresh that ignores the abort signal still cannot hold the caller: the race
+			// below bounds it.
 			await Promise.race([
 				refresh.call(registry, {
 					allowNetwork: false,

@@ -66,13 +66,11 @@ type ReflectorStageResult = {
 
 /**
  * Real current context tokens from the session (provider-reported usage, the
- * same basis the footer percentage uses). Falls back to undefined when the
- * host pi lacks getContextUsage or the count is unknown (e.g. right after a
- * compaction, before the next valid assistant response).
+ * same basis the footer percentage uses). Undefined while the count is unknown
+ * (for example right after a compaction, before the next valid assistant turn).
  */
 function realContextTokens(ctx: ConsolidationCtx): number | undefined {
-	const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
-	const tokens = usage?.tokens;
+	const tokens = ctx.getContextUsage?.()?.tokens;
 	return typeof tokens === "number" && Number.isFinite(tokens) ? tokens : undefined;
 }
 
@@ -87,9 +85,9 @@ function stageDue(
 		const real = realTokensSinceAnchor(entries, customType, currentTokens);
 		if (real !== undefined) return real >= threshold;
 	}
-	// Real delta unmeasurable (no usage baseline, or accounting basis changed) or
-	// old pi host without getContextUsage — fall back to the raw estimate, which
-	// self-limits after coverage and cannot over-fire or starve.
+	// Real delta unmeasurable (no usage baseline, or accounting basis changed) —
+	// fall back to the raw estimate, which self-limits after coverage and cannot
+	// over-fire or starve.
 	return rawEstimateFn(entries) >= threshold;
 }
 
