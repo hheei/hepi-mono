@@ -9,7 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { createToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
@@ -17,6 +17,8 @@ import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycl
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 import { registerTaskTools } from "../src/task-tools.js";
+import { toolFor, toolHost } from "./fixtures/harness.js";
+import { plainTheme, roleTheme } from "./fixtures/theme.js";
 
 initTheme(undefined, false);
 
@@ -32,16 +34,15 @@ test("bash uses one flat object schema for strict tool providers", (): void => {
 	expect(Value.Check(BashInput, { command: "" })).toBe(false);
 });
 
+/** Registers bash on a capturing host and returns it, optionally framed by a ToolTui. */
+function bashTool(tui?: ToolTui): ToolDefinition {
+	const host = toolHost();
+	registerBashTool(host.pi, undefined, tui);
+	return toolFor(host.tools, "bash");
+}
+
 test("bash executes through Pi host original backend", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	const pi = {
-		registerTool: (tool: ToolDefinition): void => {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI;
-	registerBashTool(pi);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 
 	const result = await bash.execute(
 		"bash-original-backend",
@@ -61,14 +62,7 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 });
 
 test("bash never streams Pi host temporary output paths", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	const updates: unknown[] = [];
 	await bash.execute(
 		"bash-streamed-path-redaction",
@@ -92,14 +86,7 @@ test("bash never streams Pi host temporary output paths", async (): Promise<void
 });
 
 test("bash rejects unknown fields before any command starts", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	await expect(
 		bash.execute(
 			"bash-invalid-parameters",
@@ -112,14 +99,7 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 });
 
 test("bash accepts null strict optional fields as omitted", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	const result = await bash.execute(
 		"bash-null-optional-fields",
 		{ command: "printf normalized", timeout: null, async: null, target: null },
@@ -131,14 +111,7 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 });
 
 test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	const controller = new AbortController();
 	controller.abort();
 	const result = await bash.execute(
@@ -155,14 +128,7 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 });
 
 test("bash exposes only async use guidance", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	expect(bash.description).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
@@ -219,19 +185,8 @@ test("bash displays its active command in the base theme and timeout dim", (): v
 });
 
 test("bash wraps the active command and retains its timeout suffix", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (_role: string, text: string): string => text,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = plainTheme;
 	const text = bash
 		.renderCall?.({ command: "printf first\nprintf second", timeout: 20 }, theme, {
 			isError: false,
@@ -246,29 +201,14 @@ test("bash wraps the active command and retains its timeout suffix", (): void =>
 });
 
 test("bash collapses only the previous command before its timeout suffix", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
 	const tui = createToolTui();
-	registerBashTool(
-		{
-			registerTool(tool: ToolDefinition): void {
-				tools.push(tool);
-			},
-		} as unknown as ExtensionAPI,
-		undefined,
-		tui,
-	);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool(tui);
 	tui.beginTrace();
 	await bash.execute("previous-bash", { command: "true" }, undefined, undefined, {
 		cwd: process.cwd(),
 	} as ExtensionContext);
 	tui.beginTrace();
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (_role: string, text: string): string => text,
-		bold: (text: string): string => text,
-	} as Theme;
+	const theme = plainTheme;
 	const line = bash
 		.renderCall?.({ command: `printf ${"x".repeat(80)}`, timeout: 20 }, theme, {
 			isError: false,
@@ -288,19 +228,8 @@ test("bash collapses only the previous command before its timeout suffix", async
 });
 
 test("bash encloses its output between full-width dividers", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	const lines = bash
 		.renderResult?.(
 			{ content: [{ type: "text", text: "stdout" }], details: {} },
@@ -324,19 +253,8 @@ test("bash encloses its output between full-width dividers", (): void => {
 });
 
 test("bash omits body rails when output has zero lines", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	const lines = bash
 		.renderResult?.(
 			{ content: [{ type: "text", text: "" }], details: { output: "", exitCode: 0 } },
@@ -355,19 +273,8 @@ test("bash omits body rails when output has zero lines", (): void => {
 });
 
 test("bash removes renderer padding around short newline-terminated output", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	for (const isPartial of [true, false]) {
 		const lines = bash
 			.renderResult?.(
@@ -391,19 +298,8 @@ test("bash removes renderer padding around short newline-terminated output", ():
 });
 
 test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	const text = bash
 		.renderResult?.(
 			{
@@ -433,19 +329,8 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 });
 
 test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	const component = bash.renderResult?.(
 		{
 			content: [
@@ -502,19 +387,8 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 });
 
 test("bash omitted-line count uses logical lines, not wraps or the tail window", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
-		bold: (text: string): string => text,
-	} as Theme;
+	const bash = bashTool();
+	const theme = roleTheme;
 	const long = Array.from({ length: 30 }, (_, index) => `line ${index + 1} ${"x".repeat(80)}`).join(
 		"\n",
 	);
@@ -559,19 +433,8 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 });
 
 test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
 	const tui = createToolTui();
-	registerBashTool(
-		{
-			registerTool(tool: ToolDefinition): void {
-				tools.push(tool);
-			},
-		} as unknown as ExtensionAPI,
-		undefined,
-		tui,
-	);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool(tui);
 	tui.beginTrace();
 	const result = await bash.execute(
 		"completed-bash",
@@ -581,11 +444,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		{ cwd: process.cwd() } as ExtensionContext,
 	);
 	tui.beginTrace();
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (_role: string, text: string): string => text,
-		bold: (text: string): string => text,
-	} as Theme;
+	const theme = plainTheme;
 	const footer = bash
 		.renderResult?.(result, { expanded: false, isPartial: false }, theme, {
 			args: { command: "printf 'one\\ntwo\\n'" },
@@ -604,14 +463,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 });
 
 test("bash rejects async on SSH targets", async (): Promise<void> => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = bashTool();
 	const context = { cwd: process.cwd() } as ExtensionContext;
 	expect(
 		await bash.execute(

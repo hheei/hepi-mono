@@ -2,7 +2,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
@@ -19,6 +18,7 @@ import {
 	MAX_TASK_MESSAGE_CHARS,
 	TASK_TERMINAL_CUSTOM_TYPE,
 } from "../src/tasks/registry.js";
+import { plainTheme } from "./fixtures/theme.js";
 
 const registries: BashJobRegistry[] = [];
 const taskRegistries: AsyncTaskRegistry[] = [];
@@ -305,13 +305,10 @@ test("bash async returns a task id and one terminal delivery", async (): Promise
 	const host = toolHost();
 	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
 	const bash = bashTool(host);
-	const result = await bash.execute(
-		"bash-async-task",
-		{ command: "printf task-output", async: true },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const result = await runBash(bash, "bash-async-task", {
+		command: "printf task-output",
+		async: true,
+	});
 	expect(result.content).toEqual([
 		{
 			type: "text",
@@ -339,13 +336,10 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 	const host = toolHost();
 	registerBashTool(host.pi, state);
 	const bash = bashTool(host);
-	const result = await bash.execute(
-		"bash-start-failure",
-		{ command: "printf never", async: true },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const result = await runBash(bash, "bash-start-failure", {
+		command: "printf never",
+		async: true,
+	});
 	expect(result.content).toEqual([
 		{ type: "text", text: "Unable to start background task: registry is disposed" },
 	]);
@@ -447,12 +441,6 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 		expect(rejected.details).toMatchObject({ error: "invalid_ids" });
 	}
 });
-
-const plainTheme = {
-	bg: (_role: string, text: string): string => text,
-	fg: (_role: string, text: string): string => text,
-	bold: (text: string): string => text,
-} as unknown as Theme;
 
 test("renders task tool headers inside narrow terminal widths", async (): Promise<void> => {
 	const tasks = tracked(new AsyncTaskRegistry());
@@ -626,16 +614,10 @@ test("non-timeout command transitions to background task when exceeding autoAsyn
 	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
 	const bash = bashTool(host);
 
-	const res = await bash.execute(
-		"bash-auto-async",
-		{
-			command:
-				"node -e \"process.stdout.write('starting...'); setTimeout(() => console.log('finished-later'), 150)\"",
-		},
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const res = await runBash(bash, "bash-auto-async", {
+		command:
+			"node -e \"process.stdout.write('starting...'); setTimeout(() => console.log('finished-later'), 150)\"",
+	});
 
 	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 	expect(text).toContain("Command has been running for 0.05s without an explicit timeout.");
@@ -662,13 +644,10 @@ test("non-timeout command transitions to background task when exceeding autoAsyn
 test("explicit timeout does not transition to async task", async (): Promise<void> => {
 	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
-	const res = await bash.execute(
-		"bash-explicit-timeout",
-		{ command: 'node -e "setTimeout(() => {}, 500)"', timeout: 0.1 },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const res = await runBash(bash, "bash-explicit-timeout", {
+		command: 'node -e "setTimeout(() => {}, 500)"',
+		timeout: 0.1,
+	});
 
 	expect(res.details).toMatchObject({ timedOut: true });
 	expect((res.details as Record<string, unknown>).taskId).toBeUndefined();
@@ -681,12 +660,11 @@ test("aborting foreground command kills the process before auto-async", async ()
 	const controller = new AbortController();
 	setTimeout(() => controller.abort(), 40);
 
-	const res = await bash.execute(
+	const res = await runBash(
+		bash,
 		"bash-abort-before-auto-async",
 		{ command: 'node -e "setTimeout(() => {}, 2000)"' },
-		controller.signal,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		{ signal: controller.signal },
 	);
 
 	expect(res.content).toEqual([{ type: "text", text: "Bash aborted" }]);
@@ -703,13 +681,9 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 	registerBashTool(host.pi, state, tui);
 	const bash = bashTool(host);
 
-	const res = await bash.execute(
-		"bash-tui-auto-async",
-		{ command: 'node -e "setTimeout(() => {}, 200)"' },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const res = await runBash(bash, "bash-tui-auto-async", {
+		command: 'node -e "setTimeout(() => {}, 200)"',
+	});
 
 	// Complete the trace in Tui
 	const resultComponent = bash.renderResult?.(
@@ -752,18 +726,19 @@ test("stops streaming onUpdate to completed tool call after auto-async transitio
 	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
 	const updates: string[] = [];
-	await bash.execute(
+	await runBash(
+		bash,
 		"bash-stream-cutoff",
 		{
 			command:
 				"node -e \"console.log('first'); setTimeout(() => { console.log('second'); }, 120)\"",
 		},
-		undefined,
-		(update) => {
-			const output = (update as { details?: { output?: string } }).details?.output;
-			if (output) updates.push(output);
+		{
+			onUpdate: (update) => {
+				const output = (update as { details?: { output?: string } }).details?.output;
+				if (output) updates.push(output);
+			},
 		},
-		{ cwd: process.cwd() } as ExtensionContext,
 	);
 
 	const updateCountAtTransition = updates.length;
@@ -809,13 +784,9 @@ test("handles transition failure gracefully when task registry is disposed", asy
 	// Dispose the task registry before the timer fires
 	setTimeout(() => tasks.dispose(), 20);
 
-	const res = await bash.execute(
-		"bash-transition-fail",
-		{ command: 'node -e "setTimeout(() => {}, 1000)"' },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const res = await runBash(bash, "bash-transition-fail", {
+		command: 'node -e "setTimeout(() => {}, 1000)"',
+	});
 
 	expect(res.details).toMatchObject({ error: "task_transition_failed" });
 	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
@@ -833,13 +804,9 @@ test("handles job settling before auto-async transition message is constructed",
 		return created;
 	};
 
-	const res = await bash.execute(
-		"bash-race-finish",
-		{ command: 'node -e "setTimeout(() => {}, 200)"' },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
+	const res = await runBash(bash, "bash-race-finish", {
+		command: 'node -e "setTimeout(() => {}, 200)"',
+	});
 
 	expect(res.details).toMatchObject({
 		autoAsyncTransition: true,
@@ -944,6 +911,21 @@ function taskControlSession(overrides?: Partial<FffSettings>): {
 	const tasks = tracked(startTaskControl(host.context));
 	current = tasks;
 	return { host, tasks };
+}
+
+/** Executes a registered tool the way Pi does, at the session cwd. */
+function runBash(
+	bash: ToolDefinition,
+	toolCallId: string,
+	args: Record<string, unknown>,
+	options: {
+		readonly signal?: AbortSignal;
+		readonly onUpdate?: (update: unknown) => void;
+	} = {},
+) {
+	return bash.execute(toolCallId, args, options.signal, options.onUpdate, {
+		cwd: process.cwd(),
+	} as ExtensionContext);
 }
 
 /** Registers the bash tool over a fresh task registry, the way one session does. */

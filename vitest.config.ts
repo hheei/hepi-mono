@@ -16,12 +16,6 @@ export default defineConfig({
 				find: /^@hheei\/pi-ext-core$/,
 				replacement: fileURLToPath(new URL("./packages/pi-ext-core/src/index.ts", import.meta.url)),
 			},
-			{
-				find: /^@hheei\/pi-ext-core\/testing$/,
-				replacement: fileURLToPath(
-					new URL("./packages/pi-ext-core/src/testing.ts", import.meta.url),
-				),
-			},
 		],
 	},
 });

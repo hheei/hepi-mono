@@ -7,6 +7,7 @@ import { inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
+import { DEFAULT_FFF_SETTINGS } from "../../src/fff/settings.js";
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
@@ -92,14 +93,11 @@ describe("FFF tool registration", () => {
 		const state = {
 			getRuntime: () => undefined,
 			getSettings: () => ({
+				...DEFAULT_FFF_SETTINGS,
 				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autoAsyncSeconds: 60,
-				autocomplete: true,
 				grepEnhancement: false,
 				readEnhancement: false,
 				findEnhancement: false,
-				statusUI: true,
 			}),
 			getTasks: () => undefined,
 			getBashJobs: () => undefined,
@@ -154,16 +152,7 @@ describe("FFF tool registration", () => {
 		});
 		const state = {
 			getRuntime: () => runtime,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autoAsyncSeconds: 60,
-				autocomplete: true,
-				grepEnhancement: true,
-				readEnhancement: true,
-				findEnhancement: true,
-				statusUI: true,
-			}),
+			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
@@ -205,16 +194,7 @@ describe("FFF tool registration", () => {
 		});
 		const state = {
 			getRuntime: () => runtime,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autoAsyncSeconds: 60,
-				autocomplete: true,
-				grepEnhancement: true,
-				readEnhancement: true,
-				findEnhancement: true,
-				statusUI: true,
-			}),
+			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
@@ -259,16 +239,7 @@ describe("FFF tool registration", () => {
 						};
 					},
 				}) as never,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autoAsyncSeconds: 60,
-				autocomplete: true,
-				grepEnhancement: true,
-				readEnhancement: true,
-				findEnhancement: true,
-				statusUI: true,
-			}),
+			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
@@ -304,16 +275,7 @@ describe("FFF tool registration", () => {
 			await writeFile(join(cwd, "needle.ts"), "const needle = true;\n");
 			const state = {
 				getRuntime: () => undefined,
-				getSettings: () => ({
-					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
-					grepEnhancement: true,
-					readEnhancement: true,
-					findEnhancement: true,
-					statusUI: true,
-				}),
+				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
@@ -347,14 +309,11 @@ describe("FFF tool registration", () => {
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
+					...DEFAULT_FFF_SETTINGS,
 					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
 					findEnhancement: true,
-					statusUI: true,
 				}),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
@@ -386,16 +345,7 @@ describe("FFF tool registration", () => {
 			await writeFile(join(cwd, "src/b.ts"), "needle\n");
 			const state = {
 				getRuntime: () => undefined,
-				getSettings: () => ({
-					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
-					grepEnhancement: true,
-					readEnhancement: true,
-					findEnhancement: true,
-					statusUI: true,
-				}),
+				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => undefined,
@@ -447,14 +397,11 @@ describe("FFF tool registration", () => {
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
+					...DEFAULT_FFF_SETTINGS,
 					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
 					findEnhancement: true,
-					statusUI: true,
 				}),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
@@ -498,14 +445,11 @@ describe("FFF tool registration", () => {
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
+					...DEFAULT_FFF_SETTINGS,
 					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
 					findEnhancement: true,
-					statusUI: true,
 				}),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
@@ -555,14 +499,11 @@ describe("FFF tool registration", () => {
 			const state = {
 				getRuntime: () => undefined,
 				getSettings: () => ({
+					...DEFAULT_FFF_SETTINGS,
 					shellPath: "sh",
-					bashOutputTailKiB: 10,
-					autoAsyncSeconds: 60,
-					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
 					findEnhancement: true,
-					statusUI: true,
 				}),
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
@@ -609,16 +550,7 @@ describe("FFF tool registration", () => {
 						},
 					}),
 				}) as never,
-			getSettings: () => ({
-				shellPath: "sh",
-				bashOutputTailKiB: 10,
-				autoAsyncSeconds: 60,
-				autocomplete: true,
-				grepEnhancement: true,
-				readEnhancement: true,
-				findEnhancement: true,
-				statusUI: true,
-			}),
+			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
 			getTasks: () => undefined,
 			getBashJobs: () => undefined,
 			getTargetRuntime: () => undefined,
