@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { runCommand } from "@hheei/pi-ext-core";
 
 export interface ClipboardCommand {
 	command: string;
@@ -36,30 +36,17 @@ export async function copyTextToClipboard(
 	return false;
 }
 
-export function runClipboardCommand(command: ClipboardCommand, text: string): Promise<boolean> {
-	return new Promise((resolve) => {
-		let settled = false;
-		let timeout: ReturnType<typeof setTimeout> | undefined;
-
-		const finish = (ok: boolean) => {
-			if (settled) return;
-			settled = true;
-			if (timeout) clearTimeout(timeout);
-			resolve(ok);
-		};
-
-		const child = spawn(command.command, command.args, {
-			stdio: ["pipe", "ignore", "ignore"],
+export async function runClipboardCommand(
+	command: ClipboardCommand,
+	text: string,
+): Promise<boolean> {
+	try {
+		const result = await runCommand(command.command, command.args, {
+			input: text,
+			timeoutMs: 2_000,
 		});
-
-		timeout = setTimeout(() => {
-			child.kill();
-			finish(false);
-		}, 2_000);
-
-		child.on("error", () => finish(false));
-		child.on("close", (code) => finish(code === 0));
-		child.stdin.on("error", () => undefined);
-		child.stdin.end(text, "utf8");
-	});
+		return !result.timedOut && result.code === 0;
+	} catch {
+		return false;
+	}
 }

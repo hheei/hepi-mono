@@ -221,7 +221,7 @@ describe("pi-ext-tools catalog", () => {
 				{ ...(renderContext as object), args: { path: "empty.ts" } } as never,
 			)
 			.render(80);
-		expect(lines).toEqual(["<dim>1 char · 2 lines · 0ms</dim>"]);
+		expect(lines).toEqual(["<dim>1 char · 2 lines</dim>"]);
 	});
 
 	test("hides read continuation instructions without changing model content", (): void => {

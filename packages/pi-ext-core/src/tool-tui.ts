@@ -16,6 +16,7 @@ import {
 import type { Static, TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
 import { runtimeIdentity } from "./runtime-identity.js";
+import { agentResultText, formatDuration } from "./tool-result.js";
 
 type FrameStatus = "pending" | "success" | "warning" | "error";
 
@@ -284,11 +285,6 @@ function statusPrefix(status: FrameStatus, theme: Theme): string {
 	}
 }
 
-function durationText(durationMs: number | undefined): string | undefined {
-	if (durationMs === undefined) return undefined;
-	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
-}
-
 function completionFrom(
 	result: AgentToolResult<unknown>,
 	completion: ToolCompletion | undefined,
@@ -324,17 +320,9 @@ function typedFooter(value: string | undefined): string | undefined {
 }
 
 function defaultFooter(completion: ToolCompletion | undefined, isError: boolean): string {
-	const duration = durationText(completion?.durationMs);
+	const duration = formatDuration(completion?.durationMs);
 	if (isError) return duration ? `error · ${duration}` : "error";
 	return duration ?? "completed";
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	const [only] = result.content;
-	if (result.content.length === 1 && only?.type === "text") return only.text;
-	return result.content
-		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
-		.join("\n");
 }
 
 class ToolTraceController {
@@ -685,7 +673,7 @@ function previousBody(component: Component | undefined): Component | undefined {
 }
 
 function resultFallback(result: AgentToolResult<unknown>, theme: Theme): Component {
-	const text = resultText(result);
+	const text = agentResultText(result);
 	return text === "" ? new Container() : new Text(theme.fg("toolOutput", text), 0, 0);
 }
 

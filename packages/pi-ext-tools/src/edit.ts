@@ -8,7 +8,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import type { ToolTui } from "@hheei/pi-ext-core";
+import { agentResultText, formatDuration, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
@@ -89,11 +89,6 @@ type EditOpView = {
 type EditView =
 	| { readonly kind: "single"; readonly op: EditOpView }
 	| { readonly kind: "multi"; readonly ops: readonly EditOpView[] };
-
-function durationText(durationMs: number | undefined): string | undefined {
-	if (durationMs === undefined) return undefined;
-	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
-}
 
 function stringField(value: unknown): string {
 	return typeof value === "string" ? value : "";
@@ -200,15 +195,6 @@ function lineNumberAt(text: string, index: number): number {
 		if (text.charCodeAt(i) === 10) line += 1;
 	}
 	return line;
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	const [only] = result.content;
-	if (result.content.length === 1 && only?.type === "text") return only.text;
-	return result.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
 }
 
 type EditMetrics = {
@@ -339,7 +325,7 @@ function editFooter(
 	metrics: EditMetrics | undefined,
 	durationMs: number | undefined,
 ): string | undefined {
-	const duration = durationText(durationMs);
+	const duration = formatDuration(durationMs);
 	if (metrics === undefined) return duration ? `error · ${duration}` : "error";
 	const edits = counted(metrics.replacements, "edit");
 	const changed = metrics.added + metrics.removed;
@@ -467,7 +453,7 @@ export function registerEditTool(
 					0,
 					0,
 				);
-			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
+			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
 			const view = editView(result);
 			if (view !== undefined) {
 				const ops = view.kind === "single" ? [view.op] : view.ops;
@@ -475,7 +461,7 @@ export function registerEditTool(
 			}
 			const diff = legacyEditDiff(result);
 			if (diff === undefined) {
-				const fallback = resultText(result);
+				const fallback = agentResultText(result);
 				return fallback === "" ? new Container() : new Text(fallback, 0, 0);
 			}
 			const language = lang(filePath(context.args as EditArgs));

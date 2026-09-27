@@ -3,6 +3,7 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { agentResultText } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 
 export const EVAL_NESTED_TOOL_NAMES = [
@@ -157,16 +158,6 @@ function traceFor(
 		details: result.details,
 		durationMs,
 		...(toolCallId === undefined ? {} : { toolCallId }),
-		...(isError ? { error: resultText(result) || "tool failed" } : {}),
+		...(isError ? { error: agentResultText(result) || "tool failed" } : {}),
 	};
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	return result.content
-		.filter(
-			(part): part is Extract<(typeof result.content)[number], { readonly type: "text" }> =>
-				part.type === "text",
-		)
-		.map((part) => part.text)
-		.join("\n");
 }

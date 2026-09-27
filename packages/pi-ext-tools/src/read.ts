@@ -7,7 +7,13 @@ import {
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
+import {
+	agentResultText,
+	createToolTui,
+	formatDuration,
+	registerManagedTool,
+	type ToolTui,
+} from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { counted } from "./counted.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
@@ -94,10 +100,7 @@ function remoteReadResult(buffer: Buffer, params: ReadToolParams): AgentToolResu
 }
 function textResult(result: AgentToolResult<unknown>): string | undefined {
 	if (result.content.some((part) => part.type === "image")) return undefined;
-	const text = result.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
+	const text = agentResultText(result);
 	return text === "" ? undefined : text;
 }
 
@@ -144,9 +147,14 @@ function readCollapsedFooter(
 	completion: { readonly durationMs?: number } | undefined,
 ): string | undefined {
 	const metrics = readMetrics(result);
-	return metrics === undefined
-		? undefined
-		: `${counted(metrics.characters, "char")} · ${counted(metrics.lines, "line")} · ${durationText(completion?.durationMs)}`;
+	if (metrics === undefined) return undefined;
+	return [
+		counted(metrics.characters, "char"),
+		counted(metrics.lines, "line"),
+		formatDuration(completion?.durationMs),
+	]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
 }
 
 function displayLines(text: string): readonly string[] {
@@ -210,11 +218,6 @@ function previewLines(lines: readonly string[]): readonly ReadPreviewLine[] {
 			text,
 		})),
 	];
-}
-
-function durationText(durationMs: number | undefined): string {
-	if (durationMs === undefined) return "0ms";
-	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
 function sourceLineNumbers(

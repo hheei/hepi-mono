@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { errorMessage, runCommand } from "@hheei/pi-ext-core";
 import type { LaunchSpec } from "./launch-spec.js";
-
-const execFileAsync = promisify(execFile);
 
 export type HostKind = "herdr" | "cmux";
 
@@ -131,24 +128,34 @@ export class HostCommandError extends Error {
 	}
 }
 
+const HOST_COMMAND_MAX_STDOUT_BYTES = 1024 * 1024;
+
+function errnoCode(error: unknown): string | undefined {
+	// Node's spawn errors are plain Errors carrying a `code` string; narrowing here
+	// keeps the ENOENT decision below honest about the caught value being unknown.
+	const code = (error as { code?: unknown }).code;
+	return typeof code === "string" ? code : undefined;
+}
+
 export const systemHostCommandRunner: HostCommandRunner = {
 	async run(command, args, options = {}): Promise<HostCommandResult> {
 		try {
-			const result = await execFileAsync(command, [...args], {
-				timeout: options.timeoutMs,
-				maxBuffer: 1024 * 1024,
-				windowsHide: true,
+			const result = await runCommand(command, [...args], {
+				...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+				maxStdoutBytes: HOST_COMMAND_MAX_STDOUT_BYTES,
 			});
-			return { stdout: result.stdout, stderr: result.stderr, exitCode: 0, timedOut: false };
-		} catch (error) {
-			const value = error as NodeJS.ErrnoException & {
-				stdout?: string;
-				stderr?: string;
-				code?: number | string;
-				killed?: boolean;
-				signal?: string | null;
+			return {
+				stdout: result.stdout.toString("utf8"),
+				stderr: result.stdoutTruncated
+					? `output exceeded ${HOST_COMMAND_MAX_STDOUT_BYTES} bytes`
+					: result.stderr.toString("utf8"),
+				// A command killed by a signal reports no exit code; the kill still counts as
+				// a failure through `timedOut` or `hostCleanupFailed`.
+				exitCode: result.signal === null ? result.code : null,
+				timedOut: result.timedOut,
 			};
-			if (value.code === "ENOENT") {
+		} catch (error) {
+			if (errnoCode(error) === "ENOENT") {
 				return {
 					stdout: "",
 					stderr: `command not found: ${command}`,
@@ -157,10 +164,10 @@ export const systemHostCommandRunner: HostCommandRunner = {
 				};
 			}
 			return {
-				stdout: value.stdout ?? "",
-				stderr: value.stderr ?? value.message ?? String(error),
-				exitCode: typeof value.code === "number" ? value.code : null,
-				timedOut: value.killed === true,
+				stdout: "",
+				stderr: errorMessage(error),
+				exitCode: null,
+				timedOut: false,
 			};
 		}
 	},

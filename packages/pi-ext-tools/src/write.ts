@@ -9,7 +9,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import type { ToolTui } from "@hheei/pi-ext-core";
+import { agentResultText, formatDuration, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
@@ -94,11 +94,6 @@ type WriteView =
 	  }
 	| { readonly kind: "noChange" };
 
-function durationText(durationMs: number | undefined): string | undefined {
-	if (durationMs === undefined) return undefined;
-	return durationMs < 1_000 ? `${durationMs}ms` : `${(durationMs / 1_000).toFixed(1)}s`;
-}
-
 function filePath(args: WriteArgs): string {
 	const extra = args as WriteArgs & { file_path?: unknown };
 	return typeof args.path === "string"
@@ -140,15 +135,6 @@ function countContentLines(content: string): number {
 function writeMetrics(args: WriteArgs): { bytes: number; lines: number } | undefined {
 	if (typeof args.content !== "string") return undefined;
 	return { bytes: Buffer.byteLength(args.content), lines: countContentLines(args.content) };
-}
-
-function resultText(result: AgentToolResult<unknown>): string {
-	const [only] = result.content;
-	if (result.content.length === 1 && only?.type === "text") return only.text;
-	return result.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
 }
 
 function withWriteDetails(
@@ -406,7 +392,7 @@ export function registerWriteTool(
 					0,
 					0,
 				);
-			if (context.isError) return new Text(resultText(result) || "Error", 0, 0);
+			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
 			const view = writeView(result);
 			const args = context.args as WriteArgs;
 			if (view === undefined) {
@@ -449,7 +435,7 @@ export function registerWriteTool(
 			footer(result, completion) {
 				const metrics = readWriteMetrics(result);
 				const view = writeView(result);
-				const duration = durationText(completion?.durationMs);
+				const duration = formatDuration(completion?.durationMs);
 				const delta =
 					view?.kind === "diff" && view.summary !== "no changes" ? view.summary : undefined;
 				return [
