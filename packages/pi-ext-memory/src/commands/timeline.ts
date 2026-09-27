@@ -8,13 +8,12 @@ import {
 } from "../session-ledger/index.js";
 import { estimateEntryTokens } from "../tokens.js";
 
-/** Glyphs for the timeline strip. */
 const GLYPH = {
-	compacted: "▓", // raw history a compaction has already replaced with a memory summary
-	pool: "▒", // history the observer has covered, still living as observations
-	raw: "░", // raw history not yet distilled into observations
-	cut: "┊", // compaction cutoff (the verbatim tail began here)
-	tip: "▶", // live branch tip
+	compacted: "▓",
+	pool: "▒",
+	raw: "░",
+	cut: "┊",
+	tip: "▶",
 } as const;
 
 function fmtK(tokens: number): string {
@@ -52,20 +51,13 @@ function cutoffPositions(entries: Entry[], starts: number[]): number[] {
 }
 
 /**
- * Render the session as one horizontal strip, oldest on the left, tip on the right.
- *
- * Reading order mirrors the pipeline: `▓` history a compaction already replaced with a
- * summary, `▒` history the observer has covered and that still lives as observations,
- * `░` raw backlog waiting for the observer, every compaction cutoff overlaid as `┊`, and
- * the branch tip closed by `▶`.
- *
- * The scale is raw session history (not live-context tokens) and the cell size adapts to
- * `width`, so the strip stays a single line — a very narrow terminal gets a truncated
- * strip rather than an overflowing one. `width` must be the real terminal width: Pi errors
- * out when a rendered line overflows it.
+ * Render the session as one horizontal strip, oldest on the left, tip on the right; the
+ * glyph legend below the strip names each segment, and the cell size adapts to `width` so
+ * the strip stays a single line. `width` must be the real terminal width: Pi errors out
+ * when a rendered line overflows it.
  */
 export function renderTimeline(entries: Entry[], width: number): string {
-	const available = Math.max(1, Number.isFinite(width) ? Math.floor(width) : 80);
+	const available = Math.max(1, Math.floor(width));
 	const { starts, total } = tokenOffsets(entries);
 	const cuts = cutoffPositions(entries, starts);
 	const newestCut = cuts.at(-1) ?? 0;

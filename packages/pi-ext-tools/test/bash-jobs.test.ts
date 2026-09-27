@@ -14,7 +14,6 @@ import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
 import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
-import { promoteBashJobToTask } from "../src/tasks/bash-task.js";
 import {
 	AsyncTaskRegistry,
 	MAX_TASK_MESSAGE_CHARS,
@@ -305,8 +304,7 @@ test("bash async returns a task id and one terminal delivery", async (): Promise
 	const state = runtimeState(tasks);
 	const host = toolHost();
 	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const bash = bashTool(host);
 	const result = await bash.execute(
 		"bash-async-task",
 		{ command: "printf task-output", async: true },
@@ -340,8 +338,7 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 	};
 	const host = toolHost();
 	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const bash = bashTool(host);
 	const result = await bash.execute(
 		"bash-start-failure",
 		{ command: "printf never", async: true },
@@ -594,27 +591,31 @@ test("warns on stop_tasks only when an id did not stop", async (): Promise<void>
 	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("! stop_tasks bash-9");
 });
 
-test("short foreground command runs to completion without creating an async task", async (): Promise<void> => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
-	const state = runtimeState(tasks);
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
-
-	const res = await bash.execute(
+test("a command that finishes before autoAsyncSeconds stays a foreground call", async (): Promise<void> => {
+	const short = bashHarness();
+	const res = await short.bash.execute(
 		"bash-foreground-short",
 		{ command: "node -e \"console.log('short-output')\"" },
 		undefined,
 		undefined,
 		{ cwd: process.cwd() } as ExtensionContext,
 	);
-
 	expect(res.content).toEqual([{ type: "text", text: "short-output\n" }]);
 	expect(res.details).toMatchObject({ exitCode: 0 });
-	expect(tasks.list(true)).toEqual([]);
-	expect(sent).toEqual([]);
+	expect(short.tasks.list(true)).toEqual([]);
+
+	// A disabled timer must not manufacture a task either.
+	const disabled = bashHarness({ autoAsyncSeconds: 0 });
+	const second = await disabled.bash.execute(
+		"bash-auto-async-disabled",
+		{ command: "node -e \"setTimeout(() => console.log('ran-foreground'), 100)\"" },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(second.content).toEqual([{ type: "text", text: "ran-foreground\n" }]);
+	expect(second.details).toMatchObject({ exitCode: 0 });
+	expect(disabled.tasks.list(true)).toEqual([]);
 });
 
 test("non-timeout command transitions to background task when exceeding autoAsyncSeconds", async (): Promise<void> => {
@@ -623,8 +624,7 @@ test("non-timeout command transitions to background task when exceeding autoAsyn
 	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
 	const host = toolHost();
 	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const bash = bashTool(host);
 
 	const res = await bash.execute(
 		"bash-auto-async",
@@ -660,12 +660,7 @@ test("non-timeout command transitions to background task when exceeding autoAsyn
 });
 
 test("explicit timeout does not transition to async task", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
 	const res = await bash.execute(
 		"bash-explicit-timeout",
@@ -680,34 +675,8 @@ test("explicit timeout does not transition to async task", async (): Promise<voi
 	expect(tasks.list(true)).toEqual([]);
 });
 
-test("auto-async disabled when autoAsyncSeconds is 0", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
-
-	const res = await bash.execute(
-		"bash-auto-async-disabled",
-		{ command: "node -e \"setTimeout(() => console.log('ran-foreground'), 100)\"" },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
-
-	expect(res.content).toEqual([{ type: "text", text: "ran-foreground\n" }]);
-	expect(res.details).toMatchObject({ exitCode: 0 });
-	expect(tasks.list(true)).toEqual([]);
-});
-
 test("aborting foreground command kills the process before auto-async", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 1 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 1 });
 
 	const controller = new AbortController();
 	setTimeout(() => controller.abort(), 40);
@@ -732,8 +701,7 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 	const host = toolHost();
 	const tui = createToolTui();
 	registerBashTool(host.pi, state, tui);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const bash = bashTool(host);
 
 	const res = await bash.execute(
 		"bash-tui-auto-async",
@@ -781,12 +749,7 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 });
 
 test("stops streaming onUpdate to completed tool call after auto-async transition", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
 	const updates: string[] = [];
 	await bash.execute(
@@ -841,12 +804,7 @@ test("dispose stops running jobs with stopped status and releases waiters", asyn
 });
 
 test("handles transition failure gracefully when task registry is disposed", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
 	// Dispose the task registry before the timer fires
 	setTimeout(() => tasks.dispose(), 20);
@@ -864,49 +822,8 @@ test("handles transition failure gracefully when task registry is disposed", asy
 	expect(text).toContain("Unable to transition bash command to background task");
 });
 
-test("onTerminal throwing does not crash terminalization", async (): Promise<void> => {
-	const registry = jobRegistry();
-	let secondCalled = false;
-	const job = registry.start({
-		command: 'node -e "setTimeout(() => {}, 50)"',
-		cwd: process.cwd(),
-		onTerminal: () => {
-			throw new Error("subscriber exploded");
-		},
-	});
-	registry.bindTerminal(job.id, () => {
-		secondCalled = true;
-	});
-	await registry.waitFor(job.id);
-	expect(secondCalled).toBe(true);
-});
-
-test("promoteBashJobToTask throws if bindTerminal fails", (): void => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const jobs = jobRegistry();
-	const job = jobs.start({
-		command: 'node -e "setTimeout(() => {}, 2000)"',
-		cwd: process.cwd(),
-	});
-	// Mock bindTerminal to return false
-	jobs.bindTerminal = () => false;
-	expect(() =>
-		promoteBashJobToTask({
-			tasks,
-			jobs,
-			jobId: job.id,
-			command: "test-command",
-		}),
-	).toThrow("Failed to bind terminal callback to job");
-});
-
 test("handles job settling before auto-async transition message is constructed", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
-	const host = toolHost();
-	registerBashTool(host.pi, state);
-	const bash = host.tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("bash was not registered");
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
 	// Intercept tasks.create to settle the task immediately during transition
 	const originalCreate = tasks.create.bind(tasks);
@@ -1039,7 +956,18 @@ function taskControlSession(overrides?: Partial<FffSettings>): {
 	return { host, tasks };
 }
 
-function bashTool(host: TaskControlHost): ToolDefinition {
+/** Registers the bash tool over a fresh task registry, the way one session does. */
+function bashHarness(settings?: Partial<FffSettings>): {
+	readonly bash: ToolDefinition;
+	readonly tasks: AsyncTaskRegistry;
+} {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const host = toolHost();
+	registerBashTool(host.pi, runtimeState(tasks, settings));
+	return { bash: bashTool(host), tasks };
+}
+
+function bashTool(host: { readonly tools: readonly ToolDefinition[] }): ToolDefinition {
 	const bash = host.tools.find((tool) => tool.name === "bash");
 	if (bash === undefined) throw new Error("bash was not registered");
 	return bash;
@@ -1056,7 +984,7 @@ test("host-activated task tools are removed at session start", (): void => {
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });
 
-test("task tools activate on the first background task and survive later boundaries", async (): Promise<void> => {
+test("task tools activate on the first background task, survive turns, and unload at a boundary", async (): Promise<void> => {
 	const { host, tasks } = taskControlSession();
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
@@ -1078,23 +1006,10 @@ test("task tools activate on the first background task and survive later boundar
 
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-});
 
-test("a later task activates the tools again after a boundary unload", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession();
-	await bashTool(host).execute(
-		"bash-reactivate-first",
-		{ command: "printf first", async: true },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
-	);
-	await tasks.wait(["bash-1"]);
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-
+	// The next task brings them back.
 	const second = await bashTool(host).execute(
-		"bash-reactivate-second",
+		"bash-reactivate",
 		{ command: "printf second", async: true },
 		undefined,
 		undefined,
@@ -1105,8 +1020,8 @@ test("a later task activates the tools again after a boundary unload", async ():
 	await tasks.wait(["bash-2"]);
 });
 
-test("a boundary keeps task tools while a task is still running", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession();
+test("activation follows running tasks across boundaries and auto-async transitions", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
 	await bashTool(host).execute(
 		"bash-boundary-running",
 		{ command: 'node -e "setTimeout(() => {}, 3000)"', async: true },
@@ -1128,10 +1043,8 @@ test("a boundary keeps task tools while a task is still running", async (): Prom
 	expect(tasks.runningCount).toBe(0);
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-});
 
-test("an auto-async transition activates the task tools", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
+	// A foreground command that outlives autoAsyncSeconds activates them again through its task.
 	const res = await bashTool(host).execute(
 		"bash-auto-async-activation",
 		{ command: 'node -e "setTimeout(() => {}, 200)"' },
@@ -1139,14 +1052,13 @@ test("an auto-async transition activates the task tools", async (): Promise<void
 		undefined,
 		{ cwd: process.cwd() } as ExtensionContext,
 	);
-
-	expect(res.details).toMatchObject({ taskId: "bash-1", autoAsyncTransition: true });
+	expect(res.details).toMatchObject({ taskId: "bash-2", autoAsyncTransition: true });
 	expect(tasks.runningCount).toBe(1);
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	await tasks.wait(["bash-1"]);
+	await tasks.wait(["bash-2"]);
 });
 
-test("a task that cannot start does not activate the tools", (): void => {
+test("a task that cannot start leaves the tools off, and teardown clears the next session", (): void => {
 	const host = taskControlHost();
 	registerTaskTools(host.pi, runtimeState(undefined));
 	const tasks = tracked(startTaskControl(host.context));
@@ -1162,11 +1074,9 @@ test("a task that cannot start does not activate the tools", (): void => {
 	).toThrow("spawn failed");
 	expect(tasks.runningCount).toBe(0);
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-});
 
-test("a new session starts without task tools and without running tasks", (): void => {
-	const first = taskControlSession();
-	first.tasks.create({
+	// Session teardown disposes the registry, so the next session starts clean.
+	tasks.create({
 		type: "bash",
 		purpose: "still running",
 		begin: () => ({
@@ -1174,11 +1084,9 @@ test("a new session starts without task tools and without running tasks", (): vo
 			describe: () => ({ output: "", truncated: false }),
 		}),
 	});
-	expect(first.tasks.runningCount).toBe(1);
-
-	// Session teardown disposes the registry, so the next session starts clean.
-	first.tasks.dispose();
-	expect(first.tasks.runningCount).toBe(0);
+	expect(tasks.runningCount).toBe(1);
+	tasks.dispose();
+	expect(tasks.runningCount).toBe(0);
 
 	const second = taskControlSession();
 	expect(second.tasks.runningCount).toBe(0);

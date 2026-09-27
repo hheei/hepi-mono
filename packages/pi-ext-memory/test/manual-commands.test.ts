@@ -94,6 +94,15 @@ function setup(args: {
 	};
 }
 
+/** A consolidation the command can be left waiting on, plus the release for it. */
+function pendingConsolidation(): { readonly promise: Promise<void>; readonly release: () => void } {
+	let release: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	return { promise, release: () => release?.() };
+}
+
 describe("/om consolidate", () => {
 	it("runs a forced consolidation when there is uncovered conversation", async () => {
 		const cmd = setup({
@@ -174,49 +183,34 @@ describe("/om consolidate", () => {
 		expect(mockForced.runForcedConsolidation).not.toHaveBeenCalled();
 	});
 
-	it("re-checks the in-flight lock after awaiting configuration", async () => {
-		const cmd = setup({
+	it("re-checks the lock, the gate, and the session after awaiting configuration", async () => {
+		const locked = setup({
 			verb: "consolidate",
 			entries: [textCustomMessage("raw-1", "aaaaaaaa")],
 		});
 		// The automatic trigger claims the lock while the command is awaiting config.
-		cmd.runtime.ensureConfig.mockImplementation(async () => {
-			cmd.runtime.consolidationInFlight = true;
+		locked.runtime.ensureConfig.mockImplementation(async () => {
+			locked.runtime.consolidationInFlight = true;
 		});
+		await locked.run();
+		expect(locked.lastMessage()).toContain("already in progress");
 
-		await cmd.run();
-
-		expect(cmd.lastMessage()).toContain("already in progress");
-		expect(mockForced.runForcedConsolidation).not.toHaveBeenCalled();
-	});
-
-	it("re-checks the gate after awaiting configuration", async () => {
 		const entries = [textCustomMessage("raw-1", "aaaaaaaa")];
-		const cmd = setup({
-			verb: "consolidate",
-			entries,
-		});
+		const gated = setup({ verb: "consolidate", entries });
 		// The operator runs `/om off` while the command is awaiting config.
-		cmd.runtime.ensureConfig.mockImplementation(async () => {
+		gated.runtime.ensureConfig.mockImplementation(async () => {
 			entries.push(gateEntry("gate-2", false));
 		});
+		await gated.run();
+		expect(gated.lastMessage()).toContain("is off for this session");
 
-		await cmd.run();
-
-		expect(cmd.lastMessage()).toContain("is off for this session");
-		expect(mockForced.runForcedConsolidation).not.toHaveBeenCalled();
-	});
-
-	it("stays silent when the session was replaced while awaiting configuration", async () => {
-		const cmd = setup({
+		const replaced = setup({
 			verb: "consolidate",
 			entries: [textCustomMessage("raw-1", "aaaaaaaa")],
 			runtime: { isSessionCurrent: vi.fn(() => false) },
 		});
+		expect(await replaced.run()).toEqual([]);
 
-		const messages = await cmd.run();
-
-		expect(messages).toEqual([]);
 		expect(mockForced.runForcedConsolidation).not.toHaveBeenCalled();
 	});
 });
@@ -288,22 +282,19 @@ describe("/om compact", () => {
 	});
 
 	it("waits for an in-flight consolidation before compacting", async () => {
-		let release: (() => void) | undefined;
-		const pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+		const pending = pendingConsolidation();
 		const cmd = setup({
 			verb: "compact",
 			entries: readyEntries,
 			runtime: { consolidationInFlight: true },
-			consolidationPromise: pending,
+			consolidationPromise: pending.promise,
 		});
 
 		const run = cmd.run();
 		await Promise.resolve();
 		expect(cmd.compactCalls).toHaveLength(0);
 
-		release?.();
+		pending.release();
 		await run;
 		expect(cmd.compactCalls).toHaveLength(1);
 		expect(cmd.runtime.compactInFlight).toBe(true);
@@ -328,75 +319,55 @@ describe("/om compact", () => {
 		expect(gated.compactCalls).toHaveLength(0);
 	});
 
-	it("re-checks the gate after waiting for an in-flight consolidation", async () => {
-		let release: (() => void) | undefined;
-		const pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+	it("re-checks the gate, a competing compaction, and the session after the wait", async () => {
+		// The operator runs `/om off` while the command waits for the consolidation.
 		const entries = [...readyEntries];
-		const cmd = setup({
+		const gateWait = pendingConsolidation();
+		const gated = setup({
 			verb: "compact",
 			entries,
 			runtime: { consolidationInFlight: true },
-			consolidationPromise: pending,
+			consolidationPromise: gateWait.promise,
 		});
-
-		const run = cmd.run();
+		const gatedRun = gated.run();
 		await Promise.resolve();
-		// The operator runs `/om off` while the command waits for the consolidation.
 		entries.push(gateEntry("gate-2", false));
-		release?.();
-		await run;
+		gateWait.release();
+		await gatedRun;
+		expect(gated.lastMessage()).toContain("is off for this session");
+		expect(gated.compactCalls).toHaveLength(0);
+		expect(gated.runtime.compactInFlight).toBe(false);
 
-		expect(cmd.lastMessage()).toContain("is off for this session");
-		expect(cmd.compactCalls).toHaveLength(0);
-		expect(cmd.runtime.compactInFlight).toBe(false);
-	});
-
-	it("re-checks for a competing compaction after waiting for an in-flight consolidation", async () => {
-		let release: (() => void) | undefined;
-		const pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const cmd = setup({
+		// A trigger path claims the compaction while the command is waiting.
+		const busyWait = pendingConsolidation();
+		const busy = setup({
 			verb: "compact",
 			entries: readyEntries,
 			runtime: { consolidationInFlight: true },
-			consolidationPromise: pending,
+			consolidationPromise: busyWait.promise,
 		});
-
-		const run = cmd.run();
+		const busyRun = busy.run();
 		await Promise.resolve();
-		// A trigger path claims the compaction while the command is waiting.
-		cmd.runtime.compactInFlight = true;
-		release?.();
-		await run;
+		busy.runtime.compactInFlight = true;
+		busyWait.release();
+		await busyRun;
+		expect(busy.lastMessage()).toContain("already in progress");
+		expect(busy.compactCalls).toHaveLength(0);
 
-		expect(cmd.lastMessage()).toContain("already in progress");
-		expect(cmd.compactCalls).toHaveLength(0);
-	});
-
-	it("stays silent when the session was replaced while waiting", async () => {
-		let release: (() => void) | undefined;
-		const pending = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const cmd = setup({
+		// A replaced session reports nothing beyond the wait notice.
+		const replacedWait = pendingConsolidation();
+		const replaced = setup({
 			verb: "compact",
 			entries: readyEntries,
 			runtime: { consolidationInFlight: true, isSessionCurrent: vi.fn(() => false) },
-			consolidationPromise: pending,
+			consolidationPromise: replacedWait.promise,
 		});
-
-		const run = cmd.run();
+		const replacedRun = replaced.run();
 		await Promise.resolve();
-		release?.();
-		const messages = await run;
-
-		// The wait notice is the only message: the replaced session reports nothing further.
-		expect(messages).toEqual([
+		replacedWait.release();
+		expect(await replacedRun).toEqual([
 			"Observational memory: waiting for the running consolidation first…",
 		]);
-		expect(cmd.compactCalls).toHaveLength(0);
+		expect(replaced.compactCalls).toHaveLength(0);
 	});
 });

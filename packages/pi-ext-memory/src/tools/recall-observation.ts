@@ -4,7 +4,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { type ManagedToolRegistration, registerManagedTool } from "@hheei/pi-ext-core";
-import { renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
+import { fmtLocal, renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
 import type { Observation, Reflection } from "../session-ledger/index.js";
 import { latestGateEnabled } from "../session-ledger/index.js";
 import {
@@ -81,14 +81,6 @@ export type RecallObservationToolDetails = {
 	sourceCharacterCount?: number;
 	message?: string;
 };
-
-function pad(n: number): string {
-	return n.toString().padStart(2, "0");
-}
-
-function fmtLocal(d: Date): string {
-	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function formatDisplayTimestamp(...values: Array<number | string | undefined>): string {
 	for (const v of values) {

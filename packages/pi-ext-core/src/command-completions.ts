@@ -1,6 +1,6 @@
 /**
- * Feature-neutral argument completion for slash commands whose arguments are
- * whitespace-separated subcommands.
+ * Argument conventions for slash commands whose arguments are whitespace-separated
+ * subcommands: completion of the names, and the `verb` / `rest` split their handlers share.
  *
  * Pi hands `registerCommand(name, options)`'s `options.getArgumentCompletions(argumentPrefix)` to the
  * TUI completer. It triggers only for `/cmd <args>`, passes everything after the first space as
@@ -11,46 +11,38 @@
 
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 
-export type SubcommandCompletionsOptions = {
-	/**
-	 * Fixed argument names per subcommand, for subcommands that take one. A subcommand
-	 * missing here completes nothing beyond its own name.
-	 */
-	readonly args?: Readonly<Record<string, readonly string[]>>;
-};
-
 export type SubcommandCompletions = (argumentPrefix: string) => AutocompleteItem[] | null;
 
 /**
  * Builds a `getArgumentCompletions` callback for a fixed subcommand list.
  *
- * Matching ignores case, mirroring handlers that lowercase the verb themselves. The returned `value` is
- * always the complete argument text (`view full`), because the host replaces the whole argument rather
- * than the last token; `label` shows the newly completed token alone.
+ * A candidate may carry an argument of its own (`"view full"`). It only competes once the typed text
+ * has reached its verb, which keeps verb-level completion unambiguous. Matching ignores case, mirroring
+ * handlers that lowercase the verb themselves. The returned `value` is always the complete argument text
+ * (`view full`), because the host replaces the whole argument rather than the last token; `label` shows
+ * the newly completed token alone.
  */
-export function subcommandCompletions(
-	subcommands: readonly string[],
-	options: SubcommandCompletionsOptions = {},
-): SubcommandCompletions {
+export function subcommandCompletions(subcommands: readonly string[]): SubcommandCompletions {
 	return (argumentPrefix) => {
-		const text = argumentPrefix.trimStart();
-		const separator = text.search(/\s/u);
-		if (separator < 0) return matchSubcommands(text, subcommands, (name) => name);
-		const verb = text.slice(0, separator);
-		const args = options.args?.[verb.toLowerCase()];
-		if (args === undefined) return null;
-		const rest = text.slice(separator + 1).trimStart();
-		return matchSubcommands(rest, args, (name) => `${verb} ${name}`);
+		const text = argumentPrefix.trimStart().toLowerCase();
+		const matched = subcommands.filter(
+			(name) => name.startsWith(text) && (text.includes(" ") || !name.includes(" ")),
+		);
+		if (matched.length === 0) return null;
+		return matched.map((name) => ({ value: name, label: name.slice(text.lastIndexOf(" ") + 1) }));
 	};
 }
 
-function matchSubcommands(
-	prefix: string,
-	names: readonly string[],
-	toValue: (name: string) => string,
-): AutocompleteItem[] | null {
-	const needle = prefix.toLowerCase();
-	const matched = names.filter((name) => name.toLowerCase().startsWith(needle));
-	if (matched.length === 0) return null;
-	return matched.map((name) => ({ value: toValue(name), label: name }));
+/**
+ * Splits `/cmd <verb> <rest>` argument text. The verb is lowercased, because completion and the
+ * handlers both match case-insensitively; `rest` is empty when the command was given no argument.
+ */
+export function splitSubcommand(args: string): { readonly verb: string; readonly rest: string } {
+	const input = args.trim();
+	const separator = input.search(/\s/u);
+	if (separator < 0) return { verb: input.toLowerCase(), rest: "" };
+	return {
+		verb: input.slice(0, separator).toLowerCase(),
+		rest: input.slice(separator + 1).trim(),
+	};
 }
