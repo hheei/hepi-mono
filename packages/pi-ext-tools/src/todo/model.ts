@@ -297,11 +297,15 @@ export function applyTodo(state: TaskState, params: TodoParams, now?: number): A
 		if (current.status === "completed" && status !== "completed") {
 			return fail(`Invalid status transition from completed to ${status}`, index);
 		}
+		const opTimestamp =
+			timestamp !== undefined
+				? timestamp + (params.operations.length > 1 && action === "update" ? index : 0)
+				: undefined;
 		const next = {
 			...current,
 			subject,
 			status,
-			...(timestamp !== undefined ? { updatedAt: timestamp } : {}),
+			...(opTimestamp !== undefined ? { updatedAt: opTimestamp } : {}),
 		};
 		// Pi permits exactly one active task. Starting a pending or blocked task is
 		// an explicit switch, not an error: demote the previous active task inside

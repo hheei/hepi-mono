@@ -15,4 +15,4 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-tui@0.87.0'
 
 patchedDependencies:
-  "@earendil-works/pi-tui@0.87.0": "patches/@earendil-works__pi-tui.patch"
+  "@earendil-works/pi-tui@0.87.0": patches/@earendil-works__pi-tui@0.87.0.patch

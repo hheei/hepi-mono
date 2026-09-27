@@ -7,7 +7,7 @@ import {
 	createTodoFooterStatusController,
 	TODO_STATUS_KEY,
 } from "../../src/todo/footer-status.js";
-import type { Task, TaskState, TaskStatus } from "../../src/todo/model.js";
+import { applyTodo, type Task, type TaskState, type TaskStatus } from "../../src/todo/model.js";
 import { plainTheme, roleTheme } from "../fixtures/theme.js";
 
 function task(id: number, status: TaskStatus, updatedAt: number): Task {
@@ -153,6 +153,50 @@ describe("todo footer-status", () => {
 		queued.advance(3 * 60 * 1000 + 1);
 		expect(queued.statuses.at(-1)).toBeUndefined();
 		queued.dispose();
+	});
+
+	test("when multiple tasks are completed in a batch, footer displays the one updated last", () => {
+		// Model completes 38 then 39: footer shows 39
+		const batch1 = applyTodo(
+			{
+				tasks: [
+					{ id: 38, subject: "Task 38", status: "in_progress", updatedAt: 10_000 },
+					{ id: 39, subject: "Task 39", status: "pending", updatedAt: 10_000 },
+				],
+				nextId: 40,
+			},
+			{
+				operations: [
+					{ action: "update", id: 38, status: "completed" },
+					{ action: "update", id: 39, status: "completed" },
+				],
+			},
+			20_000,
+		);
+		expect(batch1.ok).toBe(true);
+		if (!batch1.ok) return;
+		expect(computeFooterStatus(batch1.state, plainTheme, 20_000).text).toBe("󰄴 #39 Task 39");
+
+		// Model completes 39 then 38: footer shows 38
+		const batch2 = applyTodo(
+			{
+				tasks: [
+					{ id: 38, subject: "Task 38", status: "in_progress", updatedAt: 10_000 },
+					{ id: 39, subject: "Task 39", status: "pending", updatedAt: 10_000 },
+				],
+				nextId: 40,
+			},
+			{
+				operations: [
+					{ action: "update", id: 39, status: "completed" },
+					{ action: "update", id: 38, status: "completed" },
+				],
+			},
+			20_000,
+		);
+		expect(batch2.ok).toBe(true);
+		if (!batch2.ok) return;
+		expect(computeFooterStatus(batch2.state, plainTheme, 20_000).text).toBe("󰄴 #38 Task 38");
 	});
 
 	test("controller cleans up on dispose and abort signal", () => {

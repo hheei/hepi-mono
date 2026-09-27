@@ -18,12 +18,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { EditCatalog } from "../fff/settings.js";
-import {
-	clearEvalNestedLive,
-	type EvalNestedTrace,
-	type EvalToolBridge,
-	evalNestedLiveResult,
-} from "./bridge.js";
+import { clearEvalNestedLive, type EvalNestedTrace, type EvalToolBridge } from "./bridge.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -131,7 +126,6 @@ export function createEvalTool(
 		parameters: EVAL_PARAMETERS,
 		executionMode: "sequential",
 		renderShell: "self",
-		renderCall: (args, theme) => new Text(theme.fg("toolTitle", evalCallTitle(args)), 0, 0),
 		renderResult: (result, options, theme, context) =>
 			renderEvalResult(result, options, theme, context, bridge),
 		async execute(_toolCallId, params, signal, onUpdate, context) {
@@ -240,6 +234,7 @@ export function registerEvalTool(
 	const framed = tui.frame(tool, {
 		summary: (args) => codeSummary((args as EvalParameters).code),
 		maxBodyLines: 20,
+		headerLine: "truncate",
 		footer: (result, completion) => {
 			const details = result.details;
 			if (!isEvalToolDetails(details))
@@ -265,56 +260,33 @@ function renderEvalResult(
 	result: AgentToolResult<EvalToolDetails>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
-	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
-	bridge: EvalToolBridge,
+	_context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
+	_bridge: EvalToolBridge,
 ): Component {
 	const details = result.details;
 	if (!isEvalToolDetails(details)) return new Text(agentResultText(result), 0, 0);
+	if (options.isPartial) {
+		// 流式输出不应该体现在 body 中
+		return new Container();
+	}
 	const body = new Container();
-	for (const row of details.rows) {
-		if (row.kind !== "tool") {
+	// body 只显示 eval 的输出结果
+	const resultRows = details.rows.filter((row) => row.kind === "result");
+	if (resultRows.length > 0) {
+		for (const row of resultRows) {
 			body.addChild(new Text(row.text, 0, 0));
-			continue;
 		}
-		body.addChild(renderNestedTrace(row.trace, options, theme, context, bridge));
+		return body;
+	}
+	if (details.error !== undefined) {
+		body.addChild(new Text(theme.fg("error", details.error), 0, 0));
+		return body;
+	}
+	const outputRows = details.rows.filter((row) => row.kind === "text" || row.kind === "display");
+	for (const row of outputRows) {
+		body.addChild(new Text(row.text, 0, 0));
 	}
 	return body;
-}
-
-function renderNestedTrace(
-	trace: EvalNestedTrace,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
-	bridge: EvalToolBridge,
-): Component {
-	const suffix = trace.error === undefined ? trace.text : trace.error;
-	const fallback = new Text(
-		theme.fg(trace.error === undefined ? "accent" : "error", `${trace.name}: ${suffix}`),
-		0,
-		0,
-	);
-	const tool = bridge.definition(trace.name);
-	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
-	if (tool?.renderResult === undefined || live === undefined) return fallback;
-	try {
-		return tool.renderResult(live as never, options, theme, {
-			args: trace.args,
-			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,
-			invalidate: context?.invalidate ?? (() => undefined),
-			lastComponent: undefined,
-			state: context?.state,
-			cwd: context?.cwd ?? process.cwd(),
-			executionStarted: true,
-			argsComplete: true,
-			isPartial: options.isPartial,
-			expanded: options.expanded,
-			showImages: context?.showImages ?? false,
-			isError: trace.error !== undefined,
-		} as never);
-	} catch {
-		return fallback;
-	}
 }
 
 function transcript(rows: readonly EvalRow[]): string {
@@ -333,8 +305,19 @@ function transcript(rows: readonly EvalRow[]): string {
 }
 
 function codeSummary(code: string): string {
-	const line = code.trim().split(/\r?\n/u)[0] ?? "";
-	return line.length <= 80 ? line : `${line.slice(0, 79)}…`;
+	let joined = "";
+	for (const raw of (code ?? "").split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		if (joined === "") {
+			joined = line;
+		} else if (joined.endsWith(";")) {
+			joined = `${joined} ${line}`;
+		} else {
+			joined = `${joined}; ${line}`;
+		}
+	}
+	return joined;
 }
 
 function inspectValue(value: unknown): string {
@@ -391,18 +374,6 @@ function boundedTrace(trace: EvalNestedTrace): EvalNestedTrace {
 		details: undefined,
 		...(trace.error === undefined ? {} : { error: boundedText(trace.error) }),
 	};
-}
-
-function evalCallTitle(args: {
-	readonly reset?: boolean;
-	readonly timeout?: number;
-	readonly code?: string;
-}): string {
-	const parts = ["eval"];
-	if (args.reset === true) parts.push("reset");
-	if (typeof args.timeout === "number" && args.timeout > 0) parts.push(`timeout ${args.timeout}s`);
-	parts.push(codeSummary(args.code ?? ""));
-	return parts.join(" ");
 }
 
 function mergeAbortSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal | undefined {
