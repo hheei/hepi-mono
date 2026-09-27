@@ -1,7 +1,9 @@
+import type { ModelsRefreshOptions } from "@earendil-works/pi-ai";
 import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { Runtime } from "../src/runtime.js";
+import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
+import { testModel } from "./fixtures/model.js";
 
 /**
  * Regression coverage for providers that authenticate at request time.
@@ -33,7 +35,7 @@ import { Runtime } from "../src/runtime.js";
  */
 
 /** Runtime shaped like Bedrock with AWS_PROFILE: a resolved source, empty auth. */
-function ambientCredentialRegistry(): any {
+function ambientCredentialRegistry(): ModelRegistry {
 	return new ModelRegistry({
 		// `bedrockAuth.resolve()` / vertex ADC: a resolution with nothing to carry.
 		getAuth: async () => ({ auth: {}, source: "AWS_PROFILE" }),
@@ -45,7 +47,7 @@ function ambientCredentialRegistry(): any {
 }
 
 /** No credential at all: pi resolves nothing and reports the provider unconfigured. */
-function unauthenticatedRegistry(): any {
+function unauthenticatedRegistry(): ModelRegistry {
 	return new ModelRegistry({
 		getAuth: async () => undefined,
 		getCompatibilityRequestConfig: () => ({ headers: undefined, authHeader: false }),
@@ -55,7 +57,7 @@ function unauthenticatedRegistry(): any {
 }
 
 /** Same empty-resolution shape, but the provider is OAuth — empty means expired. */
-function expiredOAuthRegistry(): any {
+function expiredOAuthRegistry(): ModelRegistry {
 	return new ModelRegistry({
 		getAuth: async () => ({ auth: {}, source: "stored credential" }),
 		getCompatibilityRequestConfig: () => ({ headers: undefined, authHeader: false }),
@@ -65,7 +67,7 @@ function expiredOAuthRegistry(): any {
 }
 
 /** A provider pi DOES hold a credential for, which resolves to an empty key. */
-function misconfiguredRegistry(): any {
+function misconfiguredRegistry(): ModelRegistryLike {
 	return {
 		find: () => undefined,
 		getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "" }),
@@ -74,10 +76,10 @@ function misconfiguredRegistry(): any {
 	};
 }
 
-const bedrockModel = {
+const bedrockModel = testModel({
 	provider: "amazon-bedrock",
 	id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-};
+});
 
 describe("resolveModel with request-time-signed providers", () => {
 	it("resolves when pi reports a credential source but hands over nothing to attach", async () => {
@@ -88,7 +90,8 @@ describe("resolveModel with request-time-signed providers", () => {
 		// Guard the premise: if pi's facade ever stops reporting this shape, fail here
 		// rather than silently testing a fiction (the original bug in this file).
 		const auth = await registry.getApiKeyAndHeaders(bedrockModel);
-		expect(auth).toMatchObject({ ok: true });
+		expect(auth.ok).toBe(true);
+		if (!auth.ok) throw new Error("pi must report a resolved auth for an ambient provider");
 		expect(auth.apiKey).toBeUndefined();
 		expect(registry.hasConfiguredAuth(bedrockModel)).toBe(true);
 
@@ -127,7 +130,7 @@ describe("resolveModel with request-time-signed providers", () => {
 		runtime.configLoaded = true;
 
 		const result = await runtime.resolveModel({
-			model: { provider: "openai-codex", id: "gpt-5-codex" },
+			model: testModel({ provider: "openai-codex", id: "gpt-5-codex" }),
 			modelRegistry: expiredOAuthRegistry(),
 			hasUI: false,
 		});
@@ -141,7 +144,7 @@ describe("resolveModel with request-time-signed providers", () => {
 		runtime.configLoaded = true;
 
 		const result = await runtime.resolveModel({
-			model: { provider: "xai", id: "grok-4" },
+			model: testModel({ provider: "xai", id: "grok-4" }),
 			modelRegistry: misconfiguredRegistry(),
 			hasUI: false,
 		});
@@ -160,13 +163,13 @@ describe("resolveModel with request-time-signed providers", () => {
 
 		for (const hasConfiguredAuth of [false, undefined]) {
 			const result = await runtime.resolveModel({
-				model: { provider: "anthropic", id: "claude" },
+				model: testModel({ provider: "anthropic", id: "claude" }),
 				modelRegistry: {
 					find: () => undefined,
 					getApiKeyAndHeaders: async () => ({ ok: true }),
 					hasConfiguredAuth: hasConfiguredAuth === undefined ? undefined : () => hasConfiguredAuth,
 					isUsingOAuth: () => false,
-				},
+				} satisfies ModelRegistryLike,
 				hasUI: false,
 			});
 			expect(result.ok).toBe(false);
@@ -218,7 +221,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 			if (opts.recovers) configured = true;
 			return { aborted: false, errors: new Map() };
 		};
-		const registry: any = new ModelRegistry({
+		const registry = new ModelRegistry({
 			getAuth: async () => ({ auth: {}, source: "AWS_PROFILE" }),
 			getCompatibilityRequestConfig: () => ({ headers: undefined, authHeader: false }),
 			hasConfiguredAuth: () => configured,
@@ -249,7 +252,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 		// options at all — on 0.81 the facade drops them before the runtime sees them.
 		const runtime = new Runtime();
 		runtime.configLoaded = true;
-		const calls: unknown[] = [];
+		const calls: (ModelsRefreshOptions | undefined)[] = [];
 		let configured = false;
 		const result = await runtime.resolveModel({
 			model: bedrockModel,
@@ -258,9 +261,10 @@ describe("resolveModel with a stale availability snapshot", () => {
 				getApiKeyAndHeaders: async () => ({ ok: true }),
 				hasConfiguredAuth: () => configured,
 				isUsingOAuth: () => false,
-				refresh: async (options: unknown) => {
+				refresh: async (options) => {
 					calls.push(options);
 					configured = true;
+					return { aborted: false, errors: new Map() };
 				},
 			},
 			hasUI: false,
@@ -334,7 +338,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 		const runtime = new Runtime();
 		runtime.configLoaded = true;
 
-		const noRefresh = {
+		const noRefresh: ModelRegistryLike = {
 			find: () => undefined,
 			getApiKeyAndHeaders: async () => ({ ok: true }),
 			hasConfiguredAuth: () => false,

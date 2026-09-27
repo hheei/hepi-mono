@@ -40,8 +40,8 @@ export type ConsolidationCtx = {
 	cwd: string;
 	hasUI: boolean;
 	ui?: { notify: (message: string, type?: "warning" | "info" | "error") => void } | undefined;
-	model: unknown;
-	modelRegistry: ModelRegistryLike;
+	model: Model<Api> | undefined;
+	modelRegistry: ModelRegistryLike & StreamableModelRegistry;
 	getContextUsage?:
 		| (() => { tokens?: number | null; contextWindow?: number } | undefined)
 		| undefined;
@@ -157,7 +157,7 @@ function makeModelResolver(
 			runtime.resolveFailureNotified = false;
 			// Console Go (opencode.ai) rejects requests without x-opencode-session
 			// (400 MissingSessionID). Mirror pi's own session headers on worker calls.
-			const model = (cached.model ?? {}) as { provider?: string; baseUrl?: string };
+			const model = cached.model;
 			if (
 				model.provider === "opencode" ||
 				model.provider === "opencode-go" ||
@@ -189,8 +189,8 @@ function makeModelResolver(
 }
 
 export function registerConsolidationTrigger(pi: ExtensionAPI, runtime: Runtime): void {
-	const onActivity = async (_event: unknown, ctx: unknown): Promise<void> => {
-		await maybeLaunchConsolidation(pi, runtime, ctx as unknown as ConsolidationCtx);
+	const onActivity = async (_event: unknown, ctx: ConsolidationCtx): Promise<void> => {
+		await maybeLaunchConsolidation(pi, runtime, ctx);
 	};
 	pi.on("agent_start", onActivity);
 	pi.on("turn_end", onActivity);
@@ -494,7 +494,7 @@ async function runObserverStage(
 	// labels and rendered message content. Complete entries are kept intact.
 	// Only a first entry that cannot fit by itself is represented by a clearly
 	// marked head/tail excerpt; the original ledger entry remains untouched.
-	const contextWindow = (resolved.model as { contextWindow?: number }).contextWindow;
+	const contextWindow = resolved.model.contextWindow;
 	const maxChunkTokens = resolveObserverChunkMaxTokens(runtime.config, contextWindow);
 	const {
 		text: chunk,
@@ -540,7 +540,7 @@ async function runObserverStage(
 	runtime.recordWorkerRun("observer");
 	try {
 		observations = await runObserver({
-			model: resolved.model as unknown as Model<Api>,
+			model: resolved.model,
 			apiKey: resolved.apiKey,
 			headers: resolved.headers,
 			env: resolved.env,
@@ -551,7 +551,7 @@ async function runObserverStage(
 			maxTurns: runtime.config.agentMaxTurns,
 			maxOutputTokens: runtime.config.agentMaxTokens,
 			thinkingLevel: runtime.config.model?.thinking ?? "low",
-			modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
+			modelRegistry: ctx.modelRegistry,
 			signal: ctx.signal,
 			onCost: recordCost,
 		});
@@ -633,7 +633,7 @@ async function runReflectorStage(
 	const folded = foldLedger(entries);
 	runtime.recordWorkerRun("reflector");
 	const reflections = await runReflector({
-		model: resolved.model as unknown as Model<Api>,
+		model: resolved.model,
 		apiKey: resolved.apiKey,
 		headers: resolved.headers,
 		env: resolved.env,
@@ -642,7 +642,7 @@ async function runReflectorStage(
 		maxTurns: runtime.config.agentMaxTurns,
 		maxOutputTokens: runtime.config.agentMaxTokens,
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
+		modelRegistry: ctx.modelRegistry,
 		signal: ctx.signal,
 		onCost: recordCost,
 	});
@@ -735,7 +735,7 @@ async function runDropperStage(
 	];
 	runtime.recordWorkerRun("dropper");
 	const droppedIds = await runDropper({
-		model: resolved.model as unknown as Model<Api>,
+		model: resolved.model,
 		apiKey: resolved.apiKey,
 		headers: resolved.headers,
 		env: resolved.env,
@@ -745,7 +745,7 @@ async function runDropperStage(
 		maxTurns: runtime.config.agentMaxTurns,
 		maxOutputTokens: runtime.config.agentMaxTokens,
 		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry as StreamableModelRegistry,
+		modelRegistry: ctx.modelRegistry,
 		signal: ctx.signal,
 		onCost: recordCost,
 	});

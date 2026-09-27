@@ -1,12 +1,15 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { Runtime } from "../src/runtime.js";
+import { type ResolvedAuth, Runtime } from "../src/runtime.js";
+import { testModel } from "./fixtures/model.js";
 
-function modelRegistry(args: { found?: unknown; auth?: unknown } = {}) {
+function modelRegistry(args: { found?: Model<Api>; auth?: ResolvedAuth } = {}) {
 	return {
 		find: vi.fn(() => args.found),
 		getApiKeyAndHeaders: vi.fn(
-			async () => args.auth ?? { ok: true, apiKey: "key", headers: { test: "yes" } },
+			async (_model: Model<Api>): Promise<ResolvedAuth> =>
+				args.auth ?? { ok: true, apiKey: "key", headers: { test: "yes" } },
 		),
 	};
 }
@@ -14,12 +17,12 @@ function modelRegistry(args: { found?: unknown; auth?: unknown } = {}) {
 describe("Runtime V3 behavior", () => {
 	it("uses configured model when present", async () => {
 		const runtime = new Runtime();
-		const configured = { provider: "anthropic", id: "configured" };
+		const configured = testModel({ provider: "anthropic", id: "configured" });
 		const registry = modelRegistry({ found: configured });
 		runtime.config = { ...runtime.config, model: { provider: "anthropic", id: "configured" } };
 
 		const result = await runtime.resolveModel({
-			model: { provider: "openai" },
+			model: testModel({ provider: "openai", id: "session-model" }),
 			modelRegistry: registry,
 			hasUI: false,
 		});
@@ -36,7 +39,7 @@ describe("Runtime V3 behavior", () => {
 	it("falls back to session model and notifies when configured model is missing", async () => {
 		const runtime = new Runtime();
 		const notify = vi.fn();
-		const sessionModel = { provider: "openai" };
+		const sessionModel = testModel({ provider: "openai", id: "session-model" });
 		const registry = modelRegistry();
 		runtime.config = { ...runtime.config, model: { provider: "anthropic", id: "missing" } };
 
@@ -64,10 +67,10 @@ describe("Runtime V3 behavior", () => {
 				"no model available (session has no model and no observational-memory model configured)",
 		});
 
-		const registry = modelRegistry({ auth: { ok: false } });
+		const registry = modelRegistry({ auth: { ok: false, error: "no credential" } });
 		await expect(
 			runtime.resolveModel({
-				model: { provider: "anthropic" },
+				model: testModel({ provider: "anthropic", id: "claude" }),
 				modelRegistry: registry,
 				hasUI: false,
 			}),
@@ -79,9 +82,9 @@ describe("Runtime V3 behavior", () => {
 
 	it("accepts OAuth-shaped auth (headers only, no apiKey)", async () => {
 		const runtime = new Runtime();
-		const model = { provider: "kimi-coding", id: "kimi-for-coding" };
+		const model = testModel({ provider: "kimi-coding", id: "kimi-for-coding" });
 		const registry = modelRegistry({
-			auth: { ok: true, apiKey: undefined, headers: { Authorization: "Bearer oauth-token" } },
+			auth: { ok: true, headers: { Authorization: "Bearer oauth-token" } },
 		});
 
 		const result = await runtime.resolveModel({ model, modelRegistry: registry, hasUI: false });
@@ -96,7 +99,7 @@ describe("Runtime V3 behavior", () => {
 
 	it("accepts apiKey auth unchanged", async () => {
 		const runtime = new Runtime();
-		const model = { provider: "anthropic", id: "claude" };
+		const model = testModel({ provider: "anthropic", id: "claude" });
 		const registry = modelRegistry({ auth: { ok: true, apiKey: "sk-ant-key" } });
 
 		const result = await runtime.resolveModel({ model, modelRegistry: registry, hasUI: false });
@@ -114,18 +117,23 @@ describe("Runtime V3 behavior", () => {
 		headersOnly,
 	}) => {
 		const runtime = new Runtime();
-		const model = Object.freeze({
-			provider: "github-copilot",
-			id: "gpt-4.1",
-			baseUrl: "https://api.individual.githubcopilot.com",
-			api: "openai-completions",
-			contextWindow: 128000,
-		});
+		const model = Object.freeze(
+			testModel({
+				provider: "github-copilot",
+				id: "gpt-4.1",
+				baseUrl: "https://api.individual.githubcopilot.com",
+				api: "openai-completions",
+				contextWindow: 128_000,
+			}),
+		);
 		const baseUrl = "https://api.business.githubcopilot.com";
-		const apiKey = headersOnly ? undefined : "test-key";
-		const headers = { Authorization: "Bearer test-token" };
-		const registry = modelRegistry({ found: model, auth: { ok: true, apiKey, headers, baseUrl } });
-		const sessionModel = configured ? { provider: "openai", id: "session-model" } : model;
+		const auth: ResolvedAuth = headersOnly
+			? { ok: true, headers: { Authorization: "Bearer test-token" }, baseUrl }
+			: { ok: true, apiKey: "test-key", headers: { Authorization: "Bearer test-token" }, baseUrl };
+		const registry = modelRegistry({ found: model, auth });
+		const sessionModel = configured
+			? testModel({ provider: "openai", id: "session-model" })
+			: model;
 		if (configured)
 			runtime.config = { ...runtime.config, model: { provider: model.provider, id: model.id } };
 
@@ -136,7 +144,12 @@ describe("Runtime V3 behavior", () => {
 		});
 
 		expect(registry.getApiKeyAndHeaders).toHaveBeenCalledWith(model);
-		expect(result).toMatchObject({ ok: true, model: { ...model, baseUrl }, apiKey, headers });
+		expect(result).toMatchObject({
+			ok: true,
+			model: { ...model, baseUrl },
+			apiKey: headersOnly ? undefined : "test-key",
+			headers: { Authorization: "Bearer test-token" },
+		});
 		if (!result.ok) throw new Error("model resolution failed");
 		expect(result.model).not.toBe(model);
 		expect(model.baseUrl).toBe("https://api.individual.githubcopilot.com");
@@ -144,12 +157,12 @@ describe("Runtime V3 behavior", () => {
 
 	it.each([undefined, ""])("keeps the original model when auth baseUrl is %j", async (baseUrl) => {
 		const runtime = new Runtime();
-		const model = Object.freeze({
-			provider: "openai",
-			id: "test-model",
-			baseUrl: "https://example.com/v1",
+		const model = Object.freeze(
+			testModel({ provider: "openai", id: "test-model", baseUrl: "https://example.com/v1" }),
+		);
+		const registry = modelRegistry({
+			auth: { ok: true, apiKey: "test-key", ...(baseUrl === undefined ? {} : { baseUrl }) },
 		});
-		const registry = modelRegistry({ auth: { ok: true, apiKey: "test-key", baseUrl } });
 
 		const result = await runtime.resolveModel({ model, modelRegistry: registry, hasUI: false });
 
@@ -159,14 +172,15 @@ describe("Runtime V3 behavior", () => {
 
 	it("rejects auth that carries neither apiKey nor usable headers", async () => {
 		const runtime = new Runtime();
-		const model = { provider: "xai" };
+		const model = testModel({ provider: "xai", id: "grok-4" });
 
-		for (const auth of [
+		const rejected: ResolvedAuth[] = [
 			{ ok: true },
 			{ ok: true, apiKey: "" },
 			{ ok: true, headers: {} },
 			{ ok: true, headers: { Authorization: "" } },
-		]) {
+		];
+		for (const auth of rejected) {
 			const registry = modelRegistry({ auth });
 			await expect(
 				runtime.resolveModel({ model, modelRegistry: registry, hasUI: false }),
@@ -179,16 +193,10 @@ describe("Runtime V3 behavior", () => {
 
 	it("points OAuth providers at /login when auth resolution fails", async () => {
 		const runtime = new Runtime();
-		const model = { provider: "openai-codex", id: "gpt-5-codex" };
+		const model = testModel({ provider: "openai-codex", id: "gpt-5-codex" });
 		const registry = {
 			...modelRegistry({ auth: { ok: false, error: "refresh failed" } }),
-			isUsingOAuth: vi.fn(
-				(candidate: unknown) =>
-					typeof candidate === "object" &&
-					candidate !== null &&
-					"provider" in candidate &&
-					candidate.provider === "openai-codex",
-			),
+			isUsingOAuth: vi.fn((candidate: Model<Api>) => candidate.provider === "openai-codex"),
 		};
 
 		const result = await runtime.resolveModel({ model, modelRegistry: registry, hasUI: false });
@@ -357,10 +365,10 @@ describe("Runtime V3 behavior", () => {
 
 	it("forwards env and baseUrl from model registry", async () => {
 		const runtime = new Runtime();
-		const model = {
+		const model = testModel({
 			provider: "cloudflare-workers-ai",
 			id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
-		};
+		});
 		const registry = modelRegistry({
 			auth: {
 				ok: true,

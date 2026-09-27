@@ -15,7 +15,6 @@ vi.mock("../src/agents/dropper/agent.js", () => ({ runDropper: mockAgents.runDro
 
 import { ObserverStreamError } from "../src/agents/observer/agent.js";
 import {
-	type ConsolidationCtx,
 	registerConsolidationTrigger,
 	runForcedConsolidation,
 } from "../src/hooks/consolidation-trigger.js";
@@ -25,6 +24,7 @@ import {
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_RECORDED,
 } from "../src/session-ledger/index.js";
+import { testModel } from "./fixtures/model.js";
 import {
 	gateEntry,
 	observation,
@@ -112,7 +112,7 @@ function setup(args: {
 		isSessionCurrent: vi.fn(() => true),
 		resolveModel: vi.fn<() => Promise<ResolveResult>>(async () => ({
 			ok: true,
-			model: { reasoning: true },
+			model: testModel({ provider: "anthropic", id: "memory", reasoning: true }),
 			apiKey: "key",
 			headers: { h: "v" },
 		})),
@@ -147,8 +147,12 @@ function setup(args: {
 		cwd: "/tmp/project",
 		hasUI: true,
 		ui: { notify: vi.fn() },
-		model: { provider: "session" },
-		modelRegistry: { streamSimple: (() => undefined) as any },
+		model: testModel({ provider: "session", id: "session" }),
+		modelRegistry: {
+			streamSimple: () => {
+				throw new Error("this harness never streams a worker call");
+			},
+		},
 		sessionManager: {
 			getBranch: () => entries,
 			getSessionId: () => sessionId,
@@ -286,7 +290,7 @@ describe("V3 consolidation trigger", () => {
 		const { fire, runLaunchedWork, pi, runtime } = setup({ entries, reflectAfterTokens: 999 });
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: { provider: "kimi-coding" },
+			model: testModel({ provider: "kimi-coding", id: "kimi-for-coding" }),
 			apiKey: undefined,
 			headers: { Authorization: "Bearer oauth-token" },
 		});
@@ -317,7 +321,12 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: { provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1", reasoning: true },
+			model: testModel({
+				provider: "opencode-go",
+				id: "zen",
+				baseUrl: "https://opencode.ai/zen/go/v1",
+				reasoning: true,
+			}),
 			apiKey: "go-key",
 		});
 
@@ -347,7 +356,11 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: { provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1" },
+			model: testModel({
+				provider: "opencode-go",
+				id: "zen",
+				baseUrl: "https://opencode.ai/zen/go/v1",
+			}),
 			apiKey: "go-key",
 			headers: { Authorization: "Bearer go-key" },
 		});
@@ -377,7 +390,11 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: { provider: "custom", baseUrl: "https://opencode.ai/zen/go/v1" },
+			model: testModel({
+				provider: "custom",
+				id: "zen",
+				baseUrl: "https://opencode.ai/zen/go/v1",
+			}),
 			apiKey: "go-key",
 		});
 
@@ -402,7 +419,11 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: { provider: "anthropic", baseUrl: "https://api.anthropic.com" },
+			model: testModel({
+				provider: "anthropic",
+				id: "claude",
+				baseUrl: "https://api.anthropic.com",
+			}),
 			apiKey: "k",
 		});
 
@@ -1088,10 +1109,15 @@ describe("observer chunk cap", () => {
 		// contextWindow 1,280 -> cap = floor(1,280 * 0.2) = 256, so only raw-1 fits.
 		runtime.resolveModel.mockResolvedValue({
 			ok: true,
-			model: { reasoning: true, contextWindow: 1_280 },
+			model: testModel({
+				provider: "anthropic",
+				id: "memory",
+				reasoning: true,
+				contextWindow: 1_280,
+			}),
 			apiKey: "key",
 			headers: { h: "v" },
-		} as any);
+		});
 
 		fire();
 		await runLaunchedWork();
@@ -1219,7 +1245,7 @@ describe("forced consolidation and worker accounting", () => {
 		await runForcedConsolidation(
 			harness.pi as never,
 			harness.runtime as unknown as Runtime,
-			harness.ctx as unknown as ConsolidationCtx,
+			harness.ctx,
 		);
 		await harness.runLaunchedWork();
 
@@ -1247,7 +1273,7 @@ describe("forced consolidation and worker accounting", () => {
 		await runForcedConsolidation(
 			harness.pi as never,
 			harness.runtime as unknown as Runtime,
-			harness.ctx as unknown as ConsolidationCtx,
+			harness.ctx,
 		);
 		await harness.runLaunchedWork();
 
@@ -1316,7 +1342,7 @@ describe("forced consolidation and worker accounting", () => {
 		await runForcedConsolidation(
 			harness.pi as never,
 			harness.runtime as unknown as Runtime,
-			harness.ctx as unknown as ConsolidationCtx,
+			harness.ctx,
 		);
 		await harness.runLaunchedWork();
 
@@ -1341,7 +1367,7 @@ describe("forced consolidation and worker accounting", () => {
 		await runForcedConsolidation(
 			harness.pi as never,
 			harness.runtime as unknown as Runtime,
-			harness.ctx as unknown as ConsolidationCtx,
+			harness.ctx,
 		);
 		await harness.runLaunchedWork();
 
@@ -1364,7 +1390,7 @@ describe("forced consolidation and worker accounting", () => {
 			runForcedConsolidation(
 				harness.pi as never,
 				harness.runtime as unknown as Runtime,
-				harness.ctx as unknown as ConsolidationCtx,
+				harness.ctx,
 			);
 		await runOnce();
 		await harness.runLaunchedWork();
