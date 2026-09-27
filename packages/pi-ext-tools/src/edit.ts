@@ -106,7 +106,8 @@ function resolvePath(cwd: string, path: string): string {
 function readTextIfSmall(path: string): string {
 	try {
 		if (statSync(path).size > MAX_HL_CHARS) return "";
-		return readFileSync(path, "utf-8").replaceAll("\r\n", "\n");
+		const text = readFileSync(path, "utf-8");
+		return text.includes("\r") ? text.replaceAll("\r\n", "\n") : text;
 	} catch {
 		return "";
 	}
