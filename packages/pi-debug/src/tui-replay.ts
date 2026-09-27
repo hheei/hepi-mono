@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { isRecord, runCommand } from "@hheei/pi-ext-core";
+import { escapeXml, isRecord, runCommand } from "@hheei/pi-ext-core";
 import { lock } from "proper-lockfile";
 
 export const DEFAULT_REPLAY_COLUMNS = 50;
@@ -544,15 +544,6 @@ async function publishArtifactDirectory(rootDir: string, temporary: string): Pro
 			}
 		}
 	});
-}
-
-function escapeXml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&apos;");
 }
 
 interface AnsiSvgStyle {
