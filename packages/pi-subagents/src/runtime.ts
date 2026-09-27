@@ -267,8 +267,8 @@ async function startClaimedRunner(
 		await registry.markClaimRunner(record.subagentId, claimId, child.pid, signal);
 		child.unref();
 		await connectWithRetry(connection, {
-			attempts: 120,
-			delayMs: 50,
+			attempts: 240,
+			delayMs: 100,
 			...(signal === undefined ? {} : { signal }),
 		});
 		await unlink(jobPath).catch(() => undefined);

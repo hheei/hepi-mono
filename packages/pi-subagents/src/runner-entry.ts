@@ -122,7 +122,6 @@ async function main(): Promise<void> {
 	}
 	const registry = createSubagentRegistry({ parentSessionId: identity.parentSessionId });
 	if (job.claimId !== undefined) {
-		await registry.markClaimRunner(identity.subagentId, job.claimId, process.pid);
 		await registry.activateClaim(identity.subagentId, job.claimId, process.pid);
 	}
 	let stderrTail = "";
@@ -155,7 +154,12 @@ async function main(): Promise<void> {
 			sessionId: job.sessionId,
 			authorizeRecovery: async (claimId, token) => {
 				const tokenHash = createHash("sha256").update(token).digest("hex");
-				await registry.consumeReconnectClaim(identity.subagentId, claimId, tokenHash);
+				await registry.consumeReconnectClaim(
+					identity.subagentId,
+					claimId,
+					tokenHash,
+					identity.runtimeIdentity,
+				);
 				return true;
 			},
 			onDiagnostic: (line) => writeDiagnostic("runner", line),

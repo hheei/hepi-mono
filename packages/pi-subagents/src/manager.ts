@@ -263,7 +263,7 @@ export class SubagentManager {
 					const projector = this.#projectors.get(record.subagentId);
 					projector?.rebuild(entries);
 					const snapshot = projector?.snapshot();
-					await this.#update(record.subagentId, (current) => {
+					await this.#mutateUpdate(record.subagentId, (current) => {
 						const interrupted =
 							snapshot?.interrupted ??
 							(current.unacknowledgedInput === undefined
@@ -324,7 +324,7 @@ export class SubagentManager {
 			} catch (error) {
 				let failureState: SubagentState = "starting";
 				try {
-					await this.#update(record.subagentId, (current) => ({
+					await this.#mutateUpdate(record.subagentId, (current) => ({
 						...current,
 						state: "failed",
 						interrupted: "Initial task delivery was not confirmed",
@@ -349,7 +349,7 @@ export class SubagentManager {
 					false,
 				);
 			}
-			await this.#update(record.subagentId, (current) => {
+			await this.#mutateUpdate(record.subagentId, (current) => {
 				const { latestSummary: _latestSummary, ...rest } = current;
 				return { ...rest, state: "running" };
 			});
@@ -1089,13 +1089,20 @@ export class SubagentManager {
 			});
 		});
 	}
+	/** Runs an update inside the per-child chain used by the mutating operations. */
+	#mutateUpdate(
+		id: string,
+		updater: (record: SubagentRecord) => SubagentRecord,
+	): Promise<SubagentRecord> {
+		return this.#mutate(id, () => this.#update(id, updater));
+	}
 	async #update(
 		id: string,
 		updater: (record: SubagentRecord) => SubagentRecord,
 	): Promise<SubagentRecord> {
-		const current = await this.#deps.registry.get(id);
-		if (current === undefined) throw new Error("Child disappeared");
-		const next = await this.#deps.registry.update(id, current.revision, updater);
+		// The store re-reads the record inside its own write, so an undefined revision cannot
+		// lose a concurrent field update and no stale_revision retry is needed.
+		const next = await this.#deps.registry.update(id, undefined, updater);
 		this.#notify();
 		return next;
 	}
@@ -1103,9 +1110,11 @@ export class SubagentManager {
 		const previous = this.#chains.get(id) ?? Promise.resolve();
 		const next = previous.catch(() => undefined).then(action);
 		this.#chains.set(id, next);
-		void next.finally(() => {
-			if (this.#chains.get(id) === next) this.#chains.delete(id);
-		});
+		void next
+			.finally(() => {
+				if (this.#chains.get(id) === next) this.#chains.delete(id);
+			})
+			.catch(() => undefined);
 		return next;
 	}
 }

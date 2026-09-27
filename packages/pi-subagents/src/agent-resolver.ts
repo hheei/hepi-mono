@@ -213,7 +213,16 @@ function resolveModel(
 export async function resolveAgent(options: ResolveAgentOptions): Promise<ResolvedAgentPolicy> {
 	const agents = await discoverAgents(options.cwd, options.homeDirectory);
 	const discovered = agents.find((agent) => agent.name === options.name);
-	if (discovered === undefined) throw new Error(`Unknown agent ${options.name}`);
+	if (discovered === undefined) {
+		const available = agents.map((agent) => agent.name).join(", ");
+		const searched = agentDirectories(
+			resolve(options.cwd),
+			resolve(options.homeDirectory ?? homedir()),
+		).join(", ");
+		throw new Error(
+			`Unknown agent ${options.name}. Available: [${available || "none"}]. Searched: ${searched}`,
+		);
+	}
 	const path = discovered.path;
 	for (const field of Object.keys(discovered.frontmatter)) {
 		if (SUPPORTED_FIELDS[field] === true) continue;

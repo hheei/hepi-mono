@@ -10,7 +10,7 @@ import {
 	type RunnerLike,
 	SubagentManager,
 } from "../src/manager.js";
-import type { SubagentRegistry } from "../src/registry.js";
+import { type SubagentRegistry, SubagentRegistryError } from "../src/registry.js";
 import { createRuntimeTokenStore } from "../src/runtime.js";
 
 const PARENT_ID = "parent-test";
@@ -80,7 +80,9 @@ function memoryRegistry(
 		async update(id, expectedRevision, updater, expectedRuntimeIdentity) {
 			const current = store.current;
 			if (current === undefined || current.subagentId !== id) throw new Error("unknown child");
-			if (current.revision !== expectedRevision) throw new Error("stale revision");
+			if (expectedRevision !== undefined && current.revision !== expectedRevision) {
+				throw new SubagentRegistryError("stale_revision", "stale revision");
+			}
 			if (
 				expectedRuntimeIdentity !== undefined &&
 				current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
@@ -120,11 +122,13 @@ function memoryRegistry(
 				};
 			});
 		},
-		async consumeReconnectClaim(id, claimId, controllerTokenHash) {
+		async consumeReconnectClaim(id, claimId, controllerTokenHash, expectedRuntimeIdentity) {
 			const current = store.current;
 			if (
 				current?.claim?.claimId !== claimId ||
-				current.claim.controllerTokenHash !== controllerTokenHash
+				current.claim.controllerTokenHash !== controllerTokenHash ||
+				(expectedRuntimeIdentity !== undefined &&
+					current.runtime?.runtimeIdentity !== expectedRuntimeIdentity)
 			)
 				throw new Error("claim mismatch");
 			return store.update(id, current.revision, (value) => {
@@ -817,5 +821,39 @@ describe("SubagentManager native TUI attach", () => {
 			reason: "Stopped child is not restored",
 		});
 		expect(runner.requests.filter((operation) => operation === "start_rpc")).toEqual([]);
+	});
+
+	test("mutate does not leak unhandled promise rejections when an action rejects", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		let shouldFail = false;
+		const baseRegistry = memoryRegistry(record);
+		const originalUpdate = baseRegistry.update.bind(baseRegistry);
+		const failingRegistry: ReturnType<typeof memoryRegistry> = {
+			...baseRegistry,
+			async update(id, expectedRevision, updater, expectedRuntimeIdentity, signal) {
+				if (shouldFail) {
+					throw new Error("fatal write failure");
+				}
+				return originalUpdate(id, expectedRevision, updater, expectedRuntimeIdentity, signal);
+			},
+		};
+		const { manager } = managerWith(record, runner, failingRegistry);
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		shouldFail = true;
+		let unhandled = false;
+		const handler = () => {
+			unhandled = true;
+		};
+		process.once("unhandledRejection", handler);
+		try {
+			// Trigger an event from the runner which causes #observe -> #update to reject
+			runner.emit({ type: "agent_start" });
+			// Allow any microtasks / unhandled rejection turns to settle
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(unhandled).toBe(false);
+		} finally {
+			process.removeListener("unhandledRejection", handler);
+		}
 	});
 });
