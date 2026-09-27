@@ -100,6 +100,7 @@ describe("FFF tool registration", () => {
 			getSettings: () => ({
 				shellPath: "sh",
 				bashOutputTailKiB: 10,
+				autoAsyncSeconds: 60,
 				autocomplete: true,
 				grepEnhancement: false,
 				readEnhancement: false,
@@ -162,6 +163,7 @@ describe("FFF tool registration", () => {
 			getSettings: () => ({
 				shellPath: "sh",
 				bashOutputTailKiB: 10,
+				autoAsyncSeconds: 60,
 				autocomplete: true,
 				grepEnhancement: true,
 				readEnhancement: true,
@@ -212,6 +214,7 @@ describe("FFF tool registration", () => {
 			getSettings: () => ({
 				shellPath: "sh",
 				bashOutputTailKiB: 10,
+				autoAsyncSeconds: 60,
 				autocomplete: true,
 				grepEnhancement: true,
 				readEnhancement: true,
@@ -265,6 +268,7 @@ describe("FFF tool registration", () => {
 			getSettings: () => ({
 				shellPath: "sh",
 				bashOutputTailKiB: 10,
+				autoAsyncSeconds: 60,
 				autocomplete: true,
 				grepEnhancement: true,
 				readEnhancement: true,
@@ -309,6 +313,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: true,
 					readEnhancement: true,
@@ -350,6 +355,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
@@ -389,6 +395,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: true,
 					readEnhancement: true,
@@ -448,6 +455,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
@@ -498,6 +506,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
@@ -554,6 +563,7 @@ describe("FFF tool registration", () => {
 				getSettings: () => ({
 					shellPath: "sh",
 					bashOutputTailKiB: 10,
+					autoAsyncSeconds: 60,
 					autocomplete: true,
 					grepEnhancement: false,
 					readEnhancement: true,
@@ -608,6 +618,7 @@ describe("FFF tool registration", () => {
 			getSettings: () => ({
 				shellPath: "sh",
 				bashOutputTailKiB: 10,
+				autoAsyncSeconds: 60,
 				autocomplete: true,
 				grepEnhancement: true,
 				readEnhancement: true,

@@ -8,6 +8,8 @@ export interface BashJobRequest {
 	readonly cwd: string;
 	readonly shellPath?: string;
 	readonly timeoutMs?: number;
+	/** Optional real-time stream callback receiving raw output chunks. */
+	readonly onData?: (data: Buffer) => void;
 	/** Called once when the job reaches a terminal state and the registry is still open. */
 	readonly onTerminal?: (job: BashJobSnapshot) => void;
 }
@@ -40,6 +42,7 @@ interface Job {
 	timeout?: NodeJS.Timeout;
 	terminalized: boolean;
 	onTerminal?: (job: BashJobSnapshot) => void;
+	readonly waiters: Array<(snapshot: BashJobSnapshot) => void>;
 }
 export function defaultShellPath(): string {
 	return process.platform === "win32"
@@ -83,6 +86,7 @@ export class BashJobRegistry {
 			timedOut: false,
 			outputSink,
 			terminalized: false,
+			waiters: [],
 			...(request.onTerminal === undefined ? {} : { onTerminal: request.onTerminal }),
 		};
 		const shellPath = request.shellPath ?? defaultShellPath();
@@ -97,14 +101,24 @@ export class BashJobRegistry {
 		);
 		job.process = child;
 		child.stdout?.on("data", (data: Buffer) => {
-			if (!this.#closed) job.outputSink.push(data);
+			if (!this.#closed) {
+				job.outputSink.push(data);
+				request.onData?.(data);
+			}
 		});
 		child.stderr?.on("data", (data: Buffer) => {
-			if (!this.#closed) job.outputSink.push(data);
+			if (!this.#closed) {
+				job.outputSink.push(data);
+				request.onData?.(data);
+			}
 		});
 		child.once("error", (error) => {
 			if (job.status === "running") {
-				if (!this.#closed) job.outputSink.push(Buffer.from(`${error.message}\n`));
+				const messageBuf = Buffer.from(`${error.message}\n`);
+				if (!this.#closed) {
+					job.outputSink.push(messageBuf);
+					request.onData?.(messageBuf);
+				}
 				job.status = "failed";
 				job.endedAt = Date.now();
 			}
@@ -133,8 +147,35 @@ export class BashJobRegistry {
 		if (job.terminalized) return;
 		job.terminalized = true;
 		job.outputSink.finish();
+		const finalSnapshot = snapshot(job);
+		for (const waiter of job.waiters) waiter(finalSnapshot);
+		job.waiters.length = 0;
 		if (!notify) return;
-		job.onTerminal?.(snapshot(job));
+		job.onTerminal?.(finalSnapshot);
+	}
+	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): boolean {
+		const job = this.#jobs.get(id);
+		if (!job) return false;
+		const previous = job.onTerminal;
+		job.onTerminal =
+			previous === undefined
+				? onTerminal
+				: (finished) => {
+						previous(finished);
+						onTerminal(finished);
+					};
+		if (job.terminalized) {
+			onTerminal(snapshot(job));
+		}
+		return true;
+	}
+	waitFor(id: string): Promise<BashJobSnapshot | undefined> {
+		const job = this.#jobs.get(id);
+		if (!job) return Promise.resolve(undefined);
+		if (job.terminalized) return Promise.resolve(snapshot(job));
+		return new Promise<BashJobSnapshot | undefined>((resolve) => {
+			job.waiters.push(resolve);
+		});
 	}
 	get(id: string): BashJobSnapshot | undefined {
 		const job = this.#jobs.get(id);
@@ -169,6 +210,7 @@ export class BashJobRegistry {
 	dispose(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		for (const job of this.#jobs.values()) this.#terminalize(job, false);
 		for (const id of this.#jobs.keys()) this.stop(id);
 		this.#jobs.clear();
 	}

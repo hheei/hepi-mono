@@ -23,18 +23,21 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { defaultShellPath } from "./bash-jobs.js";
+import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
+import { DEFAULT_FFF_SETTINGS } from "./fff/settings.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
-import { startBashTask } from "./tasks/bash-task.js";
+import { promoteBashJobToTask, startBashTask } from "./tasks/bash-task.js";
+import type { AsyncTaskRegistry } from "./tasks/registry.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
 	"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
 	"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
+	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s. Use wait_tasks to wait or stop_tasks to terminate.",
 	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
@@ -80,6 +83,14 @@ function bashFooter(
 	completion: ToolCompletion | undefined,
 ): string {
 	const details = detailsRecord(result.details);
+	if (details.autoAsyncTransition === true && typeof details.taskId === "string") {
+		const elapsed =
+			typeof details.elapsedSeconds === "number" ? `${details.elapsedSeconds}s` : "60s";
+		return `transitioned to ${details.taskId} · running in background · ${elapsed}`;
+	}
+	if (typeof details.taskId === "string") {
+		return `task ${details.taskId} · background`;
+	}
 	const output = typeof details.output === "string" ? details.output : outputText(result);
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
 	const lines = outputTotalLines(result, output);
@@ -178,31 +189,141 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
+	jobs?: BashJobRegistry | undefined,
+	tasks?: AsyncTaskRegistry | undefined,
+	autoAsyncSeconds = 60,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
 	const sink = new BashOutputSink(tailBytes);
 	const update = outputStreamer(sink, onUpdate);
-	let exitCode: number | null;
-	let timedOut = false;
-	try {
-		exitCode = (
-			await createLocalBashOperations({ shellPath }).exec(command, context.cwd, {
-				onData: update,
-				...(signal === undefined ? {} : { signal }),
-				...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
-			})
-		).exitCode;
-	} catch (error) {
-		if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
-		if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
-		timedOut = true;
-		exitCode = null;
+
+	if (jobs === undefined) {
+		let exitCode: number | null;
+		let timedOut = false;
+		try {
+			exitCode = (
+				await createLocalBashOperations({ shellPath }).exec(command, context.cwd, {
+					onData: update,
+					...(signal === undefined ? {} : { signal }),
+					...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
+				})
+			).exitCode;
+		} catch (error) {
+			if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
+			if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
+			timedOut = true;
+			exitCode = null;
+		}
+		const output = sink.finish();
+		return result(output.output, {
+			...output,
+			...(timedOut ? { timedOut: true } : {}),
+			exitCode,
+		});
 	}
-	const output = sink.finish();
-	return result(output.output, {
-		...output,
-		...(timedOut ? { timedOut: true } : {}),
-		exitCode,
+
+	const shouldAutoAsync =
+		timeoutSeconds === undefined && tasks !== undefined && autoAsyncSeconds > 0;
+	let streaming = true;
+	const onData = (data: Buffer): void => {
+		if (streaming) update(data);
+	};
+	let job: BashJobSnapshot;
+	try {
+		job = jobs.start({
+			command,
+			cwd: context.cwd,
+			shellPath,
+			...(timeoutSeconds === undefined ? {} : { timeoutMs: Math.max(0, timeoutSeconds * 1000) }),
+			onData,
+		});
+	} catch (error) {
+		const output = sink.finish();
+		return result(
+			`Unable to start bash job: ${error instanceof Error ? error.message : String(error)}`,
+			{ ...output, error: "start_failed" },
+		);
+	}
+
+	return new Promise<BashToolResult>((resolve) => {
+		let settled = false;
+		let autoAsyncTimer: NodeJS.Timeout | undefined;
+
+		const cleanup = (): void => {
+			streaming = false;
+			if (autoAsyncTimer !== undefined) clearTimeout(autoAsyncTimer);
+			signal?.removeEventListener("abort", onAbort);
+		};
+
+		const finishForeground = (jobSnapshot: BashJobSnapshot): void => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			const output = sink.finish();
+			const timedOut = jobSnapshot.timedOut;
+			resolve(
+				result(output.output, {
+					...output,
+					...(timedOut ? { timedOut: true } : {}),
+					exitCode: jobSnapshot.exitCode,
+				}),
+			);
+		};
+
+		const onAbort = (): void => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			jobs.stop(job.id);
+			sink.finish();
+			resolve(result("Bash aborted", { error: "aborted" }));
+		};
+
+		signal?.addEventListener("abort", onAbort, { once: true });
+
+		if (shouldAutoAsync) {
+			autoAsyncTimer = setTimeout(() => {
+				if (settled) return;
+				const current = jobs.get(job.id);
+				if (current === undefined || current.status !== "running") return;
+
+				const task = promoteBashJobToTask({
+					tasks,
+					jobs,
+					jobId: job.id,
+					command,
+				});
+				if (task === undefined) return;
+
+				settled = true;
+				cleanup();
+				const snapshotOutput = sink.snapshot();
+				const message =
+					`Command has been running for ${autoAsyncSeconds}s without an explicit timeout.\n` +
+					`To avoid blocking the session, it was transitioned to background task ${task.id}.\n\n` +
+					`Output preview so far:\n${snapshotOutput.output}\n\n` +
+					`The command is STILL RUNNING in the background. Its result will be added to the context when finished.\n` +
+					`- To wait for it now: wait_tasks({ ids: ["${task.id}"] })\n` +
+					`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
+
+				resolve(
+					result(message, {
+						taskId: task.id,
+						type: task.type,
+						status: task.status,
+						autoAsyncTransition: true,
+						elapsedSeconds: autoAsyncSeconds,
+						purpose: task.purpose,
+						outputPreview: snapshotOutput.output,
+						truncated: snapshotOutput.truncated,
+					}),
+				);
+			}, autoAsyncSeconds * 1000);
+		}
+
+		jobs.waitFor(job.id).then((finalSnapshot) => {
+			if (finalSnapshot) finishForeground(finalSnapshot);
+		});
 	});
 }
 
@@ -210,7 +331,9 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 	if (typeof result.details !== "object" || result.details === null) return false;
 	const details = result.details as Record<string, unknown>;
 	return (
-		details.timedOut === true || (typeof details.exitCode === "number" && details.exitCode !== 0)
+		details.timedOut === true ||
+		details.autoAsyncTransition === true ||
+		(typeof details.exitCode === "number" && details.exitCode !== 0)
 	);
 }
 
@@ -330,9 +453,9 @@ export function registerBashTool(
 					(settings?.bashOutputTailKiB ?? 10) * 1024,
 				);
 			}
+			const tasks = state?.getTasks();
+			const jobs = state?.getBashJobs();
 			if ("async" in validatedParams && validatedParams.async === true) {
-				const tasks = state?.getTasks();
-				const jobs = state?.getBashJobs();
 				if (settings === undefined || tasks === undefined || jobs === undefined)
 					return result("Async Bash unavailable outside active session", {
 						error: "session_unavailable",
@@ -372,6 +495,9 @@ export function registerBashTool(
 				settings?.shellPath ?? defaultShellPath(),
 				validatedParams.timeout,
 				(settings?.bashOutputTailKiB ?? 10) * 1024,
+				jobs,
+				tasks,
+				settings?.autoAsyncSeconds ?? DEFAULT_FFF_SETTINGS.autoAsyncSeconds,
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;

@@ -28,6 +28,7 @@ describe("FFF settings", () => {
 		).toEqual({
 			shellPath: DEFAULT_FFF_SETTINGS.shellPath,
 			bashOutputTailKiB: 10,
+			autoAsyncSeconds: 60,
 			autocomplete: false,
 			grepEnhancement: true,
 			readEnhancement: true,
@@ -53,6 +54,7 @@ describe("FFF settings", () => {
 			expect(await loadFffSettings(fffProvider, bashProvider, context)).toEqual({
 				shellPath: DEFAULT_FFF_SETTINGS.shellPath,
 				bashOutputTailKiB: 20,
+				autoAsyncSeconds: 60,
 				autocomplete: false,
 				grepEnhancement: true,
 				readEnhancement: true,

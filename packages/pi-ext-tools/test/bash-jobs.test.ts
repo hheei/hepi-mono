@@ -5,6 +5,7 @@ import type {
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { createToolTui } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
@@ -82,11 +83,14 @@ function toolHost(): {
 	return { pi, tools };
 }
 
-function runtimeState(tasks: AsyncTaskRegistry | undefined): FffRuntimeState {
+function runtimeState(
+	tasks: AsyncTaskRegistry | undefined,
+	settingsOverrides?: Partial<typeof DEFAULT_FFF_SETTINGS>,
+): FffRuntimeState {
 	const jobs = jobRegistry();
 	return {
 		getRuntime: () => undefined,
-		getSettings: () => DEFAULT_FFF_SETTINGS,
+		getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, ...(settingsOverrides ?? {}) }),
 		getTasks: () => tasks,
 		getBashJobs: () => jobs,
 		getTargetRuntime: () => undefined,
@@ -587,4 +591,237 @@ test("warns on stop_tasks only when an id did not stop", async (): Promise<void>
 		{} as ExtensionContext,
 	);
 	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("! stop_tasks bash-9");
+});
+
+test("short foreground command runs to completion without creating an async task", async (): Promise<void> => {
+	const { pi, sent } = taskHost();
+	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+	const state = runtimeState(tasks);
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const res = await bash.execute(
+		"bash-foreground-short",
+		{ command: "node -e \"console.log('short-output')\"" },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.content).toEqual([{ type: "text", text: "short-output\n" }]);
+	expect(res.details).toMatchObject({ exitCode: 0 });
+	expect(tasks.list(true)).toEqual([]);
+	expect(sent).toEqual([]);
+});
+
+test("non-timeout command transitions to background task when exceeding autoAsyncSeconds", async (): Promise<void> => {
+	const { pi, sent } = taskHost();
+	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const res = await bash.execute(
+		"bash-auto-async",
+		{
+			command:
+				"node -e \"process.stdout.write('starting...'); setTimeout(() => console.log('finished-later'), 150)\"",
+		},
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+	expect(text).toContain("Command has been running for 0.05s without an explicit timeout.");
+	expect(text).toContain("transitioned to background task bash-1.");
+	expect(text).toContain("Output preview so far:\nstarting...");
+	expect(res.details).toMatchObject({
+		taskId: "bash-1",
+		type: "bash",
+		status: "running",
+		autoAsyncTransition: true,
+		elapsedSeconds: 0.05,
+	});
+
+	// The background task is registered and running
+	expect(tasks.list()).toMatchObject([{ id: "bash-1", status: "running" }]);
+
+	// Wait for the background task to finish
+	const waited = await tasks.wait(["bash-1"]);
+	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivered: true });
+	expect(sent).toHaveLength(1);
+	expect(sent[0]?.content).toContain("finished-later");
+});
+
+test("explicit timeout does not transition to async task", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const res = await bash.execute(
+		"bash-explicit-timeout",
+		{ command: 'node -e "setTimeout(() => {}, 500)"', timeout: 0.1 },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.details).toMatchObject({ timedOut: true });
+	expect((res.details as Record<string, unknown>).taskId).toBeUndefined();
+	expect(tasks.list(true)).toEqual([]);
+});
+
+test("auto-async disabled when autoAsyncSeconds is 0", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const res = await bash.execute(
+		"bash-auto-async-disabled",
+		{ command: "node -e \"setTimeout(() => console.log('ran-foreground'), 100)\"" },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.content).toEqual([{ type: "text", text: "ran-foreground\n" }]);
+	expect(res.details).toMatchObject({ exitCode: 0 });
+	expect(tasks.list(true)).toEqual([]);
+});
+
+test("aborting foreground command kills the process before auto-async", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 1 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const controller = new AbortController();
+	setTimeout(() => controller.abort(), 40);
+
+	const res = await bash.execute(
+		"bash-abort-before-auto-async",
+		{ command: 'node -e "setTimeout(() => {}, 2000)"' },
+		controller.signal,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.content).toEqual([{ type: "text", text: "Bash aborted" }]);
+	expect(res.details).toMatchObject({ error: "aborted" });
+	expect(tasks.list(true)).toEqual([]);
+});
+
+test("renders auto-async transition warning and footer in framed tool", async (): Promise<void> => {
+	initTheme("dark");
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	const tui = createToolTui();
+	registerBashTool(host.pi, state, tui);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const res = await bash.execute(
+		"bash-tui-auto-async",
+		{ command: 'node -e "setTimeout(() => {}, 200)"' },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	// Complete the trace in Tui
+	const resultComponent = bash.renderResult?.(
+		res,
+		{ expanded: false, isPartial: false },
+		plainTheme,
+		{
+			isPartial: false,
+			isError: false,
+			executionStarted: true,
+			expanded: false,
+			lastComponent: undefined,
+			state: {},
+			toolCallId: "bash-tui-auto-async",
+			invalidate: (): void => undefined,
+		} as never,
+	);
+
+	const renderedResult = resultComponent?.render(100).join("\n");
+
+	const frame = bash
+		.renderCall?.({ command: "node -e ..." }, plainTheme, {
+			isPartial: false,
+			isError: false,
+			executionStarted: true,
+			expanded: false,
+			lastComponent: undefined,
+			state: {},
+			toolCallId: "bash-tui-auto-async",
+			invalidate: (): void => undefined,
+		} as never)
+		?.render(100)
+		.join("\n");
+
+	expect(frame).toContain("! bash");
+	expect(renderedResult).toContain("transitioned to bash-1 · running in background");
+});
+
+test("stops streaming onUpdate to completed tool call after auto-async transition", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	const updates: string[] = [];
+	await bash.execute(
+		"bash-stream-cutoff",
+		{
+			command:
+				"node -e \"console.log('first'); setTimeout(() => { console.log('second'); }, 120)\"",
+		},
+		undefined,
+		(update) => {
+			const output = (update as { details?: { output?: string } }).details?.output;
+			if (output) updates.push(output);
+		},
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	const updateCountAtTransition = updates.length;
+	// Wait for the background command to finish
+	await tasks.wait(["bash-1"]);
+	// No further updates should have been pushed after transition
+	expect(updates.length).toBe(updateCountAtTransition);
+});
+
+test("waitFor and bindTerminal on BashJobRegistry", async (): Promise<void> => {
+	const registry = jobRegistry();
+	const job = registry.start({
+		command: 'node -e "setTimeout(() => {}, 50)"',
+		cwd: process.cwd(),
+	});
+	const waited = await registry.waitFor(job.id);
+	expect(waited?.status).toBe("completed");
+
+	// bindTerminal after already terminalized invokes callback immediately
+	let terminalReported: string | undefined;
+	registry.bindTerminal(job.id, (snapshot) => {
+		terminalReported = snapshot.status;
+	});
+	expect(terminalReported).toBe("completed");
 });

@@ -167,6 +167,7 @@ test("bash exposes only async use guidance", (): void => {
 	expect(bash.promptGuidelines).toEqual([
 		"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
 		"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
+		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s. Use wait_tasks to wait or stop_tasks to terminate.",
 		"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 	]);
 });

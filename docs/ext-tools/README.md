@@ -166,7 +166,7 @@ host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 
 后台任务完成消息带有限 tail 与截断状态，完整内容绝不内联。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。普通不带 `async` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。
+默认 shell 由平台环境决定。普通不带 `async` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。当本地普通前台调用未指定 `timeout` 且运行时间达到 `autoAsyncSeconds`（默认 60s，可通过 `pi-ext-tools.bash.autoAsyncSeconds` 配置，设为 0 禁用）时，该命令会自动晋升为 `bash-N` 异步任务，将当前 tool call 返回给 Agent 并附带截至超时前的输出快照，避免会话死锁；显式指定 `timeout` 或远程 SSH 任务不触发该自动化。
 
 ## Tool Ownership
 
