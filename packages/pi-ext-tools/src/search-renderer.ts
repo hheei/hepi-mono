@@ -357,27 +357,33 @@ function findBodyLines(details: FindToolDetails): readonly FindBodyLine[] {
 		if (candidates.length === 0) continue;
 		if (lines.length > 0) lines.push({ kind: "blank", text: "" });
 		lines.push({ kind: "heading", text: `${group}:` });
-		const directoryCounts = new Map<string, number>();
+		const byDirectory = new Map<
+			string,
+			Array<{ readonly path: string; readonly matchType?: string }>
+		>();
 		for (const candidate of candidates) {
 			const directory = parentDirectory(candidate.path);
 			if (directory !== undefined) {
-				directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1);
+				const existing = byDirectory.get(directory);
+				if (existing !== undefined) existing.push(candidate);
+				else byDirectory.set(directory, [candidate]);
 			}
 		}
 		const emittedDirectories = new Set<string>();
 		for (const candidate of candidates) {
 			const directory = parentDirectory(candidate.path);
-			const grouped = directory !== undefined && (directoryCounts.get(directory) ?? 0) > 1;
-			if (grouped && emittedDirectories.has(directory)) continue;
-			if (grouped) {
+			const dirCandidates = directory === undefined ? undefined : byDirectory.get(directory);
+			const grouped = dirCandidates !== undefined && dirCandidates.length > 1;
+			if (directory !== undefined && grouped && emittedDirectories.has(directory)) continue;
+			if (directory !== undefined && grouped && dirCandidates !== undefined) {
 				emittedDirectories.add(directory);
 				lines.push({ kind: "directory", text: `${directory}/` });
-				for (const groupedCandidate of candidates)
-					if (parentDirectory(groupedCandidate.path) === directory)
-						lines.push({
-							kind: "path",
-							text: groupedCandidate.path.slice(directory.length + 1),
-						});
+				for (const groupedCandidate of dirCandidates) {
+					lines.push({
+						kind: "path",
+						text: groupedCandidate.path.slice(directory.length + 1),
+					});
+				}
 				continue;
 			}
 			lines.push({ kind: "path", text: candidate.path });
