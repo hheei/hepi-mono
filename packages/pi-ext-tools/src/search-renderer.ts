@@ -53,6 +53,19 @@ function grepDetails(value: unknown): GrepToolDetails | undefined {
 
 const ANSI_SGR = /^\[[0-9;]*m/;
 
+/** One ANSI escape sequence, or one code point, starting at `cursor`. */
+function chunkAt(
+	text: string,
+	cursor: number,
+): { readonly text: string; readonly next: number; readonly ansi: boolean } {
+	if (text.charCodeAt(cursor) === 0x1b) {
+		const ansi = text.slice(cursor).match(ANSI_SGR);
+		if (ansi) return { text: ansi[0], next: cursor + ansi[0].length, ansi: true };
+	}
+	const charLen = (text.codePointAt(cursor) ?? 0) > 0xffff ? 2 : 1;
+	return { text: text.slice(cursor, cursor + charLen), next: cursor + charLen, ansi: false };
+}
+
 function utf8Boundaries(text: string): ReadonlyMap<number, number> {
 	const boundaries = new Map<number, number>();
 	let bytes = 0;
@@ -75,20 +88,10 @@ function takeVisible(
 	let taken = 0;
 	let cursor = index;
 	while (taken < visibleChars && cursor < text.length) {
-		if (text.charCodeAt(cursor) === 0x1b) {
-			const ansi = text.slice(cursor).match(ANSI_SGR);
-			if (ansi) {
-				slice += ansi[0];
-				cursor += ansi[0].length;
-				continue;
-			}
-		}
-		const code = text.codePointAt(cursor);
-		const charLen = code !== undefined && code > 0xffff ? 2 : 1;
-		const character = text.slice(cursor, cursor + charLen);
-		slice += character;
-		cursor += charLen;
-		taken += character.length;
+		const chunk = chunkAt(text, cursor);
+		slice += chunk.text;
+		cursor = chunk.next;
+		taken += chunk.text.length;
 	}
 	return { slice, next: cursor };
 }
@@ -98,19 +101,9 @@ function applySgrThroughout(text: string, sgr: string): string {
 	let out = sgr;
 	let cursor = 0;
 	while (cursor < text.length) {
-		if (text.charCodeAt(cursor) === 0x1b) {
-			const ansi = text.slice(cursor).match(ANSI_SGR);
-			if (ansi) {
-				out += ansi[0] === sgr ? ansi[0] : `${ansi[0]}${sgr}`;
-				cursor += ansi[0].length;
-				continue;
-			}
-		}
-		const code = text.codePointAt(cursor);
-		const charLen = code !== undefined && code > 0xffff ? 2 : 1;
-		const character = text.slice(cursor, cursor + charLen);
-		out += character;
-		cursor += charLen;
+		const chunk = chunkAt(text, cursor);
+		out += chunk.ansi && chunk.text !== sgr ? `${chunk.text}${sgr}` : chunk.text;
+		cursor = chunk.next;
 	}
 	return out;
 }
@@ -153,20 +146,13 @@ function submatchCharRanges(
 	source: string,
 	submatches: readonly GrepSubmatch[],
 ): readonly { readonly start: number; readonly end: number }[] {
-	if (submatches.length === 0) return [];
-	if (Buffer.byteLength(source, "utf8") === source.length) {
-		return submatches.flatMap((range) => {
-			if (range.end <= range.start) return [];
-			return range.start >= 0 && range.end <= source.length
-				? [{ start: range.start, end: range.end }]
-				: [];
-		});
-	}
-	const boundaries = utf8Boundaries(source);
+	// ASCII byte offsets are char offsets, so the map is only needed for multibyte text.
+	const boundaries =
+		Buffer.byteLength(source, "utf8") === source.length ? undefined : utf8Boundaries(source);
 	return submatches.flatMap((range) => {
 		if (range.end <= range.start) return [];
-		const start = boundaries.get(range.start);
-		const end = boundaries.get(range.end);
+		const start = boundaries?.get(range.start);
+		const end = boundaries?.get(range.end);
 		if (start !== undefined && end !== undefined) return [{ start, end }];
 		return range.start >= 0 && range.end <= source.length
 			? [{ start: range.start, end: range.end }]
