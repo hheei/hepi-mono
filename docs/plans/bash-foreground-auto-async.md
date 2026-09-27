@@ -247,3 +247,11 @@ if (job.status !== "running") {
 5. **临界竞争状态消除**：`runForeground` 在构造转后台消息前检查 `tasks.get(task.id)` 实时状态；若作业在晋升瞬间恰好完成，直接按已完成状态构造响应，避免向模型发送自相矛盾的 `STILL RUNNING` 指令。
 6. **新增覆盖测试**：在 `test/bash-jobs.test.ts` 中新增 4 例专用回归测试，覆盖上述异常路径与竞态场景。
 
+
+### 7.2 停止语义的平台差异（后续修正）
+
+第 7 节写的“进程组 SIGTERM → SIGKILL”只描述了 POSIX。Windows 没有进程组：`child.kill()` 只结束 `cmd.exe`
+并把它的子进程变成孤儿，负 pid 的 `process.kill` 在这边也不是进程组信号，所以旧实现的升级分支实际只重复杀了 shell。
+现在 `BashJobRegistry.stop()` 在 win32 上直接 `taskkill /F /T /PID <pid>` 收掉整棵树（没有“先 SIGTERM 再升级”
+这一步，因为杀掉 shell 就断了 `taskkill` 依赖的父子链），POSIX 行为不变；`bash-jobs.test.ts` 的停止用例增加了
+“后台派生的子进程也必须死掉”的断言，而 win32 分支在本仓库的 CI 环境（Linux）无法实测。
