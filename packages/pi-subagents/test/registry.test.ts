@@ -1,21 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
 import { assembleChildPrompt } from "../src/launch-spec.js";
 import { createSubagentRegistry, SubagentRegistryError } from "../src/registry.js";
+import { withTempDir } from "./helpers/tmp-dir.js";
 
 const PARENT_SESSION_ID = "01J7-parent";
-
-async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
-	const directory = await mkdtemp(join(tmpdir(), "pi-subagents-registry-"));
-	try {
-		return await run(directory);
-	} finally {
-		await rm(directory, { recursive: true, force: true });
-	}
-}
 
 function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 	return {
@@ -76,7 +67,7 @@ function registry(filePath: string) {
 }
 
 test("creates, reads, and lists records in a dedicated file", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		await store.create(record("sa_aaaa", join(directory, "work")));
@@ -92,7 +83,7 @@ test("creates, reads, and lists records in a dedicated file", async (): Promise<
 });
 
 test("keeps concurrent updates of different children from losing fields", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const first = registry(path);
 		const second = registry(path);
@@ -118,7 +109,7 @@ test("keeps concurrent updates of different children from losing fields", async 
 });
 
 test("rejects stale revisions, duplicate ids, unknown children, and mismatched runtimes", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const cwd = join(directory, "work");
@@ -161,7 +152,7 @@ test("rejects stale revisions, duplicate ids, unknown children, and mismatched r
 });
 
 test("fails closed on corrupt JSON, unsupported versions, and foreign parent sessions", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		await writeFile(path, "{not json", "utf8");
@@ -195,7 +186,7 @@ test("fails closed on corrupt JSON, unsupported versions, and foreign parent ses
 });
 
 test("refuses records with unknown fields, secrets, or inconsistent session state", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const cwd = join(directory, "work");
@@ -255,7 +246,7 @@ test("refuses records with unknown fields, secrets, or inconsistent session stat
 });
 
 test("rejects an invalid parent session id before touching the filesystem", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		expect(() =>
 			createSubagentRegistry({ parentSessionId: "../escape", filePath: join(directory, "r.json") }),
 		).toThrow(/Invalid parent session id/u);
@@ -263,7 +254,7 @@ test("rejects an invalid parent session id before touching the filesystem", asyn
 });
 
 test("drops foreign root keys while keeping every record", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		await store.create(record("sa_aaaa", join(directory, "work")));
@@ -286,7 +277,7 @@ test("drops foreign root keys while keeping every record", async (): Promise<voi
 });
 
 test("serializes runtime claims and consumes a reconnect token once", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const child = record("sa_claim", join(directory, "work"), {
@@ -341,7 +332,7 @@ test("serializes runtime claims and consumes a reconnect token once", async (): 
 });
 
 test("refuses to claim a stopped child and a stolen replacement", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const cwd = join(directory, "work");
@@ -383,7 +374,7 @@ test("refuses to claim a stopped child and a stolen replacement", async (): Prom
 });
 
 test("defaults missing launchConfig.interactive to false and rejects non-booleans", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		await store.create(record("sa_aaaa", join(directory, "work")));
@@ -405,7 +396,7 @@ test("defaults missing launchConfig.interactive to false and rejects non-boolean
 });
 
 test("supports atomic updates with undefined expectedRevision and tolerates revision changes during mark/activate", async (): Promise<void> => {
-	await withDirectory(async (directory) => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const cwd = join(directory, "work");
