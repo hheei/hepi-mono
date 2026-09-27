@@ -263,6 +263,32 @@ export class SubagentManager {
 		}
 	}
 
+	/**
+	 * Resolves where the child's session lives now: a child that finished while
+	 * the parent was busy may have been flushed after its record was written.
+	 * Discovery is best effort, so a failure keeps the recorded placement.
+	 */
+	async #currentPlacement(record: SubagentRecord): Promise<{
+		readonly sessionPath: string | undefined;
+		readonly persistence: SubagentRecord["persistence"];
+	}> {
+		try {
+			const placement = await planSessionPlacement({
+				sessionId: record.sessionId,
+				cwd: record.cwd,
+				sessionDir: record.launchConfig.sessionDir,
+				persistence: record.persistence,
+				...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+			});
+			if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
+				return { sessionPath: placement.sessionPath, persistence: "flushed" };
+			}
+		} catch {
+			// Best effort: keep the recorded placement.
+		}
+		return { sessionPath: record.sessionPath, persistence: record.persistence };
+	}
+
 	async #hibernate(id: string): Promise<void> {
 		await this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
@@ -281,23 +307,7 @@ export class SubagentManager {
 					this.#runners.delete(id);
 				}
 			}
-			let sessionPath = record.sessionPath;
-			let persistence = record.persistence;
-			try {
-				const placement = await planSessionPlacement({
-					sessionId: record.sessionId,
-					cwd: record.cwd,
-					sessionDir: record.launchConfig.sessionDir,
-					persistence: record.persistence,
-					...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
-				});
-				if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
-					sessionPath = placement.sessionPath;
-					persistence = "flushed";
-				}
-			} catch {
-				// ignore session placement discovery failure
-			}
+			const { sessionPath, persistence } = await this.#currentPlacement(record);
 			await this.#update(id, (current) => {
 				if (current.state !== "idle" || current.intent === "stopped") return current;
 				return {
@@ -463,23 +473,7 @@ export class SubagentManager {
 
 			// Auto-Resume: if the child finished/hibernated (done) or runner disconnected, resume it
 			if (runner === undefined || record.state === "done") {
-				let sessionPath = record.sessionPath;
-				let persistence = record.persistence;
-				try {
-					const placement = await planSessionPlacement({
-						sessionId: record.sessionId,
-						cwd: record.cwd,
-						sessionDir: record.launchConfig.sessionDir,
-						persistence: record.persistence,
-						...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
-					});
-					if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
-						sessionPath = placement.sessionPath;
-						persistence = "flushed";
-					}
-				} catch {
-					// ignore
-				}
+				const { sessionPath, persistence } = await this.#currentPlacement(record);
 				const resumedRecord = await this.#update(id, (current) => ({
 					...current,
 					state: "starting",

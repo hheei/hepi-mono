@@ -431,6 +431,26 @@ async function runPipelineStages(
 	return false;
 }
 
+function workerArgs(
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+	resolved: ResolvedModel,
+	recordCost: (costUsd: number) => void,
+) {
+	return {
+		model: resolved.model,
+		apiKey: resolved.apiKey,
+		headers: resolved.headers,
+		env: resolved.env,
+		maxTurns: runtime.config.agentMaxTurns,
+		maxOutputTokens: runtime.config.agentMaxTokens,
+		thinkingLevel: runtime.config.model?.thinking ?? "low",
+		modelRegistry: ctx.modelRegistry,
+		signal: ctx.signal,
+		onCost: recordCost,
+	};
+}
+
 async function runObserverStage(
 	pi: ExtensionAPI,
 	runtime: Runtime,
@@ -530,20 +550,11 @@ async function runObserverStage(
 	runtime.recordWorkerRun("observer");
 	try {
 		observations = await runObserver({
-			model: resolved.model,
-			apiKey: resolved.apiKey,
-			headers: resolved.headers,
-			env: resolved.env,
+			...workerArgs(runtime, ctx, resolved, recordCost),
 			priorReflections,
 			priorObservations,
 			chunk,
 			allowedSourceEntryIds: sourceEntryIds,
-			maxTurns: runtime.config.agentMaxTurns,
-			maxOutputTokens: runtime.config.agentMaxTokens,
-			thinkingLevel: runtime.config.model?.thinking ?? "low",
-			modelRegistry: ctx.modelRegistry,
-			signal: ctx.signal,
-			onCost: recordCost,
 		});
 	} catch (error) {
 		if (ctx.signal?.aborted) return "abort";
@@ -619,18 +630,9 @@ async function runReflectorStage(
 	const folded = foldLedger(entries);
 	runtime.recordWorkerRun("reflector");
 	const reflections = await runReflector({
-		model: resolved.model,
-		apiKey: resolved.apiKey,
-		headers: resolved.headers,
-		env: resolved.env,
+		...workerArgs(runtime, ctx, resolved, recordCost),
 		reflections: folded.reflections,
 		observations: folded.activeObservations,
-		maxTurns: runtime.config.agentMaxTurns,
-		maxOutputTokens: runtime.config.agentMaxTokens,
-		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry,
-		signal: ctx.signal,
-		onCost: recordCost,
 	});
 	if (ctx.signal?.aborted) return { outcome: "abort", sameRunReflections: [] };
 	if (!reflections) return { outcome: "continue", sameRunReflections: [] };
@@ -721,19 +723,10 @@ async function runDropperStage(
 	];
 	runtime.recordWorkerRun("dropper");
 	const droppedIds = await runDropper({
-		model: resolved.model,
-		apiKey: resolved.apiKey,
-		headers: resolved.headers,
-		env: resolved.env,
+		...workerArgs(runtime, ctx, resolved, recordCost),
 		reflections: reflectionsForDropper,
 		observations: folded.activeObservations,
 		targetTokens: runtime.config.observationsPoolTargetTokens,
-		maxTurns: runtime.config.agentMaxTurns,
-		maxOutputTokens: runtime.config.agentMaxTokens,
-		thinkingLevel: runtime.config.model?.thinking ?? "low",
-		modelRegistry: ctx.modelRegistry,
-		signal: ctx.signal,
-		onCost: recordCost,
 	});
 	if (ctx.signal?.aborted) return "abort";
 	const coversUpToId = earlierCoverageMarkerId(

@@ -74,15 +74,13 @@ describe("hindsight opt-in gating", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("registers no Hindsight tool when the option is absent", async () => {
-		const hooks = installExtension();
-		await startSession(hooks, cwd);
-		expect(hindsightTools(hooks)).toEqual([]);
+	it("registers no Hindsight tool without an explicit opt-in", async () => {
+		const absent = installExtension();
+		await startSession(absent, cwd);
+		expect(hindsightTools(absent)).toEqual([]);
 		// The session-scoped memory tool is still registered: gating applies only to Hindsight.
-		expect(hooks.registered).toContain("recall");
-	});
+		expect(absent.registered).toContain("recall");
 
-	it("registers no Hindsight tool when the option is explicitly false", async () => {
 		writeFileSync(
 			join(agentDir, "ext_settings.json"),
 			JSON.stringify({
@@ -90,9 +88,9 @@ describe("hindsight opt-in gating", () => {
 			}),
 			"utf-8",
 		);
-		const hooks = installExtension();
-		await startSession(hooks, cwd);
-		expect(hindsightTools(hooks)).toEqual([]);
+		const disabled = installExtension();
+		await startSession(disabled, cwd);
+		expect(hindsightTools(disabled)).toEqual([]);
 	});
 
 	it("registers exactly the eight prefixed tools once enabled", async () => {
