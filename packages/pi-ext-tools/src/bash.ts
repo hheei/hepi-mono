@@ -15,6 +15,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import {
+	agentResultText,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	errorMessage,
@@ -70,10 +71,8 @@ function normalizeBashInput(value: unknown): unknown {
 	return input;
 }
 
-interface BashToolResult {
-	readonly content: readonly { readonly type: "text"; readonly text: string }[];
-	readonly details: Record<string, unknown>;
-}
+/** Every bash result carries the model-visible text plus tool-owned details. */
+type BashToolResult = AgentToolResult<Record<string, unknown>>;
 
 function detailsRecord(value: unknown): Readonly<Record<string, unknown>> {
 	return isRecord(value) ? value : {};
@@ -90,7 +89,7 @@ function bashFooter(
 	if (typeof details.taskId === "string") {
 		return `task ${details.taskId} · background`;
 	}
-	const output = typeof details.output === "string" ? details.output : outputText(result);
+	const output = typeof details.output === "string" ? details.output : agentResultText(result);
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
 	const lines = outputTotalLines(result, output);
 	const duration = formatDuration(completion?.durationMs) ?? "completed";
@@ -109,10 +108,6 @@ function outputTotalLines(result: AgentToolResult<unknown>, output: string): num
 	const total = detailsRecord(result.details).totalLines;
 	if (typeof total === "number" && Number.isFinite(total)) return total;
 	return output === "" ? 0 : output.replace(/\r?\n$/, "").split(/\r?\n/).length;
-}
-
-function outputText(result: AgentToolResult<unknown>): string {
-	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 }
 
 function outputStreamer(
@@ -171,10 +166,6 @@ class BashOutputBody implements Component {
 	}
 }
 
-function result(text: string, details: Record<string, unknown> = {}): BashToolResult {
-	return { content: [{ type: "text" as const, text }], details };
-}
-
 async function runForeground(
 	command: string,
 	context: ExtensionContext,
@@ -187,7 +178,7 @@ async function runForeground(
 	tasks?: AsyncTaskRegistry | undefined,
 	autoAsyncSeconds = 60,
 ): Promise<BashToolResult> {
-	if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
+	if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted" });
 	const sink = new BashOutputSink(tailBytes);
 	const update = outputStreamer(sink, onUpdate);
 
@@ -203,13 +194,13 @@ async function runForeground(
 				})
 			).exitCode;
 		} catch (error) {
-			if (signal?.aborted) return result("Bash aborted", { error: "aborted" });
+			if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted" });
 			if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
 			timedOut = true;
 			exitCode = null;
 		}
 		const output = sink.finish();
-		return result(output.output, {
+		return textToolResult(output.output, {
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
 			exitCode,
@@ -233,7 +224,7 @@ async function runForeground(
 		});
 	} catch (error) {
 		const output = sink.finish();
-		return result(`Unable to start bash job: ${errorMessage(error)}`, {
+		return textToolResult(`Unable to start bash job: ${errorMessage(error)}`, {
 			...output,
 			error: "start_failed",
 		});
@@ -256,7 +247,7 @@ async function runForeground(
 			const output = sink.finish();
 			const timedOut = jobSnapshot.timedOut;
 			resolve(
-				result(output.output, {
+				textToolResult(output.output, {
 					...output,
 					...(timedOut ? { timedOut: true } : {}),
 					exitCode: jobSnapshot.exitCode,
@@ -270,7 +261,7 @@ async function runForeground(
 			cleanup();
 			jobs.stop(job.id);
 			sink.finish();
-			resolve(result("Bash aborted", { error: "aborted" }));
+			resolve(textToolResult("Bash aborted", { error: "aborted" }));
 		};
 
 		signal?.addEventListener("abort", onAbort, { once: true });
@@ -296,10 +287,13 @@ async function runForeground(
 					jobs.stop(job.id);
 					const snapshotOutput = sink.finish();
 					resolve(
-						result(`Unable to transition bash command to background task: ${errorMessage(error)}`, {
-							...snapshotOutput,
-							error: "task_transition_failed",
-						}),
+						textToolResult(
+							`Unable to transition bash command to background task: ${errorMessage(error)}`,
+							{
+								...snapshotOutput,
+								error: "task_transition_failed",
+							},
+						),
 					);
 					return;
 				}
@@ -323,7 +317,7 @@ async function runForeground(
 						`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
 
 				resolve(
-					result(message, {
+					textToolResult(message, {
 						taskId: task.id,
 						type: task.type,
 						status: currentTask.status,
@@ -365,7 +359,7 @@ async function runRemoteBash(
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
 ): Promise<BashToolResult> {
-	if (signal?.aborted) return result("Bash aborted", { error: "aborted", target });
+	if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted", target });
 	const sink = new BashOutputSink(tailBytes);
 	try {
 		const { code, timedOut } = await runtime.exec(target, command, {
@@ -376,7 +370,7 @@ async function runRemoteBash(
 			onData: outputStreamer(sink, onUpdate),
 		});
 		const output = sink.finish();
-		return result(output.output, {
+		return textToolResult(output.output, {
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
 			exitCode: code,
@@ -387,7 +381,7 @@ async function runRemoteBash(
 		const output = sink.finish();
 		if (isTargetError(error)) {
 			const aborted = error.outcome === "cancelled";
-			return result(aborted ? "Bash aborted" : error.message, {
+			return textToolResult(aborted ? "Bash aborted" : error.message, {
 				...output,
 				error: aborted ? "aborted" : error.outcome,
 				outcome: error.outcome,
@@ -426,7 +420,7 @@ export function registerBashTool(
 				context.lastComponent instanceof BashOutputBody
 					? context.lastComponent.sourceComponent()
 					: context.lastComponent;
-			const output = outputText(result);
+			const output = agentResultText(result);
 			const source =
 				upstreamRenderResult?.(result, options, theme, {
 					...context,
@@ -452,7 +446,7 @@ export function registerBashTool(
 			const settings = state?.getSettings();
 			if (isRemoteBashTarget(validatedParams.target)) {
 				if ("async" in validatedParams && validatedParams.async === true)
-					return result("Async Bash is local-only; omit async for SSH targets.", {
+					return textToolResult("Async Bash is local-only; omit async for SSH targets.", {
 						error: "async_unsupported",
 						target: validatedParams.target,
 					});
@@ -472,7 +466,7 @@ export function registerBashTool(
 			const jobs = state?.getBashJobs();
 			if ("async" in validatedParams && validatedParams.async === true) {
 				if (settings === undefined || tasks === undefined || jobs === undefined)
-					return result("Async Bash unavailable outside active session", {
+					return textToolResult("Async Bash unavailable outside active session", {
 						error: "session_unavailable",
 					});
 				try {
@@ -486,7 +480,7 @@ export function registerBashTool(
 							? {}
 							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
 					});
-					return result(
+					return textToolResult(
 						`Started background task ${task.id}. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.`,
 						{
 							taskId: task.id,
@@ -496,7 +490,7 @@ export function registerBashTool(
 						},
 					);
 				} catch (error) {
-					return result(`Unable to start background task: ${errorMessage(error)}`, {
+					return textToolResult(`Unable to start background task: ${errorMessage(error)}`, {
 						error: "start_failed",
 					});
 				}

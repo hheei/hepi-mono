@@ -1,9 +1,5 @@
-import { readFileSync } from "node:fs";
-import {
-	createJsonSettingsStorage,
-	defaultExtensionSettingsPaths,
-	type SettingsProvider,
-} from "@hheei/pi-ext-core";
+import { createJsonSettingsStorage, type SettingsProvider } from "@hheei/pi-ext-core";
+import { readGlobalSettingsGroup } from "../global-settings.js";
 
 const GROUP = "eval";
 
@@ -15,35 +11,16 @@ export interface EvalSettingsProviderOptions {
 }
 
 /** Eval activation is static so historical renderers always exist before resume rendering. */
-export function readEvalSettings(path = defaultExtensionSettingsPaths().globalPath): {
+export function readEvalSettings(path?: string): {
 	readonly enabled: boolean;
 	readonly pythonBin: string | undefined;
 } {
-	try {
-		const root: unknown = JSON.parse(readFileSync(path, "utf8"));
-		if (typeof root !== "object" || root === null || Array.isArray(root))
-			return {
-				enabled: DEFAULT_EVAL_ENABLED,
-				pythonBin: undefined,
-			};
-		const evalSettings = (root as Record<string, unknown>)[GROUP];
-		if (typeof evalSettings !== "object" || evalSettings === null || Array.isArray(evalSettings))
-			return {
-				enabled: DEFAULT_EVAL_ENABLED,
-				pythonBin: undefined,
-			};
-		const fields = evalSettings as Record<string, unknown>;
-		const pythonBin = typeof fields.pythonBin === "string" ? fields.pythonBin.trim() : "";
-		return {
-			enabled: fields.enabled === true,
-			pythonBin: pythonBin === "" ? undefined : pythonBin,
-		};
-	} catch {
-		return {
-			enabled: DEFAULT_EVAL_ENABLED,
-			pythonBin: undefined,
-		};
-	}
+	const fields = readGlobalSettingsGroup(GROUP, path);
+	const pythonBin = typeof fields?.pythonBin === "string" ? fields.pythonBin.trim() : "";
+	return {
+		enabled: fields?.enabled === true,
+		pythonBin: pythonBin === "" ? undefined : pythonBin,
+	};
 }
 
 export function createEvalSettingsProvider(

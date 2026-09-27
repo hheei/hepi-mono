@@ -1,3 +1,4 @@
+import { isRecord } from "@hheei/pi-ext-core";
 import { estimateEntryTokens } from "../tokens.js";
 import {
 	type Entry,
@@ -25,10 +26,6 @@ export function entryIndexForId(entries: Entry[], entryId: string | undefined): 
 	return entries.findIndex((entry) => entry.id === entryId);
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
 function isNonEmptyArray(value: unknown): value is unknown[] {
 	return Array.isArray(value) && value.length > 0;
 }
@@ -38,7 +35,7 @@ function isValidCoverageEntry(
 	customType: V3MemoryCustomType,
 ): entry is Entry & { data: { coversUpToId: string } } {
 	if (entry.type !== "custom" || entry.customType !== customType) return false;
-	if (!isObject(entry.data) || typeof entry.data.coversUpToId !== "string") return false;
+	if (!isRecord(entry.data) || typeof entry.data.coversUpToId !== "string") return false;
 
 	if (customType === OM_OBSERVATIONS_RECORDED) return isNonEmptyArray(entry.data.observations);
 	if (customType === OM_REFLECTIONS_RECORDED) return isNonEmptyArray(entry.data.reflections);
@@ -312,7 +309,7 @@ export function findPersistedSettledTime(
 		const entry = entries[i];
 		if (!entry || !isSourceEntry(entry)) continue;
 		if (entry.type !== "message") continue;
-		if (!isObject(entry.message) || entry.message.role !== "assistant") return undefined;
+		if (!isRecord(entry.message) || entry.message.role !== "assistant") return undefined;
 		if (
 			entry.message.stopReason === "toolUse" ||
 			entry.message.stopReason === "aborted" ||
@@ -328,7 +325,7 @@ export function findPersistedSettledTime(
 		if (!entry) continue;
 		const isCompletedAssistant =
 			entry.type === "message" &&
-			isObject(entry.message) &&
+			isRecord(entry.message) &&
 			entry.message.role === "assistant" &&
 			entry.message.stopReason !== "toolUse" &&
 			entry.message.stopReason !== "aborted" &&

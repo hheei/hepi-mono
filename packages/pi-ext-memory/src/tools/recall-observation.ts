@@ -3,7 +3,11 @@ import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { type ManagedToolRegistration, registerManagedTool } from "@hheei/pi-ext-core";
+import {
+	type ManagedToolRegistration,
+	registerManagedTool,
+	textToolResult,
+} from "@hheei/pi-ext-core";
 import { fmtLocal, renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
 import type { Observation, Reflection } from "../session-ledger/index.js";
 import { latestGateEnabled } from "../session-ledger/index.js";
@@ -219,10 +223,6 @@ function observationMatchDetails(
 	};
 }
 
-function textResult(text: string, details: RecallObservationToolDetails) {
-	return { content: [{ type: "text" as const, text }], details };
-}
-
 function emptyDetails(
 	status: RecallObservationToolStatus,
 	memoryId: string,
@@ -410,13 +410,13 @@ function isObservationOnly(details: RecallObservationToolDetails): boolean {
 
 function renderFoundResult(
 	result: Extract<RecallResult, { status: "found" }>,
-): ReturnType<typeof textResult> {
+): AgentToolResult<RecallObservationToolDetails> {
 	const details = resultDetails(result);
 	const text =
 		result.kind === "observation"
 			? renderObservationOnlyTextFromResult(result)
 			: renderMemoryText(result);
-	return textResult(text, details);
+	return textToolResult(text, details);
 }
 
 function plural(n: number, singular: string, pluralForm = `${singular}s`): string {
@@ -672,11 +672,11 @@ export const recallObservationTool = defineTool({
 		const memoryId = params.id;
 		if (!MEMORY_ID_PATTERN.test(memoryId)) {
 			const message = `Memory id must be 12 lowercase hex characters. Received: ${memoryId}`;
-			return textResult(message, emptyDetails("invalid_id", memoryId, message));
+			return textToolResult(message, emptyDetails("invalid_id", memoryId, message));
 		}
 		const branchEntries = ctx.sessionManager.getBranch() as Entry[];
 		if (!latestGateEnabled(branchEntries)) {
-			return textResult(
+			return textToolResult(
 				RECALL_DISABLED_TEXT,
 				emptyDetails("disabled", memoryId, RECALL_DISABLED_TEXT),
 			);
@@ -684,7 +684,7 @@ export const recallObservationTool = defineTool({
 		const result = recallMemorySources(branchEntries, memoryId);
 		if (result.status === "not_found") {
 			const message = `No observation or reflection with id ${memoryId} was found on the current branch.`;
-			return textResult(message, emptyDetails("not_found", memoryId, message));
+			return textToolResult(message, emptyDetails("not_found", memoryId, message));
 		}
 		return renderFoundResult(result);
 	},

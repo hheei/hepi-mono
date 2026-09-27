@@ -6,6 +6,7 @@ import {
 	errorMessage,
 	registerManagedTool,
 	runCommand,
+	shellQuote,
 	type ToolTui,
 	textToolResult,
 	throwIfAborted,
@@ -20,7 +21,6 @@ import {
 	accessDeniedDiagnostics,
 	isTargetError,
 	RemoteGrepAccessDeniedError,
-	remoteShellQuote,
 	type TargetOutcome,
 } from "./targets.js";
 
@@ -645,9 +645,9 @@ async function runRemoteRg(
 	const args = ["rg", "--json", "--line-number", "--color=never", "--hidden"];
 	if (params.ignoreCase) args.push("--ignore-case");
 	if (params.literal) args.push("--fixed-strings");
-	if (params.glob) args.push("--glob", remoteShellQuote(params.glob));
+	if (params.glob) args.push("--glob", shellQuote(params.glob));
 	if (context > 0) args.push("--context", String(context));
-	args.push("--", remoteShellQuote(params.pattern), remoteShellQuote(params.path ?? "."));
+	args.push("--", shellQuote(params.pattern), shellQuote(params.path ?? "."));
 	let stdout: string;
 	let incomplete: GrepIncomplete | undefined;
 	try {

@@ -14,11 +14,7 @@ describe("setPromptSection", () => {
 		const sections: Record<string, string> = { keep: "kept", drop: "gone", blank: "gone" };
 		setPromptSection(sections, "drop", undefined);
 		setPromptSection(sections, "blank", "   \n ");
-		expect(sections).toEqual({ keep: "kept" });
-	});
-
-	test("removing a section that is not there is a no-op", () => {
-		const sections: Record<string, string> = { keep: "kept" };
+		// Removing a section that was never there stays a no-op.
 		setPromptSection(sections, "missing", undefined);
 		expect(sections).toEqual({ keep: "kept" });
 	});
