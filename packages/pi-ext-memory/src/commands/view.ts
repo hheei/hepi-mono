@@ -1,5 +1,8 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { copyTextToClipboard } from "../clipboard.js";
+import {
+	copyToClipboard as copyToSystemClipboard,
+	type ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import type { Runtime } from "../runtime.js";
 import {
 	type Entry,
@@ -38,7 +41,7 @@ function renderContentOnlyProjection(
 }
 
 export interface ViewCommandOptions {
-	copyToClipboard?: (text: string) => Promise<boolean>;
+	copyToClipboard?: (text: string) => Promise<void>;
 }
 
 export async function runViewCommand(
@@ -47,19 +50,21 @@ export async function runViewCommand(
 	args: string,
 	options: ViewCommandOptions = {},
 ): Promise<void> {
-	const copyToClipboard = options.copyToClipboard ?? copyTextToClipboard;
+	const copyToClipboard = options.copyToClipboard ?? copyToSystemClipboard;
 	await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
 	const entries = ctx.sessionManager.getBranch() as Entry[];
 	const mode = firstArg(args);
 
+	// Pi's clipboard helper resolves once the text reached a clipboard (native, platform
+	// command or OSC 52) and rejects with the reason it could not, so the notice can say why.
 	const notifyWithCopy = async (output: string) => {
-		const copied = await copyToClipboard(output).catch(() => false);
-		ctx.ui.notify(
-			copied
-				? `${output}\n\nCopied /om view output to clipboard.`
-				: `${output}\n\nWarning: failed to copy /om view output to clipboard.`,
-			"info",
-		);
+		let note = "Copied /om view output to clipboard.";
+		try {
+			await copyToClipboard(output);
+		} catch (error) {
+			note = `Warning: could not copy /om view output: ${errorMessage(error)}`;
+		}
+		ctx.ui.notify(`${output}\n\n${note}`, "info");
 	};
 
 	if (mode === "full") {

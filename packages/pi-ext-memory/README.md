@@ -211,7 +211,7 @@ timeline legend:  ▓ compacted   ▒ memory pool   ░ raw backlog   ┊ cut   
 
 `▓` is history a compaction already replaced with a memory summary, `▒` is history the observer has covered that still lives as observations, `░` is raw backlog waiting for the observer, `┊` marks a compaction cutoff, and `▶` is the branch tip. The strip is scaled to the terminal width, and cost is run-time telemetry only: it is never written to the ledger and never rolls back on a `/tree` switch, because the API calls it accounts for already happened.
 
-`/om view` copies only the rendered memory content. The success/failure line shown in Pi is not included in the clipboard text. If clipboard support is unavailable, the command still prints the memory view and shows a warning. Before the first V3 compaction, visible memory can be empty because nothing has been folded into `om.folded` details; use `/om view full` to inspect recorded branch memory.
+`/om view` copies only the rendered memory content. The success/failure line shown in Pi is not included in the clipboard text. Copying goes through Pi's own clipboard helper, so a remote SSH session reaches the client clipboard over OSC 52 and a Linux desktop without `wl-clipboard`/`xclip`/`xsel` still prints the memory view with a warning that names the missing tool. Before the first V3 compaction, visible memory can be empty because nothing has been folded into `om.folded` details; use `/om view full` to inspect recorded branch memory.
 
 ---
 
