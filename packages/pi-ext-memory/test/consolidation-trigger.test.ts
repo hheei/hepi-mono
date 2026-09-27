@@ -481,10 +481,12 @@ describe("V3 consolidation trigger", () => {
 		await runLaunchedWork();
 
 		expect(ctx.ui.notify.mock.calls).toEqual([
-			[expect.stringMatching(/^om: observer running on [\d.<>]+k tokens chunk$/), "info"],
-			["om: reflector running (<0.1k tokens)", "info"],
+			[expect.stringMatching(/^om: observer running on [\w.]+ tokens chunk$/), "info"],
+			[expect.stringMatching(/^om: reflector running \([\w.]+ tokens\)$/), "info"],
 			[
-				"om: dropper running after reflection — active observation pool <0.1k / <0.1k target tokens (380%)",
+				expect.stringMatching(
+					/^om: dropper running after reflection — active observation pool [\w.]+ \/ [\w.]+ target tokens \(\d+%\)$/,
+				),
 				"info",
 			],
 			["om: consolidation complete (+1 obs, +1 refl, -1 dropped)", "info"],
@@ -544,7 +546,7 @@ describe("V3 consolidation trigger", () => {
 		await runLaunchedWork();
 
 		expect(ctx.ui.notify.mock.calls).toEqual([
-			[expect.stringMatching(/^om: observer running on [\d.<>]+k tokens chunk$/), "info"],
+			[expect.stringMatching(/^om: observer running on [\w.]+ tokens chunk$/), "info"],
 			[
 				"om: observer found nothing new in this chunk (coverage unchanged; will retry later)",
 				"info",

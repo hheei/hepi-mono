@@ -9,9 +9,12 @@ import { Type } from "typebox";
 import { describe, expect, test, vi } from "vitest";
 import {
 	AUTO_COLLAPSE_DELAY_MS,
+	AUTO_COLLAPSE_RETRY_DELAY_MS,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	getToolTui,
+	installScrollViewViewportProtection,
+	isTuiScrolledUp,
 	registerToolTuiTrace,
 	type ToolTui,
 } from "../src/tool-tui.js";
@@ -1020,6 +1023,72 @@ describe("ToolTui collapse modes", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	test("postpones auto-collapse while user is scrolled up away from bottom", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			let scrolledUp = true;
+			tui.setScrolledUpPredicate(() => scrolledUp);
+
+			const harness = await longTool(tui);
+			expect(await settle(harness)).toContain("result body");
+
+			// 15 seconds pass: timer fires, but user is scrolled up reading
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS);
+			expect(harness.invalidations.count).toBe(0);
+			expect(renderLong(harness)).toContain("result body");
+
+			// Another retry delay passes, still scrolled up
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_RETRY_DELAY_MS);
+			expect(harness.invalidations.count).toBe(0);
+			expect(renderLong(harness)).toContain("result body");
+
+			// User scrolls back down to the bottom
+			scrolledUp = false;
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_RETRY_DELAY_MS);
+			expect(harness.invalidations.count).toBe(1);
+			expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("isTuiScrolledUp correctly detects alt-screen and ScrollView scrolled-up state", (): void => {
+		expect(isTuiScrolledUp(undefined)).toBe(false);
+		expect(isTuiScrolledUp(null)).toBe(false);
+		expect(isTuiScrolledUp({})).toBe(false);
+
+		// AltScreen with isFollowingOutput
+		expect(isTuiScrolledUp({ isFollowingOutput: true })).toBe(false);
+		expect(isTuiScrolledUp({ isFollowingOutput: false })).toBe(true);
+
+		// getPrimaryScrollView
+		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: true }) })).toBe(false);
+		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: false }) })).toBe(true);
+	});
+
+	test("protects ScrollView followingEnd state when content shrinks while scrolled up", (): void => {
+		installScrollViewViewportProtection();
+		const { ScrollView } = require("@earendil-works/pi-tui");
+		const container = new Container();
+		const sv = new ScrollView(container, { follow: "end" });
+
+		// Initial layout: contentHeight 100, viewport 40 -> maxScrollTop 60, starts followingEnd: true
+		sv.updateLayout(100, 40, () => {});
+		expect(sv.isFollowingEnd).toBe(true);
+
+		// User scrolls up to view history -> followingEnd becomes false
+		sv.scrollTo(20);
+		expect(sv.isFollowingEnd).toBe(false);
+		expect(sv.scrollTop).toBe(20);
+
+		// Content shrinks from 100 to 50 (e.g. a tool body collapses)
+		sv.updateLayout(50, 40, () => {});
+
+		// Viewport protection MUST prevent followingEnd from being forced back to true
+		expect(sv.isFollowingEnd).toBe(false);
 	});
 });
 

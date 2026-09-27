@@ -197,9 +197,12 @@ export { agentResultText, formatDuration, textToolResult } from "./tool-result.j
 export type { ToolCollapseMode, ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
 export {
 	AUTO_COLLAPSE_DELAY_MS,
+	AUTO_COLLAPSE_RETRY_DELAY_MS,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	getToolTui,
+	installScrollViewViewportProtection,
+	isTuiScrolledUp,
 	registerToolTuiTrace,
 } from "./tool-tui.js";
 export type {
