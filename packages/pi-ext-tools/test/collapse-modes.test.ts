@@ -10,7 +10,7 @@ import {
 	type ToolDefinition,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { AUTO_COLLAPSE_DELAY_MS, createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { registerTools } from "../src/tools.js";
@@ -194,6 +194,49 @@ describe("tool frame collapse modes", () => {
 		expect(header).toHaveLength(1);
 		expect(header?.[0]).toContain("…");
 		expect(stripTerminalSequences(header?.[0] ?? "").endsWith("…")).toBe(true);
+	});
+
+	test("keeps every uncollapsed frame row inside a narrow terminal", async (): Promise<void> => {
+		initTheme("dark");
+		const tui = createToolTui();
+		const host = harness();
+		registerTools(host.pi, undefined, tui);
+		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		if (grep === undefined) throw new Error("grep was not registered");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const context = {
+			isError: false,
+			isPartial: false,
+			lastComponent: undefined,
+			toolCallId: "grep-uncollapsed",
+			executionStarted: true,
+			expanded: false,
+			invalidate: (): void => undefined,
+		};
+		const args = { pattern: "needle", path: "a/very/long/search/path" };
+		const result = {
+			content: [{ type: "text" as const, text: "match" }],
+			details: {
+				format: "canonical-grep",
+				display: [] as unknown[],
+				totalMatched: 1_234,
+				totalFiles: 123,
+				totalLines: 4_000,
+				durationMs: 1_234,
+			},
+		};
+		const rows = [
+			...(grep.renderCall?.(args, plainTheme, context as never).render(40) ?? []),
+			...(grep
+				.renderResult?.(result, { expanded: false, isPartial: false }, plainTheme, context as never)
+				.render(40) ?? []),
+		];
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.every((row) => visibleWidth(row) <= 40)).toBe(true);
 	});
 
 	test("collapses a narrow grep frame to a truncated header and summary", async (): Promise<void> => {
