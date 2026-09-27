@@ -14,6 +14,7 @@ import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { registerTaskTools } from "../src/task-tools.js";
+import { promoteBashJobToTask } from "../src/tasks/bash-task.js";
 import {
 	AsyncTaskRegistry,
 	MAX_TASK_MESSAGE_CHARS,
@@ -824,4 +825,112 @@ test("waitFor and bindTerminal on BashJobRegistry", async (): Promise<void> => {
 		terminalReported = snapshot.status;
 	});
 	expect(terminalReported).toBe("completed");
+});
+
+test("dispose stops running jobs with stopped status and releases waiters", async (): Promise<void> => {
+	const registry = jobRegistry();
+	const job = registry.start({
+		command: 'node -e "setTimeout(() => {}, 2000)"',
+		cwd: process.cwd(),
+	});
+	const waitPromise = registry.waitFor(job.id);
+	registry.dispose();
+	const snapshot = await waitPromise;
+	expect(snapshot?.status).toBe("stopped");
+	expect(typeof snapshot?.endedAt).toBe("number");
+});
+
+test("handles transition failure gracefully when task registry is disposed", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	// Dispose the task registry before the timer fires
+	setTimeout(() => tasks.dispose(), 20);
+
+	const res = await bash.execute(
+		"bash-transition-fail",
+		{ command: 'node -e "setTimeout(() => {}, 1000)"' },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.details).toMatchObject({ error: "task_transition_failed" });
+	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+	expect(text).toContain("Unable to transition bash command to background task");
+});
+
+test("onTerminal throwing does not crash terminalization", async (): Promise<void> => {
+	const registry = jobRegistry();
+	let secondCalled = false;
+	const job = registry.start({
+		command: 'node -e "setTimeout(() => {}, 50)"',
+		cwd: process.cwd(),
+		onTerminal: () => {
+			throw new Error("subscriber exploded");
+		},
+	});
+	registry.bindTerminal(job.id, () => {
+		secondCalled = true;
+	});
+	await registry.waitFor(job.id);
+	expect(secondCalled).toBe(true);
+});
+
+test("promoteBashJobToTask throws if bindTerminal fails", (): void => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const jobs = jobRegistry();
+	const job = jobs.start({
+		command: 'node -e "setTimeout(() => {}, 2000)"',
+		cwd: process.cwd(),
+	});
+	// Mock bindTerminal to return false
+	jobs.bindTerminal = () => false;
+	expect(() =>
+		promoteBashJobToTask({
+			tasks,
+			jobs,
+			jobId: job.id,
+			command: "test-command",
+		}),
+	).toThrow("Failed to bind terminal callback to job");
+});
+
+test("handles job settling before auto-async transition message is constructed", async (): Promise<void> => {
+	const tasks = tracked(new AsyncTaskRegistry());
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const host = toolHost();
+	registerBashTool(host.pi, state);
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+
+	// Intercept tasks.create to settle the task immediately during transition
+	const originalCreate = tasks.create.bind(tasks);
+	tasks.create = (req) => {
+		const created = originalCreate(req);
+		tasks.settle(created.id, { status: "completed", output: "fast finish", truncated: false });
+		return created;
+	};
+
+	const res = await bash.execute(
+		"bash-race-finish",
+		{ command: 'node -e "setTimeout(() => {}, 200)"' },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.details).toMatchObject({
+		autoAsyncTransition: true,
+		status: "completed",
+	});
+	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+	expect(text).toContain(
+		"Command completed while transitioning to background task bash-1 (status: completed).",
+	);
+	expect(text).not.toContain("STILL RUNNING");
 });

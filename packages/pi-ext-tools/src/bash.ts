@@ -30,7 +30,7 @@ import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "./fff/settings.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
 import { promoteBashJobToTask, startBashTask } from "./tasks/bash-task.js";
-import type { AsyncTaskRegistry } from "./tasks/registry.js";
+import type { AsyncTaskRegistry, AsyncTaskSnapshot } from "./tasks/registry.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
@@ -287,16 +287,53 @@ async function runForeground(
 				const current = jobs.get(job.id);
 				if (current === undefined || current.status !== "running") return;
 
-				const task = promoteBashJobToTask({
-					tasks,
-					jobs,
-					jobId: job.id,
-					command,
-				});
+				let task: AsyncTaskSnapshot | undefined;
+				try {
+					task = promoteBashJobToTask({
+						tasks,
+						jobs,
+						jobId: job.id,
+						command,
+					});
+				} catch (error) {
+					if (settled) return;
+					settled = true;
+					cleanup();
+					jobs.stop(job.id);
+					const snapshotOutput = sink.finish();
+					resolve(
+						result(
+							`Unable to transition bash command to background task: ${error instanceof Error ? error.message : String(error)}`,
+							{ ...snapshotOutput, error: "task_transition_failed" },
+						),
+					);
+					return;
+				}
 				if (task === undefined) return;
 
 				settled = true;
 				cleanup();
+				const currentTask = tasks.get(task.id) ?? task;
+				if (currentTask.status !== "running") {
+					const snapshotOutput = sink.finish();
+					const message =
+						`Command completed while transitioning to background task ${task.id} (status: ${currentTask.status}).\n\n` +
+						`Output:\n${snapshotOutput.output}`;
+					resolve(
+						result(message, {
+							taskId: task.id,
+							type: task.type,
+							status: currentTask.status,
+							autoAsyncTransition: true,
+							elapsedSeconds: autoAsyncSeconds,
+							purpose: task.purpose,
+							outputPreview: snapshotOutput.output,
+							truncated: snapshotOutput.truncated,
+						}),
+					);
+					return;
+				}
+
 				const snapshotOutput = sink.snapshot();
 				const message =
 					`Command has been running for ${autoAsyncSeconds}s without an explicit timeout.\n` +

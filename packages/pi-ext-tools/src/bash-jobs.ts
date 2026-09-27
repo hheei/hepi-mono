@@ -148,10 +148,16 @@ export class BashJobRegistry {
 		job.terminalized = true;
 		job.outputSink.finish();
 		const finalSnapshot = snapshot(job);
-		for (const waiter of job.waiters) waiter(finalSnapshot);
+		for (const waiter of job.waiters) {
+			try {
+				waiter(finalSnapshot);
+			} catch {}
+		}
 		job.waiters.length = 0;
 		if (!notify) return;
-		job.onTerminal?.(finalSnapshot);
+		try {
+			job.onTerminal?.(finalSnapshot);
+		} catch {}
 	}
 	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): boolean {
 		const job = this.#jobs.get(id);
@@ -161,11 +167,17 @@ export class BashJobRegistry {
 			previous === undefined
 				? onTerminal
 				: (finished) => {
-						previous(finished);
-						onTerminal(finished);
+						try {
+							previous(finished);
+						} catch {}
+						try {
+							onTerminal(finished);
+						} catch {}
 					};
 		if (job.terminalized) {
-			onTerminal(snapshot(job));
+			try {
+				onTerminal(snapshot(job));
+			} catch {}
 		}
 		return true;
 	}
@@ -210,8 +222,8 @@ export class BashJobRegistry {
 	dispose(): void {
 		if (this.#closed) return;
 		this.#closed = true;
-		for (const job of this.#jobs.values()) this.#terminalize(job, false);
 		for (const id of this.#jobs.keys()) this.stop(id);
+		for (const job of this.#jobs.values()) this.#terminalize(job, false);
 		this.#jobs.clear();
 	}
 }

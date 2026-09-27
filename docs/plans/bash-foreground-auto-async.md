@@ -238,3 +238,12 @@ if (job.status !== "running") {
 7. `waitFor and bindTerminal on BashJobRegistry`：验证底层任务等待与延迟绑定终端回调逻辑。
 8. `stops streaming onUpdate to completed tool call after auto-async transition`：验证 60s 转后台后立即阻断前台 `onUpdate` 流式回调，避免后台长输出干扰已完成的 tool call 组件。
 
+### 7.1 代码审查修正（OCR Follow-ups）
+基于 `open-code-review` 的 5 项发现完成针对性加固：
+1. **`dispose()` 清理顺序调整**：在 `BashJobRegistry.dispose()` 中先执行 `this.stop(id)` 停止子进程并标记 `stopped` 终态，再对未终态化任务触发 `#terminalize(job, false)`，避免以 `running` 状态提前释放前台等待者。
+2. **晋升异常保护**：在 `runForeground` 定时器回调中用 `try/catch` 保护 `promoteBashJobToTask()`；若注册表已关闭或创建失败，立即终止子进程并安全返回 `task_transition_failed` 错误，避免前台 Promise 挂起及后台孤儿进程。
+3. **隔离终态回调异常**：在 `BashJobRegistry` 的 `#terminalize` 与 `bindTerminal` 中使用 `try/catch` 隔离所有用户回调，防止个别回调抛错阻断其它通知或从进程 `close` 事件中逃逸。
+4. **`bindTerminal` 失败检测**：`promoteBashJobToTask` 检测 `bindTerminal` 返回值，若绑定失败则主动抛错触发回退清理。
+5. **临界竞争状态消除**：`runForeground` 在构造转后台消息前检查 `tasks.get(task.id)` 实时状态；若作业在晋升瞬间恰好完成，直接按已完成状态构造响应，避免向模型发送自相矛盾的 `STILL RUNNING` 指令。
+6. **新增覆盖测试**：在 `test/bash-jobs.test.ts` 中新增 4 例专用回归测试，覆盖上述异常路径与竞态场景。
+
