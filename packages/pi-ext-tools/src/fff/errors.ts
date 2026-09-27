@@ -5,7 +5,7 @@ function messageFromCause(cause: unknown): string {
 }
 
 /**
- * Tagged error values carried inside `AppResult`. They are never thrown, so each
+ * Typed error values carried inside `AppResult`. They are never thrown, so each
  * class builds its message once and keeps the fields the formatters need.
  */
 export class RuntimeInitializationError {

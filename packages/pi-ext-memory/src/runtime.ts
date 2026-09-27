@@ -111,7 +111,9 @@ function hasConfiguredProviderCredential(registry: ModelRegistryLike, model: unk
 
 /**
  * The slice of Pi's `ModelRegistry` facade this runtime resolves credentials through.
- * Every member stays optional so a credential-free test double can leave one out.
+ * Every member stays optional so a credential-free test double can leave one out, and the
+ * model parameter stays `unknown` to match the `unknown` session model the contexts carry —
+ * which is why a host context reaches `ConsolidationCtx` through a cast.
  */
 export interface ModelRegistryLike {
 	find?: ((provider: string, id: string) => unknown) | undefined;
