@@ -16,6 +16,8 @@ const FFF_SETTINGS_DESCRIPTIONS = {
 	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
 	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
 	outputTail: "Visible Bash output retained in each result tail.",
+	autoAsync:
+		"Seconds a local non-timeout Bash command runs in foreground before auto-transitioning to async task. 0 disables.",
 	read: "Use FFF path resolution to improve read operations when safely applicable.",
 	find: "Use FFF indexed file search to improve find operations when enabled.",
 	autocomplete:
@@ -75,6 +77,8 @@ export interface FffSettings {
 	readonly shellPath: string;
 	/** KiB retained in each foreground Bash result. */
 	readonly bashOutputTailKiB: number;
+	/** Seconds a local non-timeout Bash command runs in foreground before auto-transitioning to async task. <=0 disables. */
+	readonly autoAsyncSeconds: number;
 	/** FFF behavior toggles only; tool activation belongs to pi-settings. */
 	readonly autocomplete: boolean;
 	readonly grepEnhancement: boolean;
@@ -93,6 +97,7 @@ export const DEFAULT_TARGET_SETTINGS: TargetSettings = {
 export const DEFAULT_FFF_SETTINGS: FffSettings = {
 	shellPath: defaultShellPath(),
 	bashOutputTailKiB: 10,
+	autoAsyncSeconds: 60,
 	autocomplete: true,
 	grepEnhancement: true,
 	readEnhancement: true,
@@ -128,6 +133,16 @@ function positiveIntegerAt(
 	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function nonNegativeNumberAt(
+	state: SettingsState | undefined,
+	group: string,
+	key: string,
+	fallback: number,
+): number {
+	const value = state?.[group]?.[key];
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 export function fffSettingsFromState(state: SettingsState | undefined): FffSettings {
 	return {
 		shellPath: nonEmptyStringAt(state, BASH_GROUP, "shellPath", DEFAULT_FFF_SETTINGS.shellPath),
@@ -136,6 +151,12 @@ export function fffSettingsFromState(state: SettingsState | undefined): FffSetti
 			BASH_GROUP,
 			"outputTailKiB",
 			DEFAULT_FFF_SETTINGS.bashOutputTailKiB,
+		),
+		autoAsyncSeconds: nonNegativeNumberAt(
+			state,
+			BASH_GROUP,
+			"autoAsyncSeconds",
+			DEFAULT_FFF_SETTINGS.autoAsyncSeconds,
 		),
 		autocomplete: booleanAt(state, GROUP, "autocomplete"),
 		grepEnhancement: booleanAt(state, GROUP, "grepEnhancement"),
@@ -241,6 +262,18 @@ export function createBashSettingsProvider(
 						validate: (value) =>
 							typeof value !== "number" || !Number.isInteger(value) || value <= 0
 								? "Output tail must be a positive whole number of KiB"
+								: undefined,
+					},
+					{
+						id: "autoAsyncSeconds",
+						label: "Auto-async threshold (s)",
+						type: "number",
+						defaultValue: DEFAULT_FFF_SETTINGS.autoAsyncSeconds,
+						description: FFF_SETTINGS_DESCRIPTIONS.autoAsync,
+						parse: (value) => Number(value),
+						validate: (value) =>
+							typeof value !== "number" || !Number.isFinite(value) || value < 0
+								? "Auto-async threshold must be a non-negative number of seconds"
 								: undefined,
 					},
 				],

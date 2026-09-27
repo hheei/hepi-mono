@@ -77,3 +77,39 @@ export function startBashTask(request: BashTaskRequest): AsyncTaskSnapshot {
 		},
 	});
 }
+
+export interface PromoteBashTaskRequest {
+	readonly tasks: AsyncTaskRegistry;
+	readonly jobs: BashJobRegistry;
+	readonly jobId: string;
+	readonly command: string;
+}
+
+/** Promotes an already running Bash job into an observable AsyncTask. */
+export function promoteBashJobToTask(
+	request: PromoteBashTaskRequest,
+): AsyncTaskSnapshot | undefined {
+	const current = request.jobs.get(request.jobId);
+	if (current === undefined || current.status !== "running") return undefined;
+	return request.tasks.create({
+		type: "bash",
+		purpose: bashTaskPurpose(request.command),
+		begin: (taskId) => {
+			request.jobs.bindTerminal(request.jobId, (finished): void => {
+				request.tasks.settle(taskId, terminalFrom(finished));
+			});
+			return {
+				stop: (): void => {
+					request.jobs.stop(request.jobId);
+				},
+				describe: (): AsyncTaskProgress => {
+					const job = request.jobs.get(request.jobId);
+					return {
+						output: job?.output ?? "",
+						truncated: job?.truncated ?? false,
+					};
+				},
+			};
+		},
+	});
+}
