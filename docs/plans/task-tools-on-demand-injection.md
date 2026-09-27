@@ -466,3 +466,34 @@ const BASH_PROMPT_GUIDELINES = [
 | **未激活工具被模型幻觉调用** | 极低 | Pi Host 在 `prepareToolCall` 中会对未激活工具立即返回 `Tool ... is unavailable` 错误 toolResult，绝不导致崩溃。 |
 | **`--exclude-tools list_tasks` 之类的 Host 排除配置被动态激活重新加回** | 低 | `apply()` 只做 active 集合增删，不去核对 Host 的 `allowedToolNames`/`excludedToolNames`；这是 core 现有 edit/eval 激活路径的同一行为，本次不扩大处理范围，仅记录。 |
 | **`toolGuidelines` 是否真随激活生效** | 低（已核实） | Host `buildRules()` 只遍历 `selectedTools` 取 `toolGuidelines[name]`，因此 `wait_tasks`/`stop_tasks` 的规则确实只在激活时进入 `<rules>`。 |
+
+## 7. 实现状态
+
+已按本方案实现（`packages/pi-ext-tools`），落地位置与偏差记录如下。
+
+### 7.1 落地内容
+
+| 位置 | 内容 |
+| :--- | :--- |
+| `src/tasks/registry.ts` | `AsyncTaskRegistryOptions { pi?, onFirstTask? }`；`runningCount` 为**派生 getter**（遍历 `#records` 数 `status === "running"`，不维护第二数据源，因此 `settle()`/dispose 无需手工递减）；`create()` 在插入记录前取 `wasIdle`，仅在 `begin(id)` 成功后触发 `onFirstTask`，并捕获其异常。 |
+| `src/task-tools.ts` | 导出 `TASK_TOOL_REGISTRATIONS`（`{ id, owner }`，无 `defaultActive`）与 `TASK_TOOL_IDS`；`wait_tasks`/`stop_tasks` 各自声明 `promptGuidelines`；新增 `startTaskControl(context)`：创建 session 的 `AsyncTaskRegistry`，以 `pi.getActiveTools()` 为准真实停用一次，挂载 `session_compact`/`session_tree` 边界监听，并把退订函数注册到 `context.resources` 的 `task-tool-boundary-listeners`。 |
+| `src/fff/lifecycle.ts` | `startFffLifecycle` 改为 `const tasks = startTaskControl(context); state.tasks = tasks;`。 |
+| `src/bash.ts` | `BASH_PROMPT_GUIDELINES` 收敛为 3 条通用契约（去掉 `wait_tasks` 轮询细则与 wait/stop 操作指引）。 |
+
+### 7.2 与方案的偏差
+
+- **不提供 `hasRunningTasks`**：方案把它与 `runningCount` 并列，但全仓库只使用 `runningCount === 0` 一种判定；按“无第二调用方就不加抽象”的原则只保留 `runningCount`。
+- **`startTaskControl` 是单一接缝**：方案 §4.3 建议“抽成只依赖 `(context, tasks)` 的函数”，但 `onFirstTask` 必须在 `AsyncTaskRegistry` 构造时传入，而边界监听又需要该 registry，两者无法在没有额外状态的情况下拆开；因此合并为一个函数，由它创建并返回 registry（生命周期同样只调用一次）。
+- **激活失败不阻塞任务**：`onFirstTask` 在 registry 内 try/catch 吞掉异常。若让它冒泡，`create()` 会在 `begin(id)` 已经启动后台作业之后抛错，把“后台已在跑但模型拿不到 id”这种更差的状态留给调用方；而同一组 registration 在 session 启动时已经过 `setManagedToolsActive` 校验（正常会话下必然走真实停用分支），所以后续抛错只可能是编程错误。
+- **激活优先于用户手动关闭工具**：若用户在空闲时用 Pi 原生工具配置关掉三个任务工具，下一次后台任务仍会把它们加回来。这是有意为之：`wait_tasks`/`stop_tasks` 是任务存在时的必需控制面。
+- **不导出 `activateTaskTools`**：方案 §4.1.4 要求导出它，但它只有一个调用方且只有一行（`setManagedToolsActive` + 固定 registration 列表），按“没有第二个调用方就不抽一次性函数”的原则内联进 `startTaskControl`。
+- **前置条件**：`startTaskControl` 依赖三个工具已通过 `registerManagedTool` 注册（`setManagedToolsActive` 会校验 owner），因此 `registerTools`/`registerTaskTools` 必须先于 session 生命周期执行——这与现状一致（构造期静态注册、`session_start` 启动生命周期），但已在函数注释中写明。
+- **`wait_tasks` 描述与 guideline 不重复**：为避免同一句话同时出现在 `<tools>` 与 `<rules>`，`wait_tasks` 的 `description` 收缩为“等待并返回结果”，而“不要轮询”只保留在 `promptGuidelines` 中。
+- **不新增 Loadout 相关测试**：按 §4.5 的决定，工具 active 集合不归 Loadout 裁决，本方案不写引擎集成测试。
+
+### 7.3 已落地的测试
+
+- `test/bash-jobs.test.ts`（8 例，`taskControlHost()` + `lateBoundState()` 基座）：Host 预激活被 session start 移除；首个显式 `async` 任务激活且普通轮次内保持、`session_compact` 后卸载；**边界卸载后同一 session 内的下一个任务会重新激活（回到 `bash-2`）**；任务运行中边界不卸载（stop 后卸载）；auto-async 晋升激活；`begin()` 失败的任务不激活工具且 `runningCount` 为 0；新 session 初始 Inactive 且 `runningCount` 为 0；session 拆除后边界监听失效。
+- `test/tools.test.ts`（1 例）：真实 catalog（`registerTools`）在 Host 全量激活后，session start 只移除三个任务工具，`read`/`bash`/`eval` 不受影响。
+- `test/bash-backend.test.ts`（2 例）：`BASH_PROMPT_GUIDELINES` 收敛为 3 条；三个任务工具的 `promptGuidelines` 声明。
+- 敏感度已逐条验证：去掉 `onFirstTask` 触发、把幂等判断换成“本地布尔提前返回”、边界处去掉 `runningCount === 0` 检查、把激活条件改成“只有 registry 完全为空时才激活”（一次性激活），都会各自让对应测试失败。

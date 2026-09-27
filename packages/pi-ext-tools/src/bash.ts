@@ -36,8 +36,7 @@ const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
 	"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-	"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
-	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s. Use wait_tasks to wait or stop_tasks to terminate.",
+	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s.",
 	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";

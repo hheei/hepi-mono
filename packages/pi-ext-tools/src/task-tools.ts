@@ -3,16 +3,70 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
+import {
+	createToolTui,
+	type ExtensionLifecycleContext,
+	type ManagedToolRegistration,
+	registerManagedTool,
+	setManagedToolsActive,
+	type ToolTui,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import type {
-	AsyncTaskSnapshot,
-	AsyncTaskStopOutcome,
-	AsyncTaskWaitOutcome,
+import {
+	AsyncTaskRegistry,
+	type AsyncTaskSnapshot,
+	type AsyncTaskStopOutcome,
+	type AsyncTaskWaitOutcome,
 } from "./tasks/registry.js";
 
 const OWNER = "@hheei/pi-ext-tools";
+
+/** Task-control tools: registered for every session, activated only when tasks exist. */
+export const TASK_TOOL_REGISTRATIONS = [
+	{ id: "list_tasks", owner: OWNER },
+	{ id: "wait_tasks", owner: OWNER },
+	{ id: "stop_tasks", owner: OWNER },
+] as const satisfies readonly ManagedToolRegistration[];
+
+export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
+	(registration) => registration.id,
+);
+
+/**
+ * Creates the session's task registry and owns the activation policy of its tools.
+ *
+ * Pi activates every registered extension tool at session start and again after `/tree`
+ * restores the transcript tool set, so the initial deactivation must really run: the
+ * applied state is read back from `pi.getActiveTools()` instead of a local flag. Tools
+ * stay active between turns so a finished task keeps a readable result, and are removed
+ * only at a macro boundary once nothing is running. The three tools must already be
+ * registered through `registerTaskTools`.
+ */
+export function startTaskControl(context: ExtensionLifecycleContext): AsyncTaskRegistry {
+	const setActive = (active: boolean): void => {
+		const applied = context.pi.getActiveTools().some((id) => TASK_TOOL_IDS.includes(id));
+		if (applied === active) return;
+		setManagedToolsActive(context, TASK_TOOL_REGISTRATIONS, active);
+	};
+	const tasks = new AsyncTaskRegistry({
+		pi: context.pi,
+		onFirstTask: () => setActive(true),
+	});
+	setActive(false);
+	const onBoundary = (): void => {
+		if (tasks.runningCount === 0) setActive(false);
+	};
+	const unsubscribe = [
+		context.pi.on("session_compact", onBoundary),
+		context.pi.on("session_tree", onBoundary),
+	];
+	context.resources.add("task-tool-boundary-listeners", () => {
+		for (const stop of unsubscribe) stop();
+	});
+	return tasks;
+}
+
 const NO_ACTIVE_TASK_SESSION = "No active task session";
 
 function unavailable(): AgentToolResult<{ readonly error: string }> {
@@ -134,8 +188,10 @@ export function registerTaskTools(
 	const waitTool: ToolDefinition<typeof IdsParams, unknown> = {
 		name: "wait_tasks",
 		label: "wait_tasks",
-		description:
-			"Wait until every listed background task finishes and return their results. Use it when the next step needs those results; do not poll for them.",
+		description: "Wait until every listed background task finishes and return their results.",
+		promptGuidelines: [
+			"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
+		],
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput, signal) {
 			const tasks = state.getTasks();
@@ -172,6 +228,7 @@ export function registerTaskTools(
 		name: "stop_tasks",
 		label: "stop_tasks",
 		description: "Stop listed background tasks. Stopping an already finished task is harmless.",
+		promptGuidelines: ["Stop background tasks when their results are no longer needed."],
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput) {
 			const tasks = state.getTasks();
@@ -189,20 +246,11 @@ export function registerTaskTools(
 			};
 		},
 	};
+	const [listRegistration, waitRegistration, stopRegistration] = TASK_TOOL_REGISTRATIONS;
+	registerManagedTool(pi, listRegistration, tui.frame(listTool));
 	registerManagedTool(
 		pi,
-		{
-			id: "list_tasks",
-			owner: OWNER,
-		},
-		tui.frame(listTool),
-	);
-	registerManagedTool(
-		pi,
-		{
-			id: "wait_tasks",
-			owner: OWNER,
-		},
+		waitRegistration,
 		tui.frame(waitTool, {
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
@@ -210,10 +258,7 @@ export function registerTaskTools(
 	);
 	registerManagedTool(
 		pi,
-		{
-			id: "stop_tasks",
-			owner: OWNER,
-		},
+		stopRegistration,
 		tui.frame(stopTool, {
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",

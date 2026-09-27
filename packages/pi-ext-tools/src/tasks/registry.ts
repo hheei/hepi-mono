@@ -50,6 +50,12 @@ export interface AsyncTaskSnapshot {
 	readonly delivered: boolean;
 }
 
+export interface AsyncTaskRegistryOptions {
+	readonly pi?: ExtensionAPI;
+	/** Called when a task starts while nothing else of this session was running. */
+	readonly onFirstTask?: () => void;
+}
+
 export type AsyncTaskWaitOutcome =
 	| { readonly id: string; readonly status: "not_found" }
 	| {
@@ -159,10 +165,12 @@ export class AsyncTaskRegistry {
 	readonly #records = new Map<string, TaskRecord>();
 	readonly #counters = new Map<string, number>();
 	readonly #deliver: ((message: TaskTerminalMessage) => void) | undefined;
+	readonly #onFirstTask: (() => void) | undefined;
 	#closed = false;
 
-	constructor(options: { readonly pi?: ExtensionAPI } = {}) {
+	constructor(options: AsyncTaskRegistryOptions = {}) {
 		const pi = options.pi;
+		this.#onFirstTask = options.onFirstTask;
 		this.#deliver =
 			pi === undefined
 				? undefined
@@ -179,8 +187,18 @@ export class AsyncTaskRegistry {
 					};
 	}
 
+	/** Number of tasks that have not reached a terminal state yet. */
+	get runningCount(): number {
+		let count = 0;
+		for (const record of this.#records.values()) {
+			if (record.status === "running") count += 1;
+		}
+		return count;
+	}
+
 	create(request: AsyncTaskRequest): AsyncTaskSnapshot {
 		if (this.#closed) throw new Error("Task registry is disposed");
+		const wasIdle = this.runningCount === 0;
 		const id = this.#nextId(request.type);
 		const record: TaskRecord = {
 			id,
@@ -202,6 +220,13 @@ export class AsyncTaskRegistry {
 			this.#release(record, false);
 			this.#evictTerminal();
 			throw error;
+		}
+		if (wasIdle) {
+			try {
+				this.#onFirstTask?.();
+			} catch {
+				// Activation is best effort: it must never fail the task that just started.
+			}
 		}
 		return snapshot(record);
 	}

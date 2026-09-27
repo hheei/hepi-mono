@@ -13,9 +13,10 @@ import { createToolTui } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
-import type { FffRuntimeState } from "../src/fff/lifecycle.js";
+import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
+import { registerTaskTools } from "../src/task-tools.js";
 
 initTheme(undefined, false);
 
@@ -166,9 +167,25 @@ test("bash exposes only async use guidance", (): void => {
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
 		"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-		"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
-		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s. Use wait_tasks to wait or stop_tasks to terminate.",
+		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s.",
 		"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
+	]);
+});
+
+test("task-control tools carry their own activation-scoped guidelines", (): void => {
+	const tools: ToolDefinition[] = [];
+	registerTaskTools(
+		{
+			registerTool(tool: ToolDefinition): void {
+				tools.push(tool);
+			},
+		} as unknown as ExtensionAPI,
+		createFffRuntimeState(),
+	);
+	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([
+		undefined,
+		["Do not poll background tasks. Use `wait_tasks` only when the next step needs their results."],
+		["Stop background tasks when their results are no longer needed."],
 	]);
 });
 

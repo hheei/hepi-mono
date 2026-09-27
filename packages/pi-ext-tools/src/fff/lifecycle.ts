@@ -6,8 +6,8 @@ import {
 	registerSettings,
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
-import { startTaskControl } from "../task-tools.js";
 import { TargetRuntime } from "../targets.js";
+import { startTaskControl } from "../task-tools.js";
 import type { AsyncTaskRegistry } from "../tasks/registry.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";

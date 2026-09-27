@@ -183,6 +183,15 @@ Task-control 契约（`src/tasks/registry.ts`）是唯一的状态源：
 `stop_tasks({ ids })`。单任务操作使用单元素 `ids` 数组。`wait_tasks` 是一个 barrier：只在下一步确实需要结果时调用；
 host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 只发出取消请求，最终状态仍由一致路径的 completion delivery 报告。
 
+三个管控工具按需注入：它们始终注册（Host 需要知道它们存在），但 session 开始时 `pi-ext-tools` 会真实停用
+它们一次（Host 会以 `includeAllExtensionTools` 激活全部 extension 工具，`/tree` 还会按 transcript 恢复），
+只有会话产生第一个后台任务时才激活（显式 `async: true`、60s auto-async 晋升，或未来本 package 内其他
+`tasks.create()` 调用者）。任务跑完后普通对话轮次内保持激活，便于查看终态或收尾；只有在 `session_compact`
+或 `session_tree` 这类宏观边界且 `runningCount === 0` 时才卸载，绝不因单轮结束而突变。`wait_tasks` 的
+“不要轮询”规范挂在工具自身的 `promptGuidelines` 上，随激活进入 `<rules>`，不再常驻 `bash` 规则。
+控制面之外的 producer（例如未来 `pi-subagents`）不在该策略范围内：跨 package 生产者尚未接入（见
+`docs/plans/async-task-orchestration.md` 第 11 节）。
+
 后台任务完成消息带有限 tail 与截断状态，完整内容绝不内联。
 
 async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
