@@ -80,15 +80,6 @@ const SYNTAX_THEME_KEYS = [
 	"syntaxPunctuation",
 ] as const;
 
-function highlightThemeKey(theme?: FgTheme): string {
-	if (!theme?.getFgAnsi) return "default";
-	try {
-		return SYNTAX_THEME_KEYS.map((key) => theme.getFgAnsi?.(key) ?? "").join("|");
-	} catch {
-		return "default";
-	}
-}
-
 /** Map highlight.js scopes onto the active Pi theme's semantic syntax colors. */
 function buildHighlightTheme(theme?: FgTheme): HighlightTheme | undefined {
 	if (!theme) return undefined;
@@ -118,6 +109,34 @@ function buildHighlightTheme(theme?: FgTheme): HighlightTheme | undefined {
 		addition: fg("toolDiffAdded"),
 		deletion: fg("toolDiffRemoved"),
 	};
+}
+
+interface CachedThemeInfo {
+	readonly key: string;
+	readonly themeObj: HighlightTheme | undefined;
+}
+
+const THEME_INFO_CACHE = new WeakMap<object, CachedThemeInfo>();
+
+function resolveThemeInfo(theme?: FgTheme): CachedThemeInfo {
+	if (!theme || typeof theme !== "object") {
+		return { key: "default", themeObj: undefined };
+	}
+	const cached = THEME_INFO_CACHE.get(theme);
+	if (cached !== undefined) return cached;
+
+	let key = "default";
+	if (theme.getFgAnsi) {
+		try {
+			key = SYNTAX_THEME_KEYS.map((k) => theme.getFgAnsi?.(k) ?? "").join("|");
+		} catch {
+			key = "default";
+		}
+	}
+	const themeObj = buildHighlightTheme(theme);
+	const info: CachedThemeInfo = { key, themeObj };
+	THEME_INFO_CACHE.set(theme, info);
+	return info;
 }
 
 const MAX_CACHED_HL_CHARS = 8 * 1024;
@@ -155,10 +174,9 @@ export function hlBlock(
 	const hljsLang = toHljsLang(language);
 	if (!hljsLang) return code.split("\n");
 
+	const themeInfo = resolveThemeInfo(theme);
 	const cacheKey =
-		code.length <= MAX_CACHED_HL_CHARS
-			? `${hljsLang}\0${highlightThemeKey(theme)}\0${code}`
-			: undefined;
+		code.length <= MAX_CACHED_HL_CHARS ? `${hljsLang}\0${themeInfo.key}\0${code}` : undefined;
 	const hit = cacheKey === undefined ? undefined : _cache.get(cacheKey);
 	if (cacheKey !== undefined && hit !== undefined) return _touch(cacheKey, hit);
 
@@ -166,12 +184,11 @@ export function hlBlock(
 	if (!hl) return code.split("\n");
 
 	try {
-		const highlightTheme = buildHighlightTheme(theme);
 		const ansi = normalizeShikiContrast(
 			hl.highlight(code, {
 				language: hljsLang,
 				ignoreIllegals: true,
-				...(highlightTheme === undefined ? {} : { theme: highlightTheme }),
+				...(themeInfo.themeObj === undefined ? {} : { theme: themeInfo.themeObj }),
 			}),
 		);
 		const out = (ansi.endsWith("\n") ? ansi.slice(0, -1) : ansi).split("\n");
