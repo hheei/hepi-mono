@@ -16,6 +16,7 @@ import {
 	TODO_TOOL_DESCRIPTION,
 	TODO_TOOL_NAME,
 } from "../../src/todo/todo.js";
+import { plainTheme } from "../fixtures/theme.js";
 
 interface RegisteredTool {
 	readonly name: string;
@@ -128,6 +129,7 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 			setStatus(key: string, text: string | undefined) {
 				statuses.push({ key, text });
 			},
+			theme: plainTheme,
 			setWidget(key: string, content: unknown, options?: unknown) {
 				widgets.push({ key, content, options });
 			},

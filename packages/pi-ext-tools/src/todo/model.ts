@@ -1,6 +1,22 @@
 export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "suppressed";
 export type AgentTaskStatus = "pending" | "in_progress" | "blocked" | "completed";
 
+/** How each status is drawn wherever a task is rendered: glyph plus semantic tone. */
+export const TASK_GLYPH: Record<TaskStatus, string> = {
+	in_progress: "◐",
+	pending: "○",
+	blocked: "⊘",
+	completed: "✓",
+	suppressed: "×",
+};
+export const TASK_TONE: Record<TaskStatus, "success" | "warning" | "dim" | "muted"> = {
+	in_progress: "warning",
+	pending: "muted",
+	blocked: "dim",
+	completed: "success",
+	suppressed: "muted",
+};
+
 export type TodoAction = "create" | "update" | "list" | "delete";
 
 export interface Task {

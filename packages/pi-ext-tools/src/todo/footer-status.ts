@@ -1,5 +1,5 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Task, TaskState, TaskStatus } from "./model.js";
+import { TASK_GLYPH, TASK_TONE, type Task, type TaskState, type TaskStatus } from "./model.js";
 
 export const TODO_STATUS_KEY = "pi-ext-tools:todo";
 export const COMPLETED_DISPLAY_DURATION_MS = 3 * 60 * 1000; // 3 minutes
@@ -27,19 +27,12 @@ function mostRecent(
 	return newest;
 }
 
-function formatTaskStatus(
-	task: Task,
-	glyph: string,
-	tone: "success" | "warning" | "dim" | "muted",
-	theme?: Theme,
-): string {
+function formatTaskStatus(task: Task, theme: Theme): string {
+	const tone = TASK_TONE[task.status];
 	const subject = task.subject.trim();
-	if (!theme) return `${glyph} #${task.id} ${subject}`;
-	const styledGlyph = theme.fg(tone, glyph);
-	const styledId = theme.fg("accent", `#${task.id}`);
 	const styledSubject =
 		tone === "dim" || tone === "success" ? theme.fg("dim", subject) : theme.fg("text", subject);
-	return `${styledGlyph} ${styledId} ${styledSubject}`;
+	return `${theme.fg(tone, TASK_GLYPH[task.status])} ${theme.fg("accent", `#${task.id}`)} ${styledSubject}`;
 }
 
 /**
@@ -52,8 +45,8 @@ function formatTaskStatus(
  */
 export function computeFooterStatus(
 	state: TaskState,
+	theme: Theme,
 	now: number = Date.now(),
-	theme?: Theme,
 ): FooterStatusDecision {
 	const inProgress = state.tasks.find((task) => task.status === "in_progress");
 	const completedDuration = inProgress
@@ -67,35 +60,35 @@ export function computeFooterStatus(
 		const blockedTime = recentBlocked.updatedAt ?? 0;
 		if (completedTime >= blockedTime) {
 			return {
-				text: formatTaskStatus(recentCompleted, "✓", "success", theme),
+				text: formatTaskStatus(recentCompleted, theme),
 				expiresAt: completedTime + COMPLETED_DISPLAY_DURATION_MS,
 			};
 		}
 		return {
-			text: formatTaskStatus(recentBlocked, "⊘", "dim", theme),
+			text: formatTaskStatus(recentBlocked, theme),
 			expiresAt: blockedTime + BLOCKED_DISPLAY_DURATION_MS,
 		};
 	}
 
 	if (recentCompleted) {
 		return {
-			text: formatTaskStatus(recentCompleted, "✓", "success", theme),
+			text: formatTaskStatus(recentCompleted, theme),
 			expiresAt: (recentCompleted.updatedAt ?? 0) + completedDuration,
 		};
 	}
 
 	if (inProgress) {
-		return { text: formatTaskStatus(inProgress, "◐", "warning", theme) };
+		return { text: formatTaskStatus(inProgress, theme) };
 	}
 
 	const pending = state.tasks.find((task) => task.status === "pending");
 	if (pending) {
-		return { text: formatTaskStatus(pending, "○", "muted", theme) };
+		return { text: formatTaskStatus(pending, theme) };
 	}
 
 	if (recentBlocked) {
 		return {
-			text: formatTaskStatus(recentBlocked, "⊘", "dim", theme),
+			text: formatTaskStatus(recentBlocked, theme),
 			expiresAt: (recentBlocked.updatedAt ?? 0) + BLOCKED_DISPLAY_DURATION_MS,
 		};
 	}
@@ -109,7 +102,7 @@ export interface TodoFooterStatusController {
 }
 
 export function createTodoFooterStatusController(
-	ui: Pick<ExtensionUIContext, "setStatus"> & { readonly theme?: Theme },
+	ui: Pick<ExtensionUIContext, "setStatus" | "theme">,
 	signal?: AbortSignal,
 	now: () => number = () => Date.now(),
 ): TodoFooterStatusController {
@@ -124,7 +117,7 @@ export function createTodoFooterStatusController(
 	/** Renders the state, and re-renders when text that is only shown for a while expires. */
 	const scheduleNext = (state: TaskState): void => {
 		clearTimer();
-		const decision = computeFooterStatus(state, now(), ui.theme);
+		const decision = computeFooterStatus(state, ui.theme, now());
 		ui.setStatus(TODO_STATUS_KEY, decision.text);
 		if (decision.expiresAt !== undefined) {
 			currentTimer = setTimeout(() => scheduleNext(state), decision.expiresAt - now());

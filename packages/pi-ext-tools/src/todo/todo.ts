@@ -17,6 +17,8 @@ import {
 	cancelTodosByUser,
 	freshTaskState,
 	isRecord,
+	TASK_GLYPH,
+	TASK_TONE,
 	type Task,
 	type TaskState,
 	type TaskStatus,
@@ -46,20 +48,6 @@ const TODO_REMINDER_CUSTOM_TYPE = "pi-ext-tools:todo:reminder";
 const TODO_STATE_CUSTOM_TYPE = "pi-ext-tools:todo:state";
 const TODO_MAX_BODY_ROWS = 8;
 
-const TASK_GLYPH: Record<TaskStatus, string> = {
-	in_progress: "◐",
-	pending: "○",
-	blocked: "⊘",
-	completed: "✓",
-	suppressed: "×",
-};
-const TASK_TONE: Record<TaskStatus, "success" | "warning" | "dim" | "muted"> = {
-	in_progress: "warning",
-	pending: "muted",
-	blocked: "dim",
-	completed: "success",
-	suppressed: "muted",
-};
 /** Body order: active work first, suppressed tasks never reach a row. */
 const TASK_RANK: Record<TaskStatus, number> = {
 	in_progress: 0,

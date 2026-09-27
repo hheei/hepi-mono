@@ -8,7 +8,7 @@ import {
 	TODO_STATUS_KEY,
 } from "../../src/todo/footer-status.js";
 import type { Task, TaskState, TaskStatus } from "../../src/todo/model.js";
-import { roleTheme } from "../fixtures/theme.js";
+import { plainTheme, roleTheme } from "../fixtures/theme.js";
 
 function task(id: number, status: TaskStatus, updatedAt: number): Task {
 	return { id, subject: `Task ${id}`, status, updatedAt };
@@ -31,6 +31,7 @@ function harness(): {
 		setStatus: vi.fn((key: string, text: string | undefined) => {
 			if (key === TODO_STATUS_KEY) statuses.push(text);
 		}),
+		theme: plainTheme,
 	};
 	let currentTime = 100_000;
 	const controller = createTodoFooterStatusController(ui, undefined, () => currentTime);
@@ -57,39 +58,49 @@ describe("todo footer-status", () => {
 
 	test("maps task state to one footer line, most urgent first", () => {
 		const now = 100_000;
-		expect(computeFooterStatus(state([]), now)).toEqual({ text: undefined });
+		expect(computeFooterStatus(state([]), plainTheme, now)).toEqual({ text: undefined });
 		expect(
-			computeFooterStatus(state([task(1, "in_progress", now), task(2, "pending", now)]), now).text,
+			computeFooterStatus(
+				state([task(1, "in_progress", now), task(2, "pending", now)]),
+				plainTheme,
+				now,
+			).text,
 		).toBe("◐ #1 Task 1");
-		expect(computeFooterStatus(state([task(2, "pending", now)]), now).text).toBe("○ #2 Task 2");
+		expect(computeFooterStatus(state([task(2, "pending", now)]), plainTheme, now).text).toBe(
+			"○ #2 Task 2",
+		);
 
 		// Each terminal state expires on its own clock.
-		const done = computeFooterStatus(state([task(1, "completed", now - 60_000)]), now);
+		const done = computeFooterStatus(state([task(1, "completed", now - 60_000)]), plainTheme, now);
 		expect(done.text).toBe("✓ #1 Task 1");
 		expect(done.expiresAt).toBe(now - 60_000 + COMPLETED_DISPLAY_DURATION_MS);
 		expect(
 			computeFooterStatus(
 				state([task(1, "completed", now - 60_000)]),
+				plainTheme,
 				now - 60_000 + COMPLETED_DISPLAY_DURATION_MS + 1,
 			).text,
 		).toBeUndefined();
 
-		const blocked = computeFooterStatus(state([task(1, "blocked", now - 5_000)]), now);
+		const blocked = computeFooterStatus(state([task(1, "blocked", now - 5_000)]), plainTheme, now);
 		expect(blocked.text).toBe("⊘ #1 Task 1");
 		expect(blocked.expiresAt).toBe(now - 5_000 + BLOCKED_DISPLAY_DURATION_MS);
 		expect(
 			computeFooterStatus(
 				state([task(1, "blocked", now - 5_000)]),
+				plainTheme,
 				now - 5_000 + BLOCKED_DISPLAY_DURATION_MS + 1,
 			).text,
 		).toBeUndefined();
 
 		// A completion with work queued behind it gets the short window, then yields to it.
 		const queued = state([task(1, "completed", now), task(2, "in_progress", now)]);
-		const recent = computeFooterStatus(queued, now + 5_000);
+		const recent = computeFooterStatus(queued, plainTheme, now + 5_000);
 		expect(recent.text).toBe("✓ #1 Task 1");
 		expect(recent.expiresAt).toBe(now + COMPLETED_WITH_SUBSEQUENT_DURATION_MS);
-		expect(computeFooterStatus(queued, now + COMPLETED_WITH_SUBSEQUENT_DURATION_MS + 1)).toEqual({
+		expect(
+			computeFooterStatus(queued, plainTheme, now + COMPLETED_WITH_SUBSEQUENT_DURATION_MS + 1),
+		).toEqual({
 			text: "◐ #2 Task 2",
 		});
 
@@ -97,12 +108,14 @@ describe("todo footer-status", () => {
 		expect(
 			computeFooterStatus(
 				state([task(1, "completed", now), task(2, "blocked", now + 2_000)]),
+				plainTheme,
 				now + 3_000,
 			).text,
 		).toBe("⊘ #2 Task 2");
 		expect(
 			computeFooterStatus(
 				state([task(1, "blocked", now), task(2, "completed", now + 2_000)]),
+				plainTheme,
 				now + 3_000,
 			).text,
 		).toBe("✓ #2 Task 2");
@@ -145,6 +158,7 @@ describe("todo footer-status", () => {
 	test("controller cleans up on dispose and abort signal", () => {
 		const mockUi = {
 			setStatus: vi.fn(),
+			theme: plainTheme,
 		};
 		const abortController = new AbortController();
 		const controller = createTodoFooterStatusController(mockUi, abortController.signal);
@@ -156,19 +170,19 @@ describe("todo footer-status", () => {
 		expect(mockUi.setStatus).toHaveBeenLastCalledWith(TODO_STATUS_KEY, undefined);
 	});
 
-	test("applies semantic theme styling when theme is provided", () => {
+	test("styles each status through the theme", () => {
 		const now = 100_000;
 
-		const inProgress = computeFooterStatus(state([task(1, "in_progress", now)]), now, roleTheme);
+		const inProgress = computeFooterStatus(state([task(1, "in_progress", now)]), roleTheme, now);
 		expect(inProgress.text).toBe("<warning>◐</warning> <accent>#1</accent> <text>Task 1</text>");
 
-		const pending = computeFooterStatus(state([task(2, "pending", now)]), now, roleTheme);
+		const pending = computeFooterStatus(state([task(2, "pending", now)]), roleTheme, now);
 		expect(pending.text).toBe("<muted>○</muted> <accent>#2</accent> <text>Task 2</text>");
 
-		const completed = computeFooterStatus(state([task(3, "completed", now)]), now, roleTheme);
+		const completed = computeFooterStatus(state([task(3, "completed", now)]), roleTheme, now);
 		expect(completed.text).toBe("<success>✓</success> <accent>#3</accent> <dim>Task 3</dim>");
 
-		const blocked = computeFooterStatus(state([task(4, "blocked", now)]), now, roleTheme);
+		const blocked = computeFooterStatus(state([task(4, "blocked", now)]), roleTheme, now);
 		expect(blocked.text).toBe("<dim>⊘</dim> <accent>#4</accent> <dim>Task 4</dim>");
 	});
 });

@@ -343,36 +343,27 @@ function findBodyLines(details: FindToolDetails): readonly FindBodyLine[] {
 		if (candidates.length === 0) continue;
 		if (lines.length > 0) lines.push({ kind: "blank", text: "" });
 		lines.push({ kind: "heading", text: `${group}:` });
-		const byDirectory = new Map<
-			string,
-			Array<{ readonly path: string; readonly matchType?: string }>
-		>();
+		const byDirectory = new Map<string, string[]>();
 		for (const candidate of candidates) {
 			const directory = parentDirectory(candidate.path);
-			if (directory !== undefined) {
-				const existing = byDirectory.get(directory);
-				if (existing !== undefined) existing.push(candidate);
-				else byDirectory.set(directory, [candidate]);
-			}
+			if (directory === undefined) continue;
+			const existing = byDirectory.get(directory);
+			if (existing === undefined) byDirectory.set(directory, [candidate.path]);
+			else existing.push(candidate.path);
 		}
 		const emittedDirectories = new Set<string>();
 		for (const candidate of candidates) {
 			const directory = parentDirectory(candidate.path);
-			const dirCandidates = directory === undefined ? undefined : byDirectory.get(directory);
-			const grouped = dirCandidates !== undefined && dirCandidates.length > 1;
-			if (directory !== undefined && grouped && emittedDirectories.has(directory)) continue;
-			if (directory !== undefined && grouped && dirCandidates !== undefined) {
-				emittedDirectories.add(directory);
-				lines.push({ kind: "directory", text: `${directory}/` });
-				for (const groupedCandidate of dirCandidates) {
-					lines.push({
-						kind: "path",
-						text: groupedCandidate.path.slice(directory.length + 1),
-					});
-				}
+			const grouped = directory === undefined ? undefined : byDirectory.get(directory);
+			if (directory === undefined || grouped === undefined || grouped.length <= 1) {
+				lines.push({ kind: "path", text: candidate.path });
 				continue;
 			}
-			lines.push({ kind: "path", text: candidate.path });
+			if (emittedDirectories.has(directory)) continue;
+			emittedDirectories.add(directory);
+			lines.push({ kind: "directory", text: `${directory}/` });
+			for (const path of grouped)
+				lines.push({ kind: "path", text: path.slice(directory.length + 1) });
 		}
 	}
 	return lines;
