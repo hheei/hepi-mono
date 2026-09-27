@@ -9,6 +9,7 @@ import {
 	type LoadoutResourceMetadata,
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
+import { fitRow } from "../row-fit.js";
 import type { LoadoutEngine } from "./engine.js";
 import {
 	type LoadoutConfiguration,
@@ -411,11 +412,11 @@ export function createLoadoutPage(
 				const summaryWidth = Math.max(1, listWidth - nameWidth - 5);
 				const visibleEntries = allEntries.slice(scrollTop, scrollTop + VISIBLE_ROWS);
 				const list = [
-					theme.fg("muted", truncateToWidth(scopeLabel(scope, context.command.cwd), listWidth)),
+					theme.fg("muted", fitRow(scopeLabel(scope, context.command.cwd), listWidth)),
 					// Reserve one cell after the query so a full search does not touch the list boundary.
 					`> ${truncateToWidth(search || "_", Math.max(0, listWidth - 3))} `,
 					...visibleEntries.map((entry) => {
-						if (entry.kind === "group") return theme.bold(truncateToWidth(entry.label, listWidth));
+						if (entry.kind === "group") return theme.bold(fitRow(entry.label, listWidth));
 						const item = entry.item;
 						const status = selectionGlyph(rawSelection(item, scope, configuration));
 						const selectedRow = item.key === selectedItem()?.key;
@@ -429,7 +430,7 @@ export function createLoadoutPage(
 								: theme.fg("dim", " ↵");
 						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.summary, summaryWidth)}${detailHint}`;
 						const styled = selectedRow ? theme.fg("accent", theme.bold(plain)) : plain;
-						return truncateToWidth(styled, listWidth);
+						return fitRow(styled, listWidth);
 					}),
 				];
 				// Fill the viewport, then pin interaction hints to the final panel row.
@@ -487,13 +488,13 @@ export function createLoadoutPage(
 					activeDetail !== undefined
 						? [...header, "", ...activeDetail.render(wide ? descriptionWidth : width)]
 						: [...header];
-				if (!wide) return [...list, "", ...body].map((line) => truncateToWidth(line, width));
+				if (!wide) return [...list, "", ...body].map((line) => fitRow(line, width));
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(allEntries.length, scrollTop, theme);
 				return Array.from({ length: PANEL_ROWS }, (_, index) => {
 					const lane = body[index] ?? "";
-					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
-					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(lane, descriptionWidth)}`;
+					const left = pad(fitRow(list[index] ?? "", listWidth), listWidth);
+					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${fitRow(lane, descriptionWidth)}`;
 				});
 			},
 			handleInput(): void {},

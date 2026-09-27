@@ -53,7 +53,20 @@ const WRITE_PARAMETERS = Type.Object(
 
 type WriteDefinition = ReturnType<typeof createWriteToolDefinition>;
 type WriteArgs = Static<typeof WRITE_PARAMETERS>;
-type WriteState = Record<string, never>;
+type WriteState = { targetExists?: { readonly path: string; readonly exists: boolean } };
+
+/**
+ * `renderCall` reruns on every streamed argument update and `existsSync` is a
+ * synchronous syscall. The answer cannot change before this write runs, so the
+ * row's renderer state keeps it for the row's lifetime.
+ */
+function writeTargetExists(state: WriteState, cwd: string, path: string): boolean {
+	const cached = state.targetExists;
+	if (cached !== undefined && cached.path === path) return cached.exists;
+	const exists = existsSync(resolvePath(cwd, path));
+	state.targetExists = { path, exists };
+	return exists;
+}
 
 type WriteView =
 	| {
@@ -361,7 +374,7 @@ export function registerWriteTool(
 			if (
 				content === "" ||
 				(args.target !== undefined && args.target !== "local") ||
-				existsSync(resolvePath(context.cwd, path))
+				writeTargetExists(context.state, context.cwd, path)
 			)
 				return new Container();
 			return new LinesBody(() => previewLines(content, lang(path), theme, context.expanded));
