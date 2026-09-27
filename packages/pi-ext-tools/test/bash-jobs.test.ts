@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type {
 	ExtensionAPI,
@@ -98,15 +102,45 @@ test("retains bounded combined output and reports completion", async (): Promise
 	expect(Buffer.byteLength(completed.output)).toBeLessThanOrEqual(MAX_JOB_OUTPUT);
 });
 
-test("stops an owned process group", async (): Promise<void> => {
-	const registry = jobRegistry();
-	const started = registry.start({ command: "sleep 10", cwd: process.cwd() });
-	const stopped = registry.stop(started.id);
-	expect(stopped?.status).toBe("stopped");
-	await eventually(
-		() => registry.get(started.id),
-		(job) => job.status === "stopped",
-	);
+test("stops an owned process group, not just the job shell", async (): Promise<void> => {
+	const dir = await mkdtemp(join(tmpdir(), "hepi-bash-jobs-"));
+	const pidFile = join(dir, "descendant.pid");
+	const readDescendant = (): number => {
+		try {
+			return Number(readFileSync(pidFile, "utf8"));
+		} catch {
+			return Number.NaN;
+		}
+	};
+	const isAlive = (pid: number): boolean => {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	try {
+		const registry = jobRegistry();
+		const started = registry.start({
+			command: `sleep 30 & echo $! > ${pidFile}; sleep 30`,
+			cwd: process.cwd(),
+		});
+		const descendant = await eventually(readDescendant, (pid) => Number.isInteger(pid) && pid > 0);
+		expect(isAlive(descendant)).toBe(true);
+		const stopped = registry.stop(started.id);
+		expect(stopped?.status).toBe("stopped");
+		await eventually(
+			() => registry.get(started.id),
+			(job) => job.status === "stopped",
+		);
+		await eventually(
+			() => isAlive(descendant),
+			(alive) => !alive,
+		);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test("honors an async timeout", async (): Promise<void> => {

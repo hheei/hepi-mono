@@ -183,6 +183,11 @@ Task-control 契约（`src/tasks/registry.ts`）是唯一的状态源：
 `stop_tasks({ ids })`。单任务操作使用单元素 `ids` 数组。`wait_tasks` 是一个 barrier：只在下一步确实需要结果时调用；
 host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 只发出取消请求，最终状态仍由一致路径的 completion delivery 报告。
 
+停止一个后台 job 会终止**整棵进程树**，而不只是 job 的 shell：POSIX 上 job 以 `detached` 启动、自成进程组，
+先给进程组 `SIGTERM`，250ms 后仍未退出则升级为 `SIGKILL`；Windows 没有进程组，`child.kill()` 只能结束 `cmd.exe`
+并把它的子进程变成孤儿，因此直接调用 `taskkill /F /T /PID <pid>` 收树（Windows 上没有“先温柔再升级”这一步：
+一旦 shell 先死，`taskkill` 依赖的父子链就断了）。
+
 三个管控工具按需注入：它们始终注册（Host 需要知道它们存在），但 session 开始时 `pi-ext-tools` 会真实停用
 它们一次（Host 会以 `includeAllExtensionTools` 激活全部 extension 工具，`/tree` 还会按 transcript 恢复），
 只有会话产生第一个后台任务时才激活（显式 `async: true`、60s auto-async 晋升，或未来本 package 内其他

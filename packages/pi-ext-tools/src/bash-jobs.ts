@@ -1,7 +1,39 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { join } from "node:path";
 import { BashOutputSink } from "./bash-output.js";
 
 export const MAX_JOB_OUTPUT = 1024 * 1024;
+
+/**
+ * Signals a whole job tree, not just its shell.
+ *
+ * A stopped POSIX job is a process group, so the group signal reaches every descendant. Windows has
+ * no process groups: `child.kill()` terminates `cmd.exe` and orphans everything it started, which is
+ * why the tree goes through `taskkill`. There is no graceful step to try first there, because
+ * terminating the shell is what breaks the parent chain `taskkill` walks.
+ */
+function killProcessTree(pid: number): void {
+	if (process.platform !== "win32") {
+		try {
+			process.kill(-pid, "SIGKILL");
+		} catch {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {
+				// Both the group and the shell are already gone.
+			}
+		}
+		return;
+	}
+	const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+	const killer = spawn(taskkill, ["/F", "/T", "/PID", String(pid)], {
+		stdio: "ignore",
+		detached: true,
+		windowsHide: true,
+	});
+	// A failed spawn reports asynchronously; consume it so it cannot crash the session.
+	killer.once("error", () => {});
+}
 
 export interface BashJobRequest {
 	readonly command: string;
@@ -182,20 +214,20 @@ export class BashJobRegistry {
 		const child = job.process;
 		clearTimeout(job.timeout);
 		if (child && !child.killed) {
-			if (process.platform !== "win32" && child.pid)
+			const pid = child.pid;
+			if (process.platform === "win32") {
+				if (pid === undefined) child.kill();
+				else killProcessTree(pid);
+			} else if (pid === undefined) {
+				child.kill();
+			} else {
 				try {
-					process.kill(-child.pid, "SIGTERM");
+					process.kill(-pid, "SIGTERM");
 				} catch {}
-			else child.kill();
-			setTimeout(() => {
-				if (child.exitCode === null) {
-					try {
-						if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-					} catch {
-						child.kill("SIGKILL");
-					}
-				}
-			}, 250).unref();
+				setTimeout(() => {
+					if (child.exitCode === null) killProcessTree(pid);
+				}, 250).unref();
+			}
 		}
 		return snapshot(job);
 	}
