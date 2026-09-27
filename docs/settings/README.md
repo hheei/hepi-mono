@@ -4,16 +4,16 @@
 
 `pi-settings` 是 `/ext-settings [page-id]` 宿主。它让安装的 HEPI extension 在同一 Pi custom
 surface 中提供设置页面；它不拥有其他 concrete extension 的 schema 或业务状态。它还拥有 Loadout
-activation policy，并提供 `/loadout` 直接入口，打开同一 router 并初始选中 Loadout。
+activation policy，`/ext-settings loadout` 以 Loadout 为 initial page 打开同一 router。
 
 第一份页面是 `pi-settings` 提供的 `Loadout`。它编辑工具与技能的 activation delta，但不会在当前
 session hot-apply；用户在关闭 Settings 后自行 `/reload`。
 
 ## 包与宿主边界
 
-- `pi-settings` 打开 core Extension page router、拥有 `/ext-settings`、`/loadout`、surface 生命周期、
+- `pi-settings` 打开 core Extension page router、拥有 `/ext-settings [page-id]`、surface 生命周期、
   Loadout policy、Loadout page 与退出通知；
-- `/loadout` 只决定 initial page 为 Loadout，绝不复制 Settings/Loadout renderer；
+- `/ext-settings loadout` 只决定 initial page 为 Loadout，绝不复制 Settings/Loadout renderer；
 - `pi-ext-core` 只拥有 router tabs、page close coordination、page minimum height，以及 core-managed editor
   widget 的注册和 suspension；
 - concrete extension 不互相 import。page 通过 core runtime registry 动态加入 router。

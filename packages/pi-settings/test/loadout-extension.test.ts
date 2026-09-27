@@ -43,7 +43,7 @@ test("removes an empty available-skills prompt section", () => {
 	expect(filtered).toBe("Before\nAfter");
 });
 
-test("registers /loadout and rejects unavailable command contexts", async () => {
+test("registers /ext-settings only and rejects unavailable command contexts", async () => {
 	const commands = new Map<string, CommandHandler>();
 	const pi = {
 		events: {},
@@ -53,27 +53,27 @@ test("registers /loadout and rejects unavailable command contexts", async () => 
 		},
 	} as unknown as ExtensionAPI;
 	piSettingsExtension(pi);
-	expect([...commands.keys()]).toEqual(["ext-settings", "loadout"]);
-	const loadout = commands.get("loadout");
+	// Loadout is reached as a page id (`/ext-settings loadout`), not as a second command.
+	expect([...commands.keys()]).toEqual(["ext-settings"]);
 	const settings = commands.get("ext-settings");
-	expect(loadout).toBeDefined();
 	expect(settings).toBeDefined();
 
 	const notices: Array<{ readonly message: string; readonly level?: string }> = [];
 	const notify = (message: string, level?: string): void => {
 		notices.push(level === undefined ? { message } : { message, level });
 	};
-	await loadout?.("", { mode: "print", ui: { notify } } as unknown as ExtensionCommandContext);
-	await loadout?.("", { mode: "tui", ui: { notify } } as unknown as ExtensionCommandContext);
 	await settings?.("loadout", {
 		mode: "print",
 		ui: { notify },
 	} as unknown as ExtensionCommandContext);
+	await settings?.("loadout", {
+		mode: "tui",
+		ui: { notify },
+	} as unknown as ExtensionCommandContext);
 	await settings?.("", { mode: "tui", ui: { notify } } as unknown as ExtensionCommandContext);
 	expect(notices).toEqual([
-		{ message: "/loadout requires TUI mode.", level: "warning" },
-		{ message: "Loadout is not active for this session.", level: "warning" },
 		{ message: "/ext-settings requires TUI mode.", level: "warning" },
+		{ message: "Settings are not active for this session.", level: "warning" },
 		{ message: "Settings are not active for this session.", level: "warning" },
 	]);
 });
