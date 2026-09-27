@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
 import { testModel } from "./fixtures/model.js";
+import { newConfiguredRuntime } from "./fixtures/runtime.js";
 
 /**
  * Regression coverage for providers that authenticate at request time.
@@ -83,8 +84,7 @@ const bedrockModel = testModel({
 
 describe("resolveModel with request-time-signed providers", () => {
 	it("resolves when pi reports a credential source but hands over nothing to attach", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		const registry = ambientCredentialRegistry();
 		// Guard the premise: if pi's facade ever stops reporting this shape, fail here
@@ -111,8 +111,7 @@ describe("resolveModel with request-time-signed providers", () => {
 	});
 
 	it("still fails when pi reports no credential source for the provider", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		const result = await runtime.resolveModel({
 			model: bedrockModel,
@@ -126,8 +125,7 @@ describe("resolveModel with request-time-signed providers", () => {
 	});
 
 	it("still fails for OAuth providers whose credentials no longer resolve", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		const result = await runtime.resolveModel({
 			model: testModel({ provider: "openai-codex", id: "gpt-5-codex" }),
@@ -140,8 +138,7 @@ describe("resolveModel with request-time-signed providers", () => {
 	});
 
 	it("still fails when a stored credential exists but resolves to an empty key", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		const result = await runtime.resolveModel({
 			model: testModel({ provider: "xai", id: "grok-4" }),
@@ -158,8 +155,7 @@ describe("resolveModel with request-time-signed providers", () => {
 		// The blunt version of this fix (accept any ok:true with nothing to carry) let
 		// every unauthenticated provider through. `hasConfiguredAuth` is what separates
 		// "pi signs this itself" from "pi has nothing at all".
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		for (const hasConfiguredAuth of [false, undefined]) {
 			const result = await runtime.resolveModel({
@@ -233,8 +229,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	}
 
 	it("re-checks live and accepts when the snapshot was merely stale", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const { registry, recoveries } = staleSnapshotFacade({ recovers: true });
 
 		const result = await runtime.resolveModel({
@@ -250,8 +245,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	it("asks for a scoped, network-free re-check", async () => {
 		// Asserted against a plain registry double, because only pi >= 0.84 forwards these
 		// options at all — on 0.81 the facade drops them before the runtime sees them.
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const calls: (ModelsRefreshOptions | undefined)[] = [];
 		let configured = false;
 		const result = await runtime.resolveModel({
@@ -276,8 +270,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	});
 
 	it("still rejects when the live re-check confirms the provider is unconfigured", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const { registry, recoveries } = staleSnapshotFacade({ recovers: false });
 
 		const result = await runtime.resolveModel({
@@ -291,8 +284,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	});
 
 	it("rate-limits the re-check so an unauthenticated host pays it once, not per consolidation", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const { registry, recoveries } = staleSnapshotFacade({ recovers: false });
 
 		for (let i = 0; i < 3; i++) {
@@ -303,8 +295,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	});
 
 	it("does not re-check when auth is already usable", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const { registry, recoveries } = staleSnapshotFacade({ recovers: true });
 		registry.getApiKeyAndHeaders = async () => ({ ok: true, apiKey: "sk-live" });
 
@@ -319,8 +310,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	});
 
 	it("does not re-check OAuth providers — an empty resolution there means expired", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		const { registry, recoveries } = staleSnapshotFacade({ recovers: true });
 		registry.isUsingOAuth = () => true;
 
@@ -335,8 +325,7 @@ describe("resolveModel with a stale availability snapshot", () => {
 	});
 
 	it("survives a registry with no refresh(), and a refresh that throws", async () => {
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 
 		const noRefresh: ModelRegistryLike = {
 			find: () => undefined,

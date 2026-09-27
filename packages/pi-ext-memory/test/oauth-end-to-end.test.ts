@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULTS } from "../src/config.js";
 import { registerConsolidationTrigger } from "../src/hooks/consolidation-trigger.js";
-import { Runtime } from "../src/runtime.js";
+import {} from "../src/runtime.js";
 import { OM_OBSERVATIONS_RECORDED } from "../src/session-ledger/index.js";
+import { newConfiguredRuntime } from "./fixtures/runtime.js";
 import { textCustomMessage } from "./fixtures/session.js";
 
 /**
@@ -185,8 +186,7 @@ describe("OAuth provider end-to-end consolidation", () => {
 			}),
 		};
 
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		runtime.config = {
 			...DEFAULTS,
 			observeAfterTokens: 1,
@@ -260,8 +260,7 @@ describe("OAuth provider end-to-end consolidation", () => {
 			}),
 		};
 
-		const runtime = new Runtime();
-		runtime.configLoaded = true;
+		const runtime = newConfiguredRuntime();
 		runtime.config = {
 			...DEFAULTS,
 			observeAfterTokens: 1,
