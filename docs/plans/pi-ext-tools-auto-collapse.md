@@ -104,7 +104,7 @@ interface ToolTui {
 
 **架構精簡原則（遵循 AGENTS.md）**：
 - **不引入推測性抽象**：刪除原計劃中的 `owner: symbol`。`ToolTui` 在 session 內單純由 `pi-ext-tools` 配置與使用，直接提供 `setToolCollapseMode(mode)` 即可，不增加無呼叫方的多權限防護包裝。
-- **不污染 Core 通用 Presentation**：刪除原計劃中的 `singleLineHeader`。`bash` 長指令換行規整（`\r?\n` 轉空格）與寬度截斷（`truncateToWidth`）是 `bash` 自身 header formatter 的具體責任，core 保持中立。
+- **不污染 Core 通用 Presentation**：原計劃中的 `singleLineHeader` 改為通用欄位 `headerLine: "wrap" | "truncate"`（預設 `wrap`），由需要它的工具自己選擇；`bash` 因為 body 只渲染 output、無法還原 command，選用 `truncate`。core 仍然不硬編碼任何具體工具名稱。
 - `longOutput: true`：明確標記該工具參與自動摺疊策略；core 不硬編碼任何具體工具名稱。
 
 ### 3.2 狀態機、Timer 與串流抑制
@@ -176,10 +176,13 @@ otherwise                 -> historical || timerCollapsed
 
 ### 3.4 bash 長指令 Header 的具體實現
 
-`bash` 的 header 由 `tool-tui.ts` 既有的 bash 分支產生（該分支已擁有 command 內容），在此將多行 command 的
-換行符號（`\r?\n`）統一替換為單個空格，使 header 永遠只是一個 logical line，不再隨 command 行數增加 frame
-高度。超過 terminal width 的長指令仍依共享的 header rule 由 Pi `Text` 自動換行，並在 collapsed 狀態以 dim
-`…` 截斷；本次不新增 core 專用 flag，也不改變其他工具的 header 換行契約。
+`bash` 的 header 由 `tool-tui.ts` 既有的 bash 分支產生（該分支已擁有 command 內容）：
+
+- 多行 command 的換行符號（`\r?\n`）會以 `; ` 串接成單一 logical line，讓讀者仍能分辨原本的行邊界；行尾是 `\`
+  續行或已是 `;` 時不重複插入分隔符。
+- `bash` 在 `frame()` 中聲明 `headerLine: "truncate"`，因此超寬 command 由 `singleLineHeader()` 以 dim `…` 截斷，
+  header 永遠佔用一行；timeout suffix 會預留寬度而保持可見。
+- 其他工具不聲明 `headerLine`，維持既有「未折疊 header 會換行」契約，`grep` 的 path 在窄終端仍完整可見。
 
 ### 3.5 Settings 整合
 
@@ -279,14 +282,17 @@ otherwise                 -> historical || timerCollapsed
 - `off` 模式下停用所有外層 frame 自動折疊，長輸出保持在畫面中（遵守既有 `maxBodyLines` cap）。
 - 快捷鍵全域展開（Ctrl+O）在所有模式下均可強制展開完整內容，不受自動折疊政策覆蓋。
 - 所有定時器在 session 重置、切換分支、重載或中止時徹底清除，無未決資源洩漏。
-- `bash` 的多行指令在所有狀態下均壓為單一 logical header line，不隨 command 行數增加 frame 高度；超寬內容依共享 header rule 換行，collapsed 時以 dim `…` 截斷。
+- `bash` 的多行指令在所有狀態下均壓為單一 logical header line（換行以 `; ` 表示），長度超過終端寬度時以 dim `…` 截斷，永遠不換行、不隨 command 行數或長度增加 frame 高度。
 
 ## 7. 實作結果備註
 
-實作與本計畫一致的差異有以下兩點，均已反映在上文：
+實作與本計畫最終一致的差異如下，均已反映在上文：
 
 1. **bash header 收斂位置**：計畫原本把換行規整放在 `bash.ts` 的 header formatter。實際上 header 內容由
-   `tool-tui.ts` 既有的 bash 分支產生（`bash.ts` 只提供 `longOutput` 標記），因此規整留在該分支，不新增
-   core 專用 flag，也不改變其他工具的「未收合 header 會換行」既有契約。
-2. **設定生效時機**：除 session 啟動與 `/reload` 讀取保存值外，`SettingsProvider.onChange` 會立即呼叫
+   `tool-tui.ts` 既有的 bash 分支產生（`bash.ts` 只提供 `longOutput` 與 `headerLine` 標記），因此規整留在該分支，
+   其他工具的「未折合 header 會換行」既有契約不變。
+2. **換行以 `; ` 表示**：單純用空格串接會失去原本的行邊界，改用 `; `，並在行尾已是 `\` 或 `;` 時不重複插入。
+3. **`headerLine` 欄位**：計畫曾刪除 `singleLineHeader`，最終以通用選項 `headerLine: "wrap" | "truncate"` 加回，
+   `bash` 選用 `truncate`，讓整個 frame 永遠只佔 header 一行。
+4. **設定生效時機**：除 session 啟動與 `/reload` 讀取保存值外，`SettingsProvider.onChange` 會立即呼叫
    `setToolCollapseMode`，讓設定面板存檔後即時生效。

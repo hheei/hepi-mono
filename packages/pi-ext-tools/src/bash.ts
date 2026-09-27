@@ -552,6 +552,8 @@ export function registerBashTool(
 		tui.frame(tool, {
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			longOutput: true,
+			// The body renders output only, so a wrapped command would be unrecoverable.
+			headerLine: "truncate",
 			footer: (result, completion, options) =>
 				options.isPartial ? undefined : bashFooter(result, completion),
 			warning: bashResultWarning,

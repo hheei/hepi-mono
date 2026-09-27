@@ -392,7 +392,7 @@ describe("ToolTui", () => {
 		expect(historical).toContain("…");
 	});
 
-	test("flattens a multi-line bash command into the header line", (): void => {
+	test("flattens a multi-line bash command into one header line", (): void => {
 		const tui = createToolTui();
 		const framed = tui.frame({ ...tool(false), name: "bash", label: "bash" });
 		const lines =
@@ -401,7 +401,38 @@ describe("ToolTui", () => {
 				.render(200)
 				.map((line) => line.trimEnd()) ?? [];
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toContain("first line second line third line");
+		expect(lines[0]).toContain("first line; second line; third line");
+	});
+
+	test("joins a continued bash line without a stray separator", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({ ...tool(false), name: "bash", label: "bash" });
+		const header = framed
+			.renderCall?.(
+				{ command: "ffmpeg -i in.mp4 \\\n  -c:v libx264 \\\n  out.mp4\nrm -f out.mp4" },
+				theme,
+				context(true),
+			)
+			.render(200)
+			.join("");
+		expect(header).toContain("ffmpeg -i in.mp4 -c:v libx264 out.mp4; rm -f out.mp4");
+	});
+
+	test("truncates a header that opted out of wrapping", (): void => {
+		const tui = createToolTui();
+		const wrapping = tui.frame({ ...tool(false), name: "bash", label: "bash" });
+		const truncated = tui.frame(
+			{ ...tool(false), name: "bash", label: "bash" },
+			{ headerLine: "truncate" },
+		);
+		const args = { command: "echo one; echo two; echo three; echo four; echo five" };
+		const wide = wrapping.renderCall?.(args, theme, context(true)).render(40) ?? [];
+		const narrow = truncated.renderCall?.(args, theme, context(true)).render(40) ?? [];
+		expect(wide.length).toBeGreaterThan(1);
+		expect(wide.join("")).toContain("echo five");
+		expect(narrow).toHaveLength(1);
+		expect(narrow[0]).toContain("…");
+		expect(narrow[0]).not.toContain("echo five");
 	});
 
 	test("derives all four body layouts from rendered lines and typed footer", (): void => {
