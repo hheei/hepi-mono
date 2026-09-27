@@ -188,12 +188,27 @@ function contextualOperation(
 			end,
 		)}`,
 		language,
-		editLine: file.slice(0, index).split("\n").length,
-		startLine: file.slice(0, start).split("\n").length,
+		editLine: lineNumberAt(file, index),
+		startLine: lineNumberAt(file, start),
 	};
 }
 
+function lineNumberAt(text: string, index: number): number {
+	let line = 1;
+	const limit = Math.min(index, text.length);
+	for (let i = 0; i < limit; i++) {
+		if (text.charCodeAt(i) === 10) line += 1;
+	}
+	return line;
+}
+
 function resultText(result: AgentToolResult<unknown>): string {
+	if (result.content.length === 1) {
+		const first = result.content[0];
+		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
+			return (first as { text: string }).text;
+		}
+	}
 	return result.content
 		.filter((part) => part.type === "text")
 		.map((part) => part.text)

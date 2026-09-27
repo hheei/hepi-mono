@@ -122,19 +122,33 @@ function readTextIfSmall(path: string): { exists: boolean; text?: string } {
 	}
 }
 
-function trimTrailingEmptyLines(lines: readonly string[]): string[] {
-	let end = lines.length;
-	while (end > 0 && lines[end - 1] === "") end -= 1;
-	return lines.slice(0, end);
+function countContentLines(content: string): number {
+	let len = content.length;
+	while (len > 0) {
+		const c = content.charCodeAt(len - 1);
+		if (c === 10 || c === 13) len -= 1;
+		else break;
+	}
+	if (len === 0) return 0;
+	let count = 1;
+	for (let i = 0; i < len; i++) {
+		if (content.charCodeAt(i) === 10) count += 1;
+	}
+	return count;
 }
 
 function writeMetrics(args: WriteArgs): { bytes: number; lines: number } | undefined {
 	if (typeof args.content !== "string") return undefined;
-	const normalizedLines = trimTrailingEmptyLines(args.content.replace(/\r/g, "").split("\n"));
-	return { bytes: Buffer.byteLength(args.content), lines: normalizedLines.length };
+	return { bytes: Buffer.byteLength(args.content), lines: countContentLines(args.content) };
 }
 
 function resultText(result: AgentToolResult<unknown>): string {
+	if (result.content.length === 1) {
+		const first = result.content[0];
+		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
+			return (first as { text: string }).text;
+		}
+	}
 	return result.content
 		.filter((part) => part.type === "text")
 		.map((part) => part.text)

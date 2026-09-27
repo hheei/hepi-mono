@@ -330,6 +330,12 @@ function defaultFooter(completion: ToolCompletion | undefined, isError: boolean)
 }
 
 function resultText(result: AgentToolResult<unknown>): string {
+	if (result.content.length === 1) {
+		const first = result.content[0];
+		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
+			return (first as { text: string }).text;
+		}
+	}
 	return result.content
 		.flatMap((part) => (part.type === "text" && typeof part.text === "string" ? [part.text] : []))
 		.join("\n");

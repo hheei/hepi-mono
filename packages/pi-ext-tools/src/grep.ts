@@ -400,12 +400,7 @@ function compactPath(path: string): string {
 	return `…/${tail}`;
 }
 
-function pathRelativeToSearch(
-	eventPath: string,
-	searchPath: string | undefined,
-	cwd: string,
-): string {
-	const from = resolve(cwd, searchPath?.trim() ? searchPath.trim() : ".");
+function pathRelativeToSearch(eventPath: string, from: string, cwd: string): string {
 	const rel = relative(from, resolve(cwd, eventPath)).split(sep).join("/");
 	if (rel === "" || rel === ".") return "";
 	if (rel === ".." || rel.startsWith("../")) return eventPath.replaceAll("\\", "/");
@@ -485,6 +480,7 @@ function compactOutput(
 		else groups.set(event.path, [event]);
 	}
 	let shown = 0;
+	const searchFrom = resolve(cwd, searchPath?.trim() ? searchPath.trim() : ".");
 	const entries = [...groups.entries()];
 	for (let fileIndex = 0; fileIndex < entries.length; fileIndex += 1) {
 		const [path, events] = entries[fileIndex] ?? [];
@@ -504,16 +500,19 @@ function compactOutput(
 		const allowed = Math.min(MAX_MATCHES_PER_FILE, MAX_DISPLAY_MATCHES - shown);
 		const visibleMatches = matches.slice(0, allowed);
 		if (visibleMatches.length === 0) continue;
-		const heading = compactPath(pathRelativeToSearch(path, searchPath, cwd));
+		const heading = compactPath(pathRelativeToSearch(path, searchFrom, cwd));
 		if (heading !== "") display.push({ type: "path", text: heading });
 		const matchSet = new Set(visibleMatches);
-		const visibleLines = new Set(
-			visibleMatches.flatMap((match) =>
-				events
-					.filter((event) => Math.abs(event.lineNumber - match.lineNumber) <= context)
-					.map((event) => event.lineNumber),
-			),
-		);
+		const matchLineNumbers = visibleMatches.map((match) => match.lineNumber);
+		const visibleLines = new Set<number>();
+		for (const event of events) {
+			for (const lineNumber of matchLineNumbers) {
+				if (Math.abs(lineNumber - event.lineNumber) <= context) {
+					visibleLines.add(event.lineNumber);
+					break;
+				}
+			}
+		}
 		for (const event of events) {
 			if (event.type === "match" ? matchSet.has(event) : visibleLines.has(event.lineNumber))
 				display.push(displayEvent(event));
