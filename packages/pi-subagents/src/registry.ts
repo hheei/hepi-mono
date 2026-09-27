@@ -70,7 +70,7 @@ export interface SubagentRegistry {
 	 */
 	update(
 		id: string,
-		expectedRevision: number,
+		expectedRevision: number | undefined,
 		updater: (record: SubagentRecord) => SubagentRecord,
 		expectedRuntimeIdentity?: string,
 		signal?: AbortSignal,
@@ -99,6 +99,7 @@ export interface SubagentRegistry {
 		id: string,
 		claimId: string,
 		controllerTokenHash: string,
+		expectedRuntimeIdentity?: string,
 		signal?: AbortSignal,
 	): Promise<SubagentRecord>;
 	releaseClaim(id: string, claimId: string, signal?: AbortSignal): Promise<SubagentRecord>;
@@ -633,7 +634,7 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 					if (current === undefined) {
 						throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
 					}
-					if (current.revision !== expectedRevision) {
+					if (expectedRevision !== undefined && current.revision !== expectedRevision) {
 						throw new SubagentRegistryError(
 							"stale_revision",
 							`Child ${id} is at revision ${current.revision}, not ${expectedRevision}`,
@@ -711,14 +712,14 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			);
 		},
 		async markClaimRunner(id, claimId, runnerPid, signal) {
-			const current = await store.get(id, signal);
-			if (current === undefined)
-				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
 			return store.update(
 				id,
-				current.revision,
+				undefined,
 				(value) => {
 					if (value.claim?.claimId !== claimId || value.claim.kind !== "replacement") {
+						if (value.runtime?.pid === runnerPid && value.claim === undefined) {
+							return value;
+						}
 						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);
 					}
 					return { ...value, claim: { ...value.claim, runnerPid } };
@@ -728,12 +729,9 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			);
 		},
 		async activateClaim(id, claimId, runnerPid, signal) {
-			const current = await store.get(id, signal);
-			if (current === undefined)
-				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
 			return store.update(
 				id,
-				current.revision,
+				undefined,
 				(value) => {
 					const claim = value.claim;
 					if (
@@ -761,13 +759,10 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 				signal,
 			);
 		},
-		async consumeReconnectClaim(id, claimId, controllerTokenHash, signal) {
-			const current = await store.get(id, signal);
-			if (current === undefined)
-				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+		async consumeReconnectClaim(id, claimId, controllerTokenHash, expectedRuntimeIdentity, signal) {
 			return store.update(
 				id,
-				current.revision,
+				undefined,
 				(value) => {
 					const claim = value.claim;
 					if (
@@ -775,6 +770,8 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 						claim.kind !== "reconnect" ||
 						claim.controllerTokenHash !== controllerTokenHash ||
 						value.runtime?.runtimeIdentity !== claim.runtimeIdentity ||
+						(expectedRuntimeIdentity !== undefined &&
+							claim.runtimeIdentity !== expectedRuntimeIdentity) ||
 						value.intent === "stopped"
 					) {
 						throw new SubagentRegistryError(
@@ -785,17 +782,14 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 					const { claim: _claim, ...withoutClaim } = value;
 					return withoutClaim;
 				},
-				current.runtime?.runtimeIdentity,
+				expectedRuntimeIdentity,
 				signal,
 			);
 		},
 		async releaseClaim(id, claimId, signal) {
-			const current = await store.get(id, signal);
-			if (current === undefined)
-				throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
 			return store.update(
 				id,
-				current.revision,
+				undefined,
 				(value) => {
 					if (value.claim?.claimId !== claimId) {
 						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);

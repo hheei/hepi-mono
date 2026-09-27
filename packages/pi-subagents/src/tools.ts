@@ -12,7 +12,10 @@ import type { SubagentManager } from "./manager.js";
 
 const spawnSchema = Type.Object({
 	task: Type.String({ minLength: 1 }),
-	agent: Type.String({ minLength: 1 }),
+	agent: Type.String({
+		minLength: 1,
+		description: "Name of an agent defined in .pi/agents/*.md or ~/.pi/agent/agents/*.md",
+	}),
 	cwd: Type.Optional(Type.String()),
 });
 const sendSchema = Type.Object({

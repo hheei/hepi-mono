@@ -322,7 +322,20 @@ test("serializes runtime claims and consumes a reconnect token once", async (): 
 		await expect(
 			store.consumeReconnectClaim("sa_claim", winner.claimId, "f".repeat(64)),
 		).rejects.toMatchObject({ code: "claim_mismatch" });
-		await store.consumeReconnectClaim("sa_claim", winner.claimId, winner.controllerTokenHash);
+		await expect(
+			store.consumeReconnectClaim(
+				"sa_claim",
+				winner.claimId,
+				winner.controllerTokenHash,
+				"wrong-runtime-id",
+			),
+		).rejects.toMatchObject({ code: "runtime_mismatch" });
+		await store.consumeReconnectClaim(
+			"sa_claim",
+			winner.claimId,
+			winner.controllerTokenHash,
+			"runtime-1",
+		);
 		expect((await store.get("sa_claim"))?.claim).toBeUndefined();
 	});
 });
@@ -388,5 +401,42 @@ test("defaults missing launchConfig.interactive to false and rejects non-boolean
 		await expect(registry(path).list()).rejects.toThrow(
 			/launchConfig.interactive must be boolean/u,
 		);
+	});
+});
+
+test("supports atomic updates with undefined expectedRevision and tolerates revision changes during mark/activate", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const path = join(directory, "registry.json");
+		const store = registry(path);
+		const cwd = join(directory, "work");
+		await store.create(record("sa_atomic", cwd));
+		const updated = await store.update("sa_atomic", undefined, (current) => ({
+			...current,
+			state: "running",
+		}));
+		expect(updated.revision).toBe(2);
+		expect(updated.state).toBe("running");
+
+		const claimed = await store.claim("sa_atomic", 2, {
+			claimId: "claim-atomic",
+			kind: "replacement",
+			holderPid: process.pid,
+			runtimeIdentity: "runtime-atomic",
+			endpoint: "/tmp/atomic.sock",
+			controllerTokenHash: "e".repeat(64),
+		});
+		expect(claimed.revision).toBe(3);
+
+		const marked = await store.markClaimRunner("sa_atomic", "claim-atomic", 12345);
+		expect(marked.revision).toBe(4);
+		expect(marked.claim?.runnerPid).toBe(12345);
+
+		const activated = await store.activateClaim("sa_atomic", "claim-atomic", 12345);
+		expect(activated.revision).toBe(5);
+		expect(activated.runtime?.pid).toBe(12345);
+		expect(activated.claim).toBeUndefined();
+
+		const afterActivate = await store.markClaimRunner("sa_atomic", "claim-atomic", 12345);
+		expect(afterActivate.runtime?.pid).toBe(12345);
 	});
 });
