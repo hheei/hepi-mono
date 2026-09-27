@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, opendir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder } from "@ff-labs/fff-node";
-import { errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage, expandHome } from "@hheei/pi-ext-core";
 import { formatPathResolutionError } from "./error-format.js";
 import {
 	AmbiguousPathError,
@@ -121,12 +120,6 @@ function stripQuotes(value: string): string {
 	if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
 		return value.slice(1, -1);
 	}
-	return value;
-}
-
-function expandHome(value: string): string {
-	if (value === "~") return homedir();
-	if (value.startsWith("~/")) return resolve(homedir(), value.slice(2));
 	return value;
 }
 

@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -188,6 +188,7 @@ describe("hindsight config resolution", () => {
 		expect(expandConfigPath("~/.hindsight/coding-agent.json", "/work")).toMatch(
 			/\/\.hindsight\/coding-agent\.json$/,
 		);
+		expect(expandConfigPath("~", "/work")).toBe(homedir());
 		expect(expandConfigPath("relative.json", "/work")).toBe("/work/relative.json");
 		expect(expandConfigPath("/abs/path.json", "/work")).toBe("/abs/path.json");
 	});

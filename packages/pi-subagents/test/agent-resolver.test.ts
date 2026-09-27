@@ -174,6 +174,30 @@ test("keeps the bridge extension while disabling discovery", async (): Promise<v
 	});
 });
 
+test("expands a leading ~ in resource selections against the home directory", async (): Promise<void> => {
+	await withDirectory(async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		const home = join(directory, "home");
+		await writeFile(bridge, "", "utf8");
+		await mkdir(join(home, "shared"), { recursive: true });
+		await writeFile(join(home, "shared", "extra.js"), "", "utf8");
+		await writeAgent(
+			directory,
+			".pi",
+			"lean",
+			`---\nname: lean\nextensions:\n  - ~/shared/extra.js\nskills:\n  - "~"\n---\nBe lean.\n`,
+		);
+
+		const resolved = await resolve(directory, "lean", bridge);
+		// A bare `~` used to be treated as a literal directory name next to the definition.
+		expect(resolved.extensions).toEqual({
+			discovery: true,
+			paths: [join(home, "shared", "extra.js"), bridge],
+		});
+		expect(resolved.skills).toEqual({ discovery: true, paths: [home] });
+	});
+});
+
 test("rejects unknown, unimplemented, and conflicting agent fields", async (): Promise<void> => {
 	await withDirectory(async (directory) => {
 		const bridge = join(directory, "bridge.js");

@@ -90,6 +90,7 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
+export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { runCommand, shellQuote } from "./process.js";
 export { isRecord } from "./record.js";
