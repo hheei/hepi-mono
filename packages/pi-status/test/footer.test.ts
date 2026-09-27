@@ -142,4 +142,47 @@ describe("CompactFooterComponent", () => {
 
 		footer.dispose();
 	});
+
+	test("places auto-title generating status on Line 1 right and keeps Line 2 free for todo", () => {
+		const extensionStatuses = new Map<string, string>([
+			["auto-title", "✻ generating title..."],
+			["pi-ext-tools:todo", "󰪠 #2 Review PR"],
+		]);
+		const footerData: ReadonlyFooterDataProvider = {
+			getGitBranch: () => "main",
+			getExtensionStatuses: () => extensionStatuses,
+			onBranchChange: vi.fn(() => () => {}),
+			getAvailableProviderCount: () => 1,
+		};
+
+		const ctx = {
+			model: { id: "gemini-3.8-flash", provider: "gm", contextWindow: 1_000_000 },
+			thinkingLevel: "high",
+			getContextUsage: () => ({ percent: 5, contextWindow: 1_000_000, tokens: 50_000 }),
+			sessionManager: {
+				getCwd: () => "/home/user/hepi-mono",
+				getSessionName: () => undefined,
+			},
+		} as unknown as ExtensionContext;
+
+		const tui = { requestRender: vi.fn() };
+		const footer = new CompactFooterComponent(
+			ctx,
+			tui,
+			mockTheme as unknown as FooterTheme,
+			footerData,
+		);
+
+		const lines = footer.render(80);
+		expect(lines).toHaveLength(2);
+
+		// Line 1: auto-title generating status MUST be on line 1 right
+		expect(lines[0]).toContain("✻ generating title...");
+
+		// Line 2: todo status on line 2 right, not auto-title
+		expect(lines[1]).toContain("󰪠 #2 Review PR");
+		expect(lines[1]).not.toContain("generating title...");
+
+		footer.dispose();
+	});
 });

@@ -143,11 +143,15 @@ export class CompactFooterComponent implements Component {
 		const pwdWithBranch = branch !== undefined && branch !== "" ? `${cwd} (${branch})` : cwd;
 		const line1Left = this.#theme.fg("dim", pwdWithBranch);
 
+		const extensionStatuses = this.#footerData.getExtensionStatuses();
+		const autoTitleStatus = extensionStatuses.get("auto-title");
 		const sessionName = this.#extension.sessionManager.getSessionName();
 		const line1Right =
-			sessionName !== undefined && sessionName.trim() !== ""
-				? this.#theme.fg("dim", sessionName)
-				: undefined;
+			autoTitleStatus !== undefined && autoTitleStatus.trim() !== ""
+				? autoTitleStatus
+				: sessionName !== undefined && sessionName.trim() !== ""
+					? this.#theme.fg("dim", sessionName)
+					: undefined;
 
 		const line1 = layoutTwoColumnRow(line1Left, line1Right, width);
 
@@ -160,13 +164,14 @@ export class CompactFooterComponent implements Component {
 		);
 		const line2Left = `${this.#theme.fg("dim", modelText)} ${this.#theme.fg("dim", "·")} ${contextText}`;
 
-		// Line 2 right: todo status or extension statuses
-		const extensionStatuses = this.#footerData.getExtensionStatuses();
+		// Line 2 right: todo status or extension statuses (excluding auto-title which belongs to line 1)
 		let todoStatus = extensionStatuses.get("pi-ext-tools:todo");
 		if (todoStatus === undefined && extensionStatuses.size > 0) {
-			const firstEntry = extensionStatuses.values().next();
-			if (!firstEntry.done) {
-				todoStatus = firstEntry.value;
+			for (const [key, value] of extensionStatuses) {
+				if (key !== "auto-title" && value.trim() !== "") {
+					todoStatus = value;
+					break;
+				}
 			}
 		}
 
