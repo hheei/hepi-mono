@@ -13,13 +13,9 @@ import {
 	type SettingValue,
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
+import { LIST_HINT_ROWS, PANEL_ROWS, pad, scrollbar, VISIBLE_ROWS } from "./page-chrome.js";
 import { fitRow } from "./row-fit.js";
 
-// The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
-const PANEL_ROWS = 20;
-const LIST_HEADER_ROWS = 2;
-const LIST_HINT_ROWS = 1;
-const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS;
 const MARQUEE_FRAME_MS = 125;
 const MARQUEE_INITIAL_PAUSE_MS = 750;
 const MARQUEE_END_PAUSE_MS = 1_500;
@@ -75,10 +71,6 @@ function mergeDefaults(
 	return state;
 }
 
-function readableError(error: unknown): string {
-	return errorMessage(error);
-}
-
 function isPrintable(input: string): boolean {
 	return input !== "" && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input);
 }
@@ -124,10 +116,6 @@ function wrap(text: string, width: number): readonly string[] {
 	return lines;
 }
 
-function pad(text: string, width: number): string {
-	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
-}
-
 function horizontalViewport(text: string, width: number, offset: number): string {
 	let skipped = 0;
 	let result = "";
@@ -140,23 +128,6 @@ function horizontalViewport(text: string, width: number, offset: number): string
 		result += character;
 	}
 	return truncateToWidth(result, width);
-}
-
-function scrollbar(total: number, top: number, theme: Theme): readonly string[] {
-	if (total <= VISIBLE_ROWS) return Array.from({ length: PANEL_ROWS }, () => "");
-	const track = VISIBLE_ROWS;
-	const thumbHeight = Math.max(1, Math.round((track * VISIBLE_ROWS) / total));
-	const maxTop = Math.max(1, total - VISIBLE_ROWS);
-	const thumbTop = Math.round(((track - thumbHeight) * top) / maxTop);
-	// Header and hint rows have no rail; only the list viewport receives the vertical indicator.
-	return Array.from({ length: PANEL_ROWS }, (_, index) => {
-		const trackIndex = index - LIST_HEADER_ROWS;
-		return trackIndex >= thumbTop && trackIndex < thumbTop + thumbHeight
-			? theme.fg("text", "█")
-			: trackIndex >= 0 && trackIndex < track
-				? theme.fg("muted", "│")
-				: "";
-	});
 }
 
 function formattedValue(
@@ -363,7 +334,7 @@ export async function createSettingsPage(
 			await persist();
 			return true;
 		} catch (cause: unknown) {
-			error = readableError(cause);
+			error = errorMessage(cause);
 			requestRender();
 			return false;
 		}
@@ -381,7 +352,7 @@ export async function createSettingsPage(
 		} catch (cause: unknown) {
 			closed = false;
 			closing = false;
-			error = readableError(cause);
+			error = errorMessage(cause);
 			requestRender();
 		}
 	};
@@ -463,7 +434,7 @@ export async function createSettingsPage(
 			requestRender();
 			return true;
 		} catch (cause: unknown) {
-			error = readableError(cause);
+			error = errorMessage(cause);
 			requestRender();
 			return false;
 		}
@@ -533,7 +504,7 @@ export async function createSettingsPage(
 			draft = next;
 			cancelEdit();
 		} catch (cause: unknown) {
-			error = readableError(cause);
+			error = errorMessage(cause);
 			requestRender();
 		}
 	};
