@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import {
-	type AgentToolResult,
-	initTheme,
-	ToolExecutionComponent,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
 import { createToolTui, getToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -20,7 +16,8 @@ import { createEvalRuntimeState, startEvalRuntime } from "../dist/eval/lifecycle
 import { registerEvalTool } from "../dist/eval/tool.js";
 import { createTodoFeature } from "../dist/todo/todo.js";
 import { registerTools } from "../dist/tools.js";
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { framedHost, mountTool, toolFor, toolHost } from "./fixtures/harness.js";
+import { plainTheme } from "./fixtures/theme.js";
 
 const callId = "smoke-call";
 
@@ -49,32 +46,12 @@ function framedBody(component: ToolExecutionComponent): readonly string[] {
 	return openingRail < 0 || closingRail < 0 ? [] : lines.slice(openingRail + 1, closingRail);
 }
 
-/** Pi's repaint handle: a tool component only needs to be able to ask for a frame. */
-const silentUi = { requestRender: (): void => undefined } as unknown as TUI;
-
-/** A tool definition in the shape Pi accepts when mounting a call. */
-type MountedTool = NonNullable<ConstructorParameters<typeof ToolExecutionComponent>[4]>;
-
-/** Mounts a registered tool the way Pi does: one component per call, at a given cwd. */
-function mount(
-	name: string,
-	toolCallId: string,
-	tool: MountedTool,
-	args: unknown = {},
-	cwd: string = process.cwd(),
-	ui: TUI = silentUi,
-): ToolExecutionComponent {
-	initTheme("dark");
-	return new ToolExecutionComponent(name, toolCallId, args, undefined, tool, ui, cwd);
-}
-
 describe("ToolExecutionComponent smoke", () => {
 	test("keeps the bash command visible across streamed arguments and execution start", (): void => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const bash = toolFor(registered, "bash");
-		const component = mount("bash", "streamed-bash", bash);
+		const component = mountTool("bash", "streamed-bash", bash);
 		component.render(100);
 		component.updateArgs({ command: "printf hello" });
 		component.markExecutionStarted();
@@ -82,15 +59,14 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders one persisted eval body after invalidation and resume", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
+		const { pi, tools: registered, tui } = framedHost();
 		const state = createEvalRuntimeState();
 		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
-		const tui = createToolTui();
 		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
 		const tool = registered[0]!;
 		try {
 			tui.beginTrace();
-			const component = mount("eval", callId, tool, { code: "print(40 + 2)" });
+			const component = mountTool("eval", callId, tool, { code: "print(40 + 2)" });
 			component.markExecutionStarted();
 			const result = await tool.execute(callId, { code: "print(40 + 2)" }, undefined, undefined, {
 				cwd: process.cwd(),
@@ -102,7 +78,7 @@ describe("ToolExecutionComponent smoke", () => {
 			expect(outputLines(component, "42")).toBe(1);
 
 			tui.beginTrace();
-			const resumed = mount("eval", "resumed-eval", tool, { code: "print(40 + 2)" });
+			const resumed = mountTool("eval", "resumed-eval", tool, { code: "print(40 + 2)" });
 			resumed.setExpanded(true);
 			resumed.updateResult({ ...result, isError: false });
 			expect(outputLines(resumed, "42")).toBe(1);
@@ -112,15 +88,14 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders one eval body through partial updates and invalidations", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
+		const { pi, tools: registered, tui } = framedHost();
 		const state = createEvalRuntimeState();
 		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
-		const tui = createToolTui();
 		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
 		const tool = registered[0]!;
 		try {
 			tui.beginTrace();
-			const component = mount("eval", callId, tool, { code: "print(40 + 2)" });
+			const component = mountTool("eval", callId, tool, { code: "print(40 + 2)" });
 			component.markExecutionStarted();
 			let partial: AgentToolResult<unknown> | undefined;
 			const final = await tool.execute(
@@ -146,15 +121,14 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders eval output without a null row for value-less cells", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
+		const { pi, tools: registered, tui } = framedHost();
 		const state = createEvalRuntimeState();
 		const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
-		const tui = createToolTui();
 		registerEvalTool(pi, state, new EvalToolBridge(new Map(), () => false), tui);
 		const tool = registered[0]!;
 		const render = async (code: string): Promise<string> => {
 			tui.beginTrace();
-			const component = mount("eval", `null-row-${code}`, tool, { code });
+			const component = mountTool("eval", `null-row-${code}`, tool, { code });
 			component.markExecutionStarted();
 			component.updateResult({
 				...(await tool.execute(`null-row-${code}`, { code }, undefined, undefined, {
@@ -181,8 +155,7 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders one final bash result after partial updates and invalidations", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
 		let requests = 0;
@@ -192,7 +165,7 @@ describe("ToolExecutionComponent smoke", () => {
 			},
 		} as unknown as TUI;
 		tui.beginTrace();
-		const component = mount(
+		const component = mountTool(
 			"bash",
 			callId,
 			tool,
@@ -227,12 +200,11 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("omits bash body rails when the host receives zero output lines", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
 		tui.beginTrace();
-		const component = mount("bash", callId, tool, { command: "true" });
+		const component = mountTool("bash", callId, tool, { command: "true" });
 		component.markExecutionStarted();
 		const result = await tool.execute(callId, { command: "true" }, undefined, undefined, {
 			cwd: process.cwd(),
@@ -247,12 +219,11 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("keeps twenty complete bash output rows in the host body", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
 		tui.beginTrace();
-		const component = mount("bash", "complete-bash-body", tool, { command: "printf many" });
+		const component = mountTool("bash", "complete-bash-body", tool, { command: "printf many" });
 		component.markExecutionStarted();
 		const command = "i=1; while [ $i -le 30 ]; do echo line $i; i=$((i + 1)); done";
 		let partial: AgentToolResult<unknown> | undefined;
@@ -276,12 +247,11 @@ describe("ToolExecutionComponent smoke", () => {
 
 	test("keeps native write preview body after final host completion", async (): Promise<void> => {
 		const cwd = await mkdtemp(join(tmpdir(), "hepi-native-write-smoke-"));
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerTools(pi, undefined, tui);
 		const tool = toolFor(registered, "write");
 		tui.beginTrace();
-		const component = mount(
+		const component = mountTool(
 			"write",
 			"native-write-body",
 			tool,
@@ -306,12 +276,11 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders SSH write headers and Unconfirmed recovery through the host", (): void => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerTools(pi, undefined, tui);
 		const tool = toolFor(registered, "write");
 		tui.beginTrace();
-		const component = mount("write", "ssh-write-unconfirmed", tool, {
+		const component = mountTool("write", "ssh-write-unconfirmed", tool, {
 			path: "value.ts",
 			content: "next\n",
 			target: "ileqm",
@@ -351,7 +320,7 @@ describe("ToolExecutionComponent smoke", () => {
 			renderResult: () => new Text("restored body", 0, 0),
 		});
 		tui.beginTrace();
-		const component = mount("resume_body", "resumed-call", tool, { path: "src/resumed.ts" });
+		const component = mountTool("resume_body", "resumed-call", tool, { path: "src/resumed.ts" });
 		component.setExpanded(true);
 		component.updateResult({ content: [], details: undefined, isError: false });
 		const rendered = stripTerminalSequences(component.render(100).join("\n"));
@@ -361,12 +330,11 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders a legacy Pi edit patch on the first resumed host pass", (): void => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerTools(pi, undefined, tui);
 		const tool = toolFor(registered, "edit");
 		tui.beginTrace();
-		const component = mount("edit", "resumed-legacy-edit", tool, {
+		const component = mountTool("edit", "resumed-legacy-edit", tool, {
 			path: "value.ts",
 			edits: [{ oldText: "const before = 1;", newText: "const after = 2;" }],
 		});
@@ -416,7 +384,7 @@ describe("ToolExecutionComponent smoke", () => {
 			},
 		);
 		tui.beginTrace();
-		const component = mount("synthetic_patch", callId, tool, { path: "src/stream.ts" });
+		const component = mountTool("synthetic_patch", callId, tool, { path: "src/stream.ts" });
 		component.markExecutionStarted();
 		let partial: AgentToolResult<unknown> | undefined;
 		const final = await tool.execute(
@@ -445,14 +413,13 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders apply_patch rows from toolcall_delta arguments before execute starts", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerApplyPatchTool(pi, tui);
 		const tool = toolFor(registered, "apply_patch");
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-delta-"));
 		try {
 			tui.beginTrace();
-			const component = mount(
+			const component = mountTool(
 				"apply_patch",
 				"apply-patch-delta",
 				tool,
@@ -478,14 +445,13 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("renders real apply_patch progress before its execution completes", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerApplyPatchTool(pi, tui);
 		const tool = toolFor(registered, "apply_patch");
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-host-stream-"));
 		try {
 			tui.beginTrace();
-			const component = mount(
+			const component = mountTool(
 				"apply_patch",
 				"apply-patch-stream",
 				tool,
@@ -555,8 +521,7 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("streams apply_patch through the Pi agent event lifecycle before completion", async (): Promise<void> => {
-		const { pi, tools: registered } = toolHost();
-		const tui = createToolTui();
+		const { pi, tools: registered, tui } = framedHost();
 		registerApplyPatchTool(pi, tui);
 		const definition = toolFor(registered, "apply_patch");
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-agent-stream-"));
@@ -621,7 +586,7 @@ describe("ToolExecutionComponent smoke", () => {
 			agent.subscribe((event) => {
 				if (event.type === "tool_execution_start") {
 					tui.beginTrace();
-					component = mount(event.toolName, event.toolCallId, tool, event.args, root);
+					component = mountTool(event.toolName, event.toolCallId, tool, event.args, root);
 					component.markExecutionStarted();
 				}
 				if (event.type === "tool_execution_update") {
@@ -649,7 +614,7 @@ describe("ToolExecutionComponent smoke", () => {
 		const tool = toolFor(registered, "todo");
 		const context = {
 			mode: "json",
-			ui: { notify(): void {}, setWidget(): void {}, setStatus(): void {} },
+			ui: { notify(): void {}, setWidget(): void {}, setStatus(): void {}, theme: plainTheme },
 			sessionManager: { getSessionId: () => "todo-host-smoke", getBranch: () => [] },
 		} as never;
 		await feature.start(context);
@@ -657,7 +622,7 @@ describe("ToolExecutionComponent smoke", () => {
 		const result = await tool.execute("todo-host", args, undefined, undefined, context);
 		const tui = getToolTui(pi);
 		tui.beginTrace();
-		const component = mount("todo", "todo-host", tool, args);
+		const component = mountTool("todo", "todo-host", tool, args);
 		component.markExecutionStarted();
 		component.setExpanded(true);
 		component.updateResult({ ...result, isError: false });
@@ -667,14 +632,14 @@ describe("ToolExecutionComponent smoke", () => {
 		}
 
 		tui.beginTrace();
-		const crossTrace = mount("todo", "todo-cross-trace", tool, args);
+		const crossTrace = mountTool("todo", "todo-cross-trace", tool, args);
 		crossTrace.markExecutionStarted();
 		crossTrace.setExpanded(true);
 		crossTrace.updateResult({ ...result, isError: false });
 		expect(outputOccurrences(crossTrace, "Host-rendered Todo")).toBe(1);
 
 		tui.beginTrace();
-		const resumed = mount("todo", "todo-resumed", tool, args);
+		const resumed = mountTool("todo", "todo-resumed", tool, args);
 		resumed.setExpanded(true);
 		resumed.updateResult({ ...result, isError: false });
 		expect(outputOccurrences(resumed, "Host-rendered Todo")).toBe(1);

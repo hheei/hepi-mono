@@ -6,18 +6,17 @@ import {
 	type ExtensionContext,
 	initTheme,
 	type ToolDefinition,
-	ToolExecutionComponent,
+	type ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { AUTO_COLLAPSE_DELAY_MS, createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { registerTools } from "../src/tools.js";
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { mountTool, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 const BODY_LINE = "readable body line 30";
 const temporaryPaths: string[] = [];
-/** A theme that adds no styling, so rows can be asserted as plain text. */
 afterEach(async (): Promise<void> => {
 	await Promise.all(
 		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
@@ -41,19 +40,10 @@ async function mounted(
 	updates?: AgentToolResult<unknown>[],
 ): Promise<{ readonly component: ToolExecutionComponent; readonly cwd: string }> {
 	const cwd = await fixture();
-	initTheme("dark");
 	const host = toolHost(["read"]);
 	registerTools(host.pi, undefined, tui);
 	const tool = toolFor(host.tools, name);
-	const component = new ToolExecutionComponent(
-		name,
-		`${name}-collapse`,
-		args,
-		undefined,
-		tool,
-		{ requestRender: (): void => undefined } as unknown as TUI,
-		cwd,
-	);
+	const component = mountTool(name, `${name}-collapse`, tool, args, cwd);
 	tui.beginTrace();
 	component.markExecutionStarted();
 	const result = await tool.execute(

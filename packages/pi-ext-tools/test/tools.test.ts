@@ -307,9 +307,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("omits search body rails when there are no body lines", (): void => {
 		const host = registeredTools();
-		const grep = host.tools.find((tool) => tool.name === "grep");
-		const find = host.tools.find((tool) => tool.name === "find");
-		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
+		const grep = toolFor(host.tools, "grep");
+		const find = toolFor(host.tools, "find");
 		const grepLines = grep
 			.renderResult?.(
 				{
@@ -391,9 +390,8 @@ describe("pi-ext-tools catalog", () => {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		} as Theme;
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
-		const find = host.tools.find((candidate) => candidate.name === "find");
-		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
+		const grep = toolFor(host.tools, "grep");
+		const find = toolFor(host.tools, "find");
 
 		expect(
 			grep
@@ -434,9 +432,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("exposes the upstream FFF grep and find schemas", (): void => {
 		const host = registeredTools();
-		const grep = host.tools.find((tool) => tool.name === "grep");
-		const find = host.tools.find((tool) => tool.name === "find");
-		if (grep === undefined || find === undefined) throw new Error("Missing FFF search tools");
+		const grep = toolFor(host.tools, "grep");
+		const find = toolFor(host.tools, "find");
 		const properties = (tool: ToolDefinition): string[] => {
 			const schema: unknown = tool.parameters;
 			if (
@@ -818,9 +815,8 @@ describe("pi-ext-tools catalog", () => {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		} as Theme;
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
-		const find = host.tools.find((candidate) => candidate.name === "find");
-		if (grep === undefined || find === undefined) throw new Error("Missing search tool");
+		const grep = toolFor(host.tools, "grep");
+		const find = toolFor(host.tools, "find");
 		const grepCall = grep
 			.renderCall?.({ pattern: "needle", path: "src" }, theme, renderCallContext)
 			.render(200)
@@ -955,7 +951,7 @@ describe("pi-ext-tools catalog", () => {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		} as Theme;
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		const grep = toolFor(host.tools, "grep");
 		if (grep === undefined) throw new Error("Missing grep tool");
 		const result = grep
 			.renderResult?.(
@@ -1009,7 +1005,7 @@ describe("pi-ext-tools catalog", () => {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
 		} as Theme;
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
+		const grep = toolFor(host.tools, "grep");
 		if (grep === undefined) throw new Error("Missing grep tool");
 		const source = "const needle = 1;";
 		const result = grep
@@ -1054,7 +1050,7 @@ describe("pi-ext-tools catalog", () => {
 
 	test("renders structured FFF find results inside the shared tool frame", (): void => {
 		const host = registeredTools();
-		const find = host.tools.find((candidate) => candidate.name === "find");
+		const find = toolFor(host.tools, "find");
 		if (find === undefined) throw new Error("Missing find tool");
 		const header = find
 			.renderCall?.({ pattern: "needle", path: "src" }, taggedTheme, renderCallContext)
@@ -1309,10 +1305,8 @@ describe("pi-ext-tools catalog", () => {
 				getSessionFile: (): undefined => undefined,
 			},
 		} as unknown as ExtensionContext;
-		const write = host.tools.find((tool) => tool.name === "write");
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (write === undefined || edit === undefined)
-			throw new Error("catalog tool was not registered");
+		const write = toolFor(host.tools, "write");
+		const edit = toolFor(host.tools, "edit");
 
 		const written = await write.execute(
 			"write-huge",
@@ -1391,10 +1385,8 @@ describe("pi-ext-tools catalog", () => {
 				getSessionFile: (): undefined => undefined,
 			},
 		} as unknown as ExtensionContext;
-		const write = host.tools.find((tool) => tool.name === "write");
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (write === undefined || edit === undefined)
-			throw new Error("catalog tool was not registered");
+		const write = toolFor(host.tools, "write");
+		const edit = toolFor(host.tools, "edit");
 
 		await write.execute(
 			"write-1",
