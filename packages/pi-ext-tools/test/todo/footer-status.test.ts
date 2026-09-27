@@ -154,4 +154,27 @@ describe("todo footer-status", () => {
 		abortController.abort();
 		expect(mockUi.setStatus).toHaveBeenLastCalledWith(TODO_STATUS_KEY, undefined);
 	});
+
+	test("applies semantic theme styling when theme is provided", () => {
+		const mockTheme = {
+			fg: (tone: string, text: string) => `[${tone}]${text}[/${tone}]`,
+			bg: (_tone: string, text: string) => text,
+			bold: (text: string) => text,
+			strikethrough: (text: string) => text,
+			getFgAnsi: () => undefined,
+		};
+		const now = 100_000;
+
+		const inProgress = computeFooterStatus(state([task(1, "in_progress", now)]), now, mockTheme);
+		expect(inProgress.text).toBe("[warning]◐[/warning] [accent]#1[/accent] [text]Task 1[/text]");
+
+		const pending = computeFooterStatus(state([task(2, "pending", now)]), now, mockTheme);
+		expect(pending.text).toBe("[muted]○[/muted] [accent]#2[/accent] [text]Task 2[/text]");
+
+		const completed = computeFooterStatus(state([task(3, "completed", now)]), now, mockTheme);
+		expect(completed.text).toBe("[success]✓[/success] [accent]#3[/accent] [dim]Task 3[/dim]");
+
+		const blocked = computeFooterStatus(state([task(4, "blocked", now)]), now, mockTheme);
+		expect(blocked.text).toBe("[dim]⊘[/dim] [accent]#4[/accent] [dim]Task 4[/dim]");
+	});
 });
