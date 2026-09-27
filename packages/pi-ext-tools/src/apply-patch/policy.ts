@@ -1,6 +1,7 @@
 import {
 	defaultExtensionSettingsPaths,
 	type ExtensionSettingsPaths,
+	isRecord,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
 
@@ -19,10 +20,6 @@ export interface LoadApplyPatchPolicyOptions {
 export const DEFAULT_APPLY_PATCH_POLICY: ApplyPatchPolicy = {
 	fuzzFactor: 0,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function invalid(layer: string, key: string, reason: string): never {
 	throw new Error(`${layer} setting ${APPLY_PATCH_SETTINGS_KEY}.${key} ${reason}`);

@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { lock } from "proper-lockfile";
 import {
 	DEFAULT_REPLAY_COLUMNS,
@@ -76,10 +76,6 @@ Options:
 
 Each command is a separate process. Actions persist in a journal and replay from the initial
 component on every call. Use -- before send/input text that begins with a dash.`;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
 
 function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;

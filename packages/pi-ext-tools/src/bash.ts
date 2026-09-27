@@ -19,6 +19,7 @@ import {
 	DEFAULT_MAX_BODY_LINES,
 	errorMessage,
 	formatDuration,
+	isRecord,
 	registerManagedTool,
 	type ToolCompletion,
 	type ToolTui,
@@ -74,9 +75,7 @@ interface BashToolResult {
 }
 
 function detailsRecord(value: unknown): Readonly<Record<string, unknown>> {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
+	return isRecord(value) ? value : {};
 }
 
 function bashFooter(

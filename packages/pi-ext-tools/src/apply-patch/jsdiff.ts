@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { isRecord } from "@hheei/pi-ext-core";
 import type { JsDiffWorkerData } from "./jsdiff-worker.js";
 import type { PreparedPatchUpdate, RejectedPatchHunk } from "./outcome.js";
 import { compileV4aUpdateToUnifiedDiff } from "./parser.js";
@@ -15,10 +16,6 @@ const WORKER_URL = new URL(
 	import.meta.url.endsWith(".ts") ? "./jsdiff-worker.ts" : "./jsdiff-worker.js",
 	import.meta.url,
 );
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function isFiniteInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isInteger(value);

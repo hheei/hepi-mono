@@ -8,7 +8,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { agentResultText, formatDuration, type ToolTui } from "@hheei/pi-ext-core";
+import { agentResultText, formatDuration, isRecord, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
@@ -209,10 +209,7 @@ function withEditDetails(
 	view: EditView | undefined,
 	remote?: RemoteMutationDetails,
 ): AgentToolResult<unknown> {
-	const details =
-		typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
-			? result.details
-			: {};
+	const details = isRecord(result.details) ? result.details : {};
 	return {
 		...result,
 		details: {
@@ -226,11 +223,11 @@ function withEditDetails(
 
 function editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined {
 	const details = result.details;
-	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
-	const record = details as Record<string, unknown>;
+	if (!isRecord(details)) return undefined;
+	const record = details;
 	const value = record[EDIT_RENDER_DETAILS];
-	if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-		const metrics = value as Record<string, unknown>;
+	if (isRecord(value)) {
+		const metrics = value;
 		if (
 			typeof metrics.replacements === "number" &&
 			typeof metrics.added === "number" &&
@@ -243,8 +240,8 @@ function editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined 
 			};
 	}
 	const view = record[EDIT_VIEW_KEY];
-	if (typeof view === "object" && view !== null && !Array.isArray(view)) {
-		const legacy = view as Record<string, unknown>;
+	if (isRecord(view)) {
+		const legacy = view;
 		if (
 			typeof legacy.edits === "number" &&
 			typeof legacy.added === "number" &&

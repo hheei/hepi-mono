@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { runCommand } from "@hheei/pi-ext-core";
+import { isRecord, runCommand } from "@hheei/pi-ext-core";
 import { lock } from "proper-lockfile";
 
 export const DEFAULT_REPLAY_COLUMNS = 50;
@@ -270,9 +270,7 @@ export function sanitizeAnsi(value: string): string {
 const staticAnsi = sanitizeAnsi;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
+	return isRecord(value) ? value : undefined;
 }
 
 function assistantOutput(event: unknown): { text?: string; error?: string } | undefined {

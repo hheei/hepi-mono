@@ -1,5 +1,9 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { defaultExtensionSettingsPaths, readMergedJsonSettingsSection } from "@hheei/pi-ext-core";
+import {
+	defaultExtensionSettingsPaths,
+	isRecord,
+	readMergedJsonSettingsSection,
+} from "@hheei/pi-ext-core";
 
 export interface ConfiguredModel {
 	provider: string;
@@ -264,10 +268,6 @@ function validRatioOrUndefined(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 && value < 1
 		? value
 		: undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function nonEmptyString(value: unknown): string | undefined {

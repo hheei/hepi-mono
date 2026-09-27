@@ -1,8 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { abortError } from "@hheei/pi-ext-core";
+import { abortError, isRecord } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { toError } from "./diagnostics.js";
-import { isRecord } from "./domain.js";
+
 import { attachJsonLineReader, serializeJsonLine } from "./json-lines.js";
 import {
 	DEFAULT_MAX_FRAME_BYTES,

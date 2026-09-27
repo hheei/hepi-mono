@@ -1,4 +1,5 @@
 /** Canonical JSON delta for one settings file. Arrays retain only explicit choices. */
+import { isRecord } from "@hheei/pi-ext-core";
 export interface LoadoutDelta {
 	readonly disabled: readonly string[];
 	readonly enabled: readonly string[];
@@ -27,10 +28,6 @@ export interface LoadoutResolvedState {
 
 const MAX_LOADOUT_DELTA_KEYS = 4096;
 const MAX_LOADOUT_KEY_LENGTH = 256;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 /**
  * Validates one persisted key. `tool:` keys stay readable as legacy input because

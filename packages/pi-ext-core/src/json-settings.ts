@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { lock } from "proper-lockfile";
+import { isRecord } from "./record.js";
 
 export interface ExtensionSettingsPaths {
 	/** User-wide extension settings, normally `<agent-dir>/ext_settings.json`. */
@@ -32,10 +33,6 @@ export interface ReadMergedJsonSettingsSectionOptions {
 interface LocatedSettingValue {
 	readonly found: boolean;
 	readonly value?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isMissingFile(error: unknown): boolean {

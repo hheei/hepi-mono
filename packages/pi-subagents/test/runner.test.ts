@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { stat, writeFile } from "node:fs/promises";
+import { isRecord } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import {
 	connectWithRetry,
@@ -7,7 +8,7 @@ import {
 	sendLifecycleToRunner,
 	sendReportToRunner,
 } from "../src/connector.js";
-import { type ChildIdentity, isRecord, PROTOCOL_VERSION } from "../src/domain.js";
+import { type ChildIdentity, PROTOCOL_VERSION } from "../src/domain.js";
 import { startRunner } from "../src/runner.js";
 import {
 	createIdentity,

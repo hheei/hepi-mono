@@ -263,7 +263,3 @@ const LAUNCH_VALUE_SOURCES: Record<string, true> = { agent: true, parent: true }
 export function isLaunchValueSource(value: unknown): value is LaunchValueSource {
 	return typeof value === "string" && LAUNCH_VALUE_SOURCES[value] === true;
 }
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}

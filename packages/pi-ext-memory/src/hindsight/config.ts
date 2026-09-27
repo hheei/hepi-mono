@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
 	defaultExtensionSettingsPaths,
 	errorMessage,
+	isRecord,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
@@ -82,10 +83,6 @@ export const HINDSIGHT_ENV = {
 	bankId: "HINDSIGHT_BANK_ID",
 	configPath: "HINDSIGHT_CONFIG",
 } as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function nonEmptyString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;

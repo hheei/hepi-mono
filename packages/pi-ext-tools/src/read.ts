@@ -11,6 +11,7 @@ import {
 	agentResultText,
 	createToolTui,
 	formatDuration,
+	isRecord,
 	registerManagedTool,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
@@ -136,7 +137,7 @@ function withReadMetrics<T>(result: AgentToolResult<T>): AgentToolResult<T> {
 	const details = result.details;
 	return {
 		...result,
-		details: (typeof details === "object" && details !== null && !Array.isArray(details)
+		details: (isRecord(details)
 			? { ...details, [READ_METRICS_KEY]: metrics }
 			: { [READ_METRICS_KEY]: metrics }) as T,
 	};

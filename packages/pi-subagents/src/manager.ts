@@ -1,4 +1,4 @@
-import { errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
 	OperationError,
@@ -8,7 +8,7 @@ import type {
 	SubagentRecord,
 	SubagentState,
 } from "./domain.js";
-import { isRecord } from "./domain.js";
+
 import type { HostAttachment, HostCommandResult, HostKind, HostSelection } from "./host-adapter.js";
 import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";

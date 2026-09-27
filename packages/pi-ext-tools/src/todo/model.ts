@@ -1,3 +1,4 @@
+import { isRecord } from "@hheei/pi-ext-core";
 export type TaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "suppressed";
 export type AgentTaskStatus = "pending" | "in_progress" | "blocked" | "completed";
 
@@ -93,10 +94,6 @@ function subjectError(subject: string): string | undefined {
 			return "Subject must be one printable line";
 	}
 	return undefined;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isPositiveInteger(value: unknown): value is number {
