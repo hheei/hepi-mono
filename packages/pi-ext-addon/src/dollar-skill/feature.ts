@@ -102,7 +102,7 @@ export function createDollarSkillFeature(
 			const installedEditorFactory: EditorFactory = (tui, theme, keybindings) =>
 				createDollarSkillAtomicEditor(
 					previousEditorFactory?.(tui, theme, keybindings) ??
-						new CustomEditor(tui, theme, keybindings),
+						new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true }),
 					keybindings,
 					() => pi.getCommands(),
 					() => activeSessionId === sessionId && config.enabled,
