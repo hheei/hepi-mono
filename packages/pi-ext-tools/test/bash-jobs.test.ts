@@ -544,12 +544,12 @@ test("warns on stop_tasks only when an id did not stop", async (): Promise<void>
 		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
 	});
 	await runTool(stop, "stop-live", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-live")).toContain("✓ stop_tasks bash-1");
+	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-live")).toContain("󰄴 stop_tasks bash-1");
 	tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false });
 	await runTool(stop, "stop-done", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-done")).toContain("✓ stop_tasks bash-1");
+	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-done")).toContain("󰄴 stop_tasks bash-1");
 	await runTool(stop, "stop-missing", { ids: ["bash-9"] });
-	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("! stop_tasks bash-9");
+	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("󰀪 stop_tasks bash-9");
 });
 
 test("a command that finishes before autoAsyncSeconds stays a foreground call", async (): Promise<void> => {
@@ -690,7 +690,7 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 		?.render(100)
 		.join("\n");
 
-	expect(frame).toContain("! bash");
+	expect(frame).toContain("󰀪 bash");
 	expect(renderedResult).toContain("transitioned to bash-1 · running in background");
 });
 

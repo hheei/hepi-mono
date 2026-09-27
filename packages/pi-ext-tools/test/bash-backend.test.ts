@@ -237,7 +237,7 @@ test("bash collapses only the previous command before its timeout suffix", async
 			invalidate: (): void => undefined,
 		} as never)
 		.render(40)[0];
-	expect(line).toContain("✓ bash");
+	expect(line).toContain("󰄴 bash");
 	const plainLine = stripTerminalSequences(line ?? "");
 	expect(plainLine).toContain("…");
 	expect(plainLine.trimEnd().endsWith("(timeout 20s)")).toBe(true);

@@ -62,7 +62,7 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 			);
 			component.updateResult({ ...result, isError: false });
 			const header = stripTerminalSequences(component.render(100).join("\n"));
-			expect(header).toContain("! grep");
+			expect(header).toContain("󰀪 grep");
 			expect(outputOccurrences(component, "Results may be incomplete")).toBe(1);
 			component.invalidate();
 			component.invalidate();

@@ -164,7 +164,7 @@ describe("pi-ext-tools catalog", () => {
 			renderContext,
 		);
 		expect(call?.render(200).map((line) => line.trimEnd())).toEqual([
-			"<success>✓</success> <toolTitle><b>read</b></toolTitle> sample.ts<warning>:9-56</warning>",
+			"<success>󰄴</success> <toolTitle><b>read</b></toolTitle> sample.ts<warning>:9-56</warning>",
 		]);
 		const preview = read
 			.renderResult?.(result, { isPartial: false, expanded: false }, taggedTheme, {
@@ -822,7 +822,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(grepCall).toBe(
-			"<warning>◐</warning> <toolTitle>grep</toolTitle> <mdCode>/needle/</mdCode> in src",
+			"<warning>󰪠</warning> <toolTitle>grep</toolTitle> <mdCode>/needle/</mdCode> in src",
 		);
 		const grepResult = grep
 			.renderResult?.(
@@ -1057,7 +1057,7 @@ describe("pi-ext-tools catalog", () => {
 			.join("\n")
 			.trimEnd();
 		expect(header).toBe(
-			"<warning>◐</warning> <toolTitle><b>find</b></toolTitle> <mdCode>/needle/</mdCode> in src",
+			"<warning>󰪠</warning> <toolTitle><b>find</b></toolTitle> <mdCode>/needle/</mdCode> in src",
 		);
 
 		const result = find

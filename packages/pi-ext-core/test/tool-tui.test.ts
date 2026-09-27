@@ -145,7 +145,7 @@ describe("ToolTui", () => {
 		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, context(true));
 		const callLines = call?.render(200).map((line) => line.trimEnd()) ?? [];
 		expect(callLines[0]).toContain(
-			"<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts",
+			"<warning>󰪠</warning> <toolTitle><b>read</b></toolTitle> src/a.ts",
 		);
 		expect(callLines[1]).toBe(`<muted>${"─".repeat(200)}</muted>`);
 		expect(callLines[2]).toBe("call body");
@@ -170,7 +170,7 @@ describe("ToolTui", () => {
 			executionStarted: false,
 		} as never);
 		const lines = call?.render(200).map((line) => line.trimEnd()) ?? [];
-		expect(lines[0]).toContain("<warning>◐</warning> <toolTitle><b>read</b></toolTitle> src/a.ts");
+		expect(lines[0]).toContain("<warning>󰪠</warning> <toolTitle><b>read</b></toolTitle> src/a.ts");
 		expect(lines).toContain("call body");
 	});
 
@@ -692,7 +692,7 @@ describe("ToolTui", () => {
 		await Promise.resolve();
 		expect(invalidations).toBe(1);
 		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, restoredContext);
-		expect(call?.render(80).join("\n")).toContain("<warning>!</warning>");
+		expect(call?.render(80).join("\n")).toContain("<warning>󰀪</warning>");
 	});
 
 	test("uses the host text fallback when a tool has no renderer", (): void => {

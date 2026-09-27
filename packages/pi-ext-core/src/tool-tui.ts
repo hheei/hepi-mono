@@ -275,13 +275,13 @@ function statusFor(context: {
 function statusPrefix(status: FrameStatus, theme: Theme): string {
 	switch (status) {
 		case "pending":
-			return theme.fg("warning", "◐");
+			return theme.fg("warning", "󰪠");
 		case "success":
-			return theme.fg("success", "✓");
+			return theme.fg("success", "󰄴");
 		case "warning":
-			return theme.fg("warning", "!");
+			return theme.fg("warning", "󰀪");
 		case "error":
-			return theme.fg("error", "✗");
+			return theme.fg("error", "󰅚");
 	}
 }
 
