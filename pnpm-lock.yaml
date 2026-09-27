@@ -366,6 +366,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.87.0
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
+      '@earendil-works/pi-tui':
+        specifier: 0.87.0
+        version: 0.87.0(patch_hash=d90b53c5285a0a63d23c8ada785daed63fb030547235c0177286f223f2dad440)
 
   packages/pi-subagents:
     dependencies:
