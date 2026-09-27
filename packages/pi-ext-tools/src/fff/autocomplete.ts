@@ -100,7 +100,7 @@ class FffAutocompleteProvider implements AutocompleteProvider {
 
 		const { rawQuery, isQuotedPrefix } = parseAtPrefix(atPrefix);
 		const candidates = await runtime.searchFileCandidates(rawQuery, MAX_RESULTS);
-		if (options.signal.aborted || candidates.isErr() || candidates.value.length === 0)
+		if (options.signal.aborted || !candidates.ok || candidates.value.length === 0)
 			return this.baseProvider.getSuggestions(lines, cursorLine, cursorCol, options);
 
 		return {

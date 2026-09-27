@@ -1,7 +1,7 @@
 import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import { Result } from "better-result";
 import { describe, expect, test } from "vitest";
 import { createFffAutocompleteProvider } from "../../src/fff/autocomplete.js";
+import { okResult } from "../../src/fff/result-utils.js";
 
 const baseProvider: AutocompleteProvider = {
 	async getSuggestions() {
@@ -30,7 +30,7 @@ describe("HEPI FFF autocomplete", () => {
 		const runtime = {
 			searchFileCandidates: async (query: string) => {
 				queries.push(query);
-				return Result.ok([
+				return okResult([
 					{
 						item: {
 							relativePath: "packages/pi-ext-tools/src/extension.ts",
@@ -40,7 +40,7 @@ describe("HEPI FFF autocomplete", () => {
 					},
 				]);
 			},
-			trackQuery: async () => Result.ok(undefined),
+			trackQuery: async () => okResult(undefined),
 		} as never;
 		const provider = createFffAutocompleteProvider(
 			baseProvider,

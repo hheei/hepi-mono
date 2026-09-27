@@ -334,7 +334,7 @@ export function registerReadTool(
 				);
 			try {
 				const resolved = await runtime.resolvePath(params.path, { allowDirectory: false });
-				if (resolved.isErr())
+				if (!resolved.ok)
 					return withReadMetrics(
 						await original.execute(toolCallId, params, signal, onUpdate, context),
 					);

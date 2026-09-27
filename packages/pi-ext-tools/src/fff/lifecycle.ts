@@ -6,8 +6,9 @@ import {
 	registerSettings,
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
+import { startTaskControl } from "../task-tools.js";
 import { TargetRuntime } from "../targets.js";
-import { AsyncTaskRegistry } from "../tasks/registry.js";
+import type { AsyncTaskRegistry } from "../tasks/registry.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -132,7 +133,7 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
-	const tasks = new AsyncTaskRegistry({ pi });
+	const tasks = startTaskControl(context);
 	state.tasks = tasks;
 	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;

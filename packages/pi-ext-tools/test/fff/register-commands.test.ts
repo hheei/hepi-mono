@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Result } from "better-result";
 import { describe, expect, test } from "vitest";
 import { FFF_RUNTIME_NOT_READY_TEXT } from "../../src/fff/extension-common.js";
 import type { FffRuntime } from "../../src/fff/fff.js";
 import { registerCommands } from "../../src/fff/register-commands.js";
+import { okResult, okVoid } from "../../src/fff/result-utils.js";
 
 type NotifyCall = [message: string, level: string | undefined];
 
@@ -71,11 +71,11 @@ const metadata = {
 
 function fakeRuntime(overrides: Partial<Record<string, unknown>> = {}): FffRuntime {
 	return {
-		reindex: async () => Result.ok(),
-		getStatus: async () => Result.ok({ state: "ready", indexedFiles: 7 }),
+		reindex: async () => okVoid(),
+		getStatus: async () => okResult({ state: "ready", indexedFiles: 7 }),
 		getMetadata: async () => metadata,
 		healthCheck: async () =>
-			Result.ok({
+			okResult({
 				version: "0.10.6",
 				git: { available: true, repositoryFound: true, libgit2Version: "1.8" },
 				filePicker: { initialized: true, basePath: "/tmp/project", indexedFiles: 7 },
@@ -100,7 +100,7 @@ describe("FFF command", () => {
 			fakeRuntime({
 				reindex: async () => {
 					reindexed += 1;
-					return Result.ok();
+					return okVoid();
 				},
 			}),
 		);

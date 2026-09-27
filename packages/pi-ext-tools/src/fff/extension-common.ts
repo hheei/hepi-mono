@@ -1,23 +1,7 @@
-import { TaggedError } from "better-result";
-import { formatGrepError } from "./error-format.js";
-import type { GrepSearchError } from "./errors.js";
 import type { GrepSearchResponse, HealthCheck, RuntimeMetadata } from "./fff.js";
 import { isValidRegexPattern } from "./query.js";
 
 export const FFF_RUNTIME_NOT_READY_TEXT = "FFF runtime is not ready.";
-
-export function buildGrepFailureMessage(error: GrepSearchError, pathQuery?: string): string {
-	return formatGrepError(error, pathQuery);
-}
-
-export function grepNeedsBuiltinFallback(params: {
-	pattern: string;
-	ignoreCase?: boolean;
-}): boolean {
-	// FFF supports case-sensitive matching, so an explicit false is compatible.
-	if (params.ignoreCase === true) return true;
-	return false;
-}
 
 export function normalizeOutputMode(
 	mode: string | undefined,
@@ -35,22 +19,7 @@ export function inferFffGrepMode(literal?: boolean, pattern?: string): "plain" |
 }
 
 export function buildErrorDetails(error?: { message: string } | null) {
-	if (!error) {
-		return {
-			error: null,
-			errorTag: null,
-			errorData: null,
-		};
-	}
-
-	const errorData = Object.fromEntries(
-		Object.entries(error).filter(([key]) => key !== "message" && key !== "name" && key !== "stack"),
-	);
-	return {
-		error: error.message,
-		errorTag: TaggedError.is(error) ? error._tag : null,
-		errorData: Object.keys(errorData).length > 0 ? errorData : null,
-	};
+	return { error: error?.message ?? null };
 }
 
 export function buildGrepDetails(result?: GrepSearchResponse, error?: { message: string } | null) {

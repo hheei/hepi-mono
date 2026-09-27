@@ -235,7 +235,7 @@ async function executeFind(
 		rejectWhenAborted(signal),
 	]);
 	if (signal.aborted) throw new Error("Operation aborted");
-	if (result.isErr()) {
+	if (!result.ok) {
 		return native();
 	}
 	const details = {

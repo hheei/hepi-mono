@@ -1,11 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Result } from "better-result";
 import { describe, expect, test } from "vitest";
 import { ExternalGrepScopeError } from "../../src/fff/errors.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { admitFffScan } from "../../src/fff/fff-runtime.js";
+import { okResult } from "../../src/fff/result-utils.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
 
 describe("FFF runtime", () => {
@@ -35,13 +35,13 @@ describe("FFF runtime", () => {
 		};
 		const firstRuntime = new FffRuntime("/tmp", { finder: finder as never });
 		const first = await firstRuntime.grepSearch({ pattern: "needle", limit: 1 });
-		if (first.isErr()) throw first.error;
+		if (!first.ok) throw first.error;
 		const cursor = first.value.nextCursor;
 		if (!cursor) throw new Error("Expected a continuation cursor");
 
 		const secondRuntime = new FffRuntime("/tmp", { finder: finder as never });
 		const second = await secondRuntime.grepSearch({ pattern: "needle", limit: 1, cursor });
-		if (second.isErr()) throw second.error;
+		if (!second.ok) throw second.error;
 		expect(second.value.items[0]?.relativePath).toBe("second.ts");
 		expect(seenOffsets).toEqual([null, 1]);
 	});
@@ -79,7 +79,7 @@ describe("FFF runtime", () => {
 			fuzzyFallbackOnly: true,
 		});
 
-		if (result.isErr()) throw result.error;
+		if (!result.ok) throw result.error;
 		expect(modes).toEqual(["regex", "fuzzy"]);
 		expect(result.value.approximate).toBe("fuzzy");
 		expect(result.value.items[0]?.lineNumber).toBe(4);
@@ -121,7 +121,7 @@ describe("FFF runtime", () => {
 
 		expect((await runtime.getMetadata()).projectRoot).toBe("/tmp/session");
 		const warmed = await runtime.warm(25);
-		if (warmed.isErr()) throw warmed.error;
+		if (!warmed.ok) throw warmed.error;
 		expect(warmed.value).toMatchObject({ ready: false, indexedFiles: 7 });
 		expect(waits).toEqual([25]);
 	});
@@ -136,9 +136,9 @@ describe("FFF runtime", () => {
 		const ensuring = runtime.ensure();
 		runtime.dispose();
 		const destroyed: string[] = [];
-		resolveInitialization(Result.ok({ destroy: () => destroyed.push("destroyed") } as never));
+		resolveInitialization(okResult({ destroy: () => destroyed.push("destroyed") } as never));
 		const result = await ensuring;
-		expect(result.isErr()).toBe(true);
+		expect(!result.ok).toBe(true);
 		expect(destroyed).toEqual(["destroyed"]);
 	});
 
@@ -171,7 +171,7 @@ describe("FFF runtime", () => {
 			timeBudgetMs: 1,
 			limit: 10,
 		});
-		if (result.isErr()) throw result.error;
+		if (!result.ok) throw result.error;
 		expect(result.value.timedOut).toBe(true);
 		expect(result.value.formatted).toContain(GREP_TIMEOUT_RECOVERY);
 		expect(result.value.nextCursor).toBeUndefined();
@@ -191,8 +191,8 @@ describe("FFF runtime", () => {
 
 			const result = await runtime.grepSearch({ pattern: "outside", pathQuery: externalPath });
 
-			expect(result.isErr()).toBe(true);
-			if (result.isErr()) expect(ExternalGrepScopeError.is(result.error)).toBe(true);
+			expect(!result.ok).toBe(true);
+			if (!result.ok) expect(result.error).toBeInstanceOf(ExternalGrepScopeError);
 		} finally {
 			await Promise.all([
 				rm(projectRoot, { recursive: true, force: true }),
