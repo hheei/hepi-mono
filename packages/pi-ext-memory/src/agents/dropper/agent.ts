@@ -62,6 +62,8 @@ export {
 	observationPoolMetrics,
 } from "./pool.js";
 
+import { textToolResult } from "@hheei/pi-ext-core";
+
 interface RunDropperArgs {
 	model: Model<Api>;
 	apiKey?: string | undefined;
@@ -268,15 +270,10 @@ export async function runDropper(args: RunDropperArgs): Promise<string[] | undef
 				totalCandidates: proposedDropIds.length,
 				maxDropsAllowed,
 			});
-			return {
-				content: [
-					{
-						type: "text",
-						text: `Queued ${added} drop candidate${added === 1 ? "" : "s"}. Candidates this run: ${proposedDropIds.length}. Maximum drops allowed: ${maxDropsAllowed}.`,
-					},
-				],
-				details: { added, totalCandidates: proposedDropIds.length, maxDropsAllowed },
-			};
+			return textToolResult(
+				`Queued ${added} drop candidate${added === 1 ? "" : "s"}. Candidates this run: ${proposedDropIds.length}. Maximum drops allowed: ${maxDropsAllowed}.`,
+				{ added, totalCandidates: proposedDropIds.length, maxDropsAllowed },
+			);
 		},
 	};
 

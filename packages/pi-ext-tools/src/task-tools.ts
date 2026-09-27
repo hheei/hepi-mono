@@ -10,6 +10,7 @@ import {
 	registerManagedTool,
 	setManagedToolsActive,
 	type ToolTui,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
@@ -70,10 +71,7 @@ export function startTaskControl(context: ExtensionLifecycleContext): AsyncTaskR
 const NO_ACTIVE_TASK_SESSION = "No active task session";
 
 function unavailable(): AgentToolResult<{ readonly error: string }> {
-	return {
-		content: [{ type: "text", text: NO_ACTIVE_TASK_SESSION }],
-		details: { error: "session_unavailable" },
-	};
+	return textToolResult(NO_ACTIVE_TASK_SESSION, { error: "session_unavailable" });
 }
 const ID_DESCRIPTION =
 	"Background task ids such as bash-1; single-task calls pass a one-element array.";
@@ -169,20 +167,17 @@ export function registerTaskTools(
 			const tasks = state.getTasks();
 			if (tasks === undefined) return unavailable();
 			const listed = tasks.list(params.includeTerminal === true);
-			return {
-				content: [{ type: "text", text: listText(listed, params.includeTerminal === true) }],
-				details: {
-					tasks: listed.map((task) => ({
-						id: task.id,
-						type: task.type,
-						status: task.status,
-						purpose: task.purpose,
-						startedAt: task.startedAt,
-						delivered: task.delivered,
-						...(task.endedAt === undefined ? {} : { endedAt: task.endedAt }),
-					})),
-				},
-			};
+			return textToolResult(listText(listed, params.includeTerminal === true), {
+				tasks: listed.map((task) => ({
+					id: task.id,
+					type: task.type,
+					status: task.status,
+					purpose: task.purpose,
+					startedAt: task.startedAt,
+					delivered: task.delivered,
+					...(task.endedAt === undefined ? {} : { endedAt: task.endedAt }),
+				})),
+			});
 		},
 	};
 	const waitTool: ToolDefinition<typeof IdsParams, unknown> = {
@@ -198,30 +193,24 @@ export function registerTaskTools(
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
-				return {
-					content: [{ type: "text", text: "wait_tasks needs at least one task id." }],
-					details: { error: "invalid_ids" },
-				};
+				return textToolResult("wait_tasks needs at least one task id.", { error: "invalid_ids" });
 			const outcomes = await tasks.wait(ids, signal);
 			const cancelled = outcomes.some((outcome) => outcome.status === "running");
-			return {
-				content: [{ type: "text", text: waitText(outcomes) }],
-				details: {
-					tasks: outcomes.map((outcome) =>
-						outcome.status === "not_found"
-							? { id: outcome.id, status: outcome.status }
-							: {
-									id: outcome.id,
-									status: outcome.status,
-									waited: outcome.waited,
-									delivered: outcome.delivered,
-									truncated: outcome.truncated,
-									output: outcome.output,
-								},
-					),
-					...(cancelled ? { error: "wait_cancelled" } : {}),
-				},
-			};
+			return textToolResult(waitText(outcomes), {
+				tasks: outcomes.map((outcome) =>
+					outcome.status === "not_found"
+						? { id: outcome.id, status: outcome.status }
+						: {
+								id: outcome.id,
+								status: outcome.status,
+								waited: outcome.waited,
+								delivered: outcome.delivered,
+								truncated: outcome.truncated,
+								output: outcome.output,
+							},
+				),
+				...(cancelled ? { error: "wait_cancelled" } : {}),
+			});
 		},
 	};
 	const stopTool: ToolDefinition<typeof IdsParams, unknown> = {
@@ -235,15 +224,9 @@ export function registerTaskTools(
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
-				return {
-					content: [{ type: "text", text: "stop_tasks needs at least one task id." }],
-					details: { error: "invalid_ids" },
-				};
+				return textToolResult("stop_tasks needs at least one task id.", { error: "invalid_ids" });
 			const outcomes = tasks.stop(ids);
-			return {
-				content: [{ type: "text", text: stopText(outcomes) }],
-				details: { tasks: outcomes },
-			};
+			return textToolResult(stopText(outcomes), { tasks: outcomes });
 		},
 	};
 	const [listRegistration, waitRegistration, stopRegistration] = TASK_TOOL_REGISTRATIONS;

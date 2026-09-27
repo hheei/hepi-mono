@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerManagedTool } from "@hheei/pi-ext-core";
+import { registerManagedTool, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { formatGrepError } from "./error-format.js";
 import {
@@ -46,11 +46,7 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 			},
 		) {
 			const runtime = state.getRuntime();
-			if (!runtime)
-				return {
-					content: [{ type: "text" as const, text: FFF_RUNTIME_NOT_READY_TEXT }],
-					details: buildGrepDetails(),
-				};
+			if (!runtime) return textToolResult(FFF_RUNTIME_NOT_READY_TEXT, buildGrepDetails());
 			const result = await runtime.multiGrepSearch({
 				patterns: params.patterns,
 				...(params.path === undefined ? {} : { pathQuery: params.path }),
@@ -63,10 +59,7 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 				outputMode: normalizeOutputMode(params.outputMode) ?? "files_with_matches",
 			});
 			if (!result.ok) throw new Error(formatGrepError(result.error, params.path));
-			return {
-				content: [{ type: "text" as const, text: result.value.formatted }],
-				details: buildGrepDetails(result.value),
-			};
+			return textToolResult(result.value.formatted, buildGrepDetails(result.value));
 		},
 	};
 	registerManagedTool(

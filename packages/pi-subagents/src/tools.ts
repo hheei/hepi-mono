@@ -3,7 +3,7 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { getToolTui, isRecord, registerToolTuiTrace } from "@hheei/pi-ext-core";
+import { getToolTui, isRecord, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendReportToRunner } from "./connector.js";
 import type { ChildIdentity, OperationError } from "./domain.js";
@@ -48,10 +48,7 @@ function isOperationError(value: unknown): value is OperationError {
 
 function result(value: unknown): AgentToolResult<unknown> {
 	if (isOperationError(value)) throw new Error(JSON.stringify(value));
-	return {
-		content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }],
-		details: value,
-	};
+	return textToolResult(typeof value === "string" ? value : JSON.stringify(value), value);
 }
 
 const SPAWN_DESCRIPTION =
@@ -187,10 +184,7 @@ export function registerChildTools(
 			};
 			await sendReportToRunner(identity, details, signal);
 			options.onReport?.();
-			return {
-				content: [{ type: "text", text: "Report queued for the parent." }],
-				details,
-			};
+			return textToolResult("Report queued for the parent.", details);
 		},
 	};
 	pi.registerTool(tool);

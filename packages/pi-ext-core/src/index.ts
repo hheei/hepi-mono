@@ -191,7 +191,7 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
-export { agentResultText, formatDuration } from "./tool-result.js";
+export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
 export type { ToolCollapseMode, ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
 export {
 	AUTO_COLLAPSE_DELAY_MS,

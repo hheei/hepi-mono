@@ -9,7 +9,13 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { agentResultText, formatDuration, isRecord, type ToolTui } from "@hheei/pi-ext-core";
+import {
+	agentResultText,
+	formatDuration,
+	isRecord,
+	type ToolTui,
+	textToolResult,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
@@ -322,10 +328,7 @@ export function registerWriteTool(
 				const remote = await writeRemoteFile(state, params.target, path, content, signal);
 				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
 					return withWriteDetails(
-						{
-							content: [{ type: "text", text: remoteWriteFailureText(remote) }],
-							details: undefined,
-						},
+						textToolResult(remoteWriteFailureText(remote), undefined),
 						undefined,
 						undefined,
 						remote,
@@ -336,18 +339,12 @@ export function registerWriteTool(
 				};
 				const presentation = writePresentation(params, baseline);
 				return withWriteDetails(
-					{
-						content: [
-							{
-								type: "text",
-								text:
-									remote.outcome === "no_change"
-										? `No changes made to ${path}.`
-										: `Successfully wrote ${Buffer.byteLength(content)} bytes to ${path}`,
-							},
-						],
-						details: undefined,
-					},
+					textToolResult(
+						remote.outcome === "no_change"
+							? `No changes made to ${path}.`
+							: `Successfully wrote ${Buffer.byteLength(content)} bytes to ${path}`,
+						undefined,
+					),
 					presentation.metrics,
 					presentation.view,
 					remote,

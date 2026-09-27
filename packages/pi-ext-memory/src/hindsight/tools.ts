@@ -8,6 +8,7 @@ import {
 	type ManagedToolRegistration,
 	registerManagedTool,
 	setManagedToolsActive,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type HindsightGateway, KnowledgePagesUnavailableError } from "./client.js";
 import type { ResolvedHindsight } from "./config.js";
@@ -394,30 +395,25 @@ export function registerHindsightTools(
 						retain,
 						...(reachable ? {} : { message: "Hindsight server not reachable" }),
 					};
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: [
-									`Endpoint: ${config.apiUrl}`,
-									`Token configured: ${details.tokenConfigured ? "yes" : "no"}`,
-									`Bank: ${bankId} (chosen by ${bankSource})`,
-									`Repository: ${repo}`,
-									`Isolation: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
-									`Retain tags: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
-									`Server reachable: ${reachable ? "yes" : "no"}`,
-									`Knowledge pages available: ${pagesAvailable ? "yes" : "no"}`,
-									`Auto-recall before turns: ${config.autoRecall ? "on" : "off"}`,
-									`Session writeback: ${config.retainSessions ? "on" : "off"}`,
-									`Writeback state: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
-									...(retain.lastError === undefined
-										? []
-										: [`Last writeback error: ${retain.lastError}`]),
-								].join("\n"),
-							},
-						],
+					return textToolResult(
+						[
+							`Endpoint: ${config.apiUrl}`,
+							`Token configured: ${details.tokenConfigured ? "yes" : "no"}`,
+							`Bank: ${bankId} (chosen by ${bankSource})`,
+							`Repository: ${repo}`,
+							`Isolation: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
+							`Retain tags: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
+							`Server reachable: ${reachable ? "yes" : "no"}`,
+							`Knowledge pages available: ${pagesAvailable ? "yes" : "no"}`,
+							`Auto-recall before turns: ${config.autoRecall ? "on" : "off"}`,
+							`Session writeback: ${config.retainSessions ? "on" : "off"}`,
+							`Writeback state: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
+							...(retain.lastError === undefined
+								? []
+								: [`Last writeback error: ${retain.lastError}`]),
+						].join("\n"),
 						details,
-					};
+					);
 				});
 			},
 		}),

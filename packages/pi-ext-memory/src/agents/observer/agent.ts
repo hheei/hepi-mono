@@ -12,6 +12,7 @@ import type {
 	ProviderHeaders,
 } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
+import { textToolResult } from "@hheei/pi-ext-core";
 import type { Static } from "typebox";
 import { hashId } from "../../ids.js";
 import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
@@ -193,10 +194,7 @@ export async function runObserver(args: RunObserverArgs): Promise<Observation[] 
 				rejectedPart +
 				` Total so far this run: ${accumulated.size}. ` +
 				`Continue if the chunk still has uncovered content; otherwise stop calling the tool and emit a short plain-text confirmation.`;
-			return {
-				content: [{ type: "text", text: ack }],
-				details: { added, duplicates, rejected, total: accumulated.size },
-			};
+			return textToolResult(ack, { added, duplicates, rejected, total: accumulated.size });
 		},
 	};
 

@@ -3,7 +3,13 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createToolTui, errorMessage, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
+import {
+	createToolTui,
+	errorMessage,
+	registerManagedTool,
+	type ToolTui,
+	textToolResult,
+} from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
@@ -184,18 +190,12 @@ async function executeFind(
 		const cursorLine = hasMore
 			? `cursor: ${nextRemoteCursor(params.target, params.pattern, params.path, candidates, limit, pageIndex + 1)}`
 			: undefined;
-		return {
-			content: [
-				{
-					type: "text" as const,
-					text:
-						[formatFindModelOutput(details), cursorLine]
-							.filter((line): line is string => line !== undefined)
-							.join("\n") || NO_FIND_RESULTS,
-				},
-			],
+		return textToolResult(
+			[formatFindModelOutput(details), cursorLine]
+				.filter((line): line is string => line !== undefined)
+				.join("\n") || NO_FIND_RESULTS,
 			details,
-		};
+		);
 	}
 	const native = async () => {
 		const result = await createFindToolDefinition(context.cwd).execute(
@@ -254,18 +254,12 @@ async function executeFind(
 	const cursorLine = result.value.hasMore
 		? `cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`
 		: undefined;
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text:
-					[formatFindModelOutput(details), cursorLine]
-						.filter((line): line is string => line !== undefined && line !== "")
-						.join("\n") || NO_FIND_RESULTS,
-			},
-		],
+	return textToolResult(
+		[formatFindModelOutput(details), cursorLine]
+			.filter((line): line is string => line !== undefined && line !== "")
+			.join("\n") || NO_FIND_RESULTS,
 		details,
-	};
+	);
 }
 
 export function registerFindTool(
@@ -300,20 +294,15 @@ export function registerFindTool(
 							? error.outcome
 							: undefined;
 				if (outcome !== undefined)
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: outcome === "timeout" ? FIND_TIMEOUT_RECOVERY : errorMessage(error),
-							},
-						],
-						details: {
+					return textToolResult(
+						outcome === "timeout" ? FIND_TIMEOUT_RECOVERY : errorMessage(error),
+						{
 							outcome,
 							...(params.target === undefined ? {} : { target: params.target }),
 							...(params.path === undefined ? {} : { path: params.path }),
 							...(outcome === "timeout" ? { timedOut: true } : {}),
 						},
-					};
+					);
 				throw error;
 			}
 		},

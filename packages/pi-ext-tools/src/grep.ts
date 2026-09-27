@@ -7,6 +7,7 @@ import {
 	registerManagedTool,
 	runCommand,
 	type ToolTui,
+	textToolResult,
 	throwIfAborted,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -714,9 +715,8 @@ export function registerGrepTool(
 				...(params.target === undefined ? {} : { target: params.target }),
 				...(params.path === undefined ? {} : { path: params.path }),
 			};
-			const fail = (outcome: TargetOutcome, message: string) => ({
-				content: [{ type: "text" as const, text: message }],
-				details: {
+			const fail = (outcome: TargetOutcome, message: string) =>
+				textToolResult(message, {
 					format: "canonical-grep" as const,
 					engine: "rg" as const,
 					events: [],
@@ -732,8 +732,7 @@ export function registerGrepTool(
 					outcome,
 					...targetFields,
 					...(outcome === "timeout" ? { timedOut: true } : {}),
-				} satisfies GrepToolDetails,
-			});
+				} satisfies GrepToolDetails);
 			try {
 				throwIfAborted(signal);
 				const targetRuntime = state.getTargetRuntime();
@@ -801,25 +800,22 @@ export function registerGrepTool(
 									? GREP_TIMEOUT_RECOVERY
 									: "No matches found";
 				const outcome = canonical.timedOut === true ? "timeout" : "ok";
-				return {
-					content: [{ type: "text" as const, text: resultText }],
-					details: {
-						format: "canonical-grep" as const,
-						engine,
-						events: canonical.events,
-						display,
-						totalMatched: canonical.totalMatched,
-						totalFiles: new Set(canonical.events.map((event) => event.path)).size,
-						totalLines: canonical.events.length,
-						durationMs: Math.round(performance.now() - startedAt),
-						cap: canonical.cap,
-						recovery: { message: recoveryMessage },
-						outcome,
-						...targetFields,
-						...(canonical.timedOut ? { timedOut: true } : {}),
-						...(canonical.incomplete === undefined ? {} : { incomplete: canonical.incomplete }),
-					} satisfies GrepToolDetails,
-				};
+				return textToolResult(resultText, {
+					format: "canonical-grep" as const,
+					engine,
+					events: canonical.events,
+					display,
+					totalMatched: canonical.totalMatched,
+					totalFiles: new Set(canonical.events.map((event) => event.path)).size,
+					totalLines: canonical.events.length,
+					durationMs: Math.round(performance.now() - startedAt),
+					cap: canonical.cap,
+					recovery: { message: recoveryMessage },
+					outcome,
+					...targetFields,
+					...(canonical.timedOut ? { timedOut: true } : {}),
+					...(canonical.incomplete === undefined ? {} : { incomplete: canonical.incomplete }),
+				} satisfies GrepToolDetails);
 			} catch (error) {
 				if (isTargetError(error)) return fail(error.outcome, error.message);
 				throw annotateRgRegexError(error);
