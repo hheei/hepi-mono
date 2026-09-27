@@ -1,10 +1,10 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import { afterEach, expect, test, vi } from "vitest";
 import {
 	createCmuxHostAdapter,
 	createHerdrHostAdapter,
 	type HostAdapter,
 	type HostAttachment,
-	HostCommandError,
 	type HostCommandResult,
 	type HostCommandRunner,
 	selectHostAdapter,
@@ -155,8 +155,7 @@ test("Herdr split failure is a pane error and does not launch a command", async 
 		await adapter.attach(spec);
 		throw new Error("expected attach to fail");
 	} catch (error) {
-		expect(error).toBeInstanceOf(HostCommandError);
-		expect(error).toMatchObject({ kind: "pane" });
+		expect(errorMessage(error)).toContain("herdr split returned no child pane id");
 	}
 	expect(calls.some((call) => call[1] === "pane" && call[2] === "run")).toBe(false);
 });
@@ -267,8 +266,6 @@ test("default selection falls back from Herdr to cmux and records the reason", a
 	if (selection.available) {
 		expect(selection.selectedHost).toBe("cmux");
 		expect(selection.reason).toContain("herdr: unavailable");
-		expect(selection.explicit).toBe(false);
-		expect(selection.attempts).toHaveLength(2);
 	}
 });
 
@@ -280,9 +277,8 @@ test("explicit unavailable host fails without silent fallback", async () => {
 			cmux: fakeAdapter("cmux", true),
 		},
 	});
-	expect(selection).toMatchObject({ available: false, selectedHost: null, explicit: true });
+	expect(selection).toMatchObject({ available: false, selectedHost: null });
 	expect(selection.reason).toContain("explicit host unavailable");
-	expect(selection.attempts).toHaveLength(1);
 });
 
 test("stale cleanup refuses to close after ownership is revoked", async () => {

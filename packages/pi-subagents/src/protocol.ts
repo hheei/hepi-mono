@@ -123,12 +123,6 @@ export const EventFrameSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const ServerFrameSchema = Type.Union([
-	HelloAckFrameSchema,
-	ResponseFrameSchema,
-	EventFrameSchema,
-]);
-
 export const PromptPayloadSchema = Type.Object(
 	{ message: nonEmptyString },
 	{ additionalProperties: false },
@@ -190,14 +184,9 @@ export type HelloAckFrame = Static<typeof HelloAckFrameSchema>;
 export type RequestFrame = Static<typeof RequestFrameSchema>;
 export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type EventFrame = Static<typeof EventFrameSchema>;
-export type ServerFrame = Static<typeof ServerFrameSchema>;
 export type ContactReportPayload = Static<typeof ContactReportPayloadSchema>;
 export type ChildLifecyclePayload = Static<typeof ChildLifecyclePayloadSchema>;
 export type PauseReportPayload = Static<typeof PauseReportPayloadSchema>;
-
-export function isRunnerOperation(value: unknown): value is RunnerOperation {
-	return typeof value === "string" && (RUNNER_OPERATIONS as readonly string[]).includes(value);
-}
 
 export function isHelloFrame(value: unknown): value is HelloFrame {
 	return Value.Check(HelloFrameSchema, value);
@@ -229,10 +218,6 @@ export function isResponseFrame(value: unknown): value is ResponseFrame {
 
 export function isEventFrame(value: unknown): value is EventFrame {
 	return Value.Check(EventFrameSchema, value);
-}
-
-export function isServerFrame(value: unknown): value is ServerFrame {
-	return Value.Check(ServerFrameSchema, value);
 }
 
 export function successResponse(id: string, data?: unknown): ResponseFrame {

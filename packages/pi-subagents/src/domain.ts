@@ -57,15 +57,14 @@ export interface ResolvedThinking {
 	readonly source: LaunchValueSource;
 }
 
-export interface ExtensionSelection {
+export interface Selection {
 	readonly discovery: boolean;
 	readonly paths: readonly string[];
 }
 
-export interface SkillSelection {
-	readonly discovery: boolean;
-	readonly paths: readonly string[];
-}
+/** Extensions and skills are selected the same way; the aliases keep the two roles named. */
+export type ExtensionSelection = Selection;
+export type SkillSelection = Selection;
 
 export interface EffectiveLaunchConfig {
 	/** Logical child id; the same value the child bridge reports back. */
