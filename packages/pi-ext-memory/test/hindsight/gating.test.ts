@@ -36,6 +36,8 @@ function installExtension(): Hooks {
 		},
 		getActiveTools: () => [...registered],
 		setActiveTools: () => {},
+		registerEntryRenderer: () => {},
+		appendEntry: () => {},
 	} as unknown as ExtensionAPI;
 	observationalMemory(pi);
 	return { names, registered, handlers };

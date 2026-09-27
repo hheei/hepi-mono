@@ -20,6 +20,8 @@ describe("observationalMemory extension entry", () => {
 			registerTool: vi.fn((tool: { name: string }) => {
 				tools[tool.name] = tool;
 			}),
+			registerEntryRenderer: vi.fn(),
+			appendEntry: vi.fn(),
 		};
 
 		observationalMemory(pi as unknown as ExtensionAPI);

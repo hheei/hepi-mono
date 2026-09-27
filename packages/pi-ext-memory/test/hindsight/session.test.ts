@@ -58,7 +58,7 @@ describe("hindsight session prompt injection", () => {
 		});
 
 		const first = beforeStart("add a feature");
-		await session.beforeAgentStart(first);
+		const firstInjection = await session.beforeAgentStart(first);
 		// The rendered prompt stays host-owned: the extension only adds sections.
 		expect(first.systemPrompt).toBe("BASE PROMPT");
 		expect(first.sections[PREAMBLE_SECTION]).toContain(MEMORY_PREAMBLE_HEADING);
@@ -66,6 +66,10 @@ describe("hindsight session prompt injection", () => {
 		expect(first.sections[PREAMBLE_SECTION]).toContain("kp-1 — Conventions");
 		expect(first.sections[RECALL_SECTION]).toContain(MEMORY_OPEN_TAG);
 		expect(first.sections[RECALL_SECTION]).toContain('From "Conventions" (kp-1): always use pnpm');
+
+		// The injection summary names what the user must be able to see.
+		expect(firstInjection?.summary).toBe("memory guide + recalled 1 page");
+		expect(firstInjection?.pages.map((page) => page.pageId)).toEqual(["kp-1"]);
 
 		const second = beforeStart("carry on");
 		await session.beforeAgentStart(second);

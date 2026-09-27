@@ -9,6 +9,7 @@ import {
 	scheduleColdResumeCompaction,
 } from "./hooks/compaction-trigger.js";
 import { registerConsolidationTrigger } from "./hooks/consolidation-trigger.js";
+import { createMemoryInfo } from "./info.js";
 import { Runtime } from "./runtime.js";
 import { registerRecallTool } from "./tools/recall-observation.js";
 
@@ -25,9 +26,15 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 
 	registerOmCommand(pi, runtime);
 	registerRecallTool(pi);
+	const info = createMemoryInfo(pi);
 
 	pi.on("before_agent_start", async (event) => {
-		await hindsight?.beforeAgentStart(event);
+		const injected = await hindsight?.beforeAgentStart(event);
+		if (injected === undefined) return;
+		info(
+			injected.summary,
+			injected.pages.map((page) => `${page.pageId} — ${page.page}`),
+		);
 	});
 	pi.on("agent_end", async (event, context) => {
 		hindsight?.agentEnd(event, context);
