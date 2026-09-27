@@ -3,10 +3,12 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { subcommandCompletions } from "@hheei/pi-ext-core";
 import type { PublicSubagent } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 
 const STATUS_KEY = "pi-subagents";
+const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|attach [id]|send|stop [id]";
 
 export function formatStatusLine(children: readonly PublicSubagent[]): string | undefined {
 	const visible = children.filter((child) => child.state !== "done" && child.state !== "stopped");
@@ -90,7 +92,8 @@ async function stopSelected(
 
 export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManager): void {
 	pi.registerCommand("subagents", {
-		description: "List, inspect, attach, send to, or stop an owned subagent",
+		description: "Manage subagents: /subagents [list | inspect | attach [id] | send | stop [id]]",
+		getArgumentCompletions: subcommandCompletions(["list", "inspect", "attach", "send", "stop"]),
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify(
@@ -98,9 +101,16 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				);
 				return;
 			}
+			const input = args.trim();
+			const separator = input.search(/\s/u);
 			const action =
-				args.trim() ||
-				(await ctx.ui.select("Subagents", ["list", "inspect", "attach", "send", "stop"]));
+				input === ""
+					? await ctx.ui.select("Subagents", ["list", "inspect", "attach", "send", "stop"])
+					: separator < 0
+						? input
+						: input.slice(0, separator);
+			// Only `attach` and `stop` take a subagent id; the picker verbs ignore the rest.
+			const target = separator < 0 ? "" : input.slice(separator).trim();
 			if (action === undefined) return;
 			const children = await manager.list();
 			if (action === "list") {
@@ -125,11 +135,11 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				return;
 			}
 			if (action === "attach") {
-				await attachSelected(ctx, manager);
+				await attachSelected(ctx, manager, target);
 				return;
 			}
 			if (action === "stop") {
-				await stopSelected(ctx, manager);
+				await stopSelected(ctx, manager, target);
 				return;
 			}
 			if (action === "send") {
@@ -141,20 +151,10 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				const message = await ctx.ui.input("Message for subagent");
 				if (message === undefined || message.trim() === "") return;
 				notifyResult(ctx, await manager.send(child.id, message.trim()), `Sent to ${child.id}`);
+				return;
 			}
-		},
-	});
-	pi.registerCommand("attach-subagent", {
-		description:
-			"Open an RPC child as a native Pi TUI. Idle children switch immediately; busy children wait for the current turn to finish. The session must already be flushed.",
-		handler: async (args, ctx) => {
-			await attachSelected(ctx, manager, args.trim());
-		},
-	});
-	pi.registerCommand("stop-subagent", {
-		description: "Stop an owned subagent",
-		handler: async (args, ctx) => {
-			await stopSelected(ctx, manager, args.trim());
+
+			ctx.ui.notify(`Unknown subcommand "${action}". ${SUBAGENT_COMMAND_USAGE}`, "warning");
 		},
 	});
 	pi.registerShortcut("ctrl+shift+a", {

@@ -84,8 +84,8 @@ disabling discovery, so a child never loses `contact_parent` and never gains a m
 A HostAdapter only carries a native TUI. It receives the same LaunchSpec the RPC runner
 uses, probes real host capability, and never re-resolves agent, model, or Pi flags.
 
-`/attach-subagent <id>` opens an RPC child as native Pi in Herdr or cmux. With no
-id, `/subagents` or the attach shortcut uses `ctx.ui.select`. An idle child switches
+`/subagents attach <id>` opens an RPC child as native Pi in Herdr or cmux. With no
+id, `/subagents attach` or the attach shortcut uses `ctx.ui.select`. An idle child switches
 immediately. A busy child waits for the current turn's `turn_end`, then closes the
 RPC writer. Timeout or cancel keeps the RPC writer and fails visibly. Session files
 that have never flushed refuse attach. There is no model-facing attach tool.
@@ -143,8 +143,10 @@ spawn. Headless/RPC parents do not mount it.
 
 `setStatus` shows a compact `running` / `idle` / `tui` / `failed` line, including
 `interrupted` when that diagnostic is set. `/subagents` lists, inspects, attaches, sends,
-or stops through `ctx.ui.select`. `/attach-subagent` and `/stop-subagent` accept an id or
-open the same picker. Shortcuts `ctrl+shift+a` and `ctrl+shift+s` call the same manager
+or stops through `ctx.ui.select`. Tab completion after `/subagents ` offers its subcommands.
+`/subagents attach <id>` and `/subagents stop <id>`
+skip the picker and act on that child directly. Shortcuts `ctrl+shift+a` and `ctrl+shift+s`
+call the same manager
 operations. Spawn/send/get/list/stop results render through ext-core ToolTui so collapsed
 output still keeps the full details.
 
