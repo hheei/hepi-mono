@@ -1,7 +1,6 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
@@ -12,19 +11,14 @@ import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
 import { RemoteGrepAccessDeniedError, type TargetRuntime } from "../../src/targets.js";
+import { toolFor, toolHost } from "../fixtures/harness.js";
 
-function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
-	const tools: ToolDefinition[] = [];
-	return {
-		pi: {
-			events: {},
-			registerTool: (tool: ToolDefinition): void => {
-				tools.push(tool);
-			},
-		} as unknown as ExtensionAPI,
-		tools,
-	};
-}
+/** The fff collaborators none of these tests reach. */
+const noRuntimeStubs = {
+	getTasks: (): undefined => undefined,
+	getBashJobs: (): undefined => undefined,
+	getTargetRuntime: (): undefined => undefined,
+};
 
 describe("FFF tool registration", () => {
 	test("preserves Pi grep literal and regex mode semantics", () => {
@@ -36,17 +30,16 @@ describe("FFF tool registration", () => {
 	});
 
 	test("does not register retired find_files name", () => {
-		const host = harness();
+		const host = toolHost();
 		registerMultiGrepTool(host.pi, createFffRuntimeState());
 		expect(host.tools.map((tool) => tool.name)).toEqual(["fff_multi_grep"]);
 		expect(host.tools.some((tool) => tool.name === "find_files")).toBe(false);
 	});
 
 	test("reports canonical unavailable text when FFF runtime is unavailable", async () => {
-		const host = harness();
+		const host = toolHost();
 		registerMultiGrepTool(host.pi, createFffRuntimeState());
-		const tool = host.tools[0];
-		if (tool === undefined) throw new Error("FFF multi-grep was not registered");
+		const tool = toolFor(host.tools, "fff_multi_grep");
 		const result = await tool.execute(
 			"multi-grep-unavailable",
 			{ patterns: ["needle"] },
@@ -63,11 +56,10 @@ describe("FFF tool registration", () => {
 		const directory = await mkdtemp(join(tmpdir(), "hepi-fff-find-"));
 		try {
 			await writeFile(join(directory, "fallback-target.txt"), "", "utf8");
-			const host = harness();
+			const host = toolHost();
 			registerFindTool(host.pi, createFffRuntimeState());
 			expect(host.tools.map((tool) => tool.name)).toEqual(["find"]);
-			const find = host.tools[0];
-			if (find === undefined) throw new Error("native find was not registered");
+			const find = toolFor(host.tools, "find");
 			const result = await find.execute(
 				"find-canonical",
 				{ pattern: "*fallback-target*" },
@@ -89,8 +81,9 @@ describe("FFF tool registration", () => {
 	});
 
 	test("joins remote find pages with real newlines and records target details", async () => {
-		const host = harness();
+		const host = toolHost();
 		const state = {
+			...noRuntimeStubs,
 			getRuntime: () => undefined,
 			getSettings: () => ({
 				...DEFAULT_FFF_SETTINGS,
@@ -99,8 +92,6 @@ describe("FFF tool registration", () => {
 				readEnhancement: false,
 				findEnhancement: false,
 			}),
-			getTasks: () => undefined,
-			getBashJobs: () => undefined,
 			getTargetRuntime: () =>
 				({
 					find: async () => [
@@ -110,8 +101,7 @@ describe("FFF tool registration", () => {
 				}) as unknown as TargetRuntime,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
-		const find = host.tools[0];
-		if (find === undefined) throw new Error("find was not registered");
+		const find = toolFor(host.tools, "find");
 		const result = await find.execute(
 			"find-remote-newlines",
 			{ pattern: "ts", target: "devbox" },
@@ -130,7 +120,7 @@ describe("FFF tool registration", () => {
 	});
 
 	test("uses FFF for unscoped non-glob find queries when enabled", async () => {
-		const host = harness();
+		const host = toolHost();
 		const runtime = new FffRuntime(process.cwd(), {
 			finder: {
 				fileSearch: () => ({
@@ -151,15 +141,12 @@ describe("FFF tool registration", () => {
 			} as never,
 		});
 		const state = {
+			...noRuntimeStubs,
 			getRuntime: () => runtime,
 			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			getTasks: () => undefined,
-			getBashJobs: () => undefined,
-			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
-		const find = host.tools[0];
-		if (find === undefined) throw new Error("FFF find was not registered");
+		const find = toolFor(host.tools, "find");
 
 		const result = await find.execute(
 			"find-fff",
@@ -183,7 +170,7 @@ describe("FFF tool registration", () => {
 	});
 
 	test("treats an empty cursor as a new FFF search", async () => {
-		const host = harness();
+		const host = toolHost();
 		const runtime = new FffRuntime(process.cwd(), {
 			finder: {
 				fileSearch: () => ({
@@ -193,15 +180,12 @@ describe("FFF tool registration", () => {
 			} as never,
 		});
 		const state = {
+			...noRuntimeStubs,
 			getRuntime: () => runtime,
 			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			getTasks: () => undefined,
-			getBashJobs: () => undefined,
-			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
 		registerFindTool(host.pi, state);
-		const find = host.tools[0];
-		if (find === undefined) throw new Error("FFF find was not registered");
+		const find = toolFor(host.tools, "find");
 
 		const result = await find.execute(
 			"find-empty-cursor",
@@ -218,6 +202,7 @@ describe("FFF tool registration", () => {
 		const fuzzyPath = `src/${"nested/".repeat(20)}example.ts`;
 		let request: { fuzzyFallbackOnly?: boolean } | undefined;
 		const state = {
+			...noRuntimeStubs,
 			getRuntime: () =>
 				({
 					grepSearch: async (value: { fuzzyFallbackOnly?: boolean }) => {
@@ -240,14 +225,10 @@ describe("FFF tool registration", () => {
 					},
 				}) as never,
 			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			getTasks: () => undefined,
-			getBashJobs: () => undefined,
-			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
-		const host = harness();
+		const host = toolHost();
 		registerGrepTool(host.pi, state);
-		const grep = host.tools[0];
-		if (grep === undefined) throw new Error("grep was not registered");
+		const grep = toolFor(host.tools, "grep");
 
 		const result = await grep.execute(
 			"grep-no-fuzzy",
@@ -274,16 +255,13 @@ describe("FFF tool registration", () => {
 		try {
 			await writeFile(join(cwd, "needle.ts"), "const needle = true;\n");
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("Expected grep tool");
+			const grep = toolFor(host.tools, "grep");
 			const result = await grep.execute(
 				"grep-empty-path",
 				{ pattern: "needle", path: "" },
@@ -307,6 +285,7 @@ describe("FFF tool registration", () => {
 		try {
 			await writeFile(join(cwd, "needle.ts"), "properties: { patch\n");
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({
 					...DEFAULT_FFF_SETTINGS,
@@ -315,14 +294,10 @@ describe("FFF tool registration", () => {
 					readEnhancement: true,
 					findEnhancement: true,
 				}),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("Expected grep tool");
+			const grep = toolFor(host.tools, "grep");
 			await expect(
 				grep.execute(
 					"grep-over-escaped",
@@ -344,16 +319,13 @@ describe("FFF tool registration", () => {
 			await writeFile(join(cwd, "src/a.ts"), "needle\n");
 			await writeFile(join(cwd, "src/b.ts"), "needle\n");
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("grep was not registered");
+			const grep = toolFor(host.tools, "grep");
 			const dirResult = await grep.execute(
 				"grep-dir",
 				{ pattern: "needle", path: join(cwd, "src") },
@@ -395,6 +367,7 @@ describe("FFF tool registration", () => {
 			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
 			await chmod(blocked, 0o000);
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({
 					...DEFAULT_FFF_SETTINGS,
@@ -403,14 +376,10 @@ describe("FFF tool registration", () => {
 					readEnhancement: true,
 					findEnhancement: true,
 				}),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("grep was not registered");
+			const grep = toolFor(host.tools, "grep");
 			const result = await grep.execute(
 				"grep-inaccessible",
 				{ pattern: "needle", path: cwd },
@@ -443,6 +412,7 @@ describe("FFF tool registration", () => {
 				'{"type":"summary","data":{"stats":{"searches":1}}}',
 			].join("\n");
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({
 					...DEFAULT_FFF_SETTINGS,
@@ -451,8 +421,6 @@ describe("FFF tool registration", () => {
 					readEnhancement: true,
 					findEnhancement: true,
 				}),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
 				getTargetRuntime: () =>
 					({
 						validateRemotePath: () => undefined,
@@ -463,10 +431,9 @@ describe("FFF tool registration", () => {
 						},
 					}) as unknown as TargetRuntime,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("grep was not registered");
+			const grep = toolFor(host.tools, "grep");
 			const result = await grep.execute(
 				"grep-remote-inaccessible",
 				{ pattern: "needle", path: ".", target: "ileqm" },
@@ -497,6 +464,7 @@ describe("FFF tool registration", () => {
 			await writeFile(join(blocked, "secret.txt"), "needle\n", "utf8");
 			await chmod(blocked, 0o000);
 			const state = {
+				...noRuntimeStubs,
 				getRuntime: () => undefined,
 				getSettings: () => ({
 					...DEFAULT_FFF_SETTINGS,
@@ -505,14 +473,10 @@ describe("FFF tool registration", () => {
 					readEnhancement: true,
 					findEnhancement: true,
 				}),
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => undefined,
 			} satisfies FffRuntimeState;
-			const host = harness();
+			const host = toolHost();
 			registerGrepTool(host.pi, state);
-			const grep = host.tools[0];
-			if (grep === undefined) throw new Error("grep was not registered");
+			const grep = toolFor(host.tools, "grep");
 			const result = await grep.execute(
 				"grep-only-inaccessible",
 				{ pattern: "needle", path: blocked },
@@ -539,6 +503,7 @@ describe("FFF tool registration", () => {
 
 	test("surfaces a grep timeout as a narrow-scope recovery", async () => {
 		const state = {
+			...noRuntimeStubs,
 			getRuntime: () =>
 				({
 					grepSearch: async () => ({
@@ -551,14 +516,10 @@ describe("FFF tool registration", () => {
 					}),
 				}) as never,
 			getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, shellPath: "sh" }),
-			getTasks: () => undefined,
-			getBashJobs: () => undefined,
-			getTargetRuntime: () => undefined,
 		} satisfies FffRuntimeState;
-		const host = harness();
+		const host = toolHost();
 		registerGrepTool(host.pi, state);
-		const grep = host.tools[0];
-		if (grep === undefined) throw new Error("grep was not registered");
+		const grep = toolFor(host.tools, "grep");
 		const result = await grep.execute("grep-timeout", { pattern: "needle" }, undefined, undefined, {
 			cwd: process.cwd(),
 		} as never);

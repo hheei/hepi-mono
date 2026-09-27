@@ -13,6 +13,19 @@ import { plainTheme } from "./fixtures/theme.js";
 /** The old per-code-point slicing needed well over a second for this input, so anything near it is a regression. */
 const LONG_LINE_BUDGET_MS = 100;
 
+/** The details these tests need; `GrepToolDetails` also carries a budget report nobody here reads. */
+type FixtureDetails = Pick<
+	GrepToolDetails,
+	| "format"
+	| "engine"
+	| "events"
+	| "display"
+	| "totalMatched"
+	| "totalFiles"
+	| "totalLines"
+	| "durationMs"
+>;
+
 /** One match row; the fields this renderer ignores keep their defaults. */
 function matchLine(args: {
 	readonly source: string;
@@ -34,21 +47,21 @@ function matchLine(args: {
 
 function grepResult(
 	display: readonly GrepDisplayLine[],
-	overrides: Partial<Omit<GrepToolDetails, "format" | "display">> = {},
+	overrides: Partial<FixtureDetails> = {},
 ): AgentToolResult<unknown> {
+	const details = {
+		format: "canonical-grep",
+		engine: "rg",
+		events: [],
+		totalMatched: 1,
+		totalFiles: 1,
+		totalLines: 1,
+		durationMs: 5,
+		display,
+	} satisfies FixtureDetails;
 	return {
 		content: [{ type: "text", text: "1 match in 1 file" }],
-		details: {
-			format: "canonical-grep",
-			engine: "rg",
-			events: [],
-			totalMatched: 1,
-			totalFiles: 1,
-			totalLines: 1,
-			durationMs: 5,
-			display,
-			...overrides,
-		} satisfies GrepToolDetails,
+		details: { ...details, ...overrides },
 	};
 }
 

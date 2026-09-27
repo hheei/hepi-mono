@@ -17,6 +17,7 @@ import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycl
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 import { registerTaskTools } from "../src/task-tools.js";
+
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme } from "./fixtures/theme.js";
 
@@ -33,6 +34,22 @@ test("bash uses one flat object schema for strict tool providers", (): void => {
 	expect(Value.Check(BashInput, {})).toBe(false);
 	expect(Value.Check(BashInput, { command: "" })).toBe(false);
 });
+
+/** The render context Pi passes for a bash result, plus whatever a test needs on top. */
+function bashContext(
+	command: string,
+	isPartial = false,
+	extra: Record<string, unknown> = {},
+): never {
+	return {
+		args: { command },
+		isError: false,
+		isPartial,
+		lastComponent: undefined,
+		state: {},
+		...extra,
+	} as never;
+}
 
 /** Registers bash on a capturing host and returns it, optionally framed by a ToolTui. */
 function bashTool(tui?: ToolTui): ToolDefinition {
@@ -162,8 +179,7 @@ test("bash displays its active command in the base theme and timeout dim", (): v
 			tools.push(tool);
 		},
 	} as unknown as ExtensionAPI);
-	const bash = tools.find((tool) => tool.name === "bash");
-	if (bash === undefined) throw new Error("Expected bash tool");
+	const bash = toolFor(tools, "bash");
 	const theme = {
 		bg: (_role: string, text: string): string => text,
 		fg: (role: string, text: string): string => (role === "dim" ? `<dim>${text}</dim>` : text),
@@ -235,13 +251,7 @@ test("bash encloses its output between full-width dividers", (): void => {
 			{ content: [{ type: "text", text: "stdout" }], details: {} },
 			{ expanded: false, isPartial: false },
 			theme,
-			{
-				args: { command: "printf stdout" },
-				isError: false,
-				isPartial: false,
-				lastComponent: undefined,
-				state: {},
-			} as never,
+			bashContext("printf stdout"),
 		)
 		.render(40);
 	expect(lines?.[0]).toBe(`<muted>${"─".repeat(40)}</muted>`);
@@ -260,13 +270,7 @@ test("bash omits body rails when output has zero lines", (): void => {
 			{ content: [{ type: "text", text: "" }], details: { output: "", exitCode: 0 } },
 			{ expanded: false, isPartial: false },
 			theme,
-			{
-				args: { command: "true" },
-				isError: false,
-				isPartial: false,
-				lastComponent: undefined,
-				state: {},
-			} as never,
+			bashContext("true"),
 		)
 		.render(40);
 	expect(lines).toEqual(["<dim>exit 0 · 0 lines · completed</dim>"]);
@@ -281,13 +285,7 @@ test("bash removes renderer padding around short newline-terminated output", ():
 				{ content: [{ type: "text", text: "one\ntwo\n" }], details: {} },
 				{ expanded: false, isPartial },
 				theme,
-				{
-					args: { command: "printf 'one\\ntwo\\n'" },
-					isError: false,
-					isPartial,
-					lastComponent: undefined,
-					state: {},
-				} as never,
+				bashContext("printf 'one\\ntwo\\n'", isPartial),
 			)
 			.render(40);
 		const body = lines?.filter((line) => !line.includes("─") && !line.includes("exit "));
@@ -313,13 +311,7 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 			},
 			{ expanded: false, isPartial: false },
 			theme,
-			{
-				args: { command: "printf many" },
-				isError: false,
-				isPartial: false,
-				lastComponent: undefined,
-				state: {},
-			} as never,
+			bashContext("printf many"),
 		)
 		.render(120)
 		.join("\n");
@@ -343,13 +335,7 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 		},
 		{ expanded: false, isPartial: true },
 		theme,
-		{
-			args: { command: "printf many" },
-			isError: false,
-			isPartial: true,
-			lastComponent: undefined,
-			state: {},
-		} as never,
+		bashContext("printf many", true),
 	);
 	if (component === undefined) throw new Error("Expected bash result renderer");
 	const rendered = component.render(120).filter((line) => !line.includes("─"));
@@ -370,13 +356,7 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 		},
 		{ expanded: true, isPartial: false },
 		theme,
-		{
-			args: { command: "printf many" },
-			isError: false,
-			isPartial: false,
-			lastComponent: undefined,
-			state: {},
-		} as never,
+		bashContext("printf many"),
 	);
 	if (completed === undefined) throw new Error("Expected completed bash result renderer");
 	const completedLines = completed
@@ -396,13 +376,7 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 		{ content: [{ type: "text", text: long }], details: {} },
 		{ expanded: false, isPartial: true },
 		theme,
-		{
-			args: { command: "printf long" },
-			isError: false,
-			isPartial: true,
-			lastComponent: undefined,
-			state: {},
-		} as never,
+		bashContext("printf long", true),
 	);
 	if (body === undefined) throw new Error("Expected wrapped bash body");
 	const narrow = body.render(20).filter((line) => !line.includes("─"));
@@ -418,13 +392,7 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 			},
 			{ expanded: false, isPartial: true },
 			theme,
-			{
-				args: { command: "printf tail" },
-				isError: false,
-				isPartial: true,
-				lastComponent: undefined,
-				state: {},
-			} as never,
+			bashContext("printf tail", true),
 		)
 		?.render(120)
 		.filter((line) => !line.includes("─"));
@@ -446,17 +414,17 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 	tui.beginTrace();
 	const theme = plainTheme;
 	const footer = bash
-		.renderResult?.(result, { expanded: false, isPartial: false }, theme, {
-			args: { command: "printf 'one\\ntwo\\n'" },
-			isError: false,
-			isPartial: false,
-			lastComponent: undefined,
-			state: {},
-			toolCallId: "completed-bash",
-			executionStarted: false,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never)
+		.renderResult?.(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			bashContext("printf 'one\\ntwo\\n'", false, {
+				toolCallId: "completed-bash",
+				executionStarted: false,
+				expanded: false,
+				invalidate: (): void => undefined,
+			}),
+		)
 		.render(120)
 		.join("\n");
 	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
@@ -534,8 +502,7 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				} as unknown as ExtensionAPI,
 				state,
 			);
-			const bash = tools.find((tool) => tool.name === "bash");
-			if (bash === undefined) throw new Error("Expected bash tool");
+			const bash = toolFor(tools, "bash");
 			const result = await bash.execute(
 				"bash-remote-ok",
 				{ command: "printf remote-ok", target: "ileqm" },
