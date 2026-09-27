@@ -3,10 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type AgentToolResult,
-	type ExtensionAPI,
 	type ExtensionContext,
 	initTheme,
-	type Theme,
 	type ToolDefinition,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -14,16 +12,12 @@ import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/
 import { AUTO_COLLAPSE_DELAY_MS, createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { registerTools } from "../src/tools.js";
+import { toolFor, toolHost } from "./fixtures/harness.js";
+import { plainTheme } from "./fixtures/theme.js";
 
 const BODY_LINE = "readable body line 30";
 const temporaryPaths: string[] = [];
 /** A theme that adds no styling, so rows can be asserted as plain text. */
-const plainTheme = {
-	bg: (_role: string, text: string): string => text,
-	fg: (_role: string, text: string): string => text,
-	bold: (text: string): string => text,
-} as Theme;
-
 afterEach(async (): Promise<void> => {
 	await Promise.all(
 		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
@@ -40,22 +34,6 @@ async function fixture(): Promise<string> {
 	return cwd;
 }
 
-function harness(): { readonly pi: ExtensionAPI; readonly tools: ToolDefinition[] } {
-	const tools: ToolDefinition[] = [];
-	return {
-		pi: {
-			events: {},
-			on: (): void => undefined,
-			registerTool: (tool: ToolDefinition): void => {
-				tools.push(tool);
-			},
-			getActiveTools: (): readonly string[] => ["read"],
-			setActiveTools: (): void => undefined,
-		} as unknown as ExtensionAPI,
-		tools,
-	};
-}
-
 async function mounted(
 	tui: ToolTui,
 	name: string,
@@ -63,10 +41,10 @@ async function mounted(
 	updates?: AgentToolResult<unknown>[],
 ): Promise<{ readonly component: ToolExecutionComponent; readonly cwd: string }> {
 	const cwd = await fixture();
-	const host = harness();
+	initTheme("dark");
+	const host = toolHost(["read"]);
 	registerTools(host.pi, undefined, tui);
-	const tool = host.tools.find((candidate) => candidate.name === name);
-	if (tool === undefined) throw new Error(`${name} was not registered`);
+	const tool = toolFor(host.tools, name);
 	const component = new ToolExecutionComponent(
 		name,
 		`${name}-collapse`,
@@ -95,13 +73,21 @@ async function mounted(
 	return { component, cwd };
 }
 
+/** The tool frames the extension registers, plus the ToolTui they were framed with. */
+function registeredTools(): { readonly tools: readonly ToolDefinition[]; readonly tui: ToolTui } {
+	initTheme("dark");
+	const tui = createToolTui();
+	const host = toolHost(["read"]);
+	registerTools(host.pi, undefined, tui);
+	return { tools: host.tools, tui };
+}
+
 function rendered(component: ToolExecutionComponent): string {
 	return stripTerminalSequences(component.render(100).join("\n"));
 }
 
 describe("tool frame collapse modes", () => {
 	test("on mode collapses a registered long tool on the first completed frame", async (): Promise<void> => {
-		initTheme("dark");
 		const tui = createToolTui();
 		tui.setToolCollapseMode("on");
 		const { component } = await mounted(tui, "read", { path: "big.txt" });
@@ -114,7 +100,6 @@ describe("tool frame collapse modes", () => {
 	test("auto mode keeps the body until the delay elapses", async (): Promise<void> => {
 		vi.useFakeTimers();
 		try {
-			initTheme("dark");
 			const tui = createToolTui();
 			tui.setToolCollapseMode("auto");
 			const { component } = await mounted(tui, "read", { path: "big.txt" });
@@ -132,7 +117,6 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("on mode leaves a tool without longOutput expanded", async (): Promise<void> => {
-		initTheme("dark");
 		const tui = createToolTui();
 		tui.setToolCollapseMode("on");
 		const { component } = await mounted(tui, "list_tasks", {});
@@ -140,7 +124,6 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("on mode shows a completed bash frame as header plus footer without streaming", async (): Promise<void> => {
-		initTheme("dark");
 		const tui = createToolTui();
 		tui.setToolCollapseMode("on");
 		const updates: AgentToolResult<unknown>[] = [];
@@ -155,12 +138,8 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("flattens a multi-line bash command into one header line", async (): Promise<void> => {
-		initTheme("dark");
-		const tui = createToolTui();
-		const host = harness();
-		registerTools(host.pi, undefined, tui);
-		const bash = host.tools.find((candidate) => candidate.name === "bash");
-		if (bash === undefined) throw new Error("bash was not registered");
+		const { tools } = registeredTools();
+		const bash = toolFor(tools, "bash");
 		const headerOf = (command: string, width: number): string[] =>
 			bash
 				.renderCall?.({ command }, plainTheme, {
@@ -183,12 +162,8 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("keeps every uncollapsed frame row inside a narrow terminal", async (): Promise<void> => {
-		initTheme("dark");
-		const tui = createToolTui();
-		const host = harness();
-		registerTools(host.pi, undefined, tui);
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
-		if (grep === undefined) throw new Error("grep was not registered");
+		const { tools } = registeredTools();
+		const grep = toolFor(tools, "grep");
 		const context = {
 			isError: false,
 			isPartial: false,
@@ -221,12 +196,8 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("collapses a narrow grep frame to a truncated header and summary", async (): Promise<void> => {
-		initTheme("dark");
-		const tui = createToolTui();
-		const host = harness();
-		registerTools(host.pi, undefined, tui);
-		const grep = host.tools.find((candidate) => candidate.name === "grep");
-		if (grep === undefined) throw new Error("grep was not registered");
+		const { tui, tools } = registeredTools();
+		const grep = toolFor(tools, "grep");
 		const context = {
 			isError: false,
 			isPartial: false,
@@ -262,14 +233,10 @@ describe("tool frame collapse modes", () => {
 	});
 
 	test("keeps the model-visible result identical", async (): Promise<void> => {
-		initTheme("dark");
-		const tui = createToolTui();
+		const { tui, tools } = registeredTools();
 		tui.setToolCollapseMode("on");
 		const cwd = await fixture();
-		const host = harness();
-		registerTools(host.pi, undefined, tui);
-		const read = host.tools.find((candidate) => candidate.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const read = toolFor(tools, "read");
 		const result = await read.execute("read-collapse", { path: "big.txt" }, undefined, undefined, {
 			cwd,
 			sessionManager: {

@@ -18,6 +18,15 @@ import {
 	textCustomMessage,
 } from "./fixtures/session.js";
 
+const configDefaults = {
+	observeAfterTokens: 10,
+	reflectAfterTokens: 20,
+	compactAfterTokens: 30,
+	observationsPoolMaxTokens: 40,
+	observationsPoolTargetTokens: 20,
+	passive: false,
+};
+
 function setup(args: {
 	entries: TestEntry[];
 	runtime?: Partial<any>;
@@ -33,14 +42,7 @@ function setup(args: {
 	};
 	const runtime = {
 		ensureConfig: vi.fn(),
-		config: {
-			observeAfterTokens: 10,
-			reflectAfterTokens: 20,
-			compactAfterTokens: 30,
-			observationsPoolMaxTokens: 40,
-			observationsPoolTargetTokens: 20,
-			passive: false,
-		},
+		config: configDefaults,
 		consolidationInFlight: false,
 		consolidationPhase: undefined,
 		compactInFlight: false,
@@ -187,14 +189,7 @@ describe("V3 /om status", () => {
 		const output = await setup({
 			entries: [],
 			runtime: {
-				config: {
-					observeAfterTokens: 10,
-					reflectAfterTokens: 20,
-					compactAfterTokens: 30,
-					observationsPoolMaxTokens: 40,
-					observationsPoolTargetTokens: 20,
-					passive: true,
-				},
+				config: { ...configDefaults, passive: true },
 				consolidationInFlight: true,
 				consolidationPhase: "reflector",
 				compactInFlight: true,
@@ -263,14 +258,9 @@ describe("V3 /om status", () => {
 				entries: [],
 				runtime: {
 					config: {
-						observeAfterTokens: 10,
-						reflectAfterTokens: 20,
-						compactAfterTokens: 30,
+						...configDefaults,
 						compactAfterTokensMode: "ratio",
 						compactAfterTokensRatio: 0.5,
-						observationsPoolMaxTokens: 40,
-						observationsPoolTargetTokens: 20,
-						passive: false,
 					},
 				},
 				model: { contextWindow: 1_000_000 },
@@ -285,14 +275,9 @@ describe("V3 /om status", () => {
 				entries: [],
 				runtime: {
 					config: {
-						observeAfterTokens: 10,
-						reflectAfterTokens: 20,
-						compactAfterTokens: 30,
+						...configDefaults,
 						compactAfterTokensMode: "ratio",
 						compactAfterTokensRatio: 0.5,
-						observationsPoolMaxTokens: 40,
-						observationsPoolTargetTokens: 20,
-						passive: false,
 					},
 				},
 				model: { contextWindow: 100_000 },
@@ -307,14 +292,9 @@ describe("V3 /om status", () => {
 				entries: [],
 				runtime: {
 					config: {
-						observeAfterTokens: 10,
-						reflectAfterTokens: 20,
-						compactAfterTokens: 30,
+						...configDefaults,
 						compactAfterTokensMode: "ratio",
 						compactAfterTokensRatio: 0.5,
-						observationsPoolMaxTokens: 40,
-						observationsPoolTargetTokens: 20,
-						passive: false,
 					},
 				},
 				model: undefined,
@@ -328,14 +308,9 @@ describe("V3 /om status", () => {
 				entries: [],
 				runtime: {
 					config: {
-						observeAfterTokens: 10,
-						reflectAfterTokens: 20,
-						compactAfterTokens: 30,
+						...configDefaults,
 						compactAfterTokensMode: "ratio",
 						compactAfterTokensRatio: 0.5,
-						observationsPoolMaxTokens: 40,
-						observationsPoolTargetTokens: 20,
-						passive: false,
 					},
 				},
 				model: { contextWindow: 0 },
