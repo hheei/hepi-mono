@@ -16,6 +16,7 @@ export interface DebugLogContext {
 }
 
 const storage = new AsyncLocalStorage<DebugLogContext>();
+const preparedDirectories = new Set<string>();
 
 export function withDebugLogContext<T>(context: DebugLogContext, fn: () => T): T {
 	const parent = storage.getStore();
@@ -44,9 +45,10 @@ export function debugLog(event: string, data: Record<string, unknown> = {}): voi
 	const context = storage.getStore();
 	if (context?.enabled !== true) return;
 
+	const path = join(getAgentDir(), debugLogRelativePath(context));
+	const directory = dirname(path);
 	try {
-		const path = join(getAgentDir(), debugLogRelativePath(context));
-		mkdirSync(dirname(path), { recursive: true });
+		prepareDirectory(directory);
 		rotateIfNeeded(path);
 		const payload = {
 			ts: new Date().toISOString(),
@@ -59,13 +61,22 @@ export function debugLog(event: string, data: Record<string, unknown> = {}): voi
 		};
 		appendFileSync(path, `${JSON.stringify(payload)}\n`, "utf-8");
 	} catch {
-		// Debug logging must never affect memory behavior.
+		// Debug logging must never affect memory behavior. Forget the prepared
+		// directory so a directory that vanished is recreated on the next line.
+		preparedDirectories.delete(directory);
 	}
 }
 
+/** `debugLog` sits on hot paths, so create each session directory only once. */
+function prepareDirectory(directory: string): void {
+	if (preparedDirectories.has(directory)) return;
+	mkdirSync(directory, { recursive: true });
+	preparedDirectories.add(directory);
+}
+
 function rotateIfNeeded(path: string): void {
-	if (!existsSync(path)) return;
-	if (statSync(path).size < DEBUG_LOG_MAX_BYTES) return;
+	const stats = statSync(path, { throwIfNoEntry: false });
+	if (stats === undefined || stats.size < DEBUG_LOG_MAX_BYTES) return;
 	const backupPath = `${path}.1`;
 	if (existsSync(backupPath)) unlinkSync(backupPath);
 	renameSync(path, backupPath);

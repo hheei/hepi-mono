@@ -312,7 +312,9 @@ export class TargetRuntime {
 			runtime.warn(
 				"Some SSH target settings were ignored because they are reserved, duplicated, or absent from ~/.ssh/config.",
 			);
-		await removeStaleControlSockets(
+		// Best-effort hygiene: pruning spawns one `ssh -O check` per leftover socket,
+		// which must not hold up session start.
+		void removeStaleControlSockets(
 			join(runtime.#home, ".pi", "agent", "extensions", "pi-ext-tools"),
 		);
 		return runtime;

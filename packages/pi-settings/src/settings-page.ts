@@ -12,6 +12,7 @@ import type {
 	SettingValue,
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
+import { fitRow } from "./row-fit.js";
 
 // The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
 const PANEL_ROWS = 20;
@@ -543,7 +544,7 @@ export async function createSettingsPage(
 				listItemIndex === index && listItemEditor !== undefined
 					? renderInput(listItemEditor, width - 4)
 					: value;
-			return truncateToWidth(`${marker} ${text}`, width);
+			return fitRow(`${marker} ${text}`, width);
 		});
 		if (values.length === 0) rows.push(theme.fg("muted", "(empty)"));
 		rows.push(theme.fg("dim", "Enter edit/add · a add · d delete · Ctrl+↑/↓ reorder"));
@@ -594,7 +595,7 @@ export async function createSettingsPage(
 					"",
 					...visible.map((item) => {
 						if (item.kind === "group")
-							return theme.bold(theme.fg("accent", truncateToWidth(`◆ ${item.label}`, listWidth)));
+							return theme.bold(theme.fg("accent", fitRow(`◆ ${item.label}`, listWidth)));
 						if (item.kind === "panel") {
 							const label = `${item.id === selected?.id ? "→" : " "} ◈ ${item.panel.label ?? item.panel.id}`;
 							return item.id === selected?.id ? theme.fg("accent", theme.bold(label)) : label;
@@ -610,7 +611,7 @@ export async function createSettingsPage(
 							: item.id === selected?.id
 								? theme.fg("accent", theme.bold(row))
 								: row;
-						return truncateToWidth(styled, listWidth);
+						return fitRow(styled, listWidth);
 					}),
 				];
 				// Fill the viewport, then pin interaction hints to the final panel row.
@@ -663,12 +664,12 @@ export async function createSettingsPage(
 										search ? "No matching settings." : "No extension settings are registered.",
 									),
 								];
-				if (!wide) return [...list, "", ...detail].map((line) => truncateToWidth(line, width));
+				if (!wide) return [...list, "", ...detail].map((line) => fitRow(line, width));
 				// The Description is intentionally read only within the fixed panel height.
 				const rail = scrollbar(all.length, scrollTop, theme);
 				return Array.from({ length: PANEL_ROWS }, (_, index) => {
-					const left = pad(truncateToWidth(list[index] ?? "", listWidth), listWidth);
-					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${truncateToWidth(detail[index] ?? "", detailWidth)}`;
+					const left = pad(fitRow(list[index] ?? "", listWidth), listWidth);
+					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${fitRow(detail[index] ?? "", detailWidth)}`;
 				});
 			},
 			handleInput(): void {},

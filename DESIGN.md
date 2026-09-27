@@ -163,7 +163,8 @@ Design the same interaction model for narrow and wide terminals.
 - NEVER rely on color alone; pair it with glyphs, text, structure, or position.
 - Maintain semantic contrast across Pi themes.
 - Re-render after visible state changes and rebuild cached theme-dependent output after theme changes.
-- Pi re-renders every mounted component on every frame: a component MUST derive its rows once per width instead of repeating cell-width truncation each time, and MUST keep that cache inside one component instance, because the host re-running a renderer is what rebuilds theme-dependent and collapsed output.
+- Pi re-renders every mounted component on every frame: a component MUST derive its rows once per width instead of repeating cell-width truncation each time, and MUST keep that cache inside one component instance, because the host re-running a renderer is what rebuilds theme-dependent and collapsed output. A cache keyed by rendered text and width (as `pi-settings` fits its rows) is exempt: the key already contains the theme-dependent string, so a theme change produces a different key instead of a stale hit.
+- `truncateToWidth` costs ~4-6us on any row carrying ANSI styling or non-ASCII glyphs, against ~0.1us for plain ASCII, because it falls back to `Intl.Segmenter`; any per-frame row fitting must therefore be cached by `(text, width)` rather than recomputed.
 - Rendering MUST remain ANSI-safe, Unicode-width-safe, and terminal-cell-width-safe.
 - UI changes SHOULD be tested at representative narrow and wide sizes and verified in Pi or `tui-replay`.
 

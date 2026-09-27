@@ -16,6 +16,12 @@ import type { RuntimeTokenStore } from "./runtime.js";
 import { planSessionPlacement } from "./session-bootstrap.js";
 import { createStateProjector, type StateProjector } from "./state.js";
 
+/**
+ * A crashed TUI child is noticed by spawning an external CLI per attached child
+ * on every tick, so this stays far above the latency the check actually needs.
+ */
+const HOST_WATCH_INTERVAL_MS = 5_000;
+
 export interface ParentChannelReport {
 	readonly parentSessionId: string;
 	readonly childId: string;
@@ -836,7 +842,11 @@ export class SubagentManager {
 		if (attachment === undefined) return;
 		const stop = new AbortController();
 		this.#hostWatches.set(id, stop);
-		const intervalMs = this.#deps.watchIntervalMs ?? 1_000;
+		// Each tick spawns an external CLI per attached child (herdr pane
+		// process-info, cmux list-panels), so keep the cadence well above the
+		// latency a crashed TUI actually needs; the child's own RPC reports
+		// handle the common cases.
+		const intervalMs = this.#deps.watchIntervalMs ?? HOST_WATCH_INTERVAL_MS;
 		const tick = (): void => {
 			if (stop.signal.aborted) return;
 			if (this.#hostAttachments.get(id) !== attachment) return;
