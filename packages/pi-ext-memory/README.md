@@ -321,8 +321,8 @@ Use a dedicated bank when repositories must not influence each other. With a sha
 
 ### Behavior
 
-* **First turn.** The preamble explaining the memory and its tools is appended to the system prompt, together with the current knowledge-page index.
-* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits are appended inside a `<memory>` container. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
+* **First turn.** The preamble explaining the memory and its tools goes into its own `pi-ext-memory-preamble` prompt section, together with the current knowledge-page index.
+* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `pi-ext-memory-recall` section inside a `<memory>` container; Pi resends a section only when its text changed, so an unchanged turn costs no prompt tokens. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
 * **Turn end.** The run's user/assistant turns are reduced to a compact transcript (tool results and injected memory dropped, failed or aborted responses skipped) and written back in order, one request at a time. The operation id is derived from the bank, session, and batch content, so a retry or a repeated `agent_end` folds server-side instead of duplicating.
 * **Session end.** Pending writeback is flushed within a five-second grace period, then cancelled. A failed writeback is recorded and never interrupts the conversation.
 

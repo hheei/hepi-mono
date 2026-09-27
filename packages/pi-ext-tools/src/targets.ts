@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
-import { runCommand } from "@hheei/pi-ext-core";
+import { runCommand, setPromptSection } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
 export const REMOTE_TIMEOUT_MS = 20_000;
@@ -586,10 +586,5 @@ export function applyTargetPromptSection(
 	sections: Record<string, string>,
 	runtime: TargetRuntime | undefined,
 ): void {
-	const section = targetPromptBlock(runtime);
-	if (section === undefined) {
-		delete sections[TARGET_PROMPT_SECTION];
-		return;
-	}
-	sections[TARGET_PROMPT_SECTION] = section;
+	setPromptSection(sections, TARGET_PROMPT_SECTION, targetPromptBlock(runtime));
 }

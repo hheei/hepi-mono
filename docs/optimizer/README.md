@@ -43,7 +43,7 @@ Prompt 变化从下一轮生效，输入与命令变化只影响后续事件，�
 
 T2S 保留当前 tw -> cn 与 inline/fenced code 保护，只处理 interactive 来源，并限制活动 session identity。
 
-Prompt 复用 OMP 原文与档位逻辑，适配 Pi 的 string systemPrompt，固定顺序组合而不丢弃其他扩展的 prompt，不积累上一轮片段。RTK 提示词必须符合本地前台适用范围，不能要求所有命令无条件加前缀。
+Prompt 复用 OMP 原文与档位逻辑，通过 `setPromptSection()` 写入自己的 `pi-optimizer` section，不改写其他扩展的 prompt，也不积累上一轮片段；Pi 只在 section 变化时才下发更新。RTK 提示词必须符合本地前台适用范围，不能要求所有命令无条件加前缀。
 
 RTK 复用现有 Pi 的 signal/timeout/custom path/失败处理，以官方 rewrite 为主，仅对可安全识别的命令应用 OMP 补充规则。跳过非 local Target、PTY、async 与已经包装的命令。不能把有限 quote scanner 当完整 shell parser。只在 rewrite 查询失败且命令尚未执行时回到原命令；已执行的命令失败后绝不自动重跑。取消或 session 替换后的异步结果不得更新命令或新 session 状态。
 

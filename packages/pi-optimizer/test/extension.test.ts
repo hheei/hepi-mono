@@ -66,6 +66,14 @@ function fakePi(): {
 	return { pi, handlers, commands, entries, renderers };
 }
 
+/** The host always supplies mutable prompt sections alongside the rendered prompt. */
+function beforeStart(systemPrompt = "base"): {
+	systemPrompt: string;
+	systemPromptOptions: { sections: Record<string, string> };
+} {
+	return { systemPrompt, systemPromptOptions: { sections: {} } };
+}
+
 async function emit(
 	handlers: Map<string, Handler[]>,
 	channel: string,
@@ -177,27 +185,21 @@ describe("extension session integration", () => {
 			undefined,
 		]);
 		const beforeInactivePrompt = host.entries.length;
-		expect(
-			await emit(host.handlers, "before_agent_start", { systemPrompt: "base" }, first),
-		).toEqual([undefined]);
+		expect(await emit(host.handlers, "before_agent_start", beforeStart(), first)).toEqual([
+			undefined,
+		]);
 		expect(host.entries).toHaveLength(beforeInactivePrompt);
 		await command(host).handler("caveman full", first);
-		const firstPrompt = await emit(
-			host.handlers,
-			"before_agent_start",
-			{ systemPrompt: "base" },
-			first,
+		const firstEvent = beforeStart();
+		await emit(host.handlers, "before_agent_start", firstEvent, first);
+		const secondEvent = beforeStart();
+		await emit(host.handlers, "before_agent_start", secondEvent, first);
+		expect(firstEvent.systemPromptOptions.sections["pi-optimizer"]).toMatch(/CAVEMAN MODE/su);
+		expect(secondEvent.systemPromptOptions.sections).toEqual(
+			firstEvent.systemPromptOptions.sections,
 		);
-		const secondPrompt = await emit(
-			host.handlers,
-			"before_agent_start",
-			{ systemPrompt: "base" },
-			first,
-		);
-		expect(firstPrompt).toEqual([
-			{ systemPrompt: expect.stringMatching(/^base\n\n.*CAVEMAN MODE/su) },
-		]);
-		expect(secondPrompt).toEqual(firstPrompt);
+		// The rendered prompt is host-owned; the handler only adds its own section.
+		expect(firstEvent.systemPrompt).toBe("base");
 		expect(
 			host.entries.filter(
 				(entry) =>
@@ -220,9 +222,9 @@ describe("extension session integration", () => {
 			},
 			{ sessionId: "same-id", cwd, signal: new AbortController().signal },
 		);
-		expect(
-			await emit(host.handlers, "before_agent_start", { systemPrompt: "base" }, first),
-		).toEqual([undefined]);
+		expect(await emit(host.handlers, "before_agent_start", beforeStart(), first)).toEqual([
+			undefined,
+		]);
 		expect(host.entries.filter((entry) => entry.type === "optimizer-info")).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({

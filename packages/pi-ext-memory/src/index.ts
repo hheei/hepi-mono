@@ -27,8 +27,7 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	registerRecallTool(pi);
 
 	pi.on("before_agent_start", async (event) => {
-		if (hindsight === undefined) return;
-		return hindsight.beforeAgentStart(event);
+		await hindsight?.beforeAgentStart(event);
 	});
 	pi.on("agent_end", async (event, context) => {
 		hindsight?.agentEnd(event, context);

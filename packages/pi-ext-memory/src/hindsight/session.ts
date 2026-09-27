@@ -3,7 +3,7 @@ import type {
 	BeforeAgentStartEvent,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage, setPromptSection } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 import {
 	type HindsightGateway,
@@ -18,6 +18,13 @@ import { buildHindsightTurns } from "./transcript.js";
 
 /** Knowledge-page hits injected before a turn when auto-recall is on. */
 export const AUTO_RECALL_PAGE_LIMIT = 3;
+
+/**
+ * Prompt sections this extension owns. Pi diffs sections per request, so the preamble is sent
+ * once and recalled facts are replaced only when they change.
+ */
+const PREAMBLE_SECTION = "pi-ext-memory-preamble";
+const RECALL_SECTION = "pi-ext-memory-recall";
 
 /** Result of booting the Hindsight layer for one session. */
 export type HindsightStart =
@@ -53,29 +60,25 @@ export class HindsightSession {
 	}
 
 	/**
-	 * Adds long-term memory to the prompt.
+	 * Adds long-term memory to the prompt as two named sections.
 	 *
-	 * The first turn of a session also receives the preamble that explains the memory and
-	 * its tools; later turns only receive retrieved facts, so guidance the model has
-	 * already read is not paid for again.
+	 * The first turn of a session receives the preamble that explains the memory and its
+	 * tools; later turns only receive retrieved facts, so guidance the model has already
+	 * read is not paid for again. Sections are independent: a turn whose recall is
+	 * unchanged sends no prompt update at all.
 	 */
-	async beforeAgentStart(
-		event: BeforeAgentStartEvent,
-	): Promise<{ systemPrompt: string } | undefined> {
-		if (this.#lifecycleSignal.aborted) return undefined;
-		const sections: string[] = [];
+	async beforeAgentStart(event: BeforeAgentStartEvent): Promise<void> {
+		if (this.#lifecycleSignal.aborted) return;
+		const sections = event.systemPromptOptions.sections;
 		const firstTurn = this.#firstTurn;
 		this.#firstTurn = false;
 
 		if (firstTurn) {
-			sections.push(await this.#renderPreamble());
+			setPromptSection(sections, PREAMBLE_SECTION, await this.#renderPreamble());
 		}
 		if (this.resolved.config.autoRecall && event.prompt.trim().length > 0) {
-			const recalled = await this.#recallForPrompt(event.prompt);
-			if (recalled !== undefined) sections.push(recalled);
+			setPromptSection(sections, RECALL_SECTION, await this.#recallForPrompt(event.prompt));
 		}
-		if (sections.length === 0) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` };
 	}
 
 	async #renderPreamble(): Promise<string> {
