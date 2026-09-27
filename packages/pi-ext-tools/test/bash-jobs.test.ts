@@ -7,13 +7,13 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
-import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
-import { registerTaskTools } from "../src/task-tools.js";
+import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
+import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
 import { promoteBashJobToTask } from "../src/tasks/bash-task.js";
 import {
 	AsyncTaskRegistry,
@@ -933,4 +933,263 @@ test("handles job settling before auto-async transition message is constructed",
 		"Command completed while transitioning to background task bash-1 (status: completed).",
 	);
 	expect(text).not.toContain("STILL RUNNING");
+});
+
+interface TaskControlHost {
+	readonly pi: ExtensionAPI;
+	readonly tools: ToolDefinition[];
+	readonly context: ExtensionLifecycleContext;
+	readonly activeTools: () => readonly string[];
+	emit(event: "session_compact" | "session_tree"): void;
+	cleanup(): Promise<void>;
+}
+
+/** Every tool of the static catalog, as the Host activates them at session start. */
+const HOST_ACTIVE_TOOLS: readonly string[] = [
+	"read",
+	"grep",
+	"find",
+	"edit",
+	"write",
+	"bash",
+	"ls",
+	"list_tasks",
+	"wait_tasks",
+	"stop_tasks",
+	"apply_patch",
+	"eval",
+];
+
+function taskControlHost(): TaskControlHost {
+	const tools: ToolDefinition[] = [];
+	const listeners = new Map<string, Set<() => void>>();
+	const cleanups: Array<() => void> = [];
+	let activeTools: string[] = [...HOST_ACTIVE_TOOLS];
+	const pi = {
+		registerTool(tool: ToolDefinition): void {
+			tools.push(tool);
+		},
+		getActiveTools: (): readonly string[] => activeTools,
+		setActiveTools(names: string[]): void {
+			activeTools = names;
+		},
+		on(event: string, handler: () => void): () => void {
+			const group = listeners.get(event) ?? new Set<() => void>();
+			group.add(handler);
+			listeners.set(event, group);
+			return (): void => {
+				group.delete(handler);
+			};
+		},
+		sendMessage: (): void => {},
+	} as unknown as ExtensionAPI;
+	return {
+		pi,
+		tools,
+		context: {
+			pi,
+			resources: {
+				add: (_id: string, cleanup: () => void): void => {
+					cleanups.push(cleanup);
+				},
+			},
+			extension: {},
+			signal: new AbortController().signal,
+		} as unknown as ExtensionLifecycleContext,
+		activeTools: () => activeTools,
+		emit: (event) => {
+			for (const handler of [...(listeners.get(event) ?? [])]) handler();
+		},
+		cleanup: async (): Promise<void> => {
+			for (const cleanup of [...cleanups].reverse()) cleanup();
+		},
+	};
+}
+
+/** Session state whose task registry is attached once the session registry exists. */
+function lateBoundState(overrides?: Partial<FffSettings>): {
+	readonly state: FffRuntimeState;
+	readonly attach: (tasks: AsyncTaskRegistry) => void;
+} {
+	let current: AsyncTaskRegistry | undefined;
+	const base = runtimeState(undefined, overrides);
+	return {
+		state: { ...base, getTasks: () => current },
+		attach: (tasks) => {
+			current = tasks;
+		},
+	};
+}
+
+function withoutTaskTools(active: readonly string[]): readonly string[] {
+	return active.filter((id) => !TASK_TOOL_IDS.includes(id));
+}
+
+/** Registers the task catalog as extension construction does, then starts one session. */
+function taskControlSession(overrides?: Partial<FffSettings>): {
+	readonly host: TaskControlHost;
+	readonly tasks: AsyncTaskRegistry;
+} {
+	const host = taskControlHost();
+	const session = lateBoundState(overrides);
+	registerTaskTools(host.pi, session.state);
+	registerBashTool(host.pi, session.state);
+	const tasks = tracked(startTaskControl(host.context));
+	session.attach(tasks);
+	return { host, tasks };
+}
+
+function bashTool(host: TaskControlHost): ToolDefinition {
+	const bash = host.tools.find((tool) => tool.name === "bash");
+	if (bash === undefined) throw new Error("bash was not registered");
+	return bash;
+}
+
+test("host-activated task tools are removed at session start", (): void => {
+	const host = taskControlHost();
+	// Precondition: Pi activates every registered extension tool before session_start runs.
+	expect(host.activeTools()).toContain("list_tasks");
+	registerTaskTools(host.pi, runtimeState(undefined));
+
+	tracked(startTaskControl(host.context));
+
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
+test("task tools activate on the first background task and survive later boundaries", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession();
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+
+	const started = await bashTool(host).execute(
+		"bash-on-demand",
+		{ command: "printf task-output", async: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(started.details).toMatchObject({ taskId: "bash-1" });
+	expect(tasks.runningCount).toBe(1);
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+
+	await tasks.wait(["bash-1"]);
+	expect(tasks.runningCount).toBe(0);
+	// Ordinary turns keep the tools: a finished task must stay inspectable and activation must not churn.
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
+test("a later task activates the tools again after a boundary unload", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession();
+	await bashTool(host).execute(
+		"bash-reactivate-first",
+		{ command: "printf first", async: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	await tasks.wait(["bash-1"]);
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+
+	const second = await bashTool(host).execute(
+		"bash-reactivate-second",
+		{ command: "printf second", async: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(second.details).toMatchObject({ taskId: "bash-2" });
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	await tasks.wait(["bash-2"]);
+});
+
+test("a boundary keeps task tools while a task is still running", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession();
+	await bashTool(host).execute(
+		"bash-boundary-running",
+		{ command: 'node -e "setTimeout(() => {}, 3000)"', async: true },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+	expect(tasks.runningCount).toBe(1);
+
+	host.emit("session_compact");
+	host.emit("session_tree");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+
+	tasks.stop(["bash-1"]);
+	await eventually(
+		() => tasks.get("bash-1"),
+		(task) => task.status !== "running",
+	);
+	expect(tasks.runningCount).toBe(0);
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
+test("an auto-async transition activates the task tools", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
+	const res = await bashTool(host).execute(
+		"bash-auto-async-activation",
+		{ command: 'node -e "setTimeout(() => {}, 200)"' },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() } as ExtensionContext,
+	);
+
+	expect(res.details).toMatchObject({ taskId: "bash-1", autoAsyncTransition: true });
+	expect(tasks.runningCount).toBe(1);
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	await tasks.wait(["bash-1"]);
+});
+
+test("a task that cannot start does not activate the tools", (): void => {
+	const host = taskControlHost();
+	registerTaskTools(host.pi, runtimeState(undefined));
+	const tasks = tracked(startTaskControl(host.context));
+
+	expect(() =>
+		tasks.create({
+			type: "bash",
+			purpose: "cannot start",
+			begin: () => {
+				throw new Error("spawn failed");
+			},
+		}),
+	).toThrow("spawn failed");
+	expect(tasks.runningCount).toBe(0);
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
+test("a new session starts without task tools and without running tasks", (): void => {
+	const first = taskControlSession();
+	first.tasks.create({
+		type: "bash",
+		purpose: "still running",
+		begin: () => ({
+			stop: (): void => undefined,
+			describe: () => ({ output: "", truncated: false }),
+		}),
+	});
+	expect(first.tasks.runningCount).toBe(1);
+
+	// Session teardown disposes the registry, so the next session starts clean.
+	first.tasks.dispose();
+	expect(first.tasks.runningCount).toBe(0);
+
+	const second = taskControlSession();
+	expect(second.tasks.runningCount).toBe(0);
+	expect(second.host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
+test("session teardown releases the boundary listeners", async (): Promise<void> => {
+	const { host } = taskControlSession();
+	await host.cleanup();
+
+	host.pi.setActiveTools(["read", ...TASK_TOOL_IDS]);
+	host.emit("session_compact");
+	expect(host.pi.getActiveTools()).toEqual(["read", ...TASK_TOOL_IDS]);
 });

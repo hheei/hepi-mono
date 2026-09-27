@@ -70,6 +70,16 @@ joins with a space), and a command wider than the terminal is cut with a dim `â€
 wrapping, so the frame never grows a row per command line. The full command stays in the
 persisted tool call and in the model-visible arguments.
 
+## task control
+
+`list_tasks`, `wait_tasks`, and `stop_tasks` are registered for every session but stay
+inactive until that session starts its first background task, so a session that never uses
+background work carries none of their schemas or guidelines. Activation is derived from Pi's
+own `getActiveTools()`: the session start deactivates them (Pi activates every registered
+extension tool), the first `tasks.create()` activates them, and they are removed again only at
+`session_compact` or `session_tree` while no task is running. `do not poll` lives on
+`wait_tasks` itself, so it reaches `<rules>` only while task control is active.
+
 ## Tool Output
 
 `grep`, `read`, `write`, `edit`, `find`, and `bash` declare `longOutput: true`, so

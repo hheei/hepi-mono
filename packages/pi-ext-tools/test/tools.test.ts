@@ -14,6 +14,7 @@ import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-cor
 import { afterEach, describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
+import { startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "../src/tools.js";
 
 const temporaryPaths: string[] = [];
@@ -43,7 +44,7 @@ function harness(): {
 	return {
 		pi: {
 			events: {},
-			on: (): void => {},
+			on: (): (() => void) => () => undefined,
 			registerTool: (tool: ToolDefinition): void => {
 				tools.push(tool);
 			},
@@ -90,6 +91,21 @@ describe("pi-ext-tools catalog", () => {
 		expect(host.tools.find((tool) => tool.name === "edit")?.renderShell).toBe("self");
 		expect(host.tools.every((tool) => tool.renderShell === "self")).toBe(true);
 		expect(() => registerTools(host.pi)).toThrow("Managed tool id already registered: read");
+	});
+
+	test("keeps task-control tools out of the catalog until the first task starts", (): void => {
+		const host = harness();
+		registerTools(host.pi);
+		const catalog = host.tools.map((tool) => tool.name);
+		// Pi activates every registered extension tool before session_start runs.
+		host.pi.setActiveTools([...catalog]);
+		const tasks = startTaskControl({
+			pi: host.pi,
+			resources: { add: (): void => undefined },
+		} as unknown as ExtensionLifecycleContext);
+		expect(host.activeTools()).toEqual(catalog.filter((name) => !TASK_TOOL_IDS.includes(name)));
+		expect(host.activeTools()).toEqual(expect.arrayContaining(["read", "bash", "eval"]));
+		tasks.dispose();
 	});
 
 	test("activates only the editing tools selected by Edit Mode", (): void => {
