@@ -873,6 +873,7 @@ export function registerGrepTool(
 		},
 		tui.frame(tool, {
 			footer: grepCollapsedFooter,
+			longOutput: true,
 			warning: (result) =>
 				grepHasIncompleteAccess(result.details) && !grepHasNoSearchablePaths(result.details),
 		}),

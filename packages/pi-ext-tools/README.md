@@ -3,7 +3,7 @@
 Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
 `list_tasks`, `wait_tasks`, `stop_tasks`, strict Codex V4A `apply_patch`,
 opt-in `eval`, and `todo`.
-Todo includes `/todo`, task scheduling, reminders, and the editor widget.
+Todo includes `/todo`, task scheduling, reminders, and a left-side footer status.
 `apply_patch` matches and rewrites text in pure
 JavaScript with jsdiff; it never requires a user-managed executable or a package-owned
 native addon. `@hheei/pi-ext-core` is a production dependency, not a separately loaded
@@ -64,6 +64,27 @@ timeout automatically transition to a background task (e.g. `bash-1`) after `aut
 (default 60s, configurable in `pi-ext-tools.bash`, 0 disables) to avoid blocking the session.
 Remote `target` is an authorized SSH host; omit `async`. Working directory on SSH is the remote home.
 `output` remains unsupported.
+
+A multi-line command is joined into one space-separated header line, so the frame
+never grows a row per command line. The full command stays in the persisted tool call.
+
+## Tool Output
+
+`grep`, `read`, `write`, `edit`, `find`, and `bash` declare `longOutput: true`, so
+the shared `ToolTui` frame may collapse them after completion. The `Tool Output`
+settings group (`toolTui.collapseMode`) selects when:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` (default) | Collapse 15 seconds after completion; prior-Trace collapse still applies. |
+| `on` | Collapse on the first completed frame; a long tool's partial output is not streamed. |
+| `pertrace` | Keep only the existing prior-Trace rule. |
+| `off` | Never collapse a frame automatically. |
+
+Saving the setting applies it immediately; reload or a new session re-reads the
+stored value. A pending timer never crosses `agent_start`, a session reset, or
+shutdown. Collapsing changes only the visible frame, never the model-visible
+result, and Ctrl+O still expands everything.
 
 Third-party native packages such as `@ff-labs/fff-node` are unrelated to this
 patch/bash runtime.
