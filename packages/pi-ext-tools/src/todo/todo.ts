@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import {
+	escapeXml,
 	formatDuration,
 	getToolTui,
 	isRecord,
@@ -208,15 +209,6 @@ function activeTodoTask(state: TaskState): Task | undefined {
 	return state.tasks.find((task) => task.status === "in_progress");
 }
 
-function escapeReminderText(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&apos;");
-}
-
 function todoReminder(current: ActiveTodoRuntime): string | undefined {
 	const activeTask = activeTodoTask(current.state);
 	if (!activeTask) return undefined;
@@ -225,11 +217,11 @@ function todoReminder(current: ActiveTodoRuntime): string | undefined {
 		.sort((left, right) => left.id - right.id);
 	const lines = [
 		"<system-reminder>",
-		`Active TODO: #${activeTask.id} ${escapeReminderText(activeTask.subject)}`,
+		`Active TODO: #${activeTask.id} ${escapeXml(activeTask.subject)}`,
 	];
 	if (pending.length > 0) {
 		lines.push("Pending TODOs:");
-		for (const task of pending) lines.push(`#${task.id} ${escapeReminderText(task.subject)}`);
+		for (const task of pending) lines.push(`#${task.id} ${escapeXml(task.subject)}`);
 	}
 	lines.push("</system-reminder>");
 	return lines.join("\n");
