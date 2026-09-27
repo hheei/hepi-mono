@@ -16,10 +16,7 @@ export function isSourceEntry(entry: Entry): boolean {
 
 export function entryIndexById(entries: Entry[]): Map<string, number> {
 	const idToIndex = new Map<string, number>();
-	for (let i = 0; i < entries.length; i++) {
-		const entry = entries[i];
-		if (entry !== undefined) idToIndex.set(entry.id, i);
-	}
+	for (const [i, entry] of entries.entries()) idToIndex.set(entry.id, i);
 	return idToIndex;
 }
 
@@ -153,21 +150,9 @@ export function contextTokensFromUsage(usage: unknown): number | undefined {
 			? u.totalTokens
 			: undefined;
 	if (total !== undefined) return total;
-	const input = u.input;
-	const output = u.output;
-	const cacheRead = u.cacheRead;
-	const cacheWrite = u.cacheWrite;
-	if (
-		typeof input === "number" &&
-		Number.isFinite(input) &&
-		typeof output === "number" &&
-		Number.isFinite(output) &&
-		typeof cacheRead === "number" &&
-		Number.isFinite(cacheRead) &&
-		typeof cacheWrite === "number" &&
-		Number.isFinite(cacheWrite)
-	) {
-		const sum = input + output + cacheRead + cacheWrite;
+	const parts = [u.input, u.output, u.cacheRead, u.cacheWrite];
+	if (parts.every((part) => typeof part === "number" && Number.isFinite(part))) {
+		const sum = parts.reduce<number>((total, part) => total + (part ?? 0), 0);
 		return sum > 0 ? sum : undefined;
 	}
 	return undefined;

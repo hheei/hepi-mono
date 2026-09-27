@@ -25,7 +25,12 @@ import {
 	registerCanonicalTool,
 } from "./native-tool.js";
 import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
-import { type ParsedDiff, parseDiff, parseUnifiedPatch } from "./pretty/diff.js";
+import {
+	normalizeLineEndings,
+	type ParsedDiff,
+	parseDiff,
+	parseUnifiedPatch,
+} from "./pretty/diff.js";
 import {
 	renderDiffOmission,
 	renderSplit,
@@ -106,8 +111,7 @@ function resolvePath(cwd: string, path: string): string {
 function readTextIfSmall(path: string): string {
 	try {
 		if (statSync(path).size > MAX_HL_CHARS) return "";
-		const text = readFileSync(path, "utf-8");
-		return text.includes("\r") ? text.replaceAll("\r\n", "\n") : text;
+		return normalizeLineEndings(readFileSync(path, "utf-8"));
 	} catch {
 		return "";
 	}
