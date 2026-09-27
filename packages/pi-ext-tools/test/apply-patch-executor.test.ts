@@ -1,33 +1,18 @@
-import {
-	chmod,
-	lstat,
-	mkdir,
-	mkdtemp,
-	readFile,
-	rm,
-	stat,
-	symlink,
-	writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { afterEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
 import type { ApplyPatchProgress } from "../src/apply-patch/outcome.js";
 import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
+import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryPaths: string[] = [];
+const temporaryDirectory = temporaryDirectories("hepi-apply-patch-executor-");
+
 const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
 const fuzzy: ApplyPatchPolicy = { fuzzFactor: 2 };
-
-async function temporaryDirectory(): Promise<string> {
-	const path = await mkdtemp(join(tmpdir(), "hepi-apply-patch-executor-"));
-	temporaryPaths.push(path);
-	return path;
-}
 
 async function save(root: string, relativePath: string, content: string): Promise<void> {
 	const absolutePath = join(root, ...relativePath.split("/"));
@@ -38,12 +23,6 @@ async function save(root: string, relativePath: string, content: string): Promis
 async function load(root: string, relativePath: string): Promise<string> {
 	return await readFile(join(root, ...relativePath.split("/")), "utf8");
 }
-
-afterEach(async (): Promise<void> => {
-	await Promise.all(
-		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
-});
 
 describe("apply-patch executor", () => {
 	test("preserves executable mode through an update", async () => {

@@ -1,5 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentToolResult,
@@ -10,22 +9,17 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { AUTO_COLLAPSE_DELAY_MS, createToolTui, type ToolTui } from "@hheei/pi-ext-core";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { registerTools } from "../src/tools.js";
 import { framedHost, mountTool, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
+import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
 const BODY_LINE = "readable body line 30";
-const temporaryPaths: string[] = [];
-afterEach(async (): Promise<void> => {
-	await Promise.all(
-		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
-});
+const temporaryDirectory = temporaryDirectories("hepi-collapse-");
 
 async function fixture(): Promise<string> {
-	const cwd = await mkdtemp(join(tmpdir(), "hepi-collapse-"));
-	temporaryPaths.push(cwd);
+	const cwd = await temporaryDirectory();
 	const lines = Array.from({ length: 30 }, (_, index) =>
 		index === 29 ? BODY_LINE : `readable body line ${index + 1}`,
 	);

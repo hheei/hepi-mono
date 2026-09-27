@@ -502,6 +502,63 @@ describe("SubagentManager contracts", () => {
 		});
 		unsubscribe();
 	});
+
+	test("hibernates an idle child after idleTimeoutMs, shuts down runner, and marks state done", async () => {
+		const record = childRecord("starting");
+		const runner = new FakeRunner();
+		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
+			idleTimeoutMs: 20,
+		});
+		await manager.spawn({ task: "Work.", agent: "worker" });
+
+		// Simulate child finishing and becoming idle
+		runner.emit({ type: "agent_end" });
+		await new Promise<void>((resolve) => setTimeout(resolve, 5));
+		expect(registry.current?.state).toBe("idle");
+		expect(runner.requests).not.toContain("shutdown");
+
+		// Advance past the 20ms idle timeout
+		await new Promise<void>((resolve) => setTimeout(resolve, 35));
+		expect(runner.requests).toContain("shutdown");
+		expect(registry.current?.state).toBe("done");
+
+		manager.dispose();
+	});
+
+	test("auto-resumes a done or hibernated child on send with prompt operation", async () => {
+		const record = childRecord("starting");
+		const runner1 = new FakeRunner();
+		const runner2 = new FakeRunner();
+		let launches = 0;
+		const registry = memoryRegistry(record);
+		const manager = new SubagentManager({
+			parentSessionId: PARENT_ID,
+			registry,
+			resolve: async () => launchConfig(),
+			bootstrap: async () => record,
+			launch: async () => {
+				launches += 1;
+				return launches === 1 ? runner1 : runner2;
+			},
+			deadlineMs: 1_000,
+			idleTimeoutMs: 20,
+		});
+		await manager.spawn({ task: "Work.", agent: "worker" });
+
+		// Transition to idle then hibernate to done
+		runner1.emit({ type: "agent_end" });
+		await new Promise<void>((resolve) => setTimeout(resolve, 35));
+		expect(registry.current?.state).toBe("done");
+
+		// Send message to the done child -> triggers Auto-Resume
+		const resumed = await manager.send(CHILD_ID, "Follow up task", "auto");
+		expect(launches).toBe(2);
+		expect(runner2.requests).toContain("prompt");
+		expect(resumed).toMatchObject({ state: "running", freshness: "live" });
+		expect(registry.current?.state).toBe("running");
+
+		manager.dispose();
+	});
 });
 
 describe("SubagentManager native TUI attach", () => {

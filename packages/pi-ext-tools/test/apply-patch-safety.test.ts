@@ -1,12 +1,13 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { createLocalPatchFs, FsTransportError } from "../src/apply-patch/fs.js";
 import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
+import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryPaths: string[] = [];
+const temporaryDirectory = temporaryDirectories("hepi-apply-patch-safety-");
+
 const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
 const movePatch =
 	"*** Begin Patch\n" +
@@ -14,18 +15,6 @@ const movePatch =
 	"*** Move to: destination.txt\n" +
 	"-before\n+patched\n" +
 	"*** End Patch";
-
-async function temporaryDirectory(): Promise<string> {
-	const path = await mkdtemp(join(tmpdir(), "hepi-apply-patch-safety-"));
-	temporaryPaths.push(path);
-	return path;
-}
-
-afterEach(async (): Promise<void> => {
-	await Promise.all(
-		temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-	);
-});
 
 describe("apply-patch publication safety", () => {
 	test("preserves external files that change while writes are staged", async () => {
