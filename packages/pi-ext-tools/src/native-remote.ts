@@ -113,6 +113,23 @@ async function mutateRemote<T>(
 	}
 }
 
+/**
+ * Explains a remote mutation that did not simply succeed. The wording is shared by
+ * write and edit because an unconfirmed outcome must always tell the caller to read
+ * the file again before mutating it.
+ */
+export function remoteMutationFailureText(
+	verb: "Write" | "Edit",
+	details: RemoteMutationDetails,
+): string {
+	const location = `${details.target}:${details.path}`;
+	if (details.outcome === "unconfirmed")
+		return `${verb} outcome is unknown for ${location}: ${details.error}\nRecovery: read ${location} before another mutation.`;
+	if (details.outcome === "not_applied")
+		return `${verb} was not applied to ${location}: ${details.error}`;
+	return `Could not ${verb.toLowerCase()} ${location}: ${details.error}`;
+}
+
 export function remoteMutationDetails(value: unknown): RemoteMutationDetails | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 	const details = (value as Record<string, unknown>)[REMOTE_MUTATION_DETAILS];

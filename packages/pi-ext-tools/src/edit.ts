@@ -24,6 +24,7 @@ import {
 	REMOTE_MUTATION_DETAILS,
 	type RemoteMutationDetails,
 	remoteMutationDetails,
+	remoteMutationFailureText,
 } from "./native-remote.js";
 import {
 	createCanonicalExecutionTool,
@@ -369,15 +370,6 @@ function editPresentation(
 	};
 }
 
-function remoteEditFailureText(details: RemoteMutationDetails): string {
-	const location = `${details.target}:${details.path}`;
-	if (details.outcome === "unconfirmed")
-		return `Edit outcome is unknown for ${location}: ${details.error}\nRecovery: read ${location} before another mutation.`;
-	if (details.outcome === "not_applied")
-		return `Edit was not applied to ${location}: ${details.error}`;
-	return `Could not edit ${location}: ${details.error}`;
-}
-
 export function registerEditTool(
 	pi: ExtensionAPI,
 	tui: ToolTui,
@@ -398,7 +390,7 @@ export function registerEditTool(
 				const remote = await editRemoteFile(state, params.target, path, operations, signal);
 				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
 					return withEditDetails(
-						textToolResult(remoteEditFailureText(remote), undefined),
+						textToolResult(remoteMutationFailureText("Edit", remote), undefined),
 						undefined,
 						undefined,
 						remote,

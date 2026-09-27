@@ -16,15 +16,6 @@ import { hlBlock } from "./highlight.js";
 import type { BundledLanguage, FgTheme } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Env-overridable color/threshold helpers (mirror pi-diff)
-// ---------------------------------------------------------------------------
-
-function envInt(name: string, fallback: number): number {
-	const v = Number.parseInt(process.env[name] ?? "", 10);
-	return Number.isFinite(v) ? v : fallback;
-}
-
-// ---------------------------------------------------------------------------
 // Diff-specific ANSI. Theme-backed colors are resolved per render; these
 // constants are readable fallbacks for hosts that do not expose raw theme ANSI.
 // ---------------------------------------------------------------------------
@@ -42,8 +33,8 @@ const ANSI_RE = new RegExp(`${ESC_RE}\\[[0-9;]*m`, "g");
 const ANSI_CAPTURE_RE = new RegExp(`${ESC_RE}\\[([^m]*)m`, "g");
 
 const MAX_TERM_WIDTH = 210;
-const SPLIT_MIN_WIDTH = envInt("DIFF_SPLIT_MIN_WIDTH", 150);
-const SPLIT_MIN_CODE_WIDTH = envInt("DIFF_SPLIT_MIN_CODE_WIDTH", 60);
+const SPLIT_MIN_WIDTH = 150;
+const SPLIT_MIN_CODE_WIDTH = 60;
 const SPLIT_MAX_WRAP_RATIO = 0.2;
 const SPLIT_MAX_WRAP_LINES = 8;
 
