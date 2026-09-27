@@ -184,8 +184,9 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
-export type { ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
+export type { ToolCollapseMode, ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";
 export {
+	AUTO_COLLAPSE_DELAY_MS,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	getToolTui,

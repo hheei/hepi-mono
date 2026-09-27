@@ -6,12 +6,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
+	AUTO_COLLAPSE_DELAY_MS,
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	getToolTui,
 	registerToolTuiTrace,
+	type ToolTui,
 } from "../src/tool-tui.js";
 
 const Params = Type.Record(Type.String(), Type.Unknown());
@@ -390,6 +392,18 @@ describe("ToolTui", () => {
 		expect(historical).toContain("…");
 	});
 
+	test("flattens a multi-line bash command into the header line", (): void => {
+		const tui = createToolTui();
+		const framed = tui.frame({ ...tool(false), name: "bash", label: "bash" });
+		const lines =
+			framed
+				.renderCall?.({ command: "first line\nsecond line\nthird line" }, theme, context(true))
+				.render(200)
+				.map((line) => line.trimEnd()) ?? [];
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("first line second line third line");
+	});
+
 	test("derives all four body layouts from rendered lines and typed footer", (): void => {
 		const tui = createToolTui();
 		const body = (text: string, footer?: string): string[] => {
@@ -683,3 +697,192 @@ describe("ToolTui", () => {
 		expect(failed[0]).toBe(mutedRail);
 	});
 });
+
+type LongToolHarness = {
+	readonly framed: ToolDefinition<typeof Params>;
+	readonly result: AgentToolResult<unknown>;
+	readonly invalidations: { count: number };
+	bodyRenders: number;
+};
+
+async function longTool(tui: ToolTui, longOutput = true): Promise<LongToolHarness> {
+	const harness = {
+		framed: undefined as unknown as ToolDefinition<typeof Params>,
+		result: undefined as unknown as AgentToolResult<unknown>,
+		invalidations: { count: 0 },
+		bodyRenders: 0,
+	};
+	harness.framed = tui.frame(
+		{
+			...tool(false),
+			renderResult: (): Text => {
+				harness.bodyRenders += 1;
+				return new Text("result body", 0, 0);
+			},
+		},
+		longOutput ? { longOutput: true, footer: () => "metrics" } : { footer: () => "metrics" },
+	);
+	harness.result = await harness.framed.execute("call-1", {}, undefined, undefined, {
+		cwd: process.cwd(),
+	} as ExtensionContext);
+	return harness;
+}
+
+function renderLong(harness: LongToolHarness, expanded = false): string[] {
+	return (
+		harness.framed
+			.renderResult?.(harness.result, { expanded, isPartial: false }, theme, {
+				...(context(false) as object),
+				expanded,
+				invalidate: () => {
+					harness.invalidations.count += 1;
+				},
+			} as never)
+			.render(80)
+			.map((line) => line.trimEnd()) ?? []
+	);
+}
+
+/** Renders once so the record owns the invalidate callback, then drops setup noise. */
+async function settle(harness: LongToolHarness): Promise<string[]> {
+	const lines = renderLong(harness);
+	await vi.advanceTimersByTimeAsync(0);
+	harness.invalidations.count = 0;
+	return lines;
+}
+
+describe("ToolTui collapse modes", () => {
+	test("defaults to auto and reports the active mode", (): void => {
+		const tui = createToolTui();
+		expect(tui.getToolCollapseMode()).toBe("auto");
+		tui.setToolCollapseMode("pertrace");
+		expect(tui.getToolCollapseMode()).toBe("pertrace");
+	});
+
+	test("auto collapses a long tool one delay after completion", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const harness = await longTool(createToolTui());
+			expect(await settle(harness)).toContain("result body");
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS - 1);
+			expect(renderLong(harness)).toContain("result body");
+			await vi.advanceTimersByTimeAsync(1);
+			expect(harness.invalidations.count).toBe(1);
+			expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("on collapses on the first completed frame without rendering the body", async (): Promise<void> => {
+		const tui = createToolTui();
+		tui.setToolCollapseMode("on");
+		const harness = await longTool(tui);
+		expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		expect(harness.bodyRenders).toBe(0);
+	});
+
+	test("on suppresses streaming updates of a long tool", async (): Promise<void> => {
+		const tui = createToolTui();
+		tui.setToolCollapseMode("on");
+		const updates: AgentToolResult<unknown>[] = [];
+		const forward = (update: AgentToolResult<unknown>): void => {
+			updates.push(update);
+		};
+		await tui
+			.frame(streamingTool(), { longOutput: true })
+			.execute("call-1", {}, undefined, forward, { cwd: process.cwd() } as ExtensionContext);
+		expect(updates).toHaveLength(0);
+
+		await tui
+			.frame(streamingTool(), {})
+			.execute("call-2", {}, undefined, forward, { cwd: process.cwd() } as ExtensionContext);
+		expect(updates).toHaveLength(1);
+	});
+
+	test("pertrace collapses only when the next trace starts", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			tui.setToolCollapseMode("pertrace");
+			const harness = await longTool(tui);
+			expect(await settle(harness)).toContain("result body");
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS * 2);
+			expect(harness.invalidations.count).toBe(0);
+			expect(renderLong(harness)).toContain("result body");
+			tui.beginTrace();
+			expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("off cancels a pending timer and never collapses", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			const harness = await longTool(tui);
+			expect(await settle(harness)).toContain("result body");
+			tui.setToolCollapseMode("off");
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS * 2);
+			tui.beginTrace();
+			await vi.advanceTimersByTimeAsync(0);
+			harness.invalidations.count = 0;
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS * 2);
+			expect(harness.invalidations.count).toBe(0);
+			expect(renderLong(harness)).toContain("result body");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("an explicit expansion outranks every automatic collapse", async (): Promise<void> => {
+		const tui = createToolTui();
+		tui.setToolCollapseMode("on");
+		const harness = await longTool(tui);
+		expect(renderLong(harness, true)).toContain("result body");
+	});
+
+	test("leaves tools without longOutput untouched in every mode", async (): Promise<void> => {
+		const tui = createToolTui();
+		for (const mode of ["auto", "on", "pertrace", "off"] as const) {
+			tui.setToolCollapseMode(mode);
+			const harness = await longTool(tui, false);
+			expect(renderLong(harness)).toContain("result body");
+		}
+	});
+
+	test("drops pending timers on session reset and turn boundaries", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			const reset = await longTool(tui);
+			expect(await settle(reset)).toContain("result body");
+			tui.resetSession();
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS * 2);
+			expect(reset.invalidations.count).toBe(0);
+
+			const nextTurn = await longTool(tui);
+			expect(await settle(nextTurn)).toContain("result body");
+			tui.beginTrace();
+			await vi.advanceTimersByTimeAsync(0);
+			nextTurn.invalidations.count = 0;
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_DELAY_MS * 2);
+			expect(nextTurn.invalidations.count).toBe(0);
+			expect(renderLong(nextTurn)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+function streamingTool(): ToolDefinition<typeof Params> {
+	return {
+		...tool(false),
+		execute: async (_id, _params, _signal, onUpdate): Promise<AgentToolResult<unknown>> => {
+			onUpdate?.({ content: [{ type: "text", text: "partial" }], details: undefined });
+			return { content: [{ type: "text", text: "final" }], details: undefined };
+		},
+	};
+}

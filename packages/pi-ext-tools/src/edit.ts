@@ -474,6 +474,7 @@ export function registerEditTool(
 			summarySeparator: "space",
 			remotePathSummary: true,
 			maxBodyLines: Number.POSITIVE_INFINITY,
+			longOutput: true,
 			footer(result, completion) {
 				return editFooter(editMetrics(result), completion?.durationMs);
 			},

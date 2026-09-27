@@ -55,6 +55,21 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 
 未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
 
+## Tool Output 自动折叠
+
+`grep`、`read`、`write`、`edit`、`find`、`bash` 在 `frame()` 中声明 `longOutput: true`。Tool Output 设置组
+（`toolTui.collapseMode`，选项 `auto` / `on` / `pertrace` / `off`）决定这些工具完成后外框何时收合：
+
+| 模式 | 行为 |
+| --- | --- |
+| `auto`（默认） | 完成后 15 秒收合为 header + footer，并保留既有 prior Trace 规则 |
+| `on` | 完成后的第一次 render 即收合，且不向 host 转发长工具的 partial output |
+| `pertrace` | 只保留既有 prior Trace 规则，不启动定时器 |
+| `off` | 停用所有外框自动收合 |
+
+保存设置会立即应用到当前 session；重新载入会重新读取保存值。15 秒定时器不会跨过 `agent_start`、session
+reset 或 shutdown。折叠只影响可见外框，不改变模型可见的 `content`、持久化 details 或 Ctrl+O 展开。
+
 ## v1 Catalog
 
 v1 的显式 catalog 是：

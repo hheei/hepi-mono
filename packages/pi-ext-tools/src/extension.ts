@@ -19,6 +19,7 @@ import { grepHasNoSearchablePaths } from "./grep.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { applyTargetPromptSection } from "./targets.js";
 import { createTodoFeature } from "./todo/todo.js";
+import { registerToolTuiLifecycle } from "./tool-tui-settings.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "./tools.js";
 
 /** Registers pi-ext-tools' static, canonical tool catalog. */
@@ -27,6 +28,7 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	const evalState = createEvalRuntimeState();
 	const tui = getToolTui(pi);
 	registerToolTuiTrace(pi);
+	registerToolTuiLifecycle(pi, tui);
 	const todo = createTodoFeature(pi);
 	const evalSettings = readEvalSettings();
 	const evalEnabled = evalSettings.enabled;

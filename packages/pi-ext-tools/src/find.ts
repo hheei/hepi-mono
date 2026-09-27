@@ -333,6 +333,7 @@ export function registerFindTool(
 		},
 		tui.frame(tool, {
 			footer: findCollapsedFooter,
+			longOutput: true,
 		}),
 	);
 	return tool as unknown as ToolDefinition;

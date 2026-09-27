@@ -368,6 +368,7 @@ export function registerReadTool(
 		tui.frame(tool, {
 			footer: readCollapsedFooter,
 			maxBodyLines: Number.POSITIVE_INFINITY,
+			longOutput: true,
 		}),
 	);
 	return tool as unknown as ToolDefinition;

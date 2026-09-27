@@ -422,6 +422,7 @@ export function registerWriteTool(
 			summarySeparator: "space",
 			remotePathSummary: true,
 			maxBodyLines: Number.POSITIVE_INFINITY,
+			longOutput: true,
 			footer(result, completion) {
 				const metrics = readWriteMetrics(result);
 				const view = writeView(result);

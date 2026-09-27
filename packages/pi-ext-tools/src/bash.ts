@@ -551,6 +551,7 @@ export function registerBashTool(
 		},
 		tui.frame(tool, {
 			maxBodyLines: Number.POSITIVE_INFINITY,
+			longOutput: true,
 			footer: (result, completion, options) =>
 				options.isPartial ? undefined : bashFooter(result, completion),
 			warning: bashResultWarning,

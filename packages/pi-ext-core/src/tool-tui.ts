@@ -29,6 +29,12 @@ export type ToolCompletion = {
 	readonly warning?: boolean;
 };
 
+/** Automatic frame collapse policy applied to tool calls marked `longOutput`. */
+export type ToolCollapseMode = "auto" | "pertrace" | "off" | "on";
+
+/** Delay between one long-output result completing and its `auto` collapse. */
+export const AUTO_COLLAPSE_DELAY_MS = 15_000;
+
 export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
 	readonly summarySeparator?: "dot" | "space";
@@ -42,10 +48,19 @@ export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	readonly warning?: (result: AgentToolResult<TDetails>) => boolean;
 	/** Unexpanded body rows. Default 20. Non-finite or < 1 disables the cap. */
 	readonly maxBodyLines?: number;
+	/**
+	 * Declares a tool whose completed body is large enough to auto-collapse. Only the
+	 * `auto` and `on` modes use it; the concrete extension decides which tools qualify.
+	 */
+	readonly longOutput?: boolean;
 };
 
 export interface ToolTui {
 	beginTrace(): void;
+	/** Drops every tool record and pending collapse timer of the finished session. */
+	resetSession(): void;
+	setToolCollapseMode(mode: ToolCollapseMode): void;
+	getToolCollapseMode(): ToolCollapseMode;
 	frame<TParams extends TSchema, TDetails, TState>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 		presentation?: ToolTuiPresentation<TParams, TDetails>,
@@ -178,7 +193,8 @@ function headerFor(
 	const command = textValue(values.command);
 	if (tool.name === "bash" && command !== undefined) {
 		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
-		const shown = collapsed ? (command.split("\n")[0] ?? command) : command;
+		// One command may span many lines; the header stays one logical line.
+		const shown = command.replace(/\r?\n/g, " ");
 		const host = remoteTarget(values);
 		const hostLabel =
 			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
@@ -298,20 +314,48 @@ function resultText(result: AgentToolResult<unknown>): string {
 
 class ToolTraceController {
 	private trace = 0;
+	private mode: ToolCollapseMode = "auto";
 	private readonly tools = new Map<string, ToolRecord>();
 
+	setMode(mode: ToolCollapseMode): void {
+		if (this.mode === mode) return;
+		this.mode = mode;
+		for (const tool of this.tools.values()) {
+			if (tool.completion === undefined) {
+				this.clearCollapseTimer(tool);
+				continue;
+			}
+			this.scheduleCollapse(tool);
+			tool.invalidate?.();
+		}
+	}
+
+	getMode(): ToolCollapseMode {
+		return this.mode;
+	}
+
+	/** One turn boundary: a pending timer can never outlive the trace that created it. */
 	startTrace(): void {
 		this.trace += 1;
 		for (const tool of this.tools.values()) {
+			this.clearCollapseTimer(tool);
 			if (tool.trace < this.trace) tool.invalidate?.();
 		}
 	}
 
-	begin(toolCallId: string): void {
+	resetSession(): void {
+		for (const tool of this.tools.values()) this.clearCollapseTimer(tool);
+		this.tools.clear();
+	}
+
+	begin(toolCallId: string, longOutput = false): void {
+		const previous = this.tools.get(toolCallId);
+		if (previous !== undefined) this.clearCollapseTimer(previous);
 		this.tools.set(toolCallId, {
 			trace: this.trace,
 			executionStarted: true,
 			startedAt: performance.now(),
+			longOutput,
 		});
 	}
 
@@ -323,7 +367,10 @@ class ToolTraceController {
 				: { durationMs: Math.round(performance.now() - tool.startedAt) }),
 			...(warning ? { warning: true } : {}),
 		};
-		if (tool !== undefined) tool.completion = completion;
+		if (tool !== undefined) {
+			tool.completion = completion;
+			this.scheduleCollapse(tool);
+		}
 		return completion;
 	}
 
@@ -394,13 +441,48 @@ class ToolTraceController {
 		return this.observe(toolCallId, executionStarted, invalidate).trace < this.trace;
 	}
 
+	/**
+	 * The one collapse decision shared by the call and result slots. An explicit
+	 * expansion wins, `off` disables every automatic collapse, and otherwise the
+	 * record is collapsed once its timer elapsed or a later trace started.
+	 */
 	isCollapsed(
 		toolCallId: string | undefined,
 		expanded: boolean,
 		executionStarted: boolean,
 		invalidate: () => void,
 	): boolean {
-		return !expanded && this.isPriorTrace(toolCallId, executionStarted, invalidate);
+		if (expanded || toolCallId === undefined || this.mode === "off") return false;
+		const record = this.observe(toolCallId, executionStarted, invalidate);
+		return record.timerCollapsed === true || record.trace < this.trace;
+	}
+
+	/** `on` mode keeps the host from streaming partial output of a long tool. */
+	isStreamSuppressed(toolCallId: string): boolean {
+		return this.mode === "on" && this.tools.get(toolCallId)?.longOutput === true;
+	}
+
+	private scheduleCollapse(tool: ToolRecord): void {
+		this.clearCollapseTimer(tool);
+		if (tool.longOutput !== true || this.mode === "pertrace" || this.mode === "off") return;
+		if (this.mode === "on") {
+			tool.timerCollapsed = true;
+			return;
+		}
+		const timer = setTimeout(() => {
+			delete tool.collapseTimer;
+			tool.timerCollapsed = true;
+			tool.invalidate?.();
+		}, AUTO_COLLAPSE_DELAY_MS);
+		timer.unref();
+		tool.collapseTimer = timer;
+	}
+
+	private clearCollapseTimer(tool: ToolRecord): void {
+		const timer = tool.collapseTimer;
+		if (timer === undefined) return;
+		delete tool.collapseTimer;
+		clearTimeout(timer);
 	}
 
 	completionFor(toolCallId: string): ToolCompletion | undefined {
@@ -412,6 +494,9 @@ type ToolRecord = {
 	trace: number;
 	executionStarted: boolean;
 	startedAt?: number;
+	longOutput?: boolean;
+	timerCollapsed?: boolean;
+	collapseTimer?: ReturnType<typeof setTimeout>;
 	completion?: ToolCompletion;
 	latest?: AgentToolResult<unknown>;
 	invalidate?: () => void;
@@ -538,6 +623,15 @@ export function createToolTui(): ToolTui {
 		beginTrace(): void {
 			trace.startTrace();
 		},
+		resetSession(): void {
+			trace.resetSession();
+		},
+		setToolCollapseMode(mode: ToolCollapseMode): void {
+			trace.setMode(mode);
+		},
+		getToolCollapseMode(): ToolCollapseMode {
+			return trace.getMode();
+		},
 		frame<TParams extends TSchema, TDetails, TState>(
 			tool: ToolDefinition<TParams, TDetails, TState>,
 			presentation: ToolTuiPresentation<TParams, TDetails> = {},
@@ -549,9 +643,10 @@ export function createToolTui(): ToolTui {
 				...tool,
 				renderShell: "self",
 				async execute(toolCallId, params, signal, onUpdate, context) {
-					trace.begin(toolCallId);
+					trace.begin(toolCallId, presentation.longOutput === true);
 					const forwardUpdate = (update: AgentToolResult<TDetails>): void => {
 						trace.update(toolCallId, update);
+						if (trace.isStreamSuppressed(toolCallId)) return;
 						onUpdate?.(update);
 					};
 					try {
@@ -572,7 +667,16 @@ export function createToolTui(): ToolTui {
 					const historical = previewing
 						? false
 						: trace.isPriorTrace(context.toolCallId, context.executionStarted, context.invalidate);
-					const collapsed = !context.expanded && historical;
+					// A call whose arguments are still streaming is never collapsed.
+					const collapsed =
+						!previewing &&
+						trace.isCollapsed(
+							context.toolCallId,
+							context.expanded,
+							context.executionStarted,
+							context.invalidate,
+						);
+					const muted = collapsed || historical;
 					const header = headerFor(
 						tool,
 						args,
@@ -582,8 +686,8 @@ export function createToolTui(): ToolTui {
 						presentation.summary?.(args, latest, context),
 						presentation.summarySeparator,
 						presentation.remotePathSummary,
-						collapsed,
-						historical,
+						muted,
+						muted,
 					);
 					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);
 					const innerTheme = toneTheme(unboxedTheme(theme), historical);
@@ -617,7 +721,12 @@ export function createToolTui(): ToolTui {
 						context.executionStarted,
 						context.invalidate,
 					);
-					const collapsed = !context.expanded && historical;
+					const collapsed = trace.isCollapsed(
+						context.toolCallId,
+						context.expanded,
+						context.executionStarted,
+						context.invalidate,
+					);
 					if (collapsed) {
 						const summary =
 							context.isError && !isWarning
@@ -675,7 +784,9 @@ export function registerToolTuiTrace(pi: ExtensionAPI): void {
 	pi.on("session_start", (event) => {
 		if (event.reason !== "startup") tui.beginTrace();
 	});
+	// Pending collapse timers hold component callbacks from the ending session.
 	pi.on("session_shutdown", () => {
 		registrations.delete(pi);
+		tui.resetSession();
 	});
 }
