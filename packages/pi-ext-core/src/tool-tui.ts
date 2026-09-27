@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
+import { isRecord } from "./record.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 import { agentResultText, formatDuration } from "./tool-result.js";
 
@@ -128,9 +129,7 @@ function textValue(value: unknown): string | undefined {
 }
 
 function argsRecord(value: unknown): Readonly<Record<string, unknown>> {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
+	return isRecord(value) ? value : {};
 }
 
 function remoteTarget(values: Record<string, unknown>): string | undefined {
@@ -308,7 +307,7 @@ function withCompletion<T>(
 	const details = result.details;
 	return {
 		...result,
-		details: (typeof details === "object" && details !== null && !Array.isArray(details)
+		details: (isRecord(details)
 			? { ...details, [COMPLETION_KEY]: completion }
 			: { [COMPLETION_KEY]: completion }) as T,
 	};

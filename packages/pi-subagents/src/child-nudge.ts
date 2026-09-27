@@ -6,7 +6,7 @@
  * reminds the child to call `contact_parent` and never exits the session.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "./domain.js";
+import { isRecord } from "@hheei/pi-ext-core";
 
 const ASSISTANT_ROLE = "assistant";
 const NORMAL_STOP_REASON = "stop";

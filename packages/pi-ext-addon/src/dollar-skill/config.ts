@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import { isRecord, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import {
 	DEFAULT_DOLLAR_SKILL_CONFIG,
 	type DollarSkillConfig,
@@ -11,12 +11,6 @@ import {
 const GROUP = "dollar-skill";
 const LEGACY_GROUP = "pi-dollar-skill";
 export const DOLLAR_SKILL_SETTINGS_GROUP = GROUP;
-type JsonObject = Record<string, unknown>;
-
-function isJsonObject(value: unknown): value is JsonObject {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function normalizeMaxSuggestions(value: unknown): number {
 	if (typeof value !== "number" || !Number.isInteger(value))
 		return DEFAULT_DOLLAR_SKILL_CONFIG.maxSuggestions;
@@ -24,7 +18,7 @@ function normalizeMaxSuggestions(value: unknown): number {
 }
 
 export function normalizeDollarSkillConfig(value: unknown): DollarSkillConfig {
-	if (!isJsonObject(value)) return DEFAULT_DOLLAR_SKILL_CONFIG;
+	if (!isRecord(value)) return DEFAULT_DOLLAR_SKILL_CONFIG;
 	return {
 		enabled:
 			typeof value.enabled === "boolean" ? value.enabled : DEFAULT_DOLLAR_SKILL_CONFIG.enabled,
@@ -32,12 +26,12 @@ export function normalizeDollarSkillConfig(value: unknown): DollarSkillConfig {
 	};
 }
 
-async function readRoot(path: string): Promise<JsonObject> {
+async function readRoot(path: string): Promise<Record<string, unknown>> {
 	try {
 		const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-		return isJsonObject(parsed) ? parsed : {};
+		return isRecord(parsed) ? parsed : {};
 	} catch (error) {
-		if (isJsonObject(error) && error.code === "ENOENT") return {};
+		if (isRecord(error) && error.code === "ENOENT") return {};
 		throw error;
 	}
 }
@@ -61,7 +55,7 @@ export async function saveDollarSkillConfig(
 	const path = dollarSkillSettingsPath(settingsDirectory);
 	await updateJsonSettingsRoot(path, (root) => {
 		const existing = root[GROUP];
-		const group = isJsonObject(existing) ? { ...existing } : {};
+		const group = isRecord(existing) ? { ...existing } : {};
 		root[GROUP] = { ...group, ...normalizeDollarSkillConfig(config) };
 	});
 }

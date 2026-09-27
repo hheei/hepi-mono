@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isRecord } from "@hheei/pi-ext-core";
 
 interface JsonObject {
 	readonly [key: string]: unknown;
@@ -55,7 +56,7 @@ const CONTENT_KEYS = new Set([
 ]);
 
 export function snapshotProviderPayload(payload: unknown): PayloadSnapshot {
-	const object = isJsonObject(payload) ? payload : {};
+	const object = isRecord(payload) ? payload : {};
 	const inputEntry = findInput(object);
 	const items = inputEntry.items.map((item) => ({
 		...digest(item),
@@ -187,12 +188,12 @@ function findInput(object: JsonObject): {
 }
 
 function classifyInputItem(item: unknown): string {
-	if (isJsonObject(item) && (item.role === "system" || item.role === "developer")) return "system";
+	if (isRecord(item) && (item.role === "system" || item.role === "developer")) return "system";
 	return "conversation";
 }
 
 function itemKind(item: unknown): string {
-	if (!isJsonObject(item)) return Array.isArray(item) ? "array" : typeof item;
+	if (!isRecord(item)) return Array.isArray(item) ? "array" : typeof item;
 	if (typeof item.type === "string") return item.type;
 	if (typeof item.role === "string") return `role:${item.role}`;
 	return "object";
@@ -239,8 +240,4 @@ function digest(value: unknown): ValueDigest {
 
 function serialize(value: unknown): string {
 	return JSON.stringify(value) ?? "undefined";
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

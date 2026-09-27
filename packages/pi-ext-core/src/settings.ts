@@ -5,6 +5,7 @@ import {
 	readJsonSettingsRoot,
 	updateJsonSettingsRoot,
 } from "./json-settings.js";
+import { isRecord } from "./record.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
 export type SettingPrimitive = boolean | number | string;
@@ -240,10 +241,6 @@ export function registerSettings(
 export interface JsonSettingsStorageOptions {
 	readonly path?: string;
 	readonly group: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isSettingValue(value: unknown): value is SettingValue {

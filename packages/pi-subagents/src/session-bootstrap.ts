@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "@hheei/pi-ext-core";
 import type { ModelRegistryLike, ParentAgentDefaults } from "./agent-resolver.js";
 import { resolveAgent } from "./agent-resolver.js";
 import type {
@@ -12,7 +13,7 @@ import type {
 	SpawnSubagentInput,
 	SubagentRecord,
 } from "./domain.js";
-import { isRecord, isSessionId } from "./domain.js";
+import { isSessionId } from "./domain.js";
 import {
 	assembleChildPrompt,
 	resolveBridgeExtensionPath,

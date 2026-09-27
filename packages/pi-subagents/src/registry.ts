@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { readJsonSettingsRoot, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import { isRecord, readJsonSettingsRoot, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
 	ExtensionSelection,
@@ -18,7 +18,6 @@ import {
 	isExecutionMode,
 	isLaunchValueSource,
 	isPersistenceState,
-	isRecord,
 	isSessionId,
 	isSubagentIntent,
 	isSubagentState,

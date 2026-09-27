@@ -3,11 +3,11 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { getToolTui, registerToolTuiTrace } from "@hheei/pi-ext-core";
+import { getToolTui, isRecord, registerToolTuiTrace } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendReportToRunner } from "./connector.js";
 import type { ChildIdentity, OperationError } from "./domain.js";
-import { isRecord } from "./domain.js";
+
 import type { SubagentManager } from "./manager.js";
 
 const spawnSchema = Type.Object({

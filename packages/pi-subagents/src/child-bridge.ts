@@ -9,11 +9,11 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { registerChildNudge } from "./child-nudge.js";
 import { connectWithRetry, RunnerConnection, sendLifecycleToRunner } from "./connector.js";
 import type { ChildIdentity } from "./domain.js";
-import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, isRecord } from "./domain.js";
+import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY } from "./domain.js";
 import { PauseGate } from "./pause-gate.js";
 import { CANCEL_PAUSE_EVENT, PAUSE_EVENT } from "./protocol.js";
 import { registerChildTools } from "./tools.js";

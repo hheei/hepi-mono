@@ -10,6 +10,7 @@ import {
 } from "./completion-failure.js";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
+import { isRecord } from "./record.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
 declare const subagentIdBrand: unique symbol;
@@ -662,10 +663,6 @@ function assistantText(message: AssistantMessage | undefined): string {
 		.flatMap((part) => (part.type === "text" ? [part.text] : []))
 		.join("")
 		.trim();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function contentText(content: unknown): string {

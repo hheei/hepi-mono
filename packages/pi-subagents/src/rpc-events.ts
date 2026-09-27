@@ -1,4 +1,4 @@
-import { isRecord } from "./domain.js";
+import { isRecord } from "@hheei/pi-ext-core";
 
 /**
  * Runner-local and child-lifecycle events are produced by the runner itself.

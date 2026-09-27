@@ -92,6 +92,7 @@ export type {
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { runCommand, shellQuote } from "./process.js";
+export { isRecord } from "./record.js";
 export type {
 	BottomRailBorderOptions,
 	ResponseStatusFeature,

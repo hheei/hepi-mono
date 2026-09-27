@@ -1,3 +1,4 @@
+import { isRecord } from "@hheei/pi-ext-core";
 import type { SubagentState, UsageSummary } from "./domain.js";
 export interface StateSnapshot {
 	readonly state: SubagentState;
@@ -19,9 +20,7 @@ const EMPTY_USAGE: UsageSummary = {
 	turns: 0,
 };
 function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? Object.fromEntries(Object.entries(value))
-		: undefined;
+	return isRecord(value) ? Object.fromEntries(Object.entries(value)) : undefined;
 }
 function finite(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;

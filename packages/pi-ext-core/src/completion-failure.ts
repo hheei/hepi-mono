@@ -1,3 +1,4 @@
+import { isRecord } from "./record.js";
 import type { CompletionFailure } from "./subagents.js";
 
 const TRANSIENT_HTTP_STATUS = new Set([408, 409, 425, 429]);
@@ -16,10 +17,6 @@ const TRANSIENT_TRANSPORT_CODES = new Set([
 	"UND_ERR_HEADERS_TIMEOUT",
 	"UND_ERR_SOCKET",
 ]);
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === "object" && value !== null;
-}
 
 function integerStatus(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 100 && value <= 599

@@ -9,7 +9,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { agentResultText, formatDuration, type ToolTui } from "@hheei/pi-ext-core";
+import { agentResultText, formatDuration, isRecord, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
@@ -143,10 +143,7 @@ function withWriteDetails(
 	view: WriteView | undefined,
 	remote?: RemoteMutationDetails,
 ): AgentToolResult<unknown> {
-	const details =
-		typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
-			? result.details
-			: {};
+	const details = isRecord(result.details) ? result.details : {};
 	return {
 		...result,
 		details: {

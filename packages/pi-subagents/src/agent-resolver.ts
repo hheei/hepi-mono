@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "@hheei/pi-ext-core";
 import type {
 	ExtensionSelection,
 	ResolvedAgentPolicy,
@@ -10,7 +11,7 @@ import type {
 	SkillSelection,
 	ThinkingLevel,
 } from "./domain.js";
-import { CONTACT_PARENT_TOOL_NAME, isRecord, isThinkingLevel } from "./domain.js";
+import { CONTACT_PARENT_TOOL_NAME, isThinkingLevel } from "./domain.js";
 
 /**
  * Agent definition fields this version actually implements. Anything outside this
