@@ -16,9 +16,9 @@ import {
 } from "./fixtures/session.js";
 
 const COPY_SUCCESS = "Copied /om view output to clipboard.";
-const COPY_FAILURE = "Warning: failed to copy /om view output to clipboard.";
+const COPY_FAILURE = "Warning: could not copy /om view output: Clipboard unavailable";
 
-function setup(entries: TestEntry[], clipboardResult = true) {
+function setup(entries: TestEntry[], clipboardError?: string) {
 	let handler: ((args: unknown, ctx: any) => Promise<void>) | undefined;
 	const pi = {
 		registerCommand: vi.fn((name: string, command: { handler: typeof handler }) => {
@@ -27,7 +27,9 @@ function setup(entries: TestEntry[], clipboardResult = true) {
 		}),
 	};
 	const runtime = { ensureConfig: vi.fn() };
-	const copyToClipboard = vi.fn<(...args: any[]) => Promise<any>>(async () => clipboardResult);
+	const copyToClipboard = vi.fn<(...args: any[]) => Promise<void>>(async () => {
+		if (clipboardError !== undefined) throw new Error(clipboardError);
+	});
 	registerOmCommand(pi as any, runtime as any, { view: { copyToClipboard } });
 	if (!handler) throw new Error("view handler not registered");
 	const notify = vi.fn<(...args: any[]) => void>();
@@ -151,7 +153,10 @@ describe("V3 /om view", () => {
 	});
 
 	it("keeps rendering the memory view when clipboard copy fails", async () => {
-		const { output, clipboardText, copyToClipboard } = await setup([], false).run();
+		const { output, clipboardText, copyToClipboard } = await setup(
+			[],
+			"Clipboard unavailable",
+		).run();
 		const expected = [
 			"── Reflections ──",
 			"No visible reflections.",
@@ -162,7 +167,7 @@ describe("V3 /om view", () => {
 
 		expect(copyToClipboard).toHaveBeenCalledTimes(1);
 		expect(clipboardText).toBe(expected);
-		expect(clipboardText).not.toContain("failed to copy");
+		expect(clipboardText).not.toContain("could not copy");
 		expect(output).toBe(`${expected}\n\n${COPY_FAILURE}`);
 	});
 
