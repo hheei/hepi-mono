@@ -85,11 +85,12 @@ export function foldLedger(entries: Entry[], options: FoldLedgerOptions = {}): F
 		}
 	}
 
-	const observations = Array.from(observationsById.values());
-	const activeObservations = observations.filter(
-		(observation) => !droppedObservationIds.has(observation.id),
-	);
-	const reflections = Array.from(reflectionsById.values());
+	const observations = [...observationsById.values()];
+	const activeObservations =
+		droppedObservationIds.size === 0
+			? observations
+			: observations.filter((observation) => !droppedObservationIds.has(observation.id));
+	const reflections = [...reflectionsById.values()];
 
 	return {
 		observations,

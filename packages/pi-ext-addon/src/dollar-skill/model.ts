@@ -152,6 +152,7 @@ export function expandDollarSkillReferences(
 	commands: readonly DollarSkillCommand[],
 	isSkillEnabled: (command: DollarSkillCommand) => boolean = () => true,
 ): string | undefined {
+	if (!text.includes("$")) return undefined;
 	const paths = new Map<string, string>();
 	for (const { command, name } of selectSkillCommands(commands, isSkillEnabled)) {
 		if (command.sourceInfo?.path) paths.set(name, command.sourceInfo.path);
