@@ -46,8 +46,6 @@ export function evalPromptGuidelines(catalog: EditCatalog): string[] {
 	];
 }
 
-export const EVAL_PROMPT_GUIDELINES = evalPromptGuidelines("native");
-
 export function applyEvalPromptGuidelines(
 	tool: { promptGuidelines?: string[] },
 	catalog: EditCatalog,

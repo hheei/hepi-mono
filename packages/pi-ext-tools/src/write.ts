@@ -24,6 +24,7 @@ import {
 	REMOTE_MUTATION_DETAILS,
 	type RemoteMutationDetails,
 	remoteMutationDetails,
+	remoteMutationFailureText,
 	writeRemoteFile,
 } from "./native-remote.js";
 import {
@@ -299,15 +300,6 @@ function writePresentation(
 	return { metrics, view };
 }
 
-function remoteWriteFailureText(details: RemoteMutationDetails): string {
-	const location = `${details.target}:${details.path}`;
-	if (details.outcome === "unconfirmed")
-		return `Write outcome is unknown for ${location}: ${details.error}\nRecovery: read ${location} before another mutation.`;
-	if (details.outcome === "not_applied")
-		return `Write was not applied to ${location}: ${details.error}`;
-	return `Could not write ${location}: ${details.error}`;
-}
-
 export function registerWriteTool(
 	pi: ExtensionAPI,
 	tui: ToolTui,
@@ -328,7 +320,7 @@ export function registerWriteTool(
 				const remote = await writeRemoteFile(state, params.target, path, content, signal);
 				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
 					return withWriteDetails(
-						textToolResult(remoteWriteFailureText(remote), undefined),
+						textToolResult(remoteMutationFailureText("Write", remote), undefined),
 						undefined,
 						undefined,
 						remote,
