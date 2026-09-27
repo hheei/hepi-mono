@@ -371,7 +371,7 @@
 
 **目标**：在不中断当前tool call、不丢输入且不产生第二个writer的前提下，把同一child session交给native Pi TUI。
 
-**V1 已落地（idle-only）**：idle RPC child 可 `/attach-subagent`；busy child 可见失败并保留 RPC；冻结 send、close_writer、HostAdapter 启动同一 LaunchSpec 的 native TUI、失败恢复 RPC 且不重放 pending input。
+**V1 已落地（idle-only）**：idle RPC child 可 `/subagents attach <id>`；busy child 可见失败并保留 RPC；冻结 send、close_writer、HostAdapter 启动同一 LaunchSpec 的 native TUI、失败恢复 RPC 且不重放 pending input。
 
 **范围（剩余：active pause handshake，Pi `>=0.87.0`）**
 
