@@ -1,6 +1,9 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { debugLog } from "../debug-log.js";
 
+/** The memory workers that run a background agent loop. */
+export type WorkerStage = "observer" | "reflector" | "dropper";
+
 /**
  * Surface LLM failures from an agent-loop event stream.
  *
@@ -10,10 +13,7 @@ import { debugLog } from "../debug-log.js";
  * "the model chose not to call the tool", which hides the real cause
  * (rate limits, oversized prompts, auth failures, ...) from the debug log.
  */
-export function logAgentStreamError(
-	stage: "observer" | "reflector" | "dropper",
-	event: AgentEvent,
-): void {
+export function logAgentStreamError(stage: WorkerStage, event: AgentEvent): void {
 	if (event.type !== "message_end") return;
 	const message = event.message;
 	if (message.role !== "assistant") return;

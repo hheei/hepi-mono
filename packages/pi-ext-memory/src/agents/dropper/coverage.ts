@@ -90,21 +90,17 @@ export function summarizeCoverageByRelevanceForIds(
 	return summarizeCoverageByRelevance(selected, coverageById);
 }
 
-export function emptyCoverageTransitionSummaryByRelevance(): CoverageTransitionSummaryByRelevance {
-	return {
-		low: {},
-		medium: {},
-		high: {},
-		critical: {},
-	};
-}
-
 export function summarizeCoverageTransitionsByRelevance(
 	observations: readonly Observation[],
 	beforeCoverageById: ReadonlyMap<string, ReflectionCoverageTier>,
 	afterCoverageById: ReadonlyMap<string, ReflectionCoverageTier>,
 ): CoverageTransitionSummaryByRelevance {
-	const summary = emptyCoverageTransitionSummaryByRelevance();
+	const summary: CoverageTransitionSummaryByRelevance = {
+		low: {},
+		medium: {},
+		high: {},
+		critical: {},
+	};
 	for (const observation of observations) {
 		const before = beforeCoverageById.get(observation.id) ?? "none";
 		const after = afterCoverageById.get(observation.id) ?? "none";

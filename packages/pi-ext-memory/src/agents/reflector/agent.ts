@@ -1,25 +1,12 @@
-import {
-	type AgentContext,
-	type AgentLoopConfig,
-	type AgentTool,
-	agentLoop,
-} from "@earendil-works/pi-agent-core";
-import type {
-	Api,
-	Message,
-	Model,
-	ModelThinkingLevel,
-	ProviderHeaders,
-} from "@earendil-works/pi-ai";
+import type { AgentContext, AgentTool } from "@earendil-works/pi-agent-core";
+import type { Message } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { textToolResult } from "@hheei/pi-ext-core";
 import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
 import { hashId } from "../../ids.js";
-import { AGENT_LOOP_MAX_TOKENS, boundedMaxTokens } from "../../model-budget.js";
 import { truncateRecordContent } from "../../serialize.js";
 import {
-	contextCostFromUsage,
 	type Observation,
 	type Reflection,
 	reflectionToSummaryLine,
@@ -32,31 +19,12 @@ import {
 	summarizeCoverageByRelevance,
 	summarizeCoverageTransitionsByRelevance,
 } from "../dropper/coverage.js";
-import { logAgentStreamError } from "../stream-errors.js";
-import {
-	resolveWorkerStreamSimple,
-	type StreamableModelRegistry,
-	type WorkerStreamSimple,
-} from "../worker-stream.js";
+import { runWorkerAgent, type WorkerLoopArgs } from "../run-agent.js";
 import { REFLECTOR_SYSTEM } from "./prompts.js";
 
-interface RunReflectorArgs {
-	model: Model<Api>;
-	apiKey?: string | undefined;
-	headers?: ProviderHeaders | undefined;
-	env?: Record<string, string> | undefined;
+interface RunReflectorArgs extends WorkerLoopArgs {
 	reflections: Reflection[];
 	observations: Observation[];
-	signal?: AbortSignal | undefined;
-	agentLoop?: typeof agentLoop | undefined;
-	maxTurns?: number | undefined;
-	/** Maximum output tokens for the loop (defaults to {@link AGENT_LOOP_MAX_TOKENS}). */
-	maxOutputTokens?: number | undefined;
-	thinkingLevel?: ModelThinkingLevel | undefined;
-	modelRegistry: StreamableModelRegistry;
-	streamSimple?: WorkerStreamSimple | undefined;
-	/** Receives the provider-reported USD cost of each assistant turn in this loop. */
-	onCost?: ((costUsd: number) => void) | undefined;
 }
 
 const RecordReflectionsSchema = Type.Object({
@@ -140,7 +108,7 @@ function normalizeReflectionContent(content: string): string | undefined {
 }
 
 export async function runReflector(args: RunReflectorArgs): Promise<Reflection[] | undefined> {
-	const { model, apiKey, headers, env, reflections, observations, signal } = args;
+	const { reflections, observations } = args;
 	if (observations.length === 0) return undefined;
 
 	const coverageById = reflectionCoverageMap(observations, reflections);
@@ -211,45 +179,7 @@ export async function runReflector(args: RunReflectorArgs): Promise<Reflection[]
 		messages: [{ role: "system", content: REFLECTOR_SYSTEM, timestamp: Date.now() }],
 		tools: [recordReflections as unknown as AgentTool],
 	};
-	const reasoning = model.reasoning;
-	const thinkingLevel = args.thinkingLevel ?? "low";
-	const effectiveMaxTurns = args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
-	let turnCount = 0;
-	const config: AgentLoopConfig = {
-		model,
-		...(apiKey !== undefined ? { apiKey } : {}),
-		...(headers !== undefined ? { headers } : {}),
-		...(env !== undefined ? { env } : {}),
-		maxTokens: boundedMaxTokens(model, args.maxOutputTokens ?? AGENT_LOOP_MAX_TOKENS),
-		convertToLlm: (msgs) => msgs as Message[],
-		toolExecution: "sequential",
-		...(reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
-		...(effectiveMaxTurns !== undefined
-			? {
-					finishTurn: (turn) => {
-						if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted")
-							return;
-						return ++turnCount >= effectiveMaxTurns ? { action: "end" } : undefined;
-					},
-				}
-			: {}),
-	};
-
-	const loop = args.agentLoop ?? agentLoop;
-	const stream = loop(
-		prompts,
-		context,
-		config,
-		signal,
-		resolveWorkerStreamSimple(args.modelRegistry, args.streamSimple),
-	);
-	for await (const event of stream) {
-		// Tool execution collects records.
-		logAgentStreamError("reflector", event);
-		const cost = contextCostFromUsage((event as { message?: { usage?: unknown } }).message?.usage);
-		if (cost !== undefined) args.onCost?.(cost);
-	}
-	await stream.result();
+	await runWorkerAgent("reflector", args, prompts, context);
 	const acceptedReflections = Array.from(accumulated.values());
 	const afterCoverageById = reflectionCoverageMap(observations, [
 		...reflections,
