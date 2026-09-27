@@ -15,7 +15,7 @@ import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
 import { startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
 import { activateEditCatalog, activateEvalCatalog, registerTools } from "../src/tools.js";
-import { toolHost } from "./fixtures/harness.js";
+import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
 
 const temporaryPaths: string[] = [];
@@ -45,10 +45,16 @@ function activate(host: ReturnType<typeof toolHost>, catalog: EditCatalog): void
 	);
 }
 
+/** A capturing host with the standard tool catalog registered. */
+function registeredTools(): ReturnType<typeof toolHost> {
+	const host = toolHost();
+	registerTools(host.pi);
+	return host;
+}
+
 describe("pi-ext-tools catalog", () => {
 	test("registers every canonical editing definition before catalog activation", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const names = host.tools.map((tool) => tool.name);
 		expect(names).toEqual([
 			"read",
@@ -71,8 +77,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps task-control tools out of the catalog until the first task starts", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const catalog = host.tools.map((tool) => tool.name);
 		// Pi activates every registered extension tool before session_start runs.
 		host.pi.setActiveTools([...catalog]);
@@ -91,8 +96,7 @@ describe("pi-ext-tools catalog", () => {
 			["apply_patch", ["apply_patch"]],
 			["none", []],
 		] as const) {
-			const host = toolHost();
-			registerTools(host.pi);
+			const host = registeredTools();
 			activate(host, catalog);
 			expect(
 				host.activeTools().filter((name) => ["edit", "write", "apply_patch"].includes(name)),
@@ -101,8 +105,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("can switch the editing catalog after the session has started", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		activate(host, "native");
 		activate(host, "apply_patch");
 		expect(
@@ -132,8 +135,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("activates eval only through its explicit static setting", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		activateEvalCatalog(
 			{
 				pi: host.pi,
@@ -145,10 +147,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("renders a bounded, numbered read preview without changing model content", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const read = host.tools.find((tool) => tool.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const host = registeredTools();
+		const read = toolFor(host.tools, "read");
 		const source = [
 			...Array.from({ length: 10 }, (_, index) => `H${index + 1}`),
 			...Array.from({ length: 29 }, () => "hidden"),
@@ -208,10 +208,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("omits read body rails when the visible preview has no lines", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const read = host.tools.find((tool) => tool.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const host = registeredTools();
+		const read = toolFor(host.tools, "read");
 		const lines = read
 			.renderResult?.(
 				{
@@ -227,10 +225,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("hides read continuation instructions without changing model content", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const read = host.tools.find((tool) => tool.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const host = registeredTools();
+		const read = toolFor(host.tools, "read");
 		const source = "first\nsecond\n\n[17 more lines in file. Use offset=310 to continue.]";
 		const result = { content: [{ type: "text" as const, text: source }], details: undefined };
 		const context = { ...(renderContext as object), args: { path: "sample.ts" } } as never;
@@ -248,10 +244,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps narrow read rows to one cell-width-safe line", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const read = host.tools.find((tool) => tool.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const host = registeredTools();
+		const read = toolFor(host.tools, "read");
 		const lines = read
 			.renderResult?.(
 				{
@@ -271,10 +265,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const grep = host.tools.find((tool) => tool.name === "grep");
-		if (grep === undefined) throw new Error("grep renderer is missing");
+		const host = registeredTools();
+		const grep = toolFor(host.tools, "grep");
 		const lines = grep
 			.renderResult?.(
 				{
@@ -314,8 +306,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("omits search body rails when there are no body lines", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const grep = host.tools.find((tool) => tool.name === "grep");
 		const find = host.tools.find((tool) => tool.name === "find");
 		if (grep === undefined || find === undefined) throw new Error("Missing search tools");
@@ -395,8 +386,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("hides pagination cursors from search renderers", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const theme = {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
@@ -443,8 +433,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("exposes the upstream FFF grep and find schemas", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const grep = host.tools.find((tool) => tool.name === "grep");
 		const find = host.tools.find((tool) => tool.name === "find");
 		if (grep === undefined || find === undefined) throw new Error("Missing FFF search tools");
@@ -478,8 +467,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps exactly one mutator catalog active and leaves other tools untouched", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		activate(host, "apply_patch");
 		expect(host.activeTools()).toEqual(["read", "bash", "apply_patch"]);
 		activate(host, "native");
@@ -489,10 +477,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("registers apply_patch as strict V4A patch transport", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
-		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+		const host = registeredTools();
+		const applyPatch = toolFor(host.tools, "apply_patch");
 
 		expect(applyPatch.parameters).toMatchObject({
 			additionalProperties: false,
@@ -513,8 +499,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps upstream renderer contracts intact", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		for (const name of ["read", "grep", "find", "edit", "write", "bash"] as const) {
 			const tool = host.tools.find((candidate) => candidate.name === name);
 			if (tool === undefined) throw new Error(`Missing ${name} tool`);
@@ -526,10 +511,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("renders native write inside the shared frame without a duplicate built-in header", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
-		const host = toolHost();
-		registerTools(host.pi);
-		const write = host.tools.find((tool) => tool.name === "write");
-		if (write === undefined) throw new Error("write was not registered");
+		const host = registeredTools();
+		const write = toolFor(host.tools, "write");
 		const args = { path: "value.ts", content: "alpha\nbeta\n" };
 		const state = {};
 		write.renderCall?.(args, plainTheme, {
@@ -581,10 +564,8 @@ describe("pi-ext-tools catalog", () => {
 			"first\r\nbefore\r\nmiddle\r\nsecond\r\nlast\r\n",
 			"utf8",
 		);
-		const host = toolHost();
-		registerTools(host.pi);
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (edit === undefined) throw new Error("edit was not registered");
+		const host = registeredTools();
+		const edit = toolFor(host.tools, "edit");
 		const args = {
 			path: "value.txt",
 			edits: [
@@ -666,8 +647,7 @@ describe("pi-ext-tools catalog", () => {
 		const host = toolHost();
 		const tui = createToolTui();
 		registerTools(host.pi, undefined, tui);
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (edit === undefined) throw new Error("edit was not registered");
+		const edit = toolFor(host.tools, "edit");
 		const args = { path: "value.txt", edits: [{ oldText: "before", newText: "after" }] };
 		const ui = { requestRender: (): void => undefined } as unknown as TUI;
 		const component = new ToolExecutionComponent(
@@ -725,10 +705,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("renders a resumed Pi-native edit from its persisted unified patch", (): void => {
 		initTheme("dark");
-		const host = toolHost();
-		registerTools(host.pi);
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (edit === undefined) throw new Error("edit was not registered");
+		const host = registeredTools();
+		const edit = toolFor(host.tools, "edit");
 		const args = {
 			path: "value.ts",
 			edits: [{ oldText: "const before = 1;", newText: "const after = 2;" }],
@@ -772,10 +750,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("preserves persisted edit text when no legacy patch can be rendered", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (edit === undefined) throw new Error("edit was not registered");
+		const host = registeredTools();
+		const edit = toolFor(host.tools, "edit");
 		const rendered = edit
 			.renderResult?.(
 				{
@@ -802,10 +778,8 @@ describe("pi-ext-tools catalog", () => {
 		const cwd = await temporaryDirectory();
 		const contextLine = `keep ${"x".repeat(120)}`;
 		await writeFile(join(cwd, "value.txt"), `${contextLine}\nbefore\n`, "utf8");
-		const host = toolHost();
-		registerTools(host.pi);
-		const edit = host.tools.find((tool) => tool.name === "edit");
-		if (edit === undefined) throw new Error("edit was not registered");
+		const host = registeredTools();
+		const edit = toolFor(host.tools, "edit");
 		const args = { path: "value.txt", edits: [{ oldText: "before", newText: "after" }] };
 		const result = await edit.execute("edit-clip", args, undefined, undefined, {
 			cwd,
@@ -839,8 +813,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("renders canonical grep details and existing find results", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const theme = {
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			bold: (text: string): string => text,
@@ -959,10 +932,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("wraps the current grep header instead of truncating it", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const grep = host.tools.find((tool) => tool.name === "grep");
-		if (grep === undefined) throw new Error("grep was not registered");
+		const host = registeredTools();
+		const grep = toolFor(host.tools, "grep");
 		const header = grep
 			.renderCall?.(
 				{ pattern: "very-long-needle", path: "a/very/long/search/path" },
@@ -978,8 +949,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps grep match syntax bright and dims the rest of the line", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const theme = {
 			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
@@ -1033,8 +1003,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("keeps dim syntax after a highlighted grep match", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const theme = {
 			bg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
 			fg: (role: string, text: string): string => `<${role}>${text}</${role}>`,
@@ -1084,8 +1053,7 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("renders structured FFF find results inside the shared tool frame", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const find = host.tools.find((candidate) => candidate.name === "find");
 		if (find === undefined) throw new Error("Missing find tool");
 		const header = find
@@ -1134,10 +1102,8 @@ describe("pi-ext-tools catalog", () => {
 	test("executes read with the call context cwd instead of extension construction cwd", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "canonical\n", "utf8");
-		const host = toolHost();
-		registerTools(host.pi);
-		const read = host.tools.find((tool) => tool.name === "read");
-		if (read === undefined) throw new Error("read was not registered");
+		const host = registeredTools();
+		const read = toolFor(host.tools, "read");
 
 		const result = await read.execute("read-1", { path: "value.txt" }, undefined, undefined, {
 			cwd,
@@ -1151,10 +1117,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("executes apply_patch through its strict V4A transport", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
-		const host = toolHost();
-		registerTools(host.pi);
-		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
-		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+		const host = registeredTools();
+		const applyPatch = toolFor(host.tools, "apply_patch");
 
 		const result = await applyPatch.execute(
 			"apply-patch-1",
@@ -1172,10 +1136,8 @@ describe("pi-ext-tools catalog", () => {
 
 	test("reports rejected operation count rather than rejection group count", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
-		const host = toolHost();
-		registerTools(host.pi);
-		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
-		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+		const host = registeredTools();
+		const applyPatch = toolFor(host.tools, "apply_patch");
 
 		const result = await applyPatch.execute(
 			"apply-patch-conflict",
@@ -1202,10 +1164,8 @@ describe("pi-ext-tools catalog", () => {
 	test("publishes successful hunks when another hunk fails", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
 		await writeFile(join(cwd, "value.txt"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
-		const host = toolHost();
-		registerTools(host.pi);
-		const applyPatch = host.tools.find((tool) => tool.name === "apply_patch");
-		if (applyPatch === undefined) throw new Error("apply_patch was not registered");
+		const host = registeredTools();
+		const applyPatch = toolFor(host.tools, "apply_patch");
 
 		const result = await applyPatch.execute(
 			"apply-patch-partial-hunks",
@@ -1246,10 +1206,8 @@ describe("pi-ext-tools catalog", () => {
 		const head = Array.from({ length: 40 }, (_value, index) => `head-${index}`).join("\n");
 		const tail = Array.from({ length: 40 }, (_value, index) => `tail-${index}`).join("\n");
 		await writeFile(join(cwd, "value.txt"), `${head}\nOLD\n${tail}\n`, "utf8");
-		const host = toolHost();
-		registerTools(host.pi);
-		const write = host.tools.find((tool) => tool.name === "write");
-		if (write === undefined) throw new Error("write was not registered");
+		const host = registeredTools();
+		const write = toolFor(host.tools, "write");
 		const args = { path: "value.txt", content: `${head}\nNEW\n${tail}\n` };
 		const written = await write.execute("write-snippet", args, undefined, undefined, {
 			cwd,
@@ -1291,10 +1249,8 @@ describe("pi-ext-tools catalog", () => {
 	});
 
 	test("renders a legacy persisted write diff without full file bodies", (): void => {
-		const host = toolHost();
-		registerTools(host.pi);
-		const write = host.tools.find((tool) => tool.name === "write");
-		if (write === undefined) throw new Error("write was not registered");
+		const host = registeredTools();
+		const write = toolFor(host.tools, "write");
 		const rendered = write
 			.renderResult?.(
 				{
@@ -1345,8 +1301,7 @@ describe("pi-ext-tools catalog", () => {
 		const cwd = await temporaryDirectory();
 		const huge = `HEAD\n${"x".repeat(MAX_HL_CHARS)}\n`;
 		await writeFile(join(cwd, "huge.txt"), huge, "utf8");
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const context = {
 			cwd,
 			sessionManager: {
@@ -1428,8 +1383,7 @@ describe("pi-ext-tools catalog", () => {
 
 	test("preserves upstream write and edit execution semantics", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
-		const host = toolHost();
-		registerTools(host.pi);
+		const host = registeredTools();
 		const context = {
 			cwd,
 			sessionManager: {
