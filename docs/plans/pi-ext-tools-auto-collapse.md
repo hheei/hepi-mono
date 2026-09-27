@@ -296,3 +296,6 @@ otherwise                 -> historical || timerCollapsed
    `bash` 選用 `truncate`，讓整個 frame 永遠只佔 header 一行。
 4. **設定生效時機**：除 session 啟動與 `/reload` 讀取保存值外，`SettingsProvider.onChange` 會立即呼叫
    `setToolCollapseMode`，讓設定面板存檔後即時生效。
+5. **後續 review 的調整**：`getToolCollapseMode()` 沒有任何 production 讀者，已被移除；`summaryFor()` 中不可達的
+   grep/find/command/action 分支已刪除；frame 的 header、summary、footer 與 capped hint 改為依寬度 memoize
+   （Pi 每個 frame 都重繪所有元件，而 `truncateToWidth` 對非 ASCII 文字要走 grapheme segmenter）。

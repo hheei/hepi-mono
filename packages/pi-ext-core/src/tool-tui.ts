@@ -68,7 +68,6 @@ export interface ToolTui {
 	/** Drops every tool record and pending collapse timer of the finished session. */
 	resetSession(): void;
 	setToolCollapseMode(mode: ToolCollapseMode): void;
-	getToolCollapseMode(): ToolCollapseMode;
 	frame<TParams extends TSchema, TDetails, TState>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 		presentation?: ToolTuiPresentation<TParams, TDetails>,
@@ -91,26 +90,36 @@ const TOOL_BACKGROUNDS: ReadonlySet<Parameters<Theme["bg"]>[0]> = new Set([
 	"toolErrorBg",
 ]);
 
-function unboxedTheme(theme: Theme): Theme {
+/**
+ * The frame owns the whole tool surface, so Pi's `tool*Bg` box is dropped and a prior Trace's
+ * body text is dimmed. Both rules share one proxy trap chain because every renderer receives
+ * the composed theme.
+ */
+function frameTheme(theme: Theme, historical: boolean): Theme {
 	return new Proxy(theme, {
 		get(target, property, receiver): unknown {
 			if (property === "bg")
 				return (role: Parameters<Theme["bg"]>[0], text: string): string =>
 					TOOL_BACKGROUNDS.has(role) ? text : target.bg(role, text);
-			return Reflect.get(target, property, receiver);
-		},
-	});
-}
-
-function toneTheme(theme: Theme, historical: boolean): Theme {
-	return new Proxy(theme, {
-		get(target, property, receiver): unknown {
 			if (property === "fg")
 				return (role: Parameters<Theme["fg"]>[0], text: string): string =>
 					role === "text" ? (historical ? target.fg("dim", text) : text) : target.fg(role, text);
 			return Reflect.get(target, property, receiver);
 		},
 	});
+}
+
+/**
+ * Pi re-renders every component on every TUI frame, while one component instance keeps its
+ * width until the host replaces it. Width-derived rows are therefore computed once per width:
+ * cell-width truncation of non-ASCII text walks a grapheme segmenter and costs microseconds.
+ */
+function memoByWidth<T>(compute: (width: number) => T): (width: number) => T {
+	let cached: { readonly width: number; readonly value: T } | undefined;
+	return (width: number): T => {
+		if (cached === undefined || cached.width !== width) cached = { width, value: compute(width) };
+		return cached.value;
+	};
 }
 
 function textValue(value: unknown): string | undefined {
@@ -146,23 +155,10 @@ function paintRemotePath(
 	return `${theme.fg("warning", `${target}:`)}${path}`;
 }
 
-function summaryFor(tool: string, args: unknown): string {
+function summaryFor(args: unknown): string {
 	const values = argsRecord(args);
 	const path = textValue(values.path) ?? textValue(values.file_path);
-	const pattern = textValue(values.pattern);
-	const command = textValue(values.command);
-	const action = textValue(values.action);
-	const id = textValue(values.id);
-	const location = path === undefined ? undefined : remoteLocation(values, path);
-
-	if (tool === "grep" && pattern !== undefined)
-		return location === undefined ? `/${pattern}/` : `/${pattern}/ in ${location}`;
-	if (tool === "find" && pattern !== undefined)
-		return location === undefined ? pattern : `${pattern} in ${location}`;
-	if (command !== undefined) return command.split("\n")[0] ?? command;
-	if (path !== undefined) return path;
-	if (action !== undefined && id !== undefined) return `${action} ${id}`;
-	return "";
+	return path === undefined ? "" : path;
 }
 
 /**
@@ -257,7 +253,7 @@ function headerFor(
 		].join(" ");
 		return { primary: `${status} ${summary}` };
 	}
-	const summary = summaryFor(tool.name, args);
+	const summary = summaryFor(args);
 	return {
 		primary: [
 			status,
@@ -357,10 +353,6 @@ class ToolTraceController {
 		}
 	}
 
-	getMode(): ToolCollapseMode {
-		return this.mode;
-	}
-
 	/** One turn boundary: a pending timer can never outlive the trace that created it. */
 	startTrace(): void {
 		this.trace += 1;
@@ -429,6 +421,8 @@ class ToolTraceController {
 		tool.latest = result;
 		if (completion === undefined) delete tool.completion;
 		else tool.completion = completion;
+		// `summary` presenters that read `latest` (for example apply_patch) render before this
+		// call has recorded the restored result, so they need one repaint of the same row.
 		if (changed) queueMicrotask(() => tool.invalidate?.());
 	}
 
@@ -548,12 +542,20 @@ function sameResult(
 }
 
 class ToolFrameSection implements Component {
+	private readonly headerRows: (width: number) => string[];
+
 	constructor(
 		private readonly body: ToolBodySection | undefined,
-		private readonly theme: Theme,
-		private readonly header: FrameHeader,
-		private readonly oneLineHeader = false,
-	) {}
+		theme: Theme,
+		header: FrameHeader,
+		oneLineHeader = false,
+	) {
+		this.headerRows = memoByWidth((width: number): string[] =>
+			oneLineHeader
+				? [singleLineHeader(header, width, theme)]
+				: new Text(`${header.primary}${header.suffix ?? ""}`, 0, 0).render(width),
+		);
+	}
 
 	bodyComponent(): Component | undefined {
 		return this.body?.bodyComponent();
@@ -561,11 +563,9 @@ class ToolFrameSection implements Component {
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const lines = this.oneLineHeader
-			? [singleLineHeader(this.header, availableWidth, this.theme)]
-			: new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(availableWidth);
-		lines.push(...(this.body?.render(availableWidth) ?? []));
-		return lines;
+		const header = this.headerRows(availableWidth);
+		const body = this.body?.render(availableWidth) ?? [];
+		return body.length === 0 ? header : [...header, ...body];
 	}
 
 	invalidate(): void {
@@ -582,7 +582,7 @@ function singleLineHeader(header: FrameHeader, width: number, theme: Theme): str
 
 /** Cuts one row with a dim `…`; the Pi renderer rejects any row wider than the terminal. */
 function truncateLine(text: string, width: number, theme: Theme): string {
-	return truncateToWidth(text, Math.max(1, width), theme.fg("dim", "…"));
+	return truncateToWidth(text, width, theme.fg("dim", "…"));
 }
 
 /**
@@ -600,43 +600,38 @@ function footerRows(text: string, width: number, theme: Theme, oneLine: boolean)
  * collapsed frame stays exactly one header row plus one summary row at every width.
  */
 class SingleLineRow implements Component {
-	constructor(
-		private readonly text: string,
-		private readonly theme: Theme,
-	) {}
+	private readonly rows: (width: number) => string[];
+
+	constructor(text: string, theme: Theme) {
+		this.rows = memoByWidth((width: number): string[] => [truncateLine(text, width, theme)]);
+	}
 
 	render(width: number): string[] {
-		return [truncateLine(this.text, width, this.theme)];
+		return this.rows(Math.max(1, width));
 	}
 
 	invalidate(): void {}
 }
 
-function compactBodyLines(
-	lines: readonly string[],
-	maxBodyLines: number,
-	width: number,
-	theme: Theme,
-): string[] {
-	if (!Number.isFinite(maxBodyLines) || maxBodyLines < 1 || lines.length <= maxBodyLines)
-		return [...lines];
-	const visible = lines.slice(-(maxBodyLines - 1));
-	const hint = theme.fg(
-		"dim",
-		`… (${lines.length - visible.length} earlier lines, ${EXPAND_HINT})`,
-	);
-	return [truncateToWidth(hint, width, theme.fg("dim", "…")), ...visible];
-}
+type HiddenHint = { readonly width: number; readonly hidden: number; readonly row: string };
 
 class ToolBodySection implements Component {
+	private readonly chrome: (width: number) => { readonly rail: string; readonly footer: string[] };
+	private hint: HiddenHint | undefined;
+
 	constructor(
 		private readonly body: Component,
-		private readonly footer: string | undefined,
+		footer: string | undefined,
 		private readonly theme: Theme,
 		private readonly maxBodyLines: number,
 		private readonly expanded = false,
-		private readonly oneLineFooter = false,
-	) {}
+		oneLineFooter = false,
+	) {
+		this.chrome = memoByWidth((width: number) => ({
+			rail: theme.fg("muted", "─".repeat(width)),
+			footer: footer === undefined ? [] : footerRows(footer, width, theme, oneLineFooter),
+		}));
+	}
 
 	bodyComponent(): Component {
 		return this.body;
@@ -645,20 +640,39 @@ class ToolBodySection implements Component {
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
 		const rendered = this.body.render(availableWidth);
-		const body = this.expanded
-			? rendered
-			: compactBodyLines(rendered, this.maxBodyLines, availableWidth, this.theme);
-		const footer =
-			this.footer === undefined
-				? []
-				: footerRows(this.footer, availableWidth, this.theme, this.oneLineFooter);
-		if (body.length === 0) return footer;
-		const rail = this.theme.fg("muted", "─".repeat(availableWidth));
-		return [rail, ...body, rail, ...footer];
+		const body = this.expanded ? rendered : this.cappedBody(rendered, availableWidth);
+		const chrome = this.chrome(availableWidth);
+		if (body.length === 0) return chrome.footer;
+		return [chrome.rail, ...body, chrome.rail, ...chrome.footer];
 	}
 
 	invalidate(): void {
 		this.body.invalidate();
+	}
+
+	/** An unexpanded body keeps at most `maxBodyLines` rows behind a dim hidden-lines hint. */
+	private cappedBody(rendered: string[], width: number): readonly string[] {
+		if (
+			!Number.isFinite(this.maxBodyLines) ||
+			this.maxBodyLines < 1 ||
+			rendered.length <= this.maxBodyLines
+		)
+			return rendered;
+		const visible = rendered.slice(-(this.maxBodyLines - 1));
+		return [this.hiddenHint(rendered.length - visible.length, width), ...visible];
+	}
+
+	private hiddenHint(hidden: number, width: number): string {
+		const cached = this.hint;
+		if (cached !== undefined && cached.width === width && cached.hidden === hidden)
+			return cached.row;
+		const row = truncateLine(
+			this.theme.fg("dim", `… (${hidden} earlier lines, ${EXPAND_HINT})`),
+			width,
+			this.theme,
+		);
+		this.hint = { width, hidden, row };
+		return row;
 	}
 }
 
@@ -685,9 +699,6 @@ export function createToolTui(): ToolTui {
 		},
 		setToolCollapseMode(mode: ToolCollapseMode): void {
 			trace.setMode(mode);
-		},
-		getToolCollapseMode(): ToolCollapseMode {
-			return trace.getMode();
 		},
 		frame<TParams extends TSchema, TDetails, TState>(
 			tool: ToolDefinition<TParams, TDetails, TState>,
@@ -747,7 +758,7 @@ export function createToolTui(): ToolTui {
 						muted,
 					);
 					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);
-					const innerTheme = toneTheme(unboxedTheme(theme), historical);
+					const innerTheme = frameTheme(theme, historical);
 					const body =
 						context.isPartial && latest === undefined
 							? renderCall?.(args, innerTheme, {
@@ -800,7 +811,7 @@ export function createToolTui(): ToolTui {
 						return new SingleLineRow(theme.fg("dim", summary), theme);
 					}
 					const body =
-						renderResult?.(result, options, toneTheme(unboxedTheme(theme), historical), {
+						renderResult?.(result, options, frameTheme(theme, historical), {
 							...context,
 							lastComponent: previousBody(context.lastComponent),
 						}) ?? resultFallback(result, theme);
