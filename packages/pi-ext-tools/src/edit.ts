@@ -340,7 +340,7 @@ function editFooter(
 	durationMs: number | undefined,
 ): string | undefined {
 	const duration = durationText(durationMs);
-	if (metrics === undefined) return duration;
+	if (metrics === undefined) return duration ? `error · ${duration}` : "error";
 	const edits = counted(metrics.replacements, "edit");
 	const changed = metrics.added + metrics.removed;
 	const lines =

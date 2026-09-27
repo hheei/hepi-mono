@@ -325,7 +325,7 @@ function typedFooter(value: string | undefined): string | undefined {
 
 function defaultFooter(completion: ToolCompletion | undefined, isError: boolean): string {
 	const duration = durationText(completion?.durationMs);
-	if (isError) return [completion?.errorMessage ?? "failed", duration].filter(Boolean).join(" · ");
+	if (isError) return duration ? `error · ${duration}` : "error";
 	return duration ?? "completed";
 }
 
