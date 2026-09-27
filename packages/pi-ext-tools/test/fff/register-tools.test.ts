@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
-import { grepNeedsBuiltinFallback, inferFffGrepMode } from "../../src/fff/extension-common.js";
+import { inferFffGrepMode } from "../../src/fff/extension-common.js";
 import { FffRuntime } from "../../src/fff/fff.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../../src/fff/lifecycle.js";
 import { registerMultiGrepTool } from "../../src/fff/multi-grep.js";
@@ -32,12 +32,6 @@ describe("FFF tool registration", () => {
 		expect(inferFffGrepMode(true)).toBe("plain");
 		expect(inferFffGrepMode(undefined, "catch (error")).toBe("plain");
 		expect(inferFffGrepMode(undefined, "catch \\(error\\)")).toBe("regex");
-	});
-
-	test("delegates every case-insensitive grep request to Pi", () => {
-		expect(grepNeedsBuiltinFallback({ pattern: "needle", ignoreCase: true })).toBe(true);
-		expect(grepNeedsBuiltinFallback({ pattern: "NEEDLE", ignoreCase: true })).toBe(true);
-		expect(grepNeedsBuiltinFallback({ pattern: "needle", ignoreCase: false })).toBe(false);
 	});
 
 	test("does not register retired find_files name", () => {
@@ -249,7 +243,7 @@ describe("FFF tool registration", () => {
 					grepSearch: async (value: { fuzzyFallbackOnly?: boolean }) => {
 						request = value;
 						return {
-							isOk: () => true,
+							ok: true,
 							value: {
 								items: [
 									{
@@ -607,7 +601,7 @@ describe("FFF tool registration", () => {
 			getRuntime: () =>
 				({
 					grepSearch: async () => ({
-						isOk: () => true,
+						ok: true,
 						value: {
 							items: [],
 							linesTruncated: false,

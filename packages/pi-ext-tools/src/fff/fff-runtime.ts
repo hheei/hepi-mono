@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder } from "@ff-labs/fff-node";
-import { Result } from "better-result";
 import { formatPathResolutionError } from "./error-format.js";
 import {
 	AmbiguousPathError,
@@ -48,7 +47,14 @@ import {
 	type Score,
 	type SingleGrepRequest,
 } from "./fff-types.js";
-import { type AppResult, errResult, propagateError, toVoidResult } from "./result-utils.js";
+import {
+	type AppResult,
+	attempt,
+	attemptAsync,
+	errResult,
+	okResult,
+	toVoid,
+} from "./result-utils.js";
 import { getProjectDatabasePaths } from "./runtime-paths.js";
 
 const MAX_ADMITTED_SCAN_FILES = 20_000;
@@ -298,14 +304,12 @@ function safeFinderCall<T>(
 	operation: string,
 	run: () => EngineResult<T>,
 ): AppResult<T, FinderOperationError> {
-	const attempted = Result.try({
-		try: run,
-		catch: (cause) =>
-			finderFailure(operation, cause instanceof Error ? cause.message : String(cause), cause),
-	});
-	if (attempted.isErr()) return errResult(attempted.error);
+	const attempted = attempt(run, (cause) =>
+		finderFailure(operation, cause instanceof Error ? cause.message : String(cause), cause),
+	);
+	if (!attempted.ok) return errResult(attempted.error);
 	return attempted.value.ok
-		? Result.ok(attempted.value.value)
+		? okResult(attempted.value.value)
 		: errResult(finderFailure(operation, attempted.value.error));
 }
 
@@ -333,18 +337,18 @@ export class FffRuntime {
 	async ensure(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
 		// One initialization promise deduplicates concurrent tool/command calls;
 		// the generation check prevents a late finder from escaping after disposal.
-		if (this.finder) return Result.ok(this.finder);
+		if (this.finder) return okResult(this.finder);
 		if (this.loadError) return errResult(this.loadError);
 		const generation = this.generation;
 		if (!this.initPromise) this.initPromise = this.initialize();
 		const initialized = await this.initPromise;
 		if (generation !== this.generation) {
-			if (initialized.isOk() && initialized.value !== this.options.finder) {
-				void Result.try({
-					try: () => initialized.value.destroy(),
-					catch: (cause) =>
+			if (initialized.ok && initialized.value !== this.options.finder) {
+				void attempt(
+					() => initialized.value.destroy(),
+					(cause) =>
 						finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
-				});
+				);
 			}
 			return errResult(
 				new RuntimeInitializationError({
@@ -354,7 +358,7 @@ export class FffRuntime {
 				}),
 			);
 		}
-		if (initialized.isErr()) {
+		if (!initialized.ok) {
 			this.loadError = initialized.error;
 			return initialized;
 		}
@@ -367,13 +371,13 @@ export class FffRuntime {
 		// Invalidate first so an in-flight initialization cannot publish into the
 		// next lifecycle. Injected finders remain caller-owned and are not destroyed.
 		this.generation++;
-		void Result.try({
-			try: () => {
+		void attempt(
+			() => {
 				if (this.finder && this.finder !== this.options.finder) this.finder.destroy();
 			},
-			catch: (cause) =>
+			(cause) =>
 				finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
-		});
+		);
 		this.finder = this.options.finder ?? null;
 		this.initPromise = null;
 	}
@@ -402,15 +406,15 @@ export class FffRuntime {
 		>
 	> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
-		const waitedResult = await Result.tryPromise({
-			try: () => finderResult.value.waitForScan(timeoutMs),
-			catch: (cause) =>
+		if (!finderResult.ok) return finderResult;
+		const waitedResult = await attemptAsync(
+			() => finderResult.value.waitForScan(timeoutMs),
+			(cause) =>
 				finderFailure("waitForScan", cause instanceof Error ? cause.message : String(cause), cause),
-		});
-		if (waitedResult.isErr()) return propagateError(waitedResult);
+		);
+		if (!waitedResult.ok) return waitedResult;
 		const health = finderResult.value.healthCheck();
-		return Result.ok({
+		return okResult({
 			ready: waitedResult.value.ok ? waitedResult.value.value : false,
 			...(health.ok ? { indexedFiles: health.value.filePicker.indexedFiles } : {}),
 			...(waitedResult.value.ok ? {} : { error: waitedResult.value.error }),
@@ -419,18 +423,18 @@ export class FffRuntime {
 
 	async reindex(): Promise<AppResult<void, RuntimeInitializationError | FinderOperationError>> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
-		return toVoidResult(safeFinderCall("scanFiles", () => finderResult.value.scanFiles()));
+		if (!finderResult.ok) return finderResult;
+		return toVoid(safeFinderCall("scanFiles", () => finderResult.value.scanFiles()));
 	}
 
 	async getStatus(): Promise<
 		AppResult<{ state: string; indexedFiles?: number; error?: string }, RuntimeInitializationError>
 	> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const health = finderResult.value.healthCheck();
 		const progress = finderResult.value.getScanProgress();
-		return Result.ok({
+		return okResult({
 			state: progress.ok && progress.value.isScanning ? "indexing" : "ready",
 			...(health.ok && health.value.filePicker.indexedFiles !== undefined
 				? { indexedFiles: health.value.filePicker.indexedFiles }
@@ -443,10 +447,10 @@ export class FffRuntime {
 		AppResult<HealthCheck, RuntimeInitializationError | FinderOperationError>
 	> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const health = finderResult.value.healthCheck();
 		return health.ok
-			? Result.ok(health.value)
+			? okResult(health.value)
 			: errResult(finderFailure("healthCheck", health.error));
 	}
 
@@ -455,8 +459,8 @@ export class FffRuntime {
 		selectedPath: string,
 	): Promise<AppResult<void, RuntimeInitializationError | FinderOperationError>> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
-		return toVoidResult(
+		if (!finderResult.ok) return finderResult;
+		return toVoid(
 			safeFinderCall("trackQuery", () =>
 				finderResult.value.trackQuery(normalizePathQuery(query), normalizeSlashes(selectedPath)),
 			),
@@ -468,16 +472,16 @@ export class FffRuntime {
 		limit = DEFAULT_FILE_CANDIDATE_LIMIT,
 	): Promise<AppResult<FffFileCandidate[], RuntimeInitializationError | FinderOperationError>> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const normalizedQuery = normalizePathQuery(query);
-		if (!normalizedQuery) return Result.ok([]);
+		if (!normalizedQuery) return okResult([]);
 		const search = safeFinderCall("fileSearch", () =>
 			finderResult.value.fileSearch(normalizedQuery, {
 				pageSize: Math.max(limit, DEFAULT_FILE_CANDIDATE_LIMIT),
 			}),
 		);
-		if (search.isErr()) return propagateError(search);
-		return Result.ok(
+		if (!search.ok) return search;
+		return okResult(
 			search.value.items
 				.slice(0, limit)
 				.map((item, index) => normalizeCandidate(item, search.value.scores[index])),
@@ -486,19 +490,19 @@ export class FffRuntime {
 
 	async findSearch(request: FindSearchRequest): Promise<FindSearchResult> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const search = safeFinderCall("fileSearch", () =>
 			finderResult.value.fileSearch(request.query, {
 				pageIndex: request.pageIndex,
 				pageSize: request.limit,
 			}),
 		);
-		if (search.isErr()) return propagateError(search);
+		if (!search.ok) return search;
 		const items = search.value.items.map((item, index) =>
 			normalizeCandidate(item, search.value.scores[index]),
 		);
 		const shownSoFar = request.pageIndex * request.limit + items.length;
-		return Result.ok({
+		return okResult({
 			items,
 			totalMatched: search.value.totalMatched,
 			totalFiles: search.value.totalFiles,
@@ -520,7 +524,7 @@ export class FffRuntime {
 		if (pathOnlyQuery === normalizedQuery) {
 			const direct = await this.resolveExistingPath(pathOnlyQuery, options?.allowDirectory ?? true);
 			if (direct) {
-				return Result.ok({
+				return okResult({
 					kind: "resolved",
 					query,
 					absolutePath: direct.absolutePath,
@@ -532,14 +536,14 @@ export class FffRuntime {
 		}
 
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const limit = Math.max(1, options?.limit ?? DEFAULT_FILE_CANDIDATE_LIMIT);
 		const search = safeFinderCall("fileSearch", () =>
 			finderResult.value.fileSearch(normalizedQuery, {
 				pageSize: Math.max(limit, DEFAULT_FILE_CANDIDATE_LIMIT),
 			}),
 		);
-		if (search.isErr()) return propagateError(search);
+		if (!search.ok) return search;
 		const candidates = search.value.items
 			.slice(0, limit)
 			.map((item, index) => normalizeCandidate(item, search.value.scores[index]));
@@ -550,7 +554,7 @@ export class FffRuntime {
 
 		const direct = await this.resolveExistingPath(pathOnlyQuery, options?.allowDirectory ?? true);
 		if (direct) {
-			return Result.ok({
+			return okResult({
 				kind: "resolved",
 				query,
 				absolutePath: direct.absolutePath,
@@ -579,7 +583,7 @@ export class FffRuntime {
 				? top.item.path
 				: resolve(this.basePath, top.item.relativePath);
 		const pathType = (await getPathType(absolutePath)) ?? "file";
-		return Result.ok({
+		return okResult({
 			kind: "resolved",
 			query,
 			absolutePath,
@@ -592,7 +596,7 @@ export class FffRuntime {
 
 	async relatedFiles(query: string, limit = 8): Promise<RelatedFilesResult> {
 		const baseResult = await this.resolvePath(query, { allowDirectory: false, limit: 8 });
-		if (baseResult.isErr()) return propagateError(baseResult);
+		if (!baseResult.ok) return baseResult;
 		const base = baseResult.value;
 		const basename = normalizeSlashes(base.relativePath).split("/").pop() ?? base.relativePath;
 		const stem = basename
@@ -601,7 +605,7 @@ export class FffRuntime {
 			.replace(/\.module\./g, ".")
 			.replace(/\.[^.]+$/, "");
 		const candidatesResult = await this.searchFileCandidates(stem, Math.max(limit * 3, 20));
-		if (candidatesResult.isErr()) return propagateError(candidatesResult);
+		if (!candidatesResult.ok) return candidatesResult;
 		const filtered = candidatesResult.value
 			.filter((candidate) => candidate.item.relativePath !== base.relativePath)
 			.filter((candidate) => {
@@ -613,7 +617,7 @@ export class FffRuntime {
 				);
 			})
 			.slice(0, limit);
-		return Result.ok({ base, items: filtered } satisfies RelatedFilesResponse);
+		return okResult({ base, items: filtered } satisfies RelatedFilesResponse);
 	}
 
 	async grepSearch(request: GrepSearchRequest): Promise<GrepSearchResult> {
@@ -751,7 +755,7 @@ export class FffRuntime {
 			constraintQuery,
 			null,
 		);
-		if (fuzzyResult.isErr()) return null;
+		if (!fuzzyResult.ok) return null;
 		const items = fuzzyResult.value.items.slice(0, request.limit);
 		if (items.length === 0) return null;
 		return {
@@ -778,7 +782,7 @@ export class FffRuntime {
 				constraintQuery,
 				null,
 			);
-			if (broadenedResult.isErr()) return null;
+			if (!broadenedResult.ok) return null;
 			const broadenedItems = broadenedResult.value.items.slice(0, request.limit);
 			if (broadenedItems.length > 0) {
 				const built = buildGrepText(broadenedItems, {
@@ -820,10 +824,7 @@ export class FffRuntime {
 
 		if (request.pattern.includes("/")) {
 			const pathCandidates = await this.searchFileCandidates(request.pattern, 1);
-			if (
-				pathCandidates.isOk() &&
-				isStrongPathCandidate(pathCandidates.value[0], request.pattern)
-			) {
+			if (pathCandidates.ok && isStrongPathCandidate(pathCandidates.value[0], request.pattern)) {
 				return {
 					items: [],
 					formatted: `0 content matches. But there is a relevant file path: ${pathCandidates.value[0]?.item.relativePath}`,
@@ -866,7 +867,7 @@ export class FffRuntime {
 				constraintQuery,
 				null,
 			);
-			if (fallbackResult.isErr()) continue;
+			if (!fallbackResult.ok) continue;
 			const fallbackItems = fallbackResult.value.items.slice(0, request.limit);
 			if (fallbackItems.length === 0) continue;
 			const built = buildGrepText(fallbackItems, {
@@ -901,7 +902,7 @@ export class FffRuntime {
 
 	private async runGrep(request: SingleGrepRequest | MultiGrepRequest): Promise<GrepSearchResult> {
 		const finderResult = await this.ensure();
-		if (finderResult.isErr()) return propagateError(finderResult);
+		if (!finderResult.ok) return finderResult;
 		const finder = finderResult.value;
 
 		const scopeResult = request.pathQuery
@@ -910,13 +911,14 @@ export class FffRuntime {
 					limit: DEFAULT_FILE_CANDIDATE_LIMIT,
 				})
 			: undefined;
-		if (scopeResult?.isErr()) {
+		if (scopeResult && !scopeResult.ok) {
+			const scopeError = scopeResult.error;
 			if (
-				AmbiguousPathError.is(scopeResult.error) ||
-				EmptyPathQueryError.is(scopeResult.error) ||
-				MissingPathError.is(scopeResult.error)
+				scopeError instanceof AmbiguousPathError ||
+				scopeError instanceof EmptyPathQueryError ||
+				scopeError instanceof MissingPathError
 			) {
-				return Result.ok({
+				return okResult({
 					items: [],
 					formatted: formatPathResolutionError(
 						"grep scope",
@@ -926,10 +928,10 @@ export class FffRuntime {
 					linesTruncated: false,
 				});
 			}
-			return propagateError(scopeResult);
+			return scopeResult;
 		}
 
-		const resolvedScope = scopeResult?.isOk() ? scopeResult.value : undefined;
+		const resolvedScope = scopeResult?.ok ? scopeResult.value : undefined;
 		if (
 			resolvedScope !== undefined &&
 			!isWithinBasePath(this.basePath, resolvedScope.absolutePath)
@@ -979,7 +981,7 @@ export class FffRuntime {
 				request.limit - items.length,
 				unlimited ? 0 : remainingTimeBudgetMs,
 			);
-			if (result.isErr()) return propagateError(result);
+			if (!result.ok) return result;
 
 			regexFallbackError = result.value.regexFallbackError ?? regexFallbackError;
 			engineCursor = result.value.nextCursor;
@@ -998,7 +1000,7 @@ export class FffRuntime {
 				const fallback = request.fuzzyFallbackOnly
 					? this.buildFuzzyNoMatchFallback(finder, request, constraintQuery, resolvedScope)
 					: await this.buildNoMatchFallback(finder, request, constraintQuery, resolvedScope);
-				if (fallback) return Result.ok(fallback);
+				if (fallback) return okResult(fallback);
 			} else if (!request.fuzzyFallbackOnly) {
 				const fallback = await this.buildMultiNoMatchFallback(
 					finder,
@@ -1006,7 +1008,7 @@ export class FffRuntime {
 					constraintQuery,
 					resolvedScope,
 				);
-				if (fallback) return Result.ok(fallback);
+				if (fallback) return okResult(fallback);
 			}
 		}
 
@@ -1030,7 +1032,7 @@ export class FffRuntime {
 		const formatted = timedOut
 			? `${built.text}${built.text.length > 0 ? "\n\n" : ""}${GREP_TIMEOUT_RECOVERY}`
 			: built.text;
-		return Result.ok({
+		return okResult({
 			items: items.slice(0, request.limit),
 			formatted,
 			...(built.truncation === undefined ? {} : { truncation: built.truncation }),
@@ -1075,32 +1077,31 @@ export class FffRuntime {
 
 	private async initialize(): Promise<AppResult<FileFinder, RuntimeInitializationError>> {
 		const projectRoot = this.options.projectRoot ?? this.cwd;
-		const admission = await Result.tryPromise({
-			try: () => admitFffScan(projectRoot),
-			catch: (cause) =>
-				new RuntimeInitializationError({ cwd: this.cwd, step: "admit scan", cause }),
-		});
-		if (admission.isErr()) return propagateError(admission);
+		const admission = await attemptAsync(
+			() => admitFffScan(projectRoot),
+			(cause) => new RuntimeInitializationError({ cwd: this.cwd, step: "admit scan", cause }),
+		);
+		if (!admission.ok) return admission;
 		const root = resolve(getAgentDir(), "pi-ext-tools");
-		const rootResult = await Result.tryPromise({
-			try: () => mkdir(root, { recursive: true }),
-			catch: (cause) =>
+		const rootResult = await attemptAsync(
+			() => mkdir(root, { recursive: true }),
+			(cause) =>
 				new RuntimeInitializationError({ cwd: this.cwd, step: "create runtime directory", cause }),
-		});
-		if (rootResult.isErr()) return propagateError(rootResult);
+		);
+		if (!rootResult.ok) return rootResult;
 
 		this.basePath = projectRoot;
 		const paths = getProjectDatabasePaths(root, projectRoot);
 		const dbDir = paths.dbDir;
-		const dbResult = await Result.tryPromise({
-			try: () => mkdir(dbDir, { recursive: true }),
-			catch: (cause) =>
+		const dbResult = await attemptAsync(
+			() => mkdir(dbDir, { recursive: true }),
+			(cause) =>
 				new RuntimeInitializationError({ cwd: this.cwd, step: "create database directory", cause }),
-		});
-		if (dbResult.isErr()) return propagateError(dbResult);
+		);
+		if (!dbResult.ok) return dbResult;
 
-		const created = Result.try({
-			try: () =>
+		const created = attempt(
+			() =>
 				FileFinder.create({
 					basePath: projectRoot,
 					aiMode: true,
@@ -1111,10 +1112,10 @@ export class FffRuntime {
 					frecencyDbPath: paths.frecencyDbPath,
 					historyDbPath: paths.historyDbPath,
 				}),
-			catch: (cause) =>
+			(cause) =>
 				new RuntimeInitializationError({ cwd: this.cwd, step: "create file finder", cause }),
-		});
-		if (created.isErr()) return propagateError(created);
+		);
+		if (!created.ok) return created;
 		if (!created.value.ok) {
 			return errResult(
 				new RuntimeInitializationError({
@@ -1126,6 +1127,6 @@ export class FffRuntime {
 		}
 
 		const finder = created.value.value;
-		return Result.ok(finder);
+		return okResult(finder);
 	}
 }

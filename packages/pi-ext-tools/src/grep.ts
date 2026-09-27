@@ -792,12 +792,12 @@ export function registerGrepTool(
 							...(signal === undefined ? {} : { signal }),
 						});
 						abortIfNeeded(signal);
-						if (result.isOk() && result.value.regexFallbackError !== undefined) {
+						if (result.ok && result.value.regexFallbackError !== undefined) {
 							const error = new Error(`FFF regex error: ${result.value.regexFallbackError}`);
 							Object.assign(error, { regexFallbackError: result.value.regexFallbackError });
 							throw error;
 						}
-						if (result.isOk()) {
+						if (result.ok) {
 							engine = "fff";
 							canonical = {
 								...capEvents(
@@ -808,8 +808,7 @@ export function registerGrepTool(
 								...(result.value.timedOut ? { timedOut: true } : {}),
 							};
 						} else canonical = await runRg(params, context.cwd, undefined, signal);
-					} else if (canonical === undefined)
-						canonical = await runRg(params, context.cwd, undefined, signal);
+					} else canonical = await runRg(params, context.cwd, undefined, signal);
 				}
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
 				const full = fullOutput(canonical.events, canonical.incomplete);

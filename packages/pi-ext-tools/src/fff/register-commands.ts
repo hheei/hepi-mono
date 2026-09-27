@@ -35,7 +35,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 				const runtime = requireSlashRuntime(ctx);
 				if (!runtime) return;
 				const result = await runtime.reindex();
-				if (result.isErr()) {
+				if (!result.ok) {
 					ctx.ui.notify(`FFF reindex failed: ${result.error.message}`, "error");
 					return;
 				}
@@ -47,7 +47,7 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 				const runtime = requireSlashRuntime(ctx);
 				if (!runtime) return;
 				const statusResult = await runtime.getStatus();
-				if (statusResult.isErr()) {
+				if (!statusResult.ok) {
 					ctx.ui.notify(`fff status failed: ${statusResult.error.message}`, "error");
 					return;
 				}
@@ -56,9 +56,9 @@ export function registerCommands(pi: ExtensionAPI, deps: CommandRegistrationDeps
 				ctx.ui.notify(
 					buildStatusReport({
 						status: statusResult.value,
-						...(healthResult.isOk() ? { health: healthResult.value } : {}),
+						...(healthResult.ok ? { health: healthResult.value } : {}),
 						metadata,
-						healthError: healthResult.isErr() ? healthResult.error : null,
+						healthError: !healthResult.ok ? healthResult.error : null,
 					}),
 					"info",
 				);
