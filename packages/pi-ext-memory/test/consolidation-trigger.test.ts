@@ -36,6 +36,9 @@ import {
 	textCustomMessage,
 } from "./fixtures/session.js";
 
+/** Console Go's endpoint: the base URL the x-opencode-session header rule keys off. */
+const ZEN_BASE_URL = "https://opencode.ai/zen/go/v1";
+
 beforeEach(() => {
 	mockAgents.runObserver.mockReset();
 	mockAgents.runReflector.mockReset();
@@ -324,7 +327,7 @@ describe("V3 consolidation trigger", () => {
 			model: testModel({
 				provider: "opencode-go",
 				id: "zen",
-				baseUrl: "https://opencode.ai/zen/go/v1",
+				baseUrl: ZEN_BASE_URL,
 				reasoning: true,
 			}),
 			apiKey: "go-key",
@@ -356,11 +359,7 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: testModel({
-				provider: "opencode-go",
-				id: "zen",
-				baseUrl: "https://opencode.ai/zen/go/v1",
-			}),
+			model: testModel({ provider: "opencode-go", id: "zen", baseUrl: ZEN_BASE_URL }),
 			apiKey: "go-key",
 			headers: { Authorization: "Bearer go-key" },
 		});
@@ -390,11 +389,7 @@ describe("V3 consolidation trigger", () => {
 		});
 		runtime.resolveModel.mockResolvedValueOnce({
 			ok: true,
-			model: testModel({
-				provider: "custom",
-				id: "zen",
-				baseUrl: "https://opencode.ai/zen/go/v1",
-			}),
+			model: testModel({ provider: "custom", id: "zen", baseUrl: ZEN_BASE_URL }),
 			apiKey: "go-key",
 		});
 

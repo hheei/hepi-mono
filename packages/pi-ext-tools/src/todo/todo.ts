@@ -46,6 +46,29 @@ const TODO_REMINDER_CUSTOM_TYPE = "pi-ext-tools:todo:reminder";
 const TODO_STATE_CUSTOM_TYPE = "pi-ext-tools:todo:state";
 const TODO_MAX_BODY_ROWS = 8;
 
+const TASK_GLYPH: Record<TaskStatus, string> = {
+	in_progress: "◐",
+	pending: "○",
+	blocked: "⊘",
+	completed: "✓",
+	suppressed: "×",
+};
+const TASK_TONE: Record<TaskStatus, "success" | "warning" | "dim" | "muted"> = {
+	in_progress: "warning",
+	pending: "muted",
+	blocked: "dim",
+	completed: "success",
+	suppressed: "muted",
+};
+/** Body order: active work first, suppressed tasks never reach a row. */
+const TASK_RANK: Record<TaskStatus, number> = {
+	in_progress: 0,
+	pending: 1,
+	blocked: 2,
+	completed: 3,
+	suppressed: 4,
+};
+
 const todoTaskStatus = Type.String({
 	enum: ["pending", "in_progress", "blocked", "completed", "suppressed"],
 });
@@ -229,17 +252,8 @@ function formatTodoGuidance(state: TaskState): string {
 }
 
 function formatTaskLine(task: Task): string {
-	const glyph =
-		task.status === "completed"
-			? "✓"
-			: task.status === "in_progress"
-				? "◐"
-				: task.status === "blocked"
-					? "⊘"
-					: task.status === "suppressed"
-						? "×"
-						: "○";
-	return `${glyph} #${task.id} ${task.subject}${task.status === "suppressed" ? "  user suppressed" : ""}`;
+	const suppressed = task.status === "suppressed" ? "  user suppressed" : "";
+	return `${TASK_GLYPH[task.status]} #${task.id} ${task.subject}${suppressed}`;
 }
 
 function formatTodoList(state: TaskState, status?: TaskStatus): string {
@@ -316,9 +330,9 @@ function formatTodoResult(
 	result: Extract<ReturnType<typeof applyTodo>, { ok: true }>,
 ): string {
 	const lines: string[] = [];
-	const createdIds = result.operations
-		.filter((operation) => operation.action === "create" && operation.id !== undefined)
-		.flatMap((operation) => (operation.id === undefined ? [] : [operation.id]));
+	const createdIds = result.operations.flatMap((operation) =>
+		operation.action === "create" && operation.id !== undefined ? [operation.id] : [],
+	);
 	let createdReported = false;
 	for (const operationResult of result.operations) {
 		const operation = params.operations[operationResult.index];
@@ -326,9 +340,7 @@ function formatTodoResult(
 		if (operation.action === "create") {
 			if (!createdReported) {
 				lines.push(
-					createdIds.length === 0
-						? "Created task"
-						: `Created ${createdIds.map((id) => `#${id}`).join(" ")}`,
+					createdIds.length === 0 ? "Created task" : `Created ${formatTodoIds(createdIds)}`,
 				);
 				createdReported = true;
 			}
@@ -392,14 +404,8 @@ function readTodoToolDetails(value: unknown): TodoToolDetails | undefined {
 	return { state, operations, ...(listStatus === undefined ? {} : { listStatus }) };
 }
 
-function parseTaskId(value: unknown): number | undefined {
-	if (typeof value === "number" && Number.isInteger(value) && value >= 1) return value;
-	if (typeof value === "string" && /^[1-9]\d*$/.test(value)) return Number(value);
-	return undefined;
-}
-
 function pushTaskId(ids: number[], value: unknown): void {
-	const id = parseTaskId(value);
+	const id = canonicalPositiveInteger(value);
 	if (id === undefined || ids.includes(id)) return;
 	ids.push(id);
 }
@@ -408,13 +414,17 @@ function formatTodoIds(ids: readonly number[]): string {
 	return ids.map((id) => `#${id}`).join(" ");
 }
 
+/** Tasks this call lists: never suppressed, narrowed to the requested status. */
+function listedTasks(details: TodoToolDetails): Task[] {
+	return details.state.tasks.filter(
+		(task) =>
+			task.status !== "suppressed" &&
+			(details.listStatus === undefined || task.status === details.listStatus),
+	);
+}
+
 function listedTaskIds(details: TodoToolDetails): number[] {
-	return details.state.tasks
-		.filter(
-			(task) =>
-				task.status !== "suppressed" &&
-				(details.listStatus === undefined || task.status === details.listStatus),
-		)
+	return listedTasks(details)
 		.map((task) => task.id)
 		.sort((left, right) => left - right);
 }
@@ -450,14 +460,7 @@ function todoHeaderIds(value: unknown, latest: { readonly details?: unknown } | 
 }
 
 function taskRow(task: Task, theme: Theme): string {
-	const glyph =
-		task.status === "completed"
-			? theme.fg("success", "✓")
-			: task.status === "in_progress"
-				? theme.fg("warning", "◐")
-				: task.status === "blocked"
-					? theme.fg("dim", "⊘")
-					: theme.fg("muted", "○");
+	const glyph = theme.fg(TASK_TONE[task.status], TASK_GLYPH[task.status]);
 	const subject =
 		task.status === "completed" || task.status === "blocked"
 			? theme.fg("dim", theme.strikethrough(task.subject))
@@ -476,17 +479,7 @@ function taskRows(
 			(task) => task.status !== "suppressed" && (status === undefined || task.status === status),
 		)
 		.slice()
-		.sort((left, right) => {
-			const rank = (task: Task): number =>
-				task.status === "in_progress"
-					? 0
-					: task.status === "pending"
-						? 1
-						: task.status === "blocked"
-							? 2
-							: 3;
-			return rank(left) - rank(right) || left.id - right.id;
-		});
+		.sort((left, right) => TASK_RANK[left.status] - TASK_RANK[right.status] || left.id - right.id);
 	const visible = expanded ? selected : selected.slice(0, TODO_MAX_BODY_ROWS);
 	const rows: string[] = [];
 	for (const currentStatus of ["in_progress", "pending", "blocked", "completed"] as const) {
@@ -533,11 +526,9 @@ function renderTodoToolTuiResult(
 	if (isError) return new Text(theme.fg("error", todoResultText(result) || "Error"), 0, 0);
 	const details = readTodoToolDetails(result.details);
 	if (details === undefined) return new Text(theme.fg("dim", "No Todo state."), 0, 0);
-	const rows =
-		details.listStatus !== undefined ||
-		details.operations.some((operation) => operation.action === "list")
-			? taskRows(details.state, details.listStatus, theme, expanded)
-			: mutationRows(details, theme);
+	const rows = isListDetails(details)
+		? taskRows(details.state, details.listStatus, theme, expanded)
+		: mutationRows(details, theme);
 	return new Text(rows.join("\n"), 0, 0);
 }
 
@@ -547,11 +538,7 @@ function todoToolTuiFooter(
 ): string | undefined {
 	const details = readTodoToolDetails(result.details);
 	if (details === undefined) return undefined;
-	const tasks = details.state.tasks.filter(
-		(task) =>
-			task.status !== "suppressed" &&
-			(details.listStatus === undefined || task.status === details.listStatus),
-	);
+	const tasks = listedTasks(details);
 	const parts: string[] = [];
 	const active = tasks.filter((task) => task.status === "in_progress");
 	if (active.length > 0) parts.push(`active ${active.map((task) => `#${task.id}`).join(" ")}`);

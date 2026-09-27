@@ -108,10 +108,6 @@ export function createTodoFooterStatusController(
 	/** Renders the state, and re-renders when text that is only shown for a while expires. */
 	const scheduleNext = (state: TaskState): void => {
 		clearTimer();
-		if (isDisposed) {
-			ui.setStatus(TODO_STATUS_KEY, undefined);
-			return;
-		}
 		const decision = computeFooterStatus(state, now());
 		ui.setStatus(TODO_STATUS_KEY, decision.text);
 		if (decision.expiresAt !== undefined) {

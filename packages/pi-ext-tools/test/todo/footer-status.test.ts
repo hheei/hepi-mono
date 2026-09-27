@@ -7,7 +7,43 @@ import {
 	createTodoFooterStatusController,
 	TODO_STATUS_KEY,
 } from "../../src/todo/footer-status.js";
-import type { TaskState } from "../../src/todo/model.js";
+import type { Task, TaskState, TaskStatus } from "../../src/todo/model.js";
+
+function task(id: number, status: TaskStatus, updatedAt: number): Task {
+	return { id, subject: `Task ${id}`, status, updatedAt };
+}
+
+function state(tasks: readonly Task[]): TaskState {
+	return { tasks: [...tasks], nextId: 9 };
+}
+
+/** Controller over a fake clock that records every footer text Pi was given. */
+function harness(): {
+	readonly statuses: (string | undefined)[];
+	readonly update: (next: TaskState) => void;
+	readonly advance: (ms: number) => void;
+	readonly now: () => number;
+	readonly dispose: () => void;
+} {
+	const statuses: (string | undefined)[] = [];
+	const ui = {
+		setStatus: vi.fn((key: string, text: string | undefined) => {
+			if (key === TODO_STATUS_KEY) statuses.push(text);
+		}),
+	};
+	let currentTime = 100_000;
+	const controller = createTodoFooterStatusController(ui, undefined, () => currentTime);
+	return {
+		statuses,
+		update: (next) => controller.update(next),
+		advance: (ms) => {
+			currentTime += ms;
+			vi.advanceTimersByTime(ms);
+		},
+		now: () => currentTime,
+		dispose: () => controller.dispose(),
+	};
+}
 
 describe("todo footer-status", () => {
 	beforeEach(() => {
@@ -18,159 +54,91 @@ describe("todo footer-status", () => {
 		vi.useRealTimers();
 	});
 
-	test("returns undefined for empty tasks", () => {
-		const state: TaskState = { tasks: [], nextId: 1 };
-		expect(computeFooterStatus(state, 1000)).toEqual({ text: undefined });
-	});
-
-	test("prioritizes in-progress task and formats with ◐", () => {
-		const state: TaskState = {
-			tasks: [
-				{ id: 1, subject: "Working on UI", status: "in_progress", updatedAt: 1000 },
-				{ id: 2, subject: "Upcoming task", status: "pending", updatedAt: 1000 },
-			],
-			nextId: 3,
-		};
-		expect(computeFooterStatus(state, 1500)).toEqual({
-			text: "◐ #1 Working on UI",
-		});
-	});
-
-	test("shows pending task if no in-progress task", () => {
-		const state: TaskState = {
-			tasks: [{ id: 2, subject: "Upcoming task", status: "pending", updatedAt: 1000 }],
-			nextId: 3,
-		};
-		expect(computeFooterStatus(state, 1500)).toEqual({
-			text: "○ #2 Upcoming task",
-		});
-	});
-
-	test("shows completed task within 3 minutes and calculates expiration", () => {
+	test("maps task state to one footer line, most urgent first", () => {
 		const now = 100_000;
-		const state: TaskState = {
-			tasks: [{ id: 1, subject: "Completed task", status: "completed", updatedAt: now - 60_000 }],
-			nextId: 2,
-		};
-		const decision = computeFooterStatus(state, now);
-		expect(decision.text).toBe("✓ #1 Completed task");
-		expect(decision.expiresAt).toBe(now - 60_000 + COMPLETED_DISPLAY_DURATION_MS);
+		expect(computeFooterStatus(state([]), now)).toEqual({ text: undefined });
+		expect(
+			computeFooterStatus(state([task(1, "in_progress", now), task(2, "pending", now)]), now).text,
+		).toBe("◐ #1 Task 1");
+		expect(computeFooterStatus(state([task(2, "pending", now)]), now).text).toBe("○ #2 Task 2");
 
-		// After 3 minutes
-		const expired = computeFooterStatus(state, now - 60_000 + COMPLETED_DISPLAY_DURATION_MS + 1);
-		expect(expired.text).toBeUndefined();
+		// Each terminal state expires on its own clock.
+		const done = computeFooterStatus(state([task(1, "completed", now - 60_000)]), now);
+		expect(done.text).toBe("✓ #1 Task 1");
+		expect(done.expiresAt).toBe(now - 60_000 + COMPLETED_DISPLAY_DURATION_MS);
+		expect(
+			computeFooterStatus(
+				state([task(1, "completed", now - 60_000)]),
+				now - 60_000 + COMPLETED_DISPLAY_DURATION_MS + 1,
+			).text,
+		).toBeUndefined();
+
+		const blocked = computeFooterStatus(state([task(1, "blocked", now - 5_000)]), now);
+		expect(blocked.text).toBe("⊘ #1 Task 1");
+		expect(blocked.expiresAt).toBe(now - 5_000 + BLOCKED_DISPLAY_DURATION_MS);
+		expect(
+			computeFooterStatus(
+				state([task(1, "blocked", now - 5_000)]),
+				now - 5_000 + BLOCKED_DISPLAY_DURATION_MS + 1,
+			).text,
+		).toBeUndefined();
+
+		// A completion with work queued behind it gets the short window, then yields to it.
+		const queued = state([task(1, "completed", now), task(2, "in_progress", now)]);
+		const recent = computeFooterStatus(queued, now + 5_000);
+		expect(recent.text).toBe("✓ #1 Task 1");
+		expect(recent.expiresAt).toBe(now + COMPLETED_WITH_SUBSEQUENT_DURATION_MS);
+		expect(computeFooterStatus(queued, now + COMPLETED_WITH_SUBSEQUENT_DURATION_MS + 1)).toEqual({
+			text: "◐ #2 Task 2",
+		});
+
+		// With nothing in progress, the newer of completed and blocked wins.
+		expect(
+			computeFooterStatus(
+				state([task(1, "completed", now), task(2, "blocked", now + 2_000)]),
+				now + 3_000,
+			).text,
+		).toBe("⊘ #2 Task 2");
+		expect(
+			computeFooterStatus(
+				state([task(1, "blocked", now), task(2, "completed", now + 2_000)]),
+				now + 3_000,
+			).text,
+		).toBe("✓ #2 Task 2");
 	});
 
-	test("shows blocked task within 15 seconds and calculates expiration", () => {
-		const now = 100_000;
-		const state: TaskState = {
-			tasks: [{ id: 1, subject: "Blocked task", status: "blocked", updatedAt: now - 5_000 }],
-			nextId: 2,
-		};
-		const decision = computeFooterStatus(state, now);
-		expect(decision.text).toBe("⊘ #1 Blocked task");
-		expect(decision.expiresAt).toBe(now - 5_000 + BLOCKED_DISPLAY_DURATION_MS);
+	test("controller re-renders as each display window expires", () => {
+		// A completion clears the footer once its 3-minute window is over.
+		const done = harness();
+		done.update(state([task(1, "completed", 100_000)]));
+		expect(done.statuses).toEqual(["✓ #1 Task 1"]);
+		done.advance(2 * 60 * 1000);
+		expect(done.statuses).toEqual(["✓ #1 Task 1"]);
+		done.advance(60 * 1000 + 1);
+		expect(done.statuses).toEqual(["✓ #1 Task 1", undefined]);
+		done.dispose();
 
-		// After 15 seconds
-		const expired = computeFooterStatus(state, now - 5_000 + BLOCKED_DISPLAY_DURATION_MS + 1);
-		expect(expired.text).toBeUndefined();
-	});
+		// A later block expires first and hands the line back to the earlier completion.
+		const fallback = harness();
+		fallback.update(state([task(1, "completed", 100_000), task(2, "blocked", 105_000)]));
+		expect(fallback.statuses).toEqual(["⊘ #2 Task 2"]);
+		fallback.advance(20_001);
+		expect(fallback.statuses.at(-1)).toBe("✓ #1 Task 1");
+		fallback.advance(160_000);
+		expect(fallback.statuses.at(-1)).toBeUndefined();
+		fallback.dispose();
 
-	test("picks the more recent when both completed and blocked exist", () => {
-		const baseTime = 100_000;
-		// Case A: Blocked is more recent
-		const blockedRecent: TaskState = {
-			tasks: [
-				{ id: 1, subject: "Done first", status: "completed", updatedAt: baseTime },
-				{ id: 2, subject: "Blocked later", status: "blocked", updatedAt: baseTime + 2_000 },
-			],
-			nextId: 3,
-		};
-		const decisionA = computeFooterStatus(blockedRecent, baseTime + 3_000);
-		expect(decisionA.text).toBe("⊘ #2 Blocked later");
-
-		// Case B: Completed is more recent
-		const completedRecent: TaskState = {
-			tasks: [
-				{ id: 1, subject: "Blocked first", status: "blocked", updatedAt: baseTime },
-				{ id: 2, subject: "Done later", status: "completed", updatedAt: baseTime + 2_000 },
-			],
-			nextId: 3,
-		};
-		const decisionB = computeFooterStatus(completedRecent, baseTime + 3_000);
-		expect(decisionB.text).toBe("✓ #2 Done later");
-	});
-
-	test("controller manages timer and clears status on expiration", () => {
-		const statuses: (string | undefined)[] = [];
-		const mockUi = {
-			setStatus: vi.fn((key: string, text: string | undefined) => {
-				if (key === TODO_STATUS_KEY) statuses.push(text);
-			}),
-		};
-
-		let currentTime = 100_000;
-		const controller = createTodoFooterStatusController(mockUi, undefined, () => currentTime);
-
-		const state: TaskState = {
-			tasks: [{ id: 1, subject: "Done", status: "completed", updatedAt: currentTime }],
-			nextId: 2,
-		};
-
-		controller.update(state);
-		expect(statuses).toEqual(["✓ #1 Done"]);
-
-		// Advance time by 2 minutes - still visible
-		currentTime += 2 * 60 * 1000;
-		vi.advanceTimersByTime(2 * 60 * 1000);
-		expect(statuses).toEqual(["✓ #1 Done"]);
-
-		// Advance past 3 minutes (another 1 minute + 1ms) - timer fires and sets status to undefined
-		currentTime += 60 * 1000 + 1;
-		vi.advanceTimersByTime(60 * 1000 + 1);
-		expect(statuses).toEqual(["✓ #1 Done", undefined]);
-
-		controller.dispose();
-	});
-
-	test("controller falls back to completed task when more recent blocked task expires", () => {
-		const statuses: (string | undefined)[] = [];
-		const mockUi = {
-			setStatus: vi.fn((key: string, text: string | undefined) => {
-				if (key === TODO_STATUS_KEY) statuses.push(text);
-			}),
-		};
-
-		let currentTime = 100_000;
-		const controller = createTodoFooterStatusController(mockUi, undefined, () => currentTime);
-
-		// Task 1 completed at t=100_000 (valid until 280_000)
-		// Task 2 blocked at t=105_000 (valid until 120_000)
-		const state: TaskState = {
-			tasks: [
-				{ id: 1, subject: "Done early", status: "completed", updatedAt: 100_000 },
-				{ id: 2, subject: "Blocked late", status: "blocked", updatedAt: 105_000 },
-			],
-			nextId: 3,
-		};
-
-		currentTime = 106_000;
-		controller.update(state);
-		expect(statuses).toEqual(["⊘ #2 Blocked late"]);
-
-		// Advance past 120_000 (blocked task expires)
-		currentTime = 120_001;
-		vi.advanceTimersByTime(14_001);
-
-		// Should fall back to completed task!
-		expect(statuses[statuses.length - 1]).toBe("✓ #1 Done early");
-
-		// Advance past 280_000 (completed task expires)
-		currentTime = 280_001;
-		vi.advanceTimersByTime(160_000);
-		expect(statuses[statuses.length - 1]).toBeUndefined();
-
-		controller.dispose();
+		// A completion followed by in-progress work switches to it after 15 seconds.
+		const queued = harness();
+		queued.update(state([task(1, "completed", 100_000), task(2, "in_progress", 100_000)]));
+		expect(queued.statuses).toEqual(["✓ #1 Task 1"]);
+		queued.advance(15_001);
+		expect(queued.statuses).toEqual(["✓ #1 Task 1", "◐ #2 Task 2"]);
+		queued.update(state([task(1, "completed", 100_000), task(2, "completed", queued.now())]));
+		expect(queued.statuses.at(-1)).toBe("✓ #2 Task 2");
+		queued.advance(3 * 60 * 1000 + 1);
+		expect(queued.statuses.at(-1)).toBeUndefined();
+		queued.dispose();
 	});
 
 	test("controller cleans up on dispose and abort signal", () => {
@@ -180,78 +148,10 @@ describe("todo footer-status", () => {
 		const abortController = new AbortController();
 		const controller = createTodoFooterStatusController(mockUi, abortController.signal);
 
-		controller.update({
-			tasks: [{ id: 1, subject: "Task", status: "in_progress" }],
-			nextId: 2,
-		});
-		expect(mockUi.setStatus).toHaveBeenCalledWith(TODO_STATUS_KEY, "◐ #1 Task");
+		controller.update(state([task(1, "in_progress", 100_000)]));
+		expect(mockUi.setStatus).toHaveBeenCalledWith(TODO_STATUS_KEY, "◐ #1 Task 1");
 
 		abortController.abort();
 		expect(mockUi.setStatus).toHaveBeenLastCalledWith(TODO_STATUS_KEY, undefined);
-	});
-
-	test("shows recent completed task for 15 seconds when subsequent in_progress task exists", () => {
-		const state: TaskState = {
-			tasks: [
-				{ id: 1, subject: "First task", status: "completed", updatedAt: 10_000 },
-				{ id: 2, subject: "Next task", status: "in_progress", updatedAt: 10_000 },
-			],
-			nextId: 3,
-		};
-
-		// Within 15 seconds: shows completed task with 15-second expiration
-		const decision = computeFooterStatus(state, 15_000);
-		expect(decision.text).toBe("✓ #1 First task");
-		expect(decision.expiresAt).toBe(10_000 + COMPLETED_WITH_SUBSEQUENT_DURATION_MS);
-
-		// After 15 seconds: switches to the subsequent in-progress task
-		const after15s = computeFooterStatus(state, 10_000 + COMPLETED_WITH_SUBSEQUENT_DURATION_MS + 1);
-		expect(after15s.text).toBe("◐ #2 Next task");
-		expect(after15s.expiresAt).toBeUndefined();
-	});
-
-	test("controller transitions from completed to in-progress after 15 seconds", () => {
-		const statuses: (string | undefined)[] = [];
-		const mockUi = {
-			setStatus: vi.fn((key: string, text: string | undefined) => {
-				if (key === TODO_STATUS_KEY) statuses.push(text);
-			}),
-		};
-
-		let currentTime = 100_000;
-		const controller = createTodoFooterStatusController(mockUi, undefined, () => currentTime);
-
-		// Step 1: Task 1 completed, Task 2 in progress
-		controller.update({
-			tasks: [
-				{ id: 1, subject: "Task 1", status: "completed", updatedAt: currentTime },
-				{ id: 2, subject: "Task 2", status: "in_progress", updatedAt: currentTime },
-			],
-			nextId: 3,
-		});
-		expect(statuses).toEqual(["✓ #1 Task 1"]);
-
-		// Advance 15 seconds -> switches to Task 2 in progress
-		currentTime += 15_000 + 1;
-		vi.advanceTimersByTime(15_000 + 1);
-		expect(statuses).toEqual(["✓ #1 Task 1", "◐ #2 Task 2"]);
-
-		// Step 2: Task 2 completed, no subsequent tasks
-		currentTime += 10_000;
-		controller.update({
-			tasks: [
-				{ id: 1, subject: "Task 1", status: "completed", updatedAt: 100_000 },
-				{ id: 2, subject: "Task 2", status: "completed", updatedAt: currentTime },
-			],
-			nextId: 3,
-		});
-		expect(statuses[statuses.length - 1]).toBe("✓ #2 Task 2");
-
-		// Advance 3 minutes -> clears status
-		currentTime += 3 * 60 * 1000 + 1;
-		vi.advanceTimersByTime(3 * 60 * 1000 + 1);
-		expect(statuses[statuses.length - 1]).toBeUndefined();
-
-		controller.dispose();
 	});
 });

@@ -154,10 +154,7 @@ export class BashJobRegistry {
 		if (!notify) return;
 		job.onTerminal?.(finalSnapshot);
 	}
-	/**
-	 * Binds the terminal callback for one job, replacing any previous one. A job that already
-	 * finished reports immediately, which is what a promotion of a just-finished job needs.
-	 */
+	/** Binds the terminal callback for one job, replacing any previous one. */
 	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): void {
 		const job = this.#jobs.get(id);
 		if (!job) return;
