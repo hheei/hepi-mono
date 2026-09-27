@@ -366,5 +366,5 @@ export function registerReadTool(
 			longOutput: true,
 		}),
 	);
-	return tool as unknown as ToolDefinition;
+	return tool as ToolDefinition;
 }

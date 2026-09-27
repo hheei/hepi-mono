@@ -391,5 +391,5 @@ export function registerApplyPatchTool(
 				isApplyPatchToolDetails(result.details) && result.details.status !== "success",
 		}),
 	);
-	return tool as unknown as ToolDefinition;
+	return tool as ToolDefinition;
 }

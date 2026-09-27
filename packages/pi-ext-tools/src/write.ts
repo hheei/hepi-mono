@@ -453,5 +453,5 @@ export function registerWriteTool(
 			},
 		}),
 	);
-	return tool as unknown as ToolDefinition;
+	return tool as ToolDefinition;
 }
