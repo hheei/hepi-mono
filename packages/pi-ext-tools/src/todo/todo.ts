@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { Text } from "@earendil-works/pi-tui";
 import {
 	getToolTui,
-	registerManagedLoadoutTool,
+	registerManagedTool,
 	registerToolTuiTrace,
 	subcommandCompletions,
 } from "@hheei/pi-ext-core";
@@ -32,16 +32,12 @@ export const TODO_COMMAND_NAME = "todo";
 /**
  * Core owns the Pi registration transport for every HEPI executable tool. This
  * stable owner permits a new Pi runner to replace this declaration on /reload
- * without allowing a different extension to claim `todo`. Loadout is optional:
- * absent its policy engine, Pi keeps this default-active tool available.
+ * without allowing a different extension to claim `todo`. Loadout does not
+ * manage tool activation, so the declaration carries owner only.
  */
-const TODO_LOADOUT_REGISTRATION = {
+const TODO_TOOL_REGISTRATION = {
 	id: TODO_TOOL_NAME,
 	owner: "@hheei/pi-ext-tools",
-	group: "Tasks",
-	priority: 100,
-	conflictSets: [],
-	defaultActive: true,
 } as const;
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
@@ -626,7 +622,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			maxBodyLines: Number.POSITIVE_INFINITY,
 		},
 	);
-	registerManagedLoadoutTool(pi, TODO_LOADOUT_REGISTRATION, tool);
+	registerManagedTool(pi, TODO_TOOL_REGISTRATION, tool);
 
 	pi.registerCommand(TODO_COMMAND_NAME, {
 		description: "Manage todos: /todo [list | clear | cancel #ID...]",

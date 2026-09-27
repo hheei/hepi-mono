@@ -10,11 +10,7 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
-import {
-	createToolTui,
-	type ExtensionLifecycleContext,
-	observeLoadoutInventory,
-} from "@hheei/pi-ext-core";
+import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
@@ -93,7 +89,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 		expect(host.tools.find((tool) => tool.name === "edit")?.renderShell).toBe("self");
 		expect(host.tools.every((tool) => tool.renderShell === "self")).toBe(true);
-		expect(() => registerTools(host.pi)).toThrow("Loadout tool id already registered: read");
+		expect(() => registerTools(host.pi)).toThrow("Managed tool id already registered: read");
 	});
 
 	test("activates only the editing tools selected by Edit Mode", (): void => {
@@ -518,62 +514,15 @@ describe("pi-ext-tools catalog", () => {
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor", "target"]);
 	});
 
-	test("registers Built-in provenance for the selected mutator catalog", (): void => {
+	test("keeps exactly one mutator catalog active and leaves other tools untouched", (): void => {
 		const host = harness();
-		const controller = new AbortController();
-		let inventory: readonly {
-			readonly id: string;
-			readonly group: string;
-			readonly origin?: string;
-			readonly conflictsWith?: readonly string[];
-		}[] = [];
-		observeLoadoutInventory(host.pi, {
-			signal: controller.signal,
-			onChange(items) {
-				inventory = items;
-			},
-		});
-
 		registerTools(host.pi);
 		activate(host, "apply_patch");
-		expect(inventory.find((tool) => tool.id === "apply_patch")).toMatchObject({
-			group: "Built-in",
-			origin: "@hheei/pi-ext-tools",
-		});
-		expect(inventory.find((tool) => tool.id === "edit")).toBeUndefined();
-		expect(inventory.find((tool) => tool.id === "write")).toBeUndefined();
-		expect(inventory.every((tool) => tool.group === "Built-in")).toBe(true);
-		controller.abort();
-	});
-
-	test("registers native edit and write with Built-in provenance", (): void => {
-		const host = harness();
-		const controller = new AbortController();
-		let inventory: readonly {
-			readonly id: string;
-			readonly group: string;
-			readonly origin?: string;
-		}[] = [];
-		observeLoadoutInventory(host.pi, {
-			signal: controller.signal,
-			onChange(items) {
-				inventory = items;
-			},
-		});
-
-		registerTools(host.pi);
+		expect(host.activeTools()).toEqual(["read", "bash", "apply_patch"]);
 		activate(host, "native");
-		expect(inventory.find((tool) => tool.id === "apply_patch")).toBeUndefined();
-		expect(inventory.find((tool) => tool.id === "edit")).toMatchObject({
-			group: "Built-in",
-			origin: "@hheei/pi-ext-tools",
-		});
-		expect(inventory.find((tool) => tool.id === "write")).toMatchObject({
-			group: "Built-in",
-			origin: "@hheei/pi-ext-tools",
-		});
-		expect(inventory.every((tool) => tool.group === "Built-in")).toBe(true);
-		controller.abort();
+		expect(host.activeTools()).toEqual(["read", "bash", "edit", "write"]);
+		activate(host, "none");
+		expect(host.activeTools()).toEqual(["read", "bash"]);
 	});
 
 	test("registers apply_patch as strict V4A patch transport", (): void => {

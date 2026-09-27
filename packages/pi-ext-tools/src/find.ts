@@ -3,7 +3,7 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
@@ -320,16 +320,11 @@ export function registerFindTool(
 			}
 		},
 	};
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "find",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(tool, {
 			footer: findCollapsedFooter,

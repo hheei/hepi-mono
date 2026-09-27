@@ -3,7 +3,6 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { type LoadoutToolMetadata, observeLoadoutInventory } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { TodoSnapshot } from "../../src/todo/state.js";
@@ -178,14 +177,6 @@ describe("Todo integration", () => {
 
 	test("registers sourced batch schema, prompt, command, and lifecycle hooks", () => {
 		const host = harness();
-		const controller = new AbortController();
-		const inventory: Array<readonly LoadoutToolMetadata[]> = [];
-		observeLoadoutInventory(host.pi, {
-			signal: controller.signal,
-			onChange(items) {
-				inventory.push(items);
-			},
-		});
 		createTodoFeature(host.pi);
 		const tool = host.tools[0]!;
 
@@ -194,31 +185,6 @@ describe("Todo integration", () => {
 			{ value: "clear", label: "clear" },
 		]);
 		expect(host.tools.map(({ name }) => name)).toEqual(["todo"]);
-		expect(
-			inventory.map((items) =>
-				items.map((item) => ({
-					id: item.id,
-					owner: "owner" in item ? item.owner : undefined,
-					group: item.group,
-					priority: item.priority,
-					conflictSets: item.conflictSets,
-					defaultActive: item.defaultActive,
-				})),
-			),
-		).toEqual([
-			[],
-			[
-				{
-					id: "todo",
-					owner: "@hheei/pi-ext-tools",
-					group: "Tasks",
-					priority: 100,
-					conflictSets: [],
-					defaultActive: true,
-				},
-			],
-		]);
-		controller.abort();
 		expect(tool.executionMode).toBe("sequential");
 		expect(tool.description).toBe(TODO_TOOL_DESCRIPTION);
 		expect(tool.promptSnippet).toBe(TODO_PROMPT_SNIPPET);

@@ -2,7 +2,7 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import {
 	createToolTui,
 	type ExtensionLifecycleContext,
-	setManagedLoadoutToolsActive,
+	setManagedToolsActive,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
 import {
@@ -43,12 +43,12 @@ export function activateEditCatalog(
 		applyEvalPromptGuidelines(evalTool, catalog);
 		context.pi.registerTool(evalTool);
 	}
-	setManagedLoadoutToolsActive(context, NATIVE_EDIT_REGISTRATIONS, catalog === "native");
-	setManagedLoadoutToolsActive(context, APPLY_PATCH_REGISTRATIONS, catalog === "apply_patch");
+	setManagedToolsActive(context, NATIVE_EDIT_REGISTRATIONS, catalog === "native");
+	setManagedToolsActive(context, APPLY_PATCH_REGISTRATIONS, catalog === "apply_patch");
 }
 
 export function activateEvalCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
-	setManagedLoadoutToolsActive(context, EVAL_REGISTRATIONS, enabled);
+	setManagedToolsActive(context, EVAL_REGISTRATIONS, enabled);
 }
 
 /** Statically registers the explicitly approved canonical tool catalog. */

@@ -53,29 +53,18 @@ export {
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
-	LoadoutInventoryItem,
 	LoadoutInventoryObserver,
-	LoadoutInventoryRegistration,
 	LoadoutResourceDetail,
 	LoadoutResourceDetailContext,
 	LoadoutResourceMetadata,
-	LoadoutToolActivationObserver,
-	LoadoutToolActivationSnapshot,
-	LoadoutToolMetadata,
-	ManagedLoadoutToolRegistration,
 	ManagedToolRegistration,
 } from "./loadout.js";
 export {
-	clearLoadoutToolActivation,
-	isManagedLoadoutTool,
+	isManagedTool,
 	observeLoadoutInventory,
-	observeLoadoutToolActivation,
-	publishLoadoutToolActivation,
-	registerLoadoutInventory,
 	registerLoadoutResource,
-	registerManagedLoadoutTool,
 	registerManagedTool,
-	setManagedLoadoutToolsActive,
+	setManagedToolsActive,
 } from "./loadout.js";
 export type {
 	CreateModelSelectionFieldOptions,

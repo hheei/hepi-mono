@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerManagedLoadoutTool } from "@hheei/pi-ext-core";
+import { registerManagedTool } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import {
 	buildGrepDetails,
@@ -69,15 +69,11 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 			};
 		},
 	};
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "fff_multi_grep",
 			owner: OWNER,
-			group: "Tools",
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tool,
 	);

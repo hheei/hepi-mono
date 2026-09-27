@@ -3,10 +3,7 @@ import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import {
-	type ManagedLoadoutToolRegistration,
-	registerManagedLoadoutTool,
-} from "@hheei/pi-ext-core";
+import { type ManagedToolRegistration, registerManagedTool } from "@hheei/pi-ext-core";
 import { renderRecallSourceEntries, renderRecallSourceEntry } from "../serialize.js";
 import type { Observation, Reflection } from "../session-ledger/index.js";
 import { latestGateEnabled } from "../session-ledger/index.js";
@@ -701,16 +698,11 @@ export const recallObservationTool = defineTool({
 	},
 });
 
-export const RECALL_LOADOUT_REGISTRATION: ManagedLoadoutToolRegistration = {
+export const RECALL_TOOL_REGISTRATION: ManagedToolRegistration = {
 	id: RECALL_OBSERVATION_TOOL_NAME,
 	owner: "@hheei/pi-ext-memory",
-	group: "Memory",
-	origin: "@hheei/pi-ext-memory",
-	priority: 100,
-	conflictSets: [],
-	defaultActive: true,
 };
 
 export function registerRecallTool(pi: ExtensionAPI): void {
-	registerManagedLoadoutTool(pi, RECALL_LOADOUT_REGISTRATION, recallObservationTool);
+	registerManagedTool(pi, RECALL_TOOL_REGISTRATION, recallObservationTool);
 }

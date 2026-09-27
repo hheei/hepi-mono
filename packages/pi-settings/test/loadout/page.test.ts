@@ -1,17 +1,13 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionPageViewContext,
 	type ExtensionSettingsPaths,
 	type LoadoutResourceDetailContext,
-	registerLoadoutInventory,
 	registerLoadoutResource,
-	registerManagedLoadoutTool,
-	registerManagedTool,
 } from "@hheei/pi-ext-core";
-import { Type } from "typebox";
 import { afterEach, describe, expect, test } from "vitest";
 import { replayTui, viewFrame } from "../../../pi-debug/src/tui-replay.js";
 import type { LoadoutEngine } from "../../src/loadout/engine.js";
@@ -31,17 +27,46 @@ async function paths(): Promise<ExtensionSettingsPaths> {
 	return { globalPath: join(root, "agent.json"), projectPath: join(root, "project.json") };
 }
 
-function fakeEngine(): LoadoutEngine {
+function engineFor(globalDisabled: readonly string[] = []): LoadoutEngine {
 	return {
 		start: async () => undefined,
+		reload: async () => undefined,
 		dispose: () => undefined,
 		snapshot: () => ({
 			configuration: {
-				global: { disabled: [], enabled: [] },
+				global: { disabled: [...globalDisabled], enabled: [] },
 				project: { disabled: [], enabled: [] },
 			},
-			initialActiveToolNames: ["read"],
 		}),
+	};
+}
+
+interface ResourceOptions {
+	readonly id: string;
+	readonly label: string;
+	readonly summary: string;
+	readonly description?: string;
+	readonly projectPrivate?: boolean;
+	readonly detail?: {
+		readonly render: (width: number) => readonly string[];
+		readonly handleInput: (
+			input: string,
+			context: LoadoutResourceDetailContext,
+		) => boolean | Promise<boolean>;
+	};
+}
+
+function agentResource(options: ResourceOptions) {
+	return {
+		id: options.id,
+		kind: "agent" as const,
+		label: options.label,
+		description: options.description ?? "Agent profile.",
+		summary: options.summary,
+		projectPrivate: options.projectPrivate ?? false,
+		owner: "test-agent",
+		defaultActive: true,
+		...(options.detail === undefined ? {} : { detail: options.detail }),
 	};
 }
 
@@ -51,34 +76,13 @@ function setup(): {
 	readonly notifications: Array<{ readonly message: string; readonly type: string | undefined }>;
 	readonly closes: { value: number };
 	readonly editors: Array<{ readonly title: string; readonly prefill: string | undefined }>;
-	readonly tools: ToolInfo[];
 } {
 	const notifications: Array<{ readonly message: string; readonly type: string | undefined }> = [];
 	const closes = { value: 0 };
 	const editors: Array<{ readonly title: string; readonly prefill: string | undefined }> = [];
-	const tools: ToolInfo[] = [
-		{
-			name: "read",
-			description: "Read a file from the current workspace.",
-			parameters: Type.Object({}),
-			sourceInfo: { source: "builtin", scope: "user", origin: "top-level", path: "builtin" },
-		},
-		{
-			name: "project_check",
-			description: "Run the project-local check.",
-			parameters: Type.Object({}),
-			sourceInfo: {
-				source: "extension",
-				scope: "project",
-				origin: "top-level",
-				path: "project",
-			},
-		},
-	];
 	const pi = {
 		events: {},
 		registerTool: () => undefined,
-		getAllTools: () => tools,
 		getCommands: () => [
 			{
 				name: "skill:review",
@@ -111,53 +115,38 @@ function setup(): {
 			closes.value++;
 		},
 	} as ExtensionPageViewContext;
-	return { pi, context, notifications, closes, editors, tools };
+	return { pi, context, notifications, closes, editors };
 }
 
 describe("Loadout Settings page", () => {
-	test("hides unpublished managed tools and keeps published forced tools read-only", async () => {
+	test("lists skills and resources only, with no tool rows or Tools group", async () => {
 		const h = setup();
-		h.tools.push({
-			name: "legacy_tool",
-			description: "Reduce stored history.",
-			parameters: Type.Object({}),
-			sourceInfo: { source: "extension", scope: "user", origin: "top-level", path: "legacy" },
-		});
-		registerManagedTool(h.pi, { id: "legacy_tool", owner: "test-tool" }, {
-			name: "legacy_tool",
-		} as never);
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-		expect(page.component.render(100).join("\n")).not.toContain("legacy_tool");
-		const cleanups: Array<() => void | Promise<void>> = [];
-		const resources = {
-			add(_key: string, cleanup: () => void | Promise<void>): void {
-				cleanups.push(cleanup);
-			},
-		};
-		registerLoadoutInventory({ pi: h.pi, resources } as never, {
-			id: "legacy_tool",
-			group: "Legacy",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			forcedActive: true,
-		});
-		expect(page.component.render(100).join("\n")).toContain("legacy_tool");
-		await page.handleInput("\u001b[B");
-		expect(page.component.render(100).join("\n")).toContain("Status: ● Forced active");
-		await page.handleInput(" ");
-		expect(page.component.render(100).join("\n")).toContain("Status: ● Forced active");
-		for (const cleanup of cleanups) await cleanup();
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({ id: "agent:Explore", label: "Explore", summary: "◔ cx/gpt-5.6-luna" }),
+		);
+		const page = createLoadoutPage(h.pi, engineFor(), h.context);
+		const global = page.component.render(100).join("\n");
+		expect(global).toContain("✦ Skills");
+		expect(global).toContain("𖠌 Agents");
+		expect(global).not.toContain("⚒ Tools");
+		expect(global).toContain("review (skill)");
+		expect(global).toContain("Review changed code.");
+		expect(global).toContain("Origin: Pi skill");
+		expect(global).toContain("Status: ● Active");
+		expect(global).not.toContain("Effective:");
+		expect(global).not.toContain("Policy:");
+		expect(global).not.toContain("This scope:");
+		expect(global).not.toContain("Default:");
+		expect(global).not.toContain("read (tool)");
+		expect(global).not.toContain("project_check");
+		dispose();
 	});
 
-	test("renders one selected-resource Description block and hides project-private rows globally", async () => {
+	test("keeps one selected-resource Description block inside the fixed panel height", async () => {
 		const h = setup();
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+		const page = createLoadoutPage(h.pi, engineFor(), h.context);
 		const global = page.component.render(100).join("\n");
-		const resourceLine = global
-			.split("\n")
-			.find((line) => line.includes("●") && line.includes("Built-in"));
-		expect(resourceLine?.indexOf("Built-in")).toBeLessThan(20);
 		const replay = await replayTui({
 			columns: 100,
 			rows: 20,
@@ -166,45 +155,19 @@ describe("Loadout Settings page", () => {
 		});
 		const frame = viewFrame(replay.last);
 		expect(frame).toHaveLength(20);
-		const replayResourceLine = frame.find(
-			(line) => line.includes("●") && line.includes("Built-in"),
-		);
-		expect(replayResourceLine?.indexOf("Built-in")).toBeLessThan(20);
-		expect(global).toContain("⚒ Tools");
-		expect(global).toContain("read (tool)");
-		expect(global).toContain("Read a file from the current workspace.");
-		expect(global).toContain("Origin: Pi built-in");
-		expect(global).toContain("Status: ● Active");
-		expect(global).not.toContain("Effective:");
-		expect(global).not.toContain("Policy:");
-		expect(global).not.toContain("This scope:");
-		expect(global).not.toContain("Default:");
-		expect(global).not.toContain("project_check");
-		await page.handleInput("\u001b[112;5u");
-		const project = page.component.render(100).join("\n");
-		expect(project).toContain("Project · /workspace/.pi/ext_settings.json");
-		expect(project).toContain("project_check");
-		expect(project.indexOf("read")).toBeLessThan(project.indexOf("project_check"));
+		const replayRow = frame.find((line) => line.includes("Skill"));
+		expect(replayRow).toBeDefined();
+		expect(global).toContain("review (skill)");
 	});
 
 	test("renders registered agents after skills with activation and model summary", () => {
 		const h = setup();
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Explore",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Explore",
-			description: "Read-only explorer.",
-			summary: "◔ cx/gpt-5.6-luna",
-			projectPrivate: false,
-			owner: "test-agent",
-		});
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({ id: "agent:Explore", label: "Explore", summary: "◔ cx/gpt-5.6-luna" }),
+		);
+		const page = createLoadoutPage(h.pi, engineFor(), h.context);
 		const output = page.component.render(100).join("\n");
-		expect(output).toContain("⚒ Tools");
 		expect(output).toContain("✦ Skills");
 		expect(output).toContain("𖠌 Agents");
 		expect(output).toContain("● Explore");
@@ -215,58 +178,53 @@ describe("Loadout Settings page", () => {
 		dispose();
 	});
 
-	test("prefers a tool owner's precise origin over host source categories", () => {
+	test("hides project-private resources while the global scope is selected", async () => {
 		const h = setup();
-		registerManagedLoadoutTool(
+		const dispose = registerLoadoutResource(
 			h.pi,
-			{
-				id: "read",
-				owner: "@hheei/pi-ext-tools",
-				group: "Built-in",
-				origin: "@hheei/pi-ext-tools",
-				priority: 100,
-				conflictSets: [],
-				defaultActive: true,
-			},
-			{ name: "read" } as never,
+			agentResource({
+				id: "agent:Local",
+				label: "Local",
+				summary: "project only",
+				projectPrivate: true,
+			}),
 		);
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-		const output = page.component.render(100).join("\n");
-		expect(output).toContain("Origin: @hheei/pi-ext-tools");
+		const page = createLoadoutPage(h.pi, engineFor(), h.context);
+		expect(page.component.render(100).join("\n")).not.toContain("Local");
+		await page.handleInput("\u001b[112;5u"); // ctrl+p → project
+		const project = page.component.render(100).join("\n");
+		expect(project).toContain("Project · /workspace/.pi/ext_settings.json");
+		expect(project).toContain("Local");
+		dispose();
 	});
 
 	test("enters registered resource detail, routes input, and exits with Escape", async () => {
 		const h = setup();
 		const inputs: string[] = [];
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Detail",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Detail",
-			description: "Has a settings detail.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: (width) => [`Detail panel ${width}`],
-				handleInput: (input) => {
-					inputs.push(input);
-					return input !== "\u001b"; // decline Esc so the page backs out
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Detail",
+				label: "Detail",
+				summary: "settings",
+				description: "Has a settings detail.",
+				detail: {
+					render: (width) => [`Detail panel ${width}`],
+					handleInput: (input) => {
+						inputs.push(input);
+						return input !== "\u001b"; // decline Esc so the page backs out
+					},
 				},
-			},
-		});
+			}),
+		);
 		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			const page = createLoadoutPage(h.pi, engineFor(), h.context);
 			expect(page.component.render(100).join("\n")).toContain("↵");
-			await page.handleInput("\u001b[B");
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\r");
 			const opened = page.component.render(100).join("\n");
 			expect(opened).toContain("Detail (agent)");
-			expect(opened).toContain("Origin: test");
+			expect(opened).toContain("Origin: test-agent");
 			expect(opened).toContain("Status: ● Active");
 			expect(opened).toContain("Detail panel");
 			await page.handleInput("x");
@@ -282,26 +240,17 @@ describe("Loadout Settings page", () => {
 
 	test("keeps the detail open while the detail consumes Escape", async () => {
 		const h = setup();
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Detail",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Detail",
-			description: "Has a settings detail.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: () => ["Detail panel"],
-				handleInput: () => true,
-			},
-		});
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Detail",
+				label: "Detail",
+				summary: "settings",
+				detail: { render: () => ["Detail panel"], handleInput: () => true },
+			}),
+		);
 		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			await page.handleInput("\u001b[B");
+			const page = createLoadoutPage(h.pi, engineFor(), h.context);
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\r");
 			expect(page.component.render(100).join("\n")).toContain("Detail panel");
@@ -315,45 +264,33 @@ describe("Loadout Settings page", () => {
 	test("keeps wheel navigation in the resource list while a detail is open", async () => {
 		const h = setup();
 		const inputs: string[] = [];
-		const disposeDetail = registerLoadoutResource(h.pi, {
-			id: "agent:Detail",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Detail",
-			description: "Has a settings detail.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: () => ["Detail panel"],
-				handleInput: (input) => {
-					inputs.push(input);
-					return input !== "\u001b";
+		const disposeDetail = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Detail",
+				label: "Detail",
+				summary: "settings",
+				detail: {
+					render: () => ["Detail panel"],
+					handleInput: (input) => {
+						inputs.push(input);
+						return input !== "\u001b";
+					},
 				},
-			},
-		});
-		const disposeZulu = registerLoadoutResource(h.pi, {
-			id: "agent:Zulu",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Zulu",
-			description: "Second resource.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-		});
+			}),
+		);
+		const disposeZulu = registerLoadoutResource(
+			h.pi,
+			agentResource({ id: "agent:Zulu", label: "Zulu", summary: "second resource" }),
+		);
 		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			const page = createLoadoutPage(h.pi, engineFor(), h.context);
+			// Rows sort as: review, Zulu, Detail — select the detail row.
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\r");
-			await page.handleInput("\x1b[<65;1;1M"); // SGR wheel down
+			expect(page.component.render(100).join("\n")).toContain("Detail panel");
+			await page.handleInput("\x1b[<64;1;1M"); // SGR wheel up
 			expect(inputs).toEqual([]);
 			await page.handleInput("\u001b");
 			expect(page.component.render(100).join("\n")).toContain("Zulu (agent)");
@@ -367,31 +304,25 @@ describe("Loadout Settings page", () => {
 		const h = setup();
 		const inputs: string[] = [];
 		const contexts: LoadoutResourceDetailContext[] = [];
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Editor",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Editor",
-			description: "Has an editor action.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: () => ["Detail panel"],
-				handleInput: async (input, context) => {
-					inputs.push(input);
-					contexts.push(context);
-					if (input === "e") await context.openEditor("Body", "draft body");
-					return input !== "\u001b";
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Editor",
+				label: "Editor",
+				summary: "settings",
+				detail: {
+					render: () => ["Detail panel"],
+					handleInput: async (input, context) => {
+						inputs.push(input);
+						contexts.push(context);
+						if (input === "e") await context.openEditor("Body", "draft body");
+						return input !== "\u001b";
+					},
 				},
-			},
-		});
+			}),
+		);
 		try {
-			const page = createLoadoutPage(h.pi, fakeEngine(), h.context);
-			await page.handleInput("\u001b[B");
+			const page = createLoadoutPage(h.pi, engineFor(), h.context);
 			await page.handleInput("\u001b[B");
 			await page.handleInput("\r");
 			await page.handleInput("e");
@@ -409,50 +340,32 @@ describe("Loadout Settings page", () => {
 	test("inherited and disabled agent rows get no edit path", async () => {
 		const h = setup();
 		const inputs: string[] = [];
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Detail",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Detail",
-			description: "Has a settings detail.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: () => ["Detail panel"],
-				handleInput: (input) => {
-					inputs.push(input);
-					return true;
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Detail",
+				label: "Detail",
+				summary: "settings",
+				detail: {
+					render: () => ["Detail panel"],
+					handleInput: (input) => {
+						inputs.push(input);
+						return true;
+					},
 				},
-			},
-		});
+			}),
+		);
 		try {
 			// Disabled: a global delta disables the row, so the hint is gone and
 			// Enter must not open the detail.
-			const disabledEngine: LoadoutEngine = {
-				start: async () => undefined,
-				dispose: () => undefined,
-				snapshot: () => ({
-					configuration: {
-						global: { disabled: ["agent:Detail"], enabled: [] },
-						project: { disabled: [], enabled: [] },
-					},
-					initialActiveToolNames: ["read"],
-				}),
-			};
-			const disabled = createLoadoutPage(h.pi, disabledEngine, h.context);
-			await disabled.handleInput("\u001b[B");
+			const disabled = createLoadoutPage(h.pi, engineFor(["agent:Detail"]), h.context);
 			await disabled.handleInput("\u001b[B");
 			expect(disabled.component.render(100).join("\n")).not.toContain("↵");
 			await disabled.handleInput("\r");
 			expect(disabled.component.render(100).join("\n")).not.toContain("Detail panel");
 			// Inherited: project scope with no project-private row and no delta.
-			const inherited = createLoadoutPage(h.pi, fakeEngine(), h.context);
+			const inherited = createLoadoutPage(h.pi, engineFor(), h.context);
 			await inherited.handleInput("\u001b[112;5u"); // ctrl+p → project
-			await inherited.handleInput("\u001b[B");
 			await inherited.handleInput("\u001b[B");
 			const project = inherited.component.render(100).join("\n");
 			expect(project).toContain("Project · /workspace/.pi/ext_settings.json");
@@ -467,38 +380,18 @@ describe("Loadout Settings page", () => {
 
 	test("renders enabled, disabled, and inherited agent states distinctly", async () => {
 		const h = setup();
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Detail",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Detail",
-			description: "Has a settings detail.",
-			summary: "settings",
-			projectPrivate: false,
-			owner: "test",
-			detail: {
-				render: () => ["Detail panel"],
-				handleInput: () => true,
-			},
-		});
-		const engineFor = (globalDisabled: readonly string[]): LoadoutEngine => ({
-			start: async () => undefined,
-			dispose: () => undefined,
-			snapshot: () => ({
-				configuration: {
-					global: { disabled: [...globalDisabled], enabled: [] },
-					project: { disabled: [], enabled: [] },
-				},
-				initialActiveToolNames: ["read"],
+		const dispose = registerLoadoutResource(
+			h.pi,
+			agentResource({
+				id: "agent:Detail",
+				label: "Detail",
+				summary: "settings",
+				detail: { render: () => ["Detail panel"], handleInput: () => true },
 			}),
-		});
+		);
 		try {
 			// Enabled: global scope, no delta, defaultActive true.
-			const enabled = createLoadoutPage(h.pi, engineFor([]), h.context);
-			await enabled.handleInput("\u001b[B");
+			const enabled = createLoadoutPage(h.pi, engineFor(), h.context);
 			await enabled.handleInput("\u001b[B");
 			const enabledView = enabled.component.render(100).join("\n");
 			expect(enabledView).toContain("● Detail");
@@ -506,14 +399,12 @@ describe("Loadout Settings page", () => {
 			// Disabled: a global delta disables the row.
 			const disabled = createLoadoutPage(h.pi, engineFor(["agent:Detail"]), h.context);
 			await disabled.handleInput("\u001b[B");
-			await disabled.handleInput("\u001b[B");
 			const disabledView = disabled.component.render(100).join("\n");
 			expect(disabledView).toContain("○ Detail");
 			expect(disabledView).toContain("Status: ○ Disabled");
 			// Inherit: project scope, no project delta, global-visible row.
-			const inherited = createLoadoutPage(h.pi, engineFor([]), h.context);
+			const inherited = createLoadoutPage(h.pi, engineFor(), h.context);
 			await inherited.handleInput("\u001b[112;5u"); // ctrl+p → project
-			await inherited.handleInput("\u001b[B");
 			await inherited.handleInput("\u001b[B");
 			const inheritedView = inherited.component.render(100).join("\n");
 			expect(inheritedView).toContain("◌ Detail");
@@ -523,30 +414,44 @@ describe("Loadout Settings page", () => {
 		}
 	});
 
-	test("flushes one scope before switching and prints reload info only after surface close", async () => {
+	test("persists one scope on switch, applies it through the engine, and sends no reload notice", async () => {
 		const h = setup();
 		const settings = await paths();
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context, { paths: settings });
+		let reloads = 0;
+		const engine: LoadoutEngine = {
+			...engineFor(),
+			reload: async () => {
+				reloads++;
+			},
+		};
+		const page = createLoadoutPage(h.pi, engine, h.context, { paths: settings });
 		await page.handleInput(" ");
 		await page.handleInput("\u0010");
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
-			loadout: { disabled: ["tool:read"] },
+			loadout: { disabled: ["skill:review"] },
 		});
+		expect(reloads).toBe(1);
 		expect(h.notifications).toEqual([]);
 		await page.close();
-		expect(h.notifications).toEqual([
-			{ message: "※ Reload to apply Loadout changes.", type: "info" },
-		]);
+		expect(h.notifications).toEqual([]);
 	});
 
-	test("drops a net-zero draft without writing or announcing reload", async () => {
+	test("drops a net-zero draft without writing or applying anything", async () => {
 		const h = setup();
 		const settings = await paths();
-		const page = createLoadoutPage(h.pi, fakeEngine(), h.context, { paths: settings });
+		let reloads = 0;
+		const engine: LoadoutEngine = {
+			...engineFor(),
+			reload: async () => {
+				reloads++;
+			},
+		};
+		const page = createLoadoutPage(h.pi, engine, h.context, { paths: settings });
 		await page.handleInput(" ");
 		await page.handleInput(" ");
 		await page.handleInput("\u001b");
 		expect(h.closes.value).toBe(1);
+		expect(reloads).toBe(0);
 		expect(h.notifications).toEqual([]);
 		let missing = false;
 		try {

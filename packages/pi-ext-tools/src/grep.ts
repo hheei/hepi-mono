@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { inferFffGrepMode } from "./fff/extension-common.js";
 import type { GrepMatch } from "./fff/fff.js";
@@ -860,16 +860,11 @@ export function registerGrepTool(
 			}
 		},
 	};
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "grep",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(tool, {
 			footer: grepCollapsedFooter,

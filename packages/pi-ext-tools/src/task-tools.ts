@@ -3,7 +3,7 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import type {
@@ -189,45 +189,30 @@ export function registerTaskTools(
 			};
 		},
 	};
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "list_tasks",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(listTool),
 	);
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "wait_tasks",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(waitTool, {
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
 		}),
 	);
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "stop_tasks",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(stopTool, {
 			summary: (args) => args.ids.join(" "),

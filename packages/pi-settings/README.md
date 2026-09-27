@@ -6,8 +6,8 @@ extensions such as `@hheei/pi-ext-tools` separately as needed.
 
 Run `/ext-settings` in Pi TUI mode. An optional page id selects the initial page, so
 `/ext-settings loadout` opens the shared router on Loadout. The package hosts registered settings pages, owns
-tool/skill/resource activation policy, and temporarily suspends core-managed editor widgets while the
-surface is open.
+skill and agent-profile activation policy (tool activation belongs to each tool owner), and temporarily
+suspends core-managed editor widgets while the surface is open.
 
 Extension configuration is stored separately from Pi host configuration: global values use
 `<agentDir>/ext_settings.json`, project overrides use `<cwd>/.pi/ext_settings.json`, and each provider

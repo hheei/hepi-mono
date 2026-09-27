@@ -122,13 +122,13 @@ function harness(): {
 function fakeEngine(): LoadoutEngine {
 	return {
 		start: async () => undefined,
+		reload: async () => undefined,
 		dispose: () => undefined,
 		snapshot: () => ({
 			configuration: {
 				global: { disabled: [], enabled: [] },
 				project: { disabled: [], enabled: [] },
 			},
-			initialActiveToolNames: ["read"],
 		}),
 	};
 }
@@ -157,9 +157,6 @@ test("native editor hides and restores overlay without losing detail scope", asy
 	const disposeResource = registerLoadoutResource(h.pi, {
 		id: "agent:Editor",
 		kind: "agent",
-		group: "𖠌 Agents",
-		priority: 0,
-		conflictSets: [],
 		defaultActive: true,
 		label: "Editor",
 		description: "Uses the native editor.",

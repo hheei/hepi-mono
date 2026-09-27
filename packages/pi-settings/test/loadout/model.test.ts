@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
+	assertCanonicalLoadoutKey,
 	disabledSkillKeys,
 	parseLoadoutConfiguration,
-	resolveActiveToolNames,
 	resolveLoadoutState,
 } from "../../src/loadout/model.js";
 
@@ -10,138 +10,72 @@ describe("Loadout policy", () => {
 	test("validates raw delta layers and preserves undiscovered canonical keys", () => {
 		expect(
 			parseLoadoutConfiguration({
-				global: { disabled: ["tool:find", "skill:future", "agent:reviewer"] },
-				project: { enabled: ["tool:future"] },
+				global: { disabled: ["skill:future", "agent:reviewer"] },
+				project: { enabled: ["agent:future"] },
 			}),
 		).toEqual({
-			global: { disabled: ["agent:reviewer", "skill:future", "tool:find"], enabled: [] },
-			project: { disabled: [], enabled: ["tool:future"] },
+			global: { disabled: ["agent:reviewer", "skill:future"], enabled: [] },
+			project: { disabled: [], enabled: ["agent:future"] },
 		});
 		expect(() =>
-			parseLoadoutConfiguration({ global: { tools: { "tool:find": false } }, project: {} }),
+			parseLoadoutConfiguration({ global: { tools: { "skill:find": false } }, project: {} }),
 		).toThrow("Unknown loadout field: tools");
 		expect(() => parseLoadoutConfiguration({ global: { enabled: ["find"] }, project: {} })).toThrow(
-			"Expected loadout.enabled to contain canonical tool:<name> or skill:<name> keys",
+			"Expected loadout.enabled to contain canonical skill:<name> or agent:<name> keys",
 		);
 		expect(() =>
 			parseLoadoutConfiguration({
-				global: { enabled: Array.from({ length: 4097 }, (_, index) => `tool:future-${index}`) },
+				global: { enabled: Array.from({ length: 4097 }, (_, index) => `skill:future-${index}`) },
 				project: {},
 			}),
 		).toThrow("Expected loadout.enabled to contain at most 4096 keys");
 		expect(() =>
-			parseLoadoutConfiguration({ global: { enabled: [`tool:${"x".repeat(252)}`] }, project: {} }),
-		).toThrow("Expected loadout.enabled to contain canonical tool:<name> or skill:<name> keys");
+			parseLoadoutConfiguration({ global: { enabled: [`skill:${"x".repeat(252)}`] }, project: {} }),
+		).toThrow("Expected loadout.enabled to contain canonical skill:<name> or agent:<name> keys");
 	});
 
-	test("keeps a forced tool active despite global and project disable overrides", () => {
-		const tools = [
-			{
-				name: "ctx_reduce",
-				defaultActive: false,
-				priority: 0,
-				conflictSets: [],
-				conflictsWith: [],
-				forcedActive: true,
-			},
-			{ name: "read", defaultActive: true, priority: 1, conflictSets: [], conflictsWith: [] },
-		] as const;
+	test("reads legacy tool keys so an existing settings file still loads", () => {
 		expect(
-			resolveActiveToolNames(
-				tools,
-				parseLoadoutConfiguration({
-					global: { disabled: ["tool:ctx_reduce"] },
-					project: { disabled: ["tool:ctx_reduce"] },
-				}),
-			),
-		).toEqual(["ctx_reduce", "read"]);
+			parseLoadoutConfiguration({
+				global: { disabled: ["tool:find", "tool:read"] },
+				project: { enabled: ["tool:grep"] },
+			}),
+		).toEqual({
+			global: { disabled: ["tool:find", "tool:read"], enabled: [] },
+			project: { disabled: [], enabled: ["tool:grep"] },
+		});
+		// The write boundary only accepts keys Loadout can still resolve.
+		expect(() => assertCanonicalLoadoutKey("skill:format")).not.toThrow();
+		expect(() => assertCanonicalLoadoutKey("agent:Explore")).not.toThrow();
+		expect(() => assertCanonicalLoadoutKey("tool:find")).toThrow(
+			"Expected canonical skill:<name> or agent:<name> key",
+		);
+		expect(() => assertCanonicalLoadoutKey("find")).toThrow(
+			"Expected canonical skill:<name> or agent:<name> key",
+		);
 	});
 
 	test("applies the ordered delta layers and lets same-layer disabled win", () => {
 		const configuration = parseLoadoutConfiguration({
-			global: { disabled: ["tool:find"], enabled: ["tool:find", "tool:grep"] },
-			project: { enabled: ["tool:find"], disabled: ["tool:grep"] },
+			global: { disabled: ["skill:review"], enabled: ["skill:review", "agent:Explore"] },
+			project: { enabled: ["skill:review"], disabled: ["agent:Explore"] },
 		});
-		expect(resolveLoadoutState("tool:find", false, configuration)).toEqual({
+		expect(resolveLoadoutState("skill:review", false, configuration)).toEqual({
 			enabled: true,
 			source: "project-enabled",
 		});
-		expect(resolveLoadoutState("tool:grep", true, configuration)).toEqual({
+		expect(resolveLoadoutState("agent:Explore", true, configuration)).toEqual({
 			enabled: false,
 			source: "project-disabled",
 		});
-	});
-
-	test("locks lower-ranked enabled conflict members without rewriting their deltas", () => {
-		const tools = [
-			{
-				name: "find",
-				defaultActive: true,
-				priority: 10,
-				conflictSets: ["search"],
-				conflictsWith: [],
-			},
-			{
-				name: "find_files",
-				defaultActive: true,
-				priority: 20,
-				conflictSets: ["search"],
-				conflictsWith: [],
-			},
-			{ name: "read", defaultActive: true, priority: 0, conflictSets: [], conflictsWith: [] },
-		] as const;
-		expect(
-			resolveActiveToolNames(
-				tools,
-				parseLoadoutConfiguration({
-					global: { enabled: ["tool:find"] },
-					project: { enabled: ["tool:find_files"] },
-				}),
-			),
-		).toEqual(["find_files", "read"]);
-		expect(
-			resolveActiveToolNames(
-				tools,
-				parseLoadoutConfiguration({
-					global: { enabled: ["tool:find", "tool:find_files"] },
-					project: {},
-				}),
-			),
-		).toEqual(["find", "read"]);
-	});
-
-	test("keeps related edit and write tools active while replacing them with apply_patch", () => {
-		const tools = [
-			{
-				name: "apply_patch",
-				defaultActive: true,
-				priority: 100,
-				conflictSets: [],
-				conflictsWith: ["edit", "write"],
-			},
-			{ name: "edit", defaultActive: true, priority: 100, conflictSets: [], conflictsWith: [] },
-			{ name: "write", defaultActive: true, priority: 100, conflictSets: [], conflictsWith: [] },
-		] as const;
-		const defaults = parseLoadoutConfiguration({ global: {}, project: {} });
-		expect(resolveActiveToolNames(tools, defaults)).toEqual(["apply_patch"]);
-		expect(
-			resolveActiveToolNames(
-				tools,
-				parseLoadoutConfiguration({
-					global: { disabled: ["tool:apply_patch"] },
-					project: {},
-				}),
-			),
-		).toEqual(["edit", "write"]);
-		expect(
-			resolveActiveToolNames(
-				tools,
-				parseLoadoutConfiguration({
-					global: { enabled: ["tool:edit"] },
-					project: {},
-				}),
-			),
-		).toEqual(["edit", "write"]);
+		expect(resolveLoadoutState("agent:Unlisted", true, configuration)).toEqual({
+			enabled: true,
+			source: "default",
+		});
+		expect(resolveLoadoutState("agent:Unlisted", false, configuration)).toEqual({
+			enabled: false,
+			source: "default",
+		});
 	});
 
 	test("publishes only discovered skills whose resolved policy is disabled", () => {
@@ -154,5 +88,14 @@ describe("Loadout policy", () => {
 				}),
 			),
 		).toEqual([]);
+		expect(
+			disabledSkillKeys(
+				["skill:format", "skill:review"],
+				parseLoadoutConfiguration({
+					global: { disabled: ["skill:format"] },
+					project: {},
+				}),
+			),
+		).toEqual(["skill:format"]);
 	});
 });
