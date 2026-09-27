@@ -1,5 +1,6 @@
 import {
 	defaultExtensionSettingsPaths,
+	isRecord,
 	readJsonSettingsRoot,
 	type SettingGroup,
 	type SettingsProvider,
@@ -10,7 +11,6 @@ import { Value } from "typebox/value";
 import { CAVEMAN_LEVELS } from "./caveman.js";
 import { PONYTAIL_LEVELS } from "./ponytail.js";
 
-const objectSchema = Type.Record(Type.String(), Type.Unknown());
 const schema = Type.Object({
 	t2s: Type.Object({ mode: Type.Enum(["t2s", "off"]) }, { additionalProperties: false }),
 	caveman: Type.Object({ level: Type.Enum(CAVEMAN_LEVELS) }, { additionalProperties: false }),
@@ -30,8 +30,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
 };
 
 export function parseOptimizerSettings(state: unknown): OptimizerSettings {
-	if (state !== undefined && !Value.Check(objectSchema, state))
-		throw new Error("Invalid pi-optimizer settings");
+	if (state !== undefined && !isRecord(state)) throw new Error("Invalid pi-optimizer settings");
 	const settings = { ...DEFAULT_OPTIMIZER_SETTINGS, ...state };
 	if (!Value.Check(schema, settings)) throw new Error("Invalid pi-optimizer settings");
 	return settings;
