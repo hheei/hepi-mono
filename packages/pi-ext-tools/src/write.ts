@@ -143,12 +143,8 @@ function writeMetrics(args: WriteArgs): { bytes: number; lines: number } | undef
 }
 
 function resultText(result: AgentToolResult<unknown>): string {
-	if (result.content.length === 1) {
-		const first = result.content[0];
-		if (first?.type === "text" && typeof (first as { text?: unknown }).text === "string") {
-			return (first as { text: string }).text;
-		}
-	}
+	const [only] = result.content;
+	if (result.content.length === 1 && only?.type === "text") return only.text;
 	return result.content
 		.filter((part) => part.type === "text")
 		.map((part) => part.text)

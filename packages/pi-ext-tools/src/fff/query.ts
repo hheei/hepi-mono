@@ -107,13 +107,6 @@ export function createExcludeMatcher(
 	};
 }
 
-export function isExcludedPath(
-	path: string,
-	exclude: string | readonly string[] | undefined,
-): boolean {
-	return createExcludeMatcher(exclude)(path);
-}
-
 export function filterNativeFindText(
 	text: string,
 	exclude: string | readonly string[] | undefined,

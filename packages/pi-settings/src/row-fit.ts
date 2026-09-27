@@ -14,11 +14,7 @@ export function fitRow(text: string, width: number): string {
 	if (width <= 0) return "";
 	const key = `${width}\u0000${text}`;
 	const cached = cache.get(key);
-	if (cached !== undefined) {
-		cache.delete(key);
-		cache.set(key, cached);
-		return cached;
-	}
+	if (cached !== undefined) return cached;
 	const fitted = truncateToWidth(text, width);
 	if (cache.size >= CACHE_LIMIT) {
 		const oldest = cache.keys().next().value;
