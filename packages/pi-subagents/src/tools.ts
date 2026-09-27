@@ -153,12 +153,8 @@ export interface RegisterChildToolsOptions {
 export function registerChildTools(
 	pi: ExtensionAPI,
 	identity: ChildIdentity,
-	onReportOrOptions?: (() => void) | RegisterChildToolsOptions,
+	options: RegisterChildToolsOptions = {},
 ): void {
-	const options: RegisterChildToolsOptions =
-		typeof onReportOrOptions === "function"
-			? { onReport: onReportOrOptions }
-			: (onReportOrOptions ?? {});
 	const tool: ToolDefinition<typeof contactSchema> = {
 		name: "contact_parent",
 		label: "Contact parent",

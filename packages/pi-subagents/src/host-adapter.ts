@@ -3,9 +3,6 @@ import type { LaunchSpec } from "./launch-spec.js";
 
 export type HostKind = "herdr" | "cmux";
 
-/** Where a host command failed: session/env, layout, or the launch command itself. */
-export type HostFailureClass = "environment" | "pane" | "command";
-
 export interface HostCommandResult {
 	readonly stdout: string;
 	readonly stderr: string;
@@ -32,16 +29,12 @@ export type HostSelection =
 			readonly available: true;
 			readonly selectedHost: HostKind;
 			readonly adapter: HostAdapter;
-			readonly explicit: boolean;
 			readonly reason: string;
-			readonly attempts: readonly HostCapability[];
 	  }
 	| {
 			readonly available: false;
 			readonly selectedHost: null;
-			readonly explicit: boolean;
 			readonly reason: string;
-			readonly attempts: readonly HostCapability[];
 	  };
 
 export interface HostAttachmentIdentity {
@@ -95,12 +88,10 @@ export async function selectHostAdapter(options: SelectHostAdapterOptions): Prom
 				available: true,
 				selectedHost: host,
 				adapter,
-				explicit,
 				reason:
 					priorFailures === ""
 						? `${explicit ? "explicit" : "default"} host ${host} is available`
 						: `selected ${host} after ${priorFailures}`,
-				attempts,
 			};
 		}
 	}
@@ -108,24 +99,10 @@ export async function selectHostAdapter(options: SelectHostAdapterOptions): Prom
 	return {
 		available: false,
 		selectedHost: null,
-		explicit,
 		reason: explicit
 			? `explicit host unavailable: ${failure}`
 			: `no presentation host available: ${failure}`,
-		attempts,
 	};
-}
-
-export class HostCommandError extends Error {
-	readonly kind: HostFailureClass;
-	readonly result: HostCommandResult;
-
-	constructor(kind: HostFailureClass, message: string, result: HostCommandResult) {
-		super(message);
-		this.name = "HostCommandError";
-		this.kind = kind;
-		this.result = result;
-	}
 }
 
 const HOST_COMMAND_MAX_STDOUT_BYTES = 1024 * 1024;
@@ -212,12 +189,12 @@ export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter
 			const current = await runner.run("herdr", ["pane", "current", "--current"], { timeoutMs });
 			const parentPane = parseHerdrPaneId(current.stdout);
 			if (parentPane === undefined) {
-				throw new HostCommandError("pane", "herdr current pane unavailable", current);
+				throw new Error("herdr current pane unavailable");
 			}
 			const split = await runner.run("herdr", herdrSplitArgs(parentPane, spec), { timeoutMs });
 			const childPane = parseHerdrPaneId(split.stdout);
 			if (childPane === undefined) {
-				throw new HostCommandError("pane", "herdr split returned no child pane id", split);
+				throw new Error("herdr split returned no child pane id");
 			}
 			// pane run sends text+Enter to the new shell. Timeout is not rollback: the pane
 			// already exists and the process may still start after the CLI deadline.
@@ -265,11 +242,7 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 			);
 			const attachmentId = parseCmuxSurfaceId(launch.stdout);
 			if (attachmentId === undefined) {
-				throw new HostCommandError(
-					"pane",
-					"cmux split returned no surface id; process state is unknown",
-					launch,
-				);
+				throw new Error("cmux split returned no surface id; process state is unknown");
 			}
 			return hostAttachment({
 				identity: { host: "cmux", attachmentId, createdBy: options.ownerId },

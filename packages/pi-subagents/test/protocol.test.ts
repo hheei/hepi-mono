@@ -11,8 +11,6 @@ import {
 	isHelloFrame,
 	isRequestFrame,
 	isResponseFrame,
-	isRunnerOperation,
-	isServerFrame,
 	RUNNER_EVENTS_DROPPED_EVENT,
 	RUNNER_EXIT_EVENT,
 	RUNNER_OPERATIONS,
@@ -50,13 +48,10 @@ describe("runner protocol frames", () => {
 
 	test("accepts every declared operation and rejects unknown ones", () => {
 		for (const operation of RUNNER_OPERATIONS) {
-			expect(isRunnerOperation(operation)).toBe(true);
 			expect(
 				isRequestFrame({ version: PROTOCOL_VERSION, type: "request", id: "1", operation }),
 			).toBe(true);
 		}
-		expect(isRunnerOperation("resume")).toBe(false);
-		expect(isRunnerOperation(5)).toBe(false);
 		expect(
 			isRequestFrame({ version: PROTOCOL_VERSION, type: "request", id: "1", operation: "resume" }),
 		).toBe(false);
@@ -114,18 +109,6 @@ describe("runner protocol frames", () => {
 		expect(isEventFrame({ version: PROTOCOL_VERSION, type: "event", event: 1, extra: 2 })).toBe(
 			false,
 		);
-	});
-
-	test("recognizes client and server frames without overlap", () => {
-		expect(isServerFrame({ version: PROTOCOL_VERSION, type: "hello_ack" })).toBe(true);
-		expect(isServerFrame(successResponse("1"))).toBe(true);
-		expect(isServerFrame(eventFrame({ type: RUNNER_EXIT_EVENT, code: 0, signal: null }))).toBe(
-			true,
-		);
-		expect(isServerFrame(hello)).toBe(false);
-		expect(
-			isServerFrame({ version: PROTOCOL_VERSION, type: "request", id: "1", operation: "prompt" }),
-		).toBe(false);
 	});
 
 	test("exports bounded defaults for frames, pending requests and buffered events", () => {

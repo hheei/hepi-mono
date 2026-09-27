@@ -3,14 +3,13 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord, readJsonSettingsRoot, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
-	ExtensionSelection,
 	PiInvocation,
 	ResolvedAgentIdentity,
 	ResolvedModel,
 	ResolvedThinking,
 	RuntimeClaim,
 	RuntimeMetadata,
-	SkillSelection,
+	Selection,
 	SubagentRecord,
 	UsageSummary,
 } from "./domain.js";
@@ -313,27 +312,15 @@ function parseThinking(value: unknown, path: string): ResolvedThinking {
 	return Object.freeze({ level, source });
 }
 
-function parseExtensions(value: unknown, path: string): ExtensionSelection {
-	const raw = expectObject(value, "launchConfig.extensions", path);
-	expectKeys(raw, SELECTION_FIELDS, "launchConfig.extensions", path);
+function parseSelection(value: unknown, path: string, field: "extensions" | "skills"): Selection {
+	const raw = expectObject(value, `launchConfig.${field}`, path);
+	expectKeys(raw, SELECTION_FIELDS, `launchConfig.${field}`, path);
 	if (typeof raw.discovery !== "boolean") {
-		throw invalid(path, "launchConfig.extensions.discovery must be boolean");
+		throw invalid(path, `launchConfig.${field}.discovery must be boolean`);
 	}
 	return Object.freeze({
 		discovery: raw.discovery,
-		paths: Object.freeze(expectStringArray(raw.paths, "launchConfig.extensions.paths", path)),
-	});
-}
-
-function parseSkills(value: unknown, path: string): SkillSelection {
-	const raw = expectObject(value, "launchConfig.skills", path);
-	expectKeys(raw, SELECTION_FIELDS, "launchConfig.skills", path);
-	if (typeof raw.discovery !== "boolean") {
-		throw invalid(path, "launchConfig.skills.discovery must be boolean");
-	}
-	return Object.freeze({
-		discovery: raw.discovery,
-		paths: Object.freeze(expectStringArray(raw.paths, "launchConfig.skills.paths", path)),
+		paths: Object.freeze(expectStringArray(raw.paths, `launchConfig.${field}.paths`, path)),
 	});
 }
 
@@ -411,7 +398,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 	if (!isSessionId(sessionId))
 		throw invalid(path, "launchConfig.sessionId is not a valid session id");
 	const sessionPath = expectOptionalString(raw.sessionPath, "launchConfig.sessionPath", path);
-	const extensions = parseExtensions(raw.extensions, path);
+	const extensions = parseSelection(raw.extensions, path, "extensions");
 	const bridgeExtensionPath = expectString(
 		raw.bridgeExtensionPath,
 		"launchConfig.bridgeExtensionPath",
@@ -438,7 +425,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 			expectStringArray(raw.excludeTools, "launchConfig.excludeTools", path),
 		),
 		extensions,
-		skills: parseSkills(raw.skills, path),
+		skills: parseSelection(raw.skills, path, "skills"),
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
 		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
