@@ -4,7 +4,7 @@ import type {
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -433,6 +433,41 @@ describe("ToolTui", () => {
 		expect(narrow).toHaveLength(1);
 		expect(narrow[0]).toContain("…");
 		expect(narrow[0]).not.toContain("echo five");
+	});
+
+	test("keeps an overlong footer inside the terminal width", (): void => {
+		const plain = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const footer = "1,234 matches · 123 files · 4,000 lines · 1.2s";
+		const framed = (presentation: { headerLine?: "truncate" }): ToolDefinition<typeof Params> =>
+			tui.frame(
+				{ ...tool(), renderResult: () => new Text("body", 0, 0) },
+				{
+					...presentation,
+					footer: () => footer,
+				},
+			);
+		const rows = (definition: ToolDefinition<typeof Params>): string[] =>
+			definition
+				.renderResult?.(
+					{ content: [], details: undefined },
+					{ expanded: false, isPartial: false },
+					plain,
+					context(false),
+				)
+				.render(40) ?? [];
+		const tui = createToolTui();
+		const wrapped = rows(framed({}));
+		expect(wrapped.every((row) => visibleWidth(row) <= 40)).toBe(true);
+		expect(wrapped.slice(3).join(" ")).toContain("1.2s");
+		expect(wrapped.length).toBeGreaterThan(4);
+		const truncated = rows(framed({ headerLine: "truncate" }));
+		expect(truncated).toHaveLength(4);
+		expect(visibleWidth(truncated[3] ?? "")).toBe(40);
+		expect(truncated[3]).toContain("…");
 	});
 
 	test("derives all four body layouts from rendered lines and typed footer", (): void => {

@@ -11,6 +11,7 @@ import {
 	Text,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
@@ -49,9 +50,9 @@ export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	/** Unexpanded body rows. Default 20. Non-finite or < 1 disables the cap. */
 	readonly maxBodyLines?: number;
 	/**
-	 * How the header handles content wider than the terminal. `wrap` (default) keeps every
-	 * row; `truncate` never lets the header grow past one row, at the cost of the tail of
-	 * the header text staying invisible. Tools whose body cannot recover the header text
+	 * How the header and the footer summary row handle content wider than the terminal.
+	 * `wrap` (default) keeps every row; `truncate` holds both to one row, at the cost of
+	 * the tail of their text staying invisible. Tools whose body cannot recover that text
 	 * opt into `truncate`.
 	 */
 	readonly headerLine?: "wrap" | "truncate";
@@ -573,11 +574,25 @@ class ToolFrameSection implements Component {
 }
 
 function singleLineHeader(header: FrameHeader, width: number, theme: Theme): string {
-	const truncation = theme.fg("dim", "…");
-	if (header.suffix === undefined) return truncateToWidth(header.primary, width, truncation);
+	if (header.suffix === undefined) return truncateLine(header.primary, width, theme);
 	const suffixWidth = visibleWidth(header.suffix);
-	if (suffixWidth >= width) return truncateToWidth(header.suffix, width, truncation);
-	return `${truncateToWidth(header.primary, width - suffixWidth, truncation)}${header.suffix}`;
+	if (suffixWidth >= width) return truncateLine(header.suffix, width, theme);
+	return `${truncateLine(header.primary, width - suffixWidth, theme)}${header.suffix}`;
+}
+
+/** Cuts one row with a dim `…`; the Pi renderer rejects any row wider than the terminal. */
+function truncateLine(text: string, width: number, theme: Theme): string {
+	return truncateToWidth(text, Math.max(1, width), theme.fg("dim", "…"));
+}
+
+/**
+ * The summary row follows the header rule: it wraps by default and is cut to one row when
+ * the tool declares `headerLine: "truncate"`. It never exceeds the terminal width, because
+ * `wrapTextWithAnsi` breaks both words and long tokens.
+ */
+function footerRows(text: string, width: number, theme: Theme, oneLine: boolean): string[] {
+	const painted = theme.fg("dim", text);
+	return oneLine ? [truncateLine(painted, width, theme)] : wrapTextWithAnsi(painted, width);
 }
 
 /**
@@ -591,7 +606,7 @@ class SingleLineRow implements Component {
 	) {}
 
 	render(width: number): string[] {
-		return [truncateToWidth(this.text, Math.max(1, width), this.theme.fg("dim", "…"))];
+		return [truncateLine(this.text, width, this.theme)];
 	}
 
 	invalidate(): void {}
@@ -620,6 +635,7 @@ class ToolBodySection implements Component {
 		private readonly theme: Theme,
 		private readonly maxBodyLines: number,
 		private readonly expanded = false,
+		private readonly oneLineFooter = false,
 	) {}
 
 	bodyComponent(): Component {
@@ -632,15 +648,13 @@ class ToolBodySection implements Component {
 		const body = this.expanded
 			? rendered
 			: compactBodyLines(rendered, this.maxBodyLines, availableWidth, this.theme);
-		if (body.length === 0)
-			return this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)];
+		const footer =
+			this.footer === undefined
+				? []
+				: footerRows(this.footer, availableWidth, this.theme, this.oneLineFooter);
+		if (body.length === 0) return footer;
 		const rail = this.theme.fg("muted", "─".repeat(availableWidth));
-		return [
-			rail,
-			...body,
-			rail,
-			...(this.footer === undefined ? [] : [this.theme.fg("dim", this.footer)]),
-		];
+		return [rail, ...body, rail, ...footer];
 	}
 
 	invalidate(): void {
@@ -744,7 +758,14 @@ export function createToolTui(): ToolTui {
 					return new ToolFrameSection(
 						body === undefined
 							? undefined
-							: new ToolBodySection(body, undefined, theme, maxBodyLines, context.expanded),
+							: new ToolBodySection(
+									body,
+									undefined,
+									theme,
+									maxBodyLines,
+									context.expanded,
+									presentation.headerLine === "truncate",
+								),
 						theme,
 						header,
 						presentation.headerLine === "truncate",
@@ -783,7 +804,14 @@ export function createToolTui(): ToolTui {
 							...context,
 							lastComponent: previousBody(context.lastComponent),
 						}) ?? resultFallback(result, theme);
-					return new ToolBodySection(body, footer, theme, maxBodyLines, options.expanded);
+					return new ToolBodySection(
+						body,
+						footer,
+						theme,
+						maxBodyLines,
+						options.expanded,
+						presentation.headerLine === "truncate",
+					);
 				},
 			};
 		},
