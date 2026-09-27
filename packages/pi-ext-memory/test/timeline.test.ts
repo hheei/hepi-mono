@@ -17,7 +17,7 @@ function filler(id: string, chars = 4000): TestEntry {
 	return textCustomMessage(id, "x".repeat(chars));
 }
 
-describe("om:status timeline", () => {
+describe("om status timeline", () => {
 	it("renders an empty strip without crashing", () => {
 		const output = renderTimeline([], 80);
 

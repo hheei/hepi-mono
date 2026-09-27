@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { copyTextToClipboard } from "../clipboard.js";
 import type { Runtime } from "../runtime.js";
 import {
@@ -37,46 +37,40 @@ function renderContentOnlyProjection(
 	].join("\n");
 }
 
-interface ViewCommandOptions {
+export interface ViewCommandOptions {
 	copyToClipboard?: (text: string) => Promise<boolean>;
 }
 
-export function registerViewCommand(
-	pi: ExtensionAPI,
+export async function runViewCommand(
 	runtime: Runtime,
+	ctx: ExtensionCommandContext,
+	args: string,
 	options: ViewCommandOptions = {},
-): void {
+): Promise<void> {
 	const copyToClipboard = options.copyToClipboard ?? copyTextToClipboard;
+	await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
+	const entries = ctx.sessionManager.getBranch() as Entry[];
+	const mode = firstArg(args);
 
-	pi.registerCommand("om:view", {
-		description:
-			"Print and copy observational memory content (visible by default, full for recorded memory)",
-		handler: async (args, ctx) => {
-			await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
-			const entries = ctx.sessionManager.getBranch() as Entry[];
-			const mode = firstArg(args);
+	const notifyWithCopy = async (output: string) => {
+		const copied = await copyToClipboard(output).catch(() => false);
+		ctx.ui.notify(
+			copied
+				? `${output}\n\nCopied /om view output to clipboard.`
+				: `${output}\n\nWarning: failed to copy /om view output to clipboard.`,
+			"info",
+		);
+	};
 
-			const notifyWithCopy = async (output: string) => {
-				const copied = await copyToClipboard(output).catch(() => false);
-				ctx.ui.notify(
-					copied
-						? `${output}\n\nCopied /om:view output to clipboard.`
-						: `${output}\n\nWarning: failed to copy /om:view output to clipboard.`,
-					"info",
-				);
-			};
+	if (mode === "full") {
+		await notifyWithCopy(renderContentOnlyProjection(fullProjection(entries), "recorded"));
+		return;
+	}
 
-			if (mode === "full") {
-				await notifyWithCopy(renderContentOnlyProjection(fullProjection(entries), "recorded"));
-				return;
-			}
+	if (mode && mode !== "visible") {
+		ctx.ui.notify("Usage: /om view [full]", "info");
+		return;
+	}
 
-			if (mode && mode !== "visible") {
-				ctx.ui.notify("Usage: /om:view [full]", "info");
-				return;
-			}
-
-			await notifyWithCopy(renderContentOnlyProjection(visibleProjection(entries), "visible"));
-		},
-	});
+	await notifyWithCopy(renderContentOnlyProjection(visibleProjection(entries), "visible"));
 }

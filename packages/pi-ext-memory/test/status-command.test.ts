@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
-import { registerStatusCommand } from "../src/commands/status.js";
+import { registerOmCommand } from "../src/commands/om.js";
 import {
 	compactionEntry,
 	gateEntry,
@@ -27,7 +27,7 @@ function setup(args: {
 	let handler: ((args: unknown, ctx: any) => Promise<void>) | undefined;
 	const pi = {
 		registerCommand: vi.fn((name: string, command: { handler: typeof handler }) => {
-			expect(name).toBe("om:status");
+			expect(name).toBe("om");
 			handler = command.handler;
 		}),
 	};
@@ -51,7 +51,7 @@ function setup(args: {
 		lastDropperError: undefined,
 		...args.runtime,
 	};
-	registerStatusCommand(pi as any, runtime as any);
+	registerOmCommand(pi as any, runtime as any);
 	if (!handler) throw new Error("status handler not registered");
 	const notify = vi.fn();
 	const ctx = {
@@ -62,13 +62,13 @@ function setup(args: {
 		getContextUsage: () => args.contextUsage,
 	};
 	const run = async () => {
-		await handler!(undefined, ctx);
+		await handler!("status", ctx);
 		return notify.mock.calls.at(-1)?.[0] as string;
 	};
 	return { run, notify };
 }
 
-describe("V3 /om:status", () => {
+describe("V3 /om status", () => {
 	it("renders concise no-memory status without V2 committed/pending language", async () => {
 		const output = await setup({ entries: [] }).run();
 

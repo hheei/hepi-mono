@@ -62,7 +62,7 @@ type Notify = (message: string, type?: NotifyLevel) => void;
 export type ConsolidationPhase = "observer" | "reflector" | "dropper";
 
 /**
- * Session-scoped worker spend and run counts, for `/om:status`.
+ * Session-scoped worker spend and run counts, for `/om status`.
  *
  * Deliberately in-memory: cost is a host run-time metric, so it is never appended to the
  * ledger (that would pollute the fold and the projections). It is also never rolled back

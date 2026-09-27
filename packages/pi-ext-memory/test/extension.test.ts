@@ -34,12 +34,8 @@ describe("observationalMemory extension entry", () => {
 		expect(registeredEvents).toContain("agent_settled");
 		expect(registeredEvents).toContain("session_before_compact");
 
-		// Commands
-		expect(commands).toHaveProperty("om");
-		expect(commands).toHaveProperty("om:status");
-		expect(commands).toHaveProperty("om:consolidate");
-		expect(commands).toHaveProperty("om:compact");
-		expect(commands).toHaveProperty("om:view");
+		// Commands: one command surface, with actions as subcommands
+		expect(Object.keys(commands)).toEqual(["om"]);
 
 		// Tool
 		expect(tools).toHaveProperty("recall");
