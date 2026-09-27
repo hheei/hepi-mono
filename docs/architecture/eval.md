@@ -61,6 +61,8 @@ eval request
 
 每次执行都有 `cell_id`。v1 `eval` 阻塞到 cell 结束或被 terminate。协议允许以后的 `wait`/`terminate` 挂到同一 id；v1 不 yield。取消会 abort Nested Tool，并先中断 cell；必要时杀掉 Kernel。没有默认 timeout。
 
+`last expression` 只有在值不是 `None` 时才成为 Eval Final Value：kernel 在 `done` 消息里省略 `value`，host 把缺失视为"没有结果"。这与 Python 自身 displayhook 抑制 `None` 的行为一致，因此 `print(...)`、纯赋值、`list.append(...)` 这类 cell 不会多渲染一行 `null`；显式写成最后一个表达式的 `None` 同样不显示。
+
 Detached Eval Work 在 cell 结束或 Kernel shutdown 后不属于 Transcript。
 
 内部 JavaScript 与模型可见 Python 共用 host 协议。模型只能请求 Python；Bun host 的 JavaScript/TypeScript 仅由兼容性 smoke 使用。Nested invoke 的运输可以不同（JS IPC，Python 同步 loopback），语义必须相同：同一张注入表、同一 `EvalToolError`、同一 cancellation。
