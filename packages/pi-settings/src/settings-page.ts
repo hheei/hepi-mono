@@ -1,15 +1,16 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Input, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type {
-	ExtensionPageView,
-	ExtensionPageViewContext,
-	SettingField,
-	SettingsContext,
-	SettingsPanel,
-	SettingsProvider,
-	SettingsRegistry,
-	SettingsState,
-	SettingValue,
+import {
+	type ExtensionPageView,
+	type ExtensionPageViewContext,
+	errorMessage,
+	type SettingField,
+	type SettingsContext,
+	type SettingsPanel,
+	type SettingsProvider,
+	type SettingsRegistry,
+	type SettingsState,
+	type SettingValue,
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
 import { fitRow } from "./row-fit.js";
@@ -75,7 +76,7 @@ function mergeDefaults(
 }
 
 function readableError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return errorMessage(error);
 }
 
 function isPrintable(input: string): boolean {

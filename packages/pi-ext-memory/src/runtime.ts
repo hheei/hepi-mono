@@ -1,5 +1,6 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { type Config, DEFAULTS, loadConfig } from "./config.js";
 import { debugLog } from "./debug-log.js";
 
@@ -436,7 +437,7 @@ export class Runtime {
 				}),
 			]);
 		} catch (error) {
-			refreshError = error instanceof Error ? error.message : String(error);
+			refreshError = errorMessage(error);
 		} finally {
 			clearTimeout(timer);
 		}
@@ -467,11 +468,11 @@ export class Runtime {
 				await work();
 			} catch (error) {
 				if (this.lifecycleSignal?.aborted === true || !this.isSessionCurrent(generation)) return;
-				const errorMessage = error instanceof Error ? error.message : String(error);
-				if (errorMessage.includes("stale")) return;
+				const message = errorMessage(error);
+				if (message.includes("stale")) return;
 				if (ctx.hasUI && ctx.ui) {
 					try {
-						ctx.ui.notify(`Observational memory: consolidation failed: ${errorMessage}`, "warning");
+						ctx.ui.notify(`Observational memory: consolidation failed: ${message}`, "warning");
 					} catch {}
 				}
 			} finally {
@@ -487,7 +488,7 @@ export class Runtime {
 	}
 
 	recordConsolidationStageError(ctx: LaunchCtx, phase: ConsolidationPhase, error: unknown): string {
-		const message = error instanceof Error ? error.message : String(error);
+		const message = errorMessage(error);
 		if (!this.isSessionCurrent(ctx.sessionGeneration) || message.includes("stale")) return message;
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;

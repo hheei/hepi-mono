@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { lock } from "proper-lockfile";
 import {
 	DEFAULT_REPLAY_COLUMNS,
@@ -608,7 +609,7 @@ if (import.meta.main) {
 		);
 		process.exit(0);
 	} catch (error) {
-		const message = stripAnsi(error instanceof Error ? error.message : String(error));
+		const message = stripAnsi(errorMessage(error));
 		await new Promise<void>((resolveWrite, rejectWrite) =>
 			process.stderr.write(`${message}\n`, (writeError) => {
 				if (writeError) rejectWrite(writeError);

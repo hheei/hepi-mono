@@ -3,6 +3,7 @@ import type {
 	BeforeAgentStartEvent,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 import {
 	type HindsightGateway,
@@ -89,7 +90,7 @@ export class HindsightSession {
 			// describes the memory without a page index, and tools report the real error.
 			pagesAvailable = false;
 			debugLog("hindsight.preamble_pages_unavailable", {
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessage(error),
 			});
 		}
 		return renderHindsightPreamble({
@@ -112,7 +113,7 @@ export class HindsightSession {
 			fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
 		} catch (error) {
 			debugLog("hindsight.auto_recall_failed", {
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessage(error),
 			});
 			return undefined;
 		}

@@ -1,7 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { defaultExtensionSettingsPaths, readMergedJsonSettingsSection } from "@hheei/pi-ext-core";
+import {
+	defaultExtensionSettingsPaths,
+	errorMessage,
+	readMergedJsonSettingsSection,
+} from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 
 /** Reflect reasoning budget forwarded to the Hindsight reflect endpoint. */
@@ -286,7 +290,7 @@ async function readFallbackConfig(path: string, signal?: AbortSignal): Promise<u
 	} catch (error) {
 		debugLog("hindsight.config_fallback_invalid", {
 			path,
-			error: error instanceof Error ? error.message : String(error),
+			error: errorMessage(error),
 		});
 		return undefined;
 	}

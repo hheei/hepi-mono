@@ -4,6 +4,7 @@ import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
 	type ExtensionSettingsPaths,
+	errorMessage,
 	type LoadoutResourceDetail,
 	type LoadoutResourceDetailContext,
 	type LoadoutResourceMetadata,
@@ -58,7 +59,7 @@ export interface LoadoutPageOptions {
 }
 
 function readableError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return errorMessage(error);
 }
 
 /** Maps an SGR wheel report to list movement; other terminal input stays untouched. */

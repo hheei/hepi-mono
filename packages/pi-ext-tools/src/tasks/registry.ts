@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 
 /** Custom message type used for one terminal delivery per task. */
 export const TASK_TERMINAL_CUSTOM_TYPE = "pi-ext-tools:task-terminal";
@@ -93,7 +94,7 @@ interface TaskTerminalMessage {
 }
 
 function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return errorMessage(error);
 }
 
 function boundedProgress(record: TaskRecord): { output: string; truncated: boolean } {

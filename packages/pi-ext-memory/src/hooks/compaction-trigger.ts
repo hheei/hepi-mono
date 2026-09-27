@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { resolveCompactAfterTokens } from "../config.js";
 import type { Runtime } from "../runtime.js";
 import {
@@ -99,7 +100,7 @@ async function runIdleCompaction(
 		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 		runtime.idleCompactInFlight = false;
 		runtime.compactInFlight = false;
-		const msg = error instanceof Error ? error.message : String(error);
+		const msg = errorMessage(error);
 		if (msg.includes("stale")) return;
 		if (ctx.hasUI) {
 			try {
@@ -262,7 +263,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 				} catch (error) {
 					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 					runtime.compactInFlight = false;
-					const msg = error instanceof Error ? error.message : String(error);
+					const msg = errorMessage(error);
 					if (msg.includes("stale")) return;
 					if (hasUI) {
 						try {

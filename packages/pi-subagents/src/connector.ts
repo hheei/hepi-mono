@@ -1,5 +1,6 @@
 import { createConnection, type Socket } from "node:net";
-import { abortError, errorMessage, toError, writeDiagnostic } from "./diagnostics.js";
+import { abortError, errorMessage } from "@hheei/pi-ext-core";
+import { toError, writeDiagnostic } from "./diagnostics.js";
 import { type ChildIdentity, PROTOCOL_VERSION } from "./domain.js";
 import { attachJsonLineReader, writeJsonLine } from "./json-lines.js";
 import {

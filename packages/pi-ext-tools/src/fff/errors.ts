@@ -1,8 +1,5 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import type { FffFileCandidate } from "./fff-types.js";
-
-function messageFromCause(cause: unknown): string {
-	return cause instanceof Error ? cause.message : String(cause);
-}
 
 /**
  * Typed error values carried inside `AppResult`. They are never thrown, so each
@@ -18,7 +15,7 @@ export class RuntimeInitializationError {
 		this.cwd = args.cwd;
 		this.step = args.step;
 		this.cause = args.cause;
-		this.message = `Failed to initialize FFF runtime (${args.step}) for ${args.cwd}: ${messageFromCause(args.cause)}`;
+		this.message = `Failed to initialize FFF runtime (${args.step}) for ${args.cwd}: ${errorMessage(args.cause)}`;
 	}
 }
 

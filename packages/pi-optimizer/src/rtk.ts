@@ -5,6 +5,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import type { OptimizerInfo } from "./info.js";
 import type { RtkSettings } from "./settings.js";
 
@@ -144,8 +145,7 @@ export function createRtkRuntime(pi: Pick<ExtensionAPI, "exec">, info: Optimizer
 					signal,
 				});
 			} catch (error) {
-				if (captured === generation && !context.signal?.aborted)
-					failure(error instanceof Error ? error.message : String(error));
+				if (captured === generation && !context.signal?.aborted) failure(errorMessage(error));
 				return;
 			} finally {
 				activeQueries.delete(controller);

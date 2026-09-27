@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FileFinder } from "@ff-labs/fff-node";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { formatPathResolutionError } from "./error-format.js";
 import {
 	AmbiguousPathError,
@@ -304,9 +305,7 @@ function safeFinderCall<T>(
 	operation: string,
 	run: () => EngineResult<T>,
 ): AppResult<T, FinderOperationError> {
-	const attempted = attempt(run, (cause) =>
-		finderFailure(operation, cause instanceof Error ? cause.message : String(cause), cause),
-	);
+	const attempted = attempt(run, (cause) => finderFailure(operation, errorMessage(cause), cause));
 	if (!attempted.ok) return errResult(attempted.error);
 	return attempted.value.ok
 		? okResult(attempted.value.value)
@@ -346,8 +345,7 @@ export class FffRuntime {
 			if (initialized.ok && initialized.value !== this.options.finder) {
 				void attempt(
 					() => initialized.value.destroy(),
-					(cause) =>
-						finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
+					(cause) => finderFailure("destroy", errorMessage(cause), cause),
 				);
 			}
 			return errResult(
@@ -375,8 +373,7 @@ export class FffRuntime {
 			() => {
 				if (this.finder && this.finder !== this.options.finder) this.finder.destroy();
 			},
-			(cause) =>
-				finderFailure("destroy", cause instanceof Error ? cause.message : String(cause), cause),
+			(cause) => finderFailure("destroy", errorMessage(cause), cause),
 		);
 		this.finder = this.options.finder ?? null;
 		this.initPromise = null;
@@ -409,8 +406,7 @@ export class FffRuntime {
 		if (!finderResult.ok) return finderResult;
 		const waitedResult = await attemptAsync(
 			() => finderResult.value.waitForScan(timeoutMs),
-			(cause) =>
-				finderFailure("waitForScan", cause instanceof Error ? cause.message : String(cause), cause),
+			(cause) => finderFailure("waitForScan", errorMessage(cause), cause),
 		);
 		if (!waitedResult.ok) return waitedResult;
 		const health = finderResult.value.healthCheck();

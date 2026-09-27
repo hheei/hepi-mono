@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import { runDropper } from "../agents/dropper/agent.js";
 import { observationPoolMetrics } from "../agents/dropper/pool.js";
 import { ObserverStreamError, runObserver } from "../agents/observer/agent.js";
@@ -586,7 +587,7 @@ async function runObserverStage(
 	try {
 		pi.appendEntry(OM_OBSERVATIONS_RECORDED, data);
 	} catch (error) {
-		const msg = error instanceof Error ? error.message : String(error);
+		const msg = errorMessage(error);
 		if (msg.includes("stale")) return "abort";
 		throw error;
 	}
@@ -650,7 +651,7 @@ async function runReflectorStage(
 	try {
 		pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
 	} catch (error) {
-		const msg = error instanceof Error ? error.message : String(error);
+		const msg = errorMessage(error);
 		if (msg.includes("stale")) return { outcome: "abort", sameRunReflections: [] };
 		throw error;
 	}
@@ -761,7 +762,7 @@ async function runDropperStage(
 		try {
 			pi.appendEntry(OM_OBSERVATIONS_DROPPED, data);
 		} catch (error) {
-			const msg = error instanceof Error ? error.message : String(error);
+			const msg = errorMessage(error);
 			if (msg.includes("stale")) return "continue";
 			throw error;
 		}

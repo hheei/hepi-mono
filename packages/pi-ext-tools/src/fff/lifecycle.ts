@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
+	errorMessage,
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
@@ -118,7 +119,7 @@ async function startFffLifecycle(
 		settings = DEFAULT_FFF_SETTINGS;
 		targetSettings = { sshWhitelist: [] };
 		context.extension.ui.notify(
-			`Unable to load extension settings: ${error instanceof Error ? error.message : String(error)}`,
+			`Unable to load extension settings: ${errorMessage(error)}`,
 			"warning",
 		);
 	}

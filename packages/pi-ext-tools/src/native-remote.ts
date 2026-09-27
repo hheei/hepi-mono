@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { errorMessage } from "@hheei/pi-ext-core";
 import {
 	APPLY_PATCH_MAX_FILE_SIZE,
 	acquireMutationLock,
@@ -65,10 +66,6 @@ type RemoteMutationOperation<T> = (
 function parentDir(path: string): string {
 	const index = path.lastIndexOf("/");
 	return index < 0 ? "." : path.slice(0, index);
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function failedOutcome(

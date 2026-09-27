@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import type { Runtime } from "../runtime.js";
 import {
 	countSourceEntriesAfterCompaction,
@@ -88,7 +89,7 @@ export async function runCompactCommand(
 		});
 	} catch (error) {
 		runtime.compactInFlight = false;
-		const message = error instanceof Error ? error.message : String(error);
+		const message = errorMessage(error);
 		notify(`Observational memory: compaction could not start: ${message}`, "error");
 	}
 }

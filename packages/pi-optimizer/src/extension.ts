@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	errorMessage,
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
@@ -106,11 +107,7 @@ export default function piOptimizerExtension(
 				if (active === session) session.settings = parseOptimizerSettings(stored);
 			} catch (error) {
 				if (active === session && !runtime.signal.aborted)
-					info(
-						`Unable to load optimizer settings: ${error instanceof Error ? error.message : String(error)}`,
-						undefined,
-						true,
-					);
+					info(`Unable to load optimizer settings: ${errorMessage(error)}`, undefined, true);
 			}
 		},
 	});

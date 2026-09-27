@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import { errorMessage } from "@hheei/pi-ext-core";
 
 export type JsonLineErrorCode = "frame_too_large" | "malformed_json" | "stream_error";
 
@@ -56,12 +57,7 @@ export function attachJsonLineReader(stream: Readable, options: JsonLineReaderOp
 			try {
 				options.onValue(JSON.parse(frame.toString("utf8")) as unknown);
 			} catch (error) {
-				fail(
-					new JsonLineError(
-						"malformed_json",
-						`Malformed JSON line: ${error instanceof Error ? error.message : String(error)}`,
-					),
-				);
+				fail(new JsonLineError("malformed_json", `Malformed JSON line: ${errorMessage(error)}`));
 			}
 		}
 	};

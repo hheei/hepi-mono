@@ -17,6 +17,7 @@ import {
 import {
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
+	errorMessage,
 	formatDuration,
 	registerManagedTool,
 	type ToolCompletion,
@@ -232,10 +233,10 @@ async function runForeground(
 		});
 	} catch (error) {
 		const output = sink.finish();
-		return result(
-			`Unable to start bash job: ${error instanceof Error ? error.message : String(error)}`,
-			{ ...output, error: "start_failed" },
-		);
+		return result(`Unable to start bash job: ${errorMessage(error)}`, {
+			...output,
+			error: "start_failed",
+		});
 	}
 
 	return new Promise<BashToolResult>((resolve) => {
@@ -295,10 +296,10 @@ async function runForeground(
 					jobs.stop(job.id);
 					const snapshotOutput = sink.finish();
 					resolve(
-						result(
-							`Unable to transition bash command to background task: ${error instanceof Error ? error.message : String(error)}`,
-							{ ...snapshotOutput, error: "task_transition_failed" },
-						),
+						result(`Unable to transition bash command to background task: ${errorMessage(error)}`, {
+							...snapshotOutput,
+							error: "task_transition_failed",
+						}),
 					);
 					return;
 				}
@@ -495,10 +496,9 @@ export function registerBashTool(
 						},
 					);
 				} catch (error) {
-					return result(
-						`Unable to start background task: ${error instanceof Error ? error.message : String(error)}`,
-						{ error: "start_failed" },
-					);
+					return result(`Unable to start background task: ${errorMessage(error)}`, {
+						error: "start_failed",
+					});
 				}
 			}
 			return runForeground(

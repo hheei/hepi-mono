@@ -2,6 +2,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "@hheei/pi-ext-core";
 import {
 	classifyCompletionFailure,
 	configurationFailure,
@@ -652,7 +653,7 @@ function createController(signal: AbortSignal): AbortController {
 }
 
 function failureMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return errorMessage(error);
 }
 
 function assistantText(message: AssistantMessage | undefined): string {

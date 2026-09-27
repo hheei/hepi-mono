@@ -3,6 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
+	errorMessage,
 	isManagedTool,
 	type ManagedToolRegistration,
 	registerManagedTool,
@@ -81,10 +82,6 @@ function textResult<TDetails extends HindsightToolDetails>(
 		content: [{ type: "text" as const, text }],
 		details: { tool, status, ...extra } as TDetails,
 	};
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function registration(id: HindsightToolName): ManagedToolRegistration {

@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
+import { errorMessage, type SettingsProvider, type SettingsState } from "@hheei/pi-ext-core";
 import type { OptimizerInfo } from "./info.js";
 import { type OptimizerSettings, parseOptimizerSettings } from "./settings.js";
 
@@ -53,11 +53,7 @@ export function registerOptimizerCommand(
 					});
 				} catch (error) {
 					if (!session.signal.aborted)
-						info(
-							`Unable to save optimizer settings: ${error instanceof Error ? error.message : String(error)}`,
-							undefined,
-							true,
-						);
+						info(`Unable to save optimizer settings: ${errorMessage(error)}`, undefined, true);
 				}
 			};
 			const args = rawArgs.trim();

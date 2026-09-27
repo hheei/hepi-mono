@@ -1,3 +1,4 @@
+import { errorMessage } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 import type { HindsightGateway, HindsightRetainReceipt } from "./client.js";
 import { fingerprintTurns, type HindsightTurn } from "./transcript.js";
@@ -109,7 +110,7 @@ export class HindsightRetainQueue {
 			} catch (error) {
 				// A caller-initiated abort is a deliberate stop, not a memory failure.
 				if (signal?.aborted === true) return;
-				const message = error instanceof Error ? error.message : String(error);
+				const message = errorMessage(error);
 				this.#lastError = message;
 				debugLog("hindsight.retain_failed", { sessionId, turns: batch.length, error: message });
 			}
