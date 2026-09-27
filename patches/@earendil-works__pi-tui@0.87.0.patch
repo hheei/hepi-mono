@@ -1,8 +1,8 @@
 diff --git a/dist/components/editor.js b/dist/components/editor.js
-index 0000000..0000001 100644
+index 7eae102b06d78e10e0ab016f3ab020c66de6865d..3a17dbeb6fc4b6ab1f3b44821a7922edf21a5f9c 100644
 --- a/dist/components/editor.js
 +++ b/dist/components/editor.js
-@@ -613,6 +613,7 @@ export class Editor {
+@@ -609,6 +609,7 @@ export class Editor {
              if (kb.matches(data, "tui.input.tab")) {
                  const selected = this.autocompleteList.getSelectedItem();
                  if (selected && this.autocompleteProvider) {
@@ -10,7 +10,7 @@ index 0000000..0000001 100644
                      this.pushUndoSnapshot();
                      this.lastAction = null;
                      const result = this.autocompleteProvider.applyCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol, selected, this.autocompletePrefix);
-@@ -622,6 +623,8 @@ export class Editor {
+@@ -618,6 +619,8 @@ export class Editor {
                      this.cancelAutocomplete();
                      if (this.onChange)
                          this.onChange(this.getText());
@@ -19,11 +19,39 @@ index 0000000..0000001 100644
                  }
                  return;
              }
+diff --git a/dist/components/scroll-view.js b/dist/components/scroll-view.js
+index 0b9ef1f56155565479ac86d0ec232f51b9485d5e..74e8ad40013d6a6f0ca169fb14cbaa16fcc6faf1 100644
+--- a/dist/components/scroll-view.js
++++ b/dist/components/scroll-view.js
+@@ -158,6 +158,8 @@ export class ScrollView extends Container {
+         }
+     }
+     updateLayout(contentHeight, viewportHeight, requestRender) {
++        const wasFollowingEnd = this.followingEnd;
++        const prevContentHeight = this.contentHeight ?? 0;
+         this.contentHeight = Math.max(0, Math.floor(contentHeight));
+         this.currentViewportHeight = Math.max(0, Math.floor(viewportHeight));
+         this.requestRenderCallback = requestRender;
+@@ -168,9 +170,13 @@ export class ScrollView extends Container {
+             this.currentScrollTop = Math.max(0, Math.min(this.currentScrollTop, maxScrollTop));
+         if (this.currentScrollTop < maxScrollTop)
+             this.followSuppressedAtEnd = false;
+-        if (this.followEnd && this.currentScrollTop === maxScrollTop && !this.followSuppressedAtEnd) {
++        if (this.followEnd && this.currentScrollTop === maxScrollTop && !this.followSuppressedAtEnd && (!(!wasFollowingEnd && this.contentHeight < prevContentHeight))) {
+             this.followingEnd = true;
+         }
++        if (!wasFollowingEnd && this.contentHeight < prevContentHeight) {
++            this.followingEnd = false;
++            this.followSuppressedAtEnd = true;
++        }
+         if (this.contentHeight <= this.currentViewportHeight)
+             this.hideTransientScrollbar();
+     }
 diff --git a/dist/tui-main-screen.js b/dist/tui-main-screen.js
-index 0000000..0000001 100644
+index 896bb501fc5d6e7b0bf76faa8d97dcd045e95526..9f68624092ecd0a6a4f0f03c34ec7133bf6873f0 100644
 --- a/dist/tui-main-screen.js
 +++ b/dist/tui-main-screen.js
-@@ -241,13 +241,16 @@ export class TuiMainScreen extends TuiBase {
+@@ -235,13 +235,16 @@ export class TuiMainScreen extends TuiBase {
          const cursorPos = this.extractCursorPosition(newLines, height);
          newLines = this.applyLineResets(newLines);
          // Helper to clear scrollback and viewport and render all new lines
@@ -42,7 +70,7 @@ index 0000000..0000001 100644
              }
              for (let i = 0; i < newLines.length; i++) {
                  if (i > 0)
-@@ -304,7 +307,9 @@ export class TuiMainScreen extends TuiBase {
+@@ -298,7 +301,9 @@ export class TuiMainScreen extends TuiBase {
          // Width changes always need a full re-render because wrapping changes.
          if (widthChanged) {
              logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);

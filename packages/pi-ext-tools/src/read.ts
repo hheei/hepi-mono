@@ -365,6 +365,7 @@ export function registerReadTool(
 			footer: readCollapsedFooter,
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			longOutput: true,
+			headerLine: "truncate",
 		}),
 	);
 	return tool as ToolDefinition;

@@ -22,7 +22,7 @@ function mostRecent(
 	for (const task of tasks) {
 		if (task.status !== status || task.updatedAt === undefined) continue;
 		if (now - task.updatedAt >= window) continue;
-		if (newest === undefined || task.updatedAt > (newest.updatedAt ?? 0)) newest = task;
+		if (newest === undefined || task.updatedAt >= (newest.updatedAt ?? 0)) newest = task;
 	}
 	return newest;
 }

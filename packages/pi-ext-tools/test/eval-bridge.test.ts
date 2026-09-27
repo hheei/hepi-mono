@@ -3,6 +3,8 @@ import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
 import { BashInput } from "../src/bash.js";
 import { type EvalNestedToolName, EvalToolBridge, EvalToolError } from "../src/eval/bridge.js";
+import type { EvalRuntimeState } from "../src/eval/lifecycle.js";
+import { createEvalTool } from "../src/eval/tool.js";
 
 const parameters = Type.Object({ path: Type.String() }, { additionalProperties: false });
 
@@ -120,5 +122,62 @@ describe("Eval tool bridge", () => {
 		await expect(
 			bridge.call("bash", { command: "false" }, {} as ExtensionContext, undefined, () => {}),
 		).rejects.toBeInstanceOf(EvalToolError);
+	});
+
+	test("eval tool suppresses streaming body and only renders final eval result", () => {
+		const bridge = new EvalToolBridge(new Map(), () => true);
+		const mockState = { getRuntime: () => undefined } as unknown as EvalRuntimeState;
+		const tool = createEvalTool(mockState, bridge);
+
+		// Header displays instruction, body does not render call
+		expect(tool.renderCall).toBeUndefined();
+
+		const partialResult = {
+			content: [{ type: "text" as const, text: "streaming..." }],
+			details: {
+				format: "pi-ext-tools-eval" as const,
+				rows: [
+					{ kind: "text" as const, text: "line 1" },
+					{
+						kind: "tool" as const,
+						trace: { name: "read" as const, text: "file.ts", args: "{}" },
+					},
+				],
+				durationMs: 50,
+			},
+		};
+
+		// When streaming (isPartial = true), body is empty
+		const partialComp = tool.renderResult?.(
+			partialResult,
+			{ expanded: false, isPartial: true },
+			{ fg: (_c: string, t: string) => t } as never,
+			undefined,
+		);
+		expect(partialComp?.render(80)).toEqual([]);
+
+		// When finished, body only displays the eval result
+		const finalResult = {
+			content: [{ type: "text" as const, text: "42" }],
+			details: {
+				format: "pi-ext-tools-eval" as const,
+				rows: [
+					{ kind: "text" as const, text: "streamed line" },
+					{
+						kind: "tool" as const,
+						trace: { name: "read" as const, text: "file.ts", args: "{}" },
+					},
+					{ kind: "result" as const, text: "42" },
+				],
+				durationMs: 120,
+			},
+		};
+		const finalComp = tool.renderResult?.(
+			finalResult,
+			{ expanded: false, isPartial: false },
+			{ fg: (_c: string, t: string) => t } as never,
+			undefined,
+		);
+		expect(finalComp?.render(80)[0]?.trim()).toBe("42");
 	});
 });
