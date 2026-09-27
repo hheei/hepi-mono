@@ -10,8 +10,8 @@
 
 Loadout 管理主动登记的 **resource**。resource 目前包括 Pi tool、skill 与 concrete extension 声明的
 agent profile。`@hheei/pi-ext-core` 公开跨 extension 的 Loadout registration contract；`pi-settings`
-拥有 resource inventory、activation policy、持久化、Loadout tab 与 `/ext-settings [page-id]`、`/loadout`
-commands，并打开 core 的 global Extension page router。
+拥有 resource inventory、activation policy、持久化、Loadout tab 与 `/ext-settings [page-id]`
+command，并打开 core 的 global Extension page router。
 
 concrete extension 不互相 import：tool contributor 只依赖 core，`pi-settings` 从 core registry 消费
 registration 并从 core router 打开页面。core 始终直接向 Pi 注册 managed executable tool，消除 extension
@@ -20,7 +20,7 @@ load order 依赖。
 `pi-settings` 是 managed-tool/resource contributor 的推荐 companion package，但不是硬依赖。缺少它时，
 core 仍注册 executable tool，保留 Pi 默认 activation；不应用 Loadout inventory、conflict、priority 或
 persisted override。agent profile 则保留其 contributor 声明的 default activation。`pi-settings` 不提供
-第二份 renderer；`/loadout` 只以 Loadout 为 initial page 打开 shared router。global/project extension JSON
+第二份 renderer；`/ext-settings loadout` 只以 Loadout 为 initial page 打开 shared router。global/project extension JSON
 使用顶层 `loadout` key；格式错误或旧 boolean map schema 直接拒绝，不做兼容迁移。
 
 ## Tool Registration
@@ -132,8 +132,8 @@ core 提供一个 global Extension page router。它维护 dynamic page registry
 layout、focus、key routing、render host 和 page lifecycle；page contributor 只提供 page metadata、
 controller 和 visible content。router 不拥有 page data、actions、persistence 或 feature policy。
 
-`pi-settings` 注册 `/ext-settings [page-id]` 与 `/loadout`。两个 command 都调用同一 router；前者接受
-page ID，后者固定传入 `loadout`。core 不持久化 selected tab，找不到 requested page 时选择稳定 fallback。
+`pi-settings` 只注册 `/ext-settings [page-id]`，可选 page ID 决定 initial page（`/ext-settings loadout`
+即选中 Loadout）。command 调用同一 router；没有第二份 command 或第二套 entry。core 不持久化 selected tab，找不到 requested page 时选择稳定 fallback。
 `pi-settings` 不复制 Settings renderer 或创建第二个 surface host。
 
 page registration 是 lifecycle-bound：tab 可在 router 已打开时动态加入或移除。移除 active tab 时，

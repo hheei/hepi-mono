@@ -1,13 +1,14 @@
 # Loadout
 
 `@hheei/pi-settings` 拥有 Pi 工具、技能与 extension resource 的 Loadout activation policy。它读取
-global 和 project JSON delta，在每个 session 开始时解析可用资源并应用给 Pi；它注册 `/loadout`，以
-Loadout 为 initial page 打开自己的 shared Settings router，而不维护另一份 renderer。
+global 和 project JSON delta，在每个 session 开始时解析可用资源并应用给 Pi；它注册
+`/ext-settings [page-id]`，并以 Loadout 为 initial page 打开自己的 shared Settings router，
+而不维护另一份 renderer。
 
 ## 用户意图
 
-Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能和已登记 resource 是否可用。`/loadout` 与
-`/ext-settings loadout` 都提供同一个 scoped-delta 写入界面；也可以直接编辑配置文件。
+Loadout 让用户在不改变扩展安装集合的前提下控制工具、技能和已登记 resource 是否可用。
+`/ext-settings loadout` 提供 scoped-delta 写入界面；也可以直接编辑配置文件。
 
 资源按固定语义分组显示：
 
@@ -64,7 +65,7 @@ detail 打开时鼠标滚轮仍由左侧资源列表处理：它只移动左侧 
 退回列表。
 
 所有编辑（文本、cycler、`Description`、`Body`）都是 buffered：detail 打开期间不写文件。
-`/loadout` 与 `/ext-settings` 打开的共享 router 都以 overlay 运行；打开原生 editor 时 ext-core
+`/ext-settings` 打开的共享 router 以 overlay 运行；打开原生 editor 时 ext-core
 先用 `OverlayHandle.setHidden(true)` 隐藏 overlay 并让出 focus，
 等待 `ui.editor()` 结束后以 `setHidden(false)` 恢复同一个 overlay、router state、scope、selection
 和 draft，不关闭或重建 surface。`Esc` 取消 editor 时 body 不变；session abort 或 surface 已关闭时
@@ -143,7 +144,7 @@ winner inherit 或回到其 default，才可操作被锁定 member。
 
 ## 宿主边界
 
-`pi-settings` 独占 `/ext-settings` 与 `/loadout`；两个 command 打开同一 router，后者只固定初始 page 为
+`pi-settings` 独占 `/ext-settings [page-id]`；传入 `loadout` page ID 只固定初始 page 为
 Loadout。Loadout 页面把 Tools、Skills 与按需出现的 resource groups 放在一个列表，通过 Global/Project
 scope draft 修改这些 delta；它不 hot-apply，关闭 Settings router 后提示用户 `/reload`。`pi-ext-tools`
 的 integrated FFF tools 通过 core managed registration 接入该策略。

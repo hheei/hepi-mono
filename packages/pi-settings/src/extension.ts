@@ -16,6 +16,9 @@ interface ActiveSettingsSession {
 	readonly signal: AbortSignal;
 }
 
+/** Loadout is a page of the Settings router, so this is the only command surface. */
+const SETTINGS_COMMAND = "ext-settings";
+
 const AVAILABLE_SKILLS_SECTION =
 	/\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 const AVAILABLE_SKILL_ENTRY =
@@ -51,17 +54,15 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 	});
 	const openSettings = async (
 		initialPageId: string | undefined,
-		commandName: "/ext-settings" | "/loadout",
-		inactiveMessage: string,
 		context: ExtensionCommandContext,
 	): Promise<void> => {
 		if (context.mode !== "tui") {
-			context.ui.notify(`${commandName} requires TUI mode.`, "warning");
+			context.ui.notify(`/${SETTINGS_COMMAND} requires TUI mode.`, "warning");
 			return;
 		}
 		const session = active;
 		if (session === undefined || session.signal.aborted) {
-			context.ui.notify(inactiveMessage, "warning");
+			context.ui.notify("Settings are not active for this session.", "warning");
 			return;
 		}
 		await openExtensionPageRouter(pi, context, {
@@ -118,21 +119,10 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 			);
 		},
 	});
-	pi.registerCommand("ext-settings", {
-		description: "Open extension settings.",
+	pi.registerCommand(SETTINGS_COMMAND, {
+		description: "Open extension settings: /ext-settings [page-id]",
 		handler: async (args: string, context: ExtensionCommandContext): Promise<void> => {
-			await openSettings(
-				args.trim() || undefined,
-				"/ext-settings",
-				"Settings are not active for this session.",
-				context,
-			);
-		},
-	});
-	pi.registerCommand("loadout", {
-		description: "Open Loadout.",
-		handler: async (_args: string, context: ExtensionCommandContext): Promise<void> => {
-			await openSettings("loadout", "/loadout", "Loadout is not active for this session.", context);
+			await openSettings(args.trim() || undefined, context);
 		},
 	});
 }
