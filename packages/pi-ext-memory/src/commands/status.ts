@@ -24,12 +24,8 @@ function tokenSum(items: { tokenCount: number }[]): number {
 	return items.reduce((sum, item) => sum + item.tokenCount, 0);
 }
 
-function addedSuffix(count: number): string | undefined {
-	return count > 0 ? `+${count.toLocaleString()}` : undefined;
-}
-
-function removedSuffix(count: number): string | undefined {
-	return count > 0 ? `-${count.toLocaleString()}` : undefined;
+function deltaSuffix(count: number, sign: "+" | "-"): string | undefined {
+	return count > 0 ? `${sign}${count.toLocaleString()}` : undefined;
 }
 
 function appendSuffixes(line: string, suffixes: (string | undefined)[]): string {
@@ -82,13 +78,13 @@ export async function runStatusCommand(
 	const observationLine = appendSuffixes(
 		`Observations: ${folded.observations.length} recorded / ${folded.droppedObservationIds.size} dropped / ${folded.activeObservations.length} active / ${visible.observations.length} visible`,
 		[
-			addedSuffix(drift.observationsOnlyInFull.length),
-			removedSuffix(drift.droppedOnlyInFull.length),
+			deltaSuffix(drift.observationsOnlyInFull.length, "+"),
+			deltaSuffix(drift.droppedOnlyInFull.length, "-"),
 		],
 	);
 	const reflectionLine = appendSuffixes(
 		`Reflections:  ${folded.reflections.length} recorded / ${visible.reflections.length} visible`,
-		[addedSuffix(drift.reflectionsOnlyInFull.length)],
+		[deltaSuffix(drift.reflectionsOnlyInFull.length, "+")],
 	);
 	const obsProgress = rawTokensSinceObservationCoverage(entries);
 	const reflectionProgress = rawTokensSinceReflectionCoverage(entries);

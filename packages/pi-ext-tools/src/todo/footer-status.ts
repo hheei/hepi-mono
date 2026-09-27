@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { TaskState } from "./model.js";
+import type { Task, TaskState, TaskStatus } from "./model.js";
 
 export const TODO_STATUS_KEY = "pi-ext-tools:todo";
 export const COMPLETED_DISPLAY_DURATION_MS = 3 * 60 * 1000; // 3 minutes
@@ -11,20 +11,29 @@ export interface FooterStatusDecision {
 	readonly expiresAt?: number;
 }
 
+/** Most recently updated task in `status` whose update is still inside `window`. */
+function mostRecent(
+	tasks: readonly Task[],
+	status: TaskStatus,
+	window: number,
+	now: number,
+): Task | undefined {
+	let newest: Task | undefined;
+	for (const task of tasks) {
+		if (task.status !== status || task.updatedAt === undefined) continue;
+		if (now - task.updatedAt >= window) continue;
+		if (newest === undefined || task.updatedAt > (newest.updatedAt ?? 0)) newest = task;
+	}
+	return newest;
+}
+
 /**
- * Computes the footer status text and optional expiration timestamp
- * for the current task state.
+ * Footer text for the current task state, plus when that text expires.
  *
- * Rules:
- * 1. If a task was recently completed:
- *    - With a subsequent in-progress task: displays for 15 seconds, then transitions to in-progress.
- *    - Without subsequent tasks: displays for 3 minutes, then disappears.
- * 2. If no recent completed task within its window:
- *    - In-progress task has top priority: "◐ #<id> <subject>" (no timer).
- *    - Pending task if present: "○ #<id> <subject>" (no timer).
- *    - Recent blocked task within 15 seconds: "⊘ #<id> <subject>".
- * 3. When without in-progress tasks, if both recent completed and blocked exist, choose the most recently updated one.
- * 4. Otherwise: undefined (cleared from footer).
+ * An in-progress task wins, then a recently completed one, then pending, then recently
+ * blocked; with no in-progress task a recent completion and a recent block compete on
+ * recency. A completion stays visible for `COMPLETED_WITH_SUBSEQUENT_DURATION_MS` when
+ * work is already queued behind it, otherwise for `COMPLETED_DISPLAY_DURATION_MS`.
  */
 export function computeFooterStatus(
 	state: TaskState,
@@ -34,27 +43,9 @@ export function computeFooterStatus(
 	const completedDuration = inProgress
 		? COMPLETED_WITH_SUBSEQUENT_DURATION_MS
 		: COMPLETED_DISPLAY_DURATION_MS;
+	const recentCompleted = mostRecent(state.tasks, "completed", completedDuration, now);
+	const recentBlocked = mostRecent(state.tasks, "blocked", BLOCKED_DISPLAY_DURATION_MS, now);
 
-	const recentCompleted = state.tasks
-		.filter(
-			(task) =>
-				task.status === "completed" &&
-				task.updatedAt !== undefined &&
-				now - task.updatedAt < completedDuration,
-		)
-		.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-
-	const recentBlocked = state.tasks
-		.filter(
-			(task) =>
-				task.status === "blocked" &&
-				task.updatedAt !== undefined &&
-				now - task.updatedAt < BLOCKED_DISPLAY_DURATION_MS,
-		)
-		.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-
-	// If there is no in-progress task, completed task (3 min) and blocked task (15s)
-	// compete on recency:
 	if (!inProgress && recentCompleted && recentBlocked) {
 		const completedTime = recentCompleted.updatedAt ?? 0;
 		const blockedTime = recentBlocked.updatedAt ?? 0;
@@ -107,54 +98,41 @@ export function createTodoFooterStatusController(
 	now: () => number = () => Date.now(),
 ): TodoFooterStatusController {
 	let currentTimer: ReturnType<typeof setTimeout> | undefined;
-	let currentState: TaskState = { tasks: [], nextId: 1 };
 	let isDisposed = false;
 
-	const clearTimer = () => {
-		if (currentTimer !== undefined) {
-			clearTimeout(currentTimer);
-			currentTimer = undefined;
-		}
+	const clearTimer = (): void => {
+		if (currentTimer !== undefined) clearTimeout(currentTimer);
+		currentTimer = undefined;
 	};
 
-	const scheduleNext = () => {
+	/** Renders the state, and re-renders when text that is only shown for a while expires. */
+	const scheduleNext = (state: TaskState): void => {
 		clearTimer();
-		if (isDisposed || signal?.aborted) {
+		if (isDisposed) {
 			ui.setStatus(TODO_STATUS_KEY, undefined);
 			return;
 		}
-
-		const decision = computeFooterStatus(currentState, now());
+		const decision = computeFooterStatus(state, now());
 		ui.setStatus(TODO_STATUS_KEY, decision.text);
-
 		if (decision.expiresAt !== undefined) {
-			const delay = Math.max(0, decision.expiresAt - now());
-			currentTimer = setTimeout(() => {
-				scheduleNext();
-			}, delay);
+			currentTimer = setTimeout(() => scheduleNext(state), decision.expiresAt - now());
 		}
 	};
 
-	const dispose = () => {
+	const dispose = (): void => {
 		if (isDisposed) return;
 		isDisposed = true;
 		clearTimer();
 		ui.setStatus(TODO_STATUS_KEY, undefined);
 	};
 
-	if (signal) {
-		if (signal.aborted) {
-			dispose();
-		} else {
-			signal.addEventListener("abort", dispose, { once: true });
-		}
-	}
+	if (signal?.aborted === true) dispose();
+	else signal?.addEventListener("abort", dispose, { once: true });
 
 	return {
-		update(state: TaskState) {
-			if (isDisposed || signal?.aborted) return;
-			currentState = state;
-			scheduleNext();
+		update(state: TaskState): void {
+			if (isDisposed) return;
+			scheduleNext(state);
 		},
 		dispose,
 	};

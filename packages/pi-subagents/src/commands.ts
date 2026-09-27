@@ -3,11 +3,13 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { subcommandCompletions } from "@hheei/pi-ext-core";
+import { splitSubcommand, subcommandCompletions } from "@hheei/pi-ext-core";
 import type { PublicSubagent } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 
 const STATUS_KEY = "pi-subagents";
+/** Verbs of the dispatcher below; the completer and the no-argument picker share them. */
+const SUBAGENT_SUBCOMMANDS = ["list", "inspect", "attach", "send", "stop"] as const;
 const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|attach [id]|send|stop [id]";
 
 export function formatStatusLine(children: readonly PublicSubagent[]): string | undefined {
@@ -93,7 +95,7 @@ async function stopSelected(
 export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManager): void {
 	pi.registerCommand("subagents", {
 		description: "Manage subagents: /subagents [list | inspect | attach [id] | send | stop [id]]",
-		getArgumentCompletions: subcommandCompletions(["list", "inspect", "attach", "send", "stop"]),
+		getArgumentCompletions: subcommandCompletions(SUBAGENT_SUBCOMMANDS),
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify(
@@ -101,16 +103,10 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				);
 				return;
 			}
-			const input = args.trim();
-			const separator = input.search(/\s/u);
-			const action =
-				input === ""
-					? await ctx.ui.select("Subagents", ["list", "inspect", "attach", "send", "stop"])
-					: separator < 0
-						? input
-						: input.slice(0, separator);
+			const { verb, rest: target } = splitSubcommand(args);
 			// Only `attach` and `stop` take a subagent id; the picker verbs ignore the rest.
-			const target = separator < 0 ? "" : input.slice(separator).trim();
+			const action =
+				verb === "" ? await ctx.ui.select("Subagents", [...SUBAGENT_SUBCOMMANDS]) : verb;
 			if (action === undefined) return;
 			const children = await manager.list();
 			if (action === "list") {

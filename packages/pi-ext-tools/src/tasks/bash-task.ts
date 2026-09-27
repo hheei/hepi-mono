@@ -95,12 +95,9 @@ export function promoteBashJobToTask(
 		type: "bash",
 		purpose: bashTaskPurpose(request.command),
 		begin: (taskId) => {
-			const bound = request.jobs.bindTerminal(request.jobId, (finished): void => {
+			request.jobs.bindTerminal(request.jobId, (finished): void => {
 				request.tasks.settle(taskId, terminalFrom(finished));
 			});
-			if (!bound) {
-				throw new Error(`Failed to bind terminal callback to job ${request.jobId}`);
-			}
 			return {
 				stop: (): void => {
 					request.jobs.stop(request.jobId);

@@ -42,7 +42,7 @@ interface Job {
 	timeout?: NodeJS.Timeout;
 	terminalized: boolean;
 	onTerminal?: (job: BashJobSnapshot) => void;
-	readonly waiters: Array<(snapshot: BashJobSnapshot) => void>;
+	waiter: ((snapshot: BashJobSnapshot) => void) | undefined;
 }
 export function defaultShellPath(): string {
 	return process.platform === "win32"
@@ -86,7 +86,7 @@ export class BashJobRegistry {
 			timedOut: false,
 			outputSink,
 			terminalized: false,
-			waiters: [],
+			waiter: undefined,
 			...(request.onTerminal === undefined ? {} : { onTerminal: request.onTerminal }),
 		};
 		const shellPath = request.shellPath ?? defaultShellPath();
@@ -148,45 +148,28 @@ export class BashJobRegistry {
 		job.terminalized = true;
 		job.outputSink.finish();
 		const finalSnapshot = snapshot(job);
-		for (const waiter of job.waiters) {
-			try {
-				waiter(finalSnapshot);
-			} catch {}
-		}
-		job.waiters.length = 0;
+		const waiter = job.waiter;
+		job.waiter = undefined;
+		waiter?.(finalSnapshot);
 		if (!notify) return;
-		try {
-			job.onTerminal?.(finalSnapshot);
-		} catch {}
+		job.onTerminal?.(finalSnapshot);
 	}
-	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): boolean {
+	/**
+	 * Binds the terminal callback for one job, replacing any previous one. A job that already
+	 * finished reports immediately, which is what a promotion of a just-finished job needs.
+	 */
+	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): void {
 		const job = this.#jobs.get(id);
-		if (!job) return false;
-		const previous = job.onTerminal;
-		job.onTerminal =
-			previous === undefined
-				? onTerminal
-				: (finished) => {
-						try {
-							previous(finished);
-						} catch {}
-						try {
-							onTerminal(finished);
-						} catch {}
-					};
-		if (job.terminalized) {
-			try {
-				onTerminal(snapshot(job));
-			} catch {}
-		}
-		return true;
+		if (!job) return;
+		job.onTerminal = onTerminal;
+		if (job.terminalized) onTerminal(snapshot(job));
 	}
 	waitFor(id: string): Promise<BashJobSnapshot | undefined> {
 		const job = this.#jobs.get(id);
 		if (!job) return Promise.resolve(undefined);
 		if (job.terminalized) return Promise.resolve(snapshot(job));
 		return new Promise<BashJobSnapshot | undefined>((resolve) => {
-			job.waiters.push(resolve);
+			job.waiter = resolve;
 		});
 	}
 	get(id: string): BashJobSnapshot | undefined {

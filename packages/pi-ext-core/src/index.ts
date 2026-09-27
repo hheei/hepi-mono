@@ -4,8 +4,8 @@
  * shared registration, lifecycle, cancellation, and cross-package coordination.
  */
 
-export type { SubcommandCompletions, SubcommandCompletionsOptions } from "./command-completions.js";
-export { subcommandCompletions } from "./command-completions.js";
+export type { SubcommandCompletions } from "./command-completions.js";
+export { splitSubcommand, subcommandCompletions } from "./command-completions.js";
 export type {
 	EstimateTextTokens,
 	PiContextUsageReading,

@@ -83,9 +83,7 @@ function bashFooter(
 ): string {
 	const details = detailsRecord(result.details);
 	if (details.autoAsyncTransition === true && typeof details.taskId === "string") {
-		const elapsed =
-			typeof details.elapsedSeconds === "number" ? `${details.elapsedSeconds}s` : "60s";
-		return `transitioned to ${details.taskId} · running in background · ${elapsed}`;
+		return `transitioned to ${details.taskId} · running in background · ${details.elapsedSeconds ?? 60}s`;
 	}
 	if (typeof details.taskId === "string") {
 		return `task ${details.taskId} · background`;
@@ -312,41 +310,26 @@ async function runForeground(
 
 				settled = true;
 				cleanup();
+				// A very short command can finish between the promotion and this message, so report
+				// what the task actually reached instead of claiming it is still running.
 				const currentTask = tasks.get(task.id) ?? task;
-				if (currentTask.status !== "running") {
-					const snapshotOutput = sink.finish();
-					const message =
-						`Command completed while transitioning to background task ${task.id} (status: ${currentTask.status}).\n\n` +
-						`Output:\n${snapshotOutput.output}`;
-					resolve(
-						result(message, {
-							taskId: task.id,
-							type: task.type,
-							status: currentTask.status,
-							autoAsyncTransition: true,
-							elapsedSeconds: autoAsyncSeconds,
-							purpose: task.purpose,
-							outputPreview: snapshotOutput.output,
-							truncated: snapshotOutput.truncated,
-						}),
-					);
-					return;
-				}
-
-				const snapshotOutput = sink.snapshot();
-				const message =
-					`Command has been running for ${autoAsyncSeconds}s without an explicit timeout.\n` +
-					`To avoid blocking the session, it was transitioned to background task ${task.id}.\n\n` +
-					`Output preview so far:\n${snapshotOutput.output}\n\n` +
-					`The command is STILL RUNNING in the background. Its result will be added to the context when finished.\n` +
-					`- To wait for it now: wait_tasks({ ids: ["${task.id}"] })\n` +
-					`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
+				const finished = currentTask.status !== "running";
+				const snapshotOutput = finished ? sink.finish() : sink.snapshot();
+				const message = finished
+					? `Command completed while transitioning to background task ${task.id} (status: ${currentTask.status}).\n\n` +
+						`Output:\n${snapshotOutput.output}`
+					: `Command has been running for ${autoAsyncSeconds}s without an explicit timeout.\n` +
+						`To avoid blocking the session, it was transitioned to background task ${task.id}.\n\n` +
+						`Output preview so far:\n${snapshotOutput.output}\n\n` +
+						`The command is STILL RUNNING in the background. Its result will be added to the context when finished.\n` +
+						`- To wait for it now: wait_tasks({ ids: ["${task.id}"] })\n` +
+						`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
 
 				resolve(
 					result(message, {
 						taskId: task.id,
 						type: task.type,
-						status: task.status,
+						status: currentTask.status,
 						autoAsyncTransition: true,
 						elapsedSeconds: autoAsyncSeconds,
 						purpose: task.purpose,
@@ -356,7 +339,6 @@ async function runForeground(
 				);
 			}, autoAsyncSeconds * 1000);
 		}
-
 		jobs.waitFor(job.id).then((finalSnapshot) => {
 			if (finalSnapshot) finishForeground(finalSnapshot);
 		});
