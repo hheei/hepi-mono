@@ -280,8 +280,9 @@ function capEvents(events: readonly GrepEvent[], limit: number, context: number)
 		lines.push(event.lineNumber);
 		matchLines.set(event.path, lines);
 	}
+	const selectedSet = new Set(selectedMatches);
 	const relevant = events.filter((event) => {
-		if (event.type === "match") return selectedMatches.includes(event);
+		if (event.type === "match") return selectedSet.has(event);
 		return (matchLines.get(event.path) ?? []).some(
 			(lineNumber) => Math.abs(lineNumber - event.lineNumber) <= context,
 		);
