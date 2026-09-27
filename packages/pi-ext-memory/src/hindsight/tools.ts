@@ -3,10 +3,10 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
-	isManagedLoadoutTool,
-	type ManagedLoadoutToolRegistration,
-	registerManagedLoadoutTool,
-	setManagedLoadoutToolsActive,
+	isManagedTool,
+	type ManagedToolRegistration,
+	registerManagedTool,
+	setManagedToolsActive,
 } from "@hheei/pi-ext-core";
 import { type HindsightGateway, KnowledgePagesUnavailableError } from "./client.js";
 import type { ResolvedHindsight } from "./config.js";
@@ -25,7 +25,6 @@ export const HINDSIGHT_TOOL_NAMES = [
 
 export type HindsightToolName = (typeof HINDSIGHT_TOOL_NAMES)[number];
 
-export const HINDSIGHT_TOOL_GROUP = "Hindsight Memory";
 export const HINDSIGHT_TOOL_OWNER = "@hheei/pi-ext-memory";
 
 /** Message returned whenever the deployment has no knowledge pages. */
@@ -88,16 +87,8 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function registration(id: HindsightToolName): ManagedLoadoutToolRegistration {
-	return {
-		id,
-		owner: HINDSIGHT_TOOL_OWNER,
-		group: HINDSIGHT_TOOL_GROUP,
-		origin: HINDSIGHT_TOOL_OWNER,
-		priority: 100,
-		conflictSets: [],
-		defaultActive: true,
-	};
+function registration(id: HindsightToolName): ManagedToolRegistration {
+	return { id, owner: HINDSIGHT_TOOL_OWNER };
 }
 
 /**
@@ -149,7 +140,7 @@ export function registerHindsightTools(
 
 	const EmptyParams = Type.Object({});
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_search_knowledge_pages"),
 		defineTool({
@@ -186,7 +177,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_list_knowledge_pages"),
 		defineTool({
@@ -217,7 +208,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_read_knowledge_page"),
 		defineTool({
@@ -242,7 +233,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_reflect"),
 		defineTool({
@@ -269,7 +260,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_capture_initiative"),
 		defineTool({
@@ -310,7 +301,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_ingest_document"),
 		defineTool({
@@ -339,7 +330,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_sync_status"),
 		defineTool({
@@ -367,7 +358,7 @@ export function registerHindsightTools(
 		}),
 	);
 
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		registration("hindsight_diagnose"),
 		defineTool({
@@ -438,7 +429,7 @@ export function registerHindsightTools(
 
 /** Whether every Hindsight tool is already registered in this Pi process. */
 export function hindsightToolsRegistered(pi: ExtensionAPI): boolean {
-	return HINDSIGHT_TOOL_NAMES.every((id) => isManagedLoadoutTool(pi, id));
+	return HINDSIGHT_TOOL_NAMES.every((id) => isManagedTool(pi, id));
 }
 
 /**
@@ -449,7 +440,7 @@ export function hindsightToolsRegistered(pi: ExtensionAPI): boolean {
  */
 export function setHindsightToolsActive(context: ExtensionLifecycleContext, active: boolean): void {
 	if (!hindsightToolsRegistered(context.pi)) return;
-	setManagedLoadoutToolsActive(
+	setManagedToolsActive(
 		context,
 		HINDSIGHT_TOOL_NAMES.map((id) => registration(id)),
 		active,

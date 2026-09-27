@@ -36,7 +36,7 @@ const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
 const WRITE_VIEW_KEY = "__piExtToolsWriteView";
 const NEW_FILE_PREVIEW_LINES = 20;
 const EXPAND_HINT = "ctrl+o to expand";
-export const WRITE_TOOL_REGISTRATION = createCanonicalToolRegistration("write", ["apply_patch"]);
+export const WRITE_TOOL_REGISTRATION = createCanonicalToolRegistration("write");
 
 const WRITE_PARAMETERS = Type.Object(
 	{

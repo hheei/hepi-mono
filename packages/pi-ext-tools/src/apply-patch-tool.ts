@@ -7,7 +7,7 @@ import type {
 import {
 	createToolTui,
 	defaultExtensionSettingsPaths,
-	type ManagedLoadoutToolRegistration,
+	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
@@ -60,15 +60,9 @@ const RECOVERY_INVALID_PATCH =
 const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
 const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
 
-export const APPLY_PATCH_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {
+export const APPLY_PATCH_TOOL_REGISTRATION: ManagedToolRegistration = {
 	id: "apply_patch",
 	owner: OWNER,
-	group: "Built-in",
-	origin: OWNER,
-	priority: 100,
-	conflictSets: [],
-	conflictsWith: ["edit", "write"],
-	defaultActive: true,
 };
 
 export const APPLY_PATCH_PARAMETERS = Type.Object(

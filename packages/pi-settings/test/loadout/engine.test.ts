@@ -1,14 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
-import {
-	type ExtensionSettingsPaths,
-	getDisabledSkillKeys,
-	observeLoadoutToolActivation,
-	registerLoadoutResource,
-	registerManagedLoadoutTool,
-} from "@hheei/pi-ext-core";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ExtensionSettingsPaths, getDisabledSkillKeys } from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test } from "vitest";
 import { createLoadoutEngine } from "../../src/loadout/engine.js";
 import {
@@ -30,27 +24,25 @@ async function paths(): Promise<ExtensionSettingsPaths> {
 	return { globalPath: join(root, "global.json"), projectPath: join(root, "project.json") };
 }
 
-function host(): { readonly pi: ExtensionAPI; readonly activeSets: string[][] } {
+function host(): {
+	readonly pi: ExtensionAPI;
+	readonly activeSets: string[][];
+	readonly commands: Array<{ readonly name: string; readonly source: string }>;
+} {
 	const activeSets: string[][] = [];
-	const tools: ToolInfo[] = [
-		{ name: "find", sourceInfo: { source: "builtin" } },
-		{ name: "custom", sourceInfo: { source: "extension" } },
-		{ name: "third_party", sourceInfo: { source: "third-party" } },
-	] as ToolInfo[];
+	const commands = [
+		{ name: "skill:format", source: "skill" },
+		{ name: "skill:review", source: "skill" },
+	];
 	const pi = {
 		events: {},
-		getAllTools: () => tools,
-		getActiveTools: () => ["find", "third_party"],
-		getCommands: () => [
-			{ name: "skill:format", source: "skill" },
-			{ name: "skill:review", source: "skill" },
-		],
-		registerTool: () => undefined,
+		getActiveTools: () => ["read", "bash"],
+		getCommands: () => [...commands],
 		setActiveTools(names: string[]) {
 			activeSets.push(names);
 		},
 	} as unknown as ExtensionAPI;
-	return { pi, activeSets };
+	return { pi, activeSets, commands };
 }
 
 async function expectRejected(operation: () => Promise<void>, message: string): Promise<void> {
@@ -64,140 +56,81 @@ async function expectRejected(operation: () => Promise<void>, message: string): 
 }
 
 describe("headless Loadout engine", () => {
-	test("resolves scoped deltas, preserves observed defaults, and clears on disposal", async () => {
+	test("publishes disabled skills and never changes Pi's active tools", async () => {
 		const h = host();
 		const settings = await paths();
 		await writeFile(
 			settings.globalPath,
-			JSON.stringify({ loadout: { disabled: ["tool:find", "skill:format"] } }),
+			JSON.stringify({ loadout: { disabled: ["skill:format", "tool:find"] } }),
 		);
-		await writeFile(
-			settings.projectPath,
-			JSON.stringify({ loadout: { enabled: ["tool:custom"] } }),
-		);
-		registerManagedLoadoutTool(
-			h.pi,
-			{
-				id: "custom",
-				owner: "@hheei/pi-settings-test",
-				group: "HEPI",
-				priority: 1,
-				conflictSets: [],
-				defaultActive: false,
-			},
-			{ name: "custom" } as never,
-		);
-		const activeSnapshots: string[] = [];
-		const activationController = new AbortController();
-		observeLoadoutToolActivation(h.pi, {
-			signal: activationController.signal,
-			onChange(snapshot) {
-				activeSnapshots.push(
-					snapshot === undefined ? "none" : [...snapshot.activeIds].sort().join(","),
-				);
-			},
-		});
 		const engine = createLoadoutEngine(h.pi, { paths: settings });
 		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
-		expect(h.activeSets.at(-1)).toEqual(["custom", "third_party"]);
-		expect(activeSnapshots).toEqual(["none", "custom,third_party"]);
+
 		expect([...getDisabledSkillKeys(h.pi)]).toEqual(["skill:format"]);
+		// Tools are owned by their contributors: a legacy `tool:` key is inert.
+		expect(h.activeSets).toEqual([]);
 		engine.dispose();
-		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
-		expect(activeSnapshots).toEqual(["none", "custom,third_party", "none"]);
 		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
-		activationController.abort();
 	});
 
-	test("rolls back a failed first inventory apply so the engine can retry", async () => {
+	test("reload republishes skill state from the persisted layers", async () => {
 		const h = host();
 		const settings = await paths();
-		await writeFile(settings.globalPath, JSON.stringify({ loadout: { disabled: ["tool:find"] } }));
-		let failFirstSet = true;
-		const setActiveTools = h.pi.setActiveTools.bind(h.pi);
-		(h.pi as { setActiveTools(names: string[]): void }).setActiveTools = (names): void => {
-			setActiveTools(names);
-			if (!failFirstSet) return;
-			failFirstSet = false;
-			throw new Error("setActiveTools failed");
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
+
+		await writeFile(
+			settings.globalPath,
+			JSON.stringify({ loadout: { disabled: ["skill:review"] } }),
+		);
+		await engine.reload();
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual(["skill:review"]);
+
+		await writeFile(settings.globalPath, JSON.stringify({}));
+		await engine.reload();
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
+		expect(h.activeSets).toEqual([]);
+		engine.dispose();
+	});
+
+	test("rolls back a failed first apply so the engine can retry", async () => {
+		const h = host();
+		const settings = await paths();
+		await writeFile(
+			settings.globalPath,
+			JSON.stringify({ loadout: { disabled: ["skill:format"] } }),
+		);
+		let failFirstRead = true;
+		(h.pi as { getCommands(): unknown }).getCommands = () => {
+			if (!failFirstRead) return [...h.commands];
+			failFirstRead = false;
+			throw new Error("getCommands failed");
 		};
 		const engine = createLoadoutEngine(h.pi, { paths: settings });
-		const failedStart = new AbortController();
 		await expectRejected(
-			() => engine.start({ cwd: process.cwd() } as ExtensionContext, failedStart.signal),
-			"setActiveTools failed",
+			() => engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal),
+			"getCommands failed",
 		);
-		failedStart.abort();
-		expect(h.activeSets.slice(-2)).toEqual([["third_party"], ["find", "third_party"]]);
 		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
-		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
-		expect(h.activeSets.at(-1)).toEqual(["third_party"]);
-		engine.dispose();
-	});
-
-	test("publishes agent resource activation without adding it to host tools", async () => {
-		const h = host();
-		const settings = await paths();
-		await writeFile(
-			settings.globalPath,
-			JSON.stringify({ loadout: { disabled: ["agent:Explore"] } }),
-		);
-		const dispose = registerLoadoutResource(h.pi, {
-			id: "agent:Explore",
-			kind: "agent",
-			group: "𖠌 Agents",
-			priority: 0,
-			conflictSets: [],
-			defaultActive: true,
-			label: "Explore",
-			description: "Read-only explorer.",
-			summary: "○ inherit",
-			projectPrivate: false,
-			owner: "test-agent",
-		});
-		const snapshots: Array<{
-			readonly known: readonly string[];
-			readonly active: readonly string[];
-		}> = [];
-		const controller = new AbortController();
-		observeLoadoutToolActivation(h.pi, {
-			signal: controller.signal,
-			onChange(snapshot) {
-				if (snapshot === undefined) return;
-				snapshots.push({
-					known: [...snapshot.knownIds].sort(),
-					active: [...snapshot.activeIds].sort(),
-				});
-			},
-		});
-		const engine = createLoadoutEngine(h.pi, { paths: settings });
-		await engine.start({ cwd: process.cwd() } as ExtensionContext, controller.signal);
-		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
-		expect(snapshots.at(-1)).toEqual({
-			known: ["agent:Explore", "custom", "find", "third_party"],
-			active: ["find", "third_party"],
-		});
-		engine.dispose();
-		dispose();
-	});
-
-	test("restores host even when an observer fails and remains idempotent", async () => {
-		const h = host();
-		const settings = await paths();
-		const controller = new AbortController();
-		let notifications = 0;
-		observeLoadoutToolActivation(h.pi, {
-			signal: controller.signal,
-			onChange(_snapshot) {
-				if (++notifications === 3) throw new Error("observer failed");
-			},
-		});
-		const engine = createLoadoutEngine(h.pi, { paths: settings });
-		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
-		expect(() => engine.dispose()).not.toThrow();
-		expect(h.activeSets.at(-1)).toEqual(["find", "third_party"]);
 		expect(engine.snapshot()).toBeUndefined();
-		controller.abort();
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual(["skill:format"]);
+		engine.dispose();
+	});
+
+	test("rejects a second start, a reload while inactive, and stays idempotent on disposal", async () => {
+		const h = host();
+		const settings = await paths();
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		await expectRejected(() => engine.reload(), "Loadout engine is not active");
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		await expectRejected(
+			() => engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal),
+			"Loadout engine is already active",
+		);
+		expect(engine.snapshot()).toBeDefined();
+		engine.dispose();
 		engine.dispose();
 		expect(engine.snapshot()).toBeUndefined();
 	});
@@ -211,36 +144,36 @@ describe("headless Loadout engine", () => {
 		await writeFile(
 			settings.globalPath,
 			JSON.stringify({
-				loadout: { enabled: ["tool:find"], disabled: ["tool:grep"] },
+				loadout: { enabled: ["skill:format"], disabled: ["agent:Explore"] },
 			}),
 		);
 		await writeFile(
 			settings.projectPath,
 			JSON.stringify({
-				loadout: { enabled: ["tool:find"], disabled: ["tool:find"] },
+				loadout: { enabled: ["skill:format"], disabled: ["skill:format"] },
 			}),
 		);
 		await update("project", [
-			{ key: "tool:find", selection: "inherit", defaultActive: true },
+			{ key: "skill:format", selection: "inherit", defaultActive: true },
 			{
-				key: "tool:private",
+				key: "agent:private",
 				selection: "disabled",
 				defaultActive: true,
 				projectPrivate: true,
 			},
 		]);
-		await update("global", [{ key: "tool:find", selection: "enabled", defaultActive: true }]);
+		await update("global", [{ key: "skill:format", selection: "enabled", defaultActive: true }]);
 		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
-			loadout: { disabled: ["tool:grep"] },
+			loadout: { disabled: ["agent:Explore"] },
 		});
 		expect(JSON.parse(await readFile(settings.projectPath, "utf8"))).toEqual({
-			loadout: { disabled: ["tool:private"] },
+			loadout: { disabled: ["agent:private"] },
 		});
 		await expectRejected(
 			() =>
 				update("project", [
 					{
-						key: "tool:private",
+						key: "agent:private",
 						selection: "inherit",
 						defaultActive: true,
 						projectPrivate: true,
@@ -250,13 +183,17 @@ describe("headless Loadout engine", () => {
 		);
 		await expectRejected(
 			() => update("global", [{ key: "find", selection: "enabled", defaultActive: true }]),
-			"Expected canonical tool:<name> or skill:<name> key",
+			"Expected canonical skill:<name> or agent:<name> key",
+		);
+		await expectRejected(
+			() => update("global", [{ key: "tool:find", selection: "enabled", defaultActive: true }]),
+			"Expected canonical skill:<name> or agent:<name> key",
 		);
 		await expectRejected(
 			() =>
 				update("global", [
 					{
-						key: "tool:private",
+						key: "agent:private",
 						selection: "enabled",
 						defaultActive: false,
 						projectPrivate: true,
@@ -266,12 +203,32 @@ describe("headless Loadout engine", () => {
 		);
 		await update("project", [
 			{
-				key: "tool:private",
+				key: "agent:private",
 				selection: "enabled",
 				defaultActive: true,
 				projectPrivate: true,
 			},
 		]);
 		expect(JSON.parse(await readFile(settings.projectPath, "utf8"))).toEqual({});
+	});
+
+	test("keeps legacy tool keys in the file while ignoring them", async () => {
+		const h = host();
+		const settings = await paths();
+		await writeFile(settings.globalPath, JSON.stringify({ loadout: { disabled: ["tool:read"] } }));
+		const engine = createLoadoutEngine(h.pi, { paths: settings });
+		await engine.start({ cwd: process.cwd() } as ExtensionContext, new AbortController().signal);
+		expect([...getDisabledSkillKeys(h.pi)]).toEqual([]);
+
+		await updateLoadoutSelections({
+			cwd: process.cwd(),
+			paths: settings,
+			scope: "global",
+			selections: [{ key: "skill:review", selection: "disabled", defaultActive: true }],
+		});
+		expect(JSON.parse(await readFile(settings.globalPath, "utf8"))).toEqual({
+			loadout: { disabled: ["skill:review", "tool:read"] },
+		});
+		engine.dispose();
 	});
 });

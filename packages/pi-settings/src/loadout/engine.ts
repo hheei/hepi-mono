@@ -1,24 +1,11 @@
-import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	clearDisabledSkillKeys,
-	clearLoadoutToolActivation,
 	defaultExtensionSettingsPaths,
 	type ExtensionSettingsPaths,
-	isManagedLoadoutTool,
-	type LoadoutInventoryItem,
-	type LoadoutResourceMetadata,
-	type LoadoutToolMetadata,
-	observeLoadoutInventory,
-	publishLoadoutToolActivation,
 	setDisabledSkillKeys,
 } from "@hheei/pi-ext-core";
-import {
-	disabledSkillKeys,
-	type LoadoutConfiguration,
-	resolveActiveToolNames,
-	resolveLoadoutState,
-	type ToolPolicy,
-} from "./model.js";
+import { disabledSkillKeys, type LoadoutConfiguration } from "./model.js";
 import { loadLoadoutConfiguration } from "./storage.js";
 
 interface SkillCommand {
@@ -32,28 +19,23 @@ export interface LoadoutEngineOptions {
 }
 
 /**
- * Headless session policy owner. Core reports inventory and transports the resolved
- * activation snapshot; this engine owns configuration loading, conflict resolution,
- * skill filtering, and restoration of Pi's initial active-tool baseline.
+ * Headless session policy owner for Loadout resources. Loadout manages skills and
+ * agent profiles, never tools: the active tool set belongs to each tool owner, so
+ * this engine never calls `setActiveTools`.
  */
 export interface LoadoutEngine {
-	/** Loads fresh configuration, then begins observing core inventory immediately. */
+	/** Loads fresh configuration, then publishes the resolved disabled-skill set. */
 	start(context: ExtensionContext, signal: AbortSignal): Promise<void>;
-	/** Idempotently restores host activation and clears core-owned snapshots. */
+	/** Re-reads configuration and republishes skill state after a persisted UI change. */
+	reload(): Promise<void>;
+	/** Idempotently clears the published skill state. */
 	dispose(): void;
-	/** Returns this session's immutable baseline and loaded delta layers for its Settings page. */
+	/** Returns this session's loaded delta layers for its Settings page. */
 	snapshot(): LoadoutEngineSnapshot | undefined;
 }
 
 export interface LoadoutEngineSnapshot {
 	readonly configuration: LoadoutConfiguration;
-	readonly initialActiveToolNames: readonly string[];
-}
-
-function toolNames(tools: readonly ToolInfo[]): readonly string[] {
-	return [...new Set(tools.map((tool) => tool.name))].sort((left, right) =>
-		left.localeCompare(right),
-	);
 }
 
 function skillNames(pi: ExtensionAPI): readonly string[] {
@@ -67,103 +49,45 @@ function skillNames(pi: ExtensionAPI): readonly string[] {
 	].sort((left, right) => left.localeCompare(right));
 }
 
-function isResourceMetadata(item: LoadoutInventoryItem): item is LoadoutResourceMetadata {
-	return "kind" in item;
-}
-
-/** Projects Pi tools and core inventory into the policy inputs shared by engine and Settings page. */
-export function loadoutToolPolicies(
-	tools: readonly ToolInfo[],
-	initialActive: ReadonlySet<string>,
-	metadata: readonly LoadoutToolMetadata[],
-): readonly ToolPolicy[] {
-	const metadataById = new Map(metadata.map((item) => [item.id, item]));
-	return toolNames(tools).map((name) => {
-		const declaration = metadataById.get(name);
-		return {
-			name,
-			defaultActive: declaration?.defaultActive ?? initialActive.has(name),
-			priority: declaration?.priority ?? Number.MAX_SAFE_INTEGER,
-			conflictSets: declaration?.conflictSets ?? [],
-			conflictsWith: declaration?.conflictsWith ?? [],
-			...(declaration?.forcedActive === true ? { forcedActive: true } : {}),
-		};
-	});
-}
-
-/** Applies one session's Loadout policy; core owns registrations while this engine owns activation. */
+/** Owns the persisted skill delta and nothing else about Pi's runtime. */
 export function createLoadoutEngine(
 	pi: ExtensionAPI,
 	options: LoadoutEngineOptions = {},
 ): LoadoutEngine {
-	let initialActive: readonly string[] = [];
+	let cwd: string | undefined;
+	let signal: AbortSignal | undefined;
 	let configuration: LoadoutConfiguration | undefined;
 	let active = false;
 
-	const apply = (metadata: readonly LoadoutInventoryItem[]): void => {
-		const resolvedConfiguration = configuration;
-		if (!active || resolvedConfiguration === undefined) return;
-		const tools = pi.getAllTools();
-		const toolMetadata = metadata.filter(
-			(item): item is LoadoutToolMetadata => !isResourceMetadata(item),
-		);
-		const visibleTools = tools.filter(
-			(tool) =>
-				!isManagedLoadoutTool(pi, tool.name) ||
-				toolMetadata.some((metadata) => metadata.id === tool.name),
-		);
-		const resources = metadata.filter(isResourceMetadata);
-		const policies = loadoutToolPolicies(visibleTools, new Set(initialActive), toolMetadata);
-		const visiblePolicyNames = new Set(policies.map((tool) => tool.name));
-		const preserved = initialActive.filter(
-			(name) => !visiblePolicyNames.has(name) && !isManagedLoadoutTool(pi, name),
-		);
-		const selected = resolveActiveToolNames(policies, resolvedConfiguration);
-		pi.setActiveTools([...new Set([...preserved, ...selected])]);
-		const activeResources = resources
-			.filter(
-				(resource) =>
-					resource.forcedActive ||
-					resolveLoadoutState(resource.id, resource.defaultActive, resolvedConfiguration).enabled,
-			)
-			.map((resource) => resource.id);
-		publishLoadoutToolActivation(pi, {
-			knownIds: new Set([
-				...policies.map((tool) => tool.name),
-				...resources.map((item) => item.id),
-			]),
-			activeIds: new Set([...selected, ...activeResources]),
-		});
-		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), resolvedConfiguration));
+	const apply = (): void => {
+		const resolved = configuration;
+		if (!active || resolved === undefined) return;
+		setDisabledSkillKeys(pi, disabledSkillKeys(skillNames(pi), resolved));
 	};
+
 	const dispose = (): void => {
 		if (!active) return;
-		// Restore host first. Failed restoration must leave policy state intact for retry.
-		pi.setActiveTools([...initialActive]);
 		clearDisabledSkillKeys(pi);
-		clearLoadoutToolActivation(pi);
 		active = false;
 		configuration = undefined;
-		initialActive = [];
+		cwd = undefined;
+		signal = undefined;
 	};
 
 	return {
-		async start(context, signal): Promise<void> {
-			// Capture Pi's baseline before policy takes effect. Unmanaged tools retain
-			// that baseline, so installing Loadout does not silently disable host tools.
+		async start(context, sessionSignal): Promise<void> {
 			if (active) throw new Error("Loadout engine is already active");
 			const paths = options.paths ?? defaultExtensionSettingsPaths(context.cwd);
+			configuration = await loadLoadoutConfiguration(context.cwd, sessionSignal, paths);
+			sessionSignal.throwIfAborted();
+			cwd = context.cwd;
+			signal = sessionSignal;
+			active = true;
 			try {
-				configuration = await loadLoadoutConfiguration(context.cwd, signal, paths);
-				signal.throwIfAborted();
-				initialActive = [...pi.getActiveTools()];
-				active = true;
-				observeLoadoutInventory(pi, { signal, onChange: apply });
+				apply();
 			} catch (error) {
 				// The lifecycle registers this engine's disposer only after start resolves.
-				// Roll back locally so a synchronous first inventory delivery cannot leave
-				// Pi activation or core capability state half-published.
-				if (!active) throw error;
+				// Roll back locally so a failed first publish cannot leave skill state applied.
 				try {
 					dispose();
 				} catch (rollbackError) {
@@ -173,6 +97,19 @@ export function createLoadoutEngine(
 				}
 				throw error;
 			}
+		},
+		async reload(): Promise<void> {
+			const resolvedCwd = cwd;
+			const sessionSignal = signal;
+			if (!active || resolvedCwd === undefined || sessionSignal === undefined)
+				throw new Error("Loadout engine is not active");
+			sessionSignal.throwIfAborted();
+			configuration = await loadLoadoutConfiguration(
+				resolvedCwd,
+				sessionSignal,
+				options.paths ?? defaultExtensionSettingsPaths(resolvedCwd),
+			);
+			apply();
 		},
 		dispose,
 		snapshot(): LoadoutEngineSnapshot | undefined {
@@ -188,7 +125,6 @@ export function createLoadoutEngine(
 						enabled: [...configuration.project.enabled],
 					},
 				},
-				initialActiveToolNames: [...initialActive],
 			};
 		},
 	};

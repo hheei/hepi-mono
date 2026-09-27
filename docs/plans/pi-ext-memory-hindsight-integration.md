@@ -325,7 +325,7 @@ pnpm exec vitest run packages/pi-ext-memory/test/hindsight/
 ### 7.1 实作阶段确认的关键契约修正
 
 1. **`agent_end` 携带的是单次 run 的增量消息，不是全量 transcript**（`agent-loop.js` 的 `newMessages`）。写回因此改为“每轮增量 + 内容派生 operationId”，不再需要跨会话的游标/前缀比对；服务器按 `operationId` 折叠重复提交，客户端侧对完全相同的重复批次直接丢弃。
-2. **Pi 拒绝同一 runner 重复注册同名托管工具**。因此 8 个工具在进程内**只注册一次**（首个启用会话），后续会话通过 `setManagedLoadoutToolsActive` 切换激活状态；工具通过 getter 读取当前会话状态，避免重载后指向已销毁的会话。
+2. **Pi 拒绝同一 runner 重复注册同名托管工具**。因此 8 个工具在进程内**只注册一次**（首个启用会话），后续会话通过 `setManagedToolsActive` 切换激活状态（原 `setManagedLoadoutToolsActive`，随 Loadout 退出工具面而更名，见 `docs/plans/loadout-tool-policy-removal.md`）；工具通过 getter 读取当前会话状态，避免重载后指向已销毁的会话。
 3. **`autoReflect` 更名为 `autoRecall`**：每轮自动执行的是**知识页检索（单次 HTTP，15s 超时）**而非 `reflect` 合成。`reflect` 是秒级 agentic 调用，若默认每轮阻塞执行会严重拖慢交互，因此保留为模型显式调用的工具。这是对原计划字段名的语义澄清。
 4. **Hindsight 配置不进入扁平 `Config`/`DEFAULTS`**：由 `loadHindsightConfig` 独立加载，`enabled !== true` 时在读取任何 Hindsight 专属文件前返回。`package.json` 新增 `@vectorize-io/hindsight-client` 依赖，但通过动态 `import()` 装载，禁用时 SDK 不会被加载。
 5. **共享 Bank 的标签隔离是软过滤**：`reflect` 使用 `tagsMatch: "any"`（命中标签或未打标签），且 SDK 的 `searchKnowledgeBase` 不支持标签过滤，知识页本身是 Bank 级共享。真正的强隔离需要按仓库派生独立 Bank（省略 `bankId` 或使用 `bankIdTemplate`）。`hindsight_diagnose` 会显示当前模式，文档也明确了该边界，不做过度承诺。

@@ -1,33 +1,22 @@
-import type {
-	ExtensionAPI,
-	SlashCommandInfo,
-	Theme,
-	ToolInfo,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SlashCommandInfo, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
 	type ExtensionSettingsPaths,
-	isManagedLoadoutTool,
-	type LoadoutInventoryItem,
 	type LoadoutResourceDetail,
 	type LoadoutResourceDetailContext,
 	type LoadoutResourceMetadata,
-	type LoadoutToolMetadata,
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
-import { type LoadoutEngine, loadoutToolPolicies } from "./engine.js";
+import type { LoadoutEngine } from "./engine.js";
 import {
 	type LoadoutConfiguration,
 	type LoadoutDelta,
 	type LoadoutScope,
 	type LoadoutSelection,
-	resolveActiveToolNames,
 	resolveLoadoutState,
 	skillConfigurationKey,
-	toolConfigurationKey,
-	toolsConflict,
 } from "./model.js";
 import { applyLoadoutSelection, updateLoadoutSelections } from "./storage.js";
 
@@ -42,14 +31,13 @@ interface ResourceItem {
 	readonly name: string;
 	readonly kind: string;
 	readonly description: string;
-	readonly displayGroup: string;
+	/** Right-hand metadata column: the resource's own summary, or a live detail override. */
+	readonly summary: string;
 	readonly origin: string;
 	readonly defaultActive: boolean;
 	readonly projectPrivate: boolean;
 	readonly enabled: boolean;
-	readonly forcedActive: boolean;
 	readonly detail?: LoadoutResourceDetail;
-	readonly lockedBy?: string;
 }
 
 interface DraftSelection {
@@ -94,13 +82,8 @@ function cloneConfiguration(configuration: LoadoutConfiguration): LoadoutConfigu
 function sourceLabel(source: string): string {
 	if (source === "builtin") return "Built-in";
 	if (source === "extension") return "Extension";
+	if (source === "skill") return "Pi skill";
 	return "Third-party";
-}
-
-function toolOrigin(tool: ToolInfo, metadata: LoadoutToolMetadata | undefined): string {
-	if (metadata?.origin !== undefined) return metadata.origin;
-	if (tool.sourceInfo.source === "builtin") return "Pi built-in";
-	return tool.sourceInfo.path || sourceLabel(tool.sourceInfo.source);
 }
 
 function scopeLabel(scope: LoadoutScope, cwd: string): string {
@@ -110,11 +93,10 @@ function scopeLabel(scope: LoadoutScope, cwd: string): string {
 }
 
 function rawSelection(
-	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate" | "forcedActive">,
+	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate">,
 	scope: LoadoutScope,
 	configuration: LoadoutConfiguration,
 ): LoadoutSelection {
-	if (item.forcedActive) return "enabled";
 	const delta = configuration[scope];
 	if (delta.disabled.includes(item.key)) return "disabled";
 	if (delta.enabled.includes(item.key)) return "enabled";
@@ -123,7 +105,7 @@ function rawSelection(
 }
 
 function nextSelection(
-	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate" | "forcedActive">,
+	item: Pick<ResourceItem, "key" | "defaultActive" | "projectPrivate">,
 	scope: LoadoutScope,
 	configuration: LoadoutConfiguration,
 ): LoadoutSelection {
@@ -152,7 +134,7 @@ function pad(value: string, width: number): string {
 /**
  * One glyph per raw Loadout selection: `●` explicitly enabled, `○` explicitly
  * disabled, `◌` inherited (no local decision; the effective state follows the
- * default / the other scope). `⊘` is reserved for conflict-locked rows.
+ * default / the other scope).
  */
 function selectionGlyph(selection: LoadoutSelection): string {
 	return selection === "enabled" ? "●" : selection === "disabled" ? "○" : "◌";
@@ -214,42 +196,6 @@ function scrollbar(total: number, top: number, theme: Theme): readonly string[] 
 	});
 }
 
-function toolItem(
-	tool: ToolInfo,
-	metadata: LoadoutToolMetadata | undefined,
-	initialActive: ReadonlySet<string>,
-	configuration: LoadoutConfiguration,
-	activeToolNames: ReadonlySet<string>,
-	allPolicies: ReturnType<typeof loadoutToolPolicies>,
-): ResourceItem {
-	const defaultActive = metadata?.defaultActive ?? initialActive.has(tool.name);
-	const key = toolConfigurationKey(tool.name);
-	const state = resolveLoadoutState(key, defaultActive, configuration);
-	const policy = allPolicies.find((candidate) => candidate.name === tool.name);
-	const lockedBy =
-		state.enabled && !activeToolNames.has(tool.name)
-			? allPolicies.find(
-					(candidate) =>
-						activeToolNames.has(candidate.name) &&
-						policy !== undefined &&
-						toolsConflict(candidate, policy),
-				)?.name
-			: undefined;
-	return {
-		key,
-		name: tool.name,
-		kind: "tool",
-		description: tool.description,
-		displayGroup: metadata?.group ?? sourceLabel(tool.sourceInfo.source),
-		origin: toolOrigin(tool, metadata),
-		defaultActive,
-		projectPrivate: tool.sourceInfo.scope === "project",
-		enabled: state.enabled && lockedBy === undefined,
-		forcedActive: metadata?.forcedActive === true,
-		...(lockedBy === undefined ? {} : { lockedBy }),
-	};
-}
-
 function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration): ResourceItem {
 	const key = skillConfigurationKey(skill.name);
 	const state = resolveLoadoutState(key, true, configuration);
@@ -258,12 +204,11 @@ function skillItem(skill: SlashCommandInfo, configuration: LoadoutConfiguration)
 		name: skill.name.replace(/^skill:/u, ""),
 		kind: "skill",
 		description: skill.description ?? "Skill prompt available to the current Pi session.",
-		displayGroup: "",
+		summary: "",
 		origin: sourceLabel(skill.sourceInfo.source),
 		defaultActive: true,
 		projectPrivate: skill.sourceInfo.scope === "project",
 		enabled: state.enabled,
-		forcedActive: false,
 	};
 }
 
@@ -277,12 +222,11 @@ function resourceItem(
 		name: resource.label,
 		kind: resource.kind,
 		description: resource.description,
-		displayGroup: resource.detail?.summary?.() ?? resource.summary,
+		summary: resource.detail?.summary?.() ?? resource.summary,
 		origin: resource.owner,
 		defaultActive: resource.defaultActive,
 		projectPrivate: resource.projectPrivate,
 		enabled: state.enabled,
-		forcedActive: resource.forcedActive === true,
 		...(resource.detail === undefined ? {} : { detail: resource.detail }),
 	};
 }
@@ -299,52 +243,30 @@ export function createLoadoutPage(
 	let theme = context.theme;
 	let scope: LoadoutScope = "global";
 	let configuration = cloneConfiguration(snapshot.configuration);
-	let metadata: readonly LoadoutInventoryItem[] = [];
+	let metadata: readonly LoadoutResourceMetadata[] = [];
 	let search = "";
 	let selected = 0;
 	let scrollTop = 0;
-	let changed = false;
 	let closed = false;
 	let detailKey: string | undefined;
 	const detailContext: LoadoutResourceDetailContext = {
 		openEditor: context.openEditor,
 	};
 	const drafts = new Map<LoadoutScope, Map<string, DraftSelection>>();
-	const initialActive = new Set(snapshot.initialActiveToolNames);
 
 	observeLoadoutInventory(pi, {
 		signal: context.signal,
 		onChange(items) {
 			metadata = items;
-			if (detailKey !== undefined && !items.some((item) => "kind" in item && item.id === detailKey))
+			if (detailKey !== undefined && !items.some((item) => item.id === detailKey))
 				detailKey = undefined;
 			context.requestRender();
 		},
 	});
 
 	const resources = (): readonly ResourceItem[] => {
-		const tools = pi.getAllTools();
-		const toolMetadata = metadata.filter((item): item is LoadoutToolMetadata => !("kind" in item));
-		const toolMetadataById = new Map(toolMetadata.map((item) => [item.id, item]));
-		const visibleTools = tools.filter(
-			(tool) => !isManagedLoadoutTool(pi, tool.name) || toolMetadataById.has(tool.name),
-		);
-		const policies = loadoutToolPolicies(visibleTools, initialActive, toolMetadata);
-		const active = new Set(resolveActiveToolNames(policies, configuration));
 		const items = [
-			...visibleTools.map((tool) =>
-				toolItem(
-					tool,
-					toolMetadataById.get(tool.name),
-					initialActive,
-					configuration,
-					active,
-					policies,
-				),
-			),
-			...metadata
-				.filter((item): item is LoadoutResourceMetadata => "kind" in item)
-				.map((item) => resourceItem(item, configuration)),
+			...metadata.map((item) => resourceItem(item, configuration)),
 			...pi
 				.getCommands()
 				.filter((command) => command.source === "skill" && command.name.startsWith("skill:"))
@@ -354,39 +276,21 @@ export function createLoadoutPage(
 		return items
 			.filter((item) => scope === "project" || !item.projectPrivate)
 			.filter(
-				(item) => !query || `${item.name} ${item.displayGroup}`.toLocaleLowerCase().includes(query),
+				(item) => !query || `${item.name} ${item.summary}`.toLocaleLowerCase().includes(query),
 			)
-			.sort((left, right) => {
-				// Preserve Tools/Skills sections, but make native resources discoverable before extensions.
-				const kindOrder =
-					(left.kind === "tool" ? 0 : left.kind === "skill" ? 1 : 2) -
-					(right.kind === "tool" ? 0 : right.kind === "skill" ? 1 : 2);
-				const builtInOrder =
-					Number(left.origin !== "Built-in") - Number(right.origin !== "Built-in");
-				return (
-					kindOrder ||
-					(left.kind !== "tool" && left.kind !== "skill"
-						? left.name.localeCompare(right.name)
-						: 0) ||
-					builtInOrder ||
-					left.displayGroup.localeCompare(right.displayGroup) ||
-					left.name.localeCompare(right.name)
-				);
-			});
+			.sort(
+				(left, right) =>
+					(left.kind === "skill" ? 0 : 1) - (right.kind === "skill" ? 0 : 1) ||
+					left.summary.localeCompare(right.summary) ||
+					left.name.localeCompare(right.name),
+			);
 	};
 
 	const entries = (): readonly ListEntry[] => {
 		const items = resources();
-		const tools = items.filter((item) => item.kind === "tool");
 		const skills = items.filter((item) => item.kind === "skill");
-		const agents = items.filter((item) => item.kind !== "tool" && item.kind !== "skill");
+		const agents = items.filter((item) => item.kind !== "skill");
 		return [
-			...(tools.length === 0
-				? []
-				: [
-						{ kind: "group" as const, label: "⚒ Tools" },
-						...tools.map((item) => ({ kind: "item" as const, item })),
-					]),
 			...(skills.length === 0
 				? []
 				: [
@@ -424,11 +328,19 @@ export function createLoadoutPage(
 			for (const selection of selections)
 				configuration = applyDraft(configuration, scope, selection);
 			drafts.delete(scope);
-			changed = true;
 		} catch (error: unknown) {
 			drafts.delete(scope);
 			context.command.ui.notify(
 				`Loadout changes were not saved: ${readableError(error)}`,
+				"warning",
+			);
+			return;
+		}
+		try {
+			await engine.reload();
+		} catch (error: unknown) {
+			context.command.ui.notify(
+				`Loadout changes were not applied: ${readableError(error)}`,
 				"warning",
 			);
 		}
@@ -440,7 +352,7 @@ export function createLoadoutPage(
 	};
 	const toggle = (): void => {
 		const item = selectedItem();
-		if (item === undefined || item.lockedBy !== undefined || item.forcedActive) return;
+		if (item === undefined) return;
 		const selection = nextSelection(item, scope, configuration);
 		const draft: DraftSelection = {
 			key: item.key,
@@ -496,7 +408,7 @@ export function createLoadoutPage(
 				// Keep both columns stable while scrolling, without using spare width to push groups right.
 				const widestName = Math.max(8, ...items.map((item) => visibleWidth(item.name)));
 				const nameWidth = Math.min(widestName, Math.max(8, Math.floor(listWidth * 0.55)));
-				const groupWidth = Math.max(1, listWidth - nameWidth - 5);
+				const summaryWidth = Math.max(1, listWidth - nameWidth - 5);
 				const visibleEntries = allEntries.slice(scrollTop, scrollTop + VISIBLE_ROWS);
 				const list = [
 					theme.fg("muted", truncateToWidth(scopeLabel(scope, context.command.cwd), listWidth)),
@@ -505,10 +417,7 @@ export function createLoadoutPage(
 					...visibleEntries.map((entry) => {
 						if (entry.kind === "group") return theme.bold(truncateToWidth(entry.label, listWidth));
 						const item = entry.item;
-						const status =
-							item.lockedBy !== undefined
-								? "⊘"
-								: selectionGlyph(rawSelection(item, scope, configuration));
+						const status = selectionGlyph(rawSelection(item, scope, configuration));
 						const selectedRow = item.key === selectedItem()?.key;
 						// Only explicitly enabled rows advertise the Enter shortcut:
 						// an inherited or disabled row has no edit path, and the
@@ -518,13 +427,8 @@ export function createLoadoutPage(
 							item.detail === undefined || rawSelection(item, scope, configuration) !== "enabled"
 								? ""
 								: theme.fg("dim", " ↵");
-						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.displayGroup, groupWidth)}${detailHint}`;
-						const styled =
-							item.lockedBy !== undefined
-								? theme.fg("dim", plain)
-								: selectedRow
-									? theme.fg("accent", theme.bold(plain))
-									: plain;
+						const plain = `${selectedRow ? "→" : " "} ${status} ${pad(truncateToWidth(item.name, nameWidth), nameWidth)} ${truncateToWidth(item.summary, summaryWidth)}${detailHint}`;
+						const styled = selectedRow ? theme.fg("accent", theme.bold(plain)) : plain;
 						return truncateToWidth(styled, listWidth);
 					}),
 				];
@@ -568,13 +472,7 @@ export function createLoadoutPage(
 								theme.fg("muted", `Origin: ${selectedResource.origin}`),
 								theme.fg(
 									"muted",
-									`Status: ${
-										selectedResource.lockedBy === undefined
-											? selectedResource.forcedActive
-												? "● Forced active"
-												: selectionStatusLabel(rawSelection(selectedResource, scope, configuration))
-											: "⊘ Locked"
-									}`,
+									`Status: ${selectionStatusLabel(rawSelection(selectedResource, scope, configuration))}`,
 								),
 								...(activeDetail?.path === undefined
 									? []
@@ -582,14 +480,6 @@ export function createLoadoutPage(
 											theme.fg(
 												"muted",
 												`Path: ${truncateHeadPath(activeDetail.path, Math.max(0, descriptionWidth - 6))}`,
-											),
-										]),
-								...(selectedResource.lockedBy === undefined
-									? []
-									: [
-											theme.fg(
-												"dim",
-												`Locked by ${selectedResource.lockedBy}. Change its winning override first.`,
 											),
 										]),
 							];
@@ -692,7 +582,6 @@ export function createLoadoutPage(
 			for (const item of metadata) {
 				if ("detail" in item) item.detail?.flush?.();
 			}
-			if (changed) context.command.ui.notify("※ Reload to apply Loadout changes.", "info");
 		},
 	};
 }

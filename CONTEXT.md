@@ -90,7 +90,7 @@ A tool invoked from Eval Source through the kernel's injected invoke table. It r
 _Avoid_: Direct registry access, recursive eval
 
 **Eval Activation**:
-The explicit static pi-ext-tools setting that admits the Sibling Exposition's `eval` tool to a session's active catalog and Loadout. It is disabled by default and only changes after reload or a new session; it is never inferred from a model or provider. A later Code Mode Exposition uses its own opt-in setting and must not activate from model name alone.
+The explicit static pi-ext-tools setting that admits the Sibling Exposition's `eval` tool to a session's active catalog. It is disabled by default and only changes after reload or a new session; it is never inferred from a model or provider. A later Code Mode Exposition uses its own opt-in setting and must not activate from model name alone.
 _Avoid_: Automatic routing, model detection, runtime toggle
 
 **Eval Source**:

@@ -17,7 +17,7 @@ import {
 import {
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
-	registerManagedLoadoutTool,
+	registerManagedTool,
 	type ToolCompletion,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
@@ -538,16 +538,11 @@ export function registerBashTool(
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "bash",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(tool, {
 			maxBodyLines: Number.POSITIVE_INFINITY,

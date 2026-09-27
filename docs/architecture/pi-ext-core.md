@@ -3,7 +3,7 @@
 ## 状态
 
 已实现 v1：`@hheei/pi-ext-core` package、focused tests 与 lifecycle、Service、ExtensionPoint、
-JSON settings provider registry、Loadout managed-tool registration 均已建立。custom surface runtime
+JSON settings provider registry、managed tool registration 与 Loadout resource registration 均已建立。custom surface runtime
 与 Extension page router 已实现，边界见 [TUI 宿主架构](tui.md)。
 `pi-settings` host 与 Loadout router page 已由 `packages/pi-settings` 实现；
 editor rail compositor 仍属后续设计，不应与现有 Settings host 混为未实现能力。
@@ -39,13 +39,14 @@ runtime 的性能或界面。
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
 下沉到 core。
 
-已批准六个限定例外：ext-core 公开 Loadout registration contract、提供 global Extension page router 与
+已批准六个限定例外：ext-core 公开 managed tool 与 Loadout resource registration contract、提供 global Extension page router 与
 feature-neutral TUI host、拥有 root-session-scoped subagent execution contract、提供 JSON settings file
 transport 与 provider registry，并提供 slash command 的 subcommand 参数补全匹配 helper。[TUI 宿主架构](tui.md)、
 [ADR 0004](../adr/0004-core-subagent-execution.md) 与
 [ADR 0007](../adr/0007-core-json-settings-substrate.md) 分别限制 UI host、subagent execution 和 settings
-transport；[Loadout 架构](loadout.md)限制 registration 与 policy 的边界。ext-core 不接管 Loadout policy、
-page content、Settings policy、feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
+transport；[Loadout 架构](loadout.md)限制 registration 与 policy 的边界。ext-core 不接管 Loadout policy、tool
+activation policy（tool 的 active 集合归各 tool owner）、page content、Settings policy、feature-owned
+schema/content、agent/config/delivery policy 或 clipboard policy。
 
 ## Pi 集成边界
 
@@ -61,7 +62,7 @@ listener 留在进程中；stable feature key 只用于公开 contract 的身份
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-Loadout registration、custom surface runtime、Extension page router API、Subagent execution contract、Pi context usage 解析
+managed tool 与 Loadout resource registration、custom surface runtime、Extension page router API、Subagent execution contract、Pi context usage 解析
 与 subcommand 参数补全匹配。Subagent execution contract 的边界见
 [Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
 

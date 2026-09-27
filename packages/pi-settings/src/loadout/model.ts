@@ -14,7 +14,6 @@ export type LoadoutScope = "global" | "project";
 export type LoadoutSelection = "enabled" | "disabled" | "inherit";
 
 export type LoadoutPolicySource =
-	| "forced"
 	| "project-disabled"
 	| "project-enabled"
 	| "global-disabled"
@@ -26,16 +25,6 @@ export interface LoadoutResolvedState {
 	readonly source: LoadoutPolicySource;
 }
 
-/** Core inventory metadata projected into Loadout's policy model. */
-export interface ToolPolicy {
-	readonly name: string;
-	readonly defaultActive: boolean;
-	readonly priority: number;
-	readonly conflictSets: readonly string[];
-	readonly conflictsWith: readonly string[];
-	readonly forcedActive?: boolean;
-}
-
 const MAX_LOADOUT_DELTA_KEYS = 4096;
 const MAX_LOADOUT_KEY_LENGTH = 256;
 
@@ -43,21 +32,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isCanonicalLoadoutKey(value: string): boolean {
+/**
+ * Validates one persisted key. `tool:` keys stay readable as legacy input because
+ * Loadout no longer manages tools: rejecting them would make an existing settings
+ * file fail to load. `assertCanonicalLoadoutKey` rejects them at the write boundary.
+ */
+function isCanonicalLoadoutKey(value: string, allowLegacyToolKeys: boolean): boolean {
 	if (value.length > MAX_LOADOUT_KEY_LENGTH) return false;
 	const separator = value.indexOf(":");
 	if (separator <= 0 || separator === value.length - 1 || value.trim() !== value) return false;
 	const kind = value.slice(0, separator);
-	return (
-		(kind === "tool" || kind === "skill" || kind === "agent") &&
-		!/\s/u.test(value.slice(separator + 1))
-	);
+	if (/\s/u.test(value.slice(separator + 1))) return false;
+	if (kind === "tool") return allowLegacyToolKeys;
+	return kind === "skill" || kind === "agent";
 }
 
-/** Rejects malformed resource identifiers at both persisted and UI write boundaries. */
+/** Rejects malformed resource identifiers at the UI write boundary. */
 export function assertCanonicalLoadoutKey(value: string): void {
-	if (!isCanonicalLoadoutKey(value))
-		throw new Error("Expected canonical tool:<name> or skill:<name> key");
+	if (!isCanonicalLoadoutKey(value, false))
+		throw new Error("Expected canonical skill:<name> or agent:<name> key");
 }
 
 function keyList(value: unknown, path: string): readonly string[] {
@@ -67,8 +60,8 @@ function keyList(value: unknown, path: string): readonly string[] {
 		throw new Error(`Expected ${path} to contain at most ${MAX_LOADOUT_DELTA_KEYS} keys`);
 	const keys = new Set<string>();
 	for (const entry of value) {
-		if (typeof entry !== "string" || !isCanonicalLoadoutKey(entry))
-			throw new Error(`Expected ${path} to contain canonical tool:<name> or skill:<name> keys`);
+		if (typeof entry !== "string" || !isCanonicalLoadoutKey(entry, true))
+			throw new Error(`Expected ${path} to contain canonical skill:<name> or agent:<name> keys`);
 		keys.add(entry);
 	}
 	return [...keys].sort((left, right) => left.localeCompare(right));
@@ -97,16 +90,12 @@ export function parseLoadoutConfiguration(layers: {
 	};
 }
 
-export function toolConfigurationKey(name: string): string {
-	return `tool:${name}`;
-}
-
 export function skillConfigurationKey(name: string): string {
 	const bare = name.startsWith("skill:") ? name.slice("skill:".length) : name;
 	return `skill:${bare}`;
 }
 
-/** Applies the fixed delta order without interpreting conflict sets. */
+/** Applies the fixed delta order. */
 export function resolveLoadoutState(
 	key: string,
 	defaultActive: boolean,
@@ -121,59 +110,6 @@ export function resolveLoadoutState(
 	if (configuration.global.enabled.includes(key))
 		return { enabled: true, source: "global-enabled" };
 	return { enabled: defaultActive, source: "default" };
-}
-
-function sourceRank(source: LoadoutPolicySource): number {
-	switch (source) {
-		case "forced":
-			return 5;
-		case "project-disabled":
-			return 4;
-		case "project-enabled":
-			return 3;
-		case "global-disabled":
-			return 2;
-		case "global-enabled":
-			return 1;
-		case "default":
-			return 0;
-	}
-}
-
-/** Reports whether either policy declares incompatibility with the other. */
-export function toolsConflict(left: ToolPolicy, right: ToolPolicy): boolean {
-	return (
-		left.conflictSets.some((set) => right.conflictSets.includes(set)) ||
-		left.conflictsWith.includes(right.name) ||
-		right.conflictsWith.includes(left.name)
-	);
-}
-
-/** Resolves delta precedence first, then locks lower-ranked enabled conflict members. */
-export function resolveActiveToolNames(
-	tools: readonly ToolPolicy[],
-	configuration: LoadoutConfiguration,
-): readonly string[] {
-	const candidates = tools
-		.map((tool) => ({
-			...tool,
-			state: tool.forcedActive
-				? ({ enabled: true, source: "forced" } as const)
-				: resolveLoadoutState(toolConfigurationKey(tool.name), tool.defaultActive, configuration),
-		}))
-		.filter((tool) => tool.state.enabled)
-		.sort(
-			(left, right) =>
-				sourceRank(right.state.source) - sourceRank(left.state.source) ||
-				left.priority - right.priority ||
-				left.name.localeCompare(right.name),
-		);
-	const active: typeof candidates = [];
-	for (const tool of candidates) {
-		if (active.some((candidate) => toolsConflict(tool, candidate))) continue;
-		active.push(tool);
-	}
-	return active.map((tool) => tool.name).sort((left, right) => left.localeCompare(right));
 }
 
 /** Publishes only discovered skills whose resolved state is disabled. */

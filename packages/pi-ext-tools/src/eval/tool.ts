@@ -9,7 +9,7 @@ import type {
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import {
 	createToolTui,
-	type ManagedLoadoutToolRegistration,
+	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
 } from "@hheei/pi-ext-core";
@@ -73,14 +73,9 @@ function evalNestedGuideline(catalog: EditCatalog): string {
 	return "eval: nested tools are read, grep, find, foreground bash, edit, and write. No eval, wait, or other extension tools. Nested bash rejects async.";
 }
 
-export const EVAL_TOOL_REGISTRATION: ManagedLoadoutToolRegistration = {
+export const EVAL_TOOL_REGISTRATION: ManagedToolRegistration = {
 	id: "eval",
 	owner: OWNER,
-	group: "Built-in",
-	origin: OWNER,
-	priority: 100,
-	conflictSets: [],
-	defaultActive: false,
 };
 
 export const EVAL_PARAMETERS = Type.Object(

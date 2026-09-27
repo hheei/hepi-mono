@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	formatRecallCallForTui,
 	formatRecallRenderedResultForTui,
-	RECALL_LOADOUT_REGISTRATION,
 	RECALL_OBSERVATION_TOOL_NAME,
+	RECALL_TOOL_REGISTRATION,
 	recallObservationTool,
 	registerRecallTool,
 } from "../src/tools/recall-observation.js";
@@ -56,14 +56,9 @@ describe("V3 recall tool", () => {
 		expect(recallObservationTool.label).toBe("Recall memory evidence");
 		expect(formatRecallCallForTui("aaaaaaaaaaaa")).toBe("recall aaaaaaaaaaaa");
 		expect(pi.registerTool).toHaveBeenCalledWith(recallObservationTool);
-		expect(RECALL_LOADOUT_REGISTRATION).toEqual({
+		expect(RECALL_TOOL_REGISTRATION).toEqual({
 			id: "recall",
 			owner: "@hheei/pi-ext-memory",
-			group: "Memory",
-			origin: "@hheei/pi-ext-memory",
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		});
 	});
 

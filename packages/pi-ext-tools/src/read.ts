@@ -7,7 +7,7 @@ import {
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { createToolTui, registerManagedLoadoutTool, type ToolTui } from "@hheei/pi-ext-core";
+import { createToolTui, registerManagedTool, type ToolTui } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { counted } from "./counted.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
@@ -354,16 +354,11 @@ export function registerReadTool(
 			}
 		},
 	};
-	registerManagedLoadoutTool(
+	registerManagedTool(
 		pi,
 		{
 			id: "read",
 			owner: OWNER,
-			group: "Built-in",
-			origin: OWNER,
-			priority: 100,
-			conflictSets: [],
-			defaultActive: true,
 		},
 		tui.frame(tool, {
 			footer: readCollapsedFooter,

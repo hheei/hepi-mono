@@ -37,7 +37,7 @@ import { LinesBody } from "./pretty/lines-body.js";
 
 const EDIT_RENDER_DETAILS = "__piExtToolsEdit";
 const EDIT_VIEW_KEY = "__piExtToolsEditView";
-export const EDIT_TOOL_REGISTRATION = createCanonicalToolRegistration("edit", ["apply_patch"]);
+export const EDIT_TOOL_REGISTRATION = createCanonicalToolRegistration("edit");
 
 const EDIT_PARAMETERS = Type.Object(
 	{
