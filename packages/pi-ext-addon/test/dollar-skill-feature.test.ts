@@ -167,12 +167,12 @@ describe("dollar skill feature", () => {
 		feature.start(host.ctx);
 		expect(host.editorFactory).toBeDefined();
 		const editor = host.editorFactory?.(
-			{} as unknown as import("@earendil-works/pi-tui").TUI,
-			{} as unknown as import("@earendil-works/pi-tui").Theme,
+			{} as unknown as Parameters<EditorFactory>[0],
+			{} as unknown as Parameters<EditorFactory>[1],
 			{
 				matches: () => false,
 				getKeys: () => [],
-			} as unknown as import("@earendil-works/pi-tui").KeybindingsManager,
+			} as unknown as Parameters<EditorFactory>[2],
 		);
 		expect(editor).toBeDefined();
 		expect((editor as unknown as { embedWorkingStatus?: boolean }).embedWorkingStatus).toBe(true);

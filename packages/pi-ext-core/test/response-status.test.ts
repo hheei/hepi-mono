@@ -1,5 +1,9 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { EditorComponent, KeybindingsManager, Theme, TUI } from "@earendil-works/pi-tui";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	KeybindingsManager,
+} from "@earendil-works/pi-coding-agent";
+import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import {
 	createResponseStatusFeature,
@@ -17,6 +21,14 @@ type EditorFactory = NonNullable<
 >;
 
 class MockEditor implements EditorComponent {
+	#text = "";
+	getText(): string {
+		return this.#text;
+	}
+	setText(text: string): void {
+		this.#text = text;
+	}
+	invalidate(): void {}
 	renderBottomBorder(width: number, hiddenLineCount: number): string {
 		return hiddenLineCount > 0 ? `── ↓ ${hiddenLineCount} more ──` : "─".repeat(width);
 	}
@@ -135,7 +147,7 @@ describe("response status", () => {
 		expect(h.editorFactory).toBeDefined();
 		const editor = h.editorFactory?.(
 			h.tui,
-			mockTheme as unknown as Theme,
+			mockTheme as unknown as EditorTheme,
 			{} as KeybindingsManager,
 		);
 		expect(editor).toBeDefined();
