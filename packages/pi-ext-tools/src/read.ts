@@ -14,6 +14,7 @@ import {
 	isRecord,
 	registerManagedTool,
 	type ToolTui,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { counted } from "./counted.js";
@@ -94,10 +95,7 @@ function remoteReadResult(buffer: Buffer, params: ReadToolParams): AgentToolResu
 		params.limit === undefined
 			? lines.slice(start)
 			: lines.slice(start, start + Math.max(0, params.limit));
-	return {
-		content: [{ type: "text" as const, text: visible.join("\n") }],
-		details: remoteReadDetails(params),
-	};
+	return textToolResult(visible.join("\n"), remoteReadDetails(params));
 }
 function textResult(result: AgentToolResult<unknown>): string | undefined {
 	if (result.content.some((part) => part.type === "image")) return undefined;
@@ -320,10 +318,9 @@ export function registerReadTool(
 					>;
 				} catch (error) {
 					if (isTargetError(error))
-						return withReadMetrics({
-							content: [{ type: "text" as const, text: error.message }],
-							details: remoteReadDetails(readParams, error.outcome),
-						}) as Awaited<ReturnType<typeof template.execute>>;
+						return withReadMetrics(
+							textToolResult(error.message, remoteReadDetails(readParams, error.outcome)),
+						) as Awaited<ReturnType<typeof template.execute>>;
 					throw error;
 				}
 			}

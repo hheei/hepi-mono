@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
-import { agentResultText, formatDuration } from "../src/index.js";
+import { agentResultText, formatDuration, textToolResult } from "../src/index.js";
 
 function result(content: AgentToolResult<unknown>["content"]): AgentToolResult<unknown> {
 	return { content, details: undefined };
@@ -57,5 +57,25 @@ describe("formatDuration", () => {
 
 	test("clamps a negative measurement to zero", () => {
 		expect(formatDuration(-5)).toBe("0ms");
+	});
+});
+
+describe("textToolResult", () => {
+	test("builds the single-text-part shape every tool returns", () => {
+		expect(textToolResult("hello", { a: 1 })).toEqual({
+			content: [{ type: "text", text: "hello" }],
+			details: { a: 1 },
+		});
+	});
+
+	test("keeps details undefined when a tool has none", () => {
+		expect(textToolResult("hello", undefined)).toEqual({
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+		});
+	});
+
+	test("round-trips through agentResultText", () => {
+		expect(agentResultText(textToolResult("hello", undefined))).toBe("hello");
 	});
 });

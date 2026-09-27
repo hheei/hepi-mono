@@ -14,6 +14,7 @@ import {
 	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { EditCatalog } from "../fff/settings.js";
@@ -163,14 +164,13 @@ export function createEvalTool(
 				}
 				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
 				else omittedRows += 1;
-				onUpdate?.({
-					content: [{ type: "text", text: transcript(rows) }],
-					details: {
+				onUpdate?.(
+					textToolResult(transcript(rows), {
 						format: "pi-ext-tools-eval",
 						rows,
 						durationMs: Math.round(performance.now() - startedAt),
-					},
-				});
+					}),
+				);
 			};
 			try {
 				const value = await runtime.runWithHooks(
@@ -225,10 +225,7 @@ export function createEvalTool(
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
 			};
-			return {
-				content: [{ type: "text", text: transcript(rows) }],
-				details,
-			};
+			return textToolResult(transcript(rows), details);
 		},
 	};
 }

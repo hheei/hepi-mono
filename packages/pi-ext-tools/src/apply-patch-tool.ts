@@ -11,6 +11,7 @@ import {
 	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
@@ -351,15 +352,12 @@ export function createApplyPatchTool(
 						: {}),
 				});
 				const warning = remote ? "" : externalPathWarning(ctx.cwd, result);
-				return {
-					content: [{ type: "text", text: `${formatApplyPatchResult(result)}${warning}` }],
-					details: {
-						...result,
-						status: statusFor(result),
-						durationMs: Math.round(performance.now() - startedAt),
-						...(host === undefined ? {} : { target: host }),
-					},
-				} satisfies AgentToolResult<ApplyPatchToolDetails>;
+				return textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
+					...result,
+					status: statusFor(result),
+					durationMs: Math.round(performance.now() - startedAt),
+					...(host === undefined ? {} : { target: host }),
+				}) satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
 				const message = errorMessage(error);
 				const recovery = failureRecovery(message);

@@ -7,6 +7,7 @@ import {
 	registerManagedTool,
 	registerToolTuiTrace,
 	subcommandCompletions,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
@@ -580,14 +581,11 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 					todoParams.operations.length === 1 && todoParams.operations[0]?.action === "list"
 						? todoParams.operations[0]
 						: undefined;
-				return {
-					content: [{ type: "text", text: formatTodoResult(todoParams, result) }],
-					details: {
-						snapshot: snapshotFromState(current.state),
-						operations: result.operations,
-						...(listOperation?.status === undefined ? {} : { listStatus: listOperation.status }),
-					},
-				};
+				return textToolResult(formatTodoResult(todoParams, result), {
+					snapshot: snapshotFromState(current.state),
+					operations: result.operations,
+					...(listOperation?.status === undefined ? {} : { listStatus: listOperation.status }),
+				});
 			},
 		},
 		{

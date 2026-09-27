@@ -6,6 +6,11 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
  * a completed tool call.
  */
 
+/** Builds the single-text-part result that every tool returns to the model. */
+export function textToolResult<T>(text: string, details: T): AgentToolResult<T> {
+	return { content: [{ type: "text", text }], details };
+}
+
 /** Joins the text parts of a tool result, ignoring images and other part kinds. */
 export function agentResultText(result: AgentToolResult<unknown>): string {
 	const [only] = result.content;

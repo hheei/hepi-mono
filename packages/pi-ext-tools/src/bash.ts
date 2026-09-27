@@ -23,6 +23,7 @@ import {
 	registerManagedTool,
 	type ToolCompletion,
 	type ToolTui,
+	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
@@ -121,7 +122,7 @@ function outputStreamer(
 	return (data) => {
 		sink.push(data);
 		const output = sink.snapshot();
-		onUpdate?.({ content: [{ type: "text", text: output.output }], details: output });
+		onUpdate?.(textToolResult(output.output, output));
 	};
 }
 

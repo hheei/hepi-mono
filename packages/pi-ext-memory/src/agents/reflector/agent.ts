@@ -12,6 +12,7 @@ import type {
 	ProviderHeaders,
 } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
+import { textToolResult } from "@hheei/pi-ext-core";
 import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
 import { hashId } from "../../ids.js";
@@ -195,15 +196,10 @@ export async function runReflector(args: RunReflectorArgs): Promise<Reflection[]
 			acceptedReflectionCount += added;
 			duplicateReflectionCount += duplicates;
 			rejectedReflectionCount += rejected;
-			return {
-				content: [
-					{
-						type: "text",
-						text: `Recorded ${added} reflection${added === 1 ? "" : "s"}; ${duplicates} duplicate${duplicates === 1 ? "" : "s"}; ${rejected} rejected. Total this run: ${accumulated.size}.`,
-					},
-				],
-				details: { added, duplicates, rejected, total: accumulated.size },
-			};
+			return textToolResult(
+				`Recorded ${added} reflection${added === 1 ? "" : "s"}; ${duplicates} duplicate${duplicates === 1 ? "" : "s"}; ${rejected} rejected. Total this run: ${accumulated.size}.`,
+				{ added, duplicates, rejected, total: accumulated.size },
+			);
 		},
 	};
 
