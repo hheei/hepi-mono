@@ -84,6 +84,21 @@ function dropsEntry(id: string, observationIds: string[], coversUpToId = "src-1"
 	};
 }
 
+/**
+ * Counts how often recall traverses the ledger, so a test can prove it does not re-index the
+ * whole branch once per resolved observation.
+ */
+function countingLedger(entries: Entry[]): { entries: Entry[]; walks: () => number } {
+	let walks = 0;
+	const ledger = new Proxy(entries, {
+		get(target, property, receiver) {
+			if (property === Symbol.iterator || property === "entries") walks += 1;
+			return Reflect.get(target, property, receiver);
+		},
+	});
+	return { entries: ledger, walks: () => walks };
+}
+
 describe("session-ledger recall", () => {
 	it("recalls an active observation with source entries", () => {
 		const entries = [
@@ -259,5 +274,32 @@ describe("session-ledger recall", () => {
 		expect(result.collision).toBe(true);
 		expect(result.observations).toHaveLength(1);
 		expect(result.reflections).toHaveLength(1);
+	});
+
+	it("walks the ledger a fixed number of times however many observations it resolves", () => {
+		const hex = (value: number): string => value.toString(16).padStart(12, "0");
+		const observations = Array.from({ length: 6 }, (_, index) =>
+			observation({ id: hex(index + 1), sourceEntryIds: [hex(0x100 + index)] }),
+		);
+		const entries = [
+			...Array.from({ length: 6 }, (_, index) => sourceEntry(hex(0x100 + index))),
+			observationsEntry("obs-entry-1", observations),
+			reflectionsEntry("ref-entry-1", [
+				reflection({
+					id: REF_1,
+					supportingObservationIds: observations.map((item) => item.id),
+				}),
+			]),
+		];
+
+		const single = countingLedger(entries);
+		expect(recallMemorySources(single.entries, observations[0]!.id).status).toBe("found");
+
+		const many = countingLedger(entries);
+		const recalled = recallMemorySources(many.entries, REF_1);
+		expect(recalled.status).toBe("found");
+		if (recalled.status !== "found") return;
+		expect(recalled.observations).toHaveLength(6);
+		expect(many.walks()).toBe(single.walks());
 	});
 });

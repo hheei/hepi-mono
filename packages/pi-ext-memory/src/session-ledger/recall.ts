@@ -121,19 +121,17 @@ function indexLedger(entries: Entry[]): {
 }
 
 function resolveObservationSources(
-	entries: Entry[],
+	entriesById: ReadonlyMap<string, Entry>,
 	observation: Observation,
 	location: ObservationLedgerLocation,
 ): RecalledObservation {
 	const sourceEntryIds = uniqueStrings(observation.sourceEntryIds);
-	const byId = new Map<string, Entry>();
-	for (const entry of entries) byId.set(entry.id, entry);
 	const sourceEntries: Entry[] = [];
 	const missingSourceEntryIds: string[] = [];
 	const nonSourceEntryIds: string[] = [];
 
 	for (const sourceEntryId of sourceEntryIds) {
-		const sourceEntry = byId.get(sourceEntryId);
+		const sourceEntry = entriesById.get(sourceEntryId);
 		if (!sourceEntry) {
 			missingSourceEntryIds.push(sourceEntryId);
 			continue;
@@ -195,13 +193,18 @@ export function recallMemorySources(entries: Entry[], memoryId: string): RecallR
 			observationsById.set(indexed.observation.id, indexed);
 	}
 
+	// Built once per recall: resolving an observation used to re-index every entry, which made a
+	// reflection with N supporting observations cost O(N x entries).
+	const entriesById = new Map<string, Entry>();
+	for (const entry of entries) entriesById.set(entry.id, entry);
+
 	const recalledByKey = new Map<string, RecalledObservation>();
 	const missingSupportingObservationIds: string[] = [];
 
 	function addObservation(indexed: IndexedObservation): void {
 		const key = `${indexed.entryId}:${indexed.recordIndex}`;
 		if (recalledByKey.has(key)) return;
-		const recalled = resolveObservationSources(entries, indexed.observation, indexed);
+		const recalled = resolveObservationSources(entriesById, indexed.observation, indexed);
 		recalled.status = droppedIds.has(indexed.observation.id) ? "dropped" : "active";
 		recalledByKey.set(key, recalled);
 	}
