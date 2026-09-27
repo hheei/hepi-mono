@@ -331,5 +331,5 @@ export function registerFindTool(
 			longOutput: true,
 		}),
 	);
-	return tool as unknown as ToolDefinition;
+	return tool as ToolDefinition;
 }

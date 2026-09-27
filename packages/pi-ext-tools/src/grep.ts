@@ -872,5 +872,5 @@ export function registerGrepTool(
 				grepHasIncompleteAccess(result.details) && !grepHasNoSearchablePaths(result.details),
 		}),
 	);
-	return tool as unknown as ToolDefinition;
+	return tool as ToolDefinition;
 }
