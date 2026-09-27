@@ -66,6 +66,9 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 	const commands: Array<{
 		readonly name: string;
 		readonly handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+		readonly getArgumentCompletions?:
+			| ((prefix: string) => { value: string; label: string }[] | null)
+			| undefined;
 	}> = [];
 	const events = new Map<
 		string,
@@ -83,9 +86,18 @@ function harness(mode: "tui" | "json" = "tui", sessionId = "todo-session") {
 		},
 		registerCommand(
 			name: string,
-			options: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> },
+			options: {
+				handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+				getArgumentCompletions?:
+					| ((prefix: string) => { value: string; label: string }[] | null)
+					| undefined;
+			},
 		) {
-			commands.push({ name, handler: options.handler });
+			commands.push({
+				name,
+				handler: options.handler,
+				getArgumentCompletions: options.getArgumentCompletions,
+			});
 		},
 		getActiveTools() {
 			return [...activeTools];
@@ -178,6 +190,9 @@ describe("Todo integration", () => {
 		const tool = host.tools[0]!;
 
 		expect(host.commands.map(({ name }) => name)).toEqual(["todo"]);
+		expect(host.commands[0]!.getArgumentCompletions?.("cl")).toEqual([
+			{ value: "clear", label: "clear" },
+		]);
 		expect(host.tools.map(({ name }) => name)).toEqual(["todo"]);
 		expect(
 			inventory.map((items) =>

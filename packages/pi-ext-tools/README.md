@@ -3,14 +3,16 @@
 Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
 `list_tasks`, `wait_tasks`, `stop_tasks`, strict Codex V4A `apply_patch`,
 opt-in `eval`, and `todo`.
-Todo includes `/todos`, task scheduling, reminders, and the editor widget.
+Todo includes `/todo`, task scheduling, reminders, and the editor widget.
 `apply_patch` matches and rewrites text in pure
 JavaScript with jsdiff; it never requires a user-managed executable or a package-owned
 native addon. `@hheei/pi-ext-core` is a production dependency, not a separately loaded
 Pi extension. Install `@hheei/pi-settings` separately for the Settings and Loadout UI.
 
 FFF runtime, commands, autocomplete, and enhancement settings are included;
-`fff_multi_grep` is not registered as a model tool.
+`fff_multi_grep` is not registered as a model tool. The command surface is
+`/fff status` and `/fff reindex`. Tab completion after `/fff ` and `/todo ` offers the
+available subcommands.
 
 ## apply_patch
 
