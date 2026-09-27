@@ -1,6 +1,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { grepCollapsedFooter, renderGrepResult } from "../src/search-renderer.js";
+import {
+	findCollapsedFooter,
+	grepCollapsedFooter,
+	renderFindResult,
+	renderGrepResult,
+} from "../src/search-renderer.js";
 
 const mockTheme: Theme = {
 	fg: (_color, text) => text,
@@ -133,5 +138,34 @@ describe("search-renderer", () => {
 
 		const footer = grepCollapsedFooter(result, undefined);
 		expect(footer).toBe("14 matches · 5 files · 63 lines · 12ms");
+	});
+
+	it("renders find candidates grouped by directory in O(N) efficiently", () => {
+		const candidates = [
+			{ path: "src/tools/find.ts", matchType: "exact" },
+			{ path: "src/tools/grep.ts", matchType: "exact" },
+			{ path: "src/root.ts", matchType: "exact" },
+		];
+		const result = {
+			content: [{ type: "text" as const, text: "3 files found" }],
+			details: {
+				format: "canonical-find" as const,
+				candidates,
+				totalMatched: 3,
+				totalFiles: 3,
+				durationMs: 4,
+			},
+		};
+
+		const comp = renderFindResult(result, { expanded: true }, mockTheme, {
+			isError: false,
+			lastComponent: undefined,
+		});
+		const rendered = comp.render(80);
+		expect(rendered.length).toBeGreaterThan(0);
+		expect(rendered.some((line) => line.includes("src/tools/"))).toBe(true);
+
+		const footer = findCollapsedFooter(result, undefined);
+		expect(footer).toContain("3 fuzzy files");
 	});
 });
