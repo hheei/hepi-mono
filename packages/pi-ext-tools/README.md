@@ -65,8 +65,10 @@ timeout automatically transition to a background task (e.g. `bash-1`) after `aut
 Remote `target` is an authorized SSH host; omit `async`. Working directory on SSH is the remote home.
 `output` remains unsupported.
 
-A multi-line command is joined into one space-separated header line, so the frame
-never grows a row per command line. The full command stays in the persisted tool call.
+A multi-line command is joined into one header line with `; ` (a trailing `\` continuation or `;`
+joins with a space), and a command wider than the terminal is cut with a dim `…` instead of
+wrapping, so the frame never grows a row per command line. The full command stays in the
+persisted tool call and in the model-visible arguments.
 
 ## Tool Output
 

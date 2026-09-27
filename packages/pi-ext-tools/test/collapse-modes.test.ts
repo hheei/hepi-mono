@@ -144,7 +144,7 @@ describe("tool frame collapse modes", () => {
 			.split("\n")
 			.filter((line) => line.trim() !== "");
 		expect(notes).toHaveLength(2);
-		expect(notes[0]).toContain("echo one echo two");
+		expect(notes[0]).toContain("echo one; echo two");
 		expect(notes[1]).toMatch(/exit 0/);
 	});
 
@@ -168,7 +168,32 @@ describe("tool frame collapse modes", () => {
 			} as never)
 			.render(200);
 		expect(header).toHaveLength(1);
-		expect(header?.[0]).toContain("first line second line third line");
+		expect(header?.[0]).toContain("first line; second line; third line");
+	});
+
+	test("keeps a long bash command on one truncated header row", async (): Promise<void> => {
+		initTheme("dark");
+		const tui = createToolTui();
+		const host = harness();
+		registerTools(host.pi, undefined, tui);
+		const bash = host.tools.find((candidate) => candidate.name === "bash");
+		if (bash === undefined) throw new Error("bash was not registered");
+		const plainTheme = {
+			bg: (_role: string, text: string): string => text,
+			fg: (_role: string, text: string): string => text,
+			bold: (text: string): string => text,
+		} as Theme;
+		const command = `docker run --rm -v /tmp:/tmp alpine sh -c "echo one; echo two"`;
+		const header = bash
+			.renderCall?.({ command }, plainTheme, {
+				isError: false,
+				isPartial: true,
+				lastComponent: undefined,
+			} as never)
+			.render(40);
+		expect(header).toHaveLength(1);
+		expect(header?.[0]).toContain("…");
+		expect(stripTerminalSequences(header?.[0] ?? "").endsWith("…")).toBe(true);
 	});
 
 	test("keeps the model-visible result identical", async (): Promise<void> => {

@@ -49,6 +49,13 @@ export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
 	/** Unexpanded body rows. Default 20. Non-finite or < 1 disables the cap. */
 	readonly maxBodyLines?: number;
 	/**
+	 * How the header handles content wider than the terminal. `wrap` (default) keeps every
+	 * row; `truncate` never lets the header grow past one row, at the cost of the tail of
+	 * the header text staying invisible. Tools whose body cannot recover the header text
+	 * opt into `truncate`.
+	 */
+	readonly headerLine?: "wrap" | "truncate";
+	/**
 	 * Declares a tool whose completed body is large enough to auto-collapse. Only the
 	 * `auto` and `on` modes use it; the concrete extension decides which tools qualify.
 	 */
@@ -157,6 +164,26 @@ function summaryFor(tool: string, args: unknown): string {
 	return "";
 }
 
+/**
+ * A bash header stays one logical line, so line breaks become `; `. A trailing `\` is
+ * already a line break, and a trailing `;` already separates, so both join with a space.
+ */
+function flattenCommand(command: string): string {
+	let joined = "";
+	for (const raw of command.split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		if (joined === "") {
+			joined = line;
+		} else if (joined.endsWith("\\")) {
+			joined = `${joined.slice(0, -1).trimEnd()} ${line}`;
+		} else {
+			joined = joined.endsWith(";") ? `${joined} ${line}` : `${joined}; ${line}`;
+		}
+	}
+	return joined;
+}
+
 function headerFor(
 	tool: { readonly name: string; readonly label: string },
 	args: unknown,
@@ -193,8 +220,7 @@ function headerFor(
 	const command = textValue(values.command);
 	if (tool.name === "bash" && command !== undefined) {
 		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
-		// One command may span many lines; the header stays one logical line.
-		const shown = command.replace(/\r?\n/g, " ");
+		const shown = flattenCommand(command);
 		const host = remoteTarget(values);
 		const hostLabel =
 			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
@@ -525,7 +551,7 @@ class ToolFrameSection implements Component {
 		private readonly body: ToolBodySection | undefined,
 		private readonly theme: Theme,
 		private readonly header: FrameHeader,
-		private readonly collapsed = false,
+		private readonly oneLineHeader = false,
 	) {}
 
 	bodyComponent(): Component | undefined {
@@ -534,8 +560,8 @@ class ToolFrameSection implements Component {
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const lines = this.collapsed
-			? [collapsedHeader(this.header, availableWidth, this.theme)]
+		const lines = this.oneLineHeader
+			? [singleLineHeader(this.header, availableWidth, this.theme)]
 			: new Text(`${this.header.primary}${this.header.suffix ?? ""}`, 0, 0).render(availableWidth);
 		lines.push(...(this.body?.render(availableWidth) ?? []));
 		return lines;
@@ -546,7 +572,7 @@ class ToolFrameSection implements Component {
 	}
 }
 
-function collapsedHeader(header: FrameHeader, width: number, theme: Theme): string {
+function singleLineHeader(header: FrameHeader, width: number, theme: Theme): string {
 	const truncation = theme.fg("dim", "…");
 	if (header.suffix === undefined) return truncateToWidth(header.primary, width, truncation);
 	const suffixWidth = visibleWidth(header.suffix);
@@ -704,6 +730,7 @@ export function createToolTui(): ToolTui {
 							: new ToolBodySection(body, undefined, theme, maxBodyLines, context.expanded),
 						theme,
 						header,
+						presentation.headerLine === "truncate",
 					);
 				},
 				renderResult(result, options, theme, context): Component {

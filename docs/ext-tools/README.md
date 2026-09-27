@@ -53,7 +53,7 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 无 body、无 footer: empty
 ```
 
-未展开的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
+未展開的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。Header 默认按宽度换行；工具可用 `headerLine: "truncate"` 声明 header 永不超过一行（超过宽度的部分以 dim `…` 截断，`suffix` 会预留宽度保持可见），适合 body 无法还原 header 文本的工具。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
 
 ## Tool Output 自动折叠
 
