@@ -75,15 +75,19 @@ function takeVisible(
 	let taken = 0;
 	let cursor = index;
 	while (taken < visibleChars && cursor < text.length) {
-		const ansi = text.slice(cursor).match(ANSI_SGR);
-		if (ansi) {
-			slice += ansi[0];
-			cursor += ansi[0].length;
-			continue;
+		if (text.charCodeAt(cursor) === 0x1b) {
+			const ansi = text.slice(cursor).match(ANSI_SGR);
+			if (ansi) {
+				slice += ansi[0];
+				cursor += ansi[0].length;
+				continue;
+			}
 		}
-		const character = [...text.slice(cursor)][0] ?? "";
+		const code = text.codePointAt(cursor);
+		const charLen = code !== undefined && code > 0xffff ? 2 : 1;
+		const character = text.slice(cursor, cursor + charLen);
 		slice += character;
-		cursor += character.length;
+		cursor += charLen;
 		taken += character.length;
 	}
 	return { slice, next: cursor };
@@ -94,15 +98,19 @@ function applySgrThroughout(text: string, sgr: string): string {
 	let out = sgr;
 	let cursor = 0;
 	while (cursor < text.length) {
-		const ansi = text.slice(cursor).match(ANSI_SGR);
-		if (ansi) {
-			out += ansi[0] === sgr ? ansi[0] : `${ansi[0]}${sgr}`;
-			cursor += ansi[0].length;
-			continue;
+		if (text.charCodeAt(cursor) === 0x1b) {
+			const ansi = text.slice(cursor).match(ANSI_SGR);
+			if (ansi) {
+				out += ansi[0] === sgr ? ansi[0] : `${ansi[0]}${sgr}`;
+				cursor += ansi[0].length;
+				continue;
+			}
 		}
-		const character = [...text.slice(cursor)][0] ?? "";
+		const code = text.codePointAt(cursor);
+		const charLen = code !== undefined && code > 0xffff ? 2 : 1;
+		const character = text.slice(cursor, cursor + charLen);
 		out += character;
-		cursor += character.length;
+		cursor += charLen;
 	}
 	return out;
 }
@@ -145,6 +153,15 @@ function submatchCharRanges(
 	source: string,
 	submatches: readonly GrepSubmatch[],
 ): readonly { readonly start: number; readonly end: number }[] {
+	if (submatches.length === 0) return [];
+	if (Buffer.byteLength(source, "utf8") === source.length) {
+		return submatches.flatMap((range) => {
+			if (range.end <= range.start) return [];
+			return range.start >= 0 && range.end <= source.length
+				? [{ start: range.start, end: range.end }]
+				: [];
+		});
+	}
 	const boundaries = utf8Boundaries(source);
 	return submatches.flatMap((range) => {
 		if (range.end <= range.start) return [];
