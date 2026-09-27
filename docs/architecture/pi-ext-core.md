@@ -128,6 +128,24 @@ consumer 必须读取 raw layers 并自行应用 policy；例如 project 不得�
 
 core 只验证 settings transport 所需的 JSON value shape，并提供 provider schema 所需的 list type。具体 list 项语义、最大数量、authorization 与 live/reload policy 属于 concrete extension。`pi-settings` 作为 host 为 list 提供 nested multi-row editor；core 不拥有页面、keyboard policy 或 feature list content。
 
+### 共享工具函数
+
+core 还承载一批小而稳定的工具函数。它们进入 core 的唯一理由是消除跨包重复实现：每个都至少有
+两个真实 consumer，且不引入状态、生命周期或策略。
+
+- `runCommand()` / `shellQuote()`：一次性进程执行（argv 数组、可选 stdin、timeout、stdout 上限、
+  `AbortSignal`）。长驻流式子进程（bash job runner、eval kernel、subagent runner）不走它。
+- `errorMessage()` / `abortError()` / `throwIfAborted()`：错误文本与取消语义的唯一来源；取消一律表现为
+  name 为 `AbortError` 的 Error。
+- `agentResultText()` / `formatDuration()`：tool result 的文本提取与时长格式化（缩短到 1 秒以内用
+  `Nms`，否则 `N.Ns`）。
+- `isRecord()`：唯一 plain-object narrowing guard。数组不满足它，避免包内自行实现时出现
+  “数组也是 record” 的分歧。
+- `expandHome()`：展开配置中的 `~` / `~/…`；caller 需要绝对路径时自行 resolve。
+
+这些函数保持无副作用：只依赖 node 标准库与 type-only 的 host 类型，不读取 session、settings、
+terminal 或 registry。需要 strategy、policy、持久化或渲染的能力仍归 concrete extension。
+
 ### Lifecycle
 
 extension 通过 stable key 注册 session-scoped feature。core 串行 start/shutdown，启动

@@ -1,9 +1,9 @@
 import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
 	defaultExtensionSettingsPaths,
 	errorMessage,
+	expandHome,
 	isRecord,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
@@ -118,8 +118,7 @@ function reflectBudgetOrUndefined(value: unknown): ReflectBudget | undefined {
 
 /** Expands a leading `~` and resolves relative paths against `cwd`. */
 export function expandConfigPath(path: string, cwd: string): string {
-	const expanded =
-		path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+	const expanded = expandHome(path);
 	return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
 }
 

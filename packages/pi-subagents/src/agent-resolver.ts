@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@hheei/pi-ext-core";
+import { expandHome, isRecord } from "@hheei/pi-ext-core";
 import type {
 	ExtensionSelection,
 	ResolvedAgentPolicy,
@@ -99,10 +99,15 @@ function stringList(value: unknown, field: string, path: string): string[] {
 const LOCAL_PATH_PATTERN = /^(?:[A-Za-z]:[\\/]|[~/]|\.{1,2}[\\/])/;
 
 /** Local selections become absolute paths next to the definition; package specs are left for Pi to resolve. */
-function resolveResourcePaths(value: unknown, field: string, path: string): string[] {
+function resolveResourcePaths(
+	value: unknown,
+	field: string,
+	path: string,
+	homeDirectory: string,
+): string[] {
 	return stringList(value, field, path).map((item) => {
 		if (!LOCAL_PATH_PATTERN.test(item)) return item;
-		const trimmed = item.startsWith("~/") ? join(homedir(), item.slice(2)) : item;
+		const trimmed = expandHome(item, homeDirectory);
 		return resolve(dirname(path), trimmed);
 	});
 }
@@ -111,10 +116,11 @@ async function resourceSelection(
 	value: unknown,
 	field: "extensions" | "skills",
 	path: string,
+	homeDirectory: string,
 ): Promise<{ discovery: boolean; paths: string[] }> {
 	if (value === undefined || value === true) return { discovery: true, paths: [] };
 	if (value === false) return { discovery: false, paths: [] };
-	const paths = resolveResourcePaths(value, field, path);
+	const paths = resolveResourcePaths(value, field, path, homeDirectory);
 	for (const selected of paths) {
 		if (!isAbsolute(selected)) continue;
 		const exists = await stat(selected).then(
@@ -212,14 +218,12 @@ function resolveModel(
  * before any child process exists.
  */
 export async function resolveAgent(options: ResolveAgentOptions): Promise<ResolvedAgentPolicy> {
-	const agents = await discoverAgents(options.cwd, options.homeDirectory);
+	const homeDirectory = resolve(options.homeDirectory ?? homedir());
+	const agents = await discoverAgents(options.cwd, homeDirectory);
 	const discovered = agents.find((agent) => agent.name === options.name);
 	if (discovered === undefined) {
 		const available = agents.map((agent) => agent.name).join(", ");
-		const searched = agentDirectories(
-			resolve(options.cwd),
-			resolve(options.homeDirectory ?? homedir()),
-		).join(", ");
+		const searched = agentDirectories(resolve(options.cwd), homeDirectory).join(", ");
 		throw new Error(
 			`Unknown agent ${options.name}. Available: [${available || "none"}]. Searched: ${searched}`,
 		);
@@ -262,13 +266,19 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 		discovered.frontmatter.extensions,
 		"extensions",
 		path,
+		homeDirectory,
 	);
 	const bridgeExtensionPath = resolve(options.bridgeExtensionPath);
 	const extensionPaths = [
 		...extensionSelection.paths.filter((selected) => selected !== bridgeExtensionPath),
 		bridgeExtensionPath,
 	];
-	const skills = await resourceSelection(discovered.frontmatter.skills, "skills", path);
+	const skills = await resourceSelection(
+		discovered.frontmatter.skills,
+		"skills",
+		path,
+		homeDirectory,
+	);
 	const displayName = optionalString(discovered.frontmatter.display_name, "display_name", path);
 	const description = optionalString(discovered.frontmatter.description, "description", path);
 	const interactiveValue = discovered.frontmatter.interactive;
