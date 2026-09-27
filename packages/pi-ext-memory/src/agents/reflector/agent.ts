@@ -4,7 +4,13 @@ import {
 	type AgentTool,
 	agentLoop,
 } from "@earendil-works/pi-agent-core";
-import type { Api, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type {
+	Api,
+	Message,
+	Model,
+	ModelThinkingLevel,
+	ProviderHeaders,
+} from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
@@ -36,7 +42,7 @@ import { REFLECTOR_SYSTEM } from "./prompts.js";
 interface RunReflectorArgs {
 	model: Model<Api>;
 	apiKey?: string | undefined;
-	headers?: Record<string, string> | undefined;
+	headers?: ProviderHeaders | undefined;
 	env?: Record<string, string> | undefined;
 	reflections: Reflection[];
 	observations: Observation[];
@@ -209,7 +215,7 @@ export async function runReflector(args: RunReflectorArgs): Promise<Reflection[]
 		messages: [{ role: "system", content: REFLECTOR_SYSTEM, timestamp: Date.now() }],
 		tools: [recordReflections as unknown as AgentTool],
 	};
-	const reasoning = (model as { reasoning?: unknown }).reasoning;
+	const reasoning = model.reasoning;
 	const thinkingLevel = args.thinkingLevel ?? "low";
 	const effectiveMaxTurns = args.maxTurns && args.maxTurns > 0 ? args.maxTurns : undefined;
 	let turnCount = 0;

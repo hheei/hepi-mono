@@ -1,12 +1,14 @@
+import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { type Config, DEFAULTS, loadConfig } from "./config.js";
 import { debugLog } from "./debug-log.js";
 
 export type ResolveResult =
 	| {
 			ok: true;
-			model: unknown;
+			model: Model<Api>;
 			apiKey?: string | undefined;
-			headers?: Record<string, string> | undefined;
+			headers?: ProviderHeaders | undefined;
 			env?: Record<string, string> | undefined;
 			baseUrl?: string | undefined;
 	  }
@@ -84,7 +86,7 @@ function emptyWorkerCostStats(): WorkerCostStats {
  * `ModelRegistry.hasConfiguredAuth(model)` is true when pi's availability check
  * (`ModelRuntime.checkAuth`) resolved *something* for the provider — an API key, a
  * stored credential, or an ambient source such as `AWS_PROFILE` / `AWS_ACCESS_KEY_ID`
- * / gcloud ADC. Combined with `auth.ok === true` and an auth payload that carries
+ * / gcloud ADC. Combined with `ok: true` and an auth payload that carries
  * nothing, that is the signature of a provider pi signs at request time:
  *
  *   pi has a credential source, and deliberately hands the caller nothing to attach.
@@ -101,7 +103,7 @@ function emptyWorkerCostStats(): WorkerCostStats {
  *
  * A missing or throwing answer must not be read as "authenticated".
  */
-function hasConfiguredProviderCredential(registry: ModelRegistryLike, model: unknown): boolean {
+function hasConfiguredProviderCredential(registry: ModelRegistryLike, model: Model<Api>): boolean {
 	try {
 		return registry.hasConfiguredAuth?.(model) === true;
 	} catch {
@@ -111,20 +113,26 @@ function hasConfiguredProviderCredential(registry: ModelRegistryLike, model: unk
 
 /**
  * The slice of Pi's `ModelRegistry` facade this runtime resolves credentials through.
- * Every member stays optional so a credential-free test double can leave one out, and the
- * model parameter stays `unknown` to match the `unknown` session model the contexts carry —
- * which is why a host context reaches `ConsolidationCtx` through a cast.
+ *
+ * Every member is declared with the facade's own signature, so the real registry satisfies
+ * it and a host context needs no cast. Each one stays optional, so a credential-free test
+ * double can leave a member out instead of faking it.
  */
 export interface ModelRegistryLike {
-	find?: ((provider: string, id: string) => unknown) | undefined;
-	getApiKeyAndHeaders?: ((model: unknown) => Promise<unknown>) | undefined;
-	isUsingOAuth?: ((model: unknown) => boolean) | undefined;
-	hasConfiguredAuth?: ((model: unknown) => boolean) | undefined;
-	refresh?: ((options?: unknown) => Promise<unknown>) | undefined;
+	find?: ModelRegistry["find"] | undefined;
+	getApiKeyAndHeaders?: ModelRegistry["getApiKeyAndHeaders"] | undefined;
+	isUsingOAuth?: ModelRegistry["isUsingOAuth"] | undefined;
+	hasConfiguredAuth?: ModelRegistry["hasConfiguredAuth"] | undefined;
+	refresh?: ModelRegistry["refresh"] | undefined;
 }
 
+/** What `getApiKeyAndHeaders` resolves to (`ResolvedRequestAuth` in the facade). */
+export type ResolvedAuth = Awaited<
+	ReturnType<NonNullable<ModelRegistryLike["getApiKeyAndHeaders"]>>
+>;
+
 export interface ResolveCtx {
-	model: unknown;
+	model: Model<Api> | undefined;
 	modelRegistry: ModelRegistryLike;
 	hasUI: boolean;
 	ui?: { notify: Notify } | undefined;
@@ -279,20 +287,15 @@ export class Runtime {
 				reason:
 					"no model available (session has no model and no observational-memory model configured)",
 			};
-		const authResult = await ctx.modelRegistry.getApiKeyAndHeaders?.(model);
-		const auth = (typeof authResult === "object" && authResult !== null ? authResult : {}) as {
-			ok?: boolean;
-			apiKey?: unknown;
-			headers?: unknown;
-			env?: unknown;
-			baseUrl?: unknown;
-		};
-		const provider = (model as { provider?: string }).provider ?? "unknown";
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders?.(model);
+		const resolved: Extract<ResolvedAuth, { ok: true }> | undefined =
+			auth?.ok === true ? auth : undefined;
+		const provider = model.provider;
 		const isOAuth = ctx.modelRegistry.isUsingOAuth?.(model) === true;
-		// `auth.ok === false` is the only unambiguous failure: pi returns it when a
+		// `ok: false` is the only unambiguous failure: pi returns it when a
 		// provider requires a request auth header and no credential resolved.
 		//
-		// `auth.ok === true` with neither apiKey nor headers, for a provider pi DOES
+		// `ok: true` with neither apiKey nor headers, for a provider pi DOES
 		// report a credential source for, is not a failure — it is how pi describes a
 		// provider that authenticates at request time: Amazon Bedrock signing SigV4 from
 		// ambient AWS credentials (`bedrockAuth.resolve` returns `{ auth: {}, source:
@@ -308,8 +311,8 @@ export class Runtime {
 		// again; a credential that resolved to an empty *string* key, which is a
 		// misconfiguration rather than ambient auth; and a provider pi reports no
 		// credential source for at all, which is simply unauthenticated.
-		const usable = hasUsableAuth(auth);
-		const resolvedEmptyApiKey = typeof auth.apiKey === "string" && auth.apiKey.length === 0;
+		const usable = resolved !== undefined && hasUsableAuth(resolved);
+		const resolvedEmptyApiKey = resolved?.apiKey === "";
 		let providerCredentialConfigured = hasConfiguredProviderCredential(ctx.modelRegistry, model);
 		// pi's gate has TWO halves and never trusts the snapshot alone (agent-session.js):
 		//
@@ -330,7 +333,7 @@ export class Runtime {
 		// Only attempted when everything else already looks like the ambient shape, so an
 		// ordinary unauthenticated provider still fails on the first call.
 		if (
-			auth.ok === true &&
+			resolved !== undefined &&
 			!usable &&
 			!isOAuth &&
 			!resolvedEmptyApiKey &&
@@ -343,8 +346,8 @@ export class Runtime {
 			);
 		}
 		const signsAtRequestTime =
-			auth.ok === true && !isOAuth && !resolvedEmptyApiKey && providerCredentialConfigured;
-		if (!auth.ok || (!usable && !signsAtRequestTime)) {
+			resolved !== undefined && !isOAuth && !resolvedEmptyApiKey && providerCredentialConfigured;
+		if (resolved === undefined || (!usable && !signsAtRequestTime)) {
 			const reason = isOAuth
 				? `authentication failed for provider "${provider}" — OAuth credentials may have expired; run '/login ${provider}' to re-authenticate`
 				: `no API key or auth headers for provider "${provider}"`;
@@ -354,11 +357,11 @@ export class Runtime {
 			debugLog("resolve.rejected", {
 				provider,
 				reason,
-				authOk: auth.ok === true,
-				hasApiKey: typeof auth.apiKey === "string" && auth.apiKey.length > 0,
+				authOk: resolved !== undefined,
+				hasApiKey: typeof resolved?.apiKey === "string" && resolved.apiKey.length > 0,
 				resolvedEmptyApiKey,
-				headerCount: countHeaders(auth.headers),
-				usableHeaderCount: countUsableHeaders(auth.headers),
+				headerCount: countHeaders(resolved?.headers),
+				usableHeaderCount: countUsableHeaders(resolved?.headers),
 				isOAuth,
 				providerCredentialConfigured,
 				signsAtRequestTime,
@@ -370,14 +373,16 @@ export class Runtime {
 		}
 		// Match pi's request model: OAuth may route to an account-specific endpoint
 		// (e.g. Copilot Business). Do not mutate the shared session/registry model.
-		const requestModel = auth.baseUrl ? { ...(model as object), baseUrl: auth.baseUrl } : model;
+		const requestModel: Model<Api> = resolved.baseUrl
+			? { ...model, baseUrl: resolved.baseUrl }
+			: model;
 		return {
 			ok: true,
 			model: requestModel,
-			apiKey: auth.apiKey as string | undefined,
-			headers: auth.headers as Record<string, string> | undefined,
-			env: auth.env as Record<string, string> | undefined,
-			baseUrl: auth.baseUrl as string | undefined,
+			apiKey: resolved.apiKey,
+			headers: resolved.headers,
+			env: resolved.env,
+			baseUrl: resolved.baseUrl,
 		};
 	}
 
@@ -390,7 +395,7 @@ export class Runtime {
 	 */
 	private async recheckProviderCredential(
 		registry: ModelRegistryLike,
-		model: unknown,
+		model: Model<Api>,
 		provider: string,
 	): Promise<boolean> {
 		const last = this.availabilityRecheckedAt.get(provider);

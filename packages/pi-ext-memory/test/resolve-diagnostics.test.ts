@@ -9,8 +9,10 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 	getAgentDir: () => mock.agentDir,
 }));
 
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { DEBUG_LOG_RELATIVE_PATH, withDebugLogContext } from "../src/debug-log.js";
-import { Runtime } from "../src/runtime.js";
+import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
+import { testModel } from "./fixtures/model.js";
 
 /**
  * The ambient-credential outage was invisible for eight weeks partly because the
@@ -41,11 +43,11 @@ describe("resolveModel debug diagnostics", () => {
 			.map((line) => JSON.parse(line));
 	}
 
-	async function resolve(registry: unknown, model: unknown) {
+	async function resolve(registry: ModelRegistryLike, model: Model<Api>) {
 		const runtime = new Runtime();
 		runtime.configLoaded = true;
 		return withDebugLogContext({ enabled: true }, () =>
-			runtime.resolveModel({ model, modelRegistry: registry as any, hasUI: false }),
+			runtime.resolveModel({ model, modelRegistry: registry, hasUI: false }),
 		);
 	}
 
@@ -57,7 +59,7 @@ describe("resolveModel debug diagnostics", () => {
 				hasConfiguredAuth: () => false,
 				isUsingOAuth: () => false,
 			},
-			{ provider: "anthropic", id: "claude" },
+			testModel({ provider: "anthropic", id: "claude" }),
 		);
 
 		expect(result.ok).toBe(false);
@@ -84,7 +86,7 @@ describe("resolveModel debug diagnostics", () => {
 				hasConfiguredAuth: () => true,
 				isUsingOAuth: () => false,
 			},
-			{ provider: "xai", id: "grok-4" },
+			testModel({ provider: "xai", id: "grok-4" }),
 		);
 
 		const [rejected] = events().filter((entry) => entry.event === "resolve.rejected");
@@ -104,7 +106,7 @@ describe("resolveModel debug diagnostics", () => {
 				hasConfiguredAuth: () => true,
 				isUsingOAuth: () => false,
 			},
-			{ provider: "amazon-bedrock", id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0" },
+			testModel({ provider: "amazon-bedrock", id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0" }),
 		);
 
 		expect(result.ok).toBe(true);
@@ -129,7 +131,7 @@ describe("resolveModel debug diagnostics", () => {
 				hasConfiguredAuth: () => true,
 				isUsingOAuth: () => false,
 			},
-			{ provider: "anthropic", id: "claude" },
+			testModel({ provider: "anthropic", id: "claude" }),
 		);
 
 		// A successful resolve with usable auth logs nothing at all; assert the file

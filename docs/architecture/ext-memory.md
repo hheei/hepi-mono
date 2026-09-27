@@ -54,6 +54,13 @@ session shutdown 或替换时取消未完成的文件读取，且不写入旧 se
 本扩展的最低 Pi 版本为 `0.87.0`。worker 使用 Pi 的 `ModelRegistry.streamSimple` 组合流，
 不再保留 `getRegisteredProviderConfig` 或 `@earendil-works/pi-ai/compat` fallback。
 
+凭据解析与 worker 流共用同一个 host registry，因此 `runtime.ts` 的 `ModelRegistryLike` 直接
+用 facade 自己的签名声明（`ModelRegistry["getApiKeyAndHeaders"]` 等），只把成员设为 optional，
+让无凭据的测试替身可以省略。这样 `ExtensionContext` 能结构化满足 `ConsolidationCtx`，host
+context 不再需要 `as unknown as` 转换；`ResolveResult.model` 与 agent 的 `headers` 分别沿用
+pi-ai 的 `Model<Api>` 与 `ProviderHeaders`，`ModelRegistry.getApiKeyAndHeaders` 的
+`ResolvedRequestAuth` 以 `ResolvedAuth` 导出供调用方与测试引用。
+
 ### 2.5 会话门控条目 (`om.gate`)
 
 `/om on` / `/om off` 通过 `pi.appendEntry("om.gate", { enabled })` 写入当前分支，

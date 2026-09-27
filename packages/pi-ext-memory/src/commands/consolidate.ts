@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { type ConsolidationCtx, runForcedConsolidation } from "../hooks/consolidation-trigger.js";
+import { runForcedConsolidation } from "../hooks/consolidation-trigger.js";
 import type { Runtime } from "../runtime.js";
 import {
 	type Entry,
@@ -64,5 +64,5 @@ export async function runConsolidateCommand(
 
 	// No await between the checks above and this launch: `launchConsolidationTask`
 	// claims the in-flight lock unconditionally, so the check-then-claim must be atomic.
-	await runForcedConsolidation(pi, runtime, ctx as unknown as ConsolidationCtx);
+	await runForcedConsolidation(pi, runtime, ctx);
 }
