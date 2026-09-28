@@ -6,10 +6,15 @@
  * Bash command. It requires the shared task registry, which `@hheei/pi-ext-tools` provides, and
  * stays inactive with an explicit reason when that integration is not installed.
  */
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
 	errorMessage,
+	isRecord,
 	registerManagedTool,
 	setManagedToolsActive,
 	TASK_REGISTRY_SERVICE_KEY,
@@ -113,7 +118,16 @@ export function registerTaskTool(
 			return textToolResult(formatBlockingOutcome(started.shortId, outcomes), outcomes);
 		},
 	};
-	registerManagedTool(pi, TASK_TOOL_REGISTRATION, tui.frame(tool, { headerLine: "truncate" }));
+	registerManagedTool(
+		pi,
+		TASK_TOOL_REGISTRATION,
+		tui.frame(tool, {
+			// The task text can be long, so only its first line is shown and the frame truncates it.
+			summary: (args) => `${args.agent} \u00b7 ${firstLine(args.task)}`,
+			footer: taskFooter,
+			headerLine: "truncate",
+		}),
+	);
 	setManagedToolsActive(context, [TASK_TOOL_REGISTRATION], false);
 	void waitForService(pi, TASK_REGISTRY_SERVICE_KEY, { signal: context.signal })
 		.then((registry) => {
@@ -139,6 +153,35 @@ function taskContract(schema: unknown): TaskChildContract {
 	const reason = checkOutputSchema(schema);
 	if (reason !== undefined) throw new Error(`Unsupported outputSchema: ${reason}`);
 	return { schema, softTurns: DEFAULT_TASK_SOFT_TURNS };
+}
+
+/** Typed footer: the task's short id and the status it actually reached. */
+function taskFooter(result: AgentToolResult<unknown>): string | undefined {
+	const details: unknown = result.details;
+	if (Array.isArray(details)) {
+		const settled: unknown = details[0];
+		if (isRecord(settled) && typeof settled.id === "string" && typeof settled.status === "string") {
+			return `${shortIdOf(settled.id)} \u00b7 ${settled.status}`;
+		}
+		return undefined;
+	}
+	if (isRecord(details) && typeof details.status === "string") {
+		return typeof details.shortId === "string"
+			? `${details.shortId} \u00b7 ${details.status}`
+			: undefined;
+	}
+	return undefined;
+}
+
+/** The id a caller can act on, derived from the full id the registry minted. */
+function shortIdOf(id: string): string {
+	const parts = id.split("-");
+	return parts.length >= 3 ? `${parts[0]}-${parts[parts.length - 1]}` : id;
+}
+
+function firstLine(text: string): string {
+	const line = text.split("\n", 1)[0] ?? text;
+	return line.length > 80 ? `${line.slice(0, 79)}\u2026` : line;
 }
 
 function formatBlockingOutcome(shortId: string, outcomes: readonly TaskWaitOutcome[]): string {
