@@ -90,7 +90,7 @@ load parent-scoped registry
 
 ### 4.1 Model-facing tools
 
-V1 只注册五个 semantic tools：
+会话模式注册五个 semantic tools，另有一个统一的 `task` 入口：
 
 ```ts
 spawn_subagent({ task: string, agent: string, cwd?: string })
@@ -98,18 +98,31 @@ send_subagent({ id: string, message: string, mode?: "steer" | "follow_up" | "aut
 get_subagent({ id: string })
 list_subagents({})
 stop_subagent({ id: string })
+
+task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSchema?: object })
 ```
+
+`task` 是共享后台任务契约的 producer（见
+[`docs/architecture/background-tasks.md`](../architecture/background-tasks.md)）：受理、状态、等待、
+停止与通知都由该契约决定，不新增第二套 subagent 通道。`blocking: true` 在本次调用内返回结果且不再
+发送后台通知；缺省或 `false` 立即返回 task id，结果稍后回到父上下文。该入口要求
+`@hheei/pi-ext-tools` 提供的共享 registry；缺失时它不激活并明确说明原因，不会静默改走
+`spawn_subagent`。
 
 规则：
 
 - 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
-- `spawn_subagent` 必须给出明确 agent name；V1 没有内置默认 agent，缺名或解析失败在启动前失败。
+- `spawn_subagent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
+  agent，缺名或解析失败在启动前失败。
 - `spawn_subagent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
 - `spawn_subagent` / `send_subagent` 返回后，模型不得用 `get_subagent` / `list_subagents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
 - `get_subagent` / `list_subagents` 只用于需要当前身份或状态时，不是完成通道。
 - `send_subagent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
 - `get/list` 返回可确认的状态、mode、latest summary、interruption、usage、runtime observability，以及冻结的 model/thinking 及其来源（agent 或 parent）；last-known 值不得伪装成实时值。
 - `stop_subagent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
+- `task` 每次创建专属 child：不 attach、不接收 follow-up、完成后不唤醒，结果与静止确认后终止
+  runner；进程槽位在确认退出后释放。这些限制在所有入口（tool、command、host attach、恢复）都能
+  观察到，而不是只写在文档里。
 
 ### 4.2 Child-facing tool
 
@@ -132,6 +145,7 @@ contact_parent({
 <cwd>/.pi/agents/*.md
 <cwd>/.agents/agents/*.md
 ~/.pi/agent/agents/*.md
+<builtin>              # 随包发布的定义，不写入用户 home
 ```
 
 使用 Pi `parseFrontmatter` 解析 YAML，再对 `unknown` 做本 extension schema 校验。V1 支持已验证且能兑现的字段：
@@ -140,6 +154,11 @@ contact_parent({
 - runtime：`model`、`thinking`、`tools`、`exclude_tools`、`extensions`、`skills`；
 - policy：`interactive`（boolean，缺省 `false`；`true` 表示用户会在原生 TUI 操作该 child。除 `contact_parent` 外本包不得 `triggerTurn` 叫醒 parent。创建时冻进 launch config，RPC/TUI/restart 复用）；
 - Markdown body：固定 prompt assembly 的 agent instructions。
+
+内置层目前只有只读 `scout`：可被发现但不会被自动派发，继承父模型与 thinking，只列出读取/搜索
+与报告工具。工具名允许被 extension 扩展，因此内置定义必须显式列出 `tools`——空的 `tools` 在下游
+意味着“全部工具”，这与其只读承诺相反，属于配置失败而不是静默放宽。这是工具能力限制，不是操作
+系统沙箱。
 
 未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive` 或被禁用的 `contact_parent` 在启动前报错。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
 
