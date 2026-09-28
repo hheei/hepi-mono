@@ -473,6 +473,22 @@ class ToolTraceController {
 		return this.tools.get(toolCallId)?.latest;
 	}
 
+	/** Records whether the call phase drew a body, so the result does not open a second rail. */
+	markRail(toolCallId: string, drawn: boolean): void {
+		const tool = this.tools.get(toolCallId);
+		if (tool !== undefined) tool.railDrawn = drawn;
+	}
+
+	/**
+	 * True only when this row's call phase really drew the section above the result. A declared
+	 * request renderer that produced nothing leaves the result to draw its own separator, and a row
+	 * restored without a call phase has drawn nothing either.
+	 */
+	railDrawn(toolCallId: string | undefined): boolean {
+		if (toolCallId === undefined) return false;
+		return this.tools.get(toolCallId)?.railDrawn === true;
+	}
+
 	observe(toolCallId: string, executionStarted: boolean, invalidate: () => void): ToolRecord {
 		const existing = this.tools.get(toolCallId);
 		if (existing !== undefined) {
@@ -572,6 +588,8 @@ type ToolRecord = {
 	collapseTimer?: ReturnType<typeof setTimeout>;
 	completion?: ToolCompletion;
 	latest?: AgentToolResult<unknown>;
+	/** True once the call phase drew a body section, which already opens the result's rail. */
+	railDrawn?: boolean;
 	invalidate?: () => void;
 };
 
@@ -847,13 +865,16 @@ export function createToolTui(): ToolTui {
 						lastComponent: previousBody(context.lastComponent),
 					};
 					const request = presentation.request;
-					// A declared request owns the call-phase body for the whole lifetime of the row.
-					const body =
-						request === undefined
-							? previewing
-								? renderCall?.(args, innerTheme, bodyContext)
-								: undefined
-							: request(args, innerTheme, bodyContext);
+					// A declared request owns the call-phase body for the whole lifetime of the row, but it may
+					// legitimately render nothing (empty command, empty code), and then no section rail exists
+					// for the result to continue.
+					let body: Component | undefined;
+					if (request === undefined) {
+						body = previewing ? renderCall?.(args, innerTheme, bodyContext) : undefined;
+					} else {
+						body = request(args, innerTheme, bodyContext);
+					}
+					trace.markRail(context.toolCallId, body !== undefined);
 					return new ToolFrameSection(
 						body === undefined
 							? undefined
@@ -911,7 +932,7 @@ export function createToolTui(): ToolTui {
 						oneLineFooter: presentation.headerLine === "truncate",
 						cap: "tail",
 						guardWidth: false,
-						omitOpeningRail: presentation.request !== undefined,
+						omitOpeningRail: trace.railDrawn(context.toolCallId),
 					});
 				},
 			};
