@@ -217,3 +217,27 @@ test("cancelling a blocking call stops the execution whose result only it could 
 		content: [{ type: "text", text: expect.stringContaining("was stopped") }],
 	});
 });
+
+test("a call cancelled before it starts waiting still stops its task", async (): Promise<void> => {
+	const hosted = host();
+	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	hosted.provide(registry);
+	const stopped: string[] = [];
+	registerTaskTool(hosted.context, TUI, () => {
+		return {
+			start: () => ({ id: "agent-test-1", shortId: "agent-1", status: "queued" }),
+			stop(id: string) {
+				stopped.push(id);
+			},
+			dispose() {},
+		} as unknown as AgentTaskExecutor;
+	});
+	await settle();
+
+	const controller = new AbortController();
+	controller.abort();
+	// An already-aborted signal fires no event, so only an explicit check can stop the task.
+	await callTool(hosted, { agent: "scout", task: "look", blocking: true }, controller.signal);
+
+	expect(stopped).toEqual(["agent-test-1"]);
+});
