@@ -205,12 +205,13 @@ test("bash displays its active command in the base theme and timeout dim", (): v
 			lastComponent: undefined,
 			state: {},
 		} as never)
-		.render(120)
-		.join("\n");
+		.render(120);
 	if (text === undefined) throw new Error("Expected bash call renderer");
-	expect(text.match(/printf one/g)).toHaveLength(1);
-	expect(text).not.toContain("<dim>printf one</dim>");
-	expect(text).toContain("<dim> (timeout 120s)</dim>");
+	// The command appears twice on purpose: a truncated header summary plus the request body.
+	expect(text[0]?.match(/printf one/g)).toHaveLength(1);
+	expect(text[0]).not.toContain("<dim>printf one</dim>");
+	expect(text[0]).toContain("<dim> (timeout 120s)</dim>");
+	expect(text[2]).toBe("printf one");
 });
 
 test("bash wraps the active command and retains its timeout suffix", (): void => {
@@ -227,6 +228,30 @@ test("bash wraps the active command and retains its timeout suffix", (): void =>
 		.join("\n");
 	expect(text).toContain("printf second");
 	expect(text).toContain("(timeout 20s)");
+});
+
+test("bash keeps the full command in a request body after the result arrives", (): void => {
+	const bash = bashTool();
+	const theme = plainTheme;
+	const rows =
+		bash
+			.renderCall?.({ command: "printf first\nprintf second", timeout: 20 }, theme, {
+				isError: false,
+				isPartial: false,
+				lastComponent: undefined,
+				state: {},
+				toolCallId: "bash-request",
+				executionStarted: true,
+				expanded: false,
+				invalidate: (): void => undefined,
+			} as never)
+			.render(120) ?? [];
+	// The header keeps its one-line `; ` summary; the request body keeps the command verbatim.
+	expect(rows[0]).toContain("printf first; printf second");
+	expect(rows[1]).toBe("─".repeat(120));
+	expect(rows[2]).toBe("printf first");
+	expect(rows[3]).toBe("printf second");
+	expect(rows[4]).toBe("─".repeat(120));
 });
 
 test("bash collapses only the previous command before its timeout suffix", async (): Promise<void> => {
@@ -257,7 +282,7 @@ test("bash collapses only the previous command before its timeout suffix", async
 	expect(plainLine.trimEnd().endsWith("(timeout 20s)")).toBe(true);
 });
 
-test("bash encloses its output between full-width dividers", (): void => {
+test("bash closes its output with a full-width divider above the typed footer", (): void => {
 	const bash = bashTool();
 	const theme = roleTheme;
 	const lines = bash
@@ -268,9 +293,10 @@ test("bash encloses its output between full-width dividers", (): void => {
 			bashContext("printf stdout"),
 		)
 		.render(40);
-	expect(lines?.[0]).toBe(`<muted>${"─".repeat(40)}</muted>`);
-	expect(lines?.at(-2)).toBe(`<muted>${"─".repeat(40)}</muted>`);
-	expect(lines?.at(-1)).toBe("<dim>exit ? · 1 line · completed</dim>");
+	// The request body above already closed its own section, so the result body opens without a rail.
+	expect(lines?.[0]).toBe("stdout");
+	expect(lines?.[1]).toBe(`<muted>${"─".repeat(40)}</muted>`);
+	expect(lines?.[2]).toBe("<dim>exit ? · 1 line · completed</dim>");
 	expect(lines?.join("\n")).toContain("stdout");
 	expect(lines?.join("\n")).not.toContain("<text>stdout");
 	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
@@ -353,8 +379,8 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 	);
 	if (component === undefined) throw new Error("Expected bash result renderer");
 	const rendered = component.render(120).filter((line) => !line.includes("─"));
-	expect(rendered).toHaveLength(20);
-	expect(rendered[0]).toContain("… (11 earlier lines, ctrl+o to expand)");
+	expect(rendered).toHaveLength(10);
+	expect(rendered[0]).toContain("… (21 earlier lines, ctrl+o to expand)");
 	expect(rendered[0]).toContain("<dim>");
 	expect(rendered.at(-1)).toContain("line 30");
 	expect(rendered.join("\n")).not.toContain("exit ?");
@@ -395,9 +421,9 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 	if (body === undefined) throw new Error("Expected wrapped bash body");
 	const narrow = body.render(20).filter((line) => !line.includes("─"));
 	const wide = body.render(120).filter((line) => !line.includes("─"));
-	expect(narrow).toHaveLength(20);
-	expect(wide).toHaveLength(20);
-	expect(wide[0]).toContain("… (11 earlier lines, ctrl+o to expand)");
+	expect(narrow).toHaveLength(10);
+	expect(wide).toHaveLength(10);
+	expect(wide[0]).toContain("… (21 earlier lines, ctrl+o to expand)");
 	const tail = bash
 		.renderResult?.(
 			{

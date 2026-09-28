@@ -121,7 +121,7 @@ describe("tool frame collapse modes", () => {
 		expect(notes[1]).toMatch(/exit 0/);
 	});
 
-	test("flattens a multi-line bash command into one header line", async (): Promise<void> => {
+	test("flattens a multi-line bash command into one header row above its request body", async (): Promise<void> => {
 		const { tools } = registeredTools();
 		const bash = toolFor(tools, "bash");
 		const headerOf = (command: string, width: number): string[] =>
@@ -133,15 +133,16 @@ describe("tool frame collapse modes", () => {
 				} as never)
 				.render(width) ?? [];
 
-		// A multi-line command is flattened onto one row, joined at its own separators...
+		// The header flattens a multi-line command onto one row, joined at its own separators...
 		const flattened = headerOf("first line\nsecond line\nthird line", 200);
-		expect(flattened).toHaveLength(1);
 		expect(flattened[0]).toContain("first line; second line; third line");
+		// ...while the request body below the header keeps the command verbatim.
+		expect(flattened.filter((row) => row.includes("─"))).toHaveLength(2);
+		expect(flattened.slice(2, -1)).toEqual(["first line", "second line", "third line"]);
 
-		// ...and a command too long for the terminal is cut on that same single row.
+		// ...and a command too long for the terminal is cut on that same single header row.
 		const long = `docker run --rm -v /tmp:/tmp alpine sh -c "echo one; echo two"`;
 		const truncated = headerOf(long, 40);
-		expect(truncated).toHaveLength(1);
 		expect(stripTerminalSequences(truncated[0] ?? "").endsWith("…")).toBe(true);
 	});
 

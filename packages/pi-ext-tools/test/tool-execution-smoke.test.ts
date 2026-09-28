@@ -41,9 +41,11 @@ function outputLines(component: ToolExecutionComponent, output: string): number 
 
 function framedBody(component: ToolExecutionComponent): readonly string[] {
 	const lines = stripTerminalSequences(component.render(100).join("\n")).split("\n");
-	const openingRail = lines.findIndex((line) => line.includes("─"));
-	const closingRail = lines.findIndex((line, index) => index > openingRail && line.includes("─"));
-	return openingRail < 0 || closingRail < 0 ? [] : lines.slice(openingRail + 1, closingRail);
+	// The last two rails bound the result body: a request section above it closed its own pair.
+	const rails = lines.flatMap((line, index) => (line.includes("─") ? [index] : []));
+	const opening = rails.at(-2);
+	const closing = rails.at(-1);
+	return opening === undefined || closing === undefined ? [] : lines.slice(opening + 1, closing);
 }
 
 describe("ToolExecutionComponent smoke", () => {
@@ -201,7 +203,7 @@ describe("ToolExecutionComponent smoke", () => {
 		expect(requests).toBeGreaterThan(0);
 	});
 
-	test("omits bash body rails when the host receives zero output lines", async (): Promise<void> => {
+	test("omits the bash result rails when the host receives zero output lines", async (): Promise<void> => {
 		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
@@ -216,12 +218,13 @@ describe("ToolExecutionComponent smoke", () => {
 		for (let index = 0; index < 3; index += 1) {
 			const rendered = stripTerminalSequences(component.render(100).join("\n"));
 			expect(rendered).toContain("exit 0 · 0 lines");
-			expect(rendered).not.toContain("─");
+			// Only the request section draws rails: the empty result body adds none of its own.
+			expect(rendered.split("\n").filter((line) => line.includes("─"))).toHaveLength(2);
 			component.invalidate();
 		}
 	});
 
-	test("keeps twenty complete bash output rows in the host body", async (): Promise<void> => {
+	test("keeps ten complete bash output rows in the host body", async (): Promise<void> => {
 		const { pi, tools: registered, tui } = framedHost();
 		registerBashTool(pi, undefined, tui);
 		const tool = registered[0]!;
@@ -243,8 +246,8 @@ describe("ToolExecutionComponent smoke", () => {
 		if (partial === undefined) throw new Error("Expected bash partial output");
 		component.updateResult({ ...result, isError: false });
 		const body = framedBody(component);
-		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(20);
-		expect(body[0]).toMatch(/^… \(11 earlier lines,/);
+		expect(body, stripTerminalSequences(component.render(100).join("\n"))).toHaveLength(10);
+		expect(body[0]).toMatch(/^… \(21 earlier lines,/);
 		expect(body.at(-1)).toContain("line 30");
 	});
 

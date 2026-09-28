@@ -161,6 +161,8 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 `pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。
 
+`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 仍然是单行 `; ` 摘要，供折叠帧与快速扫描使用，因此宽命令会在 header 与 request body 各出现一次。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
+
 ### Optional optimizer integration
 
 RTK 重写策略、配置与生命周期现由独立 [`pi-optimizer`](../optimizer/README.md) 所有。`pi-ext-tools` 不再注册 RTK provider 或重写 hook；旧 `pi-ext-tools.rtk` / `rtkPath` 由 optimizer 原子迁移。未安装 optimizer 时 Bash 不自动改写。
