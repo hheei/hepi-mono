@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { expandHome, isRecord } from "@hheei/pi-ext-core";
+import { builtinAgents } from "./builtin-agents.js";
 import type {
 	ExtensionSelection,
 	ResolvedAgentPolicy,
@@ -179,6 +180,10 @@ export async function discoverAgents(
 			const agent = await readAgentDefinition(path);
 			if (!selected.has(agent.name)) selected.set(agent.name, agent);
 		}
+	}
+	// Built-ins are the last scope: a definition on disk with the same name always wins.
+	for (const agent of builtinAgents()) {
+		if (!selected.has(agent.name)) selected.set(agent.name, agent);
 	}
 	return [...selected.values()];
 }
