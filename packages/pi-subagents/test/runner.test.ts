@@ -613,6 +613,40 @@ describe("runner IPC", () => {
 		}
 	});
 
+	test("hands a result to a reconnected controller when its socket cannot take it", async () => {
+		// A negative budget makes every write look congested, which is the state a controller that
+		// stopped reading leaves behind.
+		const harness = await startFakeRunner({ runnerOptions: { maxControllerBufferBytes: -1 } });
+		let second: Awaited<ReturnType<typeof openRawController>> | undefined;
+		try {
+			const first = await openRawController(
+				harness.identity.endpoint,
+				helloFrame(harness.identity),
+			);
+			await first.nextFrame();
+			await sendTaskResultToRunner(harness.identity, {
+				type: "task_result",
+				parentSessionId: harness.identity.parentSessionId,
+				childId: harness.identity.subagentId,
+				runtimeIdentity: harness.identity.runtimeIdentity,
+				json: "done",
+				structured: false,
+			});
+			// The controller that cannot take the result is dropped instead of holding it.
+			await expect(first.closed()).resolves.toBeUndefined();
+
+			second = await openRawController(harness.identity.endpoint, helloFrame(harness.identity));
+			expect(await second.nextFrame()).toMatchObject({ type: "hello_ack" });
+			expect(await second.nextFrame()).toMatchObject({
+				type: "event",
+				event: { type: "task_result", json: "done" },
+			});
+		} finally {
+			second?.destroy();
+			await harness.dispose();
+		}
+	});
+
 	test("rejects a report when the offline report queue is full", async () => {
 		const harness = await startFakeRunner({ runnerOptions: { maxBufferedEvents: 1 } });
 		try {

@@ -721,16 +721,25 @@ class Runner {
 	#deliverOrQueueTaskResult(payload: TaskResultPayload): boolean {
 		if (this.#taskResult !== undefined) return sameTaskResult(this.#taskResult, payload);
 		const link = this.#controller;
-		if (link !== undefined && link.socket.writableLength <= this.#maxControllerBufferBytes) {
-			this.#taskResult = payload;
-			void writeJsonLine(link.socket, eventFrame(payload), this.#maxFrameBytes).catch(
-				(error: unknown) => {
-					this.#diagnose(`task result delivery failed: ${errorMessage(error)}`);
-					this.#dropController(link, toError(error));
-					this.#pendingTaskResult = payload;
-				},
+		if (link !== undefined) {
+			if (link.socket.writableLength <= this.#maxControllerBufferBytes) {
+				this.#taskResult = payload;
+				void writeJsonLine(link.socket, eventFrame(payload), this.#maxFrameBytes).catch(
+					(error: unknown) => {
+						this.#diagnose(`task result delivery failed: ${errorMessage(error)}`);
+						this.#dropController(link, toError(error));
+						this.#pendingTaskResult = payload;
+					},
+				);
+				return true;
+			}
+			// A controller that is not reading its socket cannot be handed the one result this
+			// execution produces, and waiting for it to drain would keep the result out of reach:
+			// dropping it makes the parent reconnect, and the pending slot below is what it picks up.
+			this.#diagnose(
+				`controller is not reading the task result (${link.socket.writableLength} bytes queued)`,
 			);
-			return true;
+			this.#dropController(link, new Error("Controller is not reading runner events"));
 		}
 		this.#taskResult = payload;
 		this.#pendingTaskResult = payload;
