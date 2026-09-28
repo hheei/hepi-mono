@@ -9,7 +9,7 @@ import {
 	createHerdrHostAdapter,
 	selectHostAdapter,
 } from "./host-adapter.js";
-import { type ParentChannelReport, SubagentManager } from "./manager.js";
+import { type ParentChannel, type ParentChannelReport, SubagentManager } from "./manager.js";
 import { createSubagentRegistry } from "./registry.js";
 import { createRuntimeTokenStore, launchDetachedRunner, recoverDetachedRunner } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
@@ -40,6 +40,27 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
 	};
 }
 
+/**
+ * How a child report reaches the parent conversation. `followUp` appends it to the run in flight,
+ * or starts a turn when the parent is idle, so the parent reads the report as part of its next
+ * activity; `nextTurn` would instead park it until the user's next message.
+ */
+export function createParentChannel(pi: Pick<ExtensionAPI, "sendMessage">): ParentChannel {
+	return {
+		async deliver(report: ParentChannelReport): Promise<void> {
+			pi.sendMessage(
+				{
+					customType: "pi-subagent-report",
+					content: `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`,
+					display: true,
+					details: report,
+				},
+				{ triggerTurn: true, deliverAs: "followUp" },
+			);
+		},
+	};
+}
+
 export default function piSubagentsExtension(pi: ExtensionAPI): void {
 	const child = childIdentityFromEnv(process.env);
 	if (child !== undefined) {
@@ -53,19 +74,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const parentSessionId = context.sessionManager.getSessionId();
 			const registry = createSubagentRegistry({ parentSessionId });
 			const tokens = createRuntimeTokenStore();
-			const channel = {
-				async deliver(report: ParentChannelReport): Promise<void> {
-					pi.sendMessage(
-						{
-							customType: "pi-subagent-report",
-							content: `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`,
-							display: true,
-							details: report,
-						},
-						{ triggerTurn: true, deliverAs: "nextTurn" },
-					);
-				},
-			};
+			const channel = createParentChannel(pi);
 			let manager!: SubagentManager;
 			const ownsAttachment = (identity: {
 				readonly host: "herdr" | "cmux";
