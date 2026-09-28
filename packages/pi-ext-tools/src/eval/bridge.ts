@@ -42,8 +42,27 @@ export class EvalToolError extends Error {
  * Rich nested results kept for re-rendering, bounded by a character budget. They live only in this
  * process: a reloaded session re-renders nested rows from their bounded trace text. The budget is
  * why a new cell no longer has to discard the rows of the previous one.
+ *
+ * The budget covers what is actually retained, not just the text: a nested `read` can return an
+ * image whose base64 payload, and the details a renderer redraws from, are the larger part of the
+ * result. Measuring only the text would let those grow past the bound.
  */
 const MAX_LIVE_NESTED_CHARS = 512 * 1024;
+
+function retainedChars(result: AgentToolResult<unknown>): number {
+	let size = 0;
+	for (const part of result.content) {
+		if (part.type === "text") size += part.text.length;
+		else size += part.data.length;
+	}
+	if (result.details === undefined) return size;
+	try {
+		return size + (JSON.stringify(result.details)?.length ?? 0);
+	} catch {
+		// Details a producer made unserializable cannot be measured, so they are not retained at all.
+		return MAX_LIVE_NESTED_CHARS + 1;
+	}
+}
 const nestedLive = new Map<
 	string,
 	{ readonly result: AgentToolResult<unknown>; readonly size: number }
@@ -55,10 +74,7 @@ export function evalNestedLiveResult(toolCallId: string): AgentToolResult<unknow
 }
 
 export function rememberEvalNestedLive(toolCallId: string, result: AgentToolResult<unknown>): void {
-	const size = result.content.reduce(
-		(total, part) => total + (part.type === "text" ? part.text.length : 0),
-		0,
-	);
+	const size = retainedChars(result);
 	// One result may not take the whole budget: it would evict every other row for one cell.
 	if (size > MAX_LIVE_NESTED_CHARS) return;
 	nestedLive.set(toolCallId, { result, size });
