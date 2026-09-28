@@ -857,7 +857,7 @@ function taskControlSession(overrides?: Partial<FffSettings>): {
 	};
 	registerTaskTools(host.pi, state);
 	registerBashTool(host.pi, state);
-	const tasks = tracked(startTaskControl(host.context, createToolTui()));
+	const tasks = tracked(startTaskControl(host.context));
 	current = tasks;
 	return { host, tasks };
 }
@@ -909,7 +909,7 @@ test("host-activated task tools are removed at session start", (): void => {
 	expect(host.activeTools()).toContain("list_tasks");
 	registerTaskTools(host.pi, runtimeState(undefined));
 
-	tracked(startTaskControl(host.context, createToolTui()));
+	tracked(startTaskControl(host.context));
 
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });
@@ -1006,7 +1006,7 @@ test("activation follows running tasks across boundaries and auto-async transiti
 test("a task that cannot start leaves the tools off, and teardown clears the next session", (): void => {
 	const host = taskControlHost();
 	registerTaskTools(host.pi, runtimeState(undefined));
-	const tasks = tracked(startTaskControl(host.context, createToolTui()));
+	const tasks = tracked(startTaskControl(host.context));
 
 	expect(() =>
 		tasks.create({

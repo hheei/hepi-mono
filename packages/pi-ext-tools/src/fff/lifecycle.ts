@@ -3,7 +3,6 @@ import {
 	type ExtensionLifecycleContext,
 	errorMessage,
 	getRuntimeSettingsRegistry,
-	getToolTui,
 	registerExtensionLifecycle,
 	registerSettings,
 	type TaskRegistry,
@@ -135,7 +134,7 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
-	const tasks = startTaskControl(context, getToolTui(pi));
+	const tasks = startTaskControl(context);
 	state.tasks = tasks;
 	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;
