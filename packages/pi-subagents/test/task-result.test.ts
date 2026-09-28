@@ -1,4 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	type DisposerRegistry,
+	type ExtensionLifecycleContext,
+	provideService,
+	TASK_REGISTRY_SERVICE_KEY,
+	TaskRegistry,
+} from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import type { ChildIdentity, TaskChildContract } from "../src/domain.js";
 import {
@@ -18,6 +25,8 @@ const IDENTITY: ChildIdentity = {
 interface Harness {
 	readonly tool: { execute: (...args: never[]) => unknown };
 	readonly context: ExtensionContext;
+	readonly pi: ExtensionAPI;
+	readonly submitted: () => unknown;
 }
 
 function harness(contract: TaskChildContract, toolCalls = 1): Harness {
@@ -28,7 +37,7 @@ function harness(contract: TaskChildContract, toolCalls = 1): Harness {
 		},
 		on() {},
 	} as unknown as ExtensionAPI;
-	registerTaskResultTool(pi, IDENTITY, { contract, isBound: () => true });
+	const controller = registerTaskResultTool(pi, IDENTITY, { contract, isBound: () => true });
 	const assistant = {
 		role: "assistant",
 		content: Array.from({ length: toolCalls }, () => ({
@@ -46,6 +55,8 @@ function harness(contract: TaskChildContract, toolCalls = 1): Harness {
 	return {
 		tool: registered as { execute: (...args: never[]) => unknown },
 		context,
+		pi,
+		submitted: () => controller.submission(),
 	};
 }
 
@@ -136,5 +147,39 @@ describe("task soft hint", () => {
 		registerTaskSoftHint(secondPi, { submission: () => ({ json: "done", structured: false }) }, 1);
 		for (const handler of secondHandlers) handler();
 		expect(later).toHaveLength(0);
+	});
+});
+
+/** Installs the shared registry the way the owning extension does. */
+function provideRegistry(pi: ExtensionAPI, registry: TaskRegistry): void {
+	provideService(
+		{
+			pi,
+			// This test never ends the session, so the registration cleanup is not exercised.
+			resources: { add: (): void => undefined } as unknown as DisposerRegistry,
+		} as unknown as ExtensionLifecycleContext,
+		TASK_REGISTRY_SERVICE_KEY,
+		registry,
+	);
+}
+
+describe("task child background work", () => {
+	test("a result is refused while this session still runs its own background task", async (): Promise<void> => {
+		const h = harness({ softTurns: 60 });
+		const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+		registry.create({ type: "bash", purpose: "still running" });
+		provideRegistry(h.pi, registry);
+
+		await expect(
+			(h.tool.execute as unknown as (...args: unknown[]) => Promise<unknown>)(
+				"id",
+				{ result: "premature" },
+				undefined,
+				undefined,
+				h.context,
+			),
+		).rejects.toThrow(/still has 1 background task/u);
+		// Nothing was recorded, so the child can submit again once its own work finishes.
+		expect(h.submitted()).toBeUndefined();
 	});
 });
