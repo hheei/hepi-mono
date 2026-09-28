@@ -6,7 +6,7 @@ import type {
 	ToolDefinition,
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Container, Text } from "@earendil-works/pi-tui";
+import { type Component, Container, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
 	createToolTui,
@@ -18,6 +18,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { EditCatalog } from "../fff/settings.js";
+import { WrappedTextBody } from "../pretty/wrapped-text.js";
 import {
 	clearEvalNestedLive,
 	type EvalNestedTrace,
@@ -122,7 +123,8 @@ export function createEvalTool(
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
 	return {
 		name: "eval",
-		label: "eval",
+		// The only kernel is Python, so the frame always labels the cell `eval py`.
+		label: "eval py",
 		description: EVAL_DESCRIPTION,
 		promptSnippet: EVAL_PROMPT_SNIPPET,
 		promptGuidelines: evalPromptGuidelines("native"),
@@ -236,8 +238,15 @@ export function registerEvalTool(
 	const tool = createEvalTool(state, bridge);
 	const framed = tui.frame(tool, {
 		summary: (args) => codeSummary((args as EvalParameters).code),
-		maxBodyLines: 20,
+		suffix: (args) => evalSuffix(args as EvalParameters),
+		maxBodyLines: 10,
 		headerLine: "truncate",
+		request: (args, theme) => {
+			const code = (args as EvalParameters).code;
+			return typeof code === "string" && code !== ""
+				? new WrappedTextBody(stripTerminalSequences(code), theme)
+				: undefined;
+		},
 		footer: (result, completion) => {
 			const details = result.details;
 			if (!isEvalToolDetails(details))
@@ -329,6 +338,14 @@ function transcript(rows: readonly EvalRow[]): string {
 	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
 		? value
 		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nEval transcript truncated in tool result.`;
+}
+
+/** Header call facts: the same form bash uses for its timeout, one dim suffix per fact. */
+function evalSuffix(args: EvalParameters): string | undefined {
+	const facts: string[] = [];
+	if (args.reset === true) facts.push("(reset)");
+	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
+	return facts.length === 0 ? undefined : facts.join(" ");
 }
 
 function codeSummary(code: string): string {
