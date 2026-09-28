@@ -6,6 +6,7 @@ import type {
 	PersistenceState,
 } from "../src/domain.js";
 import { assembleChildPrompt, buildLaunchSpec, withBridgeToken } from "../src/launch-spec.js";
+import { TASK_ENVIRONMENT_KEY, taskContractFromEnv } from "../src/task-result.js";
 
 const BRIDGE_PATH = "/opt/pi subagents/dist/extension.js";
 const SESSION_DIR = "/home/user/.pi/agent/sessions/--home-user-work--";
@@ -122,6 +123,8 @@ test("carries the bridge environment without a controller token", (): void => {
 		PI_SUBAGENTS_ENDPOINT: "/tmp/pi-subagents-1.sock",
 		PI_SUBAGENTS_AGENT: "reviewer",
 		PI_SUBAGENTS_SESSION_ID: "01J7-session",
+		// Stated as empty rather than left out: an inherited value would give this child a task channel.
+		PI_SUBAGENTS_TASK: "",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
 	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
@@ -131,6 +134,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		"PI_SUBAGENTS_ENDPOINT",
 		"PI_SUBAGENTS_AGENT",
 		"PI_SUBAGENTS_SESSION_ID",
+		"PI_SUBAGENTS_TASK",
 		"PI_SUBAGENTS_TOKEN",
 	]);
 });
@@ -167,4 +171,28 @@ test("adds the child bridge preamble to the agent instructions", (): void => {
 	expect(prompt).toContain("contact_parent");
 	expect(prompt).toContain("Do not wait for the parent to poll you");
 	expect(prompt).toContain("you will be reminded");
+});
+
+test("states the task channel as this launch's own, not something inherited", (): void => {
+	// A conversation child must not inherit an outer Task's contract and start expecting one.
+	const plain = spec(launchConfig(), "rpc", "never_flushed");
+	expect(plain.env[TASK_ENVIRONMENT_KEY]).toBe("");
+	expect(taskContractFromEnv(plain.env)).toBeUndefined();
+
+	const task = spec(
+		launchConfig({ task: { softTurns: 60, schema: { type: "object" } } }),
+		"rpc",
+		"never_flushed",
+	);
+	expect(taskContractFromEnv(task.env)).toEqual({ softTurns: 60, schema: { type: "object" } });
+});
+
+test("tells a Task child not to wait for a parent message it will never get", (): void => {
+	const conversationChild = assembleChildPrompt("Review the change.");
+	expect(conversationChild).toContain("wait for a parent message");
+
+	const taskChild = assembleChildPrompt("Review the change.", true);
+	expect(taskChild).not.toContain("After need_decision or blocked, wait for a parent message.");
+	expect(taskChild).toContain("do not wait for a parent message");
+	expect(taskChild).toContain("submit the final result with submit_task_result");
 });
