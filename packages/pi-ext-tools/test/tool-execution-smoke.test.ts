@@ -307,9 +307,41 @@ describe("ToolExecutionComponent smoke", () => {
 		for (let index = 0; index < 3; index += 1) {
 			const rendered = stripTerminalSequences(component.render(100).join("\n"));
 			expect(rendered).toContain("write ileqm:value.ts");
-			expect(rendered).toContain("? ileqm:value.ts");
+			expect(rendered).toContain("󰘥 ileqm:value.ts");
 			expect(outputOccurrences(component, "write ileqm:value.ts")).toBe(1);
 			component.invalidate();
+		}
+	});
+
+	test("draws a NotApplied remote mutation with the shared outcome glyph", (): void => {
+		const { pi, tools: registered, tui } = framedHost();
+		registerTools(pi, undefined, tui);
+		for (const toolName of ["write", "edit"]) {
+			const tool = toolFor(registered, toolName);
+			tui.beginTrace();
+			const component = mountTool(toolName, `ssh-${toolName}-not-applied`, tool, {
+				path: "value.ts",
+				content: "next\n",
+				oldText: "alpha",
+				newText: "next",
+				target: "ileqm",
+			});
+			component.markExecutionStarted();
+			component.updateResult({
+				content: [{ type: "text", text: "Remote write failed" }],
+				details: {
+					__piExtToolsRemoteMutation: {
+						target: "ileqm",
+						path: "value.ts",
+						outcome: "not_applied",
+						error: "the write failed before publish",
+					},
+				},
+				isError: true,
+			});
+			const rendered = stripTerminalSequences(component.render(100).join("\n"));
+			expect(rendered).toContain("󰍷 ileqm:value.ts · the write failed before publish");
+			expect(rendered).not.toContain("– ");
 		}
 	});
 
@@ -436,14 +468,14 @@ describe("ToolExecutionComponent smoke", () => {
 			component.updateArgs({ patch: "*** Begin Patch\n*** Add File: first.txt\n" });
 			const afterHeader = stripTerminalSequences(component.render(100).join("\n"));
 			expect(afterHeader).toContain("apply_patch 1 file");
-			expect(afterHeader).toContain("○ create first.txt");
+			expect(afterHeader).toContain("󰄰 create first.txt");
 			component.updateArgs({
 				patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n",
 			});
 			const afterPayload = stripTerminalSequences(component.render(100).join("\n"));
-			expect(afterPayload).toContain("○ create first.txt +1");
-			expect(afterPayload).toContain("○ create second.txt");
-			expect(outputOccurrences(component, "○ create first.txt +1")).toBe(1);
+			expect(afterPayload).toContain("󰄰 create first.txt +1");
+			expect(afterPayload).toContain("󰄰 create second.txt");
+			expect(outputOccurrences(component, "󰄰 create first.txt +1")).toBe(1);
 			expect(await readdir(root)).toEqual([]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
@@ -510,16 +542,16 @@ describe("ToolExecutionComponent smoke", () => {
 			const partialText = stripTerminalSequences(component.render(100).join("\n"));
 			expect(settled).toBe(false);
 			expect(partialText).toContain("apply_patch 2 files");
-			expect(partialText).toContain("○ create first.txt +1");
+			expect(partialText).toContain("󰄰 create first.txt +1");
 			await publishedUpdate;
 			expect(settled).toBe(false);
 			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
-				"✓ create first.txt +1",
+				"󰄴 create first.txt +1",
 			);
 			const result = await execution;
 			component.updateResult({ ...result, isError: false });
 			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain(
-				"✓ create first.txt +1",
+				"󰄴 create first.txt +1",
 			);
 		} finally {
 			await rm(root, { recursive: true, force: true });
@@ -599,8 +631,8 @@ describe("ToolExecutionComponent smoke", () => {
 					if (component === undefined) throw new Error("Missing apply_patch component");
 					component.updateResult({ ...event.partialResult, isError: false }, true);
 					const rendered = stripTerminalSequences(component.render(100).join("\n"));
-					if (rendered.includes("○ create first.txt +1")) eventOrder.push("parsed");
-					if (rendered.includes("✓ create first.txt +1")) eventOrder.push("committed");
+					if (rendered.includes("󰄰 create first.txt +1")) eventOrder.push("parsed");
+					if (rendered.includes("󰄴 create first.txt +1")) eventOrder.push("committed");
 				}
 				if (event.type === "tool_execution_end") eventOrder.push("end");
 			});

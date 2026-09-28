@@ -96,10 +96,10 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(details, false, theme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("✓ create src/created.ts +4");
-		expect(text).toContain("✓ modify src/updated.ts +6 -2");
-		expect(text).toContain("! modify src/fuzzy.ts +7 -1 fuzzy");
-		expect(text).toContain("✗ delete src/rejected.ts -7");
+		expect(text).toContain("󰄴 create src/created.ts +4");
+		expect(text).toContain("󰄴 modify src/updated.ts +6 -2");
+		expect(text).toContain("󰾞 modify src/fuzzy.ts +7 -1 fuzzy");
+		expect(text).toContain("󰅚 delete src/rejected.ts -7");
 		expect(formatApplyPatchFooter(details)).toBe(
 			"created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s",
 		);
@@ -200,7 +200,7 @@ describe("apply_patch progress renderer", () => {
 			.render(200)
 			.join("\n");
 		expect(collapsed).not.toContain("hunk 2 · context not found");
-		expect(expanded).toContain("✗ src/updated.ts · hunk 2 · context not found");
+		expect(expanded).toContain("󰅚 src/updated.ts · hunk 2 · context not found");
 	});
 
 	test("marks partially applied updates with their hunk count and reason", () => {
@@ -223,7 +223,7 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(partial, false, theme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("! modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
+		expect(text).toContain("󰪡 modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
 	});
 
 	test("prefixes SSH operation paths with host", () => {
@@ -272,8 +272,8 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(unknown, false, theme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("? modify src/maybe.ts +1");
-		expect(text).toContain("– create src/later.ts +1");
+		expect(text).toContain("󰘥 modify src/maybe.ts +1");
+		expect(text).toContain("󰍷 create src/later.ts +1");
 	});
 
 	test("uses progress rows while applying", () => {
@@ -287,7 +287,7 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(progress, false, theme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("○ create src/created.ts +4");
+		expect(text).toContain("󰄰 create src/created.ts +4");
 		expect(formatApplyPatchFooter(details)).toBe(
 			"created 1 · deleted 1 · modified 2 · +17 -10 lines · 0.72s",
 		);
@@ -316,9 +316,9 @@ describe("apply_patch call preview", () => {
 		)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("○ create stream.txt +1");
-		expect(text).toContain("○ modify old.txt -1");
-		expect(text).not.toContain("✓");
+		expect(text).toContain("󰄰 create stream.txt +1");
+		expect(text).toContain("󰄰 modify old.txt -1");
+		expect(text).not.toContain("󰄴");
 		expect(text).not.toContain("0.00s");
 	});
 
@@ -333,7 +333,7 @@ describe("apply_patch call preview", () => {
 		)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("○ create devbox:stream.txt +1");
+		expect(text).toContain("󰄰 create devbox:stream.txt +1");
 	});
 
 	test("returns an empty body before any operation header is complete", () => {

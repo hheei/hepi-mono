@@ -50,16 +50,16 @@ describe("apply_patch model-time call preview", () => {
 
 			component.updateArgs({ patch: "*** Begin Patch\n*** Add File: first.txt\n" });
 			expect(render(component)).toContain("apply_patch 1 file");
-			expect(render(component)).toContain("○ create first.txt");
+			expect(render(component)).toContain("󰄰 create first.txt");
 			expect(render(component)).not.toContain("+1");
 
 			component.updateArgs({
 				patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** Add File: second.txt\n",
 			});
 			expect(render(component)).toContain("apply_patch 2 files");
-			expect(render(component)).toContain("○ create first.txt +1");
-			expect(render(component)).toContain("○ create second.txt");
-			expect(outputOccurrences(component, "○ create first.txt +1")).toBe(1);
+			expect(render(component)).toContain("󰄰 create first.txt +1");
+			expect(render(component)).toContain("󰄰 create second.txt");
+			expect(outputOccurrences(component, "󰄰 create first.txt +1")).toBe(1);
 			expect(await readdir(root)).toEqual([]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
@@ -98,9 +98,9 @@ describe("apply_patch model-time call preview", () => {
 			ui,
 			process.cwd(),
 		);
-		expect(render(left)).toContain("○ create left.txt +1");
+		expect(render(left)).toContain("󰄰 create left.txt +1");
 		expect(render(left)).not.toContain("right.txt");
-		expect(render(right)).toContain("○ delete right.txt");
+		expect(render(right)).toContain("󰄰 delete right.txt");
 		expect(render(right)).not.toContain("left.txt");
 	});
 
@@ -130,12 +130,12 @@ describe("apply_patch model-time call preview", () => {
 				{ requestRender: (): void => undefined } as unknown as TUI,
 				root,
 			);
-			expect(render(component)).toContain("○ create first.txt +1");
-			expect(outputOccurrences(component, "○ create first.txt +1")).toBe(1);
+			expect(render(component)).toContain("󰄰 create first.txt +1");
+			expect(outputOccurrences(component, "󰄰 create first.txt +1")).toBe(1);
 
 			component.setArgsComplete();
 			component.markExecutionStarted();
-			expect(render(component)).toContain("○ create first.txt +1");
+			expect(render(component)).toContain("󰄰 create first.txt +1");
 			expect(outputOccurrences(component, "create first.txt +1")).toBe(1);
 
 			const result = await tool.execute(
@@ -149,8 +149,8 @@ describe("apply_patch model-time call preview", () => {
 			);
 			component.updateResult({ ...result, isError: false });
 			const finalText = render(component);
-			expect(finalText).toContain("✓ create first.txt +1");
-			expect(finalText).not.toContain("○ create first.txt +1");
+			expect(finalText).toContain("󰄴 create first.txt +1");
+			expect(finalText).not.toContain("󰄰 create first.txt +1");
 			expect(outputOccurrences(component, "create first.txt +1")).toBe(1);
 		} finally {
 			await rm(root, { recursive: true, force: true });

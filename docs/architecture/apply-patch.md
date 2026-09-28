@@ -120,9 +120,9 @@ partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，�
 
 ## TUI
 
-模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `○ create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
+模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `󰄰 create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
 
-执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：`○` 尚未 Publish，`✓` 是 exact/whitespace Changed，`!` 是 fuzzy Changed 或 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`✗` 是 Rejected，`?` 是 Unconfirmed，dim `–` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。SSH header 为 `apply_patch (host) N file(s)`，row 为 warning 色 `host:path`。final Patch Outcome 替代 live state，resume 不恢复 `○` rows 或 model-time preview。
+执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：状态 glyph 使用 Nerd Font 字符 `󰄰` pending、`󰄴` applied、`󰪡` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected（`edit`/`write` 的远端 Unconfirmed/NotApplied 行复用后两者）：`󰄰` 尚未 Publish，`󰄴` 是 exact/whitespace Changed，`󰪡` 是 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`󰾞` 是 fuzzy Changed，`󰅚` 是 Rejected，`󰘥` 是 Unconfirmed，dim `󰍷` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。SSH header 为 `apply_patch (host) N file(s)`，row 为 warning 色 `host:path`。final Patch Outcome 替代 live state，resume 不恢复 `󰄰` rows 或 model-time preview。
 
 未展开的完成结果显示 operation rows；prior Trace collapse 由 shared frame 显示 header、空行、tool-owned footer。footer 是 typed metrics，不解析模型 content：
 
@@ -130,7 +130,7 @@ partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，�
 created 1 · modified 1 · +10 -2 lines · 10ms
 ```
 
-warning glyph `!` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 host `isError: true` 呈现。
+warning glyph `󰪡` 用于 Changed+Rejected partial；Unconfirmed/NotApplied 由 host `isError: true` 呈现。
 
 展开时：
 
