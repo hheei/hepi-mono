@@ -13,7 +13,11 @@
 ## 行为
 
 - 仅 `tui` mode 显示；RPC、JSON、print 不显示。
-- `error` 与 `aborted` assistant response 不显示。
+- `turn_start` 与 `agent_start` 不清空上一条完成指标：正在进行的请求期间 bottom rail 继续显示上次结果，长时间工具调用也不会中途消失。
+- 每个完整的 assistant response（普通回答或包含工具调用的回答）在 `message_end` 更新 usage、总耗时与输出速率，并覆盖上一条。
+- 一次 agent run 结束后 15 秒隐藏当前行；下一个 response 会重新开始显示。
+- 完成指标使用当前 editor border 的颜色，不新增通知或纵向空间。
+- `error` 与 `aborted` assistant response 清空当前状态；session start、shutdown 和 reload 清理状态与 timer。
 - 每次 response 使用该 turn 的开始时间计算总耗时；没有开始时间时显示未知值。
 - 不提供 settings、命令或持久化状态。
 

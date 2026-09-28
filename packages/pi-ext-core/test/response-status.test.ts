@@ -4,6 +4,7 @@ import type {
 	KeybindingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
+import { Editor, type Terminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import {
 	createResponseStatusFeature,
@@ -154,7 +155,7 @@ describe("response status", () => {
 		expect(status).toBe("[border:↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s]");
 	});
 
-	test("renders bottom rail on completion, follows borderColor, and dismisses after 15s", async () => {
+	test("keeps the last completed usage until the next response replaces it", async () => {
 		vi.useFakeTimers();
 		try {
 			const h = harness();
@@ -174,13 +175,16 @@ describe("response status", () => {
 
 			const mockEd = editor as unknown as MockEditor;
 
-			// turn_start: rail should be empty (no dynamic tick noise)
+			// No status is shown while a request is in progress.
+			vi.setSystemTime(1_000);
 			h.emit("agent_start", {});
 			h.emit("turn_start", { timestamp: 1_000 });
-			const borderDuringTurn = mockEd.renderBottomBorder(80, 0);
-			expect(borderDuringTurn).toBe("─".repeat(80));
+			expect(mockEd.renderBottomBorder(80, 0)).toBe("─".repeat(80));
+			h.requestRender.mockClear();
+			await vi.advanceTimersByTimeAsync(600);
+			expect(h.requestRender).not.toHaveBeenCalled();
 
-			// message_end: telemetry appears using mockEd.borderColor
+			// message_end: telemetry appears using mockEd.borderColor.
 			vi.setSystemTime(8_100);
 			h.emit("message_end", { message: assistant(654, 213, 83_000) });
 
@@ -191,10 +195,54 @@ describe("response status", () => {
 			const bottomBorder = mockEd.renderBottomBorder(80, 0);
 			expect(bottomBorder).toContain("[b:↑654 ↓213 ⇲83K  󰔛7.1s 󰓅30.0/s]");
 
-			// 15 seconds pass: telemetry automatically dismisses
-			await vi.advanceTimersByTimeAsync(TELEMETRY_DISMISS_DELAY_MS);
-			const dismissedBorder = mockEd.renderBottomBorder(80, 0);
-			expect(dismissedBorder).toBe("─".repeat(80));
+			// A new request starts: the previous telemetry must stay visible while it runs.
+			vi.setSystemTime(10_000);
+			h.emit("agent_start", {});
+			h.emit("turn_start", { timestamp: 10_000 });
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(mockEd.renderBottomBorder(80, 0)).toContain("[b:↑654 ↓213 ⇲83K");
+
+			// Tool-use assistant responses are complete responses too, even when the
+			// provider uses a non-final stop reason, and they replace the previous line.
+			vi.setSystemTime(70_000);
+			h.emit("message_end", { message: assistant(7, 3, 0, "toolUse") });
+			expect(mockEd.renderBottomBorder(80, 0)).toContain("[b:↑7 ↓3 ⇲0");
+
+			// The run ends: the visible line is dismissed after the delay, not before.
+			vi.setSystemTime(70_100);
+			h.emit("agent_end", {});
+			await vi.advanceTimersByTimeAsync(TELEMETRY_DISMISS_DELAY_MS - 1);
+			expect(mockEd.renderBottomBorder(80, 0)).toContain("[b:↑7 ↓3 ⇲0");
+			await vi.advanceTimersByTimeAsync(1);
+			expect(mockEd.renderBottomBorder(80, 0)).toBe("─".repeat(80));
+
+			feature.dispose("session");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("does not dismiss the visible line while a long run is still in progress", async () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			h.ctx.ui.setEditorComponent(() => new MockEditor());
+			const feature = createResponseStatusFeature(h.pi);
+			feature.start(h.ctx);
+			const mockEd = h.editorFactory?.(
+				h.tui,
+				mockTheme as unknown as EditorTheme,
+				{} as KeybindingsManager,
+			) as unknown as MockEditor;
+
+			// A tool-use message completes, then its tool call runs far longer than the delay.
+			vi.setSystemTime(1_000);
+			h.emit("agent_start", {});
+			h.emit("turn_start", { timestamp: 1_000 });
+			vi.setSystemTime(2_000);
+			h.emit("message_end", { message: assistant(10, 5, 0, "toolUse") });
+			await vi.advanceTimersByTimeAsync(TELEMETRY_DISMISS_DELAY_MS * 4);
+			expect(mockEd.renderBottomBorder(80, 0)).toContain("[b:↑10 ↓5 ⇲0");
 
 			feature.dispose("session");
 		} finally {
@@ -220,6 +268,63 @@ describe("response status", () => {
 		const wrapped = wrapEditorBottomRail(base, () => "TEST_STATUS");
 		const target = wrapped as unknown as MockEditor;
 		expect(target.renderBottomBorder(40, 0)).toContain("TEST_STATUS");
+	});
+
+	// Uses the real pi-tui editor and main screen: the host's CustomEditor only
+	// overrides renderTopBorder, so its bottom border is this same Editor method.
+	test("shows telemetry on the real editor bottom border through the real main screen", async () => {
+		const terminal = {
+			columns: 80,
+			rows: 12,
+			kittyProtocolActive: false,
+			start: vi.fn(),
+			stop: vi.fn(),
+			drainInput: vi.fn(async () => {}),
+			write: vi.fn(),
+			moveBy: vi.fn(),
+			hideCursor: vi.fn(),
+			showCursor: vi.fn(),
+			clearLine: vi.fn(),
+			clearFromCursor: vi.fn(),
+			clearScreen: vi.fn(),
+			setTitle: vi.fn(),
+			setProgress: vi.fn(),
+		} satisfies Terminal;
+		const screen = new TuiMainScreen(terminal);
+
+		const h = harness();
+		h.ctx.ui.setEditorComponent(
+			(tui, _theme, _keybindings) =>
+				new Editor(tui, {
+					borderColor: (text) => text,
+					selectList: {} as never,
+				}),
+		);
+		const feature = createResponseStatusFeature(h.pi);
+		feature.start(h.ctx);
+
+		const editor = h.editorFactory?.(screen, undefined as never, undefined as never);
+		if (editor === undefined) throw new Error("Expected the response status editor");
+		screen.addChild(editor);
+		screen.renderNow();
+
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(1_000);
+			h.emit("agent_start", {});
+			h.emit("turn_start", { timestamp: 1_000 });
+			vi.setSystemTime(8_100);
+			h.emit("message_end", { message: assistant(654, 213, 83_000) });
+			await vi.advanceTimersByTimeAsync(1_000);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		const output = terminal.write.mock.calls.map(([data]) => data).join("");
+		expect(output).toContain("↑654 ↓213 ⇲83K");
+		expect(output).toContain("󰔛7.1s");
+		expect(output).toContain("󰓅30.0/s");
+		feature.dispose("session");
 	});
 
 	test("patchActualTuiScrollView protects followingEnd from content shrinkage", () => {

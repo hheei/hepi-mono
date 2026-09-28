@@ -248,8 +248,10 @@ export function patchActualTuiScrollView(tui: unknown): void {
 }
 
 /**
- * Manages response telemetry rendered on the editor bottom rail.
- * Shows upon response completion and automatically dismisses after 15 seconds.
+ * Manages completed response telemetry rendered on the editor bottom rail. The last
+ * completed response stays visible for the whole agent run that follows it, and is
+ * replaced by the next `message_end`; once a run ends, the visible line is dismissed
+ * after {@link TELEMETRY_DISMISS_DELAY_MS}.
  */
 export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFeature {
 	let activeSessionId: string | undefined;
@@ -268,30 +270,39 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		}
 	};
 
+	// Scheduling here, not at message_end, keeps the rail populated for the whole run:
+	// a long tool call can no longer dismiss the line mid-request.
+	const scheduleDismiss = (): void => {
+		clearDismissTimer();
+		if (currentMetrics === undefined) return;
+		dismissTimer = setTimeout(() => {
+			dismissTimer = undefined;
+			currentMetrics = undefined;
+			activeTui?.requestRender();
+		}, TELEMETRY_DISMISS_DELAY_MS);
+		dismissTimer.unref?.();
+	};
+
 	const ownsContext = (ctx: ExtensionContext): boolean =>
 		activeSessionId !== undefined && ctx.sessionManager.getSessionId() === activeSessionId;
 
 	pi.on("agent_start", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
-		clearDismissTimer();
 	});
 
 	pi.on("turn_start", (event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = event.timestamp ?? Date.now();
-		clearDismissTimer();
-		currentMetrics = undefined;
-		activeTui?.requestRender();
 	});
 
 	pi.on("message_end", (event, ctx) => {
 		if (!ownsContext(ctx) || event.message.role !== "assistant") return;
 		const startedAtMs = turnStartedAtMs;
 		turnStartedAtMs = undefined;
-		clearDismissTimer();
 
 		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
+			clearDismissTimer();
 			currentMetrics = undefined;
 			activeTui?.requestRender();
 			return;
@@ -309,19 +320,12 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			tokensPerSecond,
 		};
 		activeTui?.requestRender();
-
-		dismissTimer = setTimeout(() => {
-			dismissTimer = undefined;
-			currentMetrics = undefined;
-			activeTui?.requestRender();
-		}, TELEMETRY_DISMISS_DELAY_MS);
-		dismissTimer.unref?.();
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
-		activeTui?.requestRender();
+		scheduleDismiss();
 	});
 
 	return {
@@ -331,8 +335,8 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			activeSessionId = context.mode === "tui" ? sessionId : undefined;
 			activeContext = context.mode === "tui" ? context : undefined;
 			turnStartedAtMs = undefined;
-			currentMetrics = undefined;
 			clearDismissTimer();
+			currentMetrics = undefined;
 
 			if (context.mode !== "tui") return;
 
