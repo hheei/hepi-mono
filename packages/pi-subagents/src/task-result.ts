@@ -15,9 +15,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	errorMessage,
+	getService,
 	getToolTui,
 	isRecord,
 	registerToolTuiTrace,
+	TASK_REGISTRY_SERVICE_KEY,
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
@@ -76,6 +78,15 @@ export function taskContractFromEnv(
 	env: NodeJS.ProcessEnv = process.env,
 ): TaskChildContract | undefined {
 	return parseTaskChildContract(env[TASK_ENVIRONMENT_KEY]);
+}
+
+/**
+ * Background work this same session started. A result that precedes its own background work
+ * would report a conclusion the child has not reached yet, so the submission is refused while
+ * any of it is still running. Without the shared task registry there is no such work to see.
+ */
+function outstandingBackgroundWork(pi: ExtensionAPI): number {
+	return getService(pi, TASK_REGISTRY_SERVICE_KEY)?.activeCount ?? 0;
 }
 
 /**
@@ -183,6 +194,12 @@ export function registerTaskResultTool(
 			if (calls !== undefined && calls > 1) {
 				throw new Error(
 					"submit_task_result must be the only tool call in its message; submit the result alone.",
+				);
+			}
+			const outstanding = outstandingBackgroundWork(pi);
+			if (outstanding > 0) {
+				throw new Error(
+					`This session still has ${outstanding} background task(s) running. Wait for them, or stop them with stop_tasks, before submitting the final result.`,
 				);
 			}
 			const prepared =
