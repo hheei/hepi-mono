@@ -268,10 +268,12 @@ test("an unconfirmed runner exit keeps the task active and the slot occupied", a
 	expect(h.registry.get(task.id)?.status).not.toBe("cancelled");
 	expect(h.failures).toHaveLength(1);
 
-	// The unconfirmed child still occupies the only execution slot.
+	// The unconfirmed child still occupies the only execution slot, exactly one.
+	expect(h.executor.running).toBe(1);
 	h.executor.start(request("queued behind it"));
 	await flush();
 	expect(h.launches).toEqual(["cannot be stopped"]);
+	expect(h.executor.queued).toBe(1);
 });
 
 test("a full queue is reported at admission", (): void => {

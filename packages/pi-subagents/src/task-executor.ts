@@ -92,16 +92,18 @@ export class AgentTaskExecutor {
 	readonly #deps: AgentTaskExecutorDeps;
 	readonly #jobs = new Map<string, TaskJob>();
 	readonly #queue: string[] = [];
-	/** Children whose exit is still unconfirmed; their slots are not free capacity. */
-	readonly #unconfirmed = new Set<string>();
 	#disposed = false;
 
 	public constructor(deps: AgentTaskExecutorDeps) {
 		this.#deps = deps;
 	}
 
+	/**
+	 * Live executions. A job whose runner exit is not yet confirmed is still in `#jobs`, so its
+	 * slot is already counted here; adding it again would make one failed stop consume two slots.
+	 */
 	get running(): number {
-		return this.#jobs.size - this.#queue.length + this.#unconfirmed.size;
+		return this.#jobs.size - this.#queue.length;
 	}
 
 	get queued(): number {
@@ -311,12 +313,10 @@ export class AgentTaskExecutor {
 			this.#deps.onCleanupFailure?.(child.childId, errorMessage(error));
 		}
 		if (!confirmed) {
-			this.#unconfirmed.add(child.childId);
 			job.output = `${terminal.status}; runner exit is not confirmed`;
 			this.#deps.onCleanupFailure?.(child.childId, "Runner termination was not confirmed");
 			return;
 		}
-		this.#unconfirmed.delete(child.childId);
 		this.#settle(id, terminal);
 		this.#drain();
 	}
@@ -325,10 +325,6 @@ export class AgentTaskExecutor {
 		if (!this.#deps.registry.settle(id, terminal)) return;
 		this.#jobs.delete(id);
 	}
-}
-
-export function agentTaskTerminalStatus(status: TaskTerminal["status"]): TaskTerminal["status"] {
-	return status;
 }
 
 /** Text result when no schema was requested; the output is exactly what the child submitted. */
