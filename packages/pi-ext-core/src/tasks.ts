@@ -115,6 +115,11 @@ export interface TaskTerminalEvent {
 	readonly truncated: boolean;
 	readonly detail?: Readonly<Record<string, unknown>>;
 	readonly anchor?: string;
+	/**
+	 * Present when the producer validated a structured result. A consumer that inlines results must
+	 * not cut this one apart: half of a JSON document is not a smaller result.
+	 */
+	readonly structured?: unknown;
 }
 
 export interface TaskRegistryOptions {
@@ -195,6 +200,7 @@ function terminalEvent(record: TaskRecord, terminal: TaskTerminal): TaskTerminal
 		output: bounded.output,
 		truncated: terminal.truncated || bounded.truncated,
 		...(terminal.detail === undefined ? {} : { detail: terminal.detail }),
+		...(terminal.structured === undefined ? {} : { structured: terminal.structured }),
 		...(record.anchor === undefined ? {} : { anchor: record.anchor }),
 	};
 }
@@ -321,7 +327,12 @@ export class TaskRegistry {
 	 */
 	bind(id: string, binding: TaskBinding): boolean {
 		const record = this.#records.get(id);
-		if (record === undefined || record.binding !== undefined) return false;
+		if (record === undefined || record.binding !== undefined) {
+			// A record that no longer exists belongs to a closed registry, so nothing will ever drive
+			// this binding: stopping it is the only way the late producer gets cleaned up.
+			if (record === undefined) stopBinding(binding);
+			return false;
+		}
 		if (!isActive(record.status)) {
 			stopBinding(binding);
 			return false;
@@ -408,18 +419,22 @@ export class TaskRegistry {
 	}
 
 	/**
-	 * Marks results as handed to the parent session. This releases their capacity reservation
-	 * and their eviction protection: the registry can no longer lose them, but confirmation of
-	 * model context arrives separately through `markObserved`.
+	 * Marks results as handed to the parent session. This releases their capacity reservation, so
+	 * they can age out normally; confirmation of model context arrives separately through
+	 * `markObserved`.
 	 */
 	markSubmitted(ids: readonly string[], batch: string): void {
+		const submitted = new Set<string>();
 		for (const id of ids) {
 			const record = this.#records.get(id);
 			if (record === undefined || record.delivery !== "pending") continue;
 			record.delivery = "submitted";
 			record.batch = batch;
-			this.#evict();
+			submitted.add(id);
 		}
+		// The batch is what a failed host send has to be able to requeue, so the records it just
+		// handed over are not candidates for eviction in the same step.
+		this.#evict(submitted);
 	}
 
 	/** Marks results whose parent-session message lifecycle was observed. */
@@ -500,20 +515,32 @@ export class TaskRegistry {
 	}
 
 	#bounded(record: TaskRecord): TaskProgress {
-		if (record.terminal !== undefined) return boundedOutput(record.terminal.output);
+		if (record.terminal !== undefined) {
+			return { output: record.terminal.output, truncated: record.terminal.truncated };
+		}
 		let progress: TaskProgress = { output: "", truncated: false };
 		try {
 			progress = record.binding?.describe() ?? progress;
 		} catch {
 			// A producer that cannot describe live work still reports its status.
 		}
-		return boundedOutput(progress.output);
+		const bounded = boundedOutput(progress.output);
+		// A producer that already cut its own output keeps saying so; only this read may add to it.
+		return { output: bounded.output, truncated: progress.truncated || bounded.truncated };
 	}
 
 	#settle(record: TaskRecord, terminal: TaskTerminal): void {
 		record.status = terminal.status;
 		record.endedAt = Date.now();
-		record.terminal = terminal;
+		// The stored result is bounded where it is kept, not only where it is read: a terminal record
+		// outlives the tool call that produced it, and keeping the whole output of every one of them
+		// would hold far more than the bounded read ever shows.
+		const bounded = boundedOutput(terminal.output);
+		record.terminal = {
+			...terminal,
+			output: bounded.output,
+			truncated: terminal.truncated || bounded.truncated,
+		};
 		// A blocking caller already reported this result in its own tool result, so reserving a
 		// notification for it would deliver the same outcome twice.
 		record.delivery = record.inlineResult ? undefined : "pending";
@@ -541,13 +568,18 @@ export class TaskRegistry {
 		for (const waiter of waiters) waiter(waited);
 	}
 
-	#evict(): void {
-		// Only results that still need notification are protected: they are bounded by the
-		// admission budget, so a submitted or observed record can age out normally.
+	#evict(protectedIds: ReadonlySet<string> = new Set<string>()): void {
+		// Only results that still need notification are protected by state: they are bounded by the
+		// admission budget, so a submitted or observed record can age out normally. A batch that was
+		// just handed to the host is passed in explicitly, because a rejected send has to be able to
+		// requeue it rather than lose it. Those records still count against the cap, so the retention
+		// bound is not raised by handing a result over.
 		const candidates = [...this.#records.values()].filter(
 			(record) => !isActive(record.status) && record.delivery !== "pending",
 		);
-		for (const record of candidates.slice(0, Math.max(0, candidates.length - this.#maxRetained))) {
+		const removable = candidates.filter((record) => !protectedIds.has(record.id));
+		const overCap = candidates.length - this.#maxRetained;
+		for (const record of removable.slice(0, Math.max(0, overCap))) {
 			this.#records.delete(record.id);
 		}
 	}

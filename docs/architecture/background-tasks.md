@@ -50,7 +50,8 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 - 取消是请求：只有执行停止被确认后才提交 `cancelled`；已终结的 task 不会被迟到事件改写。
 - 自然完成与取消竞态：若执行先自然结束，保留真实 `completed`/`failed`。
 - Agent 任务只有在**匹配当前执行的 `agent_settled`**、且已提交被校验的最终结果时才
-  `completed`；`agent_end` 不足以终结。静止但没有合法结果时为 `invalid_result` 失败，而不是
+  `completed`；`agent_end` 不足以终结。静止但没有合法结果时为 `invalid_result` 失败（终态 `status`
+  仍是 `failed`，原因记在生产者 detail 的 `reason`），而不是
   反复唤醒 child 修复。
 - child 有尚未结束的自身后台工作时不得提交成功结果。
 
@@ -58,6 +59,9 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 
 受理时预留结果槽位与单结果字节预算，直到通知被观察到或任务归属结束：64 条终态保留、64 条未
 确认结果、单条通知 10,000 字符、合并消息 24,000 字符、结构化结果约 32 KiB（超限拒绝而非截断）。
+结构化结果在通知里只会**完整内联或被指路**：超过单条上限时通知只说明结果大小并指向
+`wait_tasks`，绝不截断成半份 JSON。终态记录本身也在写入时按同一上限收敛输出（保留生产者的
+`truncated` 标记），不只在读取时收敛。
 交付积压占满预算时拒绝新的后台任务并给出原因；Bash 的 60 秒自动转换若无法预留槽位则保持前台
 并说明转换未发生。Agent 侧并发上限 4、等待队列 32，队列满时在受理阶段报错。
 
@@ -68,7 +72,9 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
 “结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。交付记录区分
 `pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配
-task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。同步 task 的结果只走原
+task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。刚刚交给 host 的那一批在
+提交时不会被保留上限淘汰（否则 host 同步拒收后的 requeue 会丢掉已受理的结果）；被淘汰的只可能是
+更早的记录。同步 task 的结果只走原
 tool_result，不进入后台队列。
 
 ## session 与分支
@@ -81,7 +87,10 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
 ## 失败与恢复边界
 
 - 启动失败（launch 抛出）在受理阶段结算为 `failed`，不留下永久 `running` 的假任务。
-- 排队中取消不启动进程；启动中取消会清理迟到的 runner。
+- 排队中取消不启动进程；启动中取消会清理迟到的 runner，且在该 runner 退出确认前不释放进程槽位。
+- 停止（`stop`）只有在进程退出被确认后才算完成：只收到 shutdown 回执或 socket 断开都不算，未确认时
+  保留 runtime 证据并让调用方看到未确认，进程槽位继续占用。我们自己 spawn 的 runner 用进程句柄直接
+  观察退出；确认退出后 claim 才会释放，未确认则保留 claim，避免为同一 session 启动第二个 runner。
 - runner 退出未确认时保留 runtime 证据并把任务留在可观察状态，不释放进程槽位、不盲目启动第二次执行。
 - 不承诺跨进程崩溃的 exactly-once，也不为此新增持久化 outbox。
 

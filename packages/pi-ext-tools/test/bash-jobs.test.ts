@@ -1048,6 +1048,33 @@ test("activation follows running tasks across boundaries and auto-async transiti
 	await tasks.wait([promotedId]);
 });
 
+test("a boundary restores control tools the host re-activated behind a waiting result", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
+	const running = taskIdOf(
+		await toolFor(host.tools, "bash").execute(
+			"bash-tree-restore",
+			{ command: 'node -e "setTimeout(() => {}, 120)"', blocking: false },
+			undefined,
+			undefined,
+			toolContext(),
+		),
+	);
+	await eventually(
+		() => tasks.get(running),
+		(task) => task.status !== "running",
+	);
+
+	// `/tree` republishes the transcript tool set, so control can come back even though nothing
+	// asked for it: a result still waiting for the parent must keep its readers available.
+	host.pi.setActiveTools([...HOST_ACTIVE_TOOLS].filter((id) => !TASK_TOOL_IDS.includes(id)));
+	host.emit("session_tree");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+
+	tasks.markSubmitted([running], "tree-restore");
+	host.emit("session_tree");
+	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+});
+
 test("a task that cannot start leaves the tools off, and teardown clears the next session", (): void => {
 	const host = taskControlHost();
 	registerTaskTools(host.pi, runtimeState(undefined));

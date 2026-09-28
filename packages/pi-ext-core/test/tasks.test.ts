@@ -20,7 +20,9 @@ function tracked(registry: TaskRegistry): TaskRegistry {
 	return registry;
 }
 
-function registry(options: { readonly onFirstTask?: () => void } = {}): TaskRegistry {
+function registry(
+	options: { readonly onFirstTask?: () => void; readonly maxRetainedTerminal?: number } = {},
+): TaskRegistry {
 	return tracked(new TaskRegistry({ runtimeDiscriminator: "test", ...options }));
 }
 
@@ -308,6 +310,48 @@ test("bounds stored output and marks the truncation", async (): Promise<void> =>
 	if (outcome === undefined || outcome.status === "not_found")
 		throw new Error("expected an outcome");
 	expect(outcome.output).toHaveLength(MAX_TASK_RESULT_CHARS);
+});
+
+test("a batch the host rejected can still be requeued at the retention cap", (): void => {
+	const tasks = registry({ maxRetainedTerminal: 1 });
+	const first = tasks.create({ type: "bash", purpose: "one", begin: idleBinding });
+	const second = tasks.create({ type: "bash", purpose: "two", begin: idleBinding });
+	tasks.settle(first.id, { status: "completed", output: "one done", truncated: false });
+	tasks.settle(second.id, { status: "completed", output: "two done", truncated: false });
+
+	// Submitting hands the batch over, and a host send that throws has to be able to take it back:
+	// evicting the batch here would turn a rejected notification into a lost result.
+	tasks.markSubmitted([first.id, second.id], "batch-1");
+	tasks.requeue("batch-1");
+
+	expect(tasks.pendingDeliveries().map((event) => event.id)).toEqual([first.id, second.id]);
+	expect(tasks.get(first.id)?.delivery).toBe("pending");
+});
+
+test("a producer that cut its own output still says so", async (): Promise<void> => {
+	const tasks = registry();
+	const task = tasks.create({ type: "bash", purpose: "cut", begin: idleBinding });
+	tasks.settle(task.id, { status: "completed", output: "tail only", truncated: true });
+
+	// The registry may bound further, but it can never turn a reduced output back into a whole one.
+	expect((await tasks.wait([task.id]))[0]).toMatchObject({ truncated: true });
+	expect(tasks.pendingDeliveries()[0]).toMatchObject({ truncated: true });
+});
+
+test("a binding that arrives after the registry closed is stopped instead of leaked", (): void => {
+	const tasks = registry();
+	const task = tasks.create({ type: "bash", purpose: "late" });
+	const stopped: string[] = [];
+	tasks.dispose();
+
+	// Nothing will ever drive this binding again, so leaving it running would orphan the work.
+	expect(
+		tasks.bind(task.id, {
+			stop: () => stopped.push(task.id),
+			describe: () => ({ output: "", truncated: false }),
+		}),
+	).toBe(false);
+	expect(stopped).toEqual([task.id]);
 });
 
 test("carries a validated structured result through wait", async (): Promise<void> => {

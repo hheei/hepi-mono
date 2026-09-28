@@ -32,10 +32,6 @@ export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
 	(registration) => registration.id,
 );
 
-export interface TaskControl {
-	readonly registry: TaskRegistry;
-}
-
 /**
  * Creates the session's task registry, publishes it as a Service, and owns the activation
  * policy of the task-control tools plus parent-session notification.
@@ -65,7 +61,10 @@ export function startTaskControl(context: ExtensionLifecycleContext): TaskRegist
 		throw new Error("Another extension already provides the task registry service");
 	}
 	const onBoundary = (): void => {
-		if (!registry.requiresControl) setActive(false);
+		// Pi also re-activates every registered tool when /tree restores the transcript tool set, so a
+		// boundary can mean either direction: control is dropped once nothing needs it, and restored
+		// when a task or an undelivered result is still there.
+		setActive(registry.requiresControl);
 	};
 	const unsubscribe = [
 		context.pi.on("session_compact", onBoundary),
