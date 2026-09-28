@@ -332,6 +332,14 @@ test("a user definition of scout replaces the built-in one", async (): Promise<v
 	});
 });
 
+test("built-in definitions are parsed by the same frontmatter parser as files on disk", (): void => {
+	// A hand-rolled line parser accepted only `key: value`, so a built-in written with a YAML list
+	// would have parsed to an empty tool list — the opposite of the read-only promise.
+	const defined = builtinAgents().find((agent) => agent.name === "scout");
+	expect(defined?.frontmatter.hidden).toBe(false);
+	expect(defined?.body).toContain("Read and search only");
+});
+
 test("a built-in agent cannot silently inherit every tool", (): void => {
 	const scout = builtinAgents().find((agent) => agent.name === "scout");
 	expect(scout).toBeDefined();
