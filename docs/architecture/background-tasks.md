@@ -57,7 +57,8 @@ timed_out`。受理时一次性冻结 cwd、agent 定义、模型、thinking、�
 ## 交付
 
 第一个待交付结果在 t0 到达时开启**固定**窗口，t0+5s 提交；窗口内完成的结果合并，后续完成不延长
-窗口。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。交付记录区分
+窗口。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
+“结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。交付记录区分
 `pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配
 task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。同步 task 的结果只走原
 tool_result，不进入后台队列。

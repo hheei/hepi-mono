@@ -117,6 +117,29 @@ test("a settled execution without a submission fails instead of waking the child
 	expect(h.terminals).toHaveLength(1);
 });
 
+test("a blocking task reserves no notification for the result it returns itself", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start({ ...request("blocking work"), inlineResult: true });
+	await flush();
+
+	h.executor.handleChildEvent("child-1", {
+		type: "task_result",
+		parentSessionId: "s",
+		childId: "child-1",
+		runtimeIdentity: "r",
+		json: "done",
+		structured: false,
+	});
+	h.executor.handleChildEvent("child-1", SETTLED);
+	await flush();
+
+	const snapshot = h.registry.get(task.id);
+	expect(snapshot?.status).toBe("completed");
+	// The caller returns this result in its own tool result, so the adapter must find nothing.
+	expect(snapshot?.delivery).toBeUndefined();
+	expect(h.registry.pendingDeliveries()).toHaveLength(0);
+});
+
 test("a malformed result event cannot become a task result", async (): Promise<void> => {
 	const h = harness();
 	const task = h.executor.start(request("reject junk"));

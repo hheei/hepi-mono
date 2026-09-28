@@ -13,7 +13,7 @@ import type {
 	SpawnSubagentInput,
 	SubagentRecord,
 } from "./domain.js";
-import { isSessionId } from "./domain.js";
+import { isSessionId, TASK_RESULT_TOOL_NAME } from "./domain.js";
 import {
 	assembleChildPrompt,
 	resolveBridgeExtensionPath,
@@ -214,7 +214,11 @@ export async function resolveSubagentLaunch(
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
-		tools: policy.tools,
+		tools: taskChildTools(
+			policy.tools,
+			policy.excludeTools,
+			options.input.taskContract !== undefined,
+		),
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
@@ -226,6 +230,26 @@ export async function resolveSubagentLaunch(
 		interactive: policy.interactive,
 		...(options.input.taskContract === undefined ? {} : { task: options.input.taskContract }),
 	});
+}
+
+/**
+ * A Task child reports its result only through `submit_task_result`, so a tool allowlist that
+ * omits it would make every such task fail without the child being able to say why. An empty
+ * allowlist already means "all tools", so only a non-empty list needs the channel added.
+ */
+function taskChildTools(
+	tools: readonly string[],
+	excludeTools: readonly string[],
+	isTask: boolean,
+): readonly string[] {
+	if (!isTask) return tools;
+	if (excludeTools.includes(TASK_RESULT_TOOL_NAME)) {
+		throw new Error(
+			`exclude_tools cannot disable ${TASK_RESULT_TOOL_NAME}: it is the only channel for a Task child's final result`,
+		);
+	}
+	if (tools.length === 0 || tools.includes(TASK_RESULT_TOOL_NAME)) return tools;
+	return [...tools, TASK_RESULT_TOOL_NAME];
 }
 
 export interface PersistSubagentIntentOptions {

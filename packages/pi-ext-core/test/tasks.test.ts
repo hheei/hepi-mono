@@ -142,6 +142,25 @@ test("waits for every listed task, deduplicates ids and reports unknown ones", a
 	expect(outcomes[2]).toEqual({ id: "bash-test-9", status: "not_found" });
 });
 
+test("an inline-reported result reserves no notification and is never delivered", async (): Promise<void> => {
+	const tasks = registry();
+	const inline = tasks.create({
+		type: "agent",
+		purpose: "blocking call",
+		inlineResult: true,
+		begin: idleBinding,
+	});
+	const background = tasks.create({ type: "bash", purpose: "background", begin: idleBinding });
+	tasks.settle(inline.id, { status: "completed", output: "already returned", truncated: false });
+	tasks.settle(background.id, { status: "completed", output: "later", truncated: false });
+
+	// The blocking caller already reported this result, so nothing may be delivered again.
+	expect(tasks.get(inline.id)?.delivery).toBeUndefined();
+	expect(tasks.pendingDeliveries().map((event) => event.id)).toEqual([background.id]);
+	// It also consumes no admission capacity, which stays reserved for undelivered results.
+	expect(tasks.pendingDeliveryCount).toBe(1);
+});
+
 test("concurrent waits all read the same result without consuming it", async (): Promise<void> => {
 	const tasks = registry();
 	const task = tasks.create({ type: "bash", purpose: "shared", begin: idleBinding });

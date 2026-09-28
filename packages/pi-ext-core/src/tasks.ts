@@ -56,6 +56,11 @@ export interface TaskRequest {
 	/** Producers that start asynchronously admit as `queued` or `starting`. */
 	readonly initialStatus?: "queued" | "starting" | "running";
 	/**
+	 * True when the producer reports this result inline in its own tool result (a blocking
+	 * call). Such a result is never delivered again, so it reserves no notification capacity.
+	 */
+	readonly inlineResult?: boolean;
+	/**
 	 * Optional synchronous starter. Producers with asynchronous startup omit it and
 	 * attach their control surface later with `bind`.
 	 */
@@ -164,6 +169,8 @@ interface TaskRecord {
 	binding: TaskBinding | undefined;
 	terminal: TaskTerminal | undefined;
 	delivery: TaskDeliveryState | undefined;
+	/** Settled results of an inline-reporting producer need no delivery. */
+	readonly inlineResult: boolean;
 	batch: string | undefined;
 	waiters: Array<(waited: boolean) => void>;
 }
@@ -274,6 +281,7 @@ export class TaskRegistry {
 			binding: undefined,
 			terminal: undefined,
 			delivery: undefined,
+			inlineResult: request.inlineResult === true,
 			batch: undefined,
 			waiters: [],
 		};
@@ -506,7 +514,9 @@ export class TaskRegistry {
 		record.status = terminal.status;
 		record.endedAt = Date.now();
 		record.terminal = terminal;
-		record.delivery = "pending";
+		// A blocking caller already reported this result in its own tool result, so reserving a
+		// notification for it would deliver the same outcome twice.
+		record.delivery = record.inlineResult ? undefined : "pending";
 		this.#emit(record);
 		this.#release(record, true);
 		this.#evict();

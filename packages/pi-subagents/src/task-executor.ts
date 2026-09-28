@@ -35,6 +35,8 @@ export interface AgentTaskRequest {
 	readonly agent: string;
 	readonly task: string;
 	readonly cwd?: string;
+	/** True for a blocking call, whose caller reports the result inline. */
+	readonly inlineResult?: boolean;
 	readonly contract: TaskChildContract;
 	/** Branch marker captured at admission; the delivery adapter decides where it may land. */
 	readonly anchor?: string;
@@ -127,6 +129,9 @@ export class AgentTaskExecutor {
 			purpose: purposeOf(request),
 			initialStatus: "queued",
 			...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+			// A blocking `task` call returns the result itself, so it must not also reserve a
+			// notification for the same outcome.
+			...(request.inlineResult === undefined ? {} : { inlineResult: request.inlineResult }),
 			begin: (id) => this.#binding(job, id),
 		});
 		job.id = snapshot.id;
