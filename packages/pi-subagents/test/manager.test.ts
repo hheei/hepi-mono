@@ -12,7 +12,11 @@ import {
 	SubagentManager,
 } from "../src/manager.js";
 import { type SubagentRegistry, SubagentRegistryError } from "../src/registry.js";
-import { createRuntimeTokenStore, isRecordedRunnerConfirmedDead } from "../src/runtime.js";
+import {
+	createRuntimeTokenStore,
+	isPidConfirmedDead,
+	isRecordedRunnerConfirmedDead,
+} from "../src/runtime.js";
 
 const PARENT_ID = "parent-test";
 const CHILD_ID = "sa_manager";
@@ -225,6 +229,14 @@ class FakeRunner implements RunnerLike {
 }
 
 /** A real process that carries the runtime identity a record refers to. */
+async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!condition()) {
+		if (Date.now() >= deadline) throw new Error("condition was never met");
+		await new Promise<void>((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 async function spawnRecordedRuntime(): Promise<{ readonly pid: number; stop: () => void }> {
 	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
 		env: { ...process.env, PI_SUBAGENTS_RUNTIME_ID: "runtime-test" },
@@ -707,6 +719,70 @@ describe("SubagentManager contracts", () => {
 		} finally {
 			runtime.stop();
 		}
+	});
+
+	test("frees a failed child once its runner is confirmed gone", async () => {
+		const runtime = await spawnRecordedRuntime();
+		const failed = childRecord("failed");
+		const record: SubagentRecord = {
+			...failed,
+			runtime: { runtimeIdentity: "runtime-test", endpoint: "/tmp/runner.sock", pid: runtime.pid },
+		};
+		const registry = memoryRegistry(record);
+		let launches = 0;
+		const { manager } = managerWith(record, new FakeRunner(), registry, {
+			launch: async () => {
+				launches += 1;
+				throw new Error("handshake failed");
+			},
+		});
+
+		// The recorded process is still alive, so a second execution must not be started for the
+		// session it owns: the failed child stays unavailable.
+		const refused = await manager.send(CHILD_ID, "Follow up", "auto");
+		expect(refused).toMatchObject({ reason: "Child is not accepting input", state: "failed" });
+		// Nothing was launched, so this attempt consumed nothing.
+		expect(launches).toBe(0);
+
+		// Once nothing can be running, refusing input forever would strand a session nobody uses.
+		runtime.stop();
+		await until(() => isPidConfirmedDead(runtime.pid));
+		const revived = await manager.send(CHILD_ID, "Follow up", "auto");
+		expect(launches).toBe(1);
+		expect(revived).toMatchObject({ safeToRetry: true, state: "done" });
+		expect(registry.current?.state).toBe("done");
+		manager.dispose();
+	});
+
+	test("frees a dead claim instead of leaving the child unusable", async () => {
+		const runtime = await spawnRecordedRuntime();
+		const pid = runtime.pid;
+		runtime.stop();
+		await until(() => isPidConfirmedDead(pid));
+		const claimed: SubagentRecord = {
+			...childRecord("failed"),
+			claim: {
+				claimId: "claim-1",
+				kind: "replacement",
+				holderPid: process.pid,
+				runtimeIdentity: "runtime-1",
+				endpoint: "/tmp/nowhere.sock",
+				controllerTokenHash: "hash",
+				runnerPid: pid,
+			},
+		};
+		const registry = memoryRegistry(claimed);
+		const { manager } = managerWith(claimed, new FakeRunner(), registry, {
+			launch: async () => {
+				throw new Error("handshake aborted");
+			},
+		});
+
+		// The claim belongs to this parent and its runner is gone, so it blocks nothing any more.
+		const revived = await manager.send(CHILD_ID, "Follow up", "auto");
+		expect(registry.current?.claim).toBeUndefined();
+		expect(revived).toMatchObject({ safeToRetry: true, state: "done" });
+		manager.dispose();
 	});
 
 	test("auto-resumes a done or hibernated child on send with prompt operation", async () => {
