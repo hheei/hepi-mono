@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import {
 	SubagentManager,
 } from "../src/manager.js";
 import { type SubagentRegistry, SubagentRegistryError } from "../src/registry.js";
-import { createRuntimeTokenStore } from "../src/runtime.js";
+import { createRuntimeTokenStore, isRecordedRunnerConfirmedDead } from "../src/runtime.js";
 
 const PARENT_ID = "parent-test";
 const CHILD_ID = "sa_manager";
@@ -221,6 +222,27 @@ class FakeRunner implements RunnerLike {
 	public emit(event: unknown): void {
 		for (const listener of this.#listeners) listener(event);
 	}
+}
+
+/** A real process that carries the runtime identity a record refers to. */
+async function spawnRecordedRuntime(): Promise<{ readonly pid: number; stop: () => void }> {
+	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+		env: { ...process.env, PI_SUBAGENTS_RUNTIME_ID: "runtime-test" },
+		stdio: "ignore",
+	});
+	const pid = child.pid;
+	if (pid === undefined) throw new Error("test runtime did not start");
+	const deadline = Date.now() + 5_000;
+	// Wait until the process is observable as the recorded runtime, never merely alive.
+	while (
+		await isRecordedRunnerConfirmedDead({
+			runtime: { runtimeIdentity: "runtime-test", endpoint: "/tmp/runner.sock", pid },
+		} as SubagentRecord)
+	) {
+		if (Date.now() >= deadline) throw new Error("test runtime did not become observable");
+		await new Promise<void>((resolve) => setTimeout(resolve, 10));
+	}
+	return { pid, stop: () => child.kill("SIGKILL") };
 }
 
 function managerWith(
@@ -523,6 +545,109 @@ describe("SubagentManager contracts", () => {
 		expect(registry.current?.state).toBe("done");
 
 		manager.dispose();
+	});
+
+	test("keeps runtime evidence and refuses the child when a hibernating runner never confirms exit", async () => {
+		const runtime = await spawnRecordedRuntime();
+		try {
+			const baseline = childRecord("starting");
+			const record: SubagentRecord = {
+				...baseline,
+				runtime: { ...baseline.runtime!, pid: runtime.pid },
+			};
+			const runner = new FakeRunner();
+			const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
+				idleTimeoutMs: 20,
+				deadlineMs: 100,
+			});
+			await manager.spawn({ task: "Work.", agent: "worker" });
+			runner.emit({ type: "agent_end" });
+			await new Promise<void>((resolve) => setTimeout(resolve, 220));
+
+			// The runner acknowledged shutdown, but the recorded process is still alive.
+			expect(runner.requests).toContain("shutdown");
+			expect(registry.current?.state).toBe("failed");
+			expect(registry.current?.interrupted).toContain("unconfirmed");
+			expect(registry.current?.runtime?.pid).toBe(runtime.pid);
+			// No blind second execution is attempted while the old runtime may still own the session.
+			expect(await manager.send(CHILD_ID, "Follow up", "auto")).toMatchObject({
+				reason: "Child is not accepting input",
+			});
+			manager.dispose();
+		} finally {
+			runtime.stop();
+		}
+	});
+
+	test("refuses to hibernate when the child session placement cannot be verified", async () => {
+		const parent = await mkdtemp(join(tmpdir(), "pi-subagents-placement-"));
+		const blocker = join(parent, "sessions");
+		await writeFile(blocker, "not a directory");
+		const baseline = childRecord("starting");
+		const record: SubagentRecord = {
+			...baseline,
+			launchConfig: { ...baseline.launchConfig, sessionDir: blocker },
+		};
+		const runner = new FakeRunner();
+		let launches = 0;
+		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
+			idleTimeoutMs: 20,
+			launch: async () => {
+				launches += 1;
+				return runner;
+			},
+		});
+		await manager.spawn({ task: "Work.", agent: "worker" });
+		runner.emit({ type: "agent_end" });
+		await new Promise<void>((resolve) => setTimeout(resolve, 60));
+
+		// An unreadable session directory is not proof that the session does not exist, so the
+		// child keeps its id and stays inspectable instead of hibernating with a stale placement.
+		const settled = registry.current;
+		expect(settled?.state).toBe("idle");
+		expect(settled?.persistence).toBe("never_flushed");
+		expect(settled?.sessionPath).toBeUndefined();
+		expect(settled?.interrupted).toContain("could not be verified");
+		const resumed = await manager.send(CHILD_ID, "Follow up", "auto");
+		expect(resumed).toMatchObject({ reason: expect.stringContaining("could not be verified") });
+		expect(launches).toBe(1);
+		manager.dispose();
+	});
+
+	test("separates a resume that never started from one that left a runtime behind", async () => {
+		const neverStarted = childRecord("done");
+		const first = managerWith(neverStarted, new FakeRunner(), memoryRegistry(neverStarted), {
+			launch: async () => {
+				throw new Error("handshake failed");
+			},
+		});
+		const failedStart = await first.manager.send(CHILD_ID, "Follow up", "auto");
+		expect(failedStart).toMatchObject({ safeToRetry: true, state: "done" });
+		expect(first.registry.current).toMatchObject({ state: "done" });
+		expect(first.registry.current?.interrupted).toContain("before a runtime was confirmed started");
+		first.manager.dispose();
+
+		const runtime = await spawnRecordedRuntime();
+		try {
+			const claimed = childRecord("done");
+			const registry = memoryRegistry(claimed);
+			const second = managerWith(claimed, new FakeRunner(), registry, {
+				launch: async () => {
+					await registry.update(CHILD_ID, undefined, (value) => ({
+						...value,
+						runtime: { ...value.runtime!, pid: runtime.pid },
+					}));
+					throw new Error("handshake timed out");
+				},
+			});
+			const unconfirmed = await second.manager.send(CHILD_ID, "Follow up", "auto");
+			expect(unconfirmed).toMatchObject({ safeToRetry: false, state: "failed" });
+			expect(registry.current?.interrupted).toContain("after the runtime was claimed");
+			expect(registry.current?.runtime?.pid).toBe(runtime.pid);
+			second.manager.dispose();
+		} finally {
+			runtime.stop();
+		}
 	});
 
 	test("auto-resumes a done or hibernated child on send with prompt operation", async () => {
