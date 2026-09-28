@@ -2,7 +2,12 @@ import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
 import { BashInput } from "../src/bash.js";
-import { type EvalNestedToolName, EvalToolBridge, EvalToolError } from "../src/eval/bridge.js";
+import {
+	type EvalNestedToolName,
+	EvalToolBridge,
+	EvalToolError,
+	evalNestedLiveResult,
+} from "../src/eval/bridge.js";
 import type { EvalRuntimeState } from "../src/eval/lifecycle.js";
 import { createEvalTool } from "../src/eval/tool.js";
 
@@ -189,5 +194,57 @@ describe("Eval tool bridge", () => {
 			},
 		};
 		expect(render(finalResult, false)).toEqual(["streamed line", "read: file.ts", "42"]);
+	});
+});
+
+describe("nested live results are bounded by what they retain", () => {
+	function imageTool(data: string): ToolDefinition {
+		return {
+			name: "read",
+			label: "read",
+			description: "test",
+			parameters,
+			async execute() {
+				return { content: [{ type: "image", data, mimeType: "image/png" }], details: {} };
+			},
+		} as unknown as ToolDefinition;
+	}
+
+	async function remember(tool: ToolDefinition): Promise<string> {
+		const bridge = new EvalToolBridge(new Map([["read", tool]]), () => true);
+		let id: string | undefined;
+		await bridge.call("read", { path: "a.png" }, {} as ExtensionContext, undefined, (trace) => {
+			id = trace.toolCallId;
+		});
+		if (id === undefined) throw new Error("expected a nested tool call id");
+		return id;
+	}
+
+	test("keeps a small image for re-rendering", async () => {
+		const id = await remember(imageTool("a".repeat(1_000)));
+		expect(evalNestedLiveResult(id)).toBeDefined();
+	});
+
+	test("counts the details a renderer redraws from", async () => {
+		// A renderer redraws from details, so a small text with a large payload is still large.
+		const tool = {
+			name: "read",
+			label: "read",
+			description: "test",
+			parameters,
+			async execute() {
+				return {
+					content: [{ type: "text", text: "short" }],
+					details: { text: "short", diff: "x".repeat(700 * 1024) },
+				};
+			},
+		} as unknown as ToolDefinition;
+		expect(evalNestedLiveResult(await remember(tool))).toBeUndefined();
+	});
+
+	test("does not keep one whose payload alone exceeds the budget", async () => {
+		// The base64 payload is what is retained, so a text-only measurement would keep this.
+		const id = await remember(imageTool("a".repeat(700 * 1024)));
+		expect(evalNestedLiveResult(id)).toBeUndefined();
 	});
 });
