@@ -98,7 +98,7 @@ remote bash 不是包一层本机 `ssh` 的 local bash：
 - 取消只终止本机 ssh session，不宣称远端 process 已死；结果是 interrupted；
 - 不跑 RTK rewrite；
 - stdout/stderr 仍进入本机 session `BashOutputSink`；
-- header 为 `status bash (host) <command>`，`(host)` 在当前 Trace 为 warning 色，塌缩后与 command 一起 dim。
+- header 为 `status bash (host)` 加调用 facts（dim `non-blocking`、dim `(timeout Ns)`），命令本身是 request body；`(host)` 在当前 Trace 为 warning 色，塌缩后转 dim。
 
 ## remote apply_patch（ADR-0018）
 

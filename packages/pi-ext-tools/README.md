@@ -68,10 +68,10 @@ Remote `target` is an authorized SSH host and always runs in the foreground; `bl
 rejected there. Working directory on SSH is the remote home.
 `output` remains unsupported.
 
-A multi-line command is joined into one header line with `; ` (a trailing `\` continuation or `;`
-joins with a space), and a command wider than the terminal is cut with a dim `…` instead of
-wrapping, so the frame never grows a row per command line. The full command stays in the
-persisted tool call and in the model-visible arguments.
+A multi-line command is the request body: one row per command line, wrapped to the terminal, so the
+frame never grows a row per command line and the header keeps only the call facts (`non-blocking`,
+`(timeout Ns)`, plus `(host)` on an SSH Target). The full command stays in the persisted tool call
+and in the model-visible arguments.
 
 ## task control
 

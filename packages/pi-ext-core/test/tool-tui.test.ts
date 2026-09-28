@@ -252,28 +252,23 @@ describe("ToolTui", () => {
 		expect(historical).not.toContain("<warning>ileqm:</warning>");
 	});
 
-	test("paints bash header commands muted on the current trace", (): void => {
+	test("stands a summary-less header on its call facts alone", (): void => {
 		const tui = createToolTui();
-		const framed = tui.frame({
-			...tool(),
-			name: "bash",
-			label: "bash",
-		});
+		const framed = tui.frame(
+			{ ...tool(), name: "bash", label: "bash" },
+			{
+				summary: () => "",
+				suffix: () => "non-blocking (timeout 30s)",
+			},
+		);
 		tui.beginTrace();
 		const current =
 			framed.renderCall?.({ command: "ls -la" }, theme, context(true)).render(200).join("\n") ?? "";
-		expect(current).toContain("<toolTitle><b>bash</b></toolTitle> <muted>ls -la</muted>");
-		tui.beginTrace();
-		const historical =
-			framed
-				.renderCall?.({ command: "ls -la" }, theme, {
-					...(context(false) as object),
-					executionStarted: false,
-				} as never)
-				.render(200)
-				.join("\n") ?? "";
-		expect(historical).toContain("<toolTitle><b>bash</b></toolTitle> <dim>ls -la</dim>");
-		expect(historical).not.toContain("<muted>ls -la</muted>");
+		// The command is the request body, so the header never repeats it.
+		expect(current).toContain(
+			"<toolTitle><b>bash</b></toolTitle><dim> non-blocking (timeout 30s)</dim>",
+		);
+		expect(current).not.toContain("ls -la");
 	});
 
 	test("paints summary-override SSH host before the summary", (): void => {
@@ -310,13 +305,16 @@ describe("ToolTui", () => {
 		expect(historical).not.toContain("<warning>(devbox)</warning>");
 	});
 
-	test("paints bash SSH host in parentheses before the command", (): void => {
+	test("keeps an SSH host before a summary-less run of facts", (): void => {
 		const tui = createToolTui();
-		const framed = tui.frame({
-			...tool(),
-			name: "bash",
-			label: "bash",
-		});
+		const framed = tui.frame(
+			{
+				...tool(),
+				name: "bash",
+				label: "bash",
+			},
+			{ summary: () => "", suffix: () => "(timeout 30s)" },
+		);
 		tui.beginTrace();
 		const current =
 			framed
@@ -324,7 +322,7 @@ describe("ToolTui", () => {
 				.render(200)
 				.join("\n") ?? "";
 		expect(current).toContain(
-			"<toolTitle><b>bash</b></toolTitle> <warning>(devbox)</warning> <muted>uname -s</muted>",
+			"<toolTitle><b>bash</b></toolTitle> <warning>(devbox)</warning><dim> (timeout 30s)</dim>",
 		);
 		tui.beginTrace();
 		const historical =
@@ -336,7 +334,7 @@ describe("ToolTui", () => {
 				.render(200)
 				.join("\n") ?? "";
 		expect(historical).toContain(
-			"<toolTitle><b>bash</b></toolTitle> <dim>(devbox)</dim> <dim>uname -s</dim>",
+			"<toolTitle><b>bash</b></toolTitle> <dim>(devbox)</dim><dim> (timeout 30s)</dim>",
 		);
 		expect(historical).not.toContain("<warning>(devbox)</warning>");
 	});
@@ -395,47 +393,21 @@ describe("ToolTui", () => {
 		expect(historical).toContain("…");
 	});
 
-	test("flattens a multi-line bash command into one header line", (): void => {
-		const tui = createToolTui();
-		const framed = tui.frame({ ...tool(false), name: "bash", label: "bash" });
-		const lines =
-			framed
-				.renderCall?.({ command: "first line\nsecond line\nthird line" }, theme, context(true))
-				.render(200)
-				.map((line) => line.trimEnd()) ?? [];
-		expect(lines).toHaveLength(1);
-		expect(lines[0]).toContain("first line; second line; third line");
-	});
-
-	test("joins a continued bash line without a stray separator", (): void => {
-		const tui = createToolTui();
-		const framed = tui.frame({ ...tool(false), name: "bash", label: "bash" });
-		const header = framed
-			.renderCall?.(
-				{ command: "ffmpeg -i in.mp4 \\\n  -c:v libx264 \\\n  out.mp4\nrm -f out.mp4" },
-				theme,
-				context(true),
-			)
-			.render(200)
-			.join("");
-		expect(header).toContain("ffmpeg -i in.mp4 -c:v libx264 out.mp4; rm -f out.mp4");
-	});
-
 	test("truncates a header that opted out of wrapping", (): void => {
 		const tui = createToolTui();
-		const wrapping = tui.frame({ ...tool(false), name: "bash", label: "bash" });
-		const truncated = tui.frame(
-			{ ...tool(false), name: "bash", label: "bash" },
-			{ headerLine: "truncate" },
-		);
-		const args = { command: "echo one; echo two; echo three; echo four; echo five" };
-		const wide = wrapping.renderCall?.(args, theme, context(true)).render(40) ?? [];
-		const narrow = truncated.renderCall?.(args, theme, context(true)).render(40) ?? [];
+		const long = "printf one; printf two; printf three; printf four; printf five";
+		const presentation = { summary: () => long, suffix: () => "(timeout 20s)" };
+		const wrapping = tui.frame(tool(false), presentation);
+		const truncated = tui.frame(tool(false), { ...presentation, headerLine: "truncate" });
+		const wide = wrapping.renderCall?.({}, theme, context(true)).render(40) ?? [];
+		const narrow = truncated.renderCall?.({}, theme, context(true)).render(40) ?? [];
 		expect(wide.length).toBeGreaterThan(1);
-		expect(wide.join("")).toContain("echo five");
+		expect(wide.join("")).toContain("printf five");
 		expect(narrow).toHaveLength(1);
 		expect(narrow[0]).toContain("…");
-		expect(narrow[0]).not.toContain("echo five");
+		expect(narrow[0]).not.toContain("printf five");
+		// The facts outlive the truncation of the text they follow.
+		expect(narrow[0]).toContain("(timeout 20s)");
 	});
 
 	test("keeps an overlong footer inside the terminal width", (): void => {

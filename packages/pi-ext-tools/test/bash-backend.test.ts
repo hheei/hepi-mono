@@ -8,7 +8,6 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
@@ -184,7 +183,7 @@ test("task-control tools carry their own activation-scoped guidelines", (): void
 	]);
 });
 
-test("bash displays its active command in the base theme and timeout dim", (): void => {
+test("bash states its invocation facts in the header and keeps the command in the body", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerBashTool({
 		registerTool(tool: ToolDefinition): void {
@@ -206,14 +205,12 @@ test("bash displays its active command in the base theme and timeout dim", (): v
 		} as never)
 		.render(120);
 	if (text === undefined) throw new Error("Expected bash call renderer");
-	// The command appears twice on purpose: a truncated header summary plus the request body.
-	expect(text[0]?.match(/printf one/g)).toHaveLength(1);
-	expect(text[0]).not.toContain("<dim>printf one</dim>");
-	expect(text[0]).toContain("<dim> (timeout 120s)</dim>");
+	// The command is the request body, so the header only repeats the call facts.
+	expect(text[0]).toBe("󰪠 bash<dim> (timeout 120s)</dim>");
 	expect(text[2]).toBe("printf one");
 });
 
-test("bash wraps the active command and retains its timeout suffix", (): void => {
+test("bash keeps a multi-line command in the body and its timeout in the header", (): void => {
 	const bash = bashTool();
 	const theme = plainTheme;
 	const text = bash
@@ -225,8 +222,9 @@ test("bash wraps the active command and retains its timeout suffix", (): void =>
 		} as never)
 		.render(80)
 		.join("\n");
+	expect(text).toContain("bash (timeout 20s)");
+	expect(text).toContain("printf first");
 	expect(text).toContain("printf second");
-	expect(text).toContain("(timeout 20s)");
 });
 
 test("bash keeps the full command in a request body after the result arrives", (): void => {
@@ -245,15 +243,15 @@ test("bash keeps the full command in a request body after the result arrives", (
 				invalidate: (): void => undefined,
 			} as never)
 			.render(120) ?? [];
-	// The header keeps its one-line `; ` summary; the request body keeps the command verbatim.
-	expect(rows[0]).toContain("printf first; printf second");
+	// The header keeps only the call facts; the request body keeps the command verbatim.
+	expect(rows[0]).toBe("󰄴 bash (timeout 20s)");
 	expect(rows[1]).toBe("─".repeat(120));
 	expect(rows[2]).toBe("printf first");
 	expect(rows[3]).toBe("printf second");
 	expect(rows[4]).toBe("─".repeat(120));
 });
 
-test("bash collapses only the previous command before its timeout suffix", async (): Promise<void> => {
+test("a previous bash trace keeps its facts and drops the command", async (): Promise<void> => {
 	const tui = createToolTui();
 	const bash = bashTool(tui);
 	tui.beginTrace();
@@ -275,10 +273,7 @@ test("bash collapses only the previous command before its timeout suffix", async
 			invalidate: (): void => undefined,
 		} as never)
 		.render(40)[0];
-	expect(line).toContain("󰄴 bash");
-	const plainLine = stripTerminalSequences(line ?? "");
-	expect(plainLine).toContain("…");
-	expect(plainLine.trimEnd().endsWith("(timeout 20s)")).toBe(true);
+	expect(line).toBe("󰄴 bash (timeout 20s)");
 });
 
 test("bash closes its output with a full-width divider above the typed footer", (): void => {

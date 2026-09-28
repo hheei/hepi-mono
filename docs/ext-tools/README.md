@@ -74,6 +74,10 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 保存设置会立即应用到当前 session；重新载入会重新读取保存值。15 秒定时器不会跨过 `agent_start`、session
 reset 或 shutdown。折叠只影响可见外框，不改变模型可见的 `content`、持久化 details 或 Ctrl+O 展开。
 
+header 文本由 `summary`（label 之后、`summarySeparator` 分隔）与 `suffix`（dim，追加在后的调用 facts，
+声明后 header 变为 `label (host) summary facts` 形式）组成；`summary` 返回空字符串表示只有 label 与 facts，
+工具输入本身是 request body 时（如 `bash`）使用该形式。
+
 折叠后的 frame 在任意宽度下都是两行：一行 header 与一行 summary，两者都超宽时以 dim `…` 截断而不换行。
 未折叠的 header 由工具自己决定：默认按宽度换行，声明 `headerLine: "truncate"` 时保持一行；footer summary
 行使用与 header 相同的规则（未折叠时默认换行、声明后截断，折叠后一律截断），因为 Pi renderer 对超过终端
@@ -161,7 +165,7 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 `pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。
 
-`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 仍然是单行 `; ` 摘要，供折叠帧与快速扫描使用，因此宽命令会在 header 与 request body 各出现一次。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
+`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`non-blocking`、`(timeout Ns)`，远端再加 `(host)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
 
 ### Optional optimizer integration
 

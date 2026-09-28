@@ -117,14 +117,15 @@ describe("tool frame collapse modes", () => {
 			.split("\n")
 			.filter((line) => line.trim() !== "");
 		expect(notes).toHaveLength(2);
-		expect(notes[0]).toContain("echo one; echo two");
+		// The command lives in the request body, so a collapsed frame shows the facts and the footer.
+		expect(notes[0]).toBe("󰄴 bash");
 		expect(notes[1]).toMatch(/exit 0/);
 	});
 
-	test("flattens a multi-line bash command into one header row above its request body", async (): Promise<void> => {
+	test("keeps a multi-line bash command in its request body under a one-row header", async (): Promise<void> => {
 		const { tools } = registeredTools();
 		const bash = toolFor(tools, "bash");
-		const headerOf = (command: string, width: number): string[] =>
+		const rowsOf = (command: string, width: number): string[] =>
 			bash
 				.renderCall?.({ command }, plainTheme, {
 					isError: false,
@@ -133,17 +134,19 @@ describe("tool frame collapse modes", () => {
 				} as never)
 				.render(width) ?? [];
 
-		// The header flattens a multi-line command onto one row, joined at its own separators...
-		const flattened = headerOf("first line\nsecond line\nthird line", 200);
-		expect(flattened[0]).toContain("first line; second line; third line");
-		// ...while the request body below the header keeps the command verbatim.
-		expect(flattened.filter((row) => row.includes("─"))).toHaveLength(2);
-		expect(flattened.slice(2, -1)).toEqual(["first line", "second line", "third line"]);
+		// The header never repeats the command, however many lines it has.
+		const body = rowsOf("first line\nsecond line\nthird line", 200);
+		expect(stripTerminalSequences(body[0] ?? "")).toBe("󰪠 bash");
+		// The request body below the header keeps the command verbatim, one row per line.
+		expect(body.filter((row) => row.includes("─"))).toHaveLength(2);
+		expect(body.slice(2, -1)).toEqual(["first line", "second line", "third line"]);
 
-		// ...and a command too long for the terminal is cut on that same single header row.
+		// A command wider than the terminal wraps inside the body instead of stretching the header.
 		const long = `docker run --rm -v /tmp:/tmp alpine sh -c "echo one; echo two"`;
-		const truncated = headerOf(long, 40);
-		expect(stripTerminalSequences(truncated[0] ?? "").endsWith("…")).toBe(true);
+		const narrow = rowsOf(long, 40);
+		expect(stripTerminalSequences(narrow[0] ?? "")).toBe("󰪠 bash");
+		expect(narrow.join("")).toContain("docker run --rm");
+		expect(narrow.every((row) => visibleWidth(row) <= 40)).toBe(true);
 	});
 
 	test("keeps every uncollapsed frame row inside a narrow terminal", async (): Promise<void> => {

@@ -43,6 +43,10 @@ export const AUTO_COLLAPSE_DELAY_MS = 15_000;
 export const AUTO_COLLAPSE_RETRY_DELAY_MS = 3_000;
 
 export type ToolTuiPresentation<TParams extends TSchema, TDetails, TState = unknown> = {
+	/**
+	 * Header text after the label. An empty string means the label stands alone, which is the shape
+	 * for a tool whose input is its own request body and whose header only carries call facts.
+	 */
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
 	readonly summarySeparator?: "dot" | "space";
 	/**
@@ -192,26 +196,6 @@ function summaryFor(args: unknown): string {
 	return path === undefined ? "" : path;
 }
 
-/**
- * A bash header stays one logical line, so line breaks become `; `. A trailing `\` is
- * already a line break, and a trailing `;` already separates, so both join with a space.
- */
-function flattenCommand(command: string): string {
-	let joined = "";
-	for (const raw of command.split(/\r?\n/)) {
-		const line = raw.trim();
-		if (line === "") continue;
-		if (joined === "") {
-			joined = line;
-		} else if (joined.endsWith("\\")) {
-			joined = `${joined.slice(0, -1).trimEnd()} ${line}`;
-		} else {
-			joined = joined.endsWith(";") ? `${joined} ${line}` : `${joined}; ${line}`;
-		}
-	}
-	return joined;
-}
-
 type HeaderInput = {
 	readonly tool: { readonly name: string; readonly label: string };
 	readonly args: unknown;
@@ -248,13 +232,18 @@ function headerFor(input: HeaderInput): FrameHeader {
 			};
 		}
 		const host = remoteTarget(values);
-		const hostLabel =
-			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
-		const summary = collapsed ? theme.fg("dim", summaryOverride) : summaryOverride;
+		const hostPaint =
+			host === undefined ? undefined : theme.fg(collapsed ? "dim" : "warning", `(${host})`);
+		const hostLabel = hostPaint === undefined ? "" : `${hostPaint} `;
+		// An empty summary means the label stands alone; dimming it would leave an empty escape pair.
+		const summary =
+			collapsed && summaryOverride !== "" ? theme.fg("dim", summaryOverride) : summaryOverride;
 		if (input.inlineSummary) {
 			const facts = input.suffix?.trim() ?? "";
+			const label = `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}`;
+			const head = [hostPaint, summary].filter((part) => part !== undefined && part !== "");
 			return {
-				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${hostLabel}${summary}`,
+				primary: head.length === 0 ? label : `${label} ${head.join(" ")}`,
 				...(facts === "" ? {} : { suffix: theme.fg("dim", ` ${facts}`) }),
 			};
 		}
@@ -263,18 +252,6 @@ function headerFor(input: HeaderInput): FrameHeader {
 		};
 	}
 	const pattern = textValue(values.pattern);
-	const command = textValue(values.command);
-	if (tool.name === "bash" && command !== undefined) {
-		const timeout = typeof values.timeout === "number" ? values.timeout : undefined;
-		const shown = flattenCommand(command);
-		const host = remoteTarget(values);
-		const hostLabel =
-			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
-		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${hostLabel}${theme.fg(collapsed ? "dim" : "muted", shown)}`,
-			...(timeout === undefined ? {} : { suffix: theme.fg("dim", ` (timeout ${timeout}s)`) }),
-		};
-	}
 	if (tool.name === "read" && path !== undefined) {
 		const offset = typeof values.offset === "number" ? values.offset : undefined;
 		const limit = typeof values.limit === "number" ? values.limit : undefined;
