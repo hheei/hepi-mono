@@ -47,7 +47,9 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 的既有契约与状态机，而"任务排队期间有人改父模型"在实践中几乎不会发生。需要绝对冻结时应避免超过并发上限
 的排队，或先 `stop_tasks` 后重新发起。
 
-- 取消是请求：只有执行停止被确认后才提交 `cancelled`；已终结的 task 不会被迟到事件改写。
+- 取消是请求：请求一旦发出，任务状态即为 `stopping`（活动状态，`list_tasks` 可见），只有执行停止被确认后
+  才提交 `cancelled`；未 attach 控制面的任务也会记住该请求，迟到的 binding 会立即被停掉而不是开始无人取消的工作。
+  已终结的 task 不会被迟到事件改写。
 - 自然完成与取消竞态：若执行先自然结束，保留真实 `completed`/`failed`。
 - Agent 任务只有在**匹配当前执行的 `agent_settled`**、且已提交被校验的最终结果时才
   `completed`；`agent_end` 不足以终结。静止但没有合法结果时为 `invalid_result` 失败（终态 `status`
@@ -74,7 +76,8 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 `pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配
 task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。刚刚交给 host 的那一批在
 提交时不会被保留上限淘汰（否则 host 同步拒收后的 requeue 会丢掉已受理的结果）；被淘汰的只可能是
-更早的记录。同步 task 的结果只走原
+更早的记录。控制工具（list/wait/stop）在任何活动任务存在、或任何结果尚未被 `observed` 时保持可用：
+host 接受了消息不等于模型读到了它，`/tree` 等边界也不会把它卸载。同步 task 的结果只走原
 tool_result，不进入后台队列。
 
 ## session 与分支
