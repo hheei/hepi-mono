@@ -1,11 +1,11 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
 import { EvalToolBridge } from "../src/eval/bridge.js";
 import type { EvalRuntimeState } from "../src/eval/lifecycle.js";
 import { registerEvalTool } from "../src/eval/tool.js";
-import { framedHost, toolFor } from "./fixtures/harness.js";
+import { framedHost, mountTool, toolFor } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 describe("Eval tool frame", () => {
@@ -62,19 +62,30 @@ describe("Eval nested rows and failures", () => {
 	const execute = async (
 		runtime: unknown,
 		bridge: EvalToolBridge,
+		updates?: AgentToolResult<unknown>[],
 	): Promise<{ result: AgentToolResult<unknown>; tool: ToolDefinition }> => {
 		const { pi, tools, tui } = framedHost();
 		registerEvalTool(pi, { getRuntime: () => runtime } as unknown as EvalRuntimeState, bridge, tui);
 		const tool = toolFor(tools, "eval");
-		const result = await tool.execute("eval-call-1", { code: "1" }, undefined, undefined, {
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => "entry-1" },
-			ui: { notify: (): void => undefined },
-		} as never);
+		const result = await tool.execute(
+			"eval-call-1",
+			{ code: "1" },
+			undefined,
+			updates === undefined
+				? undefined
+				: (update: AgentToolResult<unknown>): void => {
+						updates.push(update);
+					},
+			{
+				cwd: process.cwd(),
+				sessionManager: { getLeafId: () => "entry-1" },
+				ui: { notify: (): void => undefined },
+			} as never,
+		);
 		return { result, tool };
 	};
 
-	/** The result frame's own rows: the body plus the footer that summarizes it when collapsed. */
+	/** The result frame's rows, trimmed of the padding the frame applies to every row. */
 	const renderResultRows = (
 		result: AgentToolResult<unknown>,
 		tool: ToolDefinition,
@@ -92,6 +103,7 @@ describe("Eval nested rows and failures", () => {
 				invalidate: (): void => undefined,
 			} as never)
 			.render(width)
+			.map((row) => row.trim())
 			.join("\n") ?? "";
 
 	test("names nested calls only when the cell made one", async () => {
@@ -152,13 +164,97 @@ describe("Eval nested rows and failures", () => {
 		expect((result.content[0] as { text: string }).text).toBe("45\na\nb\nred");
 	});
 
+	test("keeps a line the kernel sent in pieces as one row", async () => {
+		const updates: AgentToolResult<unknown>[] = [];
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<undefined> => {
+				hooks.onText("par");
+				hooks.onText("tial\n");
+				return undefined;
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(new Map(), () => true), updates);
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		expect(rows.map((row) => row.text)).toEqual(["partial"]);
+		// The half line is already readable while the rest of it is still being printed.
+		expect((updates[0]?.content[0] as { text: string }).text).toBe("par");
+	});
+
+	test("keeps a blank printed line as a row of its own", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<undefined> => {
+				hooks.onText("a\n\nb\n");
+				return undefined;
+			},
+		};
+		const { result, tool } = await execute(runtime, new EvalToolBridge(new Map(), () => true));
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		expect(rows.map((row) => row.text)).toEqual(["a", "", "b"]);
+		// `Text` renders nothing for whitespace-only content, so the blank row is its own component.
+		const body = renderResultRows(result, tool, { expanded: true, isPartial: false }).split("\n");
+		const first = body.indexOf("a");
+		expect(body.slice(first, first + 3)).toEqual(["a", "", "b"]);
+	});
+
+	test("says which row a display value and the cell's final value are", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onDisplay: (value: unknown) => void },
+			): Promise<number> => {
+				hooks.onDisplay({ a: 1 });
+				return 41;
+			},
+		};
+		const { result, tool } = await execute(runtime, new EvalToolBridge(new Map(), () => true));
+		const body = renderResultRows(result, tool, { expanded: true, isPartial: false }).split("\n");
+		expect(body).toContain('display: {"a":1}');
+		expect(body).toContain("result: 41");
+		expect((result.content[0] as { text: string }).text).toBe('display: {"a":1}\nresult: 41');
+	});
+
+	test("folds a finished cell like any other long output", async (): Promise<void> => {
+		const { pi, tools, tui } = framedHost();
+		tui.setToolCollapseMode("on");
+		const runtime = { runWithHooks: async (): Promise<number> => 41 };
+		registerEvalTool(
+			pi,
+			{ getRuntime: () => runtime } as unknown as EvalRuntimeState,
+			new EvalToolBridge(new Map(), () => true),
+			tui,
+		);
+		const tool = toolFor(tools, "eval");
+		const component = mountTool("eval", "eval-collapse", tool, { code: "1" });
+		tui.beginTrace();
+		component.markExecutionStarted();
+		const result = await tool.execute("eval-collapse", { code: "1" }, undefined, undefined, {
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => "entry-1" },
+			ui: { notify: (): void => undefined },
+		} as never);
+		component.updateResult({ ...result, isError: false });
+		const rows = stripTerminalSequences(component.render(120).join("\n"))
+			.split("\n")
+			.filter((line) => line.trim() !== "");
+		// A cell's body is long output, so the collapse policy folds it to a header and a footer.
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toContain("eval py");
+		expect(rows[1]).toContain("1 output row");
+	});
+
 	test("keeps the failure row when the detail cap is already full", async () => {
 		const runtime = {
 			runWithHooks: async (
 				_code: string,
 				hooks: { onText: (text: string) => void },
 			): Promise<undefined> => {
-				for (let index = 0; index < 260; index += 1) hooks.onText(`row ${index}`);
+				for (let index = 0; index < 260; index += 1) hooks.onText(`row ${index}\n`);
 				throw new Error("kernel exploded");
 			},
 		};
