@@ -35,8 +35,15 @@ const MAX_PURPOSE_CHARS = 200;
  * Child events held while their execution is still being launched. Launch resolves only after the
  * child acknowledged its initial prompt, so a fast child can submit and settle before the producer
  * knows its child id; dropping those events would leave the Task running forever.
+ *
+ * The buffer is per child, because concurrent launches share it: one chatty child must not be able
+ * to push another child's settlement out of a single queue. Inside one child's share the events that
+ * decide the Task are kept last, so turn traffic can never displace a submission or a settlement.
+ * The total is bounded by the number of children that can be in flight at once, which is the agent
+ * concurrency limit.
  */
 const MAX_HELD_EVENTS = 64;
+const MAX_HELD_CHILDREN = 8;
 
 export interface AgentTaskRequest {
 	readonly agent: string;
@@ -99,7 +106,7 @@ export class AgentTaskExecutor {
 	readonly #deps: AgentTaskExecutorDeps;
 	readonly #jobs = new Map<string, TaskJob>();
 	readonly #queue: string[] = [];
-	readonly #held: { readonly childId: string; readonly event: unknown }[] = [];
+	readonly #held = new Map<string, unknown[]>();
 	/** Ids whose child is being torn down right now, so cleanup is not started twice. */
 	readonly #terminating = new Set<string>();
 	#disposed = false;
@@ -246,22 +253,30 @@ export class AgentTaskExecutor {
 			}
 		}
 		if (!starting) return;
-		this.#held.push({ childId, event });
-		if (this.#held.length > MAX_HELD_EVENTS) this.#held.shift();
+		const events = this.#held.get(childId) ?? [];
+		events.push(event);
+		if (events.length > MAX_HELD_EVENTS) {
+			// Within one child the disposable events go first, so a submission or a settlement
+			// survives a long run of turn events.
+			const disposable = events.findIndex((held) => !isSettlementEvent(held));
+			events.splice(disposable === -1 ? 0 : disposable, 1);
+		}
+		this.#held.set(childId, events);
+		// A child id we can no longer attribute can only come from a launch in flight, so buckets are
+		// few; the oldest one goes first if more appear than that.
+		while (this.#held.size > MAX_HELD_CHILDREN) {
+			const oldest = this.#held.keys().next();
+			if (oldest.done === true) return;
+			this.#held.delete(oldest.value);
+		}
 	}
 
 	/** Replays the events that arrived before this child could be attributed to its job. */
 	#replayHeld(childId: string): void {
-		for (let index = 0; index < this.#held.length; ) {
-			const held = this.#held[index];
-			if (held === undefined) return;
-			if (held.childId !== childId) {
-				index += 1;
-				continue;
-			}
-			this.#held.splice(index, 1);
-			this.handleChildEvent(held.childId, held.event);
-		}
+		const events = this.#held.get(childId);
+		if (events === undefined) return;
+		this.#held.delete(childId);
+		for (const event of events) this.handleChildEvent(childId, event);
 	}
 
 	/**
@@ -421,6 +436,12 @@ function terminalFor(
 		detail: childId === undefined ? {} : { childId },
 		...(candidate.structured ? { structured: JSON.parse(candidate.json) } : {}),
 	};
+}
+
+/** The events that decide a Task: a final result, or the end of the execution that should have one. */
+function isSettlementEvent(event: unknown): boolean {
+	if (!isRecord(event)) return false;
+	return event.type === TASK_RESULT_EVENT || event.type === "agent_settled";
 }
 
 function purposeOf(request: AgentTaskRequest): string {
