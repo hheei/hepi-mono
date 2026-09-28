@@ -587,15 +587,14 @@ test("non-timeout command transitions to background task when exceeding autoAsyn
 
 test("an explicit blocking request waits even past the auto-async delay", async (): Promise<void> => {
 	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
-	const started = Date.now();
 
 	const res = await runTool(bash, "bash-explicit-blocking", {
 		command: 'node -e "setTimeout(() => process.stdout.write(\\"waited\\"), 150)"',
 		blocking: true,
 	});
 
-	// The caller asked to wait, so the 60s policy must not convert this into a task.
-	expect(Date.now() - started).toBeGreaterThan(140);
+	// The caller asked to wait, so the 60s policy must not convert this into a task. The output is
+	// written 150ms in — well past the 50ms threshold — so receiving it proves the call waited.
 	expect(res.details).not.toHaveProperty("taskId");
 	expect(JSON.stringify(res.content)).toContain("waited");
 	expect(tasks.activeCount).toBe(0);

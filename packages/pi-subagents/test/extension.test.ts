@@ -50,6 +50,28 @@ describe("extension branch", () => {
 		expect(tools[3]?.description).toContain("not to wait");
 	});
 
+	test("a Task child gets its result channel and no way to delegate further", () => {
+		const previous = process.env;
+		process.env = {
+			...previous,
+			PI_SUBAGENTS_PARENT_SESSION_ID: "p",
+			PI_SUBAGENTS_CHILD_ID: "c",
+			PI_SUBAGENTS_RUNTIME_ID: "r",
+			PI_SUBAGENTS_ENDPOINT: "/x",
+			PI_SUBAGENTS_TOKEN: "t",
+			PI_SUBAGENTS_TASK: JSON.stringify({ softTurns: 60 }),
+		};
+		try {
+			const { pi, tools } = fakePi();
+			piSubagentsExtension(pi);
+			// Ownership: delegation is a parent-only capability, so a Task child can report but
+			// cannot start work nobody would deliver. This branch is where that is enforced.
+			expect(tools.map((tool) => tool.name)).toEqual(["contact_parent", "submit_task_result"]);
+		} finally {
+			process.env = previous;
+		}
+	});
+
 	test("child only receives contact_parent and listens for completion nudge events", () => {
 		const previous = process.env;
 		process.env = {

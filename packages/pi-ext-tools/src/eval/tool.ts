@@ -306,8 +306,6 @@ function renderNestedTrace(
 	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
 	if (tool?.renderResult === undefined || live === undefined) return fallback;
 	try {
-		// A nested tool is looked up by name, so its definition arrives type-erased: this adapter
-		// owns the cast that reconnects the recorded result with the canonical renderer.
 		return tool.renderResult(live as never, options, theme, {
 			args: trace.args,
 			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,

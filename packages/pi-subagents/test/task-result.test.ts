@@ -8,11 +8,8 @@ import {
 } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import type { ChildIdentity, TaskChildContract } from "../src/domain.js";
-import {
-	registerTaskResultTool,
-	registerTaskSoftHint,
-	TASK_RESULT_TOOL_NAME,
-} from "../src/task-result.js";
+import { TASK_RESULT_TOOL_NAME } from "../src/domain.js";
+import { registerTaskResultTool, registerTaskSoftHint } from "../src/task-result.js";
 
 const IDENTITY: ChildIdentity = {
 	parentSessionId: "parent",

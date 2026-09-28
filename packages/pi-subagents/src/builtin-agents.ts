@@ -6,7 +6,6 @@
  * because discovery only falls back here after every filesystem scope has been searched.
  */
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@hheei/pi-ext-core";
 import type { DiscoveredAgent } from "./agent-resolver.js";
 
 /**
@@ -15,8 +14,11 @@ import type { DiscoveredAgent } from "./agent-resolver.js";
  */
 export const BUILTIN_AGENT_PREFIX = "<builtin>/";
 
-/** Read-only tools the scout needs. Anything missing is a configuration failure, not a shrug. */
-export const SCOUT_REQUIRED_TOOLS = ["read", "grep", "find", "ls"] as const;
+/**
+ * The tools the scout must keep: reading and searching, plus the channel it reports on. Anything
+ * missing is a configuration failure, not a shrug.
+ */
+export const SCOUT_REQUIRED_TOOLS = ["read", "grep", "find", "ls", "contact_parent"] as const;
 
 const SCOUT_DEFINITION = `---
 name: scout
@@ -47,28 +49,33 @@ function toolNames(value: unknown): string[] {
 	return names.map((entry) => entry.trim()).filter((entry) => entry !== "");
 }
 
+let parsed: readonly DiscoveredAgent[] | undefined;
+
 /** The built-in definitions, parsed once. A malformed constant is a build-time bug, not user input. */
 export function builtinAgents(): readonly DiscoveredAgent[] {
-	return DEFINITIONS.map((text) => {
-		const parsed = parseFrontmatter(text);
-		const name = parsed.frontmatter.name;
-		if (typeof name !== "string" || name === "") {
-			throw new Error("Built-in agent definition has no name");
-		}
-		if (!isRecord(parsed.frontmatter))
-			throw new Error("Built-in agent frontmatter must be an object");
-		// An empty `tools` list means "every tool" downstream, which is the opposite of what a
-		// built-in read-only agent promises, so the definition is rejected rather than widened.
-		if (toolNames(parsed.frontmatter.tools).length === 0) {
-			throw new Error(`Built-in agent ${name} must name the tools it may use`);
-		}
-		return {
-			name,
-			path: `${BUILTIN_AGENT_PREFIX}${name}.md`,
-			frontmatter: parsed.frontmatter,
-			body: parsed.body,
-		};
-	});
+	parsed ??= DEFINITIONS.map(parseDefinition);
+	return parsed;
+}
+
+function parseDefinition(text: string): DiscoveredAgent {
+	const { frontmatter, body } = parseFrontmatter(text);
+	const name = frontmatter.name;
+	if (typeof name !== "string" || name === "") {
+		throw new Error("Built-in agent definition has no name");
+	}
+	const declared = toolNames(frontmatter.tools);
+	// An empty `tools` list means "every tool" downstream, which is the opposite of what a
+	// built-in read-only agent promises, so the definition is rejected rather than widened.
+	if (declared.length === 0) {
+		throw new Error(`Built-in agent ${name} must name the tools it may use`);
+	}
+	const missing = SCOUT_REQUIRED_TOOLS.filter((tool) => !declared.includes(tool));
+	if (missing.length > 0) {
+		throw new Error(
+			`Built-in agent ${name} must keep its required tools; missing: ${missing.join(", ")}`,
+		);
+	}
+	return { name, path: `${BUILTIN_AGENT_PREFIX}${name}.md`, frontmatter, body };
 }
 
 /** True when a discovered definition comes from this package rather than from disk. */
@@ -78,21 +85,23 @@ export function isBuiltinAgent(path: string): boolean {
 
 /**
  * Why a resolved tool allowlist would break a built-in agent's promise, or `undefined` when it
- * does not. A built-in ships a fixed read-only tool set; an allowlist that lost those tools, or
+ * does not. A built-in ships exactly the tools it names, so an allowlist that lost them, or
  * became empty (which Pi reads as "every tool"), would silently hand the agent far more power
- * than its definition advertises, so resolution fails instead.
+ * than its definition advertises; resolution fails instead.
  */
 export function builtinAgentToolProblem(
 	sourcePath: string,
 	tools: readonly string[],
 ): string | undefined {
-	if (!isBuiltinAgent(sourcePath)) return undefined;
+	const definition = builtinAgents().find((agent) => agent.path === sourcePath);
+	if (definition === undefined) return undefined;
 	if (tools.length === 0) {
-		return "its read-only tool list was lost, which would give it every tool";
+		return "its tool list was lost, which would give it every tool";
 	}
-	const missing = SCOUT_REQUIRED_TOOLS.filter((tool) => !tools.includes(tool));
+	const declared = toolNames(definition.frontmatter.tools);
+	const missing = declared.filter((tool) => !tools.includes(tool));
 	if (missing.length > 0) {
-		return `its required read-only tools are missing: ${missing.join(", ")}`;
+		return `tools it declares are missing: ${missing.join(", ")}`;
 	}
 	return undefined;
 }
