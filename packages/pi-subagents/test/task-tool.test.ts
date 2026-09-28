@@ -113,6 +113,22 @@ test("stays registered but inactive while no shared task registry exists", async
 	);
 });
 
+test("tells the model to wait when the findings are needed now", async (): Promise<void> => {
+	const hosted = host();
+	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	registerTaskTool(hosted.context, TUI, () => ({}) as unknown as AgentTaskExecutor);
+	await settle();
+
+	const tool = hosted.tools.get(TASK_TOOL_ID);
+	const guidelines = tool?.promptGuidelines?.join("\n") ?? "";
+	// Review and reconnaissance work is only useful before the next step, so the tool teaches the
+	// blocking form for it rather than relying on the model to infer it from the two modes.
+	expect(guidelines).toContain("`blocking: true`");
+	expect(guidelines).toContain("review");
+	expect(guidelines).toContain("scout");
+	expect(guidelines).toContain("Do not poll wait_tasks");
+});
+
 test("activates with the existing registry and never mints a second one", async (): Promise<void> => {
 	const hosted = host();
 	const provided = new TaskRegistry({ runtimeDiscriminator: "test" });

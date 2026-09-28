@@ -111,6 +111,9 @@ task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSche
 
 规则：
 
+- 需要在本轮就拿到结论的工作（代码 review、审计、verification、scout 侦查）用 `task({ blocking: true })`，
+  它的发现留在本次调用里；只是「可以稍后才看」的长工作才省略 blocking。`spawn_subagent` 是之后还要继续
+  对话的伙伴，不承担这一角色，其工具提示也指向 `task` 的 blocking 方式。
 - 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
 - `spawn_subagent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
   agent，缺名或解析失败在启动前失败。
