@@ -16,7 +16,7 @@ import {
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
-import { withMutationLock } from "./apply-patch/index.js";
+import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
@@ -427,15 +427,18 @@ export function registerEditTool(
 			if (context.isError && remote?.outcome === "unconfirmed")
 				return new Text(
 					theme.fg(
-						"warning",
-						`? ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
+						MUTATION_TONE.unconfirmed,
+						`${MUTATION_GLYPH.unconfirmed} ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
 					),
 					0,
 					0,
 				);
 			if (context.isError && remote?.outcome === "not_applied")
 				return new Text(
-					theme.fg("dim", `– ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`),
+					theme.fg(
+						MUTATION_TONE.not_applied,
+						`${MUTATION_GLYPH.not_applied} ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`,
+					),
 					0,
 					0,
 				);

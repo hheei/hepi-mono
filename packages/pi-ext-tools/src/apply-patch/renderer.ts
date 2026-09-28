@@ -7,6 +7,7 @@ import { parseDiff } from "../pretty/diff.js";
 import { renderSplit, resolveDiffColors } from "../pretty/diff-render.js";
 import { lang } from "../pretty/lang.js";
 import { LinesBody } from "../pretty/lines-body.js";
+import { MUTATION_GLYPH, MUTATION_TONE } from "./glyph.js";
 import type {
 	ApplyPatchHunkSnapshot,
 	ApplyPatchOperationProgress,
@@ -32,18 +33,7 @@ function paintPath(path: string, host: string | undefined, theme: Theme): string
 }
 
 function row(operation: ApplyPatchOperationProgress, theme: Theme, host?: string): string {
-	const glyph =
-		operation.status === "pending"
-			? theme.fg("dim", "○")
-			: operation.status === "applied"
-				? theme.fg("success", "✓")
-				: operation.status === "partial" || operation.status === "fuzzy"
-					? theme.fg("warning", "!")
-					: operation.status === "unconfirmed"
-						? theme.fg("warning", "?")
-						: operation.status === "not_applied"
-							? theme.fg("dim", "–")
-							: theme.fg("error", "✗");
+	const glyph = theme.fg(MUTATION_TONE[operation.status], MUTATION_GLYPH[operation.status]);
 	const score = operation.status === "fuzzy" ? ` ${theme.fg("dim", "fuzzy")}` : "";
 	const hunkSummary =
 		operation.status === "partial" &&
@@ -235,17 +225,27 @@ export function renderApplyPatchResult(
 			for (const diagnostic of rejected.diagnostics) {
 				lines.push(
 					theme.fg(
-						"error",
-						`✗ ${rejected.paths[0] ?? "<unknown>"} · hunk ${diagnostic.hunkIndex} · ${diagnosticText(diagnostic)}`,
+						MUTATION_TONE.rejected,
+						`${MUTATION_GLYPH.rejected} ${rejected.paths[0] ?? "<unknown>"} · hunk ${diagnostic.hunkIndex} · ${diagnosticText(diagnostic)}`,
 					),
 				);
 			}
 		}
 		for (const entry of details.unconfirmed ?? []) {
-			lines.push(theme.fg("warning", `? ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`));
+			lines.push(
+				theme.fg(
+					MUTATION_TONE.unconfirmed,
+					`${MUTATION_GLYPH.unconfirmed} ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`,
+				),
+			);
 		}
 		for (const entry of details.notApplied ?? []) {
-			lines.push(theme.fg("dim", `– ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`));
+			lines.push(
+				theme.fg(
+					MUTATION_TONE.not_applied,
+					`${MUTATION_GLYPH.not_applied} ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`,
+				),
+			);
 		}
 		return lines;
 	});
