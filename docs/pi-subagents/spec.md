@@ -166,12 +166,31 @@ contact_parent({
 定义必须显式列出 `tools`——空的 `tools` 在下游意味着“全部工具”，与其承诺相反，属于配置失败而不是静默
 放宽。这是工具能力限制，不是操作系统沙箱。
 
-`reviewer` 需要 `code-review`、`ponytail-review` 这类审查 skill，而 Pi 的 `--skill` 只接受**路径**、不接受名字、
-内置定义也没有可用的相对基准目录，因此它只能依赖 child 自己的 skill 发现（`skills: true`，不传 `--no-skills`）：
-在装有这些 skill 的机器上它们会出现在 child 的 skill 列表里（含绝对 `location`），reviewer 用 `read` 打开。
-没有这些 skill 的机器上 reviewer 照常工作，只是不会走 skill 里的流程。
+**`skills` 是白名单**（`extensions` 仍是 additive：bridge 必须始终在选中的 extension 列表里，二者语义不同）：
 
-未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive` 或被禁用的 `contact_parent` 在启动前报错。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
+| 写法 | child 实际加载 |
+|---|---|
+| 省略 / `true` / `all` | Pi 发现的全部 skill（`skills: true`，不传 `--no-skills`） |
+| `false` / `none` | 一个都不加载（传 `--no-skills`） |
+| 列表 | **只加载这些**：传 `--no-skills` + 每个条目的 `--skill <绝对路径>` |
+
+列表里的条目按形状区分：以 `./`、`../`、`~/`、`/`、盘符开头 → 定义文件旁的本地路径（必须存在，否则启动前报错）；
+含 `:`、`/` 或 `\` → 原样交给 Pi 的路径/包规格；**其余当作 skill 名字**，在 parent 已加载的 skill 列表里解析。
+名字的权威来源是 Pi 自己：`before_agent_start` 事件的 `systemPromptOptions.skills`（`name` + `filePath`），
+所以本包不重新扫描磁盘、也不会与 Pi 的优先级/同名冲突规则不一致。名字找不到时**只 warning**（parent UI），
+该条目被丢弃 —— 白名单只会变窄，绝不会因为写错名字而回退成「全部继承」；没捕获到 catalog 时同理（child 不加载任何 skill）。
+
+内置层有三个定义，都可被发现但不会被自动派发，都继承父模型与 thinking：
+`scout`（只读侦查：`read`/`grep`/`find`/`ls`/`contact_parent`）、`worker`（实现：再加 `bash`/`edit`/`write`）、
+`reviewer`（审查：`read`/`grep`/`find`/`ls`/`bash`/`contact_parent`）。工具名允许被 extension 扩展，因此内置
+定义必须显式列出 `tools`——空的 `tools` 在下游意味着“全部工具”，与其承诺相反，属于配置失败而不是静默
+放宽。这是工具能力限制，不是操作系统沙箱。
+
+`reviewer` 需要 `code-review`、`ponytail-review` 这类审查 skill。内置定义保持 `skills: all`（把具体 skill 名字
+写进随包发布的定义会让没装它们的机器直接启动失败），要收窄就在项目级或 user 级同名定义里写白名单，例如
+`~/.pi/agent/agents/reviewer.md` 里 `skills: [code-review, ponytail-review]`。
+
+未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive`、被禁用的 `contact_parent`、不存在的本地 path 条目在启动前报错；未知的 skill **名字**只 warning。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
 
 ### 4.4 Effective launch configuration
 

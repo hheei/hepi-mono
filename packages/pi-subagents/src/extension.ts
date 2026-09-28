@@ -1,5 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
 import { getToolTui, registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import type { SkillCatalogEntry } from "./agent-resolver.js";
 import { registerChildBridge } from "./child-bridge.js";
 import { bindParentStatus, registerParentCommands } from "./commands.js";
 import type { ChildIdentity } from "./domain.js";
@@ -120,6 +121,14 @@ export function createParentChannel(
 	};
 }
 
+/**
+ * Pi publishes the skills it loaded with every prompt; a definition names them the same way, so
+ * the launch path needs exactly the name and the file path from that list.
+ */
+export function skillCatalogFromLoaded(skills: readonly Skill[]): readonly SkillCatalogEntry[] {
+	return skills.map((skill) => ({ name: skill.name, path: skill.filePath }));
+}
+
 function reportText(report: ParentChannelReport): string {
 	return `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`;
 }
@@ -144,6 +153,13 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				readonly host: "herdr" | "cmux";
 				readonly attachmentId: string;
 			}) => manager.ownsHostAttachment(identity);
+			// A definition names skills the way Pi lists them, so the parent's loaded skill set is
+			// the only name → path catalog; Pi hands it over before every prompt of this session.
+			let skillCatalog: readonly SkillCatalogEntry[] = [];
+			const unsubscribeSkillCatalog = pi.on("before_agent_start", (event) => {
+				skillCatalog = skillCatalogFromLoaded(event.systemPromptOptions.skills);
+			});
+			runtime.resources.add("subagent-skill-catalog", unsubscribeSkillCatalog);
 			manager = new SubagentManager({
 				parentSessionId,
 				registry,
@@ -160,6 +176,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						input,
 						cwd: context.cwd,
 						modelRegistry: context.modelRegistry,
+						skillCatalog,
+						onWarning: (message) => context.ui.notify(message, "warning"),
 						parent: {
 							model: { provider: model.provider, id: model.id },
 							thinking,

@@ -119,6 +119,60 @@ test("the built-in scout keeps its read-only tools and gains the result channel"
 	});
 });
 
+test("a launch resolves its skill names against the parent's loaded skills", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+		await writeFile(
+			join(cwd, ".pi", "agents", "reviewer.md"),
+			"---\nname: reviewer\nskills:\n  - code-review\n  - ponytail-review\n---\nReview it.\n",
+			"utf8",
+		);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const warnings: string[] = [];
+
+		const config = await resolveSubagentLaunch({
+			input: { task: "Review the diff", agent: "reviewer" },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+			skillCatalog: [
+				{ name: "code-review", path: "/skills/code-review/SKILL.md" },
+				{ name: "ponytail-review", path: "/skills/ponytail-review/SKILL.md" },
+			],
+			onWarning: (message) => warnings.push(message),
+		});
+
+		// The child gets exactly these two skills; nothing else is inherited.
+		expect(config.skills).toEqual({
+			discovery: false,
+			paths: ["/skills/code-review/SKILL.md", "/skills/ponytail-review/SKILL.md"],
+		});
+		expect(warnings).toEqual([]);
+
+		await writeFile(
+			join(cwd, ".pi", "agents", "reviewer.md"),
+			"---\nname: reviewer\nskills:\n  - ghost\n---\nReview it.\n",
+			"utf8",
+		);
+		const unknown = await resolveSubagentLaunch({
+			input: { task: "Review the diff", agent: "reviewer" },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+			skillCatalog: [{ name: "code-review", path: "/skills/code-review/SKILL.md" }],
+			onWarning: (message) => warnings.push(message),
+		});
+		// A name nobody loaded warns and narrows to nothing rather than falling back to everything.
+		expect(unknown.skills).toEqual({ discovery: false, paths: [] });
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("ghost");
+	});
+});
+
 test("a Task child's tool allowlist includes the result channel it must use", async (): Promise<void> => {
 	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
