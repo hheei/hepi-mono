@@ -52,12 +52,21 @@ describe("Eval tool bridge", () => {
 		await expect(
 			bridge.call(
 				"bash",
+				{ command: "pwd", blocking: false },
+				{} as ExtensionContext,
+				undefined,
+				() => {},
+			),
+		).rejects.toThrow("Eval cannot read a background result");
+		await expect(
+			bridge.call(
+				"bash",
 				{ command: "pwd", async: true },
 				{} as ExtensionContext,
 				undefined,
 				() => {},
 			),
-		).rejects.toThrow("foreground bash");
+		).rejects.toThrow("Invalid arguments for bash.");
 		await expect(
 			bridge.call(
 				"bash",

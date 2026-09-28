@@ -142,6 +142,20 @@ test("waits for every listed task, deduplicates ids and reports unknown ones", a
 	expect(outcomes[2]).toEqual({ id: "bash-test-9", status: "not_found" });
 });
 
+test("concurrent waits all read the same result without consuming it", async (): Promise<void> => {
+	const tasks = registry();
+	const task = tasks.create({ type: "bash", purpose: "shared", begin: idleBinding });
+	const first = tasks.wait([task.id]);
+	const second = tasks.wait([task.id]);
+	tasks.settle(task.id, { status: "completed", output: "the result", truncated: false });
+	const [a, b] = await Promise.all([first, second]);
+	// Reading is not consumption: both observers and a later explicit read see the same value.
+	expect(a[0]).toMatchObject({ id: task.id, status: "completed", output: "the result" });
+	expect(b[0]).toMatchObject({ id: task.id, status: "completed", output: "the result" });
+	const later = await tasks.wait([task.id]);
+	expect(later[0]).toMatchObject({ status: "completed", output: "the result" });
+});
+
 test("cancelling a wait ends only the observation", async (): Promise<void> => {
 	const tasks = registry();
 	let stopped = 0;

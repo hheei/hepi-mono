@@ -71,7 +71,7 @@ Detached Eval Work 在 cell 结束或 Kernel shutdown 后不属于 Transcript。
 
 Kernel 不读 Pi registry。每次 execute 由当前 Exposition 注入 invoke 表。
 
-Sibling v1 注入 admitted 集：`read`、`grep`、`find`、foreground `bash`，以及当前 Edit Mode 的 `edit`/`write` 或 `apply_patch`。排除 `eval`、`wait`、task-control 工具与其它 extension tool。Nested Bash 拒绝 `async: true`。
+Sibling v1 注入 admitted 集：`read`、`grep`、`find`、foreground `bash`，以及当前 Edit Mode 的 `edit`/`write` 或 `apply_patch`。排除 `eval`、`wait`、task-control 工具与其它 extension tool。Nested Bash 拒绝 `blocking: false`：一个 cell 无法读取后台结果，因此嵌套调用要么缺省（`autoAsyncSeconds` 到期仍转后台，此时返回的 task id 与其它后台任务一样可 `wait_tasks`/`stop_tasks`，不是静默 detach），要么显式 `blocking: true` 保证在 cell 内结束。
 
 以后的 Code Mode 可以注入更宽的表，仍必须排除 `eval` 与 `wait`，且仍走 `pi-ext-tools` 的 explicit invoker，不能扫任意 registry。
 
@@ -93,7 +93,7 @@ TUI 使用 ToolTui，契约见 [DESIGN.md](../../DESIGN.md)。nested trace 优�
 
 - `pi-ext-tools.eval.codeMode` 显式激活；它复用 public tool 名称 `eval`，把 file/shell 移出 provider schema；
 - prompt 注入 Nested Tool usage；
-- `eval` 新增显式 `async?: boolean`，默认 `false`。`async: true` 的后台 job 完成后以模型可见结果排入一次后续 turn；它不取消用户新消息，不暴露 `wait`，并且每个 job 只触发一次 continuation；
+- `eval` 新增显式 `blocking?: boolean`。`blocking: false` 的后台 job 完成后以模型可见结果排入一次后续 turn；它不取消用户新消息，并且每个 job 只触发一次 continuation；
 - Nested Catalog 继续排除 `eval`、`wait` 与其它未明确许可的 extension tool。扩展 catalog 仍需独立的明确契约。
 
 不做：第二套 V8/Jupyter runtime、TOML custom tools、用模型名自动打开、`title` 参数。
