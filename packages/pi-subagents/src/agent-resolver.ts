@@ -9,6 +9,7 @@ import type {
 	ExtensionSelection,
 	ResolvedAgentPolicy,
 	ResolvedModel,
+	Selection,
 	SkillSelection,
 	ThinkingLevel,
 } from "./domain.js";
@@ -53,6 +54,15 @@ export interface ParentAgentDefaults {
 	readonly thinking: ThinkingLevel;
 }
 
+/**
+ * One skill Pi has loaded, as the parent sees it. A definition names skills the way Pi lists them,
+ * so the parent's own catalog is the only authority for name → path; nothing here re-scans disk.
+ */
+export interface SkillCatalogEntry {
+	readonly name: string;
+	readonly path: string;
+}
+
 export interface ResolveAgentOptions {
 	readonly name: string;
 	readonly cwd: string;
@@ -61,6 +71,10 @@ export interface ResolveAgentOptions {
 	/** Absolute path to this package's extension entry, always kept in the child extension selection. */
 	readonly bridgeExtensionPath: string;
 	readonly homeDirectory?: string;
+	/** Parent's loaded skills, the catalog a definition's skill names resolve against. */
+	readonly skillCatalog?: readonly SkillCatalogEntry[];
+	/** Diagnostics for the caller to surface; a caller that omits this drops them. */
+	readonly onWarning?: (message: string) => void;
 }
 
 export interface DiscoveredAgent {
@@ -115,10 +129,10 @@ function resolveResourcePaths(
 
 async function resourceSelection(
 	value: unknown,
-	field: "extensions" | "skills",
+	field: "extensions",
 	path: string,
 	homeDirectory: string,
-): Promise<{ discovery: boolean; paths: string[] }> {
+): Promise<Selection> {
 	if (value === undefined || value === true) return { discovery: true, paths: [] };
 	if (value === false) return { discovery: false, paths: [] };
 	const paths = resolveResourcePaths(value, field, path, homeDirectory);
@@ -131,6 +145,56 @@ async function resourceSelection(
 		if (!exists) throw readableError(path, `${field} entry does not exist: ${selected}`);
 	}
 	return { discovery: true, paths };
+}
+
+/** `skills: all` is the default and `skills: none` the opt-out; a list is a whitelist. */
+const SKILL_ALL = "all";
+const SKILL_NONE = "none";
+
+/**
+ * Skills are chosen as a whitelist, unlike extensions: a list means "exactly these", because
+ * inheriting every discovered skill is the thing a definition usually wants to narrow. A bare
+ * word is a skill *name* and resolves against the parent's loaded catalog, which also gives the
+ * absolute path the child needs; anything path-shaped stays what it was, and a name the catalog
+ * does not know is dropped with a warning rather than silently matching nothing.
+ */
+async function skillSelection(
+	value: unknown,
+	path: string,
+	homeDirectory: string,
+	catalog: readonly SkillCatalogEntry[] | undefined,
+	warn: (message: string) => void,
+): Promise<Selection> {
+	if (value === undefined || value === true || value === SKILL_ALL) {
+		return { discovery: true, paths: [] };
+	}
+	if (value === false || value === SKILL_NONE) return { discovery: false, paths: [] };
+	const paths: string[] = [];
+	for (const entry of stringList(value, "skills", path)) {
+		if (LOCAL_PATH_PATTERN.test(entry)) {
+			const selected = resolve(dirname(path), expandHome(entry, homeDirectory));
+			const exists = await stat(selected).then(
+				() => true,
+				() => false,
+			);
+			if (!exists) throw readableError(path, `skills entry does not exist: ${selected}`);
+			paths.push(selected);
+			continue;
+		}
+		if (entry.includes(":") || entry.includes("/") || entry.includes("\\")) {
+			paths.push(entry);
+			continue;
+		}
+		const match = catalog?.find((skill) => skill.name === entry);
+		if (match === undefined) {
+			warn(
+				`Subagent skill "${entry}" is not among the skills Pi loaded, so ${path} launches without it.`,
+			);
+			continue;
+		}
+		paths.push(match.path);
+	}
+	return { discovery: false, paths };
 }
 
 async function markdownFiles(directory: string): Promise<string[]> {
@@ -278,11 +342,12 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 		...extensionSelection.paths.filter((selected) => selected !== bridgeExtensionPath),
 		bridgeExtensionPath,
 	];
-	const skills = await resourceSelection(
+	const skills = await skillSelection(
 		discovered.frontmatter.skills,
-		"skills",
 		path,
 		homeDirectory,
+		options.skillCatalog,
+		options.onWarning ?? (() => {}),
 	);
 	const displayName = optionalString(discovered.frontmatter.display_name, "display_name", path);
 	const description = optionalString(discovered.frontmatter.description, "description", path);

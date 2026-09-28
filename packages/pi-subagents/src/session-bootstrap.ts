@@ -3,7 +3,11 @@ import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
-import type { ModelRegistryLike, ParentAgentDefaults } from "./agent-resolver.js";
+import type {
+	ModelRegistryLike,
+	ParentAgentDefaults,
+	SkillCatalogEntry,
+} from "./agent-resolver.js";
 import { resolveAgent } from "./agent-resolver.js";
 import { builtinAgentToolProblem } from "./builtin-agents.js";
 import type {
@@ -172,6 +176,10 @@ export interface ResolveSubagentLaunchOptions {
 	readonly cwd: string;
 	readonly parent: ParentAgentDefaults;
 	readonly modelRegistry: ModelRegistryLike;
+	/** Parent's loaded skills, the catalog this launch's skill names resolve against. */
+	readonly skillCatalog?: readonly SkillCatalogEntry[];
+	/** Diagnostics for the caller to surface; omitted means they are dropped. */
+	readonly onWarning?: (message: string) => void;
 	readonly invocation?: PiInvocation;
 	readonly bridgeExtensionPath?: string;
 	readonly homeDirectory?: string;
@@ -206,6 +214,8 @@ export async function resolveSubagentLaunch(
 		parent: options.parent,
 		bridgeExtensionPath,
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
+		...(options.skillCatalog === undefined ? {} : { skillCatalog: options.skillCatalog }),
+		...(options.onWarning === undefined ? {} : { onWarning: options.onWarning }),
 	});
 	return Object.freeze({
 		subagentId,

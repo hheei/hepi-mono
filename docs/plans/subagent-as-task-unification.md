@@ -166,6 +166,11 @@ Task 最终静止且没有合法候选结果时返回明确的 invalid_result �
 > （审查）。三者都是「可发现、不自动派发」，都继承父模型与 thinking。`reviewer` 需要 `code-review`、
 > `ponytail-review` 这类审查 skill，而 `--skill` 只接受路径，所以它保持 child 的 skill 发现（`skills: true`），
 > 不写死任何机器相关的路径。`bash` 不在本版做权限收敛。
+>
+> 修订（已确认）：`skills` 从「additive 路径列表」改为**白名单**（`all` / `none` / `[名单]`），列表条目可以是
+> skill 名字，按 `before_agent_start` 事件里的 `systemPromptOptions.skills`（Pi 自己加载的 skill）解析成绝对
+> 路径；名字找不到只 warning 并丢弃该条目，白名单只会变窄，绝不回退成全部继承。`extensions` 保持 additive。
+> 收窄放在项目级/user 级同名定义里，内置定义继续 `all`（否则没装这些 skill 的机器会启动失败）。
 
 - 默认可发现，非默认自动派发；内置定义不写入用户 home。
 - 保持当前优先级：项目 `.pi/agents`、项目 `.agents/agents`、用户 `~/.pi/agent/agents`，最后才使用内置定义；展示实际定义来源。

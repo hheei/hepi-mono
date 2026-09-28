@@ -89,6 +89,8 @@ Rules:
   follow it: one line per finding — location, what to cut, what replaces it.
 - Use bash to run the checks a finding depends on (tests, typecheck, a reproduction) and report the
   real output, not your expectation.
+- A child cannot delegate further, so when a skill or a plan asks for parallel sub-agents, run those
+  passes yourself instead of trying to spawn them, and say that is what you did.
 - Report progress and blockers to the parent with contact_parent. Finish by reporting your findings:
   a Task execution submits them with submit_task_result as the only tool call in that message, a
   conversation execution reports them with contact_parent.

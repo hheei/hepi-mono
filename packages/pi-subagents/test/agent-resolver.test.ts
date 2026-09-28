@@ -52,7 +52,15 @@ function scoutTools(): string[] {
 	return builtinTools("scout");
 }
 
-function resolve(directory: string, name: string, bridgeExtensionPath: string) {
+function resolve(
+	directory: string,
+	name: string,
+	bridgeExtensionPath: string,
+	extra: {
+		readonly skills?: readonly { readonly name: string; readonly path: string }[];
+		readonly warnings?: string[];
+	} = {},
+) {
 	return resolveAgent({
 		name,
 		cwd: join(directory, "project"),
@@ -60,6 +68,10 @@ function resolve(directory: string, name: string, bridgeExtensionPath: string) {
 		modelRegistry: MODEL_REGISTRY,
 		parent: PARENT,
 		bridgeExtensionPath,
+		...(extra.skills === undefined ? {} : { skillCatalog: extra.skills }),
+		...(extra.warnings === undefined
+			? {}
+			: { onWarning: (message: string) => extra.warnings?.push(message) }),
 	});
 }
 
@@ -184,7 +196,80 @@ test("keeps the bridge extension while disabling discovery", async (): Promise<v
 		);
 		const selected = await resolve(directory, "lean", bridge);
 		expect(selected.extensions).toEqual({ discovery: true, paths: [extra, bridge] });
-		expect(selected.skills).toEqual({ discovery: true, paths: [bridge] });
+		// A skills list is a whitelist, so naming one skill also stops inheriting the rest.
+		expect(selected.skills).toEqual({ discovery: false, paths: [bridge] });
+	});
+});
+
+test("a skills list is a whitelist resolved by name against the loaded skills", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const catalog = [
+			{ name: "code-review", path: "/skills/code-review/SKILL.md" },
+			{ name: "ponytail-review", path: "/skills/ponytail-review/SKILL.md" },
+			{ name: "graphify", path: "/skills/graphify/SKILL.md" },
+		];
+		const warnings: string[] = [];
+		const define = async (skills: string): Promise<void> => {
+			await writeAgent(
+				directory,
+				".pi",
+				"narrow",
+				`---
+name: narrow
+${skills}---
+Be narrow.
+`,
+			);
+		};
+
+		await define("skills:\n  - code-review\n  - ponytail-review\n");
+		const named = await resolve(directory, "narrow", bridge, { skills: catalog, warnings });
+		// Named skills arrive as the absolute paths the child needs, and nothing is inherited.
+		expect(named.skills).toEqual({
+			discovery: false,
+			paths: ["/skills/code-review/SKILL.md", "/skills/ponytail-review/SKILL.md"],
+		});
+		expect(warnings).toEqual([]);
+
+		// `all` and `none` are keywords, not skill names: neither may be looked up or warned about.
+		await define("skills: all\n");
+		const all = await resolve(directory, "narrow", bridge, { skills: catalog, warnings });
+		expect(all.skills).toEqual({ discovery: true, paths: [] });
+
+		await define("skills: none\n");
+		const none = await resolve(directory, "narrow", bridge, { skills: catalog, warnings });
+		expect(none.skills).toEqual({ discovery: false, paths: [] });
+		expect(warnings).toEqual([]);
+
+		// A name the catalog does not know is dropped with a warning: narrowing never widens back
+		// to everything, and a wrong name must not read as "no skills at all" without a trace.
+		await define("skills:\n  - code-review\n  - ghost\n");
+		const partial = await resolve(directory, "narrow", bridge, { skills: catalog, warnings });
+		expect(partial.skills).toEqual({ discovery: false, paths: ["/skills/code-review/SKILL.md"] });
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain('"ghost"');
+		expect(warnings[0]).toContain("narrow.md");
+
+		// Without a catalog every name is unknown, and the child still inherits nothing.
+		const uncatalogued: string[] = [];
+		await define("skills:\n  - code-review\n");
+		expect((await resolve(directory, "narrow", bridge, { warnings: uncatalogued })).skills).toEqual(
+			{ discovery: false, paths: [] },
+		);
+		expect(uncatalogued).toHaveLength(1);
+
+		// Path-shaped entries keep their old meaning inside the whitelist.
+		await define(`skills:\n  - "~"
+  - ./extra\n`);
+		await mkdir(join(directory, "home"), { recursive: true });
+		await mkdir(join(directory, "project", ".pi", "agents", "extra"), { recursive: true });
+		const paths = await resolve(directory, "narrow", bridge, { skills: catalog });
+		expect(paths.skills).toEqual({
+			discovery: false,
+			paths: [join(directory, "home"), join(directory, "project", ".pi", "agents", "extra")],
+		});
 	});
 });
 
@@ -208,7 +293,7 @@ test("expands a leading ~ in resource selections against the home directory", as
 			discovery: true,
 			paths: [join(home, "shared", "extra.js"), bridge],
 		});
-		expect(resolved.skills).toEqual({ discovery: true, paths: [home] });
+		expect(resolved.skills).toEqual({ discovery: false, paths: [home] });
 	});
 });
 

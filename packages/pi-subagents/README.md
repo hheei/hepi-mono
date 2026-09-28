@@ -56,6 +56,13 @@ Agent Markdown files are discovered in this order, most specific first, by `name
 Frontmatter is parsed with Pi's `parseFrontmatter` and then validated against this
 package's schema. Supported fields: `name`, `display_name`, `description`, `hidden`,
 `model`, `thinking`, `tools`, `exclude_tools`, `extensions`, `skills`, `interactive`.
+
+`skills` is a whitelist: omitted/`true`/`all` inherits every discovered skill, `false`/`none` loads
+none, and a list loads exactly those entries. An entry that looks like a path (`./`, `~/`, `/`, a
+drive letter, or anything containing `:` or `/`) keeps its old meaning; anything else is a skill
+*name*, resolved against the skills Pi loaded for this session, so a definition stays
+machine-independent. A name that is not loaded is dropped with a warning — narrowing never widens
+back to everything.
 `interactive` defaults to `false` and is frozen into the launch snapshot. The Markdown body
 becomes the child's agent instructions.
 

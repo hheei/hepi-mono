@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import piSubagentsExtension, {
 	createParentChannel,
 	REPORT_MERGE_WINDOW_MS,
+	skillCatalogFromLoaded,
 } from "../src/extension.js";
 import { registerParentTools } from "../src/tools.js";
 
@@ -62,6 +63,29 @@ describe("extension branch", () => {
 		expect(tools[1]?.description).toContain("Do NOT poll");
 		expect(tools[2]?.description).toContain("not to wait");
 		expect(tools[3]?.description).toContain("not to wait");
+	});
+
+	test("the loaded skill list becomes the name to path catalog a definition resolves", () => {
+		// Pi hands over name, description and both paths; a definition names the skill, so the file
+		// path is what the child has to be launched with.
+		const catalog = skillCatalogFromLoaded([
+			{
+				name: "code-review",
+				description: "Two-axis review",
+				filePath: "/home/u/.agents/skills/code-review/SKILL.md",
+				baseDir: "/home/u/.agents/skills/code-review",
+				sourceInfo: {
+					path: "/home/u/.agents/skills",
+					source: "agents",
+					scope: "user",
+					origin: "top-level",
+				},
+				disableModelInvocation: false,
+			},
+		]);
+		expect(catalog).toEqual([
+			{ name: "code-review", path: "/home/u/.agents/skills/code-review/SKILL.md" },
+		]);
 	});
 
 	test("a Task child gets its result channel and no way to delegate further", () => {
