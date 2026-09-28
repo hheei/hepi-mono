@@ -58,7 +58,7 @@ describe("extension branch", () => {
 		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("tail session/log files");
 		// A conversation child is the wrong tool when the answer is needed now, so the prompt says
 		// which one is right instead of leaving the model to discover it.
-		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("`task` with `blocking: true`");
+		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("it waits for the result by default");
 		expect(tools[1]?.description).toContain("Do NOT poll");
 		expect(tools[2]?.description).toContain("not to wait");
 		expect(tools[3]?.description).toContain("not to wait");

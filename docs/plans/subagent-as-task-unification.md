@@ -76,6 +76,10 @@ Task 专属 child 的最终结果与执行静止确认后，立即请求清理 r
 
 ## 5. blocking 的精确语义与迁移
 
+> 修订（已确认）：`task` 的缺省值从「后台」改为「等待」。原表把「省略 blocking」与「显式 false」并列，
+> 但委派任务的典型用途就是拿到结果才能继续，所以缺省改为 blocking，`blocking: false` 成为显式的
+> non-block 选择。Bash 的缺省与 60 秒自动转换不变。
+
 `blocking` 控制调用者如何接收结果，不决定任务是否受并发限制，也不意味着同步执行 JavaScript。
 
 | 调用 | 确定行为 |
@@ -84,8 +88,12 @@ Task 专属 child 的最终结果与执行静止确认后，立即请求清理 r
 | `bash({ blocking: true })` | 等待完成、取消或显式 timeout；不再 60 秒自动转后台 |
 | 本地 `bash` 省略 blocking | 保留当前前台优先、无 timeout 时 60 秒自动转后台策略，并在 schema 描述中公开 |
 | 远程 `bash` 省略 blocking 或设为 true | 保持前台执行，不自动转后台 |
-| `task({ blocking: false })` 或省略 | 后台启动/排队并返回 task ID |
-| `task({ blocking: true })` | 同一执行路径与并发上限，直接返回结果；禁止同时再发送后台完成通知 |
+| `task({ blocking: false })` | 后台启动/排队并返回 task ID |
+| `task({ blocking: true })` 或省略 | 同一执行路径与并发上限，直接返回本次调用的结果；禁止同时再发送后台完成通知 |
+
+`task` 的缺省方向与 `bash` 不同，这是有意的：委派出去的工作通常就是「下一步需要的东西」（review、
+审计、verification、scout 侦查），所以缺省等待、把 non-block 作为显式选项；`bash` 的缺省仍是前台等待 +
+60 秒自动转后台（见上表）。两个入口的缺省都必须在自己的 schema description 与 prompt guideline 里写清楚。
 
 省略 Bash blocking 与显式 true 的差别属于公开契约：省略值保留既有自动转后台体验，显式 true 则保证等待。两者不得在参数规范化时提前合并为同一个 true 值。60 秒转换须继续显示转换原因及 task ID。
 

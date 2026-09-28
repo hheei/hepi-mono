@@ -104,16 +104,16 @@ task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSche
 
 `task` 是共享后台任务契约的 producer（见
 [`docs/architecture/background-tasks.md`](../architecture/background-tasks.md)）：受理、状态、等待、
-停止与通知都由该契约决定，不新增第二套 subagent 通道。`blocking: true` 在本次调用内返回结果且不再
-发送后台通知；缺省或 `false` 立即返回 task id，结果稍后回到父上下文。该入口要求
+停止与通知都由该契约决定，不新增第二套 subagent 通道。缺省（或 `blocking: true`）在本次调用内返回结果
+且不再发送后台通知；显式 `blocking: false` 立即返回 task id，结果稍后回到父上下文。该入口要求
 `@hheei/pi-ext-tools` 提供的共享 registry；缺失时它不激活并明确说明原因，不会静默改走
 `spawn_subagent`。
 
 规则：
 
-- 需要在本轮就拿到结论的工作（代码 review、审计、verification、scout 侦查）用 `task({ blocking: true })`，
-  它的发现留在本次调用里；只是「可以稍后才看」的长工作才省略 blocking。`spawn_subagent` 是之后还要继续
-  对话的伙伴，不承担这一角色，其工具提示也指向 `task` 的 blocking 方式。
+- `task` 默认等待，这就是 review、审计、verification、scout 侦查这类「下一步需要的东西」的默认方式：省略
+  `blocking` 即可。只有「可以稍后才看」的长工作才传 `blocking: false` 转后台。`spawn_subagent` 是之后还要
+  继续对话的伙伴，不承担这一角色，其工具提示指向 `task`。
 - 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
 - `spawn_subagent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
   agent，缺名或解析失败在启动前失败。
