@@ -115,7 +115,9 @@ export function registerTaskTool(
 			// A cancelled blocking call owns its execution, so cancelling must stop the task rather
 			// than leave it running with no delivery channel: its result only went to this call.
 			const stopOnAbort = (): void => integration.executor.stop(started.id);
-			signal?.addEventListener("abort", stopOnAbort, { once: true });
+			// An abort that already happened fires no event, so it is checked before listening.
+			if (signal?.aborted === true) stopOnAbort();
+			else signal?.addEventListener("abort", stopOnAbort, { once: true });
 			let outcomes: readonly TaskWaitOutcome[];
 			try {
 				outcomes = await integration.registry.wait([started.id], signal);
