@@ -10,7 +10,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createToolTui, type ExtensionLifecycleContext, TaskRegistry } from "@hheei/pi-ext-core";
+import {
+	createToolTui,
+	type ExtensionLifecycleContext,
+	isTerminalTaskStatus,
+	TaskRegistry,
+} from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
@@ -984,7 +989,12 @@ test("task tools activate on the first background task, survive turns, and unloa
 	// The result still needs notification, so a boundary cannot unload the tools yet.
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	// Handing the result to the host is not proof that the model read it, so the tools stay until
+	// the message lifecycle confirms it.
 	tasks.markSubmitted([firstId], "first-delivery");
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	tasks.markObserved("first-delivery");
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
@@ -1022,14 +1032,19 @@ test("activation follows running tasks across boundaries and auto-async transiti
 	tasks.stop([runningId]);
 	await eventually(
 		() => tasks.get(runningId),
-		(task) => task.status !== "running",
+		(task) => isTerminalTaskStatus(task.status),
 	);
+	// This producer confirms the stop synchronously, so the request was visible as `stopping` only
+	// while it was in flight.
 	expect(tasks.activeCount).toBe(0);
 	// A cancelled task still needs its control tools until the result is handed to the parent.
 	expect(tasks.requiresControl).toBe(true);
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
 	tasks.markSubmitted([runningId], "session-boundary");
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	tasks.markObserved("session-boundary");
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
@@ -1071,6 +1086,9 @@ test("a boundary restores control tools the host re-activated behind a waiting r
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
 
 	tasks.markSubmitted([running], "tree-restore");
+	host.emit("session_tree");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	tasks.markObserved("tree-restore");
 	host.emit("session_tree");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });

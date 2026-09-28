@@ -10,7 +10,7 @@ import { createServiceKey, type ServiceKey } from "./service.js";
  * policy and subscribes to terminal events.
  */
 
-export type TaskStatus = "queued" | "starting" | "running" | TaskTerminalStatus;
+export type TaskStatus = "queued" | "starting" | "running" | "stopping" | TaskTerminalStatus;
 
 export type TaskTerminalStatus = "completed" | "failed" | "cancelled" | "timed_out";
 
@@ -247,9 +247,22 @@ export class TaskRegistry {
 		return count;
 	}
 
-	/** True while control tools must stay available for this session. */
+	/** Terminal results the parent session has not confirmed seeing yet. */
+	get undeliveredCount(): number {
+		let count = 0;
+		for (const record of this.#records.values()) {
+			if (record.delivery !== undefined && record.delivery !== "observed") count += 1;
+		}
+		return count;
+	}
+
+	/**
+	 * True while control tools must stay available for this session. A submitted result still counts:
+	 * the host accepting a message is not proof that it reached the model, so the session keeps the
+	 * ability to read the result until the lifecycle event confirms it.
+	 */
 	get requiresControl(): boolean {
-		return this.activeCount > 0 || this.pendingDeliveryCount > 0;
+		return this.activeCount > 0 || this.undeliveredCount > 0;
 	}
 
 	get closed(): boolean {
@@ -327,24 +340,28 @@ export class TaskRegistry {
 	 */
 	bind(id: string, binding: TaskBinding): boolean {
 		const record = this.#records.get(id);
-		if (record === undefined || record.binding !== undefined) {
+		if (record === undefined) {
 			// A record that no longer exists belongs to a closed registry, so nothing will ever drive
 			// this binding: stopping it is the only way the late producer gets cleaned up.
-			if (record === undefined) stopBinding(binding);
-			return false;
-		}
-		if (!isActive(record.status)) {
 			stopBinding(binding);
 			return false;
 		}
+		// A task whose stop was requested before it attached its control surface must not start work
+		// that nobody is left to cancel.
+		if (!isActive(record.status) || record.status === "stopping") {
+			stopBinding(binding);
+			return false;
+		}
+		if (record.binding !== undefined) return false;
 		record.binding = binding;
 		return true;
 	}
 
-	/** Moves an admitted task forward; a terminal task is never revived. */
+	/** Moves an admitted task forward; a terminal or stopping task is never revived. */
 	markRunning(id: string): void {
 		const record = this.#records.get(id);
-		if (record === undefined || !isActive(record.status)) return;
+		if (record === undefined) return;
+		if (record.status !== "queued" && record.status !== "starting") return;
 		record.status = "running";
 	}
 
@@ -381,17 +398,17 @@ export class TaskRegistry {
 	}
 
 	async wait(ids: readonly string[], signal?: AbortSignal): Promise<readonly TaskWaitOutcome[]> {
-		const outcomes: TaskWaitOutcome[] = [];
-		for (const id of uniqueIds(ids)) {
-			const record = this.#records.get(id);
-			if (record === undefined) {
-				outcomes.push({ id, status: "not_found" });
-				continue;
-			}
-			const waited = await this.#waitFor(record, signal);
-			outcomes.push(this.#outcome(record, waited));
-		}
-		return outcomes;
+		const unique = uniqueIds(ids);
+		// Every id is an independent task, so they are waited for together: awaiting one at a time
+		// would make a batch wait as long as the sum of the separate waits.
+		return Promise.all(
+			unique.map(async (id): Promise<TaskWaitOutcome> => {
+				const record = this.#records.get(id);
+				if (record === undefined) return { id, status: "not_found" };
+				const waited = await this.#waitFor(record, signal);
+				return this.#outcome(record, waited);
+			}),
+		);
 	}
 
 	stop(ids: readonly string[]): readonly TaskStopOutcome[] {
@@ -399,9 +416,14 @@ export class TaskRegistry {
 			const record = this.#records.get(id);
 			if (record === undefined) return { id, status: "not_found" };
 			if (!isActive(record.status)) return { id, status: "already_terminal" };
+			const previous = record.status;
+			// Cancellation is a request, and a request that has been made is visible: the task is
+			// reported as stopping until its producer confirms the execution ended.
+			record.status = "stopping";
 			try {
 				record.binding?.stop();
 			} catch {
+				record.status = previous;
 				return { id, status: "stop_failed" };
 			}
 			return { id, status: "stop_requested" };
@@ -613,7 +635,9 @@ export const TASK_REGISTRY_SERVICE_KEY: ServiceKey<TaskRegistry> = createService
 );
 
 function isActive(status: TaskStatus): boolean {
-	return status === "queued" || status === "starting" || status === "running";
+	return (
+		status === "queued" || status === "starting" || status === "running" || status === "stopping"
+	);
 }
 function stopBinding(binding: TaskBinding): void {
 	try {

@@ -225,6 +225,64 @@ test("stop requests once and never claims a terminal state", (): void => {
 	expect(tasks.get(task.id)?.status).toBe("completed");
 });
 
+test("a stop request is visible and survives a late binding", (): void => {
+	const tasks = registry();
+	const queued = tasks.create({ type: "bash", purpose: "queued work", initialStatus: "queued" });
+	let lateStops = 0;
+
+	// Cancellation of a task that has no control surface yet must be remembered: the producer may
+	// still attach one, and starting work nobody can cancel is worse than refusing it.
+	expect(tasks.stop([queued.id])).toEqual([{ id: queued.id, status: "stop_requested" }]);
+	expect(tasks.get(queued.id)?.status).toBe("stopping");
+	expect(tasks.requiresControl).toBe(true);
+	tasks.markRunning(queued.id);
+	expect(tasks.get(queued.id)?.status).toBe("stopping");
+	expect(
+		tasks.bind(queued.id, {
+			stop: () => {
+				lateStops += 1;
+			},
+			describe: () => ({ output: "", truncated: false }),
+		}),
+	).toBe(false);
+	expect(lateStops).toBe(1);
+
+	// The producer still owns the outcome, and a confirmed exit ends it.
+	expect(
+		tasks.settle(queued.id, { status: "cancelled", output: "stopped", truncated: false }),
+	).toBe(true);
+	expect(tasks.get(queued.id)?.status).toBe("cancelled");
+});
+
+test("keeps the previous status when the producer refuses the stop", (): void => {
+	const tasks = registry();
+	const task = tasks.create({
+		type: "bash",
+		purpose: "stubborn build",
+		begin: () => ({
+			stop: () => {
+				throw new Error("cannot signal");
+			},
+			describe: () => ({ output: "", truncated: false }),
+		}),
+	});
+	expect(tasks.stop([task.id])).toEqual([{ id: task.id, status: "stop_failed" }]);
+	expect(tasks.get(task.id)?.status).toBe("running");
+});
+
+test("waits for a batch of tasks at once", async (): Promise<void> => {
+	const tasks = registry();
+	const first = tasks.create({ type: "bash", purpose: "slow", initialStatus: "starting" });
+	const second = tasks.create({ type: "bash", purpose: "fast", initialStatus: "starting" });
+	const batch = tasks.wait([first.id, second.id]);
+
+	// Both waits are live from the start, and the outcomes stay in the order they were requested
+	// even though the tasks finish in the other one.
+	tasks.settle(second.id, { status: "completed", output: "fast done", truncated: false });
+	tasks.settle(first.id, { status: "failed", output: "slow failed", truncated: false });
+	expect((await batch).map((outcome) => outcome.status)).toEqual(["failed", "completed"]);
+});
+
 test("records a synchronous startup failure without reserving a notification", (): void => {
 	const tasks = registry();
 	expect(() =>
@@ -381,6 +439,10 @@ test("reports control demand while work or notifications are outstanding", async
 	// A pending result still needs the control tools to read it.
 	expect(scoped.requiresControl).toBe(true);
 	scoped.markSubmitted([task.id], "batch");
+	// The host accepting the message is not proof that the model saw it, so the read tools stay
+	// available until the lifecycle event confirms it.
+	expect(scoped.requiresControl).toBe(true);
+	scoped.markObserved("batch");
 	expect(scoped.requiresControl).toBe(false);
 	expect(tasks.requiresControl).toBe(false);
 	await sleep(0);
