@@ -8,7 +8,7 @@ import type { ApplyPatchOperationStatus } from "./outcome.js";
 export const MUTATION_GLYPH: Record<ApplyPatchOperationStatus, string> = {
 	pending: "󰄰",
 	applied: "󰄴",
-	partial: "󰪡",
+	partial: "󰪠",
 	fuzzy: "󰾞",
 	unconfirmed: "󰘥",
 	not_applied: "󰍷",

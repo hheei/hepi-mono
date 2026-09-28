@@ -223,7 +223,7 @@ describe("apply_patch progress renderer", () => {
 		const text = renderApplyPatchResult(partial, false, theme as never)
 			.render(200)
 			.join("\n");
-		expect(text).toContain("󰪡 modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
+		expect(text).toContain("󰪠 modify src/value.ts +2 -2 (2/3 hunks applied; context not found)");
 	});
 
 	test("prefixes SSH operation paths with host", () => {
