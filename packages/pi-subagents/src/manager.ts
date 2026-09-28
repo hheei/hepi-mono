@@ -581,10 +581,13 @@ export class SubagentManager {
 				} catch (error) {
 					const reason = errorMessage(error);
 					// A launch that failed after a runner was claimed may still have started a process
-					// that owns the session, so the two outcomes must not collapse into one retry.
+					// that owns the session, so the two outcomes must not collapse into one retry. An
+					// unconsumed claim counts as evidence of a possible process even before the runtime
+					// pid is recorded, because the claim is written before the spawn.
 					const afterFailure = await this.#deps.registry.get(id);
 					const started =
-						afterFailure !== undefined && (await this.#runtimeMayBeAlive(afterFailure));
+						afterFailure !== undefined &&
+						((await this.#runtimeMayBeAlive(afterFailure)) || afterFailure.claim !== undefined);
 					const settled = await this.#update(id, (current) =>
 						current.state !== "starting"
 							? current

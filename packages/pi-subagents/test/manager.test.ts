@@ -627,6 +627,25 @@ describe("SubagentManager contracts", () => {
 		expect(first.registry.current?.interrupted).toContain("before a runtime was confirmed started");
 		first.manager.dispose();
 
+		// A claim written before the spawn is the only evidence left when the launch fails
+		// during the handshake and no pid was recorded yet: retrying would risk a second runner
+		// for the same session, so this must count as an unconfirmed start.
+		const claimedOnly = childRecord("done");
+		const claimRegistry = memoryRegistry(claimedOnly);
+		const third = managerWith(claimedOnly, new FakeRunner(), claimRegistry, {
+			launch: async () => {
+				await claimRegistry.update(CHILD_ID, undefined, (value) => ({
+					...value,
+					claim: { claimId: "claim-1", kind: "replacement", holderPid: process.pid },
+				}));
+				throw new Error("handshake aborted");
+			},
+		});
+		const claimUnconfirmed = await third.manager.send(CHILD_ID, "Follow up", "auto");
+		expect(claimUnconfirmed).toMatchObject({ safeToRetry: false, state: "failed" });
+		expect(claimRegistry.current?.interrupted).toContain("after the runtime was claimed");
+		third.manager.dispose();
+
 		const runtime = await spawnRecordedRuntime();
 		try {
 			const claimed = childRecord("done");
