@@ -21,6 +21,8 @@ export const AUTO_TITLE_GROUP = "auto-title";
 export const AUTO_TITLE_FIELD = "autoTitle";
 export const AUTO_TITLE_MODEL_FIELD = "autoTitleModel";
 export const AUTO_TITLE_SETTINGS_PROVIDER_ID = "auto-title";
+/** Branch entry marking that this session already had a title generated. */
+export const AUTO_TITLE_ENTRY_TYPE = "auto-title";
 const MAX_PROMPT = 6000;
 const MAX_PRIMARY_REQUEST = 4000;
 const MAX_SUPPORTING_TEXT = 1000;
@@ -330,7 +332,7 @@ export function createAutoTitleCoordinator(
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let attempted = ctx.sessionManager
 		.getEntries()
-		.some((entry) => entry.type === "custom" && entry.customType === "pi-basics-auto-title");
+		.some((entry) => entry.type === "custom" && entry.customType === AUTO_TITLE_ENTRY_TYPE);
 	let launchRequested = false;
 	let forceRequested = false;
 	let activeAgent: AutoTitleAgentAdapter | undefined;
@@ -434,7 +436,7 @@ export function createAutoTitleCoordinator(
 					return;
 				}
 				pi.setSessionName(title);
-				pi.appendEntry("pi-basics-auto-title", { completed: true });
+				pi.appendEntry(AUTO_TITLE_ENTRY_TYPE, { completed: true });
 			} catch (error) {
 				if (!disposed && activeAgent === agent && sessionRevision === revision) {
 					attempted = false;
