@@ -12,7 +12,7 @@ import {
 	openHindsightGateway,
 } from "./client.js";
 import { loadHindsightConfig, type ResolvedHindsight } from "./config.js";
-import { renderHindsightPreamble, renderMemoryContainer } from "./prompt.js";
+import { renderHindsightPreamble, renderMemoryContainer, TRUNCATION_NOTICE } from "./prompt.js";
 import { HindsightRetainQueue } from "./queue.js";
 import type { HindsightToolContext } from "./tools.js";
 import { buildHindsightTurns } from "./transcript.js";
@@ -24,6 +24,8 @@ export const AUTO_RECALL_PAGE_LIMIT = 3;
 export interface HindsightInjection {
 	readonly summary: string;
 	readonly pages: readonly HindsightPageHit[];
+	/** True when the memory container had to be cut to the configured character budget. */
+	readonly truncated: boolean;
 }
 
 /**
@@ -86,14 +88,16 @@ export class HindsightSession {
 			summary.push("memory guide");
 		}
 		let pages: HindsightPageHit[] = [];
+		let truncated = false;
 		if (this.resolved.config.autoRecall && event.prompt.trim().length > 0) {
 			const recalled = await this.#recallForPrompt(event.prompt);
 			setPromptSection(sections, RECALL_SECTION, recalled.text);
 			pages = [...recalled.pages];
+			truncated = recalled.truncated;
 			if (pages.length > 0)
 				summary.push(`recalled ${pages.length} page${pages.length === 1 ? "" : "s"}`);
 		}
-		return summary.length === 0 ? undefined : { summary: summary.join(" + "), pages };
+		return summary.length === 0 ? undefined : { summary: summary.join(" + "), pages, truncated };
 	}
 
 	async #renderPreamble(): Promise<string> {
@@ -120,9 +124,11 @@ export class HindsightSession {
 		});
 	}
 
-	async #recallForPrompt(
-		prompt: string,
-	): Promise<{ readonly text: string | undefined; readonly pages: readonly HindsightPageHit[] }> {
+	async #recallForPrompt(prompt: string): Promise<{
+		readonly text: string | undefined;
+		readonly pages: readonly HindsightPageHit[];
+		readonly truncated: boolean;
+	}> {
 		let hits: HindsightPageHit[];
 		try {
 			hits = await this.gateway.searchPages(prompt, AUTO_RECALL_PAGE_LIMIT, this.#lifecycleSignal);
@@ -130,12 +136,15 @@ export class HindsightSession {
 			debugLog("hindsight.auto_recall_failed", {
 				error: errorMessage(error),
 			});
-			return { text: undefined, pages: [] };
+			return { text: undefined, pages: [], truncated: false };
 		}
 		const fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
+		const text = renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars);
 		return {
-			text: renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars),
+			text,
 			pages: hits,
+			// The container announces its own truncation; the injection report repeats it.
+			truncated: text !== undefined && text.includes(TRUNCATION_NOTICE),
 		};
 	}
 

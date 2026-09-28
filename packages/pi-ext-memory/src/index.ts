@@ -31,10 +31,10 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event) => {
 		const injected = await hindsight?.beforeAgentStart(event);
 		if (injected === undefined) return;
-		info(
-			injected.summary,
-			injected.pages.map((page) => `${page.pageId} — ${page.page}`),
-		);
+		info(injected.summary, {
+			pages: injected.pages.map(({ pageId, page, snippet }) => ({ pageId, page, snippet })),
+			truncated: injected.truncated,
+		});
 	});
 	pi.on("agent_end", async (event, context) => {
 		hindsight?.agentEnd(event, context);

@@ -70,6 +70,9 @@ describe("hindsight session prompt injection", () => {
 		// The injection summary names what the user must be able to see.
 		expect(firstInjection?.summary).toBe("memory guide + recalled 1 page");
 		expect(firstInjection?.pages.map((page) => page.pageId)).toEqual(["kp-1"]);
+		// The entry shows the recalled content itself, not only which pages were hit.
+		expect(firstInjection?.pages[0]?.snippet).toBe("always use pnpm");
+		expect(firstInjection?.truncated).toBe(false);
 
 		const second = beforeStart("carry on");
 		await session.beforeAgentStart(second);
@@ -77,6 +80,24 @@ describe("hindsight session prompt injection", () => {
 		expect(second.sections[PREAMBLE_SECTION]).toBeUndefined();
 		expect(second.sections[RECALL_SECTION]).toContain(MEMORY_OPEN_TAG);
 		expect(second.systemPrompt).toBe("BASE PROMPT");
+	});
+
+	it("reports when the injected memory had to be cut to its budget", async () => {
+		const gateway = fakeGateway({
+			searchPages: vi.fn(async () => [
+				{ page: "Conventions", pageId: "kp-1", snippet: "x".repeat(200), score: 1 },
+			]),
+		});
+		const resolved = fakeResolved();
+		const session = new HindsightSession(
+			{ ...resolved, config: { ...resolved.config, maxMemoryChars: 60 } },
+			gateway,
+			new AbortController().signal,
+		);
+		const event = beforeStart("add a feature");
+		const injection = await session.beforeAgentStart(event);
+		expect(event.sections[RECALL_SECTION]).toContain("truncated to stay within token budget");
+		expect(injection?.truncated).toBe(true);
 	});
 
 	it("keeps the recalled section stable so a turn with no new hits sends nothing", async () => {

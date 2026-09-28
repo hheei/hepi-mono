@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { expect, test } from "vitest";
-import { createMemoryInfo } from "../src/info.js";
+import { createMemoryInfo, type MemoryInfoDetails, renderMemoryInfo } from "../src/info.js";
 
 type Renderer = Parameters<ExtensionAPI["registerEntryRenderer"]>[1];
 type Entry = Parameters<Renderer>[0];
@@ -9,6 +10,12 @@ type Theme = Parameters<Renderer>[2];
 const theme = {
 	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
 } as unknown as Theme;
+
+const page = (pageId: string, title: string, snippet: string) => ({
+	pageId,
+	page: title,
+	snippet,
+});
 
 function host(): {
 	readonly info: ReturnType<typeof createMemoryInfo>;
@@ -32,32 +39,150 @@ function entry(data: unknown): Entry {
 	return { data } as Entry;
 }
 
+const injected: MemoryInfoDetails = {
+	pages: [
+		page("kp-1", "Conventions", "Paths resolve through the publish layer."),
+		page("kp-2", "Decisions", "Auto-background promotion uses 60 seconds."),
+	],
+	truncated: false,
+};
+
 test("reports an injected memory as a resumable entry", () => {
 	const { info, entries } = host();
-	info("memory guide + recalled 1 page", ["kp-1 — Conventions"]);
+	info("memory guide + recalled 1 page", {
+		pages: [page("kp-1", "Conventions", "Paths resolve through the publish layer.")],
+		truncated: false,
+	});
 	expect(entries).toEqual([
 		{
 			type: "memory-info",
 			data: {
 				summary: "memory guide + recalled 1 page",
-				details: ["kp-1 — Conventions"],
+				details: {
+					pages: [
+						{
+							pageId: "kp-1",
+							page: "Conventions",
+							snippet: "Paths resolve through the publish layer.",
+						},
+					],
+					truncated: false,
+				},
 			},
 		},
 	]);
 });
 
-test("renders the summary always and the page ids only when expanded", () => {
-	const { info, entries, renderer } = host();
-	info("recalled 1 page", ["kp-1 — Conventions"]);
-	const data = entries[0]?.data;
-
-	const collapsed = renderer(entry(data), { expanded: false }, theme)?.render(48).join("\n");
-	expect(collapsed).toContain("<dim>info · memory · recalled 1 page</dim>");
+test("shows the recalled page titles and expands to their ids and snippets", () => {
+	const collapsed = renderMemoryInfo(
+		{ summary: "recalled 2 pages", details: injected },
+		false,
+		theme,
+	);
+	expect(collapsed).toContain("<dim>info · memory · recalled 2 pages</dim>");
+	expect(collapsed).toContain("•</dim> <text>Conventions</text>");
+	expect(collapsed).toContain("<text>Decisions</text>");
 	expect(collapsed).not.toContain("kp-1");
+	expect(collapsed).not.toContain("publish layer");
 
-	const expanded = renderer(entry(data), { expanded: true }, theme)?.render(120).join("\n");
-	expect(expanded).toContain("kp-1 — Conventions");
+	const expanded = renderMemoryInfo(
+		{ summary: "recalled 2 pages", details: injected },
+		true,
+		theme,
+	);
+	expect(expanded).toContain("<dim>kp-1</dim>");
+	expect(expanded).toContain("    <muted>Paths resolve through the publish layer.</muted>");
+	expect(expanded).toContain("    <muted>Auto-background promotion uses 60 seconds.</muted>");
+
+	// A recalled markdown excerpt keeps one indented row per line.
+	const multiLine = renderMemoryInfo(
+		{
+			summary: "recalled 1 page",
+			details: { pages: [page("kp-3", "Notes", "# Head\n\nbody")], truncated: false },
+		},
+		true,
+		theme,
+	);
+	expect(multiLine).toContain(
+		"    <muted># Head</muted>\n    <muted></muted>\n    <muted>body</muted>",
+	);
+});
+
+test("says when the injected memory was cut to its budget", () => {
+	expect(
+		renderMemoryInfo(
+			{ summary: "recalled 1 page", details: { ...injected, truncated: true } },
+			false,
+			theme,
+		),
+	).toContain("the injected memory was cut to its character budget");
+	expect(
+		renderMemoryInfo({ summary: "recalled 1 page", details: injected }, false, theme),
+	).not.toContain("character budget");
+});
+
+test("renders the guide entry without pages and unknown payloads not at all", () => {
+	const guide = renderMemoryInfo(
+		{ summary: "memory guide", details: { pages: [], truncated: false } },
+		true,
+		theme,
+	);
+	expect(guide).toBe("<dim>info · memory · memory guide</dim>");
 
 	// An entry from another extension's payload renders nothing rather than throwing.
-	expect(renderer(entry({ summary: 42 }), { expanded: false }, theme)).toBeUndefined();
+	expect(renderMemoryInfo({ summary: 42 }, false, theme)).toBeUndefined();
+	expect(renderMemoryInfo(undefined, false, theme)).toBeUndefined();
+	// Recalled text is remote data: control sequences never reach the row.
+	expect(
+		renderMemoryInfo(
+			{
+				summary: "recalled 1 page",
+				details: {
+					pages: [page("kp-1", "\u001b[31mRed\u001b[0m", "\u001b[42mbody\u001b[0m")],
+					truncated: false,
+				},
+			},
+			true,
+			theme,
+		),
+	).toContain("<text>Red</text>");
+});
+
+test("keeps rendering entries that predate the page payload", () => {
+	const legacy = { summary: "recalled 1 page", details: ["kp-1 — Conventions"] };
+	expect(renderMemoryInfo(legacy, false, theme)).toBe("<dim>info · memory · recalled 1 page</dim>");
+	expect(renderMemoryInfo(legacy, true, theme)).toContain('"kp-1 — Conventions"');
+});
+
+test("renders a stored entry through the registered renderer", () => {
+	const { info, entries, renderer } = host();
+	info("recalled 1 page", {
+		pages: [page("kp-1", "Conventions", "Paths resolve.")],
+		truncated: false,
+	});
+	const rendered = renderer(entry(entries[0]?.data), { expanded: true }, theme)
+		?.render(48)
+		.join("\n");
+	expect(rendered).toContain("kp-1");
+	expect(rendered).toContain("Paths resolve.");
+});
+
+test("keeps every row inside the terminal width", () => {
+	const { info, entries, renderer } = host();
+	info("recalled 2 pages", {
+		pages: [
+			page(
+				"kp-1",
+				"A page title that is far too long to fit into a narrow terminal row",
+				"word ".repeat(60),
+			),
+			page("kp-2", "Second", "line one\nline two"),
+		],
+		truncated: true,
+	});
+	const component = renderer(entry(entries[0]?.data), { expanded: true }, theme);
+	for (const width of [40, 80]) {
+		for (const row of component?.render(width) ?? [])
+			expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+	}
 });
