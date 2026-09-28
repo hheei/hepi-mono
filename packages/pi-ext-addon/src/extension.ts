@@ -35,6 +35,9 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 
 	let autoTitleCoordinator: AutoTitleCoordinator | undefined;
 	let runAutoTitle: (() => void) | undefined;
+	// Pi emits `session_start` before the lifecycle handler of the same emit creates the coordinator,
+	// so the request is recorded here and the coordinator is asked once it exists.
+	let autoTitleWanted = false;
 
 	pi.registerCommand("auto-title", {
 		description: "Generate or replace the current session title",
@@ -51,7 +54,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", () => autoTitleCoordinator?.beforeAgentStart());
 	pi.on("agent_settled", () => autoTitleCoordinator?.agentSettled());
 	pi.on("session_start", (event) => {
-		if (event.reason === "startup" || event.reason === "new") autoTitleCoordinator?.trigger();
+		if (event.reason === "startup" || event.reason === "new") autoTitleWanted = true;
 	});
 
 	registerExtensionLifecycle(pi, {
@@ -148,6 +151,11 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 					"error",
 				);
 			}
+			// The session asked for a title before this start created the coordinator. A fresh session has
+			// no request text yet, so the coordinator waits and generates it once the first turn settles.
+			const wanted = autoTitleWanted;
+			autoTitleWanted = false;
+			if (wanted) autoTitleCoordinator?.trigger();
 			runAutoTitle = () => {
 				if (autoTitleCoordinator === undefined) {
 					const configured = autoTitleSettingsState[AUTO_TITLE_GROUP]?.[AUTO_TITLE_MODEL_FIELD];

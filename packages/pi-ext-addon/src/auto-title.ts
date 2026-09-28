@@ -383,7 +383,13 @@ export function createAutoTitleCoordinator(
 			(!forceRequested && (attempted || pi.getSessionName()))
 		)
 			return;
-		if (!ctx.isIdle()) return;
+		if (!ctx.isIdle()) {
+			// The host cancels title work when the next turn starts, so a request made during a turn waits
+			// for that turn to settle. Staying quiet about it looked like the command did nothing.
+			if (forceRequested)
+				ctx.ui.notify("Title generation starts when the current turn finishes.", "info");
+			return;
+		}
 		const forced = forceRequested;
 		const prompt = autoTitleDescription(ctx);
 		if (!prompt) {

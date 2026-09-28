@@ -338,6 +338,7 @@ describe("Pi Auto Title", () => {
 		let applied: string | undefined = "Old title";
 		let idle = false;
 		const statuses: Array<{ readonly key: string; readonly text: string | undefined }> = [];
+		const notices: Array<{ readonly message: string; readonly type: string | undefined }> = [];
 		const pi = {
 			appendEntry: () => undefined,
 			getSessionName: () => applied,
@@ -354,7 +355,9 @@ describe("Pi Auto Title", () => {
 			},
 			isIdle: () => idle,
 			ui: {
-				notify: () => undefined,
+				notify: (message: string, type?: string) => {
+					notices.push({ message, type });
+				},
 				setStatus: (key: string, text: string | undefined) => {
 					statuses.push({ key, text });
 				},
@@ -369,12 +372,18 @@ describe("Pi Auto Title", () => {
 		expect(applied).toBe("Old title");
 		coordinator.trigger(true);
 		expect(applied).toBe("Old title");
+		// A manual request made during a turn is kept, and the user is told instead of seeing nothing.
+		expect(notices).toEqual([
+			{ message: "Title generation starts when the current turn finishes.", type: "info" },
+		]);
+		expect(statuses).toEqual([]);
 		idle = true;
 		coordinator.agentSettled();
 		await sleep(0);
 		expect(applied).toBe("My Session");
 		expect(statuses.some((entry) => entry.text?.includes("generating title..."))).toBe(true);
 		expect(statuses.at(-1)).toEqual({ key: "auto-title", text: undefined });
+		expect(notices).toHaveLength(1);
 		coordinator.dispose();
 	});
 
