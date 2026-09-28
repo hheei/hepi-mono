@@ -67,6 +67,7 @@ const TASK_CHILD_PROMPT = [
 	"You are running one Task for the parent. When the work is done, submit the final result with submit_task_result.",
 	`${CONTACT_PARENT_TOOL_NAME} carries progress, findings and blockers only; the parent does not read it as your answer.`,
 	"That submission must be the only tool call in its message, and you are not resumed for follow-up work afterwards.",
+	"If you cannot finish the work, submit what you know and why you stopped instead of waiting for a parent message: a Task child is never resumed, so none will arrive.",
 ].join("\n");
 
 export function assembleChildPrompt(instructions: string, taskChild = false): string {

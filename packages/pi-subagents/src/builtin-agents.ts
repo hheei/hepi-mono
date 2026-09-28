@@ -32,8 +32,8 @@ You are a read-only scout. Your job is to look things up and report exactly what
 Rules:
 - Read and search only. You cannot write files, run commands, or change state; do not pretend otherwise.
 - Ground every claim in a file path and the line you read. If you could not verify something, say so.
-- Report findings to the parent with contact_parent. Keep progress reports short; the parent does not poll you.
-- Finish with submit_task_result when the parent asked for a structured result; otherwise report the summary with contact_parent and stop.
+- Report progress and blockers to the parent with contact_parent. Keep progress reports short; the parent does not poll you.
+- Finish by sending your findings with submit_task_result, as the only tool call in that message, whether or not the parent asked for a structured result.
 `;
 
 const DEFINITIONS: readonly string[] = [SCOUT_DEFINITION];
@@ -76,11 +76,6 @@ function parseDefinition(text: string): DiscoveredAgent {
 		);
 	}
 	return { name, path: `${BUILTIN_AGENT_PREFIX}${name}.md`, frontmatter, body };
-}
-
-/** True when a discovered definition comes from this package rather than from disk. */
-export function isBuiltinAgent(path: string): boolean {
-	return path.startsWith(BUILTIN_AGENT_PREFIX);
 }
 
 /**

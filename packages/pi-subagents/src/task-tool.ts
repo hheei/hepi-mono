@@ -9,6 +9,7 @@
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -90,10 +91,17 @@ export function registerTaskTool(
 			"Run one delegated task as a background agent execution; the result arrives as a task result.",
 		promptGuidelines: [...GUIDELINES],
 		parameters: taskSchema,
-		async execute(_id, params, signal): Promise<ReturnType<typeof textToolResult>> {
+		async execute(
+			_id,
+			params,
+			signal,
+			_onUpdate,
+			context,
+		): Promise<ReturnType<typeof textToolResult>> {
 			const integration = active;
 			if (integration === undefined) throw new Error(unavailable);
 			const contract = taskContract(params.outputSchema);
+			const anchor = taskAnchor(context);
 			let started: ReturnType<AgentTaskExecutor["start"]>;
 			try {
 				started = integration.executor.start({
@@ -101,6 +109,7 @@ export function registerTaskTool(
 					task: params.task,
 					...(params.cwd === undefined ? {} : { cwd: params.cwd }),
 					...(params.blocking === true ? { inlineResult: true } : {}),
+					...(anchor === undefined ? {} : { anchor }),
 					contract,
 				});
 			} catch (error) {
@@ -159,6 +168,14 @@ export function registerTaskTool(
 			// the tool stays inactive and reports the cause it actually saw.
 			unavailable = `The task integration is unavailable: ${errorMessage(error)}`;
 		});
+}
+
+/**
+ * Branch marker for a task that starts from a tool call. `undefined` when the session has no entry
+ * yet, which the delivery adapter treats as always deliverable.
+ */
+function taskAnchor(context: ExtensionContext): string | undefined {
+	return context.sessionManager.getLeafId() ?? undefined;
 }
 
 /** Validates the caller's schema before any process exists. */
