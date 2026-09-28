@@ -41,6 +41,8 @@ Prompt 变化从下一轮生效，输入与命令变化只影响后续事件，�
 
 ## 行为与安全边界
 
+RTK 改写决策持久化在 `<agent-dir>/pi-optimizer/rtk-rewrites.json`（键为 RTK 可执行文件与命令，值为实际执行命令或 `null` 表示无需改写）。文件版本号取自 `rtk --version`，**这就是唯一的失效规则**：版本相同即继续复用，版本不同即整份丢弃；`rtk --version` 无法确定时不落盘，仅在本会话内存中缓存。写入沿用核心的加锁原子替换，文件损坏时整份重建；新决策产生后立即后台落盘（关闭终端不会触发 teardown），同一时刻只保留一次写入并合并突发；条目上限 256，按最旧优先淘汰。
+
 T2S 保留当前 tw -> cn 与 inline/fenced code 保护，只处理 interactive 来源，并限制活动 session identity。
 
 Prompt 复用 OMP 原文与档位逻辑，通过 `setPromptSection()` 写入自己的 `pi-optimizer` section，不改写其他扩展的 prompt，也不积累上一轮片段；Pi 只在 section 变化时才下发更新。RTK 提示词必须符合本地前台适用范围，不能要求所有命令无条件加前缀。
