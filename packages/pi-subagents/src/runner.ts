@@ -151,6 +151,8 @@ class Runner {
 	readonly #reporters = new Map<Socket, ReporterLink>();
 	readonly #pendingReports: ContactReportPayload[] = [];
 	#pendingTaskResult: TaskResultPayload | undefined;
+	/** The result this execution accepted, kept so a repeat is recognized instead of re-delivered. */
+	#taskResult: TaskResultPayload | undefined;
 	#controller: ControllerLink | undefined;
 	#server: Server | undefined;
 	#boundEndpoint = false;
@@ -710,13 +712,17 @@ class Runner {
 	}
 
 	/**
-	 * Delivers the one final result this execution may produce. The slot is single because a
-	 * task settles once; a second submission is refused rather than replacing the first.
+	 * Delivers the one final result this execution may produce. The slot is single because a task
+	 * settles once, and it stays taken once the result has been handed over or queued, so a repeated
+	 * submission cannot replace what the parent already has. A repeat of the very same payload is
+	 * accepted rather than refused: the child retries when a response is lost, and the result it sent
+	 * is the one the parent is holding.
 	 */
 	#deliverOrQueueTaskResult(payload: TaskResultPayload): boolean {
-		if (this.#pendingTaskResult !== undefined) return false;
+		if (this.#taskResult !== undefined) return sameTaskResult(this.#taskResult, payload);
 		const link = this.#controller;
 		if (link !== undefined && link.socket.writableLength <= this.#maxControllerBufferBytes) {
+			this.#taskResult = payload;
 			void writeJsonLine(link.socket, eventFrame(payload), this.#maxFrameBytes).catch(
 				(error: unknown) => {
 					this.#diagnose(`task result delivery failed: ${errorMessage(error)}`);
@@ -726,6 +732,7 @@ class Runner {
 			);
 			return true;
 		}
+		this.#taskResult = payload;
 		this.#pendingTaskResult = payload;
 		return true;
 	}
@@ -1186,4 +1193,15 @@ function isEndpointLive(endpoint: string): Promise<boolean> {
 		socket.once("connect", () => finish(true));
 		socket.once("error", () => finish(false));
 	});
+}
+
+/** True when a repeated submission carries exactly the result this execution already accepted. */
+function sameTaskResult(accepted: TaskResultPayload, next: TaskResultPayload): boolean {
+	return (
+		accepted.childId === next.childId &&
+		accepted.parentSessionId === next.parentSessionId &&
+		accepted.runtimeIdentity === next.runtimeIdentity &&
+		accepted.json === next.json &&
+		accepted.structured === next.structured
+	);
 }

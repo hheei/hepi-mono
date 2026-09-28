@@ -33,8 +33,9 @@ intercepted.
 - 共享 registry 缺失时 `task` 入口不激活，并说明缺少 `@hheei/pi-ext-tools` 集成；本包不会因此
   创建第二个 registry。
 - 会话模式 child 的 `contact_parent` 报告也以 `deliverAs: "followUp"` 投递：parent 空闲时
-  立即开启新 turn，运行中附在当前 run 之后；不用 `nextTurn`，那会把报告扣到用户下一次发言。
+  立即开启新 turn，运行中排入当前 run（busy 时由 host 合并 follow-up）；不用 `nextTurn`，那会把
+  报告扣到用户下一次发言，也不用只追加的 `triggerTurn: false`，那会让报告停着等下一条用户输入。
 - parent 空闲时第一条报告开启固定 30 秒合并窗口：多 agent 同时回报时合成一条 follow-up、只叫醒
-  一次；parent 自己开始活动则把暂存报告一并附上。合并只影响空闲路径，运行中的报告立即追加。
+  一次；parent 自己开始活动则把暂存报告排入该 run。合并只影响空闲路径，运行中的报告立即投递。
 - `outputSchema` 在启动前按 allowlist 校验，未通过校验的结果不会以成功终态交付；内置只读
   `scout` 是最后发现层，不写入用户 home，也不会被自动派发。

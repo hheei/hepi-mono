@@ -203,9 +203,9 @@ test("a parent that starts its own run takes the held reports with it", async ()
 	await channel.deliver(report("a", "first"));
 	parent.startRun();
 
-	// Appended to the activity already in flight rather than waking the parent afterwards.
+	// Queued for the activity already in flight, so it is read in that run rather than parked.
 	expect(parent.sent).toHaveLength(1);
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: false, deliverAs: "followUp" });
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
 	vi.advanceTimersByTime(REPORT_MERGE_WINDOW_MS);
 	expect(parent.sent).toHaveLength(1);
 });
@@ -217,7 +217,8 @@ test("a report that arrives while the parent is busy is not held", async () => {
 	await channel.deliver(report("a", "first"));
 
 	expect(parent.sent).toHaveLength(1);
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: false, deliverAs: "followUp" });
+	// Busy parents batch queued follow-ups, so this joins the run instead of waiting for the user.
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
 });
 
 test("teardown appends what is still held without waking the parent", async () => {
