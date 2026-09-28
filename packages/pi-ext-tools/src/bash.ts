@@ -251,6 +251,8 @@ async function runForeground(
 	return new Promise<BashToolResult>((resolve) => {
 		let settled = false;
 		let autoAsyncTimer: NodeJS.Timeout | undefined;
+		// A refused transition is a real, inspectable policy outcome, not a silent fallback.
+		let transitionRefused: string | undefined;
 
 		const cleanup = (): void => {
 			streaming = false;
@@ -265,11 +267,17 @@ async function runForeground(
 			const output = sink.finish();
 			const timedOut = jobSnapshot.timedOut;
 			resolve(
-				textToolResult(output.output, {
-					...output,
-					...(timedOut ? { timedOut: true } : {}),
-					exitCode: jobSnapshot.exitCode,
-				}),
+				textToolResult(
+					transitionRefused === undefined
+						? output.output
+						: `${output.output}\n\nThis command stayed in the foreground: it could not become a background task (${transitionRefused}).`,
+					{
+						...output,
+						...(timedOut ? { timedOut: true } : {}),
+						exitCode: jobSnapshot.exitCode,
+						...(transitionRefused === undefined ? {} : { transitionRefused }),
+					},
+				),
 			);
 		};
 
@@ -299,9 +307,15 @@ async function runForeground(
 						command,
 						...(anchor === undefined ? {} : { anchor }),
 					});
-				} catch {
-					// Admission refused the transition, so the command keeps waiting in the
-					// foreground instead of losing its result or blocking new tasks.
+				} catch (error) {
+					// Admission refused the transition, so the command keeps waiting in the foreground
+					// instead of losing its result or blocking new tasks. The model and the user both
+					// need to know that the 60s policy did not apply this time.
+					transitionRefused = errorMessage(error);
+					context.ui.notify(
+						`bash stayed in the foreground: background task refused (${transitionRefused})`,
+						"warning",
+					);
 					return;
 				}
 				if (task === undefined) return;

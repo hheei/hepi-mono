@@ -738,6 +738,35 @@ test("keeps the command in the foreground when the task registry is disposed", a
 	]);
 });
 
+test("reports a refused transition instead of silently keeping the foreground", async (): Promise<void> => {
+	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
+	const notices: string[] = [];
+	const context = {
+		cwd: process.cwd(),
+		sessionManager: { getLeafId: () => "entry-1" },
+		ui: { notify: (message: string): void => void notices.push(message) },
+	} as unknown as ExtensionContext;
+	setTimeout(() => tasks.dispose(), 20);
+
+	const res = await bash.execute(
+		"bash-transition-refused-report",
+		{ command: 'node -e "setTimeout(() => process.stdout.write(\\"done\\"), 150)"' },
+		undefined,
+		undefined,
+		context,
+	);
+
+	// The command stays foreground, but the model and the user both learn why the 60s
+	// policy did not apply rather than inferring it from a missing task id.
+	expect(res.details).toMatchObject({
+		exitCode: 0,
+		transitionRefused: "Task registry is disposed",
+	});
+	expect(JSON.stringify(res.content)).toContain("could not become a background task");
+	expect(notices).toHaveLength(1);
+	expect(notices[0]).toContain("stayed in the foreground");
+});
+
 test("handles job settling before auto-async transition message is constructed", async (): Promise<void> => {
 	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
@@ -889,6 +918,7 @@ function toolContext(leafId: string | null = "entry-1"): ExtensionContext {
 	return {
 		cwd: process.cwd(),
 		sessionManager: { getLeafId: () => leafId },
+		ui: { notify: (): void => undefined },
 	} as unknown as ExtensionContext;
 }
 
