@@ -11,6 +11,7 @@ import type {
 	RuntimeMetadata,
 	Selection,
 	SubagentRecord,
+	TaskChildContract,
 	UsageSummary,
 } from "./domain.js";
 import {
@@ -23,6 +24,7 @@ import {
 	isThinkingLevel,
 	REGISTRY_VERSION,
 } from "./domain.js";
+import { checkOutputSchema } from "./task-schema.js";
 
 export type RegistryErrorCode =
 	| "invalid_parent_session"
@@ -161,7 +163,10 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	prompt: true,
 	bridgeExtensionPath: true,
 	interactive: true,
+	task: true,
 };
+
+const TASK_CONTRACT_FIELDS: Record<string, true> = { schema: true, softTurns: true };
 
 const AGENT_FIELDS: Record<string, true> = {
 	name: true,
@@ -410,6 +415,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 	const subagentId = expectString(raw.subagentId, "launchConfig.subagentId", path);
 	if (!isSessionId(subagentId))
 		throw invalid(path, "launchConfig.subagentId is not a valid child id");
+	const task = parseTaskContract(raw.task, path);
 	return Object.freeze({
 		subagentId,
 		invocation: parseInvocation(raw.invocation, path),
@@ -429,6 +435,32 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
 		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
+		...(task === undefined ? {} : { task }),
+	});
+}
+
+/**
+ * The frozen result contract of a Task child. The schema is the value that was already validated
+ * before admission, so the same checker is reused here: a record read from disk must not be able
+ * to turn into a contract the child cannot satisfy.
+ */
+function parseTaskContract(value: unknown, path: string): TaskChildContract | undefined {
+	if (value === undefined) return undefined;
+	const raw = expectObject(value, "launchConfig.task", path);
+	expectKeys(raw, TASK_CONTRACT_FIELDS, "launchConfig.task", path);
+	const softTurns = expectNonNegativeNumber(raw.softTurns, "launchConfig.task.softTurns", path);
+	if (!Number.isInteger(softTurns) || softTurns <= 0) {
+		throw invalid(path, "launchConfig.task.softTurns must be a positive integer");
+	}
+	if (raw.schema !== undefined) {
+		const problem = checkOutputSchema(raw.schema);
+		if (problem !== undefined) {
+			throw invalid(path, `launchConfig.task.schema is not usable: ${problem}`);
+		}
+	}
+	return Object.freeze({
+		...(raw.schema === undefined ? {} : { schema: raw.schema }),
+		softTurns,
 	});
 }
 
