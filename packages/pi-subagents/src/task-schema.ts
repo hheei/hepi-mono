@@ -153,6 +153,16 @@ function isSchemaNode(node: unknown): node is Record<string, unknown> {
 	return typeof node === "boolean" || isRecord(node);
 }
 
+/** True when the validator can compile this regular expression. */
+function isUsablePattern(value: string): boolean {
+	try {
+		new RegExp(value, "u");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const SCALAR_KEYWORDS = new Set([
 	...BOOLEAN_KEYWORDS,
 	...NUMBER_KEYWORDS,
@@ -170,6 +180,7 @@ const STRUCTURAL_KEYWORDS = new Set([
 	...SUBSCHEMA_LIST_KEYWORDS,
 	...DATA_SCHEMA_MAP_KEYWORDS,
 	"items",
+	"prefixItems",
 	"$defs",
 	"definitions",
 ]);
@@ -180,9 +191,13 @@ function checkScalarKeyword(keyword: string, value: unknown, path: string): stri
 		return typeof value === "boolean" ? undefined : `${path} must be a boolean`;
 	}
 	if (NUMBER_KEYWORDS.includes(keyword)) {
-		return typeof value === "number" && Number.isFinite(value)
-			? undefined
-			: `${path} must be a finite number`;
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			return `${path} must be a finite number`;
+		}
+		// A zero or negative divisor never validates anything, so accepting it would let a schema
+		// look enforceable while it is not.
+		if (keyword === "multipleOf" && value <= 0) return `${path} must be greater than 0`;
+		return undefined;
 	}
 	if (COUNT_KEYWORDS.includes(keyword)) {
 		return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -206,12 +221,7 @@ function checkScalarKeyword(keyword: string, value: unknown, path: string): stri
 	}
 	if (keyword === "pattern") {
 		if (typeof value !== "string") return `${path} must be a string`;
-		try {
-			new RegExp(value, "u");
-			return undefined;
-		} catch {
-			return `${path} must be a valid regular expression`;
-		}
+		return isUsablePattern(value) ? undefined : `${path} must be a valid regular expression`;
 	}
 	if (keyword === "required") {
 		return Array.isArray(value) && value.every((entry) => typeof entry === "string")
@@ -272,6 +282,11 @@ function checkStructuralKeyword(
 	if (DATA_SCHEMA_MAP_KEYWORDS.includes(keyword)) {
 		if (!isRecord(value)) return `${path} must be an object of schemas`;
 		for (const [name, entry] of Object.entries(value)) {
+			// `patternProperties` matches with a regex, so an unusable key would turn the whole
+			// schema into a validation failure the caller cannot see.
+			if (keyword === "patternProperties" && !isUsablePattern(name)) {
+				return `${path}/${name} is not a usable regular expression`;
+			}
 			const result = child(entry, `${path}/${name}`, true);
 			if (result !== undefined) return result;
 		}

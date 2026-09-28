@@ -91,7 +91,8 @@ function callTool(
 		params,
 		signal,
 		undefined,
-		{},
+		// The tool records where the Task started, so every call needs a session to read it from.
+		{ sessionManager: { getLeafId: () => "leaf-anchor" } },
 	);
 }
 
@@ -161,6 +162,27 @@ test("names the real cause when the integration fails after the registry appears
 	await expect(callTool(hosted, { agent: "scout", task: "look" })).rejects.toThrow(
 		/no agent concurrency budget left/u,
 	);
+});
+
+test("records where the task started so its result cannot land on another branch", async (): Promise<void> => {
+	const hosted = host();
+	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	const anchors: (string | undefined)[] = [];
+	registerTaskTool(hosted.context, TUI, () => {
+		return {
+			start: (request: { anchor?: string }) => {
+				anchors.push(request.anchor);
+				return { id: "agent-test-1", shortId: "agent-1", status: "queued" };
+			},
+			dispose() {},
+		} as unknown as AgentTaskExecutor;
+	});
+	await settle();
+
+	await callTool(hosted, { agent: "scout", task: "look" });
+
+	// The delivery adapter only holds a result back when it knows where the task began.
+	expect(anchors).toEqual(["leaf-anchor"]);
 });
 
 test("the frame footer reads the registry's own abbreviation", async (): Promise<void> => {

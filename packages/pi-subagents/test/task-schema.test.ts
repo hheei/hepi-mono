@@ -85,6 +85,22 @@ describe("outputSchema shape check", () => {
 		expect(checkOutputSchema({ type: "object", properties: { a: { pattern: "([" } } })).toContain(
 			"valid regular expression",
 		);
+		// A pattern property matches with a regex, so an unusable key is as unusable as a pattern.
+		expect(
+			checkOutputSchema({ type: "object", patternProperties: { "([": { type: "string" } } }),
+		).toContain("not a usable regular expression");
+	});
+
+	test("checks the keywords it claims to support", () => {
+		// A tuple element is a schema like any other: letting it through unchecked would accept a
+		// schema the validator cannot enforce.
+		expect(checkOutputSchema({ type: "array", prefixItems: [{ type: "wibble" }] })).toContain(
+			"unknown JSON type",
+		);
+		// A zero divisor never validates anything, so the schema would only look enforceable.
+		expect(checkOutputSchema({ type: "number", multipleOf: 0 })).toContain("greater than 0");
+		expect(checkOutputSchema({ type: "number", multipleOf: -2 })).toContain("greater than 0");
+		expect(checkOutputSchema({ type: "array", prefixItems: [{ type: "string" }] })).toBeUndefined();
 	});
 });
 
