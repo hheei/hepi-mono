@@ -129,11 +129,12 @@ function taskLine(task: TaskSnapshot): string {
 
 function listText(tasks: readonly TaskSnapshot[], includeTerminal: boolean): string {
 	if (tasks.length === 0)
-		return includeTerminal ? "No background tasks." : "No running background tasks.";
-	const running = tasks.filter((task) => !isTerminalTaskStatus(task.status)).length;
+		return includeTerminal ? "No background tasks." : "No active background tasks.";
+	// A task that was asked to stop has not stopped yet, so the count is of active work, not of runs.
+	const active = tasks.filter((task) => !isTerminalTaskStatus(task.status)).length;
 	const heading = includeTerminal
-		? `${tasks.length} background tasks (${running} running):`
-		: `${running} running background tasks:`;
+		? `${tasks.length} background tasks (${active} active):`
+		: `${active} active background tasks:`;
 	return [heading, ...tasks.map(taskLine)].join("\n");
 }
 

@@ -95,6 +95,9 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
   保留 runtime 证据并让调用方看到未确认，进程槽位继续占用。我们自己 spawn 的 runner 用进程句柄直接
   观察退出；确认退出后 claim 才会释放，未确认则保留 claim，避免为同一 session 启动第二个 runner。
 - runner 退出未确认时保留 runtime 证据并把任务留在可观察状态，不释放进程槽位、不盲目启动第二次执行。
+- 因为该原因而 `failed` 的子代理不是永久废弃：后续 `send` 会重新确认进程已死亡，此时释放死 claim 并回到可继续
+  使用的 `done`；仍可能存活时继续拒绝。没有留下任何进程证据（未记录 runner pid）的启动只能保守拒绝：无法证伪的
+  进程不能被第二个 runner 覆盖，这是有意的残留限制。
 - 不承诺跨进程崩溃的 exactly-once，也不为此新增持久化 outbox。
 
 ## Agent 结果契约

@@ -390,7 +390,7 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 		tasks: [{ id: "bash-test-1", status: "cancelled", delivery: "pending" }],
 	});
 	const empty = await runTool(list, "list", {});
-	expect(empty.content).toEqual([{ type: "text", text: "No running background tasks." }]);
+	expect(empty.content).toEqual([{ type: "text", text: "No active background tasks." }]);
 	const finished = await runTool(list, "list-finished", { includeTerminal: true });
 	expect(finished.content).toEqual([
 		{ type: "text", text: expect.stringContaining("bash-test-1 cancelled · npm run build") },
