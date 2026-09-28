@@ -30,6 +30,23 @@ extension 不注册 Loadout `agent` resource：Auto Title 不会出现在 Loadou
 自动标题不依赖其它 concrete extension；status rail 继续按稳定 key `auto-title` 显示 extension 已发布的
 status，不建立反向 package dependency。
 
+## 触发时机
+
+Pi 在同一次 `session_start` emit 里**先**跑普通事件 handler，**后**跑本 extension 的 lifecycle `start`，
+而 coordinator 只存在于后者。所以 `session_start` 只负责记录意图（`reason` 为 `startup` 或 `new`），
+由 lifecycle `start` 在 coordinator 建好之后消费一次；直接在该 handler 里触发会因为 coordinator 还不存在
+而静默失效。
+
+标题任务只在**空闲**时启动，并且 `before_agent_start` 会取消进行中的标题工作，避免与正在跑的 turn 竞争：
+
+- 新 session：`session_start` 记下意图，此时还没有对话内容，coordinator 等到第一个 turn settle（`agent_settled`）
+  才生成标题。
+- 已有内容的 session（如 resume）：不记录意图，不会主动生成。
+- `/auto-title`：`force` 忽略「本次 session 已尝试过」和「已有标题」两个 guard；如果当前正有一个 turn 在跑，
+  请求会保留到该 turn settle 时执行，并立刻用通知告知用户（否则用户只看到「什么都没发生」）。
+- 取消：`before_agent_start`、`session_info_changed`（已有名字）、模型变更与 `dispose` 都会让进行中的任务作废，
+  结果写回前用 revision 快照校验，避免把过期标题写进新 session。
+
 ## 配置与故障
 
 配置保存于全局 `ext_settings.json`；新设置只在下一次 session start 或 reload 生效。没有可用认证模型或生成失败时，扩展显示通知且不改会话标题。
