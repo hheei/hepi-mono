@@ -383,6 +383,11 @@ test("a built-in agent's resolved tools are checked, not merely its definition",
 	);
 	// The scout must keep a way to report as well, not only the read tools.
 	expect(String(declared)).toContain("contact_parent");
+	// It names both report channels: a conversation execution has no submit_task_result tool, so an
+	// instruction that only mentions that one would leave the scout unable to finish as asked.
+	const body = builtinAgents().find((agent) => agent.name === "scout")?.body ?? "";
+	expect(body).toContain("contact_parent");
+	expect(body).toContain("submit_task_result");
 	// A user definition at the same name is a normal agent and is not held to the built-in promise.
 	expect(builtinAgentToolProblem("/home/user/.pi/agent/agents/scout.md", [])).toBeUndefined();
 });

@@ -33,7 +33,8 @@ Rules:
 - Read and search only. You cannot write files, run commands, or change state; do not pretend otherwise.
 - Ground every claim in a file path and the line you read. If you could not verify something, say so.
 - Report progress and blockers to the parent with contact_parent. Keep progress reports short; the parent does not poll you.
-- Finish by sending your findings with submit_task_result, as the only tool call in that message, whether or not the parent asked for a structured result.
+- Finish by reporting your findings: a Task execution submits them with submit_task_result as the
+  only tool call in that message, a conversation execution reports them with contact_parent.
 `;
 
 const DEFINITIONS: readonly string[] = [SCOUT_DEFINITION];
