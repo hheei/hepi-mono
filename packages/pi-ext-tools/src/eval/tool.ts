@@ -30,7 +30,6 @@ const MAX_CODE_BYTES = 1024 * 1024;
 const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
-const MAX_OUTPUT_CHARS = 256_000;
 const EVAL_DESCRIPTION =
 	"Run trusted local Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
 const EVAL_CODE_DESCRIPTION = "Non-empty trusted source, at most 1 MiB.";
@@ -142,22 +141,11 @@ export function createEvalTool(
 			const watchdog = startEvalTimeout(params.timeout);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
-			const transcriptRows: string[] = [];
-			let transcriptChars = 0;
 			let omittedRows = 0;
 			const startedAt = performance.now();
 			let failure: string | undefined;
 			const runSignal = mergeAbortSignals(signal, watchdog?.signal);
-			const append = (text: string, row: EvalRow, keep = false): void => {
-				if (transcriptChars < MAX_OUTPUT_CHARS) {
-					const remaining = MAX_OUTPUT_CHARS - transcriptChars;
-					const piece =
-						text.length <= remaining
-							? text
-							: `${text.slice(0, Math.max(0, remaining - 14))}\n… truncated`;
-					transcriptRows.push(piece);
-					transcriptChars += piece.length + 1;
-				}
+			const append = (row: EvalRow, keep = false): void => {
 				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
 				else if (keep) {
 					// A row marked `keep` displaces the least important one instead of being dropped.
@@ -173,26 +161,33 @@ export function createEvalTool(
 					}),
 				);
 			};
+			/**
+			 * Printed output is line-oriented, like a bash body: the trailing newline ends the current line
+			 * rather than opening another row, and a captured line keeps no terminal control of its own.
+			 */
+			const appendPrinted = (text: string): void => {
+				for (const line of text.replace(/\r?\n$/, "").split("\n")) {
+					const safe = stripTerminalSequences(line.replace(/\r/g, ""));
+					append({ kind: "text", text: boundedText(safe) });
+				}
+			};
 			try {
 				const value = await runtime.runWithHooks(
 					params.code,
 					{
 						cwd: context.cwd,
 						onText: (text) => {
-							append(text, { kind: "text", text: boundedText(text) });
+							appendPrinted(text);
 						},
 						onDisplay: (display) => {
 							const text = inspectValue(display);
-							append(`display: ${text}`, { kind: "display", text: boundedText(text) });
+							append({ kind: "display", text: boundedText(text) });
 						},
 						callTool: async (name, args) => {
 							watchdog?.pause();
 							try {
 								return await bridge.call(name, args, context, runSignal, (trace) => {
-									append(`${trace.name}: ${trace.error ?? trace.text}`, {
-										kind: "tool",
-										trace: boundedTrace(trace),
-									});
+									append({ kind: "tool", trace: boundedTrace(trace) });
 								});
 							} finally {
 								watchdog?.resume();
@@ -204,13 +199,13 @@ export function createEvalTool(
 				);
 				if (value !== undefined) {
 					const text = inspectValue(value);
-					append(`result: ${text}`, { kind: "result", text: boundedText(text) });
+					append({ kind: "result", text: boundedText(text) });
 				}
 			} catch (error) {
 				failure = errorMessage(error);
 				// The failure is the row the user has to see, so it keeps its slot even when the detail cap
 				// has already been reached.
-				append(`error: ${failure}`, { kind: "text", text: `error: ${boundedText(failure)}` }, true);
+				append({ kind: "text", text: `error: ${boundedText(failure)}` }, true);
 			} finally {
 				activeRuns.delete(state);
 				watchdog?.dispose();
