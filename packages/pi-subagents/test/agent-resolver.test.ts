@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
+import { builtinAgents, SCOUT_REQUIRED_TOOLS } from "../src/builtin-agents.js";
 import { CONTACT_PARENT_TOOL_NAME, type ThinkingLevel } from "../src/domain.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
@@ -60,7 +61,7 @@ test("agent discovery prefers the most specific scope for a duplicate name", asy
 		);
 
 		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
-		expect(discovered.map((agent) => agent.path)).toEqual([pi]);
+		expect(discovered.map((agent) => agent.path)).toEqual([pi, "<builtin>/scout.md"]);
 
 		const resolved = await resolve(directory, "reviewer", bridge);
 		expect(resolved.agent.sourcePath).toBe(pi);
@@ -294,4 +295,49 @@ test("defaults interactive to false and freezes an explicit true", async (): Pro
 		);
 		expect((await resolve(directory, "worker", bridge)).interactive).toBe(false);
 	});
+});
+
+test("discovers the built-in scout without writing into the user home", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
+		const scout = discovered.find((agent) => agent.name === "scout");
+		expect(scout?.path).toBe("<builtin>/scout.md");
+
+		// It is discoverable but never auto-dispatched, inherits the parent model and thinking,
+		// and only lists tools it actually needs.
+		const resolved = await resolve(directory, "scout", bridge);
+		expect(resolved.model).toEqual({ ...PARENT.model, source: "parent" });
+		expect(resolved.thinking).toEqual({ level: "medium", source: "parent" });
+		expect(resolved.tools).toEqual([...SCOUT_REQUIRED_TOOLS, CONTACT_PARENT_TOOL_NAME]);
+	});
+});
+
+test("a user definition of scout replaces the built-in one", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const local = await writeAgent(
+			directory,
+			".pi",
+			"scout",
+			`---\nname: scout\ntools: read,${CONTACT_PARENT_TOOL_NAME}\n---\nproject scout\n`,
+		);
+
+		const resolved = await resolve(directory, "scout", bridge);
+		expect(resolved.agent.sourcePath).toBe(local);
+		expect(resolved.agent.instructions).toBe("project scout");
+	});
+});
+
+test("a built-in agent cannot silently inherit every tool", (): void => {
+	const scout = builtinAgents().find((agent) => agent.name === "scout");
+	expect(scout).toBeDefined();
+	// An empty `tools` list means "all tools" downstream; the built-in must name its tools.
+	expect(String(scout?.frontmatter.tools).split(",")).toEqual([
+		...SCOUT_REQUIRED_TOOLS,
+		CONTACT_PARENT_TOOL_NAME,
+	]);
 });
