@@ -1,4 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
@@ -40,13 +42,15 @@ test("the real Pi agent executes rewritten native Bash arguments after recording
 		appendEntry: (type, data) => sessionManager.appendCustomEntry(type, data),
 		registerEntryRenderer: () => undefined,
 	});
-	const exec = vi.fn(async () => ({
+	const exec = vi.fn(async (_command: string, args: string[]) => ({
 		code: 0,
-		stdout: "printf optimizer-rewritten",
+		stdout: args[0] === "--version" ? "rtk 0.45.0" : "printf optimizer-rewritten",
 		stderr: "",
 		killed: false,
 	}));
-	const runtime = createRtkRuntime({ exec } as Pick<ExtensionAPI, "exec">, info);
+	// A temporary cache keeps the test out of the agent directory it would otherwise persist to.
+	const cachePath = join(await mkdtemp(join(tmpdir(), "pi-optimizer-rtk-")), "rtk-rewrites.json");
+	const runtime = createRtkRuntime({ exec } as Pick<ExtensionAPI, "exec">, info, { cachePath });
 	const response: AssistantMessage = {
 		role: "assistant",
 		api: model.api,
@@ -111,7 +115,7 @@ test("the real Pi agent executes rewritten native Bash arguments after recording
 		isError: false,
 		content: [{ type: "text", text: "optimizer-rewritten" }],
 	});
-	expect(exec).toHaveBeenCalledTimes(1);
+	expect(exec.mock.calls.filter(([, args]) => args[0] === "rewrite")).toHaveLength(1);
 	expect(JSON.stringify(sessionManager.buildSessionContext().messages)).not.toContain(
 		"optimizer-info",
 	);

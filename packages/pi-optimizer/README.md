@@ -40,6 +40,8 @@ RTK must already be installed. Optimizer owns the one rewrite hook; `pi-ext-tool
 
 Only local foreground Bash calls are eligible. SSH Targets, PTY, async calls, and already-RTK commands are skipped. Rewrites use the official `rtk rewrite` query plus conservative `bun test` / `find` corrections; overlays do not guess whether a Bun flag consumes a following argument. Query failures (including empty successful output) are recorded before the original command runs; an already-executed command is never automatically rerun. Native info entries preserve the original and execution commands.
 
+Repeated commands are answered from a cache in `<agent-dir>/pi-optimizer/rtk-rewrites.json`, which is validated only by the version `rtk --version` reports: the same version keeps every stored decision, a different one discards the file. When the version cannot be determined nothing is written and decisions stay in memory for that session. The file holds at most 256 decisions (oldest first), is kept current as decisions are made (closing the terminal skips session teardown), and is replaced atomically, so a corrupt file is rebuilt rather than disabling the cache.
+
 Tool results retain the bounded execution tail; output discarded by RTK cannot be recovered. Turn RTK off **before execution** when unfiltered output is needed.
 
 No edit/apply_patch guard, sudo policy, or tool-result warning filter is included.
