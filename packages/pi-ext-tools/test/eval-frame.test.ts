@@ -132,6 +132,26 @@ describe("Eval nested rows and failures", () => {
 		expect(counted).toContain("1 nested call ·");
 	});
 
+	test("gives a printed line one row and strips what the line cannot show", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<undefined> => {
+				hooks.onText("45\n");
+				hooks.onText("a\nb\n");
+				hooks.onText("\u001b[31mred\u001b[0m\n");
+				return undefined;
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(new Map(), () => true));
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		// The newline that ends a printed line does not open a row of its own, and the row the user
+		// reads keeps no terminal control the cell happened to print.
+		expect(rows.map((row) => row.text)).toEqual(["45", "a", "b", "red"]);
+		expect((result.content[0] as { text: string }).text).toBe("45\na\nb\nred");
+	});
+
 	test("keeps the failure row when the detail cap is already full", async () => {
 		const runtime = {
 			runWithHooks: async (
