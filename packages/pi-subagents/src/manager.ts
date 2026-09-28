@@ -330,6 +330,16 @@ export class SubagentManager {
 		}
 	}
 
+	/**
+	 * True when no process can still be running under this record's runtime evidence. A recorded
+	 * process is confirmed dead; evidence without a pid is not confirmation of anything.
+	 */
+	async #stopConfirmed(record: SubagentRecord): Promise<boolean> {
+		if (record.runtime === undefined) return true;
+		if (record.runtime.pid === undefined) return false;
+		return this.#runnerExitConfirmed(record);
+	}
+
 	async #hibernate(id: string): Promise<void> {
 		await this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
@@ -697,8 +707,11 @@ export class SubagentManager {
 				return failure("stop", errorMessage(error), id, record.state, [], true);
 			}
 			const runner = this.#runners.get(id);
-			if (runner === undefined && stopped.runtime !== undefined) {
-				this.#stopping.delete(id);
+			// A stop is only complete when the child process is gone: the shutdown request only says the
+			// message arrived and the socket closing only says the parent let go of it, so the process
+			// itself is verified here. Runtime evidence without a recorded process cannot be verified
+			// and stays behind as the only evidence that something may still own the session.
+			if (runner === undefined && !(await this.#stopConfirmed(stopped))) {
 				return failure(
 					"stop",
 					"Runtime termination could not be confirmed because no live controller is attached",
@@ -717,6 +730,16 @@ export class SubagentManager {
 					await waitForRunnerDisconnect(runner, this.#deps.deadlineMs ?? 30_000, signal);
 					runner.close();
 					this.#runners.delete(id);
+					if (!(await this.#runnerExitConfirmed(stopped))) {
+						return failure(
+							"stop",
+							"Runner termination is not confirmed: the child process may still be running",
+							id,
+							"stopped",
+							["stopped intent persisted", "runtime metadata retained"],
+							true,
+						);
+					}
 				}
 				await this.#releaseHost(id);
 				this.#frozen.delete(id);
