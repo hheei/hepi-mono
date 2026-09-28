@@ -16,8 +16,7 @@ interface GroupMapping {
 function providerModuleName(provider: SettingsProvider): string {
 	if (provider.moduleName !== undefined) return provider.moduleName;
 	const originName = provider.origin?.split("/").at(-1);
-	if (originName?.startsWith("pi-") && originName !== "pi-basics") return originName;
-	if (provider.id.startsWith("pi-basics-")) return `pi-${provider.id.slice("pi-basics-".length)}`;
+	if (originName?.startsWith("pi-")) return originName;
 	return provider.id.startsWith("pi-") ? provider.id : `pi-${provider.id}`;
 }
 

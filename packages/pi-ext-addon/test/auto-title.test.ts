@@ -24,7 +24,7 @@ describe("Pi Auto Title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
 		expect(parseModelRef("provider/model")).toEqual({ provider: "provider", model: "model" });
 		expect(() => parseModelRef("provider/model/extra")).toThrow();
-		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-"));
+		const dir = await mkdtemp(join(tmpdir(), "pi-ext-addon-title-"));
 		try {
 			const path = join(dir, "ext_settings.json");
 			await writeFile(path, JSON.stringify({ unrelated: { enabled: true } }));
@@ -42,7 +42,7 @@ describe("Pi Auto Title", () => {
 	});
 
 	test("shares the extension settings write queue with other providers", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "pi-basics-title-concurrent-"));
+		const dir = await mkdtemp(join(tmpdir(), "pi-ext-addon-title-concurrent-"));
 		try {
 			const path = join(dir, "ext_settings.json");
 			const title = createAutoTitleStorage({ path });

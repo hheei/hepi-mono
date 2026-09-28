@@ -16,4 +16,4 @@
 }
 ```
 
-默认关闭（opt-in）。不读取或迁移已冻结的 `pi-basics.dollarSkillReferences` 配置。
+默认关闭（opt-in）。不读取或迁移更早的 HEPI 扩展留下的旧配置键。
