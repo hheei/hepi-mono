@@ -45,7 +45,7 @@ const taskSchema = Type.Object({
 	blocking: Type.Optional(
 		Type.Boolean({
 			description:
-				"true waits for the result in this call; false or omitted starts a background task (default)",
+				"true waits for the result in this call — use it for a review, an audit or a scout pass you must act on now; false or omitted starts a background task (default)",
 		}),
 	),
 	outputSchema: Type.Optional(
@@ -59,8 +59,9 @@ const DESCRIPTION =
 	"Run one delegated task as a background agent execution. Returns a task id immediately unless blocking is true. Read the result with wait_tasks, or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_subagent when you need a reusable conversation partner instead.";
 
 const GUIDELINES = [
-	"Omit blocking (or pass false) for work that may outlive this call; its result is added to the context when it finishes.",
-	"Pass blocking: true only when the result is needed in this call; that path never also sends a background notification.",
+	"Pass `blocking: true` when your next step depends on the answer — a code review, an audit, a verification pass, or a scout's reconnaissance — so the findings arrive in this call instead of a later turn.",
+	"Omit `blocking` (or pass false) for work that can outlive this call: start it, keep working, and let the result arrive when it finishes.",
+	"A blocking call reports its result only here, so do not wait for a notification as well.",
 	"Do not poll wait_tasks for a background task. The automatic notification starts your next turn.",
 	"Set outputSchema when you need a machine-readable result instead of prose.",
 ];
