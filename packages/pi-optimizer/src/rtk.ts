@@ -15,6 +15,7 @@ interface RtkRuntime {
 }
 
 // RTK overlays adapted from hheei/oh-my-pi omp-optimizer (MIT).
+const REWRITE_CACHE_LIMIT = 256;
 const SHELL_VALUE = `(?:"[^"]*"|'(?:'\\\\''|[^'])*'|[^\\s]+)`;
 const LEADING_ENV_ASSIGNMENT = new RegExp(`^((?:[A-Za-z_][A-Za-z0-9_]*=${SHELL_VALUE}\\s+)*)`);
 const FIND_UNSAFE_PREDICATE = /(?:^|\s)-(?:not|exec|ok|or|and|o|a)(?:\s|$)/;
@@ -84,6 +85,17 @@ function applyRtkOverlays(original: string, candidate: string, executable: strin
 export function createRtkRuntime(pi: Pick<ExtensionAPI, "exec">, info: OptimizerInfo): RtkRuntime {
 	let generation = 0;
 	const activeQueries = new Set<AbortController>();
+	// `rtk rewrite` costs a process spawn (~10ms on the tool-call critical path) but only depends on
+	// the configured executable, the session cwd and the command, so a repeated command can reuse the
+	// earlier answer. Oldest answers are evicted first, which keeps the newest ones for a long session.
+	const rewrites = new Map<string, string | null>();
+	const remember = (key: string, executionCommand: string | null): void => {
+		if (rewrites.size >= REWRITE_CACHE_LIMIT) {
+			const oldest = rewrites.keys().next().value;
+			if (oldest !== undefined) rewrites.delete(oldest);
+		}
+		rewrites.set(key, executionCommand);
+	};
 	return {
 		async rewrite(event, context, settings): Promise<void> {
 			if (!settings.enabled || !isToolCallEventType("bash", event) || context.signal?.aborted)
@@ -103,6 +115,15 @@ export function createRtkRuntime(pi: Pick<ExtensionAPI, "exec">, info: Optimizer
 			const trimmed = command.trimStart();
 			const environment = trimmed.match(LEADING_ENV_ASSIGNMENT)?.[0] ?? "";
 			const invocation = trimmed.slice(environment.length);
+			const notify = (executionCommand: string, reason: string): void => {
+				info(`RTK · ${command} → ${executionCommand}`, {
+					toolCallId: event.toolCallId,
+					originalCommand: command,
+					executionCommand,
+					reason,
+				});
+				input.command = executionCommand;
+			};
 			if (/^rtk(?:\s|$)/.test(invocation)) {
 				if (!settings.path || executable === "rtk") return;
 				let executionCommand = applyRtkOverlays(command, command, executable);
@@ -111,16 +132,17 @@ export function createRtkRuntime(pi: Pick<ExtensionAPI, "exec">, info: Optimizer
 						command.slice(0, command.length - trimmed.length) +
 						environment +
 						invocation.replace(/^rtk/u, executable);
-				info(`RTK · ${command} → ${executionCommand}`, {
-					toolCallId: event.toolCallId,
-					originalCommand: command,
-					executionCommand,
-					reason: "configured RTK path",
-				});
-				input.command = executionCommand;
+				notify(executionCommand, "configured RTK path");
 				return;
 			}
 			if (invocation === executable || invocation.startsWith(`${executable} `)) return;
+			const cacheKey = `${settings.path}\u0000${context.cwd}\u0000${command}`;
+			const cached = rewrites.get(cacheKey);
+			if (cached === null) return;
+			if (cached !== undefined) {
+				notify(cached, "rtk rewrite");
+				return;
+			}
 			const captured = generation;
 			const failure = (reason: string): void =>
 				info(
@@ -165,18 +187,17 @@ export function createRtkRuntime(pi: Pick<ExtensionAPI, "exec">, info: Optimizer
 				result.code === 1 ? command : output,
 				executable,
 			);
-			if (executionCommand === command) return;
-			info(`RTK · ${command} → ${executionCommand}`, {
-				toolCallId: event.toolCallId,
-				originalCommand: command,
-				executionCommand,
-				reason: "rtk rewrite",
-			});
-			input.command = executionCommand;
+			if (executionCommand === command) {
+				remember(cacheKey, null);
+				return;
+			}
+			remember(cacheKey, executionCommand);
+			notify(executionCommand, "rtk rewrite");
 		},
 		reset(): void {
 			for (const controller of activeQueries) controller.abort();
 			activeQueries.clear();
+			rewrites.clear();
 			generation++;
 		},
 	};

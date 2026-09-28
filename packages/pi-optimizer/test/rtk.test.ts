@@ -102,8 +102,57 @@ test("RTK leaves ineligible calls and unchanged rewrites unrecorded", async () =
 		await runtime.rewrite(event, context(), enabled);
 	await runtime.rewrite(bash("git status"), context(), { enabled: false, path: "" });
 	await runtime.rewrite(bash("git status"), context(AbortSignal.abort()), enabled);
+	// Only the first eligible command reaches rtk: the second repeats it and is answered from cache.
+	expect(exec).toHaveBeenCalledTimes(1);
+	expect(info).not.toHaveBeenCalled();
+});
+
+test("a repeated command reuses the cached rewrite and still audits the call", async () => {
+	const exec = vi.fn(async () => result(3, "rtk git status"));
+	const { runtime, info } = harness(exec);
+	const first = bash("git status");
+	const second = { ...bash("git status"), toolCallId: "call-8" };
+	await runtime.rewrite(first, context(), enabled);
+	await runtime.rewrite(second, context(), enabled);
+
+	expect(exec).toHaveBeenCalledTimes(1);
+	expect(second.input.command).toBe("rtk git status");
+	expect(info).toHaveBeenCalledTimes(2);
+	expect(info).toHaveBeenLastCalledWith(
+		expect.stringContaining("RTK ·"),
+		expect.objectContaining({
+			toolCallId: "call-8",
+			executionCommand: "rtk git status",
+			reason: "rtk rewrite",
+		}),
+	);
+});
+
+test("a cached no-match stays unrecorded and reset re-derives it", async () => {
+	const exec = vi.fn(async () => result(1));
+	const { runtime, info } = harness(exec);
+	await runtime.rewrite(bash("git status"), context(), enabled);
+	await runtime.rewrite(bash("git status"), context(), enabled);
+	expect(exec).toHaveBeenCalledTimes(1);
+
+	runtime.reset();
+	await runtime.rewrite(bash("git status"), context(), enabled);
 	expect(exec).toHaveBeenCalledTimes(2);
 	expect(info).not.toHaveBeenCalled();
+});
+
+test("failed queries and a changed executable are never reused", async () => {
+	const failing = vi.fn(async () => result(4, "", "boom"));
+	const { runtime } = harness(failing);
+	await runtime.rewrite(bash("git status"), context(), enabled);
+	await runtime.rewrite(bash("git status"), context(), enabled);
+	expect(failing).toHaveBeenCalledTimes(2);
+
+	const exec = vi.fn(async () => result(3, "git status"));
+	const other = harness(exec);
+	await other.runtime.rewrite(bash("git status"), context(), enabled);
+	await other.runtime.rewrite(bash("git status"), context(), { enabled: true, path: "/opt/rtk" });
+	expect(exec).toHaveBeenCalledTimes(2);
 });
 
 test("no-match stays quiet; rejected, missing, timed-out, and empty queries retain the original with info", async () => {
