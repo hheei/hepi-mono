@@ -60,7 +60,9 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
  * several children finishing close together become one follow-up instead of one turn each; the
  * window is never extended by a later report, and a parent that starts its own activity takes
  * whatever is held along with it. `nextTurn` is never used: it parks a report until the user's
- * next message, which is not what a finished child owes the parent.
+ * next message, which is not what a finished child owes the parent. Every delivery asks for a
+ * turn (`followUp`), which the host batches while the parent is busy and queues for the run in
+ * flight; only teardown appends without asking for one, because the session is going away.
  */
 export function createParentChannel(
 	pi: Pick<ExtensionAPI, "sendMessage" | "on">,
@@ -87,17 +89,19 @@ export function createParentChannel(
 		);
 	};
 
-	// The parent starting its own run is the next activity the held reports belong to, so they
-	// ride along with it instead of waking it a second time when the window closes.
+	// The parent starting its own run is the next activity the held reports belong to, so they are
+	// queued for that run: a report appended without asking for a turn can sit unread until the user
+	// speaks again, which is exactly what a finished child must not do.
 	const stopWatching = pi.on("agent_start", () => {
-		if (!disposed) flush(false);
+		if (!disposed) flush(true);
 	});
 
 	return {
 		async deliver(report: ParentChannelReport): Promise<void> {
 			held.push(report);
 			if (!deps.isIdle()) {
-				flush(false);
+				// Busy parent: the host batches queued follow-ups, so this joins the run in flight.
+				flush(true);
 				return;
 			}
 			if (window !== undefined) return;

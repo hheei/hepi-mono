@@ -7,6 +7,7 @@ import {
 	RunnerConnection,
 	sendLifecycleToRunner,
 	sendReportToRunner,
+	sendTaskResultToRunner,
 } from "../src/connector.js";
 import { type ChildIdentity, PROTOCOL_VERSION } from "../src/domain.js";
 import { startRunner } from "../src/runner.js";
@@ -568,6 +569,45 @@ describe("runner IPC", () => {
 					sessionId: "session-b",
 				}),
 			).rejects.toThrow(/bridge_unbound/);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test("accepts a repeated final result and refuses a different one", async () => {
+		const harness = await startFakeRunner();
+		try {
+			const controller = await openRawController(
+				harness.identity.endpoint,
+				helloFrame(harness.identity),
+			);
+			try {
+				const payload = {
+					type: "task_result" as const,
+					parentSessionId: harness.identity.parentSessionId,
+					childId: harness.identity.subagentId,
+					runtimeIdentity: harness.identity.runtimeIdentity,
+					json: "done",
+					structured: false,
+				};
+				await sendTaskResultToRunner(harness.identity, payload);
+				// The controller sees the result once, after its own handshake frame.
+				expect(await controller.nextFrame()).toMatchObject({ type: "hello_ack" });
+				expect(await controller.nextFrame()).toMatchObject({
+					type: "event",
+					event: { type: "task_result", json: "done" },
+				});
+
+				// The child retries when a response is lost, and the parent holds this result already, so
+				// the repeat must not look like a failure or arrive as a second result.
+				await sendTaskResultToRunner(harness.identity, payload);
+				await expect(
+					sendTaskResultToRunner(harness.identity, { ...payload, json: "other" }),
+				).rejects.toThrow(/result_already_submitted/u);
+				expect(controller.frames).toEqual([]);
+			} finally {
+				controller.destroy();
+			}
 		} finally {
 			await harness.dispose();
 		}
