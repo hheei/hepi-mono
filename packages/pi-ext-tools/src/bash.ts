@@ -17,7 +17,6 @@ import {
 import {
 	agentResultText,
 	createToolTui,
-	DEFAULT_MAX_BODY_LINES,
 	errorMessage,
 	formatDuration,
 	isRecord,
@@ -35,8 +34,12 @@ import { BashOutputSink } from "./bash-output.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "./fff/settings.js";
+import { WrappedTextBody } from "./pretty/wrapped-text.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
 import { promoteBashJobToTask, startBashTask } from "./tasks/bash-task.js";
+
+/** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
+const BASH_MAX_BODY_LINES = 10;
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
@@ -156,7 +159,7 @@ class BashOutputBody implements Component {
 		if (lines.length === 0) return [];
 		const available = Math.max(1, width);
 		const truncation = this.theme.fg("dim", "…");
-		const budget = this.expanded ? lines.length : DEFAULT_MAX_BODY_LINES;
+		const budget = this.expanded ? lines.length : BASH_MAX_BODY_LINES;
 		const hiddenTotal = Math.max(this.totalLines, lines.length);
 		const needsHint = !this.expanded && hiddenTotal > budget;
 		const take = needsHint ? Math.min(lines.length, budget - 1) : Math.min(lines.length, budget);
@@ -529,8 +532,14 @@ export function registerBashTool(
 		tui.frame(tool, {
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			longOutput: true,
-			// The body renders output only, so a wrapped command would be unrecoverable.
+			// The command is a request body, so the header only needs a one-line summary.
 			headerLine: "truncate",
+			request: (args, theme) => {
+				const command = typeof args.command === "string" ? args.command : "";
+				return command === ""
+					? undefined
+					: new WrappedTextBody(stripTerminalSequences(command), theme);
+			},
 			footer: (result, completion, options) =>
 				options.isPartial ? undefined : bashFooter(result, completion),
 			warning: bashResultWarning,
