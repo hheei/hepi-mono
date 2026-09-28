@@ -20,6 +20,18 @@ import { createSubagentWidget } from "./widget.js";
 
 const CHILD_ENV_KEYS = Object.values(BRIDGE_ENVIRONMENT_KEYS);
 
+/**
+ * Fixed window that merges reports from several children into one follow-up while the parent is
+ * idle. Reports that arrive during a run are appended to it without waiting.
+ */
+export const REPORT_MERGE_WINDOW_MS = 30_000;
+
+/** Parent channel plus the teardown its owner must call. */
+export interface ParentChannelHandle extends ParentChannel {
+	/** Stops the window and appends anything still held without waking the parent. */
+	dispose(): void;
+}
+
 function requiredBridgeValue(env: NodeJS.ProcessEnv, key: string): string {
 	const value = env[key];
 	if (typeof value !== "string" || value === "") {
@@ -41,24 +53,71 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
 }
 
 /**
- * How a child report reaches the parent conversation. `followUp` appends it to the run in flight,
- * or starts a turn when the parent is idle, so the parent reads the report as part of its next
- * activity; `nextTurn` would instead park it until the user's next message.
+ * How child reports reach the parent conversation.
+ *
+ * A report is appended to the run in flight when the parent is busy, and starts a turn when the
+ * parent is idle. While the parent is idle the first report also opens a fixed merge window, so
+ * several children finishing close together become one follow-up instead of one turn each; the
+ * window is never extended by a later report, and a parent that starts its own activity takes
+ * whatever is held along with it. `nextTurn` is never used: it parks a report until the user's
+ * next message, which is not what a finished child owes the parent.
  */
-export function createParentChannel(pi: Pick<ExtensionAPI, "sendMessage">): ParentChannel {
+export function createParentChannel(
+	pi: Pick<ExtensionAPI, "sendMessage" | "on">,
+	deps: { readonly isIdle: () => boolean; readonly windowMs?: number },
+): ParentChannelHandle {
+	const windowMs = deps.windowMs ?? REPORT_MERGE_WINDOW_MS;
+	const held: ParentChannelReport[] = [];
+	let window: NodeJS.Timeout | undefined;
+	let disposed = false;
+
+	const flush = (triggerTurn: boolean): void => {
+		if (window !== undefined) clearTimeout(window);
+		window = undefined;
+		if (held.length === 0) return;
+		const reports = held.splice(0, held.length);
+		pi.sendMessage(
+			{
+				customType: "pi-subagent-report",
+				content: reports.map(reportText).join("\n\n"),
+				display: true,
+				details: { reports },
+			},
+			{ triggerTurn, deliverAs: "followUp" },
+		);
+	};
+
+	// The parent starting its own run is the next activity the held reports belong to, so they
+	// ride along with it instead of waking it a second time when the window closes.
+	const stopWatching = pi.on("agent_start", () => {
+		if (!disposed) flush(false);
+	});
+
 	return {
 		async deliver(report: ParentChannelReport): Promise<void> {
-			pi.sendMessage(
-				{
-					customType: "pi-subagent-report",
-					content: `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`,
-					display: true,
-					details: report,
-				},
-				{ triggerTurn: true, deliverAs: "followUp" },
-			);
+			held.push(report);
+			if (!deps.isIdle()) {
+				flush(false);
+				return;
+			}
+			if (window !== undefined) return;
+			window = setTimeout(() => {
+				if (!disposed) flush(true);
+			}, windowMs);
+			window.unref?.();
+		},
+		dispose(): void {
+			disposed = true;
+			stopWatching();
+			// The session is going away, so the held reports are appended for the record without
+			// starting a run in a parent that is being torn down.
+			flush(false);
 		},
 	};
+}
+
+function reportText(report: ParentChannelReport): string {
+	return `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`;
 }
 
 export default function piSubagentsExtension(pi: ExtensionAPI): void {
@@ -74,7 +133,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const parentSessionId = context.sessionManager.getSessionId();
 			const registry = createSubagentRegistry({ parentSessionId });
 			const tokens = createRuntimeTokenStore();
-			const channel = createParentChannel(pi);
+			const channel = createParentChannel(pi, { isIdle: () => context.isIdle() });
+			runtime.resources.add("parent-channel", () => channel.dispose());
 			let manager!: SubagentManager;
 			const ownsAttachment = (identity: {
 				readonly host: "herdr" | "cmux";

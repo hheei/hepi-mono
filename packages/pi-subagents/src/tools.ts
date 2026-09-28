@@ -43,7 +43,7 @@ function result(value: unknown): AgentToolResult<unknown> {
 }
 
 const SPAWN_DESCRIPTION =
-	"Start an independent background RPC subagent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT poll get_subagent or list_subagents to wait for the child's work. When the child reports via contact_parent, the harness delivers that report as a pi-subagent-report message and starts your next turn. After this tool returns, either end your turn or work on other independent tasks, including spawning more subagents in parallel. Do not fabricate or assume the child's results.";
+	"Start an independent background RPC subagent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT poll get_subagent or list_subagents to wait for the child's work. When the child reports via contact_parent, the harness delivers that report as a pi-subagent-report message and starts your next turn; while you are idle, reports from several children may arrive together in one such message. After this tool returns, either end your turn or work on other independent tasks, including spawning more subagents in parallel. Do not fabricate or assume the child's results.";
 const SPAWN_SNIPPET =
 	"Start a background RPC subagent. Returns when the runtime is ready. Results arrive later as pi-subagent-report; do not poll.";
 const SPAWN_GUIDELINES = [
