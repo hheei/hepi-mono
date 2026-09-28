@@ -6,6 +6,22 @@ export interface BashOutputResult {
 	readonly totalLines: number;
 }
 
+/**
+ * Counts newline bytes through native `indexOf`.
+ *
+ * This runs on every byte a shell command prints, and a per-byte JS loop costs about ten times
+ * more than scanning for the separator.
+ */
+function countNewlines(chunk: Buffer): number {
+	let count = 0;
+	let cursor = chunk.indexOf(0x0a);
+	while (cursor !== -1) {
+		count += 1;
+		cursor = chunk.indexOf(0x0a, cursor + 1);
+	}
+	return count;
+}
+
 export class BashOutputSink {
 	readonly #tailBytes: number;
 	#tail: Buffer[] = [];
@@ -26,11 +42,13 @@ export class BashOutputSink {
 		if (data.byteLength === 0) return;
 		const chunk = Buffer.from(data);
 		this.#totalLength += chunk.byteLength;
-		for (const byte of chunk) {
-			if (byte === 0x0a) {
-				this.#newlineCount += 1;
-				this.#endsWithNewline = true;
-			} else if (byte !== 0x0d) this.#endsWithNewline = false;
+		this.#newlineCount += countNewlines(chunk);
+		// A carriage return leaves the flag alone, so only the last other byte decides it.
+		for (let index = chunk.byteLength - 1; index >= 0; index -= 1) {
+			const byte = chunk[index];
+			if (byte === undefined || byte === 0x0d) continue;
+			this.#endsWithNewline = byte === 0x0a;
+			break;
 		}
 		this.#tail.push(chunk);
 		this.#tailLength += chunk.byteLength;
