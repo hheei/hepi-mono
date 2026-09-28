@@ -93,15 +93,17 @@ function outstandingBackgroundWork(pi: ExtensionAPI): number {
 /**
  * One-shot convergence reminder. It fires at most once, never after a valid result exists, and
  * only as a message the child chooses how to act on: no abort, no model switch, no new limit.
+ * Returns the disposer: the reminder belongs to the bound session, so a child that left it must not
+ * count turns of whatever session the process serves next.
  */
 export function registerTaskSoftHint(
 	pi: ExtensionAPI,
 	controller: TaskResultController,
 	softTurns: number,
-): void {
+): () => void {
 	let turns = 0;
 	let reminded = false;
-	pi.on("turn_end", () => {
+	return pi.on("turn_end", () => {
 		turns += 1;
 		if (reminded || turns < softTurns || controller.submission() !== undefined) return;
 		reminded = true;

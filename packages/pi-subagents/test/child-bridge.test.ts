@@ -9,6 +9,7 @@ import {
 } from "../src/child-bridge.js";
 import { CHILD_SESSION_ENV_KEY } from "../src/domain.js";
 import { PAUSE_EVENT } from "../src/protocol.js";
+import { TASK_ENVIRONMENT_KEY } from "../src/task-result.js";
 
 describe("child bridge session policy", () => {
 	test("reload and same-session resume stay bound", () => {
@@ -169,4 +170,64 @@ describe("child bridge session policy", () => {
 			process.env = previous;
 		}
 	});
+});
+
+test("stops hinting for the old task after the child leaves its session", () => {
+	const previous = process.env;
+	process.env = {
+		...previous,
+		PI_SUBAGENTS_PARENT_SESSION_ID: "p",
+		PI_SUBAGENTS_CHILD_ID: "c",
+		PI_SUBAGENTS_RUNTIME_ID: "r",
+		PI_SUBAGENTS_ENDPOINT: "/x",
+		PI_SUBAGENTS_TOKEN: "t",
+		[CHILD_SESSION_ENV_KEY]: "session-a",
+		[TASK_ENVIRONMENT_KEY]: JSON.stringify({ softTurns: 1 }),
+	};
+	try {
+		const events = new Map<string, Array<(event: never, ctx: ExtensionContext) => void>>();
+		const hints: string[] = [];
+		const pi = {
+			registerTool() {},
+			on(event: string, handler: (event: never, ctx: ExtensionContext) => void) {
+				const list = events.get(event) ?? [];
+				list.push(handler);
+				events.set(event, list);
+				return () => {
+					events.set(
+						event,
+						(events.get(event) ?? []).filter((entry) => entry !== handler),
+					);
+				};
+			},
+			sendUserMessage(text: string) {
+				hints.push(text);
+			},
+		} as unknown as ExtensionAPI;
+		const state = registerChildBridge(
+			pi,
+			{
+				parentSessionId: "p",
+				subagentId: "c",
+				runtimeIdentity: "r",
+				endpoint: "/x",
+				token: "t",
+			},
+			{ connect: async () => undefined },
+		);
+		const leaveCtx = {
+			mode: "rpc",
+			sessionManager: { getSessionId: () => "session-b" },
+		} as unknown as ExtensionContext;
+		for (const handler of events.get("session_start") ?? []) {
+			handler({ type: "session_start", reason: "new" } as never, leaveCtx);
+		}
+		expect(state.bound).toBe(false);
+
+		// Turns of the session the process serves next are not turns of this task.
+		for (const handler of events.get("turn_end") ?? []) handler({} as never, leaveCtx);
+		expect(hints).toEqual([]);
+	} finally {
+		process.env = previous;
+	}
 });

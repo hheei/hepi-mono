@@ -141,10 +141,16 @@ export function registerChildBridge(
 		isBound,
 	});
 	const taskContract = taskContractFromEnv();
+	let stopTaskHint: (() => void) | undefined;
 	if (taskContract !== undefined) {
 		const controller = registerTaskResultTool(pi, identity, { contract: taskContract, isBound });
-		registerTaskSoftHint(pi, controller, taskContract.softTurns);
+		stopTaskHint = registerTaskSoftHint(pi, controller, taskContract.softTurns);
 	}
+	/** The reminder belongs to the bound session, so leaving or replacing it stops the hint too. */
+	const disposeTaskHint = (): void => {
+		stopTaskHint?.();
+		stopTaskHint = undefined;
+	};
 	const stop = new AbortController();
 	const pauseSocket = options.pauseSocket ?? openChildPauseSocket(identity);
 	pauseSocket.onEvent((event) => {
@@ -182,6 +188,7 @@ export function registerChildBridge(
 		pauseSocket.close();
 		disposeWidget();
 		nudge.dispose();
+		disposeTaskHint();
 		reportLifecycle(identity, "left_session", sessionId);
 	};
 
@@ -217,6 +224,7 @@ export function registerChildBridge(
 			event.reason === "fork"
 		) {
 			nudge.dispose();
+			disposeTaskHint();
 		}
 		if (event.reason === "quit") {
 			gate.cancel();
