@@ -40,12 +40,12 @@ const DEFINITIONS: readonly string[] = [SCOUT_DEFINITION];
 
 /** Reads the comma form and the YAML list form, so a built-in definition may use either. */
 function toolNames(value: unknown): string[] {
-	const names =
-		typeof value === "string"
-			? value.split(",")
-			: Array.isArray(value)
-				? value.filter((entry): entry is string => typeof entry === "string")
-				: [];
+	let names: readonly string[] = [];
+	if (typeof value === "string") {
+		names = value.split(",");
+	} else if (Array.isArray(value)) {
+		names = value.filter((entry): entry is string => typeof entry === "string");
+	}
 	return names.map((entry) => entry.trim()).filter((entry) => entry !== "");
 }
 
