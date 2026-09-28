@@ -23,10 +23,12 @@
 ## 当前行为
 
 Todo 的公开行为包括原子 `operations` 批处理、pending 自动推进、用户专属 `/todo cancel #ID...` 与 `/todo clear`，以及
-active task 满足连续有效 turn 与空闲阈值时的隐藏提醒。Footer 状态行在 TUI 左侧显示：
-- 未完成/进行中任务常驻显示（如 `◐ #61 XXX`）；
-- 刚完成任务在有后续进行中任务时显示 15 秒，无后续任务时保留展示 3 分钟；
-- 阻塞任务保留展示 15 秒；
+active task 满足连续有效 turn 与空闲阈值时的隐藏提醒。Footer 状态行在 TUI 左侧显示，状态 glyph 使用 Nerd Font 字符
+（`󰪠` in_progress、`󰄰` pending、`󰀪` blocked、`󰄴` completed、`󰅚` suppressed）：
+- 仲裁顺序：最近完成任务（有后续 `in_progress` 时显示 15 秒，否则保留 3 分钟）→ `in_progress`（常驻）→
+  第一个 pending → 最近阻塞任务（15 秒）；没有 `in_progress` 时，最近完成与最近阻塞按 `updatedAt` 取新者；
+- glyph 按 status 语义着色（in_progress `warning`、pending `muted`、blocked `dim`、completed `success`），
+  task id 用 `accent`，subject 按语义用 `text` 或 `dim`；
 - 超时、清空或无需要显示时直接置为 undefined，使原生 Footer 不输出第三行，完全不占纵向空间。
 session tree 切换会从当前分支的 snapshot 恢复状态并同步刷新 Footer 状态。
 

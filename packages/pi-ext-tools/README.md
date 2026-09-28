@@ -80,12 +80,13 @@ inactive until that session starts its first background task, so a session that 
 background work carries none of their schemas or guidelines. Activation is derived from Pi's
 own `getActiveTools()`: the session start deactivates them (Pi activates every registered
 extension tool), the first `tasks.create()` activates them, and they are removed again only at
-`session_compact` or `session_tree` while no task is running. `do not poll` lives on
+`session_compact` or `session_tree` while nothing needs control — no active task and no result the
+parent has not confirmed reading (`registry.requiresControl`). `do not poll` lives on
 `wait_tasks` itself, so it reaches `<rules>` only while task control is active.
 
 ## Tool Output
 
-`grep`, `read`, `write`, `edit`, `find`, and `bash` declare `longOutput: true`, so
+`grep`, `read`, `write`, `edit`, `find`, `ls`, and `bash` declare `longOutput: true`, so
 the shared `ToolTui` frame may collapse them after completion. The `Tool Output`
 settings group (`toolTui.collapseMode`) selects when:
 

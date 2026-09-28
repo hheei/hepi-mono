@@ -16,4 +16,4 @@
 }
 ```
 
-默认关闭（opt-in）。不读取或迁移更早的 HEPI 扩展留下的旧配置键。
+默认关闭（opt-in）。`pi-dollar-skill` section 只做读取兼容，写回始终落在 `dollar-skill`；更早版本写入的 `dollarSkillReferences` 引用不再读取或迁移。
