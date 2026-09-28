@@ -329,6 +329,17 @@ export class TaskRegistry {
 		record.status = "running";
 	}
 
+	/**
+	 * Marks a task whose startup has begun but whose execution is not yet confirmed.
+	 * Admission through a bounded queue makes `queued` a real, observable state, so the
+	 * step between admission and a running execution must be observable too.
+	 */
+	markStarting(id: string): void {
+		const record = this.#records.get(id);
+		if (record === undefined || record.status !== "queued") return;
+		record.status = "starting";
+	}
+
 	/** Records the single terminal result of one task. Repeat calls are ignored. */
 	settle(id: string, terminal: TaskTerminal): boolean {
 		const record = this.#records.get(id);

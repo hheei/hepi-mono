@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import { getToolTui, registerExtensionLifecycle } from "@hheei/pi-ext-core";
 import { registerChildBridge } from "./child-bridge.js";
 import { bindParentStatus, registerParentCommands } from "./commands.js";
 import type { ChildIdentity } from "./domain.js";
-import { BRIDGE_ENVIRONMENT_KEYS, isThinkingLevel } from "./domain.js";
+import { BRIDGE_ENVIRONMENT_KEYS, isOperationError, isThinkingLevel } from "./domain.js";
 import {
 	createCmuxHostAdapter,
 	createHerdrHostAdapter,
@@ -13,6 +13,8 @@ import { type ParentChannelReport, SubagentManager } from "./manager.js";
 import { createSubagentRegistry } from "./registry.js";
 import { createRuntimeTokenStore, launchDetachedRunner, recoverDetachedRunner } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
+import { AgentTaskExecutor } from "./task-executor.js";
+import { registerTaskTool } from "./task-tool.js";
 import { registerParentTools } from "./tools.js";
 import { createSubagentWidget } from "./widget.js";
 
@@ -144,6 +146,38 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			}
 			registerParentTools(pi, manager);
 			registerParentCommands(pi, manager);
+			// One `task` call becomes one dedicated child plus one shared-registry entry. The child
+			// is spawned through the same RPC launch path as a conversation child, and is never
+			// resumed or attached afterwards.
+			registerTaskTool(runtime, getToolTui(pi), (taskRegistry) => {
+				const executor = new AgentTaskExecutor({
+					registry: taskRegistry,
+					async launch(request) {
+						const spawned = await manager.spawn({
+							agent: request.agent,
+							task: request.task,
+							...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+							taskContract: request.contract,
+						});
+						if (isOperationError(spawned)) {
+							throw new Error(`${spawned.operation} failed: ${spawned.reason}`);
+						}
+						return { childId: spawned.child.id };
+					},
+					async stopChild(childId) {
+						const stopped = await manager.stop(childId);
+						return !isOperationError(stopped);
+					},
+					onCleanupFailure(childId, reason) {
+						console.error(`pi-subagents: task child ${childId} cleanup: ${reason}`);
+					},
+				});
+				const unsubscribeTaskEvents = manager.onChildEvent((childId, event) => {
+					executor.handleChildEvent(childId, event);
+				});
+				runtime.resources.add("subagent-task-events", () => unsubscribeTaskEvents());
+				return executor;
+			});
 			const widget = createSubagentWidget(pi, context, runtime.signal);
 			const refreshWidget = (): void => {
 				if (runtime.signal.aborted) return;

@@ -1,3 +1,5 @@
+import { isRecord } from "@hheei/pi-ext-core";
+
 export const PROTOCOL_VERSION = 1 as const;
 export const REGISTRY_VERSION = 1 as const;
 
@@ -108,6 +110,12 @@ export interface EffectiveLaunchConfig {
 	readonly bridgeExtensionPath: string;
 	/** Frozen at spawn. Interactive children do not auto-wake the parent except via contact_parent. */
 	readonly interactive: boolean;
+	/**
+	 * Frozen result contract of a Task child. Its presence is what makes this launch a Task
+	 * execution: the child can submit exactly one final result, and it is never resumed for
+	 * more input afterwards.
+	 */
+	readonly task?: TaskChildContract;
 }
 
 export interface ResolvedAgentPolicy {
@@ -206,6 +214,29 @@ export interface SpawnSubagentInput {
 	readonly task: string;
 	readonly agent: string;
 	readonly cwd?: string;
+	/**
+	 * Present when this child executes a Task rather than a conversation turn. It is frozen at
+	 * acceptance and travels to the child as its result contract.
+	 */
+	readonly taskContract?: TaskChildContract;
+}
+
+/** True when a manager call returned a structured failure instead of a value. */
+export function isOperationError(value: unknown): value is OperationError {
+	return (
+		isRecord(value) &&
+		typeof value.operation === "string" &&
+		typeof value.reason === "string" &&
+		Array.isArray(value.sideEffects)
+	);
+}
+
+/** The result contract of a Task child: an optional JSON Schema plus a soft reminder threshold. */
+export interface TaskChildContract {
+	/** JSON Schema the final result must validate against; absent means a text result is enough. */
+	readonly schema?: unknown;
+	/** Turn count after which the child is reminded once to converge. Never a hard stop. */
+	readonly softTurns: number;
 }
 
 /** Child bridge tool name; agent tool policy must never remove it. */

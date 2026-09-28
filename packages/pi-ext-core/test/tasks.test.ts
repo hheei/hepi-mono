@@ -213,7 +213,12 @@ test("binds an asynchronous starter and refuses a binding for a stopped task", (
 	const tasks = registry();
 	const task = tasks.create({ type: "bash", purpose: "async start", initialStatus: "queued" });
 	expect(tasks.get(task.id)?.status).toBe("queued");
+	tasks.markStarting(task.id);
+	expect(tasks.get(task.id)?.status).toBe("starting");
 	tasks.markRunning(task.id);
+	expect(tasks.get(task.id)?.status).toBe("running");
+	// Startup reporting is one-way: a running task is never pushed back to queued.
+	tasks.markStarting(task.id);
 	expect(tasks.get(task.id)?.status).toBe("running");
 	expect(tasks.bind(task.id, idleBinding())).toBe(true);
 	// A second binding never replaces the first control surface.

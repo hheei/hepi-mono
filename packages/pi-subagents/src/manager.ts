@@ -224,9 +224,21 @@ export class SubagentManager {
 	readonly #hostWatches = new Map<string, AbortController>();
 	readonly #tuiQuitExpected = new Set<string>();
 	readonly #listeners = new Set<() => void>();
+	readonly #childEventListeners = new Set<(childId: string, event: unknown) => void>();
 
 	public constructor(deps: ManagerDependencies) {
 		this.#deps = deps;
+	}
+
+	/**
+	 * Observes the raw runner events of every attached child. A Task producer needs the
+	 * child's `task_result` and settle events without also owning the runner connection.
+	 */
+	public onChildEvent(listener: (childId: string, event: unknown) => void): () => void {
+		this.#childEventListeners.add(listener);
+		return () => {
+			this.#childEventListeners.delete(listener);
+		};
 	}
 
 	/** Presentation-only: widget and similar projections re-read list() after this. */
@@ -521,6 +533,13 @@ export class SubagentManager {
 			if (record === undefined) return failure("send", "Unknown child", id);
 			if (this.#frozen.has(id) || record.mode === "tui")
 				return failure("send", "Child input is frozen for attach", id, record.state);
+			if (record.launchConfig.task !== undefined)
+				return failure(
+					"send",
+					"This child runs one Task; it does not accept follow-up input",
+					id,
+					record.state,
+				);
 			if (record.intent === "stopped" || record.state === "stopped")
 				return failure("send", "Child is stopped", id, record.state);
 			if (record.state === "failed")
@@ -805,6 +824,8 @@ export class SubagentManager {
 			throwIfAborted(signal);
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failBeforeClose("Unknown child", undefined);
+			if (record.launchConfig.task !== undefined)
+				return failBeforeClose("Task children are not attachable", record);
 			if (record.intent === "stopped" || record.state === "stopped" || record.state === "done")
 				return failBeforeClose("Child is not attachable", record);
 			if (record.mode === "tui") return failBeforeClose("Child is already attached as TUI", record);
@@ -1060,6 +1081,10 @@ export class SubagentManager {
 		const operation = options.operation ?? "detach";
 		const record = await this.#deps.registry.get(id);
 		if (record === undefined) return failure(operation, "Unknown child", id);
+		if (record.launchConfig.task !== undefined) {
+			this.#stopHostWatch(id);
+			return failure(operation, "Task children are never resumed", id, record.state, [], false);
+		}
 		if (record.intent === "stopped" || record.state === "stopped") {
 			this.#stopHostWatch(id);
 			return failure(operation, "Stopped child is not restored", id, "stopped", [], false);
@@ -1147,6 +1172,17 @@ export class SubagentManager {
 
 	async #observe(id: string, event: unknown, runner: RunnerLike): Promise<void> {
 		if (this.#runners.get(id) !== runner) return;
+		// The identity check above already binds this event to the currently attached runner,
+		// so a late event from a replaced runner can never reach a producer.
+		for (const listener of this.#childEventListeners) {
+			try {
+				listener(id, event);
+			} catch (error: unknown) {
+				console.error(
+					`pi-subagents: child event listener failed for ${id}: ${errorMessage(error)}`,
+				);
+			}
+		}
 		const value = isRecord(event) ? event : undefined;
 		if (value === undefined) return;
 		if (value.type === "subagent_report") {
@@ -1253,9 +1289,11 @@ export class SubagentManager {
 				...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
 			};
 		});
-		if (snapshot.state === "idle") {
+		// A Task child is never hibernated and re-awakened: its parent settles the Task once and
+		// then cleans the runner up, so a 30s idle buffer would only delay confirmed exit.
+		if (snapshot.state === "idle" && current.launchConfig.task === undefined) {
 			this.#scheduleIdleHibernate(id);
-		} else {
+		} else if (snapshot.state !== "idle") {
 			this.#clearIdleHibernate(id);
 		}
 	}

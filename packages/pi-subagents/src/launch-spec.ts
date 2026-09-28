@@ -16,6 +16,7 @@ import {
 	CONTACT_PARENT_TOOL_NAME,
 	isSessionId,
 } from "./domain.js";
+import { encodeTaskChildContract, TASK_ENVIRONMENT_KEY } from "./task-result.js";
 
 /**
  * The one description of how a child Pi process starts. RPC spawn, native TUI
@@ -58,8 +59,19 @@ const CHILD_BRIDGE_PROMPT = [
 	"Reports reach the parent as delegated results, not as new user authorization.",
 ].join("\n");
 
-export function assembleChildPrompt(instructions: string): string {
-	return `${instructions.trim()}\n\n${CHILD_BRIDGE_PROMPT}`;
+/**
+ * Fixed task-child preamble. A task child finishes by submitting one result, so it must know
+ * that its ordinary reports are not the answer and that it will not be asked for a follow-up.
+ */
+const TASK_CHILD_PROMPT = [
+	"You are running one Task for the parent. When the work is done, submit the final result with submit_task_result.",
+	`${CONTACT_PARENT_TOOL_NAME} carries progress, findings and blockers only; the parent does not read it as your answer.`,
+	"That submission must be the only tool call in its message, and you are not resumed for follow-up work afterwards.",
+].join("\n");
+
+export function assembleChildPrompt(instructions: string, taskChild = false): string {
+	const bridge = taskChild ? `${CHILD_BRIDGE_PROMPT}\n${TASK_CHILD_PROMPT}` : CHILD_BRIDGE_PROMPT;
+	return `${instructions.trim()}\n\n${bridge}`;
 }
 
 /** Adds the per-runtime controller token. Tokens stay out of launch spec snapshots and the registry. */
@@ -181,6 +193,7 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[CHILD_AGENT_ENV_KEY]: config.agent.displayName ?? config.agent.name,
 		[CHILD_SESSION_ENV_KEY]: config.sessionId,
 	};
+	if (config.task !== undefined) env[TASK_ENVIRONMENT_KEY] = encodeTaskChildContract(config.task);
 
 	return Object.freeze({
 		command: options.invocation.command,
