@@ -113,7 +113,57 @@ test("stays registered but inactive while no shared task registry exists", async
 	);
 });
 
-test("tells the model to wait when the findings are needed now", async (): Promise<void> => {
+test("waits by default and only backgrounds an explicit blocking: false", async (): Promise<void> => {
+	const hosted = host();
+	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	hosted.provide(registry);
+	const inline: boolean[] = [];
+	const stopped: string[] = [];
+	registerTaskTool(hosted.context, TUI, () => {
+		return {
+			start(request: { purpose: string; inlineResult?: boolean }) {
+				inline.push(request.inlineResult === true);
+				// The execution never settles in this test, so the call can only return by aborting:
+				// that is what proves the default path is the waiting one.
+				const task = registry.create({
+					type: "agent",
+					purpose: request.purpose,
+					begin: () => ({
+						stop: () => undefined,
+						describe: () => ({ output: "", truncated: false }),
+					}),
+				});
+				return { id: task.id, shortId: task.shortId, status: task.status };
+			},
+			stop(id: string) {
+				stopped.push(id);
+			},
+			dispose() {},
+		} as unknown as AgentTaskExecutor;
+	});
+	await settle();
+
+	const controller = new AbortController();
+	const waiting = callTool(hosted, { agent: "scout", task: "look" }, controller.signal);
+	await settle();
+	// No `blocking` at all is the default path, so the call is still open and its result is inline.
+	expect(inline).toEqual([true]);
+	controller.abort();
+	await expect(waiting).resolves.toMatchObject({
+		content: [{ type: "text", text: expect.stringContaining("was stopped") }],
+	});
+	expect(stopped).toEqual(["agent-test-1"]);
+
+	const background = (await callTool(hosted, {
+		agent: "scout",
+		task: "look later",
+		blocking: false,
+	})) as { readonly content: readonly { readonly text: string }[] };
+	expect(inline).toEqual([true, false]);
+	expect(background.content[0]?.text).toContain("Started agent-2 (agent-test-2).");
+});
+
+test("tells the model that waiting is the default", async (): Promise<void> => {
 	const hosted = host();
 	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	registerTaskTool(hosted.context, TUI, () => ({}) as unknown as AgentTaskExecutor);
@@ -121,12 +171,14 @@ test("tells the model to wait when the findings are needed now", async (): Promi
 
 	const tool = hosted.tools.get(TASK_TOOL_ID);
 	const guidelines = tool?.promptGuidelines?.join("\n") ?? "";
-	// Review and reconnaissance work is only useful before the next step, so the tool teaches the
-	// blocking form for it rather than relying on the model to infer it from the two modes.
-	expect(guidelines).toContain("`blocking: true`");
+	// Review and reconnaissance work is only useful before the next step, so the tool says which
+	// mode that work belongs in instead of leaving the model to infer it from two booleans.
+	expect(guidelines).toContain("The default waits for the result");
 	expect(guidelines).toContain("review");
 	expect(guidelines).toContain("scout");
+	expect(guidelines).toContain("`blocking: false`");
 	expect(guidelines).toContain("Do not poll wait_tasks");
+	expect(tool?.description).toContain("Waits for the result in this call");
 });
 
 test("activates with the existing registry and never mints a second one", async (): Promise<void> => {

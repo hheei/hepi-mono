@@ -23,10 +23,13 @@ are design sources, not the live contract. Remaining pause-handshake work is tra
 | `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness, and inherited model/thinking. Use this for identity or state, not to wait. |
 | `list_subagents({})` | List children owned by this parent session. Use this for ids or current state, not to wait. |
 | `stop_subagent({ id })` | Persist a stopped intent, then end the runtime. |
+| `task({ agent, task, cwd?, blocking?, outputSchema? })` | Run one delegated task as a dedicated execution that is terminated after its final result. Waits for that result in the call unless `blocking: false` starts it as a shared background task. Requires `@hheei/pi-ext-tools` for the task registry. |
 
 There is no batch-spawn tool: parallel children come from Pi's own parallel tool calls.
-`agent` is required; this package ships no built-in default agent, so an unresolved or
-missing agent name fails before any process starts.
+`agent` is required and never defaulted: discovery (project `.pi/agents`, project
+`.agents/agents`, user `~/.pi/agent/agents`, then the built-in definitions) must resolve the name,
+and the only built-in definition is the read-only `scout`, so an unresolved or missing agent name
+fails before any process starts.
 
 The child branch registers exactly one tool, `contact_parent({ reason, message })`, with
 reasons `progress_update`, `important_finding`, `need_decision`, and `blocked`. Calling it

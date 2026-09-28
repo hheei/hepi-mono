@@ -70,16 +70,17 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 
 ## 选择 blocking 还是后台
 
-`blocking` 只决定调用者怎么拿到结果，不改变执行路径、并发上限或进程模型。默认（省略或 `false`）是先在
-后台启动并立刻返回 task id；需要在本轮就拿到结论的工作——代码 review、审计、verification、scout 侦查——
-显式传 `blocking: true`，结果作为该次 tool_result 返回。Bash 方向相反：本地命令默认前台等待，只有超过
-`autoAsyncSeconds`（60s）才自动转后台，显式 `blocking: true` 会关掉这次自动转换。
+`blocking` 只决定调用者怎么拿到结果，不改变执行路径、并发上限或进程模型。`task` 默认等待：受理后在同一
+次调用里返回结果（review、审计、verification、scout 侦查都属于这一类），只有显式 `blocking: false` 才
+后台启动并立刻返回 task id，结果稍后经通知到达。`bash` 的缺省方向不同：本地命令默认前台等待，只有超过
+`autoAsyncSeconds`（60s）才自动转后台，显式 `blocking: true` 会关掉这次自动转换。两个工具的 schema 与
+guideline 都要各自说明这一点。
 
 ## 交付
 
 第一个待交付结果在 t0 到达时开启**固定**窗口，t0+5s 提交；窗口内完成的结果合并，后续完成不延长
 窗口。合并同时受总字节与条目数约束，小结果很多时也会拆成多条消息，而不是堆成一条无法阅读的
-长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
+长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`task` 的缺省方式）在受理时就登记为
 “结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。
 若该调用被中断，调用方在返回前显式放弃这份内联结果（`releaseInlineResult`），此后无论任务以
 `completed`（结果已提交）还是 `cancelled` 收尾，都会走正常的后台通知通道，而不是把结果留在已经返回的

@@ -52,7 +52,7 @@ const SPAWN_GUIDELINES = [
 	"When the child calls contact_parent, a pi-subagent-report message starts your next turn.",
 	"After spawn returns, end your turn or do other independent work, including more parallel spawns.",
 	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
-	"Prefer `task` with `blocking: true` for a review, an audit, or reconnaissance whose findings you need before your next step; `spawn_subagent` is for a partner you will talk to again.",
+	"Prefer `task` for a review, an audit, or reconnaissance whose findings you need before your next step — it waits for the result by default; `spawn_subagent` is for a partner you will talk to again.",
 ] as const;
 const SEND_DESCRIPTION =
 	"Send a steer or follow-up message to one owned child. You can send to active or finished (done) children; finished children will automatically wake up and resume with their previous session context. Do NOT poll get_subagent or list_subagents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";

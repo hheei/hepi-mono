@@ -45,7 +45,7 @@ const taskSchema = Type.Object({
 	blocking: Type.Optional(
 		Type.Boolean({
 			description:
-				"true waits for the result in this call — use it for a review, an audit or a scout pass you must act on now; false or omitted starts a background task (default)",
+				"true (default) waits for the result in this call; pass false only to start a background task and return its id instead",
 		}),
 	),
 	outputSchema: Type.Optional(
@@ -56,13 +56,13 @@ const taskSchema = Type.Object({
 });
 
 const DESCRIPTION =
-	"Run one delegated task as a background agent execution. Returns a task id immediately unless blocking is true. Read the result with wait_tasks, or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_subagent when you need a reusable conversation partner instead.";
+	"Run one delegated task as a dedicated agent execution. Waits for the result in this call and returns it; pass blocking: false to start a background task and get its id back immediately instead, then read the result with wait_tasks or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_subagent when you need a reusable conversation partner instead.";
 
 const GUIDELINES = [
-	"Pass `blocking: true` when your next step depends on the answer — a code review, an audit, a verification pass, or a scout's reconnaissance — so the findings arrive in this call instead of a later turn.",
-	"Omit `blocking` (or pass false) for work that can outlive this call: start it, keep working, and let the result arrive when it finishes.",
+	"The default waits for the result, which is what a code review, an audit, a verification pass or a scout's reconnaissance needs before you can continue.",
+	"Pass `blocking: false` only for work that can outlive this call: it starts a background task, and you should keep working until its result arrives as a notification.",
 	"A blocking call reports its result only here, so do not wait for a notification as well.",
-	"Do not poll wait_tasks for a background task. The automatic notification starts your next turn.",
+	"Do not poll wait_tasks for a task you started with blocking: false. The automatic notification starts your next turn.",
 	"Set outputSchema when you need a machine-readable result instead of prose.",
 ];
 
@@ -103,20 +103,23 @@ export function registerTaskTool(
 			if (integration === undefined) throw new Error(unavailable);
 			const contract = taskContract(params.outputSchema);
 			const anchor = taskAnchor(context);
+			// Waiting is the default: a delegated task is usually the step you needed to take next,
+			// and only an explicit false says the result can arrive after this call.
+			const block = params.blocking !== false;
 			let started: ReturnType<AgentTaskExecutor["start"]>;
 			try {
 				started = integration.executor.start({
 					agent: params.agent,
 					task: params.task,
 					...(params.cwd === undefined ? {} : { cwd: params.cwd }),
-					...(params.blocking === true ? { inlineResult: true } : {}),
+					...(block ? { inlineResult: true } : {}),
 					...(anchor === undefined ? {} : { anchor }),
 					contract,
 				});
 			} catch (error) {
 				throw new Error(`Task was not accepted: ${errorMessage(error)}`);
 			}
-			if (params.blocking !== true) {
+			if (!block) {
 				return textToolResult(
 					`Started ${started.shortId} (${started.id}). Its result is added to the context after the notification window; read it earlier with wait_tasks ${started.id}.`,
 					{ id: started.id, shortId: started.shortId, status: started.status },
