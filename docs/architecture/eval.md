@@ -34,7 +34,7 @@ Kernel 子进程不继承 `*_API_KEY` / `*_TOKEN` / `*_SECRET`。Python 把 sess
 
 每个 cell 开始时把 cwd 设回 session cwd。JavaScript 把 `process.stdout` / `process.stderr` 的 write 转进 Transcript。soft-cancel 清除该 JS kernel 上尚未触发的 timer。POSIX 上 kernel 在 host 消失后退出。`PYTHONPATH` 与 `LD_LIBRARY_PATH` 会传给 kernel。
 
-NDJSON 单行超过约 1 MiB 时该语言 kernel 失败。details 最多保留 200 行；超出部分进 Output（最多 256 KiB）；失败行与省略提示各占一行、不参与该上限，因此长输出之后的异常不会被截掉。nested live renderer cache 只在本进程内保留可重绘的 nested 结果，按字符预算（512 KiB）淘汰最旧项，而不是被下一格清空；进程重启或 reload 后历史 nested 行回退为 `name: text` 文本，不持久化 raw details。执行过程通过 `onUpdate` 推送 rows。Python fd 1 由背景线程 drain，避免子进程写满 pipe。
+NDJSON 单行超过约 1 MiB 时该语言 kernel 失败。details 最多保留 200 行；超出部分进 Output（最多 256 KiB）；失败行与省略提示各占一行、不参与该上限，因此长输出之后的异常不会被截掉。nested live renderer cache 只在本进程内保留可重绘的 nested 结果，按实际保留内容的字符预算（512 KiB：文本、图片 base64 与 stringify 后的 details 都计入）淘汰最旧项，单项超过整个预算或 details 无法序列化时不保留，而不是被下一格清空；进程重启或 reload 后历史 nested 行回退为 `name: text` 文本，不持久化 raw details。执行过程通过 `onUpdate` 推送 rows。Python fd 1 由背景线程 drain，避免子进程写满 pipe。
 
 `pi-ext-tools.eval.enabled` 默认 `false`。construction 注册 canonical definition 与 renderer；`session_start` 仅在设置启用时把 `eval` 放进 active catalog 与 Loadout。设置变化只在 reload 或新 session 生效。
 
