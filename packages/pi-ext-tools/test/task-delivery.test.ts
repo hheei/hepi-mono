@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { TaskRegistry, type TaskTerminal } from "@hheei/pi-ext-core";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-	MAX_NOTIFICATION_BATCH_CHARS,
+	MAX_NOTIFICATION_BATCH_BYTES,
 	MAX_TASK_MESSAGE_CHARS,
 	startTaskDelivery,
 	TASK_NOTIFICATION_WINDOW_MS,
@@ -280,7 +280,7 @@ test("splits a large batch instead of dropping results", (): void => {
 	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
-		expect(message.content.length).toBeLessThan(MAX_NOTIFICATION_BATCH_CHARS * 2);
+		expect(message.content.length).toBeLessThan(MAX_NOTIFICATION_BATCH_BYTES * 2);
 	}
 	const delivered = current.sent.map((message) => message.content).join("\n");
 	for (const id of ids) expect(delivered).toContain(id);
@@ -370,7 +370,28 @@ test("bounds a merged message by the text it actually sends", (): void => {
 
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
-		expect(message.content.length).toBeLessThanOrEqual(MAX_NOTIFICATION_BATCH_CHARS);
+		expect(Buffer.byteLength(message.content, "utf8")).toBeLessThanOrEqual(
+			MAX_NOTIFICATION_BATCH_BYTES,
+		);
+	}
+});
+
+test("splits by the bytes the message costs, not by its character count", (): void => {
+	vi.useFakeTimers();
+	const current = harness();
+	// Three-byte characters cost three bytes each, so a character-counted bound would let this
+	// message grow to three times the size it promises to stay under.
+	for (let index = 0; index < 5; index += 1) {
+		const id = start(current, `wide ${index}`);
+		current.registry.settle(id, terminal("\u20ac".repeat(MAX_TASK_MESSAGE_CHARS / 3)));
+	}
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(current.sent.length).toBeGreaterThan(1);
+	for (const message of current.sent) {
+		expect(Buffer.byteLength(message.content, "utf8")).toBeLessThanOrEqual(
+			MAX_NOTIFICATION_BATCH_BYTES,
+		);
 	}
 });
 
