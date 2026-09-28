@@ -13,6 +13,8 @@ import {
 } from "../src/session-bootstrap.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
+const TASK_CONTRACT = { softTurns: 60 } as const;
+
 const PARENT_SESSION_ID = "01J7-parent";
 const PARENT = {
 	model: { provider: "anthropic", id: "claude-sonnet-4" },
@@ -87,6 +89,66 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 		expect(config.prompt).toContain("contact_parent");
 		expect(config.interactive).toBe(false);
 		expect(JSON.stringify(config)).not.toContain("PI_SUBAGENTS_TOKEN");
+	});
+});
+
+test("a Task child's tool allowlist includes the result channel it must use", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+		await writeFile(
+			join(cwd, ".pi", "agents", "limited.md"),
+			"---\nname: limited\ntools:\n  - read\n  - contact_parent\n---\nDo the work.\n",
+			"utf8",
+		);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		const conversational = await resolveSubagentLaunch({
+			input: { task: "Review the file", agent: "limited" },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+		});
+		expect(conversational.tools).toEqual(["read", "contact_parent"]);
+		expect(conversational.task).toBeUndefined();
+
+		// Without this the child could never submit a result and every task would settle as
+		// invalid_result while the child had no way to say what went wrong.
+		const asTask = await resolveSubagentLaunch({
+			input: { task: "Review the file", agent: "limited", taskContract: TASK_CONTRACT },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+		});
+		expect(asTask.tools).toEqual(["read", "contact_parent", "submit_task_result"]);
+		expect(asTask.task).toEqual(TASK_CONTRACT);
+	});
+});
+
+test("refuses to run a Task whose result channel is excluded", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+		await writeFile(
+			join(cwd, ".pi", "agents", "excluded.md"),
+			"---\nname: excluded\nexclude_tools:\n  - submit_task_result\n---\nDo the work.\n",
+			"utf8",
+		);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		await expect(
+			resolveSubagentLaunch({
+				input: { task: "Review the file", agent: "excluded", taskContract: TASK_CONTRACT },
+				cwd,
+				parent: PARENT,
+				modelRegistry: MODEL_REGISTRY,
+				bridgeExtensionPath: bridge,
+			}),
+		).rejects.toThrow(/exclude_tools cannot disable submit_task_result/u);
 	});
 });
 

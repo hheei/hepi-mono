@@ -97,6 +97,7 @@ export function registerTaskTool(
 					agent: params.agent,
 					task: params.task,
 					...(params.cwd === undefined ? {} : { cwd: params.cwd }),
+					...(params.blocking === true ? { inlineResult: true } : {}),
 					contract,
 				});
 			} catch (error) {

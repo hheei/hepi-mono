@@ -241,6 +241,8 @@ export interface TaskChildContract {
 
 /** Child bridge tool name; agent tool policy must never remove it. */
 export const CONTACT_PARENT_TOOL_NAME = "contact_parent" as const;
+/** The only channel through which a Task child reports its final result. */
+export const TASK_RESULT_TOOL_NAME = "submit_task_result" as const;
 
 /** Environment contract between a parent launch and the child branch of this extension. */
 export const BRIDGE_ENVIRONMENT_KEYS = {
