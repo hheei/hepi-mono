@@ -11,6 +11,7 @@ import {
 	createRuntimeTokenStore,
 	isPidConfirmedDead,
 	isRecordedRunnerConfirmedDead,
+	launchDetachedRunner,
 	recoverDetachedRunner,
 } from "../src/runtime.js";
 import { startFakeRunner } from "./helpers/runner-harness.js";
@@ -177,6 +178,43 @@ test("reconnects a surviving runner without starting a replacement or replaying 
 		}
 	} finally {
 		await harness.dispose();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("releases the claim when the runner it spawned is confirmed gone", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pi-subagents-start-"));
+	const registry = createSubagentRegistry({
+		parentSessionId: "parent-one",
+		filePath: join(directory, "registry.json"),
+	});
+	const controller = new AbortController();
+	try {
+		const record = await registry.create(
+			childRecord("parent-one", "child-start", directory, {
+				// The runner entry starts and the process it supervises exits at once, so the launch never
+				// connects and the runner itself is gone by the time the failure is handled.
+				launchConfig: {
+					...launchConfig("child-start", directory),
+					invocation: { command: process.execPath, args: ["-e", "process.exit(3)"] },
+				},
+			}),
+		);
+		const launch = launchDetachedRunner({
+			registry,
+			record,
+			tokens: createRuntimeTokenStore(),
+			signal: controller.signal,
+		});
+		setTimeout(() => controller.abort(), 300);
+		// The abort lands in the connect phase, so a process was spawned and the failure was handled
+		// with that process as evidence rather than before the spawn.
+		await expect(launch).rejects.toThrow(/abort/iu);
+
+		// Nothing is running under the launch, so the claim must not outlive it: keeping it would make
+		// the child unavailable for the rest of the session even though no process owns it.
+		expect((await registry.get("child-start"))?.claim).toBeUndefined();
+	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });

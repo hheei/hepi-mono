@@ -398,6 +398,39 @@ describe("SubagentManager contracts", () => {
 		expect(registry.current?.runtime).toEqual(record.runtime);
 	});
 
+	test("stop is not reported as stopped while the child process is still alive", async () => {
+		const runtime = await spawnRecordedRuntime();
+		try {
+			const record = childRecord("running");
+			const runtimeMetadata = record.runtime;
+			if (runtimeMetadata === undefined) throw new Error("the fixture needs runtime metadata");
+			const live: SubagentRecord = {
+				...record,
+				runtime: { ...runtimeMetadata, pid: runtime.pid },
+			};
+			const runner = new FakeRunner();
+			const { manager, registry } = managerWith(live, runner);
+			await manager.spawn({ task: "Work.", agent: "worker" });
+
+			// The shutdown request was answered and the socket closed, but the process is still there:
+			// reporting a clean stop would let the caller free the capacity it still occupies.
+			const refused = await manager.stop(CHILD_ID);
+			expect(refused).toMatchObject({
+				state: "stopped",
+				safeToRetry: true,
+				sideEffects: ["stopped intent persisted", "runtime metadata retained"],
+			});
+			expect(registry.current?.runtime).toEqual(live.runtime);
+
+			// A dead process is proof, so the retry finishes the stop and lets the evidence go.
+			runtime.stop();
+			expect(await manager.stop(CHILD_ID)).toMatchObject({ state: "stopped" });
+			expect(registry.current?.runtime).toBeUndefined();
+		} finally {
+			runtime.stop();
+		}
+	});
+
 	test("stop wins over a late runtime event and clears matching runtime metadata", async () => {
 		const record = childRecord("starting");
 		const runner = new FakeRunner();

@@ -30,6 +30,30 @@ function runtimeDirectory(): string {
 	return join(tmpdir(), `pi-subagents-${user}`);
 }
 
+/** Bounded wait for a runner we spawned ourselves to be gone before its claim is dropped. */
+const RUNNER_EXIT_CONFIRM_MS = 10_000;
+
+/**
+ * Waits for the process we started. Our own handle is exact evidence: once it has exited, no
+ * runner of this launch can still own the session, so a claim is safe to release.
+ */
+async function confirmChildExit(child: ChildProcess, deadlineMs: number): Promise<boolean> {
+	if (hasExited(child)) return true;
+	return new Promise<boolean>((resolve) => {
+		const timer = setTimeout(() => resolve(hasExited(child)), deadlineMs);
+		timer.unref?.();
+		child.once("exit", () => {
+			clearTimeout(timer);
+			resolve(true);
+		});
+	});
+}
+
+function hasExited(child: ChildProcess): boolean {
+	// A process killed by a signal reports a null exit code and a signal instead.
+	return child.exitCode !== null || child.signalCode !== null;
+}
+
 export function createRuntimeTokenStore(): RuntimeTokenStore {
 	const tokens = new Map<string, string>();
 	return {
@@ -279,12 +303,14 @@ async function startClaimedRunner(
 	} catch (error) {
 		connection.close();
 		child?.kill("SIGTERM");
+		// A process we spawned ourselves can be observed directly, so the claim is only kept when its
+		// exit could not be confirmed: keeping it forever would lock the session out of a retry even
+		// after nothing is running, while dropping it early would let a second runner start for the
+		// same session.
+		const exited =
+			child === undefined ? true : await confirmChildExit(child, RUNNER_EXIT_CONFIRM_MS);
 		if (jobPathWritten) await unlink(jobPath).catch(() => undefined);
-		// Nothing was spawned, so no process can own the session and the claim is safe to drop.
-		// Once a process exists the claim (and any recorded pid) is the only evidence that it may
-		// still be alive, so releasing it here would let a later attempt start a second runner for
-		// the same session. The caller reports that case as an unconfirmed start instead.
-		if (child?.pid === undefined) {
+		if (exited) {
 			const current = await registry.get(record.subagentId).catch(() => undefined);
 			if (current?.claim?.claimId === claimId) {
 				await registry.releaseClaim(record.subagentId, claimId).catch(() => undefined);
