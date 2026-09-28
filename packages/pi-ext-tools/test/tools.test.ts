@@ -8,7 +8,7 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI, visibleWidth } from "@earendil-works/pi-tui";
-import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import type { EditCatalog } from "../src/fff/settings.js";
 import { MAX_HL_CHARS } from "../src/pretty/config.js";
@@ -69,13 +69,10 @@ describe("pi-ext-tools catalog", () => {
 		const catalog = host.tools.map((tool) => tool.name);
 		// Pi activates every registered extension tool before session_start runs.
 		host.pi.setActiveTools([...catalog]);
-		const tasks = startTaskControl(
-			{
-				pi: host.pi,
-				resources: { add: (): void => undefined },
-			} as unknown as ExtensionLifecycleContext,
-			createToolTui(),
-		);
+		const tasks = startTaskControl({
+			pi: host.pi,
+			resources: { add: (): void => undefined },
+		} as unknown as ExtensionLifecycleContext);
 		expect(host.activeTools()).toEqual(catalog.filter((name) => !TASK_TOOL_IDS.includes(name)));
 		expect(host.activeTools()).toEqual(expect.arrayContaining(["read", "bash", "eval"]));
 		tasks.dispose();

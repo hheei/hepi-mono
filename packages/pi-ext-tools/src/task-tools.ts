@@ -45,7 +45,7 @@ export interface TaskControl {
  * active and no result is still waiting for notification. The three tools must already be
  * registered through `registerTaskTools`.
  */
-export function startTaskControl(context: ExtensionLifecycleContext, tui: ToolTui): TaskRegistry {
+export function startTaskControl(context: ExtensionLifecycleContext): TaskRegistry {
 	const setActive = (active: boolean): void => {
 		const applied = context.pi.getActiveTools().some((id) => TASK_TOOL_IDS.includes(id));
 		if (applied === active) return;
