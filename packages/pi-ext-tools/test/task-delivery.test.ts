@@ -302,3 +302,35 @@ test("announces a result that is waiting on another branch", (): void => {
 	expect(notices()[1]).toContain(current.registry.get(second)?.shortId);
 	expect(notices()[1]).not.toContain(current.registry.get(first)?.shortId);
 });
+
+test("bounds a merged message by the text it actually sends", (): void => {
+	vi.useFakeTimers();
+	const current = harness();
+	// Each result is near the per-task cap, so the estimate-based splitter used to let a message
+	// grow past the aggregate bound.
+	for (let index = 0; index < 5; index += 1) {
+		const id = start(current, `big ${index}`);
+		current.registry.settle(id, terminal("x".repeat(MAX_TASK_MESSAGE_CHARS - 20)));
+	}
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(current.sent.length).toBeGreaterThan(1);
+	for (const message of current.sent) {
+		expect(message.content.length).toBeLessThanOrEqual(MAX_NOTIFICATION_BATCH_CHARS);
+	}
+});
+
+test("announces a held result even when this window delivered others", (): void => {
+	vi.useFakeTimers();
+	const current = harness({ branch: ["entry-1"], anchor: "entry-1" });
+	// The first result belongs to the current branch, the second to another one.
+	const here = start(current, "here", "entry-1");
+	const elsewhere = start(current, "elsewhere", "entry-2");
+	current.registry.settle(here, terminal("delivered"));
+	current.registry.settle(elsewhere, terminal("held"));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(current.sent).toHaveLength(1);
+	expect(current.sent[0]?.content).toContain("delivered");
+	expect(current.warnings.join("\n")).toMatch(/waiting on another branch/u);
+});

@@ -51,13 +51,19 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		if (disposed) return;
 		const pending = registry.pendingDeliveries();
 		const ready = pending.filter((event) => onCurrentBranch(session, event));
-		if (ready.length === 0) {
-			announceHeld(pending);
-			return;
+		const waitingElsewhere = pending.filter((event) => !onCurrentBranch(session, event));
+		// An id that is no longer pending — read through wait_tasks, delivered, or evicted — must not
+		// stay in this set, or it would both grow without bound and stay silent if it returned.
+		for (const id of held) {
+			if (!waitingElsewhere.some((event) => event.id === id)) held.delete(id);
 		}
-		// These are being delivered now, so a later hold on another branch must announce them again.
-		for (const event of ready) held.delete(event.id);
-		for (const batch of batchEvents(ready)) submit(batch);
+		if (ready.length > 0) {
+			// These are delivered now, so a later hold on another branch must announce them again.
+			for (const event of ready) held.delete(event.id);
+			for (const batch of batchEvents(ready)) submit(batch);
+		}
+		// Announced even when other results were delivered in this same window.
+		announceHeld(waitingElsewhere);
 	};
 
 	/**
@@ -165,16 +171,23 @@ function notificationText(event: TaskTerminalEvent): string {
 	].join("\n");
 }
 
-/** Splits ready results so one merged message stays inside the aggregate bound. */
+/**
+ * Splits ready results so one merged message stays inside the aggregate bound. The cost is the
+ * text that will actually be sent — id, status, purpose, tail and the blank line between entries
+ * — plus the note appended once per message, so the bound holds for the message and not just for
+ * an estimate of it.
+ */
 function batchEvents(events: readonly TaskTerminalEvent[]): TaskTerminalEvent[][] {
+	const perMessageOverhead = DELEGATED_OUTPUT_NOTE.length + 2;
 	const batches: TaskTerminalEvent[][] = [];
 	let batch: TaskTerminalEvent[] = [];
 	let size = 0;
 	for (const event of events) {
-		const cost = Math.min(event.output.length, MAX_TASK_MESSAGE_CHARS) + event.purpose.length + 80;
+		const cost = notificationText(event).length + 2;
 		if (
 			batch.length > 0 &&
-			(size + cost > MAX_NOTIFICATION_BATCH_CHARS || batch.length >= MAX_NOTIFICATION_BATCH_ENTRIES)
+			(size + cost + perMessageOverhead > MAX_NOTIFICATION_BATCH_CHARS ||
+				batch.length >= MAX_NOTIFICATION_BATCH_ENTRIES)
 		) {
 			batches.push(batch);
 			batch = [];

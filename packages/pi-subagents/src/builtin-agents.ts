@@ -85,13 +85,15 @@ export function isBuiltinAgent(path: string): boolean {
 
 /**
  * Why a resolved tool allowlist would break a built-in agent's promise, or `undefined` when it
- * does not. A built-in ships exactly the tools it names, so an allowlist that lost them, or
- * became empty (which Pi reads as "every tool"), would silently hand the agent far more power
- * than its definition advertises; resolution fails instead.
+ * does not. A built-in ships exactly the tools it names, so an allowlist that lost them, gained
+ * others, or became empty (which Pi reads as "every tool") would give the agent different powers
+ * than its definition advertises; resolution fails instead. `additionallyAllowed` names the one
+ * extra channel a Task child must have.
  */
 export function builtinAgentToolProblem(
 	sourcePath: string,
 	tools: readonly string[],
+	additionallyAllowed: readonly string[] = [],
 ): string | undefined {
 	const definition = builtinAgents().find((agent) => agent.path === sourcePath);
 	if (definition === undefined) return undefined;
@@ -102,6 +104,12 @@ export function builtinAgentToolProblem(
 	const missing = declared.filter((tool) => !tools.includes(tool));
 	if (missing.length > 0) {
 		return `tools it declares are missing: ${missing.join(", ")}`;
+	}
+	const gained = tools.filter(
+		(tool) => !declared.includes(tool) && !additionallyAllowed.includes(tool),
+	);
+	if (gained.length > 0) {
+		return `it would gain tools it never declared: ${gained.join(", ")}`;
 	}
 	return undefined;
 }
