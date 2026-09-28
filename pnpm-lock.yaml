@@ -163,7 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.87.0': 67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1
+  '@earendil-works/pi-tui@0.87.0': 5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed
 
 importers:
 
@@ -211,7 +211,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
       '@types/proper-lockfile':
         specifier: 4.1.4
         version: 4.1.4
@@ -227,7 +227,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
   packages/pi-ext-core:
     dependencies:
@@ -249,7 +249,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
       '@types/proper-lockfile':
         specifier: 4.1.4
         version: 4.1.4
@@ -277,7 +277,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: ^0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.2
@@ -317,7 +317,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
   packages/pi-optimizer:
     dependencies:
@@ -342,7 +342,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
   packages/pi-settings:
     dependencies:
@@ -355,7 +355,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
   packages/pi-status:
     dependencies:
@@ -368,7 +368,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
   packages/pi-subagents:
     dependencies:
@@ -384,7 +384,7 @@ importers:
         version: 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-tui':
         specifier: 0.87.0
-        version: 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+        version: 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
 
 packages:
 
@@ -2185,7 +2185,7 @@ snapshots:
       '@earendil-works/chord': 0.87.0
       '@earendil-works/pi-agent-core': 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
       '@earendil-works/pi-ai': 0.87.0(supports-color@7.2.0)(ws@8.21.3)(zod@4.6.4)
-      '@earendil-works/pi-tui': 0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)
+      '@earendil-works/pi-tui': 0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 6.0.0
       cross-spawn: 7.0.6
@@ -2212,7 +2212,7 @@ snapshots:
 
   '@earendil-works/pi-telemetry@0.87.0': {}
 
-  '@earendil-works/pi-tui@0.87.0(patch_hash=67677e5a2bb44c614e260556193846ea420ca9f54175af2796a79adc83ca9ac1)':
+  '@earendil-works/pi-tui@0.87.0(patch_hash=5f737b63d3be40ba3c7743947823fdec3e7f9d721cd7168ecf43ce926acaa8ed)':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.11

@@ -14,7 +14,9 @@ pi-dev # 或 scripts/pi-dev
 ```
 
 Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
-启动器优先解析全局安装的 Pi CLI（或 `PI_CLI` 环境变量），回退时从 `packages/pi-ext-tools/node_modules/@earendil-works/pi-coding-agent` 解析本地 Pi CLI。
+启动器默认使用 `packages/pi-ext-tools/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`，即仓库锁定的未捆绑 Pi host。它会加载 pnpm 管理的 `pi-tui` 补丁；全局 Pi 和 `dist/bundle/cli.js` 内嵌的 TUI 不会使用该补丁，因此不再作为自动回退。
+
+启动前会打印实际 CLI 路径。`PI_CLI` 仍可显式指定其他入口，同时提示仓库补丁不保证生效；路径不存在时直接报错，不静默改用其他 host。此选择不修改模型、供应商或 Pi 配置。
 
 ## 固定加载组合
 
@@ -51,5 +53,6 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 ## 故障排查
 
 - **找不到本地 Pi CLI**：在仓库根目录完成依赖安装后重试。
+- **折叠仍清空终端滚动历史**：确认启动输出是 workspace 的未捆绑入口，而不是 `PI_CLI` 指向的 bundle。依赖补丁修改后重新安装依赖并重启进程；`/reload` 只重载扩展，不能替换已加载的 host/TUI。
 - **需要强制重建**：删除 `.pi-dev/build.json` 后重新启动。该文件只保存构建指纹，不包含认证、会话或 Pi 配置。
 - **构建失败**：根据启动器输出修复对应 TypeScript 构建错误；不要将未成功生成的入口当成可运行版本。

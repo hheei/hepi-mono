@@ -48,7 +48,7 @@ index 0b9ef1f56155565479ac86d0ec232f51b9485d5e..74e8ad40013d6a6f0ca169fb14cbaa16
              this.hideTransientScrollbar();
      }
 diff --git a/dist/tui-main-screen.js b/dist/tui-main-screen.js
-index 896bb501fc5d6e7b0bf76faa8d97dcd045e95526..9f68624092ecd0a6a4f0f03c34ec7133bf6873f0 100644
+index 896bb501fc5d6e7b0bf76faa8d97dcd045e95526..9cee0174d255840cce91db7071b1e73a1cbf0e20 100644
 --- a/dist/tui-main-screen.js
 +++ b/dist/tui-main-screen.js
 @@ -235,13 +235,16 @@ export class TuiMainScreen extends TuiBase {
@@ -81,3 +81,14 @@ index 896bb501fc5d6e7b0bf76faa8d97dcd045e95526..9f68624092ecd0a6a4f0f03c34ec7133
              return;
          }
          // Height changes normally need a full re-render to keep the visible viewport aligned,
+@@ -407,7 +412,9 @@ export class TuiMainScreen extends TuiBase {
+         // If the first changed line is above the previous viewport, we need a full redraw.
+         if (firstChanged < prevViewportTop) {
+             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
+-            fullRender(true);
++            // A streaming update or collapse can change a row above the visible viewport.
++            // Repaint it without deleting the user's terminal scrollback.
++            fullRender(true, false);
+             return;
+         }
+         // Render from first changed line to end
