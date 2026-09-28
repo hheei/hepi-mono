@@ -1,13 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	realpathSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,38 +27,9 @@ const builtPackageDirs = builtPackageNames
 	.filter(existsSync);
 const toolsPackageDir = path.join(packageRoot, "pi-ext-tools");
 
-function resolveGlobalPiCli(): string | undefined {
-	if (process.env.PI_CLI && existsSync(process.env.PI_CLI)) {
-		return process.env.PI_CLI;
-	}
-	try {
-		const whichCmd = process.platform === "win32" ? "where" : "which";
-		const stdout = spawnSync(whichCmd, ["pi"], { encoding: "utf8" }).stdout?.trim();
-		if (!stdout) return undefined;
-		const firstLine = stdout.split(/\r?\n/)[0]?.trim();
-		if (!firstLine) return undefined;
-		const real = realpathSync(firstLine);
-		if (existsSync(real) && real.includes("pi-coding-agent")) {
-			return real;
-		}
-	} catch {
-		// Fall back to candidate paths.
-	}
-	return undefined;
-}
-
-const globalPiCli = resolveGlobalPiCli();
-const piCliCandidates = [
-	globalPiCli,
-	path.join(
-		toolsPackageDir,
-		"node_modules",
-		"@earendil-works",
-		"pi-coding-agent",
-		"dist",
-		"bundle",
-		"cli.js",
-	),
+// The bundle embeds its own TUI and bypasses pnpm's patchedDependencies.
+const piCli =
+	process.env.PI_CLI ??
 	path.join(
 		toolsPackageDir,
 		"node_modules",
@@ -73,16 +37,24 @@ const piCliCandidates = [
 		"pi-coding-agent",
 		"dist",
 		"cli.js",
-	),
-	path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"),
-].filter((candidate): candidate is string => Boolean(candidate));
-const piCli = piCliCandidates.find((candidate) => existsSync(candidate));
+	);
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const requiredBuildDirectories = [path.join(packageRoot, "pi-ext-core")].filter(existsSync);
-if (!piCli) {
-	console.error("Missing local Pi. Run pnpm install from the repository root.");
+if (!existsSync(piCli)) {
+	console.error(
+		process.env.PI_CLI !== undefined
+			? `Missing PI_CLI entry: ${JSON.stringify(piCli)}`
+			: "Missing local Pi. Run pnpm install from the repository root.",
+	);
 	process.exit(1);
 }
+console.error(
+	`[pi-dev] Pi host: ${JSON.stringify(piCli)} (${
+		process.env.PI_CLI !== undefined
+			? "PI_CLI override; workspace TUI patches are not guaranteed"
+			: "workspace, unbundled"
+	})`,
+);
 
 function updateSourceHash(hash: ReturnType<typeof createHash>, directory: string): void {
 	for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
