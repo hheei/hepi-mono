@@ -218,9 +218,13 @@ export async function resolveSubagentLaunch(
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
-		prompt: assembleChildPrompt(policy.agent.instructions),
+		prompt: assembleChildPrompt(
+			policy.agent.instructions,
+			options.input.taskContract !== undefined,
+		),
 		bridgeExtensionPath,
 		interactive: policy.interactive,
+		...(options.input.taskContract === undefined ? {} : { task: options.input.taskContract }),
 	});
 }
 

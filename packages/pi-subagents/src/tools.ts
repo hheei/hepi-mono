@@ -3,10 +3,10 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { getToolTui, isRecord, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
+import { getToolTui, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendReportToRunner } from "./connector.js";
-import type { ChildIdentity, OperationError, PublicSubagent } from "./domain.js";
+import { type ChildIdentity, isOperationError, type PublicSubagent } from "./domain.js";
 
 import type { SubagentManager } from "./manager.js";
 
@@ -36,15 +36,6 @@ const contactSchema = Type.Object({
 	message: Type.String({ minLength: 1 }),
 });
 const emptySchema = Type.Object({});
-
-function isOperationError(value: unknown): value is OperationError {
-	return (
-		isRecord(value) &&
-		typeof value.operation === "string" &&
-		typeof value.reason === "string" &&
-		Array.isArray(value.sideEffects)
-	);
-}
 
 function result(value: unknown): AgentToolResult<unknown> {
 	if (isOperationError(value)) throw new Error(JSON.stringify(value));

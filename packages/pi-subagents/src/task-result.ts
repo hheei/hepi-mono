@@ -22,13 +22,9 @@ import {
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { sendTaskResultToRunner } from "./connector.js";
-import type { ChildIdentity } from "./domain.js";
+import type { ChildIdentity, TaskChildContract } from "./domain.js";
 import { TASK_RESULT_EVENT } from "./protocol.js";
-import {
-	MAX_TASK_RESULT_BYTES,
-	prepareStructuredResult,
-	prepareTextResult,
-} from "./task-schema.js";
+import { prepareStructuredResult, prepareTextResult } from "./task-schema.js";
 
 export const TASK_ENVIRONMENT_KEY = "PI_SUBAGENTS_TASK";
 export const TASK_RESULT_TOOL_NAME = "submit_task_result";
@@ -39,11 +35,7 @@ export const TASK_RESULT_TOOL_NAME = "submit_task_result";
  */
 export const DEFAULT_TASK_SOFT_TURNS = 60;
 
-export interface TaskChildContract {
-	/** Present only when the parent asked for a structured result. */
-	readonly schema?: unknown;
-	readonly softTurns: number;
-}
+export type { TaskChildContract } from "./domain.js";
 
 const resultSchema = Type.Object(
 	{
