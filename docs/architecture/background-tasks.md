@@ -57,7 +57,8 @@ timed_out`。受理时一次性冻结 cwd、agent 定义、模型、thinking、�
 ## 交付
 
 第一个待交付结果在 t0 到达时开启**固定**窗口，t0+5s 提交；窗口内完成的结果合并，后续完成不延长
-窗口。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
+窗口。合并同时受总字节与条目数（当前 8 条）约束，小结果很多时也会拆成多条消息，而不是堆成一条无法阅读的
+长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
 “结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。交付记录区分
 `pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配
 task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。同步 task 的结果只走原
@@ -67,8 +68,8 @@ tool_result，不进入后台队列。
 
 registry 是 session runtime 状态，不新增持久化调度器。session 替换/reload 会通过
 `session_shutdown` 清理旧 timer、waiter、订阅与队列。`/tree` 不触发 session_shutdown，因此任务
-记录启动分支的 entry anchor：当前分支不再包含该 anchor 时暂停自动投递并标明来源分支，任务仍可
-显式查看/停止；已经交给 host 队列的消息无法撤回。
+记录启动分支的 entry anchor：当前分支不再包含该 anchor 时暂停自动投递，任务仍可显式查看/停止；回到该分支
+（`session_tree`）时重新开启窗口投递待交付结果，已经交给 host 队列的消息无法撤回。
 
 ## 失败与恢复边界
 

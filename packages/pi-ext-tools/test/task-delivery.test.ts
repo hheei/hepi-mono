@@ -24,6 +24,8 @@ interface Harness {
 	readonly stop: () => void;
 	/** Emits the message lifecycle event the host fires once a custom message is appended. */
 	emitMessageEnd(message: unknown): void;
+	/** Emits the tree-navigation event the host fires after the user switches branches. */
+	emitSessionTree(): void;
 	/** Simulates a rejected submission for the next send. */
 	failNextSend(error: Error): void;
 }
@@ -62,11 +64,15 @@ function harness(
 			};
 		},
 	} as unknown as ExtensionAPI;
+	let branch: readonly string[] = options.branch ?? [];
 	const session = {
 		sessionManager: {
-			getBranch: () => (options.branch ?? []).map((id) => ({ id })),
+			getBranch: () => branch.map((id) => ({ id })),
 		},
 	} as unknown as ExtensionContext;
+	const setBranch = (next: readonly string[]): void => {
+		branch = next;
+	};
 	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
 	const stop = startTaskDelivery({
 		pi,
@@ -84,6 +90,10 @@ function harness(
 			for (const handler of handlers.get("message_end") ?? [])
 				handler({ type: "message_end", message });
 		},
+		emitSessionTree() {
+			for (const handler of handlers.get("session_tree") ?? []) handler({ type: "session_tree" });
+		},
+		setBranch,
 		failNextSend(error) {
 			failure = error;
 		},
@@ -229,4 +239,39 @@ test("stops notifying after disposal and clears the open window", (): void => {
 	current.stop();
 	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 2);
 	expect(current.sent).toHaveLength(0);
+});
+
+test("resumes a held result when the session returns to its branch", (): void => {
+	vi.useFakeTimers();
+	const current = harness({ branch: ["other"], anchor: "entry-1" });
+	const id = start(current, "held work", "entry-1");
+	current.registry.settle(id, terminal("held output"));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 2);
+
+	// The result was not injected into a branch that never contained its starting point.
+	expect(current.sent).toHaveLength(0);
+
+	// Returning to that branch must deliver it without waiting for another task to finish.
+	current.setBranch(["entry-1"]);
+	current.emitSessionTree();
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(current.sent).toHaveLength(1);
+	expect(current.sent[0]?.content).toContain("held output");
+});
+
+test("splits a long list of small results instead of merging one giant message", (): void => {
+	vi.useFakeTimers();
+	const current = harness();
+	for (let index = 0; index < 10; index += 1) {
+		const id = start(current, `task ${index}`);
+		current.registry.settle(id, terminal("ok"));
+	}
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(current.sent.length).toBeGreaterThan(1);
+	for (const message of current.sent) {
+		const notices = message.content.split("Background task ").length - 1;
+		expect(notices).toBeLessThanOrEqual(8);
+	}
 });
