@@ -431,3 +431,27 @@ test("supports atomic updates with undefined expectedRevision and tolerates revi
 		expect(afterActivate.runtime?.pid).toBe(12345);
 	});
 });
+
+test("rejects a Task contract the child could not satisfy", async (): Promise<void> => {
+	await withTempDir("pi-subagents-registry-", async (directory) => {
+		const store = registry(join(directory, "registry.json"));
+		const withTask = (task: unknown): SubagentRecord =>
+			record("sa_aaaa", directory, {
+				launchConfig: { ...launchConfig("sa_aaaa", directory), task } as EffectiveLaunchConfig,
+			});
+
+		await expect(store.create(withTask({ softTurns: 0 }))).rejects.toThrow(
+			/launchConfig\.task\.softTurns must be a positive integer/u,
+		);
+		await expect(store.create(withTask({ softTurns: 1.5 }))).rejects.toThrow(
+			/launchConfig\.task\.softTurns must be a positive integer/u,
+		);
+		await expect(store.create(withTask({ softTurns: 60, extra: true }))).rejects.toThrow(
+			/launchConfig\.task has unsupported field extra/u,
+		);
+		await expect(
+			store.create(withTask({ softTurns: 60, schema: { type: "wibble" } })),
+		).rejects.toThrow(/launchConfig\.task\.schema is not usable/u);
+		expect(await store.list()).toEqual([]);
+	});
+});

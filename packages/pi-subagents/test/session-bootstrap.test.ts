@@ -235,6 +235,45 @@ test("persists the spawn intent before any process starts and keeps the task rec
 	});
 });
 
+test("a Task child's result contract survives persistence", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await writeAgent(cwd);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const contract = {
+			schema: {
+				type: "object",
+				properties: { answer: { type: "string" } },
+				required: ["answer"],
+			},
+			softTurns: 60,
+		};
+		const registry = createSubagentRegistry({
+			parentSessionId: PARENT_SESSION_ID,
+			filePath: join(directory, "registry.json"),
+		});
+		const config = await resolveSubagentLaunch({
+			input: { task: "Answer the question", agent: "worker", taskContract: contract },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+		});
+
+		await persistSubagentIntent({
+			registry,
+			parentSessionId: PARENT_SESSION_ID,
+			task: "Answer the question",
+			launchConfig: config,
+		});
+
+		// Every later launch step re-reads the record from disk, so a contract field the record
+		// parser does not accept makes the child impossible to start.
+		expect((await registry.get(config.subagentId))?.launchConfig.task).toEqual(contract);
+	});
+});
+
 test("refuses to persist an intent whose registry belongs to another parent session", async (): Promise<void> => {
 	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");
