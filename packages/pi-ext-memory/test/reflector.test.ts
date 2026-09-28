@@ -7,7 +7,6 @@ import {
 	summarizeSupportIdCounts,
 } from "../src/agents/reflector/agent.js";
 import { hashId } from "../src/ids.js";
-import { AGENT_LOOP_MAX_TOKENS } from "../src/model-budget.js";
 import { estimateStringTokens } from "../src/tokens.js";
 import { captureLoopConfig, fakeAgentLoop, itClampsMaxTokens } from "./fixtures/agent-loop.js";
 import { observation, reflection } from "./fixtures/session.js";

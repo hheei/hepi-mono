@@ -2,7 +2,7 @@ import type { ModelsRefreshOptions } from "@earendil-works/pi-ai";
 import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
+import type { ModelRegistryLike } from "../src/runtime.js";
 import { testModel } from "./fixtures/model.js";
 import { newConfiguredRuntime } from "./fixtures/runtime.js";
 
