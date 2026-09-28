@@ -5,7 +5,9 @@ import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
 import {
 	builtinAgents,
 	builtinAgentToolProblem,
+	REVIEWER_REQUIRED_TOOLS,
 	SCOUT_REQUIRED_TOOLS,
+	WORKER_REQUIRED_TOOLS,
 } from "../src/builtin-agents.js";
 import { CONTACT_PARENT_TOOL_NAME, type ThinkingLevel } from "../src/domain.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
@@ -40,10 +42,14 @@ async function writeAgent(
 	return path;
 }
 
-/** The tools the built-in scout definition declares, in declaration order. */
+/** The tools a built-in definition declares, in declaration order. */
+function builtinTools(name: string): string[] {
+	const agent = builtinAgents().find((candidate) => candidate.name === name);
+	return String(agent?.frontmatter.tools).split(",");
+}
+
 function scoutTools(): string[] {
-	const scout = builtinAgents().find((agent) => agent.name === "scout");
-	return String(scout?.frontmatter.tools).split(",");
+	return builtinTools("scout");
 }
 
 function resolve(directory: string, name: string, bridgeExtensionPath: string) {
@@ -71,7 +77,13 @@ test("agent discovery prefers the most specific scope for a duplicate name", asy
 		);
 
 		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
-		expect(discovered.map((agent) => agent.path)).toEqual([pi, "<builtin>/scout.md"]);
+		// The project definition takes the name, so that built-in never appears; the other built-ins
+		// are still the last scope.
+		expect(discovered.map((agent) => agent.path)).toEqual([
+			pi,
+			"<builtin>/scout.md",
+			"<builtin>/worker.md",
+		]);
 
 		const resolved = await resolve(directory, "reviewer", bridge);
 		expect(resolved.agent.sourcePath).toBe(pi);
@@ -206,28 +218,28 @@ test("rejects unknown, unimplemented, and conflicting agent fields", async (): P
 		await writeFile(bridge, "", "utf8");
 		const cases: ReadonlyArray<{ readonly definition: string; readonly reason: RegExp }> = [
 			{
-				definition: "---\nname: worker\ncolour: red\n---\nbody\n",
+				definition: "---\nname: labour\ncolour: red\n---\nbody\n",
 				reason: /unsupported field colour/u,
 			},
-			{ definition: "---\nname: worker\nmax_turns: 40\n---\nbody\n", reason: /max_turns/u },
+			{ definition: "---\nname: labour\nmax_turns: 40\n---\nbody\n", reason: /max_turns/u },
 			{
-				definition: "---\nname: worker\npreload_skills: true\n---\nbody\n",
+				definition: "---\nname: labour\npreload_skills: true\n---\nbody\n",
 				reason: /preload_skills/u,
 			},
-			{ definition: "---\nname: worker\n---\n\n", reason: /body must not be empty/u },
+			{ definition: "---\nname: labour\n---\n\n", reason: /body must not be empty/u },
 			{
-				definition: "---\nname: worker\nhidden: yes\n---\nbody\n",
+				definition: "---\nname: labour\nhidden: yes\n---\nbody\n",
 				reason: /hidden must be boolean/u,
 			},
 			{
-				definition: "---\nname: worker\ninteractive: yes\n---\nbody\n",
+				definition: "---\nname: labour\ninteractive: yes\n---\nbody\n",
 				reason: /interactive must be boolean/u,
 			},
-			{ definition: "---\nname: other\n---\nbody\n", reason: /Unknown agent worker/u },
+			{ definition: "---\nname: other\n---\nbody\n", reason: /Unknown agent labour/u },
 		];
 		for (const item of cases) {
-			await writeAgent(directory, ".pi", "worker", item.definition);
-			await expect(resolve(directory, "worker", bridge)).rejects.toThrow(item.reason);
+			await writeAgent(directory, ".pi", "labour", item.definition);
+			await expect(resolve(directory, "labour", bridge)).rejects.toThrow(item.reason);
 		}
 	});
 });
@@ -324,6 +336,49 @@ test("discovers the built-in scout without writing into the user home", async ()
 		// The resolved allowlist is exactly what the definition declares — no more, no less.
 		expect(resolved.tools).toEqual(scoutTools());
 	});
+});
+
+test("ships a worker and a reviewer that resolve to the tools they declare", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
+		expect(discovered.map((agent) => agent.name)).toEqual(["scout", "worker", "reviewer"]);
+
+		const worker = await resolve(directory, "worker", bridge);
+		expect(worker.model).toEqual({ ...PARENT.model, source: "parent" });
+		expect(worker.tools).toEqual(builtinTools("worker"));
+		// A worker exists to change code, so it must be able to write and to run commands.
+		expect(worker.tools).toEqual(expect.arrayContaining([...WORKER_REQUIRED_TOOLS]));
+
+		const reviewer = await resolve(directory, "reviewer", bridge);
+		expect(reviewer.tools).toEqual(builtinTools("reviewer"));
+		expect(reviewer.tools).toEqual(expect.arrayContaining([...REVIEWER_REQUIRED_TOOLS]));
+		// The review skills live in the machine's skill directories, and `--skill` takes a path, so a
+		// built-in cannot name them: it keeps skill discovery on instead of pinning a path that only
+		// exists on one machine.
+		expect(reviewer.skills).toEqual({ discovery: true, paths: [] });
+	});
+});
+
+test("a built-in cannot be reduced to a role that cannot report", (): void => {
+	// Each definition names the tools its promise depends on; a constant that lost one is a
+	// build-time bug, and losing the report channel would leave the agent unable to finish.
+	for (const [name, required] of [
+		["scout", SCOUT_REQUIRED_TOOLS],
+		["worker", WORKER_REQUIRED_TOOLS],
+		["reviewer", REVIEWER_REQUIRED_TOOLS],
+	] as const) {
+		const declared = builtinTools(name);
+		expect(declared).toEqual(expect.arrayContaining([...required]));
+		expect(declared).toContain(CONTACT_PARENT_TOOL_NAME);
+		const problem = builtinAgentToolProblem(
+			`<builtin>/${name}.md`,
+			declared.filter((tool) => tool !== CONTACT_PARENT_TOOL_NAME),
+		);
+		expect(problem).toMatch(/tools it declares are missing: contact_parent/u);
+	}
 });
 
 test("a user definition of scout replaces the built-in one", async (): Promise<void> => {

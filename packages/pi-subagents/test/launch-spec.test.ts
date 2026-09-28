@@ -87,6 +87,21 @@ test("keeps every host and flag argv atom intact, including paths with spaces", 
 	expect(BUILT_ATOM_CLAIMS.every((atom) => built.argv.includes(atom))).toBe(true);
 });
 
+test("keeps skill discovery unless the definition turned it off", (): void => {
+	// The built-in reviewer relies on discovery to see the review skills: naming one is not possible,
+	// because `--skill` takes a path.
+	const discovered = spec(launchConfig(), "rpc", "never_flushed");
+	expect(discovered.argv).not.toContain("--no-skills");
+
+	const narrowed = spec(
+		launchConfig({ skills: { discovery: false, paths: ["/skills/ponytail-review"] } }),
+		"rpc",
+		"never_flushed",
+	);
+	expect(narrowed.argv).toContain("--no-skills");
+	expect(narrowed.argv).toContain("--skill");
+});
+
 test("creates a never-flushed session with its recorded id and never opens an absent path", (): void => {
 	const built = spec(launchConfig(), "rpc", "never_flushed");
 	expect(built.argv).toContain("--session-id");
