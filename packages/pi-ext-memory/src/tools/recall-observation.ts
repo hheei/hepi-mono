@@ -437,9 +437,13 @@ function observationCountForHeader(details: RecallObservationToolDetails): numbe
 	return isObservationOnly(details) ? details.matches.length : details.observations.length;
 }
 
+/**
+ * TUI labels reuse the shared status glyphs instead of ASCII marks: 󰄴 for content the recall did
+ * return, 󰀪 for a caveat about it, 󰅚 for a lookup that failed.
+ */
 function formatRecallHeaderForTui(details: RecallObservationToolDetails): string {
-	if (isFailureStatus(details.status)) return "× failure";
-	const parts = ["✓ success"];
+	if (isFailureStatus(details.status)) return "󰅚 failure";
+	const parts = ["󰄴 success"];
 	if (details.reflections.length > 0) parts.push(plural(details.reflections.length, "reflection"));
 	const observations = observationCountForHeader(details);
 	if (observations > 0) parts.push(plural(observations, "observation"));
@@ -470,7 +474,7 @@ function sourceTag(source: RecallSourceEntryDetails): string {
 
 function sourceMetadataLine(source: RecallSourceEntryDetails): string {
 	return alignedRow(
-		"✓ source",
+		"󰄴 source",
 		`${source.timestamp} [${sourceTag(source)}]`,
 		tokenSummary(source.tokens),
 	);
@@ -479,18 +483,18 @@ function sourceMetadataLine(source: RecallSourceEntryDetails): string {
 function observationLine(observation: ObservationDetails): string {
 	const status = observation.status === "dropped" ? " dropped" : "";
 	return alignedRow(
-		"✓ observation",
+		"󰄴 observation",
 		`${observation.timestamp} [${observation.relevance}]${status}`,
 		observation.content,
 	);
 }
 
 function reflectionLine(reflection: ReflectionDetails): string {
-	return alignedRow("✓ reflection", "", reflection.content);
+	return alignedRow("󰄴 reflection", "", reflection.content);
 }
 
 function noteLine(kind: string, text: string): string {
-	return alignedRow("• note", `[${kind}]`, text);
+	return alignedRow("󰀪 note", `[${kind}]`, text);
 }
 
 function indentContent(content: string): string {
