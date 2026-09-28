@@ -49,15 +49,27 @@ export interface BuildLaunchSpecOptions {
  * task policy; this part states the parent relationship and the reporting channel
  * every child has, so it cannot be lost by editing an agent file.
  */
-const CHILD_BRIDGE_PROMPT = [
-	"You are a delegated Pi subagent working for a parent Pi session.",
-	"The parent owns your task, and its instructions remain the only source of new authority.",
-	`Use ${CONTACT_PARENT_TOOL_NAME} to report progress, important findings, decisions you need, or blockers.`,
-	"The parent is notified automatically when you call that tool. Do not wait for the parent to poll you.",
-	"If you finish a turn without calling that tool, you will be reminded. Do not send empty status pings.",
-	"After need_decision or blocked, wait for a parent message. Do not invent new authority.",
-	"Reports reach the parent as delegated results, not as new user authorization.",
-].join("\n");
+function childBridgePrompt(taskChild: boolean): string {
+	const lines = [
+		"You are a delegated Pi subagent working for a parent Pi session.",
+		"The parent owns your task, and its instructions remain the only source of new authority.",
+		`Use ${CONTACT_PARENT_TOOL_NAME} to report progress, important findings, decisions you need, or blockers.`,
+		"The parent is notified automatically when you call that tool. Do not wait for the parent to poll you.",
+		"If you finish a turn without calling that tool, you will be reminded. Do not send empty status pings.",
+	];
+	if (taskChild) {
+		// A Task child is never resumed, so waiting for a parent message would be waiting forever.
+		lines.push(
+			"If you are blocked or need a decision, report it and submit it as your result; do not wait for a parent message. Do not invent new authority.",
+		);
+	} else {
+		lines.push(
+			"After need_decision or blocked, wait for a parent message. Do not invent new authority.",
+		);
+	}
+	lines.push("Reports reach the parent as delegated results, not as new user authorization.");
+	return lines.join("\n");
+}
 
 /**
  * Fixed task-child preamble. A task child finishes by submitting one result, so it must know
@@ -71,7 +83,9 @@ const TASK_CHILD_PROMPT = [
 ].join("\n");
 
 export function assembleChildPrompt(instructions: string, taskChild = false): string {
-	const bridge = taskChild ? `${CHILD_BRIDGE_PROMPT}\n${TASK_CHILD_PROMPT}` : CHILD_BRIDGE_PROMPT;
+	const bridge = taskChild
+		? `${childBridgePrompt(true)}\n${TASK_CHILD_PROMPT}`
+		: childBridgePrompt(false);
 	return `${instructions.trim()}\n\n${bridge}`;
 }
 
@@ -194,7 +208,10 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[CHILD_AGENT_ENV_KEY]: config.agent.displayName ?? config.agent.name,
 		[CHILD_SESSION_ENV_KEY]: config.sessionId,
 	};
-	if (config.task !== undefined) env[TASK_ENVIRONMENT_KEY] = encodeTaskChildContract(config.task);
+	// The task channel belongs to this launch: an inherited value from an outer process would make a
+	// conversation child register the task result tool and expect a contract it was never given. An
+	// empty value is the defined "no contract" case.
+	env[TASK_ENVIRONMENT_KEY] = config.task === undefined ? "" : encodeTaskChildContract(config.task);
 
 	return Object.freeze({
 		command: options.invocation.command,

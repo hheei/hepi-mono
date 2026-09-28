@@ -82,7 +82,9 @@ export function taskContractFromEnv(
 /**
  * Background work this same session started. A result that precedes its own background work
  * would report a conclusion the child has not reached yet, so the submission is refused while
- * any of it is still running. Without the shared task registry there is no such work to see.
+ * any of it is still running. Without the shared task registry there is no such work to see: the
+ * background-capable bash belongs to the task extension, so a child that did not load it can only
+ * run commands in the foreground.
  */
 function outstandingBackgroundWork(pi: ExtensionAPI): number {
 	return getService(pi, TASK_REGISTRY_SERVICE_KEY)?.activeCount ?? 0;
