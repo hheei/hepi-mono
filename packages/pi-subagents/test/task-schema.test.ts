@@ -169,3 +169,32 @@ describe("structured results", () => {
 		expect(prepareTextResult("x".repeat(MAX_TASK_RESULT_BYTES + 1))).toMatchObject({ ok: false });
 	});
 });
+
+describe("declared limits and supported formats", () => {
+	test("measures non-ASCII text in the unit it states", () => {
+		// The bound is in bytes: three-byte characters would otherwise pass it at a third of their cost.
+		const multibyte = "\u20ac".repeat(Math.floor(MAX_TASK_RESULT_BYTES / 3) + 1);
+		const oversized = prepareTextResult(multibyte);
+		expect(oversized.ok).toBe(false);
+		expect(oversized.ok ? "" : oversized.reason).toContain(`${Buffer.byteLength(multibyte)} bytes`);
+		expect(
+			checkOutputSchema({ type: "string", description: "\u20ac".repeat(MAX_OUTPUT_SCHEMA_BYTES) }),
+		).toContain("larger than");
+	});
+
+	test("only accepts formats the validator actually enforces", () => {
+		// TypeBox enforces the formats it registers and silently passes an unknown one, so a schema
+		// that names one is only usable because this list matches its registry: the accepted schema
+		// is checked here, and the enforcement it promises is checked right after.
+		const schema = { type: "string", format: "email" };
+		expect(checkOutputSchema(schema)).toBeUndefined();
+		expect(prepareStructuredResult(schema, "not-an-email")).toMatchObject({ ok: false });
+		expect(prepareStructuredResult(schema, "someone@example.com")).toMatchObject({ ok: true });
+		const uuid = { type: "string", format: "uuid" };
+		expect(checkOutputSchema(uuid)).toBeUndefined();
+		expect(prepareStructuredResult(uuid, "not-a-uuid")).toMatchObject({ ok: false });
+		expect(prepareStructuredResult(uuid, "2c1f0a9e-6f6f-4a4c-9c1a-6f0a9e6f6f4a")).toMatchObject({
+			ok: true,
+		});
+	});
+});

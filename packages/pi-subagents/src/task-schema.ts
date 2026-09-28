@@ -22,6 +22,14 @@ export const MAX_TASK_RESULT_BYTES = 32 * 1024;
 
 const JSON_TYPES = new Set(["null", "boolean", "object", "array", "number", "string", "integer"]);
 
+/**
+ * The bounds below are stated in bytes, and a JSON string's length is UTF-16 code units: a result
+ * full of non-ASCII text would otherwise pass the check while occupying more than the limit allows.
+ */
+function byteSize(text: string): number {
+	return Buffer.byteLength(text, "utf8");
+}
+
 /** Format names TypeBox actually enforces. */
 const SUPPORTED_FORMATS = new Set([
 	"date-time",
@@ -402,7 +410,7 @@ export function checkOutputSchema(schema: unknown): string | undefined {
 		return "outputSchema is not serializable";
 	}
 	if (serialized === undefined) return "outputSchema is not serializable";
-	if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
+	if (byteSize(serialized) > MAX_OUTPUT_SCHEMA_BYTES) {
 		return `outputSchema is larger than ${MAX_OUTPUT_SCHEMA_BYTES} bytes`;
 	}
 	return checkNode(schema, "#", 0, {
@@ -446,10 +454,11 @@ export function prepareStructuredResult(
 	}
 	const json = JSON.stringify(value);
 	if (json === undefined) return { ok: false, reason: "Result is not serializable as JSON" };
-	if (json.length > MAX_TASK_RESULT_BYTES) {
+	const jsonBytes = byteSize(json);
+	if (jsonBytes > MAX_TASK_RESULT_BYTES) {
 		return {
 			ok: false,
-			reason: `Result is ${json.length} bytes and exceeds the ${MAX_TASK_RESULT_BYTES} byte limit; return a smaller value`,
+			reason: `Result is ${jsonBytes} bytes and exceeds the ${MAX_TASK_RESULT_BYTES} byte limit; return a smaller value`,
 		};
 	}
 	return { ok: true, candidate: { json, value } };
@@ -461,10 +470,11 @@ export function prepareTextResult(
 ):
 	| { readonly ok: true; readonly candidate: TaskResultCandidate }
 	| { readonly ok: false; readonly reason: string } {
-	if (text.length > MAX_TASK_RESULT_BYTES) {
+	const textBytes = byteSize(text);
+	if (textBytes > MAX_TASK_RESULT_BYTES) {
 		return {
 			ok: false,
-			reason: `Result is ${text.length} bytes and exceeds the ${MAX_TASK_RESULT_BYTES} byte limit; summarize it`,
+			reason: `Result is ${textBytes} bytes and exceeds the ${MAX_TASK_RESULT_BYTES} byte limit; summarize it`,
 		};
 	}
 	return { ok: true, candidate: { json: text, value: text } };
