@@ -41,9 +41,15 @@ timing 猜测。
 | `conversation` | durable child `AgentSession`，但只存活于 parent session；create 时必填 initial message、reply consumption 与有限 soft `maxTurnsPerReply` | 可持续送入 message，并选择同步 wait 或异步 delivery reply；用于 Advisor 等保留 child review context 的 consumer |
 
 
-foreground/background 不是第四 mode，也没有主 agent `wait` 或 result-polling tool。task launch 后立即
-返回；parent 完成当前 turn 后空闲，terminal delivery 通过 event-driven follow-up 排入它的后续工作。
-schedule/cron 是未来的 `task` trigger，不是新的执行 mode。
+foreground/background 不是第四 mode。**本文的 coordinator 契约**没有主 agent `wait` 或
+result-polling tool：task launch 后立即返回，parent 完成当前 turn 后空闲，terminal delivery 通过
+event-driven follow-up 排入它的后续工作。schedule/cron 是未来的 `task` trigger，不是新的执行 mode。
+
+这与 [background-tasks.md](background-tasks.md) 的 session 级后台任务契约不是同一层：后者由
+`TaskRegistry` 提供 `list_tasks` / `wait_tasks` / `stop_tasks`，管的是同一个 parent session 内
+Bash 与 Agent 委托的执行登记与终态读取；coordinator 管的是 consumer 通过 factory 创建的 child
+execution 及其 delivery sink。两者都以 root session 为界、都不引入 durable scheduler，但一个
+extension 不能把前者的 tool 当作后者的 delivery 通道，反之亦然。
 
 completion 的 failed terminal 保留用户可读 message，并携带 core-normalized failure kind。core 只从原始
 provider error 的数值 HTTP `status`/`statusCode` 与标准 transport `code` 提取结构化证据，未知 shape 必须
