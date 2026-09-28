@@ -11,6 +11,7 @@ import {
 	agentResultText,
 	createToolTui,
 	errorMessage,
+	isRecord,
 	type ManagedToolRegistration,
 	registerManagedTool,
 	type ToolTui,
@@ -306,10 +307,18 @@ function renderNestedTrace(
 	);
 	const tool = bridge.definition(trace.name);
 	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
-	if (tool?.renderResult === undefined || live === undefined) return fallback;
+	// A canonical renderer reads the fields of a parsed argument object. Once the arguments were too
+	// large to keep, the trace holds bounded text instead, and handing that over would lose the path a
+	// read row draws from; the bounded trace line is the honest rendering then.
+	const args = trace.args;
+	if (tool?.renderResult === undefined || live === undefined || !isRecord(args)) return fallback;
 	try {
-		const rendered = tool.renderResult(live as never, options, theme, {
-			args: trace.args,
+		// The nested call is over — its result is what is being re-rendered — so the outer cell's
+		// streaming state must not make it look like a call that is still running. Expansion does pass
+		// through, because that is about this cell's display.
+		const nestedOptions: ToolRenderResultOptions = { ...options, isPartial: false };
+		const rendered = tool.renderResult(live as never, nestedOptions, theme, {
+			args,
 			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,
 			invalidate: context?.invalidate ?? (() => undefined),
 			lastComponent: undefined,
@@ -317,7 +326,7 @@ function renderNestedTrace(
 			cwd: context?.cwd ?? process.cwd(),
 			executionStarted: true,
 			argsComplete: true,
-			isPartial: options.isPartial,
+			isPartial: false,
 			expanded: options.expanded,
 			showImages: context?.showImages ?? false,
 			isError: trace.error !== undefined,
