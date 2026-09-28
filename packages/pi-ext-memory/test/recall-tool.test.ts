@@ -79,7 +79,8 @@ describe("V3 recall tool", () => {
 		expect(result.details?.status).toBe("ok");
 		expect(result.details?.matches[0].observation.status).toBe("active");
 		expect(text).toContain("I like tea.");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("✓ observation");
+		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰄴 observation");
+		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰄴 success");
 	});
 
 	it("renders dropped observations as recallable but dropped", async () => {
@@ -102,6 +103,7 @@ describe("V3 recall tool", () => {
 		expect(result.details?.matches[0].observation.status).toBe("dropped");
 		expect(text).toContain("dropped from active memory but remains recallable");
 		expect(tui).toContain("[dropped]");
+		expect(tui).toContain("󰀪 note");
 	});
 
 	it("renders reflection recall with supporting observations and sources", async () => {
@@ -156,6 +158,7 @@ describe("V3 recall tool", () => {
 
 		expect(result.details?.status).toBe("not_found");
 		expect(text).toContain("No observation or reflection with id aaaaaaaaaaaa was found");
+		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰅚 failure");
 	});
 
 	it("answers with the disabled notice instead of a memory when the session gate is off", async () => {

@@ -188,6 +188,11 @@ For details and tuning guidance, see [`docs/configuration.md`](docs/configuratio
 Tab completion after `/om ` offers these subcommands (and `full` after `/om view `), through the shared
 `subcommandCompletions` helper of `@hheei/pi-ext-core`.
 
+The `recall` result body reuses the shared status glyphs instead of ASCII marks: its first line is
+`󰄴 success · N observations · M sources · ~K tokens`, a lookup the id or the gate refused is
+`󰅚 failure`, every returned item gets an aligned `󰄴 reflection` / `󰄴 observation` / `󰄴 source` row, and
+every caveat gets an `󰀪 note` row (a dropped observation, a missing source, an id collision).
+
 ### Session gate vs. passive mode
 
 The two switches are orthogonal:
