@@ -28,6 +28,8 @@ interface Harness {
 	emitSessionTree(): void;
 	/** Simulates a rejected submission for the next send. */
 	failNextSend(error: Error): void;
+	/** Moves the session onto another branch, as tree navigation does. */
+	setBranch(branch: readonly string[]): void;
 }
 
 function harness(
