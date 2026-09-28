@@ -102,6 +102,21 @@ test("a submitted result is the only thing that completes a task", async (): Pro
 	expect(h.executor.running).toBe(0);
 });
 
+test("agent_end does not settle a task that has not submitted a result", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("keep working"));
+	await flush();
+
+	// `agent_end` only ends a turn; a task may still be running, so it must not complete the task
+	// and must not free the slot.
+	h.executor.handleChildEvent("child-1", { type: "agent_end" });
+	await flush();
+
+	expect(h.registry.get(task.id)?.status).toBe("running");
+	expect(h.executor.running).toBe(1);
+	expect(h.stops).toEqual([]);
+});
+
 test("a settled execution without a submission fails instead of waking the child again", async (): Promise<void> => {
 	const h = harness();
 	const task = h.executor.start(request("answer without submitting"));

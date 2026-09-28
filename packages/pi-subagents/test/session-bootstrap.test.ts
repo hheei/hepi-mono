@@ -92,6 +92,33 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 	});
 });
 
+test("the built-in scout keeps its read-only tools and gains the result channel", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await mkdir(cwd, { recursive: true });
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		const config = await resolveSubagentLaunch({
+			input: { task: "Map the callers", agent: "scout", taskContract: TASK_CONTRACT },
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+		});
+
+		expect(config.agent.sourcePath).toBe("<builtin>/scout.md");
+		expect(config.tools).toEqual([
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"contact_parent",
+			"submit_task_result",
+		]);
+	});
+});
+
 test("a Task child's tool allowlist includes the result channel it must use", async (): Promise<void> => {
 	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");

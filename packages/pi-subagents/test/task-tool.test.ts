@@ -8,6 +8,7 @@ import {
 } from "@hheei/pi-ext-core";
 import { expect, test } from "vitest";
 import type { AgentTaskExecutor } from "../src/task-executor.js";
+import { TASK_ENVIRONMENT_KEY } from "../src/task-result.js";
 import { registerTaskTool, TASK_TOOL_ID } from "../src/task-tool.js";
 
 interface Host {
@@ -145,4 +146,31 @@ test("names the real cause when the integration fails after the registry appears
 	await expect(callTool(hosted, { agent: "scout", task: "look" })).rejects.toThrow(
 		/no agent concurrency budget left/u,
 	);
+});
+
+test("refuses to delegate from inside a task child", async (): Promise<void> => {
+	const hosted = host();
+	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	let starts = 0;
+	registerTaskTool(hosted.context, TUI, () => {
+		return {
+			start() {
+				starts += 1;
+				throw new Error("unreachable");
+			},
+			dispose() {},
+		} as unknown as AgentTaskExecutor;
+	});
+	await settle();
+
+	// A Task child reports to its own parent; nested delegation would belong to no delivery.
+	process.env[TASK_ENVIRONMENT_KEY] = JSON.stringify({ softTurns: 60 });
+	try {
+		await expect(callTool(hosted, { agent: "scout", task: "look" })).rejects.toThrow(
+			/cannot delegate further/u,
+		);
+	} finally {
+		delete process.env[TASK_ENVIRONMENT_KEY];
+	}
+	expect(starts).toBe(0);
 });

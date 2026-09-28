@@ -5,6 +5,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
 import type { ModelRegistryLike, ParentAgentDefaults } from "./agent-resolver.js";
 import { resolveAgent } from "./agent-resolver.js";
+import { builtinAgentToolProblem } from "./builtin-agents.js";
 import type {
 	EffectiveLaunchConfig,
 	ExecutionMode,
@@ -214,10 +215,10 @@ export async function resolveSubagentLaunch(
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
-		tools: taskChildTools(
-			policy.tools,
-			policy.excludeTools,
-			options.input.taskContract !== undefined,
+		tools: requireUsableTools(
+			policy.agent.sourcePath,
+			policy.agent.name,
+			taskChildTools(policy.tools, policy.excludeTools, options.input.taskContract !== undefined),
 		),
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
@@ -237,6 +238,22 @@ export async function resolveSubagentLaunch(
  * omits it would make every such task fail without the child being able to say why. An empty
  * allowlist already means "all tools", so only a non-empty list needs the channel added.
  */
+/**
+ * Fails before any process exists when a built-in agent's allowlist no longer matches what it
+ * advertises, rather than launching a child with the wrong permissions.
+ */
+function requireUsableTools(
+	sourcePath: string,
+	agentName: string,
+	tools: readonly string[],
+): readonly string[] {
+	const problem = builtinAgentToolProblem(sourcePath, tools);
+	if (problem !== undefined) {
+		throw new Error(`Built-in agent ${agentName} cannot run: ${problem}`);
+	}
+	return tools;
+}
+
 function taskChildTools(
 	tools: readonly string[],
 	excludeTools: readonly string[],

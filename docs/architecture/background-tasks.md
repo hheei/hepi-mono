@@ -37,8 +37,15 @@
 ## 状态与终态
 
 `queued → starting → running → terminal`。terminal 为 `completed | failed | cancelled |
-timed_out`。受理时一次性冻结 cwd、agent 定义、模型、thinking、工具权限与 result contract，
-排队期间父模型或磁盘配置变化不改变已受理任务。
+timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose`、显式 `cwd`、完整 `agent` 名、
+`task` 文本、result contract（`outputSchema` 与 soft hint 阈值）与 inline/background 交付方式。
+排队期间父模型与磁盘配置的变化不会改变这些字段，也不会让一个任务变成另一个任务。
+
+不冻结的是**解析后的启动策略**：工具权限、模型、thinking 与 agent 定义正文在真正启动时解析
+（`queued` 任务出队时才解析 agent 文件与父模型）。因此并发已满、任务在队列中等待时，父会话期间切换
+模型或修改 agent 定义会作用于该任务。这是有意的取舍：把解析提前到受理会改动 `SubagentManager.spawn`
+的既有契约与状态机，而"任务排队期间有人改父模型"在实践中几乎不会发生。需要绝对冻结时应避免超过并发上限
+的排队，或先 `stop_tasks` 后重新发起。
 
 - 取消是请求：只有执行停止被确认后才提交 `cancelled`；已终结的 task 不会被迟到事件改写。
 - 自然完成与取消竞态：若执行先自然结束，保留真实 `completed`/`failed`。
