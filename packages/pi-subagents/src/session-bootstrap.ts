@@ -11,7 +11,7 @@ import type {
 	ExecutionMode,
 	PersistenceState,
 	PiInvocation,
-	ResolvedAgentIdentity,
+	ResolvedAgentPolicy,
 	SpawnSubagentInput,
 	SubagentRecord,
 } from "./domain.js";
@@ -216,10 +216,7 @@ export async function resolveSubagentLaunch(
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
-		tools: usableTools(
-			policy.agent,
-			taskChildTools(policy.tools, policy.excludeTools, options.input.taskContract !== undefined),
-		),
+		tools: childTools(policy, options.input.taskContract !== undefined),
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
@@ -234,13 +231,19 @@ export async function resolveSubagentLaunch(
 }
 
 /**
- * Fails before any process exists when a built-in agent's allowlist no longer matches what it
- * advertises, rather than launching a child with the wrong permissions.
+ * The child's tool allowlist: a Task child gets its result channel, and a built-in agent must
+ * still resolve to exactly the tools its definition declares. Failing here happens before any
+ * process exists, rather than launching a child with different permissions than it advertises.
  */
-function usableTools(agent: ResolvedAgentIdentity, tools: readonly string[]): readonly string[] {
-	const problem = builtinAgentToolProblem(agent.sourcePath, tools);
+function childTools(policy: ResolvedAgentPolicy, isTask: boolean): readonly string[] {
+	const tools = taskChildTools(policy.tools, policy.excludeTools, isTask);
+	const problem = builtinAgentToolProblem(
+		policy.agent.sourcePath,
+		tools,
+		isTask ? [TASK_RESULT_TOOL_NAME] : [],
+	);
 	if (problem !== undefined) {
-		throw new Error(`Built-in agent ${agent.name} cannot run: ${problem}`);
+		throw new Error(`Built-in agent ${policy.agent.name} cannot run: ${problem}`);
 	}
 	return tools;
 }

@@ -364,10 +364,17 @@ test("a built-in agent's resolved tools are checked, not merely its definition",
 	const declared = builtinAgents().find((agent) => agent.name === "scout")?.frontmatter.tools;
 	const everything = String(declared).split(",");
 	expect(builtinAgentToolProblem("<builtin>/scout.md", everything)).toBeUndefined();
-	// A Task child's allowlist gains one extra channel, which is still fine.
+	// A Task child's allowlist gains one extra channel, and nothing else is tolerated.
 	expect(
-		builtinAgentToolProblem("<builtin>/scout.md", [...everything, "submit_task_result"]),
+		builtinAgentToolProblem(
+			"<builtin>/scout.md",
+			[...everything, "submit_task_result"],
+			["submit_task_result"],
+		),
 	).toBeUndefined();
+	expect(builtinAgentToolProblem("<builtin>/scout.md", [...everything, "bash"])).toMatch(
+		/it would gain tools it never declared: bash/u,
+	);
 	expect(builtinAgentToolProblem("<builtin>/scout.md", [])).toMatch(/every tool/u);
 	// The check compares against what the definition declares, not a hard-coded list, so it keeps
 	// working for a future built-in that is not read-only.

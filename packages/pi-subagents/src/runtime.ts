@@ -229,32 +229,34 @@ async function startClaimedRunner(
 	signal: AbortSignal | undefined,
 	tokens: RuntimeTokenStore,
 ): Promise<RunnerLike> {
-	const launch = buildLaunchSpec({
-		config: record.launchConfig,
-		invocation: record.launchConfig.invocation,
-		mode: "rpc",
-		persistence: record.persistence,
-		bridge: {
-			parentSessionId: identity.parentSessionId,
-			subagentId: identity.subagentId,
-			runtimeIdentity: identity.runtimeIdentity,
-			endpoint: identity.endpoint,
-		},
-	});
 	const directory = runtimeDirectory();
 	const jobPath = join(directory, `${record.subagentId}-${identity.runtimeIdentity}.json`);
-	const job = {
-		invocation: { command: launch.command, args: launch.argv },
-		cwd: launch.cwd,
-		sessionId: record.sessionId,
-		...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
-		claimId,
-		env: launch.env,
-	};
 	let child: ChildProcess | undefined;
+	let jobPathWritten = false;
 	const connection = new RunnerConnection({ endpoint: identity.endpoint, identity, token });
 	try {
+		const launch = buildLaunchSpec({
+			config: record.launchConfig,
+			invocation: record.launchConfig.invocation,
+			mode: "rpc",
+			persistence: record.persistence,
+			bridge: {
+				parentSessionId: identity.parentSessionId,
+				subagentId: identity.subagentId,
+				runtimeIdentity: identity.runtimeIdentity,
+				endpoint: identity.endpoint,
+			},
+		});
+		const job = {
+			invocation: { command: launch.command, args: launch.argv },
+			cwd: launch.cwd,
+			sessionId: record.sessionId,
+			...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
+			claimId,
+			env: launch.env,
+		};
 		await writeFile(jobPath, `${JSON.stringify(job)}\n`, { mode: 0o600, flag: "wx" });
+		jobPathWritten = true;
 		const runnerEntry = fileURLToPath(new URL("./runner-entry.js", import.meta.url));
 		child = spawn(process.execPath, [runnerEntry, "--job", jobPath], {
 			cwd: launch.cwd,
@@ -277,10 +279,16 @@ async function startClaimedRunner(
 	} catch (error) {
 		connection.close();
 		child?.kill("SIGTERM");
-		await unlink(jobPath).catch(() => undefined);
-		const current = await registry.get(record.subagentId).catch(() => undefined);
-		if (current?.claim?.claimId === claimId) {
-			await registry.releaseClaim(record.subagentId, claimId).catch(() => undefined);
+		if (jobPathWritten) await unlink(jobPath).catch(() => undefined);
+		// Nothing was spawned, so no process can own the session and the claim is safe to drop.
+		// Once a process exists the claim (and any recorded pid) is the only evidence that it may
+		// still be alive, so releasing it here would let a later attempt start a second runner for
+		// the same session. The caller reports that case as an unconfirmed start instead.
+		if (child?.pid === undefined) {
+			const current = await registry.get(record.subagentId).catch(() => undefined);
+			if (current?.claim?.claimId === claimId) {
+				await registry.releaseClaim(record.subagentId, claimId).catch(() => undefined);
+			}
 		}
 		throw error;
 	}
