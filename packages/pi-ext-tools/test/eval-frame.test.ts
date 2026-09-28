@@ -152,4 +152,79 @@ describe("Eval nested rows and failures", () => {
 		expect(rendered?.join("\n")).toContain("rendered src/a.ts");
 		expect(rendered?.join("\n")).toContain("read");
 	});
+
+	test("renders a nested row from the call's own state, not the cell's", async () => {
+		const readTool = {
+			name: "read",
+			label: "read",
+			description: "Read a file",
+			parameters: Type.Object({ path: Type.String() }),
+			execute: async (): Promise<AgentToolResult<unknown>> => ({
+				content: [{ type: "text", text: "file body" }],
+				details: { lines: 3 },
+			}),
+			// A canonical renderer drops its preview while it believes the call is still streaming; the
+			// nested call is over, so the outer cell's streaming must not reach it.
+			renderResult: (_result: unknown, options: unknown) =>
+				new Text(`partial=${String((options as { isPartial: boolean }).isPartial)}`, 0, 0),
+		} as unknown as ToolDefinition;
+		const bridge = new EvalToolBridge(new Map([["read", readTool]]), () => true);
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
+			): Promise<unknown> => await hooks.callTool("read", { path: "src/a.ts" }),
+		};
+		const { result, tool } = await execute(runtime, bridge);
+		const rendered = tool
+			.renderResult?.(result, { expanded: true, isPartial: true }, plainTheme, {
+				cwd: process.cwd(),
+				toolCallId: "eval-call-1",
+				state: {},
+				expanded: true,
+				isPartial: true,
+				lastComponent: undefined,
+				invalidate: (): void => undefined,
+			} as never)
+			.render(120);
+		expect(rendered?.join("\n")).toContain("partial=false");
+	});
+
+	test("falls back to the trace line when the arguments are no longer a value", async () => {
+		const readTool = {
+			name: "read",
+			label: "read",
+			description: "Read a file",
+			parameters: Type.Object({ path: Type.String() }),
+			execute: async (): Promise<AgentToolResult<unknown>> => ({
+				content: [{ type: "text", text: "file body" }],
+				details: { lines: 3 },
+			}),
+			// A renderer reads fields off the arguments, so bounded text must never be handed to it.
+			renderResult: (_result: unknown, _options: unknown, _theme: unknown, context: unknown) =>
+				new Text(`rendered ${(context as { args: { path: string } }).args.path}`, 0, 0),
+		} as unknown as ToolDefinition;
+		const bridge = new EvalToolBridge(new Map([["read", readTool]]), () => true);
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
+			): Promise<unknown> => await hooks.callTool("read", { path: `src/${"x".repeat(9_000)}.ts` }),
+		};
+		const { result, tool } = await execute(runtime, bridge);
+		const rendered = tool
+			.renderResult?.(result, { expanded: true, isPartial: false }, plainTheme, {
+				cwd: process.cwd(),
+				toolCallId: "eval-call-1",
+				state: {},
+				expanded: true,
+				isPartial: false,
+				lastComponent: undefined,
+				invalidate: (): void => undefined,
+			} as never)
+			.render(400);
+		const text = rendered?.join("\n") ?? "";
+		expect(text).toContain("read");
+		expect(text).not.toContain("rendered undefined");
+	});
 });
