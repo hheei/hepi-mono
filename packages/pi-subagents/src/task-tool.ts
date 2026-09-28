@@ -27,7 +27,7 @@ import {
 import { Type } from "typebox";
 import type { TaskChildContract } from "./domain.js";
 import type { AgentTaskExecutor } from "./task-executor.js";
-import { DEFAULT_TASK_SOFT_TURNS } from "./task-result.js";
+import { DEFAULT_TASK_SOFT_TURNS, TASK_ENVIRONMENT_KEY } from "./task-result.js";
 import { checkOutputSchema } from "./task-schema.js";
 
 export const TASK_TOOL_ID = "task";
@@ -91,6 +91,14 @@ export function registerTaskTool(
 		promptGuidelines: [...GUIDELINES],
 		parameters: taskSchema,
 		async execute(_id, params, signal): Promise<ReturnType<typeof textToolResult>> {
+			// Ownership check at the entry point: a Task child reports to its own parent, so work it
+			// delegated would belong to nobody's delivery. Its process does not load this extension,
+			// and this makes the rule visible even if that changes.
+			if (process.env[TASK_ENVIRONMENT_KEY] !== undefined) {
+				throw new Error(
+					"A task child cannot delegate further. Report to the parent with submit_task_result, or ask it with contact_parent.",
+				);
+			}
 			const integration = active;
 			if (integration === undefined) throw new Error(unavailable);
 			const contract = taskContract(params.outputSchema);

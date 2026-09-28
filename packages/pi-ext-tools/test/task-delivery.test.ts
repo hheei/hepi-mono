@@ -277,3 +277,28 @@ test("splits a long list of small results instead of merging one giant message",
 		expect(notices).toBeLessThanOrEqual(8);
 	}
 });
+
+test("announces a result that is waiting on another branch", (): void => {
+	vi.useFakeTimers();
+	const current = harness({ branch: ["other"], anchor: "entry-1" });
+	const notices = (): string[] =>
+		current.warnings.filter((message) => message.includes("waiting on another branch"));
+
+	const first = start(current, "elsewhere", "entry-1");
+	current.registry.settle(first, terminal("held output"));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	// Silence would leave the user with no sign that a finished result is waiting.
+	expect(current.sent).toHaveLength(0);
+	expect(notices()).toHaveLength(1);
+	expect(notices()[0]).toContain(current.registry.get(first)?.shortId);
+
+	// A later held result is announced too, but the first is not announced again.
+	const second = start(current, "elsewhere too", "entry-1");
+	current.registry.settle(second, terminal("held again"));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	expect(notices()).toHaveLength(2);
+	expect(notices()[1]).toContain(current.registry.get(second)?.shortId);
+	expect(notices()[1]).not.toContain(current.registry.get(first)?.shortId);
+});

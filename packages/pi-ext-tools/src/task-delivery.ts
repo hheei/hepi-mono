@@ -42,15 +42,37 @@ export interface TaskDeliveryOptions {
 export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 	const { pi, registry, session, notify } = options;
 	const reported = new Set<string>();
+	const held = new Set<string>();
 	let window: NodeJS.Timeout | undefined;
 	let disposed = false;
 
 	const flush = (): void => {
 		window = undefined;
 		if (disposed) return;
-		const ready = registry.pendingDeliveries().filter((event) => onCurrentBranch(session, event));
-		if (ready.length === 0) return;
+		const pending = registry.pendingDeliveries();
+		const ready = pending.filter((event) => onCurrentBranch(session, event));
+		if (ready.length === 0) {
+			announceHeld(pending);
+			return;
+		}
+		// These are being delivered now, so a later hold on another branch must announce them again.
+		for (const event of ready) held.delete(event.id);
 		for (const batch of batchEvents(ready)) submit(batch);
+	};
+
+	/**
+	 * A result that finished on another branch stays pending, so without this the user sees
+	 * nothing at all until they navigate back. Each task is announced once.
+	 */
+	const announceHeld = (pending: readonly TaskTerminalEvent[]): void => {
+		const waiting = pending.filter((event) => !held.has(event.id));
+		if (waiting.length === 0) return;
+		for (const event of waiting) held.add(event.id);
+		const names = waiting.map((event) => event.shortId).join(", ");
+		notify(
+			`${waiting.length === 1 ? "A task result is" : `${waiting.length} task results are`} waiting on another branch: ${names}. Return to it, or read them with wait_tasks.`,
+			"info",
+		);
 	};
 
 	const submit = (events: readonly TaskTerminalEvent[]): void => {

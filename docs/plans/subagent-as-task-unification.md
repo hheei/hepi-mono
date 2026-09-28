@@ -47,7 +47,9 @@
 
 Task 专属 child 的最终结果与执行静止确认后，立即请求清理 runner；不进入会话模式的 30 秒空闲缓冲。任务结果可先确定，进程槽位仍需在确认退出后释放。Task child 不开放 TUI attach、完成后自动唤醒或递归派发新 child；这些能力仍属于既有会话模式。所有命令/工具入口都须检查该归属，不能绕过限制。
 
-第一版 `task` 输入只包含 `agent`、`task`、可选 `cwd`、`blocking`、`outputSchema`。agent 明确选择，scout 只是内置可选定义。受理时一次性解析并冻结 cwd、agent 定义、模型、thinking 与工具权限；排队期间父模型或磁盘配置变化不改变已受理任务。
+第一版 `task` 输入只包含 `agent`、`task`、可选 `cwd`、`blocking`、`outputSchema`。agent 明确选择，scout 只是内置可选定义。受理时冻结任务身份与输入（id、type、purpose、显式 cwd、agent 名、task 文本、result contract、交付方式）；排队期间父模型或磁盘配置变化不改变这些字段。
+
+> 实施偏差（已确认）：**解析后的** cwd、agent 定义、模型、thinking 与工具权限仍在该任务真正启动时解析，只有排队等待（并发已满）的任务会读到父会话当时的模型与磁盘定义。把解析提前到受理需要改动 `SubagentManager.spawn` 的既有契约与生命周期，收益不足以匹配成本，因此选择记录真实保证而不是扩大改动面。当前行为见 `docs/architecture/background-tasks.md`。
 
 任务状态流为 `queued → starting → running → terminal`，无需排队或启动已经完成的 producer 可以跳过前置状态。terminal 包含 completed、failed、cancelled、timed_out；执行结果与交付状态分别记录。取消请求尚未确认时保留活动状态和停止进度，不提前伪造终态。
 

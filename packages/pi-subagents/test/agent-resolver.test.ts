@@ -2,7 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
-import { builtinAgents, SCOUT_REQUIRED_TOOLS } from "../src/builtin-agents.js";
+import {
+	builtinAgents,
+	builtinAgentToolProblem,
+	SCOUT_REQUIRED_TOOLS,
+} from "../src/builtin-agents.js";
 import { CONTACT_PARENT_TOOL_NAME, type ThinkingLevel } from "../src/domain.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
@@ -348,4 +352,16 @@ test("a built-in agent cannot silently inherit every tool", (): void => {
 		...SCOUT_REQUIRED_TOOLS,
 		CONTACT_PARENT_TOOL_NAME,
 	]);
+});
+
+test("a built-in agent's resolved tools are checked, not merely its definition", (): void => {
+	// The definition naming its tools is not enough: the resolved allowlist is what the child gets,
+	// and an empty list means "every tool" in Pi.
+	expect(builtinAgentToolProblem("<builtin>/scout.md", [...SCOUT_REQUIRED_TOOLS])).toBeUndefined();
+	expect(builtinAgentToolProblem("<builtin>/scout.md", [])).toMatch(/every tool/u);
+	expect(builtinAgentToolProblem("<builtin>/scout.md", ["read", "grep"])).toMatch(
+		/required read-only tools are missing: find, ls/u,
+	);
+	// A user definition at the same name is a normal agent and is not held to the built-in promise.
+	expect(builtinAgentToolProblem("/home/user/.pi/agent/agents/scout.md", [])).toBeUndefined();
 });

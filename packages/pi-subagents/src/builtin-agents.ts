@@ -75,3 +75,24 @@ export function builtinAgents(): readonly DiscoveredAgent[] {
 export function isBuiltinAgent(path: string): boolean {
 	return path.startsWith(BUILTIN_AGENT_PREFIX);
 }
+
+/**
+ * Why a resolved tool allowlist would break a built-in agent's promise, or `undefined` when it
+ * does not. A built-in ships a fixed read-only tool set; an allowlist that lost those tools, or
+ * became empty (which Pi reads as "every tool"), would silently hand the agent far more power
+ * than its definition advertises, so resolution fails instead.
+ */
+export function builtinAgentToolProblem(
+	sourcePath: string,
+	tools: readonly string[],
+): string | undefined {
+	if (!isBuiltinAgent(sourcePath)) return undefined;
+	if (tools.length === 0) {
+		return "its read-only tool list was lost, which would give it every tool";
+	}
+	const missing = SCOUT_REQUIRED_TOOLS.filter((tool) => !tools.includes(tool));
+	if (missing.length > 0) {
+		return `its required read-only tools are missing: ${missing.join(", ")}`;
+	}
+	return undefined;
+}
