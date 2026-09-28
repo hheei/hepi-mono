@@ -24,7 +24,7 @@ import {
 	textToolResult,
 	waitForService,
 } from "@hheei/pi-ext-core";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import type { TaskChildContract } from "./domain.js";
 import type { AgentTaskExecutor } from "./task-executor.js";
 import { DEFAULT_TASK_SOFT_TURNS } from "./task-result.js";
@@ -53,8 +53,6 @@ const taskSchema = Type.Object({
 		}),
 	),
 });
-
-export type TaskToolParams = Static<typeof taskSchema>;
 
 const DESCRIPTION =
 	"Run one delegated task as a background agent execution. Returns a task id immediately unless blocking is true. Read the result with wait_tasks, or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_subagent when you need a reusable conversation partner instead.";
