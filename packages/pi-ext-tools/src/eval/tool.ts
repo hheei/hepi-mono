@@ -19,12 +19,7 @@ import {
 import { type Static, Type } from "typebox";
 import type { EditCatalog } from "../fff/settings.js";
 import { WrappedTextBody } from "../pretty/wrapped-text.js";
-import {
-	clearEvalNestedLive,
-	type EvalNestedTrace,
-	type EvalToolBridge,
-	evalNestedLiveResult,
-} from "./bridge.js";
+import { type EvalNestedTrace, type EvalToolBridge, evalNestedLiveResult } from "./bridge.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -143,7 +138,6 @@ export function createEvalTool(
 			if (activeRuns.has(state)) throw new Error("Eval is already running in this session.");
 			const watchdog = startEvalTimeout(params.timeout);
 			activeRuns.add(state);
-			clearEvalNestedLive();
 			const rows: EvalRow[] = [];
 			const transcriptRows: string[] = [];
 			let transcriptChars = 0;
@@ -151,7 +145,7 @@ export function createEvalTool(
 			const startedAt = performance.now();
 			let failure: string | undefined;
 			const runSignal = mergeAbortSignals(signal, watchdog?.signal);
-			const append = (text: string, row: EvalRow): void => {
+			const append = (text: string, row: EvalRow, keep = false): void => {
 				if (transcriptChars < MAX_OUTPUT_CHARS) {
 					const remaining = MAX_OUTPUT_CHARS - transcriptChars;
 					const piece =
@@ -162,7 +156,12 @@ export function createEvalTool(
 					transcriptChars += piece.length + 1;
 				}
 				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
-				else omittedRows += 1;
+				else if (keep) {
+					// A row marked `keep` displaces the least important one instead of being dropped.
+					rows.pop();
+					omittedRows += 1;
+					rows.push(row);
+				} else omittedRows += 1;
 				onUpdate?.(
 					textToolResult(transcript(rows), {
 						format: "pi-ext-tools-eval",
@@ -206,13 +205,16 @@ export function createEvalTool(
 				}
 			} catch (error) {
 				failure = errorMessage(error);
-				append(`error: ${failure}`, { kind: "text", text: `error: ${boundedText(failure)}` });
+				// The failure is the row the user has to see, so it keeps its slot even when the detail cap
+				// has already been reached.
+				append(`error: ${failure}`, { kind: "text", text: `error: ${boundedText(failure)}` }, true);
 			} finally {
 				activeRuns.delete(state);
 				watchdog?.dispose();
 			}
 			if (omittedRows > 0) {
-				if (rows.length === MAX_DETAIL_ROWS) rows.pop();
+				// The hint takes a row of its own rather than displacing one: the row it would push out is the
+				// failure above, which is the one row that must survive.
 				rows.push({
 					kind: "text",
 					text: `… ${omittedRows} more output row(s) omitted`,
@@ -306,7 +308,7 @@ function renderNestedTrace(
 	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
 	if (tool?.renderResult === undefined || live === undefined) return fallback;
 	try {
-		return tool.renderResult(live as never, options, theme, {
+		const rendered = tool.renderResult(live as never, options, theme, {
 			args: trace.args,
 			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,
 			invalidate: context?.invalidate ?? (() => undefined),
@@ -320,6 +322,17 @@ function renderNestedTrace(
 			showImages: context?.showImages ?? false,
 			isError: trace.error !== undefined,
 		} as never);
+		// The nested renderer draws output only, so the row keeps its own name: several calls in one
+		// cell are otherwise impossible to tell apart.
+		const label = new Text(
+			theme.fg(trace.error === undefined ? "accent" : "error", trace.name),
+			0,
+			0,
+		);
+		const body = new Container();
+		body.addChild(label);
+		body.addChild(rendered);
+		return body;
 	} catch {
 		return fallback;
 	}
@@ -410,10 +423,17 @@ function boundedText(text: string): string {
 		: `${text.slice(0, MAX_DETAIL_TEXT_CHARS)}\n… truncated`;
 }
 
+/** Keeps parsed arguments when they fit, so a nested renderer sees the fields it expects. */
+function boundedArgs(args: unknown): unknown {
+	const serialized = safeText(args);
+	if (serialized.length <= MAX_DETAIL_TEXT_CHARS) return args;
+	return boundedText(serialized);
+}
+
 function boundedTrace(trace: EvalNestedTrace): EvalNestedTrace {
 	return {
 		...trace,
-		args: boundedText(safeText(trace.args)),
+		args: boundedArgs(trace.args),
 		text: boundedText(trace.text),
 		details: undefined,
 		...(trace.error === undefined ? {} : { error: boundedText(trace.error) }),

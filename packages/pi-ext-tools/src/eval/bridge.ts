@@ -38,14 +38,43 @@ export class EvalToolError extends Error {
 	}
 }
 
-const nestedLive = new Map<string, AgentToolResult<unknown>>();
+/**
+ * Rich nested results kept for re-rendering, bounded by a character budget. They live only in this
+ * process: a reloaded session re-renders nested rows from their bounded trace text. The budget is
+ * why a new cell no longer has to discard the rows of the previous one.
+ */
+const MAX_LIVE_NESTED_CHARS = 512 * 1024;
+const nestedLive = new Map<
+	string,
+	{ readonly result: AgentToolResult<unknown>; readonly size: number }
+>();
+let liveChars = 0;
 
 export function evalNestedLiveResult(toolCallId: string): AgentToolResult<unknown> | undefined {
-	return nestedLive.get(toolCallId);
+	return nestedLive.get(toolCallId)?.result;
+}
+
+export function rememberEvalNestedLive(toolCallId: string, result: AgentToolResult<unknown>): void {
+	const size = result.content.reduce(
+		(total, part) => total + (part.type === "text" ? part.text.length : 0),
+		0,
+	);
+	// One result may not take the whole budget: it would evict every other row for one cell.
+	if (size > MAX_LIVE_NESTED_CHARS) return;
+	nestedLive.set(toolCallId, { result, size });
+	liveChars += size;
+	// Map iteration is insertion order, so the oldest row is evicted first.
+	while (liveChars > MAX_LIVE_NESTED_CHARS) {
+		const oldest = nestedLive.keys().next();
+		if (oldest.done === true) break;
+		liveChars -= nestedLive.get(oldest.value)?.size ?? 0;
+		nestedLive.delete(oldest.value);
+	}
 }
 
 export function clearEvalNestedLive(): void {
 	nestedLive.clear();
+	liveChars = 0;
 }
 
 /** Explicit local bridge; Pi does not expose an API to invoke a registered tool by name. */
@@ -83,7 +112,7 @@ export class EvalToolBridge {
 		const toolCallId = `eval-${crypto.randomUUID()}`;
 		try {
 			const result = await tool.execute(toolCallId, args as never, signal, undefined, context);
-			nestedLive.set(toolCallId, result);
+			rememberEvalNestedLive(toolCallId, result);
 			if (this.#isErrorResult(name, result)) {
 				const trace = traceFor(
 					name,
@@ -136,7 +165,7 @@ function rejectNestedBash(args: unknown): void {
 	const value = args as Record<string, unknown>;
 	if (value.blocking === false) {
 		throw new Error(
-			"Eval cannot read a background result: omit `blocking` or pass `blocking: true` so the command finishes inside the cell.",
+			"Eval cannot read a background result: pass `blocking: true` so the command finishes inside the cell. Omitting `blocking` only keeps the command in the cell while it is quick; once it outlives the auto-background delay the cell receives a task preview instead of the result.",
 		);
 	}
 }
