@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-addon",
-	"version": "0.1.3",
+	"version": "0.2.0",
 	"description": "Collection of opt-in host enhancement features for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -46,7 +46,7 @@
 		"@earendil-works/pi-tui": ">=0.87.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "0.87.0",
-		"@earendil-works/pi-tui": "0.87.0"
+		"@earendil-works/pi-coding-agent": "0.87.1",
+		"@earendil-works/pi-tui": "0.87.1"
 	}
 }
