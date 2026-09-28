@@ -6,7 +6,6 @@ import {
 	ObserverStreamError,
 	runObserver,
 } from "../src/agents/observer/agent.js";
-import { AGENT_LOOP_MAX_TOKENS } from "../src/model-budget.js";
 import { fakeAgentLoop, itClampsMaxTokens } from "./fixtures/agent-loop.js";
 
 function assistantEndEvent(stopReason: string, errorMessage?: string): any {

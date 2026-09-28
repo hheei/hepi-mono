@@ -11,7 +11,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { DEBUG_LOG_RELATIVE_PATH, withDebugLogContext } from "../src/debug-log.js";
-import { type ModelRegistryLike, Runtime } from "../src/runtime.js";
+import type { ModelRegistryLike } from "../src/runtime.js";
 import { testModel } from "./fixtures/model.js";
 import { newConfiguredRuntime } from "./fixtures/runtime.js";
 

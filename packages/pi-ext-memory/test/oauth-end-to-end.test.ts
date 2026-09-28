@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULTS } from "../src/config.js";
 import { registerConsolidationTrigger } from "../src/hooks/consolidation-trigger.js";
-import {} from "../src/runtime.js";
 import { OM_OBSERVATIONS_RECORDED } from "../src/session-ledger/index.js";
 import { newConfiguredRuntime } from "./fixtures/runtime.js";
 import { textCustomMessage } from "./fixtures/session.js";
