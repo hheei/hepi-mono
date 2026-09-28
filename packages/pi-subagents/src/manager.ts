@@ -331,10 +331,21 @@ export class SubagentManager {
 	}
 
 	/**
-	 * True when no process can still be running under this record's runtime evidence. A recorded
-	 * process is confirmed dead; evidence without a pid is not confirmation of anything.
+	 * True when no process can still be running under this record's runtime or claim evidence. A
+	 * recorded process is confirmed dead; evidence without a pid is not confirmation of anything.
+	 *
+	 * An outstanding claim is the same kind of evidence: the runner process writes its own runtime
+	 * metadata when it starts, so between the spawn and that write the claim's pid is the only sign
+	 * that a process may exist. Reporting the stop as confirmed there would release the session for a
+	 * second execution while the first one is still starting up.
 	 */
 	async #stopConfirmed(record: SubagentRecord): Promise<boolean> {
+		const claim = record.claim;
+		if (
+			claim !== undefined &&
+			(claim.runnerPid === undefined || !isPidConfirmedDead(claim.runnerPid))
+		)
+			return false;
 		if (record.runtime === undefined) return true;
 		if (record.runtime.pid === undefined) return false;
 		return this.#runnerExitConfirmed(record);
