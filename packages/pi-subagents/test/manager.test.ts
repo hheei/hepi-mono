@@ -636,7 +636,14 @@ describe("SubagentManager contracts", () => {
 			launch: async () => {
 				await claimRegistry.update(CHILD_ID, undefined, (value) => ({
 					...value,
-					claim: { claimId: "claim-1", kind: "replacement", holderPid: process.pid },
+					claim: {
+						claimId: "claim-1",
+						kind: "replacement",
+						holderPid: process.pid,
+						runtimeIdentity: "runtime-1",
+						endpoint: "/tmp/nowhere.sock",
+						controllerTokenHash: "hash",
+					},
 				}));
 				throw new Error("handshake aborted");
 			},
