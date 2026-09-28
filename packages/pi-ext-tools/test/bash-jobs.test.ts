@@ -10,23 +10,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createToolTui, type ExtensionLifecycleContext } from "@hheei/pi-ext-core";
+import { createToolTui, type ExtensionLifecycleContext, TaskRegistry } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
 import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
-import {
-	AsyncTaskRegistry,
-	MAX_TASK_MESSAGE_CHARS,
-	TASK_TERMINAL_CUSTOM_TYPE,
-} from "../src/tasks/registry.js";
 import { framedHost, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 const registries: BashJobRegistry[] = [];
-const taskRegistries: AsyncTaskRegistry[] = [];
+const taskRegistries: TaskRegistry[] = [];
 
 afterEach((): void => {
 	for (const registry of registries.splice(0)) registry.dispose();
@@ -45,7 +40,7 @@ async function eventually<T>(
 	throw new Error("expected state was not reached");
 }
 
-function tracked(registry: AsyncTaskRegistry): AsyncTaskRegistry {
+function tracked(registry: TaskRegistry): TaskRegistry {
 	taskRegistries.push(registry);
 	return registry;
 }
@@ -56,27 +51,8 @@ function jobRegistry(): BashJobRegistry {
 	return registry;
 }
 
-interface SentMessage {
-	readonly customType: string;
-	readonly content: string;
-	readonly details: unknown;
-}
-
-function taskHost(): { readonly pi: ExtensionAPI; readonly sent: SentMessage[] } {
-	const sent: SentMessage[] = [];
-	const pi = {
-		sendMessage(
-			message: { customType: string; content: string; details: unknown },
-			_options: unknown,
-		): void {
-			sent.push(message);
-		},
-	} as unknown as ExtensionAPI;
-	return { pi, sent };
-}
-
 function runtimeState(
-	tasks: AsyncTaskRegistry | undefined,
+	tasks: TaskRegistry | undefined,
 	settingsOverrides?: Partial<typeof DEFAULT_FFF_SETTINGS>,
 ): FffRuntimeState {
 	const jobs = jobRegistry();
@@ -171,7 +147,7 @@ test("reports one terminal callback per finished job", async (): Promise<void> =
 });
 
 test("assigns sequential per-family task ids", (): void => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const first = tasks.create({
 		type: "bash",
 		purpose: "printf one",
@@ -182,13 +158,12 @@ test("assigns sequential per-family task ids", (): void => {
 		purpose: "printf two",
 		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
 	});
-	expect([first.id, second.id]).toEqual(["bash-1", "bash-2"]);
+	expect([first.id, second.id]).toEqual(["bash-test-1", "bash-test-2"]);
 	expect(tasks.list()).toHaveLength(2);
 });
 
-test("delivers one bounded terminal message per task", async (): Promise<void> => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+test("keeps one terminal result when a second settle arrives late", (): void => {
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	tasks.create({
 		type: "bash",
 		purpose: "printf done",
@@ -197,34 +172,23 @@ test("delivers one bounded terminal message per task", async (): Promise<void> =
 			describe: () => ({ output: "", truncated: false }),
 		}),
 	});
-	tasks.settle("bash-1", {
+	tasks.settle("bash-test-1", {
 		status: "completed",
-		output: "x".repeat(MAX_TASK_MESSAGE_CHARS + 500),
+		output: "kept",
 		truncated: false,
-		detail: { taskId: "forged", type: "agent", status: "failed", truncated: false, jobId: "job" },
+		detail: { jobId: "job" },
 	});
-	tasks.settle("bash-1", { status: "failed", output: "late", truncated: false });
-	await sleep(0);
-	expect(sent).toHaveLength(1);
-	expect(sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
-	expect(sent[0]?.content).toContain("bash-1 finished: completed");
-	expect(sent[0]?.content.length).toBeLessThan(MAX_TASK_MESSAGE_CHARS + 400);
-	// Producer detail cannot forge the canonical delivery fields.
-	expect(sent[0]?.details).toMatchObject({
-		taskId: "bash-1",
-		type: "bash",
-		status: "completed",
-		truncated: true,
-		jobId: "job",
-	});
-	const waited = await tasks.wait(["bash-1"]);
-	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivered: true });
+	tasks.settle("bash-test-1", { status: "failed", output: "late", truncated: false });
 	expect(tasks.list()).toHaveLength(0);
 	expect(tasks.list(true)).toHaveLength(1);
+	expect(tasks.get("bash-test-1")).toMatchObject({
+		status: "completed",
+		delivery: "pending",
+	});
 });
 
 test("waits for every listed task and reports unknown ids", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	tasks.create({
 		type: "bash",
 		purpose: "slow",
@@ -235,33 +199,33 @@ test("waits for every listed task and reports unknown ids", async (): Promise<vo
 		purpose: "fast",
 		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
 	});
-	tasks.settle("bash-2", { status: "completed", output: "fast done", truncated: false });
-	const pending = tasks.wait(["bash-1", "bash-2", "bash-9"]);
-	tasks.settle("bash-1", { status: "failed", output: "slow failed", truncated: false });
+	tasks.settle("bash-test-2", { status: "completed", output: "fast done", truncated: false });
+	const pending = tasks.wait(["bash-test-1", "bash-test-2", "bash-test-9"]);
+	tasks.settle("bash-test-1", { status: "failed", output: "slow failed", truncated: false });
 	const outcomes = await pending;
 	expect(outcomes).toEqual([
 		{
-			id: "bash-1",
+			id: "bash-test-1",
 			status: "failed",
 			waited: true,
-			delivered: false,
+			delivery: "pending",
 			truncated: false,
 			output: "slow failed",
 		},
 		{
-			id: "bash-2",
+			id: "bash-test-2",
 			status: "completed",
 			waited: true,
-			delivered: false,
+			delivery: "pending",
 			truncated: false,
 			output: "fast done",
 		},
-		{ id: "bash-9", status: "not_found" },
+		{ id: "bash-test-9", status: "not_found" },
 	]);
 });
 
 test("keeps waiting tasks alive when a wait is cancelled", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	let stopped = 0;
 	tasks.create({
 		type: "bash",
@@ -274,16 +238,16 @@ test("keeps waiting tasks alive when a wait is cancelled", async (): Promise<voi
 		}),
 	});
 	const controller = new AbortController();
-	const pending = tasks.wait(["bash-1"], controller.signal);
+	const pending = tasks.wait(["bash-test-1"], controller.signal);
 	controller.abort();
 	const outcomes = await pending;
-	expect(outcomes[0]).toMatchObject({ id: "bash-1", status: "running", waited: false });
+	expect(outcomes[0]).toMatchObject({ id: "bash-test-1", status: "running", waited: false });
 	expect(stopped).toBe(0);
 	expect(tasks.list()).toHaveLength(1);
 });
 
 test("stops a running task once and reports terminal ids", (): void => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	let stopped = 0;
 	tasks.create({
 		type: "bash",
@@ -295,18 +259,17 @@ test("stops a running task once and reports terminal ids", (): void => {
 			describe: () => ({ output: "", truncated: false }),
 		}),
 	});
-	expect(tasks.stop(["bash-1", "bash-1", "missing"])).toEqual([
-		{ id: "bash-1", status: "stop_requested" },
+	expect(tasks.stop(["bash-test-1", "bash-test-1", "missing"])).toEqual([
+		{ id: "bash-test-1", status: "stop_requested" },
 		{ id: "missing", status: "not_found" },
 	]);
 	expect(stopped).toBe(1);
-	tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false });
-	expect(tasks.stop(["bash-1"])).toEqual([{ id: "bash-1", status: "already_terminal" }]);
+	tasks.settle("bash-test-1", { status: "cancelled", output: "", truncated: false });
+	expect(tasks.stop(["bash-test-1"])).toEqual([{ id: "bash-test-1", status: "already_terminal" }]);
 });
 
-test("settles a task that fails to start without delivering", (): void => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+test("settles a task that fails to start without claiming it started", (): void => {
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	expect(() =>
 		tasks.create({
 			type: "bash",
@@ -316,36 +279,35 @@ test("settles a task that fails to start without delivering", (): void => {
 			},
 		}),
 	).toThrow("spawn failed");
-	expect(sent).toHaveLength(0);
-	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-1", status: "failed" });
+	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-test-1", status: "failed" });
 });
 
-test("bash async returns a task id and one terminal delivery", async (): Promise<void> => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
+test("background bash returns a task id whose result arrives through wait_tasks", async (): Promise<void> => {
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const state = runtimeState(tasks);
 	const host = toolHost();
-	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
+	registerBashTool(host.pi, state);
 	const bash = toolFor(host.tools, "bash");
 	const result = await runTool(bash, "bash-async-task", {
 		command: "printf task-output",
-		async: true,
+		blocking: false,
 	});
 	expect(result.content).toEqual([
 		{
 			type: "text",
-			text: "Started background task bash-1. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.",
+			text: "Started background task bash-test-1. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.",
 		},
 	]);
-	expect(result.details).toMatchObject({ taskId: "bash-1", type: "bash", status: "running" });
-	const waited = await tasks.wait(["bash-1"]);
-	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivered: true });
-	expect(sent).toHaveLength(1);
-	expect(sent[0]?.content).toContain("task-output");
+	expect(result.details).toMatchObject({ taskId: "bash-test-1", type: "bash", status: "running" });
+	const waited = await tasks.wait(["bash-test-1"]);
+	expect(waited[0]).toMatchObject({ id: "bash-test-1", status: "completed", delivery: "pending" });
+	if (waited[0] === undefined || waited[0].status === "not_found")
+		throw new Error("expected a result");
+	expect(waited[0].output).toContain("task-output");
 });
 
 test("reports a background task that cannot start", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const state: FffRuntimeState = {
 		...runtimeState(tasks),
 		getBashJobs: () =>
@@ -360,13 +322,13 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 	const bash = toolFor(host.tools, "bash");
 	const result = await runTool(bash, "bash-start-failure", {
 		command: "printf never",
-		async: true,
+		blocking: false,
 	});
 	expect(result.content).toEqual([
 		{ type: "text", text: "Unable to start background task: registry is disposed" },
 	]);
 	expect(result.details).toMatchObject({ error: "start_failed" });
-	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-1", status: "failed" });
+	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-test-1", status: "failed" });
 });
 
 test("task tools report unavailable before session start", async (): Promise<void> => {
@@ -385,7 +347,7 @@ test("task tools report unavailable before session start", async (): Promise<voi
 		const result = await runTool(
 			tool,
 			"task-tool-1",
-			tool.name === "list_tasks" ? {} : { ids: ["bash-1"] },
+			tool.name === "list_tasks" ? {} : { ids: ["bash-test-1"] },
 		);
 		expect(result).toMatchObject({
 			content: [{ type: "text", text: "No active task session" }],
@@ -395,7 +357,7 @@ test("task tools report unavailable before session start", async (): Promise<voi
 });
 
 test("task tools list, wait for, and stop background tasks", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const host = toolHost();
 	registerTaskTools(host.pi, runtimeState(tasks));
 	const list = toolFor(host.tools, "list_tasks");
@@ -405,30 +367,31 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 		type: "bash",
 		purpose: "npm run build",
 		begin: () => ({
-			stop: () => tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false }),
+			stop: () =>
+				tasks.settle("bash-test-1", { status: "cancelled", output: "", truncated: false }),
 			describe: () => ({ output: "", truncated: false }),
 		}),
 	});
 	const listed = await runTool(list, "list", {});
 	expect(listed.content).toEqual([
-		{ type: "text", text: expect.stringContaining("bash-1 running · npm run build") },
+		{ type: "text", text: expect.stringContaining("bash-test-1 running · npm run build") },
 	]);
-	const stopping = await runTool(stop, "stop", { ids: ["bash-1"] });
-	expect(stopping.content).toEqual([{ type: "text", text: "bash-1 stop requested" }]);
-	const waited = await runTool(wait, "wait", { ids: ["bash-1"] });
+	const stopping = await runTool(stop, "stop", { ids: ["bash-test-1"] });
+	expect(stopping.content).toEqual([{ type: "text", text: "bash-test-1 stop requested" }]);
+	const waited = await runTool(wait, "wait", { ids: ["bash-test-1"] });
 	expect(waited.content[0]).toMatchObject({ type: "text" });
-	expect((waited.content[0] as { text: string }).text).toContain("bash-1 cancelled");
+	expect((waited.content[0] as { text: string }).text).toContain("bash-test-1 cancelled");
 	expect(waited.details).toMatchObject({
-		tasks: [{ id: "bash-1", status: "cancelled", delivered: false }],
+		tasks: [{ id: "bash-test-1", status: "cancelled", delivery: "pending" }],
 	});
 	const empty = await runTool(list, "list", {});
 	expect(empty.content).toEqual([{ type: "text", text: "No running background tasks." }]);
 	const finished = await runTool(list, "list-finished", { includeTerminal: true });
 	expect(finished.content).toEqual([
-		{ type: "text", text: expect.stringContaining("bash-1 cancelled · npm run build") },
+		{ type: "text", text: expect.stringContaining("bash-test-1 cancelled · npm run build") },
 	]);
 	expect(finished.content).toEqual([
-		{ type: "text", text: expect.stringContaining("result not delivered") },
+		{ type: "text", text: expect.stringContaining("result not sent") },
 	]);
 	for (const tool of [wait, stop]) {
 		const rejected = await runTool(tool, "invalid", { ids: [] });
@@ -437,7 +400,7 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 });
 
 test("renders task tool headers inside narrow terminal widths", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const { pi, tools, tui } = framedHost();
 	registerTaskTools(pi, runtimeState(tasks), tui);
 	const wait = toolFor(tools, "wait_tasks");
@@ -448,7 +411,7 @@ test("renders task tool headers inside narrow terminal widths", async (): Promis
 	]) {
 		const lines =
 			wait
-				.renderCall?.({ ids: ["bash-1", "bash-2", "bash-3"] }, plainTheme, {
+				.renderCall?.({ ids: ["bash-test-1", "bash-test-2", "bash-test-3"] }, plainTheme, {
 					...context,
 					isError: false,
 					lastComponent: undefined,
@@ -464,7 +427,7 @@ test("renders task tool headers inside narrow terminal widths", async (): Promis
 	tui.beginTrace();
 	const collapsed =
 		wait
-			.renderCall?.({ ids: ["bash-1", "bash-2", "bash-3"] }, plainTheme, {
+			.renderCall?.({ ids: ["bash-test-1", "bash-test-2", "bash-test-3"] }, plainTheme, {
 				isPartial: false,
 				isError: false,
 				executionStarted: true,
@@ -500,7 +463,8 @@ test("terminalizes a job whose shell cannot be spawned", async (): Promise<void>
 });
 
 test("bounds the records left by repeated start failures", (): void => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	// A synchronous startup failure is reported to the caller, so it reserves no capacity.
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	for (let attempt = 0; attempt < 80; attempt += 1)
 		expect(() =>
 			tasks.create({
@@ -534,7 +498,7 @@ function taskFrame(tool: ToolDefinition, args: unknown, toolCallId: string): str
 }
 
 test("warns on stop_tasks only when an id did not stop", async (): Promise<void> => {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const host = toolHost();
 	registerTaskTools(host.pi, runtimeState(tasks), createToolTui());
 	const stop = toolFor(host.tools, "stop_tasks");
@@ -543,13 +507,19 @@ test("warns on stop_tasks only when an id did not stop", async (): Promise<void>
 		purpose: "npm run build",
 		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
 	});
-	await runTool(stop, "stop-live", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-live")).toContain("󰄴 stop_tasks bash-1");
-	tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false });
-	await runTool(stop, "stop-done", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-done")).toContain("󰄴 stop_tasks bash-1");
-	await runTool(stop, "stop-missing", { ids: ["bash-9"] });
-	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("󰀪 stop_tasks bash-9");
+	await runTool(stop, "stop-live", { ids: ["bash-test-1"] });
+	expect(taskFrame(stop, { ids: ["bash-test-1"] }, "stop-live")).toContain(
+		"󰄴 stop_tasks bash-test-1",
+	);
+	tasks.settle("bash-test-1", { status: "cancelled", output: "", truncated: false });
+	await runTool(stop, "stop-done", { ids: ["bash-test-1"] });
+	expect(taskFrame(stop, { ids: ["bash-test-1"] }, "stop-done")).toContain(
+		"󰄴 stop_tasks bash-test-1",
+	);
+	await runTool(stop, "stop-missing", { ids: ["bash-test-9"] });
+	expect(taskFrame(stop, { ids: ["bash-test-9"] }, "stop-missing")).toContain(
+		"󰀪 stop_tasks bash-test-9",
+	);
 });
 
 test("a command that finishes before autoAsyncSeconds stays a foreground call", async (): Promise<void> => {
@@ -559,7 +529,7 @@ test("a command that finishes before autoAsyncSeconds stays a foreground call", 
 		{ command: "node -e \"console.log('short-output')\"" },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		toolContext(),
 	);
 	expect(res.content).toEqual([{ type: "text", text: "short-output\n" }]);
 	expect(res.details).toMatchObject({ exitCode: 0 });
@@ -572,7 +542,7 @@ test("a command that finishes before autoAsyncSeconds stays a foreground call", 
 		{ command: "node -e \"setTimeout(() => console.log('ran-foreground'), 100)\"" },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		toolContext(),
 	);
 	expect(second.content).toEqual([{ type: "text", text: "ran-foreground\n" }]);
 	expect(second.details).toMatchObject({ exitCode: 0 });
@@ -580,38 +550,39 @@ test("a command that finishes before autoAsyncSeconds stays a foreground call", 
 });
 
 test("non-timeout command transitions to background task when exceeding autoAsyncSeconds", async (): Promise<void> => {
-	const { pi, sent } = taskHost();
-	const tasks = tracked(new AsyncTaskRegistry({ pi }));
-	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	// The first output comes from a shell builtin and the command outlives the timer by 5x, so the
+	// preview assertion never depends on how long a child process takes to start under load.
+	const state = runtimeState(tasks, { autoAsyncSeconds: 0.1 });
 	const host = toolHost();
-	registerBashTool({ ...host.pi, sendMessage: pi.sendMessage.bind(pi) } as ExtensionAPI, state);
+	registerBashTool(host.pi, state);
 	const bash = toolFor(host.tools, "bash");
 
 	const res = await runTool(bash, "bash-auto-async", {
-		command:
-			"node -e \"process.stdout.write('starting...'); setTimeout(() => console.log('finished-later'), 150)\"",
+		command: "printf 'starting...'; sleep 0.5; printf 'finished-later'",
 	});
 
 	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
-	expect(text).toContain("Command has been running for 0.05s without an explicit timeout.");
-	expect(text).toContain("transitioned to background task bash-1.");
+	expect(text).toContain("Command has been running for 0.1s without an explicit timeout.");
+	expect(text).toContain("transitioned to background task bash-test-1.");
 	expect(text).toContain("Output preview so far:\nstarting...");
 	expect(res.details).toMatchObject({
-		taskId: "bash-1",
+		taskId: "bash-test-1",
 		type: "bash",
 		status: "running",
 		autoAsyncTransition: true,
-		elapsedSeconds: 0.05,
+		elapsedSeconds: 0.1,
 	});
 
 	// The background task is registered and running
-	expect(tasks.list()).toMatchObject([{ id: "bash-1", status: "running" }]);
+	expect(tasks.list()).toMatchObject([{ id: "bash-test-1", status: "running" }]);
 
 	// Wait for the background task to finish
-	const waited = await tasks.wait(["bash-1"]);
-	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivered: true });
-	expect(sent).toHaveLength(1);
-	expect(sent[0]?.content).toContain("finished-later");
+	const waited = await tasks.wait(["bash-test-1"]);
+	expect(waited[0]).toMatchObject({ id: "bash-test-1", status: "completed", delivery: "pending" });
+	if (waited[0] === undefined || waited[0].status === "not_found")
+		throw new Error("expected a result");
+	expect(waited[0].output).toContain("finished-later");
 });
 
 test("explicit timeout does not transition to async task", async (): Promise<void> => {
@@ -647,7 +618,7 @@ test("aborting foreground command kills the process before auto-async", async ()
 
 test("renders auto-async transition warning and footer in framed tool", async (): Promise<void> => {
 	initTheme("dark");
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const state = runtimeState(tasks, { autoAsyncSeconds: 0.05 });
 	const { pi, tools, tui } = framedHost();
 	registerBashTool(pi, state, tui);
@@ -691,7 +662,7 @@ test("renders auto-async transition warning and footer in framed tool", async ()
 		.join("\n");
 
 	expect(frame).toContain("󰀪 bash");
-	expect(renderedResult).toContain("transitioned to bash-1 · running in background");
+	expect(renderedResult).toContain("transitioned to bash-test-1 · running in background");
 });
 
 test("stops streaming onUpdate to completed tool call after auto-async transition", async (): Promise<void> => {
@@ -715,7 +686,7 @@ test("stops streaming onUpdate to completed tool call after auto-async transitio
 
 	const updateCountAtTransition = updates.length;
 	// Wait for the background command to finish
-	await tasks.wait(["bash-1"]);
+	await tasks.wait(["bash-test-1"]);
 	// No further updates should have been pushed after transition
 	expect(updates.length).toBe(updateCountAtTransition);
 });
@@ -750,19 +721,21 @@ test("dispose stops running jobs with stopped status and releases waiters", asyn
 	expect(typeof snapshot?.endedAt).toBe("number");
 });
 
-test("handles transition failure gracefully when task registry is disposed", async (): Promise<void> => {
+test("keeps the command in the foreground when the task registry is disposed", async (): Promise<void> => {
 	const { bash, tasks } = bashHarness({ autoAsyncSeconds: 0.05 });
 
-	// Dispose the task registry before the timer fires
+	// Dispose the task registry before the timer fires.
 	setTimeout(() => tasks.dispose(), 20);
 
-	const res = await runTool(bash, "bash-transition-fail", {
-		command: 'node -e "setTimeout(() => {}, 1000)"',
+	const res = await runTool(bash, "bash-transition-refused", {
+		command: 'printf "completed-in-foreground"',
 	});
 
-	expect(res.details).toMatchObject({ error: "task_transition_failed" });
-	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
-	expect(text).toContain("Unable to transition bash command to background task");
+	expect(res.details).toMatchObject({ exitCode: 0 });
+	expect(res.details).not.toHaveProperty("taskId");
+	expect(res.content).toEqual([
+		{ type: "text", text: expect.stringContaining("completed-in-foreground") },
+	]);
 });
 
 test("handles job settling before auto-async transition message is constructed", async (): Promise<void> => {
@@ -786,7 +759,7 @@ test("handles job settling before auto-async transition message is constructed",
 	});
 	const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 	expect(text).toContain(
-		"Command completed while transitioning to background task bash-1 (status: completed).",
+		"Command completed while transitioning to background task bash-test-1 (status: completed).",
 	);
 	expect(text).not.toContain("STILL RUNNING");
 });
@@ -849,8 +822,12 @@ function taskControlHost(): TaskControlHost {
 					cleanups.push(cleanup);
 				},
 			},
-			extension: {},
 			signal: new AbortController().signal,
+			// Task delivery reads only the current branch and the session ui.
+			extension: {
+				sessionManager: { getBranch: () => [] },
+				ui: { notify: (): void => undefined },
+			},
 		} as unknown as ExtensionLifecycleContext,
 		activeTools: () => activeTools,
 		emit: (event) => {
@@ -869,20 +846,29 @@ function withoutTaskTools(active: readonly string[]): readonly string[] {
 /** Registers the task catalog as extension construction does, then starts one session. */
 function taskControlSession(overrides?: Partial<FffSettings>): {
 	readonly host: TaskControlHost;
-	readonly tasks: AsyncTaskRegistry;
+	readonly tasks: TaskRegistry;
 } {
 	const host = taskControlHost();
 	// The session registry is attached only once `startTaskControl` has created it.
-	let current: AsyncTaskRegistry | undefined;
+	let current: TaskRegistry | undefined;
 	const state: FffRuntimeState = {
 		...runtimeState(undefined, overrides),
 		getTasks: () => current,
 	};
 	registerTaskTools(host.pi, state);
 	registerBashTool(host.pi, state);
-	const tasks = tracked(startTaskControl(host.context));
+	const tasks = tracked(startTaskControl(host.context, createToolTui()));
 	current = tasks;
 	return { host, tasks };
+}
+
+/** Reads the task id a bash result reports, so a session-minted id is never hard-coded. */
+function taskIdOf(result: { readonly details?: unknown }): string {
+	const details = result.details;
+	if (typeof details !== "object" || details === null) throw new Error("expected tool details");
+	const taskId = (details as { readonly taskId?: unknown }).taskId;
+	if (typeof taskId !== "string") throw new Error("expected a background task id");
+	return taskId;
 }
 
 /** Executes a registered tool the way Pi does, at the session cwd. */
@@ -895,17 +881,23 @@ function runTool(
 		readonly onUpdate?: (update: unknown) => void;
 	} = {},
 ) {
-	return bash.execute(toolCallId, args, options.signal, options.onUpdate, {
+	return bash.execute(toolCallId, args, options.signal, options.onUpdate, toolContext());
+}
+
+/** Minimal Pi tool context: a cwd plus the session methods the bash tool reads. */
+function toolContext(leafId: string | null = "entry-1"): ExtensionContext {
+	return {
 		cwd: process.cwd(),
-	} as ExtensionContext);
+		sessionManager: { getLeafId: () => leafId },
+	} as unknown as ExtensionContext;
 }
 
 /** Registers the bash tool over a fresh task registry, the way one session does. */
 function bashHarness(settings?: Partial<FffSettings>): {
 	readonly bash: ToolDefinition;
-	readonly tasks: AsyncTaskRegistry;
+	readonly tasks: TaskRegistry;
 } {
-	const tasks = tracked(new AsyncTaskRegistry());
+	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test" }));
 	const host = toolHost();
 	registerBashTool(host.pi, runtimeState(tasks, settings));
 	return { bash: toolFor(host.tools, "bash"), tasks };
@@ -917,7 +909,7 @@ test("host-activated task tools are removed at session start", (): void => {
 	expect(host.activeTools()).toContain("list_tasks");
 	registerTaskTools(host.pi, runtimeState(undefined));
 
-	tracked(startTaskControl(host.context));
+	tracked(startTaskControl(host.context, createToolTui()));
 
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });
@@ -928,57 +920,71 @@ test("task tools activate on the first background task, survive turns, and unloa
 
 	const started = await toolFor(host.tools, "bash").execute(
 		"bash-on-demand",
-		{ command: "printf task-output", async: true },
+		{ command: "printf task-output", blocking: false },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		toolContext(),
 	);
-	expect(started.details).toMatchObject({ taskId: "bash-1" });
-	expect(tasks.runningCount).toBe(1);
+	// The session registry mints its own runtime discriminator, so read the id back.
+	const firstId = taskIdOf(started);
+	expect(firstId).toMatch(/^bash-[0-9a-f]{8}-1$/);
+	expect(tasks.activeCount).toBe(1);
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
 
-	await tasks.wait(["bash-1"]);
-	expect(tasks.runningCount).toBe(0);
+	await tasks.wait([firstId]);
+	expect(tasks.activeCount).toBe(0);
 	// Ordinary turns keep the tools: a finished task must stay inspectable and activation must not churn.
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
 
+	// The result still needs notification, so a boundary cannot unload the tools yet.
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	tasks.markSubmitted([firstId], "first-delivery");
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
 	// The next task brings them back.
 	const second = await toolFor(host.tools, "bash").execute(
 		"bash-reactivate",
-		{ command: "printf second", async: true },
+		{ command: "printf second", blocking: false },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		toolContext(),
 	);
-	expect(second.details).toMatchObject({ taskId: "bash-2" });
+	const secondId = taskIdOf(second);
+	expect(secondId).toMatch(/^bash-[0-9a-f]{8}-2$/);
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	await tasks.wait(["bash-2"]);
+	await tasks.wait([secondId]);
 });
 
 test("activation follows running tasks across boundaries and auto-async transitions", async (): Promise<void> => {
 	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
-	await toolFor(host.tools, "bash").execute(
-		"bash-boundary-running",
-		{ command: 'node -e "setTimeout(() => {}, 3000)"', async: true },
-		undefined,
-		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+	const runningId = taskIdOf(
+		await toolFor(host.tools, "bash").execute(
+			"bash-boundary-running",
+			{ command: 'node -e "setTimeout(() => {}, 3000)"', blocking: false },
+			undefined,
+			undefined,
+			toolContext(),
+		),
 	);
-	expect(tasks.runningCount).toBe(1);
+	expect(tasks.activeCount).toBe(1);
 
 	host.emit("session_compact");
 	host.emit("session_tree");
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
 
-	tasks.stop(["bash-1"]);
+	tasks.stop([runningId]);
 	await eventually(
-		() => tasks.get("bash-1"),
+		() => tasks.get(runningId),
 		(task) => task.status !== "running",
 	);
-	expect(tasks.runningCount).toBe(0);
+	expect(tasks.activeCount).toBe(0);
+	// A cancelled task still needs its control tools until the result is handed to the parent.
+	expect(tasks.requiresControl).toBe(true);
+	host.emit("session_compact");
+	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
+	tasks.markSubmitted([runningId], "session-boundary");
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
@@ -988,18 +994,19 @@ test("activation follows running tasks across boundaries and auto-async transiti
 		{ command: 'node -e "setTimeout(() => {}, 200)"' },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		toolContext(),
 	);
-	expect(res.details).toMatchObject({ taskId: "bash-2", autoAsyncTransition: true });
-	expect(tasks.runningCount).toBe(1);
+	const promotedId = taskIdOf(res);
+	expect(res.details).toMatchObject({ autoAsyncTransition: true });
+	expect(tasks.activeCount).toBe(1);
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	await tasks.wait(["bash-2"]);
+	await tasks.wait([promotedId]);
 });
 
 test("a task that cannot start leaves the tools off, and teardown clears the next session", (): void => {
 	const host = taskControlHost();
 	registerTaskTools(host.pi, runtimeState(undefined));
-	const tasks = tracked(startTaskControl(host.context));
+	const tasks = tracked(startTaskControl(host.context, createToolTui()));
 
 	expect(() =>
 		tasks.create({
@@ -1010,7 +1017,7 @@ test("a task that cannot start leaves the tools off, and teardown clears the nex
 			},
 		}),
 	).toThrow("spawn failed");
-	expect(tasks.runningCount).toBe(0);
+	expect(tasks.activeCount).toBe(0);
 	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
 	// Session teardown disposes the registry, so the next session starts clean.
@@ -1022,12 +1029,12 @@ test("a task that cannot start leaves the tools off, and teardown clears the nex
 			describe: () => ({ output: "", truncated: false }),
 		}),
 	});
-	expect(tasks.runningCount).toBe(1);
+	expect(tasks.activeCount).toBe(1);
 	tasks.dispose();
-	expect(tasks.runningCount).toBe(0);
+	expect(tasks.activeCount).toBe(0);
 
 	const second = taskControlSession();
-	expect(second.tasks.runningCount).toBe(0);
+	expect(second.tasks.activeCount).toBe(0);
 	expect(second.host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });
 
