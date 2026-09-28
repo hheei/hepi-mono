@@ -115,6 +115,16 @@ function terminal(output: string): TaskTerminal {
 	return { status: "completed", output, truncated: false };
 }
 
+/** A validated structured result: its text is the JSON the child submitted. */
+function structured(value: unknown): TaskTerminal {
+	return {
+		status: "completed",
+		output: JSON.stringify(value),
+		truncated: false,
+		structured: value,
+	};
+}
+
 afterEach((): void => {
 	vi.useRealTimers();
 });
@@ -153,6 +163,50 @@ test("does not notify before the window elapses and never notifies twice", (): v
 	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 4);
 	expect(current.sent).toHaveLength(1);
 	expect(current.registry.get(task)?.delivery).toBe("submitted");
+	current.stop();
+});
+
+test("never inlines half of a structured result", (): void => {
+	vi.useFakeTimers();
+	const current = harness();
+	const large = start(current, "structured");
+	const findings = Array.from({ length: 400 }, (_value, index) => ({
+		path: `src/file-${index}.ts`,
+		detail: "x".repeat(40),
+	}));
+	current.registry.settle(large, structured({ summary: "ok", findings }));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	// The message points at the readable result instead of handing the parent a broken document.
+	const content = current.sent[0]?.content ?? "";
+	expect(content).toContain("too large to inline");
+	expect(content).toContain(`wait_tasks ${large}`);
+	expect(content).not.toContain('"findings"');
+
+	// A structured result that does fit arrives whole, not cut to the tail.
+	const small = start(current, "small structured");
+	current.registry.settle(small, structured({ summary: "ok", findings: [{ path: "src/a.ts" }] }));
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	expect(current.sent[1]?.content).toContain('{"summary":"ok","findings":[{"path":"src/a.ts"}]}');
+	current.stop();
+});
+
+test("producer detail cannot overwrite the status a task reached", (): void => {
+	vi.useFakeTimers();
+	const current = harness();
+	const task = start(current, "no result");
+	current.registry.settle(task, {
+		status: "failed",
+		output: "settled without a result",
+		truncated: false,
+		detail: { reason: "invalid_result", status: "invalid_result" },
+	});
+	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+
+	const details = current.sent[0]?.details as
+		| { readonly tasks?: readonly Record<string, unknown>[] }
+		| undefined;
+	expect(details?.tasks?.[0]).toMatchObject({ status: "failed", reason: "invalid_result" });
 	current.stop();
 });
 

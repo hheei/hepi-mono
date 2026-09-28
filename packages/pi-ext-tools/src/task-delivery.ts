@@ -97,13 +97,15 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 					details: {
 						batch,
 						tasks: events.map((event) => ({
+							// Producer detail never shadows the registry's own fields: the task's status is the
+							// status it reached, and a producer's reason for it stays a separate field.
+							...event.detail,
 							taskId: event.id,
 							shortId: event.shortId,
 							type: event.type,
 							status: event.status,
 							purpose: event.purpose,
 							truncated: event.truncated,
-							...event.detail,
 						})),
 					},
 				},
@@ -161,14 +163,22 @@ function onCurrentBranch(session: ExtensionContext, event: TaskTerminalEvent): b
 }
 
 function notificationText(event: TaskTerminalEvent): string {
-	const tail = event.output.slice(-MAX_TASK_MESSAGE_CHARS);
-	const truncated = event.truncated || tail.length < event.output.length;
-	return [
+	const head = [
 		`Background task ${event.id} finished: ${event.status}.`,
 		`Purpose: ${event.purpose}`,
-		truncated ? "output tail; earlier output omitted:" : "output:",
-		tail,
-	].join("\n");
+	];
+	if (event.structured !== undefined && event.output.length > MAX_TASK_MESSAGE_CHARS) {
+		// Cutting a validated result in half would hand the parent invalid JSON that looks like a
+		// result, so an oversized one is pointed at rather than inlined.
+		return [
+			...head,
+			`output: a structured result (${event.output.length} chars) too large to inline; read it with wait_tasks ${event.id}.`,
+		].join("\n");
+	}
+	const tail =
+		event.structured === undefined ? event.output.slice(-MAX_TASK_MESSAGE_CHARS) : event.output;
+	const truncated = event.truncated || tail.length < event.output.length;
+	return [...head, truncated ? "output tail; earlier output omitted:" : "output:", tail].join("\n");
 }
 
 /**
