@@ -263,3 +263,51 @@ test("a call cancelled before it starts waiting still stops its task", async ():
 
 	expect(stopped).toEqual(["agent-test-1"]);
 });
+
+test("an interrupted blocking call hands its result to the background channel", async (): Promise<void> => {
+	const hosted = host();
+	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	hosted.provide(registry);
+	const stops: string[] = [];
+	registerTaskTool(hosted.context, TUI, () => {
+		return {
+			start: (request: { readonly inlineResult?: boolean }) => {
+				const task = registry.create({
+					type: "agent",
+					purpose: "look",
+					begin: () => ({
+						stop: () => undefined,
+						describe: () => ({ output: "", truncated: false }),
+					}),
+					...(request.inlineResult === true ? { inlineResult: true } : {}),
+				});
+				return { id: task.id, shortId: task.shortId, status: task.status };
+			},
+			stop(id: string) {
+				stops.push(id);
+			},
+			dispose() {},
+		} as unknown as AgentTaskExecutor;
+	});
+	await settle();
+
+	const controller = new AbortController();
+	const call = callTool(
+		hosted,
+		{ agent: "scout", task: "look", blocking: true },
+		controller.signal,
+	);
+	controller.abort();
+	const result = await call;
+
+	// The call returned, so the result it was going to report has to reach the parent some other way:
+	// the task gives up the inline claim and the settlement becomes a background result.
+	const task = registry.list()[0];
+	if (task === undefined) throw new Error("expected an admitted task");
+	registry.settle(task.id, { status: "completed", output: "answer", truncated: false });
+	expect(registry.pendingDeliveries().map((event) => event.id)).toEqual([task.id]);
+	expect(result).toMatchObject({
+		content: [{ type: "text", text: expect.stringContaining("background task result") }],
+	});
+	expect(stops).toEqual([task.id]);
+});

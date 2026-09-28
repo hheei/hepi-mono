@@ -174,8 +174,8 @@ interface TaskRecord {
 	binding: TaskBinding | undefined;
 	terminal: TaskTerminal | undefined;
 	delivery: TaskDeliveryState | undefined;
-	/** Settled results of an inline-reporting producer need no delivery. */
-	readonly inlineResult: boolean;
+	/** Settled results of an inline-reporting producer need no delivery until it gives that up. */
+	inlineResult: boolean;
 	batch: string | undefined;
 	waiters: Array<(waited: boolean) => void>;
 }
@@ -238,16 +238,11 @@ export class TaskRegistry {
 		return count;
 	}
 
-	/** Terminal results that still reserve notification capacity. */
-	get pendingDeliveryCount(): number {
-		let count = 0;
-		for (const record of this.#records.values()) {
-			if (record.delivery === "pending") count += 1;
-		}
-		return count;
-	}
-
-	/** Terminal results the parent session has not confirmed seeing yet. */
+	/**
+	 * Terminal results the parent session has not confirmed seeing yet. They hold their delivery
+	 * reservation until then: a submitted result that the host never confirmed is still a result the
+	 * model may not have read, so it neither frees admission nor becomes an eviction candidate.
+	 */
 	get undeliveredCount(): number {
 		let count = 0;
 		for (const record of this.#records.values()) {
@@ -284,7 +279,7 @@ export class TaskRegistry {
 	create(request: TaskRequest): TaskSnapshot {
 		this.#assertOpen();
 		const wasIdle = !this.requiresControl;
-		if (this.activeCount + this.pendingDeliveryCount >= this.#maxPending)
+		if (this.activeCount + this.undeliveredCount >= this.#maxPending)
 			throw new TaskCapacityError(this.#maxPending);
 		const status = request.initialStatus ?? "running";
 		const { id, shortId } = this.#nextId(request.type);
@@ -441,22 +436,19 @@ export class TaskRegistry {
 	}
 
 	/**
-	 * Marks results as handed to the parent session. This releases their capacity reservation, so
-	 * they can age out normally; confirmation of model context arrives separately through
-	 * `markObserved`.
+	 * Marks results as handed to the parent session. The reservation is kept: handing a message to the
+	 * host is not proof that the model read it, and a result that arrived on a branch the parent never
+	 * returned to is exactly the case a later read has to stay possible for. Confirmation arrives
+	 * separately through `markObserved`, which is what releases the reservation.
 	 */
 	markSubmitted(ids: readonly string[], batch: string): void {
-		const submitted = new Set<string>();
 		for (const id of ids) {
 			const record = this.#records.get(id);
 			if (record === undefined || record.delivery !== "pending") continue;
 			record.delivery = "submitted";
 			record.batch = batch;
-			submitted.add(id);
 		}
-		// The batch is what a failed host send has to be able to requeue, so the records it just
-		// handed over are not candidates for eviction in the same step.
-		this.#evict(submitted);
+		this.#evict();
 	}
 
 	/** Marks results whose parent-session message lifecycle was observed. */
@@ -483,6 +475,24 @@ export class TaskRegistry {
 	 * Ends observation and releases every reservation. Producers still settle into a closed
 	 * registry so a late terminal result can never resurrect a disposed session.
 	 */
+	/**
+	 * Gives up the delivery the calling tool call had claimed. A blocking call that was interrupted can
+	 * no longer report the result it was going to wait for, so the task falls back to the background
+	 * channel instead of carrying its result into a call that has already returned. A record that
+	 * settled in the meantime is re-announced, because the notification for it was never reserved.
+	 *
+	 * The settled record takes a delivery slot then, which is bounded by the number of calls that can
+	 * be interrupted at once, not by anything unbounded.
+	 */
+	releaseInlineResult(id: string): void {
+		const record = this.#records.get(id);
+		if (record === undefined) return;
+		record.inlineResult = false;
+		if (record.terminal === undefined || record.delivery !== undefined) return;
+		record.delivery = "pending";
+		this.#emit(record);
+	}
+
 	dispose(): void {
 		if (this.#closed) return;
 		this.#closed = true;
@@ -563,8 +573,9 @@ export class TaskRegistry {
 			output: bounded.output,
 			truncated: terminal.truncated || bounded.truncated,
 		};
-		// A blocking caller already reported this result in its own tool result, so reserving a
-		// notification for it would deliver the same outcome twice.
+		// A blocking caller reports this result in its own tool result, so reserving a notification for it
+		// would deliver the same outcome twice. `releaseInlineResult` is what turns that off again when
+		// the calling tool call is gone before the result reaches it.
 		record.delivery = record.inlineResult ? undefined : "pending";
 		this.#emit(record);
 		this.#release(record, true);
@@ -590,18 +601,17 @@ export class TaskRegistry {
 		for (const waiter of waiters) waiter(waited);
 	}
 
-	#evict(protectedIds: ReadonlySet<string> = new Set<string>()): void {
-		// Only results that still need notification are protected by state: they are bounded by the
-		// admission budget, so a submitted or observed record can age out normally. A batch that was
-		// just handed to the host is passed in explicitly, because a rejected send has to be able to
-		// requeue it rather than lose it. Those records still count against the cap, so the retention
-		// bound is not raised by handing a result over.
+	#evict(): void {
+		// Only a result the parent session is done with may age out: a pending or submitted one is
+		// still the only copy of an outcome the model may not have read, and both are bounded by the
+		// admission budget, so neither can grow past it. Inline results never needed a notification
+		// and observed ones are confirmed, so those are what the retention cap applies to.
 		const candidates = [...this.#records.values()].filter(
-			(record) => !isActive(record.status) && record.delivery !== "pending",
+			(record) =>
+				!isActive(record.status) &&
+				(record.delivery === undefined || record.delivery === "observed"),
 		);
-		const removable = candidates.filter((record) => !protectedIds.has(record.id));
-		const overCap = candidates.length - this.#maxRetained;
-		for (const record of removable.slice(0, Math.max(0, overCap))) {
+		for (const record of candidates.slice(0, Math.max(0, candidates.length - this.#maxRetained))) {
 			this.#records.delete(record.id);
 		}
 	}

@@ -122,8 +122,13 @@ export function registerTaskTool(
 				);
 			}
 			// A cancelled blocking call owns its execution, so cancelling must stop the task rather
-			// than leave it running with no delivery channel: its result only went to this call.
-			const stopOnAbort = (): void => integration.executor.stop(started.id);
+			// than leave it running unobserved. It also gives up the result it was going to report:
+			// this call returns now, so a result the execution still produces (or produced just before
+			// the interruption) has to reach the parent through the background channel instead.
+			const stopOnAbort = (): void => {
+				integration.registry.releaseInlineResult(started.id);
+				integration.executor.stop(started.id);
+			};
 			// An abort that already happened fires no event, so it is checked before listening.
 			if (signal?.aborted === true) stopOnAbort();
 			else signal?.addEventListener("abort", stopOnAbort, { once: true });
@@ -135,7 +140,7 @@ export function registerTaskTool(
 			}
 			const interrupted = signal?.aborted === true;
 			const text = interrupted
-				? `This call was interrupted, so ${started.shortId} was stopped instead of waited for.\n${formatBlockingOutcome(started.shortId, outcomes)}`
+				? `This call was interrupted, so ${started.shortId} was stopped instead of waited for. Its outcome is reported as a background task result.\n${formatBlockingOutcome(started.shortId, outcomes)}`
 				: formatBlockingOutcome(started.shortId, outcomes);
 			return textToolResult(text, outcomes);
 		},
