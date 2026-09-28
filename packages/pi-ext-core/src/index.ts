@@ -113,6 +113,7 @@ export {
 	TELEMETRY_DISMISS_DELAY_MS,
 	wrapEditorBottomRail,
 } from "./response-status.js";
+export { fitRow } from "./row-fit.js";
 export type { ServiceKey, WaitForServiceOptions } from "./service.js";
 export { createServiceKey, getService, provideService, waitForService } from "./service.js";
 export type {

@@ -1,6 +1,6 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
-import { fitRow } from "../src/row-fit.js";
+import { fitRow } from "../src/index.js";
 
 const rows = [
 	"",
@@ -20,6 +20,14 @@ describe("fitRow", () => {
 				expect(fitRow(row, width)).toBe(truncateToWidth(row, width));
 			}
 		}
+	});
+
+	test("fits with a caller-supplied ellipsis and caches it separately", () => {
+		const row = "\u001b[2mstyled row that needs cutting\u001b[0m";
+		expect(fitRow(row, 20, "")).toBe(truncateToWidth(row, 20, ""));
+		expect(fitRow(row, 20, "\u2026")).toBe(truncateToWidth(row, 20, "\u2026"));
+		expect(fitRow(row, 20)).toBe(truncateToWidth(row, 20));
+		expect(fitRow(row, 20, "")).toBe(truncateToWidth(row, 20, ""));
 	});
 
 	test("reuses the fitted text for a repeated row and width", () => {

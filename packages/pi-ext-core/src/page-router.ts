@@ -1,14 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-	type Component,
-	Key,
-	matchesKey,
-	type OverlayOptions,
-	truncateToWidth,
-} from "@earendil-works/pi-tui";
+import { type Component, Key, matchesKey, type OverlayOptions } from "@earendil-works/pi-tui";
 import { openTuiSurface } from "./custom-surface.js";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
+import { fitRow } from "./row-fit.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
 /** Context created for one lazily constructed page view. The signal ends with the router. */
@@ -291,7 +286,7 @@ export async function openExtensionPageRouter(
 						})
 						.join(currentTheme.fg("dim", "  "));
 					const border = currentTheme.fg("border", "─".repeat(Math.max(0, width)));
-					const lines = [border, truncateToWidth(tabs, width), border];
+					const lines = [border, fitRow(tabs, width), border];
 					const id = selectedId;
 					const view = id === undefined ? undefined : views.get(id);
 					if (view !== undefined) {

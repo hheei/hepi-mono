@@ -4,6 +4,7 @@ import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
 	errorMessage,
+	fitRow,
 	type SettingField,
 	type SettingsContext,
 	type SettingsPanel,
@@ -14,7 +15,6 @@ import {
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
 import { LIST_HINT_ROWS, PANEL_ROWS, pad, scrollbar, VISIBLE_ROWS } from "./page-chrome.js";
-import { fitRow } from "./row-fit.js";
 
 const MARQUEE_FRAME_MS = 125;
 const MARQUEE_INITIAL_PAUSE_MS = 750;
