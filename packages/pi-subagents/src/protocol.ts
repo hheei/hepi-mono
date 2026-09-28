@@ -17,6 +17,7 @@ export const RUNNER_OPERATIONS = [
 	"shutdown",
 	"contact_parent",
 	"report_lifecycle",
+	"task_result",
 	"report_paused",
 	"pause",
 	"cancel_pause",
@@ -37,6 +38,9 @@ export const RUNNER_EVENTS_DROPPED_EVENT = "runner_events_dropped" as const;
 
 /** Child-branch event: the TUI left the bound session, quit, or was interrupted. */
 export const CHILD_LIFECYCLE_EVENT = "child_lifecycle" as const;
+
+/** Runner-to-parent event: the task child submitted its final result. */
+export const TASK_RESULT_EVENT = "task_result" as const;
 
 /** Runner-to-bridge event: hold the current turn_end until close_writer or cancel. */
 export const PAUSE_EVENT = "pause" as const;
@@ -179,6 +183,22 @@ export const PauseReportPayloadSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/**
+ * A task child's final result. The payload carries the already validated JSON, so the parent
+ * never re-parses free-form text to decide what the child concluded.
+ */
+export const TaskResultPayloadSchema = Type.Object(
+	{
+		type: Type.Literal(TASK_RESULT_EVENT),
+		parentSessionId: nonEmptyString,
+		childId: nonEmptyString,
+		runtimeIdentity: nonEmptyString,
+		json: Type.String(),
+		structured: Type.Boolean(),
+	},
+	{ additionalProperties: false },
+);
+
 export type HelloFrame = Static<typeof HelloFrameSchema>;
 export type HelloAckFrame = Static<typeof HelloAckFrameSchema>;
 export type RequestFrame = Static<typeof RequestFrameSchema>;
@@ -187,6 +207,7 @@ export type EventFrame = Static<typeof EventFrameSchema>;
 export type ContactReportPayload = Static<typeof ContactReportPayloadSchema>;
 export type ChildLifecyclePayload = Static<typeof ChildLifecyclePayloadSchema>;
 export type PauseReportPayload = Static<typeof PauseReportPayloadSchema>;
+export type TaskResultPayload = Static<typeof TaskResultPayloadSchema>;
 
 export function isHelloFrame(value: unknown): value is HelloFrame {
 	return Value.Check(HelloFrameSchema, value);
@@ -210,6 +231,10 @@ export function isChildLifecyclePayload(value: unknown): value is ChildLifecycle
 
 export function isPauseReportPayload(value: unknown): value is PauseReportPayload {
 	return Value.Check(PauseReportPayloadSchema, value);
+}
+
+export function isTaskResultPayload(value: unknown): value is TaskResultPayload {
+	return Value.Check(TaskResultPayloadSchema, value);
 }
 
 export function isResponseFrame(value: unknown): value is ResponseFrame {

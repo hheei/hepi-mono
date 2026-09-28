@@ -14,7 +14,8 @@ import {
 
 /**
  * Runner operations that map onto a real Pi `--mode rpc` command. Runner-local
- * shutdown, writer handoff, and contact_parent operations are never forwarded to Pi.
+ * shutdown and writer handoff, plus every reporter operation the child bridge sends
+ * (contact_parent, report_lifecycle, report_paused, task_result), are never forwarded to Pi.
  */
 export type PiRpcOperation = Exclude<
 	RunnerOperation,
@@ -22,6 +23,7 @@ export type PiRpcOperation = Exclude<
 	| "contact_parent"
 	| "report_lifecycle"
 	| "report_paused"
+	| "task_result"
 	| "pause"
 	| "cancel_pause"
 	| "close_writer"

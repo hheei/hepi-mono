@@ -20,11 +20,13 @@ import {
 	isHelloFrame,
 	isPauseReportPayload,
 	isRequestFrame,
+	isTaskResultPayload,
 	PAUSE_EVENT,
 	type ResponseFrame,
 	RUNNER_EVENTS_DROPPED_EVENT,
 	RUNNER_EXIT_EVENT,
 	successResponse,
+	type TaskResultPayload,
 	WRITER_EXIT_EVENT,
 } from "./protocol.js";
 import { PiRpcAdapter, type PiRpcOperation, PiRpcTimeoutError } from "./rpc-adapter.js";
@@ -148,6 +150,7 @@ class Runner {
 	#detachEvents: (() => void) | undefined;
 	readonly #reporters = new Map<Socket, ReporterLink>();
 	readonly #pendingReports: ContactReportPayload[] = [];
+	#pendingTaskResult: TaskResultPayload | undefined;
 	#controller: ControllerLink | undefined;
 	#server: Server | undefined;
 	#boundEndpoint = false;
@@ -498,6 +501,7 @@ class Runner {
 			)
 				.then(() => {
 					this.#flushPendingReports(link);
+					this.#flushPendingTaskResult(link);
 					this.#flushBufferedEvents(link);
 				})
 				.catch((error: unknown) => {
@@ -547,6 +551,27 @@ class Runner {
 			if (value.payload.kind === "left_session") this.#bridgeBound = false;
 			this.#broadcast({ ...value.payload, type: CHILD_LIFECYCLE_EVENT });
 			void this.#respondReporter(link, successResponse(value.id));
+			return;
+		}
+		if (value.operation === "task_result" && isTaskResultPayload(value.payload)) {
+			if (!this.#matchesReporterIdentity(value.payload) || !this.#bridgeBound) {
+				void this.#respondReporter(
+					link,
+					failureResponse(value.id, "invalid_report", "Reporter sent an invalid report"),
+				);
+				return;
+			}
+			const accepted = this.#deliverOrQueueTaskResult(value.payload);
+			void this.#respondReporter(
+				link,
+				accepted
+					? successResponse(value.id)
+					: failureResponse(
+							value.id,
+							"result_already_submitted",
+							"This execution already submitted a final result",
+						),
+			);
 			return;
 		}
 		if (value.operation === "report_paused" && isPauseReportPayload(value.payload)) {
@@ -683,6 +708,40 @@ class Runner {
 			});
 		}
 	}
+
+	/**
+	 * Delivers the one final result this execution may produce. The slot is single because a
+	 * task settles once; a second submission is refused rather than replacing the first.
+	 */
+	#deliverOrQueueTaskResult(payload: TaskResultPayload): boolean {
+		if (this.#pendingTaskResult !== undefined) return false;
+		const link = this.#controller;
+		if (link !== undefined && link.socket.writableLength <= this.#maxControllerBufferBytes) {
+			void writeJsonLine(link.socket, eventFrame(payload), this.#maxFrameBytes).catch(
+				(error: unknown) => {
+					this.#diagnose(`task result delivery failed: ${errorMessage(error)}`);
+					this.#dropController(link, toError(error));
+					this.#pendingTaskResult = payload;
+				},
+			);
+			return true;
+		}
+		this.#pendingTaskResult = payload;
+		return true;
+	}
+
+	#flushPendingTaskResult(link: ControllerLink): void {
+		if (this.#controller !== link || this.#pendingTaskResult === undefined) return;
+		const payload = this.#pendingTaskResult;
+		this.#pendingTaskResult = undefined;
+		void writeJsonLine(link.socket, eventFrame(payload), this.#maxFrameBytes).catch(
+			(error: unknown) => {
+				this.#pendingTaskResult = payload;
+				this.#diagnose(`task result catch-up failed: ${errorMessage(error)}`);
+				this.#dropController(link, toError(error));
+			},
+		);
+	}
 	#handleRequest(link: ControllerLink, value: unknown): void {
 		if (!isRequestFrame(value)) {
 			this.#diagnose("controller sent a malformed frame");
@@ -753,7 +812,8 @@ class Runner {
 		if (
 			operation === "contact_parent" ||
 			operation === "report_lifecycle" ||
-			operation === "report_paused"
+			operation === "report_paused" ||
+			operation === "task_result"
 		) {
 			rememberRequestId(link.retired, id);
 			void this.#respond(

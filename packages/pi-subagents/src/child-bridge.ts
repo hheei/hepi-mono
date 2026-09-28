@@ -16,6 +16,11 @@ import type { ChildIdentity } from "./domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY } from "./domain.js";
 import { PauseGate } from "./pause-gate.js";
 import { CANCEL_PAUSE_EVENT, PAUSE_EVENT } from "./protocol.js";
+import {
+	registerTaskResultTool,
+	registerTaskSoftHint,
+	taskContractFromEnv,
+} from "./task-result.js";
 import { registerChildTools } from "./tools.js";
 import { createChildIdentityWidget } from "./widget.js";
 
@@ -129,11 +134,17 @@ export function registerChildBridge(
 		gate,
 	};
 	const nudge = registerChildNudge(pi);
+	const isBound = (sessionId: string): boolean =>
+		state.bound && (state.boundSessionId === "" || sessionId === state.boundSessionId);
 	registerChildTools(pi, identity, {
 		onReport: () => nudge.markReported(),
-		isBound: (sessionId) =>
-			state.bound && (state.boundSessionId === "" || sessionId === state.boundSessionId),
+		isBound,
 	});
+	const taskContract = taskContractFromEnv();
+	if (taskContract !== undefined) {
+		const controller = registerTaskResultTool(pi, identity, { contract: taskContract, isBound });
+		registerTaskSoftHint(pi, controller, taskContract.softTurns);
+	}
 	const stop = new AbortController();
 	const pauseSocket = options.pauseSocket ?? openChildPauseSocket(identity);
 	pauseSocket.onEvent((event) => {

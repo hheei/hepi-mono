@@ -271,6 +271,18 @@ export async function sendLifecycleToRunner(
 	await sendReporterRequest(identity, "report_lifecycle", payload, signal);
 }
 
+/**
+ * Sends the task child's final result. A refused result means this execution already submitted
+ * one, which the child must not treat as success.
+ */
+export async function sendTaskResultToRunner(
+	identity: ChildIdentity,
+	payload: unknown,
+	signal?: AbortSignal,
+): Promise<void> {
+	await sendReporterRequest(identity, "task_result", payload, signal);
+}
+
 async function sendReporterRequest(
 	identity: ChildIdentity,
 	operation: RunnerOperation,
