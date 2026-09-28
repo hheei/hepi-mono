@@ -5,6 +5,7 @@
  * writing anything into the user's home. A user definition at the same name always wins,
  * because discovery only falls back here after every filesystem scope has been searched.
  */
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
 import type { DiscoveredAgent } from "./agent-resolver.js";
 
@@ -35,32 +36,15 @@ Rules:
 
 const DEFINITIONS: readonly string[] = [SCOUT_DEFINITION];
 
-/** Splits `read,grep` and a YAML-style list into tool names. */
+/** Reads the comma form and the YAML list form, so a built-in definition may use either. */
 function toolNames(value: unknown): string[] {
-	if (typeof value !== "string") return [];
-	return value
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry !== "");
-}
-
-function parseFrontmatter(text: string): { frontmatter: Record<string, unknown>; body: string } {
-	const normalized = text.replaceAll("\r\n", "\n");
-	if (!normalized.startsWith("---\n"))
-		throw new Error("Built-in agent definition has no frontmatter");
-	const end = normalized.indexOf("\n---", 4);
-	if (end === -1) throw new Error("Built-in agent definition has unterminated frontmatter");
-	const frontmatter: Record<string, unknown> = {};
-	for (const line of normalized.slice(4, end).split("\n")) {
-		const trimmed = line.trim();
-		if (trimmed === "") continue;
-		const separator = trimmed.indexOf(":");
-		if (separator <= 0) throw new Error(`Built-in agent definition has an invalid line: ${line}`);
-		const key = trimmed.slice(0, separator).trim();
-		const raw = trimmed.slice(separator + 1).trim();
-		frontmatter[key] = raw === "true" ? true : raw === "false" ? false : raw;
-	}
-	return { frontmatter, body: normalized.slice(end + 4).trim() };
+	const names =
+		typeof value === "string"
+			? value.split(",")
+			: Array.isArray(value)
+				? value.filter((entry): entry is string => typeof entry === "string")
+				: [];
+	return names.map((entry) => entry.trim()).filter((entry) => entry !== "");
 }
 
 /** The built-in definitions, parsed once. A malformed constant is a build-time bug, not user input. */
