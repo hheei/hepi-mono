@@ -27,7 +27,7 @@ import {
 import { Type } from "typebox";
 import type { TaskChildContract } from "./domain.js";
 import type { AgentTaskExecutor } from "./task-executor.js";
-import { DEFAULT_TASK_SOFT_TURNS, TASK_ENVIRONMENT_KEY } from "./task-result.js";
+import { DEFAULT_TASK_SOFT_TURNS } from "./task-result.js";
 import { checkOutputSchema } from "./task-schema.js";
 
 export const TASK_TOOL_ID = "task";
@@ -91,14 +91,6 @@ export function registerTaskTool(
 		promptGuidelines: [...GUIDELINES],
 		parameters: taskSchema,
 		async execute(_id, params, signal): Promise<ReturnType<typeof textToolResult>> {
-			// Ownership check at the entry point: a Task child reports to its own parent, so work it
-			// delegated would belong to nobody's delivery. Its process does not load this extension,
-			// and this makes the rule visible even if that changes.
-			if (process.env[TASK_ENVIRONMENT_KEY] !== undefined) {
-				throw new Error(
-					"A task child cannot delegate further. Report to the parent with submit_task_result, or ask it with contact_parent.",
-				);
-			}
 			const integration = active;
 			if (integration === undefined) throw new Error(unavailable);
 			const contract = taskContract(params.outputSchema);
@@ -120,8 +112,21 @@ export function registerTaskTool(
 					{ id: started.id, shortId: started.shortId, status: started.status },
 				);
 			}
-			const outcomes = await integration.registry.wait([started.id], signal);
-			return textToolResult(formatBlockingOutcome(started.shortId, outcomes), outcomes);
+			// A cancelled blocking call owns its execution, so cancelling must stop the task rather
+			// than leave it running with no delivery channel: its result only went to this call.
+			const stopOnAbort = (): void => integration.executor.stop(started.id);
+			signal?.addEventListener("abort", stopOnAbort, { once: true });
+			let outcomes: readonly TaskWaitOutcome[];
+			try {
+				outcomes = await integration.registry.wait([started.id], signal);
+			} finally {
+				signal?.removeEventListener("abort", stopOnAbort);
+			}
+			const interrupted = signal?.aborted === true;
+			const text = interrupted
+				? `This call was interrupted, so ${started.shortId} was stopped instead of waited for.\n${formatBlockingOutcome(started.shortId, outcomes)}`
+				: formatBlockingOutcome(started.shortId, outcomes);
+			return textToolResult(text, outcomes);
 		},
 	};
 	registerManagedTool(
@@ -130,7 +135,8 @@ export function registerTaskTool(
 		tui.frame(tool, {
 			// The task text can be long, so only its first line is shown and the frame truncates it.
 			summary: (args) => `${args.agent} \u00b7 ${firstLine(args.task)}`,
-			footer: taskFooter,
+			// The registry owns the abbreviation; re-deriving it here would duplicate the id format.
+			footer: (result) => taskFooter(active?.registry, result),
 			headerLine: "truncate",
 		}),
 	);
@@ -162,14 +168,19 @@ function taskContract(schema: unknown): TaskChildContract {
 }
 
 /** Typed footer: the task's short id and the status it actually reached. */
-function taskFooter(result: AgentToolResult<unknown>): string | undefined {
+function taskFooter(
+	registry: TaskRegistry | undefined,
+	result: AgentToolResult<unknown>,
+): string | undefined {
 	const details: unknown = result.details;
 	if (Array.isArray(details)) {
 		const settled: unknown = details[0];
-		if (isRecord(settled) && typeof settled.id === "string" && typeof settled.status === "string") {
-			return `${shortIdOf(settled.id)} \u00b7 ${settled.status}`;
-		}
-		return undefined;
+		if (!isRecord(settled) || typeof settled.id !== "string") return undefined;
+		if (typeof settled.status !== "string") return undefined;
+		// The status is the one this call actually observed; only the abbreviation comes from the
+		// registry, which owns the id format.
+		const task = registry?.get(settled.id);
+		return task === undefined ? undefined : `${task.shortId} \u00b7 ${settled.status}`;
 	}
 	if (isRecord(details) && typeof details.status === "string") {
 		return typeof details.shortId === "string"
@@ -179,15 +190,9 @@ function taskFooter(result: AgentToolResult<unknown>): string | undefined {
 	return undefined;
 }
 
-/** The id a caller can act on, derived from the full id the registry minted. */
-function shortIdOf(id: string): string {
-	const parts = id.split("-");
-	return parts.length >= 3 ? `${parts[0]}-${parts[parts.length - 1]}` : id;
-}
-
+/** The task's first line; the frame truncates it to the terminal width. */
 function firstLine(text: string): string {
-	const line = text.split("\n", 1)[0] ?? text;
-	return line.length > 80 ? `${line.slice(0, 79)}\u2026` : line;
+	return text.split("\n", 1)[0] ?? text;
 }
 
 function formatBlockingOutcome(shortId: string, outcomes: readonly TaskWaitOutcome[]): string {

@@ -29,7 +29,6 @@ import { TASK_RESULT_EVENT } from "./protocol.js";
 import { prepareStructuredResult, prepareTextResult } from "./task-schema.js";
 
 export const TASK_ENVIRONMENT_KEY = "PI_SUBAGENTS_TASK";
-export { TASK_RESULT_TOOL_NAME };
 
 /**
  * A task that has run this many turns is reminded once, and only once, to converge. It is a

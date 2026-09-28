@@ -40,6 +40,12 @@ async function writeAgent(
 	return path;
 }
 
+/** The tools the built-in scout definition declares, in declaration order. */
+function scoutTools(): string[] {
+	const scout = builtinAgents().find((agent) => agent.name === "scout");
+	return String(scout?.frontmatter.tools).split(",");
+}
+
 function resolve(directory: string, name: string, bridgeExtensionPath: string) {
 	return resolveAgent({
 		name,
@@ -315,7 +321,8 @@ test("discovers the built-in scout without writing into the user home", async ()
 		const resolved = await resolve(directory, "scout", bridge);
 		expect(resolved.model).toEqual({ ...PARENT.model, source: "parent" });
 		expect(resolved.thinking).toEqual({ level: "medium", source: "parent" });
-		expect(resolved.tools).toEqual([...SCOUT_REQUIRED_TOOLS, CONTACT_PARENT_TOOL_NAME]);
+		// The resolved allowlist is exactly what the definition declares — no more, no less.
+		expect(resolved.tools).toEqual(scoutTools());
 	});
 });
 
@@ -345,23 +352,30 @@ test("built-in definitions are parsed by the same frontmatter parser as files on
 });
 
 test("a built-in agent cannot silently inherit every tool", (): void => {
-	const scout = builtinAgents().find((agent) => agent.name === "scout");
-	expect(scout).toBeDefined();
-	// An empty `tools` list means "all tools" downstream; the built-in must name its tools.
-	expect(String(scout?.frontmatter.tools).split(",")).toEqual([
-		...SCOUT_REQUIRED_TOOLS,
-		CONTACT_PARENT_TOOL_NAME,
-	]);
+	// An empty `tools` list means "all tools" downstream; the built-in must name its tools, and
+	// must name the read/search and report tools the scout promises.
+	expect(scoutTools()).toEqual(expect.arrayContaining([...SCOUT_REQUIRED_TOOLS]));
+	expect(scoutTools()).toContain(CONTACT_PARENT_TOOL_NAME);
 });
 
 test("a built-in agent's resolved tools are checked, not merely its definition", (): void => {
 	// The definition naming its tools is not enough: the resolved allowlist is what the child gets,
 	// and an empty list means "every tool" in Pi.
-	expect(builtinAgentToolProblem("<builtin>/scout.md", [...SCOUT_REQUIRED_TOOLS])).toBeUndefined();
+	const declared = builtinAgents().find((agent) => agent.name === "scout")?.frontmatter.tools;
+	const everything = String(declared).split(",");
+	expect(builtinAgentToolProblem("<builtin>/scout.md", everything)).toBeUndefined();
+	// A Task child's allowlist gains one extra channel, which is still fine.
+	expect(
+		builtinAgentToolProblem("<builtin>/scout.md", [...everything, "submit_task_result"]),
+	).toBeUndefined();
 	expect(builtinAgentToolProblem("<builtin>/scout.md", [])).toMatch(/every tool/u);
+	// The check compares against what the definition declares, not a hard-coded list, so it keeps
+	// working for a future built-in that is not read-only.
 	expect(builtinAgentToolProblem("<builtin>/scout.md", ["read", "grep"])).toMatch(
-		/required read-only tools are missing: find, ls/u,
+		/tools it declares are missing: find, ls, contact_parent/u,
 	);
+	// The scout must keep a way to report as well, not only the read tools.
+	expect(String(declared)).toContain("contact_parent");
 	// A user definition at the same name is a normal agent and is not held to the built-in promise.
 	expect(builtinAgentToolProblem("/home/user/.pi/agent/agents/scout.md", [])).toBeUndefined();
 });

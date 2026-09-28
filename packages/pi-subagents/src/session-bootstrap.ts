@@ -11,6 +11,7 @@ import type {
 	ExecutionMode,
 	PersistenceState,
 	PiInvocation,
+	ResolvedAgentIdentity,
 	SpawnSubagentInput,
 	SubagentRecord,
 } from "./domain.js";
@@ -215,9 +216,8 @@ export async function resolveSubagentLaunch(
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
-		tools: requireUsableTools(
-			policy.agent.sourcePath,
-			policy.agent.name,
+		tools: usableTools(
+			policy.agent,
 			taskChildTools(policy.tools, policy.excludeTools, options.input.taskContract !== undefined),
 		),
 		excludeTools: policy.excludeTools,
@@ -234,26 +234,22 @@ export async function resolveSubagentLaunch(
 }
 
 /**
- * A Task child reports its result only through `submit_task_result`, so a tool allowlist that
- * omits it would make every such task fail without the child being able to say why. An empty
- * allowlist already means "all tools", so only a non-empty list needs the channel added.
- */
-/**
  * Fails before any process exists when a built-in agent's allowlist no longer matches what it
  * advertises, rather than launching a child with the wrong permissions.
  */
-function requireUsableTools(
-	sourcePath: string,
-	agentName: string,
-	tools: readonly string[],
-): readonly string[] {
-	const problem = builtinAgentToolProblem(sourcePath, tools);
+function usableTools(agent: ResolvedAgentIdentity, tools: readonly string[]): readonly string[] {
+	const problem = builtinAgentToolProblem(agent.sourcePath, tools);
 	if (problem !== undefined) {
-		throw new Error(`Built-in agent ${agentName} cannot run: ${problem}`);
+		throw new Error(`Built-in agent ${agent.name} cannot run: ${problem}`);
 	}
 	return tools;
 }
 
+/**
+ * A Task child reports its result only through `submit_task_result`, so a tool allowlist that
+ * omits it would make every such task fail without the child being able to say why. An empty
+ * allowlist already means "all tools", so only a non-empty list needs the channel added.
+ */
 function taskChildTools(
 	tools: readonly string[],
 	excludeTools: readonly string[],
