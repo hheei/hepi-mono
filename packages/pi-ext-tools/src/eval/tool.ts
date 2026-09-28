@@ -18,7 +18,12 @@ import {
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { EditCatalog } from "../fff/settings.js";
-import { clearEvalNestedLive, type EvalNestedTrace, type EvalToolBridge } from "./bridge.js";
+import {
+	clearEvalNestedLive,
+	type EvalNestedTrace,
+	type EvalToolBridge,
+	evalNestedLiveResult,
+} from "./bridge.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
 const OWNER = "@hheei/pi-ext-tools";
@@ -258,33 +263,57 @@ function renderEvalResult(
 	result: AgentToolResult<EvalToolDetails>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
-	_context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
-	_bridge: EvalToolBridge,
+	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
+	bridge: EvalToolBridge,
 ): Component {
 	const details = result.details;
 	if (!isEvalToolDetails(details)) return new Text(agentResultText(result), 0, 0);
-	if (options.isPartial) {
-		// 流式输出不应该体现在 body 中
-		return new Container();
-	}
 	const body = new Container();
-	// body 只显示 eval 的输出结果
-	const resultRows = details.rows.filter((row) => row.kind === "result");
-	if (resultRows.length > 0) {
-		for (const row of resultRows) {
+	for (const row of details.rows) {
+		if (row.kind !== "tool") {
 			body.addChild(new Text(row.text, 0, 0));
+			continue;
 		}
-		return body;
-	}
-	if (details.error !== undefined) {
-		body.addChild(new Text(theme.fg("error", details.error), 0, 0));
-		return body;
-	}
-	const outputRows = details.rows.filter((row) => row.kind === "text" || row.kind === "display");
-	for (const row of outputRows) {
-		body.addChild(new Text(row.text, 0, 0));
+		body.addChild(renderNestedTrace(row.trace, options, theme, context, bridge));
 	}
 	return body;
+}
+
+/** Reuses the canonical renderer of a nested tool, falling back to a typed one-line summary. */
+function renderNestedTrace(
+	trace: EvalNestedTrace,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
+	bridge: EvalToolBridge,
+): Component {
+	const suffix = trace.error === undefined ? trace.text : trace.error;
+	const fallback = new Text(
+		theme.fg(trace.error === undefined ? "accent" : "error", `${trace.name}: ${suffix}`),
+		0,
+		0,
+	);
+	const tool = bridge.definition(trace.name);
+	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
+	if (tool?.renderResult === undefined || live === undefined) return fallback;
+	try {
+		return tool.renderResult(live as never, options, theme, {
+			args: trace.args,
+			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,
+			invalidate: context?.invalidate ?? (() => undefined),
+			lastComponent: undefined,
+			state: context?.state,
+			cwd: context?.cwd ?? process.cwd(),
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: options.isPartial,
+			expanded: options.expanded,
+			showImages: context?.showImages ?? false,
+			isError: trace.error !== undefined,
+		} as never);
+	} catch {
+		return fallback;
+	}
 }
 
 function transcript(rows: readonly EvalRow[]): string {

@@ -124,72 +124,61 @@ describe("Eval tool bridge", () => {
 		).rejects.toBeInstanceOf(EvalToolError);
 	});
 
-	test("eval tool suppresses streaming body and only renders final eval result", () => {
+	test("eval tool streams partial rows and renders rows in execution order", () => {
 		const bridge = new EvalToolBridge(new Map(), () => true);
 		const mockState = { getRuntime: () => undefined } as unknown as EvalRuntimeState;
 		const tool = createEvalTool(mockState, bridge);
 
-		// Header displays instruction, body does not render call
+		// The ToolTui frame owns the eval header, so the tool renders no call body of its own.
 		expect(tool.renderCall).toBeUndefined();
 
+		const rows = (
+			component: ReturnType<NonNullable<typeof tool.renderResult>> | undefined,
+		): string[] => (component?.render(80) ?? []).map((line) => line.trim());
+		const render = (result: unknown, isPartial: boolean): string[] =>
+			rows(
+				tool.renderResult?.(
+					result as never,
+					{ expanded: false, isPartial },
+					{ fg: (_color: string, text: string) => text } as never,
+					{} as never,
+				),
+			);
+
+		const nestedTrace = {
+			name: "read" as const,
+			text: "file.ts",
+			args: "{}",
+			details: { path: "file.ts" },
+			durationMs: 12,
+		};
 		const partialResult = {
 			content: [{ type: "text" as const, text: "streaming..." }],
 			details: {
 				format: "pi-ext-tools-eval" as const,
 				rows: [
 					{ kind: "text" as const, text: "line 1" },
-					{
-						kind: "tool" as const,
-						trace: {
-							name: "read" as const,
-							text: "file.ts",
-							args: "{}",
-							details: { path: "file.ts" },
-							durationMs: 12,
-						},
-					},
+					{ kind: "tool" as const, trace: nestedTrace },
 				],
 				durationMs: 50,
 			},
 		};
+		// Partial updates keep the body live, and a nested trace without a live renderer falls back
+		// to its typed name and result summary.
+		expect(render(partialResult, true)).toEqual(["line 1", "read: file.ts"]);
 
-		// When streaming (isPartial = true), body is empty
-		const partialComp = tool.renderResult?.(
-			partialResult,
-			{ expanded: false, isPartial: true },
-			{ fg: (_c: string, t: string) => t } as never,
-			{} as never,
-		);
-		expect(partialComp?.render(80)).toEqual([]);
-
-		// When finished, body only displays the eval result
 		const finalResult = {
 			content: [{ type: "text" as const, text: "42" }],
 			details: {
 				format: "pi-ext-tools-eval" as const,
 				rows: [
 					{ kind: "text" as const, text: "streamed line" },
-					{
-						kind: "tool" as const,
-						trace: {
-							name: "read" as const,
-							text: "file.ts",
-							args: "{}",
-							details: { path: "file.ts" },
-							durationMs: 12,
-						},
-					},
+					{ kind: "tool" as const, trace: nestedTrace },
 					{ kind: "result" as const, text: "42" },
 				],
 				durationMs: 120,
 			},
 		};
-		const finalComp = tool.renderResult?.(
-			finalResult,
-			{ expanded: false, isPartial: false },
-			{ fg: (_c: string, t: string) => t } as never,
-			{} as never,
-		);
-		expect(finalComp?.render(80)[0]?.trim()).toBe("42");
+		expect(render(finalResult, false)).toEqual(["streamed line", "read: file.ts", "42"]);
 	});
 });
