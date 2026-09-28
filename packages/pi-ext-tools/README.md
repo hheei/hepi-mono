@@ -58,11 +58,14 @@ unsupported and must be removed; they are not mapped to `fuzzFactor`.
 
 ## bash
 
-`bash` runs one shell command or short pipeline. It keeps ordinary foreground
-execution and the existing local `async: true` job path. Local commands running without an explicit
-timeout automatically transition to a background task (e.g. `bash-1`) after `autoAsyncSeconds`
-(default 60s, configurable in `pi-ext-tools.bash`, 0 disables) to avoid blocking the session.
-Remote `target` is an authorized SSH host; omit `async`. Working directory on SSH is the remote home.
+`bash` runs one shell command or short pipeline. It keeps ordinary foreground execution and the
+existing local background path, selected with `blocking: false`. Local commands running without an
+explicit timeout automatically transition to a background task (e.g. `bash-1`) after `autoAsyncSeconds`
+(default 60s, configurable in `pi-ext-tools.bash`, 0 disables) to avoid blocking the session; an
+explicit `blocking: true` always waits, and a refused conversion is reported in the result instead of
+silently staying foreground.
+Remote `target` is an authorized SSH host and always runs in the foreground; `blocking: false` is
+rejected there. Working directory on SSH is the remote home.
 `output` remains unsupported.
 
 A multi-line command is joined into one header line with `; ` (a trailing `\` continuation or `;`

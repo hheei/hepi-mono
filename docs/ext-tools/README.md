@@ -167,17 +167,17 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 RTK 重写策略、配置与生命周期现由独立 [`pi-optimizer`](../optimizer/README.md) 所有。`pi-ext-tools` 不再注册 RTK provider 或重写 hook；旧 `pi-ext-tools.rtk` / `rtkPath` 由 optimizer 原子迁移。未安装 optimizer 时 Bash 不自动改写。
 
-Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与 async 保持原行为。Bash result 只保留 bounded tail；执行 RTK 包装命令时，输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
+Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与后台任务保持原行为。Bash result 只保留 bounded tail；执行 RTK 包装命令时，输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
 
-### Extension-owned async Bash
+### Extension-owned background Bash
 
-`bash` 可显式接受 `async: true`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
-session-scoped background job，并在 `AsyncTaskRegistry` 中登记为一个 model-visible task，立即返回 `bash-N`。
-任务进入终态后，extension 通过 Pi host 的 custom message（`pi-ext-tools:task-terminal`）把 task id、终态、
-截断标记和有限 tail 放入当前 session；消息持久化并显示，但**不触发**新的 agent turn。async job 不绑定原 tool
-call 的 AbortSignal，工具调用返回后任务继续运行。
+`bash` 可显式接受 `blocking: false`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
+session-scoped background job，并在共享的 ext-core `TaskRegistry` 中登记为一个 model-visible task，立即返回
+`bash-N`。任务进入终态后，extension 通过 Pi host 的 custom message（`pi-ext-tools:task-terminal`）把 task id、
+终态、截断标记和有限 tail 放入当前 session；消息持久化并显示，**不触发**新的 agent turn。后台 job 不绑定原
+tool call 的 AbortSignal，工具调用返回后任务继续运行。
 
-Task-control 契约（`src/tasks/registry.ts`）是唯一的状态源：
+Task-control 契约（`@hheei/pi-ext-core` 的 `TaskRegistry`，由 `pi-ext-tools` 以单一 Service 提供）是唯一的状态源：
 
 - id 按 family 单调分配（`bash-1`、`bash-2`…），每个 session 从 1 开始，不持久化。
 - 一次终态只投递一条 completion message；`wait_tasks` 与 completion delivery 不重复注入。
@@ -196,17 +196,18 @@ host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 
 
 三个管控工具按需注入：它们始终注册（Host 需要知道它们存在），但 session 开始时 `pi-ext-tools` 会真实停用
 它们一次（Host 会以 `includeAllExtensionTools` 激活全部 extension 工具，`/tree` 还会按 transcript 恢复），
-只有会话产生第一个后台任务时才激活（显式 `async: true`、60s auto-async 晋升，或未来本 package 内其他
-`tasks.create()` 调用者）。任务跑完后普通对话轮次内保持激活，便于查看终态或收尾；只有在 `session_compact`
+只有会话产生第一个后台任务时才激活（显式 `blocking: false`、60s auto-async 晋升，或其它
+`tasks.create()` 调用者，例如 `pi-subagents` 的 `task`）。任务跑完后普通对话轮次内保持激活，便于查看终态或收尾；只有在 `session_compact`
 或 `session_tree` 这类宏观边界且 `runningCount === 0` 时才卸载，绝不因单轮结束而突变。`wait_tasks` 的
 “不要轮询”规范挂在工具自身的 `promptGuidelines` 上，随激活进入 `<rules>`，不再常驻 `bash` 规则。
-控制面之外的 producer（例如未来 `pi-subagents`）不在该策略范围内：跨 package 生产者尚未接入（见
-`docs/plans/async-task-orchestration.md` 第 11 节）。
+跨 package 的 producer（`pi-subagents` 的 `task`）通过 ext-core 的 `TASK_REGISTRY_SERVICE_KEY` 使用同一个
+registry，因此共享同一套激活与通知策略，不再各自维护状态源。
 
 后台任务完成消息带有限 tail 与截断状态，完整内容绝不内联。
 
-async job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。普通不带 `async` 的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。当本地普通前台调用未指定 `timeout` 且运行时间达到 `autoAsyncSeconds`（默认 60s，可通过 `pi-ext-tools.bash.autoAsyncSeconds` 配置，设为 0 禁用）时，该命令会自动晋升为 `bash-N` 异步任务，将当前 tool call 返回给 Agent 并附带截至超时前的输出快照，避免会话死锁；显式指定 `timeout` 或远程 SSH 任务不触发该自动化。
+后台 job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
+默认 shell 由平台环境决定。缺省（不传 `blocking`）的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。当本地普通前台调用未指定 `timeout` 且运行时间达到 `autoAsyncSeconds`（默认 60s，可通过 `pi-ext-tools.bash.autoAsyncSeconds` 配置，设为 0 禁用）时，该命令会自动晋升为 `bash-N` 异步任务，将当前 tool call 返回给 Agent 并附带截至超时前的输出快照，避免会话死锁；显式 `blocking: true`、显式指定 `timeout`、远程 SSH 任务或 admission 拒绝该转换（容量已满 /
+registry 已关闭）时不触发该自动化，后者会在结果里明确报告转换未发生。
 
 ## Tool Ownership
 
