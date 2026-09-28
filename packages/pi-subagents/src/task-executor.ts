@@ -31,6 +31,13 @@ export const DEFAULT_MAX_QUEUED_TASKS = 32;
 /** One-line intent shown to the model, the user and terminal deliveries. */
 const MAX_PURPOSE_CHARS = 200;
 
+/**
+ * Child events held while their execution is still being launched. Launch resolves only after the
+ * child acknowledged its initial prompt, so a fast child can submit and settle before the producer
+ * knows its child id; dropping those events would leave the Task running forever.
+ */
+const MAX_HELD_EVENTS = 64;
+
 export interface AgentTaskRequest {
 	readonly agent: string;
 	readonly task: string;
@@ -92,6 +99,9 @@ export class AgentTaskExecutor {
 	readonly #deps: AgentTaskExecutorDeps;
 	readonly #jobs = new Map<string, TaskJob>();
 	readonly #queue: string[] = [];
+	readonly #held: { readonly childId: string; readonly event: unknown }[] = [];
+	/** Ids whose child is being torn down right now, so cleanup is not started twice. */
+	readonly #terminating = new Set<string>();
 	#disposed = false;
 
 	public constructor(deps: AgentTaskExecutorDeps) {
@@ -151,7 +161,10 @@ export class AgentTaskExecutor {
 	public handleChildEvent(childId: string, event: unknown): void {
 		if (!isRecord(event)) return;
 		const entry = this.#entryForChild(childId);
-		if (entry === undefined) return;
+		if (entry === undefined) {
+			this.#holdForStartingJob(childId, event);
+			return;
+		}
 		const [id, job] = entry;
 		if (event.type === TASK_RESULT_EVENT) {
 			// Runner events cross a process boundary, so the payload is validated here rather than
@@ -178,10 +191,17 @@ export class AgentTaskExecutor {
 			this.#drain();
 			return;
 		}
-		if (job.phase === "stopping") return;
+		if (job.phase === "starting") {
+			// The launch is already in flight and nobody else will own the process it may produce, so
+			// the job keeps its slot and the launch continuation performs the cleanup.
+			job.phase = "stopping";
+			job.output = "stop requested";
+			return;
+		}
+		if (this.#terminating.has(id)) return;
 		job.phase = "stopping";
 		job.output = "stop requested";
-		void this.#terminate(id, job, { status: "cancelled", output: "stopped", truncated: false });
+		void this.#terminate(id, job, this.#stopTerminal(job));
 	}
 
 	/** Ends every remaining execution. Used when the owning session goes away. */
@@ -191,6 +211,12 @@ export class AgentTaskExecutor {
 		for (const job of [...this.#jobs.values()]) {
 			if (job.phase === "queued") {
 				this.#settle(job.id, { status: "cancelled", output: "session ended", truncated: false });
+				continue;
+			}
+			if (job.phase === "starting") {
+				// An in-flight launch still owns the cleanup of the process it may produce.
+				job.phase = "stopping";
+				job.output = "session ended";
 				continue;
 			}
 			job.phase = "stopping";
@@ -205,6 +231,49 @@ export class AgentTaskExecutor {
 	/** Read through a call so a phase change during an await is not narrowed away. */
 	#isStopping(job: TaskJob): boolean {
 		return job.phase === "stopping";
+	}
+
+	/**
+	 * Holds one event of a child whose job is not known yet. Only a starting job can still claim
+	 * it, and a Task child is never resumed, so a held event either finds its job or is dropped.
+	 */
+	#holdForStartingJob(childId: string, event: unknown): void {
+		let starting = false;
+		for (const job of this.#jobs.values()) {
+			if (job.phase === "starting") {
+				starting = true;
+				break;
+			}
+		}
+		if (!starting) return;
+		this.#held.push({ childId, event });
+		if (this.#held.length > MAX_HELD_EVENTS) this.#held.shift();
+	}
+
+	/** Replays the events that arrived before this child could be attributed to its job. */
+	#replayHeld(childId: string): void {
+		for (let index = 0; index < this.#held.length; ) {
+			const held = this.#held[index];
+			if (held === undefined) return;
+			if (held.childId !== childId) {
+				index += 1;
+				continue;
+			}
+			this.#held.splice(index, 1);
+			this.handleChildEvent(held.childId, held.event);
+		}
+	}
+
+	/**
+	 * The terminal state of a stop request. A validated submission that already arrived is real work
+	 * that was delivered, so a later stop must not report it as thrown away: whichever of the two
+	 * paths settles first now records the same outcome.
+	 */
+	#stopTerminal(job: TaskJob): TaskTerminal {
+		if (job.candidate === undefined) {
+			return { status: "cancelled", output: "stopped", truncated: false };
+		}
+		return terminalFor(job.candidate, job.child?.childId);
 	}
 
 	#entryForChild(childId: string): [string, TaskJob] | undefined {
@@ -241,24 +310,28 @@ export class AgentTaskExecutor {
 		try {
 			child = await this.#deps.launch(job.request);
 		} catch (error) {
-			this.#settle(job.id, {
-				status: "failed",
-				output: `Task child failed to start: ${errorMessage(error)}`,
-				truncated: false,
-				detail: { stage: "launch", safeToRetry: true },
-			});
+			// A stop that arrived while the launch was failing is already honoured: nothing was
+			// started, so the honest outcome is cancellation rather than a start failure.
+			this.#settle(
+				job.id,
+				this.#isStopping(job)
+					? { status: "cancelled", output: "stopped", truncated: false }
+					: {
+							status: "failed",
+							output: `Task child failed to start: ${errorMessage(error)}`,
+							truncated: false,
+							detail: { stage: "launch", safeToRetry: true },
+						},
+			);
 			this.#drain();
 			return;
 		}
 		job.child = child;
+		this.#replayHeld(child.childId);
 		// A stop that arrived while the child was starting must clean up the late runner rather
 		// than leave it running unobserved.
 		if (this.#isStopping(job)) {
-			void this.#terminate(job.id, job, {
-				status: "cancelled",
-				output: "stopped",
-				truncated: false,
-			});
+			void this.#terminate(job.id, job, this.#stopTerminal(job));
 			return;
 		}
 		job.phase = "running";
@@ -289,7 +362,7 @@ export class AgentTaskExecutor {
 				"The task child settled without submitting a final result. Re-run the task, or ask it to report a blocker instead of continuing.",
 			truncated: false,
 			detail: {
-				status: "invalid_result",
+				reason: "invalid_result",
 				...(job.child === undefined ? {} : { childId: job.child.childId }),
 			},
 		});
@@ -300,25 +373,34 @@ export class AgentTaskExecutor {
 	 * only after the exit is confirmed; an unconfirmed exit keeps the Task observable.
 	 */
 	async #terminate(id: string, job: TaskJob, terminal: TaskTerminal): Promise<void> {
-		const child = job.child;
-		job.phase = "stopping";
-		if (child === undefined) {
-			this.#settle(id, terminal);
-			return;
-		}
-		let confirmed = false;
+		// Cleanup is single flight: two paths may decide to end the same Task (a stop and a settled
+		// execution), and both must describe the same outcome instead of racing the child.
+		if (this.#terminating.has(id)) return;
+		this.#terminating.add(id);
 		try {
-			confirmed = await this.#deps.stopChild(child.childId);
-		} catch (error) {
-			this.#deps.onCleanupFailure?.(child.childId, errorMessage(error));
+			const child = job.child;
+			job.phase = "stopping";
+			if (child === undefined) {
+				this.#settle(id, terminal);
+				return;
+			}
+			let confirmed = false;
+			try {
+				confirmed = await this.#deps.stopChild(child.childId);
+			} catch (error) {
+				this.#deps.onCleanupFailure?.(child.childId, errorMessage(error));
+			}
+			if (!confirmed) {
+				// The slot stays occupied and the Task stays un-settled, so a later stop can try again.
+				job.output = `${terminal.status}; runner exit is not confirmed`;
+				this.#deps.onCleanupFailure?.(child.childId, "Runner termination was not confirmed");
+				return;
+			}
+			this.#settle(id, terminal);
+			this.#drain();
+		} finally {
+			this.#terminating.delete(id);
 		}
-		if (!confirmed) {
-			job.output = `${terminal.status}; runner exit is not confirmed`;
-			this.#deps.onCleanupFailure?.(child.childId, "Runner termination was not confirmed");
-			return;
-		}
-		this.#settle(id, terminal);
-		this.#drain();
 	}
 
 	#settle(id: string, terminal: TaskTerminal): void {

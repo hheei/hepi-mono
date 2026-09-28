@@ -271,6 +271,108 @@ test("a stop that arrives while the child is starting cleans up the late runner"
 	expect(h.registry.get(task.id)?.status).toBe("cancelled");
 });
 
+test("a stop during startup keeps the slot until the late child is confirmed gone", async (): Promise<void> => {
+	const h = harness({ maxRunning: 1 });
+	const first = h.executor.start(request("starting"));
+	const second = h.executor.start(request("waiting"));
+	h.registry.stop([first.id]);
+
+	// The launch is still in flight, so nothing is confirmed gone: the queued task must not take
+	// the slot a possibly-live child still occupies.
+	expect(h.launches).toEqual(["starting"]);
+	expect(h.executor.queued).toBe(1);
+	expect(h.registry.get(first.id)?.status).not.toBe("cancelled");
+
+	h.resolveLaunch("child-1");
+	await flush();
+	await flush();
+
+	expect(h.stops).toEqual(["child-1"]);
+	expect(h.registry.get(first.id)?.status).toBe("cancelled");
+	expect(h.launches).toEqual(["starting", "waiting"]);
+	expect(h.registry.get(second.id)?.status).toBe("running");
+});
+
+test("a launch that fails after a stop request is reported as cancelled", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("stop then fail"));
+	h.registry.stop([task.id]);
+	h.failLaunch("no such agent");
+	await flush();
+
+	expect((await h.registry.wait([task.id]))[0]).toMatchObject({ status: "cancelled" });
+	expect(h.executor.running).toBe(0);
+});
+
+test("a result that arrives while its child is still starting is not lost", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("fast child"));
+
+	// Launch resolves only after the child acknowledged its prompt, so a fast child can submit and
+	// settle before the producer knows its id; those events must still reach the task.
+	h.executor.handleChildEvent("child-1", {
+		type: "task_result",
+		parentSessionId: "s",
+		childId: "child-1",
+		runtimeIdentity: "r",
+		json: "early",
+		structured: false,
+	});
+	h.executor.handleChildEvent("child-1", SETTLED);
+	await flush();
+
+	expect((await h.registry.wait([task.id]))[0]).toMatchObject({
+		status: "completed",
+		output: "early",
+	});
+	expect(h.stops).toEqual(["child-1"]);
+});
+
+test("a stop that races a submitted result reports the work that was delivered", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("race"));
+	h.executor.handleChildEvent("child-1", {
+		type: "task_result",
+		parentSessionId: "s",
+		childId: "child-1",
+		runtimeIdentity: "r",
+		json: "early",
+		structured: false,
+	});
+	h.registry.stop([task.id]);
+	h.resolveLaunch("child-1");
+	await flush();
+	await flush();
+
+	// Both paths describe the same outcome, so the race cannot decide whether delivered work looks
+	// like it was thrown away.
+	expect((await h.registry.wait([task.id]))[0]).toMatchObject({
+		status: "completed",
+		output: "early",
+	});
+});
+
+test("a stop whose exit is not confirmed can be retried", async (): Promise<void> => {
+	const h = harness();
+	h.unconfirmed.add("child-1");
+	const task = h.executor.start(request("stubborn"));
+	await flush();
+
+	h.registry.stop([task.id]);
+	await flush();
+	expect(h.stops).toEqual(["child-1"]);
+	expect(h.failures).toHaveLength(1);
+	// Unconfirmed means unconfirmed, not final: the slot stays occupied but cleanup may be retried.
+	expect(h.registry.get(task.id)?.status).not.toBe("cancelled");
+
+	h.unconfirmed.delete("child-1");
+	h.registry.stop([task.id]);
+	await flush();
+	expect(h.stops).toEqual(["child-1", "child-1"]);
+	expect(h.registry.get(task.id)?.status).toBe("cancelled");
+	expect(h.executor.running).toBe(0);
+});
+
 test("an unconfirmed runner exit keeps the task active and the slot occupied", async (): Promise<void> => {
 	const h = harness({ maxRunning: 1 });
 	h.unconfirmed.add("child-1");
