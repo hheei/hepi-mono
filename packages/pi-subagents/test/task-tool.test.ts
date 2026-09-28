@@ -131,3 +131,18 @@ test("rejects an unsupported output schema before any child exists", async (): P
 	).rejects.toThrow(/Unsupported outputSchema/u);
 	expect(starts).toBe(0);
 });
+
+test("names the real cause when the integration fails after the registry appears", async (): Promise<void> => {
+	const hosted = host();
+	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	registerTaskTool(hosted.context, TUI, () => {
+		throw new Error("no agent concurrency budget left");
+	});
+	await settle();
+
+	// The registry exists, so blaming a missing installation would misdirect the caller.
+	expect(hosted.activeTools()).not.toContain(TASK_TOOL_ID);
+	await expect(callTool(hosted, { agent: "scout", task: "look" })).rejects.toThrow(
+		/no agent concurrency budget left/u,
+	);
+});

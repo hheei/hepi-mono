@@ -76,6 +76,9 @@ export function registerTaskTool(
 ): void {
 	const pi: ExtensionAPI = context.pi;
 	let active: { readonly registry: TaskRegistry; readonly executor: AgentTaskExecutor } | undefined;
+	// Starts as the installation-boundary message and becomes the real failure reason if the
+	// integration was found but could not start.
+	let unavailable = UNAVAILABLE;
 	const tool: ToolDefinition<typeof taskSchema> = {
 		name: TASK_TOOL_ID,
 		label: "Run task",
@@ -86,7 +89,7 @@ export function registerTaskTool(
 		parameters: taskSchema,
 		async execute(_id, params, signal): Promise<ReturnType<typeof textToolResult>> {
 			const integration = active;
-			if (integration === undefined) throw new Error(UNAVAILABLE);
+			if (integration === undefined) throw new Error(unavailable);
 			const contract = taskContract(params.outputSchema);
 			let started: ReturnType<AgentTaskExecutor["start"]>;
 			try {
@@ -122,8 +125,10 @@ export function registerTaskTool(
 			});
 			setManagedToolsActive(context, [TASK_TOOL_REGISTRATION], true);
 		})
-		.catch(() => {
-			// No provider in this session; the tool stays inactive and names the reason if used.
+		.catch((error: unknown) => {
+			// No provider in this session, or the integration failed after one appeared; either way
+			// the tool stays inactive and reports the cause it actually saw.
+			unavailable = `The task integration is unavailable: ${errorMessage(error)}`;
 		});
 }
 
