@@ -234,6 +234,10 @@ export async function resolveSubagentLaunch(
  * The child's tool allowlist: a Task child gets its result channel, and a built-in agent must
  * still resolve to exactly the tools its definition declares. Failing here happens before any
  * process exists, rather than launching a child with different permissions than it advertises.
+ *
+ * The resolved allowlist is also the effective one: the agent resolver rejects a definition whose
+ * `tools` and `exclude_tools` overlap, and `exclude_tools` may not name the required bridge, so the
+ * `--exclude-tools` list can only remove tools this list never granted.
  */
 function childTools(policy: ResolvedAgentPolicy, isTask: boolean): readonly string[] {
 	const tools = taskChildTools(policy.tools, policy.excludeTools, isTask);
