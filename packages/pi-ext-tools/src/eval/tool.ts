@@ -11,6 +11,7 @@ import {
 	agentResultText,
 	createToolTui,
 	errorMessage,
+	formatDuration,
 	isRecord,
 	type ManagedToolRegistration,
 	registerManagedTool,
@@ -18,6 +19,7 @@ import {
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
+import { counted } from "../counted.js";
 import type { EditCatalog } from "../fff/settings.js";
 import { WrappedTextBody } from "../pretty/wrapped-text.js";
 import { type EvalNestedTrace, type EvalToolBridge, evalNestedLiveResult } from "./bridge.js";
@@ -240,7 +242,8 @@ export function registerEvalTool(
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
 	const tool = createEvalTool(state, bridge);
 	const framed = tui.frame(tool, {
-		summary: (args) => codeSummary((args as EvalParameters).code),
+		// The code is the request body, so the header states only what the body cannot: the call facts.
+		summary: () => "",
 		suffix: (args) => evalSuffix(args as EvalParameters),
 		maxBodyLines: 10,
 		headerLine: "truncate",
@@ -253,9 +256,19 @@ export function registerEvalTool(
 		footer: (result, completion) => {
 			const details = result.details;
 			if (!isEvalToolDetails(details))
-				return completion?.durationMs === undefined ? undefined : `${completion.durationMs}ms`;
+				return completion?.durationMs === undefined
+					? undefined
+					: (formatDuration(completion.durationMs) ?? `${completion.durationMs}ms`);
 			const calls = details.rows.filter((row) => row.kind === "tool").length;
-			return `${details.rows.length} output rows · ${calls} nested calls · ${details.durationMs}ms`;
+			const duration = formatDuration(details.durationMs) ?? `${details.durationMs}ms`;
+			// A cell that called nothing says nothing about nested calls.
+			return [
+				counted(details.rows.length, "output row"),
+				calls === 0 ? undefined : counted(calls, "nested call"),
+				duration,
+			]
+				.filter((part): part is string => part !== undefined)
+				.join(" · ");
 		},
 	});
 	registerManagedTool(pi, EVAL_TOOL_REGISTRATION, framed);
@@ -368,22 +381,6 @@ function evalSuffix(args: EvalParameters): string | undefined {
 	if (args.reset === true) facts.push("(reset)");
 	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
 	return facts.length === 0 ? undefined : facts.join(" ");
-}
-
-function codeSummary(code: string): string {
-	let joined = "";
-	for (const raw of (code ?? "").split(/\r?\n/)) {
-		const line = raw.trim();
-		if (line === "") continue;
-		if (joined === "") {
-			joined = line;
-		} else if (joined.endsWith(";")) {
-			joined = `${joined} ${line}`;
-		} else {
-			joined = `${joined}; ${line}`;
-		}
-	}
-	return joined;
 }
 
 function inspectValue(value: unknown): string {

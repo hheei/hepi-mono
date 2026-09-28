@@ -32,17 +32,18 @@ describe("Eval tool frame", () => {
 
 	test("states the call markers in the header and keeps the code in a request body", () => {
 		const rows = callRows({ code: "import math\nmath.sqrt(16)", reset: true, timeout: 30 });
-		expect(rows[0]).toContain("eval py import math; math.sqrt(16) (reset) (timeout 30s)");
+		// The code is the request body, so the header states only the call facts.
+		expect(rows[0]).toBe("󰪠 eval py (reset) (timeout 30s)");
 		expect(rows[1]).toBe("─".repeat(120));
 		expect(rows[2]).toBe("import math");
 		expect(rows[3]).toBe("math.sqrt(16)");
 		expect(rows[4]).toBe("─".repeat(120));
 	});
 
-	test("omits the marker suffix when the call declares no markers", () => {
+	test("stands on its label alone when the call declares no facts", () => {
 		const rows = callRows({ code: "value = 1" });
-		expect(rows[0]).toContain("eval py value = 1");
-		expect(rows[0]).not.toContain("(");
+		expect(rows[0]).toBe("󰪠 eval py");
+		expect(rows[0]).not.toContain("value");
 		expect(rows[2]).toBe("value = 1");
 	});
 
@@ -72,6 +73,64 @@ describe("Eval nested rows and failures", () => {
 		} as never);
 		return { result, tool };
 	};
+
+	/** The result frame's own rows: the body plus the footer that summarizes it when collapsed. */
+	const renderResultRows = (
+		result: AgentToolResult<unknown>,
+		tool: ToolDefinition,
+		options: { readonly expanded: boolean; readonly isPartial: boolean },
+		width = 120,
+	): string =>
+		tool
+			.renderResult?.(result, options, plainTheme, {
+				cwd: process.cwd(),
+				toolCallId: "eval-call-1",
+				state: {},
+				expanded: options.expanded,
+				isPartial: options.isPartial,
+				lastComponent: undefined,
+				invalidate: (): void => undefined,
+			} as never)
+			.render(width)
+			.join("\n") ?? "";
+
+	test("names nested calls only when the cell made one", async () => {
+		const plain = await execute(
+			{ runWithHooks: async (): Promise<number> => 41 },
+			new EvalToolBridge(new Map(), () => true),
+		);
+		const bare = renderResultRows(plain.result, plain.tool, {
+			expanded: false,
+			isPartial: false,
+		});
+		expect(bare).toContain("1 output row ·");
+		expect(bare).not.toContain("nested call");
+
+		const readTool = {
+			name: "read",
+			label: "read",
+			description: "Read a file",
+			parameters: Type.Object({ path: Type.String() }),
+			execute: async (): Promise<AgentToolResult<unknown>> => ({
+				content: [{ type: "text", text: "file body" }],
+				details: { lines: 3 },
+			}),
+		} as unknown as ToolDefinition;
+		const nested = await execute(
+			{
+				runWithHooks: async (
+					_code: string,
+					hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
+				): Promise<unknown> => await hooks.callTool("read", { path: "a.ts" }),
+			},
+			new EvalToolBridge(new Map([["read", readTool]]), () => true),
+		);
+		const counted = renderResultRows(nested.result, nested.tool, {
+			expanded: false,
+			isPartial: false,
+		});
+		expect(counted).toContain("1 nested call ·");
+	});
 
 	test("keeps the failure row when the detail cap is already full", async () => {
 		const runtime = {
