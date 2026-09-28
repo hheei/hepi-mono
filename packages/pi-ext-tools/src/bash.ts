@@ -357,6 +357,17 @@ async function runForeground(
 	});
 }
 
+/**
+ * The frame header states how the call was made. The command itself is the request body, so only an
+ * explicit timeout and a non-blocking request are worth repeating above it.
+ */
+function bashHeaderFacts(args: Input): string | undefined {
+	const facts: string[] = [];
+	if (args.blocking === false) facts.push("non-blocking");
+	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
+	return facts.length === 0 ? undefined : facts.join(" ");
+}
+
 function bashResultWarning(result: { readonly details: unknown }): boolean {
 	if (typeof result.details !== "object" || result.details === null) return false;
 	const details = result.details as Record<string, unknown>;
@@ -546,8 +557,10 @@ export function registerBashTool(
 		tui.frame(tool, {
 			maxBodyLines: Number.POSITIVE_INFINITY,
 			longOutput: true,
-			// The command is a request body, so the header only needs a one-line summary.
+			// The command is a request body, so the header carries only invocation facts.
 			headerLine: "truncate",
+			summary: () => "",
+			suffix: bashHeaderFacts,
 			request: (args, theme) => {
 				const command = typeof args.command === "string" ? args.command : "";
 				return command === ""
