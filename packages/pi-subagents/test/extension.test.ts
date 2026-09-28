@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
-import piSubagentsExtension from "../src/extension.js";
+import piSubagentsExtension, { createParentChannel } from "../src/extension.js";
 import { registerParentTools } from "../src/tools.js";
 
 interface RegisteredTool {
@@ -111,4 +111,33 @@ describe("extension branch", () => {
 			process.env = previous;
 		}
 	});
+});
+
+test("a child report reaches the parent as a follow-up, not on the next user message", async () => {
+	const sent: { message: unknown; options: unknown }[] = [];
+	const report = {
+		parentSessionId: "p",
+		childId: "c",
+		agent: "scout",
+		task: "look around",
+		status: "done" as const,
+		reason: "finished",
+		message: "found it",
+	};
+
+	await createParentChannel({
+		sendMessage(message, options) {
+			sent.push({ message, options });
+		},
+	}).deliver(report);
+
+	expect(sent).toHaveLength(1);
+	expect(sent[0]?.message).toMatchObject({
+		customType: "pi-subagent-report",
+		display: true,
+		details: report,
+	});
+	// `nextTurn` parks a message until the user speaks again, which is not what a finished child
+	// owes the parent.
+	expect(sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
 });

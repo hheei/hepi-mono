@@ -32,5 +32,7 @@ intercepted.
   `send`、`attach` 与恢复被明确拒绝，而不是悄悄降级成会话语义。
 - 共享 registry 缺失时 `task` 入口不激活，并说明缺少 `@hheei/pi-ext-tools` 集成；本包不会因此
   创建第二个 registry。
+- 会话模式 child 的 `contact_parent` 报告也以 `deliverAs: "followUp"` 投递：parent 空闲时
+  立即开启新 turn，运行中附在当前 run 之后；不用 `nextTurn`，那会把报告扣到用户下一次发言。
 - `outputSchema` 在启动前按 allowlist 校验，未通过校验的结果不会以成功终态交付；内置只读
   `scout` 是最后发现层，不写入用户 home，也不会被自动派发。

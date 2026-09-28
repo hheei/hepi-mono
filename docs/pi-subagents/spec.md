@@ -116,6 +116,7 @@ task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSche
   agent，缺名或解析失败在启动前失败。
 - `spawn_subagent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
 - `spawn_subagent` / `send_subagent` 返回后，模型不得用 `get_subagent` / `list_subagents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
+  - 投递以 `customType: "pi-subagent-report"`、`triggerTurn: true` 和 `deliverAs: "followUp"` 完成：parent 正在运行时报告附在当前 run 之后，空闲时立即开启新 turn，因此报告属于 parent 的下一次活动；`deliverAs: "nextTurn"` 会把它扣到用户下一次发言，不符合本契约。
 - `get_subagent` / `list_subagents` 只用于需要当前身份或状态时，不是完成通道。
 - `send_subagent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
 - `get/list` 返回可确认的状态、mode、latest summary、interruption、usage、runtime observability，以及冻结的 model/thinking 及其来源（agent 或 parent）；last-known 值不得伪装成实时值。
