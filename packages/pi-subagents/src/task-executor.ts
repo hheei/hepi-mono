@@ -20,7 +20,7 @@ import {
 	type TaskTerminal,
 } from "@hheei/pi-ext-core";
 import type { TaskChildContract } from "./domain.js";
-import { TASK_RESULT_EVENT, type TaskResultPayload } from "./protocol.js";
+import { isTaskResultPayload, TASK_RESULT_EVENT } from "./protocol.js";
 
 /** Live Task children allowed at once; the rest wait in the queue. */
 export const DEFAULT_MAX_TASK_EXECUTIONS = 4;
@@ -147,9 +147,11 @@ export class AgentTaskExecutor {
 		if (entry === undefined) return;
 		const [id, job] = entry;
 		if (event.type === TASK_RESULT_EVENT) {
-			const payload = event as unknown as TaskResultPayload;
-			if (payload.childId !== childId) return;
-			job.candidate = { json: payload.json, structured: payload.structured };
+			// Runner events cross a process boundary, so the payload is validated here rather than
+			// trusted from its declared type.
+			if (!isTaskResultPayload(event)) return;
+			if (event.childId !== childId) return;
+			job.candidate = { json: event.json, structured: event.structured };
 			job.output = "final result submitted";
 			return;
 		}
