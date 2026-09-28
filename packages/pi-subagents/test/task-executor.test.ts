@@ -117,6 +117,28 @@ test("a settled execution without a submission fails instead of waking the child
 	expect(h.terminals).toHaveLength(1);
 });
 
+test("a malformed result event cannot become a task result", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("reject junk"));
+	await flush();
+
+	// The runner event crosses a process boundary, so a payload the producer never validated
+	// must not be trusted merely because it declares the task_result type.
+	for (const junk of [
+		{ type: "task_result", childId: "child-1", json: 5, structured: false },
+		{ type: "task_result", childId: "child-1", json: "x" },
+		{ type: "task_result" },
+	]) {
+		h.executor.handleChildEvent("child-1", junk);
+	}
+	h.executor.handleChildEvent("child-1", SETTLED);
+	await flush();
+
+	const outcome = await h.registry.wait([task.id]);
+	expect(outcome[0]).toMatchObject({ status: "failed" });
+	expect(outcome[0]?.status === "failed" ? outcome[0].output : "").toMatch(/without submitting/u);
+});
+
 test("a foreign child cannot settle a task it does not own", async (): Promise<void> => {
 	const h = harness();
 	const task = h.executor.start(request("owned work"));
