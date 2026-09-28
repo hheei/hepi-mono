@@ -56,11 +56,16 @@ test("rejects admission once active and undelivered results fill the budget", ()
 	expect(() => tasks.create({ type: "bash", purpose: "overflow", begin: idleBinding })).toThrow(
 		TaskCapacityError,
 	);
-	// A delivered result releases its reservation, so admission recovers.
 	const settled = tasks.list()[0];
 	if (settled === undefined) throw new Error("expected an admitted task");
 	tasks.settle(settled.id, { status: "completed", output: "done", truncated: false });
+	// Handing the result over is not proof that the model read it, so the reservation is still held.
 	tasks.markSubmitted([settled.id], "batch");
+	expect(() => tasks.create({ type: "bash", purpose: "still full", begin: idleBinding })).toThrow(
+		TaskCapacityError,
+	);
+	// Confirmation is what releases it, so admission recovers.
+	tasks.markObserved("batch");
 	expect(() =>
 		tasks.create({ type: "bash", purpose: "after release", begin: idleBinding }),
 	).not.toThrow();
@@ -76,14 +81,49 @@ test("keeps one terminal result and protects it from eviction while pending", ()
 		false,
 	);
 
-	// Delivered terminals age out under the retention cap, pending ones never do.
+	// Results the parent may not have read never age out, however many of them there are: they are
+	// bounded by admission instead, so a result stays readable until the session is done with it.
 	for (let index = 0; index < 4; index += 1) {
-		const later = tasks.create({ type: "bash", purpose: "ages out", begin: idleBinding });
-		tasks.settle(later.id, { status: "completed", output: "x", truncated: false });
-		tasks.markSubmitted([later.id], `batch-${index}`);
+		const unread = tasks.create({ type: "bash", purpose: "unread", begin: idleBinding });
+		tasks.settle(unread.id, { status: "completed", output: "x", truncated: false });
+		tasks.markSubmitted([unread.id], `batch-${index}`);
 	}
 	expect(tasks.get(first.id)?.status).toBe("completed");
+	expect(tasks.list(true)).toHaveLength(5);
+
+	// Once the parent has seen a result, retention applies again.
+	for (let index = 0; index < 4; index += 1) tasks.markObserved(`batch-${index}`);
 	expect(tasks.list(true).length).toBeLessThanOrEqual(2);
+});
+
+test("an interrupted blocking call hands its result to the background channel", async (): Promise<void> => {
+	const tasks = registry();
+	const inline = tasks.create({
+		type: "agent",
+		purpose: "blocking",
+		begin: idleBinding,
+		inlineResult: true,
+	});
+	tasks.settle(inline.id, { status: "completed", output: "answer", truncated: false });
+	// The call that owned this result is gone before it could report it.
+	expect(tasks.pendingDeliveries()).toHaveLength(0);
+
+	tasks.releaseInlineResult(inline.id);
+	expect(tasks.pendingDeliveries().map((event) => event.id)).toEqual([inline.id]);
+	expect(await tasks.wait([inline.id])).toMatchObject([{ status: "completed", output: "answer" }]);
+});
+
+test("releasing an inline claim before the result exists still delivers it", (): void => {
+	const tasks = registry();
+	const inline = tasks.create({
+		type: "agent",
+		purpose: "blocking",
+		begin: idleBinding,
+		inlineResult: true,
+	});
+	tasks.releaseInlineResult(inline.id);
+	tasks.settle(inline.id, { status: "cancelled", output: "stopped", truncated: false });
+	expect(tasks.get(inline.id)?.delivery).toBe("pending");
 });
 
 test("reports one terminal event and notifies once per task", (): void => {
@@ -160,7 +200,7 @@ test("an inline-reported result reserves no notification and is never delivered"
 	expect(tasks.get(inline.id)?.delivery).toBeUndefined();
 	expect(tasks.pendingDeliveries().map((event) => event.id)).toEqual([background.id]);
 	// It also consumes no admission capacity, which stays reserved for undelivered results.
-	expect(tasks.pendingDeliveryCount).toBe(1);
+	expect(tasks.pendingDeliveries()).toHaveLength(1);
 });
 
 test("concurrent waits all read the same result without consuming it", async (): Promise<void> => {
@@ -341,7 +381,7 @@ test("tracks delivery state from pending to observed and requeues a failed submi
 	const task = tasks.create({ type: "bash", purpose: "deliver", begin: idleBinding });
 	tasks.settle(task.id, { status: "completed", output: "done", truncated: false });
 	expect(tasks.get(task.id)?.delivery).toBe("pending");
-	expect(tasks.pendingDeliveryCount).toBe(1);
+	expect(tasks.pendingDeliveries()).toHaveLength(1);
 
 	tasks.markSubmitted([task.id], "batch-a");
 	expect(tasks.get(task.id)?.delivery).toBe("submitted");

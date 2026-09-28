@@ -65,20 +65,27 @@ timed_out`。受理时冻结的是任务身份与输入：id、`type`、`purpose
 `wait_tasks`，绝不截断成半份 JSON。终态记录本身也在写入时按同一上限收敛输出（保留生产者的
 `truncated` 标记），不只在读取时收敛。
 交付积压占满预算时拒绝新的后台任务并给出原因；Bash 的 60 秒自动转换若无法预留槽位则保持前台
-并说明转换未发生。Agent 侧并发上限 4、等待队列 32，队列满时在受理阶段报错。
+并说明转换未发生。Agent 侧并发上限 4、等待队列 32，队列满时在受理阶段报错。容量预留在受理时占用，
+直到该结果被确认为 `observed` 才释放（见“交付”）：未确认的结果既不会被淘汰，也不会让位给新任务。
 
 ## 交付
 
 第一个待交付结果在 t0 到达时开启**固定**窗口，t0+5s 提交；窗口内完成的结果合并，后续完成不延长
 窗口。合并同时受总字节与条目数约束，小结果很多时也会拆成多条消息，而不是堆成一条无法阅读的
 长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`blocking: true`）在受理时就登记为
-“结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。交付记录区分
-`pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配
-task/batch 的 custom message 生命周期事件确认，都不声称模型已理解结果。刚刚交给 host 的那一批在
-提交时不会被保留上限淘汰（否则 host 同步拒收后的 requeue 会丢掉已受理的结果）；被淘汰的只可能是
-更早的记录。控制工具（list/wait/stop）在任何活动任务存在、或任何结果尚未被 `observed` 时保持可用：
-host 接受了消息不等于模型读到了它，`/tree` 等边界也不会把它卸载。同步 task 的结果只走原
-tool_result，不进入后台队列。
+“结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。
+若该调用被中断，调用方在返回前显式放弃这份内联结果（`releaseInlineResult`），此后无论任务以
+`completed`（结果已提交）还是 `cancelled` 收尾，都会走正常的后台通知通道，而不是把结果留在已经返回的
+调用里；已结算的记录会因此重新变成待交付结果。交付记录区分
+`pending → submitted → observed`：`submitted` 只表示已调用 host API，`observed` 由匹配 task/batch 的
+custom message 生命周期事件确认，都不声称模型已理解结果。只有未交付（`pending`/`submitted`）的结果会被
+刻意保留：它们可能还没进入模型上下文，所以既不会被保留上限淘汰，也一直占用受理预算（`wait_tasks` 因此
+始终能读到它们）。只有 `observed` 或从未需要通知（`inlineResult`）的记录才参与保留上限淘汰。
+host 明确拒收（`sendMessage` 同步抛错）时会把该批次退回 `pending` 重发；但**不承诺**为“已交给 host 却
+始终等不到生命周期确认”的结果自动重发，也不会为此引入持久化 outbox——那类结果在 session 内仍可直接读取。
+
+控制工具（list/wait/stop）在任何活动任务存在、或任何结果尚未被 `observed` 时保持可用：host 接受了消息
+不等于模型读到了它，`/tree` 等边界也不会把它卸载。
 
 ## session 与分支
 
@@ -95,6 +102,8 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
   保留 runtime 证据并让调用方看到未确认，进程槽位继续占用。我们自己 spawn 的 runner 用进程句柄直接
   观察退出；确认退出后 claim 才会释放，未确认则保留 claim，避免为同一 session 启动第二个 runner。
 - runner 退出未确认时保留 runtime 证据并把任务留在可观察状态，不释放进程槽位、不盲目启动第二次执行。
+- 同理，spawn 之后、runner 自己写入 runtime 元数据之前的那段窗口只有 claim 里的 pid 作为证据：此时停止不算
+  已确认，也不会释放 session 让第二个 runner 启动；确认进程已退出后才算完成。
 - 因为该原因而 `failed` 的子代理不是永久废弃：后续 `send` 会重新确认进程已死亡，此时释放死 claim 并回到可继续
   使用的 `done`；仍可能存活时继续拒绝。没有留下任何进程证据（未记录 runner pid）的启动只能保守拒绝：无法证伪的
   进程不能被第二个 runner 覆盖，这是有意的残留限制。
