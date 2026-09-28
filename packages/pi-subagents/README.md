@@ -28,8 +28,10 @@ are design sources, not the live contract. Remaining pause-handshake work is tra
 There is no batch-spawn tool: parallel children come from Pi's own parallel tool calls.
 `agent` is required and never defaulted: discovery (project `.pi/agents`, project
 `.agents/agents`, user `~/.pi/agent/agents`, then the built-in definitions) must resolve the name,
-and the only built-in definition is the read-only `scout`, so an unresolved or missing agent name
-fails before any process starts.
+so an unresolved or missing agent name fails before any process starts. The built-ins are `scout`
+(read-only reconnaissance), `worker` (implementation) and `reviewer` (review, which relies on the
+child's own skill discovery to see the review skills); all three inherit the parent model and
+thinking, and a definition on disk with the same name always wins.
 
 The child branch registers exactly one tool, `contact_parent({ reason, message })`, with
 reasons `progress_update`, `important_finding`, `need_decision`, and `blocked`. Calling it

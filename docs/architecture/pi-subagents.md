@@ -38,4 +38,5 @@ intercepted.
 - parent 空闲时第一条报告开启固定 30 秒合并窗口：多 agent 同时回报时合成一条 follow-up、只叫醒
   一次；parent 自己开始活动则把暂存报告排入该 run。合并只影响空闲路径，运行中的报告立即投递。
 - `outputSchema` 在启动前按 allowlist 校验，未通过校验的结果不会以成功终态交付；内置只读
-  `scout` 是最后发现层，不写入用户 home，也不会被自动派发。
+  内置定义（`scout`/`worker`/`reviewer`）是最后发现层，不写入用户 home，也不会被自动派发；
+  `reviewer` 依赖 child 自己的 skill 发现来读取审查 skill（`--skill` 只接受路径）。

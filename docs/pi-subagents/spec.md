@@ -160,10 +160,16 @@ contact_parent({
 - policy：`interactive`（boolean，缺省 `false`；`true` 表示用户会在原生 TUI 操作该 child。除 `contact_parent` 外本包不得 `triggerTurn` 叫醒 parent。创建时冻进 launch config，RPC/TUI/restart 复用）；
 - Markdown body：固定 prompt assembly 的 agent instructions。
 
-内置层目前只有只读 `scout`：可被发现但不会被自动派发，继承父模型与 thinking，只列出读取/搜索
-与报告工具。工具名允许被 extension 扩展，因此内置定义必须显式列出 `tools`——空的 `tools` 在下游
-意味着“全部工具”，这与其只读承诺相反，属于配置失败而不是静默放宽。这是工具能力限制，不是操作
-系统沙箱。
+内置层有三个定义，都可被发现但不会被自动派发，都继承父模型与 thinking：
+`scout`（只读侦查：`read`/`grep`/`find`/`ls`/`contact_parent`）、`worker`（实现：再加 `bash`/`edit`/`write`）、
+`reviewer`（审查：`read`/`grep`/`find`/`ls`/`bash`/`contact_parent`）。工具名允许被 extension 扩展，因此内置
+定义必须显式列出 `tools`——空的 `tools` 在下游意味着“全部工具”，与其承诺相反，属于配置失败而不是静默
+放宽。这是工具能力限制，不是操作系统沙箱。
+
+`reviewer` 需要 `code-review`、`ponytail-review` 这类审查 skill，而 Pi 的 `--skill` 只接受**路径**、不接受名字、
+内置定义也没有可用的相对基准目录，因此它只能依赖 child 自己的 skill 发现（`skills: true`，不传 `--no-skills`）：
+在装有这些 skill 的机器上它们会出现在 child 的 skill 列表里（含绝对 `location`），reviewer 用 `read` 打开。
+没有这些 skill 的机器上 reviewer 照常工作，只是不会走 skill 里的流程。
 
 未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive` 或被禁用的 `contact_parent` 在启动前报错。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
 

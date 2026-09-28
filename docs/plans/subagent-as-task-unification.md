@@ -9,7 +9,7 @@
 - 后台完成通知使用 5 秒合并窗口；允许子 Agent 并发限流与排队。
 - 通过 `outputSchema` 约束子 Agent 的 JSON 结果，不新增 artifact 存储体系。
 - 只做软工作量提示，不设硬轮次上限，也不以“熔断”名义添加第二个硬上限。
-- 内置 `scout`，作为默认可用 agent 定义；继承父模型，不自动启动或切换到低价模型。
+- 内置 `scout`/`worker`/`reviewer`，作为默认可用 agent 定义；继承父模型，不自动启动或切换到低价模型。
 
 ## 2. 实现基线与参考范围
 
@@ -160,10 +160,15 @@ Task 最终静止且没有合法候选结果时返回明确的 invalid_result �
 
 求助不应被静默剥夺：Task 无法继续时返回带原因的失败终态（例如 needs_input），父模型取得结果后决定下一次任务；不让 child 无限等待正阻塞在 wait 的 parent。若以后要支持中途问答，应单独设计可中断等待协议，本版不加入。
 
-## 9. scout 默认定义
+## 9. 内置 agent 定义
+
+> 修订（已确认）：内置层从只有只读 `scout` 扩展为 `scout`（只读侦查）、`worker`（实现）与 `reviewer`
+> （审查）。三者都是「可发现、不自动派发」，都继承父模型与 thinking。`reviewer` 需要 `code-review`、
+> `ponytail-review` 这类审查 skill，而 `--skill` 只接受路径，所以它保持 child 的 skill 发现（`skills: true`），
+> 不写死任何机器相关的路径。`bash` 不在本版做权限收敛。
 
 - 默认可发现，非默认自动派发；内置定义不写入用户 home。
-- 保持当前优先级：项目 `.pi/agents`、项目 `.agents/agents`、用户 `~/.pi/agent/agents`，最后才使用内置 scout；展示实际定义来源。
+- 保持当前优先级：项目 `.pi/agents`、项目 `.agents/agents`、用户 `~/.pi/agent/agents`，最后才使用内置定义；展示实际定义来源。
 - 继承父模型与 thinking；不指定隐式低价模型。
 - 仅启用已验证的读取/搜索与报告工具。检查 extension 加载和后续工具激活能否绕过 allowlist，尤其不能通过 eval/nested tools 绕回 bash/write。
 - 这是工具能力限制，不是操作系统沙箱；读取工具缓存、第三方 extension 副作用与用户自定义覆盖要如实说明。
@@ -185,7 +190,7 @@ Task 最终静止且没有合法候选结果时返回明确的 invalid_result �
 | 1. 固定实现常量与验证范围 | 已核对 host 与上游机制；进一步用当前 TypeBox 验证支持的 schema 子集，不引入自制通用 validator。记录结果/队列容量、agent 并发与一次性软提示阈值，更新当前架构文档与 DESIGN.md，区分临时 Task 与可恢复 child session。 |
 | 2. 修复 RPC 生命周期 | 修复退出确认、启动失败状态、会话定位失败处理；用失败路径测试证明不会错误宣告休眠、丢失上下文或盲目启动第二个执行。 |
 | 3. 打通统一 Task 路径 | 将通用契约与无副作用实现移入 ext-core，pi-ext-tools 提供单一 Service；Bash 与 RPC Agent 共用登记/控制路径。完成 blocking 迁移、有界 admission、启动中取消、一次终态提交及安装边界。 |
-| 4. 完成 Agent 结果与角色 | 实现 JSON Schema 提交与校验、结果大小边界、可见软提示和内置 scout；保留父模型继承，不新增硬轮次限制或 artifact。 |
+| 4. 完成 Agent 结果与角色 | 实现 JSON Schema 提交与校验、结果大小边界、可见软提示和内置 `scout`/`worker`/`reviewer`；保留父模型继承，不新增硬轮次限制或 artifact。 |
 | 5. 完成交付与验收 | 实现固定 5 秒窗口、wait 直接读取、通知提交/观察状态、容量预留与 session/branch 清理；验证混合任务、旧事件隔离及同步结果不产生后台通知。 |
 
 每阶段形成内聚改动并完成对应验证，不夹带与本任务无关的工作。只有上述行为形成完整端到端路径后才宣告任务统一完成；单纯移动 registry 文件不算交付。
