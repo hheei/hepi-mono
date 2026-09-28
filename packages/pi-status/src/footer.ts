@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatCompactNumber, type ThemeLike } from "@hheei/pi-ext-core";
+import { type Component, visibleWidth } from "@earendil-works/pi-tui";
+import { fitRow, formatCompactNumber, type ThemeLike } from "@hheei/pi-ext-core";
 
 type FooterFactory = NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>;
 export type ReadonlyFooterDataProvider = Parameters<FooterFactory>[2];
@@ -79,7 +79,7 @@ export function layoutTwoColumnRow(
 ): string {
 	const leftWidth = visibleWidth(left);
 	if (leftWidth >= width) {
-		return truncateToWidth(left, width, "");
+		return fitRow(left, width, "");
 	}
 	if (right === undefined || right.trim() === "") {
 		return left;
@@ -94,7 +94,7 @@ export function layoutTwoColumnRow(
 	// Insufficient space: truncate right side with ellipsis if at least 4 cols available
 	const availableForRight = width - leftWidth - minGap;
 	if (availableForRight >= 4) {
-		const truncatedRight = truncateToWidth(right, availableForRight, "…");
+		const truncatedRight = fitRow(right, availableForRight, "…");
 		const truncatedWidth = visibleWidth(truncatedRight);
 		const spaces = " ".repeat(Math.max(minGap, width - leftWidth - truncatedWidth));
 		return `${left}${spaces}${truncatedRight}`;

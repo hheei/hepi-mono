@@ -5,13 +5,13 @@ import {
 	type ExtensionPageViewContext,
 	type ExtensionSettingsPaths,
 	errorMessage,
+	fitRow,
 	type LoadoutResourceDetail,
 	type LoadoutResourceDetailContext,
 	type LoadoutResourceMetadata,
 	observeLoadoutInventory,
 } from "@hheei/pi-ext-core";
 import { LIST_HINT_ROWS, PANEL_ROWS, pad, scrollbar, VISIBLE_ROWS } from "../page-chrome.js";
-import { fitRow } from "../row-fit.js";
 import type { LoadoutEngine } from "./engine.js";
 import {
 	type LoadoutConfiguration,
