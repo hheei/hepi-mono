@@ -33,7 +33,12 @@ function harness(options: { maxRunning?: number; maxQueued?: number } = {}): Har
 	const failures: string[] = [];
 	const terminals: TaskTerminalEvent[] = [];
 	registry.onTerminal((event) => terminals.push(event));
-	let pending: { resolve: (childId: string) => void; reject: (error: Error) => void } | undefined;
+	// One entry per in-flight launch: several Tasks can be starting at the same time.
+	const pending: Array<{
+		resolve: (childId: string) => void;
+		reject: (error: Error) => void;
+		entry: { done: boolean };
+	}> = [];
 	let counter = 0;
 	const executor = new AgentTaskExecutor({
 		registry,
@@ -44,13 +49,24 @@ function harness(options: { maxRunning?: number; maxQueued?: number } = {}): Har
 			counter += 1;
 			const childId = `child-${counter}`;
 			return new Promise((resolve, reject) => {
-				pending = {
-					resolve: (id) => resolve({ childId: id }),
-					reject,
+				const entry = { done: false };
+				const settle = (id: string): void => {
+					if (entry.done) return;
+					entry.done = true;
+					resolve({ childId: id });
 				};
+				pending.push({
+					resolve: (id) => settle(id ?? childId),
+					reject: (error) => {
+						if (entry.done) return;
+						entry.done = true;
+						reject(error);
+					},
+					entry,
+				});
 				// Auto-confirm the launch so a test that does not care about startup timing still
 				// observes the running phase.
-				queueMicrotask(() => pending?.resolve(childId));
+				queueMicrotask(() => settle(childId));
 			});
 		},
 		async stopChild(childId) {
@@ -69,8 +85,8 @@ function harness(options: { maxRunning?: number; maxQueued?: number } = {}): Har
 		unconfirmed,
 		failures,
 		terminals,
-		resolveLaunch: (childId) => pending?.resolve(childId ?? "child-x"),
-		failLaunch: (reason) => pending?.reject(new Error(reason)),
+		resolveLaunch: (childId) => pending.shift()?.resolve(childId ?? "child-x"),
+		failLaunch: (reason) => pending.shift()?.reject(new Error(reason)),
 	};
 }
 
@@ -398,4 +414,61 @@ test("a full queue is reported at admission", (): void => {
 	h.executor.start(request("running"));
 	h.executor.start(request("queued"));
 	expect(() => h.executor.start(request("overflow"))).toThrow(AgentTaskQueueError);
+});
+
+test("chatter after a submitted result cannot push the result out of the buffer", async (): Promise<void> => {
+	const h = harness();
+	const task = h.executor.start(request("early result"));
+
+	// The child submits before the producer knows its id, then keeps emitting turn traffic. A buffer
+	// that evicts oldest-first would drop the submission and report a missing result instead.
+	h.executor.handleChildEvent("child-1", {
+		type: "task_result",
+		parentSessionId: "s",
+		childId: "child-1",
+		runtimeIdentity: "r",
+		json: "submitted early",
+		structured: false,
+	});
+	for (let index = 0; index < 200; index += 1) {
+		h.executor.handleChildEvent("child-1", { type: "turn_end", round: index });
+	}
+	h.executor.handleChildEvent("child-1", SETTLED);
+	await flush();
+	await flush();
+
+	expect((await h.registry.wait([task.id]))[0]).toMatchObject({
+		status: "completed",
+		output: "submitted early",
+	});
+});
+
+test("one starting child's chatter cannot push another child's settlement out", async (): Promise<void> => {
+	const h = harness({ maxRunning: 2 });
+	const chatty = h.executor.start(request("chatty child"));
+	const quiet = h.executor.start(request("quiet child"));
+
+	// Both launches are in flight, so neither child id is attributable yet. The first child floods
+	// the buffer with turn traffic while the second one submits and settles.
+	for (let index = 0; index < 200; index += 1) {
+		h.executor.handleChildEvent("child-1", { type: "turn_end", round: index });
+	}
+	h.executor.handleChildEvent("child-2", {
+		type: "task_result",
+		parentSessionId: "s",
+		childId: "child-2",
+		runtimeIdentity: "r",
+		json: "quiet result",
+		structured: false,
+	});
+	h.executor.handleChildEvent("child-2", SETTLED);
+	await flush();
+	await flush();
+	await flush();
+
+	expect((await h.registry.wait([quiet.id]))[0]).toMatchObject({
+		status: "completed",
+		output: "quiet result",
+	});
+	expect(h.registry.get(chatty.id)?.status).toBe("running");
 });
