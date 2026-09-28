@@ -70,6 +70,26 @@ describe("outputSchema shape check", () => {
 		);
 	});
 
+	test("accepts a root ref that recurses through a property", () => {
+		// The ref is entered at the root and again one instance level down, which is a terminating
+		// recursion rather than a cycle. Counting the descent per keyword is what tells them apart.
+		expect(
+			checkOutputSchema({
+				$ref: "#/$defs/node",
+				$defs: {
+					node: { type: "object", properties: { child: { $ref: "#/$defs/node" } } },
+				},
+			}),
+		).toBeUndefined();
+		expect(
+			checkOutputSchema({
+				type: "array",
+				items: { $ref: "#/$defs/leaf" },
+				$defs: { leaf: { type: "array", items: { $ref: "#/$defs/leaf" } } },
+			}),
+		).toBeUndefined();
+	});
+
 	test("refuses a ref cycle that never reads a property or item", () => {
 		const cycle = checkOutputSchema({
 			$defs: { a: { $ref: "#/$defs/b" }, b: { $ref: "#/$defs/a" } },

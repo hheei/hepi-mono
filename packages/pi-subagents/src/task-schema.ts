@@ -297,30 +297,30 @@ function checkStructuralKeyword(
 }
 
 /**
- * Walks one schema node. `descends` marks keywords that move into the instance, which is what
- * separates terminating recursion from a ref cycle.
+ * Walks one schema node. Every node sees the data depth of its own level, so understanding a
+ * terminating recursion is a matter of counting instance steps, not of remembering how the node
+ * was reached.
  */
 function checkNode(
 	node: unknown,
 	path: string,
 	depth: number,
 	state: WalkState,
-	descends: boolean,
 ): string | undefined {
 	if (depth > MAX_OUTPUT_SCHEMA_DEPTH) return `${path} nests too deeply`;
 	state.nodes += 1;
 	if (state.nodes > MAX_OUTPUT_SCHEMA_NODES) return `${path} has too many nodes`;
 	if (typeof node === "boolean") return undefined;
 	if (!isRecord(node)) return `${path} must be a schema object`;
-	const childDepth = descends ? state.dataDepth + 1 : state.dataDepth;
 	const child = (
 		value: unknown,
 		childPath: string,
 		descendsIntoData = false,
 	): string | undefined => {
 		const saved = state.dataDepth;
-		if (descendsIntoData) state.dataDepth = childDepth;
-		const result = checkNode(value, childPath, depth + 1, state, descendsIntoData);
+		// Reading a property or an item moves one level into the instance, whichever node asked.
+		if (descendsIntoData) state.dataDepth = saved + 1;
+		const result = checkNode(value, childPath, depth + 1, state);
 		state.dataDepth = saved;
 		return result;
 	};
@@ -331,7 +331,7 @@ function checkNode(
 		if (unsupported !== undefined) return `${keywordPath} is not supported (${unsupported})`;
 		if (!SUPPORTED_KEYWORDS.has(keyword)) return `${keywordPath} is not a supported keyword`;
 		if (keyword === "$ref") {
-			const result = checkRef(value, keywordPath, depth, state, descends);
+			const result = checkRef(value, keywordPath, depth, state);
 			if (result !== undefined) return result;
 			continue;
 		}
@@ -354,7 +354,6 @@ function checkRef(
 	path: string,
 	depth: number,
 	state: WalkState,
-	descends: boolean,
 ): string | undefined {
 	if (typeof value !== "string") return `${path} must be a string`;
 	const target = resolveLocalRef(state.root, value);
@@ -370,7 +369,7 @@ function checkRef(
 		return undefined;
 	}
 	state.walking.set(value, state.dataDepth);
-	const result = checkNode(target, value, depth + 1, state, descends);
+	const result = checkNode(target, value, depth + 1, state);
 	state.walking.delete(value);
 	state.checked.add(value);
 	return result;
@@ -406,13 +405,13 @@ export function checkOutputSchema(schema: unknown): string | undefined {
 	if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
 		return `outputSchema is larger than ${MAX_OUTPUT_SCHEMA_BYTES} bytes`;
 	}
-	return checkNode(
-		schema,
-		"#",
-		0,
-		{ root: schema, nodes: 0, walking: new Map(), checked: new Set(), dataDepth: 0 },
-		false,
-	);
+	return checkNode(schema, "#", 0, {
+		root: schema,
+		nodes: 0,
+		walking: new Map(),
+		checked: new Set(),
+		dataDepth: 0,
+	});
 }
 
 /** Returns a human-readable reason when the value does not satisfy the schema. */
