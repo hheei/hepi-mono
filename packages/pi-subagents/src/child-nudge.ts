@@ -67,6 +67,7 @@ export function createChildNudgeController(
 	let agentStarted = false;
 	let userTookOver = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	let stopListening: (() => void) | undefined;
 	const clearTimer = (): void => {
 		if (timer === null) return;
 		clearTimeout(timer);
@@ -79,39 +80,48 @@ export function createChildNudgeController(
 			clearTimer();
 		},
 		listen(pi): void {
-			pi.on("input", () => {
-				userInputAfterAgentEnd = true;
-				clearTimer();
-				if (agentStarted) userTookOver = true;
-			});
-			pi.on("before_agent_start", () => {
-				clearTimer();
-			});
-			pi.on("agent_start", () => {
-				agentStarted = true;
-				reported = false;
-				userInputAfterAgentEnd = false;
-				clearTimer();
-			});
-			pi.on("agent_end", (event) => {
-				if (disabled || reported || userTookOver) {
+			const registered = [
+				pi.on("input", () => {
+					userInputAfterAgentEnd = true;
 					clearTimer();
-					return;
-				}
-				if (!shouldScheduleAgentEndNudge(agentEndMessages(event))) {
+					if (agentStarted) userTookOver = true;
+				}),
+				pi.on("before_agent_start", () => {
 					clearTimer();
-					return;
-				}
-				clearTimer();
-				timer = setTimeout(() => {
-					timer = null;
-					if (reported || userInputAfterAgentEnd || userTookOver) return;
-					pi.sendUserMessage(NUDGE_TEXT, { deliverAs: "followUp" });
-				}, delayMs);
-			});
+				}),
+				pi.on("agent_start", () => {
+					agentStarted = true;
+					reported = false;
+					userInputAfterAgentEnd = false;
+					clearTimer();
+				}),
+				pi.on("agent_end", (event) => {
+					if (disabled || reported || userTookOver) {
+						clearTimer();
+						return;
+					}
+					if (!shouldScheduleAgentEndNudge(agentEndMessages(event))) {
+						clearTimer();
+						return;
+					}
+					clearTimer();
+					timer = setTimeout(() => {
+						timer = null;
+						if (reported || userInputAfterAgentEnd || userTookOver) return;
+						pi.sendUserMessage(NUDGE_TEXT, { deliverAs: "followUp" });
+					}, delayMs);
+				}),
+			];
+			stopListening = () => {
+				for (const off of registered) off();
+			};
 		},
 		dispose(): void {
 			clearTimer();
+			// Reminders belong to the bound session: a child that left it must not nudge whatever session
+			// the process is serving next.
+			stopListening?.();
+			stopListening = undefined;
 		},
 	};
 }

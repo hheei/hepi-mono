@@ -25,6 +25,10 @@ function fakePi() {
 			const current = listeners.get(event) ?? [];
 			current.push(handler);
 			listeners.set(event, current);
+			return () => {
+				const remaining = (listeners.get(event) ?? []).filter((entry) => entry !== handler);
+				listeners.set(event, remaining);
+			};
 		},
 		sendUserMessage,
 		emit(event: string, payload?: unknown) {
@@ -101,4 +105,18 @@ test("allows another reminder after a later turn when the previous report was al
 	vi.advanceTimersByTime(1_000);
 	expect(sendUserMessage).toHaveBeenCalledOnce();
 	controller.dispose();
+});
+
+test("stops reminding once the child is disposed", () => {
+	vi.useFakeTimers();
+	const { pi, sendUserMessage } = fakePi();
+	const controller = createChildNudgeController({ delayMs: 1_000 });
+	controller.listen(pi);
+	controller.dispose();
+
+	// A child that left its bound session must not nudge whatever session runs next.
+	pi.emit("agent_start");
+	pi.emit("agent_end", { messages: [{ role: "assistant", stopReason: "stop" }] });
+	vi.advanceTimersByTime(5_000);
+	expect(sendUserMessage).not.toHaveBeenCalled();
 });

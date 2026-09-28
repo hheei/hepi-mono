@@ -68,6 +68,13 @@ describe("child bridge session policy", () => {
 					const list = events.get(event) ?? [];
 					list.push(handler);
 					events.set(event, list);
+					// The real API hands back an unsubscribe, which the bridge uses when it leaves.
+					return () => {
+						events.set(
+							event,
+							(events.get(event) ?? []).filter((entry) => entry !== handler),
+						);
+					};
 				},
 			} as unknown as ExtensionAPI;
 			const state = registerChildBridge(
