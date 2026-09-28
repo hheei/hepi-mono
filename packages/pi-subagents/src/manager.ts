@@ -14,6 +14,7 @@ import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
 import { isIdlePiState } from "./rpc-events.js";
 import type { RuntimeTokenStore } from "./runtime.js";
+import { isRecordedRunnerConfirmedDead } from "./runtime.js";
 import { planSessionPlacement } from "./session-bootstrap.js";
 import { createStateProjector, type StateProjector } from "./state.js";
 
@@ -266,27 +267,55 @@ export class SubagentManager {
 	/**
 	 * Resolves where the child's session lives now: a child that finished while
 	 * the parent was busy may have been flushed after its record was written.
-	 * Discovery is best effort, so a failure keeps the recorded placement.
+	 *
+	 * Discovery is not an existence test. A record that was only ever known by session
+	 * id would otherwise turn an unreadable session directory into "the session does not
+	 * exist", and the next resume would let Pi mint a new session under the same id and
+	 * silently drop the child's context. A failure is therefore reported to the caller.
 	 */
 	async #currentPlacement(record: SubagentRecord): Promise<{
 		readonly sessionPath: string | undefined;
 		readonly persistence: SubagentRecord["persistence"];
 	}> {
+		let placement: Awaited<ReturnType<typeof planSessionPlacement>>;
 		try {
-			const placement = await planSessionPlacement({
+			placement = await planSessionPlacement({
 				sessionId: record.sessionId,
 				cwd: record.cwd,
 				sessionDir: record.launchConfig.sessionDir,
 				persistence: record.persistence,
 				...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
 			});
-			if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
-				return { sessionPath: placement.sessionPath, persistence: "flushed" };
-			}
-		} catch {
-			// Best effort: keep the recorded placement.
+		} catch (error) {
+			throw new Error(
+				`Session placement for child ${record.subagentId} could not be verified: ${errorMessage(error)}`,
+				{ cause: error },
+			);
+		}
+		if (placement.persistence === "flushed" && placement.sessionPath !== undefined) {
+			return { sessionPath: placement.sessionPath, persistence: "flushed" };
 		}
 		return { sessionPath: record.sessionPath, persistence: record.persistence };
+	}
+
+	/**
+	 * True only when a recorded process exists and is not confirmed dead. A shutdown request
+	 * only proves the request was received, and closing the parent socket releases no child
+	 * process, so an unconfirmed exit keeps the runtime evidence instead of claiming a clean
+	 * hibernation. A record that never recorded a process owns no second execution.
+	 */
+	async #runtimeMayBeAlive(record: SubagentRecord): Promise<boolean> {
+		if (record.runtime?.pid === undefined) return false;
+		return !(await isRecordedRunnerConfirmedDead(record));
+	}
+
+	async #runnerExitConfirmed(record: SubagentRecord): Promise<boolean> {
+		const deadline = Date.now() + (this.#deps.deadlineMs ?? 10_000);
+		for (;;) {
+			if (!(await this.#runtimeMayBeAlive(record))) return true;
+			if (Date.now() >= deadline) return false;
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+		}
 	}
 
 	async #hibernate(id: string): Promise<void> {
@@ -296,20 +325,49 @@ export class SubagentManager {
 				return;
 			}
 			const runner = this.#runners.get(id);
+			let shutdownFailure: string | undefined;
 			if (runner !== undefined) {
 				try {
 					await withDeadline(
 						runner.request("shutdown", undefined),
 						this.#deps.deadlineMs ?? 10_000,
-					).catch(() => undefined);
+					);
+				} catch (error) {
+					shutdownFailure = errorMessage(error);
 				} finally {
 					runner.close();
 					this.#runners.delete(id);
 				}
 			}
-			const { sessionPath, persistence } = await this.#currentPlacement(record);
+			const exited = await this.#runnerExitConfirmed(record);
+			let placement:
+				| { sessionPath: string | undefined; persistence: SubagentRecord["persistence"] }
+				| undefined;
+			let placementFailure: string | undefined;
+			try {
+				placement = await this.#currentPlacement(record);
+			} catch (error) {
+				placementFailure = errorMessage(error);
+			}
 			await this.#update(id, (current) => {
 				if (current.state !== "idle" || current.intent === "stopped") return current;
+				if (!exited) {
+					// The runner may still be alive, so hibernating would let the next send start a
+					// second execution against a session the old process still owns. Keep the runtime
+					// evidence and refuse the child until the exit is confirmed.
+					return {
+						...current,
+						state: "failed",
+						interrupted: `Runner exit is unconfirmed${shutdownFailure === undefined ? "" : ` (${shutdownFailure})`}; the recorded runtime was kept and the child stays unavailable until it is confirmed dead`,
+					};
+				}
+				if (placement === undefined) {
+					return {
+						...current,
+						interrupted: `${placementFailure ?? "Session placement is unknown"}; hibernation kept the child idle because resuming an unverified session could lose its context`,
+					};
+				}
+				const { sessionPath, persistence } = placement;
 				return {
 					...current,
 					state: "done",
@@ -473,7 +531,17 @@ export class SubagentManager {
 
 			// Auto-Resume: if the child finished/hibernated (done) or runner disconnected, resume it
 			if (runner === undefined || record.state === "done") {
-				const { sessionPath, persistence } = await this.#currentPlacement(record);
+				let placement: {
+					sessionPath: string | undefined;
+					persistence: SubagentRecord["persistence"];
+				};
+				try {
+					placement = await this.#currentPlacement(record);
+				} catch (error) {
+					// Nothing was launched, so the record is untouched and a later retry is safe.
+					return failure("send", errorMessage(error), id, record.state, ["no runtime was started"]);
+				}
+				const { sessionPath, persistence } = placement;
 				const resumedRecord = await this.#update(id, (current) => ({
 					...current,
 					state: "starting",
@@ -492,13 +560,36 @@ export class SubagentManager {
 					this.#attach(resumedRecord, runner);
 					isResumed = true;
 				} catch (error) {
+					const reason = errorMessage(error);
+					// A launch that failed after a runner was claimed may still have started a process
+					// that owns the session, so the two outcomes must not collapse into one retry.
+					const afterFailure = await this.#deps.registry.get(id);
+					const started =
+						afterFailure !== undefined && (await this.#runtimeMayBeAlive(afterFailure));
+					const settled = await this.#update(id, (current) =>
+						current.state !== "starting"
+							? current
+							: started
+								? {
+										...current,
+										state: "failed",
+										interrupted: `Resume failed after the runtime was claimed (${reason}); the recorded runtime was kept and the child stays unavailable until it is confirmed dead`,
+									}
+								: {
+										...current,
+										state: record.state,
+										interrupted: `Resume failed before a runtime was confirmed started (${reason}); the child session is untouched`,
+									},
+					);
 					return failure(
 						"send",
-						`Failed to resume subagent: ${errorMessage(error)}`,
+						`Failed to resume subagent: ${reason}`,
 						id,
-						"failed",
-						[],
-						true,
+						settled.state,
+						started
+							? ["starting state persisted", "runtime start unconfirmed"]
+							: ["starting state rolled back", "no runtime was confirmed started"],
+						!started,
 					);
 				}
 			}
