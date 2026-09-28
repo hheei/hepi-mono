@@ -61,7 +61,7 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 
 ## Tool Output 自动折叠
 
-`grep`、`read`、`write`、`edit`、`find`、`ls`、`bash` 在 `frame()` 中声明 `longOutput: true`。Tool Output 设置组
+`grep`、`read`、`write`、`edit`、`find`、`ls`、`bash`、`eval` 在 `frame()` 中声明 `longOutput: true`。Tool Output 设置组
 （`toolTui.collapseMode`，选项 `auto` / `on` / `pertrace` / `off`）决定这些工具完成后外框何时收合：
 
 | 模式 | 行为 |

@@ -100,7 +100,7 @@ export const EVAL_PARAMETERS = Type.Object(
 
 type EvalParameters = Static<typeof EVAL_PARAMETERS>;
 type EvalRow =
-	| { readonly kind: "text"; readonly text: string }
+	| { readonly kind: "text"; text: string }
 	| { readonly kind: "display"; readonly text: string }
 	| { readonly kind: "tool"; readonly trace: EvalNestedTrace }
 	| { readonly kind: "result"; readonly text: string };
@@ -145,14 +145,7 @@ export function createEvalTool(
 			const startedAt = performance.now();
 			let failure: string | undefined;
 			const runSignal = mergeAbortSignals(signal, watchdog?.signal);
-			const append = (row: EvalRow, keep = false): void => {
-				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
-				else if (keep) {
-					// A row marked `keep` displaces the least important one instead of being dropped.
-					rows.pop();
-					omittedRows += 1;
-					rows.push(row);
-				} else omittedRows += 1;
+			const publish = (): void => {
 				onUpdate?.(
 					textToolResult(transcript(rows), {
 						format: "pi-ext-tools-eval",
@@ -161,15 +154,48 @@ export function createEvalTool(
 					}),
 				);
 			};
-			/**
-			 * Printed output is line-oriented, like a bash body: the trailing newline ends the current line
-			 * rather than opening another row, and a captured line keeps no terminal control of its own.
-			 */
-			const appendPrinted = (text: string): void => {
-				for (const line of text.replace(/\r?\n$/, "").split("\n")) {
-					const safe = stripTerminalSequences(line.replace(/\r/g, ""));
-					append({ kind: "text", text: boundedText(safe) });
+			const append = (row: EvalRow, keep = false): void => {
+				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
+				else if (keep) {
+					// A row marked `keep` displaces the least important one instead of being dropped.
+					rows.pop();
+					omittedRows += 1;
+					rows.push(row);
+				} else omittedRows += 1;
+				publish();
+			};
+			// The printed line still being written: its row appears as soon as text arrives and is
+			// rewritten in place, so a line the kernel sends in pieces never becomes two rows.
+			let printedLine = "";
+			let printedRow: { kind: "text"; text: string } | undefined;
+			const paintPrintedLine = (): void => {
+				const text = boundedText(stripTerminalSequences(printedLine.replace(/\r/g, "")));
+				if (printedRow === undefined) {
+					printedRow = { kind: "text", text };
+					append(printedRow);
+				} else if (printedRow.text !== text) {
+					printedRow.text = text;
+					publish();
 				}
+			};
+			const endPrintedLine = (): void => {
+				paintPrintedLine();
+				printedLine = "";
+				printedRow = undefined;
+			};
+			/**
+			 * Printed output is line-oriented, like a bash body: the newline that ends a printed line ends
+			 * its row, and a captured line keeps no terminal control of its own.
+			 */
+			const appendPrinted = (chunk: string): void => {
+				const lines = chunk.split("\n");
+				const tail = lines.pop() ?? "";
+				for (const line of lines) {
+					printedLine += line;
+					endPrintedLine();
+				}
+				printedLine += tail;
+				if (tail !== "") paintPrintedLine();
 			};
 			try {
 				const value = await runtime.runWithHooks(
@@ -241,6 +267,7 @@ export function registerEvalTool(
 		summary: () => "",
 		suffix: (args) => evalSuffix(args as EvalParameters),
 		maxBodyLines: 10,
+		longOutput: true,
 		headerLine: "truncate",
 		request: (args, theme) => {
 			const code = (args as EvalParameters).code;
@@ -290,13 +317,29 @@ function renderEvalResult(
 	if (!isEvalToolDetails(details)) return new Text(agentResultText(result), 0, 0);
 	const body = new Container();
 	for (const row of details.rows) {
-		if (row.kind !== "tool") {
-			body.addChild(new Text(row.text, 0, 0));
-			continue;
-		}
-		body.addChild(renderNestedTrace(row.trace, options, theme, context, bridge));
+		body.addChild(
+			row.kind === "tool"
+				? renderNestedTrace(row.trace, options, theme, context, bridge)
+				: renderEvalRow(row, theme),
+		);
 	}
 	return body;
+}
+
+/** `Text` renders nothing for whitespace-only content, so a blank printed line is a row of its own. */
+class EvalBlankRow implements Component {
+	render(): string[] {
+		return [""];
+	}
+
+	invalidate(): void {}
+}
+
+/** A printed line stands alone; a display value and the cell's final value say what they are. */
+function renderEvalRow(row: Exclude<EvalRow, { kind: "tool" }>, theme: Theme): Component {
+	if (row.kind === "display" || row.kind === "result")
+		return new Text(`${theme.fg("dim", `${row.kind}:`)} ${row.text}`, 0, 0);
+	return row.text.trim() === "" ? new EvalBlankRow() : new Text(row.text, 0, 0);
 }
 
 /** Reuses the canonical renderer of a nested tool, falling back to a typed one-line summary. */
@@ -357,13 +400,18 @@ function renderNestedTrace(
 
 function transcript(rows: readonly EvalRow[]): string {
 	const value = rows
-		.map((row) =>
-			row.kind === "tool"
-				? `${row.trace.name}: ${row.trace.error ?? row.trace.text}`
-				: row.kind === "result"
-					? `result: ${row.text}`
-					: row.text,
-		)
+		.map((row) => {
+			switch (row.kind) {
+				case "tool":
+					return `${row.trace.name}: ${row.trace.error ?? row.trace.text}`;
+				case "display":
+					return `display: ${row.text}`;
+				case "result":
+					return `result: ${row.text}`;
+				default:
+					return row.text;
+			}
+		})
 		.join("\n");
 	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
 		? value

@@ -193,7 +193,7 @@ describe("Eval tool bridge", () => {
 				durationMs: 120,
 			},
 		};
-		expect(render(finalResult, false)).toEqual(["streamed line", "read: file.ts", "42"]);
+		expect(render(finalResult, false)).toEqual(["streamed line", "read: file.ts", "result: 42"]);
 	});
 });
 

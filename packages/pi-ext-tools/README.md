@@ -86,7 +86,7 @@ parent has not confirmed reading (`registry.requiresControl`). `do not poll` liv
 
 ## Tool Output
 
-`grep`, `read`, `write`, `edit`, `find`, `ls`, and `bash` declare `longOutput: true`, so
+`grep`, `read`, `write`, `edit`, `find`, `ls`, `bash`, and `eval` declare `longOutput: true`, so
 the shared `ToolTui` frame may collapse them after completion. The `Tool Output`
 settings group (`toolTui.collapseMode`) selects when:
 
