@@ -1249,3 +1249,42 @@ describe("tool request section", () => {
 		).toContain("<dim>git fetch --all</dim>");
 	});
 });
+
+test("the result opens its own rail when the request rendered nothing", (): void => {
+	const tui = createToolTui();
+	// A declared request owns the call phase, but an empty command or code sample renders no body,
+	// so there is no section above the result for it to continue.
+	const framed = tui.frame(tool(), { request: () => undefined, footer: () => "1 line" });
+	const call = framed.renderCall?.({ path: "src/a.ts" }, theme, context(false));
+	expect(call?.render(200).map((line) => line.trimEnd()) ?? []).toEqual([
+		"<success>󰄴</success> <toolTitle><b>read</b></toolTitle> src/a.ts<warning></warning>",
+	]);
+
+	expect(
+		renderResult(framed, {
+			content: [{ type: "text", text: "result body" }],
+			details: undefined,
+		}),
+	).toEqual([
+		`<muted>${"─".repeat(80)}</muted>`,
+		"result body",
+		`<muted>${"─".repeat(80)}</muted>`,
+		"<dim>1 line</dim>",
+	]);
+});
+
+test("the result continues the rail its request already drew", (): void => {
+	const tui = createToolTui();
+	const framed = tui.frame(tool(), {
+		request: (_args, receivedTheme) =>
+			new Text(receivedTheme.bg("toolSuccessBg", "call body"), 0, 0),
+		footer: () => "1 line",
+	});
+	framed.renderCall?.({ path: "src/a.ts" }, theme, context(false));
+	expect(
+		renderResult(framed, {
+			content: [{ type: "text", text: "result body" }],
+			details: undefined,
+		}),
+	).toEqual(["result body", `<muted>${"─".repeat(80)}</muted>`, "<dim>1 line</dim>"]);
+});

@@ -17,8 +17,7 @@ import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycl
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 import { registerTaskTools } from "../src/task-tools.js";
-
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme } from "./fixtures/theme.js";
 
 initTheme(undefined, false);
@@ -285,12 +284,20 @@ test("bash collapses only the previous command before its timeout suffix", async
 test("bash closes its output with a full-width divider above the typed footer", (): void => {
 	const bash = bashTool();
 	const theme = roleTheme;
+	// The host renders the call before its result under the same tool call id, and that call body is
+	// what closes the section the result continues: without it, the result opens the rail itself.
+	const context = renderContextFor({
+		args: { command: "printf stdout" },
+		toolCallId: "call-1",
+		cwd: process.cwd(),
+	});
+	bash.renderCall?.({ command: "printf stdout" }, theme, context);
 	const lines = bash
 		.renderResult?.(
 			{ content: [{ type: "text", text: "stdout" }], details: {} },
 			{ expanded: false, isPartial: false },
 			theme,
-			bashContext("printf stdout"),
+			context,
 		)
 		.render(40);
 	// The request body above already closed its own section, so the result body opens without a rail.
