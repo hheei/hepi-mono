@@ -14,7 +14,7 @@ import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
 import { isIdlePiState } from "./rpc-events.js";
 import type { RuntimeTokenStore } from "./runtime.js";
-import { isRecordedRunnerConfirmedDead } from "./runtime.js";
+import { isPidConfirmedDead, isRecordedRunnerConfirmedDead } from "./runtime.js";
 import { planSessionPlacement } from "./session-bootstrap.js";
 import { createStateProjector, type StateProjector } from "./state.js";
 
@@ -88,7 +88,7 @@ export interface DetachOptions {
 
 export interface ManagerDependencies {
 	readonly parentSessionId: string;
-	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update">;
+	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update" | "releaseClaim">;
 	readonly resolve: (input: SpawnSubagentInput) => Promise<EffectiveLaunchConfig>;
 	readonly bootstrap: (input: {
 		readonly parentSessionId: string;
@@ -340,6 +340,37 @@ export class SubagentManager {
 		return this.#runnerExitConfirmed(record);
 	}
 
+	/**
+	 * Returns a failed child to a resumable state once nothing can still be running for it, or
+	 * `undefined` while a process may own its session. A failure only proves that the exit was not
+	 * confirmed at the time, so `done` — hibernated and resumable — is the state it was headed for.
+	 */
+	async #revivedAfterFailure(record: SubagentRecord): Promise<SubagentRecord | undefined> {
+		if (await this.#runtimeMayBeAlive(record)) return undefined;
+		const claim = record.claim;
+		if (claim !== undefined) {
+			// Releasing a claim needs positive evidence of death: a spawn whose exit was never observed
+			// may still be starting up, and a second execution must not race it for the session.
+			if (claim.runnerPid === undefined) return undefined;
+			if (!isPidConfirmedDead(claim.runnerPid)) return undefined;
+			try {
+				await this.#deps.registry.releaseClaim(record.subagentId, claim.claimId);
+			} catch (error) {
+				console.error(`pi-subagents: could not release a dead claim: ${errorMessage(error)}`);
+				return undefined;
+			}
+		}
+		return this.#update(record.subagentId, (current) =>
+			current.state === "failed"
+				? {
+						...current,
+						state: "done",
+						interrupted: "The runner exit was confirmed after the failure; the child is idle",
+					}
+				: current,
+		);
+	}
+
 	async #hibernate(id: string): Promise<void> {
 		await this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
@@ -539,7 +570,7 @@ export class SubagentManager {
 	): Promise<OperationError | PublicSubagent> {
 		this.#clearIdleHibernate(id);
 		return this.#mutate(id, async () => {
-			const record = await this.#deps.registry.get(id);
+			let record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
 			if (this.#frozen.has(id) || record.mode === "tui")
 				return failure("send", "Child input is frozen for attach", id, record.state);
@@ -552,8 +583,15 @@ export class SubagentManager {
 				);
 			if (record.intent === "stopped" || record.state === "stopped")
 				return failure("send", "Child is stopped", id, record.state);
-			if (record.state === "failed")
-				return failure("send", "Child is not accepting input", id, record.state);
+			if (record.state === "failed") {
+				// A child that failed while a process might still have owned its session becomes usable
+				// again once that process is confirmed gone; while it may still be running, refusing is the
+				// only safe answer.
+				const revived = await this.#revivedAfterFailure(record);
+				if (revived === undefined)
+					return failure("send", "Child is not accepting input", id, record.state);
+				record = revived;
+			}
 
 			let runner = this.#runners.get(id);
 			let isResumed = false;
@@ -598,21 +636,21 @@ export class SubagentManager {
 					const started =
 						afterFailure !== undefined &&
 						((await this.#runtimeMayBeAlive(afterFailure)) || afterFailure.claim !== undefined);
-					const settled = await this.#update(id, (current) =>
-						current.state !== "starting"
-							? current
-							: started
-								? {
-										...current,
-										state: "failed",
-										interrupted: `Resume failed after the runtime was claimed (${reason}); the recorded runtime was kept and the child stays unavailable until it is confirmed dead`,
-									}
-								: {
-										...current,
-										state: record.state,
-										interrupted: `Resume failed before a runtime was confirmed started (${reason}); the child session is untouched`,
-									},
-					);
+					const settled = await this.#update(id, (current) => {
+						if (current.state !== "starting") return current;
+						if (started) {
+							return {
+								...current,
+								state: "failed",
+								interrupted: `Resume failed after the runtime was claimed (${reason}); the recorded runtime was kept and the child stays unavailable until it is confirmed dead`,
+							};
+						}
+						return {
+							...current,
+							state: record.state,
+							interrupted: `Resume failed before a runtime was confirmed started (${reason}); the child session is untouched`,
+						};
+					});
 					return failure(
 						"send",
 						`Failed to resume subagent: ${reason}`,
