@@ -70,6 +70,7 @@ describe("ToolExecutionComponent smoke", () => {
 			component.markExecutionStarted();
 			const result = await tool.execute(callId, { code: "print(40 + 2)" }, undefined, undefined, {
 				cwd: process.cwd(),
+				sessionManager: { getLeafId: () => null },
 			} as never);
 			component.updateResult({ ...result, isError: false });
 			expect(outputLines(component, "42")).toBe(1);
@@ -105,7 +106,7 @@ describe("ToolExecutionComponent smoke", () => {
 				(update) => {
 					partial = update;
 				},
-				{ cwd: process.cwd() } as never,
+				{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as never,
 			);
 			if (partial === undefined) throw new Error("Expected eval partial output");
 			component.updateResult({ ...partial, isError: false }, true);
@@ -133,6 +134,7 @@ describe("ToolExecutionComponent smoke", () => {
 			component.updateResult({
 				...(await tool.execute(`null-row-${code}`, { code }, undefined, undefined, {
 					cwd: process.cwd(),
+					sessionManager: { getLeafId: () => null },
 				} as never)),
 				isError: false,
 			});
@@ -182,7 +184,7 @@ describe("ToolExecutionComponent smoke", () => {
 			(update) => {
 				partial = update;
 			},
-			{ cwd: process.cwd() } as never,
+			{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as never,
 		);
 		if (partial === undefined) throw new Error("Expected bash partial output");
 		component.updateResult({ ...partial, isError: false }, true);
@@ -208,6 +210,7 @@ describe("ToolExecutionComponent smoke", () => {
 		component.markExecutionStarted();
 		const result = await tool.execute(callId, { command: "true" }, undefined, undefined, {
 			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
 		} as never);
 		component.updateResult({ ...result, isError: false });
 		for (let index = 0; index < 3; index += 1) {
@@ -235,7 +238,7 @@ describe("ToolExecutionComponent smoke", () => {
 				partial = update;
 				component.updateResult({ ...update, isError: false }, true);
 			},
-			{ cwd: process.cwd() } as never,
+			{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as never,
 		);
 		if (partial === undefined) throw new Error("Expected bash partial output");
 		component.updateResult({ ...result, isError: false });
@@ -394,7 +397,7 @@ describe("ToolExecutionComponent smoke", () => {
 			(update) => {
 				partial = update;
 			},
-			{ cwd: process.cwd() } as never,
+			{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as never,
 		);
 		if (partial === undefined) throw new Error("Expected synthetic partial output");
 		component.updateResult({ ...partial, isError: false }, true);

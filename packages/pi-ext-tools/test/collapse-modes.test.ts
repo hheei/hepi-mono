@@ -50,6 +50,7 @@ async function mounted(
 			sessionManager: {
 				getSessionId: (): string => "ext-tools-collapse-test",
 				getSessionFile: (): undefined => undefined,
+				getLeafId: (): string | null => null,
 			},
 		} as unknown as ExtensionContext,
 	);
@@ -225,6 +226,7 @@ describe("tool frame collapse modes", () => {
 			sessionManager: {
 				getSessionId: (): string => "ext-tools-collapse-test",
 				getSessionFile: (): undefined => undefined,
+				getLeafId: (): string | null => null,
 			},
 		} as unknown as ExtensionContext);
 		const text = result.content

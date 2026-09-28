@@ -27,10 +27,13 @@ test("bash uses one flat object schema for strict tool providers", (): void => {
 	expect(BashInput).toMatchObject({ type: "object", additionalProperties: false });
 	expect(BashInput).not.toHaveProperty("anyOf");
 	expect(BashInput.properties).toHaveProperty("command");
-	expect(BashInput.properties).toHaveProperty("async");
+	expect(BashInput.properties).toHaveProperty("blocking");
+	expect(BashInput.properties).not.toHaveProperty("async");
 	expect(Value.Check(BashInput, { command: "pwd" })).toBe(true);
-	expect(Value.Check(BashInput, { command: "pwd", async: false })).toBe(true);
-	expect(Value.Check(BashInput, { command: "pwd", async: true })).toBe(true);
+	expect(Value.Check(BashInput, { command: "pwd", blocking: false })).toBe(true);
+	expect(Value.Check(BashInput, { command: "pwd", blocking: true })).toBe(true);
+	// The legacy `async` parameter is rejected instead of being silently reinterpreted.
+	expect(Value.Check(BashInput, { command: "pwd", async: true })).toBe(false);
 	expect(Value.Check(BashInput, {})).toBe(false);
 	expect(Value.Check(BashInput, { command: "" })).toBe(false);
 });
@@ -71,6 +74,7 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 			sessionManager: {
 				getSessionId: () => "bash-backend-test",
 				getSessionFile: () => undefined,
+				getLeafId: () => null,
 			},
 		} as ExtensionContext,
 	);
@@ -93,6 +97,7 @@ test("bash never streams Pi host temporary output paths", async (): Promise<void
 			sessionManager: {
 				getSessionId: () => "bash-streamed-path-redaction",
 				getSessionFile: () => undefined,
+				getLeafId: () => null,
 			},
 		} as ExtensionContext,
 	);
@@ -110,7 +115,11 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 			{ command: "printf unavailable", unsupported: true },
 			undefined,
 			undefined,
-			{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
+			{
+				cwd: process.cwd(),
+				mode: "print",
+				sessionManager: { getLeafId: () => null },
+			} as ExtensionContext,
 		),
 	).rejects.toThrow("Invalid bash parameters");
 });
@@ -119,10 +128,14 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 	const bash = bashTool();
 	const result = await bash.execute(
 		"bash-null-optional-fields",
-		{ command: "printf normalized", timeout: null, async: null, target: null },
+		{ command: "printf normalized", timeout: null, blocking: null, target: null },
 		undefined,
 		undefined,
-		{ cwd: process.cwd(), mode: "print" } as ExtensionContext,
+		{
+			cwd: process.cwd(),
+			mode: "print",
+			sessionManager: { getLeafId: () => null },
+		} as ExtensionContext,
 	);
 	expect(result.content).toEqual([{ type: "text", text: "normalized" }]);
 });
@@ -136,7 +149,7 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 		{ command: "printf spawned" },
 		controller.signal,
 		() => undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
 	);
 	expect(result).toMatchObject({
 		content: [{ type: "text", text: "Bash aborted" }],
@@ -144,14 +157,14 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 	});
 });
 
-test("bash exposes only async use guidance", (): void => {
+test("bash exposes only background use guidance", (): void => {
 	const bash = bashTool();
 	expect(bash.description).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
-		"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s.",
-		"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
+		"Use `blocking: false` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
+		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed.",
+		"Remote `target` is an authorized SSH host and always runs in the foreground.",
 	]);
 });
 
@@ -222,6 +235,7 @@ test("bash collapses only the previous command before its timeout suffix", async
 	tui.beginTrace();
 	await bash.execute("previous-bash", { command: "true" }, undefined, undefined, {
 		cwd: process.cwd(),
+		sessionManager: { getLeafId: () => null },
 	} as ExtensionContext);
 	tui.beginTrace();
 	const theme = plainTheme;
@@ -409,7 +423,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		{ command: "printf 'one\\ntwo\\n'" },
 		undefined,
 		undefined,
-		{ cwd: process.cwd() } as ExtensionContext,
+		{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
 	);
 	tui.beginTrace();
 	const theme = plainTheme;
@@ -430,20 +444,22 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
 });
 
-test("bash rejects async on SSH targets", async (): Promise<void> => {
+test("bash rejects background execution on SSH targets", async (): Promise<void> => {
 	const bash = bashTool();
 	const context = { cwd: process.cwd() } as ExtensionContext;
 	expect(
 		await bash.execute(
 			"bash-remote-async",
-			{ command: "true", target: "ileqm", async: true },
+			{ command: "true", target: "ileqm", blocking: false },
 			undefined,
 			undefined,
 			context,
 		),
 	).toMatchObject({
-		content: [{ type: "text", text: "Async Bash is local-only; omit async for SSH targets." }],
-		details: { error: "async_unsupported", target: "ileqm" },
+		content: [
+			{ type: "text", text: "Background Bash is local-only; omit blocking for SSH targets." },
+		],
+		details: { error: "background_unsupported", target: "ileqm" },
 	});
 	await expect(
 		bash.execute(
@@ -508,7 +524,7 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				{ command: "printf remote-ok", target: "ileqm" },
 				undefined,
 				undefined,
-				{ cwd: process.cwd() } as ExtensionContext,
+				{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
 			);
 			expect(result.content).toEqual([{ type: "text", text: "remote-ok" }]);
 			expect(result.details).toMatchObject({
@@ -521,7 +537,7 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				{ command: "true", target: "nope" },
 				undefined,
 				undefined,
-				{ cwd: process.cwd() } as ExtensionContext,
+				{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
 			);
 			expect(denied.content[0]).toMatchObject({
 				type: "text",

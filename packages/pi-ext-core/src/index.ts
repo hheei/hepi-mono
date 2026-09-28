@@ -196,6 +196,31 @@ export {
 	redeliverTask,
 	startSubagent,
 } from "./subagents.js";
+export type {
+	TaskBinding,
+	TaskDeliveryState,
+	TaskProgress,
+	TaskRegistryOptions,
+	TaskRequest,
+	TaskSnapshot,
+	TaskStatus,
+	TaskStopOutcome,
+	TaskTerminal,
+	TaskTerminalEvent,
+	TaskTerminalStatus,
+	TaskWaitOutcome,
+	TaskWaitOutcomeSettled,
+} from "./tasks.js";
+export {
+	DEFAULT_MAX_PENDING_DELIVERIES,
+	DEFAULT_MAX_RETAINED_TERMINAL,
+	isTerminalTaskStatus,
+	MAX_TASK_RESULT_CHARS,
+	TASK_REGISTRY_SERVICE_KEY,
+	TaskCapacityError,
+	TaskRegistry,
+	TaskRegistryClosedError,
+} from "./tasks.js";
 export { escapeXml } from "./text.js";
 export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
 export type { ToolCollapseMode, ToolCompletion, ToolTui, ToolTuiPresentation } from "./tool-tui.js";

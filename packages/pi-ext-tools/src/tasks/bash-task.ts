@@ -1,20 +1,17 @@
+import type { TaskProgress, TaskRegistry, TaskSnapshot, TaskTerminal } from "@hheei/pi-ext-core";
 import type { BashJobRegistry, BashJobSnapshot } from "../bash-jobs.js";
-import type {
-	AsyncTaskProgress,
-	AsyncTaskRegistry,
-	AsyncTaskSnapshot,
-	AsyncTaskTerminal,
-} from "./registry.js";
 
 const MAX_PURPOSE_CHARS = 200;
 
 export interface BashTaskRequest {
-	readonly tasks: AsyncTaskRegistry;
+	readonly tasks: TaskRegistry;
 	readonly jobs: BashJobRegistry;
 	readonly command: string;
 	readonly cwd: string;
 	readonly shellPath: string;
 	readonly timeoutMs?: number;
+	/** Branch marker captured when the command started. */
+	readonly anchor?: string;
 }
 
 /** One-line intent shown in task listings and terminal deliveries. */
@@ -28,7 +25,7 @@ export function bashTaskPurpose(command: string): string {
 	return line.length > MAX_PURPOSE_CHARS ? `${line.slice(0, MAX_PURPOSE_CHARS)}…` : line;
 }
 
-function terminalFrom(job: BashJobSnapshot): AsyncTaskTerminal {
+function terminalFrom(job: BashJobSnapshot): TaskTerminal {
 	return {
 		status: job.timedOut
 			? "timed_out"
@@ -48,11 +45,12 @@ function terminalFrom(job: BashJobSnapshot): AsyncTaskTerminal {
 }
 
 /** Starts one background Bash job and registers it as an observable task. */
-export function startBashTask(request: BashTaskRequest): AsyncTaskSnapshot {
+export function startBashTask(request: BashTaskRequest): TaskSnapshot {
 	return request.tasks.create({
 		type: "bash",
 		purpose: bashTaskPurpose(request.command),
-		begin: (taskId) => {
+		...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+		begin: (taskId: string) => {
 			const job = request.jobs.start({
 				command: request.command,
 				cwd: request.cwd,
@@ -66,7 +64,7 @@ export function startBashTask(request: BashTaskRequest): AsyncTaskSnapshot {
 				stop: (): void => {
 					request.jobs.stop(job.id);
 				},
-				describe: (): AsyncTaskProgress => {
+				describe: (): TaskProgress => {
 					const current = request.jobs.get(job.id);
 					return {
 						output: current?.output ?? "",
@@ -79,22 +77,23 @@ export function startBashTask(request: BashTaskRequest): AsyncTaskSnapshot {
 }
 
 export interface PromoteBashTaskRequest {
-	readonly tasks: AsyncTaskRegistry;
+	readonly tasks: TaskRegistry;
 	readonly jobs: BashJobRegistry;
 	readonly jobId: string;
 	readonly command: string;
+	/** Branch marker captured when the command started. */
+	readonly anchor?: string;
 }
 
-/** Promotes an already running Bash job into an observable AsyncTask. */
-export function promoteBashJobToTask(
-	request: PromoteBashTaskRequest,
-): AsyncTaskSnapshot | undefined {
+/** Promotes an already running Bash job into an observable task. */
+export function promoteBashJobToTask(request: PromoteBashTaskRequest): TaskSnapshot | undefined {
 	const current = request.jobs.get(request.jobId);
 	if (current === undefined || current.status !== "running") return undefined;
 	return request.tasks.create({
 		type: "bash",
 		purpose: bashTaskPurpose(request.command),
-		begin: (taskId) => {
+		...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+		begin: (taskId: string) => {
 			request.jobs.bindTerminal(request.jobId, (finished): void => {
 				request.tasks.settle(taskId, terminalFrom(finished));
 			});
@@ -102,7 +101,7 @@ export function promoteBashJobToTask(
 				stop: (): void => {
 					request.jobs.stop(request.jobId);
 				},
-				describe: (): AsyncTaskProgress => {
+				describe: (): TaskProgress => {
 					const job = request.jobs.get(request.jobId);
 					return {
 						output: job?.output ?? "",

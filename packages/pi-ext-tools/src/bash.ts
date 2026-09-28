@@ -22,6 +22,8 @@ import {
 	formatDuration,
 	isRecord,
 	registerManagedTool,
+	type TaskRegistry,
+	type TaskSnapshot,
 	type ToolCompletion,
 	type ToolTui,
 	textToolResult,
@@ -35,14 +37,13 @@ import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS } from "./fff/settings.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
 import { promoteBashJobToTask, startBashTask } from "./tasks/bash-task.js";
-import type { AsyncTaskRegistry, AsyncTaskSnapshot } from "./tasks/registry.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
-	"Use `async` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s.",
-	"Remote `target` is an authorized SSH host; omit async. Working directory is the remote home.",
+	"Use `blocking: false` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
+	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed.",
+	"Remote `target` is an authorized SSH host and always runs in the foreground.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
@@ -55,7 +56,12 @@ const BashInput = Type.Object(
 	{
 		command: Type.String({ minLength: 1 }),
 		timeout: Timeout,
-		async: Type.Optional(Type.Boolean({ description: "Run the command as a background job." })),
+		blocking: Type.Optional(
+			Type.Boolean({
+				description:
+					"Wait for completion instead of returning immediately. Local commands that omit it may still transition to a background task after 60s.",
+			}),
+		),
 		target: Target,
 	},
 	{ additionalProperties: false },
@@ -66,9 +72,17 @@ function normalizeBashInput(value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
 	const input = { ...(value as Record<string, unknown>) };
 	if (input.timeout === null) delete input.timeout;
-	if (input.async === null) delete input.async;
+	if (input.blocking === null) delete input.blocking;
 	if (input.target === null) delete input.target;
 	return input;
+}
+
+/**
+ * Branch marker for a task that starts from a tool call. `undefined` when the session has no
+ * entry yet, which the delivery adapter treats as always deliverable.
+ */
+function taskAnchor(context: ExtensionContext): string | undefined {
+	return context.sessionManager.getLeafId() ?? undefined;
 }
 
 /** Every bash result carries the model-visible text plus tool-owned details. */
@@ -174,8 +188,9 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
+	anchor: string | undefined,
 	jobs?: BashJobRegistry | undefined,
-	tasks?: AsyncTaskRegistry | undefined,
+	tasks?: TaskRegistry | undefined,
 	autoAsyncSeconds = 60,
 ): Promise<BashToolResult> {
 	if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted" });
@@ -272,29 +287,18 @@ async function runForeground(
 				const current = jobs.get(job.id);
 				if (current === undefined || current.status !== "running") return;
 
-				let task: AsyncTaskSnapshot | undefined;
+				let task: TaskSnapshot | undefined;
 				try {
 					task = promoteBashJobToTask({
 						tasks,
 						jobs,
 						jobId: job.id,
 						command,
+						...(anchor === undefined ? {} : { anchor }),
 					});
-				} catch (error) {
-					if (settled) return;
-					settled = true;
-					cleanup();
-					jobs.stop(job.id);
-					const snapshotOutput = sink.finish();
-					resolve(
-						textToolResult(
-							`Unable to transition bash command to background task: ${errorMessage(error)}`,
-							{
-								...snapshotOutput,
-								error: "task_transition_failed",
-							},
-						),
-					);
+				} catch {
+					// Admission refused the transition, so the command keeps waiting in the
+					// foreground instead of losing its result or blocking new tasks.
 					return;
 				}
 				if (task === undefined) return;
@@ -392,7 +396,7 @@ async function runRemoteBash(
 	}
 }
 
-/** Pi original definition remains default execution; async is extension-owned and session-scoped. */
+/** Pi original definition remains default execution; background control is extension-owned. */
 export function registerBashTool(
 	pi: ExtensionAPI,
 	state?: FffRuntimeState,
@@ -444,10 +448,11 @@ export function registerBashTool(
 			const validatedParams = normalizeBashInput(params);
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
 			const settings = state?.getSettings();
+			const background = validatedParams.blocking === false;
 			if (isRemoteBashTarget(validatedParams.target)) {
-				if ("async" in validatedParams && validatedParams.async === true)
-					return textToolResult("Async Bash is local-only; omit async for SSH targets.", {
-						error: "async_unsupported",
+				if (background)
+					return textToolResult("Background Bash is local-only; omit blocking for SSH targets.", {
+						error: "background_unsupported",
 						target: validatedParams.target,
 					});
 				const runtime = state?.getTargetRuntime();
@@ -464,9 +469,10 @@ export function registerBashTool(
 			}
 			const tasks = state?.getTasks();
 			const jobs = state?.getBashJobs();
-			if ("async" in validatedParams && validatedParams.async === true) {
+			const anchor = taskAnchor(context);
+			if (background) {
 				if (settings === undefined || tasks === undefined || jobs === undefined)
-					return textToolResult("Async Bash unavailable outside active session", {
+					return textToolResult("Background Bash unavailable outside active session", {
 						error: "session_unavailable",
 					});
 				try {
@@ -476,6 +482,7 @@ export function registerBashTool(
 						command: validatedParams.command,
 						cwd: context.cwd,
 						shellPath: settings.shellPath,
+						...(anchor === undefined ? {} : { anchor }),
 						...(validatedParams.timeout === undefined
 							? {}
 							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
@@ -503,9 +510,13 @@ export function registerBashTool(
 				settings?.shellPath ?? defaultShellPath(),
 				validatedParams.timeout,
 				(settings?.bashOutputTailKiB ?? 10) * 1024,
+				anchor,
 				jobs,
 				tasks,
-				settings?.autoAsyncSeconds ?? DEFAULT_FFF_SETTINGS.autoAsyncSeconds,
+				// An explicit blocking request waits, so only an omitted `blocking` may promote.
+				validatedParams.blocking === true
+					? 0
+					: (settings?.autoAsyncSeconds ?? DEFAULT_FFF_SETTINGS.autoAsyncSeconds),
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;

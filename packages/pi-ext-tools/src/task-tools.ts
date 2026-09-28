@@ -1,29 +1,27 @@
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
 	createToolTui,
 	type ExtensionLifecycleContext,
+	isTerminalTaskStatus,
 	type ManagedToolRegistration,
+	provideService,
 	registerManagedTool,
 	setManagedToolsActive,
+	TASK_REGISTRY_SERVICE_KEY,
+	TaskRegistry,
+	type TaskSnapshot,
+	type TaskStopOutcome,
+	type TaskWaitOutcome,
 	type ToolTui,
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import {
-	AsyncTaskRegistry,
-	type AsyncTaskSnapshot,
-	type AsyncTaskStopOutcome,
-	type AsyncTaskWaitOutcome,
-} from "./tasks/registry.js";
+import { startTaskDelivery } from "./task-delivery.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 
-/** Task-control tools: registered for every session, activated only when tasks exist. */
+/** Task-control tools: registered for every session, activated only while control is needed. */
 export const TASK_TOOL_REGISTRATIONS = [
 	{ id: "list_tasks", owner: OWNER },
 	{ id: "wait_tasks", owner: OWNER },
@@ -34,47 +32,60 @@ export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
 	(registration) => registration.id,
 );
 
+export interface TaskControl {
+	readonly registry: TaskRegistry;
+}
+
 /**
- * Creates the session's task registry and owns the activation policy of its tools.
+ * Creates the session's task registry, publishes it as a Service, and owns the activation
+ * policy of the task-control tools plus parent-session notification.
  *
  * Pi activates every registered extension tool at session start and again after `/tree`
- * restores the transcript tool set, so the initial deactivation must really run: the
- * applied state is read back from `pi.getActiveTools()` instead of a local flag. Tools
- * stay active between turns so a finished task keeps a readable result, and are removed
- * only at a macro boundary once nothing is running. The three tools must already be
+ * restores the transcript tool set, so the tools are re-deactivated whenever no task is
+ * active and no result is still waiting for notification. The three tools must already be
  * registered through `registerTaskTools`.
  */
-export function startTaskControl(context: ExtensionLifecycleContext): AsyncTaskRegistry {
+export function startTaskControl(context: ExtensionLifecycleContext, tui: ToolTui): TaskRegistry {
 	const setActive = (active: boolean): void => {
 		const applied = context.pi.getActiveTools().some((id) => TASK_TOOL_IDS.includes(id));
 		if (applied === active) return;
 		setManagedToolsActive(context, TASK_TOOL_REGISTRATIONS, active);
 	};
-	const tasks = new AsyncTaskRegistry({
-		pi: context.pi,
-		onFirstTask: () => setActive(true),
-	});
+	const registry = new TaskRegistry({ onFirstTask: () => setActive(true) });
 	setActive(false);
+	const stopDelivery = startTaskDelivery({
+		pi: context.pi,
+		registry,
+		session: context.extension,
+		notify: (message, level) => context.extension.ui.notify(message, level),
+	});
+	if (!provideService(context, TASK_REGISTRY_SERVICE_KEY, registry)) {
+		stopDelivery();
+		registry.dispose();
+		throw new Error("Another extension already provides the task registry service");
+	}
 	const onBoundary = (): void => {
-		if (tasks.runningCount === 0) setActive(false);
+		if (!registry.requiresControl) setActive(false);
 	};
 	const unsubscribe = [
 		context.pi.on("session_compact", onBoundary),
 		context.pi.on("session_tree", onBoundary),
 	];
-	context.resources.add("task-tool-boundary-listeners", () => {
+	context.resources.add("task-control", () => {
+		stopDelivery();
 		for (const stop of unsubscribe) stop();
+		registry.dispose();
 	});
-	return tasks;
+	return registry;
 }
 
 const NO_ACTIVE_TASK_SESSION = "No active task session";
 
-function unavailable(): AgentToolResult<{ readonly error: string }> {
+function unavailable() {
 	return textToolResult(NO_ACTIVE_TASK_SESSION, { error: "session_unavailable" });
 }
 const ID_DESCRIPTION =
-	"Background task ids such as bash-1; single-task calls pass a one-element array.";
+	"Full background task ids such as bash-3f9a1c2e-1; single-task calls pass a one-element array.";
 const Ids = Type.Array(Type.String({ minLength: 1 }), {
 	minItems: 1,
 	maxItems: 32,
@@ -105,35 +116,40 @@ function readIds(value: unknown): string[] | undefined {
 	return ids.length === 0 ? undefined : ids;
 }
 
-function taskLine(task: AsyncTaskSnapshot): string {
-	const marks = [
-		elapsed(task.startedAt, task.endedAt),
-		...(task.status === "running"
-			? []
-			: [task.delivered ? "result delivered" : "result not delivered"]),
-	];
-	return `${task.id} ${task.status} · ${task.purpose} (${marks.join(" · ")})`;
+function deliveryMark(task: TaskSnapshot): string | undefined {
+	if (task.delivery === undefined) return undefined;
+	if (task.delivery === "observed") return "result in context";
+	if (task.delivery === "submitted") return "result sent, unconfirmed";
+	return "result not sent";
 }
 
-function listText(tasks: readonly AsyncTaskSnapshot[], includeTerminal: boolean): string {
+function taskLine(task: TaskSnapshot): string {
+	const marks = [elapsed(task.startedAt, task.endedAt), deliveryMark(task)];
+	return `${task.id} ${task.status} · ${task.purpose} (${marks.filter(Boolean).join(" · ")})`;
+}
+
+function listText(tasks: readonly TaskSnapshot[], includeTerminal: boolean): string {
 	if (tasks.length === 0)
 		return includeTerminal ? "No background tasks." : "No running background tasks.";
-	const running = tasks.filter((task) => task.status === "running").length;
+	const running = tasks.filter((task) => !isTerminalTaskStatus(task.status)).length;
 	const heading = includeTerminal
 		? `${tasks.length} background tasks (${running} running):`
 		: `${running} running background tasks:`;
 	return [heading, ...tasks.map(taskLine)].join("\n");
 }
 
-function waitText(outcomes: readonly AsyncTaskWaitOutcome[]): string {
+function waitText(outcomes: readonly TaskWaitOutcome[]): string {
 	return outcomes
 		.map((outcome) => {
 			if (outcome.status === "not_found") return `${outcome.id} not_found`;
-			const settled = outcome.status !== "running";
+			const settled = isTerminalTaskStatus(outcome.status);
 			const state = settled ? outcome.status : "still running";
 			const marks = [
-				...(settled ? [] : ["wait cancelled"]),
-				...(outcome.delivered ? ["already in context"] : []),
+				...(outcome.waited ? [] : ["wait cancelled"]),
+				...(outcome.delivery === "observed" ? ["already in context"] : []),
+				...(outcome.delivery === "pending" || outcome.delivery === "submitted"
+					? ["notification not confirmed in context"]
+					: []),
 				...(outcome.truncated ? ["truncated"] : []),
 			];
 			const suffix = marks.length === 0 ? "" : ` (${marks.join(", ")})`;
@@ -142,7 +158,7 @@ function waitText(outcomes: readonly AsyncTaskWaitOutcome[]): string {
 		.join("\n\n");
 }
 
-function stopText(outcomes: readonly AsyncTaskStopOutcome[]): string {
+function stopText(outcomes: readonly TaskStopOutcome[]): string {
 	return outcomes
 		.map((outcome) => {
 			if (outcome.status === "stop_requested") return `${outcome.id} stop requested`;
@@ -158,57 +174,42 @@ export function registerTaskTools(
 	state: FffRuntimeState,
 	tui: ToolTui = createToolTui(),
 ): void {
+	const getRegistry = (): TaskRegistry | undefined => state.getTasks();
 	const listTool: ToolDefinition<typeof ListParams, unknown> = {
 		name: "list_tasks",
 		label: "list_tasks",
 		description: "List background tasks started in this session.",
 		parameters: ListParams,
 		async execute(_id, params: ListInput) {
-			const tasks = state.getTasks();
+			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
 			const listed = tasks.list(params.includeTerminal === true);
 			return textToolResult(listText(listed, params.includeTerminal === true), {
-				tasks: listed.map((task) => ({
-					id: task.id,
-					type: task.type,
-					status: task.status,
-					purpose: task.purpose,
-					startedAt: task.startedAt,
-					delivered: task.delivered,
-					...(task.endedAt === undefined ? {} : { endedAt: task.endedAt }),
-				})),
+				tasks: listed,
 			});
 		},
 	};
 	const waitTool: ToolDefinition<typeof IdsParams, unknown> = {
 		name: "wait_tasks",
 		label: "wait_tasks",
-		description: "Wait until every listed background task finishes and return their results.",
+		description:
+			"Wait until every listed background task finishes and return their results directly. This does not consume the automatic completion notification.",
 		promptGuidelines: [
 			"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
 		],
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput, signal) {
-			const tasks = state.getTasks();
+			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
 				return textToolResult("wait_tasks needs at least one task id.", { error: "invalid_ids" });
 			const outcomes = await tasks.wait(ids, signal);
-			const cancelled = outcomes.some((outcome) => outcome.status === "running");
+			const cancelled = outcomes.some(
+				(outcome) => outcome.status !== "not_found" && !outcome.waited,
+			);
 			return textToolResult(waitText(outcomes), {
-				tasks: outcomes.map((outcome) =>
-					outcome.status === "not_found"
-						? { id: outcome.id, status: outcome.status }
-						: {
-								id: outcome.id,
-								status: outcome.status,
-								waited: outcome.waited,
-								delivered: outcome.delivered,
-								truncated: outcome.truncated,
-								output: outcome.output,
-							},
-				),
+				tasks: outcomes,
 				...(cancelled ? { error: "wait_cancelled" } : {}),
 			});
 		},
@@ -220,7 +221,7 @@ export function registerTaskTools(
 		promptGuidelines: ["Stop background tasks when their results are no longer needed."],
 		parameters: IdsParams,
 		async execute(_id, params: IdsInput) {
-			const tasks = state.getTasks();
+			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
@@ -237,6 +238,7 @@ export function registerTaskTools(
 		tui.frame(waitTool, {
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
+			headerLine: "truncate",
 		}),
 	);
 	registerManagedTool(
@@ -245,6 +247,7 @@ export function registerTaskTools(
 		tui.frame(stopTool, {
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
+			headerLine: "truncate",
 			warning: (result) => stopWarning(result.details),
 		}),
 	);

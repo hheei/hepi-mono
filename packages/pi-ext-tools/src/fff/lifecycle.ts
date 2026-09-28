@@ -3,13 +3,14 @@ import {
 	type ExtensionLifecycleContext,
 	errorMessage,
 	getRuntimeSettingsRegistry,
+	getToolTui,
 	registerExtensionLifecycle,
 	registerSettings,
+	type TaskRegistry,
 } from "@hheei/pi-ext-core";
 import { BashJobRegistry } from "../bash-jobs.js";
 import { TargetRuntime } from "../targets.js";
 import { startTaskControl } from "../task-tools.js";
-import type { AsyncTaskRegistry } from "../tasks/registry.js";
 import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
@@ -28,7 +29,7 @@ import { createTargetSettingsProvider } from "./target-settings.js";
 export interface FffRuntimeState {
 	getRuntime(): FffRuntime | undefined;
 	getSettings(): FffSettings;
-	getTasks(): AsyncTaskRegistry | undefined;
+	getTasks(): TaskRegistry | undefined;
 	getBashJobs(): BashJobRegistry | undefined;
 	getTargetRuntime(): TargetRuntime | undefined;
 }
@@ -36,7 +37,7 @@ export interface FffRuntimeState {
 interface MutableFffRuntimeState {
 	runtime: FffRuntime | undefined;
 	settings: FffSettings;
-	tasks: AsyncTaskRegistry | undefined;
+	tasks: TaskRegistry | undefined;
 	jobs: BashJobRegistry | undefined;
 	targets: TargetRuntime | undefined;
 }
@@ -47,7 +48,7 @@ export function createFffRuntimeState(): FffRuntimeState {
 	const state: FffRuntimeState = {
 		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
 		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
-		getTasks: (): AsyncTaskRegistry | undefined => runtimeStates.get(state)?.tasks,
+		getTasks: (): TaskRegistry | undefined => runtimeStates.get(state)?.tasks,
 		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 		getTargetRuntime: () => runtimeStates.get(state)?.targets,
 	};
@@ -134,7 +135,7 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
-	const tasks = startTaskControl(context);
+	const tasks = startTaskControl(context, getToolTui(pi));
 	state.tasks = tasks;
 	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;
