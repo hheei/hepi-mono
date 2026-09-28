@@ -3,7 +3,11 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
+import {
+	type EffectiveLaunchConfig,
+	isOperationError,
+	type SubagentRecord,
+} from "../src/domain.js";
 import type { HostAdapter, HostAttachment } from "../src/host-adapter.js";
 import {
 	type AttachHost,
@@ -751,6 +755,45 @@ describe("SubagentManager contracts", () => {
 		expect(launches).toBe(1);
 		expect(revived).toMatchObject({ safeToRetry: true, state: "done" });
 		expect(registry.current?.state).toBe("done");
+		manager.dispose();
+	});
+
+	test("does not report a stop as confirmed while a claim's runner may still start", async () => {
+		const runtime = await spawnRecordedRuntime();
+		// The window between the spawn and the runner writing its own runtime metadata: the claim
+		// holds the pid, and no runtime has been recorded yet.
+		const { runtime: _runtime, ...withoutRuntime } = childRecord("running");
+		const claimed: SubagentRecord = {
+			...withoutRuntime,
+			claim: {
+				claimId: "claim-1",
+				kind: "replacement",
+				holderPid: process.pid,
+				runtimeIdentity: "runtime-1",
+				endpoint: "/tmp/nowhere.sock",
+				controllerTokenHash: "hash",
+				runnerPid: runtime.pid,
+			},
+		};
+		const registry = memoryRegistry(claimed);
+		const { manager } = managerWith(claimed, new FakeRunner(), registry);
+
+		// Reporting this as stopped would free the session for a second runner while the first one is
+		// still starting up, so the stop stays unconfirmed and keeps its evidence.
+		const unconfirmed = await manager.stop(CHILD_ID);
+		expect(unconfirmed).toMatchObject({
+			operation: "stop",
+			state: "stopped",
+			reason: expect.stringContaining("could not be confirmed"),
+		});
+		expect(registry.current?.claim).toBeDefined();
+
+		// An unconfirmed stop is not a dead end: once the process is provably gone, the same stop
+		// completes.
+		runtime.stop();
+		await until(() => isPidConfirmedDead(runtime.pid));
+		const stopped = await manager.stop(CHILD_ID);
+		expect(isOperationError(stopped)).toBe(false);
 		manager.dispose();
 	});
 
