@@ -42,9 +42,21 @@ export const AUTO_COLLAPSE_DELAY_MS = 15_000;
 /** Retry interval when auto-collapse is postponed due to user scrolling up. */
 export const AUTO_COLLAPSE_RETRY_DELAY_MS = 3_000;
 
-export type ToolTuiPresentation<TParams extends TSchema, TDetails> = {
+export type ToolTuiPresentation<TParams extends TSchema, TDetails, TState = unknown> = {
 	readonly summary?: ToolFrameHeader<TParams, TDetails>;
 	readonly summarySeparator?: "dot" | "space";
+	/**
+	 * Renders the tool's input (command, code, task text) as the frame's request body, which stays
+	 * visible while arguments stream and after the result arrives. Declaring it replaces the tool's
+	 * own call-phase `renderCall` body.
+	 */
+	readonly request?: ToolRequestRenderer<TParams, TState>;
+	/**
+	 * Dim parenthesized call facts appended to the header summary, such as `(reset)` or
+	 * `(timeout 30s)`. Declaring it puts the header in the inline form `label (host) summary
+	 * (facts)` instead of `label · summary`, matching `bash`.
+	 */
+	readonly suffix?: (args: Static<TParams>) => string | undefined;
 	/** Paint a path summary as warning-colored `host:path` for SSH targets. */
 	readonly remotePathSummary?: boolean;
 	readonly footer?: (
@@ -77,9 +89,21 @@ export interface ToolTui {
 	setScrolledUpPredicate(predicate: (() => boolean) | undefined): void;
 	frame<TParams extends TSchema, TDetails, TState>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
-		presentation?: ToolTuiPresentation<TParams, TDetails>,
+		presentation?: ToolTuiPresentation<TParams, TDetails, TState>,
 	): ToolDefinition<TParams, TDetails, TState>;
 }
+
+/** The host's call-render context, derived from the definition it hands to `renderCall`. */
+type ToolCallContext<TParams extends TSchema, TState> = Parameters<
+	NonNullable<ToolDefinition<TParams, unknown, TState>["renderCall"]>
+>[2];
+
+/** Renders a tool's input as the frame's request body; see `ToolTuiPresentation.request`. */
+export type ToolRequestRenderer<TParams extends TSchema, TState> = (
+	args: Static<TParams>,
+	theme: Theme,
+	context: ToolCallContext<TParams, TState>,
+) => Component | undefined;
 
 type ToolFrameHeader<TParams extends TSchema, TDetails> = (
 	args: Static<TParams>,
@@ -88,6 +112,8 @@ type ToolFrameHeader<TParams extends TSchema, TDetails> = (
 ) => string | undefined;
 
 export const DEFAULT_MAX_BODY_LINES = 20;
+/** Head rows a request body keeps before its dim hidden-lines hint. */
+export const DEFAULT_MAX_REQUEST_LINES = 10;
 const EXPAND_HINT = "ctrl+o to expand";
 const COMPLETION_KEY = "__piExtToolsCompletion";
 
@@ -186,36 +212,54 @@ function flattenCommand(command: string): string {
 	return joined;
 }
 
-function headerFor(
-	tool: { readonly name: string; readonly label: string },
-	args: unknown,
-	theme: Theme,
-	context: { readonly isError: boolean; readonly isPartial: boolean },
-	warning = false,
-	summaryOverride?: string,
-	summarySeparator: "dot" | "space" = "dot",
-	remotePathSummary = false,
-	collapsed = false,
-	historical = collapsed,
-): FrameHeader {
+type HeaderInput = {
+	readonly tool: { readonly name: string; readonly label: string };
+	readonly args: unknown;
+	readonly theme: Theme;
+	readonly context: { readonly isError: boolean; readonly isPartial: boolean };
+	readonly warning: boolean | undefined;
+	readonly summary: string | undefined;
+	readonly summarySeparator: "dot" | "space";
+	readonly remotePathSummary: boolean;
+	readonly collapsed: boolean;
+	readonly historical: boolean;
+	/** Dim parenthesized call facts rendered after the header summary. */
+	readonly suffix: string | undefined;
+	/**
+	 * Whether the header uses the inline `label input (facts)` form. Declaring `suffix` decides
+	 * this once per tool, so the shape cannot flip while arguments stream.
+	 */
+	readonly inlineSummary: boolean;
+};
+
+function headerFor(input: HeaderInput): FrameHeader {
+	const { tool, theme, collapsed, historical, summary: summaryOverride } = input;
 	const status = statusPrefix(
-		warning ? "warning" : context.isError ? "error" : statusFor(context),
+		input.warning === true ? "warning" : input.context.isError ? "error" : statusFor(input.context),
 		theme,
 	);
-	const values = argsRecord(args);
+	const values = argsRecord(input.args);
 	const path = textValue(values.path);
 	if (summaryOverride !== undefined) {
-		if (remotePathSummary && path !== undefined) {
+		const dot = input.summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : "";
+		if (input.remotePathSummary && path !== undefined) {
 			return {
-				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${paintRemotePath(values, path, theme, collapsed)}`,
+				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${dot} ${paintRemotePath(values, path, theme, collapsed)}`,
 			};
 		}
 		const host = remoteTarget(values);
 		const hostLabel =
 			host === undefined ? "" : `${theme.fg(collapsed ? "dim" : "warning", `(${host})`)} `;
 		const summary = collapsed ? theme.fg("dim", summaryOverride) : summaryOverride;
+		if (input.inlineSummary) {
+			const facts = input.suffix?.trim() ?? "";
+			return {
+				primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))} ${hostLabel}${summary}`,
+				...(facts === "" ? {} : { suffix: theme.fg("dim", ` ${facts}`) }),
+			};
+		}
 		return {
-			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${summarySeparator === "dot" ? ` ${theme.fg("dim", "·")}` : ""} ${hostLabel}${summary}`,
+			primary: `${status} ${theme.fg("toolTitle", theme.bold(tool.label))}${dot} ${hostLabel}${summary}`,
 		};
 	}
 	const pattern = textValue(values.pattern);
@@ -258,7 +302,7 @@ function headerFor(
 		].join(" ");
 		return { primary: `${status} ${summary}` };
 	}
-	const summary = summaryFor(args);
+	const summary = summaryFor(input.args);
 	return {
 		primary: [
 			status,
@@ -623,21 +667,35 @@ class SingleLineRow implements Component {
 
 type HiddenHint = { readonly width: number; readonly hidden: number; readonly row: string };
 
+type BodySectionOptions = {
+	readonly footer: string | undefined;
+	/** Rows an unexpanded body keeps; non-finite or < 1 disables the cap. */
+	readonly maxLines: number;
+	readonly expanded: boolean;
+	readonly oneLineFooter: boolean;
+	/** Which end of an over-long body survives the cap: output keeps its tail, input its head. */
+	readonly cap: "head" | "tail";
+	/** Guarantees every row fits the width, because request text is model-controlled input. */
+	readonly guardWidth: boolean;
+	/** Omits the opening rail because the request body above already closed its own section. */
+	readonly omitOpeningRail: boolean;
+};
+
 class ToolBodySection implements Component {
 	private readonly chrome: (width: number) => { readonly rail: string; readonly footer: string[] };
 	private hint: HiddenHint | undefined;
 
 	constructor(
 		private readonly body: Component,
-		footer: string | undefined,
 		private readonly theme: Theme,
-		private readonly maxBodyLines: number,
-		private readonly expanded = false,
-		oneLineFooter = false,
+		private readonly options: BodySectionOptions,
 	) {
 		this.chrome = memoByWidth((width: number) => ({
 			rail: theme.fg("muted", "─".repeat(width)),
-			footer: footer === undefined ? [] : footerRows(footer, width, theme, oneLineFooter),
+			footer:
+				options.footer === undefined
+					? []
+					: footerRows(options.footer, width, theme, options.oneLineFooter),
 		}));
 	}
 
@@ -647,35 +705,47 @@ class ToolBodySection implements Component {
 
 	render(width: number): string[] {
 		const availableWidth = Math.max(1, width);
-		const rendered = this.body.render(availableWidth);
-		const body = this.expanded ? rendered : this.cappedBody(rendered, availableWidth);
+		const rendered = this.rows(availableWidth);
+		const body = this.options.expanded ? rendered : this.cappedBody(rendered, availableWidth);
 		const chrome = this.chrome(availableWidth);
 		if (body.length === 0) return chrome.footer;
-		return [chrome.rail, ...body, chrome.rail, ...chrome.footer];
+		return [
+			...(this.options.omitOpeningRail ? [] : [chrome.rail]),
+			...body,
+			chrome.rail,
+			...chrome.footer,
+		];
 	}
 
 	invalidate(): void {
 		this.body.invalidate();
 	}
 
-	/** An unexpanded body keeps at most `maxBodyLines` rows behind a dim hidden-lines hint. */
+	private rows(width: number): string[] {
+		const rendered = this.body.render(width);
+		if (!this.options.guardWidth) return rendered;
+		return rendered.map((row) =>
+			visibleWidth(row) <= width ? row : truncateLine(row, width, this.theme),
+		);
+	}
+
+	/** An unexpanded body keeps at most `maxLines` rows behind a dim hidden-lines hint. */
 	private cappedBody(rendered: string[], width: number): readonly string[] {
-		if (
-			!Number.isFinite(this.maxBodyLines) ||
-			this.maxBodyLines < 1 ||
-			rendered.length <= this.maxBodyLines
-		)
-			return rendered;
-		const visible = rendered.slice(-(this.maxBodyLines - 1));
-		return [this.hiddenHint(rendered.length - visible.length, width), ...visible];
+		const maxLines = this.options.maxLines;
+		if (!Number.isFinite(maxLines) || maxLines < 1 || rendered.length <= maxLines) return rendered;
+		const hidden = rendered.length - (maxLines - 1);
+		if (this.options.cap === "head")
+			return [...rendered.slice(0, maxLines - 1), this.hiddenHint(hidden, width)];
+		return [this.hiddenHint(hidden, width), ...rendered.slice(-(maxLines - 1))];
 	}
 
 	private hiddenHint(hidden: number, width: number): string {
 		const cached = this.hint;
 		if (cached !== undefined && cached.width === width && cached.hidden === hidden)
 			return cached.row;
+		const side = this.options.cap === "head" ? "later" : "earlier";
 		const row = truncateLine(
-			this.theme.fg("dim", `… (${hidden} earlier lines, ${EXPAND_HINT})`),
+			this.theme.fg("dim", `… (${hidden} ${side} lines, ${EXPAND_HINT})`),
 			width,
 			this.theme,
 		);
@@ -756,38 +826,46 @@ export function createToolTui(): ToolTui {
 							context.invalidate,
 						);
 					const muted = collapsed || historical;
-					const header = headerFor(
+					const header = headerFor({
 						tool,
 						args,
 						theme,
 						context,
-						trace.completionFor(context.toolCallId)?.warning,
-						presentation.summary?.(args, latest, context),
-						presentation.summarySeparator,
-						presentation.remotePathSummary,
-						muted,
-						muted,
-					);
+						warning: trace.completionFor(context.toolCallId)?.warning,
+						summary: presentation.summary?.(args, latest, context),
+						summarySeparator: presentation.summarySeparator ?? "dot",
+						remotePathSummary: presentation.remotePathSummary === true,
+						collapsed: muted,
+						historical: muted,
+						suffix: presentation.suffix?.(args),
+						inlineSummary: presentation.suffix !== undefined,
+					});
 					if (collapsed) return new ToolFrameSection(undefined, theme, header, true);
 					const innerTheme = frameTheme(theme, historical);
+					const bodyContext = {
+						...context,
+						lastComponent: previousBody(context.lastComponent),
+					};
+					const request = presentation.request;
+					// A declared request owns the call-phase body for the whole lifetime of the row.
 					const body =
-						context.isPartial && latest === undefined
-							? renderCall?.(args, innerTheme, {
-									...context,
-									lastComponent: previousBody(context.lastComponent),
-								})
-							: undefined;
+						request === undefined
+							? previewing
+								? renderCall?.(args, innerTheme, bodyContext)
+								: undefined
+							: request(args, innerTheme, bodyContext);
 					return new ToolFrameSection(
 						body === undefined
 							? undefined
-							: new ToolBodySection(
-									body,
-									undefined,
-									theme,
-									maxBodyLines,
-									context.expanded,
-									presentation.headerLine === "truncate",
-								),
+							: new ToolBodySection(body, theme, {
+									footer: undefined,
+									maxLines: request === undefined ? maxBodyLines : DEFAULT_MAX_REQUEST_LINES,
+									expanded: context.expanded,
+									oneLineFooter: presentation.headerLine === "truncate",
+									cap: request === undefined ? "tail" : "head",
+									guardWidth: request !== undefined,
+									omitOpeningRail: false,
+								}),
 						theme,
 						header,
 						presentation.headerLine === "truncate",
@@ -826,14 +904,15 @@ export function createToolTui(): ToolTui {
 							...context,
 							lastComponent: previousBody(context.lastComponent),
 						}) ?? resultFallback(result, theme);
-					return new ToolBodySection(
-						body,
+					return new ToolBodySection(body, theme, {
 						footer,
-						theme,
-						maxBodyLines,
-						options.expanded,
-						presentation.headerLine === "truncate",
-					);
+						maxLines: maxBodyLines,
+						expanded: options.expanded,
+						oneLineFooter: presentation.headerLine === "truncate",
+						cap: "tail",
+						guardWidth: false,
+						omitOpeningRail: presentation.request !== undefined,
+					});
 				},
 			};
 		},

@@ -55,6 +55,10 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 
 未展開的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。Header 默认按宽度换行；工具可用 `headerLine: "truncate"` 声明 header 永不超过一行（超过宽度的部分以 dim `…` 截断，`suffix` 会预留宽度保持可见），适合 body 无法还原 header 文本的工具。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
 
+## Request body
+
+声明 `request` 的工具在 call 槽常驻渲染一段 request body（工具输入：命令、代码、task 文本），从参数流式期一直保留到结果之后；它取代工具自己的 `renderCall` 预览。request 行按宽度换行而不截断，未展开时保留**头部**最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`），并剥离终端控制序列、保证不超过终端宽度；result body 相反，保留尾部。声明 `request` 的 frame 会让 result body 省略自己的 opening rail，两段之间只有一条 rail；折叠帧仍只有 header + summary 两行。`suffix` 声明 `bash` 形态的 header 调用事实（例如 ` (reset) (timeout 30s)`，dim 色附在 summary 之后），声明后 header 用 `label summary (facts)` 而不是 `label · summary`。
+
 ## Tool Output 自动折叠
 
 `grep`、`read`、`write`、`edit`、`find`、`bash` 在 `frame()` 中声明 `longOutput: true`。Tool Output 设置组

@@ -4,7 +4,7 @@ import type {
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -1101,3 +1101,151 @@ function streamingTool(): ToolDefinition<typeof Params> {
 		},
 	};
 }
+
+function requestFramed(rows: string[]): { tui: ToolTui; framed: ToolDefinition<typeof Params> } {
+	const tui = createToolTui();
+	const framed = tui.frame(
+		{
+			name: "bash",
+			label: "bash",
+			description: "Run a command",
+			parameters: Params,
+			execute: async (): Promise<AgentToolResult<unknown>> => ({
+				content: [{ type: "text", text: "done" }],
+				details: undefined,
+			}),
+			renderCall: (): Text => new Text("call body", 0, 0),
+			renderResult: (result, _options, receivedTheme): Component => {
+				const first = result.content[0];
+				const text = first?.type === "text" ? first.text : "";
+				return text === ""
+					? new Container()
+					: new Text(receivedTheme.bg("toolSuccessBg", text), 0, 0);
+			},
+		},
+		{
+			summary: () => "git fetch --all; git rebase -i main",
+			request: (_args, receivedTheme): Component =>
+				new Text(receivedTheme.fg("text", rows.join("\n")), 0, 0),
+			footer: () => "exit 0 · 1.2s",
+		},
+	);
+	return { tui, framed };
+}
+
+function requestCallLines(
+	framed: ToolDefinition<typeof Params>,
+	args: Record<string, unknown> = {},
+	options: { readonly isPartial?: boolean; readonly expanded?: boolean } = {},
+	width = 80,
+): string[] {
+	return (
+		framed
+			.renderCall?.(args, theme, {
+				...(context(options.isPartial ?? true) as object),
+				...(options.expanded === true ? { expanded: true } : {}),
+			} as never)
+			.render(width)
+			.map((line) => line.trimEnd()) ?? []
+	);
+}
+
+describe("tool request section", () => {
+	test("keeps a declared request body after the result arrives and skips the call preview", (): void => {
+		const { framed } = requestFramed(["git fetch --all", "git rebase -i main"]);
+		expect(requestCallLines(framed)).toContain("git fetch --all");
+		const completed = requestCallLines(framed, {}, { isPartial: false });
+		expect(completed).toContain("git fetch --all");
+		expect(completed.join("\n")).not.toContain("call body");
+	});
+
+	test("shares one rail with the result body and closes its own section", (): void => {
+		const { framed } = requestFramed(["git fetch --all"]);
+		expect(requestCallLines(framed, {}, { isPartial: false }, 200)).toEqual([
+			"<success>󰄴</success> <toolTitle><b>bash</b></toolTitle> <dim>·</dim> git fetch --all; git rebase -i main",
+			`<muted>${"─".repeat(200)}</muted>`,
+			"git fetch --all",
+			`<muted>${"─".repeat(200)}</muted>`,
+		]);
+		expect(
+			renderResult(framed, {
+				content: [{ type: "text", text: "output" }],
+				details: undefined,
+			}),
+		).toEqual(["output", `<muted>${"─".repeat(80)}</muted>`, "<dim>exit 0 · 1.2s</dim>"]);
+	});
+
+	test("closes the request section above an empty result body", (): void => {
+		const { framed } = requestFramed(["git fetch --all"]);
+		const call = requestCallLines(framed, {}, { isPartial: false }, 200);
+		const result = renderResult(framed, { content: [], details: undefined });
+		expect([...call, ...result]).toEqual([
+			"<success>󰄴</success> <toolTitle><b>bash</b></toolTitle> <dim>·</dim> git fetch --all; git rebase -i main",
+			`<muted>${"─".repeat(200)}</muted>`,
+			"git fetch --all",
+			`<muted>${"─".repeat(200)}</muted>`,
+			"<dim>exit 0 · 1.2s</dim>",
+		]);
+	});
+
+	test("keeps the head of an over-long request behind a later-lines hint", (): void => {
+		const rows = Array.from({ length: 14 }, (_, index) => `line ${index + 1}`);
+		const { framed } = requestFramed(rows);
+		const collapsed = requestCallLines(framed, {}, {}, 200).join("\n");
+		expect(collapsed).toContain("line 9");
+		expect(collapsed).not.toContain("line 10");
+		expect(collapsed).toContain("… (5 later lines, ctrl+o to expand)");
+		expect(requestCallLines(framed, {}, { expanded: true }, 200).join("\n")).toContain("line 14");
+	});
+
+	test("prints declared call facts inline and keeps that shape stable", (): void => {
+		const framed = createToolTui().frame(
+			{ ...tool(false), name: "eval", label: "eval" },
+			{
+				summary: () => "print(1)",
+				suffix: (args) => {
+					const values = args as { readonly reset?: boolean; readonly timeout?: number };
+					return [
+						...(values.reset === true ? ["(reset)"] : []),
+						...(typeof values.timeout === "number" ? [`(timeout ${values.timeout}s)`] : []),
+					].join(" ");
+				},
+				request: (_args, receivedTheme): Component =>
+					new Text(receivedTheme.fg("text", "print(1)"), 0, 0),
+			},
+		);
+		expect(requestCallLines(framed, { reset: true, timeout: 30 }, {}, 200)[0]).toBe(
+			"<warning>󰪠</warning> <toolTitle><b>eval</b></toolTitle> print(1)<dim> (reset) (timeout 30s)</dim>",
+		);
+		expect(requestCallLines(framed, {}, {}, 200)[0]).toBe(
+			"<warning>󰪠</warning> <toolTitle><b>eval</b></toolTitle> print(1)",
+		);
+	});
+
+	test("cuts a request row that a tool paints wider than the terminal", (): void => {
+		const framed = createToolTui().frame(
+			{ ...tool(), name: "bash", label: "bash" },
+			{
+				headerLine: "truncate",
+				request: (): Component => ({
+					render: (): string[] => ["z".repeat(60)],
+					invalidate: (): void => undefined,
+				}),
+			},
+		);
+		const lines = requestCallLines(framed, {}, {}, 20);
+		expect(visibleWidth(lines[2] ?? "")).toBeLessThanOrEqual(20);
+		expect(lines[2]).toContain("…");
+	});
+
+	test("keeps the request body on a later trace", (): void => {
+		const { tui, framed } = requestFramed(["git fetch --all"]);
+		const current = requestCallLines(framed, {}, { isPartial: false }, 200);
+		expect(current).toContain("git fetch --all");
+		expect(current.join("\n")).not.toContain("<dim>git fetch --all</dim>");
+		tui.beginTrace();
+		expect(
+			requestCallLines(framed, {}, { isPartial: false, expanded: true }, 200).join("\n"),
+		).toContain("<dim>git fetch --all</dim>");
+	});
+});
