@@ -18,7 +18,7 @@ export interface MemoryInfoDetails {
 
 export type MemoryInfo = (summary: string, details?: MemoryInfoDetails) => void;
 
-const TRUNCATION_ROW = "… the injected memory was cut to its character budget";
+const TRUNCATION_ROW = "the injected memory was cut to its character budget";
 
 /**
  * Recalled memory is remote data, so it is reduced to what a terminal can render safely:
@@ -42,6 +42,9 @@ function pageOf(value: unknown): MemoryInfoPage | undefined {
  * Collapsed shows the page titles that were retrieved; expanded adds each page id and the
  * snippet the recall put in front of the model. Entries written before this payload existed
  * carry a plain id/title list and keep rendering as a payload dump.
+ *
+ * The rows speak the same vocabulary as the tools: 󰄴 for content that did make it into the
+ * prompt, 󰀪 for a container that had to be cut.
  */
 export function renderMemoryInfo(
 	data: unknown,
@@ -59,7 +62,7 @@ export function renderMemoryInfo(
 	const rows = [heading];
 	for (const page of (Array.isArray(details.pages) ? details.pages : []).map(pageOf)) {
 		if (page === undefined) continue;
-		rows.push(`  ${theme.fg("dim", "•")} ${theme.fg("text", displayText(page.page))}`);
+		rows.push(`  ${theme.fg("success", "󰄴")} ${theme.fg("text", displayText(page.page))}`);
 		if (!expanded) continue;
 		rows.push(`    ${theme.fg("dim", page.pageId)}`);
 		const snippet = displayText(page.snippet).trim();
@@ -67,7 +70,7 @@ export function renderMemoryInfo(
 		// collapsing into a single unwrapped block.
 		for (const line of snippet.split("\n")) rows.push(`    ${theme.fg("muted", line)}`);
 	}
-	if (details.truncated === true) rows.push(theme.fg("dim", TRUNCATION_ROW));
+	if (details.truncated === true) rows.push(`  ${theme.fg("warning", `󰀪 ${TRUNCATION_ROW}`)}`);
 	return rows.join("\n");
 }
 

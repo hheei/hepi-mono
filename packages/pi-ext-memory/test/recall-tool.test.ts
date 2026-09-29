@@ -158,7 +158,7 @@ describe("V3 recall tool", () => {
 
 		expect(result.details?.status).toBe("not_found");
 		expect(text).toContain("No observation or reflection with id aaaaaaaaaaaa was found");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰅚 failure");
+		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰀪 not found");
 	});
 
 	it("answers with the disabled notice instead of a memory when the session gate is off", async () => {
@@ -174,6 +174,7 @@ describe("V3 recall tool", () => {
 		expect(result.details?.status).toBe("disabled");
 		expect(text).toContain("om is off for this session");
 		expect(text).toContain("/om on");
+		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰀪 disabled");
 		expect(text).not.toContain("source text");
 	});
 
