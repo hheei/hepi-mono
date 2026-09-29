@@ -10,13 +10,18 @@ interface Harness {
 	dispose(): void;
 }
 
-function createAdapter(env: Record<string, string> = {}, requestTimeoutMs = 200): Harness {
+function createAdapter(
+	env: Record<string, string> = {},
+	requestTimeoutMs = 5_000,
+	readyTimeoutMs = 5_000,
+): Harness {
 	const child = spawnFakePi(env);
 	const events: unknown[] = [];
 	const listenerErrors: unknown[] = [];
 	const adapter = new PiRpcAdapter({
 		process: child,
 		requestTimeoutMs,
+		readyTimeoutMs,
 		onListenerError: (error) => listenerErrors.push(error),
 	});
 	adapter.onEvent((event) => events.push(event));
@@ -53,6 +58,23 @@ describe("Pi RPC adapter", () => {
 		}
 	});
 
+	test("keeps the readiness handshake on its own budget", async () => {
+		const child = spawnFakePi({ FAKE_PI_SLOW: "get_state", FAKE_PI_SLOW_MS: "150" });
+		const adapter = new PiRpcAdapter({
+			process: child,
+			// A caller may shorten ordinary requests (a pause handshake, say) while the session is still
+			// being established; that must not shrink the readiness round trip to the same budget.
+			requestTimeoutMs: 50,
+			readyTimeoutMs: 2_000,
+		});
+		try {
+			await expect(adapter.ready()).resolves.toMatchObject({ sessionId: "fake-session" });
+		} finally {
+			adapter.close(new Error("test teardown"));
+			child.kill("SIGKILL");
+		}
+	});
+
 	test("reports Pi command failures as request rejections", async () => {
 		const harness = createAdapter();
 		try {
@@ -76,7 +98,8 @@ describe("Pi RPC adapter", () => {
 	});
 
 	test("times out the in-flight request without leaking a pending promise", async () => {
-		const harness = createAdapter({ FAKE_PI_IGNORE: "prompt" });
+		// A short budget is the subject of this test, so it is passed rather than inherited.
+		const harness = createAdapter({ FAKE_PI_IGNORE: "prompt" }, 200);
 		try {
 			await expect(harness.adapter.request("prompt", { message: "hold" })).rejects.toBeInstanceOf(
 				PiRpcTimeoutError,

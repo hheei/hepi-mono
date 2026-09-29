@@ -199,6 +199,7 @@ class Runner {
 			maxFrameBytes: this.#maxFrameBytes,
 			maxPendingRequests: this.#maxPendingRequests,
 			requestTimeoutMs: this.#requestTimeoutMs,
+			readyTimeoutMs: this.#readyTimeoutMs,
 			onListenerError: (error) => this.#diagnose(`event listener failed: ${errorMessage(error)}`),
 		});
 		this.#detachEvents = this.#adapter.onEvent((event) => {

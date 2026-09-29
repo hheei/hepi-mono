@@ -53,6 +53,12 @@ export interface PiRpcAdapterOptions {
 	readonly maxPendingRequests?: number;
 	readonly requestTimeoutMs?: number;
 	/**
+	 * Budget for the `get_state` round trip that proves the child is ready. It is separate from
+	 * `requestTimeoutMs` because a caller may shorten ordinary request timeouts while the session is
+	 * still being established; that must not shrink the readiness handshake to the same budget.
+	 */
+	readonly readyTimeoutMs?: number;
+	/**
 	 * Receives exceptions thrown by event listeners. A listener that throws must
 	 * not be mistaken for a malformed Pi frame, so the error is reported here.
 	 */
@@ -70,6 +76,7 @@ export class PiRpcAdapter {
 	readonly #maxFrameBytes: number;
 	readonly #maxPendingRequests: number;
 	readonly #requestTimeoutMs: number;
+	readonly #readyTimeoutMs: number;
 	readonly #onListenerError: (error: unknown) => void;
 	readonly #pending = new Map<string, PendingRpcRequest>();
 	readonly #listeners = new Set<(event: unknown) => void>();
@@ -82,6 +89,7 @@ export class PiRpcAdapter {
 		this.#maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
 		this.#maxPendingRequests = options.maxPendingRequests ?? DEFAULT_MAX_PENDING_REQUESTS;
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+		this.#readyTimeoutMs = options.readyTimeoutMs ?? this.#requestTimeoutMs;
 		this.#onListenerError =
 			options.onListenerError ??
 			((error: unknown): void => {
@@ -112,7 +120,10 @@ export class PiRpcAdapter {
 
 	/** Confirms readiness with a real `get_state` round trip. */
 	public async ready(signal?: AbortSignal): Promise<unknown> {
-		return this.request("get_state", undefined, signal === undefined ? {} : { signal });
+		return this.request("get_state", undefined, {
+			...(signal === undefined ? {} : { signal }),
+			timeoutMs: this.#readyTimeoutMs,
+		});
 	}
 
 	public request(
