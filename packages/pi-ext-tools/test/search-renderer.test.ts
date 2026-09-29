@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "../src/grep.js";
 import {
@@ -9,14 +9,6 @@ import {
 	renderGrepResult,
 } from "../src/search-renderer.js";
 import { plainTheme } from "./fixtures/theme.js";
-
-/**
- * The old per-code-point slicing needed well over a second for this input, so a regression is caught
- * by a budget an order of magnitude below that. It is deliberately loose: this harness runs beside
- * other suites, and a tight budget turns scheduler noise into a failure that says nothing about the
- * algorithm.
- */
-const LONG_LINE_BUDGET_MS = 600;
 
 /** The details these tests need; `GrepToolDetails` also carries a budget report nobody here reads. */
 type FixtureDetails = Pick<
@@ -79,18 +71,19 @@ function rendered(result: AgentToolResult<unknown>, expanded = false): string {
 }
 
 describe("search-renderer", () => {
-	it("renders a 25k-character match line without the old quadratic slicing", () => {
+	it("renders a match line far wider than the terminal", () => {
 		const source = `const payload = "${"x".repeat(25_000)}";`;
 		const result = grepResult([
 			matchLine({ source, submatches: [{ start: 6, end: 13, text: "payload" }] }),
 		]);
 
-		const started = performance.now();
 		const output = rendered(result);
-		const elapsed = performance.now() - started;
 
+		// How long this takes is measured by a benchmark, not here: a wall-clock floor in a test only
+		// reports how busy the machine was. What this input pins is that the widest line the grep tool
+		// can hand over is still rendered width-safe and keeps its match.
 		expect(output).toContain("payload");
-		expect(elapsed).toBeLessThan(LONG_LINE_BUDGET_MS);
+		for (const line of output.split("\n")) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
 	});
 
 	it("maps a match's byte offsets onto characters in multibyte text", () => {
