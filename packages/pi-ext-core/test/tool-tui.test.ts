@@ -1034,18 +1034,73 @@ describe("ToolTui collapse modes", () => {
 		}
 	});
 
-	test("isTuiScrolledUp correctly detects alt-screen and ScrollView scrolled-up state", (): void => {
+	test("postpones a prior-trace collapse while user is scrolled up away from bottom", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			let scrolledUp = true;
+			tui.setScrolledUpPredicate(() => scrolledUp);
+
+			const harness = await longTool(tui, false);
+			expect(await settle(harness)).toContain("result body");
+
+			// The next run collapses prior traces, but the reader is above the end.
+			tui.beginTrace();
+			expect(renderLong(harness)).toContain("result body");
+			harness.invalidations.count = 0;
+
+			// Still reading: the collapse stays postponed.
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_RETRY_DELAY_MS);
+			expect(harness.invalidations.count).toBe(0);
+			expect(renderLong(harness)).toContain("result body");
+
+			// Once the reader returns to the end the postponed collapse happens.
+			scrolledUp = false;
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_RETRY_DELAY_MS);
+			expect(harness.invalidations.count).toBe(1);
+			expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("postpones the `on`-mode collapse while user is scrolled up away from bottom", async (): Promise<void> => {
+		vi.useFakeTimers();
+		try {
+			const tui = createToolTui();
+			tui.setToolCollapseMode("on");
+			let scrolledUp = true;
+			tui.setScrolledUpPredicate(() => scrolledUp);
+
+			const harness = await longTool(tui);
+			expect(await settle(harness)).toContain("result body");
+
+			scrolledUp = false;
+			await vi.advanceTimersByTimeAsync(AUTO_COLLAPSE_RETRY_DELAY_MS);
+			expect(harness.invalidations.count).toBe(1);
+			expect(renderLong(harness)).toEqual(["<dim>metrics</dim>"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("reads the fullscreen viewport and treats regular mode as unsupported", (): void => {
 		expect(isTuiScrolledUp(undefined)).toBe(false);
 		expect(isTuiScrolledUp(null)).toBe(false);
 		expect(isTuiScrolledUp({})).toBe(false);
 
-		// AltScreen with isFollowingOutput
-		expect(isTuiScrolledUp({ isFollowingOutput: true })).toBe(false);
-		expect(isTuiScrolledUp({ isFollowingOutput: false })).toBe(true);
+		// Regular mode writes the transcript into the terminal's own scrollback: nothing here
+		// can report a reader, and patching or bypassing that is not an option.
+		expect(isTuiScrolledUp({ mode: "regular" })).toBe(false);
 
-		// getPrimaryScrollView
-		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: true }) })).toBe(false);
-		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: false }) })).toBe(true);
+		// Fullscreen owns the viewport, so its public follow flag is the one source of truth.
+		expect(isTuiScrolledUp({ mode: "fullscreen", isFollowingOutput: true })).toBe(false);
+		expect(isTuiScrolledUp({ mode: "fullscreen", isFollowingOutput: false })).toBe(true);
+
+		// Reaching a private scroll view is not a supported reader signal either.
+		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: false }) })).toBe(
+			false,
+		);
 	});
 });
 
