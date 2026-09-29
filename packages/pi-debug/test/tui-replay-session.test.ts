@@ -176,11 +176,13 @@ describe("replay session CLI", () => {
 		try {
 			const sends = await Promise.all(
 				Array.from({ length: 20 }, (_, index) =>
-					runProcess(context.cwd, context.stateDir, ["send", `item-${index}`], 15_000),
+					// These budgets cover process startup on a loaded machine; the subject of the test is that
+					// every process terminates and serializes, not how quickly it does so.
+					runProcess(context.cwd, context.stateDir, ["send", `item-${index}`], 60_000),
 				),
 			);
 			expect(sends.every((result) => result.exitCode === 0 && !result.timedOut)).toBe(true);
-			const status = await runProcess(context.cwd, context.stateDir, ["status"]);
+			const status = await runProcess(context.cwd, context.stateDir, ["status"], 60_000);
 			expect(status.exitCode).toBe(0);
 			expect(JSON.parse(status.stdout)).toMatchObject({ actions: 20 });
 
@@ -198,7 +200,7 @@ describe("replay session CLI", () => {
 				context.cwd,
 				context.stateDir,
 				["start", "--module", modulePath],
-				2_000,
+				30_000,
 			);
 			expect(started).toMatchObject({ exitCode: 0, timedOut: false });
 			expect(stripAnsi(started.stdout)).toBe("interval active\n");

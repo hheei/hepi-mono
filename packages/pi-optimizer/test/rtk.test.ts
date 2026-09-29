@@ -67,14 +67,23 @@ async function flush(): Promise<void> {
 }
 
 /** Saving runs in the background, so wait for the file instead of assuming it is already there. */
+type StoredCache = { version: string; rewrites: Record<string, string | null> };
+
+/**
+ * The cache is written incrementally, so a first successful parse can still be a partial file:
+ * callers that care about the content pass a predicate and the wait keeps going until it holds.
+ */
 async function waitForCache(
 	path: string,
-): Promise<{ version: string; rewrites: Record<string, string | null> }> {
-	for (let attempt = 0; attempt < 300; attempt += 1) {
+	isReady: (stored: StoredCache) => boolean = () => true,
+): Promise<StoredCache> {
+	for (let attempt = 0; attempt < 500; attempt += 1) {
 		try {
 			const parsed = JSON.parse(await readFile(path, "utf8")) as { version?: unknown };
-			if (typeof parsed.version === "string")
-				return parsed as { version: string; rewrites: Record<string, string | null> };
+			if (typeof parsed.version === "string") {
+				const stored = parsed as StoredCache;
+				if (isReady(stored)) return stored;
+			}
 		} catch {
 			// Not written yet.
 		}
@@ -388,7 +397,10 @@ test("the store keeps the newest decisions and drops the oldest", async () => {
 		await runtime.rewrite(bash(`git status --${index}`), context(), enabled);
 	expect(rewriteCalls(exec)).toBe(257);
 	runtime.reset();
-	const stored = await waitForCache(cachePath);
+	const stored = await waitForCache(
+		cachePath,
+		(value) => Object.keys(value.rewrites).length === 256,
+	);
 	const keys = Object.keys(stored.rewrites);
 	expect(keys).toHaveLength(256);
 	expect(keys.some((key) => key.endsWith("git status --0"))).toBe(false);
