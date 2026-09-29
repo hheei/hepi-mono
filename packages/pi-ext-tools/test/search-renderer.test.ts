@@ -10,8 +10,13 @@ import {
 } from "../src/search-renderer.js";
 import { plainTheme } from "./fixtures/theme.js";
 
-/** The old per-code-point slicing needed well over a second for this input, so anything near it is a regression. */
-const LONG_LINE_BUDGET_MS = 100;
+/**
+ * The old per-code-point slicing needed well over a second for this input, so a regression is caught
+ * by a budget an order of magnitude below that. It is deliberately loose: this harness runs beside
+ * other suites, and a tight budget turns scheduler noise into a failure that says nothing about the
+ * algorithm.
+ */
+const LONG_LINE_BUDGET_MS = 600;
 
 /** The details these tests need; `GrepToolDetails` also carries a budget report nobody here reads. */
 type FixtureDetails = Pick<

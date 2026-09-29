@@ -6,7 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	AUTO_COLLAPSE_DELAY_MS,
 	AUTO_COLLAPSE_RETRY_DELAY_MS,
@@ -81,6 +81,12 @@ function renderResult(
 }
 
 describe("ToolTui", () => {
+	// A collapsed footer prints the real execution duration, so a test that asserts an exact number
+	// freezes that clock instead of hoping the machine stayed idle. Restoration also covers a test
+	// that failed before restoring its own timers.
+	afterEach(() => {
+		vi.useRealTimers();
+	});
 	test("shares one host controller and trace subscription across consumers", (): void => {
 		const agentStarts: Array<(event: unknown, context: ExtensionContext) => void> = [];
 		const pi = {
@@ -502,6 +508,7 @@ describe("ToolTui", () => {
 	});
 
 	test("keeps partial output in the result slot and collapses completed prior traces", async (): Promise<void> => {
+		vi.useFakeTimers({ toFake: ["performance"] });
 		const tui = createToolTui();
 		const framed = tui.frame({
 			...tool(),
@@ -616,6 +623,7 @@ describe("ToolTui", () => {
 	});
 
 	test("keeps a collapsed metrics footer when the tool returns a blank footer", async (): Promise<void> => {
+		vi.useFakeTimers({ toFake: ["performance"] });
 		const tui = createToolTui();
 		const framed = tui.frame(tool(), { footer: () => "" });
 		tui.beginTrace();

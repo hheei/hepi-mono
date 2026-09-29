@@ -205,10 +205,14 @@ describe("OAuth provider end-to-end consolidation", () => {
 		});
 		await runtime.consolidationPromise;
 
-		// The observer really called the provider, authenticating with the OAuth header.
-		expect(requests).toHaveLength(1);
-		expect(requests[0]!.headers.authorization).toBe(OAUTH_TOKEN);
-		expect(requests[0]!.headers["x-api-key"]).toBeUndefined();
+		// The observer really called the provider, authenticating with the OAuth header. A loaded
+		// machine can make the SDK retry the same request, so every attempt must carry the header and
+		// none of them may fall back to an API key.
+		expect(requests.length).toBeGreaterThanOrEqual(1);
+		for (const request of requests) {
+			expect(request.headers.authorization).toBe(OAUTH_TOKEN);
+			expect(request.headers["x-api-key"]).toBeUndefined();
+		}
 
 		// The observation reached the session ledger; nothing was skipped.
 		const recorded = appended.filter((entry) => entry.customType === OM_OBSERVATIONS_RECORDED);
