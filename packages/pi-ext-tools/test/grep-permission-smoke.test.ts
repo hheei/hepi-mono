@@ -10,7 +10,7 @@ import {
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { createToolTui } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
-import { registerGrepTool } from "../dist/grep.js";
+import { registerGrepTool } from "../src/grep.js";
 
 function outputOccurrences(component: ToolExecutionComponent, output: string): number {
 	return stripTerminalSequences(component.render(100).join("\n")).split(output).length - 1;
