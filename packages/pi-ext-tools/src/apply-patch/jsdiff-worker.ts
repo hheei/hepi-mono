@@ -1,4 +1,7 @@
-import { errorMessage } from "@hheei/pi-ext-core";
+// The worker must not import the ext-core barrel: it would load every ext-core module into a fresh
+// thread before a single hunk is diffed, which measured ~220ms per patch operation. `./errors` is
+// the lean subpath that carries just the error helpers.
+import { errorMessage } from "@hheei/pi-ext-core/errors";
 import type { StructuredPatch, StructuredPatchHunk } from "diff";
 import type {
 	AppliedPatchHunk,
