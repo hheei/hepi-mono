@@ -578,20 +578,26 @@ describe("SubagentManager contracts", () => {
 		const record = childRecord("starting");
 		const runner = new FakeRunner();
 		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-			idleTimeoutMs: 20,
+			idleTimeoutMs: 100,
 		});
 		await manager.spawn({ task: "Work.", agent: "worker" });
 
 		// Simulate child finishing and becoming idle
 		runner.emit({ type: "agent_end" });
-		await new Promise<void>((resolve) => setTimeout(resolve, 5));
-		expect(registry.current?.state).toBe("idle");
+		await vi.waitFor(
+			() => {
+				expect(registry.current?.state).toBe("idle");
+			},
+			{ interval: 2, timeout: 1_000 },
+		);
 		expect(runner.requests).not.toContain("shutdown");
 
-		// Advance past the 20ms idle timeout
-		await new Promise<void>((resolve) => setTimeout(resolve, 35));
-		expect(runner.requests).toContain("shutdown");
-		expect(registry.current?.state).toBe("done");
+		// The idle timer fires after idleTimeoutMs, which a loaded test runner may stretch; wait for
+		// the effect instead of sleeping past a wall-clock estimate.
+		await vi.waitFor(() => {
+			expect(runner.requests).toContain("shutdown");
+			expect(registry.current?.state).toBe("done");
+		});
 
 		manager.dispose();
 	});
@@ -611,11 +617,13 @@ describe("SubagentManager contracts", () => {
 			});
 			await manager.spawn({ task: "Work.", agent: "worker" });
 			runner.emit({ type: "agent_end" });
-			await new Promise<void>((resolve) => setTimeout(resolve, 220));
-
+			// The confirmation deadline may take longer than the idle timer under load; wait for the
+			// verdict instead of sleeping past an estimate of it.
+			await vi.waitFor(() => {
+				expect(registry.current?.state).toBe("failed");
+			});
 			// The runner acknowledged shutdown, but the recorded process is still alive.
 			expect(runner.requests).toContain("shutdown");
-			expect(registry.current?.state).toBe("failed");
 			expect(registry.current?.interrupted).toContain("unconfirmed");
 			expect(registry.current?.runtime?.pid).toBe(runtime.pid);
 			// No blind second execution is attempted while the old runtime may still own the session.
@@ -850,8 +858,9 @@ describe("SubagentManager contracts", () => {
 
 		// Transition to idle then hibernate to done
 		runner1.emit({ type: "agent_end" });
-		await new Promise<void>((resolve) => setTimeout(resolve, 35));
-		expect(registry.current?.state).toBe("done");
+		await vi.waitFor(() => {
+			expect(registry.current?.state).toBe("done");
+		});
 
 		// Send message to the done child -> triggers Auto-Resume
 		const resumed = await manager.send(CHILD_ID, "Follow up task", "auto");
