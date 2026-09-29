@@ -319,8 +319,8 @@ describe("runner IPC", () => {
 			await first.connect();
 			await first.request("prompt", { message: "burst" });
 			first.close();
-			// The child emits six events 30ms apart, so the buffer can only overflow once most of them
-			// exist; the wait covers that whole window rather than an estimate of it.
+			// The child waits its configured 30ms delay and then writes six events in one burst, so the
+			// buffer can only overflow once that burst has been read; the wait covers the whole window.
 			await new Promise((resolve) => setTimeout(resolve, 500));
 
 			const second = connectionFor(harness.identity);

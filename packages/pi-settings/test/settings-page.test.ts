@@ -1,6 +1,5 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import type { ExtensionPageViewContext, SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { createSettingsPage } from "../src/settings-page.js";
 
@@ -244,6 +243,7 @@ describe("Settings provider page", () => {
 	});
 
 	test("marquees only an overflowing selected label and clears it on disposal", async () => {
+		vi.useFakeTimers();
 		const provider: SettingsProvider = {
 			id: "marquee",
 			title: "Marquee",
@@ -266,12 +266,17 @@ describe("Settings provider page", () => {
 			],
 			storage: { load: () => undefined, save: () => undefined },
 		};
-		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
-		const initial = page.component.render(48).join("\n");
-		await sleep(800);
-		const advanced = page.component.render(48).join("\n");
-		expect(advanced).not.toBe(initial);
-		await page.close();
+		try {
+			const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+			const initial = page.component.render(48).join("\n");
+			// The marquee pauses 750ms before its first 125ms frame, then advances one column per frame.
+			vi.advanceTimersByTime(750 + 125);
+			const advanced = page.component.render(48).join("\n");
+			expect(advanced).not.toBe(initial);
+			await page.close();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("adds, reorders, and deletes list items, then persists them", async () => {

@@ -33,6 +33,7 @@ describe("native SSH mutation primitives", () => {
 		const key = `test:${crypto.randomUUID()}`;
 		const release = await acquireMutationLock(key);
 		const pending = acquireMutationLock(key);
+		// Let the second caller reach the wait loop before the holder opens the lock again.
 		await sleep(20);
 		await release();
 		const queued = await pending;
@@ -44,6 +45,7 @@ describe("native SSH mutation primitives", () => {
 		const release = await acquireMutationLock(key);
 		const controller = new AbortController();
 		const pending = acquireMutationLock(key, controller.signal);
+		// Let the waiter block on the held lock before it is aborted.
 		await sleep(20);
 		controller.abort(new Error("cancelled"));
 		await expect(pending).rejects.toThrow("cancelled");

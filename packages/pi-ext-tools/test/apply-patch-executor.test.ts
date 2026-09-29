@@ -1,6 +1,5 @@
 import { chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
@@ -647,6 +646,10 @@ describe("apply-patch executor", () => {
 		const controller = new AbortController();
 		const { createLocalPatchFs } = await import("../src/apply-patch/fs.js");
 		const local = createLocalPatchFs(root);
+		let reachedWrite: (() => void) | undefined;
+		const blockedWrite = new Promise<void>((resolve) => {
+			reachedWrite = resolve;
+		});
 		const hung = {
 			...local,
 			async writeAtomic(
@@ -655,6 +658,9 @@ describe("apply-patch executor", () => {
 				mode: number | undefined,
 				signal?: AbortSignal,
 			) {
+				// The test needs the first patch to hold the workspace lock, so it waits for this point
+				// instead of hoping a delay was long enough.
+				reachedWrite?.();
 				await new Promise<void>((_resolve, reject) => {
 					signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), {
 						once: true,
@@ -671,7 +677,7 @@ describe("apply-patch executor", () => {
 			patch: "*** Begin Patch\n*** Add File: first.txt\n+first\n*** End Patch",
 			signal: controller.signal,
 		});
-		await sleep(30);
+		await blockedWrite;
 		const second = applyPatchInWorkspace({
 			workspaceRoot: root,
 			policy: noFuzzy,

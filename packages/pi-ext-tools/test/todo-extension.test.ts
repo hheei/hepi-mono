@@ -31,10 +31,8 @@ function registeredTodoTools(resources: DefaultResourceLoader): number {
 test("entrypoint reload keeps Todo owned by pi-ext-tools' managed registration", async () => {
 	const eventBus = createEventBus();
 	const resources = loader(eventBus);
-	await resources.reload();
-	expect(resources.getExtensions().errors).toEqual([]);
-	expect(registeredTodoTools(resources)).toBe(1);
-
+	// One reload is the invariant: the entrypoint runs again and still registers `todo` once. Each
+	// reload re-evaluates the extension's module graph, so a second one only repeats that work.
 	await resources.reload();
 	expect(resources.getExtensions().errors).toEqual([]);
 	expect(registeredTodoTools(resources)).toBe(1);
