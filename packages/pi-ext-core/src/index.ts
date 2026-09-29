@@ -108,7 +108,6 @@ export {
 	formatDurationColor,
 	formatRate,
 	formatTelemetryStatus,
-	patchActualTuiScrollView,
 	renderBottomRailBorder,
 	TELEMETRY_DISMISS_DELAY_MS,
 	wrapEditorBottomRail,
@@ -237,7 +236,6 @@ export {
 	DEFAULT_MAX_BODY_LINES,
 	DEFAULT_MAX_REQUEST_LINES,
 	getToolTui,
-	installScrollViewViewportProtection,
 	isTuiScrolledUp,
 	registerToolTuiTrace,
 } from "./tool-tui.js";

@@ -1,7 +1,7 @@
-import { ScrollView, type Terminal, TuiMainScreen } from "@earendil-works/pi-tui";
+import { type Terminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 
-// Exercise the installed renderer, not a mock ScrollView or patch-text assertion.
+// Exercise the installed renderer, not a mock screen.
 function mainScreen(columns: number) {
 	const terminal = {
 		columns,
@@ -54,21 +54,4 @@ describe.each([24, 100])("real TUI at %i columns", (columns) => {
 		expect(tui.fullRedraws).toBe(2);
 		expect(terminal.write.mock.calls.flat().join("")).not.toContain("\x1b[3J");
 	});
-});
-
-test("fullscreen shrink clamps the viewport but does not resume following output", () => {
-	const view = new ScrollView({ render: () => [], invalidate() {} }, { follow: "end" });
-	view.updateLayout(100, 10, () => {});
-	view.scrollTo(50);
-	view.updateLayout(90, 10, () => {});
-	expect(view.scrollTop).toBe(50);
-	expect(view.isFollowingEnd).toBe(false);
-	view.updateLayout(40, 10, () => {});
-	expect(view.scrollTop).toBe(30); // The old offset no longer exists.
-	expect(view.isFollowingEnd).toBe(false);
-	view.updateLayout(100, 10, () => {});
-	expect(view.scrollTop).toBe(30);
-	expect(view.isFollowingEnd).toBe(false);
-	view.scrollToEnd();
-	expect(view.isFollowingEnd).toBe(true);
 });

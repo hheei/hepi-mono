@@ -8,7 +8,6 @@ import type {
 import {
 	type Component,
 	Container,
-	ScrollView,
 	Text,
 	truncateToWidth,
 	visibleWidth,
@@ -943,56 +942,6 @@ export function getToolTui(pi: ExtensionAPI): ToolTui {
 	return stateFor(pi).tui;
 }
 
-let scrollViewProtectionInstalled = false;
-
-/**
- * Installs viewport protection on ScrollView so that when content shrinks
- * (such as tool body collapsing), a user who scrolled up to read history is NOT
- * forcefully reset to the bottom or re-anchored to `followingEnd = true`.
- */
-export function installScrollViewViewportProtection(): void {
-	if (scrollViewProtectionInstalled) return;
-	scrollViewProtectionInstalled = true;
-
-	const proto = ScrollView.prototype as {
-		updateLayout?: (
-			contentHeight: number,
-			viewportHeight: number,
-			requestRender: () => void,
-		) => void;
-	};
-	const originalUpdateLayout = proto.updateLayout;
-	if (typeof originalUpdateLayout !== "function") return;
-
-	type ScrollViewInternal = {
-		isFollowingEnd: boolean;
-		contentHeight: number;
-		followingEnd: boolean;
-		followSuppressedAtEnd?: boolean;
-	};
-
-	proto.updateLayout = function (
-		this: ScrollView,
-		contentHeight: number,
-		viewportHeight: number,
-		requestRender: () => void,
-	): void {
-		const target = this as unknown as ScrollViewInternal;
-		const wasFollowingEnd = target.isFollowingEnd;
-		const previousContentHeight = target.contentHeight;
-
-		originalUpdateLayout.call(this, contentHeight, viewportHeight, requestRender);
-
-		// If user was viewing content above (not following end) and content shrunk
-		// (e.g. tool body collapsed), keep user's unanchored reading state rather
-		// than forcefully snapping followingEnd back to true.
-		if (!wasFollowingEnd && contentHeight < previousContentHeight) {
-			target.followingEnd = false;
-			target.followSuppressedAtEnd = true;
-		}
-	};
-}
-
 /**
  * Detects whether the active TUI renderer is scrolled up away from the bottom.
  * Returns true if the user has scrolled up to view prior lines.
@@ -1015,7 +964,6 @@ export function isTuiScrolledUp(tui: unknown): boolean {
 
 /** Installs one trace lifecycle binding for each extension runtime. */
 export function registerToolTuiTrace(pi: ExtensionAPI): void {
-	installScrollViewViewportProtection();
 	const registrations = traceRegistrations();
 	if (registrations.has(pi)) return;
 	registrations.add(pi);

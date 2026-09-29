@@ -11,6 +11,11 @@ export interface ResponseStatusFeature {
 	dispose(sessionId: string): void;
 }
 
+import {
+	type CustomEditorLike,
+	registerActiveEditor,
+	unregisterActiveEditor,
+} from "./editor-working-status.js";
 import { getToolTui, isTuiScrolledUp } from "./tool-tui.js";
 
 export interface TelemetryMetrics {
@@ -176,77 +181,6 @@ interface TuiLike {
 
 export const TELEMETRY_DISMISS_DELAY_MS = 15_000;
 
-/** Patches the runtime ScrollView prototype on the actual TUI renderer if available. */
-export function patchActualTuiScrollView(tui: unknown): void {
-	if (!tui || typeof tui !== "object") return;
-	let sv: unknown;
-	if (
-		"getPrimaryScrollView" in tui &&
-		typeof (tui as { getPrimaryScrollView: unknown }).getPrimaryScrollView === "function"
-	) {
-		sv = (tui as { getPrimaryScrollView: () => unknown }).getPrimaryScrollView();
-	}
-	if (!sv && "renderer" in tui && (tui as { renderer?: unknown }).renderer) {
-		const renderer = (tui as { renderer: unknown }).renderer;
-		if (renderer && typeof renderer === "object") {
-			if (
-				"getPrimaryScrollView" in renderer &&
-				typeof (renderer as { getPrimaryScrollView: unknown }).getPrimaryScrollView === "function"
-			) {
-				sv = (renderer as { getPrimaryScrollView: () => unknown }).getPrimaryScrollView();
-			}
-			if (!sv && "implicitScrollView" in renderer) {
-				sv = (renderer as { implicitScrollView: unknown }).implicitScrollView;
-			}
-		}
-	}
-	if (!sv || typeof sv !== "object") return;
-	const targetObj = Object.hasOwn(sv, "updateLayout")
-		? (sv as {
-				updateLayout?: (
-					contentHeight: number,
-					viewportHeight: number,
-					requestRender: () => void,
-				) => void;
-				_viewportPatched?: boolean;
-			})
-		: (Object.getPrototypeOf(sv) as {
-				updateLayout?: (
-					contentHeight: number,
-					viewportHeight: number,
-					requestRender: () => void,
-				) => void;
-				_viewportPatched?: boolean;
-			});
-	if (!targetObj || targetObj._viewportPatched) return;
-	targetObj._viewportPatched = true;
-
-	const originalUpdateLayout = targetObj.updateLayout;
-	if (typeof originalUpdateLayout !== "function") return;
-
-	targetObj.updateLayout = function (
-		contentHeight: number,
-		viewportHeight: number,
-		requestRender: () => void,
-	): void {
-		const target = this as unknown as {
-			isFollowingEnd?: boolean;
-			contentHeight?: number;
-			followingEnd?: boolean;
-			followSuppressedAtEnd?: boolean;
-		};
-		const wasFollowingEnd = target.isFollowingEnd;
-		const prevContentHeight = target.contentHeight ?? 0;
-
-		originalUpdateLayout.call(this, contentHeight, viewportHeight, requestRender);
-
-		if (!wasFollowingEnd && contentHeight < prevContentHeight) {
-			target.followingEnd = false;
-			target.followSuppressedAtEnd = true;
-		}
-	};
-}
-
 /**
  * Manages completed response telemetry rendered on the editor bottom rail. The last
  * completed response stays visible for the whole agent run that follows it, and is
@@ -261,6 +195,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 	let previousEditorFactory: EditorFactory | undefined;
 	let installedEditorFactory: EditorFactory | undefined;
 	let activeTui: TuiLike | undefined;
+	let activeEditorInstance: CustomEditorLike | undefined;
 	let dismissTimer: NodeJS.Timeout | undefined;
 
 	const clearDismissTimer = (): void => {
@@ -343,11 +278,12 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			previousEditorFactory = context.ui.getEditorComponent();
 			installedEditorFactory = (tui, theme, keybindings) => {
 				activeTui = tui;
-				patchActualTuiScrollView(tui);
 				getToolTui(pi).setScrolledUpPredicate(() => isTuiScrolledUp(activeTui));
 				const baseEditor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
 					new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
+				activeEditorInstance = baseEditor as unknown as CustomEditorLike;
+				registerActiveEditor(activeEditorInstance, tui, theme);
 				return wrapEditorBottomRail(baseEditor, (borderColor) =>
 					currentMetrics ? formatTelemetryStatus(currentMetrics, borderColor) : undefined,
 				);
@@ -364,6 +300,10 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 				activeContext.ui.getEditorComponent() === installedEditorFactory
 			) {
 				activeContext.ui.setEditorComponent(previousEditorFactory);
+			}
+			if (activeEditorInstance !== undefined) {
+				unregisterActiveEditor(activeEditorInstance);
+				activeEditorInstance = undefined;
 			}
 			activeSessionId = undefined;
 			activeContext = undefined;
