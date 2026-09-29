@@ -283,7 +283,7 @@ describe("apply-patch executor", () => {
 
 	test("windows add and delete snapshots instead of persisting the whole file", async () => {
 		const root = await temporaryDirectory();
-		const lines = Array.from({ length: 200 }, (_value, index) => `line-${index}`);
+		const lines = Array.from({ length: 151 }, (_value, index) => `line-${index}`);
 		await save(root, "gone.txt", `${lines.join("\n")}\n`);
 		const result = await applyPatchInWorkspace({
 			workspaceRoot: root,

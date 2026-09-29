@@ -253,7 +253,7 @@ describe("V3 compaction trigger", () => {
 	});
 
 	it("does not compact when provider context and anchored growth exceed the threshold but raw progress does not", async () => {
-		const { handler, runtime } = captureHandler({ compactAfterTokens: 130000 });
+		const { handler, runtime } = captureHandler({ compactAfterTokens: 1300 });
 		const branch = [
 			compactionEntry("cmp-1", { firstKeptEntryId: "baseline" }),
 			rawMessage("baseline", "baseline", {
@@ -261,13 +261,13 @@ describe("V3 compaction trigger", () => {
 					role: "assistant",
 					content: "baseline",
 					stopReason: "end_turn",
-					usage: { totalTokens: 5000 },
+					usage: { totalTokens: 50 },
 				},
 			}),
-			textCustomMessage("raw-1", "a".repeat(302_248)), // 75,562 tokens plus the 2-token baseline message
+			textCustomMessage("raw-1", "a".repeat(3_022)), // 756 tokens plus the 2-token baseline message
 		];
 		const ctx = fakeCtx([branch], {
-			getContextUsage: vi.fn(() => ({ tokens: 135636, contextWindow: 200000 })),
+			getContextUsage: vi.fn(() => ({ tokens: 1356, contextWindow: 2000 })),
 		});
 
 		handler(agentSettled(), ctx);

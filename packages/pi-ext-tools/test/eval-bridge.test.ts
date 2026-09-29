@@ -221,7 +221,7 @@ describe("nested live results are bounded by what they retain", () => {
 	}
 
 	test("keeps a small image for re-rendering", async () => {
-		const id = await remember(imageTool("a".repeat(1_000)));
+		const id = await remember(imageTool("a".repeat(100)));
 		expect(evalNestedLiveResult(id)).toBeDefined();
 	});
 
@@ -235,7 +235,7 @@ describe("nested live results are bounded by what they retain", () => {
 			async execute() {
 				return {
 					content: [{ type: "text", text: "short" }],
-					details: { text: "short", diff: "x".repeat(700 * 1024) },
+					details: { text: "short", diff: "x".repeat(520 * 1024) },
 				};
 			},
 		} as unknown as ToolDefinition;
@@ -244,7 +244,7 @@ describe("nested live results are bounded by what they retain", () => {
 
 	test("does not keep one whose payload alone exceeds the budget", async () => {
 		// The base64 payload is what is retained, so a text-only measurement would keep this.
-		const id = await remember(imageTool("a".repeat(700 * 1024)));
+		const id = await remember(imageTool("a".repeat(520 * 1024)));
 		expect(evalNestedLiveResult(id)).toBeUndefined();
 	});
 });

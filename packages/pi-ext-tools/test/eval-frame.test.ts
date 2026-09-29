@@ -254,7 +254,7 @@ describe("Eval nested rows and failures", () => {
 				_code: string,
 				hooks: { onText: (text: string) => void },
 			): Promise<undefined> => {
-				for (let index = 0; index < 260; index += 1) hooks.onText(`row ${index}\n`);
+				for (let index = 0; index < 205; index += 1) hooks.onText(`row ${index}\n`);
 				throw new Error("kernel exploded");
 			},
 		};
@@ -282,7 +282,7 @@ describe("Eval nested rows and failures", () => {
 				_code: string,
 				hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
 			): Promise<unknown> =>
-				await hooks.callTool("write", { path: "a.txt", content: "x".repeat(9_000) }),
+				await hooks.callTool("write", { path: "a.txt", content: "x".repeat(4_100) }),
 		};
 		const { result } = await execute(runtime, bridge);
 		const trace = (result.details as { rows: { trace: { args: unknown } }[] }).rows[0]?.trace;
@@ -384,7 +384,7 @@ describe("Eval nested rows and failures", () => {
 			runWithHooks: async (
 				_code: string,
 				hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
-			): Promise<unknown> => await hooks.callTool("read", { path: `src/${"x".repeat(9_000)}.ts` }),
+			): Promise<unknown> => await hooks.callTool("read", { path: `src/${"x".repeat(4_100)}.ts` }),
 		};
 		const { result, tool } = await execute(runtime, bridge);
 		const rendered = tool

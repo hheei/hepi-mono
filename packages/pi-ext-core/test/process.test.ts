@@ -35,11 +35,11 @@ describe("runCommand", () => {
 	test("reports a stdout cap", async () => {
 		const result = await runCommand(
 			process.execPath,
-			["-e", 'process.stdout.write("x".repeat(4096))'],
+			["-e", 'process.stdout.write("x".repeat(256))'],
 			{ maxStdoutBytes: 128 },
 		);
 		expect(result.stdoutTruncated).toBe(true);
-		expect(result.stdout.byteLength).toBeLessThanOrEqual(4096);
+		expect(result.stdout.byteLength).toBeLessThanOrEqual(256);
 	});
 
 	test("observes both streams while collecting them", async () => {

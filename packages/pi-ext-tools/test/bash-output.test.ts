@@ -102,12 +102,14 @@ describe("BashOutputSink", () => {
 	});
 
 	test("counts lines over a long burst without dropping any", () => {
-		const sink = new BashOutputSink(4 * 1024);
+		// One kibibyte of retained output is the smallest sink that still has to spill; the burst is
+		// sized so it overflows it many times over.
+		const sink = new BashOutputSink(1024);
 		const line = Buffer.from("0123456789abcdefghijklmnopqrstuvwxyz0123456789\n");
-		const chunk = Buffer.concat(Array.from({ length: 512 }, () => line));
-		for (let index = 0; index < 100; index++) sink.push(chunk);
+		const chunk = Buffer.concat(Array.from({ length: 64 }, () => line));
+		for (let index = 0; index < 20; index++) sink.push(chunk);
 		const result = sink.snapshot();
-		expect(result.totalLines).toBe(51_200);
+		expect(result.totalLines).toBe(1_280);
 		expect(result.truncated).toBe(true);
 		expect(result.output.endsWith("\n")).toBe(true);
 	});

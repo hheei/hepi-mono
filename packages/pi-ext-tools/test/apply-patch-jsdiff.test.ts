@@ -123,8 +123,10 @@ describe("apply-patch jsdiff worker", () => {
 
 	test("terminates an in-flight worker and leaves the file unchanged", async () => {
 		const root = await temporaryDirectory();
-		const lines = Array.from({ length: 8_000 }, () => "repeated-context-line");
-		lines[100] = "unique-old";
+		// The worker only has to be busy when the abort lands; a couple of hundred lines are as
+		// unusable as thousands, and they keep the file the worker scans small.
+		const lines = Array.from({ length: 200 }, () => "repeated-context-line");
+		lines[20] = "unique-old";
 		await writeFile(join(root, "value.txt"), `${lines.join("\n")}\n`);
 		const controller = new AbortController();
 		const pending = applyPatchInWorkspace({

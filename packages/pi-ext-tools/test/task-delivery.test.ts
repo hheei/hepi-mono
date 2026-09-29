@@ -170,9 +170,11 @@ test("never inlines half of a structured result", (): void => {
 	vi.useFakeTimers();
 	const current = harness();
 	const large = start(current, "structured");
-	const findings = Array.from({ length: 400 }, (_value, index) => ({
+	// The result has to exceed the 10,000-character inline bound; 60 findings do that without
+	// building a payload four times larger than the boundary it is testing.
+	const findings = Array.from({ length: 60 }, (_value, index) => ({
 		path: `src/file-${index}.ts`,
-		detail: "x".repeat(40),
+		detail: "x".repeat(200),
 	}));
 	current.registry.settle(large, structured({ summary: "ok", findings }));
 	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);

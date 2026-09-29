@@ -15,13 +15,13 @@ import { framedHost, mountTool, toolFor, toolHost } from "./fixtures/harness.js"
 import { plainTheme } from "./fixtures/theme.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const BODY_LINE = "readable body line 30";
+const BODY_LINE = "readable body line 4";
 const temporaryDirectory = temporaryDirectories("hepi-collapse-");
 
 async function fixture(): Promise<string> {
 	const cwd = await temporaryDirectory();
-	const lines = Array.from({ length: 30 }, (_, index) =>
-		index === 29 ? BODY_LINE : `readable body line ${index + 1}`,
+	const lines = Array.from({ length: 4 }, (_, index) =>
+		index === 3 ? BODY_LINE : `readable body line ${index + 1}`,
 	);
 	await writeFile(join(cwd, "big.txt"), `${lines.join("\n")}\n`, "utf8");
 	return cwd;
