@@ -80,7 +80,7 @@ test("shows the recalled page titles and expands to their ids and snippets", () 
 		theme,
 	);
 	expect(collapsed).toContain("<dim>info · memory · recalled 2 pages</dim>");
-	expect(collapsed).toContain("•</dim> <text>Conventions</text>");
+	expect(collapsed).toContain("<success>󰄴</success> <text>Conventions</text>");
 	expect(collapsed).toContain("<text>Decisions</text>");
 	expect(collapsed).not.toContain("kp-1");
 	expect(collapsed).not.toContain("publish layer");
@@ -115,7 +115,7 @@ test("says when the injected memory was cut to its budget", () => {
 			false,
 			theme,
 		),
-	).toContain("the injected memory was cut to its character budget");
+	).toContain("<warning>󰀪 the injected memory was cut to its character budget</warning>");
 	expect(
 		renderMemoryInfo({ summary: "recalled 1 page", details: injected }, false, theme),
 	).not.toContain("character budget");

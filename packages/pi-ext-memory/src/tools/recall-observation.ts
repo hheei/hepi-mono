@@ -439,10 +439,11 @@ function observationCountForHeader(details: RecallObservationToolDetails): numbe
 
 /**
  * TUI labels reuse the shared status glyphs instead of ASCII marks: 󰄴 for content the recall did
- * return, 󰀪 for a caveat about it, 󰅚 for a lookup that failed.
+ * return, 󰀪 for a result that came back short (an unknown id, a disabled gate). 󰅚 stays with a call
+ * that really failed, so the glyphs mean here what they mean everywhere else.
  */
 function formatRecallHeaderForTui(details: RecallObservationToolDetails): string {
-	if (isFailureStatus(details.status)) return "󰅚 failure";
+	if (isFailureStatus(details.status)) return `󰀪 ${details.status.replace(/_/g, " ")}`;
 	const parts = ["󰄴 success"];
 	if (details.reflections.length > 0) parts.push(plural(details.reflections.length, "reflection"));
 	const observations = observationCountForHeader(details);

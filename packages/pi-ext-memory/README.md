@@ -189,9 +189,10 @@ Tab completion after `/om ` offers these subcommands (and `full` after `/om view
 `subcommandCompletions` helper of `@hheei/pi-ext-core`.
 
 The `recall` result body reuses the shared status glyphs instead of ASCII marks: its first line is
-`󰄴 success · N observations · M sources · ~K tokens`, a lookup the id or the gate refused is
-`󰅚 failure`, every returned item gets an aligned `󰄴 reflection` / `󰄴 observation` / `󰄴 source` row, and
-every caveat gets an `󰀪 note` row (a dropped observation, a missing source, an id collision).
+`󰄴 success · N observations · M sources · ~K tokens`, a result that came back short says what stopped
+it (`󰀪 not found`, `󰀪 disabled`), every returned item gets an aligned `󰄴 reflection` / `󰄴 observation` /
+`󰄴 source` row, and every caveat gets an `󰀪 note` row (a dropped observation, a missing source, an id
+collision). The frame above the body draws the same glyph for the same result.
 
 ### Session gate vs. passive mode
 
@@ -328,7 +329,7 @@ Use a dedicated bank when repositories must not influence each other. With a sha
 
 * **First turn.** The preamble explaining the memory and its tools goes into its own `pi-ext-memory-preamble` prompt section, together with the current knowledge-page index.
 * **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `pi-ext-memory-recall` section inside a `<memory>` container. Pi sends a section only when its text changed, and an unchanged section is never repeated as a prompt update — the request itself still carries whatever the host and provider keep in context.
-* **Injection log.** Every turn that injects something appends a `memory-info` transcript entry naming what went in. It lists the recalled page titles, expands (Ctrl+O) to each page id and the recalled snippet the model was given, and notes when the container had to be cut to `maxMemoryChars`. It is native Pi territory: visible immediately, kept by resume, and never part of the model's context. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
+* **Injection log.** Every turn that injects something appends a `memory-info` transcript entry naming what went in. It lists the recalled page titles (`󰄴` for a page that did reach the prompt), expands (Ctrl+O) to each page id and the recalled snippet the model was given, and marks a container that had to be cut to `maxMemoryChars` with a `󰀪` warning row. It is native Pi territory: visible immediately, kept by resume, and never part of the model's context. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
 * **Turn end.** The run's user/assistant turns are reduced to a compact transcript (tool results and injected memory dropped, failed or aborted responses skipped) and written back in order, one request at a time. The operation id is derived from the bank, session, and batch content, so a retry or a repeated `agent_end` folds server-side instead of duplicating.
 * **Session end.** Pending writeback is flushed within a five-second grace period, then cancelled. A failed writeback is recorded and never interrupts the conversation.
 
