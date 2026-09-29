@@ -4,6 +4,8 @@
 ExtensionPoint、Subagent execution contract 和 cleanup primitives。它不是 Pi extension，不声明
 `pi.extensions`；导入本包没有 Pi runtime 副作用。
 
+需要在 worker 或子进程里用 error shaping helper 时，导入 `@hheei/pi-ext-core/errors` 子路径：它只带 error helper，不会把整套 ext-core 模块图载入新线程（每次新线程载入桶入口实测约 220ms）。
+
 完整架构与组合语义见仓库的
 [`docs/architecture/pi-ext-core.md`](../../docs/architecture/pi-ext-core.md)；维护与 consumer
 开发约定见 [`docs/development/pi-ext-core.md`](../../docs/development/pi-ext-core.md)。

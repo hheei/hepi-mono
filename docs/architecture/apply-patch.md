@@ -56,6 +56,8 @@ V4A compiler 生成内部 unified diff 时没有真实旧行号。路径只来�
 
 每个 Update 的全部 hunk 在一个短生命周期 worker thread 中顺序作用于内存 copy。worker 不写 staging 目录、不启动 native process。取消 `terminate()` 该 worker。文件上限仍为 32 MiB。
 
+worker 只从 `@hheei/pi-ext-core/errors` 取共享的 error helper：导入 ext-core 桶入口会让每个 worker 先把整套 ext-core 模块图载入新线程（实测每次 operation 约 220ms，一个多文件 patch 每个文件各付一次）。新增 worker 依赖时保持这条边界，不要在 worker 内引用桶入口。
+
 ```ts
 type PatchHunkOutcome =
   | {
