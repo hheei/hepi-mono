@@ -56,7 +56,6 @@ function setup(args: {
 		sessionGeneration: 1,
 		lifecycleSignal: args.lifecycleSignal,
 		isSessionCurrent: vi.fn((generation: number) => generation === 1),
-		observerPromise: new Promise(() => {}),
 		resolveModel: vi.fn(() => {
 			throw new Error("resolveModel must not be called");
 		}),
@@ -257,19 +256,6 @@ describe("V3 compaction hook", () => {
 		const result = await run("cmp-v2");
 
 		expect(result).toBeUndefined();
-	});
-
-	it("does not wait for worker promises or call model resolution", async () => {
-		const entries = [textCustomMessage("raw-1", "aaaa")];
-		const { run, runtime } = setup({ entries });
-
-		const result = await Promise.race([
-			run("raw-1"),
-			new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 50)),
-		]);
-
-		expect(result).toBeUndefined();
-		expect(runtime.resolveModel).not.toHaveBeenCalled();
 	});
 
 	it("cancels duplicate in-flight compaction and notifies the UI", async () => {
