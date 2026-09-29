@@ -89,6 +89,12 @@ export interface ToolTui {
 	/** Drops every tool record and pending collapse timer of the finished session. */
 	resetSession(): void;
 	setToolCollapseMode(mode: ToolCollapseMode): void;
+	/**
+	 * Reports whether the user is reading above the end, so an automatic collapse can wait
+	 * until they return to it. The active editor factory supplies it from the fullscreen
+	 * viewport; with no predicate set, or one that always reports the end (regular mode),
+	 * no collapse ever waits.
+	 */
 	setScrolledUpPredicate(predicate: (() => boolean) | undefined): void;
 	frame<TParams extends TSchema, TDetails, TState>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
@@ -500,7 +506,8 @@ class ToolTraceController {
 	/**
 	 * The one collapse decision shared by the call and result slots. An explicit
 	 * expansion wins, `off` disables every automatic collapse, and otherwise the
-	 * record is collapsed once its timer elapsed or a later trace started.
+	 * record is collapsed once its timer elapsed or a later trace started. A collapse
+	 * that would shrink the transcript under a reader is postponed instead.
 	 */
 	isCollapsed(
 		toolCallId: string | undefined,
@@ -510,7 +517,9 @@ class ToolTraceController {
 	): boolean {
 		if (expanded || toolCallId === undefined || this.mode === "off") return false;
 		const record = this.observe(toolCallId, executionStarted, invalidate);
-		return record.timerCollapsed === true || record.trace < this.trace;
+		if (record.timerCollapsed === true) return true;
+		if (record.trace >= this.trace) return false;
+		return !this.postponeWhileReading(record);
 	}
 
 	/** `on` mode keeps the host from streaming partial output of a long tool. */
@@ -522,25 +531,44 @@ class ToolTraceController {
 		this.clearCollapseTimer(tool);
 		if (tool.longOutput !== true || this.mode === "pertrace" || this.mode === "off") return;
 		if (this.mode === "on") {
-			tool.timerCollapsed = true;
+			if (!this.postponeWhileReading(tool)) tool.timerCollapsed = true;
 			return;
 		}
-		const attempt = (): void => {
+		const timer = setTimeout(() => {
 			delete tool.collapseTimer;
-			// If user is currently scrolled up reading historical output,
-			// postpone auto-collapse so we don't disrupt their reading or reset viewport to bottom.
-			if (this.isScrolledUp?.() === true) {
-				const retryTimer = setTimeout(attempt, AUTO_COLLAPSE_RETRY_DELAY_MS);
-				retryTimer.unref();
-				tool.collapseTimer = retryTimer;
-				return;
-			}
+			if (this.postponeWhileReading(tool)) return;
 			tool.timerCollapsed = true;
 			tool.invalidate?.();
-		};
-		const timer = setTimeout(attempt, AUTO_COLLAPSE_DELAY_MS);
+		}, AUTO_COLLAPSE_DELAY_MS);
 		timer.unref();
 		tool.collapseTimer = timer;
+	}
+
+	/**
+	 * Collapsing removes rows, and a shrink that drops the content end below a reader who is
+	 * above it clamps their viewport to the bottom. So while the user reads above the end, the
+	 * collapse is postponed and re-checked until they return to the end. Returns true when the
+	 * caller must not collapse now.
+	 *
+	 * The predicate reports a reader only in the fullscreen viewport: in regular mode the
+	 * transcript is the terminal's own scrollback, which Pi can neither read nor scroll, so
+	 * there the postponement never applies (see `isTuiScrolledUp`).
+	 */
+	private postponeWhileReading(record: ToolRecord): boolean {
+		if (this.isScrolledUp?.() !== true) return false;
+		if (record.collapseTimer !== undefined) return true;
+		const retry = (): void => {
+			const timer = setTimeout(() => {
+				delete record.collapseTimer;
+				if (this.postponeWhileReading(record)) return;
+				record.timerCollapsed = true;
+				record.invalidate?.();
+			}, AUTO_COLLAPSE_RETRY_DELAY_MS);
+			timer.unref();
+			record.collapseTimer = timer;
+		};
+		retry();
+		return true;
 	}
 
 	private clearCollapseTimer(tool: ToolRecord): void {
@@ -560,7 +588,9 @@ type ToolRecord = {
 	executionStarted: boolean;
 	startedAt?: number;
 	longOutput?: boolean;
+	/** Set once the automatic policy really collapsed this frame. */
 	timerCollapsed?: boolean;
+	/** The pending policy timer: the auto delay or the poll that waits out a reader. */
 	collapseTimer?: ReturnType<typeof setTimeout>;
 	completion?: ToolCompletion;
 	latest?: AgentToolResult<unknown>;
@@ -943,23 +973,19 @@ export function getToolTui(pi: ExtensionAPI): ToolTui {
 }
 
 /**
- * Detects whether the active TUI renderer is scrolled up away from the bottom.
- * Returns true if the user has scrolled up to view prior lines.
+ * Detects whether the user is reading above the end of the transcript.
+ *
+ * Only the fullscreen (alternate-screen) renderer owns a viewport Pi can read, through its
+ * public `isFollowingOutput` flag. In regular mode the transcript is written into the
+ * terminal's own scrollback: its scroll position is invisible to Pi and Pi cannot move it,
+ * so this reports false there and reading protection is **unsupported by design** for that
+ * mode. Do not patch or bypass it to change that answer (no pi-tui patch, no monkey-patched
+ * `ScrollView`, no private members): Pi's only regular-mode obligation is to not erase the
+ * scrollback, which the full-redraw rule in DESIGN.md covers.
  */
 export function isTuiScrolledUp(tui: unknown): boolean {
 	if (!tui || typeof tui !== "object") return false;
-	if ("isFollowingOutput" in tui && typeof tui.isFollowingOutput === "boolean") {
-		return !tui.isFollowingOutput;
-	}
-	if ("getPrimaryScrollView" in tui && typeof tui.getPrimaryScrollView === "function") {
-		const sv = (
-			tui as { getPrimaryScrollView: () => { isFollowingEnd?: boolean } }
-		).getPrimaryScrollView();
-		if (sv && typeof sv.isFollowingEnd === "boolean") {
-			return !sv.isFollowingEnd;
-		}
-	}
-	return false;
+	return "isFollowingOutput" in tui && tui.isFollowingOutput === false;
 }
 
 /** Installs one trace lifecycle binding for each extension runtime. */

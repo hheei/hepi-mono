@@ -71,6 +71,8 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 | `pertrace` | 只保留既有 prior Trace 规则，不启动定时器 |
 | `off` | 停用所有外框自动收合 |
 
+任何自动收合——`auto` 的 15 秒定时器、`on` 的首次 render、以及下一次 `agent_start` 的 prior Trace 收合——在用户上翻阅读（不在末尾）时都会延后，回到末尾后立即执行：收合会缩短 transcript，否则会把视口从用户正在读的位置拽到底部，延后期间该 frame 保持展开。这一保护只在 fullscreen 生效，因为只有那里的视口属于 Pi、可被读取（`isFollowingOutput`）；regular 模式的 transcript 是终端自己的 scrollback，Pi 既读不到也移不动，因此该模式**不支持**阅读位置保护，也不允许用 patch 或绕路（打 `pi-tui` patch、monkey-patch `ScrollView`、访问私有成员）伪造。
+
 保存设置会立即应用到当前 session；重新载入会重新读取保存值。15 秒定时器不会跨过 `agent_start`、session
 reset 或 shutdown。折叠只影响可见外框，不改变模型可见的 `content`、持久化 details 或 Ctrl+O 展开。
 

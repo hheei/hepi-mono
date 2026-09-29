@@ -97,6 +97,14 @@ settings group (`toolTui.collapseMode`) selects when:
 | `pertrace` | Keep only the existing prior-Trace rule. |
 | `off` | Never collapse a frame automatically. |
 
+Every automatic collapse — the 15-second `auto` timer, the `on` first completed frame, and the
+prior-Trace collapse at the next `agent_start` — waits while the user is scrolled up (not
+following the end) and happens as soon as they return to the end, because collapsing shrinks the
+transcript and would otherwise pull the viewport away from what the user is reading. That
+protection exists only in fullscreen, whose viewport Pi owns and can read; regular mode cannot
+detect a reader, so nothing there preserves a reading position and it is never faked with a
+`pi-tui` patch or a monkey-patched `ScrollView`.
+
 Saving the setting applies it immediately; reload or a new session re-reads the
 stored value. A pending timer never crosses `agent_start`, a session reset, or
 shutdown. Collapsing changes only the visible frame, never the model-visible
