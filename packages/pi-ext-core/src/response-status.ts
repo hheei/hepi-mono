@@ -63,7 +63,7 @@ export function formatDurationColor(durationMs: number | null, theme: ThemeLike)
 
 /**
  * Formats full telemetry string:
- * ↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s
+ * ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s
  * When a ColorFn is provided, styles the entire status following the bottom rail's thinking border color.
  */
 export function formatTelemetryStatus(
@@ -77,14 +77,14 @@ export function formatTelemetryStatus(
 	].join(" ");
 	const durationStr = formatDuration(metrics.durationMs ?? undefined) ?? "?";
 	const rateStr = `󰓅${formatRate(metrics.tokensPerSecond)}/s`;
-	const fullText = `${tokens}  󰔛${durationStr} ${rateStr}`;
+	const fullText = `${tokens} 󰔛${durationStr} ${rateStr}`;
 
 	if (typeof color === "function") {
 		return color(fullText);
 	}
 	const duration = formatDurationColor(metrics.durationMs, color);
 	const rate = color.fg("dim", rateStr);
-	return `${color.fg("dim", tokens)}  ${duration} ${rate}`;
+	return `${color.fg("dim", tokens)} ${duration} ${rate}`;
 }
 
 export interface BottomRailBorderOptions {
@@ -97,9 +97,9 @@ export interface BottomRailBorderOptions {
 
 /**
  * Renders the bottom rail border matching native CustomEditor.renderTopBorder layout:
- * ── ↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s ───────────────────
+ * ── ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s ───────────────────
  * When scrolling below:
- * ── ↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s ─── ↓ 3 more ────────
+ * ── ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s ─── ↓ 3 more ────────
  */
 export function renderBottomRailBorder(options: BottomRailBorderOptions): string {
 	const { width, hiddenLineCount, statusText, borderColor, fallback } = options;
