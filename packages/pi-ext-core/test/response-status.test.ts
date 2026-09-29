@@ -139,7 +139,7 @@ describe("response status", () => {
 			tokensPerSecond: 95.1,
 		};
 		const status = formatTelemetryStatus(metrics, mockTheme);
-		expect(status).toBe("[dim:↑5.3K ↓924 ⇲62.5K]  [warning:󰔛9.7s] [dim:󰓅95.1/s]");
+		expect(status).toBe("[dim:↑5.3K ↓924 ⇲62.5K] [warning:󰔛9.7s] [dim:󰓅95.1/s]");
 	});
 
 	test("formats full telemetry with ColorFn following bottom rail border color", () => {
@@ -152,7 +152,7 @@ describe("response status", () => {
 		};
 		const colorFn = (text: string) => `[border:${text}]`;
 		const status = formatTelemetryStatus(metrics, colorFn);
-		expect(status).toBe("[border:↑5.3K ↓924 ⇲62.5K  󰔛9.7s 󰓅95.1/s]");
+		expect(status).toBe("[border:↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s]");
 	});
 
 	test("keeps the last completed usage until the next response replaces it", async () => {
@@ -193,7 +193,7 @@ describe("response status", () => {
 
 			// Verify the editor bottom rail now displays the response telemetry with borderColor [b:...]
 			const bottomBorder = mockEd.renderBottomBorder(80, 0);
-			expect(bottomBorder).toContain("[b:↑654 ↓213 ⇲83K  󰔛7.1s 󰓅30.0/s]");
+			expect(bottomBorder).toContain("[b:↑654 ↓213 ⇲83K 󰔛7.1s 󰓅30.0/s]");
 
 			// A new request starts: the previous telemetry must stay visible while it runs.
 			vi.setSystemTime(10_000);
@@ -251,7 +251,7 @@ describe("response status", () => {
 	});
 
 	test("renders scroll indicator on bottom rail when content overflows below", () => {
-		const status = "[dim:↑5.3K ↓924 ⇲62.5K]  [success:󰔛3.2s] [dim:󰓅95.1/s]";
+		const status = "[dim:↑5.3K ↓924 ⇲62.5K] [success:󰔛3.2s] [dim:󰓅95.1/s]";
 		const border = renderBottomRailBorder({
 			width: 80,
 			hiddenLineCount: 4,
