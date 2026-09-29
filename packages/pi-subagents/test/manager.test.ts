@@ -656,7 +656,10 @@ describe("SubagentManager contracts", () => {
 		});
 		await manager.spawn({ task: "Work.", agent: "worker" });
 		runner.emit({ type: "agent_end" });
-		await new Promise<void>((resolve) => setTimeout(resolve, 60));
+		// Hibernation runs after the idle buffer: wait for the placement attempt, not for a delay.
+		await vi.waitFor(() => {
+			expect(registry.current?.interrupted ?? "").toContain("could not be verified");
+		});
 
 		// An unreadable session directory is not proof that the session does not exist, so the
 		// child keeps its id and stays inspectable instead of hibernating with a stale placement.

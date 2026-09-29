@@ -371,9 +371,7 @@ test("an unknown rtk version keeps rewrites in memory and writes nothing", async
 	expect(second.input.command).toBe("rtk git status");
 	runtime.reset();
 	await flush();
-	await new Promise((done) => {
-		setTimeout(done, 100);
-	});
+	// An unknown version persists nothing, so the cache file must be absent after the reset.
 	await expect(readFile(cachePath, "utf8")).rejects.toThrow();
 });
 
