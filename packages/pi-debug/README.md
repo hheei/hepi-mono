@@ -27,7 +27,11 @@ replay                          Incremental action-journal CLI
 
 ## Development
 
+The unit suite lives in `test/`. Cases that spawn the real replay CLI live in `test-integration/`, because
+each one costs a process launch; `pnpm test` skips them and `pnpm run test:integration` runs them.
+
 ```bash
 pnpm test -- packages/pi-debug/test
+pnpm run test:integration
 pnpm run typecheck
 ```

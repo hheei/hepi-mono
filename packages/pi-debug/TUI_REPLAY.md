@@ -289,8 +289,12 @@ Use component replay for deterministic UI behavior. Use a native Pi TUI smoke te
 
 ## Development checks
 
+In-process replay checks are part of `pnpm test`. The cases that drive the real CLI subprocesses live in
+`packages/pi-debug/test-integration/` and run through the optional suite, since each case pays for a
+process launch.
+
 ```bash
-pnpm test -- packages/pi-debug/test/tui-replay.test.ts
-pnpm test -- packages/pi-debug/test/tui-replay-session.test.ts
+pnpm test -- packages/pi-debug/test
+pnpm run test:integration
 pnpm run typecheck
 ```

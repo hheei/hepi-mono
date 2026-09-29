@@ -47,6 +47,9 @@ pnpm run check
 pnpm run typecheck
 pnpm test
 
+# 可选：需要真实子进程的集成测试（真实 CLI、锁竞争、重启行为）。默认 `pnpm test` 不包含它们
+pnpm run test:integration
+
 # 会修改整个仓库的 Biome 修复命令，仅在明确需要全仓格式修复时使用
 pnpm run check:fix
 ```
@@ -60,6 +63,7 @@ pnpm run check:fix
   - 单一 package 的实现或测试：跑改动文件的 Biome、受影响的测试文件，以及该 package 的 `build`（若存在）。
   - 修改共享模块、公共导出、跨 package import、根配置、依赖、脚本、类型声明或测试基础设施：升级到 `pnpm run typecheck`，并运行受影响的测试；只有行为可能跨全仓传播时才加 `pnpm test`。
   - 无法可靠界定影响范围、涉及发布产物/包边界，或用户明确要求完整门禁：才运行 `pnpm run check`。不要用 `check:fix` 代替完整检查。
+- 需要真实子进程的用例（`packages/*/test-integration/**`）不在 `pnpm test` 内：改动这些用例本身、它们驱动的 CLI/锁/重启路径，或准备发布时，额外运行 `pnpm run test:integration`。
 - 全量命令不能作为局部修改的默认收尾动作。若升级验证范围，必须在进度或最终报告中说明触发原因。
 - 测试失败时先修复或报告失败原因；禁止为了让验证通过而跳过测试、放宽类型检查或修改无关代码。
 - `check:fix` 会修改整个仓库，只在用户明确要求全仓格式修复或确实需要全局格式迁移时使用；普通局部检查使用指定文件的 Biome 命令。

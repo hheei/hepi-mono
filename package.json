@@ -15,6 +15,7 @@
 		"format:check": "biome format .",
 		"lint": "biome lint .",
 		"test": "vitest run",
+		"test:integration": "vitest run -c vitest.integration.config.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
 		"tui:replay": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay.ts",
 		"tui:replay:session": "node --no-warnings --import jiti/register packages/pi-debug/src/tui-replay-session.ts",
