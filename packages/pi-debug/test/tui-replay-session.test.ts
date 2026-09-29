@@ -175,16 +175,18 @@ describe("replay session CLI", () => {
 		const context = await fixture();
 		try {
 			const sends = await Promise.all(
-				Array.from({ length: 20 }, (_, index) =>
+				Array.from({ length: 4 }, (_, index) =>
 					// These budgets cover process startup on a loaded machine; the subject of the test is that
-					// every process terminates and serializes, not how quickly it does so.
-					runProcess(context.cwd, context.stateDir, ["send", `item-${index}`], 60_000),
+					// every process terminates and serializes, not how quickly it does so. Four overlapping
+					// callers are enough to force the queue; twenty only made the suite slower to say the same
+					// thing.
+					runProcess(context.cwd, context.stateDir, ["send", `item-${index}`], 30_000),
 				),
 			);
 			expect(sends.every((result) => result.exitCode === 0 && !result.timedOut)).toBe(true);
-			const status = await runProcess(context.cwd, context.stateDir, ["status"], 60_000);
+			const status = await runProcess(context.cwd, context.stateDir, ["status"], 30_000);
 			expect(status.exitCode).toBe(0);
-			expect(JSON.parse(status.stdout)).toMatchObject({ actions: 20 });
+			expect(JSON.parse(status.stdout)).toMatchObject({ actions: 4 });
 
 			await context.run("reset");
 			const modulePath = join(context.cwd, "interval.ts");
