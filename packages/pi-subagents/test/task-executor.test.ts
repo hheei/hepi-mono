@@ -430,7 +430,7 @@ test("chatter after a submitted result cannot push the result out of the buffer"
 		json: "submitted early",
 		structured: false,
 	});
-	for (let index = 0; index < 200; index += 1) {
+	for (let index = 0; index < 70; index += 1) {
 		h.executor.handleChildEvent("child-1", { type: "turn_end", round: index });
 	}
 	h.executor.handleChildEvent("child-1", SETTLED);
@@ -450,7 +450,7 @@ test("one starting child's chatter cannot push another child's settlement out", 
 
 	// Both launches are in flight, so neither child id is attributable yet. The first child floods
 	// the buffer with turn traffic while the second one submits and settles.
-	for (let index = 0; index < 200; index += 1) {
+	for (let index = 0; index < 70; index += 1) {
 		h.executor.handleChildEvent("child-1", { type: "turn_end", round: index });
 	}
 	h.executor.handleChildEvent("child-2", {

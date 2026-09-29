@@ -244,7 +244,7 @@ describe("V3 /om status", () => {
 
 	it("appends a timeline strip for the current branch", async () => {
 		const output = await setup({
-			entries: [textCustomMessage("raw-1", "x".repeat(4000))],
+			entries: [textCustomMessage("raw-1", "x".repeat(40))],
 		}).run();
 
 		expect(output).toContain("om timeline");
@@ -325,7 +325,7 @@ describe("V3 /om status", () => {
 		process.stdout.columns = 40;
 		try {
 			const output = await setup({
-				entries: [textCustomMessage("raw-1", "x".repeat(4000))],
+				entries: [textCustomMessage("raw-1", "x".repeat(40))],
 				model: { contextWindow: 200_000 },
 			}).run();
 

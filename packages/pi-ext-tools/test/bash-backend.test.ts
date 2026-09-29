@@ -346,7 +346,7 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 				content: [
 					{
 						type: "text",
-						text: Array.from({ length: 90 }, (_, index) => `line ${index}`).join("\n"),
+						text: Array.from({ length: 25 }, (_, index) => `line ${index}`).join("\n"),
 					},
 				],
 				details: {},

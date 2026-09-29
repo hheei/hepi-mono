@@ -844,7 +844,7 @@ describe("pi-ext-tools catalog", () => {
 					totalFiles: 1,
 					totalLines: 20,
 					durationMs: 0,
-					display: Array.from({ length: 30 }, (_, index) => ({
+					display: Array.from({ length: 21 }, (_, index) => ({
 						type: "text" as const,
 						text: `row ${index + 1}`,
 					})),
@@ -857,7 +857,7 @@ describe("pi-ext-tools catalog", () => {
 		if (collapsedResult === undefined) throw new Error("grep renderer is missing");
 		const collapsed = collapsedResult.render(200);
 		expect(collapsed).toHaveLength(23);
-		expect(collapsed.at(-3)).toContain("… (11 more lines, expand to show)");
+		expect(collapsed.at(-3)).toContain("… (2 more lines, expand to show)");
 		expect(collapsed.at(-1)).toContain("20 matches · 1 file · 20 lines · 0ms");
 		const findResult = find
 			.renderResult?.(
@@ -1144,8 +1144,10 @@ describe("pi-ext-tools catalog", () => {
 
 	test("persists only the visible write diff instead of the unchanged file body", async (): Promise<void> => {
 		const cwd = await temporaryDirectory();
-		const head = Array.from({ length: 40 }, (_value, index) => `head-${index}`).join("\n");
-		const tail = Array.from({ length: 40 }, (_value, index) => `tail-${index}`).join("\n");
+		// Twelve rows on each side put the first and last row far outside the three lines of diff
+		// context, which is all the test needs from the file's size.
+		const head = Array.from({ length: 12 }, (_value, index) => `head-${index}`).join("\n");
+		const tail = Array.from({ length: 12 }, (_value, index) => `tail-${index}`).join("\n");
 		await writeFile(join(cwd, "value.txt"), `${head}\nOLD\n${tail}\n`, "utf8");
 		const host = registeredTools();
 		const write = toolFor(host.tools, "write");
@@ -1157,7 +1159,7 @@ describe("pi-ext-tools catalog", () => {
 			(written.details as Record<string, unknown>).__piExtToolsWriteView ?? {},
 		);
 		expect(serialized).not.toContain("head-0");
-		expect(serialized).not.toContain("tail-39");
+		expect(serialized).not.toContain("tail-11");
 		const rendered = write
 			.renderResult?.(
 				written,

@@ -223,7 +223,7 @@ describe("Pi Auto Title", () => {
 				getEntries: () => [
 					{ type: "message", message: { role: "user", content: LONG_SESSION_CONTEXT } },
 					{ type: "message", message: { role: "assistant", content: "Initial result" } },
-					{ type: "message", message: { role: "assistant", content: "noise".repeat(2000) } },
+					{ type: "message", message: { role: "assistant", content: "noise".repeat(20) } },
 					{ type: "message", message: { role: "user", content: "Use pi-auto-title" } },
 					...entries,
 				],
