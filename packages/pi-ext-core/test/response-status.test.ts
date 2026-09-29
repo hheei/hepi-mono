@@ -12,7 +12,6 @@ import {
 	formatDurationColor,
 	formatRate,
 	formatTelemetryStatus,
-	patchActualTuiScrollView,
 	renderBottomRailBorder,
 	TELEMETRY_DISMISS_DELAY_MS,
 	wrapEditorBottomRail,
@@ -325,36 +324,5 @@ describe("response status", () => {
 		expect(output).toContain("󰔛7.1s");
 		expect(output).toContain("󰓅30.0/s");
 		feature.dispose("session");
-	});
-
-	test("patchActualTuiScrollView protects followingEnd from content shrinkage", () => {
-		class MockScrollView {
-			isFollowingEnd = false;
-			contentHeight = 100;
-			followingEnd = false;
-			followSuppressedAtEnd = false;
-			updateLayout(
-				this: MockScrollView,
-				_contentHeight: number,
-				_viewportHeight: number,
-				_requestRender: () => void,
-			): void {
-				// Simulates native unpatched updateLayout snapping followingEnd to true
-				this.followingEnd = true;
-				this.followSuppressedAtEnd = false;
-			}
-		}
-		const mockSv = new MockScrollView();
-		const mockTui = {
-			getPrimaryScrollView: () => mockSv,
-		};
-		patchActualTuiScrollView(mockTui);
-
-		// Content shrinks from 100 to 50
-		mockSv.updateLayout(50, 40, () => {});
-
-		// Patched updateLayout must retain followingEnd = false and set followSuppressedAtEnd = true
-		expect(mockSv.followingEnd).toBe(false);
-		expect(mockSv.followSuppressedAtEnd).toBe(true);
 	});
 });

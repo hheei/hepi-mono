@@ -13,7 +13,6 @@ import {
 	createToolTui,
 	DEFAULT_MAX_BODY_LINES,
 	getToolTui,
-	installScrollViewViewportProtection,
 	isTuiScrolledUp,
 	registerToolTuiTrace,
 	type ToolTui,
@@ -1047,28 +1046,6 @@ describe("ToolTui collapse modes", () => {
 		// getPrimaryScrollView
 		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: true }) })).toBe(false);
 		expect(isTuiScrolledUp({ getPrimaryScrollView: () => ({ isFollowingEnd: false }) })).toBe(true);
-	});
-
-	test("protects ScrollView followingEnd state when content shrinks while scrolled up", (): void => {
-		installScrollViewViewportProtection();
-		const { ScrollView } = require("@earendil-works/pi-tui");
-		const container = new Container();
-		const sv = new ScrollView(container, { follow: "end" });
-
-		// Initial layout: contentHeight 100, viewport 40 -> maxScrollTop 60, starts followingEnd: true
-		sv.updateLayout(100, 40, () => {});
-		expect(sv.isFollowingEnd).toBe(true);
-
-		// User scrolls up to view history -> followingEnd becomes false
-		sv.scrollTo(20);
-		expect(sv.isFollowingEnd).toBe(false);
-		expect(sv.scrollTop).toBe(20);
-
-		// Content shrinks from 100 to 50 (e.g. a tool body collapses)
-		sv.updateLayout(50, 40, () => {});
-
-		// Viewport protection MUST prevent followingEnd from being forced back to true
-		expect(sv.isFollowingEnd).toBe(false);
 	});
 });
 

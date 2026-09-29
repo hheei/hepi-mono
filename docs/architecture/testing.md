@@ -17,7 +17,7 @@ pnpm install --frozen-lockfile --ignore-scripts -> pnpm run build -> pnpm run ch
 
 每个声明 Pi peer contract 的 workspace 只把自身直接 import 的 Pi package 固定为本地精确 dev dependency：同一 package 若同时出现在 peer 与 dev 声明中则使用精确版本，未被 import 的 Pi package 不再声明（例如仅使用 `pi-coding-agent` 的 workspace 不再声明 `pi-agent-core`、`pi-ai`、`pi-tui`）。root 不重复声明它们；公开 peer range 保持最低兼容版本。pnpm 使用 isolated `node_modules`，各 workspace 的直接 devDependency 仍会出现在该包自己的 `node_modules` 中。
 
-`pnpm-workspace.yaml` 的 `patchedDependencies` 给 `@earendil-works/pi-tui` 打上仓库维护的 TUI patch。
+`pnpm-workspace.yaml` 的 `patchedDependencies` 给 `@earendil-works/pi-tui` 打上仓库维护的 TUI patch。该 patch 只包含两处宿主修复：Editor 在应用 slash 补全后重算补全列表，以及 full redraw 不再发送 `CSI 3 J`（保留终端 scrollback）。`ScrollView.updateLayout` 的 follow-end 逻辑保持上游原样：不 patch 视图位置，滚动行为不对宿主打补丁。
 
 ## 验证顺序
 
