@@ -14,7 +14,7 @@
 ## 抽象：Task、child session 与 runner 是三种东西
 
 - **Task**：一次有明确终态的执行。只进入终态一次；之后的新工作是新 task ID。
-- **Child session**：可被复用的上下文（`spawn_subagent` 的会话模式）。
+- **Child session**：可被复用的上下文（`spawn_agent` 的会话模式）。
 - **Runner**：承载该会话的进程。
 
 `task` 第一版每次创建**专属 child**：它执行一次、提交一次结果、随后被终止。因此
@@ -32,7 +32,7 @@
 
 通过 ext-core Service（`TASK_REGISTRY_SERVICE_KEY`）共享实例，provider 与 consumer 之间没有
 新的 orchestrator 框架，也不允许出现第二个 registry。单独安装 pi-subagents 时，会话工具照常
-可用，`task` 入口不激活并明确说明缺少集成服务；它不会静默回退到 `spawn_subagent`。
+可用，`task` 入口不激活并明确说明缺少集成服务；它不会静默回退到 `spawn_agent`。
 
 ## 状态与终态
 

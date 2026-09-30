@@ -100,9 +100,7 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 		getArgumentCompletions: subcommandCompletions(SUBAGENT_SUBCOMMANDS),
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify(
-					"Use spawn_subagent / send_subagent / get_subagent / stop_subagent in this mode",
-				);
+				ctx.ui.notify("Use spawn_agent / send_agent / get_agent / stop_agent in this mode");
 				return;
 			}
 			const { verb, rest: target } = splitSubcommand(args);

@@ -163,7 +163,7 @@ function provideRegistry(pi: ExtensionAPI, registry: TaskRegistry): void {
 describe("task child background work", () => {
 	test("a result is refused while this session still runs its own background task", async (): Promise<void> => {
 		const h = harness({ softTurns: 60 });
-		const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+		const registry = new TaskRegistry();
 		registry.create({ type: "bash", purpose: "still running" });
 		provideRegistry(h.pi, registry);
 

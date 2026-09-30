@@ -3,8 +3,10 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { getToolTui, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
+import { getToolTui, isRecord, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
+import { type DiscoveredAgent, discoverAgents } from "./agent-resolver.js";
+import { builtinAgents } from "./builtin-agents.js";
 import { sendReportToRunner } from "./connector.js";
 import { type ChildIdentity, isOperationError, type PublicSubagent } from "./domain.js";
 
@@ -19,13 +21,15 @@ const spawnSchema = Type.Object({
 	cwd: Type.Optional(Type.String()),
 });
 const sendSchema = Type.Object({
-	id: Type.String({ minLength: 1 }),
+	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
 	message: Type.String({ minLength: 1 }),
 	mode: Type.Optional(
 		Type.Union([Type.Literal("steer"), Type.Literal("follow_up"), Type.Literal("auto")]),
 	),
 });
-const idSchema = Type.Object({ id: Type.String({ minLength: 1 }) });
+const idSchema = Type.Object({
+	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
+});
 const contactSchema = Type.Object({
 	reason: Type.Union([
 		Type.Literal("progress_update"),
@@ -43,34 +47,35 @@ function result(value: unknown): AgentToolResult<unknown> {
 }
 
 const SPAWN_DESCRIPTION =
-	"Start an independent background RPC subagent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT poll get_subagent or list_subagents to wait for the child's work. When the child reports via contact_parent, the harness delivers that report as a pi-subagent-report message and starts your next turn; while you are idle, reports from several children may arrive together in one such message. After this tool returns, either end your turn or work on other independent tasks, including spawning more subagents in parallel. Do not fabricate or assume the child's results.";
+	"Start an independent background RPC agent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT poll get_agent or list_agents to wait for the child's work. When the child reports via contact_parent, the harness delivers that report as a pi-subagent-report message and starts your next turn; while you are idle, reports from several children may arrive together in one such message. After this tool returns, either end your turn or work on other independent tasks, including spawning more agents in parallel. Do not fabricate or assume the child's results.";
 const SPAWN_SNIPPET =
-	"Start a background RPC subagent. Returns when the runtime is ready. Results arrive later as pi-subagent-report; do not poll.";
+	"Start a background RPC agent. Returns when the runtime is ready. Results arrive later as pi-subagent-report; do not poll.";
 const SPAWN_GUIDELINES = [
-	"Do not poll get_subagent or list_subagents waiting for the child to finish.",
+	"Do not poll get_agent or list_agents waiting for the child to finish.",
 	"Do not sleep, wait, or tail session/log files to detect completion. The harness delivers reports.",
 	"When the child calls contact_parent, a pi-subagent-report message starts your next turn.",
 	"After spawn returns, end your turn or do other independent work, including more parallel spawns.",
 	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
-	"Prefer `task` for a review, an audit, or reconnaissance whose findings you need before your next step — it waits for the result by default; `spawn_subagent` is for a partner you will talk to again.",
+	"Prefer `task` for a review, an audit, or reconnaissance whose findings you need before your next step — it waits for the result by default; `spawn_agent` is for a partner you will talk to again.",
 ] as const;
 const SEND_DESCRIPTION =
-	"Send a steer or follow-up message to one owned child. You can send to active or finished (done) children; finished children will automatically wake up and resume with their previous session context. Do NOT poll get_subagent or list_subagents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
+	"Send a steer or follow-up message to one owned child. You can send to active or finished (done) children; finished children will automatically wake up and resume with their previous session context. Do NOT poll get_agent or list_agents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
 const SEND_SNIPPET =
 	"Send a message to one owned child (auto-resumes if finished). Reports arrive as pi-subagent-report; do not poll afterwards.";
 const GET_DESCRIPTION =
 	"Inspect one owned child: state, mode, summary, usage, and whether the view is live or last-known. Use this when you need current identity or state, not to wait for the child to finish.";
 const LIST_DESCRIPTION =
-	"List children owned by this parent session. Use this when you need ids or current state, not to wait for work to finish. Reports still arrive as pi-subagent-report messages.";
+	"List available interactive agent definitions and running subagents owned by this parent session. Use this to inspect active subagents or discover interactive agents that can be spawned with spawn_agent, not to wait for work to finish. Reports still arrive as pi-subagent-report messages.";
+const LIST_SNIPPET = "List available interactive agent definitions and running subagents.";
 const STOP_DESCRIPTION = "Persist a stopped intent, then end that child's runtime.";
 const CONTACT_DESCRIPTION =
-	"Report progress, an important finding, a decision you need, or a blocker to the parent. The parent is woken automatically; do not retry the same report. After need_decision or blocked, wait for a parent send_subagent. Do not invent new authority.";
+	"Report progress, an important finding, a decision you need, or a blocker to the parent. The parent is woken automatically; do not retry the same report. After need_decision or blocked, wait for a parent send_agent. Do not invent new authority.";
 const CONTACT_SNIPPET =
 	"Report to the parent. The parent is woken automatically; do not retry the same report.";
 const CONTACT_GUIDELINES = [
 	"Call contact_parent when the parent needs a progress update, finding, decision, or blocker.",
 	"Do not send empty status pings or retry the same report.",
-	"After need_decision or blocked, wait for a parent send_subagent. Do not invent new authority.",
+	"After need_decision or blocked, wait for a parent send_agent. Do not invent new authority.",
 ] as const;
 
 function spawnFooter(result: AgentToolResult<unknown>): string | undefined {
@@ -83,10 +88,25 @@ function spawnFooter(result: AgentToolResult<unknown>): string | undefined {
 	return undefined;
 }
 
+function childStateFooter(result: AgentToolResult<unknown>): string | undefined {
+	const details = result.details as { readonly child?: PublicSubagent } | undefined;
+	const child = details?.child;
+	if (child !== undefined && typeof child.id === "string") {
+		return `#${child.id} · ${child.state}`;
+	}
+	return undefined;
+}
+
 function listFooter(result: AgentToolResult<unknown>): string | undefined {
-	const details = result.details as readonly unknown[] | undefined;
+	const details = result.details;
+	if (isRecord(details) && Array.isArray(details.runningAgents)) {
+		const count = details.runningAgents.length;
+		if (count === 0) return undefined;
+		return count === 1 ? "1 child" : `${count} children`;
+	}
 	if (Array.isArray(details)) {
 		const count = details.length;
+		if (count === 0) return undefined;
 		return count === 1 ? "1 child" : `${count} children`;
 	}
 	return undefined;
@@ -96,55 +116,121 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 	registerToolTuiTrace(pi);
 	const tui = getToolTui(pi);
 	const spawn: ToolDefinition<typeof spawnSchema> = {
-		name: "spawn_subagent",
-		label: "Spawn subagent",
+		name: "spawn_agent",
+		label: "Spawn agent",
 		description: SPAWN_DESCRIPTION,
 		promptSnippet: SPAWN_SNIPPET,
 		promptGuidelines: [...SPAWN_GUIDELINES],
 		parameters: spawnSchema,
+		defaultActive: false,
 		async execute(_id, params) {
 			return result(await manager.spawn(params));
 		},
 	};
 	const send: ToolDefinition<typeof sendSchema> = {
-		name: "send_subagent",
-		label: "Send to subagent",
+		name: "send_agent",
+		label: "Send to agent",
 		description: SEND_DESCRIPTION,
 		promptSnippet: SEND_SNIPPET,
 		promptGuidelines: [
-			"Do not poll get_subagent or list_subagents afterwards.",
+			"Do not poll get_agent or list_agents afterwards.",
 			"Child reports arrive as pi-subagent-report messages that start your next turn.",
 		],
 		parameters: sendSchema,
+		defaultActive: false,
 		async execute(_id, params, signal) {
 			return result(await manager.send(params.id, params.message, params.mode, signal));
 		},
 	};
 	const get: ToolDefinition<typeof idSchema> = {
-		name: "get_subagent",
-		label: "Get subagent",
+		name: "get_agent",
+		label: "Get agent",
 		description: GET_DESCRIPTION,
 		promptSnippet: GET_DESCRIPTION,
 		parameters: idSchema,
+		defaultActive: false,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
 		async execute(_id, params) {
 			return result(await manager.get(params.id));
 		},
 	};
 	const list: ToolDefinition<typeof emptySchema> = {
-		name: "list_subagents",
-		label: "List subagents",
+		name: "list_agents",
+		label: "List agents",
 		description: LIST_DESCRIPTION,
-		promptSnippet: LIST_DESCRIPTION,
+		promptSnippet: LIST_SNIPPET,
 		parameters: emptySchema,
-		async execute() {
-			return result(await manager.list());
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
+		async execute(_id, _params, _signal, _onUpdate, ctx) {
+			const children = await manager.list();
+			const cwd =
+				ctx !== undefined && typeof ctx === "object" && "cwd" in ctx && typeof ctx.cwd === "string"
+					? ctx.cwd
+					: process.cwd();
+			let allAgents: readonly DiscoveredAgent[];
+			try {
+				allAgents = await discoverAgents(cwd);
+			} catch {
+				allAgents = builtinAgents();
+			}
+			const visible = allAgents.filter((agent) => agent.frontmatter.hidden !== true);
+
+			const interactiveAgents = visible
+				.filter((agent) => agent.frontmatter.interactive === true)
+				.map((agent) => ({
+					name: agent.name,
+					description:
+						typeof agent.frontmatter.description === "string" &&
+						agent.frontmatter.description.trim() !== ""
+							? agent.frontmatter.description.trim()
+							: "No description provided.",
+				}))
+				.sort((a, b) => a.name.localeCompare(b.name));
+
+			const lines: string[] = [];
+
+			if (interactiveAgents.length > 0) {
+				lines.push("<interactive_agents>");
+				for (const agent of interactiveAgents) {
+					lines.push(`- ${agent.name}: ${agent.description}`);
+				}
+				lines.push("</interactive_agents>");
+			}
+
+			if (children.length > 0) {
+				if (lines.length > 0) lines.push("");
+				lines.push("<running_agents>");
+				for (const child of children) {
+					const summaryPart = child.summary ? ` | summary: ${child.summary}` : "";
+					lines.push(
+						`- id: ${child.id} | agent: ${child.agent} | state: ${child.state}${summaryPart}`,
+					);
+				}
+				lines.push("</running_agents>");
+			}
+
+			if (lines.length === 0) {
+				lines.push("No active or available interactive subagents.");
+			}
+
+			return textToolResult(lines.join("\n"), {
+				...(interactiveAgents.length > 0 ? { interactiveAgents } : {}),
+				runningAgents: children,
+			});
 		},
 	};
 	const stop: ToolDefinition<typeof idSchema> = {
-		name: "stop_subagent",
-		label: "Stop subagent",
+		name: "stop_agent",
+		label: "Stop agent",
 		description: STOP_DESCRIPTION,
 		parameters: idSchema,
+		defaultActive: false,
 		async execute(_id, params, signal) {
 			return result(await manager.stop(params.id, signal));
 		},
@@ -160,12 +246,14 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		tui.frame(send, {
 			summary: (args) => args.id,
 			headerLine: "truncate",
+			footer: childStateFooter,
 		}),
 	);
 	pi.registerTool(
 		tui.frame(get, {
 			summary: (args) => args.id,
 			headerLine: "truncate",
+			footer: childStateFooter,
 		}),
 	);
 	pi.registerTool(
@@ -179,6 +267,7 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		tui.frame(stop, {
 			summary: (args) => args.id,
 			headerLine: "truncate",
+			footer: childStateFooter,
 		}),
 	);
 }

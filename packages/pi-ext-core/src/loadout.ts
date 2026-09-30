@@ -1,4 +1,9 @@
-import type { ExtensionAPI, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	Theme,
+	ToolDefinition,
+	ToolExposure,
+} from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
@@ -62,6 +67,8 @@ export interface LoadoutResourceMetadata {
 export interface ManagedToolRegistration {
 	readonly id: string;
 	readonly owner: string;
+	readonly defaultActive?: boolean;
+	readonly exposure?: ToolExposure;
 }
 
 export interface LoadoutInventoryObserver {
@@ -189,7 +196,18 @@ export function registerManagedTool<TParams extends TSchema, TDetails, TState>(
 	const current = state.managed.get(registration.id);
 	if (current !== undefined && (current.owner !== registration.owner || current.runner === pi))
 		throw new Error(`Managed tool id already registered: ${registration.id}`);
-	pi.registerTool(tool);
+
+	const effectiveTool: ToolDefinition<TParams, TDetails, TState> = {
+		...tool,
+		...(tool.defaultActive === undefined && registration.defaultActive !== undefined
+			? { defaultActive: registration.defaultActive }
+			: {}),
+		...(tool.exposure === undefined && registration.exposure !== undefined
+			? { exposure: registration.exposure }
+			: {}),
+	};
+
+	pi.registerTool(effectiveTool);
 	state.managed.set(registration.id, { owner: registration.owner, runner: pi });
 }
 

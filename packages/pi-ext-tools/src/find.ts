@@ -274,6 +274,10 @@ export function registerFindTool(
 		promptSnippet: FIND_PROMPT_SNIPPET,
 		promptGuidelines: FIND_PROMPT_GUIDELINES,
 		parameters: schema,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
 		renderResult: renderFindResult,
 		async execute(
 			id: string,

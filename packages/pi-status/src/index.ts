@@ -5,6 +5,7 @@ export {
 	formatCwdForFooter,
 	formatFooterContext,
 	formatFooterModel,
+	formatFooterPath,
 	layoutTwoColumnRow,
 	type ReadonlyFooterDataProvider,
 } from "./footer.js";

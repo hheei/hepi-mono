@@ -26,7 +26,10 @@ interface Harness {
 }
 
 function harness(options: { maxRunning?: number; maxQueued?: number } = {}): Harness {
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry({
+		maxConcurrentByType: { task: options.maxRunning ?? 4 },
+		maxQueued: options.maxQueued ?? 32,
+	});
 	const launches: string[] = [];
 	const stops: string[] = [];
 	const unconfirmed = new Set<string>();

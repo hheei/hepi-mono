@@ -701,6 +701,10 @@ export function registerGrepTool(
 		promptSnippet: GREP_PROMPT_SNIPPET,
 		promptGuidelines: GREP_PROMPT_GUIDELINES,
 		parameters: schema,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
 		renderResult: renderGrepResult,
 		async execute(
 			_toolCallId: string,

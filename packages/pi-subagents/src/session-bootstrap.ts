@@ -166,8 +166,28 @@ export async function planSessionPlacement(
 	return { sessionId: options.sessionId, sessionDir, persistence: "never_flushed" };
 }
 
-export function createSubagentId(): string {
-	return `sa_${randomUUID().replace(/-/gu, "").slice(0, 12)}`;
+let nextSubagentIndex = 0;
+
+export function resetSubagentIdCounter(value = 0): void {
+	nextSubagentIndex = value;
+}
+
+export function createSubagentId(existingIds?: readonly string[]): string {
+	if (existingIds !== undefined && existingIds.length > 0) {
+		let max = 0;
+		for (const id of existingIds) {
+			const match = /^agent-(\d+)$/u.exec(id);
+			if (match?.[1]) {
+				const num = Number.parseInt(match[1], 10);
+				if (num > max) max = num;
+			}
+		}
+		if (max > 0) {
+			nextSubagentIndex = Math.max(nextSubagentIndex, max);
+		}
+	}
+	nextSubagentIndex += 1;
+	return `agent-${nextSubagentIndex}`;
 }
 
 export interface ResolveSubagentLaunchOptions {
@@ -185,6 +205,7 @@ export interface ResolveSubagentLaunchOptions {
 	readonly homeDirectory?: string;
 	readonly subagentId?: string;
 	readonly sessionId?: string;
+	readonly existingSubagentIds?: readonly string[];
 }
 
 /**
@@ -196,15 +217,15 @@ export async function resolveSubagentLaunch(
 	options: ResolveSubagentLaunchOptions,
 ): Promise<EffectiveLaunchConfig> {
 	const task = options.input.task.trim();
-	if (task === "") throw new Error("spawn_subagent requires a non-empty task");
+	if (task === "") throw new Error("spawn_agent requires a non-empty task");
 	const name = options.input.agent?.trim();
 	if (name === undefined || name === "") {
 		throw new Error(
-			"spawn_subagent requires an explicit agent name; V1 has no built-in default agent",
+			"spawn_agent requires an explicit agent name; V1 has no built-in default agent",
 		);
 	}
 	const cwd = resolve(options.input.cwd?.trim() || options.cwd);
-	const subagentId = options.subagentId ?? createSubagentId();
+	const subagentId = options.subagentId ?? createSubagentId(options.existingSubagentIds);
 	const sessionId = options.sessionId ?? randomUUID();
 	const bridgeExtensionPath = options.bridgeExtensionPath ?? resolveBridgeExtensionPath();
 	const policy = await resolveAgent({

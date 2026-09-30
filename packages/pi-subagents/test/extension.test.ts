@@ -48,11 +48,11 @@ describe("extension branch", () => {
 		const { pi, tools } = fakePi();
 		registerParentTools(pi, { closeLocalConnections: vi.fn() } as never);
 		expect(tools.map((tool) => tool.name)).toEqual([
-			"spawn_subagent",
-			"send_subagent",
-			"get_subagent",
-			"list_subagents",
-			"stop_subagent",
+			"spawn_agent",
+			"send_agent",
+			"get_agent",
+			"list_agents",
+			"stop_agent",
 		]);
 		expect(tools[0]?.description).toContain("Do NOT poll");
 		expect(tools[0]?.promptSnippet).toContain("do not poll");

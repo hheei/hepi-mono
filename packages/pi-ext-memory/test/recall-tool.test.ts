@@ -55,7 +55,9 @@ describe("V3 recall tool", () => {
 		expect(recallObservationTool.name).toBe("recall");
 		expect(recallObservationTool.label).toBe("Recall memory evidence");
 		expect(formatRecallCallForTui("aaaaaaaaaaaa")).toBe("recall aaaaaaaaaaaa");
-		expect(pi.registerTool).toHaveBeenCalledWith(recallObservationTool);
+		expect(pi.registerTool).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "recall", label: "Recall memory evidence" }),
+		);
 		expect(RECALL_TOOL_REGISTRATION).toEqual({
 			id: "recall",
 			owner: "@hheei/pi-ext-memory",
@@ -191,5 +193,12 @@ describe("V3 recall tool", () => {
 
 		expect(result.details?.status).toBe("ok");
 		expect(text).toContain("source text");
+	});
+
+	it("defines readOnlyHint and idempotentHint annotations for 0.99.1 codemode and scheduling", () => {
+		expect(recallObservationTool.annotations).toEqual({
+			readOnlyHint: true,
+			idempotentHint: true,
+		});
 	});
 });

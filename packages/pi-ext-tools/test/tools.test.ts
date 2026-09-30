@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	type ExtensionContext,
+	type ExtensionToolContext,
 	initTheme,
 	type Theme,
 	type ToolDefinition,
@@ -513,7 +513,7 @@ describe("pi-ext-tools catalog", () => {
 		);
 		const result = await write.execute("write-preview", args, undefined, undefined, {
 			cwd,
-		} as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const rendered = write
 			.renderResult?.(
 				result,
@@ -553,7 +553,7 @@ describe("pi-ext-tools catalog", () => {
 				getSessionId: (): string => "ext-tools-render-test",
 				getSessionFile: (): undefined => undefined,
 			},
-		} as unknown as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const header = edit
 			.renderCall?.(
 				args,
@@ -625,7 +625,7 @@ describe("pi-ext-tools catalog", () => {
 				getSessionId: (): string => "ext-tools-render-test",
 				getSessionFile: (): undefined => undefined,
 			},
-		} as unknown as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		component.updateResult({ ...result, isError: false });
 		const live = stripTerminalSequences(component.render(100).join("\n"));
 		expect(live).toContain("before");
@@ -737,7 +737,7 @@ describe("pi-ext-tools catalog", () => {
 				getSessionId: (): string => "ext-tools-render-test",
 				getSessionFile: (): undefined => undefined,
 			},
-		} as unknown as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const rows = edit
 			.renderResult?.(
 				result,
@@ -1048,7 +1048,7 @@ describe("pi-ext-tools catalog", () => {
 
 		const result = await read.execute("read-1", { path: "value.txt" }, undefined, undefined, {
 			cwd,
-		} as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		expect(result.content).toContainEqual({ type: "text", text: "canonical\n" });
 		expect(result.details).toMatchObject({
 			__piExtToolsRead: { characters: 10, lines: 2 },
@@ -1066,7 +1066,7 @@ describe("pi-ext-tools catalog", () => {
 			{ patch: "*** Begin Patch\n*** Add File: created.txt\n+created\n*** End Patch" },
 			undefined,
 			undefined,
-			{ cwd } as ExtensionContext,
+			{ cwd } as unknown as ExtensionToolContext,
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
@@ -1092,7 +1092,7 @@ describe("pi-ext-tools catalog", () => {
 			},
 			undefined,
 			undefined,
-			{ cwd } as ExtensionContext,
+			{ cwd } as unknown as ExtensionToolContext,
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
@@ -1121,7 +1121,7 @@ describe("pi-ext-tools catalog", () => {
 			},
 			undefined,
 			undefined,
-			{ cwd } as ExtensionContext,
+			{ cwd } as unknown as ExtensionToolContext,
 		);
 
 		expect(result.details).toMatchObject({
@@ -1154,7 +1154,7 @@ describe("pi-ext-tools catalog", () => {
 		const args = { path: "value.txt", content: `${head}\nNEW\n${tail}\n` };
 		const written = await write.execute("write-snippet", args, undefined, undefined, {
 			cwd,
-		} as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const serialized = JSON.stringify(
 			(written.details as Record<string, unknown>).__piExtToolsWriteView ?? {},
 		);
@@ -1230,7 +1230,7 @@ describe("pi-ext-tools catalog", () => {
 				getSessionId: (): string => "ext-tools-test",
 				getSessionFile: (): undefined => undefined,
 			},
-		} as unknown as ExtensionContext;
+		} as unknown as ExtensionToolContext;
 		const write = toolFor(host.tools, "write");
 		const edit = toolFor(host.tools, "edit");
 
@@ -1302,7 +1302,7 @@ describe("pi-ext-tools catalog", () => {
 				getSessionId: (): string => "ext-tools-test",
 				getSessionFile: (): undefined => undefined,
 			},
-		} as unknown as ExtensionContext;
+		} as unknown as ExtensionToolContext;
 		const write = toolFor(host.tools, "write");
 		const edit = toolFor(host.tools, "edit");
 

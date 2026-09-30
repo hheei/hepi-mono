@@ -1,4 +1,4 @@
-import type { ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
 import { BashInput } from "../src/bash.js";
@@ -42,13 +42,23 @@ describe("Eval tool bridge", () => {
 		const bridge = new EvalToolBridge(new Map([["read", readTool()]]), () => true);
 		const traces: unknown[] = [];
 		await expect(
-			bridge.call("read", { path: "a.txt" }, {} as ExtensionContext, undefined, (trace) =>
-				traces.push(trace),
+			bridge.call(
+				"read",
+				{ path: "a.txt" },
+				{} as unknown as ExtensionToolContext,
+				undefined,
+				(trace) => traces.push(trace),
 			),
 		).resolves.toEqual({ text: "contents" });
 		expect(traces).toHaveLength(1);
 		await expect(
-			bridge.call("read", { wrong: "a.txt" }, {} as ExtensionContext, undefined, () => {}),
+			bridge.call(
+				"read",
+				{ wrong: "a.txt" },
+				{} as unknown as ExtensionToolContext,
+				undefined,
+				() => {},
+			),
 		).rejects.toThrow("Invalid arguments");
 	});
 
@@ -58,7 +68,7 @@ describe("Eval tool bridge", () => {
 			bridge.call(
 				"bash",
 				{ command: "pwd", blocking: false },
-				{} as ExtensionContext,
+				{} as unknown as ExtensionToolContext,
 				undefined,
 				() => {},
 			),
@@ -67,7 +77,7 @@ describe("Eval tool bridge", () => {
 			bridge.call(
 				"bash",
 				{ command: "pwd", async: true },
-				{} as ExtensionContext,
+				{} as unknown as ExtensionToolContext,
 				undefined,
 				() => {},
 			),
@@ -76,7 +86,7 @@ describe("Eval tool bridge", () => {
 			bridge.call(
 				"bash",
 				{ command: "pwd", unsupported: true },
-				{} as ExtensionContext,
+				{} as unknown as ExtensionToolContext,
 				undefined,
 				() => {},
 			),
@@ -90,7 +100,13 @@ describe("Eval tool bridge", () => {
 			() => true,
 		);
 		await expect(
-			bridge.call("read", { path: "a.txt" }, {} as ExtensionContext, undefined, () => {}),
+			bridge.call(
+				"read",
+				{ path: "a.txt" },
+				{} as unknown as ExtensionToolContext,
+				undefined,
+				() => {},
+			),
 		).rejects.toBeInstanceOf(EvalToolError);
 	});
 
@@ -108,7 +124,13 @@ describe("Eval tool bridge", () => {
 			() => true,
 		);
 		await expect(
-			bridge.call("read", { path: "a.txt" }, {} as ExtensionContext, undefined, () => {}),
+			bridge.call(
+				"read",
+				{ path: "a.txt" },
+				{} as unknown as ExtensionToolContext,
+				undefined,
+				() => {},
+			),
 		).rejects.toBeInstanceOf(EvalToolError);
 	});
 
@@ -134,7 +156,13 @@ describe("Eval tool bridge", () => {
 			},
 		);
 		await expect(
-			bridge.call("bash", { command: "false" }, {} as ExtensionContext, undefined, () => {}),
+			bridge.call(
+				"bash",
+				{ command: "false" },
+				{} as unknown as ExtensionToolContext,
+				undefined,
+				() => {},
+			),
 		).rejects.toBeInstanceOf(EvalToolError);
 	});
 
@@ -213,9 +241,15 @@ describe("nested live results are bounded by what they retain", () => {
 	async function remember(tool: ToolDefinition): Promise<string> {
 		const bridge = new EvalToolBridge(new Map([["read", tool]]), () => true);
 		let id: string | undefined;
-		await bridge.call("read", { path: "a.png" }, {} as ExtensionContext, undefined, (trace) => {
-			id = trace.toolCallId;
-		});
+		await bridge.call(
+			"read",
+			{ path: "a.png" },
+			{} as unknown as ExtensionToolContext,
+			undefined,
+			(trace) => {
+				id = trace.toolCallId;
+			},
+		);
 		if (id === undefined) throw new Error("expected a nested tool call id");
 		return id;
 	}

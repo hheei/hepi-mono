@@ -15,6 +15,7 @@ import {
 	isTerminalTaskStatus,
 	type TaskBinding,
 	type TaskProgress,
+	TaskQueueFullError,
 	type TaskRegistry,
 	type TaskSnapshot,
 	type TaskTerminal,
@@ -105,7 +106,6 @@ interface TaskJob {
 export class AgentTaskExecutor {
 	readonly #deps: AgentTaskExecutorDeps;
 	readonly #jobs = new Map<string, TaskJob>();
-	readonly #queue: string[] = [];
 	readonly #held = new Map<string, unknown[]>();
 	/** Ids whose child is being torn down right now, so cleanup is not started twice. */
 	readonly #terminating = new Set<string>();
@@ -120,11 +120,15 @@ export class AgentTaskExecutor {
 	 * slot is already counted here; adding it again would make one failed stop consume two slots.
 	 */
 	get running(): number {
-		return this.#jobs.size - this.#queue.length;
+		let count = 0;
+		for (const job of this.#jobs.values()) {
+			if (job.phase !== "queued") count += 1;
+		}
+		return count;
 	}
 
 	get queued(): number {
-		return this.#queue.length;
+		return this.#deps.registry.queuedCount;
 	}
 
 	/**
@@ -133,8 +137,6 @@ export class AgentTaskExecutor {
 	 */
 	public start(request: AgentTaskRequest): TaskSnapshot {
 		if (this.#disposed) throw new Error("Task executor is closed");
-		const maxQueued = this.#deps.maxQueued ?? DEFAULT_MAX_QUEUED_TASKS;
-		if (this.#queue.length >= maxQueued) throw new AgentTaskQueueError(maxQueued);
 		const job: TaskJob = {
 			id: "",
 			request,
@@ -143,20 +145,32 @@ export class AgentTaskExecutor {
 			candidate: undefined,
 			output: "queued",
 		};
-		const snapshot = this.#deps.registry.create({
-			type: "agent",
-			purpose: purposeOf(request),
-			initialStatus: "queued",
-			...(request.anchor === undefined ? {} : { anchor: request.anchor }),
-			// A blocking `task` call returns the result itself, so it must not also reserve a
-			// notification for the same outcome.
-			...(request.inlineResult === undefined ? {} : { inlineResult: request.inlineResult }),
-			begin: (id) => this.#binding(job, id),
-		});
+		let snapshot: TaskSnapshot;
+		try {
+			snapshot = this.#deps.registry.create({
+				type: "task",
+				purpose: purposeOf(request),
+				...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+				// A blocking `task` call returns the result itself, so it must not also reserve a
+				// notification for the same outcome.
+				...(request.inlineResult === undefined ? {} : { inlineResult: request.inlineResult }),
+				begin: (id) => {
+					void this.#run(job);
+					return this.#binding(job, id);
+				},
+			});
+		} catch (error) {
+			if (error instanceof TaskQueueFullError) {
+				throw new AgentTaskQueueError(error.limit);
+			}
+			throw error;
+		}
 		job.id = snapshot.id;
+		if (snapshot.status !== "queued") {
+			job.phase = "starting";
+			job.output = "starting child";
+		}
 		this.#jobs.set(snapshot.id, job);
-		this.#queue.push(snapshot.id);
-		this.#drain();
 		return snapshot;
 	}
 
@@ -190,12 +204,9 @@ export class AgentTaskExecutor {
 		const job = this.#jobs.get(id);
 		if (job === undefined) return;
 		if (job.phase === "queued") {
-			// A queued Task never starts a process, so cancellation is already complete.
-			const index = this.#queue.indexOf(id);
-			if (index !== -1) this.#queue.splice(index, 1);
 			job.phase = "stopping";
-			this.#settle(id, { status: "cancelled", output: "cancelled before start", truncated: false });
-			this.#drain();
+			this.#jobs.delete(id);
+			this.#deps.registry.stop([id]);
 			return;
 		}
 		if (job.phase === "starting") {
@@ -214,7 +225,6 @@ export class AgentTaskExecutor {
 	/** Ends every remaining execution. Used when the owning session goes away. */
 	public dispose(): void {
 		this.#disposed = true;
-		this.#queue.length = 0;
 		for (const job of [...this.#jobs.values()]) {
 			if (job.phase === "queued") {
 				this.#settle(job.id, { status: "cancelled", output: "session ended", truncated: false });
@@ -305,18 +315,6 @@ export class AgentTaskExecutor {
 		};
 	}
 
-	#drain(): void {
-		if (this.#disposed) return;
-		const maxRunning = this.#deps.maxRunning ?? DEFAULT_MAX_TASK_EXECUTIONS;
-		while (this.#queue.length > 0 && this.running < maxRunning) {
-			const id = this.#queue.shift();
-			if (id === undefined) break;
-			const job = this.#jobs.get(id);
-			if (job === undefined) continue;
-			void this.#run(job);
-		}
-	}
-
 	async #run(job: TaskJob): Promise<void> {
 		job.phase = "starting";
 		job.output = "starting child";
@@ -338,7 +336,6 @@ export class AgentTaskExecutor {
 							detail: { stage: "launch", safeToRetry: true },
 						},
 			);
-			this.#drain();
 			return;
 		}
 		job.child = child;
@@ -412,7 +409,6 @@ export class AgentTaskExecutor {
 				return;
 			}
 			this.#settle(id, terminal);
-			this.#drain();
 		} finally {
 			this.#terminating.delete(id);
 		}

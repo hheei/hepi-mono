@@ -87,7 +87,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		for (const event of waiting) held.add(event.id);
 		const names = waiting.map((event) => event.shortId).join(", ");
 		notify(
-			`${waiting.length === 1 ? "A task result is" : `${waiting.length} task results are`} waiting on another branch: ${names}. Return to that branch, or read them with wait_tasks (list_tasks has the full ids).`,
+			`${waiting.length === 1 ? "A task result is" : `${waiting.length} task results are`} waiting on another branch: ${names}. Return to that branch, or read them with wait_tasks.`,
 			"info",
 		);
 	};

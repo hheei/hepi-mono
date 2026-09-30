@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
 	ExtensionAPI,
-	ExtensionContext,
+	ExtensionToolContext,
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -74,7 +74,7 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 				getSessionFile: () => undefined,
 				getLeafId: () => null,
 			},
-		} as ExtensionContext,
+		} as unknown as ExtensionToolContext,
 	);
 
 	expect(result.content).toEqual([{ type: "text", text: "restored-backend" }]);
@@ -97,7 +97,7 @@ test("bash never streams Pi host temporary output paths", async (): Promise<void
 				getSessionFile: () => undefined,
 				getLeafId: () => null,
 			},
-		} as ExtensionContext,
+		} as unknown as ExtensionToolContext,
 	);
 	expect(updates.length).toBeGreaterThan(0);
 	expect(updates.map((update) => JSON.stringify(update)).join("\n")).not.toContain(
@@ -117,7 +117,7 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 				cwd: process.cwd(),
 				mode: "print",
 				sessionManager: { getLeafId: () => null },
-			} as ExtensionContext,
+			} as unknown as ExtensionToolContext,
 		),
 	).rejects.toThrow("Invalid bash parameters");
 });
@@ -133,7 +133,7 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 			cwd: process.cwd(),
 			mode: "print",
 			sessionManager: { getLeafId: () => null },
-		} as ExtensionContext,
+		} as unknown as ExtensionToolContext,
 	);
 	expect(result.content).toEqual([{ type: "text", text: "normalized" }]);
 });
@@ -147,7 +147,10 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 		{ command: "printf spawned" },
 		controller.signal,
 		() => undefined,
-		{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
 	);
 	expect(result).toMatchObject({
 		content: [{ type: "text", text: "Bash aborted" }],
@@ -160,8 +163,8 @@ test("bash exposes only background use guidance", (): void => {
 	expect(bash.description).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
-		"Use `blocking: false` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed.",
+		"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_tasks` to wait for any unfinished background tasks.",
+		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed. After completing immediate work, wait for them with `wait_tasks`.",
 		"Remote `target` is an authorized SSH host and always runs in the foreground.",
 	]);
 });
@@ -258,7 +261,7 @@ test("a previous bash trace keeps its facts and drops the command", async (): Pr
 	await bash.execute("previous-bash", { command: "true" }, undefined, undefined, {
 		cwd: process.cwd(),
 		sessionManager: { getLeafId: () => null },
-	} as ExtensionContext);
+	} as unknown as ExtensionToolContext);
 	tui.beginTrace();
 	const theme = plainTheme;
 	const line = bash
@@ -451,7 +454,10 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 		{ command: "printf 'one\\ntwo\\n'" },
 		undefined,
 		undefined,
-		{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
 	);
 	tui.beginTrace();
 	const theme = plainTheme;
@@ -474,7 +480,7 @@ test("bash summarizes exit code, output lines, and duration in collapsed traces"
 
 test("bash rejects background execution on SSH targets", async (): Promise<void> => {
 	const bash = bashTool();
-	const context = { cwd: process.cwd() } as ExtensionContext;
+	const context = { cwd: process.cwd() } as unknown as ExtensionToolContext;
 	expect(
 		await bash.execute(
 			"bash-remote-async",
@@ -552,7 +558,10 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				{ command: "printf remote-ok", target: "ileqm" },
 				undefined,
 				undefined,
-				{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
+				{
+					cwd: process.cwd(),
+					sessionManager: { getLeafId: () => null },
+				} as unknown as ExtensionToolContext,
 			);
 			expect(result.content).toEqual([{ type: "text", text: "remote-ok" }]);
 			expect(result.details).toMatchObject({
@@ -565,7 +574,10 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 				{ command: "true", target: "nope" },
 				undefined,
 				undefined,
-				{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as ExtensionContext,
+				{
+					cwd: process.cwd(),
+					sessionManager: { getLeafId: () => null },
+				} as unknown as ExtensionToolContext,
 			);
 			expect(denied.content[0]).toMatchObject({
 				type: "text",

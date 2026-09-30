@@ -21,8 +21,8 @@ export const SUBAGENT_TONE: Record<
 	"muted" | "warning" | "accent" | "success" | "dim" | "error"
 > = {
 	starting: "muted",
-	running: "warning",
-	idle: "accent",
+	running: "accent",
+	idle: "dim",
 	done: "success",
 	failed: "error",
 	stopped: "dim",

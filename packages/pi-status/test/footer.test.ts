@@ -7,6 +7,7 @@ import {
 	formatCwdForFooter,
 	formatFooterContext,
 	formatFooterModel,
+	formatFooterPath,
 	layoutTwoColumnRow,
 	type ReadonlyFooterDataProvider,
 } from "../src/index.js";
@@ -50,13 +51,31 @@ describe("compact footer formatting", () => {
 
 		// without model
 		expect(formatFooterModel(undefined, undefined)).toBe("no-model");
+
+		// with theme: provider in dim, model in text, thinking in dim parens + accent
+		expect(formatFooterModel({ id: "gemini-3.8-flash", provider: "gm" }, "high", mockTheme)).toBe(
+			"[dim:gm/][text:gemini-3.8-flash][dim:(][accent:high][dim:)]",
+		);
+
+		expect(formatFooterModel({ id: "gemini-3.8-flash" }, "off", mockTheme)).toBe(
+			"[text:gemini-3.8-flash]",
+		);
+	});
+
+	test("formats footer path with muted cwd and accent branch in dim parens", () => {
+		expect(formatFooterPath("/home/user/project", "main", mockTheme, "/home/user")).toBe(
+			"[muted:~/project] [dim:(][accent:main][dim:)]",
+		);
+		expect(formatFooterPath("/home/user/project", undefined, mockTheme, "/home/user")).toBe(
+			"[muted:~/project]",
+		);
 	});
 
 	test("formats context ratio with semantic color thresholds", () => {
-		// <= 70% is dim
+		// <= 70% is muted percent + dim window
 		expect(
 			formatFooterContext({ percent: 12, contextWindow: 1_000_000 }, 1_000_000, mockTheme),
-		).toBe("[dim:12%/1M]");
+		).toBe("[muted:12%][dim:/1M]");
 
 		// 70% ~ 90% is warning
 		expect(formatFooterContext({ percent: 75.4, contextWindow: 200_000 }, 200_000, mockTheme)).toBe(
@@ -69,7 +88,7 @@ describe("compact footer formatting", () => {
 		);
 
 		// missing percent shows ?%
-		expect(formatFooterContext(undefined, 128_000, mockTheme)).toBe("[dim:?%/128K]");
+		expect(formatFooterContext(undefined, 128_000, mockTheme)).toBe("[muted:?%][dim:/128K]");
 	});
 
 	test("arranges two columns with left-priority truncation on narrow widths", () => {
@@ -127,17 +146,20 @@ describe("CompactFooterComponent", () => {
 			footerData,
 		);
 
-		const lines = footer.render(80);
+		const lines = footer.render(120);
 		expect(lines).toHaveLength(2);
 
 		// Line 1: cwd + branch on left, session name on right
-		expect(lines[0]).toContain("hepi-mono (main)");
+		expect(lines[0]).toContain("hepi-mono");
+		expect(lines[0]).toContain("main");
 		expect(lines[0]).toContain("Optimize footer");
 
 		// Line 2: provider/model(level) · context on left, todo on right
-		expect(lines[1]).toContain("gm/gemini-3.8-flash(high)");
+		expect(lines[1]).toContain("gemini-3.8-flash");
+		expect(lines[1]).toContain("high");
 		expect(lines[1]).toContain("·");
-		expect(lines[1]).toContain("12%/1M");
+		expect(lines[1]).toContain("12%");
+		expect(lines[1]).toContain("/1M");
 		expect(lines[1]).toContain("󰪠 #1 Task title");
 
 		footer.dispose();
@@ -173,7 +195,7 @@ describe("CompactFooterComponent", () => {
 			footerData,
 		);
 
-		const lines = footer.render(80);
+		const lines = footer.render(120);
 		expect(lines).toHaveLength(2);
 
 		// Line 1: auto-title generating status MUST be on line 1 right

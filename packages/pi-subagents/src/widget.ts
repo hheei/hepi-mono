@@ -79,10 +79,9 @@ export function renderSubagentWidget(
 	const visible = visibleChildren(children, nowMs);
 	if (visible.length === 0) return [];
 	const running = visible.filter((child) => child.state === "running").length;
-	const starting = visible.filter((child) => child.state === "starting").length;
-	const headingColor = running > 0 ? "warning" : starting > 0 ? "muted" : "dim";
+	const headingColor = running > 0 ? "accent" : "dim";
 	const headingGlyph = running > 0 ? "󰪠" : "󰄰";
-	const heading = `${theme.fg(headingColor, headingGlyph)} ${theme.fg("text", `Subagents (${visible.length})`)}`;
+	const heading = `${theme.fg(headingColor, headingGlyph)} ${theme.fg("text", "Subagents")} ${theme.fg("dim", `(${visible.length})`)}`;
 	const lines = [truncateToWidth(heading, width, theme.fg("dim", "…"))];
 	const rows = visible.slice(0, MAX_ROWS);
 	for (let index = 0; index < rows.length; index++) {
@@ -91,7 +90,7 @@ export function renderSubagentWidget(
 		const last = index === rows.length - 1 && visible.length <= MAX_ROWS;
 		const branch = theme.fg("dim", last ? "└─" : "├─");
 		const name = theme.fg("text", child.displayName ?? child.agent);
-		const id = theme.fg("accent", `#${child.id}`);
+		const id = theme.fg("dim", `#${child.id}`);
 		const elapsed = formatElapsed(child.createdAt, nowMs);
 		const age = elapsed === "" ? "" : `  ${theme.fg("dim", `· ${elapsed}`)}`;
 		const snippet = child.summary === undefined ? "" : child.summary.replace(/\s+/g, " ").trim();
@@ -197,7 +196,7 @@ export function renderChildIdentityWidget(
 	theme: Theme,
 ): string[] {
 	const label = options.agent.trim() === "" ? "child" : options.agent.trim();
-	const line = `${theme.fg("accent", `󰄰 [${label}]`)} ${theme.fg("dim", "child")}  ${theme.fg("muted", "report via contact_parent")}  ${theme.fg("dim", `${options.toolCount} tools`)}`;
+	const line = `${theme.fg("accent", `[${label}]`)} ${theme.fg("dim", "child")} ${theme.fg("dim", "·")} ${theme.fg("muted", "report via contact_parent")} ${theme.fg("dim", "·")} ${theme.fg("dim", `${options.toolCount} tools`)}`;
 	return [truncateToWidth(line, width, theme.fg("dim", "…")), ""];
 }
 

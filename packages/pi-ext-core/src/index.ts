@@ -27,6 +27,19 @@ export type {
 } from "./custom-surface.js";
 export { openTuiSurface, TuiSurfaceQueueFullError } from "./custom-surface.js";
 export type { Cleanup, CleanupFailure, DisposerRegistry } from "./disposer-registry.js";
+export type {
+	CustomEditorLike,
+	EditorWorkingStatusIndicatorLike,
+	PreTurnWorkingStatusOptions,
+	TuiLike,
+} from "./editor-working-status.js";
+export {
+	BRAILLE_SPINNER_FRAMES,
+	EditorWorkingStatusIndicator,
+	registerActiveEditor,
+	setPreTurnWorkingStatus,
+	unregisterActiveEditor,
+} from "./editor-working-status.js";
 export { abortError, errorMessage, throwIfAborted } from "./errors.js";
 export type {
 	ExtensionPointHandle,
@@ -162,6 +175,7 @@ export type {
 	ConversationUsage,
 	ExternalTaskExecutionContext,
 	ExternalTaskTerminalResult,
+	QueuedInputDisposition,
 	ResolvedChildSessionFactory,
 	ResolvedExternalTaskExecution,
 	ResolvedTaskExecution,
@@ -213,10 +227,13 @@ export type {
 export {
 	DEFAULT_MAX_PENDING_DELIVERIES,
 	DEFAULT_MAX_RETAINED_TERMINAL,
+	DEFAULT_MAX_TASK_QUEUE,
+	DEFAULT_TASK_CONCURRENCY,
 	isTerminalTaskStatus,
 	MAX_TASK_RESULT_CHARS,
 	TASK_REGISTRY_SERVICE_KEY,
 	TaskCapacityError,
+	TaskQueueFullError,
 	TaskRegistry,
 	TaskRegistryClosedError,
 } from "./tasks.js";

@@ -1,5 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import {
+	registerExtensionLifecycle,
+	registerToolTuiTrace,
+	setPreTurnWorkingStatus,
+} from "@hheei/pi-ext-core";
 import { registerOmCommand } from "./commands/om.js";
 import { type HindsightSession, startHindsightSession } from "./hindsight/session.js";
 import { registerHindsightTools, setHindsightToolsActive } from "./hindsight/tools.js";
@@ -14,6 +18,7 @@ import { Runtime } from "./runtime.js";
 import { registerRecallTool } from "./tools/recall-observation.js";
 
 export default function observationalMemory(pi: ExtensionAPI): void {
+	registerToolTuiTrace(pi);
 	const runtime = new Runtime();
 	// Hindsight tools are registered once per Pi process but must always act on the session
 	// that is currently running, so they resolve their state through this holder.
@@ -28,13 +33,21 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	registerRecallTool(pi);
 	const info = createMemoryInfo(pi);
 
-	pi.on("before_agent_start", async (event) => {
-		const injected = await hindsight?.beforeAgentStart(event);
-		if (injected === undefined) return;
-		info(injected.summary, {
-			pages: injected.pages.map(({ pageId, page, snippet }) => ({ pageId, page, snippet })),
-			truncated: injected.truncated,
-		});
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (hindsight === undefined) return;
+		const stopWorkingStatus = setPreTurnWorkingStatus("Recalling");
+		ctx?.ui?.setWorkingMessage?.("Recalling");
+		try {
+			const injected = await hindsight.beforeAgentStart(event);
+			if (injected === undefined) return;
+			info(injected.summary, {
+				pages: injected.pages.map(({ pageId, page, snippet }) => ({ pageId, page, snippet })),
+				truncated: injected.truncated,
+			});
+		} finally {
+			stopWorkingStatus();
+			ctx?.ui?.setWorkingMessage?.(undefined);
+		}
 	});
 	pi.on("agent_end", async (event, context) => {
 		hindsight?.agentEnd(event, context);

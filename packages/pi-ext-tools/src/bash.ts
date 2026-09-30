@@ -44,8 +44,8 @@ const BASH_MAX_BODY_LINES = 10;
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
-	"Use `blocking: false` only for finite commands that may outlive this tool call; its result is added to the context when it finishes.",
-	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed.",
+	"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_tasks` to wait for any unfinished background tasks.",
+	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed. After completing immediate work, wait for them with `wait_tasks`.",
 	"Remote `target` is an authorized SSH host and always runs in the foreground.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
@@ -62,7 +62,7 @@ const BashInput = Type.Object(
 		blocking: Type.Optional(
 			Type.Boolean({
 				description:
-					"Wait for completion instead of returning immediately. Local commands that omit it may still transition to a background task after 60s.",
+					"Wait for completion instead of returning immediately. Pass false to run in background; use wait_tasks once hands-on work is complete to wait for it.",
 			}),
 		),
 		target: Target,
@@ -85,7 +85,7 @@ function normalizeBashInput(value: unknown): unknown {
  * entry yet, which the delivery adapter treats as always deliverable.
  */
 function taskAnchor(context: ExtensionContext): string | undefined {
-	return context.sessionManager.getLeafId() ?? undefined;
+	return context.sessionManager?.getLeafId?.() ?? undefined;
 }
 
 /** Every bash result carries the model-visible text plus tool-owned details. */
@@ -125,6 +125,40 @@ function outputTotalLines(result: AgentToolResult<unknown>, output: string): num
 	const total = detailsRecord(result.details).totalLines;
 	if (typeof total === "number" && Number.isFinite(total)) return total;
 	return output === "" ? 0 : output.replace(/\r?\n$/, "").split(/\r?\n/).length;
+}
+
+/** Matches upstream bashOutputSchema in @earendil-works/pi-coding-agent */
+export interface BashToolOutput {
+	output: string;
+	truncated: boolean;
+	full_output_path?: string;
+	exit_code: number;
+	wall_time_seconds: number;
+}
+
+function withBashStructuredContent(
+	result: AgentToolResult<unknown>,
+	options: {
+		output: string;
+		truncated: boolean;
+		exitCode: number;
+		startedAt: number;
+		fullOutputPath?: string;
+	},
+): AgentToolResult<unknown> {
+	const wallTimeSeconds = Math.round((performance.now() - options.startedAt) / 100) / 10;
+	const structuredContent: BashToolOutput = {
+		output: options.output,
+		truncated: options.truncated,
+		...(options.fullOutputPath !== undefined ? { full_output_path: options.fullOutputPath } : {}),
+		exit_code: options.exitCode,
+		wall_time_seconds: wallTimeSeconds,
+	};
+	return {
+		...result,
+		structuredContent: structuredContent as never,
+		...(options.exitCode !== 0 ? { isError: true } : {}),
+	};
 }
 
 function outputStreamer(
@@ -196,7 +230,16 @@ async function runForeground(
 	tasks?: TaskRegistry | undefined,
 	autoAsyncSeconds = 60,
 ): Promise<BashToolResult> {
-	if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted" });
+	const startedAt = performance.now();
+	if (signal?.aborted)
+		return Promise.resolve(
+			withBashStructuredContent(textToolResult("Bash aborted", { error: "aborted" }), {
+				output: "Bash aborted",
+				truncated: false,
+				exitCode: 130,
+				startedAt,
+			}) as BashToolResult,
+		);
 	const sink = new BashOutputSink(tailBytes);
 	const update = outputStreamer(sink, onUpdate);
 
@@ -212,17 +255,30 @@ async function runForeground(
 				})
 			).exitCode;
 		} catch (error) {
-			if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted" });
+			if (signal?.aborted)
+				return withBashStructuredContent(textToolResult("Bash aborted", { error: "aborted" }), {
+					output: "Bash aborted",
+					truncated: false,
+					exitCode: 130,
+					startedAt,
+				}) as BashToolResult;
 			if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
 			timedOut = true;
 			exitCode = null;
 		}
 		const output = sink.finish();
-		return textToolResult(output.output, {
+		const finalExitCode = exitCode ?? (timedOut ? 124 : 0);
+		const result = textToolResult(output.output, {
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
-			exitCode,
+			exitCode: finalExitCode,
 		});
+		return withBashStructuredContent(result, {
+			output: output.output,
+			truncated: output.truncated,
+			exitCode: finalExitCode,
+			startedAt,
+		}) as BashToolResult;
 	}
 
 	const shouldAutoAsync =
@@ -242,10 +298,16 @@ async function runForeground(
 		});
 	} catch (error) {
 		const output = sink.finish();
-		return textToolResult(`Unable to start bash job: ${errorMessage(error)}`, {
+		const result = textToolResult(`Unable to start bash job: ${errorMessage(error)}`, {
 			...output,
 			error: "start_failed",
 		});
+		return withBashStructuredContent(result, {
+			output: output.output || errorMessage(error),
+			truncated: output.truncated,
+			exitCode: 1,
+			startedAt,
+		}) as BashToolResult;
 	}
 
 	return new Promise<BashToolResult>((resolve) => {
@@ -266,18 +328,25 @@ async function runForeground(
 			cleanup();
 			const output = sink.finish();
 			const timedOut = jobSnapshot.timedOut;
+			const exitCode = jobSnapshot.exitCode ?? (timedOut ? 124 : 0);
+			const result = textToolResult(
+				transitionRefused === undefined
+					? output.output
+					: `${output.output}\n\nThis command stayed in the foreground: it could not become a background task (${transitionRefused}).`,
+				{
+					...output,
+					...(timedOut ? { timedOut: true } : {}),
+					exitCode,
+					...(transitionRefused === undefined ? {} : { transitionRefused }),
+				},
+			);
 			resolve(
-				textToolResult(
-					transitionRefused === undefined
-						? output.output
-						: `${output.output}\n\nThis command stayed in the foreground: it could not become a background task (${transitionRefused}).`,
-					{
-						...output,
-						...(timedOut ? { timedOut: true } : {}),
-						exitCode: jobSnapshot.exitCode,
-						...(transitionRefused === undefined ? {} : { transitionRefused }),
-					},
-				),
+				withBashStructuredContent(result, {
+					output: output.output,
+					truncated: output.truncated,
+					exitCode,
+					startedAt,
+				}) as BashToolResult,
 			);
 		};
 
@@ -287,7 +356,14 @@ async function runForeground(
 			cleanup();
 			jobs.stop(job.id);
 			sink.finish();
-			resolve(textToolResult("Bash aborted", { error: "aborted" }));
+			resolve(
+				withBashStructuredContent(textToolResult("Bash aborted", { error: "aborted" }), {
+					output: "Bash aborted",
+					truncated: false,
+					exitCode: 130,
+					startedAt,
+				}) as BashToolResult,
+			);
 		};
 
 		signal?.addEventListener("abort", onAbort, { once: true });
@@ -337,17 +413,23 @@ async function runForeground(
 						`- To wait for it now: wait_tasks({ ids: ["${task.id}"] })\n` +
 						`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
 
+				const result = textToolResult(message, {
+					taskId: task.id,
+					type: task.type,
+					status: currentTask.status,
+					autoAsyncTransition: true,
+					elapsedSeconds: autoAsyncSeconds,
+					purpose: task.purpose,
+					outputPreview: snapshotOutput.output,
+					truncated: snapshotOutput.truncated,
+				});
 				resolve(
-					textToolResult(message, {
-						taskId: task.id,
-						type: task.type,
-						status: currentTask.status,
-						autoAsyncTransition: true,
-						elapsedSeconds: autoAsyncSeconds,
-						purpose: task.purpose,
-						outputPreview: snapshotOutput.output,
+					withBashStructuredContent(result, {
+						output: snapshotOutput.output,
 						truncated: snapshotOutput.truncated,
-					}),
+						exitCode: 0,
+						startedAt,
+					}) as BashToolResult,
 				);
 			}, autoAsyncSeconds * 1000);
 		}
@@ -391,7 +473,14 @@ async function runRemoteBash(
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
 ): Promise<BashToolResult> {
-	if (signal?.aborted) return textToolResult("Bash aborted", { error: "aborted", target });
+	const startedAt = performance.now();
+	if (signal?.aborted)
+		return withBashStructuredContent(textToolResult("Bash aborted", { error: "aborted", target }), {
+			output: "Bash aborted",
+			truncated: false,
+			exitCode: 130,
+			startedAt,
+		}) as BashToolResult;
 	const sink = new BashOutputSink(tailBytes);
 	try {
 		const { code, timedOut } = await runtime.exec(target, command, {
@@ -402,23 +491,36 @@ async function runRemoteBash(
 			onData: outputStreamer(sink, onUpdate),
 		});
 		const output = sink.finish();
-		return textToolResult(output.output, {
+		const exitCode = code ?? (timedOut ? 124 : 0);
+		const result = textToolResult(output.output, {
 			...output,
 			...(timedOut ? { timedOut: true } : {}),
-			exitCode: code,
+			exitCode,
 			target,
 			outcome: timedOut ? "timeout" : "ok",
 		});
+		return withBashStructuredContent(result, {
+			output: output.output,
+			truncated: output.truncated,
+			exitCode,
+			startedAt,
+		}) as BashToolResult;
 	} catch (error) {
 		const output = sink.finish();
 		if (isTargetError(error)) {
 			const aborted = error.outcome === "cancelled";
-			return textToolResult(aborted ? "Bash aborted" : error.message, {
+			const result = textToolResult(aborted ? "Bash aborted" : error.message, {
 				...output,
 				error: aborted ? "aborted" : error.outcome,
 				outcome: error.outcome,
 				target,
 			});
+			return withBashStructuredContent(result, {
+				output: output.output || error.message,
+				truncated: output.truncated,
+				exitCode: aborted ? 130 : 1,
+				startedAt,
+			}) as BashToolResult;
 		}
 		throw error;
 	}
@@ -477,12 +579,21 @@ export function registerBashTool(
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
 			const settings = state?.getSettings();
 			const background = validatedParams.blocking === false;
+			const startedAt = performance.now();
 			if (isRemoteBashTarget(validatedParams.target)) {
 				if (background)
-					return textToolResult("Background Bash is local-only; omit blocking for SSH targets.", {
-						error: "background_unsupported",
-						target: validatedParams.target,
-					});
+					return withBashStructuredContent(
+						textToolResult("Background Bash is local-only; omit blocking for SSH targets.", {
+							error: "background_unsupported",
+							target: validatedParams.target,
+						}),
+						{
+							output: "Background Bash is local-only; omit blocking for SSH targets.",
+							truncated: false,
+							exitCode: 1,
+							startedAt,
+						},
+					);
 				const runtime = state?.getTargetRuntime();
 				if (runtime === undefined) throw new Error("Target runtime is unavailable.");
 				return runRemoteBash(
@@ -500,9 +611,17 @@ export function registerBashTool(
 			const anchor = taskAnchor(context);
 			if (background) {
 				if (settings === undefined || tasks === undefined || jobs === undefined)
-					return textToolResult("Background Bash unavailable outside active session", {
-						error: "session_unavailable",
-					});
+					return withBashStructuredContent(
+						textToolResult("Background Bash unavailable outside active session", {
+							error: "session_unavailable",
+						}),
+						{
+							output: "Background Bash unavailable outside active session",
+							truncated: false,
+							exitCode: 1,
+							startedAt,
+						},
+					);
 				try {
 					const task = startBashTask({
 						tasks,
@@ -515,19 +634,34 @@ export function registerBashTool(
 							? {}
 							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
 					});
-					return textToolResult(
-						`Started background task ${task.id}. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.`,
-						{
+					const msg = `Started background task ${task.id}. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.`;
+					return withBashStructuredContent(
+						textToolResult(msg, {
 							taskId: task.id,
 							type: task.type,
 							status: task.status,
 							purpose: task.purpose,
+						}),
+						{
+							output: msg,
+							truncated: false,
+							exitCode: 0,
+							startedAt,
 						},
 					);
 				} catch (error) {
-					return textToolResult(`Unable to start background task: ${errorMessage(error)}`, {
-						error: "start_failed",
-					});
+					const msg = `Unable to start background task: ${errorMessage(error)}`;
+					return withBashStructuredContent(
+						textToolResult(msg, {
+							error: "start_failed",
+						}),
+						{
+							output: msg,
+							truncated: false,
+							exitCode: 1,
+							startedAt,
+						},
+					);
 				}
 			}
 			return runForeground(

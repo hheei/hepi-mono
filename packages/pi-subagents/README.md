@@ -18,12 +18,13 @@ are design sources, not the live contract. Remaining pause-handshake work is tra
 
 | Tool | Purpose |
 | --- | --- |
-| `spawn_subagent({ task, agent, cwd? })` | Start one background RPC child and return when the runtime is ready. Do not poll `get`/`list` for the child's work; reports arrive as `pi-subagent-report` messages. |
-| `send_subagent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. Do not poll afterwards. |
-| `get_subagent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness, and inherited model/thinking. Use this for identity or state, not to wait. |
-| `list_subagents({})` | List children owned by this parent session. Use this for ids or current state, not to wait. |
-| `stop_subagent({ id })` | Persist a stopped intent, then end the runtime. |
-| `task({ agent, task, cwd?, blocking?, outputSchema? })` | Run one delegated task as a dedicated execution that is terminated after its final result. Waits for that result in the call unless `blocking: false` starts it as a shared background task. Requires `@hheei/pi-ext-tools` for the task registry. |
+| `subagent_enable({})` | Enable interactive agent tools (`spawn_agent`, `send_agent`, `get_agent`, `stop_agent`) on demand. Deactivated by default in new sessions to save tokens; appends available interactive agents if any are defined, and enabled tools become available on the next model request. |
+| `spawn_agent({ task, agent, cwd? })` | Start one background RPC child and return when the runtime is ready. Requires `subagent_enable`. Do not poll `get`/`list` for the child's work; reports arrive as `pi-subagent-report` messages. |
+| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. Requires `subagent_enable`. Do not poll afterwards. |
+| `get_agent({ id })` | Inspect one child: state, mode, session, summary, usage, runtime freshness, and inherited model/thinking. Requires `subagent_enable`. |
+| `list_agents({})` | List available interactive agent definitions and running subagents owned by this parent session. Always active; non-interactive task agents are injected into the system prompt under `<task_agents>`. |
+| `stop_agent({ id })` | Persist a stopped intent, then end the runtime. Requires `subagent_enable`. |
+| `task({ agent, task, cwd?, blocking?, outputSchema? })` | Run one delegated task as a dedicated execution that is terminated after its final result. Always active; waits for that result in the call unless `blocking: false` starts it as a shared background task. Requires `@hheei/pi-ext-tools` for the task registry. |
 
 There is no batch-spawn tool: parallel children come from Pi's own parallel tool calls.
 `agent` is required and never defaulted: discovery (project `.pi/agents`, project
@@ -39,7 +40,7 @@ wakes the parent. If a child ends a turn without reporting, it may receive a fol
 nudge to call `contact_parent`; the child session is never auto-exited. Delay defaults to
 5s (`PI_SUBAGENTS_NUDGE_DELAY_MS`); set `PI_SUBAGENTS_NUDGE_DISABLE=1` to turn it off.
 
-`get_subagent` / `list_subagents` include `interactive`, `freshness`, `updatedAt`, and the
+`get_agent` / `list_agents` include `interactive`, `freshness`, `updatedAt`, and the
 resolved `model` / `thinking` with whether each came from the agent or the parent.
 Reports delivered to the parent are titled with the agent display name and child id.
 

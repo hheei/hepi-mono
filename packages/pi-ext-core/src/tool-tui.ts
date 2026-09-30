@@ -146,6 +146,14 @@ function frameTheme(theme: Theme, historical: boolean): Theme {
 			if (property === "fg")
 				return (role: Parameters<Theme["fg"]>[0], text: string): string =>
 					role === "text" ? (historical ? target.fg("dim", text) : text) : target.fg(role, text);
+			if (property === "style")
+				return (text: string, options: Parameters<Theme["style"]>[1]): string => {
+					const adjusted = { ...options };
+					if (typeof adjusted.bg === "string" && TOOL_BACKGROUNDS.has(adjusted.bg))
+						delete adjusted.bg;
+					if (historical && adjusted.fg === "text") adjusted.fg = "dim";
+					return target.style(text, adjusted);
+				};
 			return Reflect.get(target, property, receiver);
 		},
 	});

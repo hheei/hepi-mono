@@ -90,14 +90,15 @@ load parent-scoped registry
 
 ### 4.1 Model-facing tools
 
-会话模式注册五个 semantic tools，另有一个统一的 `task` 入口：
+会话模式注册五个 semantic tools，由 `subagent_enable` 按需激活；另有一个统一的常驻 `task` 入口，非交互式任务 Agent 由 `<task_agents>` XML 注入系统提示词：
 
 ```ts
-spawn_subagent({ task: string, agent: string, cwd?: string })
-send_subagent({ id: string, message: string, mode?: "steer" | "follow_up" | "auto" })
-get_subagent({ id: string })
-list_subagents({})
-stop_subagent({ id: string })
+subagent_enable({})
+spawn_agent({ task: string, agent: string, cwd?: string })
+send_agent({ id: string, message: string, mode?: "steer" | "follow_up" | "auto" })
+get_agent({ id: string })
+list_agents({})
+stop_agent({ id: string })
 
 task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSchema?: object })
 ```
@@ -107,24 +108,24 @@ task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSche
 停止与通知都由该契约决定，不新增第二套 subagent 通道。缺省（或 `blocking: true`）在本次调用内返回结果
 且不再发送后台通知；显式 `blocking: false` 立即返回 task id，结果稍后回到父上下文。该入口要求
 `@hheei/pi-ext-tools` 提供的共享 registry；缺失时它不激活并明确说明原因，不会静默改走
-`spawn_subagent`。
+`spawn_agent`。
 
 规则：
 
 - `task` 默认等待，这就是 review、审计、verification、scout 侦查这类「下一步需要的东西」的默认方式：省略
-  `blocking` 即可。只有「可以稍后才看」的长工作才传 `blocking: false` 转后台。`spawn_subagent` 是之后还要
+  `blocking` 即可。只有「可以稍后才看」的长工作才传 `blocking: false` 转后台。`spawn_agent` 是之后还要
   继续对话的伙伴，不承担这一角色，其工具提示指向 `task`。
-- 不提供 `spawn_subagents`；并行由 Pi parallel tool calls 提供。
-- `spawn_subagent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
+- 不提供 `spawn_agents`；并行由 Pi parallel tool calls 提供。
+- `spawn_agent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
   agent，缺名或解析失败在启动前失败。
-- `spawn_subagent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
-- `spawn_subagent` / `send_subagent` 返回后，模型不得用 `get_subagent` / `list_subagents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
+- `spawn_agent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
+- `spawn_agent` / `send_agent` 返回后，模型不得用 `get_agent` / `list_agents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
   - 投递以 `customType: "pi-subagent-report"`、`triggerTurn: true` 和 `deliverAs: "followUp"` 完成：parent 正在运行时报告排入当前 run（host 在 busy 时合并 follow-up，因此不会每个报告各起一 turn），空闲时立即开启新 turn，因此报告属于 parent 的下一次活动；`deliverAs: "nextTurn"` 会把它扣到用户下一次发言，不符合本契约。只追加不请求 turn（`triggerTurn: false`）会让报告停在对话里等下一次用户发言，因此只用于 session 结束时的收尾投递。
   - parent 空闲时第一条报告开启固定的 30 秒合并窗口（`REPORT_MERGE_WINDOW_MS`）：窗口内多个 child 的报告合并为一条消息、只开启一次 turn，后续报告不延长窗口；parent 自己开始活动时，暂存的报告随该活动一并排入该 run。session 结束时暂存报告只追加不叫醒。
-- `get_subagent` / `list_subagents` 只用于需要当前身份或状态时，不是完成通道。
-- `send_subagent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
+- `get_agent` / `list_agents` 只用于需要当前身份或状态时，不是完成通道。
+- `send_agent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择 Pi RPC 输入。
 - `get/list` 返回可确认的状态、mode、latest summary、interruption、usage、runtime observability，以及冻结的 model/thinking 及其来源（agent 或 parent）；last-known 值不得伪装成实时值。
-- `stop_subagent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
+- `stop_agent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
 - `task` 每次创建专属 child：不 attach、不接收 follow-up、完成后不唤醒，结果与静止确认后终止
   runner；进程槽位在确认退出后释放。这些限制在所有入口（tool、command、host attach、恢复）都能
   观察到，而不是只写在文档里。

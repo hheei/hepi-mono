@@ -14,8 +14,10 @@ import { type ParentChannel, type ParentChannelReport, SubagentManager } from ".
 import { createSubagentRegistry } from "./registry.js";
 import { createRuntimeTokenStore, launchDetachedRunner, recoverDetachedRunner } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
+import { registerTaskAgentsPrompt } from "./task-agents-prompt.js";
 import { AgentTaskExecutor } from "./task-executor.js";
 import { registerTaskTool } from "./task-tool.js";
+import { registerInteractiveToolActivation } from "./tool-activation.js";
 import { registerParentTools } from "./tools.js";
 import { createSubagentWidget } from "./widget.js";
 
@@ -160,6 +162,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				skillCatalog = skillCatalogFromLoaded(event.systemPromptOptions.skills);
 			});
 			runtime.resources.add("subagent-skill-catalog", unsubscribeSkillCatalog);
+			const unsubscribeTaskAgentsPrompt = registerTaskAgentsPrompt(pi, () => context.cwd);
+			runtime.resources.add("task-agents-prompt", unsubscribeTaskAgentsPrompt);
 			manager = new SubagentManager({
 				parentSessionId,
 				registry,
@@ -172,11 +176,14 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					if (!isThinkingLevel(thinking)) {
 						throw new Error(`Unsupported parent thinking level: ${thinking}`);
 					}
+					const records = await registry.list().catch(() => []);
+					const existingSubagentIds = records.map((record) => record.subagentId);
 					return resolveSubagentLaunch({
 						input,
 						cwd: context.cwd,
 						modelRegistry: context.modelRegistry,
 						skillCatalog,
+						existingSubagentIds,
 						onWarning: (message) => context.ui.notify(message, "warning"),
 						parent: {
 							model: { provider: model.provider, id: model.id },
@@ -236,6 +243,12 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				);
 			}
 			registerParentTools(pi, manager);
+			const activation = registerInteractiveToolActivation({
+				pi,
+				manager,
+				context,
+			});
+			runtime.resources.add("interactive-tool-activation", () => activation.dispose());
 			registerParentCommands(pi, manager);
 			// One `task` call becomes one dedicated child plus one shared-registry entry. The child
 			// is spawned through the same RPC launch path as a conversation child, and is never

@@ -35,6 +35,66 @@ export interface HindsightInjection {
 const PREAMBLE_SECTION = "pi-ext-memory-preamble";
 const RECALL_SECTION = "pi-ext-memory-recall";
 
+/**
+ * Common short affirmation or continuation phrases that indicate the user is simply
+ * continuing the conversation rather than asking a new substantive question.
+ */
+export const TRIVIAL_CONTINUATION_PATTERNS = new Set([
+	// English affirmations & continuations
+	"ok",
+	"okay",
+	"yes",
+	"yep",
+	"yeah",
+	"sure",
+	"go",
+	"go ahead",
+	"continue",
+	"proceed",
+	"next",
+	"done",
+	"carry on",
+	"keep going",
+	// Chinese affirmations & continuations
+	"好",
+	"好的",
+	"行",
+	"行啊",
+	"可以",
+	"可以的",
+	"没问题",
+	"没问题啊",
+	"继续",
+	"继续吧",
+	"接着来",
+	"接着说",
+	"接着写",
+	"下一步",
+	"对",
+	"对的",
+	"是的",
+	"恩",
+	"嗯",
+]);
+
+export function isTrivialContinuation(prompt: string): boolean {
+	const normalized = prompt
+		.trim()
+		.toLowerCase()
+		.replace(/^[!?,.，。？！~\s]+|[!?,.，。？！~\s]+$/gu, "");
+	return TRIVIAL_CONTINUATION_PATTERNS.has(normalized);
+}
+
+export function normalizeRecallQuery(prompt: string): string {
+	return prompt.trim().toLowerCase().replace(/\s+/gu, " ");
+}
+
+interface PromptRecallResult {
+	readonly text: string | undefined;
+	readonly pages: readonly HindsightPageHit[];
+	readonly truncated: boolean;
+}
+
 /** Result of booting the Hindsight layer for one session. */
 export type HindsightStart =
 	| { readonly status: "disabled" }
@@ -53,19 +113,34 @@ export class HindsightSession {
 	readonly resolved: ResolvedHindsight;
 	readonly gateway: HindsightGateway;
 	readonly retainQueue: HindsightRetainQueue;
+	static readonly #MAX_CACHE_ENTRIES = 50;
+	readonly #recallCache = new Map<string, PromptRecallResult>();
+	#lastRecallResult: PromptRecallResult | undefined;
 	#firstTurn = true;
 	#lifecycleSignal: AbortSignal;
+	#preamblePromise: Promise<string> | undefined;
 
 	constructor(resolved: ResolvedHindsight, gateway: HindsightGateway, signal: AbortSignal) {
 		this.resolved = resolved;
 		this.gateway = gateway;
 		this.retainQueue = new HindsightRetainQueue(gateway);
 		this.#lifecycleSignal = signal;
+		this.#preamblePromise = this.#renderPreamble();
 	}
 
 	/** Context handed to the tool registrations. */
 	toolContext(): HindsightToolContext {
-		return { gateway: this.gateway, resolved: this.resolved, retainQueue: this.retainQueue };
+		return {
+			gateway: this.gateway,
+			resolved: this.resolved,
+			retainQueue: this.retainQueue,
+			invalidateRecallCache: () => this.invalidateRecallCache(),
+		};
+	}
+
+	invalidateRecallCache(): void {
+		this.#recallCache.clear();
+		this.#lastRecallResult = undefined;
 	}
 
 	/**
@@ -82,15 +157,26 @@ export class HindsightSession {
 		const firstTurn = this.#firstTurn;
 		this.#firstTurn = false;
 
+		const preamblePromise = firstTurn
+			? (this.#preamblePromise ?? this.#renderPreamble())
+			: undefined;
+		this.#preamblePromise = undefined;
+
+		const recallPromise =
+			this.resolved.config.autoRecall && event.prompt.trim().length > 0
+				? this.#recallForPrompt(event.prompt)
+				: undefined;
+
+		const [preamble, recalled] = await Promise.all([preamblePromise, recallPromise]);
+
 		const summary: string[] = [];
-		if (firstTurn) {
-			setPromptSection(sections, PREAMBLE_SECTION, await this.#renderPreamble());
+		if (preamble !== undefined) {
+			setPromptSection(sections, PREAMBLE_SECTION, preamble);
 			summary.push("memory guide");
 		}
 		let pages: HindsightPageHit[] = [];
 		let truncated = false;
-		if (this.resolved.config.autoRecall && event.prompt.trim().length > 0) {
-			const recalled = await this.#recallForPrompt(event.prompt);
+		if (recalled !== undefined) {
 			setPromptSection(sections, RECALL_SECTION, recalled.text);
 			pages = [...recalled.pages];
 			truncated = recalled.truncated;
@@ -124,11 +210,18 @@ export class HindsightSession {
 		});
 	}
 
-	async #recallForPrompt(prompt: string): Promise<{
-		readonly text: string | undefined;
-		readonly pages: readonly HindsightPageHit[];
-		readonly truncated: boolean;
-	}> {
+	async #recallForPrompt(prompt: string): Promise<PromptRecallResult> {
+		if (isTrivialContinuation(prompt)) {
+			return this.#lastRecallResult ?? { text: undefined, pages: [], truncated: false };
+		}
+
+		const key = normalizeRecallQuery(prompt);
+		const cached = this.#recallCache.get(key);
+		if (cached !== undefined) {
+			this.#lastRecallResult = cached;
+			return cached;
+		}
+
 		let hits: HindsightPageHit[];
 		try {
 			hits = await this.gateway.searchPages(prompt, AUTO_RECALL_PAGE_LIMIT, this.#lifecycleSignal);
@@ -140,12 +233,20 @@ export class HindsightSession {
 		}
 		const fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
 		const text = renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars);
-		return {
+		const result: PromptRecallResult = {
 			text,
 			pages: hits,
 			// The container announces its own truncation; the injection report repeats it.
-			truncated: text !== undefined && text.includes(TRUNCATION_NOTICE),
+			truncated: text?.includes(TRUNCATION_NOTICE) ?? false,
 		};
+
+		if (this.#recallCache.size >= HindsightSession.#MAX_CACHE_ENTRIES) {
+			const oldestKey = this.#recallCache.keys().next().value;
+			if (oldestKey !== undefined) this.#recallCache.delete(oldestKey);
+		}
+		this.#recallCache.set(key, result);
+		this.#lastRecallResult = result;
+		return result;
 	}
 
 	/** Queues this run's turns for writeback. */

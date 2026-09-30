@@ -28,7 +28,7 @@ intercepted.
 
 - 一个 `task` 调用对应一个专属 child：不进入会话模式的 30 秒空闲缓冲，不 attach，不接收
   follow-up，结果与静止确认后立即终止 runner；进程槽位在确认退出后释放。
-- 会话模式（`spawn_subagent` / `send_subagent` / `attach`）与 Task 模式互不越界：Task child 的
+- 会话模式（`spawn_agent` / `send_agent` / `attach`）与 Task 模式互不越界：Task child 的
   `send`、`attach` 与恢复被明确拒绝，而不是悄悄降级成会话语义。
 - 共享 registry 缺失时 `task` 入口不激活，并说明缺少 `@hheei/pi-ext-tools` 集成；本包不会因此
   创建第二个 registry。
