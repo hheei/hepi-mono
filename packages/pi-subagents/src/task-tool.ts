@@ -33,7 +33,11 @@ import { checkOutputSchema } from "./task-schema.js";
 
 export const TASK_TOOL_ID = "task";
 const OWNER = "@hheei/pi-subagents";
-const TASK_TOOL_REGISTRATION = { id: TASK_TOOL_ID, owner: OWNER } as const;
+const TASK_TOOL_REGISTRATION = {
+	id: TASK_TOOL_ID,
+	owner: OWNER,
+	defaultActive: false,
+} as const;
 
 const taskSchema = Type.Object({
 	agent: Type.String({
@@ -56,7 +60,7 @@ const taskSchema = Type.Object({
 });
 
 const DESCRIPTION =
-	"Run one delegated task as a dedicated agent execution. Waits for the result in this call and returns it; pass blocking: false to start a background task and get its id back immediately instead, then read the result with wait_tasks or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_subagent when you need a reusable conversation partner instead.";
+	"Run one delegated task as a dedicated agent execution. Waits for the result in this call and returns it; pass blocking: false to start a background task and get its id back immediately instead, then read the result with wait_tasks or let the automatic notification bring it back. The child is dedicated to this task and is terminated once it submits a final result, so use spawn_agent when you need a reusable conversation partner instead.";
 
 const GUIDELINES = [
 	"The default waits for the result, which is what a code review, an audit, a verification pass or a scout's reconnaissance needs before you can continue.",
@@ -67,7 +71,7 @@ const GUIDELINES = [
 ];
 
 const UNAVAILABLE =
-	"The task integration is unavailable: this session has no shared background-task registry. Install @hheei/pi-ext-tools to enable it, or use spawn_subagent for conversation-style delegation.";
+	"The task integration is unavailable: this session has no shared background-task registry. Install @hheei/pi-ext-tools to enable it, or use spawn_agent for conversation-style delegation.";
 
 /**
  * Registers `task` in a deactivated state and activates it when the shared task registry becomes
@@ -92,6 +96,7 @@ export function registerTaskTool(
 			"Run one delegated task as a background agent execution; the result arrives as a task result.",
 		promptGuidelines: [...GUIDELINES],
 		parameters: taskSchema,
+		defaultActive: false,
 		async execute(
 			_id,
 			params,
@@ -120,8 +125,10 @@ export function registerTaskTool(
 				throw new Error(`Task was not accepted: ${errorMessage(error)}`);
 			}
 			if (!block) {
+				const idLabel =
+					started.shortId === started.id ? started.id : `${started.shortId} (${started.id})`;
 				return textToolResult(
-					`Started ${started.shortId} (${started.id}). Its result is added to the context after the notification window; read it earlier with wait_tasks ${started.id}.`,
+					`Started ${idLabel}. Its result is added to the context after the notification window; read it earlier with wait_tasks ${started.id}.`,
 					{ id: started.id, shortId: started.shortId, status: started.status },
 				);
 			}
@@ -160,7 +167,6 @@ export function registerTaskTool(
 			headerLine: "truncate",
 		}),
 	);
-	setManagedToolsActive(context, [TASK_TOOL_REGISTRATION], false);
 	void waitForService(pi, TASK_REGISTRY_SERVICE_KEY, { signal: context.signal })
 		.then((registry) => {
 			if (context.signal.aborted) return;

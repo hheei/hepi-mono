@@ -115,7 +115,7 @@ test("stays registered but inactive while no shared task registry exists", async
 
 test("waits by default and only backgrounds an explicit blocking: false", async (): Promise<void> => {
 	const hosted = host();
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	hosted.provide(registry);
 	const inline: boolean[] = [];
 	const stopped: string[] = [];
@@ -126,7 +126,7 @@ test("waits by default and only backgrounds an explicit blocking: false", async 
 				// The execution never settles in this test, so the call can only return by aborting:
 				// that is what proves the default path is the waiting one.
 				const task = registry.create({
-					type: "agent",
+					type: "task",
 					purpose: request.purpose,
 					begin: () => ({
 						stop: () => undefined,
@@ -152,7 +152,7 @@ test("waits by default and only backgrounds an explicit blocking: false", async 
 	await expect(waiting).resolves.toMatchObject({
 		content: [{ type: "text", text: expect.stringContaining("was stopped") }],
 	});
-	expect(stopped).toEqual(["agent-test-1"]);
+	expect(stopped).toEqual(["task-1"]);
 
 	const background = (await callTool(hosted, {
 		agent: "scout",
@@ -160,12 +160,12 @@ test("waits by default and only backgrounds an explicit blocking: false", async 
 		blocking: false,
 	})) as { readonly content: readonly { readonly text: string }[] };
 	expect(inline).toEqual([true, false]);
-	expect(background.content[0]?.text).toContain("Started agent-2 (agent-test-2).");
+	expect(background.content[0]?.text).toContain("Started task-2.");
 });
 
 test("tells the model that waiting is the default", async (): Promise<void> => {
 	const hosted = host();
-	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	hosted.provide(new TaskRegistry());
 	registerTaskTool(hosted.context, TUI, () => ({}) as unknown as AgentTaskExecutor);
 	await settle();
 
@@ -183,7 +183,7 @@ test("tells the model that waiting is the default", async (): Promise<void> => {
 
 test("activates with the existing registry and never mints a second one", async (): Promise<void> => {
 	const hosted = host();
-	const provided = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const provided = new TaskRegistry();
 	hosted.provide(provided);
 	const received: TaskRegistry[] = [];
 	registerTaskTool(hosted.context, TUI, (registry) => {
@@ -198,7 +198,7 @@ test("activates with the existing registry and never mints a second one", async 
 
 test("rejects an unsupported output schema before any child exists", async (): Promise<void> => {
 	const hosted = host();
-	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	hosted.provide(new TaskRegistry());
 	let starts = 0;
 	registerTaskTool(hosted.context, TUI, () => {
 		return {
@@ -219,7 +219,7 @@ test("rejects an unsupported output schema before any child exists", async (): P
 
 test("names the real cause when the integration fails after the registry appears", async (): Promise<void> => {
 	const hosted = host();
-	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	hosted.provide(new TaskRegistry());
 	registerTaskTool(hosted.context, TUI, () => {
 		throw new Error("no agent concurrency budget left");
 	});
@@ -234,13 +234,13 @@ test("names the real cause when the integration fails after the registry appears
 
 test("records where the task started so its result cannot land on another branch", async (): Promise<void> => {
 	const hosted = host();
-	hosted.provide(new TaskRegistry({ runtimeDiscriminator: "test" }));
+	hosted.provide(new TaskRegistry());
 	const anchors: (string | undefined)[] = [];
 	registerTaskTool(hosted.context, TUI, () => {
 		return {
 			start: (request: { anchor?: string }) => {
 				anchors.push(request.anchor);
-				return { id: "agent-test-1", shortId: "agent-1", status: "queued" };
+				return { id: "task-1", shortId: "task-1", status: "queued" };
 			},
 			dispose() {},
 		} as unknown as AgentTaskExecutor;
@@ -255,7 +255,7 @@ test("records where the task started so its result cannot land on another branch
 
 test("the frame footer reads the registry's own abbreviation", async (): Promise<void> => {
 	const hosted = host();
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	hosted.provide(registry);
 	registerTaskTool(hosted.context, TUI, () => {
 		return { start: () => undefined, dispose: () => undefined } as unknown as AgentTaskExecutor;
@@ -263,7 +263,7 @@ test("the frame footer reads the registry's own abbreviation", async (): Promise
 	await settle();
 
 	const task = registry.create({
-		type: "agent",
+		type: "task",
 		purpose: "look around",
 		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
 	});
@@ -273,18 +273,18 @@ test("the frame footer reads the registry's own abbreviation", async (): Promise
 		`${task.shortId} \u00b7 completed`,
 	);
 	// An unknown or evicted id has no abbreviation to show, so the frame shows no footer.
-	expect(footer?.({ details: [{ id: "agent-nope-9", status: "completed" }] })).toBeUndefined();
+	expect(footer?.({ details: [{ id: "task-nope-9", status: "completed" }] })).toBeUndefined();
 	expect(footer?.({ details: undefined })).toBeUndefined();
 });
 
 test("cancelling a blocking call stops the execution whose result only it could carry", async (): Promise<void> => {
 	const hosted = host();
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	hosted.provide(registry);
 	const stopped: string[] = [];
 	registerTaskTool(hosted.context, TUI, () => {
 		return {
-			start: () => ({ id: "agent-test-1", shortId: "agent-1", status: "queued" }),
+			start: () => ({ id: "task-1", shortId: "task-1", status: "queued" }),
 			stop(id: string) {
 				stopped.push(id);
 			},
@@ -302,7 +302,7 @@ test("cancelling a blocking call stops the execution whose result only it could 
 	controller.abort();
 
 	// Without the stop the task keeps running while its only delivery channel is gone.
-	expect(stopped).toEqual(["agent-test-1"]);
+	expect(stopped).toEqual(["task-1"]);
 	await expect(call).resolves.toMatchObject({
 		content: [{ type: "text", text: expect.stringContaining("was stopped") }],
 	});
@@ -310,7 +310,7 @@ test("cancelling a blocking call stops the execution whose result only it could 
 
 test("a call cancelled before it starts waiting still stops its task", async (): Promise<void> => {
 	const hosted = host();
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	hosted.provide(registry);
 	const stopped: string[] = [];
 	registerTaskTool(hosted.context, TUI, () => {
@@ -334,14 +334,14 @@ test("a call cancelled before it starts waiting still stops its task", async ():
 
 test("an interrupted blocking call hands its result to the background channel", async (): Promise<void> => {
 	const hosted = host();
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	hosted.provide(registry);
 	const stops: string[] = [];
 	registerTaskTool(hosted.context, TUI, () => {
 		return {
 			start: (request: { readonly inlineResult?: boolean }) => {
 				const task = registry.create({
-					type: "agent",
+					type: "task",
 					purpose: "look",
 					begin: () => ({
 						stop: () => undefined,

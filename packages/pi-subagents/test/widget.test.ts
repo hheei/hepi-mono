@@ -68,11 +68,12 @@ describe("subagent widget projection", () => {
 	test("uses theme tokens instead of hardcoded colors", () => {
 		const now = Date.parse("2026-01-01T00:00:12.000Z");
 		const running = renderSubagentWidget([child()], 200, recordingTheme(), now);
-		expect(running[0]).toContain("<warning>󰪠</warning>");
-		expect(running[0]).toContain("<text>Subagents (1)</text>");
+		expect(running[0]).toContain("<accent>󰪠</accent>");
+		expect(running[0]).toContain("<text>Subagents</text>");
+		expect(running[0]).toContain("<dim>(1)</dim>");
 		expect(running[1]).toContain("<text>worker</text>");
-		expect(running[1]).toContain("<accent>#sa_aaaaaaaaaaaa</accent>");
-		expect(running[1]).toContain("<warning>running</warning>");
+		expect(running[1]).toContain("<dim>#sa_aaaaaaaaaaaa</dim>");
+		expect(running[1]).toContain("<accent>running</accent>");
 		expect(running[1]).toContain("<dim>· 12s</dim>");
 
 		const interrupted = renderSubagentWidget(

@@ -316,6 +316,7 @@ test("steers an active conversation without enqueueing a duplicate prompt", asyn
 							},
 							async steer() {
 								steerCalls += 1;
+								return "handled" as const;
 							},
 						} as never;
 					},
@@ -332,7 +333,8 @@ test("steers an active conversation without enqueueing a duplicate prompt", asyn
 	if (conversation === undefined || conversation.mode !== "conversation")
 		throw new Error("Missing conversation");
 	await promptStarted;
-	await conversation.steer("redirect");
+	const disposition = await conversation.steer("redirect");
+	expect(disposition).toBe("handled");
 	expect(steerCalls).toBe(1);
 	expect(promptCalls).toBe(1);
 	promptResolve?.();

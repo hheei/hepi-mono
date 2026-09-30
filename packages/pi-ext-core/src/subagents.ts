@@ -17,6 +17,9 @@ declare const subagentIdBrand: unique symbol;
 declare const conversationMessageSequenceBrand: unique symbol;
 
 /** Opaque core-generated identifier for one parent-session-scoped operation. */
+/** Disposition of a steer or follow-up call, matching @earendil-works/pi-coding-agent */
+export type QueuedInputDisposition = "handled" | "queued";
+
 export type SubagentId = string & { readonly [subagentIdBrand]: true };
 
 /** Monotonic identifier for one message accepted by a Conversation handle. */
@@ -347,7 +350,7 @@ export interface ConversationSubagentHandle
 	/** Read-only cumulative usage from completed child assistant turns. */
 	usage(): ConversationUsage;
 	/** Interrupts the active child after its current tool execution without enqueueing a duplicate prompt. */
-	steer(message: string): Promise<void>;
+	steer(message: string): Promise<QueuedInputDisposition>;
 	/** Returns a bounded normalized snapshot while the retained child record exists. */
 	transcript(): SubagentTranscriptSnapshot;
 	send(
@@ -1327,7 +1330,7 @@ function startConversation(
 	const initialReply = new Promise<ConversationReplyResult>((resolve) => {
 		initialResolve = resolve;
 	});
-	const steer = async (message: string): Promise<void> => {
+	const steer = async (message: string): Promise<QueuedInputDisposition> => {
 		if (!message.trim()) throw new Error("Conversation steer message must not be empty");
 		if (record.terminal !== undefined) throw new Error("Conversation is terminal");
 		if (status !== "queued" && status !== "running")
@@ -1336,9 +1339,9 @@ function startConversation(
 		if (session === undefined) {
 			if (record.pendingSteers.length >= 8) throw new Error("Conversation steer queue is full");
 			record.pendingSteers.push(message);
-			return;
+			return "queued";
 		}
-		await session.steer(message);
+		return await session.steer(message);
 	};
 	function send(
 		message: string,

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type AgentToolResult,
-	type ExtensionContext,
+	type ExtensionToolContext,
 	initTheme,
 	type ToolDefinition,
 	type ToolExecutionComponent,
@@ -52,7 +52,7 @@ async function mounted(
 				getSessionFile: (): undefined => undefined,
 				getLeafId: (): string | null => null,
 			},
-		} as unknown as ExtensionContext,
+		} as unknown as ExtensionToolContext,
 	);
 	component.updateResult({ ...result, isError: false });
 	return { component, cwd };
@@ -232,7 +232,7 @@ describe("tool frame collapse modes", () => {
 				getSessionFile: (): undefined => undefined,
 				getLeafId: (): string | null => null,
 			},
-		} as unknown as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const text = result.content
 			.flatMap((part) => (part.type === "text" ? [part.text] : []))
 			.join("");

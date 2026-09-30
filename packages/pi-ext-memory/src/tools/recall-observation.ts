@@ -4,6 +4,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import {
+	getToolTui,
+	isRecord,
 	type ManagedToolRegistration,
 	registerManagedTool,
 	textToolResult,
@@ -655,6 +657,10 @@ export const recallObservationTool = defineTool({
 				"12-character lowercase hex observation or reflection id shown in compacted memory, /om view, or a previous recall result. Must be a specific id; this tool does not search by topic.",
 		}),
 	}),
+	annotations: {
+		readOnlyHint: true,
+		idempotentHint: true,
+	},
 	renderCall(args) {
 		return new Text(formatRecallCallForTui(args.id), 0, 0);
 	},
@@ -696,5 +702,26 @@ export const RECALL_TOOL_REGISTRATION: ManagedToolRegistration = {
 };
 
 export function registerRecallTool(pi: ExtensionAPI): void {
-	registerManagedTool(pi, RECALL_TOOL_REGISTRATION, recallObservationTool);
+	const tui = getToolTui(pi);
+	registerManagedTool(
+		pi,
+		RECALL_TOOL_REGISTRATION,
+		tui.frame(recallObservationTool, {
+			summary: (args) => (isRecord(args) && typeof args.id === "string" ? args.id : undefined),
+			headerLine: "truncate",
+			warning: (result) => {
+				const details = result.details as RecallObservationToolDetails | undefined;
+				return details !== undefined && isFailureStatus(details.status);
+			},
+			footer: (result) => {
+				const details = result.details as RecallObservationToolDetails | undefined;
+				if (!details) return undefined;
+				if (details.status === "ok") {
+					const count = details.sourceEntries?.length ?? 0;
+					return count === 1 ? "1 source entry" : `${count} source entries`;
+				}
+				return details.status.replace(/_/g, " ");
+			},
+		}),
+	);
 }

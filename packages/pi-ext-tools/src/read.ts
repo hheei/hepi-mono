@@ -297,6 +297,10 @@ export function registerReadTool(
 	const tool: typeof template = {
 		...nativeTool,
 		parameters: readSchema as unknown as typeof template.parameters,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
 		renderResult(result, options, theme, context) {
 			const displayResult = resultForDisplay(result);
 			return (

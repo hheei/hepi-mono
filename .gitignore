@@ -10,6 +10,8 @@ target/
 .pi/*
 !.pi/skills/
 !.pi/skills/**
+!.pi/agents/
+!.pi/agents/**
 # The project skill documentation is tracked, but this symlink points at a
 # machine-local upstream source worktree under references/repos/.
 .pi/skills/pi-development/references/pi
@@ -29,5 +31,4 @@ pi-session-*.html
 references/repos/
 
 # Pix Agent
-.pi/
 .pi-lens/

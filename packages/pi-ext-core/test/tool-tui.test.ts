@@ -1,6 +1,7 @@
 import type {
 	AgentToolResult,
 	ExtensionContext,
+	ExtensionToolContext,
 	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -124,7 +125,7 @@ describe("ToolTui", () => {
 			{ path: "src/a.ts" },
 			undefined,
 			undefined,
-			{ cwd: process.cwd() } as ExtensionContext,
+			{ cwd: process.cwd() } as unknown as ExtensionToolContext,
 		);
 
 		const reloadedPi = { events, on } as never;
@@ -525,7 +526,7 @@ describe("ToolTui", () => {
 			(update) => {
 				partial = update;
 			},
-			{ cwd: process.cwd() } as ExtensionContext,
+			{ cwd: process.cwd() } as unknown as ExtensionToolContext,
 		);
 		const call = framed.renderCall?.({ path: "src/a.ts" }, theme, context(true));
 		expect(call?.render(80).join("\n")).not.toContain("streaming result");
@@ -631,7 +632,7 @@ describe("ToolTui", () => {
 			{ path: "src/a.ts" },
 			undefined,
 			undefined,
-			{ cwd: process.cwd() } as ExtensionContext,
+			{ cwd: process.cwd() } as unknown as ExtensionToolContext,
 		);
 		tui.beginTrace();
 		const historicalContext = {
@@ -772,7 +773,7 @@ async function longTool(tui: ToolTui, longOutput = true): Promise<LongToolHarnes
 	);
 	harness.result = await harness.framed.execute("call-1", {}, undefined, undefined, {
 		cwd: process.cwd(),
-	} as ExtensionContext);
+	} as unknown as ExtensionToolContext);
 	return harness;
 }
 
@@ -899,7 +900,7 @@ describe("ToolTui collapse modes", () => {
 		);
 		const result = await framed.execute("call-1", {}, undefined, undefined, {
 			cwd: process.cwd(),
-		} as ExtensionContext);
+		} as unknown as ExtensionToolContext);
 		const rows =
 			framed
 				.renderResult?.(result, { expanded: false, isPartial: false }, theme, context(false))
@@ -919,12 +920,14 @@ describe("ToolTui collapse modes", () => {
 		};
 		await tui
 			.frame(streamingTool(), { longOutput: true })
-			.execute("call-1", {}, undefined, forward, { cwd: process.cwd() } as ExtensionContext);
+			.execute("call-1", {}, undefined, forward, {
+				cwd: process.cwd(),
+			} as unknown as ExtensionToolContext);
 		expect(updates).toHaveLength(0);
 
-		await tui
-			.frame(streamingTool(), {})
-			.execute("call-2", {}, undefined, forward, { cwd: process.cwd() } as ExtensionContext);
+		await tui.frame(streamingTool(), {}).execute("call-2", {}, undefined, forward, {
+			cwd: process.cwd(),
+		} as unknown as ExtensionToolContext);
 		expect(updates).toHaveLength(1);
 	});
 

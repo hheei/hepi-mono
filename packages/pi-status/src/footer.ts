@@ -26,25 +26,38 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 
 /**
  * Formats model identifier with provider prefix and thinking level:
- * gm/gemini-3.8-flash(high) or gm/gemini-3.8-flash
+ * - When theme is provided:
+ *   [provider/ (dim)][modelId (text)][(thinking) ((dim) + (accent) + (dim))]
+ * - When theme is omitted:
+ *   gm/gemini-3.8-flash(high) or gm/gemini-3.8-flash
  */
 export function formatFooterModel(
 	model: { readonly id: string; readonly provider?: string } | undefined,
 	thinkingLevel: string | undefined,
+	theme?: ThemeLike,
 ): string {
-	if (model === undefined) return "no-model";
-	const providerPrefix =
-		model.provider !== undefined && model.provider.trim() !== "" ? `${model.provider}/` : "";
-	const levelSuffix =
-		thinkingLevel !== undefined && thinkingLevel !== "off" && thinkingLevel.trim() !== ""
-			? `(${thinkingLevel})`
-			: "";
-	return `${providerPrefix}${model.id}${levelSuffix}`;
+	if (model === undefined) return theme !== undefined ? theme.fg("dim", "no-model") : "no-model";
+	const hasProvider = model.provider !== undefined && model.provider.trim() !== "";
+	const providerText = hasProvider ? `${model.provider}/` : "";
+	const hasThinking =
+		thinkingLevel !== undefined && thinkingLevel !== "off" && thinkingLevel.trim() !== "";
+
+	if (theme === undefined) {
+		const levelSuffix = hasThinking ? `(${thinkingLevel})` : "";
+		return `${providerText}${model.id}${levelSuffix}`;
+	}
+
+	const providerPart = hasProvider ? theme.fg("dim", providerText) : "";
+	const modelPart = theme.fg("text", model.id);
+	const thinkingPart = hasThinking
+		? `${theme.fg("dim", "(")}${theme.fg("accent", thinkingLevel)}${theme.fg("dim", ")")}`
+		: "";
+	return `${providerPart}${modelPart}${thinkingPart}`;
 }
 
 /**
  * Formats context usage ratio: N%/100K with warning/error colors:
- * - <= 70%: dim
+ * - <= 70%: [N% (muted)][/100K (dim)]
  * - 70% ~ 90%: warning
  * - > 90%: error
  */
@@ -58,13 +71,31 @@ export function formatFooterContext(
 	const percentValue = contextUsage?.percent;
 	const percentStr =
 		percentValue !== null && percentValue !== undefined ? `${Math.round(percentValue)}%` : "?%";
-	const text = `${percentStr}/${windowStr}`;
 
 	if (percentValue !== null && percentValue !== undefined) {
-		if (percentValue > 90) return theme.fg("error", text);
-		if (percentValue > 70) return theme.fg("warning", text);
+		if (percentValue > 90) return theme.fg("error", `${percentStr}/${windowStr}`);
+		if (percentValue > 70) return theme.fg("warning", `${percentStr}/${windowStr}`);
 	}
-	return theme.fg("dim", text);
+	return `${theme.fg("muted", percentStr)}${theme.fg("dim", `/${windowStr}`)}`;
+}
+
+/**
+ * Formats cwd and optional git branch for footer display:
+ * [path (muted)] [( (dim)][branch (accent)][) (dim)]
+ */
+export function formatFooterPath(
+	cwd: string,
+	branch: string | null | undefined,
+	theme: ThemeLike,
+	home?: string,
+): string {
+	const formattedCwd = formatCwdForFooter(cwd, home);
+	const cwdPart = theme.fg("muted", formattedCwd);
+	if (branch === null || branch === undefined || branch.trim() === "") {
+		return cwdPart;
+	}
+	const branchPart = `${theme.fg("dim", "(")}${theme.fg("accent", branch)}${theme.fg("dim", ")")}`;
+	return `${cwdPart} ${branchPart}`;
 }
 
 /**
@@ -136,10 +167,9 @@ export class CompactFooterComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const cwd = formatCwdForFooter(this.#extension.sessionManager.getCwd(), homedir());
+		const cwd = this.#extension.sessionManager.getCwd();
 		const branch = this.#footerData.getGitBranch();
-		const pwdWithBranch = branch !== undefined && branch !== "" ? `${cwd} (${branch})` : cwd;
-		const line1Left = this.#theme.fg("dim", pwdWithBranch);
+		const line1Left = formatFooterPath(cwd, branch, this.#theme, homedir());
 
 		const extensionStatuses = this.#footerData.getExtensionStatuses();
 		const autoTitleStatus = extensionStatuses.get("auto-title");
@@ -148,19 +178,23 @@ export class CompactFooterComponent implements Component {
 			autoTitleStatus !== undefined && autoTitleStatus.trim() !== ""
 				? autoTitleStatus
 				: sessionName !== undefined && sessionName.trim() !== ""
-					? this.#theme.fg("dim", sessionName)
+					? this.#theme.fg("muted", sessionName)
 					: undefined;
 
 		const line1 = layoutTwoColumnRow(line1Left, line1Right, width);
 
 		// Line 2 left: model + thinking level · context%
-		const modelText = formatFooterModel(this.#extension.model, this.#extension.thinkingLevel);
-		const contextText = formatFooterContext(
+		const modelPart = formatFooterModel(
+			this.#extension.model,
+			this.#extension.thinkingLevel,
+			this.#theme,
+		);
+		const contextPart = formatFooterContext(
 			this.#extension.getContextUsage(),
 			this.#extension.model?.contextWindow,
 			this.#theme,
 		);
-		const line2Left = `${this.#theme.fg("dim", modelText)} ${this.#theme.fg("dim", "·")} ${contextText}`;
+		const line2Left = `${modelPart} ${this.#theme.fg("dim", "·")} ${contextPart}`;
 
 		// Line 2 right: todo status or extension statuses (excluding auto-title which belongs to line 1)
 		let todoStatus = extensionStatuses.get("pi-ext-tools:todo");

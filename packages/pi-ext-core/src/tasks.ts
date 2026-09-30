@@ -122,6 +122,17 @@ export interface TaskTerminalEvent {
 	readonly structured?: unknown;
 }
 
+/** Cap on waiting queue items across constrained task types. */
+export const DEFAULT_MAX_TASK_QUEUE = 32;
+
+/**
+ * Default concurrency limits by task type. Heavy subagent children default to 4,
+ * while unlisted types (like bash) run unconstrained without queueing.
+ */
+export const DEFAULT_TASK_CONCURRENCY: Readonly<Record<string, number>> = {
+	task: 4,
+};
+
 export interface TaskRegistryOptions {
 	/** Cap on active tasks plus undelivered results, enforced at admission. */
 	readonly maxPendingDeliveries?: number;
@@ -129,8 +140,10 @@ export interface TaskRegistryOptions {
 	readonly maxRetainedTerminal?: number;
 	/** Called when a task is admitted while nothing else of this session needed control. */
 	readonly onFirstTask?: () => void;
-	/** Deterministic id discriminator for tests; production uses a random UUID prefix. */
-	readonly runtimeDiscriminator?: string;
+	/** Per-type concurrency limits. Types not listed (such as bash) run unconstrained. */
+	readonly maxConcurrentByType?: Readonly<Record<string, number>>;
+	/** Max items waiting in queue across constrained types. Defaults to 32. */
+	readonly maxQueued?: number;
 }
 
 /** True for the statuses that end a task's life. */
@@ -162,6 +175,24 @@ export class TaskCapacityError extends Error {
 	}
 }
 
+/** Thrown when queue capacity for constrained task types is exceeded. */
+export class TaskQueueFullError extends Error {
+	readonly limit: number;
+	constructor(limit: number) {
+		super(
+			`Background task queue is full: ${limit} queued tasks. Wait for or stop a running task before queueing more.`,
+		);
+		this.name = "TaskQueueFullError";
+		this.limit = limit;
+	}
+}
+
+interface QueuedTask {
+	readonly id: string;
+	readonly type: string;
+	readonly begin: ((taskId: string) => TaskBinding) | undefined;
+}
+
 interface TaskRecord {
 	readonly id: string;
 	readonly shortId: string;
@@ -178,10 +209,6 @@ interface TaskRecord {
 	inlineResult: boolean;
 	batch: string | undefined;
 	waiters: Array<(waited: boolean) => void>;
-}
-
-function randomDiscriminator(): string {
-	return crypto.randomUUID().slice(0, 8);
 }
 
 function boundedOutput(output: string): { output: string; truncated: boolean } {
@@ -216,17 +243,25 @@ export class TaskRegistry {
 	readonly #records = new Map<string, TaskRecord>();
 	readonly #counters = new Map<string, number>();
 	readonly #listeners = new Set<(event: TaskTerminalEvent) => void>();
-	readonly #discriminator: string;
 	readonly #maxPending: number;
 	readonly #maxRetained: number;
+	readonly #maxConcurrentByType: Readonly<Record<string, number>>;
+	readonly #maxQueued: number;
+	readonly #queue: QueuedTask[] = [];
 	readonly #onFirstTask: (() => void) | undefined;
 	#closed = false;
 
 	constructor(options: TaskRegistryOptions = {}) {
-		this.#discriminator = options.runtimeDiscriminator ?? randomDiscriminator();
 		this.#maxPending = options.maxPendingDeliveries ?? DEFAULT_MAX_PENDING_DELIVERIES;
 		this.#maxRetained = options.maxRetainedTerminal ?? DEFAULT_MAX_RETAINED_TERMINAL;
+		this.#maxConcurrentByType = options.maxConcurrentByType ?? DEFAULT_TASK_CONCURRENCY;
+		this.#maxQueued = options.maxQueued ?? DEFAULT_MAX_TASK_QUEUE;
 		this.#onFirstTask = options.onFirstTask;
+	}
+
+	/** Number of tasks currently waiting in queue. */
+	get queuedCount(): number {
+		return this.#queue.length;
 	}
 
 	/** Tasks that have not reached a terminal state yet. */
@@ -272,6 +307,21 @@ export class TaskRegistry {
 		};
 	}
 
+	#runningCountFor(type: string): number {
+		let count = 0;
+		for (const record of this.#records.values()) {
+			if (
+				record.type === type &&
+				(record.status === "starting" ||
+					record.status === "running" ||
+					record.status === "stopping")
+			) {
+				count += 1;
+			}
+		}
+		return count;
+	}
+
 	/**
 	 * Admits one task. A synchronous `begin` failure settles the task as failed and
 	 * rethrows, because that error reaches the caller directly and is not background output.
@@ -281,7 +331,16 @@ export class TaskRegistry {
 		const wasIdle = !this.requiresControl;
 		if (this.activeCount + this.undeliveredCount >= this.#maxPending)
 			throw new TaskCapacityError(this.#maxPending);
-		const status = request.initialStatus ?? "running";
+
+		const maxConcurrent = this.#maxConcurrentByType[request.type];
+		const mustQueue =
+			maxConcurrent !== undefined && this.#runningCountFor(request.type) >= maxConcurrent;
+
+		if (mustQueue && this.#queue.length >= this.#maxQueued) {
+			throw new TaskQueueFullError(this.#maxQueued);
+		}
+
+		const status = mustQueue ? "queued" : (request.initialStatus ?? "running");
 		const { id, shortId } = this.#nextId(request.type);
 		const record: TaskRecord = {
 			id,
@@ -300,7 +359,10 @@ export class TaskRegistry {
 			waiters: [],
 		};
 		this.#records.set(id, record);
-		if (request.begin !== undefined) {
+
+		if (mustQueue) {
+			this.#queue.push({ id, type: request.type, begin: request.begin });
+		} else if (request.begin !== undefined) {
 			try {
 				record.binding = request.begin(id);
 			} catch (error) {
@@ -411,6 +473,18 @@ export class TaskRegistry {
 			const record = this.#records.get(id);
 			if (record === undefined) return { id, status: "not_found" };
 			if (!isActive(record.status)) return { id, status: "already_terminal" };
+			if (record.status === "queued") {
+				const queueIndex = this.#queue.findIndex((entry) => entry.id === id);
+				if (queueIndex !== -1) {
+					this.#queue.splice(queueIndex, 1);
+					this.#settle(record, {
+						status: "cancelled",
+						output: "cancelled before start",
+						truncated: false,
+					});
+					return { id, status: "stop_requested" };
+				}
+			}
 			const previous = record.status;
 			// Cancellation is a request, and a request that has been made is visible: the task is
 			// reported as stopping until its producer confirms the execution ended.
@@ -503,6 +577,7 @@ export class TaskRegistry {
 			}
 			this.#release(record, false);
 		}
+		this.#queue.length = 0;
 		this.#records.clear();
 		this.#listeners.clear();
 	}
@@ -514,8 +589,8 @@ export class TaskRegistry {
 	#nextId(type: string): { id: string; shortId: string } {
 		const next = (this.#counters.get(type) ?? 0) + 1;
 		this.#counters.set(type, next);
-		const shortId = `${type}-${next}`;
-		return { id: `${type}-${this.#discriminator}-${next}`, shortId };
+		const id = `${type}-${next}`;
+		return { id, shortId: id };
 	}
 
 	#snapshot(record: TaskRecord): TaskSnapshot {
@@ -580,6 +655,37 @@ export class TaskRegistry {
 		this.#emit(record);
 		this.#release(record, true);
 		this.#evict();
+		this.#drain(record.type);
+	}
+
+	#drain(type: string): void {
+		if (this.#closed) return;
+		const limit = this.#maxConcurrentByType[type];
+		if (limit === undefined) return;
+		while (this.#runningCountFor(type) < limit) {
+			const queueIndex = this.#queue.findIndex((entry) => entry.type === type);
+			if (queueIndex === -1) break;
+			const [item] = this.#queue.splice(queueIndex, 1);
+			if (item === undefined) break;
+			this.#startQueued(item);
+		}
+	}
+
+	#startQueued(item: QueuedTask): void {
+		const record = this.#records.get(item.id);
+		if (record === undefined || record.status !== "queued") return;
+		record.status = "running";
+		if (item.begin !== undefined) {
+			try {
+				record.binding = item.begin(item.id);
+			} catch (error) {
+				this.#settle(record, {
+					status: "failed",
+					output: error instanceof Error ? error.message : String(error),
+					truncated: false,
+				});
+			}
+		}
 	}
 
 	#emit(record: TaskRecord): void {

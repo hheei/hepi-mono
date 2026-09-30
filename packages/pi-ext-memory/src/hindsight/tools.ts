@@ -4,7 +4,9 @@ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
 	errorMessage,
+	getToolTui,
 	isManagedTool,
+	isRecord,
 	type ManagedToolRegistration,
 	registerManagedTool,
 	setManagedToolsActive,
@@ -68,6 +70,7 @@ export interface HindsightToolContext {
 	readonly gateway: HindsightGateway;
 	readonly resolved: ResolvedHindsight;
 	readonly retainQueue: HindsightRetainQueue;
+	readonly invalidateRecallCache?: (() => void) | undefined;
 }
 
 /** Reads the current session's state; `undefined` while the feature is off. */
@@ -104,6 +107,8 @@ export function registerHindsightTools(
 	pi: ExtensionAPI,
 	provider: HindsightToolContextProvider,
 ): void {
+	const tui = getToolTui(pi);
+
 	async function withContext<TDetails extends HindsightToolDetails>(
 		tool: HindsightToolName,
 		run: (context: HindsightToolContext) => Promise<AgentToolResult<TDetails>>,
@@ -141,282 +146,387 @@ export function registerHindsightTools(
 	registerManagedTool(
 		pi,
 		registration("hindsight_search_knowledge_pages"),
-		defineTool({
-			name: "hindsight_search_knowledge_pages",
-			label: "Search Hindsight knowledge pages",
-			description:
-				"Search this repository's Hindsight knowledge pages (server-side hybrid full-text + semantic search). Use it for questions about architecture, conventions, components, or past decisions instead of re-deriving them from code. Returns ranked pages with a relevance snippet; read one in full with hindsight_read_knowledge_page.",
-			parameters: Type.Object({
-				query: Type.String({ description: "What to look for.", minLength: 1 }),
-				limit: Type.Optional(
-					Type.Integer({ minimum: 1, maximum: SEARCH_PAGE_LIMIT, default: DEFAULT_SEARCH_LIMIT }),
-				),
+		tui.frame(
+			defineTool({
+				name: "hindsight_search_knowledge_pages",
+				label: "Search Hindsight knowledge pages",
+				description:
+					"Search this repository's Hindsight knowledge pages (server-side hybrid full-text + semantic search). Use it for questions about architecture, conventions, components, or past decisions instead of re-deriving them from code. Returns ranked pages with a relevance snippet; read one in full with hindsight_read_knowledge_page.",
+				parameters: Type.Object({
+					query: Type.String({ description: "What to look for.", minLength: 1 }),
+					limit: Type.Optional(
+						Type.Integer({
+							minimum: 1,
+							maximum: SEARCH_PAGE_LIMIT,
+							default: DEFAULT_SEARCH_LIMIT,
+						}),
+					),
+				}),
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, params, signal) {
+					return withContext("hindsight_search_knowledge_pages", (context) =>
+						guarded("hindsight_search_knowledge_pages", async () => {
+							const hits = await context.gateway.searchPages(
+								params.query,
+								params.limit ?? DEFAULT_SEARCH_LIMIT,
+								signal,
+							);
+							if (hits.length === 0) return { text: "No matching knowledge pages." };
+							return {
+								text: hits
+									.map(
+										(hit) =>
+											`${hit.page} (${hit.pageId}, score ${hit.score.toFixed(2)})\n  ${hit.snippet}`,
+									)
+									.join("\n"),
+							};
+						}),
+					);
+				},
 			}),
-			async execute(_toolCallId, params, signal) {
-				return withContext("hindsight_search_knowledge_pages", (context) =>
-					guarded("hindsight_search_knowledge_pages", async () => {
-						const hits = await context.gateway.searchPages(
-							params.query,
-							params.limit ?? DEFAULT_SEARCH_LIMIT,
-							signal,
-						);
-						if (hits.length === 0) return { text: "No matching knowledge pages." };
-						return {
-							text: hits
-								.map(
-									(hit) =>
-										`${hit.page} (${hit.pageId}, score ${hit.score.toFixed(2)})\n  ${hit.snippet}`,
-								)
-								.join("\n"),
-						};
-					}),
-				);
+			{
+				summary: (args) =>
+					isRecord(args) && typeof args.query === "string" ? args.query : undefined,
+				headerLine: "truncate",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_list_knowledge_pages"),
-		defineTool({
-			name: "hindsight_list_knowledge_pages",
-			label: "List Hindsight knowledge pages",
-			description:
-				"List this repository's Hindsight knowledge pages — curated summaries of durable project knowledge (architecture, components, conventions, decisions, in-flight initiatives). Call it at the start of a non-trivial task to see what the project already knows.",
-			parameters: EmptyParams,
-			async execute(_toolCallId, _params, signal) {
-				return withContext("hindsight_list_knowledge_pages", (context) =>
-					guarded("hindsight_list_knowledge_pages", async () => {
-						const { pages, pagesAvailable } = await context.gateway.listPages(signal);
-						if (!pagesAvailable) throw new KnowledgePagesUnavailableError();
-						if (pages.length === 0)
-							return { text: "No knowledge pages exist for this repository yet." };
-						return {
-							text: pages
-								.map((page) =>
-									page.description === undefined || page.description.length === 0
-										? `${page.id} — ${page.title}`
-										: `${page.id} — ${page.title}: ${page.description}`,
-								)
-								.join("\n"),
-						};
-					}),
-				);
+		tui.frame(
+			defineTool({
+				name: "hindsight_list_knowledge_pages",
+				label: "List Hindsight knowledge pages",
+				description:
+					"List this repository's Hindsight knowledge pages — curated summaries of durable project knowledge (architecture, components, conventions, decisions, in-flight initiatives). Call it at the start of a non-trivial task to see what the project already knows.",
+				parameters: EmptyParams,
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, _params, signal) {
+					return withContext("hindsight_list_knowledge_pages", (context) =>
+						guarded("hindsight_list_knowledge_pages", async () => {
+							const { pages, pagesAvailable } = await context.gateway.listPages(signal);
+							if (!pagesAvailable) throw new KnowledgePagesUnavailableError();
+							if (pages.length === 0)
+								return { text: "No knowledge pages exist for this repository yet." };
+							return {
+								text: pages
+									.map((page) =>
+										page.description === undefined || page.description.length === 0
+											? `${page.id} — ${page.title}`
+											: `${page.id} — ${page.title}: ${page.description}`,
+									)
+									.join("\n"),
+							};
+						}),
+					);
+				},
+			}),
+			{
+				summary: () => "knowledge pages",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_read_knowledge_page"),
-		defineTool({
-			name: "hindsight_read_knowledge_page",
-			label: "Read a Hindsight knowledge page",
-			description:
-				"Read one knowledge page in full by id. Read Conventions before writing code, Component map before changing a subsystem, or an initiative's page before continuing that feature. A page may link related pages with [[page:<id>]]; follow a link by calling this tool again.",
-			parameters: Type.Object({
-				page_id: Type.String({
-					description: "Knowledge page id from hindsight_list_knowledge_pages.",
-					minLength: 1,
-				}),
-			}),
-			async execute(_toolCallId, params, signal) {
-				return withContext("hindsight_read_knowledge_page", (context) =>
-					guarded("hindsight_read_knowledge_page", async () => {
-						const page = await context.gateway.readPage(params.page_id, signal);
-						return { text: `# ${page.title}\n\n${page.markdown}` };
+		tui.frame(
+			defineTool({
+				name: "hindsight_read_knowledge_page",
+				label: "Read a Hindsight knowledge page",
+				description:
+					"Read one knowledge page in full by id. Read Conventions before writing code, Component map before changing a subsystem, or an initiative's page before continuing that feature. A page may link related pages with [[page:<id>]]; follow a link by calling this tool again.",
+				parameters: Type.Object({
+					page_id: Type.String({
+						description: "Knowledge page id from hindsight_list_knowledge_pages.",
+						minLength: 1,
 					}),
-				);
+				}),
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, params, signal) {
+					return withContext("hindsight_read_knowledge_page", (context) =>
+						guarded("hindsight_read_knowledge_page", async () => {
+							const page = await context.gateway.readPage(params.page_id, signal);
+							return { text: `# ${page.title}\n\n${page.markdown}` };
+						}),
+					);
+				},
+			}),
+			{
+				summary: (args) =>
+					isRecord(args) && typeof args.page_id === "string" ? args.page_id : undefined,
+				headerLine: "truncate",
+				maxBodyLines: 20,
+				longOutput: true,
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_reflect"),
-		defineTool({
-			name: "hindsight_reflect",
-			label: "Reflect over Hindsight memory",
-			description:
-				"Deep memory reasoning: an agentic synthesis over this repository's full memory (git decisions, past sessions, ingested knowledge) that answers WHY questions — the decision and exact rule or values behind a behavior, bug, or convention. Slower than page search (several seconds); use it when pages are too shallow and you need the root cause.",
-			parameters: Type.Object({
-				query: Type.String({
-					description: "The question to reason over memory about.",
-					minLength: 1,
-				}),
-			}),
-			async execute(_toolCallId, params, signal) {
-				return withContext("hindsight_reflect", (context) =>
-					guarded("hindsight_reflect", async () => {
-						const text = await context.gateway.reflect(params.query, signal);
-						return {
-							text: text.trim().length === 0 ? "No memory-based answer was produced." : text,
-						};
+		tui.frame(
+			defineTool({
+				name: "hindsight_reflect",
+				label: "Reflect over Hindsight memory",
+				description:
+					"Deep memory reasoning: an agentic synthesis over this repository's full memory (git decisions, past sessions, ingested knowledge) that answers WHY questions — the decision and exact rule or values behind a behavior, bug, or convention. Slower than page search (several seconds); use it when pages are too shallow and you need the root cause.",
+				parameters: Type.Object({
+					query: Type.String({
+						description: "The question to reason over memory about.",
+						minLength: 1,
 					}),
-				);
+				}),
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, params, signal) {
+					return withContext("hindsight_reflect", (context) =>
+						guarded("hindsight_reflect", async () => {
+							const text = await context.gateway.reflect(params.query, signal);
+							return {
+								text: text.trim().length === 0 ? "No memory-based answer was produced." : text,
+							};
+						}),
+					);
+				},
+			}),
+			{
+				summary: (args) =>
+					isRecord(args) && typeof args.query === "string" ? args.query : undefined,
+				headerLine: "truncate",
+				maxBodyLines: 20,
+				longOutput: true,
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_capture_initiative"),
-		defineTool({
-			name: "hindsight_capture_initiative",
-			label: "Capture a Hindsight initiative",
-			description:
-				"Record a new feature or initiative as a tracked knowledge page so future sessions know it exists, and keep that page tracking the plan as it moves. Call it right after the user approves a plan and before writing code; call it again with relates_to_page_id when the goal, scope, or rationale materially changes. Skip bug fixes, small tweaks, refactors, and chores.",
-			parameters: Type.Object({
-				title: Type.String({ description: "Short, specific initiative name.", minLength: 1 }),
-				summary: Type.String({
-					description: "2-3 sentences on what is being built and why — the current intent.",
-					minLength: 1,
+		tui.frame(
+			defineTool({
+				name: "hindsight_capture_initiative",
+				label: "Capture a Hindsight initiative",
+				description:
+					"Record a new feature or initiative as a tracked knowledge page so future sessions know it exists, and keep that page tracking the plan as it moves. Call it right after the user approves a plan and before writing code; call it again with relates_to_page_id when the goal, scope, or rationale materially changes. Skip bug fixes, small tweaks, refactors, and chores.",
+				parameters: Type.Object({
+					title: Type.String({ description: "Short, specific initiative name.", minLength: 1 }),
+					summary: Type.String({
+						description: "2-3 sentences on what is being built and why — the current intent.",
+						minLength: 1,
+					}),
+					relates_to_page_id: Type.Optional(
+						Type.String({
+							description:
+								"Existing initiative page id, to record a plan change instead of creating a second page.",
+						}),
+					),
 				}),
-				relates_to_page_id: Type.Optional(
-					Type.String({
-						description:
-							"Existing initiative page id, to record a plan change instead of creating a second page.",
-					}),
-				),
+				annotations: {
+					readOnlyHint: false,
+					destructiveHint: false,
+					idempotentHint: false,
+				},
+				async execute(_toolCallId, params, signal) {
+					return withContext("hindsight_capture_initiative", (context) =>
+						guarded("hindsight_capture_initiative", async () => {
+							const { pageId } = await context.gateway.captureInitiative(
+								{
+									title: params.title,
+									summary: params.summary,
+									...(params.relates_to_page_id === undefined
+										? {}
+										: { relatesToPageId: params.relates_to_page_id }),
+								},
+								signal,
+							);
+							context.invalidateRecallCache?.();
+							return { text: `Initiative recorded on knowledge page ${pageId}.` };
+						}),
+					);
+				},
 			}),
-			async execute(_toolCallId, params, signal) {
-				return withContext("hindsight_capture_initiative", (context) =>
-					guarded("hindsight_capture_initiative", async () => {
-						const { pageId } = await context.gateway.captureInitiative(
-							{
-								title: params.title,
-								summary: params.summary,
-								...(params.relates_to_page_id === undefined
-									? {}
-									: { relatesToPageId: params.relates_to_page_id }),
-							},
-							signal,
-						);
-						return { text: `Initiative recorded on knowledge page ${pageId}.` };
-					}),
-				);
+			{
+				summary: (args) =>
+					isRecord(args) && typeof args.title === "string" ? args.title : undefined,
+				headerLine: "truncate",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_ingest_document"),
-		defineTool({
-			name: "hindsight_ingest_document",
-			label: "Ingest a document into Hindsight",
-			description:
-				"Save an external document or a block of durable notes into this repository's memory so it informs future recall and knowledge pages. This is also the correction mechanism: when a retrieved memory is wrong or outdated, ingest a document titled 'Correction: <topic>' stating what memory claimed, what is actually true, and the evidence. The conversation you are in is captured automatically at turn end — do not use this for it.",
-			parameters: Type.Object({
-				title: Type.String({
-					description: "Document title; use 'Correction: <topic>' to correct memory.",
-					minLength: 1,
-				}),
-				content: Type.String({ description: "The durable content to remember.", minLength: 1 }),
-			}),
-			async execute(_toolCallId, params, signal) {
-				return withContext("hindsight_ingest_document", (context) =>
-					guarded("hindsight_ingest_document", async () => {
-						const { documentId } = await context.gateway.ingestDocument(
-							{ title: params.title, content: params.content },
-							signal,
-						);
-						return { text: `Document stored as ${documentId}.` };
+		tui.frame(
+			defineTool({
+				name: "hindsight_ingest_document",
+				label: "Ingest a document into Hindsight",
+				description:
+					"Save an external document or a block of durable notes into this repository's memory so it informs future recall and knowledge pages. This is also the correction mechanism: when a retrieved memory is wrong or outdated, ingest a document titled 'Correction: <topic>' stating what memory claimed, what is actually true, and the evidence. The conversation you are in is captured automatically at turn end — do not use this for it.",
+				parameters: Type.Object({
+					title: Type.String({
+						description: "Document title; use 'Correction: <topic>' to correct memory.",
+						minLength: 1,
 					}),
-				);
+					content: Type.String({
+						description: "The durable content to remember.",
+						minLength: 1,
+					}),
+				}),
+				annotations: {
+					readOnlyHint: false,
+					destructiveHint: false,
+					idempotentHint: false,
+				},
+				async execute(_toolCallId, params, signal) {
+					return withContext("hindsight_ingest_document", (context) =>
+						guarded("hindsight_ingest_document", async () => {
+							const { documentId } = await context.gateway.ingestDocument(
+								{ title: params.title, content: params.content },
+								signal,
+							);
+							context.invalidateRecallCache?.();
+							return { text: `Document stored as ${documentId}.` };
+						}),
+					);
+				},
+			}),
+			{
+				summary: (args) =>
+					isRecord(args) && typeof args.title === "string" ? args.title : undefined,
+				headerLine: "truncate",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_sync_status"),
-		defineTool({
-			name: "hindsight_sync_status",
-			label: "Check Hindsight sync status",
-			description:
-				"Report whether this repository's Hindsight memory is reachable and how much it holds: server API version, knowledge-page availability and count, and stored document total.",
-			parameters: EmptyParams,
-			async execute(_toolCallId, _params, signal) {
-				return withContext("hindsight_sync_status", (context) =>
-					guarded("hindsight_sync_status", async () => {
-						const status = await context.gateway.syncStatus(signal);
-						return {
-							text: [
-								`Server API version: ${status.apiVersion ?? "unknown"}`,
-								status.pagesAvailable
-									? `Knowledge pages: ${status.pageCount}`
-									: "Knowledge pages: unavailable on this server",
-								`Stored documents: ${status.documentTotal}`,
-							].join("\n"),
-						};
-					}),
-				);
+		tui.frame(
+			defineTool({
+				name: "hindsight_sync_status",
+				label: "Check Hindsight sync status",
+				description:
+					"Report whether this repository's Hindsight memory is reachable and how much it holds: server API version, knowledge-page availability and count, and stored document total.",
+				parameters: EmptyParams,
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, _params, signal) {
+					return withContext("hindsight_sync_status", (context) =>
+						guarded("hindsight_sync_status", async () => {
+							const status = await context.gateway.syncStatus(signal);
+							return {
+								text: [
+									`Server API version: ${status.apiVersion ?? "unknown"}`,
+									status.pagesAvailable
+										? `Knowledge pages: ${status.pageCount}`
+										: "Knowledge pages: unavailable on this server",
+									`Stored documents: ${status.documentTotal}`,
+								].join("\n"),
+							};
+						}),
+					);
+				},
+			}),
+			{
+				summary: () => "sync status",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 
 	registerManagedTool(
 		pi,
 		registration("hindsight_diagnose"),
-		defineTool({
-			name: "hindsight_diagnose",
-			label: "Diagnose Hindsight configuration",
-			description:
-				"Report the effective Hindsight configuration: resolved bank and how it was chosen, repository isolation mode and scope tags, endpoint, whether a token is configured (never its value), reachability, and pending writeback state. Use it when memory looks wrong or facts from another repository appear.",
-			parameters: EmptyParams,
-			async execute(_toolCallId, _params, signal) {
-				return withContext("hindsight_diagnose", async (context) => {
-					const retain = context.retainQueue.status();
-					let reachable = true;
-					let pagesAvailable = true;
-					try {
-						pagesAvailable = (await context.gateway.listPages(signal)).pagesAvailable;
-					} catch {
-						reachable = false;
-					}
-					const { config, bankId, bankSource, isolationMode, repo, scopeTags, retainTags } =
-						context.resolved;
-					const details: HindsightDiagnoseDetails = {
-						tool: "hindsight_diagnose",
-						status: reachable ? "ok" : "error",
-						bankId,
-						bankSource,
-						repo,
-						isolationMode,
-						scopeTags,
-						retainTags,
-						apiUrl: config.apiUrl,
-						tokenConfigured: config.apiToken !== undefined,
-						autoRecall: config.autoRecall,
-						retainSessions: config.retainSessions,
-						reachable,
-						pagesAvailable,
-						retain,
-						...(reachable ? {} : { message: "Hindsight server not reachable" }),
-					};
-					return textToolResult(
-						[
-							`Endpoint: ${config.apiUrl}`,
-							`Token configured: ${details.tokenConfigured ? "yes" : "no"}`,
-							`Bank: ${bankId} (chosen by ${bankSource})`,
-							`Repository: ${repo}`,
-							`Isolation: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
-							`Retain tags: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
-							`Server reachable: ${reachable ? "yes" : "no"}`,
-							`Knowledge pages available: ${pagesAvailable ? "yes" : "no"}`,
-							`Auto-recall before turns: ${config.autoRecall ? "on" : "off"}`,
-							`Session writeback: ${config.retainSessions ? "on" : "off"}`,
-							`Writeback state: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
-							...(retain.lastError === undefined
-								? []
-								: [`Last writeback error: ${retain.lastError}`]),
-						].join("\n"),
-						details,
-					);
-				});
+		tui.frame(
+			defineTool({
+				name: "hindsight_diagnose",
+				label: "Diagnose Hindsight configuration",
+				description:
+					"Report the effective Hindsight configuration: resolved bank and how it was chosen, repository isolation mode and scope tags, endpoint, whether a token is configured (never its value), reachability, and pending writeback state. Use it when memory looks wrong or facts from another repository appear.",
+				parameters: EmptyParams,
+				annotations: {
+					readOnlyHint: true,
+					idempotentHint: true,
+				},
+				async execute(_toolCallId, _params, signal) {
+					return withContext("hindsight_diagnose", async (context) => {
+						const retain = context.retainQueue.status();
+						let reachable = true;
+						let pagesAvailable = true;
+						try {
+							pagesAvailable = (await context.gateway.listPages(signal)).pagesAvailable;
+						} catch {
+							reachable = false;
+						}
+						const { config, bankId, bankSource, isolationMode, repo, scopeTags, retainTags } =
+							context.resolved;
+						const details: HindsightDiagnoseDetails = {
+							tool: "hindsight_diagnose",
+							status: reachable ? "ok" : "error",
+							bankId,
+							bankSource,
+							repo,
+							isolationMode,
+							scopeTags,
+							retainTags,
+							apiUrl: config.apiUrl,
+							tokenConfigured: config.apiToken !== undefined,
+							autoRecall: config.autoRecall,
+							retainSessions: config.retainSessions,
+							reachable,
+							pagesAvailable,
+							retain,
+							...(reachable ? {} : { message: "Hindsight server not reachable" }),
+						};
+						return textToolResult(
+							[
+								`Endpoint: ${config.apiUrl}`,
+								`Token configured: ${details.tokenConfigured ? "yes" : "no"}`,
+								`Bank: ${bankId} (chosen by ${bankSource})`,
+								`Repository: ${repo}`,
+								`Isolation: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
+								`Retain tags: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
+								`Server reachable: ${reachable ? "yes" : "no"}`,
+								`Knowledge pages available: ${pagesAvailable ? "yes" : "no"}`,
+								`Auto-recall before turns: ${config.autoRecall ? "on" : "off"}`,
+								`Session writeback: ${config.retainSessions ? "on" : "off"}`,
+								`Writeback state: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
+								...(retain.lastError === undefined
+									? []
+									: [`Last writeback error: ${retain.lastError}`]),
+							].join("\n"),
+							details,
+						);
+					});
+				},
+			}),
+			{
+				summary: () => "configuration",
+				warning: (result) => result.details?.status === "unavailable",
 			},
-		}),
+		),
 	);
 }
 

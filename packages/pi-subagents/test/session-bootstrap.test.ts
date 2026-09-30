@@ -5,10 +5,12 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { ThinkingLevel } from "../src/domain.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import {
+	createSubagentId,
 	findSessionFile,
 	inspectSessionFile,
 	persistSubagentIntent,
 	planSessionPlacement,
+	resetSubagentIdCounter,
 	resolveSubagentLaunch,
 } from "../src/session-bootstrap.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
@@ -80,7 +82,7 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 			bridgeExtensionPath: bridge,
 		});
 
-		expect(config.subagentId).toMatch(/^sa_[0-9a-f]{12}$/u);
+		expect(config.subagentId).toMatch(/^agent-\d+$/u);
 		expect(config.cwd).toBe(cwd);
 		expect(config.sessionPath).toBeUndefined();
 		expect(config.sessionDir.startsWith(join(agentDir, "sessions"))).toBe(true);
@@ -90,6 +92,16 @@ test("resolves one launch configuration with ids, bridge, and parent-derived pol
 		expect(config.interactive).toBe(false);
 		expect(JSON.stringify(config)).not.toContain("PI_SUBAGENTS_TOKEN");
 	});
+});
+
+test("createSubagentId produces sequential agent-X ids and respects existing ones", () => {
+	resetSubagentIdCounter(0);
+	expect(createSubagentId()).toBe("agent-1");
+	expect(createSubagentId()).toBe("agent-2");
+
+	// When existing ids are provided, it jumps to the next available number
+	expect(createSubagentId(["agent-1", "agent-2", "agent-5"])).toBe("agent-6");
+	expect(createSubagentId()).toBe("agent-7");
 });
 
 test("the built-in scout keeps its read-only tools and gains the result channel", async (): Promise<void> => {

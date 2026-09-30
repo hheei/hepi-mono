@@ -4,6 +4,7 @@ import {
 	DEFAULT_MAX_PENDING_DELIVERIES,
 	MAX_TASK_RESULT_CHARS,
 	TaskCapacityError,
+	TaskQueueFullError,
 	TaskRegistry,
 	TaskRegistryClosedError,
 	type TaskTerminalEvent,
@@ -23,29 +24,19 @@ function tracked(registry: TaskRegistry): TaskRegistry {
 function registry(
 	options: { readonly onFirstTask?: () => void; readonly maxRetainedTerminal?: number } = {},
 ): TaskRegistry {
-	return tracked(new TaskRegistry({ runtimeDiscriminator: "test", ...options }));
+	return tracked(new TaskRegistry(options));
 }
 
 function idleBinding(): { stop(): void; describe(): { output: string; truncated: boolean } } {
 	return { stop: () => undefined, describe: () => ({ output: "", truncated: false }) };
 }
 
-test("assigns per-family ids that do not repeat across registry lifetimes", (): void => {
+test("assigns sequential ids per family", (): void => {
 	const first = registry();
 	const a = first.create({ type: "bash", purpose: "one", begin: idleBinding });
 	const b = first.create({ type: "bash", purpose: "two", begin: idleBinding });
-	expect([a.id, b.id]).toEqual(["bash-test-1", "bash-test-2"]);
+	expect([a.id, b.id]).toEqual(["bash-1", "bash-2"]);
 	expect([a.shortId, b.shortId]).toEqual(["bash-1", "bash-2"]);
-
-	// Two real lifetimes restart the sequence but keep distinct full ids, so a control
-	// entry from a previous lifetime can never address a task of the current one.
-	const one = tracked(new TaskRegistry());
-	const two = tracked(new TaskRegistry());
-	const firstOfOne = one.create({ type: "bash", purpose: "one", begin: idleBinding });
-	const firstOfTwo = two.create({ type: "bash", purpose: "two", begin: idleBinding });
-	expect(firstOfOne.shortId).toBe("bash-1");
-	expect(firstOfTwo.shortId).toBe("bash-1");
-	expect(firstOfOne.id).not.toBe(firstOfTwo.id);
 });
 
 test("rejects admission once active and undelivered results fill the budget", (): void => {
@@ -72,7 +63,7 @@ test("rejects admission once active and undelivered results fill the budget", ()
 });
 
 test("keeps one terminal result and protects it from eviction while pending", (): void => {
-	const tasks = tracked(new TaskRegistry({ runtimeDiscriminator: "test", maxRetainedTerminal: 1 }));
+	const tasks = tracked(new TaskRegistry({ maxRetainedTerminal: 1 }));
 	const first = tasks.create({ type: "bash", purpose: "keep", begin: idleBinding });
 	expect(tasks.settle(first.id, { status: "completed", output: "kept", truncated: false })).toBe(
 		true,
@@ -140,7 +131,7 @@ test("reports one terminal event and notifies once per task", (): void => {
 	tasks.settle(task.id, { status: "failed", output: "late", truncated: false });
 	expect(events).toHaveLength(1);
 	expect(events[0]).toMatchObject({
-		id: "bash-test-1",
+		id: "bash-1",
 		shortId: "bash-1",
 		type: "bash",
 		status: "completed",
@@ -160,7 +151,7 @@ test("a throwing terminal listener cannot break settling or later listeners", ()
 	expect(tasks.settle(task.id, { status: "completed", output: "out", truncated: false })).toBe(
 		true,
 	);
-	expect(seen).toEqual(["bash-test-1"]);
+	expect(seen).toEqual(["bash-1"]);
 	expect(tasks.get(task.id)?.status).toBe("completed");
 });
 
@@ -169,7 +160,7 @@ test("waits for every listed task, deduplicates ids and reports unknown ones", a
 	const slow = tasks.create({ type: "bash", purpose: "slow", begin: idleBinding });
 	const fast = tasks.create({ type: "bash", purpose: "fast", begin: idleBinding });
 	tasks.settle(fast.id, { status: "completed", output: "fast done", truncated: false });
-	const pending = tasks.wait([slow.id, fast.id, "bash-test-9", slow.id]);
+	const pending = tasks.wait([slow.id, fast.id, "bash-9", slow.id]);
 	tasks.settle(slow.id, { status: "failed", output: "slow failed", truncated: false });
 	const outcomes = await pending;
 	expect(outcomes).toHaveLength(3);
@@ -181,7 +172,7 @@ test("waits for every listed task, deduplicates ids and reports unknown ones", a
 		output: "slow failed",
 	});
 	expect(outcomes[1]).toMatchObject({ id: fast.id, status: "completed", output: "fast done" });
-	expect(outcomes[2]).toEqual({ id: "bash-test-9", status: "not_found" });
+	expect(outcomes[2]).toEqual({ id: "bash-9", status: "not_found" });
 });
 
 test("an inline-reported result reserves no notification and is never delivered", async (): Promise<void> => {
@@ -468,9 +459,7 @@ test("carries a validated structured result through wait", async (): Promise<voi
 test("reports control demand while work or notifications are outstanding", async (): Promise<void> => {
 	const tasks = registry();
 	const activated: number[] = [];
-	const scoped = tracked(
-		new TaskRegistry({ runtimeDiscriminator: "test", onFirstTask: () => activated.push(1) }),
-	);
+	const scoped = tracked(new TaskRegistry({ onFirstTask: () => activated.push(1) }));
 	expect(scoped.requiresControl).toBe(false);
 	const task = scoped.create({ type: "bash", purpose: "first", begin: idleBinding });
 	expect(activated).toHaveLength(1);
@@ -509,8 +498,64 @@ test("disposes idempotently, stops active work and rejects new admissions", (): 
 		TaskRegistryClosedError,
 	);
 	// A late producer result is ignored instead of resurrecting the disposed session.
-	expect(tasks.settle("bash-test-1", { status: "completed", output: "", truncated: false })).toBe(
-		false,
-	);
+	expect(tasks.settle("bash-1", { status: "completed", output: "", truncated: false })).toBe(false);
 	expect(tasks.list(true)).toEqual([]);
+});
+
+test("respects maxConcurrentByType, queues excess tasks, and leaves unconstrained types unaffected", (): void => {
+	const tasks = tracked(
+		new TaskRegistry({
+			maxConcurrentByType: { task: 2 },
+			maxQueued: 2,
+		}),
+	);
+
+	const begun: string[] = [];
+	const createFn = (type: string, purpose: string) =>
+		tasks.create({
+			type,
+			purpose,
+			begin: (id) => {
+				begun.push(id);
+				return idleBinding();
+			},
+		});
+
+	const t1 = createFn("task", "first");
+	const t2 = createFn("task", "second");
+	expect(t1.status).toBe("running");
+	expect(t2.status).toBe("running");
+	expect(begun).toEqual(["task-1", "task-2"]);
+	expect(tasks.queuedCount).toBe(0);
+
+	// Third task exceeds maxConcurrent (2) -> must queue without invoking begin
+	const t3 = createFn("task", "third");
+	expect(t3.status).toBe("queued");
+	expect(tasks.queuedCount).toBe(1);
+	expect(begun).toEqual(["task-1", "task-2"]);
+
+	// Unconstrained type (e.g. bash) does not queue and runs immediately
+	const b1 = createFn("bash", "shell");
+	expect(b1.status).toBe("running");
+	expect(begun).toEqual(["task-1", "task-2", "bash-1"]);
+
+	// Fourth task also queues
+	const t4 = createFn("task", "fourth");
+	expect(t4.status).toBe("queued");
+	expect(tasks.queuedCount).toBe(2);
+
+	// Exceeding maxQueued (2) throws TaskQueueFullError
+	expect(() => createFn("task", "fifth")).toThrow(TaskQueueFullError);
+
+	// Settling t1 frees a slot and automatically drains t3
+	tasks.settle(t1.id, { status: "completed", output: "done", truncated: false });
+	expect(tasks.get(t3.id)?.status).toBe("running");
+	expect(begun).toEqual(["task-1", "task-2", "bash-1", "task-3"]);
+	expect(tasks.queuedCount).toBe(1);
+
+	// Stopping t4 while queued cancels it immediately without running begin
+	expect(tasks.stop([t4.id])).toEqual([{ id: t4.id, status: "stop_requested" }]);
+	expect(tasks.get(t4.id)?.status).toBe("cancelled");
+	expect(begun).not.toContain("task-4");
+	expect(tasks.queuedCount).toBe(0);
 });

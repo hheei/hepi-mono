@@ -90,7 +90,18 @@ export function lsCollapsedFooter(
 
 /** Register Pi's directory listing with native ToolTui framing and collapsible summary. */
 export function registerLsTool(pi: ExtensionAPI, tui: ToolTui = createToolTui()) {
-	const tool = createLsToolDefinition(process.cwd());
+	const template = createLsToolDefinition(process.cwd());
+	const tool: typeof template = {
+		...template,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
+		async execute(toolCallId, params, signal, onUpdate, context) {
+			const original = createLsToolDefinition(context.cwd);
+			return await original.execute(toolCallId, params, signal, onUpdate, context);
+		},
+	};
 	registerManagedTool(
 		pi,
 		{

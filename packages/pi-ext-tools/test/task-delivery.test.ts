@@ -75,7 +75,7 @@ function harness(
 	const setBranch = (next: readonly string[]): void => {
 		branch = next;
 	};
-	const registry = new TaskRegistry({ runtimeDiscriminator: "test" });
+	const registry = new TaskRegistry();
 	const stop = startTaskDelivery({
 		pi,
 		registry,

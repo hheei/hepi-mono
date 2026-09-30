@@ -1,6 +1,6 @@
 import type {
 	AgentToolResult,
-	ExtensionContext,
+	ExtensionToolContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { agentResultText, errorMessage } from "@hheei/pi-ext-core";
@@ -113,7 +113,7 @@ export class EvalToolBridge {
 	async call(
 		name: string,
 		args: unknown,
-		context: ExtensionContext,
+		context: ExtensionToolContext,
 		signal: AbortSignal | undefined,
 		onTrace: (trace: EvalNestedTrace) => void,
 	): Promise<unknown> {

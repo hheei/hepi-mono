@@ -2,6 +2,7 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import {
 	createToolTui,
 	type ExtensionLifecycleContext,
+	formatDuration,
 	isTerminalTaskStatus,
 	type ManagedToolRegistration,
 	provideService,
@@ -84,7 +85,7 @@ function unavailable() {
 	return textToolResult(NO_ACTIVE_TASK_SESSION, { error: "session_unavailable" });
 }
 const ID_DESCRIPTION =
-	"Full background task ids such as bash-3f9a1c2e-1; single-task calls pass a one-element array.";
+	"Background task ids such as bash-1 or bash-22; single-task calls pass a one-element array.";
 const Ids = Type.Array(Type.String({ minLength: 1 }), {
 	minItems: 1,
 	maxItems: 32,
@@ -231,7 +232,20 @@ export function registerTaskTools(
 		},
 	};
 	const [listRegistration, waitRegistration, stopRegistration] = TASK_TOOL_REGISTRATIONS;
-	registerManagedTool(pi, listRegistration, tui.frame(listTool));
+	registerManagedTool(
+		pi,
+		listRegistration,
+		tui.frame(listTool, {
+			summary: (args) => (args.includeTerminal ? "all" : "active"),
+			headerLine: "truncate",
+			footer: (result) => {
+				const details = result.details as { readonly tasks?: readonly TaskSnapshot[] } | undefined;
+				if (!Array.isArray(details?.tasks)) return undefined;
+				const count = details.tasks.length;
+				return count === 1 ? "1 task" : `${count} tasks`;
+			},
+		}),
+	);
 	registerManagedTool(
 		pi,
 		waitRegistration,
@@ -239,6 +253,16 @@ export function registerTaskTools(
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
 			headerLine: "truncate",
+			footer: (result, completion) => {
+				const details = result.details as
+					| { readonly tasks?: readonly TaskWaitOutcome[] }
+					| undefined;
+				if (!Array.isArray(details?.tasks)) return undefined;
+				const count = details.tasks.length;
+				const taskText = count === 1 ? "1 task" : `${count} tasks`;
+				const duration = formatDuration(completion?.durationMs);
+				return [taskText, duration].filter(Boolean).join(" · ");
+			},
 		}),
 	);
 	registerManagedTool(
@@ -248,6 +272,14 @@ export function registerTaskTools(
 			summary: (args) => args.ids.join(" "),
 			summarySeparator: "space",
 			headerLine: "truncate",
+			footer: (result) => {
+				const details = result.details as
+					| { readonly tasks?: readonly TaskStopOutcome[] }
+					| undefined;
+				if (!Array.isArray(details?.tasks) || details.tasks.length === 0) return undefined;
+				const count = details.tasks.length;
+				return count === 1 ? "1 task" : `${count} tasks`;
+			},
 			warning: (result) => stopWarning(result.details),
 		}),
 	);
