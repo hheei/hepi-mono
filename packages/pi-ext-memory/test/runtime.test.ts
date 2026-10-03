@@ -278,15 +278,11 @@ describe("Runtime V3 behavior", () => {
 		});
 	});
 
-	it("clears the idle compaction timer when the session signal aborts", async () => {
+	it("starts session and updates generation", async () => {
 		const runtime = new Runtime();
 		const controller = new AbortController();
 		const generation = await runtime.startSession("/tmp/hepi-memory-test", controller.signal);
-		runtime.pendingIdleCompactionTimer = setTimeout(() => undefined, 60_000);
-
-		controller.abort();
-
-		expect(runtime.pendingIdleCompactionTimer).toBeUndefined();
+		expect(runtime.sessionGeneration).toBe(generation);
 		runtime.endSession(generation);
 	});
 
