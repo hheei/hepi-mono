@@ -1,5 +1,5 @@
 import { errorMessage } from "@hheei/pi-ext-core";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
 	createCmuxHostAdapter,
 	createHerdrHostAdapter,
@@ -106,6 +106,11 @@ function idleProcessInfo(paneId: string): string {
 		},
 	});
 }
+
+beforeEach(() => {
+	vi.stubEnv("HERDR_ENV", "1");
+	vi.stubEnv("HERDR_WORKSPACE_ID", "wG");
+});
 
 afterEach(() => {
 	vi.unstubAllEnvs();
