@@ -1129,3 +1129,31 @@ test("session teardown releases the boundary listeners", async (): Promise<void>
 	host.emit("session_compact");
 	expect(host.pi.getActiveTools()).toEqual(["read", ...TASK_TOOL_IDS]);
 });
+
+test("cleanly terminalizes when command exits but descendant holds stdio open", async (): Promise<void> => {
+	const registry = jobRegistry();
+	const started = registry.start({
+		command: "python3 -c 'import time; time.sleep(10)' 1>&2 & exit 0",
+		cwd: process.cwd(),
+	});
+	const completed = await eventually(
+		() => registry.get(started.id),
+		(job) => job.status !== "running",
+	);
+	expect(completed.status).toBe("completed");
+});
+
+test("cleanly terminalizes when stopped even if descendant holds stdio open", async (): Promise<void> => {
+	const registry = jobRegistry();
+	const started = registry.start({
+		command: "python3 -c 'import time; time.sleep(30)' 1>&2 & sleep 30",
+		cwd: process.cwd(),
+	});
+	await sleep(50);
+	registry.stop(started.id);
+	const stopped = await eventually(
+		() => registry.get(started.id),
+		(job) => job.status === "stopped",
+	);
+	expect(stopped.status).toBe("stopped");
+});

@@ -4,13 +4,50 @@ export const PROTOCOL_VERSION = 1 as const;
 export const REGISTRY_VERSION = 1 as const;
 
 export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped" | "failed";
-export type ExecutionMode = "rpc" | "tui";
+/**
+ * Where a child is presented: `panel` is the native Pi TUI in a host panel (herdr tab / cmux
+ * surface), `background` is a headless Pi the parent owns over stdio. It is frozen when the child
+ * is created, because it decides who holds the process for the rest of the child's life.
+ */
+export type Presentation = "panel" | "background";
 export type SendMode = "steer" | "follow_up" | "auto";
 
-export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
-	starting: "󰄰",
+export type VisualSubagentState = "running" | "done" | "blocked";
+
+export function toVisualSubagentState(
+	state: SubagentState,
+	interrupted?: string,
+): VisualSubagentState {
+	if (interrupted !== undefined && state !== "done") return "blocked";
+	switch (state) {
+		case "starting":
+		case "running":
+		case "idle":
+			return "running";
+		case "done":
+			return "done";
+		case "stopped":
+		case "failed":
+			return "blocked";
+	}
+}
+
+export const VISUAL_SUBAGENT_GLYPH: Record<VisualSubagentState, string> = {
 	running: "󰪠",
-	idle: "󰄰",
+	done: "󰄴",
+	blocked: "󰅚",
+};
+
+export const VISUAL_SUBAGENT_TONE: Record<VisualSubagentState, "accent" | "success" | "error"> = {
+	running: "accent",
+	done: "success",
+	blocked: "error",
+};
+
+export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
+	starting: "󰪠",
+	running: "󰪠",
+	idle: "󰪠",
 	done: "󰄴",
 	stopped: "󰅚",
 	failed: "󰅚",
@@ -20,12 +57,12 @@ export const SUBAGENT_TONE: Record<
 	SubagentState,
 	"muted" | "warning" | "accent" | "success" | "dim" | "error"
 > = {
-	starting: "muted",
+	starting: "accent",
 	running: "accent",
-	idle: "dim",
+	idle: "accent",
 	done: "success",
 	failed: "error",
-	stopped: "dim",
+	stopped: "error",
 };
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -111,11 +148,10 @@ export interface EffectiveLaunchConfig {
 	/** Frozen at spawn. Interactive children do not auto-wake the parent except via contact_parent. */
 	readonly interactive: boolean;
 	/**
-	 * Frozen result contract of a Task child. Its presence is what makes this launch a Task
-	 * execution: the child can submit exactly one final result, and it is never resumed for
-	 * more input afterwards.
+	 * Session title asked for at spawn, frozen so a relaunched child re-applies the same name.
+	 * Presentation only: it never changes the child's identity or its host attachment label.
 	 */
-	readonly task?: TaskChildContract;
+	readonly title?: string;
 }
 
 export interface ResolvedAgentPolicy {
@@ -127,27 +163,16 @@ export interface ResolvedAgentPolicy {
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
 	readonly interactive: boolean;
+	readonly enabled?: boolean;
 }
 
+/**
+ * The runtime attachment a child was last launched with. It is evidence, never a liveness proof:
+ * whether that process is still serving this child is answered by the bridge connection.
+ */
 export interface RuntimeMetadata {
 	readonly runtimeIdentity: string;
 	readonly endpoint: string;
-	readonly pid?: number;
-}
-
-export type RuntimeClaimKind = "reconnect" | "replacement";
-
-/** Non-secret, durable ownership claim used to serialize reconnect and replacement. */
-export interface RuntimeClaim {
-	readonly claimId: string;
-	readonly kind: RuntimeClaimKind;
-	readonly holderPid: number;
-	readonly runtimeIdentity: string;
-	readonly endpoint: string;
-	/** SHA-256 of the one-time controller token; the token itself is never persisted. */
-	readonly controllerTokenHash: string;
-	/** Set by the runner before it starts the Pi writer. */
-	readonly runnerPid?: number;
 }
 
 export interface UsageSummary {
@@ -171,11 +196,10 @@ export interface SubagentRecord {
 	readonly initialTask: string;
 	readonly intent: SubagentIntent;
 	readonly state: SubagentState;
-	readonly mode: ExecutionMode;
+	readonly presentation: Presentation;
 	readonly persistence: PersistenceState;
 	readonly launchConfig: EffectiveLaunchConfig;
 	readonly runtime?: RuntimeMetadata;
-	readonly claim?: RuntimeClaim;
 	readonly latestSummary?: string;
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;
@@ -187,7 +211,7 @@ export interface PublicSubagent {
 	readonly agent: string;
 	readonly displayName?: string;
 	readonly state: SubagentState;
-	readonly mode: ExecutionMode;
+	readonly presentation: Presentation;
 	readonly cwd: string;
 	readonly sessionId: string;
 	readonly summary?: string;
@@ -215,10 +239,14 @@ export interface SpawnSubagentInput {
 	readonly agent: string;
 	readonly cwd?: string;
 	/**
-	 * Present when this child executes a Task rather than a conversation turn. It is frozen at
-	 * acceptance and travels to the child as its result contract.
+	 * Where to run this child. `auto` (the default) means a panel whenever this parent has a
+	 * presentation host, and the background otherwise; the Task tool pins `background` because a
+	 * Task is settled by its parent and never handed to a human. This is not a model-facing
+	 * parameter: `spawn_agent` always spawns with `auto`.
 	 */
-	readonly taskContract?: TaskChildContract;
+	readonly presentation?: Presentation | "auto";
+	/** Optional child session title; the child branch prefixes it with the subagent marker. */
+	readonly title?: string;
 }
 
 /** True when a manager call returned a structured failure instead of a value. */
@@ -231,18 +259,8 @@ export function isOperationError(value: unknown): value is OperationError {
 	);
 }
 
-/** The result contract of a Task child: an optional JSON Schema plus a soft reminder threshold. */
-export interface TaskChildContract {
-	/** JSON Schema the final result must validate against; absent means a text result is enough. */
-	readonly schema?: unknown;
-	/** Turn count after which the child is reminded once to converge. Never a hard stop. */
-	readonly softTurns: number;
-}
-
 /** Child bridge tool name; agent tool policy must never remove it. */
 export const CONTACT_PARENT_TOOL_NAME = "contact_parent" as const;
-/** The only channel through which a Task child reports its final result. */
-export const TASK_RESULT_TOOL_NAME = "submit_task_result" as const;
 
 /** Environment contract between a parent launch and the child branch of this extension. */
 export const BRIDGE_ENVIRONMENT_KEYS = {
@@ -255,6 +273,9 @@ export const BRIDGE_ENVIRONMENT_KEYS = {
 
 /** Non-secret agent label for the child TUI identity line. Not part of handshake. */
 export const CHILD_AGENT_ENV_KEY = "PI_SUBAGENTS_AGENT" as const;
+
+/** Session title requested at spawn; empty means the child derives one. Not part of handshake. */
+export const CHILD_TITLE_ENV_KEY = "PI_SUBAGENTS_TITLE" as const;
 
 /** Bound Pi session id for the child branch. Not part of the runner handshake. */
 export const CHILD_SESSION_ENV_KEY = "PI_SUBAGENTS_SESSION_ID" as const;
@@ -293,10 +314,10 @@ export function isSubagentState(value: unknown): value is SubagentState {
 	return typeof value === "string" && SUBAGENT_STATES[value] === true;
 }
 
-const EXECUTION_MODES: Record<string, true> = { rpc: true, tui: true };
+const PRESENTATIONS: Record<string, true> = { panel: true, background: true };
 
-export function isExecutionMode(value: unknown): value is ExecutionMode {
-	return typeof value === "string" && EXECUTION_MODES[value] === true;
+export function isPresentation(value: unknown): value is Presentation {
+	return typeof value === "string" && PRESENTATIONS[value] === true;
 }
 
 const SUBAGENT_INTENTS: Record<string, true> = { active: true, stopped: true };

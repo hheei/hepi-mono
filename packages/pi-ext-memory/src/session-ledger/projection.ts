@@ -1,10 +1,13 @@
 import {
 	type Entry,
 	isMemoryDetails,
+	isMemoryDetailsBudget,
 	isObservationsDroppedEntry,
 	isObservationsRecordedEntry,
+	isReflectionsDroppedEntry,
 	isReflectionsRecordedEntry,
 	type MemoryDetails,
+	type MemoryDetailsBudget,
 	type Observation,
 	OM_FOLDED,
 	type Reflection,
@@ -19,6 +22,8 @@ export type ProjectionDiff = {
 	observationsOnlyInFull: Observation[];
 	reflectionsOnlyInFull: Reflection[];
 	droppedOnlyInFull: Observation[];
+	/** Reflections the full fold dropped while the visible projection still shows them. */
+	droppedReflectionsOnlyInFull: Reflection[];
 };
 
 export type CompactionProjectionConfig = {
@@ -95,6 +100,7 @@ function foldProjection(entries: Entry[], options: ProjectionFoldOptions): Proje
 	const observationsById = new Set<string>();
 	const reflectionsById = new Set<string>();
 	const droppedObservationIds = new Set<string>();
+	const droppedReflectionIds = new Set<string>();
 
 	for (const entry of entries) {
 		if (
@@ -124,12 +130,17 @@ function foldProjection(entries: Entry[], options: ProjectionFoldOptions): Proje
 		if (isObservationsDroppedEntry(entry) && isCoveredAtOrBefore(entry, indexes, dropsBoundary)) {
 			for (const observationId of entry.data.observationIds)
 				droppedObservationIds.add(observationId);
+			continue;
+		}
+
+		if (isReflectionsDroppedEntry(entry) && isCoveredAtOrBefore(entry, indexes, dropsBoundary)) {
+			for (const reflectionId of entry.data.reflectionIds) droppedReflectionIds.add(reflectionId);
 		}
 	}
 
 	return {
 		observations: observations.filter((observation) => !droppedObservationIds.has(observation.id)),
-		reflections,
+		reflections: reflections.filter((reflection) => !droppedReflectionIds.has(reflection.id)),
 	};
 }
 
@@ -167,6 +178,21 @@ export function visibleProjection(entries: Entry[], upToEntryId?: string): Proje
 	return buildCompactionProjection(entries, upToEntryId, {
 		observationsPoolMaxTokens: Number.POSITIVE_INFINITY,
 	});
+}
+
+/**
+ * Budget accounting of the most recent memory compaction, for `/om status`.
+ * Older compactions without budget details are skipped rather than reported as
+ * a zero-token render.
+ */
+export function latestMemoryBudget(entries: Entry[]): MemoryDetailsBudget | undefined {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry?.type !== "compaction") continue;
+		if (!isMemoryDetails(entry.details)) continue;
+		if (isMemoryDetailsBudget(entry.details.budget)) return entry.details.budget;
+	}
+	return undefined;
 }
 
 export function latestFullFoldBoundaryId(entries: Entry[]): string | undefined {
@@ -223,6 +249,7 @@ export function buildCompactionProjection(
 export function diffProjection(visible: Projection, full: Projection): ProjectionDiff {
 	const visibleObservationIds = new Set(visible.observations.map((observation) => observation.id));
 	const fullObservationIds = new Set(full.observations.map((observation) => observation.id));
+	const fullReflectionIds = new Set(full.reflections.map((reflection) => reflection.id));
 	const visibleReflectionIds = new Set(visible.reflections.map((reflection) => reflection.id));
 
 	return {
@@ -234,6 +261,9 @@ export function diffProjection(visible: Projection, full: Projection): Projectio
 		),
 		droppedOnlyInFull: visible.observations.filter(
 			(observation) => !fullObservationIds.has(observation.id),
+		),
+		droppedReflectionsOnlyInFull: visible.reflections.filter(
+			(reflection) => !fullReflectionIds.has(reflection.id),
 		),
 	};
 }

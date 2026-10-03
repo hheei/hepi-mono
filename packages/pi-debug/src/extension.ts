@@ -16,11 +16,20 @@ import {
 } from "./probe.js";
 import { createDebugSettingsProvider } from "./settings.js";
 
+interface StreamTelemetry {
+	chunkCount: number;
+	firstChunkLatencyMs: number;
+	startTimeMs: number;
+	lastChunkTimeMs: number;
+}
+
 interface SessionState {
 	readonly logPath: string;
 	previous: PayloadSnapshot | undefined;
 	requestSequence: number;
 	readonly pendingRequests: number[];
+	readonly requestStartTimes: Map<number, number>;
+	readonly streamTelemetries: Map<number, StreamTelemetry>;
 	writeFailed: boolean;
 }
 
@@ -44,6 +53,8 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 			previous: undefined,
 			requestSequence: 0,
 			pendingRequests: [],
+			requestStartTimes: new Map(),
+			streamTelemetries: new Map(),
 			writeFailed: false,
 		};
 		sessions.set(sessionId, state);
@@ -84,6 +95,7 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 		const comparison = comparePayloadSnapshots(state.previous, snapshot);
 		state.requestSequence += 1;
 		state.pendingRequests.push(state.requestSequence);
+		state.requestStartTimes.set(state.requestSequence, performance.now());
 		write(ctx, state, {
 			schemaVersion: 1,
 			type: "request",
@@ -113,11 +125,37 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 		});
 	});
 
+	pi.on("provider_stream_event", (_event, ctx) => {
+		if (!enabled(ctx)) return;
+		const state = stateFor(ctx);
+		const currentRequestId = state.pendingRequests[0];
+		if (currentRequestId === undefined) return;
+		const now = performance.now();
+		const telemetry = state.streamTelemetries.get(currentRequestId);
+		if (telemetry === undefined) {
+			const requestStart = state.requestStartTimes.get(currentRequestId) ?? now;
+			state.streamTelemetries.set(currentRequestId, {
+				chunkCount: 1,
+				firstChunkLatencyMs: Math.round(now - requestStart),
+				startTimeMs: requestStart,
+				lastChunkTimeMs: now,
+			});
+		} else {
+			telemetry.chunkCount += 1;
+			telemetry.lastChunkTimeMs = now;
+		}
+	});
+
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
 		if (!enabled(ctx)) return;
 		const state = stateFor(ctx);
 		const request = state.pendingRequests.shift() ?? null;
+		const telemetry = request !== null ? state.streamTelemetries.get(request) : undefined;
+		if (request !== null) {
+			state.streamTelemetries.delete(request);
+			state.requestStartTimes.delete(request);
+		}
 		write(ctx, state, {
 			schemaVersion: 1,
 			type: "usage",
@@ -132,6 +170,15 @@ export function registerCacheDebug(pi: ExtensionAPI, options: CacheDebugOptions 
 				cacheRead: event.message.usage.cacheRead,
 				cacheWrite: event.message.usage.cacheWrite,
 			},
+			...(telemetry !== undefined
+				? {
+						stream: {
+							chunkCount: telemetry.chunkCount,
+							firstChunkLatencyMs: telemetry.firstChunkLatencyMs,
+							durationMs: Math.round(telemetry.lastChunkTimeMs - telemetry.startTimeMs),
+						},
+					}
+				: {}),
 		});
 	});
 

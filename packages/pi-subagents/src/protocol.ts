@@ -6,51 +6,52 @@ export const DEFAULT_MAX_FRAME_BYTES = 1024 * 1024;
 export const DEFAULT_MAX_PENDING_REQUESTS = 128;
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 
-export const RUNNER_OPERATIONS = [
+/**
+ * Every operation one end of the bridge may ask of the other. The parent drives the child with the
+ * input and state operations; the child returns reports and its Task result as requests, so a
+ * report the parent refuses (a second Task result) is refused to the child that sent it.
+ */
+export const BRIDGE_OPERATIONS = [
 	"prompt",
 	"steer",
 	"follow_up",
 	"abort",
 	"get_state",
 	"get_entries",
-	"get_session_stats",
 	"shutdown",
 	"contact_parent",
-	"report_lifecycle",
 	"task_result",
-	"report_paused",
-	"pause",
-	"cancel_pause",
-	"close_writer",
-	"start_rpc",
 ] as const;
 
-export type RunnerOperation = (typeof RUNNER_OPERATIONS)[number];
+export type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
 
-/** Runner-local event emitted when the Pi child process exits. */
-export const RUNNER_EXIT_EVENT = "runner_exit" as const;
-
-/** Runner-local event emitted when only the RPC writer exited and the runner stayed up. */
-export const WRITER_EXIT_EVENT = "writer_exit" as const;
-
-/** Runner-local event emitted when buffered events had to be dropped. */
-export const RUNNER_EVENTS_DROPPED_EVENT = "runner_events_dropped" as const;
-
-/** Child-branch event: the TUI left the bound session, quit, or was interrupted. */
+/** Child-branch event: the child left the bound session, quit, or was interrupted. */
 export const CHILD_LIFECYCLE_EVENT = "child_lifecycle" as const;
 
-/** Runner-to-parent event: the task child submitted its final result. */
-export const TASK_RESULT_EVENT = "task_result" as const;
+/** Child-to-parent event: the task child submitted its final result. */
 
-/** Runner-to-bridge event: hold the current turn_end until close_writer or cancel. */
-export const PAUSE_EVENT = "pause" as const;
+/** Child-to-parent event: input arrived in the child, carrying only where it came from. */
+export const CHILD_INPUT_EVENT = "child_input" as const;
 
-/** Runner-to-bridge event: release a previous pause generation. */
-export const CANCEL_PAUSE_EVENT = "cancel_pause" as const;
+export type ChildInputSource = "interactive" | "extension" | "rpc";
+
+/**
+ * Transport-level failure with a stable code, shared by both ends of the bridge: the parent sees
+ * it when a child call fails, the child sees the code the parent refused a report with.
+ */
+export class BridgeError extends Error {
+	public readonly code: string;
+
+	public constructor(code: string, message: string) {
+		super(message);
+		this.name = "BridgeError";
+		this.code = code;
+	}
+}
 
 const nonEmptyString = Type.String({ minLength: 1 });
 
-const operationSchema = Type.Union(RUNNER_OPERATIONS.map((operation) => Type.Literal(operation)));
+const operationSchema = Type.Union(BRIDGE_OPERATIONS.map((operation) => Type.Literal(operation)));
 
 const identityProperties = {
 	parentSessionId: nonEmptyString,
@@ -64,15 +65,7 @@ export const HelloFrameSchema = Type.Object(
 	{
 		version: Type.Literal(PROTOCOL_VERSION),
 		type: Type.Literal("hello"),
-		role: Type.Optional(
-			Type.Union([
-				Type.Literal("controller"),
-				Type.Literal("reporter"),
-				Type.Literal("recovery"),
-				Type.Literal("bridge"),
-			]),
-		),
-		claimId: Type.Optional(nonEmptyString),
+		role: Type.Optional(Type.Literal("child")),
 		...identityProperties,
 	},
 	{ additionalProperties: false },
@@ -94,7 +87,7 @@ export const RequestFrameSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const RunnerErrorSchema = Type.Object(
+export const BridgeErrorSchema = Type.Object(
 	{ code: nonEmptyString, message: nonEmptyString },
 	{ additionalProperties: false },
 );
@@ -116,7 +109,7 @@ export const ResponseFrameSchema = Type.Union([
 			type: Type.Literal("response"),
 			id: nonEmptyString,
 			ok: Type.Literal(false),
-			error: RunnerErrorSchema,
+			error: BridgeErrorSchema,
 		},
 		{ additionalProperties: false },
 	),
@@ -132,23 +125,13 @@ export const PromptPayloadSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const GetEntriesPayloadSchema = Type.Object(
-	{ since: nonEmptyString },
-	{ additionalProperties: false },
-);
-
 export const ContactReportPayloadSchema = Type.Object(
 	{
 		type: Type.Literal("pi_subagent_report"),
 		parentSessionId: nonEmptyString,
 		childId: nonEmptyString,
 		runtimeIdentity: nonEmptyString,
-		reason: Type.Union([
-			Type.Literal("progress_update"),
-			Type.Literal("important_finding"),
-			Type.Literal("need_decision"),
-			Type.Literal("blocked"),
-		]),
+		reason: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("blocked")])),
 		message: nonEmptyString,
 		sessionId: Type.Optional(nonEmptyString),
 	},
@@ -172,29 +155,21 @@ export const ChildLifecyclePayloadSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const PauseReportPayloadSchema = Type.Object(
-	{
-		type: Type.Literal("report_paused"),
-		parentSessionId: nonEmptyString,
-		childId: nonEmptyString,
-		runtimeIdentity: nonEmptyString,
-		generation: Type.Integer({ minimum: 1 }),
-	},
-	{ additionalProperties: false },
-);
-
 /**
- * A task child's final result. The payload carries the already validated JSON, so the parent
- * never re-parses free-form text to decide what the child concluded.
+ * Only the source of the input, never its text: the parent needs to know a human used the child,
+ * and the child's conversation stays in the child.
  */
-export const TaskResultPayloadSchema = Type.Object(
+export const ChildInputPayloadSchema = Type.Object(
 	{
-		type: Type.Literal(TASK_RESULT_EVENT),
+		type: Type.Literal(CHILD_INPUT_EVENT),
 		parentSessionId: nonEmptyString,
 		childId: nonEmptyString,
 		runtimeIdentity: nonEmptyString,
-		json: Type.String(),
-		structured: Type.Boolean(),
+		source: Type.Union([
+			Type.Literal("interactive"),
+			Type.Literal("extension"),
+			Type.Literal("rpc"),
+		]),
 	},
 	{ additionalProperties: false },
 );
@@ -206,8 +181,7 @@ export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type EventFrame = Static<typeof EventFrameSchema>;
 export type ContactReportPayload = Static<typeof ContactReportPayloadSchema>;
 export type ChildLifecyclePayload = Static<typeof ChildLifecyclePayloadSchema>;
-export type PauseReportPayload = Static<typeof PauseReportPayloadSchema>;
-export type TaskResultPayload = Static<typeof TaskResultPayloadSchema>;
+export type ChildInputPayload = Static<typeof ChildInputPayloadSchema>;
 
 export function isHelloFrame(value: unknown): value is HelloFrame {
 	return Value.Check(HelloFrameSchema, value);
@@ -229,12 +203,8 @@ export function isChildLifecyclePayload(value: unknown): value is ChildLifecycle
 	return Value.Check(ChildLifecyclePayloadSchema, value);
 }
 
-export function isPauseReportPayload(value: unknown): value is PauseReportPayload {
-	return Value.Check(PauseReportPayloadSchema, value);
-}
-
-export function isTaskResultPayload(value: unknown): value is TaskResultPayload {
-	return Value.Check(TaskResultPayloadSchema, value);
+export function isChildInputPayload(value: unknown): value is ChildInputPayload {
+	return Value.Check(ChildInputPayloadSchema, value);
 }
 
 export function isResponseFrame(value: unknown): value is ResponseFrame {

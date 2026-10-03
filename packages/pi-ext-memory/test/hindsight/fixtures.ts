@@ -65,9 +65,14 @@ export function fakePi(): FakePi {
 	const registered = new Map<string, unknown>();
 	const active: string[] = [];
 	const pi = {
-		registerTool: (tool: { name: string }) => {
+		registerTool: (tool: { name: string; exposure?: string; defaultActive?: boolean }) => {
 			registered.set(tool.name, tool);
-			if (!active.includes(tool.name)) active.push(tool.name);
+			// Pi activates a tool at registration only when it is declarable to the model.
+			const declarable =
+				tool.exposure === undefined || tool.exposure === "direct" || tool.exposure === "model-only";
+			if (declarable && tool.defaultActive !== false && !active.includes(tool.name)) {
+				active.push(tool.name);
+			}
 		},
 		getActiveTools: () => [...active],
 		setActiveTools: (names: string[]) => {

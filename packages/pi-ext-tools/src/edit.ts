@@ -383,6 +383,10 @@ export function registerEditTool(
 	const tool: ToolDefinition<typeof EDIT_PARAMETERS, unknown, EditState> = {
 		...baseTool,
 		parameters: EDIT_PARAMETERS,
+		annotations: {
+			destructiveHint: true,
+			idempotentHint: false,
+		},
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
 			const path = filePath(params);
 			const operations = getEditOperations(params);
@@ -390,7 +394,10 @@ export function registerEditTool(
 				const remote = await editRemoteFile(state, params.target, path, operations, signal);
 				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
 					return withEditDetails(
-						textToolResult(remoteMutationFailureText("Edit", remote), undefined),
+						{
+							...textToolResult(remoteMutationFailureText("Edit", remote), undefined),
+							isError: true,
+						},
 						undefined,
 						undefined,
 						remote,

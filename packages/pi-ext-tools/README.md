@@ -14,6 +14,14 @@ FFF runtime, commands, autocomplete, and enhancement settings are included;
 `/fff status` and `/fff reindex`. Tab completion after `/fff ` and `/todo ` offers the
 available subcommands.
 
+## Background results
+
+Task/Bash notifications and subagent reports share completion-gated delivery. While the parent
+is working, results enter its next model step. While it is idle, ordinary results wait for all
+background work to finish and wake one shared turn. Subagent decision requests and blockers
+wake an idle parent immediately. There is no fixed notification window; `wait_tasks` remains
+an independent read path and does not consume automatic notifications.
+
 ## apply_patch
 
 `createApplyPatchTool()` still owns `APPLY_PATCH_PARAMETERS`, `parseV4aPatch()`, and

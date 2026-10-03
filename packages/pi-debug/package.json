@@ -40,13 +40,13 @@
 		"proper-lockfile": "4.1.2"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "0.99.1",
-		"@earendil-works/pi-tui": "0.99.1",
+		"@earendil-works/pi-coding-agent": "1.0.0",
+		"@earendil-works/pi-tui": "1.0.0",
 		"@types/proper-lockfile": "4.1.4"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.99.0",
-		"@earendil-works/pi-tui": ">=0.99.0"
+		"@earendil-works/pi-coding-agent": ">=1.0.0",
+		"@earendil-works/pi-tui": ">=1.0.0"
 	},
 	"repository": {
 		"type": "git",

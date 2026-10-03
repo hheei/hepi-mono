@@ -189,12 +189,38 @@ export function registerManagedTool<TParams extends TSchema, TDetails, TState>(
 	registration: ManagedToolRegistration,
 	tool: ToolDefinition<TParams, TDetails, TState>,
 ): void {
+	registerManaged(pi, registration, tool, false);
+}
+
+/**
+ * Replaces this runner's own declaration of a managed tool, for registration metadata that a
+ * session changes — `deferred` versus `hidden` exposure, for example. Pi reads the declaration on
+ * every request, so a runner that follows session state needs to declare the same tool more than
+ * once, which {@link registerManagedTool} rejects as a duplicate.
+ */
+export function redeclareManagedTool<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	registration: ManagedToolRegistration,
+	tool: ToolDefinition<TParams, TDetails, TState>,
+): void {
+	registerManaged(pi, registration, tool, true);
+}
+
+function registerManaged<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	registration: ManagedToolRegistration,
+	tool: ToolDefinition<TParams, TDetails, TState>,
+	allowSelfReplace: boolean,
+): void {
 	validateManagedRegistration(registration);
 	if (registration.id !== tool.name)
 		throw new Error(`Managed tool id must match the Pi tool name: ${registration.id}`);
 	const state = stateFor(pi);
 	const current = state.managed.get(registration.id);
-	if (current !== undefined && (current.owner !== registration.owner || current.runner === pi))
+	if (
+		current !== undefined &&
+		(current.owner !== registration.owner || (current.runner === pi && !allowSelfReplace))
+	)
 		throw new Error(`Managed tool id already registered: ${registration.id}`);
 
 	const effectiveTool: ToolDefinition<TParams, TDetails, TState> = {

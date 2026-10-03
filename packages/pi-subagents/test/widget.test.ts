@@ -28,7 +28,9 @@ describe("subagent widget projection", () => {
 		expect(isWidgetVisibleChild(child({ state: "done" }), longAgo)).toBe(false);
 		expect(isWidgetVisibleChild(child({ state: "stopped" }), longAgo)).toBe(false);
 		expect(isWidgetVisibleChild(child({ state: "failed" }), longAgo)).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "failed", mode: "tui" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "failed", presentation: "panel" }), longAgo)).toBe(
+			false,
+		);
 
 		// Inside the 15-second retain window: visible so user can see final outcome
 		const recent = Date.parse("2026-01-01T00:00:10.000Z");
@@ -39,7 +41,9 @@ describe("subagent widget projection", () => {
 		// Non-terminal states: always visible
 		expect(isWidgetVisibleChild(child({ state: "idle" }), longAgo)).toBe(true);
 		expect(isWidgetVisibleChild(child({ state: "starting" }), longAgo)).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "running", mode: "tui" }), longAgo)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "running", presentation: "panel" }), longAgo)).toBe(
+			true,
+		);
 		expect(formatElapsed("2026-01-01T00:00:00.000Z", Date.parse("2026-01-01T00:05:00.000Z"))).toBe(
 			"5m 0s",
 		);
@@ -82,7 +86,7 @@ describe("subagent widget projection", () => {
 			recordingTheme(),
 			now,
 		);
-		expect(interrupted[1]).toContain("<warning>idle</warning>");
+		expect(interrupted[1]).toContain("<error>blocked</error>");
 		expect(
 			renderSubagentWidget(
 				[child({ displayName: "Reviewer", freshness: "last_known", state: "idle" })],

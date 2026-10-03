@@ -60,6 +60,30 @@ describe("compact footer formatting", () => {
 		expect(formatFooterModel({ id: "gemini-3.8-flash" }, "off", mockTheme)).toBe(
 			"[text:gemini-3.8-flash]",
 		);
+
+		// with routedModel (e.g. virtual model mapped to physical model)
+		expect(
+			formatFooterModel({ id: "fast-router", provider: "virtual" }, "off", undefined, {
+				model: { id: "gemini-3.8-flash", provider: "gm" },
+				thinkingLevel: "high",
+			}),
+		).toBe("virtual/fast-router → gm/gemini-3.8-flash(high)");
+
+		expect(
+			formatFooterModel({ id: "fast-router", provider: "virtual" }, "off", mockTheme, {
+				model: { id: "gemini-3.8-flash", provider: "gm" },
+				thinkingLevel: "high",
+			}),
+		).toBe(
+			"[dim:virtual/][text:fast-router] [dim:→] [dim:gm/][text:gemini-3.8-flash][dim:(][accent:high][dim:)]",
+		);
+
+		// identical routedModel is ignored
+		expect(
+			formatFooterModel({ id: "gemini-3.8-flash", provider: "gm" }, "off", undefined, {
+				model: { id: "gemini-3.8-flash", provider: "gm" },
+			}),
+		).toBe("gm/gemini-3.8-flash");
 	});
 
 	test("formats footer path with muted cwd and accent branch in dim parens", () => {

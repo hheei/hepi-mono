@@ -65,6 +65,13 @@ type Notify = (message: string, type?: NotifyLevel) => void;
 export type ConsolidationPhase = "observer" | "reflector" | "dropper";
 
 /**
+ * One stage of the consolidation pipeline. The enforcer runs no model, so it is
+ * not a worker: it records no cost and appears in no run count, but it still
+ * reports itself as the running phase.
+ */
+export type ConsolidationStage = ConsolidationPhase | "enforcer";
+
+/**
  * Session-scoped worker spend and run counts, for `/om status`.
  *
  * Deliberately in-memory: cost is a host run-time metric, so it is never appended to the
@@ -153,7 +160,7 @@ export class Runtime {
 	sessionGeneration = 0;
 	consolidationInFlight = false;
 	consolidationPromise: Promise<void> | null = null;
-	consolidationPhase: ConsolidationPhase | undefined;
+	consolidationPhase: ConsolidationStage | undefined;
 	compactInFlight = false;
 	idleCompactInFlight = false;
 	compactHookInFlight = false;
@@ -162,6 +169,7 @@ export class Runtime {
 	lastObserverError: string | undefined;
 	lastReflectorError: string | undefined;
 	lastDropperError: string | undefined;
+	lastEnforcerError: string | undefined;
 	lifecycleSignal?: AbortSignal | undefined;
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
 	pendingIdleCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
@@ -197,6 +205,7 @@ export class Runtime {
 		this.lastObserverError = undefined;
 		this.lastReflectorError = undefined;
 		this.lastDropperError = undefined;
+		this.lastEnforcerError = undefined;
 		this.availabilityRecheckedAt.clear();
 		this.observerEmptyBackoff = undefined;
 		this.lifecycleSignal = signal;
@@ -234,6 +243,13 @@ export class Runtime {
 			this.configLoaded = true;
 		});
 		await this.configPromise;
+	}
+
+	async reloadConfig(cwd: string, signal?: AbortSignal): Promise<void> {
+		const nextConfig = await loadConfig(cwd, process.env, signal);
+		this.config = nextConfig;
+		this.configLoaded = true;
+		this.configPromise = Promise.resolve();
 	}
 
 	clearPendingCompactionTimer(): void {
@@ -463,6 +479,7 @@ export class Runtime {
 		this.lastObserverError = undefined;
 		this.lastReflectorError = undefined;
 		this.lastDropperError = undefined;
+		this.lastEnforcerError = undefined;
 		const promise = (async () => {
 			try {
 				await work();
@@ -487,12 +504,13 @@ export class Runtime {
 		return promise;
 	}
 
-	recordConsolidationStageError(ctx: LaunchCtx, phase: ConsolidationPhase, error: unknown): string {
+	recordConsolidationStageError(ctx: LaunchCtx, phase: ConsolidationStage, error: unknown): string {
 		const message = errorMessage(error);
 		if (!this.isSessionCurrent(ctx.sessionGeneration) || message.includes("stale")) return message;
 		if (phase === "observer") this.lastObserverError = message;
 		if (phase === "reflector") this.lastReflectorError = message;
 		if (phase === "dropper") this.lastDropperError = message;
+		if (phase === "enforcer") this.lastEnforcerError = message;
 		if (this.lifecycleSignal?.aborted !== true && ctx.hasUI && ctx.ui) {
 			try {
 				ctx.ui.notify(`om: ${phase} failed: ${message}`, "warning");

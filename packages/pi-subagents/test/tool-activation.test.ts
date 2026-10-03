@@ -141,7 +141,7 @@ describe("interactive tool activation", () => {
 			id: "sa_live1",
 			agent: "worker",
 			state: "idle",
-			mode: "rpc",
+			presentation: "background",
 			cwd: "/test",
 			sessionId: "s1",
 			summary: "working",

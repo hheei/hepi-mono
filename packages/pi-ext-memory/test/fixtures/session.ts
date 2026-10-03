@@ -18,6 +18,7 @@ export type TestObservation = {
 	content: string;
 	timestamp: string;
 	relevance: "low" | "medium" | "high" | "critical";
+	kind?: "user" | "decision" | "fact" | "progress";
 	sourceEntryIds: string[];
 	tokenCount: number;
 };
@@ -32,6 +33,7 @@ export type TestReflection = {
 export const V3_OBSERVATIONS_RECORDED = "om.observations.recorded";
 export const V3_REFLECTIONS_RECORDED = "om.reflections.recorded";
 export const V3_OBSERVATIONS_DROPPED = "om.observations.dropped";
+export const V3_REFLECTIONS_DROPPED = "om.reflections.dropped";
 export const V3_GATE = "om.gate";
 export const V3_FOLDED = "om.folded";
 export const V2_OBSERVATION = "om.observation";
@@ -118,6 +120,14 @@ export function memoryDetails(
 		fullFold?: boolean;
 		observations?: TestObservation[];
 		reflections?: TestReflection[];
+		budget?: {
+			maxTokens: number;
+			renderedTokens: number;
+			tailTokens: number;
+			softLimit: number;
+			trimmedObservations: number;
+			trimmedReflections: number;
+		};
 	} = {},
 ): unknown {
 	return {
@@ -126,6 +136,7 @@ export function memoryDetails(
 		fullFold: args.fullFold ?? false,
 		observations: args.observations ?? [],
 		reflections: args.reflections ?? [],
+		...(args.budget !== undefined ? { budget: args.budget } : {}),
 	};
 }
 
@@ -182,6 +193,22 @@ export function reflectionsRecordedEntry(
 		parentId: null,
 		timestamp: DEFAULT_TIMESTAMP,
 		customType: V3_REFLECTIONS_RECORDED,
+		data: args,
+		...overrides,
+	};
+}
+
+export function reflectionsDroppedEntry(
+	id: string,
+	args: { reflectionIds: string[]; coversUpToId: string },
+	overrides: Partial<TestEntry> = {},
+): TestEntry {
+	return {
+		type: "custom",
+		id,
+		parentId: null,
+		timestamp: DEFAULT_TIMESTAMP,
+		customType: V3_REFLECTIONS_DROPPED,
 		data: args,
 		...overrides,
 	};

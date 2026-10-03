@@ -1,15 +1,18 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type TSchema, Type } from "@earendil-works/pi-ai";
 import {
-	type ExtensionLifecycleContext,
+	defineTool,
+	type ExtensionAPI,
+	type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import {
 	errorMessage,
 	getToolTui,
 	isManagedTool,
 	isRecord,
 	type ManagedToolRegistration,
+	redeclareManagedTool,
 	registerManagedTool,
-	setManagedToolsActive,
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type HindsightGateway, KnowledgePagesUnavailableError } from "./client.js";
@@ -28,6 +31,18 @@ export const HINDSIGHT_TOOL_NAMES = [
 ] as const;
 
 export type HindsightToolName = (typeof HINDSIGHT_TOOL_NAMES)[number];
+
+/**
+ * How the Hindsight tools are declared to the model: `deferred` hides them from the declared set
+ * and from codemode's inline catalog while keeping them callable, `hidden` keeps the registration
+ * but makes the tools unreachable.
+ */
+type HindsightToolExposure = "deferred" | "hidden";
+
+/** Whether the Hindsight tools are already registered in this Pi process. */
+function hindsightToolsRegistered(pi: ExtensionAPI): boolean {
+	return HINDSIGHT_TOOL_NAMES.every((id) => isManagedTool(pi, id));
+}
 
 export const HINDSIGHT_TOOL_OWNER = "@hheei/pi-ext-memory";
 
@@ -88,25 +103,51 @@ function textResult<TDetails extends HindsightToolDetails>(
 	};
 }
 
-function registration(id: HindsightToolName): ManagedToolRegistration {
-	return { id, owner: HINDSIGHT_TOOL_OWNER };
+/**
+ * Registration for one Hindsight tool.
+ *
+ * `deferred` exposure keeps the eight tools out of the model's declared tool set and out of
+ * codemode's inline catalog, so they cost no prompt space until something surfaces them:
+ * `tool_search` ranks them by query, a codemode script reaches them through the `tools` global
+ * and finds them in `ALL_TOOLS`. `hidden` is the opposite end: registered, but neither declared,
+ * nor listed by `tool_search`, nor callable.
+ */
+function registration(
+	id: HindsightToolName,
+	exposure: HindsightToolExposure,
+): ManagedToolRegistration {
+	return { id, owner: HINDSIGHT_TOOL_OWNER, exposure };
 }
 
 /**
- * Registers the eight Hindsight tools.
+ * Declares the eight Hindsight tools for the current session.
  *
- * Registration happens once per Pi process, on the first session that enables the option,
- * because Pi rejects re-registering a managed tool from the same runner. Every call reads
- * its session state through `provider`, so a reload rebinds tools to the new session
- * instead of leaving them on a disposed one.
+ * Pi has no unregister API, and a registration outlives the session that made it, so the tools
+ * follow the session that is running instead: `deferred` while Hindsight is available, `hidden`
+ * while it is not, which keeps the tools unreachable — not merely refusing — in a session whose
+ * option is off after an earlier session declared them. A session with the option off that never
+ * saw a ready one declares nothing at all.
  *
- * A session with the option off never reaches this function, so a disabled configuration
- * registers nothing at all.
+ * Re-declaration is safe because every call reads its session state through `provider`, so a
+ * rebind follows the new session instead of leaving tools on a disposed one.
  */
-export function registerHindsightTools(
+export function declareHindsightTools(
 	pi: ExtensionAPI,
 	provider: HindsightToolContextProvider,
+	exposure: HindsightToolExposure,
 ): void {
+	if (exposure === "hidden" && !hindsightToolsRegistered(pi)) return;
+
+	/** Registers on the first session that declares them, and replaces the exposure afterwards. */
+	const declare = <TParams extends TSchema, TDetails, TState>(
+		id: HindsightToolName,
+		tool: ToolDefinition<TParams, TDetails, TState>,
+	): void => {
+		const managed = registration(id, exposure);
+		if (isManagedTool(pi, id)) redeclareManagedTool(pi, managed, tool);
+		else registerManagedTool(pi, managed, tool);
+	};
+
 	const tui = getToolTui(pi);
 
 	async function withContext<TDetails extends HindsightToolDetails>(
@@ -142,13 +183,17 @@ export function registerHindsightTools(
 	}
 
 	const EmptyParams = Type.Object({});
+	const HINDSIGHT_NAMESPACE = {
+		name: "hindsight",
+		description: "Hindsight memory and knowledge vault tools",
+	} as const;
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_search_knowledge_pages"),
+	declare(
+		"hindsight_search_knowledge_pages",
 		tui.frame(
 			defineTool({
 				name: "hindsight_search_knowledge_pages",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Search Hindsight knowledge pages",
 				description:
 					"Search this repository's Hindsight knowledge pages (server-side hybrid full-text + semantic search). Use it for questions about architecture, conventions, components, or past decisions instead of re-deriving them from code. Returns ranked pages with a relevance snippet; read one in full with hindsight_read_knowledge_page.",
@@ -179,7 +224,7 @@ export function registerHindsightTools(
 								text: hits
 									.map(
 										(hit) =>
-											`${hit.page} (${hit.pageId}, score ${hit.score.toFixed(2)})\n  ${hit.snippet}`,
+											`- **${hit.page}** (\`id: ${hit.pageId}\`, score: ${hit.score.toFixed(2)}):\n  ${hit.snippet}`,
 									)
 									.join("\n"),
 							};
@@ -196,12 +241,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_list_knowledge_pages"),
+	declare(
+		"hindsight_list_knowledge_pages",
 		tui.frame(
 			defineTool({
 				name: "hindsight_list_knowledge_pages",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "List Hindsight knowledge pages",
 				description:
 					"List this repository's Hindsight knowledge pages — curated summaries of durable project knowledge (architecture, components, conventions, decisions, in-flight initiatives). Call it at the start of a non-trivial task to see what the project already knows.",
@@ -219,11 +264,14 @@ export function registerHindsightTools(
 								return { text: "No knowledge pages exist for this repository yet." };
 							return {
 								text: pages
-									.map((page) =>
-										page.description === undefined || page.description.length === 0
-											? `${page.id} — ${page.title}`
-											: `${page.id} — ${page.title}: ${page.description}`,
-									)
+									.map((page) => {
+										const idBadge = `(\`id: ${page.id}\`)`;
+										const desc =
+											page.description === undefined || page.description.length === 0
+												? ""
+												: `: ${page.description}`;
+										return `- **${page.title}** ${idBadge}${desc}`;
+									})
 									.join("\n"),
 							};
 						}),
@@ -237,12 +285,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_read_knowledge_page"),
+	declare(
+		"hindsight_read_knowledge_page",
 		tui.frame(
 			defineTool({
 				name: "hindsight_read_knowledge_page",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Read a Hindsight knowledge page",
 				description:
 					"Read one knowledge page in full by id. Read Conventions before writing code, Component map before changing a subsystem, or an initiative's page before continuing that feature. A page may link related pages with [[page:<id>]]; follow a link by calling this tool again.",
@@ -260,7 +308,11 @@ export function registerHindsightTools(
 					return withContext("hindsight_read_knowledge_page", (context) =>
 						guarded("hindsight_read_knowledge_page", async () => {
 							const page = await context.gateway.readPage(params.page_id, signal);
-							return { text: `# ${page.title}\n\n${page.markdown}` };
+							const header = `---\npage: ${JSON.stringify(page.title)}\nid: ${params.page_id}\n---`;
+							const body = page.markdown.trim();
+							const hasTitle = body.startsWith("# ");
+							const content = hasTitle ? body : `# ${page.title}\n\n${body}`;
+							return { text: `${header}\n\n${content}` };
 						}),
 					);
 				},
@@ -276,12 +328,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_reflect"),
+	declare(
+		"hindsight_reflect",
 		tui.frame(
 			defineTool({
 				name: "hindsight_reflect",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Reflect over Hindsight memory",
 				description:
 					"Deep memory reasoning: an agentic synthesis over this repository's full memory (git decisions, past sessions, ingested knowledge) that answers WHY questions — the decision and exact rule or values behind a behavior, bug, or convention. Slower than page search (several seconds); use it when pages are too shallow and you need the root cause.",
@@ -317,12 +369,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_capture_initiative"),
+	declare(
+		"hindsight_capture_initiative",
 		tui.frame(
 			defineTool({
 				name: "hindsight_capture_initiative",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Capture a Hindsight initiative",
 				description:
 					"Record a new feature or initiative as a tracked knowledge page so future sessions know it exists, and keep that page tracking the plan as it moves. Call it right after the user approves a plan and before writing code; call it again with relates_to_page_id when the goal, scope, or rationale materially changes. Skip bug fixes, small tweaks, refactors, and chores.",
@@ -372,12 +424,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_ingest_document"),
+	declare(
+		"hindsight_ingest_document",
 		tui.frame(
 			defineTool({
 				name: "hindsight_ingest_document",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Ingest a document into Hindsight",
 				description:
 					"Save an external document or a block of durable notes into this repository's memory so it informs future recall and knowledge pages. This is also the correction mechanism: when a retrieved memory is wrong or outdated, ingest a document titled 'Correction: <topic>' stating what memory claimed, what is actually true, and the evidence. The conversation you are in is captured automatically at turn end — do not use this for it.",
@@ -418,12 +470,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_sync_status"),
+	declare(
+		"hindsight_sync_status",
 		tui.frame(
 			defineTool({
 				name: "hindsight_sync_status",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Check Hindsight sync status",
 				description:
 					"Report whether this repository's Hindsight memory is reachable and how much it holds: server API version, knowledge-page availability and count, and stored document total.",
@@ -438,11 +490,11 @@ export function registerHindsightTools(
 							const status = await context.gateway.syncStatus(signal);
 							return {
 								text: [
-									`Server API version: ${status.apiVersion ?? "unknown"}`,
+									`- **Server API version**: ${status.apiVersion ?? "unknown"}`,
 									status.pagesAvailable
-										? `Knowledge pages: ${status.pageCount}`
-										: "Knowledge pages: unavailable on this server",
-									`Stored documents: ${status.documentTotal}`,
+										? `- **Knowledge pages**: ${status.pageCount}`
+										: "- **Knowledge pages**: unavailable on this server",
+									`- **Stored documents**: ${status.documentTotal}`,
 								].join("\n"),
 							};
 						}),
@@ -456,12 +508,12 @@ export function registerHindsightTools(
 		),
 	);
 
-	registerManagedTool(
-		pi,
-		registration("hindsight_diagnose"),
+	declare(
+		"hindsight_diagnose",
 		tui.frame(
 			defineTool({
 				name: "hindsight_diagnose",
+				namespace: HINDSIGHT_NAMESPACE,
 				label: "Diagnose Hindsight configuration",
 				description:
 					"Report the effective Hindsight configuration: resolved bank and how it was chosen, repository isolation mode and scope tags, endpoint, whether a token is configured (never its value), reachability, and pending writeback state. Use it when memory looks wrong or facts from another repository appear.",
@@ -502,20 +554,20 @@ export function registerHindsightTools(
 						};
 						return textToolResult(
 							[
-								`Endpoint: ${config.apiUrl}`,
-								`Token configured: ${details.tokenConfigured ? "yes" : "no"}`,
-								`Bank: ${bankId} (chosen by ${bankSource})`,
-								`Repository: ${repo}`,
-								`Isolation: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
-								`Retain tags: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
-								`Server reachable: ${reachable ? "yes" : "no"}`,
-								`Knowledge pages available: ${pagesAvailable ? "yes" : "no"}`,
-								`Auto-recall before turns: ${config.autoRecall ? "on" : "off"}`,
-								`Session writeback: ${config.retainSessions ? "on" : "off"}`,
-								`Writeback state: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
+								`- **Endpoint**: ${config.apiUrl}`,
+								`- **Token configured**: ${details.tokenConfigured ? "yes" : "no"}`,
+								`- **Bank**: ${bankId} (chosen by ${bankSource})`,
+								`- **Repository**: ${repo}`,
+								`- **Isolation**: ${isolationMode}${scopeTags.length > 0 ? ` (scope tags: ${scopeTags.join(", ")})` : ""}`,
+								`- **Retain tags**: ${retainTags.length > 0 ? retainTags.join(", ") : "none"}`,
+								`- **Server reachable**: ${reachable ? "yes" : "no"}`,
+								`- **Knowledge pages available**: ${pagesAvailable ? "yes" : "no"}`,
+								`- **Auto-recall before turns**: ${config.autoRecall ? "on" : "off"}`,
+								`- **Session writeback**: ${config.retainSessions ? "on" : "off"}`,
+								`- **Writeback state**: ${retain.retainedTurns} turns retained, ${retain.pendingBatches} pending batches, ${retain.inFlight ? "in flight" : "idle"}`,
 								...(retain.lastError === undefined
 									? []
-									: [`Last writeback error: ${retain.lastError}`]),
+									: [`- **Last writeback error**: ${retain.lastError}`]),
 							].join("\n"),
 							details,
 						);
@@ -527,25 +579,5 @@ export function registerHindsightTools(
 				warning: (result) => result.details?.status === "unavailable",
 			},
 		),
-	);
-}
-
-/** Whether every Hindsight tool is already registered in this Pi process. */
-export function hindsightToolsRegistered(pi: ExtensionAPI): boolean {
-	return HINDSIGHT_TOOL_NAMES.every((id) => isManagedTool(pi, id));
-}
-
-/**
- * Enables or disables the Hindsight tool set for the current lifecycle.
- *
- * Registration happens once, so a later session with the option turned off deactivates the
- * existing tools: a tool whose server is no longer configured is worse than no tool.
- */
-export function setHindsightToolsActive(context: ExtensionLifecycleContext, active: boolean): void {
-	if (!hindsightToolsRegistered(context.pi)) return;
-	setManagedToolsActive(
-		context,
-		HINDSIGHT_TOOL_NAMES.map((id) => registration(id)),
-		active,
 	);
 }

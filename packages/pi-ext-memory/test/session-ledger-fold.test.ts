@@ -8,6 +8,7 @@ import {
 	observationsRecordedEntry,
 	oldV2ObservationEntry,
 	reflection,
+	reflectionsDroppedEntry,
 	reflectionsRecordedEntry,
 	textCustomMessage,
 } from "./fixtures/session.js";
@@ -104,6 +105,47 @@ describe("session-ledger V3 folding", () => {
 
 		expect(folded.droppedObservationIds.has("deadbeef0000")).toBe(true);
 		expect(folded.activeObservations).toEqual([]);
+	});
+
+	it("retires superseded reflections while keeping their records", () => {
+		const refA = reflection("aaaaaaaaaaaa", ["dddddddddddd"]);
+		const refB = reflection("bbbbbbbbbbbb", ["dddddddddddd"]);
+		const merged = reflection("cccccccccccc", ["dddddddddddd"]);
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			reflectionsRecordedEntry("om-ref-1", { reflections: [refA, refB], coversUpToId: "raw-1" }),
+			reflectionsRecordedEntry("om-ref-2", { reflections: [merged], coversUpToId: "raw-1" }),
+			reflectionsDroppedEntry("om-ref-drop", {
+				reflectionIds: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+				coversUpToId: "raw-1",
+			}),
+		];
+
+		const folded = foldLedger(entries);
+
+		expect(folded.reflections.map((ref) => ref.id)).toEqual([
+			"aaaaaaaaaaaa",
+			"bbbbbbbbbbbb",
+			"cccccccccccc",
+		]);
+		expect(folded.activeReflections.map((ref) => ref.id)).toEqual(["cccccccccccc"]);
+		expect(folded.droppedReflectionIds.size).toBe(2);
+		expect(folded.reflectionsById.get("aaaaaaaaaaaa")?.id).toBe("aaaaaaaaaaaa");
+	});
+
+	it("retains reflection tombstones for unknown ids without throwing", () => {
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			reflectionsDroppedEntry("om-ref-drop", {
+				reflectionIds: ["deadbeef0000"],
+				coversUpToId: "raw-1",
+			}),
+		];
+
+		const folded = foldLedger(entries);
+
+		expect(folded.droppedReflectionIds.has("deadbeef0000")).toBe(true);
+		expect(folded.activeReflections).toEqual([]);
 	});
 
 	it("ignores old V2 entries and unknown custom entries", () => {

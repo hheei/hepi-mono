@@ -93,9 +93,11 @@ describe("V3 dropper agent", () => {
 		expect(systemPrompt).toContain("critical");
 		expect(systemPrompt).toContain("highest importance and strongest resistance");
 		expect(systemPrompt).toContain(
-			"Relevance is importance/resistance, not an absolute keep/drop lock",
+			"Relevance is durability/resistance — how hard the fact would be to re-derive — not an absolute keep/drop lock",
 		);
 		expect(systemPrompt).toContain("Coverage is evidence, not an automatic decision");
+		expect(systemPrompt).toContain("Kind guidance");
+		expect(systemPrompt).toContain("the deterministic pool enforcer uses");
 		expect(systemPrompt).toContain("age alone is not enough");
 		expect(systemPrompt).not.toContain("NEVER drop");
 		expect(systemPrompt).toContain("Preservation floor");
@@ -215,6 +217,44 @@ describe("V3 dropper agent", () => {
 		).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
 	});
 
+	it("drops progress narration before durable kinds, ahead of coverage and relevance", () => {
+		// Same coverage (none) and same relevance (high); only the kind differs, so
+		// the kind is what has to decide.
+		const progress = observation("aaaaaaaaaaaa", { relevance: "high", kind: "progress" });
+		const fact = observation("bbbbbbbbbbbb", { relevance: "high", kind: "fact" });
+		const user = observation("cccccccccccc", { relevance: "high", kind: "user" });
+		const decision = observation("dddddddddddd", { relevance: "high", kind: "decision" });
+
+		expect(
+			selectDropCandidates(
+				["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd"],
+				[decision, user, fact, progress],
+				3,
+			),
+		).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"]);
+	});
+
+	it("lets kind outrank reflection coverage", () => {
+		const coveredProgress = observation("aaaaaaaaaaaa", { relevance: "low", kind: "progress" });
+		const uncoveredDecision = observation("bbbbbbbbbbbb", {
+			relevance: "critical",
+			kind: "decision",
+		});
+		const reflections = [
+			reflection("rrrrrrrrrrr1", ["aaaaaaaaaaaa"]),
+			reflection("rrrrrrrrrrr2", ["aaaaaaaaaaaa"]),
+		];
+
+		expect(
+			selectDropCandidates(
+				["bbbbbbbbbbbb", "aaaaaaaaaaaa"],
+				[coveredProgress, uncoveredDecision],
+				1,
+				reflections,
+			),
+		).toEqual(["aaaaaaaaaaaa"]);
+	});
+
 	it("keeps critical lower priority than lower relevance when coverage is equal", () => {
 		const critical = observation("aaaaaaaaaaaa", {
 			relevance: "critical",
@@ -283,6 +323,30 @@ describe("V3 dropper agent", () => {
 		await expect(runDropper({ ...baseArgs, targetTokens: 40, agentLoop: loop })).resolves.toEqual([
 			"aaaaaaaaaaaa",
 		]);
+	});
+
+	it("sizes its drop budget from the real pool, not from the view the agent reads", async () => {
+		let called = false;
+		let promptText = "";
+		const loop = fakeAgentLoop((prompts) => {
+			called = true;
+			const content = prompts[0]?.content;
+			promptText = typeof content === "string" ? content : (content?.[0]?.text ?? "");
+		});
+		// The visible line already fits the target, but the pool it belongs to is far
+		// over it: sizing drops from the visible view alone would skip the model
+		// entirely (maxDropsAllowed 0) and leave reclamation to the enforcer.
+		await runDropper({
+			...baseArgs,
+			observations: [observation("aaaaaaaaaaaa", { content: "z".repeat(1200) })],
+			targetTokens: 400,
+			activePoolTokens: 40_000,
+			agentLoop: loop,
+		});
+
+		expect(called).toBe(true);
+		expect(promptText).toContain("over target by ~39,600 tokens");
+		expect(promptText).toContain("Maximum drops allowed this run: 1");
 	});
 
 	it("returns undefined when no tool call drops observations", async () => {

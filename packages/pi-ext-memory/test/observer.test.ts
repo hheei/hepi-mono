@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
 	normalizeSourceEntryIds,
-	OBSERVATION_TIMESTAMP_PATTERN,
 	ObserverStreamError,
 	runObserver,
 } from "../src/agents/observer/agent.js";
@@ -20,20 +19,10 @@ describe("runObserver maxTokens clamping", () => {
 		priorObservations: [],
 		chunk: "[Source entry id: entry-a]\\nUser asked for a memory update.",
 		allowedSourceEntryIds: ["entry-a"],
+		resolveTimestamp: () => "2026-05-02 10:30",
 	};
 
 	itClampsMaxTokens((overrides) => runObserver({ ...args, ...overrides }));
-});
-
-describe("OBSERVATION_TIMESTAMP_PATTERN", () => {
-	it("matches local minute timestamps without regex shorthand escapes", () => {
-		expect(OBSERVATION_TIMESTAMP_PATTERN).not.toContain("\\d");
-		const pattern = new RegExp(OBSERVATION_TIMESTAMP_PATTERN);
-		expect(pattern.test("2026-05-02 10:30")).toBe(true);
-		expect(pattern.test("2026-5-02 10:30")).toBe(false);
-		expect(pattern.test("2026-05-02T10:30")).toBe(false);
-		expect(pattern.test("2026-05-02 10:30:00")).toBe(false);
-	});
 });
 
 describe("runObserver", () => {
@@ -45,6 +34,7 @@ describe("runObserver", () => {
 		priorObservations: [],
 		chunk: "[Source entry id: entry-a]\nUser asked for a memory update.",
 		allowedSourceEntryIds: ["entry-a"],
+		resolveTimestamp: () => "2026-05-02 10:30",
 	};
 
 	it("keeps core observer prompt rules", async () => {
@@ -62,6 +52,11 @@ describe("runObserver", () => {
 		expect(systemPrompt).toContain("zero observations");
 		expect(systemPrompt).toContain("The dropper will drop these first");
 		expect(systemPrompt).toContain("highest-resistance, load-bearing observations");
+		expect(systemPrompt).toContain(
+			"Give every observation a kind: user | decision | fact | progress",
+		);
+		expect(systemPrompt).toContain("kind: progress");
+		expect(systemPrompt).toContain("Relevance is durability");
 		expect(systemPrompt).not.toContain("will NEVER be dropped");
 		expect(systemPrompt).not.toContain("pruner");
 	});
@@ -72,9 +67,9 @@ describe("runObserver", () => {
 			await context.tools[0].execute("tool-1", {
 				observations: [
 					{
-						timestamp: "2026-05-02 10:30",
 						content,
 						relevance: "high",
+						kind: "user",
 						sourceEntryIds: ["entry-a"],
 					},
 				],
@@ -88,6 +83,9 @@ describe("runObserver", () => {
 			content,
 			timestamp: "2026-05-02 10:30",
 			relevance: "high",
+			// The recorded kind is kept verbatim; the rank reads it back with a
+			// "fact" fallback for entries that predate the field.
+			kind: "user",
 			sourceEntryIds: ["entry-a"],
 			// tokenCount is code-computed from the full rendered line (id + timestamp + relevance + content).
 			tokenCount: 18,
@@ -95,14 +93,45 @@ describe("runObserver", () => {
 		expect(observations?.[0]?.id).toMatch(/^[a-f0-9]{12}$/);
 	});
 
+	it("derives the timestamp from the cited source entries and ignores a model-supplied one", async () => {
+		const seen: string[][] = [];
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				observations: [
+					{
+						// A legacy-shaped payload: the schema no longer declares a timestamp,
+						// and whatever the model sends must not reach the ledger.
+						timestamp: "1999-01-01 00:00",
+						content: "User asked for a memory update.",
+						relevance: "high",
+						kind: "user",
+						sourceEntryIds: ["entry-a"],
+					},
+				],
+			});
+		});
+
+		const observations = await runObserver({
+			...baseArgs,
+			agentLoop: loop,
+			resolveTimestamp: (ids) => {
+				seen.push([...ids]);
+				return "2026-06-01 08:15";
+			},
+		});
+
+		expect(seen).toEqual([["entry-a"]]);
+		expect(observations?.[0]?.timestamp).toBe("2026-06-01 08:15");
+	});
+
 	it("rejects invented source ids and returns no observations", async () => {
 		const loop = fakeAgentLoop(async (_prompts, context) => {
 			await context.tools[0].execute("tool-1", {
 				observations: [
 					{
-						timestamp: "2026-05-02 10:30",
 						content: "Bad source",
 						relevance: "medium",
+						kind: "progress",
 						sourceEntryIds: ["missing"],
 					},
 				],
@@ -117,15 +146,15 @@ describe("runObserver", () => {
 			await context.tools[0].execute("tool-1", {
 				observations: [
 					{
-						timestamp: "2026-05-02 10:30",
 						content: "Same content",
 						relevance: "medium",
+						kind: "fact",
 						sourceEntryIds: ["entry-a"],
 					},
 					{
-						timestamp: "2026-05-02 10:31",
 						content: "Same content",
 						relevance: "high",
+						kind: "progress",
 						sourceEntryIds: ["entry-a"],
 					},
 				],
@@ -159,9 +188,9 @@ describe("runObserver", () => {
 				await context.tools[0].execute("tool-1", {
 					observations: [
 						{
-							timestamp: "2026-05-02 10:30",
 							content: "Kept despite later error",
 							relevance: "high",
+							kind: "progress",
 							sourceEntryIds: ["entry-a"],
 						},
 					],

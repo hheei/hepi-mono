@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getGlobalState } from "./global-state.js";
 
 export type RuntimeHost = Pick<ExtensionAPI, "events">;
 
@@ -6,7 +7,6 @@ export type RuntimeHost = Pick<ExtensionAPI, "events">;
 // though all facades delegate to one host event bus. The host is process-scoped
 // (one active extension runtime), so callable facades share this identity;
 // plain test doubles still use their own object identity.
-const piHostRuntimeIdentity = {};
 
 /**
  * Resolves the object used to scope core state to one Pi runtime. Pi retains some
@@ -21,7 +21,7 @@ export function runtimeIdentity(pi: RuntimeHost): object {
 		typeof Reflect.get(events, "emit") === "function" &&
 		typeof Reflect.get(events, "on") === "function"
 	) {
-		return piHostRuntimeIdentity;
+		return getGlobalState("pi-host-runtime-identity", () => ({}));
 	}
 	return events;
 }

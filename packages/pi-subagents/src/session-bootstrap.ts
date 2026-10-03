@@ -12,14 +12,14 @@ import { resolveAgent } from "./agent-resolver.js";
 import { builtinAgentToolProblem } from "./builtin-agents.js";
 import type {
 	EffectiveLaunchConfig,
-	ExecutionMode,
 	PersistenceState,
 	PiInvocation,
+	Presentation,
 	ResolvedAgentPolicy,
 	SpawnSubagentInput,
 	SubagentRecord,
 } from "./domain.js";
-import { isSessionId, TASK_RESULT_TOOL_NAME } from "./domain.js";
+import { isSessionId } from "./domain.js";
 import {
 	assembleChildPrompt,
 	resolveBridgeExtensionPath,
@@ -52,12 +52,25 @@ export interface SessionFileIdentity {
 }
 
 /**
- * The Pi session directory a child would use by default for its cwd. It is asked
- * of Pi itself instead of re-deriving the layout, and is always passed to the child
- * as an explicit `--session-dir` so recovery can find the file again.
+ * The session directory Pi itself would use for this cwd. At the top level it holds the
+ * human's own sessions, which is why children never write there directly.
  */
 export function resolveDefaultSessionDir(cwd: string): string {
 	return SessionManager.create(cwd).getSessionDir();
+}
+
+/** Child sessions live in this subdirectory of the parent-scoped session directory. */
+const SUBAGENT_SESSION_DIR_NAME = "agents";
+
+/**
+ * The session directory a delegated child writes to.
+ *
+ * Pi discovers sessions with a non-recursive `readdir` of the session directory, so a
+ * subdirectory keeps delegated sessions out of the human's session list while the child still
+ * receives that directory as an explicit `--session-dir` recovery can find again.
+ */
+export function resolveSubagentSessionDir(cwd: string): string {
+	return join(resolveDefaultSessionDir(cwd), SUBAGENT_SESSION_DIR_NAME);
 }
 
 async function readSessionHeader(path: string): Promise<SessionFileIdentity> {
@@ -139,7 +152,7 @@ export async function planSessionPlacement(
 	if (!isSessionId(options.sessionId)) {
 		throw new Error(`Invalid session id ${options.sessionId}`);
 	}
-	const sessionDir = options.sessionDir ?? resolveDefaultSessionDir(options.cwd);
+	const sessionDir = options.sessionDir ?? resolveSubagentSessionDir(options.cwd);
 	const sessionPath = options.sessionPath;
 	if (
 		sessionPath !== undefined &&
@@ -206,6 +219,7 @@ export interface ResolveSubagentLaunchOptions {
 	readonly subagentId?: string;
 	readonly sessionId?: string;
 	readonly existingSubagentIds?: readonly string[];
+	readonly enforceEnabled?: boolean;
 }
 
 /**
@@ -225,6 +239,9 @@ export async function resolveSubagentLaunch(
 		);
 	}
 	const cwd = resolve(options.input.cwd?.trim() || options.cwd);
+	const requestedTitle = options.input.title?.trim();
+	// A blank title is the same as no title: the child derives one from its own identity.
+	const title = requestedTitle === "" ? undefined : requestedTitle;
 	const subagentId = options.subagentId ?? createSubagentId(options.existingSubagentIds);
 	const sessionId = options.sessionId ?? randomUUID();
 	const bridgeExtensionPath = options.bridgeExtensionPath ?? resolveBridgeExtensionPath();
@@ -238,69 +255,43 @@ export async function resolveSubagentLaunch(
 		...(options.skillCatalog === undefined ? {} : { skillCatalog: options.skillCatalog }),
 		...(options.onWarning === undefined ? {} : { onWarning: options.onWarning }),
 	});
+	if (options.enforceEnabled === true && policy.enabled === false) {
+		throw new Error(
+			`Agent "${policy.agent.name}" is disabled: no model is specified in user configuration (~/.pi/agent/agents/ or .pi/agents/)`,
+		);
+	}
 	return Object.freeze({
 		subagentId,
 		invocation: options.invocation ?? resolvePiInvocation(),
 		cwd,
 		sessionId,
-		sessionDir: resolveDefaultSessionDir(cwd),
+		sessionDir: resolveSubagentSessionDir(cwd),
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
-		tools: childTools(policy, options.input.taskContract !== undefined),
+		tools: childTools(policy),
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
-		prompt: assembleChildPrompt(
-			policy.agent.instructions,
-			options.input.taskContract !== undefined,
-		),
+		prompt: assembleChildPrompt(policy.agent.instructions),
 		bridgeExtensionPath,
 		interactive: policy.interactive,
-		...(options.input.taskContract === undefined ? {} : { task: options.input.taskContract }),
+		...(title === undefined ? {} : { title }),
 	});
 }
 
 /**
- * The child's tool allowlist: a Task child gets its result channel, and a built-in agent must
- * still resolve to exactly the tools its definition declares. Failing here happens before any
- * process exists, rather than launching a child with different permissions than it advertises.
- *
- * The resolved allowlist is also the effective one: the agent resolver rejects a definition whose
- * `tools` and `exclude_tools` overlap, and `exclude_tools` may not name the required bridge, so the
- * `--exclude-tools` list can only remove tools this list never granted.
+ * The child's tool allowlist: a built-in agent must still resolve to exactly the tools its
+ * definition declares. Failing here happens before any process exists, rather than launching
+ * a child with different permissions than it advertises.
  */
-function childTools(policy: ResolvedAgentPolicy, isTask: boolean): readonly string[] {
-	const tools = taskChildTools(policy.tools, policy.excludeTools, isTask);
-	const problem = builtinAgentToolProblem(
-		policy.agent.sourcePath,
-		tools,
-		isTask ? [TASK_RESULT_TOOL_NAME] : [],
-	);
+function childTools(policy: ResolvedAgentPolicy): readonly string[] {
+	const tools = policy.tools;
+	const problem = builtinAgentToolProblem(policy.agent.sourcePath, tools);
 	if (problem !== undefined) {
 		throw new Error(`Built-in agent ${policy.agent.name} cannot run: ${problem}`);
 	}
 	return tools;
-}
-
-/**
- * A Task child reports its result only through `submit_task_result`, so a tool allowlist that
- * omits it would make every such task fail without the child being able to say why. An empty
- * allowlist already means "all tools", so only a non-empty list needs the channel added.
- */
-function taskChildTools(
-	tools: readonly string[],
-	excludeTools: readonly string[],
-	isTask: boolean,
-): readonly string[] {
-	if (!isTask) return tools;
-	if (excludeTools.includes(TASK_RESULT_TOOL_NAME)) {
-		throw new Error(
-			`exclude_tools cannot disable ${TASK_RESULT_TOOL_NAME}: it is the only channel for a Task child's final result`,
-		);
-	}
-	if (tools.length === 0 || tools.includes(TASK_RESULT_TOOL_NAME)) return tools;
-	return [...tools, TASK_RESULT_TOOL_NAME];
 }
 
 export interface PersistSubagentIntentOptions {
@@ -308,7 +299,7 @@ export interface PersistSubagentIntentOptions {
 	readonly parentSessionId: string;
 	readonly task: string;
 	readonly launchConfig: EffectiveLaunchConfig;
-	readonly mode?: ExecutionMode;
+	readonly presentation?: Presentation;
 	readonly now?: () => Date;
 }
 
@@ -346,7 +337,7 @@ export async function persistSubagentIntent(
 		initialTask: task,
 		intent: "active",
 		state: "starting",
-		mode: options.mode ?? "rpc",
+		presentation: options.presentation ?? "background",
 		persistence: placement.persistence,
 		launchConfig: Object.freeze({
 			...launchConfig,

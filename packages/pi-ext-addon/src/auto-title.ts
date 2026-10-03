@@ -249,6 +249,13 @@ function messageText(content: unknown): string {
 }
 
 function autoTitleDescription(ctx: ExtensionContext): string | undefined {
+	const entryCount =
+		"getEntryCount" in ctx.sessionManager &&
+		typeof (ctx.sessionManager as { getEntryCount?: () => number }).getEntryCount === "function"
+			? (ctx.sessionManager as { getEntryCount: () => number }).getEntryCount()
+			: undefined;
+	if (entryCount === 0) return undefined;
+
 	const messages: Array<{ readonly role: "user" | "assistant"; readonly text: string }> = [];
 	for (const entry of ctx.sessionManager.getEntries()) {
 		if (entry.type !== "message") continue;

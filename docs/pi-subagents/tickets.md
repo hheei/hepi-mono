@@ -85,6 +85,8 @@
 
 **依赖**：SUB-01。
 
+**後續修正** `[x]`：child session 改寫到 `agents/` 子目錄（Pi 非遞迴列舉會話，避免 delegated session 出現在人的 session 列表），child branch 首次 bind 時寫入 session title `🤖 <title>`（`spawn_agent` 新增可選 `title`，未提供時由 agent 名與 child id 推導，該 title 隨 launch config 凍結進 registry 並在重啟時重新套用）；registry 仍記錄顯式 sessionDir/sessionPath，recovery 路徑不變。
+
 状态：`[x]`
 
 ---
@@ -367,7 +369,12 @@
 
 ---
 
-## SUB-08：实现安全 RPC → TUI attach
+## SUB-08：实现安全 RPC → TUI attach（已被取代）
+
+状态：`[—]` **已被 [`PLAN-panel-bridge.md`](PLAN-panel-bridge.md) 取代（2026-10-01）**。attach/detach、
+pause handshake、`close_writer`/`start_rpc`、独立 runner 与 replacement claim 已从实现中删除；child 由
+bridge 控制面驱动，呈现方式在 spawn 时决定（当前为后台 headless，panel 呈现属取代计划的 Stage 3）。
+本 ticket 保留为历史背景，不再是当前行为的来源。
 
 **目标**：在不中断当前tool call、不丢输入且不产生第二个writer的前提下，把同一child session交给native Pi TUI。
 
@@ -410,6 +417,13 @@
 
 状态：idle attach `[x]`；active pause handshake `[x]`
 
+后续修正 `[x]`（当前契约见 [`spec.md`](spec.md) §7.3/§8）：
+
+- close_writer 不再对旧 writer 发 RPC `abort`：结束其 stdin 让 Pi 自行 shutdown，被 hold 的回合在进程退出前保持，attach 不再中断正在跑的那一轮。
+- attach 成功后不再把 child 留在 frozen 集合里；TUI 期间的 send 拒绝不再复用 "frozen for attach" 文案，并标记为不可重试。
+- `mode=tui` 期间旧 writer 的残留事件（含 `writer_exit`）不再写回 state，也不再把已 attach 的 idle child 当作可 hibernate。
+- Herdr attach 改为开新 tab（`tab create` + root pane `pane run`，cleanup 关 tab），不再 split 当前 pane。
+
 ---
 
 ## SUB-09：实现 detach、TUI session switch 与用户中断语义
@@ -439,9 +453,63 @@
 
 **验证**：manager process/pane/session-switch/interrupt tests；child-bridge reload vs leave tests；runner `bridge_unbound` after `left_session`；package Vitest/Biome/typecheck. 真实 Herdr/cmux TUI→RPC smoke 取决于本机 host，未作为默认 CI。
 
-**依赖**：SUB-08。
+**依赖**：SUB-08（已取代）。
 
-状态：`[x]`（idle detach / session switch / interrupt；running pause handshake 仍属 SUB-08）
+状态：detach `[—]`（随 SUB-08 一并删除）；session switch 与 user interrupt `[x]`，现由 `child_lifecycle`
+的 `left_session` / `user_interrupt` 事件承载（契约见 [`spec.md`](spec.md) §7.4）。
+
+---
+
+## SUB-11：bridge 控制面与 panel 默认呈现（取代 SUB-03/SUB-06/SUB-08/SUB-09 的 transport 部分）
+
+**目标**：把 parent→child 的控制从 RPC writer 换成 child bridge，让 child 的呈现方式在 spawn 时决定。
+
+**已落地（Stage 1–2）**
+
+- parent 进程自己监听唯一 socket（`<runtimeDir>/parent-<parentSessionId>.sock`，0700/0600），每个 child
+  一条可重连连接；请求（prompt/steer/follow_up/get_state/get_entries/abort/shutdown）、报告
+  （contact_parent/task_result）、Pi 事件、`child_lifecycle`、`child_input` 都走这条连接。
+- child 侧请求分发、事件转发、断线重连与有界报告缓冲；per-runtime token 保存在 `runtimeDir` 的 0600
+  文件里，使 parent 重启后仍能认证重连的 child。
+- `spawn_agent` 由 parent 直接 spawn headless child（`--mode rpc`，stdin 由 parent 持有），bridge 就绪后
+  才投递 initial task；空闲 60s 回收 runtime（`done`），`send_agent` 用同一 session 自动恢复。
+- 删除：独立 runner 进程与 endpoint/claim/handshake、`rpc-adapter`、`connector`（旧）、`pause-gate`、
+  attach/detach/`restoreRpc`、host watch、`#frozen`、`writer_exit` 语义、`get_session_stats`、attach
+  verb 与 attach 快捷键。
+
+**已落地（Stage 3–4）**
+
+- HostAdapter `attach` → `open`，并新增 `focused` 观察与 `reportsFocus` 能力：herdr 用 `tab list` +
+  `workspace list`（两层都 focused 才算聚焦），cmux 未知因此 fail open（`TODO(cmux-focus)`）；herdr
+  `tab create` 增加 `--label <subagentId>`。
+- `spawn_agent` 默认把 child 开成 herdr 新 tab / cmux 新 surface（`presentation: "panel"`），没有 host 时
+  退回后台并在结果里说明原因；`task` 固定后台。panel child 由 host 持有进程，parent 只保留 attachment。
+- panel 生命周期：stop 关闭 panel 并以 `observe()` 确认其消失；idle 倒计时到期时先看聚焦（聚焦或不可判定
+  就重新计时）；人工输入（`child_input` source=interactive）取消倒计时；child runtime 消失时释放 panel；
+  本进程不持有 runtime 的 child（parent 重启后 adopt）不参与回收。
+- `mode` 改名 `presentation: "panel" | "background"`（不做兼容读取，旧记录报错并提示删除）。
+
+**收口后的第三轮自检（2026-10-02，全仓 open-code-review）**
+
+- child 侧 `task_result` 改为原样透传已校验的 payload（此前重组丢字段，Task 结果被 parent 忽略）；
+- bridge 去重按 runtimeIdentity + request id，同时在途的重复请求共享同一结果，child 的 request id 带实例前缀；
+- parent 重启后未重连的 panel runtime 记为「未确认」（send 拒绝、只由 stop 清除），后台 child 的 runtime 证据清掉并记 interrupted；
+- runtime token 按 parent session 分文件；host `open` 抛错按「结果未知」保留 token 与证据；
+- child 侧 `reload` 也销毁 bridge client；adopt 用 `get_state` 同步 projector；idle 回收会被期间的 child 信号作废；
+- `contact_parent`/`task_result` 透传 tool 的 `AbortSignal`；无法编码的 advisory frame 丢弃而不断连。
+
+**已落地（生命周期收口）**
+
+生命周期收口（2026-10-02）：人工关 panel / 已确认的外部 panel 进程退出 / `stop_agent` 都是终止，send 明确拒绝、`safeToRetry=false` 并提示新建 child。成功的系统 idle 回收仍可恢复同一 session，迟到断线不改成 stopped；adopted panel 断线且退出不可观察时保持明确拒绝。无 panel 身份持久化或恢复探测。
+
+**未落地（Stage 5 剩余）**
+
+- 真实机器端到端 smoke 的常规化（Stage 2 与 Stage 3–4 已各手动跑过一次）。
+
+**验证**：bridge server/client/child-control 单测、manager bridge 与 panel 生命周期契约测试、runtime/
+child-process 单测、host-adapter 单测（含真实 herdr 的 live tab smoke）、package typecheck 与 build；
+真实的 panel 端到端（真实 Pi TUI 在 herdr 新 tab 中被 bridge 驱动、观察聚焦、关闭 tab）已在本次改动中
+手动执行一次。
 
 ---
 

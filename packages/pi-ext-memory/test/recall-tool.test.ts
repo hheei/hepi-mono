@@ -51,15 +51,15 @@ describe("V3 recall tool", () => {
 		const pi = { registerTool: vi.fn() };
 		registerRecallTool(pi as unknown as ExtensionAPI);
 
-		expect(RECALL_OBSERVATION_TOOL_NAME).toBe("recall");
-		expect(recallObservationTool.name).toBe("recall");
+		expect(RECALL_OBSERVATION_TOOL_NAME).toBe("om_recall_evidence");
+		expect(recallObservationTool.name).toBe("om_recall_evidence");
 		expect(recallObservationTool.label).toBe("Recall memory evidence");
-		expect(formatRecallCallForTui("aaaaaaaaaaaa")).toBe("recall aaaaaaaaaaaa");
+		expect(formatRecallCallForTui("aaaaaaaaaaaa")).toBe("om_recall_evidence aaaaaaaaaaaa");
 		expect(pi.registerTool).toHaveBeenCalledWith(
-			expect.objectContaining({ name: "recall", label: "Recall memory evidence" }),
+			expect.objectContaining({ name: "om_recall_evidence", label: "Recall memory evidence" }),
 		);
 		expect(RECALL_TOOL_REGISTRATION).toEqual({
-			id: "recall",
+			id: "om_recall_evidence",
 			owner: "@hheei/pi-ext-memory",
 		});
 	});
@@ -195,7 +195,7 @@ describe("V3 recall tool", () => {
 		expect(text).toContain("source text");
 	});
 
-	it("defines readOnlyHint and idempotentHint annotations for 0.99.1 codemode and scheduling", () => {
+	it("defines readOnlyHint and idempotentHint annotations for 1.0.0 codemode and scheduling", () => {
 		expect(recallObservationTool.annotations).toEqual({
 			readOnlyHint: true,
 			idempotentHint: true,

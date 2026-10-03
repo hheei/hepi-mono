@@ -1,28 +1,36 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+/**
+ * Runtime plumbing for a child Pi process that this parent owns.
+ *
+ * There is no supervisor: a background child is a child process of this Pi, and a child that runs in
+ * a host panel is owned by that host. Either way the parent's bridge socket is what the child dials,
+ * so "is this child alive?" is answered by a bridge connection, and the runtime metadata in the
+ * registry only records which runtime and endpoint a child was last launched with.
+ */
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
+import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { connectWithRetry, RunnerConnection } from "./connector.js";
-import type { ChildIdentity, RuntimeClaim, SubagentRecord } from "./domain.js";
-import { buildLaunchSpec, withBridgeToken } from "./launch-spec.js";
-import type { RunnerLike } from "./manager.js";
+import { errorMessage } from "@hheei/pi-ext-core";
+import { type ChildRuntime, spawnChildRuntime } from "./child-process.js";
+import type { Presentation, SubagentRecord } from "./domain.js";
+import type { HostAdapter, HostAttachment } from "./host-adapter.js";
+import { buildLaunchSpec, type LaunchSpec, withBridgeToken } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
-import { planSessionPlacement } from "./session-bootstrap.js";
 
+/** Per-runtime bridge tokens, kept out of the registry because they are credentials. */
 export interface RuntimeTokenStore {
 	remember(runtimeIdentity: string, token: string): void;
 	get(runtimeIdentity: string): string | undefined;
 	forget(runtimeIdentity: string): void;
-	clear(): void;
 }
 
-export interface LaunchDetachedRunnerOptions {
-	readonly registry: SubagentRegistry;
-	readonly record: SubagentRecord;
-	readonly tokens: RuntimeTokenStore;
-	readonly signal?: AbortSignal;
+export interface RuntimeTokenStoreOptions {
+	/** The parent session these tokens belong to. */
+	readonly parentSessionId: string;
+	/** Override for tests. Defaults to this parent's file in the shared runtime directory. */
+	readonly file?: string;
+	readonly diagnose?: (message: string) => void;
 }
 
 function runtimeDirectory(): string {
@@ -30,403 +38,264 @@ function runtimeDirectory(): string {
 	return join(tmpdir(), `pi-subagents-${user}`);
 }
 
-/** Bounded wait for a runner we spawned ourselves to be gone before its claim is dropped. */
-const RUNNER_EXIT_CONFIRM_MS = 10_000;
+/**
+ * The one socket a parent session listens on. A child dials this path, so a parent that restarts
+ * re-listens in the same place and a surviving child reconnects instead of being rebuilt.
+ */
+export function parentBridgeEndpoint(parentSessionId: string): string {
+	return join(runtimeDirectory(), `parent-${parentSessionId}.sock`);
+}
 
 /**
- * Waits for the process we started. Our own handle is exact evidence: once it has exited, no
- * runner of this launch can still own the session, so a claim is safe to release.
+ * Every parent session keeps its own token file. One shared file is rewritten wholesale by whichever
+ * parent saved last, so two parent sessions in the same runtime directory would erase each other's
+ * credentials and a child that survived a restart could no longer authorize itself.
  */
-async function confirmChildExit(child: ChildProcess, deadlineMs: number): Promise<boolean> {
-	if (hasExited(child)) return true;
-	return new Promise<boolean>((resolve) => {
-		const timer = setTimeout(() => resolve(hasExited(child)), deadlineMs);
-		timer.unref?.();
-		child.once("exit", () => {
-			clearTimeout(timer);
-			resolve(true);
-		});
-	});
+export function parentTokenFile(parentSessionId: string): string {
+	return join(runtimeDirectory(), `tokens-${parentSessionId}.json`);
 }
 
-function hasExited(child: ChildProcess): boolean {
-	// A process killed by a signal reports a null exit code and a signal instead.
-	return child.exitCode !== null || child.signalCode !== null;
-}
-
-export function createRuntimeTokenStore(): RuntimeTokenStore {
-	const tokens = new Map<string, string>();
+/**
+ * Tokens outlive the parent process: a child that survived (a panel child, or one whose parent was
+ * killed) reconnects with the token it was launched with, and a restarted parent must be able to
+ * authorize it without holding the old process's memory. The store is a 0600 file in the 0700
+ * runtime directory; the registry never sees a token.
+ */
+export function createRuntimeTokenStore(options: RuntimeTokenStoreOptions): RuntimeTokenStore {
+	const file = options.file ?? parentTokenFile(options.parentSessionId);
+	const diagnose = options.diagnose ?? ((): void => {});
+	const tokens = new Map<string, string>(readStoredTokens(file, diagnose));
+	let writing: Promise<void> = Promise.resolve();
+	const persist = (): void => {
+		const payload = `${JSON.stringify(Object.fromEntries(tokens))}\n`;
+		writing = writing
+			.then(async () => {
+				mkdirSync(runtimeDirectory(), { recursive: true, mode: 0o700 });
+				// Writing in place truncates the file first, and a parent killed inside that window would
+				// leave every surviving child locked out of the bridge. The swap is atomic instead.
+				const temporary = `${file}.${process.pid}.tmp`;
+				await writeFile(temporary, payload, { mode: 0o600 });
+				await rename(temporary, file);
+			})
+			.catch((error: unknown) => {
+				diagnose(`could not persist bridge tokens: ${errorMessage(error)}`);
+			});
+	};
 	return {
 		remember(runtimeIdentity, token) {
 			tokens.set(runtimeIdentity, token);
+			persist();
 		},
 		get(runtimeIdentity) {
 			return tokens.get(runtimeIdentity);
 		},
 		forget(runtimeIdentity) {
-			tokens.delete(runtimeIdentity);
-		},
-		clear() {
-			tokens.clear();
+			if (tokens.delete(runtimeIdentity)) persist();
 		},
 	};
 }
 
-/** Starts the package runner as a detached process and returns its authenticated controller. */
-export async function launchDetachedRunner(
-	options: LaunchDetachedRunnerOptions,
-): Promise<RunnerLike> {
-	const record = await requireCurrentRecord(
-		options.registry,
-		options.record.subagentId,
-		options.signal,
-	);
-	const prepared = await claimRuntime(
-		options.registry,
-		record,
-		"replacement",
-		undefined,
-		undefined,
-		options.signal,
-	);
-	return startClaimedRunner(
-		options.registry,
-		prepared.record,
-		prepared.identity,
-		prepared.token,
-		prepared.claim.claimId,
-		options.signal,
-		options.tokens,
-	);
-}
-
-/** Reconnects to a surviving writer, launching a replacement only after its PID is confirmed dead. */
-export async function recoverDetachedRunner(
-	options: LaunchDetachedRunnerOptions,
-): Promise<RunnerLike> {
-	let record = await requireCurrentRecord(
-		options.registry,
-		options.record.subagentId,
-		options.signal,
-	);
-	if (record.intent === "stopped") throw new Error(`Child ${record.subagentId} is stopped`);
-	record = await clearDeadHolderClaim(options.registry, record, options.signal);
-
-	if (record.runtime !== undefined) {
-		const prepared = await claimRuntime(
-			options.registry,
-			record,
-			"reconnect",
-			record.runtime.runtimeIdentity,
-			record.claim?.claimId,
-			options.signal,
-		);
-		const connection = new RunnerConnection({
-			endpoint: prepared.identity.endpoint,
-			identity: prepared.identity,
-			token: prepared.token,
-			role: "recovery",
-			claimId: prepared.claim.claimId,
-		});
-		try {
-			await connectWithRetry(connection, {
-				attempts: 20,
-				delayMs: 50,
-				...(options.signal === undefined ? {} : { signal: options.signal }),
-			});
-			rememberClaimedToken(
-				options.tokens,
-				record,
-				prepared.identity.runtimeIdentity,
-				prepared.token,
-			);
-			return connection;
-		} catch (error) {
-			connection.close();
-			const afterFailure = await requireCurrentRecord(
-				options.registry,
-				record.subagentId,
-				options.signal,
-			);
-			if (afterFailure.claim?.claimId !== prepared.claim.claimId) {
-				throw new Error(
-					`Recovery authorization for ${record.subagentId} was consumed before the connection completed`,
-					{ cause: error },
-				);
-			}
-			if (!(await isRecordedRunnerConfirmedDead(afterFailure))) {
-				await options.registry.releaseClaim(
-					record.subagentId,
-					prepared.claim.claimId,
-					options.signal,
-				);
-				throw new Error(
-					`Runner ${record.subagentId} could not be reconnected and is not confirmed dead; replacement refused`,
-					{ cause: error },
-				);
-			}
-			record = afterFailure;
-		}
+function readStoredTokens(
+	file: string,
+	diagnose: (message: string) => void,
+): Array<[string, string]> {
+	let raw: string;
+	try {
+		raw = readFileSync(file, "utf8");
+	} catch (error) {
+		const code = (error as { code?: unknown }).code;
+		if (code !== "ENOENT") diagnose(`could not read bridge tokens: ${errorMessage(error)}`);
+		return [];
 	}
-	const expectedRuntimeIdentity = record.runtime?.runtimeIdentity;
-	record = await refreshSessionPlacement(options.registry, record, options.signal);
-	const prepared = await claimRuntime(
-		options.registry,
-		record,
-		"replacement",
-		expectedRuntimeIdentity,
-		record.claim?.claimId,
-		options.signal,
-	);
-	return startClaimedRunner(
-		options.registry,
-		prepared.record,
-		prepared.identity,
-		prepared.token,
-		prepared.claim.claimId,
-		options.signal,
-		options.tokens,
+	if (raw.trim() === "") return [];
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw) as unknown;
+	} catch (error) {
+		diagnose(`bridge token file is not valid JSON: ${errorMessage(error)}`);
+		return [];
+	}
+	if (typeof parsed !== "object" || parsed === null) return [];
+	return Object.entries(parsed).filter(
+		(entry): entry is [string, string] => typeof entry[1] === "string",
 	);
 }
 
-interface PreparedRuntime {
+export interface LaunchChildOptions {
+	readonly registry: Pick<SubagentRegistry, "update">;
 	readonly record: SubagentRecord;
-	readonly identity: ChildIdentity;
-	readonly token: string;
-	readonly claim: RuntimeClaim;
+	readonly tokens: RuntimeTokenStore;
+	/** Waits for this child's bridge connection; false when it did not connect in time. */
+	readonly waitForBridge: (childId: string, signal?: AbortSignal) => Promise<boolean>;
+	readonly signal?: AbortSignal;
+	readonly diagnose?: (message: string) => void;
 }
 
-async function claimRuntime(
-	registry: SubagentRegistry,
+interface ChildRuntimePlan {
+	readonly runtimeIdentity: string;
+	readonly endpoint: string;
+	readonly spec: LaunchSpec;
+}
+
+/**
+ * Mints the runtime identity and its bridge token, remembers the token so the child's very first
+ * hello can be authorized, and builds the one LaunchSpec for this presentation. The token travels
+ * in the spec's environment, because who starts the child differs: the parent starts a background
+ * child and the host starts a panel one.
+ */
+function planChildRuntime(
 	record: SubagentRecord,
-	kind: RuntimeClaim["kind"],
-	expectedRuntimeIdentity: string | undefined,
-	expectedClaimId: string | undefined,
-	signal: AbortSignal | undefined,
-): Promise<PreparedRuntime> {
-	const runtimeIdentity = kind === "reconnect" ? expectedRuntimeIdentity : randomUUID();
-	if (runtimeIdentity === undefined) throw new Error("Reconnect requires a runtime identity");
+	tokens: RuntimeTokenStore,
+	presentation: Presentation,
+): ChildRuntimePlan {
+	const runtimeIdentity = randomUUID();
 	const token = randomBytes(32).toString("hex");
-	const directory = runtimeDirectory();
-	await mkdir(directory, { recursive: true, mode: 0o700 });
-	await chmod(directory, 0o700);
-	const endpoint =
-		kind === "reconnect" && record.runtime !== undefined
-			? record.runtime.endpoint
-			: join(directory, `${record.subagentId}-${runtimeIdentity.slice(0, 12)}.sock`);
-	const claim: RuntimeClaim = {
-		claimId: randomUUID(),
-		kind,
-		holderPid: process.pid,
-		runtimeIdentity,
-		endpoint,
-		controllerTokenHash: createHash("sha256").update(token).digest("hex"),
-	};
-	const claimed = await registry.claim(
-		record.subagentId,
-		record.revision,
-		claim,
-		expectedRuntimeIdentity,
-		expectedClaimId,
-		signal,
-	);
-	return {
-		record: claimed,
-		identity: {
-			parentSessionId: claimed.parentSessionId,
-			subagentId: claimed.subagentId,
+	const endpoint = parentBridgeEndpoint(record.parentSessionId);
+	const spec = buildLaunchSpec({
+		config: record.launchConfig,
+		invocation: record.launchConfig.invocation,
+		presentation,
+		persistence: record.persistence,
+		bridge: {
+			parentSessionId: record.parentSessionId,
+			subagentId: record.subagentId,
 			runtimeIdentity,
 			endpoint,
-			token,
 		},
-		token,
-		claim,
-	};
-}
-
-async function startClaimedRunner(
-	registry: SubagentRegistry,
-	record: SubagentRecord,
-	identity: ChildIdentity,
-	token: string,
-	claimId: string,
-	signal: AbortSignal | undefined,
-	tokens: RuntimeTokenStore,
-): Promise<RunnerLike> {
-	const directory = runtimeDirectory();
-	const jobPath = join(directory, `${record.subagentId}-${identity.runtimeIdentity}.json`);
-	let child: ChildProcess | undefined;
-	let jobPathWritten = false;
-	const connection = new RunnerConnection({ endpoint: identity.endpoint, identity, token });
-	try {
-		const launch = buildLaunchSpec({
-			config: record.launchConfig,
-			invocation: record.launchConfig.invocation,
-			mode: "rpc",
-			persistence: record.persistence,
-			bridge: {
-				parentSessionId: identity.parentSessionId,
-				subagentId: identity.subagentId,
-				runtimeIdentity: identity.runtimeIdentity,
-				endpoint: identity.endpoint,
-			},
-		});
-		const job = {
-			invocation: { command: launch.command, args: launch.argv },
-			cwd: launch.cwd,
-			sessionId: record.sessionId,
-			...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
-			claimId,
-			env: launch.env,
-		};
-		await writeFile(jobPath, `${JSON.stringify(job)}\n`, { mode: 0o600, flag: "wx" });
-		jobPathWritten = true;
-		const runnerEntry = fileURLToPath(new URL("./runner-entry.js", import.meta.url));
-		child = spawn(process.execPath, [runnerEntry, "--job", jobPath], {
-			cwd: launch.cwd,
-			detached: true,
-			env: { ...process.env, ...withBridgeToken(launch.env, token) },
-			stdio: "ignore",
-		});
-		if (child.pid === undefined)
-			throw new Error(`Runner process for ${record.subagentId} has no PID`);
-		await registry.markClaimRunner(record.subagentId, claimId, child.pid, signal);
-		child.unref();
-		await connectWithRetry(connection, {
-			attempts: 240,
-			delayMs: 100,
-			...(signal === undefined ? {} : { signal }),
-		});
-		await unlink(jobPath).catch(() => undefined);
-		rememberClaimedToken(tokens, record, identity.runtimeIdentity, token);
-		return connection;
-	} catch (error) {
-		connection.close();
-		child?.kill("SIGTERM");
-		// A process we spawned ourselves can be observed directly, so the claim is only kept when its
-		// exit could not be confirmed: keeping it forever would lock the session out of a retry even
-		// after nothing is running, while dropping it early would let a second runner start for the
-		// same session.
-		const exited =
-			child === undefined ? true : await confirmChildExit(child, RUNNER_EXIT_CONFIRM_MS);
-		if (jobPathWritten) await unlink(jobPath).catch(() => undefined);
-		if (exited) {
-			const current = await registry.get(record.subagentId).catch(() => undefined);
-			if (current?.claim?.claimId === claimId) {
-				await registry.releaseClaim(record.subagentId, claimId).catch(() => undefined);
-			}
-		}
-		throw error;
-	}
-}
-
-function rememberClaimedToken(
-	tokens: RuntimeTokenStore,
-	record: SubagentRecord,
-	runtimeIdentity: string,
-	token: string,
-): void {
-	const previous = record.runtime?.runtimeIdentity;
-	tokens.remember(runtimeIdentity, token);
-	if (previous !== undefined && previous !== runtimeIdentity) tokens.forget(previous);
-}
-
-async function requireCurrentRecord(
-	registry: SubagentRegistry,
-	id: string,
-	signal: AbortSignal | undefined,
-): Promise<SubagentRecord> {
-	const record = await registry.get(id, signal);
-	if (record === undefined) throw new Error(`Child ${id} disappeared from the registry`);
-	return record;
-}
-
-async function refreshSessionPlacement(
-	registry: SubagentRegistry,
-	record: SubagentRecord,
-	signal: AbortSignal | undefined,
-): Promise<SubagentRecord> {
-	const placement = await planSessionPlacement({
-		sessionId: record.sessionId,
-		cwd: record.cwd,
-		sessionDir: record.launchConfig.sessionDir,
-		persistence: record.persistence,
-		...(record.sessionPath === undefined ? {} : { sessionPath: record.sessionPath }),
 	});
-	if (
-		placement.persistence === record.persistence &&
-		placement.sessionPath === record.sessionPath
-	) {
-		return record;
-	}
-	return registry.update(
-		record.subagentId,
-		record.revision,
-		(current) => ({
-			...current,
-			persistence: placement.persistence,
-			...(placement.sessionPath === undefined
-				? {}
-				: {
-						sessionPath: placement.sessionPath,
-						launchConfig: { ...current.launchConfig, sessionPath: placement.sessionPath },
-					}),
-		}),
-		record.runtime?.runtimeIdentity,
-		signal,
-	);
+	tokens.remember(runtimeIdentity, token);
+	return { runtimeIdentity, endpoint, spec: { ...spec, env: withBridgeToken(spec.env, token) } };
 }
 
-async function clearDeadHolderClaim(
-	registry: SubagentRegistry,
+/** Evidence first: the record names the runtime that was asked for even if starting it fails. */
+async function recordRuntimeEvidence(
+	registry: Pick<SubagentRegistry, "update">,
 	record: SubagentRecord,
-	signal: AbortSignal | undefined,
-): Promise<SubagentRecord> {
-	const claim = record.claim;
-	if (claim === undefined) return record;
-	if (!isPidConfirmedDead(claim.holderPid)) {
-		throw new Error(`Child ${record.subagentId} is already claimed by a live or unknown owner`);
-	}
-	if (claim.runnerPid !== undefined && !isPidConfirmedDead(claim.runnerPid)) {
-		throw new Error(`Child ${record.subagentId} has a live or unknown claimed runner`);
-	}
-	return registry.releaseClaim(record.subagentId, claim.claimId, signal);
+	plan: ChildRuntimePlan,
+): Promise<void> {
+	await registry.update(record.subagentId, undefined, (current) => ({
+		...current,
+		runtime: { runtimeIdentity: plan.runtimeIdentity, endpoint: plan.endpoint },
+	}));
 }
 
-export async function isRecordedRunnerConfirmedDead(record: SubagentRecord): Promise<boolean> {
-	const runtime = record.runtime;
-	if (runtime?.pid === undefined) return false;
-	if (process.platform !== "linux") return isPidConfirmedDead(runtime.pid);
+/**
+ * Starts one headless child Pi and waits for it to connect. Nothing is driven over its stdio: the
+ * process gets the parent's socket path and its own runtime token in the environment, and the
+ * bridge is the only control channel. A child that never connects is terminated here rather than
+ * left running with no way to reach it.
+ */
+export async function launchChild(
+	options: LaunchChildOptions,
+): Promise<LaunchOutcome<ChildRuntime>> {
+	const record = options.record;
+	const plan = planChildRuntime(record, options.tokens, "background");
+	await recordRuntimeEvidence(options.registry, record, plan);
+	const runtime = spawnChildRuntime({
+		command: plan.spec.command,
+		args: plan.spec.argv,
+		cwd: plan.spec.cwd,
+		env: { ...process.env, ...plan.spec.env },
+		...(options.diagnose === undefined ? {} : { diagnose: options.diagnose }),
+	});
+	let connected: boolean;
 	try {
-		const environment = await readFile(`/proc/${runtime.pid}/environ`, "utf8");
-		const identity = environment
-			.split("\0")
-			.filter(Boolean)
-			.map((entry) => {
-				const separator = entry.indexOf("=");
-				return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
-			})
-			.find(([key]) => key === "PI_SUBAGENTS_RUNTIME_ID")?.[1];
-		return identity !== runtime.runtimeIdentity;
+		connected = await options.waitForBridge(record.subagentId, options.signal);
 	} catch (error) {
-		return isErrno(error, "ENOENT");
+		options.diagnose?.(`bridge wait failed: ${errorMessage(error)}`);
+		connected = false;
 	}
+	if (connected) return { handle: runtime };
+	await runtime.terminate();
+	if (runtime.alive) {
+		// The process outlived termination, so it is not gone and the caller keeps the handle: it is
+		// the only thing that can try again.
+		return {
+			handle: runtime,
+			failure: `Child ${record.subagentId} never connected to the parent bridge and did not stop (it may still be running)`,
+		};
+	}
+	options.tokens.forget(plan.runtimeIdentity);
+	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
 }
 
-export function isPidConfirmedDead(pid: number): boolean {
+export interface OpenChildPanelOptions extends LaunchChildOptions {
+	readonly host: HostAdapter;
+}
+
+/**
+ * What a launch left behind. A launch that failed can still have started something — a child that
+ * never dialed in, or a process that ignores SIGTERM — and then the caller must keep the handle:
+ * dropping it would let the next send start a second runtime for a session the first one may still
+ * own. `failure` is what the caller reports.
+ */
+export interface LaunchOutcome<T> {
+	readonly handle?: T;
+	readonly failure?: string;
+	/**
+	 * Set when something may still own the child's session and this process cannot observe it, so
+	 * the caller refuses to start a second runtime until an explicit stop.
+	 */
+	readonly unconfirmed?: boolean;
+}
+
+/**
+ * Opens one child in a host panel and waits for it to connect. The host owns this process, so the
+ * parent holds no runtime handle for it; a panel that never yields a bridge is closed again instead
+ * of being left as a process nobody can control.
+ */
+export async function openChildPanel(
+	options: OpenChildPanelOptions,
+): Promise<LaunchOutcome<HostAttachment>> {
+	const record = options.record;
+	const plan = planChildRuntime(record, options.tokens, "panel");
+	await recordRuntimeEvidence(options.registry, record, plan);
+	let attachment: HostAttachment;
 	try {
-		process.kill(pid, 0);
-		return false;
+		attachment = await options.host.open(plan.spec);
 	} catch (error) {
-		return isErrno(error, "ESRCH");
+		// Opening is not atomic: the host may have created the panel and started the process before
+		// failing to report it. The token is kept so a child that does come up can still be adopted,
+		// and the caller is told the runtime is unconfirmed instead of that nothing was started.
+		return {
+			unconfirmed: true,
+			failure: `Child ${record.subagentId} could not be opened in a ${options.host.kind} panel (${errorMessage(error)}); a panel may have been created, so stop the child before sending again`,
+		};
 	}
+	let connected: boolean;
+	try {
+		connected = await options.waitForBridge(record.subagentId, options.signal);
+	} catch (error) {
+		options.diagnose?.(`bridge wait failed: ${errorMessage(error)}`);
+		connected = false;
+	}
+	if (connected) return { handle: attachment };
+	// The child never dialed in, so the panel is closed again — and only a host that confirms it is
+	// gone counts. While it may still run, the caller keeps the handle and the token: the handle is
+	// what stops a second runtime from being started for the same session, and the token is what lets
+	// a child that does come up be adopted instead of lingering as a process nobody owns.
+	const cleanup = await attachment.cleanup();
+	const observed = await attachment.observe();
+	if (!(observed.known && !observed.alive)) {
+		return {
+			handle: attachment,
+			failure: `Child ${record.subagentId} never connected to the parent bridge and its panel could not be closed (${
+				cleanup.stderr || "its state could not be observed"
+			}); close it manually`,
+		};
+	}
+	options.tokens.forget(plan.runtimeIdentity);
+	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
 }
 
-function isErrno(value: unknown, code: string): boolean {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"code" in value &&
-		(value as NodeJS.ErrnoException).code === code
-	);
+/** Creates the runtime directory if needed; the socket itself is 0600 in a 0700 directory. */
+export async function prepareRuntimeDirectory(
+	diagnose?: (message: string) => void,
+): Promise<string> {
+	const directory = runtimeDirectory();
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	await chmod(directory, 0o700).catch((error: unknown) => {
+		diagnose?.(`could not restrict the runtime directory: ${errorMessage(error)}`);
+	});
+	return directory;
 }

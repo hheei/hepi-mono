@@ -3,17 +3,20 @@ import { join } from "node:path";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
+import { createEvalRuntimeState } from "../src/eval/lifecycle.js";
+import { createEvalTool, evalPromptGuidelines } from "../src/eval/tool.js";
 import { createFffRuntimeState } from "../src/fff/lifecycle.js";
 import { registerFindTool } from "../src/find.js";
 import { registerGrepTool } from "../src/grep.js";
 import { registerLsTool } from "../src/ls.js";
 import { registerReadTool } from "../src/read.js";
+import { registerTaskTools } from "../src/task-tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
 const temporaryDirectory = temporaryDirectories("hepi-codemode-test-");
 
-describe("tools contract aligned with upstream pi 0.99.1", () => {
+describe("tools contract aligned with upstream pi 1.0.0", () => {
 	test("read, grep, find, ls have no outputSchema (resolving as string in codemode) and declare readOnly hints", async () => {
 		const host = toolHost();
 		const state = createFffRuntimeState();
@@ -131,5 +134,107 @@ describe("tools contract aligned with upstream pi 0.99.1", () => {
 		};
 		expect(failStructured.exit_code).toBe(42);
 		expect(failResult.isError).toBe(true);
+	});
+
+	test("bash prepareLoadout adapts description when eval tool is active", () => {
+		const host = toolHost();
+		const state = createFffRuntimeState();
+		registerBashTool(host.pi, state);
+
+		const bash = toolFor(host.tools, "bash");
+		expect(bash.prepareLoadout).toBeDefined();
+
+		const loadoutWithEval = {
+			declared: [{ name: "bash" }, { name: "eval" }],
+			callable: [{ name: "bash" }, { name: "eval" }],
+			registered: [{ name: "bash" }, { name: "eval" }],
+			getExposure: () => "direct" as const,
+			getNamespace: () => undefined,
+		};
+		const changesWithEval = bash.prepareLoadout?.(loadoutWithEval as never);
+		expect(changesWithEval?.descriptions?.bash).toContain("Prefer eval over python -c");
+
+		const loadoutWithBoth = {
+			declared: [{ name: "bash" }, { name: "eval" }, { name: "codemode" }],
+			callable: [{ name: "bash" }, { name: "eval" }, { name: "codemode" }],
+			registered: [{ name: "bash" }, { name: "eval" }, { name: "codemode" }],
+			getExposure: () => "direct" as const,
+			getNamespace: () => undefined,
+		};
+		const changesWithBoth = bash.prepareLoadout?.(loadoutWithBoth as never);
+		expect(changesWithBoth?.descriptions?.bash).toContain(
+			"Prefer eval for persistent Python computation, and codemode for tool orchestration or filtering.",
+		);
+
+		const loadoutWithCodemodeOnly = {
+			declared: [{ name: "bash" }, { name: "codemode" }],
+			callable: [{ name: "bash" }, { name: "codemode" }],
+			registered: [{ name: "bash" }, { name: "codemode" }],
+			getExposure: () => "direct" as const,
+			getNamespace: () => undefined,
+		};
+		const changesWithCodemodeOnly = bash.prepareLoadout?.(loadoutWithCodemodeOnly as never);
+		expect(changesWithCodemodeOnly?.descriptions?.bash).toContain(
+			"Prefer codemode over complex shell loops or pipeline filtering.",
+		);
+
+		const loadoutWithoutEval = {
+			declared: [{ name: "bash" }],
+			callable: [{ name: "bash" }],
+			registered: [{ name: "bash" }],
+			getExposure: () => "direct" as const,
+			getNamespace: () => undefined,
+		};
+		const changesWithoutEval = bash.prepareLoadout?.(loadoutWithoutEval as never);
+		expect(changesWithoutEval?.descriptions?.bash).toBeUndefined();
+	});
+
+	test("task tools declare defaultActive false and appropriate annotations", () => {
+		const host = toolHost();
+		const state = createFffRuntimeState();
+		registerTaskTools(host.pi, state);
+
+		const listTasks = toolFor(host.tools, "list_tasks");
+		const waitTasks = toolFor(host.tools, "wait_tasks");
+		const stopTasks = toolFor(host.tools, "stop_tasks");
+
+		expect(listTasks.defaultActive).toBe(false);
+		expect(listTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: true });
+
+		expect(waitTasks.defaultActive).toBe(false);
+		expect(waitTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: false });
+
+		expect(stopTasks.defaultActive).toBe(false);
+		expect(stopTasks.annotations).toEqual({ destructiveHint: true });
+	});
+
+	test("eval prompt guidelines describe nested tool return types aligned with codemode", () => {
+		const guidelines = evalPromptGuidelines("native");
+		expect(
+			guidelines.some((line) =>
+				line.includes("nested tools return text strings, or structured dicts"),
+			),
+		).toBe(true);
+		expect(
+			guidelines.some((line) =>
+				line.includes("Call nested tools as `tools.name(...)` with kwargs or a dict."),
+			),
+		).toBe(true);
+	});
+
+	test("eval tool declares exposure: model-only so it survives codemode.mode = only", () => {
+		const evalTool = createEvalTool(createEvalRuntimeState(), {} as never);
+		expect(evalTool.exposure).toBe("model-only");
+
+		// Simulate upstream codemode prepareCodemodeLoadout behavior under mode === "only"
+		const isDirect = (tool: { exposure?: string }) => tool.exposure === "direct";
+		const directTool = { name: "read", exposure: "direct" as const };
+		const tools = [directTool, evalTool];
+
+		// Upstream only hides tools whose exposure is "direct"
+		const hiddenDeclarations = tools.filter((tool) => isDirect(tool)).map((tool) => tool.name);
+
+		expect(hiddenDeclarations).toContain("read");
+		expect(hiddenDeclarations).not.toContain("eval");
 	});
 });

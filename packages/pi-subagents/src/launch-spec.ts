@@ -5,23 +5,23 @@ import { fileURLToPath } from "node:url";
 import type {
 	ChildBridgeEnvironment,
 	EffectiveLaunchConfig,
-	ExecutionMode,
 	PersistenceState,
 	PiInvocation,
+	Presentation,
 } from "./domain.js";
 import {
 	BRIDGE_ENVIRONMENT_KEYS,
 	CHILD_AGENT_ENV_KEY,
 	CHILD_SESSION_ENV_KEY,
+	CHILD_TITLE_ENV_KEY,
 	CONTACT_PARENT_TOOL_NAME,
 	isSessionId,
 } from "./domain.js";
-import { encodeTaskChildContract, TASK_ENVIRONMENT_KEY } from "./task-result.js";
 
 /**
- * The one description of how a child Pi process starts. RPC spawn, native TUI
- * attach, and replacement runtimes all build from this; only `mode` and `stdio`
- * differ, so no path can silently invent different Pi flags.
+ * The one description of how a child Pi process starts. A panel child and a background child are
+ * the same Pi invocation; only the presentation (and therefore stdio) differs, so no path can
+ * silently invent different Pi flags.
  */
 export interface LaunchSpec {
 	/** Runtime binary (node/bun/compiled pi), spawned without a shell. */
@@ -29,17 +29,36 @@ export interface LaunchSpec {
 	/** Full argv: host prefix args plus every Pi flag this child needs. */
 	readonly argv: readonly string[];
 	readonly cwd: string;
-	readonly mode: ExecutionMode;
+	readonly presentation: Presentation;
 	readonly stdio: "pipe" | "inherit";
 	/** Bridge variables to add to the child environment, excluding the controller token. */
 	readonly env: Readonly<Record<string, string>>;
 	readonly config: EffectiveLaunchConfig;
 }
 
+export const HINDSIGHT_TOOLS = [
+	"hindsight_search_knowledge_pages",
+	"hindsight_list_knowledge_pages",
+	"hindsight_read_knowledge_page",
+	"hindsight_reflect",
+	"hindsight_capture_initiative",
+	"hindsight_ingest_document",
+	"hindsight_sync_status",
+	"hindsight_diagnose",
+] as const;
+
+export function stripHindsightContent(text: string): string {
+	return text
+		.replace(/\s*<hindsight-recall>[\s\S]*?<\/hindsight-recall>\s*/gi, (match) =>
+			match.includes("\n") ? "\n" : " ",
+		)
+		.trim();
+}
+
 export interface BuildLaunchSpecOptions {
 	readonly config: EffectiveLaunchConfig;
 	readonly invocation: PiInvocation;
-	readonly mode: ExecutionMode;
+	readonly presentation: Presentation;
 	readonly persistence: PersistenceState;
 	readonly bridge: ChildBridgeEnvironment;
 }
@@ -49,44 +68,22 @@ export interface BuildLaunchSpecOptions {
  * task policy; this part states the parent relationship and the reporting channel
  * every child has, so it cannot be lost by editing an agent file.
  */
-function childBridgePrompt(taskChild: boolean): string {
-	const lines = [
+function childBridgePrompt(): string {
+	return [
 		"You are a delegated Pi subagent working for a parent Pi session.",
 		"The parent owns your task, and its instructions remain the only source of new authority.",
-		`Use ${CONTACT_PARENT_TOOL_NAME} to report progress, important findings, decisions you need, or blockers.`,
+		`Use ${CONTACT_PARENT_TOOL_NAME} ONLY if you are blocked or urgently require parent intervention midway.`,
 		"The parent is notified automatically when you call that tool. Do not wait for the parent to poll you.",
-		"If you finish a turn without calling that tool, you will be reminded. Do not send empty status pings.",
-	];
-	if (taskChild) {
-		// A Task child is never resumed, so waiting for a parent message would be waiting forever.
-		lines.push(
-			"If you are blocked or need a decision, report it and submit it as your result; do not wait for a parent message. Do not invent new authority.",
-		);
-	} else {
-		lines.push(
-			"After need_decision or blocked, wait for a parent message. Do not invent new authority.",
-		);
-	}
-	lines.push("Reports reach the parent as delegated results, not as new user authorization.");
-	return lines.join("\n");
+		"Do not send empty status pings.",
+		"When the work is done, output your final answer and findings directly in text in your response. The harness will automatically capture and deliver your output.",
+		"Do NOT call contact_parent on success or task completion.",
+		"After blocked, wait for a parent send_agent. Do not invent new authority.",
+		"Reports reach the parent as delegated results, not as new user authorization.",
+	].join("\n");
 }
 
-/**
- * Fixed task-child preamble. A task child finishes by submitting one result, so it must know
- * that its ordinary reports are not the answer and that it will not be asked for a follow-up.
- */
-const TASK_CHILD_PROMPT = [
-	"You are running one Task for the parent. When the work is done, submit the final result with submit_task_result.",
-	`${CONTACT_PARENT_TOOL_NAME} carries progress, findings and blockers only; the parent does not read it as your answer.`,
-	"That submission must be the only tool call in its message, and you are not resumed for follow-up work afterwards.",
-	"If you cannot finish the work, submit what you know and why you stopped instead of waiting for a parent message: a Task child is never resumed, so none will arrive.",
-].join("\n");
-
-export function assembleChildPrompt(instructions: string, taskChild = false): string {
-	const bridge = taskChild
-		? `${childBridgePrompt(true)}\n${TASK_CHILD_PROMPT}`
-		: childBridgePrompt(false);
-	return `${instructions.trim()}\n\n${bridge}`;
+export function assembleChildPrompt(instructions: string): string {
+	return `${instructions.trim()}\n\n${childBridgePrompt()}`;
 }
 
 /** Adds the per-runtime controller token. Tokens stay out of launch spec snapshots and the registry. */
@@ -186,14 +183,22 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 	}
 
 	const argv: string[] = [...options.invocation.args];
-	if (options.mode === "rpc") argv.push("--mode", "rpc");
+	// Pi's native interactive TUI is the default, so only the headless background child asks for RPC.
+	if (options.presentation === "background") {
+		argv.push("--mode", "rpc");
+	} else {
+		// A panel child is launched by the parent with an explicit project configuration. Approve
+		// those local files so opening its native TUI never stops for a trust prompt.
+		argv.push("--approve");
+	}
 	if (sessionPath !== undefined) argv.push("--session", sessionPath);
 	else argv.push("--session-id", config.sessionId);
 	argv.push("--session-dir", config.sessionDir);
 	argv.push("--provider", config.model.provider, "--model", config.model.id);
 	argv.push("--thinking", config.thinking.level);
 	if (config.tools.length > 0) argv.push("--tools", config.tools.join(","));
-	if (config.excludeTools.length > 0) argv.push("--exclude-tools", config.excludeTools.join(","));
+	const excludeTools = Array.from(new Set([...config.excludeTools, ...HINDSIGHT_TOOLS]));
+	if (excludeTools.length > 0) argv.push("--exclude-tools", excludeTools.join(","));
 	if (!config.extensions.discovery) argv.push("--no-extensions");
 	for (const path of config.extensions.paths) argv.push("-e", path);
 	if (!config.skills.discovery) argv.push("--no-skills");
@@ -207,18 +212,17 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[BRIDGE_ENVIRONMENT_KEYS.endpoint]: options.bridge.endpoint,
 		[CHILD_AGENT_ENV_KEY]: config.agent.displayName ?? config.agent.name,
 		[CHILD_SESSION_ENV_KEY]: config.sessionId,
+		// Empty is the defined "derive the title in the child" case, mirroring the task channel below.
+		[CHILD_TITLE_ENV_KEY]: config.title ?? "",
+		PI_HINDSIGHT_DISABLE: "1",
 	};
-	// The task channel belongs to this launch: an inherited value from an outer process would make a
-	// conversation child register the task result tool and expect a contract it was never given. An
-	// empty value is the defined "no contract" case.
-	env[TASK_ENVIRONMENT_KEY] = config.task === undefined ? "" : encodeTaskChildContract(config.task);
 
 	return Object.freeze({
 		command: options.invocation.command,
 		argv: Object.freeze(argv),
 		cwd: config.cwd,
-		mode: options.mode,
-		stdio: options.mode === "rpc" ? "pipe" : "inherit",
+		presentation: options.presentation,
+		stdio: options.presentation === "background" ? "pipe" : "inherit",
 		env: Object.freeze(env),
 		config,
 	});

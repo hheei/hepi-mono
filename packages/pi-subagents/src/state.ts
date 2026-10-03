@@ -9,6 +9,12 @@ export interface StateSnapshot {
 export interface StateProjector {
 	applyEvent(event: unknown): StateSnapshot;
 	rebuild(entries: readonly unknown[]): StateSnapshot;
+	/**
+	 * Puts the projected state back in step with a state the child itself reported. Without it a
+	 * transcript that still ends in a tool result keeps projecting "running" over a child that has
+	 * answered that it is idle, and the next state-less event writes that back onto the record.
+	 */
+	syncState(state: SubagentState): StateSnapshot;
 	snapshot(): StateSnapshot;
 }
 const EMPTY_USAGE: UsageSummary = {
@@ -122,42 +128,51 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 		applyEvent(event) {
 			const value = record(event);
 			if (value === undefined) return snapshot();
-			if (value.type === "agent_start") state = "running";
-			else if (value.type === "agent_end" || value.type === "agent_settled") {
-				state = "idle";
+			if (
+				value.type === "agent_start" ||
+				value.type === "auto_retry_start" ||
+				value.type === "auto_retry"
+			) {
+				state = "running";
+			} else if (value.type === "agent_end" || value.type === "agent_settled") {
+				// agent_end precedes retries, compaction and queued continuation work.
+				if (value.type === "agent_settled") state = "idle";
 				const messages = Array.isArray(value.messages) ? value.messages : [];
 				const message = record(messages.length > 0 ? messages[messages.length - 1] : value.message);
 				if (message?.role === "assistant") {
 					summary = text(message) ?? summary;
-					interrupted = diagnostic(message) ?? interrupted;
-					if (message.stopReason === "error") state = "failed";
+					if (value.type === "agent_settled") {
+						interrupted = diagnostic(message);
+						if (message.stopReason === "error") state = "failed";
+					}
 				}
 			} else if (value.type === "error") {
 				state = "failed";
 				interrupted =
 					typeof value.message === "string" ? value.message : "Runner reported an error";
-			} else if (value.type === "runner_events_dropped") {
-				const count = typeof value.count === "number" ? value.count : undefined;
-				interrupted =
-					count === undefined
-						? "Runner dropped events; live state may be stale"
-						: `Runner dropped ${count} events; live state may be stale`;
-			} else if (value.type === "runner_exit" || value.type === "exit") {
-				state = value.code === 0 ? "done" : "failed";
-				if (value.code !== 0)
-					interrupted = `Runner exited${typeof value.code === "number" ? ` with code ${value.code}` : " unexpectedly"}`;
 			}
 			return snapshot();
 		},
 		rebuild(entries) {
 			summary = summarizeCurrentBranch(entries);
 			usage = aggregateUsage(entries);
+			let lastAssistant: Record<string, unknown> | undefined;
 			for (const entry of entries) {
 				const item = assistant(entry);
 				if (item === undefined || !completed(item.message)) continue;
-				interrupted = diagnostic(item.message) ?? interrupted;
-				if (item.message.stopReason === "error") state = "failed";
+				lastAssistant = item.message;
 			}
+			if (lastAssistant !== undefined) {
+				interrupted = diagnostic(lastAssistant);
+				if (lastAssistant.stopReason === "error") state = "failed";
+				else if (state === "failed") state = "idle";
+			} else {
+				interrupted = undefined;
+			}
+			return snapshot();
+		},
+		syncState(next) {
+			state = next;
 			return snapshot();
 		},
 		snapshot,

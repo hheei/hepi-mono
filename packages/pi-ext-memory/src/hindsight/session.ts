@@ -3,7 +3,7 @@ import type {
 	BeforeAgentStartEvent,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage, setPromptSection } from "@hheei/pi-ext-core";
+import { errorMessage, isSubagentProcess, setPromptSection } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
 import {
 	type HindsightGateway,
@@ -33,7 +33,7 @@ export interface HindsightInjection {
  * once and recalled facts are replaced only when they change.
  */
 const PREAMBLE_SECTION = "pi-ext-memory-preamble";
-const RECALL_SECTION = "pi-ext-memory-recall";
+const RECALL_SECTION = "hindsight-recall";
 
 /**
  * Common short affirmation or continuation phrases that indicate the user is simply
@@ -231,7 +231,9 @@ export class HindsightSession {
 			});
 			return { text: undefined, pages: [], truncated: false };
 		}
-		const fragments = hits.map((hit) => `From "${hit.page}" (${hit.pageId}): ${hit.snippet}`);
+		const fragments = hits.map(
+			(hit) => `---\npage: ${JSON.stringify(hit.page)}\nid: ${hit.pageId}\n---\n\n${hit.snippet}`,
+		);
 		const text = renderMemoryContainer(fragments, this.resolved.config.maxMemoryChars);
 		const result: PromptRecallResult = {
 			text,
@@ -285,8 +287,10 @@ function sessionIdOf(ctx: ExtensionContext): string {
 export async function startHindsightSession(
 	cwd: string,
 	signal: AbortSignal,
+	env: NodeJS.ProcessEnv = process.env,
 ): Promise<HindsightStart> {
-	const resolved = await loadHindsightConfig(cwd, process.env, signal);
+	if (isSubagentProcess(env)) return { status: "disabled" };
+	const resolved = await loadHindsightConfig(cwd, env, signal);
 	if (resolved === undefined) return { status: "disabled" };
 	const gateway = await openHindsightGateway(resolved);
 	if ("error" in gateway) return { status: "error", error: gateway.error };

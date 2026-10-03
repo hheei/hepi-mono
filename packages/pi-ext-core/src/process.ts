@@ -25,6 +25,13 @@ export interface CommandResult {
 	readonly stdoutTruncated: boolean;
 }
 
+/**
+ * Detects whether the current process is running as a child subagent managed by pi-subagents.
+ */
+export function isSubagentProcess(env: NodeJS.ProcessEnv = process.env): boolean {
+	return Boolean(env.PI_SUBAGENTS_CHILD_ID || env.PI_HINDSIGHT_DISABLE === "1");
+}
+
 /** Quotes one value for a POSIX shell command line. */
 export function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;

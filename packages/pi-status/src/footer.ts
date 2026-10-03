@@ -24,17 +24,25 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
+export interface RoutedModelInfo {
+	readonly model: { readonly id: string; readonly provider?: string };
+	readonly thinkingLevel?: string;
+}
+
 /**
  * Formats model identifier with provider prefix and thinking level:
  * - When theme is provided:
  *   [provider/ (dim)][modelId (text)][(thinking) ((dim) + (accent) + (dim))]
  * - When theme is omitted:
  *   gm/gemini-3.8-flash(high) or gm/gemini-3.8-flash
+ * - When routedModel is provided and resolves to a distinct model:
+ *   [virtual-model] -> [physical-model]
  */
 export function formatFooterModel(
 	model: { readonly id: string; readonly provider?: string } | undefined,
 	thinkingLevel: string | undefined,
 	theme?: ThemeLike,
+	routedModel?: RoutedModelInfo | undefined,
 ): string {
 	if (model === undefined) return theme !== undefined ? theme.fg("dim", "no-model") : "no-model";
 	const hasProvider = model.provider !== undefined && model.provider.trim() !== "";
@@ -42,17 +50,49 @@ export function formatFooterModel(
 	const hasThinking =
 		thinkingLevel !== undefined && thinkingLevel !== "off" && thinkingLevel.trim() !== "";
 
-	if (theme === undefined) {
-		const levelSuffix = hasThinking ? `(${thinkingLevel})` : "";
-		return `${providerText}${model.id}${levelSuffix}`;
+	const baseText = (() => {
+		if (theme === undefined) {
+			const levelSuffix = hasThinking ? `(${thinkingLevel})` : "";
+			return `${providerText}${model.id}${levelSuffix}`;
+		}
+		const providerPart = hasProvider ? theme.fg("dim", providerText) : "";
+		const modelPart = theme.fg("text", model.id);
+		const thinkingPart = hasThinking
+			? `${theme.fg("dim", "(")}${theme.fg("accent", thinkingLevel)}${theme.fg("dim", ")")}`
+			: "";
+		return `${providerPart}${modelPart}${thinkingPart}`;
+	})();
+
+	if (
+		!routedModel ||
+		(routedModel.model.id === model.id && routedModel.model.provider === model.provider)
+	) {
+		return baseText;
 	}
 
-	const providerPart = hasProvider ? theme.fg("dim", providerText) : "";
-	const modelPart = theme.fg("text", model.id);
-	const thinkingPart = hasThinking
-		? `${theme.fg("dim", "(")}${theme.fg("accent", thinkingLevel)}${theme.fg("dim", ")")}`
+	const routedHasProvider =
+		routedModel.model.provider !== undefined &&
+		routedModel.model.provider.trim() !== "" &&
+		routedModel.model.provider !== model.provider;
+	const routedProviderText = routedHasProvider ? `${routedModel.model.provider}/` : "";
+	const routedThinkingLevel = routedModel.thinkingLevel;
+	const routedHasThinking =
+		routedThinkingLevel !== undefined &&
+		routedThinkingLevel !== "off" &&
+		routedThinkingLevel.trim() !== "";
+
+	if (theme === undefined) {
+		const routedLevelSuffix = routedHasThinking ? `(${routedThinkingLevel})` : "";
+		return `${baseText} → ${routedProviderText}${routedModel.model.id}${routedLevelSuffix}`;
+	}
+
+	const arrowPart = theme.fg("dim", "→");
+	const routedProviderPart = routedHasProvider ? theme.fg("dim", routedProviderText) : "";
+	const routedModelPart = theme.fg("text", routedModel.model.id);
+	const routedThinkingPart = routedHasThinking
+		? `${theme.fg("dim", "(")}${theme.fg("accent", routedThinkingLevel)}${theme.fg("dim", ")")}`
 		: "";
-	return `${providerPart}${modelPart}${thinkingPart}`;
+	return `${baseText} ${arrowPart} ${routedProviderPart}${routedModelPart}${routedThinkingPart}`;
 }
 
 /**
@@ -184,10 +224,12 @@ export class CompactFooterComponent implements Component {
 		const line1 = layoutTwoColumnRow(line1Left, line1Right, width);
 
 		// Line 2 left: model + thinking level · context%
+		const routed = (this.#extension as unknown as { routedModel?: RoutedModelInfo }).routedModel;
 		const modelPart = formatFooterModel(
 			this.#extension.model,
 			this.#extension.thinkingLevel,
 			this.#theme,
+			routed,
 		);
 		const contextPart = formatFooterContext(
 			this.#extension.getContextUsage(),

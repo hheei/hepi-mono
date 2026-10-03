@@ -100,8 +100,94 @@ generation 与 lifecycle signal 自行收敛），只阻止后续触发与新的
     "compactAfterTokens": 80000,
     "compactAfterTokensMode": "calibrated",
     "observationsPoolMaxTokens": 20000,
+    "observationsPoolTargetTokens": 10000,
+    "memoryMaxTokens": 30000,
     "passive": false,
     "debugLog": false
   }
 }
 ```
+
+### 3.1 记忆预算（memory budget）
+
+`memoryMaxTokens` 是可见记忆的硬上限（tokens）。未设置时派生为
+`min(floor(effective trigger × 0.5), floor(contextWindow × 0.1))`，且不低于 `4000`，
+显式配置的值按原样生效（含低于下限的值）。它同时约束三处：compaction 摘要的渲染、
+dropper 的观测池目标、以及 observer / reflector / dropper 的输入视图。
+
+压缩时的渲染预算由 `softLimit − retained tail − system prompt` 的剩余空间推导（
+`softLimit = min(compactAfterTokens 或 ratio 阈值, contextWindow − Pi reserveTokens)`），
+`reason === "overflow"` 时再减半。预算内选条是确定性纯函数（观测：未被 reflection
+覆盖 → relevance → 较新；反思：会话前 8 条锚点 + 较新），被裁剪的行不删除，仍留在
+ledger 中并可用 `om_recall_evidence` 按 id 取回。
+
+每次 compaction 把 `details.budget = { maxTokens, renderedTokens, tailTokens, softLimit,
+trimmedObservations, trimmedReflections }` 写入 compaction 条目（`version` 仍为 1，
+旧读取方忽略该字段），`/om status` 的 `── Memory budget ──` 段展示最新一次渲染的
+预算、实耗、裁剪行数与 retained tail。设计见 `docs/plans/pi-ext-memory-memory-budget.md`。
+
+**池上限（enforcer）**：渲染裁剪只约束一次 summary，账本本身由 consolidation 流水线的
+最后一个**无模型**阶段收敛——活跃记忆超过 `budgetCap × 1.5` 时，把非 critical 观测回收到
+`min(observationsPoolTargetTokens, max(0, budgetCap − 反思 tokens))`，每次最多写一条
+`om.observations.dropped`（`coversUpToId` 取最新 observation coverage marker），幂等；
+`critical` 观测永不回收，被回收的行仍留在账本中并可 recall。反思单独超过 budgetCap 时
+目标为 0，意味着所有非 critical 观测一次性退出活跃记忆；`/om status` 会在反思占掉少于
+`observationsPoolTargetTokens` 的余量时显示 `Reflections leave under the observation target`。
+回收按 rank 逐条累加渲染 tokens，直到池子进入目标（而不是按平均行长估算条数），
+因此最终剩余量一定 ≤ 目标。
+
+**观测时间戳权威（Phase 4）**：观测的 `timestamp` 不再由模型书写，而是由 `runObserverStage`
+从该观测引用的 `sourceEntryIds` 派生：取被引用 entry 中**最早**的本地分钟时间（`YYYY-MM-DD HH:MM`），
+无可用引用时退化为 chunk 内最后一条有效时间、再退化为记录时刻。渲染 summary 时观测按时间稳定排序
+（同一分钟保持账本插入序），前言承诺的"时间顺序 + 最新者代表最新状态"因此成立。旧条目不做迁移，
+仍按其自报时间排序（已知限制）。
+
+**观测分层 `kind`**：`Observation.kind?: "user" | "decision" | "fact" | "progress"`
+（缺省按 `fact`，旧条目无需迁移）。它是记忆移除的第一排序维度：progress（施工叙事）
+最先离开活跃记忆，然后 fact，最后是有断言/纠正语义的 user 与决策 decision；`relevance`
+退化为同一 kind 内的次序。dropper 的行渲染会带 `[kind]`，compaction summary 的行格式不变。
+
+**反思生命周期（合并 / 取代）**：反思没有确定性淘汰路径，唯一的收缩入口是 reflector 在同一次
+`record_reflections` 调用里声明 `supersedes`：新反思明确列出它取代哪些旧反思，阶段随后写一条
+`om.reflections.dropped`（`{ reflectionIds, coversUpToId }`）。不变量是"离开活跃记忆的反思必须有一个替代者"——
+提案 content 不合法时不产生 tombstone，与既有反思同 id 的重复提案（合并成已有措辞）仍可取代其他条目。
+每条提案的 `supersedes` 各自成立：替代者永远不会重新活跃的那条提案被跳过，同一轮里其他合并照常退休各自的目标。
+换成新内容的合并继承被替换反思的 `supportingObservationIds`，因此"观测已被 enforcer 全部回收、只剩反思"这个状态下
+合并依然有依据，反思池也就仍然能收缩（没有观测时可以只做合并）。
+投影层新增独立的 `droppedReflectionIds` 集合：被取代的反思仍留在账本里（`/om view full`、diff、recall
+都能看到），只是不再进入活跃记忆、不再计入 budgetCap 的反思份额、也不再提供 coverage。
+`/om status` 的反思行因此是 `N recorded / M superseded / K active / V visible`。
+反射器的输入视图会附带 `REFLECTION BUDGET` 一行（渲染预算分节后反思的份额），超出时 prompt 要求
+先合并同类项再新增。
+
+---
+
+## 4. Hindsight 工具暴露契约（`deferred`）
+
+8 个 `hindsight_*` 工具由 `declareHindsightTools(pi, provider, exposure)` 按**当前 session** 声明：
+Hindsight 可用时 `exposure: "deferred"`，不可用（选项关闭、服务端不可达、启动失败）时 `exposure: "hidden"`。
+这是 Pi 没有 unregister API 的直接结果：注册属于进程，而可用性属于 session，所以只能把注册的**可见性**
+跟着 session 改。
+deferred 同时解决两个问题：工具不占用模型声明，也不占用 codemode 描述里的 inline 目录（`inlineBudget`
+只统计 `direct` 工具），但依然可被调用。
+
+两条暴露路径：
+
+1. `tool_search`：按查询 BM25 排序还没激活的 `codemode` / `deferred` 工具，命中的写回 active
+   集合，因此**下一次模型调用**才把它们声明给模型。这是让工具“被激活”的唯一路径。
+2. codemode 脚本：脚本内的 `tools.<name>` 与 `ALL_TOOLS` / `searchTools()` / `describeTool()`
+   始终能看到全部已注册的可调用工具，不需要先激活。
+
+不变量：
+
+- **不激活是刻意的**。`_isActivatedOnRegistration` 只对 `direct` / `model-only` 为真，所以
+  `deferred` 工具在运行时注册后不会进入 active 集合；而显式 `setActiveTools` 会把所有非
+  `hidden` 的 active 工具声明给模型，一旦激活就抵消了 defer 的意义。
+- **不可用就是不可达**。`hidden` 既不声明、也不被 `tool_search` 搜索、也不是 callable，所以“此 session
+  不记忆”不会变成“模型能发现 8 个只会拒绝的工具”。`hidden` 只在已经注册过时生效：一个从未成功启用过
+  Hindsight 的进程根本不会注册任何工具。
+- **注册只在首个可用 session 发生一次**，之后每次 session start 只重声明 exposure（`redeclareManagedTool`）。
+  因此“已注册但在本 session 不可用”是正常状态，而不是残留。
+- **每次调用的 session 门控仍然存在**（`provider()` 返回 `undefined` 时返回 `HINDSIGHT_DISABLED_TEXT`）：
+  它是兜底，与暴露状态无关。
+- **声明的时机由 `tool_search` 决定**，不由扩展决定：扩展只注册和门控，不激活。```

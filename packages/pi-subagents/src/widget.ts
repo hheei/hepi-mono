@@ -3,9 +3,10 @@ import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import { registerWidget, type WidgetHandle } from "@hheei/pi-ext-core";
 import {
 	type PublicSubagent,
-	SUBAGENT_GLYPH,
-	SUBAGENT_TONE,
 	type SubagentState,
+	toVisualSubagentState,
+	VISUAL_SUBAGENT_GLYPH,
+	VISUAL_SUBAGENT_TONE,
 } from "./domain.js";
 
 const WIDGET_ID = "@hheei/pi-subagents:status";
@@ -41,20 +42,19 @@ function visibleChildren(
 	return children.filter((c) => isWidgetVisibleChild(c, nowMs));
 }
 
-function stateGlyph(state: SubagentState, theme: Theme): string {
-	const glyph = SUBAGENT_GLYPH[state] ?? "󰄰";
-	const tone = SUBAGENT_TONE[state] ?? "dim";
+function stateGlyph(child: PublicSubagent, theme: Theme): string {
+	const visual = toVisualSubagentState(child.state, child.interrupted);
+	const glyph = VISUAL_SUBAGENT_GLYPH[visual];
+	const tone = VISUAL_SUBAGENT_TONE[visual];
 	return theme.fg(tone, glyph);
 }
 
 function stateLabel(child: PublicSubagent, theme: Theme): string {
-	const mode = child.mode === "tui" ? ` ${child.state} tui` : ` ${child.state}`;
+	const visual = toVisualSubagentState(child.state, child.interrupted);
+	const mode = child.presentation === "panel" ? ` ${visual} panel` : ` ${visual}`;
 	const freshness = child.freshness === "last_known" ? " last known" : "";
 	const label = `${mode.trim()}${freshness}`;
-	if (child.interrupted !== undefined || child.freshness === "last_known") {
-		return theme.fg("warning", label);
-	}
-	const tone = SUBAGENT_TONE[child.state] ?? "dim";
+	const tone = VISUAL_SUBAGENT_TONE[visual];
 	return theme.fg(tone, label);
 }
 
@@ -78,9 +78,17 @@ export function renderSubagentWidget(
 ): string[] {
 	const visible = visibleChildren(children, nowMs);
 	if (visible.length === 0) return [];
-	const running = visible.filter((child) => child.state === "running").length;
-	const headingColor = running > 0 ? "accent" : "dim";
-	const headingGlyph = running > 0 ? "󰪠" : "󰄰";
+	const running = visible.filter(
+		(child) => toVisualSubagentState(child.state, child.interrupted) === "running",
+	).length;
+	const allDone =
+		visible.length > 0 &&
+		visible.every((child) => toVisualSubagentState(child.state, child.interrupted) === "done");
+	const hasBlocked = visible.some(
+		(child) => toVisualSubagentState(child.state, child.interrupted) === "blocked",
+	);
+	const headingColor = running > 0 ? "accent" : hasBlocked ? "error" : allDone ? "success" : "dim";
+	const headingGlyph = running > 0 ? "󰪠" : hasBlocked ? "󰅚" : allDone ? "󰄴" : "󰄰";
 	const heading = `${theme.fg(headingColor, headingGlyph)} ${theme.fg("text", "Subagents")} ${theme.fg("dim", `(${visible.length})`)}`;
 	const lines = [truncateToWidth(heading, width, theme.fg("dim", "…"))];
 	const rows = visible.slice(0, MAX_ROWS);
@@ -97,7 +105,7 @@ export function renderSubagentWidget(
 		const summary = snippet === "" ? "" : `  ${theme.fg("dim", snippet)}`;
 		lines.push(
 			truncateToWidth(
-				`${branch} ${stateGlyph(child.state, theme)} ${name}  ${id}  ${stateLabel(child, theme)}${age}${summary}`,
+				`${branch} ${stateGlyph(child, theme)} ${name}  ${id}  ${stateLabel(child, theme)}${age}${summary}`,
 				width,
 				theme.fg("dim", "…"),
 			),

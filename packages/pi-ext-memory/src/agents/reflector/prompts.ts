@@ -9,14 +9,22 @@ You receive:
 - Current observations: active timestamped evidence lines, each shown as "[id] YYYY-MM-DD HH:MM [relevance] [coverage: none|partial|strong] content".
 - Coverage tiers are review context: none means no current reflection supports the observation id, partial means exactly one current reflection supports it, and strong means two or more current reflections support it. Coverage is not a quota, target, priority score, or instruction to emit reflections.
 
+Memory is bounded. Observations fill a configured share of that budget and reflections get the rest; inside each section the least unique, lowest-relevance, and oldest lines are trimmed first, and only the session's first reflections are exempt as anchors. A reflection is therefore the part of memory that survives automatically, and a long tail of near-duplicate reflections is what crowds the durable ones out. Keep the reflection set small, distinct, and free of progress narration. When the current reflections are already over the reflection budget you were given, merge before you add: another new line on an over-budget pool only pushes more durable lines out of the rendered summary.
+
+Merging (supersedes):
+- Reflections leave active memory only when a reflection replaces them. If two or more current reflections state the same durable fact, or one refines another, propose one merged reflection and list the replaced ids in supersedes.
+- Only supersede a reflection your proposal preserves the durable meaning of, and never list an id you are not replacing. Supersedes only accepts ids from the current reflections list; an unknown id is ignored rather than failing the proposal.
+- Merging into an existing wording is allowed: propose content identical to a current reflection with the ids it replaces in supersedes, and the replaced ones leave active memory while the repeated content stays.
+- Superseded reflections keep their record in the session ledger, so merging is an upgrade of active memory, never a deletion.
+
 What to emit:
-- Emit only new durable reflections not already present in current reflections.
+- Emit new durable reflections, or a merge of current ones (see Merging above). Both count as work; a pure merge that adds nothing new is a valid proposal because it retires the lines it replaces.
 - A good reflection captures meaning that should survive after individual observations are dropped from active compacted memory.
 - High and critical observations deserve careful review, not automatic reflection. Many high observations are still active working evidence and should remain observations until completed, superseded, or generalized into a durable decision, invariant, or rationale.
 - Ignore low observations unless a repeated pattern across many low observations is itself significant.
-- Do not lightly reword existing reflections. Rewording creates a separate reflection, so only use different wording when the durable meaning is materially different, more specific, or corrects/refines an existing reflection.
+- Do not lightly reword existing reflections. Rewording creates a separate reflection, so only use different wording when the durable meaning is materially different, more specific, or corrects/refines an existing reflection — and when it is the same durable fact restated, merge it into the original instead by listing the replaced id in supersedes rather than leaving a near-duplicate twin behind.
 - Do not emit update-style records or provenance metadata. Reflections are plain durable facts, not patches.
-- It is fine to emit zero reflections when nothing new is stable enough; in that case do not call the tool and reply briefly.
+- It is fine to emit zero reflections when nothing new is stable enough and no merge is warranted; in that case do not call the tool and reply briefly.
 
 Decision procedure:
 1. First reject observations that are transient, low-level, partial, routine, or only useful as current working state.
@@ -41,7 +49,7 @@ Focus on:
 - Durable blockers, invariants, and open decisions that should survive compaction.
 
 Support ids and coverage stewardship:
-- Every reflection must include supportingObservationIds from the current observations list.
+- A reflection that derives new meaning must include supportingObservationIds from the current observations list. A pure merge may omit them and then inherits the evidence of the reflections it replaces, so merging still works when the observation pool is empty.
 - First decide whether the reflection content passes the durable-value bar. Then audit support ids for that already-worthy reflection.
 - supportingObservationIds are a coverage/provenance set and downstream dropper coverage evidence: include all current observation ids whose durable meaning is preserved by the reflection with equivalent fidelity and can later be treated as redundant active-memory detail.
 - supportingObservationIds are not a checklist to cover every observation. Do not add ids merely to improve coverage counts, maximize support ids, maximize strong coverage, or unlock the dropper.
@@ -50,7 +58,7 @@ Support ids and coverage stewardship:
 - Leave observations unsupported when their details are still active working state, too specific to compress safely, or not yet durable enough.
 - Do not include observations whose unique exact detail, current task state, user correction, user constraint, or concrete completion is not captured by the reflection.
 - If no candidate reflection passes the durable-value bar, emit zero reflections even when observations have coverage: none.
-- Never invent observation ids. Proposals with missing, empty, or invalid supportingObservationIds are rejected.
+- Never invent observation ids. A derived reflection with missing, empty, or invalid supportingObservationIds is rejected, and so is a merge that declares neither support ids nor supersedes.
 
 User assertions are authoritative. If the observation pool contains both "User stated they use Postgres" and a later "User asked which db they are on", the assertion answers the question — crystallize the assertion, never the question, as the durable fact.
 

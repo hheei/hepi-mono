@@ -3,6 +3,12 @@ import { isRecord } from "@hheei/pi-ext-core";
 export const OM_OBSERVATIONS_RECORDED = "om.observations.recorded";
 export const OM_REFLECTIONS_RECORDED = "om.reflections.recorded";
 export const OM_OBSERVATIONS_DROPPED = "om.observations.dropped";
+/**
+ * Reflection tombstones. A reflection leaves active memory only through a merge
+ * or upgrade the reflector declares, never through deterministic eviction, so
+ * this entry names the reflections a newer reflection replaces.
+ */
+export const OM_REFLECTIONS_DROPPED = "om.reflections.dropped";
 export const OM_FOLDED = "om.folded";
 /**
  * Session gate entry (`/om on` / `/om off`). It is metadata, not memory: the fold
@@ -12,6 +18,29 @@ export const OM_GATE = "om.gate";
 
 export const RELEVANCE_VALUES = ["low", "medium", "high", "critical"] as const;
 export type Relevance = (typeof RELEVANCE_VALUES)[number];
+
+/**
+ * What an observation is, which is what decides how easily it can leave active
+ * memory: process narration is disposable, durable decisions are not. Recorded
+ * by the observer; absent on entries written before this field existed, which
+ * read as "fact".
+ */
+export const OBSERVATION_KINDS = ["user", "decision", "fact", "progress"] as const;
+export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
+
+export const DEFAULT_OBSERVATION_KIND: ObservationKind = "fact";
+
+/**
+ * Removal order for kinds: lowest first. Progress lines narrate work that the
+ * transcript and the code already record, so they go before everything else;
+ * a user assertion or a decision cannot be re-derived and goes last.
+ */
+export const OBSERVATION_KIND_DROP_RANK: Record<ObservationKind, number> = {
+	progress: 0,
+	fact: 1,
+	user: 2,
+	decision: 3,
+};
 
 export const MEMORY_ID_PATTERN = /^[a-f0-9]{12}$/;
 
@@ -34,6 +63,7 @@ export type Observation = {
 	content: string;
 	timestamp: string;
 	relevance: Relevance;
+	kind?: ObservationKind | undefined;
 	sourceEntryIds: string[];
 	tokenCount: number;
 };
@@ -60,8 +90,27 @@ export type ObservationsDroppedEntryData = {
 	coversUpToId: string;
 };
 
+export type ReflectionsDroppedEntryData = {
+	reflectionIds: string[];
+	coversUpToId: string;
+};
+
 export type GateEntryData = {
 	enabled: boolean;
+};
+
+/**
+ * What the compaction hook spent on one rendered summary. Observational: it is
+ * written for `/om status` and the session record, never read back into the
+ * projection.
+ */
+export type MemoryDetailsBudget = {
+	maxTokens: number;
+	renderedTokens: number;
+	tailTokens: number;
+	softLimit: number;
+	trimmedObservations: number;
+	trimmedReflections: number;
 };
 
 export type MemoryDetails = {
@@ -70,12 +119,14 @@ export type MemoryDetails = {
 	fullFold: boolean;
 	observations: Observation[];
 	reflections: Reflection[];
+	budget?: MemoryDetailsBudget | undefined;
 };
 
 export type V3MemoryCustomType =
 	| typeof OM_OBSERVATIONS_RECORDED
 	| typeof OM_REFLECTIONS_RECORDED
-	| typeof OM_OBSERVATIONS_DROPPED;
+	| typeof OM_OBSERVATIONS_DROPPED
+	| typeof OM_REFLECTIONS_DROPPED;
 
 export function isRelevance(value: unknown): value is Relevance {
 	return typeof value === "string" && (RELEVANCE_VALUES as readonly string[]).includes(value);
@@ -87,6 +138,17 @@ export function isNonEmptyString(value: unknown): value is string {
 
 export function isNonEmptyStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+}
+
+export function isObservationKind(value: unknown): value is ObservationKind {
+	return typeof value === "string" && (OBSERVATION_KINDS as readonly string[]).includes(value);
+}
+
+/** The recorded kind, or `fact` for an entry that predates the field. */
+export function observationKind(observation: Observation): ObservationKind {
+	return observation.kind !== undefined && isObservationKind(observation.kind)
+		? observation.kind
+		: DEFAULT_OBSERVATION_KIND;
 }
 
 export function isMemoryId(value: unknown): value is string {
@@ -145,6 +207,11 @@ export function isObservationsDroppedData(value: unknown): value is Observations
 	return isNonEmptyStringArray(value.observationIds) && isNonEmptyString(value.coversUpToId);
 }
 
+export function isReflectionsDroppedData(value: unknown): value is ReflectionsDroppedEntryData {
+	if (!isRecord(value)) return false;
+	return isNonEmptyStringArray(value.reflectionIds) && isNonEmptyString(value.coversUpToId);
+}
+
 export function isMemoryDetails(value: unknown): value is MemoryDetails {
 	if (!isRecord(value)) return false;
 	return (
@@ -155,6 +222,22 @@ export function isMemoryDetails(value: unknown): value is MemoryDetails {
 		value.observations.every(isObservation) &&
 		Array.isArray(value.reflections) &&
 		value.reflections.every(isReflection)
+	);
+}
+
+/**
+ * Validate a recorded budget. Session files are read back from disk, so the
+ * numbers are checked before they reach `/om status`.
+ */
+export function isMemoryDetailsBudget(value: unknown): value is MemoryDetailsBudget {
+	if (!isRecord(value)) return false;
+	return (
+		isTokenCount(value.maxTokens) &&
+		isTokenCount(value.renderedTokens) &&
+		isTokenCount(value.tailTokens) &&
+		isTokenCount(value.softLimit) &&
+		isTokenCount(value.trimmedObservations) &&
+		isTokenCount(value.trimmedReflections)
 	);
 }
 
@@ -194,6 +277,18 @@ export function isObservationsDroppedEntry(entry: Entry): entry is Entry & {
 	);
 }
 
+export function isReflectionsDroppedEntry(entry: Entry): entry is Entry & {
+	type: "custom";
+	customType: typeof OM_REFLECTIONS_DROPPED;
+	data: ReflectionsDroppedEntryData;
+} {
+	return (
+		entry.type === "custom" &&
+		entry.customType === OM_REFLECTIONS_DROPPED &&
+		isReflectionsDroppedData(entry.data)
+	);
+}
+
 export function isGateData(value: unknown): value is GateEntryData {
 	return isRecord(value) && typeof value.enabled === "boolean";
 }
@@ -228,4 +323,12 @@ export function buildObservationsDroppedData(
 ): ObservationsDroppedEntryData | undefined {
 	if (observationIds.length === 0 || !isNonEmptyString(coversUpToId)) return undefined;
 	return { observationIds, coversUpToId };
+}
+
+export function buildReflectionsDroppedData(
+	reflectionIds: string[],
+	coversUpToId: string,
+): ReflectionsDroppedEntryData | undefined {
+	if (reflectionIds.length === 0 || !isNonEmptyString(coversUpToId)) return undefined;
+	return { reflectionIds, coversUpToId };
 }

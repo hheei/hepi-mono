@@ -4,6 +4,13 @@
  * shared registration, lifecycle, cancellation, and cross-package coordination.
  */
 
+export type {
+	BackgroundDelivery,
+	BackgroundDeliveryChannel,
+	BackgroundDeliveryRegistration,
+	BackgroundWorkSource,
+} from "./background-delivery.js";
+export { createBackgroundDelivery, getBackgroundDelivery } from "./background-delivery.js";
 export type { SubcommandCompletions } from "./command-completions.js";
 export { splitSubcommand, subcommandCompletions } from "./command-completions.js";
 export type {
@@ -76,6 +83,7 @@ export type {
 export {
 	isManagedTool,
 	observeLoadoutInventory,
+	redeclareManagedTool,
 	registerLoadoutResource,
 	registerManagedTool,
 	setManagedToolsActive,
@@ -105,7 +113,7 @@ export type {
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
-export { runCommand, shellQuote } from "./process.js";
+export { isSubagentProcess, runCommand, shellQuote } from "./process.js";
 export { setPromptSection } from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
@@ -126,8 +134,18 @@ export {
 	wrapEditorBottomRail,
 } from "./response-status.js";
 export { fitRow } from "./row-fit.js";
-export type { ServiceKey, WaitForServiceOptions } from "./service.js";
-export { createServiceKey, getService, provideService, waitForService } from "./service.js";
+export type {
+	MemoryCompactorService,
+	ServiceKey,
+	WaitForServiceOptions,
+} from "./service.js";
+export {
+	createServiceKey,
+	getService,
+	MEMORY_COMPACTOR_SERVICE_KEY,
+	provideService,
+	waitForService,
+} from "./service.js";
 export type {
 	JsonSettingsStorageOptions,
 	SettingChange,

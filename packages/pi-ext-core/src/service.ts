@@ -1,32 +1,60 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { DisposerRegistry } from "./disposer-registry.js";
 import { getGlobalState } from "./global-state.js";
-import type { ExtensionLifecycleContext } from "./lifecycle.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 
-declare const serviceKeyType: unique symbol;
-
-/** Compile-time type marker for a stable, namespaced Service ID. */
-export interface ServiceKey<T> {
-	readonly id: string;
-	readonly [serviceKeyType]?: (value: T) => T;
+export interface MemoryCompactorService {
+	createCompactionDraft(
+		firstKeptEntryId: string | null,
+	): { summary: string; firstKeptEntryId: string | null } | undefined;
 }
+
+export const MEMORY_COMPACTOR_SERVICE_KEY = createServiceKey<MemoryCompactorService>(
+	"@hheei/pi-ext-memory:compactor",
+);
 
 export interface WaitForServiceOptions {
 	/** Required cancellation boundary; the caller owns its timeout/deadline policy. */
 	readonly signal: AbortSignal;
 }
 
-/** Creates a typed Service key without registering a runtime provider. */
-export function createServiceKey<T>(_id: string): ServiceKey<T> {
-	if (!_id.trim()) throw new Error("Service id must not be empty");
-	return { id: _id } as ServiceKey<T>;
+/**
+ * Service capability identifier. Package scopes are enforced through key identity;
+ * consumers should export a typed ServiceKey from an extension package or internal module.
+ */
+export interface ServiceKey<T> {
+	readonly id: string;
+	readonly __type?: T;
 }
 
-/**
- * Provides a Service for the current lifecycle. The first provider wins; later
- * providers return false and must not replace the active Service. The registration
- * is removed with the provider lifecycle and resolves current waiters once.
- */
+export function createServiceKey<T>(id: string): ServiceKey<T> {
+	return { id };
+}
+
+interface ServiceEntry {
+	readonly value: unknown;
+}
+
+interface ServiceWaiter {
+	readonly resolve: (value: unknown) => void;
+	readonly abort: () => void;
+}
+
+interface ServiceRegistry {
+	readonly services: Map<string, ServiceEntry>;
+	readonly waiters: Map<string, Set<ServiceWaiter>>;
+}
+
+function createAbortError(): Error {
+	return new Error("Service wait aborted");
+}
+
+export interface ExtensionLifecycleContext {
+	readonly pi: ExtensionAPI;
+	readonly signal: AbortSignal;
+	readonly resources: DisposerRegistry;
+}
+
 export function provideService<T>(
 	context: ExtensionLifecycleContext,
 	key: ServiceKey<T>,
@@ -44,17 +72,12 @@ export function provideService<T>(
 	return true;
 }
 
-/** Returns the active Service, or undefined when no provider is installed. */
 export function getService<T>(_pi: ExtensionAPI, _key: ServiceKey<T>): T | undefined {
-	const entry = getServiceRegistry(_pi).services.get(_key.id);
-	return entry?.value as T | undefined;
+	const registry = getServiceRegistry(_pi);
+	const entry = registry.services.get(_key.id);
+	return entry === undefined ? undefined : (entry.value as T);
 }
 
-/**
- * Waits for a Service until the caller's signal aborts. This is a continuation,
- * not a lifecycle dependency: consumers must not await it inside a serial
- * `session_start` handler when the provider may register later.
- */
 export function waitForService<T>(
 	_pi: ExtensionAPI,
 	_key: ServiceKey<T>,
@@ -97,26 +120,17 @@ export function waitForService<T>(
 	return observeRejection(waiting);
 }
 
-export function abortServiceWaiters(pi: ExtensionAPI): void {
-	// Lifecycle shutdown aborts unresolved waits so stale consumers cannot outlive
-	// the provider runtime or retain promises across a Pi reload.
-	const registry = getServiceRegistry(pi);
-	const waiters = [...registry.waiters.values()].flatMap((current) => [...current]);
-	for (const waiter of waiters) waiter.abort();
+function observeRejection<T>(promise: Promise<T>): Promise<T> {
+	promise.catch(() => undefined);
+	return promise;
 }
 
-interface ServiceEntry {
-	readonly value: unknown;
-}
-
-interface ServiceWaiter {
-	resolve(value: unknown): void;
-	abort(): void;
-}
-
-interface ServiceRegistry {
-	readonly services: Map<string, ServiceEntry>;
-	readonly waiters: Map<string, Set<ServiceWaiter>>;
+export function abortServiceWaiters(_pi: ExtensionAPI): void {
+	const registry = getServiceRegistry(_pi);
+	for (const [keyId, waiters] of registry.waiters.entries()) {
+		for (const waiter of waiters) waiter.abort();
+		registry.waiters.delete(keyId);
+	}
 }
 
 function getServiceRegistry(pi: ExtensionAPI): ServiceRegistry {
@@ -130,13 +144,4 @@ function getServiceRegistry(pi: ExtensionAPI): ServiceRegistry {
 	const created: ServiceRegistry = { services: new Map(), waiters: new Map() };
 	registries.set(identity, created);
 	return created;
-}
-
-function observeRejection<T>(promise: Promise<T>): Promise<T> {
-	void promise.catch(() => undefined);
-	return promise;
-}
-
-function createAbortError(): Error {
-	return new Error("Service wait aborted");
 }

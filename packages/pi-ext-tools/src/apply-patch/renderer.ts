@@ -137,7 +137,9 @@ function diagnosticText(
 ): string {
 	switch (diagnostic.kind) {
 		case "context_not_found":
-			return "context not found";
+			return diagnostic.hint !== undefined
+				? `context not found (${diagnostic.hint})`
+				: "context not found";
 		case "ambiguous_exact":
 			return `exact context is ambiguous at lines ${diagnostic.candidateStartLines.join(", ")}`;
 	}

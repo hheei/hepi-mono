@@ -82,6 +82,7 @@ export interface DiscoveredAgent {
 	readonly path: string;
 	readonly frontmatter: Record<string, unknown>;
 	readonly body: string;
+	readonly enabled?: boolean;
 }
 
 function readableError(path: string, message: string): Error {
@@ -213,11 +214,10 @@ async function markdownFiles(directory: string): Promise<string[]> {
 
 /** Most specific scope first; the first definition of a name wins deterministically. */
 function agentDirectories(cwd: string, homeDirectory: string): readonly string[] {
-	return [
-		join(cwd, ".pi", "agents"),
-		join(cwd, ".agents", "agents"),
-		join(homeDirectory, ".pi", "agent", "agents"),
-	];
+	const userAgentDir = process.env.PI_CODING_AGENT_DIR
+		? join(process.env.PI_CODING_AGENT_DIR, "agents")
+		: join(homeDirectory, ".pi", "agent", "agents");
+	return [join(cwd, ".pi", "agents"), join(cwd, ".agents", "agents"), userAgentDir];
 }
 
 async function readAgentDefinition(path: string): Promise<DiscoveredAgent> {
@@ -239,16 +239,57 @@ export async function discoverAgents(
 	homeDirectory: string = homedir(),
 ): Promise<readonly DiscoveredAgent[]> {
 	const selected = new Map<string, DiscoveredAgent>();
+	const builtins = new Map(builtinAgents().map((a) => [a.name, a]));
+
 	for (const directory of agentDirectories(resolve(cwd), resolve(homeDirectory))) {
 		for (const path of await markdownFiles(directory)) {
-			const agent = await readAgentDefinition(path);
+			const raw = await readAgentDefinition(path);
+			const builtin = builtins.get(raw.name);
+
+			const isBuiltin = builtin !== undefined;
+			const isBodyEmpty = raw.body.trim() === "";
+
+			// If it matches a built-in agent and the user markdown body is empty,
+			// inherit the built-in's body, tools, and description!
+			const frontmatter =
+				isBuiltin && isBodyEmpty ? { ...builtin.frontmatter, ...raw.frontmatter } : raw.frontmatter;
+			const body = isBuiltin && isBodyEmpty ? builtin.body : raw.body;
+
+			const isCompliant =
+				typeof frontmatter.model === "string" &&
+				frontmatter.model.trim() !== "" &&
+				(frontmatter.model.trim() === "inherit" || frontmatter.model.includes("/"));
+
+			const agent: DiscoveredAgent = {
+				name: raw.name,
+				path: raw.path,
+				frontmatter,
+				body,
+				enabled: isCompliant,
+			};
+
 			if (!selected.has(agent.name)) selected.set(agent.name, agent);
 		}
 	}
-	// Built-ins are the last scope: a definition on disk with the same name always wins.
-	for (const agent of builtinAgents()) {
-		if (!selected.has(agent.name)) selected.set(agent.name, agent);
+
+	// Built-ins not overridden on disk:
+	// If a built-in agent explicitly specifies model (e.g. model: inherit like reviewer/worker),
+	// it is compliant and directly available.
+	// If a built-in agent omits model (like scout), it is non-compliant and not loaded
+	// until the user supplements model metadata in user configuration.
+	for (const builtin of builtinAgents()) {
+		if (!selected.has(builtin.name)) {
+			const isCompliant =
+				typeof builtin.frontmatter.model === "string" &&
+				builtin.frontmatter.model.trim() !== "" &&
+				(builtin.frontmatter.model.trim() === "inherit" || builtin.frontmatter.model.includes("/"));
+			selected.set(builtin.name, {
+				...builtin,
+				enabled: isCompliant,
+			});
+		}
 	}
+
 	return [...selected.values()];
 }
 
@@ -258,7 +299,7 @@ function resolveModel(
 	registry: ModelRegistryLike,
 	path: string,
 ): ResolvedModel {
-	if (value === undefined) {
+	if (value === undefined || value === "inherit") {
 		if (registry.find(defaults.model.provider, defaults.model.id) === undefined) {
 			throw readableError(
 				path,
@@ -384,5 +425,6 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			paths: Object.freeze([...skills.paths]),
 		}),
 		interactive,
+		enabled: discovered.enabled !== false,
 	});
 }

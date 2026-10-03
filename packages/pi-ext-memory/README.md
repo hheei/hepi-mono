@@ -139,7 +139,8 @@ on the `Next compaction` line regardless of mode.
 | `compactAfterTokensMode`    | `"calibrated"`| `"calibrated"` uses `compactAfterTokens` directly. `"ratio"` scales the source-entry threshold by the active model's `contextWindow`. |
 | `compactAfterTokensRatio`   | `0.68`        | In `"ratio"` mode, the threshold is `floor(contextWindow * ratio)`. Tunable because large windows do not always mean strong long-range attention. Must be in `(0, 1)`. |
 | `observationsPoolMaxTokens` | `20000`       | Observation-token budget used for compaction full-fold pressure.                                  |
-| `observationsPoolTargetTokens` | half of max | Active observation target used by post-reflection dropper maintenance.                            |
+| `observationsPoolTargetTokens` | half of max | Active observation target used by post-reflection dropper maintenance and by the pool enforcer, and the observation share of the rendered memory budget.                            |
+| `memoryMaxTokens`           | derived       | Hard upper bound on how many tokens of memory stay visible. Unset: `min(floor(effective trigger * 0.5), floor(contextWindow * 0.1))`, never below `4000`. Caps the rendered compaction summary, the dropper's target and what the memory agents read. See [Memory budget](#memory-budget). |
 | `agentMaxTurns`             | `16`          | Shared turn cap for background memory-agent loops.                                                |
 | `agentMaxTokens`            | `32000`       | Maximum output tokens requested for memory-agent loops (observer/reflector/dropper), clamped to the model's own `maxTokens` when available. Lower it for local servers with a modest context window, e.g. `8192`. |
 | `model`                     | session model | Optional memory-worker model override: `{ provider, id, thinking }`.                              |
@@ -159,9 +160,29 @@ Valid `model.thinking` values are:
 
 If no `model` is configured, memory workers use the session model, including custom `pi.registerProvider` APIs such as `cursor-sdk`. You do not need a second built-in provider (OpenAI, OpenRouter, …) for observational memory to run. Set `model` only when you want cheaper or faster workers than the coding agent.
 
-Set `showWorkerNotifications` to `false` to hide routine worker start and completion messages (including deliberate-empty observer info messages). Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om` subcommand output remain visible.
+Set `showWorkerNotifications` to `false` to hide routine worker start and completion messages (including deliberate-empty observer info messages). Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, the pool enforcer's reclaim notice (a memory change with no model in the loop), and explicit `/om` subcommand output remain visible.
 
-`observationsPoolMaxTokens` and `observationsPoolTargetTokens` intentionally describe different pools. Max tokens control when compaction performs a full fold over visible memory. Target tokens control the folded active observation pool that the dropper maintains after successful reflection. If the target is omitted, it defaults to half of max.
+`observationsPoolMaxTokens` and `observationsPoolTargetTokens` intentionally describe different pools. Max tokens control when compaction performs a full fold over visible memory. Target tokens control the folded active observation pool that the dropper maintains after successful reflection, and the observation share of the rendered memory budget. If the target is omitted, it defaults to half of max.
+
+### Memory budget
+
+Rendered memory is bounded, so compaction always shrinks the context instead of replacing it with a summary that can be larger than the window. Without that bound a long session drifts into a loop: the deterministic summary grows past the trigger, Pi compacts again immediately, and the request eventually overflows and aborts.
+
+The budget is derived at compaction time:
+
+```
+softLimit    = min(compactAfterTokens, contextWindow − Pi's reserveTokens)
+available    = softLimit − retained tail tokens − system prompt tokens
+renderBudget = clamp(available × 0.5, 4000, memoryMaxTokens)
+```
+
+Pi reports the tail it keeps after the cut (`firstKeptEntryId` onward), so a session retaining a large tail gets a smaller memory budget; an overflow-recovery compaction halves it again. `memoryMaxTokens` pins the cap when the derived one is wrong for a workload. Inside the budget, selection is deterministic — uncovered observations first, then relevance, then newest; reflections keep the session's first eight entries as anchors and then the newest — and trimmed lines are not deleted, only hidden until recalled by id.
+
+The same view is what the memory agents read, so their prompts stay bounded too; the dropper's drop budget is still sized from the real active pool, so visibility never disables the model-judged pass. `/om status` reports the cap, active memory against it, and the last render's tokens, trimmed lines, and retained tail; the compaction entry records it as `details.budget`. A trim that costs a quarter or more of the memory lines reports one notification.
+
+Trimmed lines stay in the ledger, so the ledger is bounded too: above half again the cap, a model-free enforcer reclaims non-critical observations down to their target and writes one `om.observations.dropped` entry. It ranks by observation `kind` first — `progress` narration leaves before facts, and both before user assertions and decisions — which is also the order the renderer prefers to trim in.
+
+Reflections have no eviction path: they leave active memory only when the reflector replaces them. In the same `record_reflections` call that proposes a merged reflection it lists the ids it replaces in `supersedes`, and the stage writes one `om.reflections.dropped` tombstone. A reflection therefore never leaves active memory without a replacement — an invalid proposal produces no tombstone, unknown ids are ignored, and proposing content identical to an existing reflection still carries its `supersedes`, so the pool can converge on wording that already exists. Superseded reflections keep their ledger records (`/om view full` still shows them) but stop counting toward the cap and stop providing coverage; the surviving reflection keeps its own supporting observation ids (the ledger has no update path), so the replaced reflection's observations just lose their coverage — which makes them harder, not easier, to trim. A merge that proposes new content inherits the supporting ids of what it replaces, so merging still has evidence when no observation is left to cite, and each proposal's supersedes stands on its own: one proposal whose replacement can never become active is skipped while the other merges in the same call still retire theirs. The reflector is given its share of the render budget (`REFLECTION BUDGET`), measured against the whole active pool rather than the trimmed view, and is told to merge before adding when it is over.
 
 Dropper pruning balances age, relevance, and reflection coverage. Relevance is importance/resistance, not a permanent active-memory pin: `critical` observations require the strongest evidence but can be dropped when they are older and safely represented by reflections, superseded by newer memory, redundant, or obsolete. Dropper input annotates each active observation with deterministic coverage evidence: `none`, `partial`, or `strong`; coverage guides model judgment and is not an automatic drop rule. Dropping removes observations from active memory, not ledger history.
 
@@ -177,13 +198,13 @@ For details and tuning guidance, see [`docs/configuration.md`](docs/configuratio
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/om`               | Reports whether observational memory is on or off for this session.                                                                             |
 | `/om on` / `/om off`| Turns the session gate on or off. The state is a ledger entry on the current branch, so `/tree` switches and `/resume` restore it automatically. |
-| `/om status`        | Shows gate/passive mode, memory counts, plain `+N` / `-N` visible/full drift suffixes, progress clocks, visible and active observation pool pressure, worker spend, in-flight state, last worker errors, and a timeline strip of the branch. |
+| `/om status`        | Shows gate/passive mode, memory counts (observations recorded/dropped/active/visible, reflections recorded/superseded/active/visible, plain `+N` / `-N` visible/full drift suffixes), progress clocks, visible and active observation pool pressure, memory budget, worker spend, in-flight state, last worker errors, and a timeline strip of the branch. |
 | `/om consolidate`   | Runs one consolidation cycle now (observer → reflector → dropper) instead of waiting for the token thresholds.                                   |
 | `/om compact`       | Compacts the session now instead of waiting for the compaction threshold or the idle timer, using the memory summary rather than Pi's native summarizer. |
 | `/om view`          | Shows current visible memory and attempts to copy the rendered memory text to the clipboard.                                                   |
 | `/om view full`     | Shows the full current memory state for the branch and attempts to copy the rendered memory text to the clipboard.                             |
 | `recall` agent tool | Recovers source evidence for a 12-character observation/reflection id on the current branch. It is not semantic search or a transcript browser. |
-| `hindsight_*` tools   | Opt-in cross-session long-term memory (see [Hindsight long-term memory](#hindsight-long-term-memory)). Registered only while `hindsight.enabled` is `true`. |
+| `hindsight_*` tools   | Opt-in cross-session long-term memory (see [Hindsight long-term memory](#hindsight-long-term-memory)). Registered with `deferred` exposure while `hindsight.enabled` is `true` — `tool_search` loads them on demand and a codemode script reaches them through `tools` and `ALL_TOOLS` — and withdrawn (`hidden`) while it is off. |
 
 Tab completion after `/om ` offers these subcommands (and `full` after `/om view `), through the shared
 `subcommandCompletions` helper of `@hheei/pi-ext-core`.
@@ -328,7 +349,7 @@ Use a dedicated bank when repositories must not influence each other. With a sha
 ### Behavior
 
 * **First turn.** The preamble explaining the memory and its tools goes into its own `pi-ext-memory-preamble` prompt section, together with the current knowledge-page index.
-* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `pi-ext-memory-recall` section inside a `<memory>` container. Pi sends a section only when its text changed, and an unchanged section is never repeated as a prompt update — the request itself still carries whatever the host and provider keep in context.
+* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `hindsight-recall` section inside a `<memory>` container. Pi sends a section only when its text changed, and an unchanged section is never repeated as a prompt update — the request itself still carries whatever the host and provider keep in context.
 * **Injection log.** Every turn that injects something appends a `memory-info` transcript entry naming what went in. It lists the recalled page titles (`󰄴` for a page that did reach the prompt), expands (Ctrl+O) to each page id and the recalled snippet the model was given, and marks a container that had to be cut to `maxMemoryChars` with a `󰀪` warning row. It is native Pi territory: visible immediately, kept by resume, and never part of the model's context. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
 * **Turn end.** The run's user/assistant turns are reduced to a compact transcript (tool results and injected memory dropped, failed or aborted responses skipped) and written back in order, one request at a time. The operation id is derived from the bank, session, and batch content, so a retry or a repeated `agent_end` folds server-side instead of duplicating.
 * **Session end.** Pending writeback is flushed within a five-second grace period, then cancelled. A failed writeback is recorded and never interrupts the conversation.

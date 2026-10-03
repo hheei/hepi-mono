@@ -63,9 +63,17 @@ describe("hindsight transcript extraction", () => {
 	});
 
 	it("removes injected memory containers so recall cannot feed back", () => {
-		const injected = `Do the thing\n\n<memory>\n<!-- … -->\nFrom "Conventions": use pnpm\n</memory>`;
-		expect(stripMemoryContainers(injected).trim()).toBe("Do the thing");
-		expect(buildHindsightTurns([user(injected)])).toEqual([{ role: "user", text: "Do the thing" }]);
+		const injectedOld = `Do the thing\n\n<memory>\n<!-- … -->\nFrom "Conventions": use pnpm\n</memory>`;
+		expect(stripMemoryContainers(injectedOld).trim()).toBe("Do the thing");
+		expect(buildHindsightTurns([user(injectedOld)])).toEqual([
+			{ role: "user", text: "Do the thing" },
+		]);
+
+		const injectedNew = `Do the thing\n\n<hindsight-recall>\nReference data...\n## Conventions (kp-1)\nuse pnpm\n</hindsight-recall>`;
+		expect(stripMemoryContainers(injectedNew).trim()).toBe("Do the thing");
+		expect(buildHindsightTurns([user(injectedNew)])).toEqual([
+			{ role: "user", text: "Do the thing" },
+		]);
 	});
 
 	it("drops failed and aborted assistant responses", () => {

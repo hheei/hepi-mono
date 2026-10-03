@@ -7,24 +7,21 @@ import type {
 	ResolvedAgentIdentity,
 	ResolvedModel,
 	ResolvedThinking,
-	RuntimeClaim,
 	RuntimeMetadata,
 	Selection,
 	SubagentRecord,
-	TaskChildContract,
 	UsageSummary,
 } from "./domain.js";
 import {
-	isExecutionMode,
 	isLaunchValueSource,
 	isPersistenceState,
+	isPresentation,
 	isSessionId,
 	isSubagentIntent,
 	isSubagentState,
 	isThinkingLevel,
 	REGISTRY_VERSION,
 } from "./domain.js";
-import { checkOutputSchema } from "./task-schema.js";
 
 export type RegistryErrorCode =
 	| "invalid_parent_session"
@@ -36,8 +33,6 @@ export type RegistryErrorCode =
 	| "unknown_child"
 	| "stale_revision"
 	| "runtime_mismatch"
-	| "claim_conflict"
-	| "claim_mismatch"
 	| "stopped_child";
 
 export class SubagentRegistryError extends Error {
@@ -75,34 +70,6 @@ export interface SubagentRegistry {
 		expectedRuntimeIdentity?: string,
 		signal?: AbortSignal,
 	): Promise<SubagentRecord>;
-	claim(
-		id: string,
-		expectedRevision: number,
-		claim: RuntimeClaim,
-		expectedRuntimeIdentity?: string,
-		expectedClaimId?: string,
-		signal?: AbortSignal,
-	): Promise<SubagentRecord>;
-	markClaimRunner(
-		id: string,
-		claimId: string,
-		runnerPid: number,
-		signal?: AbortSignal,
-	): Promise<SubagentRecord>;
-	activateClaim(
-		id: string,
-		claimId: string,
-		runnerPid: number,
-		signal?: AbortSignal,
-	): Promise<SubagentRecord>;
-	consumeReconnectClaim(
-		id: string,
-		claimId: string,
-		controllerTokenHash: string,
-		expectedRuntimeIdentity?: string,
-		signal?: AbortSignal,
-	): Promise<SubagentRecord>;
-	releaseClaim(id: string, claimId: string, signal?: AbortSignal): Promise<SubagentRecord>;
 }
 
 export interface CreateSubagentRegistryOptions {
@@ -135,7 +102,7 @@ const RECORD_FIELDS: Record<string, true> = {
 	initialTask: true,
 	intent: true,
 	state: true,
-	mode: true,
+	presentation: true,
 	persistence: true,
 	launchConfig: true,
 	runtime: true,
@@ -143,7 +110,6 @@ const RECORD_FIELDS: Record<string, true> = {
 	usage: true,
 	interrupted: true,
 	unacknowledgedInput: true,
-	claim: true,
 };
 
 const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
@@ -163,10 +129,9 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	prompt: true,
 	bridgeExtensionPath: true,
 	interactive: true,
+	title: true,
 	task: true,
 };
-
-const TASK_CONTRACT_FIELDS: Record<string, true> = { schema: true, softTurns: true };
 
 const AGENT_FIELDS: Record<string, true> = {
 	name: true,
@@ -181,16 +146,7 @@ const INVOCATION_FIELDS: Record<string, true> = { command: true, args: true };
 const MODEL_FIELDS: Record<string, true> = { provider: true, id: true, source: true };
 const THINKING_FIELDS: Record<string, true> = { level: true, source: true };
 const SELECTION_FIELDS: Record<string, true> = { discovery: true, paths: true };
-const RUNTIME_FIELDS: Record<string, true> = { runtimeIdentity: true, endpoint: true, pid: true };
-const CLAIM_FIELDS: Record<string, true> = {
-	claimId: true,
-	kind: true,
-	holderPid: true,
-	runtimeIdentity: true,
-	endpoint: true,
-	controllerTokenHash: true,
-	runnerPid: true,
-};
+const RUNTIME_FIELDS: Record<string, true> = { runtimeIdentity: true, endpoint: true };
 
 const USAGE_FIELDS: Record<string, true> = {
 	inputTokens: true,
@@ -356,44 +312,7 @@ function parseRuntime(value: unknown, path: string): RuntimeMetadata {
 	expectKeys(raw, RUNTIME_FIELDS, "runtime", path);
 	const runtimeIdentity = expectString(raw.runtimeIdentity, "runtime.runtimeIdentity", path);
 	const endpoint = expectString(raw.endpoint, "runtime.endpoint", path);
-	const pid = raw.pid;
-	if (pid === undefined) return Object.freeze({ runtimeIdentity, endpoint });
-	if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
-		throw invalid(path, "runtime.pid must be a positive integer");
-	}
-	return Object.freeze({ runtimeIdentity, endpoint, pid });
-}
-
-function parseClaim(value: unknown, path: string): RuntimeClaim {
-	const raw = expectObject(value, "claim", path);
-	expectKeys(raw, CLAIM_FIELDS, "claim", path);
-	if (raw.kind !== "reconnect" && raw.kind !== "replacement") {
-		throw invalid(path, "claim.kind must be reconnect or replacement");
-	}
-	const holderPid = raw.holderPid;
-	if (typeof holderPid !== "number" || !Number.isInteger(holderPid) || holderPid <= 0) {
-		throw invalid(path, "claim.holderPid must be a positive integer");
-	}
-	const tokenHash = expectString(raw.controllerTokenHash, "claim.controllerTokenHash", path);
-	if (!/^[0-9a-f]{64}$/u.test(tokenHash)) {
-		throw invalid(path, "claim.controllerTokenHash must be a SHA-256 hex digest");
-	}
-	const runnerPid = raw.runnerPid;
-	if (
-		runnerPid !== undefined &&
-		(typeof runnerPid !== "number" || !Number.isInteger(runnerPid) || runnerPid <= 0)
-	) {
-		throw invalid(path, "claim.runnerPid must be a positive integer");
-	}
-	return Object.freeze({
-		claimId: expectString(raw.claimId, "claim.claimId", path),
-		kind: raw.kind,
-		holderPid,
-		runtimeIdentity: expectString(raw.runtimeIdentity, "claim.runtimeIdentity", path),
-		endpoint: expectString(raw.endpoint, "claim.endpoint", path),
-		controllerTokenHash: tokenHash,
-		...(runnerPid === undefined ? {} : { runnerPid }),
-	});
+	return Object.freeze({ runtimeIdentity, endpoint });
 }
 
 function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig {
@@ -415,7 +334,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 	const subagentId = expectString(raw.subagentId, "launchConfig.subagentId", path);
 	if (!isSessionId(subagentId))
 		throw invalid(path, "launchConfig.subagentId is not a valid child id");
-	const task = parseTaskContract(raw.task, path);
+	const title = expectOptionalString(raw.title, "launchConfig.title", path);
 	return Object.freeze({
 		subagentId,
 		invocation: parseInvocation(raw.invocation, path),
@@ -435,32 +354,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
 		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
-		...(task === undefined ? {} : { task }),
-	});
-}
-
-/**
- * The frozen result contract of a Task child. The schema is the value that was already validated
- * before admission, so the same checker is reused here: a record read from disk must not be able
- * to turn into a contract the child cannot satisfy.
- */
-function parseTaskContract(value: unknown, path: string): TaskChildContract | undefined {
-	if (value === undefined) return undefined;
-	const raw = expectObject(value, "launchConfig.task", path);
-	expectKeys(raw, TASK_CONTRACT_FIELDS, "launchConfig.task", path);
-	const softTurns = expectNonNegativeNumber(raw.softTurns, "launchConfig.task.softTurns", path);
-	if (!Number.isInteger(softTurns) || softTurns <= 0) {
-		throw invalid(path, "launchConfig.task.softTurns must be a positive integer");
-	}
-	if (raw.schema !== undefined) {
-		const problem = checkOutputSchema(raw.schema);
-		if (problem !== undefined) {
-			throw invalid(path, `launchConfig.task.schema is not usable: ${problem}`);
-		}
-	}
-	return Object.freeze({
-		...(raw.schema === undefined ? {} : { schema: raw.schema }),
-		softTurns,
+		...(title === undefined ? {} : { title }),
 	});
 }
 
@@ -472,6 +366,16 @@ export function parseSubagentRecord(
 	path: string,
 ): SubagentRecord {
 	const raw = expectObject(value, `record ${key}`, path);
+	if (raw.presentation === undefined && raw.mode !== undefined) {
+		// A record from the attach era names its presentation `mode`, and that field means something
+		// else now (who holds the child's process), so it is never guessed at: the user deletes the
+		// record and this version starts the child fresh. Checked before the field list, because the
+		// old field is otherwise just "unsupported".
+		throw invalid(
+			path,
+			`record ${key} was written by an older version (mode ${JSON.stringify(raw.mode)}); delete this record to use presentation "panel" | "background"`,
+		);
+	}
 	expectKeys(raw, RECORD_FIELDS, `record ${key}`, path);
 	const subagentId = expectString(raw.subagentId, "subagentId", path);
 	if (subagentId !== key) throw invalid(path, `record ${key} declares subagentId ${subagentId}`);
@@ -485,8 +389,8 @@ export function parseSubagentRecord(
 	}
 	const state = raw.state;
 	if (!isSubagentState(state)) throw invalid(path, `record ${key} state is invalid`);
-	const mode = raw.mode;
-	if (!isExecutionMode(mode)) throw invalid(path, `record ${key} mode is invalid`);
+	const presentation = raw.presentation;
+	if (!isPresentation(presentation)) throw invalid(path, `record ${key} presentation is invalid`);
 	const intent = raw.intent;
 	if (!isSubagentIntent(intent)) throw invalid(path, `record ${key} intent is invalid`);
 	const persistence = raw.persistence;
@@ -513,7 +417,6 @@ export function parseSubagentRecord(
 		throw invalid(path, `record ${key} claims a never-flushed session with a session path`);
 	}
 	const runtime = raw.runtime === undefined ? undefined : parseRuntime(raw.runtime, path);
-	const claim = raw.claim === undefined ? undefined : parseClaim(raw.claim, path);
 	const usage = raw.usage === undefined ? undefined : parseUsage(raw.usage, path);
 	const latestSummary = expectOptionalString(raw.latestSummary, "latestSummary", path);
 	const interrupted = expectOptionalString(raw.interrupted, "interrupted", path);
@@ -535,11 +438,10 @@ export function parseSubagentRecord(
 		initialTask: expectString(raw.initialTask, "initialTask", path),
 		intent,
 		state,
-		mode,
+		presentation,
 		persistence,
 		launchConfig,
 		...(runtime === undefined ? {} : { runtime }),
-		...(claim === undefined ? {} : { claim }),
 		...(latestSummary === undefined ? {} : { latestSummary }),
 		...(usage === undefined ? {} : { usage }),
 		...(interrupted === undefined ? {} : { interrupted }),
@@ -688,136 +590,6 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			);
 			if (stored === undefined) throw corrupt(path, `update of ${id} did not persist a record`);
 			return stored;
-		},
-		async claim(id, expectedRevision, candidate, expectedRuntimeIdentity, expectedClaimId, signal) {
-			return store.update(
-				id,
-				expectedRevision,
-				(current) => {
-					if (current.intent === "stopped") {
-						throw new SubagentRegistryError("stopped_child", `Child ${id} is stopped`);
-					}
-					if (
-						(expectedClaimId === undefined && current.claim !== undefined) ||
-						(expectedClaimId !== undefined && current.claim?.claimId !== expectedClaimId)
-					) {
-						throw new SubagentRegistryError("claim_conflict", `Child ${id} has another claim`);
-					}
-					if (candidate.kind === "reconnect") {
-						if (
-							current.runtime?.runtimeIdentity !== candidate.runtimeIdentity ||
-							current.runtime.endpoint !== candidate.endpoint
-						) {
-							throw new SubagentRegistryError(
-								"runtime_mismatch",
-								`Child ${id} runtime changed before reconnect claim`,
-							);
-						}
-					} else if (
-						expectedRuntimeIdentity === undefined
-							? current.runtime !== undefined
-							: current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
-					) {
-						throw new SubagentRegistryError(
-							"runtime_mismatch",
-							`Child ${id} runtime changed before replacement claim`,
-						);
-					}
-					return { ...current, claim: candidate };
-				},
-				undefined,
-				signal,
-			);
-		},
-		async markClaimRunner(id, claimId, runnerPid, signal) {
-			return store.update(
-				id,
-				undefined,
-				(value) => {
-					if (value.claim?.claimId !== claimId || value.claim.kind !== "replacement") {
-						if (value.runtime?.pid === runnerPid && value.claim === undefined) {
-							return value;
-						}
-						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);
-					}
-					return { ...value, claim: { ...value.claim, runnerPid } };
-				},
-				undefined,
-				signal,
-			);
-		},
-		async activateClaim(id, claimId, runnerPid, signal) {
-			return store.update(
-				id,
-				undefined,
-				(value) => {
-					const claim = value.claim;
-					if (
-						claim?.claimId !== claimId ||
-						claim.kind !== "replacement" ||
-						(claim.runnerPid !== undefined && claim.runnerPid !== runnerPid) ||
-						value.intent === "stopped"
-					) {
-						throw new SubagentRegistryError(
-							"claim_mismatch",
-							`Child ${id} replacement claim is no longer valid`,
-						);
-					}
-					const { claim: _claim, ...withoutClaim } = value;
-					return {
-						...withoutClaim,
-						runtime: {
-							runtimeIdentity: claim.runtimeIdentity,
-							endpoint: claim.endpoint,
-							pid: runnerPid,
-						},
-					};
-				},
-				undefined,
-				signal,
-			);
-		},
-		async consumeReconnectClaim(id, claimId, controllerTokenHash, expectedRuntimeIdentity, signal) {
-			return store.update(
-				id,
-				undefined,
-				(value) => {
-					const claim = value.claim;
-					if (
-						claim?.claimId !== claimId ||
-						claim.kind !== "reconnect" ||
-						claim.controllerTokenHash !== controllerTokenHash ||
-						value.runtime?.runtimeIdentity !== claim.runtimeIdentity ||
-						(expectedRuntimeIdentity !== undefined &&
-							claim.runtimeIdentity !== expectedRuntimeIdentity) ||
-						value.intent === "stopped"
-					) {
-						throw new SubagentRegistryError(
-							"claim_mismatch",
-							`Child ${id} reconnect claim is no longer valid`,
-						);
-					}
-					const { claim: _claim, ...withoutClaim } = value;
-					return withoutClaim;
-				},
-				expectedRuntimeIdentity,
-				signal,
-			);
-		},
-		async releaseClaim(id, claimId, signal) {
-			return store.update(
-				id,
-				undefined,
-				(value) => {
-					if (value.claim?.claimId !== claimId) {
-						throw new SubagentRegistryError("claim_mismatch", `Child ${id} claim changed`);
-					}
-					const { claim: _claim, ...withoutClaim } = value;
-					return withoutClaim;
-				},
-				undefined,
-				signal,
-			);
 		},
 	};
 	return store;

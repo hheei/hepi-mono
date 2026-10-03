@@ -56,6 +56,17 @@ export interface Config {
 	idleCompactionMinTokens: number;
 	observationsPoolMaxTokens: number;
 	observationsPoolTargetTokens: number;
+	/**
+	 * Hard upper bound for how many tokens of memory may stay visible, shared by
+	 * the rendered compaction summary, the pool-maintenance target and what the
+	 * memory agents are given to read.
+	 *
+	 * Unset (default) derives the cap from the effective compaction trigger and
+	 * the model's context window; see {@link defaultMemoryCap}. Set it to trade
+	 * long-lived memory against context cost explicitly. Values below
+	 * `MEMORY_MIN_TOKENS` are honored as written.
+	 */
+	memoryMaxTokens?: number;
 	agentMaxTurns: number;
 	/**
 	 * Maximum output tokens requested for background memory-agent loops
@@ -293,6 +304,7 @@ function normalizeSettingsConfig(value: Record<string, unknown>): Partial<Config
 		"compactAfterTokens",
 		"observationsPoolMaxTokens",
 		"observationsPoolTargetTokens",
+		"memoryMaxTokens",
 		"agentMaxTurns",
 		"agentMaxTokens",
 	] as const;

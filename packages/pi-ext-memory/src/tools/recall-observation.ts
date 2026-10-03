@@ -25,7 +25,7 @@ import {
 } from "../session-ledger/recall.js";
 import { estimateEntryTokens } from "../tokens.js";
 
-export const RECALL_OBSERVATION_TOOL_NAME = "recall";
+export const RECALL_OBSERVATION_TOOL_NAME = "om_recall_evidence";
 
 /** Answer for a session whose gate is off, so the model learns why instead of seeing an empty memory. */
 export const RECALL_DISABLED_TEXT =
@@ -604,7 +604,7 @@ function formatRecallResultForTui(
 			)
 			.map((part) => part.text)
 			.join("\n");
-		return text || "recall";
+		return text || "om_recall_evidence";
 	}
 	const sources = sourceEntriesFromDetails(details);
 	const lines: string[] = [];
@@ -620,7 +620,7 @@ function formatRecallResultForTui(
 }
 
 export function formatRecallCallForTui(id: string | undefined): string {
-	return `recall ${id ?? "..."}`;
+	return `om_recall_evidence ${id ?? "..."}`;
 }
 
 export function formatRecallRenderedResultForTui(
@@ -641,14 +641,14 @@ export const recallObservationTool = defineTool({
 		"Recover exact evidence and source context behind a compacted observational-memory observation or reflection id on the current branch. " +
 		"Use when compressed memory is important and original source context is needed before acting.",
 	promptSnippet:
-		"Use recall(<id>) to recover exact source context behind compacted memory observations/reflections when precision matters.",
+		"Use om_recall_evidence(<id>) to recover exact source context behind compacted memory observations/reflections when precision matters.",
 	promptGuidelines: [
-		"Use recall before making an important decision that depends on a compacted observation or reflection whose details are unclear.",
-		"Use recall when you need exact wording, rationale, file paths, commands, errors, commits, user constraints, or provenance behind a remembered claim.",
-		"Use recall when a broad reflection is relevant but you need its supporting observations or raw sources to continue safely.",
-		"Use recall when the user asks why you believe something, what supports a memory, or what was decided earlier.",
-		"Do not use recall as semantic search or transcript browsing; you must already have a specific 12-character memory id.",
-		"Do not recall every id preemptively. Recall only when exact source context will materially improve the next action.",
+		"Use om_recall_evidence before making an important decision that depends on a compacted observation or reflection whose details are unclear.",
+		"Use om_recall_evidence when you need exact wording, rationale, file paths, commands, errors, commits, user constraints, or provenance behind a remembered claim.",
+		"Use om_recall_evidence when a broad reflection is relevant but you need its supporting observations or raw sources to continue safely.",
+		"Use om_recall_evidence when the user asks why you believe something, what supports a memory, or what was decided earlier.",
+		"Do not use om_recall_evidence as semantic search or transcript browsing; you must already have a specific 12-character memory id.",
+		"Do not recall every id preemptively. Use om_recall_evidence only when exact source context will materially improve the next action.",
 	],
 	parameters: Type.Object({
 		id: Type.String({

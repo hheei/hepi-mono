@@ -3,14 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { KnowledgePagesUnavailableError } from "../../src/hindsight/client.js";
 import { HindsightRetainQueue } from "../../src/hindsight/queue.js";
 import {
+	declareHindsightTools,
 	HINDSIGHT_DISABLED_TEXT,
 	HINDSIGHT_TOOL_NAMES,
 	type HindsightDiagnoseDetails,
 	type HindsightToolContext,
 	type HindsightToolDetails,
 	KNOWLEDGE_PAGES_UNAVAILABLE_TEXT,
-	registerHindsightTools,
-	setHindsightToolsActive,
 } from "../../src/hindsight/tools.js";
 import { fakeGateway, fakePi, fakeResolved } from "./fixtures.js";
 
@@ -37,9 +36,15 @@ function toolContext(overrides: Partial<HindsightToolContext> = {}): HindsightTo
 
 function setup(context: HindsightToolContext | undefined) {
 	const { pi, registered, active } = fakePi();
-	registerHindsightTools(pi, () => context);
+	declareHindsightTools(pi, () => context, "deferred");
 	const tool = (name: string): CallableTool => registered.get(name) as CallableTool;
 	return { pi, registered, active, tool };
+}
+
+function exposures(registered: Map<string, unknown>): string[] {
+	return [...registered.values()].map(
+		(tool) => (tool as { exposure?: string }).exposure ?? "direct",
+	);
 }
 
 async function call(
@@ -72,36 +77,31 @@ describe("hindsight tool registration", () => {
 		}
 	});
 
-	it("deactivates every tool for a session that turns the option off", () => {
-		const { pi, active } = setup(toolContext());
-		expect(active).toEqual([...HINDSIGHT_TOOL_NAMES]);
-		const extension = { cwd: "/work", sessionManager: { getSessionId: () => "s1" } };
-		setHindsightToolsActive(
-			{
-				pi,
-				extension: extension as never,
-				signal: new AbortController().signal,
-				resources: { add: () => {}, cleanup: async () => [] },
-			},
-			false,
-		);
+	it("registers every tool as deferred, activating none of them", () => {
+		const { registered, active } = setup(toolContext());
+		expect(exposures(registered)).toEqual(HINDSIGHT_TOOL_NAMES.map(() => "deferred"));
+		// Activation belongs to tool_search: a Hindsight tool is declared only after a load.
 		expect(active).toEqual([]);
 	});
 
-	it("leaves an unregistered process alone when deactivating", () => {
-		const { pi, active } = fakePi();
-		expect(() =>
-			setHindsightToolsActive(
-				{
-					pi,
-					extension: {} as never,
-					signal: new AbortController().signal,
-					resources: { add: () => {}, cleanup: async () => [] },
-				},
-				false,
-			),
-		).not.toThrow();
-		expect(active).toEqual([]);
+	it("withdraws a previous session's tools when this session cannot use Hindsight", () => {
+		const { pi, registered } = setup(toolContext());
+		declareHindsightTools(pi, () => undefined, "hidden");
+		expect(registered.size).toBe(8);
+		expect(exposures(registered)).toEqual(HINDSIGHT_TOOL_NAMES.map(() => "hidden"));
+	});
+
+	it("restores the deferred declaration when a later session can use Hindsight again", () => {
+		const { pi, registered } = setup(toolContext());
+		declareHindsightTools(pi, () => undefined, "hidden");
+		declareHindsightTools(pi, () => toolContext(), "deferred");
+		expect(exposures(registered)).toEqual(HINDSIGHT_TOOL_NAMES.map(() => "deferred"));
+	});
+
+	it("registers nothing for a session that was never able to use Hindsight", () => {
+		const { pi, registered } = fakePi();
+		declareHindsightTools(pi, () => undefined, "hidden");
+		expect(registered.size).toBe(0);
 	});
 });
 
@@ -123,14 +123,15 @@ describe("hindsight knowledge page tools", () => {
 
 		const search = await call(tool("hindsight_search_knowledge_pages"), { query: "pnpm" });
 		expect(search.details.status).toBe("ok");
-		expect(text(search)).toContain("Conventions (kp-1, score 0.75)");
+		expect(text(search)).toContain("- **Conventions** (`id: kp-1`, score: 0.75):");
 		expect(context.gateway.searchPages).toHaveBeenCalledWith("pnpm", 3, undefined);
 
 		const list = await call(tool("hindsight_list_knowledge_pages"));
-		expect(text(list)).toBe("kp-1 — Conventions: repo-wide rules");
+		expect(text(list)).toBe("- **Conventions** (`id: kp-1`): repo-wide rules");
 
 		const read = await call(tool("hindsight_read_knowledge_page"), { page_id: "kp-1" });
-		expect(text(read)).toContain("# Conventions");
+		expect(text(read)).toContain('---\npage: "Conventions"\nid: kp-1\n---');
+		expect(text(read)).toContain("# Rules");
 	});
 
 	it("reports the documented degradation when pages are unsupported", async () => {
@@ -226,9 +227,9 @@ describe("hindsight write and status tools", () => {
 		);
 
 		const status = await call(tool("hindsight_sync_status"));
-		expect(text(status)).toContain("Server API version: 0.9.2");
-		expect(text(status)).toContain("Knowledge pages: 5");
-		expect(text(status)).toContain("Stored documents: 12");
+		expect(text(status)).toContain("- **Server API version**: 0.9.2");
+		expect(text(status)).toContain("- **Knowledge pages**: 5");
+		expect(text(status)).toContain("- **Stored documents**: 12");
 	});
 
 	it("reflects over memory and handles an empty synthesis", async () => {
@@ -258,11 +259,11 @@ describe("hindsight_diagnose", () => {
 		const result = await call(tool("hindsight_diagnose"));
 		const body = text(result);
 		expect(body).not.toContain("super-secret-token");
-		expect(body).toContain("Token configured: yes");
-		expect(body).toContain("Bank: hheei (chosen by fallback)");
-		expect(body).toContain("Isolation: tagged-shared-bank (scope tags: repo:hepi-mono)");
-		expect(body).toContain("Server reachable: yes");
-		expect(body).toContain("Writeback state: 0 turns retained, 0 pending batches, idle");
+		expect(body).toContain("- **Token configured**: yes");
+		expect(body).toContain("- **Bank**: hheei (chosen by fallback)");
+		expect(body).toContain("- **Isolation**: tagged-shared-bank (scope tags: repo:hepi-mono)");
+		expect(body).toContain("- **Server reachable**: yes");
+		expect(body).toContain("- **Writeback state**: 0 turns retained, 0 pending batches, idle");
 
 		const details = result.details as HindsightDiagnoseDetails;
 		expect(details.tokenConfigured).toBe(true);
@@ -280,8 +281,8 @@ describe("hindsight_diagnose", () => {
 		});
 		const { tool } = setup(context);
 		const result = await call(tool("hindsight_diagnose"));
-		expect(text(result)).toContain("Token configured: no");
-		expect(text(result)).toContain("Server reachable: no");
+		expect(text(result)).toContain("- **Token configured**: no");
+		expect(text(result)).toContain("- **Server reachable**: no");
 		expect(result.details.status).toBe("error");
 	});
 });

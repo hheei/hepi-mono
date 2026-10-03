@@ -71,7 +71,8 @@ interface Job {
 	timedOut: boolean;
 	process?: ChildProcess;
 	outputSink: BashOutputSink;
-	timeout?: NodeJS.Timeout;
+	timeout?: NodeJS.Timeout | undefined;
+	cleanupTimer?: NodeJS.Timeout | undefined;
 	terminalized: boolean;
 	onTerminal?: (job: BashJobSnapshot) => void;
 	waiter: ((snapshot: BashJobSnapshot) => void) | undefined;
@@ -157,8 +158,30 @@ export class BashJobRegistry {
 			// `close` usually follows a spawn failure, but a post-spawn error may not report one.
 			this.#terminalize(job, !this.#closed);
 		});
+		child.once("exit", (code, signal) => {
+			clearTimeout(job.timeout);
+			if (job.status === "running") {
+				job.exitCode = code;
+				job.status = signal ? "stopped" : code === 0 ? "completed" : "failed";
+				job.endedAt = Date.now();
+			}
+			// If stdio streams do not close shortly after process exit (e.g. grandchildren inherited stdio),
+			// destroy the streams so close fires and the job does not hang indefinitely.
+			job.cleanupTimer ??= setTimeout(() => {
+				if (!job.terminalized) {
+					child.stdout?.destroy();
+					child.stderr?.destroy();
+					this.#terminalize(job, !this.#closed);
+				}
+			}, 500);
+			job.cleanupTimer.unref();
+		});
 		child.once("close", (code, signal) => {
 			clearTimeout(job.timeout);
+			if (job.cleanupTimer !== undefined) {
+				clearTimeout(job.cleanupTimer);
+				job.cleanupTimer = undefined;
+			}
 			if (job.status === "running") {
 				job.exitCode = code;
 				job.status = signal ? "stopped" : code === 0 ? "completed" : "failed";
@@ -178,6 +201,10 @@ export class BashJobRegistry {
 	#terminalize(job: Job, notify: boolean): void {
 		if (job.terminalized) return;
 		job.terminalized = true;
+		if (job.cleanupTimer !== undefined) {
+			clearTimeout(job.cleanupTimer);
+			job.cleanupTimer = undefined;
+		}
 		job.outputSink.finish();
 		const finalSnapshot = snapshot(job);
 		const waiter = job.waiter;
@@ -229,6 +256,14 @@ export class BashJobRegistry {
 				}, 250).unref();
 			}
 		}
+		job.cleanupTimer ??= setTimeout(() => {
+			if (!job.terminalized) {
+				child?.stdout?.destroy();
+				child?.stderr?.destroy();
+				this.#terminalize(job, !this.#closed);
+			}
+		}, 500);
+		job.cleanupTimer.unref();
 		return snapshot(job);
 	}
 	dispose(): void {

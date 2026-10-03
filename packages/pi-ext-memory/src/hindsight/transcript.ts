@@ -19,7 +19,8 @@ export const MAX_TURN_CHARS = 4_000;
  * Injected content is escaped so it cannot close the container early, so a lazy match
  * over real tags is sufficient and cannot be steered by recalled text.
  */
-const MEMORY_CONTAINER_PATTERN = /<memory>[\s\S]*?<\/memory>\s*/g;
+const MEMORY_CONTAINER_PATTERN =
+	/<(?:memory|hindsight-recall)>[\s\S]*?<\/(?:memory|hindsight-recall)>\s*/g;
 
 const ARG_SUMMARY_KEYS = [
 	"command",

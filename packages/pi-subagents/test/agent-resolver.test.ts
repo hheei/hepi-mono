@@ -504,14 +504,6 @@ test("a built-in agent's resolved tools are checked, not merely its definition",
 	const declared = builtinAgents().find((agent) => agent.name === "scout")?.frontmatter.tools;
 	const everything = String(declared).split(",");
 	expect(builtinAgentToolProblem("<builtin>/scout.md", everything)).toBeUndefined();
-	// A Task child's allowlist gains one extra channel, and nothing else is tolerated.
-	expect(
-		builtinAgentToolProblem(
-			"<builtin>/scout.md",
-			[...everything, "submit_task_result"],
-			["submit_task_result"],
-		),
-	).toBeUndefined();
 	expect(builtinAgentToolProblem("<builtin>/scout.md", [...everything, "bash"])).toMatch(
 		/it would gain tools it never declared: bash/u,
 	);
@@ -523,11 +515,57 @@ test("a built-in agent's resolved tools are checked, not merely its definition",
 	);
 	// The scout must keep a way to report as well, not only the read tools.
 	expect(String(declared)).toContain("contact_parent");
-	// It names both report channels: a conversation execution has no submit_task_result tool, so an
-	// instruction that only mentions that one would leave the scout unable to finish as asked.
+	// The scout mentions contact_parent for urgent blockers, while normal completion delivers text.
 	const body = builtinAgents().find((agent) => agent.name === "scout")?.body ?? "";
 	expect(body).toContain("contact_parent");
-	expect(body).toContain("submit_task_result");
 	// A user definition at the same name is a normal agent and is not held to the built-in promise.
 	expect(builtinAgentToolProblem("/home/user/.pi/agent/agents/scout.md", [])).toBeUndefined();
+});
+
+test("subagent in user domain overwrites built-in with empty body, inheriting built-in settings and body", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		// User only specifies model and thinking, with empty body
+		await writeAgent(
+			directory,
+			"home",
+			"scout",
+			`---\nname: scout\nmodel: openai/gpt-5-codex\nthinking: low\n---\n`,
+		);
+
+		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
+		const scout = discovered.find((a) => a.name === "scout");
+		expect(scout).toBeDefined();
+		expect(scout?.enabled).toBe(true);
+		expect(scout?.frontmatter.description).toContain("Read-only reconnaissance");
+		expect(scout?.body).toContain("You are a read-only scout");
+
+		const resolved = await resolve(directory, "scout", bridge);
+		expect(resolved.model).toEqual({ provider: "openai", id: "gpt-5-codex", source: "agent" });
+		expect(resolved.thinking).toEqual({ level: "low", source: "agent" });
+		expect(resolved.agent.instructions).toContain("You are a read-only scout");
+		expect(resolved.tools).toContain("read");
+		expect(resolved.tools).toContain("contact_parent");
+		expect(resolved.enabled).toBe(true);
+
+		// Built-ins with model: inherit (like reviewer and worker) are directly enabled
+		const reviewer = discovered.find((a) => a.name === "reviewer");
+		expect(reviewer?.enabled).toBe(true);
+		const worker = discovered.find((a) => a.name === "worker");
+		expect(worker?.enabled).toBe(true);
+	});
+});
+
+test("built-in scout omits model and is non-compliant (disabled) until configured by user", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const discovered = await discoverAgents(join(directory, "project"), join(directory, "home"));
+		const scout = discovered.find((a) => a.name === "scout");
+		expect(scout).toBeDefined();
+		expect(scout?.enabled).toBe(false);
+
+		const reviewer = discovered.find((a) => a.name === "reviewer");
+		expect(reviewer).toBeDefined();
+		expect(reviewer?.enabled).toBe(true);
+	});
 });

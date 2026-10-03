@@ -170,4 +170,54 @@ describe("debug extension", () => {
 		await commands.get("cache-debug")?.handler("", ctx);
 		expect(notifications.at(-1)).toBe(`Log: ${logPath}\nGuide: ${DEBUG_GUIDE_URL}`);
 	});
+
+	test("records stream telemetry when provider_stream_event is received", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-debug-test-stream-"));
+		const logPath = join(directory, "requests.jsonl");
+		const { handlers, pi } = debugHost();
+		registerCacheDebug(pi as never, { logPath });
+
+		const ctx = {
+			model: { provider: "cx", id: "gpt-test", api: "openai-responses" },
+			sessionManager: { getSessionId: () => "session-stream" },
+			ui: { notify() {} },
+		};
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		await handlers.get("before_provider_request")?.({ payload: basePayload }, ctx);
+		await handlers.get("provider_stream_event")?.(
+			{ provider: "cx", api: "openai-responses", model: "gpt-test", data: { text: "chunk 1" } },
+			ctx,
+		);
+		await handlers.get("provider_stream_event")?.(
+			{ provider: "cx", api: "openai-responses", model: "gpt-test", data: { text: "chunk 2" } },
+			ctx,
+		);
+		await handlers.get("after_provider_response")?.({ status: 200, headers: {} }, ctx);
+		await handlers.get("message_end")?.(
+			{
+				message: {
+					role: "assistant",
+					stopReason: "stop",
+					usage: { input: 10, output: 2, cacheRead: 100, cacheWrite: 20 },
+				},
+			},
+			ctx,
+		);
+
+		const records = (await readFile(logPath, "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as Record<string, unknown>);
+		const usageRecord = records.find((record) => record.type === "usage");
+		expect(usageRecord).toBeDefined();
+		const stream = usageRecord?.stream as {
+			chunkCount: number;
+			firstChunkLatencyMs: number;
+			durationMs: number;
+		};
+		expect(stream).toBeDefined();
+		expect(stream.chunkCount).toBe(2);
+		expect(stream.firstChunkLatencyMs).toBeGreaterThanOrEqual(0);
+		expect(stream.durationMs).toBeGreaterThanOrEqual(0);
+	});
 });

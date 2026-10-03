@@ -26,6 +26,7 @@ function fakePi() {
 			commands.set(name, config);
 		},
 		getCommands: () => [],
+		getActiveTools: () => [],
 		getSessionName: () => undefined,
 		setSessionName: () => undefined,
 		appendEntry: () => undefined,
@@ -34,14 +35,16 @@ function fakePi() {
 }
 
 async function emit(
-	handlers: Map<string, Array<(event: unknown, context?: unknown) => void | Promise<void>>>,
+	handlers: Map<string, Array<(event: unknown, context?: unknown) => unknown | Promise<unknown>>>,
 	channel: string,
 	event: unknown,
 	context: ExtensionContext,
-): Promise<void> {
+): Promise<unknown> {
+	let lastResult: unknown;
 	for (const handler of handlers.get(channel) ?? []) {
-		await handler(event, context);
+		lastResult = await handler(event, context);
 	}
+	return lastResult;
 }
 
 interface FakeExtensionOptions {
@@ -118,7 +121,9 @@ function autoTitleHarness(options: { readonly idle?: boolean } = {}): AutoTitleH
 		entries,
 		statuses,
 		notices,
-		emit: (channel, event) => emit(handlers, channel, event, extension),
+		emit: async (channel, event) => {
+			await emit(handlers, channel, event, extension);
+		},
 		cleanup: () => {
 			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
@@ -143,10 +148,12 @@ describe("pi-ext-addon extension lifecycle", () => {
 			const registry = getRuntimeSettingsRegistry(pi);
 			expect(registry.get("dollar-skill")?.id).toBe("dollar-skill");
 			expect(registry.get("auto-title")?.id).toBe("auto-title");
+			expect(registry.get("batch-tool-rules")?.id).toBe("batch-tool-rules");
 
 			await emit(handlers, "session_shutdown", {}, fakeExtension(dir));
 			expect(registry.get("dollar-skill")).toBeUndefined();
 			expect(registry.get("auto-title")).toBeUndefined();
+			expect(registry.get("batch-tool-rules")).toBeUndefined();
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -188,6 +195,60 @@ describe("pi-ext-addon extension lifecycle", () => {
 			expect(harness.notices).toEqual([]);
 		} finally {
 			harness.cleanup();
+		}
+	});
+
+	test("before_agent_start injects batch tool rules prompt", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-batch-rules-"));
+		try {
+			const { pi, handlers } = fakePi();
+			piExtAddonExtension(pi);
+			await emit(handlers, "session_start", { reason: "startup" }, fakeExtension(dir));
+
+			const sections: Record<string, string> = {};
+			const event = { systemPromptOptions: { sections } };
+
+			await emit(handlers, "before_agent_start", event, fakeExtension(dir));
+			expect(sections.tool_execution_rules).toBeDefined();
+			expect(sections.tool_execution_rules).toContain("<tool_execution_rules>");
+			expect(sections.tool_execution_rules).toContain("Agent turns are extremely expensive.");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("tool_result fires codemode guard reminder on 4th single-tool call for Gemini model", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-guard-"));
+		try {
+			const { pi, handlers } = fakePi();
+			piExtAddonExtension(pi);
+			const context = {
+				...fakeExtension(dir),
+				model: { id: "gemini-2.5-pro", provider: "google" } as unknown as ExtensionContext["model"],
+			};
+
+			const makeEvent = (i: number) => ({
+				toolName: "codemode",
+				details: { calls: [{ tool: "read" }] },
+				content: [{ type: "text", text: `output ${i}` }],
+			});
+
+			// Calls 1 to 3: no reminder
+			for (let i = 1; i <= 3; i++) {
+				const res = await emit(handlers, "tool_result", makeEvent(i), context);
+				expect(res).toBeUndefined();
+			}
+
+			// Call 4: reminder triggered!
+			const res4 = (await emit(handlers, "tool_result", makeEvent(4), context)) as {
+				content: Array<{ type: string; text?: string }>;
+			};
+			expect(res4).toBeDefined();
+			expect(res4.content[0]?.text).toContain("output 4");
+			expect(res4.content[0]?.text).toContain("<system-reminder>");
+			expect(res4.content[0]?.text).toContain("4 consecutive `codemode` calls");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 });

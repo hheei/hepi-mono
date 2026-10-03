@@ -1,18 +1,19 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "@hheei/pi-ext-core";
-import { runDropper } from "../agents/dropper/agent.js";
+import { runDropper, selectDropCandidates } from "../agents/dropper/agent.js";
 import { observationPoolMetrics } from "../agents/dropper/pool.js";
 import { ObserverStreamError, runObserver } from "../agents/observer/agent.js";
 import { runReflector } from "../agents/reflector/agent.js";
 import type { StreamableModelRegistry } from "../agents/worker-stream.js";
-import { resolveObserverChunkMaxTokens } from "../config.js";
+import { type Config, resolveObserverChunkMaxTokens } from "../config.js";
 import { debugLog, withDebugLogContext } from "../debug-log.js";
 import type { ModelRegistryLike, ResolveResult, Runtime } from "../runtime.js";
-import { serializeSourceAddressedBranchEntries } from "../serialize.js";
+import { fmtLocal, serializeSourceAddressedBranchEntries } from "../serialize.js";
 import {
 	buildObservationsDroppedData,
 	buildObservationsRecordedData,
+	buildReflectionsDroppedData,
 	buildReflectionsRecordedData,
 	type Entry,
 	earlierCoverageMarkerId,
@@ -22,19 +23,25 @@ import {
 	latestCoverageIndex,
 	latestCoverageMarkerId,
 	latestGateEnabled,
+	MEMORY_POOL_WATERMARK,
 	type Observation,
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
+	OM_REFLECTIONS_DROPPED,
 	OM_REFLECTIONS_RECORDED,
 	observationToSummaryLine,
+	type Projection,
 	type Reflection,
 	rawTokensSinceObservationCoverage,
 	rawTokensSinceReflectionCoverage,
 	realTokensSinceAnchor,
 	reflectionToSummaryLine,
+	resolveMemoryBudget,
+	selectVisibleMemory,
 	type V3MemoryCustomType,
+	type VisibleMemory,
 } from "../session-ledger/index.js";
-import { formatTokensK } from "../tokens.js";
+import { formatTokensK, observationLineTokenCount, reflectionLineTokenCount } from "../tokens.js";
 
 type ResolvedModel = Extract<ResolveResult, { ok: true }>;
 
@@ -313,7 +320,12 @@ export function runForcedConsolidation(
 	return launchPipeline(pi, runtime, ctx, true);
 }
 
-type FoldCounts = { observations: number; reflections: number; dropped: number };
+type FoldCounts = {
+	observations: number;
+	reflections: number;
+	dropped: number;
+	superseded: number;
+};
 
 function foldCounts(entries: Entry[]): FoldCounts {
 	const folded = foldLedger(entries);
@@ -321,6 +333,7 @@ function foldCounts(entries: Entry[]): FoldCounts {
 		observations: folded.observations.length,
 		reflections: folded.reflections.length,
 		dropped: folded.droppedObservationIds.size,
+		superseded: folded.droppedReflectionIds.size,
 	};
 }
 
@@ -350,9 +363,11 @@ function notifyRunSummary(
 	const observations = after.observations - before.observations;
 	const reflections = after.reflections - before.reflections;
 	const dropped = after.dropped - before.dropped;
-	if (observations > 0) parts.push(`+${observations} obs`);
-	if (reflections > 0) parts.push(`+${reflections} refl`);
+	const superseded = after.superseded - before.superseded;
+	if (observations !== 0) parts.push(`${observations > 0 ? "+" : ""}${observations} obs`);
+	if (reflections !== 0) parts.push(`${reflections > 0 ? "+" : ""}${reflections} refl`);
 	if (dropped > 0) parts.push(`-${dropped} dropped`);
+	if (superseded > 0) parts.push(`-${superseded} superseded`);
 	if (parts.length === 0) return;
 	const cost = costUsd > 0 ? ` · $${costUsd.toFixed(4)}` : "";
 	try {
@@ -428,6 +443,20 @@ async function runPipelineStages(
 		return true;
 	}
 
+	// Runs even when the dropper declined, skipped or had no model: the pool bound is
+	// about the ledger, not about model judgement.
+	runtime.consolidationPhase = "enforcer";
+	try {
+		const enforcerOutcome = await runEnforcerStage(pi, runtime, ctx);
+		if (enforcerOutcome === "abort" || isStale(runtime, ctx)) return true;
+	} catch (error) {
+		if (isStale(runtime, ctx)) return true;
+		debugLog("enforcer.error", {
+			errorMessage: runtime.recordConsolidationStageError(ctx, "enforcer", error),
+		});
+		return true;
+	}
+
 	return false;
 }
 
@@ -449,6 +478,73 @@ function workerArgs(
 		signal: ctx.signal,
 		onCost: recordCost,
 	};
+}
+
+/**
+ * Memory as the memory agents see it: the same bounded view a compaction
+ * summary renders from.
+ *
+ * Bounding the agents' input keeps their prompts bounded as a session grows,
+ * and keeps them accountable only for the memory that stays visible: a line
+ * trimmed out of every summary is not a line they can maintain.
+ */
+function visibleMemory(
+	config: Config,
+	contextWindow: number | undefined,
+	memory: Projection,
+): VisibleMemory {
+	const budget = resolveMemoryBudget({ config, contextWindow });
+	return selectVisibleMemory(memory, {
+		maxTokens: budget.cap,
+		observationTargetTokens: config.observationsPoolTargetTokens,
+	});
+}
+
+/**
+ * Instants of the entries the observer was actually shown, plus the fallback used
+ * when a cited entry reports no usable time.
+ *
+ * Only the sent chunk counts: the backlog can be longer than the chunk when it is
+ * capped, and an unsent entry's time would sort an observation after conversation
+ * it was never asked to cover. Times come from here and never from the model, which
+ * reads the chunk long after the conversation happened.
+ */
+function sourceTimestamps(
+	entries: readonly Entry[],
+	chunkEntryIds: readonly string[],
+): {
+	byId: Map<string, number>;
+	fallback: number;
+} {
+	const sent = new Set(chunkEntryIds);
+	const byId = new Map<string, number>();
+	let fallback: number | undefined;
+	for (const entry of entries) {
+		if (!sent.has(entry.id) || entry.timestamp === undefined) continue;
+		const time = new Date(entry.timestamp).getTime();
+		if (Number.isNaN(time)) continue;
+		byId.set(entry.id, time);
+		fallback = time;
+	}
+	return { byId, fallback: fallback ?? Date.now() };
+}
+
+/**
+ * Earliest known time among the cited entries; the chunk's own time otherwise. Compared as instants
+ * and only rendered afterwards: a local hour that happens twice (a DST fall-back) would otherwise
+ * order 01:50 before 01:10.
+ */
+function earliestSourceTimestamp(
+	timeline: { byId: Map<string, number>; fallback: number },
+	sourceEntryIds: readonly string[],
+): string {
+	let earliest: number | undefined;
+	for (const id of sourceEntryIds) {
+		const time = timeline.byId.get(id);
+		if (time === undefined) continue;
+		if (earliest === undefined || time < earliest) earliest = time;
+	}
+	return fmtLocal(new Date(earliest ?? timeline.fallback));
 }
 
 async function runObserverStage(
@@ -530,7 +626,11 @@ async function runObserverStage(
 		});
 	}
 
-	const memory = fullProjection(entries);
+	// Source times for this chunk, so the observations it produces are ordered by when
+	// the conversation happened rather than by when the observer got around to it.
+	const timeline = sourceTimestamps(backlogEntries, sourceEntryIds);
+
+	const memory = visibleMemory(runtime.config, ctx.model?.contextWindow, fullProjection(entries));
 	const priorReflections = memory.reflections.map(reflectionToSummaryLine);
 	const priorObservations = memory.observations.map(observationToSummaryLine);
 
@@ -555,6 +655,7 @@ async function runObserverStage(
 			priorObservations,
 			chunk,
 			allowedSourceEntryIds: sourceEntryIds,
+			resolveTimestamp: (cited) => earliestSourceTimestamp(timeline, cited),
 		});
 	} catch (error) {
 		if (ctx.signal?.aborted) return "abort";
@@ -628,31 +729,75 @@ async function runReflectorStage(
 	if (!resolved) return { outcome: "abort", sameRunReflections: [] };
 
 	const folded = foldLedger(entries);
-	runtime.recordWorkerRun("reflector");
-	const reflections = await runReflector({
-		...workerArgs(runtime, ctx, resolved, recordCost),
-		reflections: folded.reflections,
+	const memory = visibleMemory(runtime.config, ctx.model?.contextWindow, {
 		observations: folded.activeObservations,
+		reflections: folded.activeReflections,
+	});
+	runtime.recordWorkerRun("reflector");
+	const result = await runReflector({
+		...workerArgs(runtime, ctx, resolved, recordCost),
+		reflections: memory.reflections,
+		observations: memory.observations,
+		droppedReflectionIds: folded.droppedReflectionIds,
+		reflectionBudgetTokens: memory.reflectionBudgetTokens,
+		// The view may have trimmed reflections away; the merge decision is about the
+		// pool, so report the pool.
+		reflectionPool: {
+			count: folded.activeReflections.length,
+			tokens: folded.activeReflections.reduce(
+				(total, reflection) => total + reflectionLineTokenCount(reflection),
+				0,
+			),
+		},
 	});
 	if (ctx.signal?.aborted) return { outcome: "abort", sameRunReflections: [] };
-	if (!reflections) return { outcome: "continue", sameRunReflections: [] };
+	if (!result) return { outcome: "continue", sameRunReflections: [] };
 
-	const data = buildReflectionsRecordedData(reflections, observationCoverageId);
-	if (!data) return { outcome: "continue", sameRunReflections: [] };
+	const data =
+		result.reflections.length > 0
+			? buildReflectionsRecordedData(result.reflections, observationCoverageId)
+			: undefined;
 	if (isStale(runtime, ctx)) {
 		return { outcome: "abort", sameRunReflections: [] };
 	}
-	try {
-		pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
-	} catch (error) {
-		const msg = errorMessage(error);
-		if (msg.includes("stale")) return { outcome: "abort", sameRunReflections: [] };
-		throw error;
+	if (data) {
+		try {
+			pi.appendEntry(OM_REFLECTIONS_RECORDED, data);
+		} catch (error) {
+			const msg = errorMessage(error);
+			if (msg.includes("stale")) return { outcome: "abort", sameRunReflections: [] };
+			throw error;
+		}
 	}
+	// Merging is an upgrade, not a deletion: the replaced reflections keep their records in the
+	// ledger and only leave active memory. A proposal that could never become active — one restating
+	// an id retired earlier — already had its own supersedes dropped by the reflector, which is the
+	// only place that knows which proposal asked for which merge.
+	const dropped = buildReflectionsDroppedData(
+		result.supersededReflectionIds,
+		observationCoverageId,
+	);
+	if (dropped) {
+		if (isStale(runtime, ctx)) {
+			return { outcome: "abort", sameRunReflections: [] };
+		}
+		try {
+			pi.appendEntry(OM_REFLECTIONS_DROPPED, dropped);
+		} catch (error) {
+			const msg = errorMessage(error);
+			if (msg.includes("stale")) return { outcome: "abort", sameRunReflections: [] };
+			throw error;
+		}
+	}
+	// A reflection recorded but never activated (an id retired earlier) must not reach
+	// the dropper: it cannot carry the observation evidence it is cited for.
+	const sameRunReflections = result.reflections.filter(
+		(reflection) => !folded.droppedReflectionIds.has(reflection.id),
+	);
 	return {
 		outcome: "continue",
-		sameRunReflections: reflections,
-		effectiveReflectionCoverageId: data.coversUpToId,
+		sameRunReflections,
+		...(data ? { effectiveReflectionCoverageId: data.coversUpToId } : {}),
 	};
 }
 
@@ -712,20 +857,36 @@ async function runDropperStage(
 	const resolved = await resolveModel("dropper");
 	if (!resolved) return "abort";
 
-	const seenReflectionIds = new Set(folded.reflections.map((reflection) => reflection.id));
+	const seenReflectionIds = new Set(folded.activeReflections.map((reflection) => reflection.id));
 	const reflectionsForDropper = [
-		...folded.reflections,
+		...folded.activeReflections,
 		...sameRunReflections.filter((reflection) => {
 			if (seenReflectionIds.has(reflection.id)) return false;
 			seenReflectionIds.add(reflection.id);
 			return true;
 		}),
 	];
+	// The agent reads the memory a summary would render, so its proposals stay
+	// accountable to the visible pool; the readiness gate above judged the real
+	// pool, which is what actually has to converge.
+	const dropperMemory = visibleMemory(runtime.config, ctx.model?.contextWindow, {
+		observations: folded.activeObservations,
+		reflections: reflectionsForDropper,
+	});
+	debugLog("dropper.visible_memory", {
+		activeObservationCount: folded.activeObservations.length,
+		visibleObservationCount: dropperMemory.observations.length,
+		reflectionCount: reflectionsForDropper.length,
+		visibleReflectionCount: dropperMemory.reflections.length,
+	});
 	runtime.recordWorkerRun("dropper");
 	const droppedIds = await runDropper({
 		...workerArgs(runtime, ctx, resolved, recordCost),
-		reflections: reflectionsForDropper,
-		observations: folded.activeObservations,
+		reflections: dropperMemory.reflections,
+		observations: dropperMemory.observations,
+		// The agent reads the bounded view; the pool it is asked to shrink is the real
+		// one, and the readiness gate above already measured that one.
+		activePoolTokens: metrics.observationTokens,
 		targetTokens: runtime.config.observationsPoolTargetTokens,
 	});
 	if (ctx.signal?.aborted) return "abort";
@@ -751,6 +912,135 @@ async function runDropperStage(
 			if (msg.includes("stale")) return "continue";
 			throw error;
 		}
+	}
+	return "continue";
+}
+
+/**
+ * Deterministic pool convergence: the last stage, and the only one that runs no model.
+ *
+ * Rendering is bounded with or without this stage, so its job is the ledger and the
+ * worker prompts: a pool far above its cap keeps every consolidation prompt at the cap
+ * and every render at a hard trim, and the dropper is allowed to answer "keep" when it
+ * is not certain. Above the watermark the excess is reclaimed by ranking — progress
+ * narration first, durable decisions last — and critical observations never.
+ *
+ * Idempotent: the written tombstones remove the dropped observations from the next
+ * fold, so a rerun with the same ledger selects nothing new.
+ */
+async function runEnforcerStage(
+	pi: ExtensionAPI,
+	runtime: Runtime,
+	ctx: ConsolidationCtx,
+): Promise<StageOutcome> {
+	if (ctx.signal?.aborted) return "abort";
+
+	const entries = ctx.sessionManager.getBranch() as Entry[];
+	const folded = foldLedger(entries);
+	const budget = resolveMemoryBudget({
+		config: runtime.config,
+		contextWindow: ctx.model?.contextWindow,
+	});
+	const watermark = Math.floor(budget.cap * MEMORY_POOL_WATERMARK);
+	const metrics = observationPoolMetrics(
+		folded.activeObservations,
+		runtime.config.observationsPoolTargetTokens,
+	);
+	// Pool weight, not the stored content-only tokenCount: the cap and the watermark
+	// are about what the rendered summary costs.
+	const reflectionTokens = folded.activeReflections.reduce(
+		(sum, reflection) => sum + reflectionLineTokenCount(reflection),
+		0,
+	);
+	const activeTokens = metrics.observationTokens + reflectionTokens;
+	const skip = (reason: string): StageOutcome => {
+		debugLog("enforcer.skip", {
+			reason,
+			activeTokens,
+			watermark,
+			cap: budget.cap,
+			observationTokens: metrics.observationTokens,
+			reflectionTokens,
+		});
+		return "continue";
+	};
+	if (activeTokens <= watermark) return skip("below_watermark");
+
+	// Reflections are out of reach for a deterministic stage (only the reflector merges
+	// them), so the target only asks observations for whatever room is left under the cap.
+	const observationTarget = Math.max(
+		0,
+		Math.min(runtime.config.observationsPoolTargetTokens, budget.cap - reflectionTokens),
+	);
+	if (metrics.observationTokens <= observationTarget) return skip("reflections_fill_the_budget");
+
+	const candidates = folded.activeObservations.filter(
+		(observation) => observation.relevance !== "critical",
+	);
+	if (candidates.length === 0) return skip("no_droppable_observations");
+
+	// Rank first, then take lines until the pool reaches its target. An average-sized
+	// estimate would stop short or overshoot, because the lines chosen here are ranked
+	// by value, not by size.
+	const rankedIds = selectDropCandidates(
+		candidates.map((observation) => observation.id),
+		folded.activeObservations,
+		candidates.length,
+		folded.activeReflections,
+	);
+	const lineTokensById = new Map(
+		folded.activeObservations.map((observation) => [
+			observation.id,
+			observationLineTokenCount(observation),
+		]),
+	);
+	const droppedIds: string[] = [];
+	let droppedTokens = 0;
+	for (const id of rankedIds) {
+		if (metrics.observationTokens - droppedTokens <= observationTarget) break;
+		droppedTokens += lineTokensById.get(id) ?? 0;
+		droppedIds.push(id);
+	}
+	const coversUpToId = latestCoverageMarkerId(entries, OM_OBSERVATIONS_RECORDED);
+	debugLog("enforcer.stage_start", {
+		activeTokens,
+		watermark,
+		observationTokens: metrics.observationTokens,
+		reflectionTokens,
+		observationTarget,
+		candidateCount: candidates.length,
+		selectedCount: droppedIds.length,
+		freedTokens: droppedTokens,
+		coversUpToId,
+	});
+	const data = coversUpToId ? buildObservationsDroppedData(droppedIds, coversUpToId) : undefined;
+	if (!data) return skip("nothing_selected");
+	if (isStale(runtime, ctx)) return "continue";
+
+	try {
+		pi.appendEntry(OM_OBSERVATIONS_DROPPED, data);
+	} catch (error) {
+		// Same stale handling as the dropper: a replaced session drops the result
+		// instead of failing the run.
+		if (errorMessage(error).includes("stale")) return "continue";
+		throw error;
+	}
+
+	const observationTokensAfter = Math.max(0, metrics.observationTokens - droppedTokens);
+	debugLog("enforcer.append", {
+		droppedIdsCount: droppedIds.length,
+		droppedTokens,
+		observationTokensAfter,
+		observationTarget,
+		coversUpToId,
+	});
+	// Not gated by showWorkerNotifications: this reclaim runs without a model, so its
+	// outcome is a memory change the user has to be able to see.
+	if (ctx.hasUI) {
+		ctx.ui?.notify(
+			`om: enforced pool convergence — dropped ${droppedIds.length.toLocaleString()} observations (${formatTokensK(metrics.observationTokens)} → ${formatTokensK(observationTokensAfter)} tokens, target ${formatTokensK(observationTarget)})`,
+			"info",
+		);
 	}
 	return "continue";
 }

@@ -79,7 +79,7 @@ describe("hindsight opt-in gating", () => {
 		await startSession(absent, cwd);
 		expect(hindsightTools(absent)).toEqual([]);
 		// The session-scoped memory tool is still registered: gating applies only to Hindsight.
-		expect(absent.registered).toContain("recall");
+		expect(absent.registered).toContain("om_recall_evidence");
 
 		writeFileSync(
 			join(agentDir, "ext_settings.json"),

@@ -127,6 +127,7 @@ describe("agent stream error logging", () => {
 					priorObservations: [],
 					chunk: "[Source entry id: entry-a]\nSome content.",
 					allowedSourceEntryIds: ["entry-a"],
+					resolveTimestamp: () => "2026-05-02 10:30",
 					modelRegistry: { streamSimple: (() => undefined) as any },
 					agentLoop: failingLoop,
 				}),

@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	errorMessage,
+	getBackgroundDelivery,
 	isRecord,
 	type TaskRegistry,
 	type TaskTerminalEvent,
@@ -8,8 +9,6 @@ import {
 
 /** Custom message type used for one terminal notification per task. */
 export const TASK_TERMINAL_CUSTOM_TYPE = "pi-ext-tools:task-terminal";
-/** Fixed notification window opened by the first terminal result; later results join it. */
-export const TASK_NOTIFICATION_WINDOW_MS = 5_000;
 /** Bounded output kept per task inside one notification. */
 export const MAX_TASK_MESSAGE_CHARS = 10_000;
 /**
@@ -33,16 +32,17 @@ function byteSize(text: string): number {
 export interface TaskDeliveryOptions {
 	readonly pi: ExtensionAPI;
 	readonly registry: TaskRegistry;
-	/** Session context captured at lifecycle start; used only to read the current branch. */
+	/** Session context captured at lifecycle start; reads parent idleness and the current branch. */
 	readonly session: ExtensionContext;
+	readonly signal?: AbortSignal;
 	readonly notify: (message: string, level: "info" | "warning") => void;
 }
 
 /**
  * Owns parent-session notification for terminal task results.
  *
- * The first terminal result opens a fixed window; results that finish inside it are merged
- * into one message and later completions never extend the window. Reading results through
+ * Busy parents receive results in the next model step; idle parents wait for all background
+ * work to finish. Reading results through
  * `wait_tasks` is a separate path and never consumes or delays these notifications.
  *
  * Delivery is recorded in three states: `pending` (still reserved), `submitted` (handed to
@@ -54,11 +54,9 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 	const { pi, registry, session, notify } = options;
 	const reported = new Set<string>();
 	const held = new Set<string>();
-	let window: NodeJS.Timeout | undefined;
 	let disposed = false;
 
-	const flush = (): void => {
-		window = undefined;
+	const flush = (triggerTurn: boolean): void => {
 		if (disposed) return;
 		const pending = registry.pendingDeliveries();
 		const ready = pending.filter((event) => onCurrentBranch(session, event));
@@ -71,9 +69,12 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		if (ready.length > 0) {
 			// These are delivered now, so a later hold on another branch must announce them again.
 			for (const event of ready) held.delete(event.id);
-			for (const batch of batchEvents(ready)) submit(batch);
+			const batches = batchEvents(ready);
+			for (const [index, batch] of batches.entries()) {
+				submit(batch, triggerTurn && (!session.isIdle() || index === batches.length - 1));
+			}
 		}
-		// Announced even when other results were delivered in this same window.
+		// Announced even when other results were delivered in this same check.
 		announceHeld(waitingElsewhere);
 	};
 
@@ -92,7 +93,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		);
 	};
 
-	const submit = (events: readonly TaskTerminalEvent[]): void => {
+	const submit = (events: readonly TaskTerminalEvent[], triggerTurn: boolean): void => {
 		const batch = `task-batch-${crypto.randomUUID().slice(0, 8)}`;
 		const ids = events.map((event) => event.id);
 		const content = `${events.map(notificationText).join("\n\n")}\n\n${DELEGATED_OUTPUT_NOTE}`;
@@ -120,7 +121,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 						})),
 					},
 				},
-				{ deliverAs: "followUp", triggerTurn: true },
+				{ deliverAs: "steer", triggerTurn },
 			);
 		} catch (error) {
 			registry.requeue(batch);
@@ -140,12 +141,26 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		if (!isRecord(details) || typeof details.batch !== "string") return;
 		registry.markObserved(details.batch);
 	});
+	const delivery = getBackgroundDelivery(pi);
+	const unregisterSource = delivery.registerSource({
+		activeCount: () => registry.activeCount,
+		onChange: (listener) => registry.onTerminal(listener),
+	});
+	const channel = delivery.registerChannel({
+		isIdle: () => session.isIdle(),
+		hasPending: () =>
+			!options.signal?.aborted &&
+			registry.pendingDeliveries().some((event) => onCurrentBranch(session, event)),
+		flush,
+	});
 	const schedule = (): void => {
-		if (window !== undefined || disposed) return;
-		window = setTimeout(flush, TASK_NOTIFICATION_WINDOW_MS);
-		window.unref?.();
+		if (disposed) return;
+		announceHeld(registry.pendingDeliveries().filter((event) => !onCurrentBranch(session, event)));
+		channel.request();
 	};
 	const unsubscribe = registry.onTerminal(schedule);
+	const unobserveStart = pi.on("agent_start", schedule);
+	const unobserveSettled = pi.on("agent_settled", schedule);
 	// Results that finished on another branch stay pending; returning to their branch must resume
 	// their delivery instead of waiting for an unrelated task to finish.
 	const unobserveTree = pi.on("session_tree", () => {
@@ -154,9 +169,11 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 
 	return () => {
 		disposed = true;
-		if (window !== undefined) clearTimeout(window);
-		window = undefined;
+		channel.dispose();
+		unregisterSource();
 		unsubscribe();
+		unobserveStart();
+		unobserveSettled();
 		unobserveMessage();
 		unobserveTree();
 	};

@@ -1,4 +1,4 @@
-import type { Observation, Reflection } from "../../session-ledger/index.js";
+import { type Observation, observationKind, type Reflection } from "../../session-ledger/index.js";
 
 export const REFLECTION_COVERAGE_TIERS = ["none", "partial", "strong"] as const;
 export type ReflectionCoverageTier = (typeof REFLECTION_COVERAGE_TIERS)[number];
@@ -118,7 +118,7 @@ export function observationToDropperLine(
 	observation: Observation,
 	coverage: ReflectionCoverageTier,
 ): string {
-	return `[${observation.id}] ${observation.timestamp} [${observation.relevance}] [coverage: ${coverage}] ${observation.content}`;
+	return `[${observation.id}] ${observation.timestamp} [${observation.relevance}] [kind: ${observationKind(observation)}] [coverage: ${coverage}] ${observation.content}`;
 }
 
 export function coverageTierForObservation(

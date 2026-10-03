@@ -45,6 +45,8 @@ export interface TaskBinding {
 }
 
 export interface TaskRequest {
+	/** Optional explicit id. When provided, this id is used instead of nextId. */
+	readonly id?: string;
 	/** Task family and id prefix: `bash` becomes `bash-<runtime>-3`. */ readonly type: string;
 	/** One-line intent shown to the model, the user and terminal deliveries. */
 	readonly purpose: string;
@@ -341,7 +343,10 @@ export class TaskRegistry {
 		}
 
 		const status = mustQueue ? "queued" : (request.initialStatus ?? "running");
-		const { id, shortId } = this.#nextId(request.type);
+		const { id, shortId } =
+			request.id !== undefined && request.id !== ""
+				? { id: request.id, shortId: request.id }
+				: this.#nextId(request.type);
 		const record: TaskRecord = {
 			id,
 			shortId,

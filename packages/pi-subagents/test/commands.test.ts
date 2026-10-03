@@ -10,16 +10,21 @@ import type { SubagentManager } from "../src/manager.js";
 import { child } from "./helpers/records.js";
 
 describe("parent status line", () => {
-	test("hides when every child is terminal and names interrupted TUI children", () => {
+	test("hides when every child is terminal and names interrupted panel children", () => {
 		expect(
 			formatStatusLine([child({ state: "done" }), child({ state: "stopped" })]),
 		).toBeUndefined();
 		expect(
 			formatStatusLine([
-				child({ displayName: "Reviewer", state: "idle", mode: "tui", interrupted: "paused" }),
+				child({
+					displayName: "Reviewer",
+					state: "idle",
+					presentation: "panel",
+					interrupted: "paused",
+				}),
 				child({ agent: "scout", state: "failed" }),
 			]),
-		).toBe("󰄰 Reviewer tui interrupted · 󰅚 scout failed");
+		).toBe("󰅚 Reviewer blocked panel · 󰅚 scout blocked");
 	});
 
 	test("bindParentStatus safely handles stale context during refresh and disposal", async () => {
@@ -71,6 +76,7 @@ function commandSetup(children: PublicSubagent[], mode = "tui") {
 			| ((prefix: string) => { value: string; label: string }[] | null)
 			| undefined;
 	}[] = [];
+	const shortcuts: string[] = [];
 	const pi = {
 		registerCommand(
 			name: string,
@@ -87,13 +93,13 @@ function commandSetup(children: PublicSubagent[], mode = "tui") {
 				getArgumentCompletions: command.getArgumentCompletions,
 			});
 		},
-		registerShortcut() {
+		registerShortcut(name: string) {
+			shortcuts.push(name);
 			return undefined;
 		},
 	} as unknown as ExtensionAPI;
 	const manager = {
 		list: vi.fn(async () => children),
-		attach: vi.fn(async () => ({})),
 		stop: vi.fn(async () => ({})),
 	} as unknown as SubagentManager;
 	registerParentCommands(pi, manager);
@@ -106,6 +112,7 @@ function commandSetup(children: PublicSubagent[], mode = "tui") {
 	} as unknown as ExtensionCommandContext;
 	return {
 		names: commands.map((command) => command.name),
+		shortcuts,
 		completions: () => commands[0]?.getArgumentCompletions,
 		run: (args: string) => commands[0]?.handler(args, ctx),
 		manager,
@@ -123,18 +130,15 @@ describe("/subagents command", () => {
 		expect(commandSetup([]).completions()?.("nope")).toBeNull();
 	});
 
-	test("attaches and stops by id without opening the picker", async () => {
-		// Two matching children: only an explicit id keeps the picker closed.
-		const idle = [
-			child({ id: "sa_idle1", state: "idle" }),
-			child({ id: "sa_idle2", state: "idle" }),
-		];
-		const attach = commandSetup(idle);
-		await attach.run("attach sa_idle2");
-		expect(attach.manager.attach).toHaveBeenCalledWith("sa_idle2");
-		expect(attach.select).not.toHaveBeenCalled();
-		expect(attach.notify).toHaveBeenCalledWith("Attached sa_idle2");
+	test("exposes no attach verb and no attach shortcut", () => {
+		// Attaching was a hand-off between transports; a child is presented where it was spawned.
+		const setup = commandSetup([]);
+		expect(setup.completions()?.("att")).toBeNull();
+		expect(setup.shortcuts).toEqual(["ctrl+shift+s"]);
+	});
 
+	test("stops by id without opening the picker", async () => {
+		// Two matching children: only an explicit id keeps the picker closed.
 		const live = [
 			child({ id: "sa_live1", state: "running" }),
 			child({ id: "sa_live2", state: "running" }),
@@ -146,19 +150,7 @@ describe("/subagents command", () => {
 		expect(stop.notify).toHaveBeenCalledWith("Stopped sa_live1");
 	});
 
-	test("falls back to the picker when attach or stop has no id", async () => {
-		const attach = commandSetup([
-			child({ id: "sa_idle1", state: "idle" }),
-			child({ id: "sa_idle2", state: "idle" }),
-		]);
-		await attach.run("attach");
-		expect(attach.select).toHaveBeenCalledWith("Attach idle subagent", [
-			expect.stringContaining("sa_idle1"),
-			expect.stringContaining("sa_idle2"),
-		]);
-		// The picker was cancelled, so nothing was attached and no id was invented.
-		expect(attach.manager.attach).not.toHaveBeenCalled();
-
+	test("falls back to the picker when stop has no id", async () => {
 		const stop = commandSetup([
 			child({ id: "sa_live1", state: "running" }),
 			child({ id: "sa_live2", state: "running" }),
@@ -175,7 +167,7 @@ describe("/subagents command", () => {
 		const command = commandSetup([]);
 		await command.run("maybe");
 		expect(command.notify).toHaveBeenCalledWith(
-			'Unknown subcommand "maybe". Usage: /subagents list|inspect|attach [id]|send|stop [id]',
+			'Unknown subcommand "maybe". Usage: /subagents list|inspect|send|stop [id]',
 			"warning",
 		);
 	});

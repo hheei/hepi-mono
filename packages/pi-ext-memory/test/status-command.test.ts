@@ -2,6 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
 import { registerOmCommand } from "../src/commands/om.js";
+import { reflectionLineTokenCount } from "../src/tokens.js";
 import {
 	compactionEntry,
 	gateEntry,
@@ -13,6 +14,7 @@ import {
 	oldV2ObservationEntry,
 	rawMessage,
 	reflection,
+	reflectionsDroppedEntry,
 	reflectionsRecordedEntry,
 	type TestEntry,
 	textCustomMessage,
@@ -71,18 +73,126 @@ function setup(args: {
 }
 
 describe("V3 /om status", () => {
+	it("reports the memory budget and the last render", async () => {
+		const obsA = observation("aaaaaaaaaaaa", { tokenCount: 5 });
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			compactionEntry("cmp-visible", {
+				firstKeptEntryId: "raw-1",
+				details: memoryDetails({
+					observations: [obsA],
+					budget: {
+						maxTokens: 27_200,
+						renderedTokens: 4_120,
+						tailTokens: 18_000,
+						softLimit: 81_000,
+						trimmedObservations: 12,
+						trimmedReflections: 3,
+					},
+				}),
+			}),
+		];
+
+		const output = await setup({ entries }).run();
+
+		expect(output).toContain("── Memory budget ──");
+		expect(output).toContain("token compaction trigger");
+		expect(output).toContain("Last render:");
+		expect(output).toContain("trimmed 15 lines");
+		expect(output).toContain("tail 18,000 tokens");
+	});
+
+	it("says an over-watermark pool will be reclaimed without a model call", async () => {
+		const obs = observation("aaaaaaaaaaaa", { content: "z".repeat(2000) });
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			observationsRecordedEntry("om-obs", { observations: [obs], coversUpToId: "raw-1" }),
+		];
+
+		const output = await setup({
+			entries,
+			runtime: { config: { ...configDefaults, memoryMaxTokens: 100 } },
+		}).run();
+
+		expect(output).toContain("Over watermark:");
+	});
+
+	it("tells the operator when reflections fill the budget by themselves", async () => {
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			reflectionsRecordedEntry("om-ref", {
+				// Sized on the rendered line, which is what pool accounting weighs.
+				reflections: [reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"], { content: "x".repeat(400) })],
+				coversUpToId: "raw-1",
+			}),
+		];
+
+		const output = await setup({
+			entries,
+			runtime: { config: { ...configDefaults, memoryMaxTokens: 100 } },
+		}).run();
+
+		expect(output).toContain("Reflections leave under the observation target: run /om consolidate");
+	});
+
+	it("reports a failed enforcer stage", async () => {
+		const output = await setup({
+			entries: [textCustomMessage("raw-1", "aaaa")],
+			runtime: { lastEnforcerError: "appendEntry failed" },
+		}).run();
+
+		expect(output).toContain("Enforcer: appendEntry failed");
+	});
+
+	it("ignores a malformed recorded budget", async () => {
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			compactionEntry("cmp-visible", {
+				firstKeptEntryId: "raw-1",
+				details: {
+					...(memoryDetails({}) as Record<string, unknown>),
+					budget: { maxTokens: "lots" },
+				},
+			}),
+		];
+
+		const output = await setup({ entries }).run();
+
+		expect(output).toContain("── Memory budget ──");
+		expect(output).not.toContain("Last render:");
+	});
+
 	it("renders concise no-memory status without V2 committed/pending language", async () => {
 		const output = await setup({ entries: [] }).run();
 
 		expect(output).toContain("── Memory ──");
 		expect(output).toContain("Observations: 0 recorded / 0 dropped / 0 active / 0 visible");
-		expect(output).toContain("Reflections:  0 recorded / 0 visible");
+		expect(output).toContain("Reflections:  0 recorded / 0 superseded / 0 active / 0 visible");
 		expect(output).toContain("Next observation:");
 		expect(output).toContain("Next compaction:");
 		expect(output).not.toContain("Visible:");
 		expect(output).not.toContain("Drift:");
 		expect(output).not.toContain("committed");
 		expect(output).not.toContain("pending");
+	});
+
+	it("counts superseded reflections separately from the ledger and active memory", async () => {
+		const refA = reflection("aaaaaaaaaaaa", ["dddddddddddd"]);
+		const refB = reflection("bbbbbbbbbbbb", ["dddddddddddd"]);
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			reflectionsRecordedEntry("om-ref", { reflections: [refA, refB], coversUpToId: "raw-1" }),
+			reflectionsDroppedEntry("om-ref-drop", {
+				reflectionIds: ["aaaaaaaaaaaa"],
+				coversUpToId: "raw-1",
+			}),
+		];
+
+		const output = await setup({ entries }).run();
+
+		expect(output).toContain("Reflections:  2 recorded / 1 superseded / 1 active / 0 visible");
+		// Active memory counts the surviving reflection only, at its rendered line weight.
+		expect(output).toContain(`Active memory: ~${reflectionLineTokenCount(refB)} /`);
 	});
 
 	it("reports V3 ledger counts, visible/full drift, and ignores old V2 memory", async () => {
@@ -108,7 +218,7 @@ describe("V3 /om status", () => {
 		const output = await setup({ entries }).run();
 
 		expect(output).toContain("Observations: 2 recorded / 1 dropped / 1 active / 1 visible +1 -1");
-		expect(output).toContain("Reflections:  1 recorded / 0 visible +1");
+		expect(output).toContain("Reflections:  1 recorded / 0 superseded / 1 active / 0 visible +1");
 		expect(output).toContain("Visible observation pool: ~5 / 40 tokens (13%)");
 		// Active pool counts the full rendered line (id + timestamp + relevance + content).
 		expect(output).toContain("Active observation pool: ~19 / 20 target tokens (95%)");
@@ -144,7 +254,7 @@ describe("V3 /om status", () => {
 		expect(output).toContain("Visible observation pool: ~5 / 40 tokens (13%)");
 		// Active pool counts the full rendered line, unlike the visible pool's stored tokenCount.
 		expect(output).toContain("Active observation pool: ~19 / 20 target tokens (95%)");
-		expect(output).toContain("Reflection pool:         ~3 tokens");
+		expect(output).toContain("Reflection pool:         ~10 tokens");
 		expect(output).not.toContain("Observation pool:");
 		expect(output).not.toContain("Full fold pool:");
 		expect(output).not.toContain("visible observation tokens");

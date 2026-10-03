@@ -1,9 +1,8 @@
 import { isRecord } from "@hheei/pi-ext-core";
 
 /**
- * Runner-local and child-lifecycle events are produced by the runner itself.
- * Only these Pi RPC event types are forwarded to a controller; everything
- * else (streaming token noise, undocumented internals) is dropped.
+ * The Pi events a child forwards to its parent. Everything else — streaming token noise,
+ * undocumented internals — is dropped, so the parent's projection only sees turn-level facts.
  */
 export const FORWARDED_PI_EVENT_TYPES = [
 	"agent_start",
@@ -14,6 +13,8 @@ export const FORWARDED_PI_EVENT_TYPES = [
 	"tool_execution_update",
 	"tool_execution_end",
 	"auto_retry",
+	"auto_retry_start",
+	"auto_retry_end",
 	"message_update",
 	"agent_settled",
 ] as const;
@@ -23,12 +24,5 @@ export function shouldForwardPiEvent(event: unknown): boolean {
 	return (
 		typeof event.type === "string" &&
 		(FORWARDED_PI_EVENT_TYPES as readonly string[]).includes(event.type)
-	);
-}
-
-export function isIdlePiState(value: unknown): boolean {
-	if (!isRecord(value)) return false;
-	return (
-		value.isStreaming === false && value.isCompacting === false && value.pendingMessageCount === 0
 	);
 }

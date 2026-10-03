@@ -48,10 +48,17 @@ describe("state projection", () => {
 		});
 		projector.applyEvent({ type: "error", message: "boom" });
 		expect(projector.snapshot()).toMatchObject({ state: "failed", interrupted: "boom" });
-		projector.applyEvent({ type: "runner_events_dropped", count: 4 });
-		expect(projector.snapshot()).toMatchObject({
-			state: "failed",
-			interrupted: "Runner dropped 4 events; live state may be stale",
+	});
+	test("follows a turn from agent_start to agent_settled", () => {
+		const projector = createStateProjector("starting");
+		projector.applyEvent({ type: "agent_start" });
+		expect(projector.snapshot().state).toBe("running");
+		projector.applyEvent({ type: "agent_end", messages: [] });
+		expect(projector.snapshot().state).toBe("running");
+		projector.applyEvent({
+			type: "agent_settled",
+			message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
 		});
+		expect(projector.snapshot()).toMatchObject({ state: "idle", summary: "done" });
 	});
 });

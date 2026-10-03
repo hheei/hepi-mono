@@ -56,6 +56,7 @@ describe("pi-ext-tools catalog", () => {
 			"wait_tasks",
 			"stop_tasks",
 			"apply_patch",
+			"codemode",
 			"eval",
 		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
