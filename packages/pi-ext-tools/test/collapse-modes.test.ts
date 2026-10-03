@@ -103,7 +103,7 @@ describe("tool frame collapse modes", () => {
 	test("on mode leaves a tool without longOutput expanded", async (): Promise<void> => {
 		const tui = createToolTui();
 		tui.setToolCollapseMode("on");
-		const { component } = await mounted(tui, "list_tasks", {});
+		const { component } = await mounted(tui, "list_jobs", {});
 		expect(rendered(component).split("\n").length).toBeGreaterThan(2);
 	});
 

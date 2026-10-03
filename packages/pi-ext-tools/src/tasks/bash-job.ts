@@ -3,7 +3,7 @@ import type { BashJobRegistry, BashJobSnapshot } from "../bash-jobs.js";
 
 const MAX_PURPOSE_CHARS = 200;
 
-export interface BashTaskRequest {
+export interface BashJobRequest {
 	readonly tasks: TaskRegistry;
 	readonly jobs: BashJobRegistry;
 	readonly command: string;
@@ -14,8 +14,8 @@ export interface BashTaskRequest {
 	readonly anchor?: string;
 }
 
-/** One-line intent shown in task listings and terminal deliveries. */
-export function bashTaskPurpose(command: string): string {
+/** One-line intent shown in job listings and terminal deliveries. */
+export function bashJobPurpose(command: string): string {
 	const line =
 		command
 			.split("\n")
@@ -44,11 +44,11 @@ function terminalFrom(job: BashJobSnapshot): TaskTerminal {
 	};
 }
 
-/** Starts one background Bash job and registers it as an observable task. */
-export function startBashTask(request: BashTaskRequest): TaskSnapshot {
+/** Starts one background Bash job and registers it as an observable job. */
+export function startBashJob(request: BashJobRequest): TaskSnapshot {
 	return request.tasks.create({
 		type: "bash",
-		purpose: bashTaskPurpose(request.command),
+		purpose: bashJobPurpose(request.command),
 		...(request.anchor === undefined ? {} : { anchor: request.anchor }),
 		begin: (taskId: string) => {
 			const job = request.jobs.start({
@@ -69,43 +69,6 @@ export function startBashTask(request: BashTaskRequest): TaskSnapshot {
 					return {
 						output: current?.output ?? "",
 						truncated: current?.truncated ?? false,
-					};
-				},
-			};
-		},
-	});
-}
-
-export interface PromoteBashTaskRequest {
-	readonly tasks: TaskRegistry;
-	readonly jobs: BashJobRegistry;
-	readonly jobId: string;
-	readonly command: string;
-	/** Branch marker captured when the command started. */
-	readonly anchor?: string;
-}
-
-/** Promotes an already running Bash job into an observable task. */
-export function promoteBashJobToTask(request: PromoteBashTaskRequest): TaskSnapshot | undefined {
-	const current = request.jobs.get(request.jobId);
-	if (current === undefined || current.status !== "running") return undefined;
-	return request.tasks.create({
-		type: "bash",
-		purpose: bashTaskPurpose(request.command),
-		...(request.anchor === undefined ? {} : { anchor: request.anchor }),
-		begin: (taskId: string) => {
-			request.jobs.bindTerminal(request.jobId, (finished): void => {
-				request.tasks.settle(taskId, terminalFrom(finished));
-			});
-			return {
-				stop: (): void => {
-					request.jobs.stop(request.jobId);
-				},
-				describe: (): TaskProgress => {
-					const job = request.jobs.get(request.jobId);
-					return {
-						output: job?.output ?? "",
-						truncated: job?.truncated ?? false,
 					};
 				},
 			};

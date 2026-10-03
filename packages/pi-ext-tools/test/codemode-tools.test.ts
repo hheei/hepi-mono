@@ -194,9 +194,9 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 		const state = createFffRuntimeState();
 		registerTaskTools(host.pi, state);
 
-		const listTasks = toolFor(host.tools, "list_tasks");
-		const waitTasks = toolFor(host.tools, "wait_tasks");
-		const stopTasks = toolFor(host.tools, "stop_tasks");
+		const listTasks = toolFor(host.tools, "list_jobs");
+		const waitTasks = toolFor(host.tools, "wait_jobs");
+		const stopTasks = toolFor(host.tools, "stop_jobs");
 
 		expect(listTasks.defaultActive).toBe(false);
 		expect(listTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: true });

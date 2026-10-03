@@ -43,7 +43,7 @@ export interface TaskDeliveryOptions {
  *
  * Busy parents receive results in the next model step; idle parents wait for all background
  * work to finish. Reading results through
- * `wait_tasks` is a separate path and never consumes or delays these notifications.
+ * `wait_jobs` is a separate path and never consumes or delays these notifications.
  *
  * Delivery is recorded in three states: `pending` (still reserved), `submitted` (handed to
  * the host, still unconfirmed) and `observed` (the host emitted the message lifecycle event).
@@ -61,7 +61,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		const pending = registry.pendingDeliveries();
 		const ready = pending.filter((event) => onCurrentBranch(session, event));
 		const waitingElsewhere = pending.filter((event) => !onCurrentBranch(session, event));
-		// An id that is no longer pending — read through wait_tasks, delivered, or evicted — must not
+		// An id that is no longer pending — read through wait_jobs, delivered, or evicted — must not
 		// stay in this set, or it would both grow without bound and stay silent if it returned.
 		for (const id of held) {
 			if (!waitingElsewhere.some((event) => event.id === id)) held.delete(id);
@@ -88,7 +88,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		for (const event of waiting) held.add(event.id);
 		const names = waiting.map((event) => event.shortId).join(", ");
 		notify(
-			`${waiting.length === 1 ? "A task result is" : `${waiting.length} task results are`} waiting on another branch: ${names}. Return to that branch, or read them with wait_tasks.`,
+			`${waiting.length === 1 ? "A job result is" : `${waiting.length} job results are`} waiting on another branch: ${names}. Return to that branch, or read them with wait_jobs.`,
 			"info",
 		);
 	};
@@ -185,7 +185,7 @@ function onCurrentBranch(session: ExtensionContext, event: TaskTerminalEvent): b
 	try {
 		return session.sessionManager.getBranch().some((entry) => entry.id === event.anchor);
 	} catch {
-		// A session without a readable branch keeps results readable through wait_tasks.
+		// A session without a readable branch keeps results readable through wait_jobs.
 		return false;
 	}
 }
@@ -200,7 +200,7 @@ function notificationText(event: TaskTerminalEvent): string {
 		// result, so an oversized one is pointed at rather than inlined.
 		return [
 			...head,
-			`output: a structured result (${event.output.length} chars) too large to inline; read it with wait_tasks ${event.id}.`,
+			`output: a structured result (${event.output.length} chars) too large to inline; read it with wait_jobs ${event.id}.`,
 		].join("\n");
 	}
 	const tail =

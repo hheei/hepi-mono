@@ -28,11 +28,13 @@ import { registerLsTool } from "./ls.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
 import { registerTaskTools } from "./task-tools.js";
+import { TODO_TOOL_REGISTRATION } from "./todo/todo.js";
 import { registerWriteTool, WRITE_TOOL_REGISTRATION } from "./write.js";
 
 const NATIVE_EDIT_REGISTRATIONS = [EDIT_TOOL_REGISTRATION, WRITE_TOOL_REGISTRATION] as const;
 const APPLY_PATCH_REGISTRATIONS = [APPLY_PATCH_TOOL_REGISTRATION] as const;
 const EVAL_REGISTRATIONS = [EVAL_TOOL_REGISTRATION] as const;
+export const TODO_REGISTRATIONS = [TODO_TOOL_REGISTRATION] as const;
 
 /** Activates and publishes only the resolved execution catalog. */
 export function activateEditCatalog(
@@ -50,6 +52,10 @@ export function activateEditCatalog(
 
 export function activateEvalCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
 	setManagedToolsActive(context, EVAL_REGISTRATIONS, enabled);
+}
+
+export function activateTodoCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
+	setManagedToolsActive(context, TODO_REGISTRATIONS, enabled);
 }
 
 /** Statically registers the explicitly approved canonical tool catalog. */

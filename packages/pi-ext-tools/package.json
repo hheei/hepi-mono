@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-tools",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Canonical Pi replacements for core coding tools.",
 	"type": "module",
 	"main": "dist/index.js",

@@ -4,6 +4,7 @@ import {
 	getRuntimeSettingsRegistry,
 	getToolTui,
 	registerExtensionLifecycle,
+	registerSettings,
 	registerToolTuiTrace,
 } from "@hheei/pi-ext-core";
 import { APPLY_PATCH_SETTINGS_KEY } from "./apply-patch/policy.js";
@@ -18,9 +19,15 @@ import { type EditCatalog, readEditMode, resolveEditCatalog } from "./fff/settin
 import { grepHasNoSearchablePaths } from "./grep.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { applyTargetPromptSection } from "./targets.js";
+import { createTodoSettingsProvider, readTodoSettings } from "./todo/settings.js";
 import { createTodoFeature } from "./todo/todo.js";
 import { registerToolTuiLifecycle } from "./tool-tui-settings.js";
-import { activateEditCatalog, activateEvalCatalog, registerTools } from "./tools.js";
+import {
+	activateEditCatalog,
+	activateEvalCatalog,
+	activateTodoCatalog,
+	registerTools,
+} from "./tools.js";
 
 /** Registers pi-ext-tools' static, canonical tool catalog. */
 export default function piExtToolsExtension(pi: ExtensionAPI): void {
@@ -32,6 +39,8 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	const todo = createTodoFeature(pi);
 	const evalSettings = readEvalSettings();
 	const evalEnabled = evalSettings.enabled;
+	const todoSettings = readTodoSettings();
+	const todoEnabled = todoSettings.enabled;
 	let editCatalog: EditCatalog | undefined;
 	let session: ExtensionLifecycleContext | undefined;
 	const evalTool = registerTools(pi, state, tui, evalState);
@@ -53,9 +62,14 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 					APPLY_PATCH_SETTINGS_KEY,
 				]),
 			);
+			context.resources.add(
+				"todo-settings",
+				registerSettings(createTodoSettingsProvider(), getRuntimeSettingsRegistry(pi)),
+			);
 			session = context;
 			syncEditCatalog(context, context.extension.model);
 			activateEvalCatalog(context, evalEnabled);
+			activateTodoCatalog(context, todoEnabled);
 			context.resources.add("edit-catalog-state", () => {
 				if (session === context) session = undefined;
 				editCatalog = undefined;
@@ -65,6 +79,7 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools/todo",
 		start: async ({ extension, resources, signal }) => {
+			if (!todoEnabled) return;
 			await todo.start(extension, signal);
 			const sessionId = extension.sessionManager.getSessionId();
 			resources.add("todo", () => todo.dispose(sessionId));

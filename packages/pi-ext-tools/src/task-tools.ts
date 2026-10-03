@@ -22,11 +22,11 @@ import { startTaskDelivery } from "./task-delivery.js";
 
 const OWNER = "@hheei/pi-ext-tools";
 
-/** Task-control tools: registered for every session, activated only while control is needed. */
+/** Job-control tools: registered for every session, activated only while control is needed. */
 export const TASK_TOOL_REGISTRATIONS = [
-	{ id: "list_tasks", owner: OWNER, defaultActive: false },
-	{ id: "wait_tasks", owner: OWNER, defaultActive: false },
-	{ id: "stop_tasks", owner: OWNER, defaultActive: false },
+	{ id: "list_jobs", owner: OWNER, defaultActive: false },
+	{ id: "wait_jobs", owner: OWNER, defaultActive: false },
+	{ id: "stop_jobs", owner: OWNER, defaultActive: false },
 ] as const satisfies readonly ManagedToolRegistration[];
 
 export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
@@ -86,7 +86,7 @@ function unavailable() {
 	return textToolResult(NO_ACTIVE_TASK_SESSION, { error: "session_unavailable" });
 }
 const ID_DESCRIPTION =
-	"Background task ids such as bash-1 or bash-22; single-task calls pass a one-element array.";
+	"Background job ids such as bash-1 or subagent-1; single-job calls pass a one-element array.";
 const Ids = Type.Array(Type.String({ minLength: 1 }), {
 	minItems: 1,
 	maxItems: 32,
@@ -96,7 +96,7 @@ const Ids = Type.Array(Type.String({ minLength: 1 }), {
 const ListParams = Type.Object(
 	{
 		includeTerminal: Type.Optional(
-			Type.Boolean({ description: "Also list tasks that already finished." }),
+			Type.Boolean({ description: "Also list jobs that already finished." }),
 		),
 	},
 	{ additionalProperties: false },
@@ -131,12 +131,12 @@ function taskLine(task: TaskSnapshot): string {
 
 function listText(tasks: readonly TaskSnapshot[], includeTerminal: boolean): string {
 	if (tasks.length === 0)
-		return includeTerminal ? "No background tasks." : "No active background tasks.";
-	// A task that was asked to stop has not stopped yet, so the count is of active work, not of runs.
+		return includeTerminal ? "No background jobs." : "No active background jobs.";
+	// A job that was asked to stop has not stopped yet, so the count is of active work, not of runs.
 	const active = tasks.filter((task) => !isTerminalTaskStatus(task.status)).length;
 	const heading = includeTerminal
-		? `${tasks.length} background tasks (${active} active):`
-		: `${active} active background tasks:`;
+		? `${tasks.length} background jobs (${active} active):`
+		: `${active} active background jobs:`;
 	return [heading, ...tasks.map(taskLine)].join("\n");
 }
 
@@ -178,9 +178,9 @@ export function registerTaskTools(
 ): void {
 	const getRegistry = (): TaskRegistry | undefined => state.getTasks();
 	const listTool: ToolDefinition<typeof ListParams, unknown> = {
-		name: "list_tasks",
-		label: "list_tasks",
-		description: "List background tasks started in this session.",
+		name: "list_jobs",
+		label: "list_jobs",
+		description: "List background jobs started in this session.",
 		parameters: ListParams,
 		defaultActive: false,
 		annotations: {
@@ -197,12 +197,12 @@ export function registerTaskTools(
 		},
 	};
 	const waitTool: ToolDefinition<typeof IdsParams, unknown> = {
-		name: "wait_tasks",
-		label: "wait_tasks",
+		name: "wait_jobs",
+		label: "wait_jobs",
 		description:
-			"Wait until every listed background task finishes and return their results directly. This does not consume the automatic completion notification.",
+			"Wait until every listed background job finishes (timeout: 1800s) and return their results directly.",
 		promptGuidelines: [
-			"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
+			"Do not poll background jobs. Use `wait_jobs` only when the next step needs their results.",
 		],
 		parameters: IdsParams,
 		defaultActive: false,
@@ -216,10 +216,45 @@ export function registerTaskTools(
 			const ids = readIds(params.ids);
 			if (ids === undefined)
 				return {
-					...textToolResult("wait_tasks needs at least one task id.", { error: "invalid_ids" }),
+					...textToolResult("wait_jobs needs at least one job id.", { error: "invalid_ids" }),
 					isError: true,
 				};
-			const outcomes = await tasks.wait(ids, signal);
+
+			const timeoutController = new AbortController();
+			let timedOut1800 = false;
+			const timeoutTimer = setTimeout(() => {
+				timedOut1800 = true;
+				timeoutController.abort();
+			}, 1800 * 1000);
+
+			const onSignalAbort = () => timeoutController.abort();
+			signal?.addEventListener("abort", onSignalAbort, { once: true });
+
+			let outcomes: readonly TaskWaitOutcome[];
+			try {
+				outcomes = await tasks.wait(ids, timeoutController.signal);
+			} finally {
+				clearTimeout(timeoutTimer);
+				signal?.removeEventListener("abort", onSignalAbort);
+			}
+
+			if (timedOut1800) {
+				const stillRunning = outcomes
+					.filter(
+						(outcome) => outcome.status !== "not_found" && !isTerminalTaskStatus(outcome.status),
+					)
+					.map((outcome) => outcome.id);
+				const checkpointNotice = `工作仍在进行中（已等待 1800 秒，涉及：${stillRunning.join(", ")}）。请确定工作状态是否正常再继续进行 wait_jobs，或调用 stop_jobs 终止。`;
+				return {
+					...textToolResult(`${checkpointNotice}\n\n${waitText(outcomes)}`, {
+						tasks: outcomes,
+						timedOut: true,
+						error: "wait_jobs_timeout",
+					}),
+					isError: true,
+				};
+			}
+
 			const cancelled = outcomes.some(
 				(outcome) => outcome.status !== "not_found" && !outcome.waited,
 			);
@@ -233,10 +268,10 @@ export function registerTaskTools(
 		},
 	};
 	const stopTool: ToolDefinition<typeof IdsParams, unknown> = {
-		name: "stop_tasks",
-		label: "stop_tasks",
-		description: "Stop listed background tasks. Stopping an already finished task is harmless.",
-		promptGuidelines: ["Stop background tasks when their results are no longer needed."],
+		name: "stop_jobs",
+		label: "stop_jobs",
+		description: "Stop listed background jobs. Stopping an already finished job is harmless.",
+		promptGuidelines: ["Stop background jobs when their results are no longer needed."],
 		parameters: IdsParams,
 		defaultActive: false,
 		annotations: {
@@ -248,7 +283,7 @@ export function registerTaskTools(
 			const ids = readIds(params.ids);
 			if (ids === undefined)
 				return {
-					...textToolResult("stop_tasks needs at least one task id.", { error: "invalid_ids" }),
+					...textToolResult("stop_jobs needs at least one job id.", { error: "invalid_ids" }),
 					isError: true,
 				};
 			const outcomes = tasks.stop(ids);
