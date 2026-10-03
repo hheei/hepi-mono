@@ -61,4 +61,25 @@ describe("state projection", () => {
 		});
 		expect(projector.snapshot()).toMatchObject({ state: "idle", summary: "done" });
 	});
+	test("clears interrupted on auto_retry_start and on successful agent_settled", () => {
+		const projector = createStateProjector("running");
+		projector.applyEvent({ type: "error", message: "504 upstream timeout" });
+		expect(projector.snapshot().interrupted).toBe("504 upstream timeout");
+		expect(projector.snapshot().state).toBe("failed");
+
+		projector.applyEvent({ type: "auto_retry_start" });
+		expect(projector.snapshot().state).toBe("running");
+		expect(projector.snapshot().interrupted).toBeUndefined();
+
+		projector.applyEvent({
+			type: "agent_settled",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "recovered" }],
+				stopReason: "stop",
+			},
+		});
+		expect(projector.snapshot().state).toBe("idle");
+		expect(projector.snapshot().interrupted).toBeUndefined();
+	});
 });

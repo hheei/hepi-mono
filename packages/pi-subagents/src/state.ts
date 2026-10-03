@@ -134,9 +134,15 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 				value.type === "auto_retry"
 			) {
 				state = "running";
+				interrupted = undefined;
 			} else if (value.type === "agent_end" || value.type === "agent_settled") {
 				// agent_end precedes retries, compaction and queued continuation work.
-				if (value.type === "agent_settled") state = "idle";
+				if (value.type === "agent_settled") {
+					if (state !== "failed") {
+						state = "idle";
+						interrupted = undefined;
+					}
+				}
 				const messages = Array.isArray(value.messages) ? value.messages : [];
 				const message = record(messages.length > 0 ? messages[messages.length - 1] : value.message);
 				if (message?.role === "assistant") {
@@ -144,6 +150,7 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 					if (value.type === "agent_settled") {
 						interrupted = diagnostic(message);
 						if (message.stopReason === "error") state = "failed";
+						else interrupted = undefined;
 					}
 				}
 			} else if (value.type === "error") {

@@ -25,7 +25,8 @@ export function isTerminalState(state: SubagentState): boolean {
 }
 
 export function isWidgetVisibleChild(child: PublicSubagent, nowMs = Date.now()): boolean {
-	if (child.state === "starting" || child.state === "running" || child.state === "idle") {
+	const visual = toVisualSubagentState(child.state, child.interrupted);
+	if (visual === "running") {
 		return true;
 	}
 	const updated = Date.parse(child.updatedAt);
@@ -156,19 +157,19 @@ export function createSubagentWidget(
 			return;
 		}
 		// 仅在有进行中任务或待淡出任务时维持 tick，纯 idle 时静默
-		const hasActiveOrExpiring = children.some(
-			(child) =>
-				child.state === "running" ||
-				child.state === "starting" ||
-				(isTerminalState(child.state) && isWidgetVisibleChild(child)),
-		);
+		const hasActiveOrExpiring = children.some((child) => isWidgetVisibleChild(child));
 		if (!hasActiveOrExpiring) {
 			stopTick();
 			return;
 		}
 		if (tick !== undefined) return;
 		tick = setInterval(() => {
-			widget.requestRender();
+			if (!hasRows()) {
+				widget.setVisible(false);
+				stopTick();
+			} else {
+				widget.requestRender();
+			}
 		}, ELAPSED_TICK_MS);
 	};
 	syncTick();

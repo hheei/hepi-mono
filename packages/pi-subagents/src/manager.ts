@@ -567,11 +567,7 @@ export class SubagentManager {
 		const entries = await this.#entries(id);
 		const text = entries !== undefined ? extractLastAssistantText(entries) : undefined;
 
-		const isBlocked =
-			record.state === "failed" ||
-			record.interrupted !== undefined ||
-			text === undefined ||
-			text.trim() === "";
+		const isBlocked = record.state === "failed" || text === undefined || text.trim() === "";
 
 		let message: string;
 		if (isBlocked) {
@@ -595,14 +591,26 @@ export class SubagentManager {
 		const reason = isBlocked ? "blocked" : "success";
 		const taskStatus = isBlocked ? "failed" : "completed";
 
+		const projector = this.#projectors.get(id);
 		if (!isBlocked) {
-			const projector = this.#projectors.get(id);
 			if (projector !== undefined) {
 				projector.syncState("done");
 			}
+			await this.#update(id, (current) => {
+				const { interrupted: _interrupted, ...clean } = current;
+				return {
+					...clean,
+					state: "done",
+				};
+			});
+		} else {
+			if (projector !== undefined) {
+				projector.syncState("failed");
+			}
 			await this.#update(id, (current) => ({
 				...current,
-				state: "done",
+				state: "failed",
+				interrupted: current.interrupted ?? message,
 			}));
 		}
 		if (this.#taskRegistry !== undefined) {
@@ -1135,13 +1143,14 @@ export class SubagentManager {
 			if (operation === undefined)
 				return failure("send", "Cannot infer send mode from unknown state", id, state);
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
-			const pending = await this.#update(id, (current) => ({
-				...current,
-				state: "running",
-				unacknowledgedInput: message,
-				interrupted:
-					"Input delivery was accepted for dispatch but is not yet confirmed in the session",
-			}));
+			const pending = await this.#update(id, (current) => {
+				const { interrupted: _interrupted, ...clean } = current;
+				return {
+					...clean,
+					state: "running",
+					unacknowledgedInput: message,
+				};
+			});
 			try {
 				await this.#request(id, operation, { message });
 			} catch (error) {
@@ -1321,12 +1330,23 @@ export class SubagentManager {
 				reason,
 				message,
 			});
-			if (reason === "blocked" && this.#taskRegistry !== undefined) {
-				this.#taskRegistry.settle(id, {
-					status: "failed",
-					output: message,
-					truncated: false,
-				});
+			if (reason === "blocked") {
+				const projector = this.#projectors.get(id);
+				if (projector !== undefined) {
+					projector.syncState("failed");
+				}
+				await this.#update(id, (current) => ({
+					...current,
+					state: "failed",
+					interrupted: message,
+				}));
+				if (this.#taskRegistry !== undefined) {
+					this.#taskRegistry.settle(id, {
+						status: "failed",
+						output: message,
+						truncated: false,
+					});
+				}
 			}
 			return { delivered: true };
 		} catch (error) {
@@ -1529,12 +1549,11 @@ export class SubagentManager {
 		await this.#update(
 			id,
 			(entry) => {
+				const { interrupted: _prevInterrupted, ...cleanEntry } = entry;
 				const base =
 					confirmedInput === undefined
-						? entry
-						: (({ unacknowledgedInput: _input, interrupted: _interrupted, ...rest }) => rest)(
-								entry,
-							);
+						? cleanEntry
+						: (({ unacknowledgedInput: _input, ...rest }) => rest)(cleanEntry);
 				return {
 					...base,
 					state: snapshot.state,
