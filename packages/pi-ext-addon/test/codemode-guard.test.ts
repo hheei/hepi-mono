@@ -1,6 +1,11 @@
 import type { ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
-import { createCodemodeGuard, isGeminiModel } from "../src/codemode-guard.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+	CODEMODE_REMINDER_CUSTOM_TYPE,
+	createCodemodeGuard,
+	DEFAULT_CODEMODE_BATCH_REMINDER,
+	isGeminiModel,
+} from "../src/codemode-guard.js";
 
 function makeEvent(options: {
 	toolName?: string;
@@ -50,21 +55,23 @@ describe("createCodemodeGuard", () => {
 	const claudeModel = { id: "claude-3-7-sonnet", provider: "anthropic" };
 
 	it("ignores non-Gemini models and resets counter", () => {
-		const guard = createCodemodeGuard();
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
 		const event = makeEvent({
 			toolName: "codemode",
 			calls: [{ tool: "read" }],
 			content: [{ type: "text", text: "result" }],
 		});
 
-		// Non-Gemini model
 		const res = guard.recordToolResult(event, claudeModel);
 		expect(res).toBeUndefined();
 		expect(guard.getConsecutiveCount()).toBe(0);
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("ignores non-codemode tools", () => {
-		const guard = createCodemodeGuard();
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
 		const event = makeEvent({
 			toolName: "bash",
 			content: [{ type: "text", text: "output" }],
@@ -73,10 +80,12 @@ describe("createCodemodeGuard", () => {
 		const res = guard.recordToolResult(event, geminiModel);
 		expect(res).toBeUndefined();
 		expect(guard.getConsecutiveCount()).toBe(0);
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("ignores nested/sub-tool calls inside codemode", () => {
-		const guard = createCodemodeGuard();
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
 		const event = makeEvent({
 			toolName: "codemode",
 			parentToolCallId: "parent-123",
@@ -87,10 +96,12 @@ describe("createCodemodeGuard", () => {
 		const res = guard.recordToolResult(event, geminiModel);
 		expect(res).toBeUndefined();
 		expect(guard.getConsecutiveCount()).toBe(0);
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
-	it("triggers reminder after 4 consecutive single-tool codemode calls", () => {
-		const guard = createCodemodeGuard();
+	it("never modifies tool result content and injects reminder via sendMessage after 4 single-tool calls", () => {
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
 
 		// Calls 1 to 3
 		for (let i = 1; i <= 3; i++) {
@@ -103,9 +114,10 @@ describe("createCodemodeGuard", () => {
 			);
 			expect(res).toBeUndefined();
 			expect(guard.getConsecutiveCount()).toBe(i);
+			expect(sendMessage).not.toHaveBeenCalled();
 		}
 
-		// Call 4: should trigger reminder!
+		// Call 4: triggers reminder injection via sendMessage, tool result content remains undefined (untouched)
 		const res4 = guard.recordToolResult(
 			makeEvent({
 				calls: [{ tool: "grep" }],
@@ -114,97 +126,85 @@ describe("createCodemodeGuard", () => {
 			geminiModel,
 		);
 
-		expect(res4).toBeDefined();
-		expect(res4?.content).toHaveLength(1);
-		expect((res4?.content?.[0] as { text: string })?.text).toContain("call 4 output");
-		expect((res4?.content?.[0] as { text: string })?.text).toContain("<system-reminder>");
-		expect((res4?.content?.[0] as { text: string })?.text).toContain(
-			"Reminder: You have made 4 consecutive `codemode` calls that each executed only a single tool.",
+		expect(res4).toBeUndefined();
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		expect(sendMessage).toHaveBeenCalledWith(
+			{
+				customType: CODEMODE_REMINDER_CUSTOM_TYPE,
+				content: DEFAULT_CODEMODE_BATCH_REMINDER,
+				display: true,
+			},
+			{ deliverAs: "steer" },
 		);
-
-		// Counter should reset to 0 after firing
+		expect(guard.hasTriggeredInCurrentLoop()).toBe(true);
 		expect(guard.getConsecutiveCount()).toBe(0);
 	});
 
-	it("resets counter if codemode batches 2 or more tools", () => {
-		const guard = createCodemodeGuard();
+	it("only triggers ONCE per human conversation loop, and resets on resetLoop()", () => {
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
 
-		// 3 single-tool calls
+		// Trigger on 4th call
+		for (let i = 1; i <= 4; i++) {
+			guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }] }), geminiModel);
+		}
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		expect(guard.hasTriggeredInCurrentLoop()).toBe(true);
+
+		// Another 4 single-tool calls in the same conversation loop: should NOT trigger again!
+		for (let i = 1; i <= 4; i++) {
+			guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }] }), geminiModel);
+		}
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+
+		// Now a new human prompt/loop starts (before_agent_start or agent_settled)
+		guard.resetLoop();
+		expect(guard.hasTriggeredInCurrentLoop()).toBe(false);
+		expect(guard.getConsecutiveCount()).toBe(0);
+
+		// In this new loop, reaching 4 single-tool calls triggers again
+		for (let i = 1; i <= 4; i++) {
+			guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }] }), geminiModel);
+		}
+		expect(sendMessage).toHaveBeenCalledTimes(2);
+	});
+
+	it("resets counter if codemode batches 2 or more tools", () => {
+		const sendMessage = vi.fn();
+		const guard = createCodemodeGuard({ sendMessage });
+
 		for (let i = 1; i <= 3; i++) {
-			guard.recordToolResult(
-				makeEvent({
-					calls: [{ tool: "read" }],
-					content: [{ type: "text", text: "ok" }],
-				}),
-				geminiModel,
-			);
+			guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }] }), geminiModel);
 		}
 		expect(guard.getConsecutiveCount()).toBe(3);
 
-		// 4th call batches 2 tools!
-		const batchedRes = guard.recordToolResult(
-			makeEvent({
-				calls: [{ tool: "read" }, { tool: "grep" }],
-				content: [{ type: "text", text: "batched result" }],
-			}),
-			geminiModel,
-		);
-
-		expect(batchedRes).toBeUndefined();
+		// Batched call
+		guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }, { tool: "grep" }] }), geminiModel);
 		expect(guard.getConsecutiveCount()).toBe(0);
-
-		// Next single tool call is count 1
-		guard.recordToolResult(
-			makeEvent({
-				calls: [{ tool: "read" }],
-				content: [{ type: "text", text: "ok" }],
-			}),
-			geminiModel,
-		);
-		expect(guard.getConsecutiveCount()).toBe(1);
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("supports custom threshold and reminder text", () => {
 		const customReminder = "<custom-reminder>Batch your tools!</custom-reminder>";
+		const sendMessage = vi.fn();
 		const guard = createCodemodeGuard({
 			threshold: 2,
 			reminderText: customReminder,
+			sendMessage,
 		});
 
-		guard.recordToolResult(
-			makeEvent({
-				calls: [{ tool: "read" }],
-				content: [{ type: "text", text: "1" }],
-			}),
-			geminiModel,
-		);
+		guard.recordToolResult(makeEvent({ calls: [{ tool: "read" }] }), geminiModel);
 		expect(guard.getConsecutiveCount()).toBe(1);
 
-		const res = guard.recordToolResult(
-			makeEvent({
-				calls: [],
-				content: [{ type: "text", text: "2" }],
-			}),
-			geminiModel,
+		guard.recordToolResult(makeEvent({ calls: [] }), geminiModel);
+
+		expect(sendMessage).toHaveBeenCalledWith(
+			{
+				customType: CODEMODE_REMINDER_CUSTOM_TYPE,
+				content: customReminder,
+				display: true,
+			},
+			{ deliverAs: "steer" },
 		);
-
-		expect(res).toBeDefined();
-		expect((res?.content?.[0] as { text: string })?.text).toContain(customReminder);
-		expect(guard.getConsecutiveCount()).toBe(0);
-	});
-
-	it("appends reminder as new text block if last block is not text", () => {
-		const guard = createCodemodeGuard({ threshold: 1 });
-		const res = guard.recordToolResult(
-			makeEvent({
-				calls: [{ tool: "read" }],
-				content: [{ type: "image", data: "base64..." }],
-			}),
-			geminiModel,
-		);
-
-		expect(res?.content).toHaveLength(2);
-		expect(res?.content?.[1]?.type).toBe("text");
-		expect((res?.content?.[1] as { text: string })?.text).toContain("<system-reminder>");
 	});
 });

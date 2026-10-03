@@ -35,6 +35,7 @@ export {
 	normalizeBatchToolRulesConfig,
 } from "./batch-tool-rules.js";
 export {
+	CODEMODE_REMINDER_CUSTOM_TYPE,
 	type CodemodeGuard,
 	type CodemodeGuardOptions,
 	createCodemodeGuard,
@@ -65,6 +66,10 @@ export {
 	saveDollarSkillConfig,
 } from "./dollar-skill/index.js";
 export { default } from "./extension.js";
+export {
+	registerGeminiThoughtGuard,
+	sanitizeGeminiThoughtSignatures,
+} from "./gemini-thought-guard.js";
 export {
 	is409SessionError,
 	isGptModel,
