@@ -83,11 +83,11 @@ guideline 都要各自说明这一点。
 
 - 父 agent 正在运行时，待交付内容立即以 `steer` 进入下一模型步骤，不打断当前工具批次。
 - 父 agent 空闲时，普通结果与报告等待所有活动后台工作结束，再统一触发一次新回合。TaskRegistry 的 queued/starting/running/stopping 均为活动；child 的启动与运行直到 `agent_settled` 才结束，`agent_end` 不算最终完成。
-- `need_decision` / `blocked` 是例外：空闲父 agent 只先接收紧急报告并立即被唤醒，避免 child 等待父回复而门控又等待 child 的死锁。普通结果不借紧急报告绕过空闲门控，父 agent 开始运行后才以 `steer` 进入下一步。
+- `blocked` 是例外：空闲父 agent 只先接收紧急卡点报告并立即被唤醒，避免 child 陷入死锁。普通结果不借紧急报告绕过空闲门控，父 agent 开始运行后才以 `steer` 进入下一步。
 - 同一轮检查先追加所有消息，只有最后一条请求新回合；忙时所有消息都走 `steer`。同一事件批次通过微任务合并检查，不引入新的秒级窗口。
 - 工作源与通道由各具体 extension 注册并清理；ext-core 只协调，不拥有队列或 transcript。单独安装任一 extension 仍成立。lifecycle signal 中止后，通道不能请求新回合；拆卸时 subagent 报告只追加，Task 结果仍遵循原交付确认规则。
 
-合并仍受总字节与条目数约束，小结果很多时拆成多条消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`task` 的缺省方式）在受理时就登记为
+合并仍受总字节与条目数约束，小结果很多时拆成多条消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（如同步执行的命令或调用）在受理时就登记为
 “结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。
 若该调用被中断，调用方在返回前显式放弃这份内联结果（`releaseInlineResult`），此后无论任务以
 `completed`（结果已提交）还是 `cancelled` 收尾，都会走正常的后台通知通道，而不是把结果留在已经返回的

@@ -304,7 +304,7 @@ Stage 6  文档与 ticket 收口（spec.md / tickets.md / README.md / architectu
   跨进程锁属于独立改动。
 - `get_entries` 无分页：超长 session 的响应可能超过 frame 上限。现在它只会让该次请求失败（父端收到明确错误），
   不会拆掉整条连接；分页留给后续。
-- `contact_parent`/`submit_task_result` 不接受 tool 的 AbortSignal：model 侧取消不会中断一次在途报告，
+- `contact_parent` 不接受 tool 的 AbortSignal：model 侧取消不会中断一次在途报告，
   child 离线时仍会占用有界缓冲直到重连。
 - cmux 不能报告聚焦（`TODO(cmux-focus)`），因此 cmux child 只由 `stop_agent` 关闭。
 - parent 重启后 adopt 的 panel child 没有本进程的 `HostAttachment`，聚焦观察/自动关闭/回收退化；见 spec.md §7.6。
