@@ -34,7 +34,7 @@ const spawnSchema = Type.Object({
 	forkFrom: Type.Optional(
 		Type.String({
 			description:
-				"Optional session or subagent id to fork context from: 'parent' (current parent session), or a subagent id like 'agent-1'. Inherits conversation history with thinking blocks sanitized and memory compacted if available.",
+				"Optional session or subagent id to reference context from: 'parent' (parent session), or a subagent id like 'agent-1'. Does not inject past conversation into the prompt; provides the referenced session JSONL path in instructions so the subagent can inspect prior context on demand via read or grep. Cannot be 'current'.",
 		}),
 	),
 });

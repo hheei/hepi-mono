@@ -136,6 +136,8 @@ export interface EffectiveLaunchConfig {
 	readonly sessionDir: string;
 	/** Known only once the session has been flushed to disk. */
 	readonly sessionPath?: string;
+	/** Optional path to a prior session JSONL file referenced for on-demand context inspection. */
+	readonly referencedSessionPath?: string;
 	readonly agent: ResolvedAgentIdentity;
 	readonly model: ResolvedModel;
 	readonly thinking: ResolvedThinking;

@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { SubagentRecord } from "../src/domain.js";
 import {
-	forkSubagentSession,
+	formatSessionReferencePrompt,
 	readSessionJsonlEntries,
-	sanitizeForkEntry,
+	resolveForkSessionReference,
 } from "../src/session-fork.js";
 
-describe("session-fork", () => {
+describe("session-fork (session reference)", () => {
 	let testDir: string;
 
 	beforeEach(async () => {
@@ -20,177 +20,36 @@ describe("session-fork", () => {
 		await rm(testDir, { recursive: true, force: true });
 	});
 
-	test("sanitizeForkEntry strips thinking blocks and thinkingSignature", () => {
-		const assistantEntry = {
-			type: "message",
-			message: {
-				role: "assistant",
-				thinkingSignature: "secret-sig-123",
-				content: [
-					{ type: "thinking", thinking: "internal thoughts", thinkingSignature: "sig" },
-					{ type: "text", text: "Hello user!" },
-				],
-			},
-		};
-
-		const sanitized = sanitizeForkEntry(assistantEntry) as {
-			type: string;
-			message: {
-				role: string;
-				thinkingSignature?: string;
-				content: Array<{ type: string; text?: string }>;
-			};
-		};
-
-		expect(sanitized.message.thinkingSignature).toBeUndefined();
-		expect(sanitized.message.content).toEqual([{ type: "text", text: "Hello user!" }]);
-	});
-
-	test("sanitizeForkEntry provides placeholder if assistant message was only thinking", () => {
-		const assistantEntry = {
-			type: "message",
-			message: {
-				role: "assistant",
-				content: [{ type: "thinking", thinking: "just thinking" }],
-			},
-		};
-
-		const sanitized = sanitizeForkEntry(assistantEntry) as {
-			message: { content: Array<{ type: string; text?: string }> };
-		};
-
-		expect(sanitized.message.content).toEqual([{ type: "text", text: "(previous response)" }]);
-	});
-
-	test("sanitizeForkEntry strips hindsight blocks from user and assistant text", () => {
-		const userEntry = {
-			type: "message",
-			message: {
-				role: "user",
-				content:
-					"Here is some text\n<hindsight-recall>\nsecret memory\n</hindsight-recall>\nand more text",
-			},
-		};
-
-		const sanitized = sanitizeForkEntry(userEntry) as {
-			message: { content: string };
-		};
-
-		expect(sanitized.message.content.trim()).toBe("Here is some text\nand more text");
-	});
-
-	test("forkSubagentSession forks from parent entries and writes valid JSONL", async () => {
-		const targetSessionDir = join(testDir, "agents");
-		const targetSessionId = "child-session-123";
-
-		const parentEntries = [
-			{
-				type: "session",
-				version: 1,
-				id: "parent-session-1",
-				timestamp: "2026-01-01T00:00:00.000Z",
-				cwd: testDir,
-			},
-			{
-				type: "message",
-				message: {
-					role: "user",
-					content: "Please build feature X",
-				},
-			},
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					thinkingSignature: "bad-sig",
-					content: [
-						{ type: "thinking", thinking: "pondering..." },
-						{ type: "text", text: "Sure, I will build feature X" },
-					],
-				},
-			},
-		];
-
-		const sessionFile = await forkSubagentSession({
-			targetSessionId,
-			targetCwd: testDir,
-			targetSessionDir,
-			forkFrom: "parent",
-			parentEntries,
-		});
-
-		const entries = await readSessionJsonlEntries(sessionFile);
-		expect(entries.length).toBe(3); // 1 header + 2 sanitized messages
-
-		const header = entries[0] as Record<string, unknown>;
-		expect(header.type).toBe("session");
-		expect(header.id).toBe(targetSessionId);
-		expect(header.cwd).toBe(testDir);
-
-		const assistantMsg = entries[2] as {
-			message: { role: string; thinkingSignature?: string; content: unknown[] };
-		};
-		expect(assistantMsg.message.thinkingSignature).toBeUndefined();
-		expect(assistantMsg.message.content).toEqual([
-			{ type: "text", text: "Sure, I will build feature X" },
-		]);
-	});
-
-	test("forkSubagentSession incorporates memory compaction draft if available", async () => {
-		const targetSessionDir = join(testDir, "agents");
-		const targetSessionId = "child-compact-456";
-
-		const parentEntries = [
-			{
-				type: "session",
-				version: 1,
-				id: "parent-session-2",
-				timestamp: "2026-01-01T00:00:00.000Z",
-				cwd: testDir,
-			},
-			{
-				type: "message",
-				message: { role: "user", content: "old message 1" },
-			},
-			{
-				type: "message",
-				message: { role: "assistant", content: [{ type: "text", text: "old answer 1" }] },
-			},
-			{
-				type: "message",
-				message: { role: "user", content: "latest question" },
-			},
-			{
-				type: "message",
-				message: { role: "assistant", content: [{ type: "text", text: "latest answer" }] },
-			},
-		];
-
-		const memoryCompactor = {
-			createCompactionDraft: () => ({
-				summary: "## Session Summary\nProject architecture was analyzed and task is underway.",
-				firstKeptEntryId: null,
+	test("resolveForkSessionReference rejects 'current'", async () => {
+		await expect(
+			resolveForkSessionReference({
+				forkFrom: "current",
+				parentSessionPath: join(testDir, "parent.jsonl"),
 			}),
-		};
-
-		const sessionFile = await forkSubagentSession({
-			targetSessionId,
-			targetCwd: testDir,
-			targetSessionDir,
-			forkFrom: "parent",
-			parentEntries,
-			memoryCompactor,
-		});
-
-		const entries = await readSessionJsonlEntries(sessionFile);
-		expect(entries.length).toBeGreaterThan(1);
-
-		const compaction = entries[1] as Record<string, unknown>;
-		expect(compaction.type).toBe("compaction");
-		expect(compaction.summary).toContain("Session Summary");
+		).rejects.toThrow(/cannot be 'current'/);
 	});
 
-	test("forkSubagentSession forks from existing subagent session file", async () => {
+	test("resolveForkSessionReference resolves 'parent'", async () => {
+		const parentSessionPath = join(testDir, "parent.jsonl");
+		await writeFile(parentSessionPath, '{"type":"session"}\n', "utf8");
+
+		const resolved = await resolveForkSessionReference({
+			forkFrom: "parent",
+			parentSessionPath,
+		});
+
+		expect(resolved).toBe(parentSessionPath);
+	});
+
+	test("resolveForkSessionReference fails for 'parent' when no session path is available", async () => {
+		await expect(
+			resolveForkSessionReference({
+				forkFrom: "parent",
+			}),
+		).rejects.toThrow(/Parent session has no associated session file/);
+	});
+
+	test("resolveForkSessionReference resolves subagent id from registry", async () => {
 		const priorSessionDir = join(testDir, "agents");
 		await mkdir(priorSessionDir, { recursive: true });
 		const priorSessionId = "prior-agent-session";
@@ -198,32 +57,7 @@ describe("session-fork", () => {
 			priorSessionDir,
 			`2026-01-01T00-00-00-000Z_${priorSessionId}.jsonl`,
 		);
-
-		const priorEntries = [
-			{
-				type: "session",
-				version: 1,
-				id: priorSessionId,
-				timestamp: "2026-01-01T00:00:00.000Z",
-				cwd: testDir,
-			},
-			{ type: "message", message: { role: "user", content: "Research auth" } },
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					content: [
-						{ type: "thinking", thinking: "pondering auth" },
-						{ type: "text", text: "Auth uses JWT tokens" },
-					],
-				},
-			},
-		];
-		await writeFile(
-			priorSessionFile,
-			`${priorEntries.map((e) => JSON.stringify(e)).join("\n")}\n`,
-			"utf8",
-		);
+		await writeFile(priorSessionFile, '{"type":"session"}\n', "utf8");
 
 		const mockRegistry = {
 			get: async (id: string): Promise<SubagentRecord | undefined> => {
@@ -239,23 +73,67 @@ describe("session-fork", () => {
 			},
 		};
 
-		const targetSessionId = "child-from-agent-1";
-		const sessionFile = await forkSubagentSession({
-			targetSessionId,
-			targetCwd: testDir,
-			targetSessionDir: join(testDir, "child-agents"),
+		const resolved = await resolveForkSessionReference({
 			forkFrom: "agent-1",
 			registry: mockRegistry,
 		});
 
-		const entries = await readSessionJsonlEntries(sessionFile);
-		expect(entries.length).toBe(3);
+		expect(resolved).toBe(priorSessionFile);
+	});
 
-		const header = entries[0] as Record<string, unknown>;
-		expect(header.id).toBe(targetSessionId);
-		expect(header.parentSession).toBe(priorSessionFile);
+	test("resolveForkSessionReference fails when subagent id is missing from registry", async () => {
+		const mockRegistry = {
+			get: async (): Promise<SubagentRecord | undefined> => undefined,
+		};
 
-		const assistant = entries[2] as { message: { content: unknown[] } };
-		expect(assistant.message.content).toEqual([{ type: "text", text: "Auth uses JWT tokens" }]);
+		await expect(
+			resolveForkSessionReference({
+				forkFrom: "agent-99",
+				registry: mockRegistry,
+			}),
+		).rejects.toThrow(/was not found in registry/);
+	});
+
+	test("resolveForkSessionReference resolves an explicit valid session file path", async () => {
+		const explicitPath = join(testDir, "custom-session.jsonl");
+		await writeFile(explicitPath, '{"type":"session"}\n', "utf8");
+
+		const resolved = await resolveForkSessionReference({
+			forkFrom: explicitPath,
+		});
+
+		expect(resolved).toBe(explicitPath);
+	});
+
+	test("resolveForkSessionReference fails when explicit session file does not exist", async () => {
+		const nonexistent = join(testDir, "nonexistent.jsonl");
+		await expect(
+			resolveForkSessionReference({
+				forkFrom: nonexistent,
+			}),
+		).rejects.toThrow(/Referenced session file not found/);
+	});
+
+	test("formatSessionReferencePrompt formats reference instructions for on-demand inspection", () => {
+		const prompt = formatSessionReferencePrompt("/path/to/prior-session.jsonl");
+		expect(prompt).toContain("## Referenced Session Context");
+		expect(prompt).toContain("/path/to/prior-session.jsonl");
+		expect(prompt).toContain("read or grep");
+		expect(prompt).toContain("instead of loading the entire history");
+	});
+
+	test("readSessionJsonlEntries reads valid JSONL entries from disk", async () => {
+		const filePath = join(testDir, "entries.jsonl");
+		await writeFile(
+			filePath,
+			'{"type":"session","id":"123"}\n{"type":"message","text":"hello"}\n',
+			"utf8",
+		);
+
+		const entries = await readSessionJsonlEntries(filePath);
+		expect(entries).toEqual([
+			{ type: "session", id: "123" },
+			{ type: "message", text: "hello" },
+		]);
 	});
 });

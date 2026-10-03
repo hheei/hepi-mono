@@ -26,6 +26,7 @@ import {
 	resolvePiInvocation,
 } from "./launch-spec.js";
 import type { SubagentRegistry } from "./registry.js";
+import { formatSessionReferencePrompt } from "./session-fork.js";
 
 /** Bounded read for a session header; the first line holds the whole identity of the file. */
 const HEADER_READ_BYTES = 64 * 1024;
@@ -221,6 +222,7 @@ export interface ResolveSubagentLaunchOptions {
 	readonly existingSubagentIds?: readonly string[];
 	readonly enforceEnabled?: boolean;
 	readonly sessionPath?: string;
+	readonly referencedSessionPath?: string;
 }
 
 /**
@@ -261,6 +263,10 @@ export async function resolveSubagentLaunch(
 			`Agent "${policy.agent.name}" is disabled: no model is specified in user configuration (~/.pi/agent/agents/ or .pi/agents/)`,
 		);
 	}
+	let instructions = policy.agent.instructions;
+	if (options.referencedSessionPath !== undefined && options.referencedSessionPath.trim() !== "") {
+		instructions = `${instructions.trim()}\n\n${formatSessionReferencePrompt(options.referencedSessionPath)}`;
+	}
 	return Object.freeze({
 		subagentId,
 		invocation: options.invocation ?? resolvePiInvocation(),
@@ -268,6 +274,9 @@ export async function resolveSubagentLaunch(
 		sessionId,
 		sessionDir: resolveSubagentSessionDir(cwd),
 		...(options.sessionPath === undefined ? {} : { sessionPath: options.sessionPath }),
+		...(options.referencedSessionPath === undefined
+			? {}
+			: { referencedSessionPath: options.referencedSessionPath }),
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
@@ -275,7 +284,7 @@ export async function resolveSubagentLaunch(
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
-		prompt: assembleChildPrompt(policy.agent.instructions),
+		prompt: assembleChildPrompt(instructions),
 		bridgeExtensionPath,
 		interactive: policy.interactive,
 		...(title === undefined ? {} : { title }),
