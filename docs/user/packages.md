@@ -16,7 +16,8 @@
 | [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-debug`](../../packages/pi-debug/README.md) | 开发诊断与确定性 TUI 回放 |
-| [`pi-subagents`](../../packages/pi-subagents/README.md) | 独立后台 Pi 子代理会话，仍在开发中 |
+| [`pi-subagents`](../../packages/pi-subagents/README.md) | 独立后台与面板 Pi 子代理会话编排，接入统一 TaskRegistry |
+| [`pi-ext-memory`](../../packages/pi-ext-memory/README.md) | 基于分层观测与反思的会话记忆与瞬间压缩扩展 |
 
 ## 共享基础包
 

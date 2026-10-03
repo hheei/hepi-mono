@@ -20,6 +20,8 @@ This directory records high-level information for users and developers. Detailed
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
 - [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
+- [Subagent extension architecture](architecture/pi-subagents.md): independent reconnectable subagent child sessions and host workspace targeting.
+- [Observational memory architecture](architecture/ext-memory.md): tiered observations, reflections, and instant compaction.
 - [Unified grep architecture](architecture/grep.md): FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-optimizer](optimizer/README.md): T2S、Caveman/Ponytail 提示词、可选 RTK 与统一设置入口。
