@@ -176,6 +176,7 @@ async function harness(
 	options: {
 		idleTimeoutMs?: number;
 		deadlineMs?: number;
+		failedPanelCloseTimeoutMs?: number;
 		/** Set when this parent has a presentation host and spawns into panels by default. */
 		host?: boolean;
 		/** Set when the host cannot report focus, which is how cmux behaves today. */
@@ -283,6 +284,9 @@ async function harness(
 		},
 		deadlineMs: options.deadlineMs ?? 1_000,
 		...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
+		...(options.failedPanelCloseTimeoutMs === undefined
+			? {}
+			: { failedPanelCloseTimeoutMs: options.failedPanelCloseTimeoutMs }),
 		async resolve(input: SpawnSubagentInput): Promise<EffectiveLaunchConfig> {
 			sequence += 1;
 			return launchConfig(`sa_child${sequence}`, input.cwd ?? cwd);
@@ -1508,4 +1512,62 @@ describe("SubagentManager over the bridge", () => {
 
 		expect((await test1.manager.get(childId)).state).toBe("done");
 	}, 10_000);
+
+	test("automatically closes panel after failedPanelCloseTimeoutMs when child reports blocked", async () => {
+		const test1 = await harness({ host: true, failedPanelCloseTimeoutMs: 50 });
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Fix broken component",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		const panel = test1.panels.get(childId);
+		expect(panel).toBeDefined();
+		expect(panel?.cleanups).toBe(0);
+
+		await test1.manager.contactParent(childId, "blocked", "Unrecoverable compile error");
+		expect(test1.reports).toHaveLength(1);
+		expect(test1.reports[0]?.reason).toBe("blocked");
+
+		// Panel should not be closed immediately (it has a 50ms countdown)
+		expect(panel?.cleanups).toBe(0);
+
+		// Wait for countdown to expire
+		await vi.waitFor(
+			() => {
+				expect(panel?.cleanups).toBe(1);
+			},
+			{ timeout: 1_000 },
+		);
+
+		const updatedRecord = await test1.manager.get(childId);
+		expect(updatedRecord.state).toBe("failed");
+	});
+
+	test("cancels panel close countdown if a new message is sent before timeout", async () => {
+		const test1 = await harness({ host: true, failedPanelCloseTimeoutMs: 100 });
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Fix broken component",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		const panel = test1.panels.get(childId);
+		expect(panel).toBeDefined();
+		expect(panel?.cleanups).toBe(0);
+
+		await test1.manager.contactParent(childId, "blocked", "Need more info");
+		expect(panel?.cleanups).toBe(0);
+
+		// Send new instructions to resume work before the 100ms timer fires
+		await test1.manager.send(childId, "Try using the alternative API instead");
+
+		// Wait 150ms and confirm cleanup was NOT called because send cancelled it
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(panel?.cleanups).toBe(0);
+	});
 });

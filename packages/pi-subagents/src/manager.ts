@@ -99,6 +99,7 @@ export interface ManagerDependencies {
 	readonly connect: (record: SubagentRecord) => Promise<boolean>;
 	readonly deadlineMs?: number;
 	readonly idleTimeoutMs?: number;
+	readonly failedPanelCloseTimeoutMs?: number;
 	readonly channel?: ParentChannel;
 	readonly tokens?: RuntimeTokenStore;
 }
@@ -256,6 +257,7 @@ export class SubagentManager {
 	readonly #workVersions = new Map<string, number>();
 	readonly #idleTimers = new Map<string, NodeJS.Timeout>();
 	readonly #autoReportTimers = new Map<string, NodeJS.Timeout>();
+	readonly #failedPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #lastDeliveredTurn = new Map<string, string>();
 	readonly #stopping = new Set<string>();
 	readonly #listeners = new Set<() => void>();
@@ -320,6 +322,8 @@ export class SubagentManager {
 	 */
 	public closeLocalConnections(): void {
 		this.dispose();
+		for (const timer of this.#failedPanelCloseTimers.values()) clearTimeout(timer);
+		this.#failedPanelCloseTimers.clear();
 		this.#processes.clear();
 		this.#attachments.clear();
 		this.#leftSessions.clear();
@@ -444,6 +448,7 @@ export class SubagentManager {
 	#bumpActivity(id: string): void {
 		this.#activity.set(id, (this.#activity.get(id) ?? 0) + 1);
 		this.#clearAutoReport(id);
+		this.#clearFailedPanelClose(id);
 	}
 
 	/**
@@ -556,6 +561,62 @@ export class SubagentManager {
 			clearTimeout(timer);
 			this.#autoReportTimers.delete(id);
 		}
+	}
+
+	#scheduleFailedPanelClose(id: string): void {
+		const attachment = this.#attachments.get(id);
+		if (attachment === undefined) return;
+		this.#clearFailedPanelClose(id);
+		const timeoutMs = this.#deps.failedPanelCloseTimeoutMs ?? 15_000;
+		const timer = setTimeout(() => {
+			this.#failedPanelCloseTimers.delete(id);
+			void this.#closeFailedPanel(id).catch((error) => {
+				diagnose(`failed to close failed panel for child ${id}: ${errorMessage(error)}`);
+			});
+		}, timeoutMs);
+		timer.unref?.();
+		this.#failedPanelCloseTimers.set(id, timer);
+	}
+
+	#clearFailedPanelClose(id: string): void {
+		const timer = this.#failedPanelCloseTimers.get(id);
+		if (timer !== undefined) {
+			clearTimeout(timer);
+			this.#failedPanelCloseTimers.delete(id);
+		}
+	}
+
+	async #closeFailedPanel(id: string): Promise<void> {
+		const attachment = this.#attachments.get(id);
+		if (attachment === undefined) return;
+		const record = await this.#deps.registry.get(id);
+		if (record === undefined || record.state === "running" || record.intent === "stopped") {
+			return;
+		}
+		if (this.#deps.bridge.isConnected(id)) {
+			await this.#request(id, "shutdown").catch(() => undefined);
+		}
+		const runtime = this.#processes.get(id);
+		if (runtime !== undefined) {
+			await runtime.terminate().catch(() => undefined);
+			this.#processes.delete(id);
+		}
+		try {
+			await attachment.cleanup();
+		} catch (error) {
+			diagnose(`failed to cleanup panel for failed child ${id}: ${errorMessage(error)}`);
+		}
+		this.#attachments.delete(id);
+		await this.#update(id, (current) => {
+			if (current.intent === "stopped") return current;
+			const { runtime: _runtime, ...withoutRuntime } = current;
+			return {
+				...withoutRuntime,
+				interrupted:
+					current.interrupted ??
+					"The child panel was automatically closed after failure settlement",
+			};
+		});
 	}
 
 	async #performAutoReport(id: string, _record: SubagentRecord): Promise<void> {
@@ -1042,6 +1103,7 @@ export class SubagentManager {
 	): Promise<OperationError | PublicSubagent> {
 		const message = stripHindsightContent(rawMessage);
 		this.#clearIdleHibernate(id);
+		this.#clearFailedPanelClose(id);
 		return this.#mutate(id, async () => {
 			let record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
@@ -1143,6 +1205,7 @@ export class SubagentManager {
 			if (operation === undefined)
 				return failure("send", "Cannot infer send mode from unknown state", id, state);
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
+			this.#clearFailedPanelClose(id);
 			const pending = await this.#update(id, (current) => {
 				const { interrupted: _interrupted, ...clean } = current;
 				return {
@@ -1189,6 +1252,7 @@ export class SubagentManager {
 		return this.#mutate(id, async () => {
 			if (this.#stopping.has(id)) return this.get(id);
 			this.#stopping.add(id);
+			this.#clearFailedPanelClose(id);
 			let record: SubagentRecord | undefined;
 			try {
 				record = await this.#deps.registry.get(id);
@@ -1347,6 +1411,7 @@ export class SubagentManager {
 						truncated: false,
 					});
 				}
+				this.#scheduleFailedPanelClose(id);
 			}
 			return { delivered: true };
 		} catch (error) {

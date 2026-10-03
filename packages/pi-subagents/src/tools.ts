@@ -25,6 +25,12 @@ const spawnSchema = Type.Object({
 				"Short session title for this child, e.g. 'OVITO properties editor'. It becomes the child's Pi session title, prefixed with a robot marker so delegated sessions stay recognizable; omit it — or leave it blank — to derive one from the agent name and child id.",
 		}),
 	),
+	forkFrom: Type.Optional(
+		Type.String({
+			description:
+				"Optional session or subagent id to fork context from: 'parent' (current parent session), or a subagent id like 'agent-1'. Inherits conversation history with thinking blocks sanitized and memory compacted if available.",
+		}),
+	),
 });
 const sendSchema = Type.Object({
 	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
