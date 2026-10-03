@@ -133,12 +133,8 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
 
 ## Agent 结果契约
 
-`outputSchema` 是 JSON Schema。开始前用 allowlist 校验其形态：TypeBox 会静默忽略不认识的关键字、
-未知 format 与部分非法结构，因此不支持的关键字、外部 `$ref`、无法终止的 `$ref` 环、超大 schema
-都在启动前拒绝，而不是悄悄少校验。指定 schema 时成功结果必须通过校验；未指定时可以返回文本。
-两者都只通过 Task child 专属的 `submit_task_result` 提交：它必须是该 assistant 消息唯一的
-tool call，提交前校验并保存候选，随后返回 Pi 原生 `terminate: true`。普通 `contact_parent` 只承载
-进度、发现与求助。
+子 Agent 完成任务时直接输出最终回复文本，无需通过专门的汇报工具提交。当子 Agent 完成回合沉降并保持空闲 5 秒（防抖）后，Harness 自动提取末尾的 Assistant 输出文本交付给父会话，并以 `customType: "pi-subagent-report"` 呈现，同时在 `TaskRegistry` 中将该任务沉降为 `completed`。
+当遇到不可恢复错误或中断时，则向父会话交付 blocked 报告并将对应任务沉降为 `failed`。子 Agent 侧的 `contact_parent` 仅用于向父会话报告关键卡点或紧急请求决策。
 
 软提示只在跨过阈值时提醒一次，提醒目标、进展与收敛建议，不 abort、不切模型、不改变终态，也不在
 已有合法候选后注入。阈值是策略常量（当前 60 轮），不是硬轮次上限。

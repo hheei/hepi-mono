@@ -101,7 +101,7 @@ panel child 由 host 持有进程，天然跨 parent 存活，因此它的 runti
 
 ### 4.1 Model-facing tools
 
-会话模式注册五个 semantic tools，由 `subagent_enable` 按需激活；另有一个统一的常驻 `task` 入口，非交互式任务 Agent 由 `<task_agents>` XML 注入系统提示词：
+会话模式注册交互式工具，由 `subagent_enable` 按需激活：
 
 ```ts
 subagent_enable({})
@@ -110,50 +110,35 @@ send_agent({ id: string, message: string, mode?: "steer" | "follow_up" | "auto" 
 get_agent({ id: string })
 list_agents({})
 stop_agent({ id: string })
-
-task({ agent: string, task: string, cwd?: string, blocking?: boolean, outputSchema?: object })
 ```
 
-`task` 是共享后台任务契约的 producer（见
-[`docs/architecture/background-tasks.md`](../architecture/background-tasks.md)）：受理、状态、等待、
-停止与通知都由该契约决定，不新增第二套 subagent 通道。缺省（或 `blocking: true`）在本次调用内返回结果
-且不再发送后台通知；显式 `blocking: false` 立即返回 task id，结果稍后回到父上下文。该入口要求
-`@hheei/pi-ext-tools` 提供的共享 registry；缺失时它不激活并明确说明原因，不会静默改走
-`spawn_agent`。
+统一任务生命周期管理：
+子 Agent 通过 `bindTaskRegistry` 统一接入 ext-core 的 `TaskRegistry`。后台 Bash 任务与子 Agent 统一通过 `wait_tasks` 命令查询与等待，无需碎片化、专属性的任务工具。
 
 规则：
 
-- `task` 默认等待，这就是 review、审计、verification、scout 侦查这类「下一步需要的东西」的默认方式：省略
-  `blocking` 即可。只有「可以稍后才看」的长工作才传 `blocking: false` 转后台。`spawn_agent` 是之后还要
-  继续对话的伙伴，不承担这一角色，其工具提示指向 `task`。
 - 不提供 `spawn_agents`；并行由 Pi parallel tool calls 提供。
-- `spawn_agent` 与 `task` 都必须给出明确 agent name；内置 `scout` 只是一个可选定义，不是默认
-  agent，缺名或解析失败在启动前失败。
+- `spawn_agent` 必须给出明确 agent name；缺名或解析失败在启动前失败。
 - `spawn_agent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
-- `spawn_agent` 的 `title?` 只是 child session 的展示名：它在 spawn 时被冻结进 launch config，child branch 首次 bind 时写成 `🤖 <title>`；省略或纯空白时按「自己起名」处理，用 `🤖 <agent> · <subagentId>` 推导，不报错。只影响 Pi 的 session 标题，不改变 child identity、host attachment label 或投递策略。
-- `spawn_agent` / `send_agent` 返回后，模型不得用 `get_agent` / `list_agents` 轮询等待 child 完成。Child 通过 `contact_parent` 报告；parent 以 `customType: "pi-subagent-report"` 投递并 `triggerTurn` 进入下一 turn。
-  - 投递保留 `customType: "pi-subagent-report"`，与 Bash/task 结果共用 ext-core 完成门控；不再使用 30 秒合并窗口。parent 忙时以 `steer` 进入下一模型步骤；空闲时普通报告等所有后台工作结束，一次追加全部待交付消息并只触发一个新回合。child 的运行结束以 `agent_settled` 为准，不以 `agent_end` 为准。
-  - `need_decision` / `blocked` 不等待完成门控，立即唤醒空闲 parent。parent 自己开始活动时，暂存报告进入该 run；session 结束时只追加不叫醒。`nextTurn` 不用于自动结果交付。
+- `spawn_agent` 的 `title?` 只是 child session 的展示名：省略或纯空白时用 `🤖 <agent> · <subagentId>` 推导。
+- `spawn_agent` / `send_agent` 返回后，模型不得用 `get_agent` / `list_agents` 轮询等待 child 完成。Child 任务沉降并保持空闲 5 秒后，Harness 自动提取最终输出文本并以 `customType: "pi-subagent-report"` 交付父会话；卡点则通过 `contact_parent` 立即唤醒父会话。
 - `get_agent` / `list_agents` 只用于需要当前身份或状态时，不是完成通道。
-- `send_agent` 只接受目标 child 和语义输入；backend 根据明确 mode 或 child 状态选择投递方式。
-- `get/list` 返回可确认的状态、presentation、latest summary、interruption、usage、runtime observability，以及冻结的 model/thinking 及其来源（agent 或 parent）；last-known 值不得伪装成实时值。
-- `stop_agent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime（后台进程或 panel）。
-- `task` 每次创建专属 child：固定后台呈现、不接收 follow-up、完成后不唤醒，结果确认后终止
-  runtime；进程槽位在确认退出后释放。这些限制在所有入口（tool、command、恢复）都能
-  观察到，而不是只写在文档里。
+- `send_agent` 只接受目标 child 和语义输入；发送给已完成（done）的 child 会自动唤醒并恢复其上下文。模型切勿在派发前等待或要求 Worker “冻结代码”。
+- `stop_agent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
 
 ### 4.2 Child-facing tool
 
-child branch 只注册：
+child branch 注册：
 
 ```ts
 contact_parent({
-  reason: "progress_update" | "important_finding" | "need_decision" | "blocked";
   message: string;
+  reason?: "blocked";
 })
 ```
 
-每条 report 携带 child identity、parent identity、原始任务锚点和当前状态。parent 把内容视为 delegated result，不视为新的用户授权。parent 不可达时 child 只在本地有界缓冲待确认报告（丢最旧并可见报错）；缓冲满时明确失败，不阻塞 child。`contact_parent` 在 autonomous 与 interactive 两种 child 上都唤醒 parent。Child 正常 `agent_end` 且本 turn 未调用 `contact_parent`、用户未接管时，child branch 可发送 follow-up nudge，提醒调用 `contact_parent`；nudge 不得退出 session。
+- **正常完成不调工具**：子 Agent 完成任务时直接输出最终回答文本即可。Harness 在检测到连续 5 秒空闲后自动提取文本完成汇报，并将 `TaskRegistry` 对应任务状态标记为 `completed`。
+- **卡点与决策**：子 Agent 仅在遇到真正阻碍自身无法继续的严重卡点、或必须由父 Agent 决策的关键问题时调用 `contact_parent`。报告立即唤醒父 Agent，并将任务状态标记为 `failed`（阻塞）。
 
 ### 4.3 Agent definitions
 
