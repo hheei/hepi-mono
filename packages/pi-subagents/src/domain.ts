@@ -247,6 +247,11 @@ export interface SpawnSubagentInput {
 	readonly presentation?: Presentation | "auto";
 	/** Optional child session title; the child branch prefixes it with the subagent marker. */
 	readonly title?: string;
+	/**
+	 * Optional session or agent to fork context from (e.g. 'parent', or a subagent id like 'agent-1').
+	 * Thinking blocks are stripped and context is compacted if pi-ext-memory is active.
+	 */
+	readonly forkFrom?: string;
 }
 
 /** True when a manager call returned a structured failure instead of a value. */

@@ -31,6 +31,8 @@ Subagents communicate with the parent over a dedicated Unix domain socket bridge
 - **Settlement Debounce**: When a subagent finishes a turn and remains idle for 5 seconds (to prevent false idles), the harness automatically captures the trailing assistant text and delivers it to the parent conversation dialog as a completed `pi-subagent-report`.
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
 - **Automatic Retry**: If a subagent encounters a transient error, the harness allows one automatic retry before marking the task failed or delivering a blocked notification.
+- **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
+- **Context Forking (`forkFrom`)**: `spawn_agent` can inherit past conversation via `forkFrom: 'parent'` or a subagent id like `agent-1`. Thinking blocks and signatures are automatically sanitized to prevent token bloat, and if `pi-ext-memory` is active, ledger memory is compacted into an initial summary so the child starts with rich, clean context.
 
 ## Three visual states
 

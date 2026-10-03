@@ -220,6 +220,7 @@ export interface ResolveSubagentLaunchOptions {
 	readonly sessionId?: string;
 	readonly existingSubagentIds?: readonly string[];
 	readonly enforceEnabled?: boolean;
+	readonly sessionPath?: string;
 }
 
 /**
@@ -266,6 +267,7 @@ export async function resolveSubagentLaunch(
 		cwd,
 		sessionId,
 		sessionDir: resolveSubagentSessionDir(cwd),
+		...(options.sessionPath === undefined ? {} : { sessionPath: options.sessionPath }),
 		agent: policy.agent,
 		model: policy.model,
 		thinking: policy.thinking,
