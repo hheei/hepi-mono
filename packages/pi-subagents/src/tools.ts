@@ -12,6 +12,12 @@ import { type ChildIdentity, isOperationError, type PublicSubagent } from "./dom
 import type { SubagentManager } from "./manager.js";
 
 const spawnSchema = Type.Object({
+	id: Type.Optional(
+		Type.String({
+			description:
+				"Optional subagent id (e.g. 'agent-1') to re-awaken an idle or completed subagent with a new task instead of creating a new one.",
+		}),
+	),
 	task: Type.String({ minLength: 1 }),
 	agent: Type.String({
 		minLength: 1,

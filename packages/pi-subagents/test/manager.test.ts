@@ -1061,7 +1061,7 @@ describe("SubagentManager over the bridge", () => {
 		expect((await test1.registry.get(spawned.child.id))?.sessionId).toBe(spawned.child.sessionId);
 	});
 
-	test("idle observation of an already exited panel is terminal before its delayed disconnect", async () => {
+	test("idle observation of an already exited panel marks done without blocked and can be resumed", async () => {
 		const test1 = await harness({ idleTimeoutMs: 10, host: true });
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
@@ -1073,18 +1073,12 @@ describe("SubagentManager over the bridge", () => {
 			type: "agent_settled",
 			message: { role: "assistant", stopReason: "stop" },
 		});
-		// The host confirms exit while the old socket still looks connected. No shutdown has been
-		// requested by us yet, so this must not become a resumable automatic reclaim.
+		// An idle panel whose process exits is not blocked: it marks done and remains active
 		await vi.waitFor(async () => {
-			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "stopped" });
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "done" });
 		});
 		test1.bridge.disconnect(spawned.child.id);
-		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
-			reason: expect.stringContaining("never resumes"),
-			safeToRetry: false,
-		});
 		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(false);
-		expect(test1.openPanel).toHaveBeenCalledTimes(1);
 	});
 
 	test("does not reclaim a panel that started being used while the check was in flight", async () => {
@@ -1186,19 +1180,17 @@ describe("SubagentManager over the bridge", () => {
 		expect(attachment.cleanups).toBeGreaterThan(0);
 	});
 
-	test.each([
-		"running",
-		"idle",
-	] as const)("manual panel close while %s is terminal", async (state) => {
+	test("manual panel close while running is terminal", async () => {
 		const test1 = await harness({ host: true });
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
 		const attachment = test1.panels.get(spawned.child.id);
 		if (attachment === undefined) throw new Error("no panel was opened");
 
-		// The host no longer runs the child: the panel is a leftover, so it is closed without being
-		// asked to be.
-		await test1.registry.update(spawned.child.id, undefined, (current) => ({ ...current, state }));
+		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+			...current,
+			state: "running",
+		}));
 		attachment.alive = false;
 		test1.bridge.disconnect(spawned.child.id);
 		await vi.waitFor(async () => {
@@ -1207,7 +1199,6 @@ describe("SubagentManager over the bridge", () => {
 				freshness: "last_known",
 			});
 		});
-		// The session and identity survive for inspection, but a manual close must not reopen it.
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
 			operation: "send",
 			reason: expect.stringContaining("never resumes"),
@@ -1220,6 +1211,32 @@ describe("SubagentManager over the bridge", () => {
 			sessionId: spawned.child.sessionId,
 		});
 		expect(test1.tokens.forget).toHaveBeenCalledWith("runtime-1");
+	});
+
+	test("manual panel close while idle is done and not blocked", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+
+		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+			...current,
+			state: "idle",
+		}));
+		attachment.alive = false;
+		test1.bridge.disconnect(spawned.child.id);
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+				state: "done",
+				freshness: "last_known",
+			});
+		});
+		expect(attachment.cleanups).toBe(1);
+		expect(await test1.registry.get(spawned.child.id)).toMatchObject({
+			intent: "active",
+			sessionId: spawned.child.sessionId,
+		});
 	});
 
 	test("send detecting a closed panel fails in that same call", async () => {
@@ -1569,5 +1586,55 @@ describe("SubagentManager over the bridge", () => {
 		// Wait 150ms and confirm cleanup was NOT called because send cancelled it
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		expect(panel?.cleanups).toBe(0);
+	});
+
+	test("closing an idle panel marks state as done without interrupted, keeping intent active", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Initial background inspection",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		// Settle child into idle
+		test1.manager.handleEvent(childId, {
+			type: "agent_settled",
+			message: {
+				role: "assistant",
+				stopReason: "stop",
+			},
+		});
+		await vi.waitFor(async () => {
+			const rec = await test1.manager.get(childId);
+			expect(rec.state).toBe("idle");
+		});
+
+		const panel = test1.panels.get(childId);
+		expect(panel).toBeDefined();
+
+		// Simulate user closing the panel tab (panel observation reports alive = false)
+		if (panel) panel.alive = false;
+		test1.bridge.disconnect(childId);
+
+		await vi.waitFor(async () => {
+			const rec = await test1.manager.get(childId);
+			if ("reason" in rec) throw new Error(rec.reason);
+			expect(rec.state).toBe("done");
+			expect(rec.interrupted).toBeUndefined();
+		});
+
+		expect((await test1.registry.get(childId))?.intent).toBe("active");
+
+		// Re-awaken via spawn with id
+		const respawned = await test1.manager.spawn({
+			id: childId,
+			agent: "worker",
+			task: "Follow-up task after panel close",
+		});
+		if ("reason" in respawned) throw new Error(respawned.reason);
+		expect(respawned.child.id).toBe(childId);
+		expect(respawned.child.state).toBe("running");
 	});
 });
