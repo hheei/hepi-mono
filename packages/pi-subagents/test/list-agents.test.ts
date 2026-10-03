@@ -73,7 +73,7 @@ describe("list_agents tool", () => {
 		const child = {
 			id: "sa_interactive1",
 			agent: "worker",
-			state: "idle",
+			state: "done",
 			presentation: "background",
 			cwd: "/test",
 			sessionId: "s1",
@@ -103,7 +103,7 @@ describe("list_agents tool", () => {
 		expect(text).toContain("<running_agents>");
 		expect(text).toContain("sa_interactive1");
 		expect(text).toContain("worker");
-		expect(text).toContain("idle");
+		expect(text).toContain("done");
 		expect(text).toContain("interactive partner");
 		expect(text).toContain("</running_agents>");
 	});

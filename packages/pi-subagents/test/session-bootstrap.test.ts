@@ -246,7 +246,7 @@ test("persists the spawn intent before any process starts and keeps the task rec
 			sessionId: config.sessionId,
 			initialTask: "Fix the failing test",
 			unacknowledgedInput: "Fix the failing test",
-			state: "starting",
+			state: "running",
 			presentation: "background",
 			persistence: "never_flushed",
 			intent: "active",

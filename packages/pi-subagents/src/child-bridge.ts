@@ -17,7 +17,6 @@ import { type ChildControl, registerChildControl } from "./child-control.js";
 import type { ChildIdentity } from "./domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, CHILD_TITLE_ENV_KEY } from "./domain.js";
 import { registerChildTools } from "./tools.js";
-import { createChildIdentityWidget } from "./widget.js";
 
 const USER_INTERRUPT_STOP_REASON = "aborted";
 
@@ -161,20 +160,6 @@ export function registerChildBridge(
 		isBound,
 	});
 	const stop = new AbortController();
-	let identityWidget: { dispose(): void } | undefined;
-	const disposeWidget = (): void => {
-		identityWidget?.dispose();
-		identityWidget = undefined;
-	};
-	const showIdentity = (ctx: ExtensionContext): void => {
-		disposeWidget();
-		if (!state.bound || ctx.mode !== "tui") return;
-		const tools = pi.getAllTools();
-		identityWidget = createChildIdentityWidget(pi, ctx, stop.signal, {
-			agent: process.env[CHILD_AGENT_ENV_KEY] ?? "",
-			toolCount: tools.length,
-		});
-	};
 	const reportLifecycle = (kind: ChildLifecycleKind, sessionId: string, message?: string): void => {
 		control.sendEvent({
 			type: "child_lifecycle",
@@ -189,7 +174,6 @@ export function registerChildBridge(
 	const leave = (sessionId: string): void => {
 		if (!state.bound) return;
 		state.bound = false;
-		disposeWidget();
 		reportLifecycle("left_session", sessionId);
 		// This process serves another session from now on, so it is never this child again: closing the
 		// bridge for good is what keeps a parent that missed the notice (its socket was down, or it
@@ -219,11 +203,13 @@ export function registerChildBridge(
 		// Connecting here is what makes a live bridge mean a live session: the parent's first request
 		// can never arrive before this process has a session to answer it with.
 		control.start(ctx);
+		if (ctx.ui?.setToolsExpanded) {
+			ctx.ui.setToolsExpanded(false);
+		}
 		if (!state.bound && state.boundSessionId === "") {
 			state.boundSessionId = sessionId;
 			state.bound = true;
 			titleSession(sessionId);
-			showIdentity(ctx);
 			return;
 		}
 		if (
@@ -238,14 +224,12 @@ export function registerChildBridge(
 		}
 		if (state.bound && sessionId === state.boundSessionId) {
 			titleSession(sessionId);
-			showIdentity(ctx);
 		}
 	});
 	pi.on("session_shutdown", (event: SessionShutdownEvent, ctx: ExtensionContext) => {
 		if (state.bound && shouldReportTuiQuit({ reason: event.reason, mode: ctx.mode })) {
 			reportLifecycle("tui_quit", state.boundSessionId);
 		}
-		disposeWidget();
 		if (shouldDisposeBridge(event.reason)) {
 			// The process is going away (quit) or this extension is about to be loaded again (reload):
 			// either way this client stops dialing, and the reloaded bridge serves the same session.

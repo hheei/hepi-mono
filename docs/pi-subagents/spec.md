@@ -121,7 +121,7 @@ stop_agent({ id: string })
 - `spawn_agent` 必须给出明确 agent name；缺名或解析失败在启动前失败。
 - `spawn_agent` 不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
 - `spawn_agent` 的 `title?` 只是 child session 的展示名：省略或纯空白时用 `🤖 <agent> · <subagentId>` 推导。
-- `spawn_agent` / `send_agent` 返回后，模型不得用 `get_agent` / `list_agents` 轮询等待 child 完成。Child 任务沉降并保持空闲 5 秒后，Harness 自动提取最终输出文本并以 `customType: "pi-subagent-report"` 交付父会话；卡点则通过 `contact_parent` 立即唤醒父会话。
+- `spawn_agent` / `send_agent` 返回后，模型不得用 `get_agent` / `list_agents` 轮询等待 child 完成。Child 任务沉降并保持空闲 5 秒后，Harness 自动提取最终输出文本并以 `customType: "subagent-report"` 交付父会话；卡点则通过 `contact_parent` 立即唤醒父会话。
 - `get_agent` / `list_agents` 只用于需要当前身份或状态时，不是完成通道。
 - `send_agent` 只接受目标 child 和语义输入；发送给已完成（done）的 child 会自动唤醒并恢复其上下文。模型切勿在派发前等待或要求 Worker “冻结代码”。
 - `stop_agent` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。

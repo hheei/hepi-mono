@@ -49,7 +49,7 @@ widget ← PublicSubagent（list / live events）
 
 要改的是话术和 child 忘记报告时的 nudge：
 
-- `spawn_subagent` / `send_subagent`：写明返回后不要 `get`/`list` 空转等待；child 报告会作为带 `customType: "pi-subagent-report"` 的消息进入下一 turn。`get`/`list` 只用于需要当前状态或身份时。
+- `spawn_subagent` / `send_subagent`：写明返回后不要 `get`/`list` 空转等待；child 报告会作为带 `customType: "subagent-report"` 的消息进入下一 turn。`get`/`list` 只用于需要当前状态或身份时。
 - `contact_parent`：写明调用后 parent 会被唤醒；不要为同一事实连打多次；`need_decision` / `blocked` 之后等待 parent 的 `send_subagent`，不要自行假设授权。
 - `CHILD_BRIDGE_PROMPT`：同样写死上述通道。
 - Child `agent_end` 且正常 stop、本 turn 未调用 `contact_parent`、用户未接管时，延迟 nudge（借用他们的 timer 逻辑，默认 5s，可用 `PI_SUBAGENTS_NUDGE_DELAY_MS` / `PI_SUBAGENTS_NUDGE_DISABLE`）。Nudge 用 Pi `sendUserMessage(..., { deliverAs: "followUp" })`，文案要求调用 `contact_parent`。
@@ -139,7 +139,7 @@ Registry / `SubagentManager.list()` 是身份真源。Widget 不得持有第二�
 interactive?: boolean  // default false
 
 // parent 消息（不变）
-customType: "pi-subagent-report" | "pi-subagent-recovery-failure"
+customType: "subagent-report" | "pi-subagent-recovery-failure"
 ```
 
 `PublicSubagent` 增加只读 `interactive`。不新增 model-facing tool，不新增 `pi-subagent-stall`，不把 activity 写入 registry。

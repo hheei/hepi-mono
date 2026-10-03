@@ -47,7 +47,7 @@ export async function resolveForkSessionReference(
 		throw new Error("Parent session has no associated session file on disk to reference");
 	}
 
-	if (/^agent-\d+$/u.test(target) && registry !== undefined) {
+	if (registry !== undefined) {
 		const record = await registry.get(target).catch(() => undefined);
 		if (record !== undefined) {
 			const subagentSessionPath =
@@ -58,7 +58,9 @@ export async function resolveForkSessionReference(
 			}
 			throw new Error(`Subagent ${target} has no session file on disk to reference`);
 		}
-		throw new Error(`Subagent ${target} was not found in registry`);
+		if (/^agent-\d+$/u.test(target)) {
+			throw new Error(`Subagent ${target} was not found in registry`);
+		}
 	}
 
 	// Treat as explicit session file path

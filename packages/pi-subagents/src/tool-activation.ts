@@ -236,11 +236,7 @@ export function registerInteractiveToolActivation(
 			try {
 				const children = await manager.list();
 				hasLiveChildren = children.some(
-					(child) =>
-						child.freshness === "live" ||
-						child.state === "starting" ||
-						child.state === "running" ||
-						child.state === "idle",
+					(child) => child.freshness === "live" || child.state === "running",
 				);
 			} catch {
 				// manager may be recovering or unavailable

@@ -133,7 +133,7 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
 
 ## Agent 结果契约
 
-子 Agent 完成任务时直接输出最终回复文本，无需通过专门的汇报工具提交。当子 Agent 完成回合沉降并保持空闲 5 秒（防抖）后，Harness 自动提取末尾的 Assistant 输出文本交付给父会话，并以 `customType: "pi-subagent-report"` 呈现，同时在 `TaskRegistry` 中将该任务沉降为 `completed`。
+子 Agent 完成任务时直接输出最终回复文本，无需通过专门的汇报工具提交。当子 Agent 完成回合沉降并保持空闲 5 秒（防抖）后，Harness 自动提取末尾的 Assistant 输出文本交付给父会话，并以 `customType: "subagent-report"` 呈现，同时在 `TaskRegistry` 中将该任务沉降为 `completed`。
 当遇到不可恢复错误或中断时，则向父会话交付 blocked 报告并将对应任务沉降为 `failed`。子 Agent 侧的 `contact_parent` 仅用于向父会话报告关键卡点或紧急请求决策。
 
 软提示只在跨过阈值时提醒一次，提醒目标、进展与收敛建议，不 abort、不切模型、不改变终态，也不在

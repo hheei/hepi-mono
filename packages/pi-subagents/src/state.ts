@@ -4,6 +4,7 @@ export interface StateSnapshot {
 	readonly state: SubagentState;
 	readonly summary?: string;
 	readonly interrupted?: string;
+	readonly activeTool?: string;
 	readonly usage: UsageSummary;
 }
 export interface StateProjector {
@@ -113,15 +114,17 @@ export function aggregateUsage(entries: readonly unknown[]): UsageSummary {
 	}
 	return total;
 }
-export function createStateProjector(initialState: SubagentState = "starting"): StateProjector {
+export function createStateProjector(initialState: SubagentState = "running"): StateProjector {
 	let state = initialState;
 	let summary: string | undefined;
 	let interrupted: string | undefined;
+	let activeTool: string | undefined;
 	let usage: UsageSummary = EMPTY_USAGE;
 	const snapshot = (): StateSnapshot => ({
 		state,
 		...(summary === undefined ? {} : { summary }),
 		...(interrupted === undefined ? {} : { interrupted }),
+		...(activeTool === undefined ? {} : { activeTool }),
 		usage,
 	});
 	return {
@@ -135,11 +138,26 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 			) {
 				state = "running";
 				interrupted = undefined;
+				activeTool = undefined;
+			} else if (value.type === "tool_execution_start") {
+				activeTool = typeof value.toolName === "string" ? value.toolName : undefined;
+			} else if (value.type === "tool_execution_end") {
+				activeTool = undefined;
+			} else if (value.type === "message_update") {
+				const message = record(value.message);
+				if (message?.role === "assistant") {
+					const currentText = text(message);
+					if (currentText !== undefined) {
+						summary = currentText;
+						activeTool = undefined;
+					}
+				}
 			} else if (value.type === "agent_end" || value.type === "agent_settled") {
+				activeTool = undefined;
 				// agent_end precedes retries, compaction and queued continuation work.
 				if (value.type === "agent_settled") {
-					if (state !== "failed") {
-						state = "idle";
+					if (state !== "error" && state !== "blocked") {
+						state = "done";
 						interrupted = undefined;
 					}
 				}
@@ -149,18 +167,19 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 					summary = text(message) ?? summary;
 					if (value.type === "agent_settled") {
 						interrupted = diagnostic(message);
-						if (message.stopReason === "error") state = "failed";
+						if (message.stopReason === "error") state = "error";
 						else interrupted = undefined;
 					}
 				}
 			} else if (value.type === "error") {
-				state = "failed";
+				state = "error";
 				interrupted =
 					typeof value.message === "string" ? value.message : "Runner reported an error";
 			}
 			return snapshot();
 		},
 		rebuild(entries) {
+			activeTool = undefined;
 			summary = summarizeCurrentBranch(entries);
 			usage = aggregateUsage(entries);
 			let lastAssistant: Record<string, unknown> | undefined;
@@ -171,8 +190,8 @@ export function createStateProjector(initialState: SubagentState = "starting"): 
 			}
 			if (lastAssistant !== undefined) {
 				interrupted = diagnostic(lastAssistant);
-				if (lastAssistant.stopReason === "error") state = "failed";
-				else if (state === "failed") state = "idle";
+				if (lastAssistant.stopReason === "error") state = "error";
+				else if (state === "error") state = "done";
 			} else {
 				interrupted = undefined;
 			}

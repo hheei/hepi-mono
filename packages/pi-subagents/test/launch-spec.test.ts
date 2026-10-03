@@ -9,6 +9,7 @@ import { CHILD_TITLE_ENV_KEY } from "../src/domain.js";
 import {
 	assembleChildPrompt,
 	buildLaunchSpec,
+	resolvePiInvocation,
 	stripHindsightContent,
 	withBridgeToken,
 } from "../src/launch-spec.js";
@@ -224,6 +225,21 @@ test("assembles child prompt with reporting and final output guidance", (): void
 	expect(prompt).toContain("output your final answer and findings directly in text");
 });
 
+test("buildLaunchSpec appends codemode to --tools and injects PI_CODEMODE_MODE when codemodeOnly is true", (): void => {
+	const built = spec(
+		launchConfig({
+			codemodeOnly: true,
+			tools: ["read", "grep", "contact_parent"],
+		}),
+		"background",
+		"never_flushed",
+	);
+	const toolsIndex = built.argv.indexOf("--tools");
+	expect(toolsIndex).toBeGreaterThan(-1);
+	expect(built.argv[toolsIndex + 1]).toBe("read,grep,contact_parent,codemode");
+	expect(built.env.PI_CODEMODE_MODE).toBe("only");
+});
+
 test("strips hindsight memory recall tags from tasks and inputs", (): void => {
 	const raw = `Investigate this bug.\n<hindsight-recall>\npage: "Arch"\nsecret context\n</hindsight-recall>\nFocus on the parser.`;
 	expect(stripHindsightContent(raw)).toBe("Investigate this bug.\nFocus on the parser.");
@@ -237,4 +253,24 @@ test("excludes all hindsight tools from child Pi argv", (): void => {
 	expect(excluded).toContain("hindsight_search_knowledge_pages");
 	expect(excluded).toContain("hindsight_reflect");
 	expect(excluded).toContain("hindsight_ingest_document");
+});
+
+test("resolvePiInvocation prioritizes PI_DEV_BIN when running under pi-dev", (): void => {
+	const origDev = process.env.PI_DEV;
+	const origDevBin = process.env.PI_DEV_BIN;
+	try {
+		process.env.PI_DEV = "1";
+		process.env.PI_DEV_BIN = process.execPath; // known existing executable
+		const inv = resolvePiInvocation();
+		expect(inv).toEqual({ command: process.execPath, args: [] });
+
+		delete process.env.PI_DEV_BIN;
+		const invFallback = resolvePiInvocation();
+		expect(invFallback).toEqual({ command: "pi-dev", args: [] });
+	} finally {
+		if (origDev !== undefined) process.env.PI_DEV = origDev;
+		else delete process.env.PI_DEV;
+		if (origDevBin !== undefined) process.env.PI_DEV_BIN = origDevBin;
+		else delete process.env.PI_DEV_BIN;
+	}
 });

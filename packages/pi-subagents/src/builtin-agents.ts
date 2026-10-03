@@ -167,7 +167,7 @@ export function builtinAgentToolProblem(
 	if (missing.length > 0) {
 		return `tools it declares are missing: ${missing.join(", ")}`;
 	}
-	const gained = tools.filter((tool) => !declared.includes(tool));
+	const gained = tools.filter((tool) => !declared.includes(tool) && tool !== "codemode");
 	if (gained.length > 0) {
 		return `it would gain tools it never declared: ${gained.join(", ")}`;
 	}

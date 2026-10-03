@@ -287,6 +287,7 @@ export async function resolveSubagentLaunch(
 		prompt: assembleChildPrompt(instructions),
 		bridgeExtensionPath,
 		interactive: policy.interactive,
+		...(policy.codemodeOnly ? { codemodeOnly: true } : {}),
 		...(title === undefined ? {} : { title }),
 	});
 }
@@ -347,7 +348,7 @@ export async function persistSubagentIntent(
 		cwd: launchConfig.cwd,
 		initialTask: task,
 		intent: "active",
-		state: "starting",
+		state: "running",
 		presentation: options.presentation ?? "background",
 		persistence: placement.persistence,
 		launchConfig: Object.freeze({

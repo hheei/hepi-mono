@@ -5,6 +5,9 @@ script_path=$(realpath "$0" 2>/dev/null || readlink -f "$0")
 script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
 root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
+export PI_DEV=1
+export PI_DEV_BIN="${PI_DEV_BIN:-$script_path}"
+
 exec node \
 	--no-warnings \
 	--import "$root/node_modules/jiti/lib/jiti-register.mjs" \

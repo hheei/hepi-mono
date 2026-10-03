@@ -569,3 +569,57 @@ test("built-in scout omits model and is non-compliant (disabled) until configure
 		expect(reviewer?.enabled).toBe(true);
 	});
 });
+
+test("codemode only detection appends codemode to tools and marks codemodeOnly", async (): Promise<void> => {
+	await withTempDir("pi-subagents-agents-", async (directory) => {
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+
+		// Agent with explicit codemode: only in frontmatter
+		await writeAgent(
+			directory,
+			"project",
+			"code-worker",
+			[
+				"---",
+				"name: code-worker",
+				"tools: read,grep,contact_parent",
+				"codemode: only",
+				"model: openai/gpt-5-codex",
+				"---",
+				"Do the code work.",
+			].join("\n"),
+		);
+
+		const resolved = await resolve(directory, "code-worker", bridge);
+		expect(resolved.codemodeOnly).toBe(true);
+		expect(resolved.tools).toEqual(["read", "grep", "contact_parent", "codemode"]);
+
+		// Agent without codemode field when settings.json has codemode: { mode: "only" }
+		const agentDir = join(directory, "home", ".pi", "agent");
+		await mkdir(agentDir, { recursive: true });
+		await writeFile(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ codemode: { mode: "only" } }),
+			"utf8",
+		);
+
+		await writeAgent(
+			directory,
+			"project",
+			"plain-worker",
+			[
+				"---",
+				"name: plain-worker",
+				"tools: read,contact_parent",
+				"model: openai/gpt-5-codex",
+				"---",
+				"Plain worker.",
+			].join("\n"),
+		);
+
+		const resolvedPlain = await resolve(directory, "plain-worker", bridge);
+		expect(resolvedPlain.codemodeOnly).toBe(true);
+		expect(resolvedPlain.tools).toEqual(["read", "contact_parent", "codemode"]);
+	});
+});

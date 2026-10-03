@@ -137,6 +137,15 @@ function resolveBundledPiCli(): string | undefined {
  * argv atoms keep their exact bytes.
  */
 export function resolvePiInvocation(): PiInvocation {
+	if (process.env.PI_DEV === "1" || process.env.PI_DEV_BIN !== undefined) {
+		const devBin = process.env.PI_DEV_BIN;
+		if (devBin !== undefined && existsSync(devBin)) {
+			return { command: devBin, args: [] };
+		}
+		if (process.env.PI_DEV === "1") {
+			return { command: "pi-dev", args: [] };
+		}
+	}
 	const execPath = process.execPath;
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/") ?? false;
@@ -196,7 +205,11 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 	argv.push("--session-dir", config.sessionDir);
 	argv.push("--provider", config.model.provider, "--model", config.model.id);
 	argv.push("--thinking", config.thinking.level);
-	if (config.tools.length > 0) argv.push("--tools", config.tools.join(","));
+	const effectiveTools =
+		config.codemodeOnly && !config.tools.includes("codemode")
+			? [...config.tools, "codemode"]
+			: config.tools;
+	if (effectiveTools.length > 0) argv.push("--tools", effectiveTools.join(","));
 	const excludeTools = Array.from(new Set([...config.excludeTools, ...HINDSIGHT_TOOLS]));
 	if (excludeTools.length > 0) argv.push("--exclude-tools", excludeTools.join(","));
 	if (!config.extensions.discovery) argv.push("--no-extensions");
@@ -215,6 +228,7 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		// Empty is the defined "derive the title in the child" case, mirroring the task channel below.
 		[CHILD_TITLE_ENV_KEY]: config.title ?? "",
 		PI_HINDSIGHT_DISABLE: "1",
+		...(config.codemodeOnly ? { PI_CODEMODE_MODE: "only" } : {}),
 	};
 
 	return Object.freeze({

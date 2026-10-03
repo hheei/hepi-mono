@@ -175,7 +175,7 @@ test("a completed child report reaches the next parent activity without a timer"
 
 	expect(parent.sent).toHaveLength(1);
 	expect(parent.sent[0]?.message).toMatchObject({
-		customType: "pi-subagent-report",
+		customType: "subagent-report",
 		display: true,
 		details: { reports: [report("c", "found it")] },
 	});
