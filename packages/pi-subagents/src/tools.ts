@@ -51,13 +51,12 @@ const idSchema = Type.Object({
 const contactSchema = Type.Object({
 	message: Type.String({
 		minLength: 1,
-		description:
-			"Explanation of why you are blocked and what decision or intervention is required from the parent.",
+		description: "Explanation of what is blocking progress or the error encountered.",
 	}),
 	reason: Type.Optional(
-		Type.Literal("blocked", {
+		Type.Union([Type.Literal("blocked"), Type.Literal("error")], {
 			description:
-				"Optional blocker indicator (defaults to 'blocked'). Do NOT call on success: write normal text to finish.",
+				"Reason: 'blocked' if waiting for input/guidance (can be resumed via send_agent), or 'error' if fatal unrecoverable failure (cannot continue). Defaults to 'blocked'.",
 		}),
 	),
 });
@@ -349,17 +348,23 @@ export function registerChildTools(
 					"This Pi session is not the bound subagent session; contact_parent is disabled.",
 				);
 			}
+			const reason = params.reason ?? "blocked";
 			const details = {
 				type: "pi_subagent_report" as const,
 				parentSessionId: identity.parentSessionId,
 				childId: identity.subagentId,
 				runtimeIdentity: identity.runtimeIdentity,
-				reason: "blocked" as const,
+				reason,
 				message: params.message,
 				sessionId,
 			};
 			await options.report("contact_parent", details, signal);
-			return textToolResult("Blocker report queued for the parent.", details);
+			return textToolResult(
+				reason === "error"
+					? "Error report delivered to the parent."
+					: "Blocker report queued for the parent.",
+				details,
+			);
 		},
 	};
 	pi.registerTool(

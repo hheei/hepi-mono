@@ -82,14 +82,26 @@ export function renderSubagentWidget(
 	const running = visible.filter(
 		(child) => toVisualSubagentState(child.state, child.interrupted) === "running",
 	).length;
-	const allDone =
-		visible.length > 0 &&
-		visible.every((child) => toVisualSubagentState(child.state, child.interrupted) === "done");
+	const hasError = visible.some(
+		(child) => toVisualSubagentState(child.state, child.interrupted) === "error",
+	);
 	const hasBlocked = visible.some(
 		(child) => toVisualSubagentState(child.state, child.interrupted) === "blocked",
 	);
-	const headingColor = running > 0 ? "accent" : hasBlocked ? "error" : allDone ? "success" : "dim";
-	const headingGlyph = running > 0 ? "󰪠" : hasBlocked ? "󰅚" : allDone ? "󰄴" : "󰄰";
+	const allDone =
+		visible.length > 0 &&
+		visible.every((child) => toVisualSubagentState(child.state, child.interrupted) === "done");
+	const headingColor =
+		running > 0
+			? "accent"
+			: hasError
+				? "error"
+				: hasBlocked
+					? "warning"
+					: allDone
+						? "success"
+						: "dim";
+	const headingGlyph = running > 0 ? "󰪠" : hasError ? "󰅚" : hasBlocked ? "󰀪" : allDone ? "󰄴" : "󰄰";
 	const heading = `${theme.fg(headingColor, headingGlyph)} ${theme.fg("text", "Subagents")} ${theme.fg("dim", `(${visible.length})`)}`;
 	const lines = [truncateToWidth(heading, width, theme.fg("dim", "…"))];
 	const rows = visible.slice(0, MAX_ROWS);

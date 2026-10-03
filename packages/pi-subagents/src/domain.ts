@@ -3,7 +3,14 @@ import { isRecord } from "@hheei/pi-ext-core";
 export const PROTOCOL_VERSION = 1 as const;
 export const REGISTRY_VERSION = 1 as const;
 
-export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped" | "failed";
+export type SubagentState =
+	| "starting"
+	| "running"
+	| "idle"
+	| "done"
+	| "stopped"
+	| "blocked"
+	| "failed";
 /**
  * Where a child is presented: `panel` is the native Pi TUI in a host panel (herdr tab / cmux
  * surface), `background` is a headless Pi the parent owns over stdio. It is frozen when the child
@@ -12,12 +19,14 @@ export type SubagentState = "starting" | "running" | "idle" | "done" | "stopped"
 export type Presentation = "panel" | "background";
 export type SendMode = "steer" | "follow_up" | "auto";
 
-export type VisualSubagentState = "running" | "done" | "blocked";
+export type VisualSubagentState = "running" | "done" | "blocked" | "error";
 
 export function toVisualSubagentState(
 	state: SubagentState,
 	interrupted?: string,
 ): VisualSubagentState {
+	if (state === "failed" || state === "stopped") return "error";
+	if (state === "blocked") return "blocked";
 	if (interrupted !== undefined && state !== "done") return "blocked";
 	switch (state) {
 		case "starting":
@@ -26,22 +35,24 @@ export function toVisualSubagentState(
 			return "running";
 		case "done":
 			return "done";
-		case "stopped":
-		case "failed":
-			return "blocked";
 	}
 }
 
 export const VISUAL_SUBAGENT_GLYPH: Record<VisualSubagentState, string> = {
 	running: "󰪠",
 	done: "󰄴",
-	blocked: "󰅚",
+	blocked: "󰀪",
+	error: "󰅚",
 };
 
-export const VISUAL_SUBAGENT_TONE: Record<VisualSubagentState, "accent" | "success" | "error"> = {
+export const VISUAL_SUBAGENT_TONE: Record<
+	VisualSubagentState,
+	"accent" | "success" | "warning" | "error"
+> = {
 	running: "accent",
 	done: "success",
-	blocked: "error",
+	blocked: "warning",
+	error: "error",
 };
 
 export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
@@ -49,6 +60,7 @@ export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
 	running: "󰪠",
 	idle: "󰪠",
 	done: "󰄴",
+	blocked: "󰀪",
 	stopped: "󰅚",
 	failed: "󰅚",
 };
@@ -61,6 +73,7 @@ export const SUBAGENT_TONE: Record<
 	running: "accent",
 	idle: "accent",
 	done: "success",
+	blocked: "warning",
 	failed: "error",
 	stopped: "error",
 };
@@ -316,6 +329,7 @@ const SUBAGENT_STATES: Record<string, true> = {
 	idle: true,
 	done: true,
 	stopped: true,
+	blocked: true,
 	failed: true,
 };
 

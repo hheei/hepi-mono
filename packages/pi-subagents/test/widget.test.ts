@@ -87,12 +87,12 @@ describe("subagent widget projection", () => {
 		expect(running[1]).toContain("<dim>· 12s</dim>");
 
 		const interrupted = renderSubagentWidget(
-			[child({ state: "idle", interrupted: "waiting for confirm" })],
+			[child({ state: "blocked", interrupted: "waiting for confirm" })],
 			200,
 			recordingTheme(),
 			now,
 		);
-		expect(interrupted[1]).toContain("<error>blocked</error>");
+		expect(interrupted[1]).toContain("<warning>blocked</warning>");
 		expect(
 			renderSubagentWidget(
 				[child({ displayName: "Reviewer", freshness: "last_known", state: "idle" })],

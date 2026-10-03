@@ -1,15 +1,14 @@
 import { errorMessage, isRecord, type TaskRegistry } from "@hheei/pi-ext-core";
 import type { ChildRuntime } from "./child-process.js";
-import {
-	type EffectiveLaunchConfig,
-	isOperationError,
-	type OperationError,
-	type Presentation,
-	type PublicSubagent,
-	type SendMode,
-	type SpawnSubagentInput,
-	type SubagentRecord,
-	type SubagentState,
+import type {
+	EffectiveLaunchConfig,
+	OperationError,
+	Presentation,
+	PublicSubagent,
+	SendMode,
+	SpawnSubagentInput,
+	SubagentRecord,
+	SubagentState,
 } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
@@ -410,6 +409,7 @@ export class SubagentManager {
 			record.presentation === "panel" &&
 			record.intent === "active" &&
 			record.state !== "done" &&
+			record.state !== "blocked" &&
 			record.runtime !== undefined &&
 			!this.#attachments.has(id)
 		) {
@@ -604,6 +604,7 @@ export class SubagentManager {
 		}
 		if (this.#deps.bridge.isConnected(id)) {
 			await this.#request(id, "shutdown").catch(() => undefined);
+			this.#deps.bridge.disconnect(id);
 		}
 		const runtime = this.#processes.get(id);
 		if (runtime !== undefined) {
@@ -616,15 +617,11 @@ export class SubagentManager {
 			diagnose(`failed to cleanup panel for failed child ${id}: ${errorMessage(error)}`);
 		}
 		this.#attachments.delete(id);
+		this.#unresolvedRuntimes.delete(id);
 		await this.#update(id, (current) => {
 			if (current.intent === "stopped") return current;
 			const { runtime: _runtime, ...withoutRuntime } = current;
-			return {
-				...withoutRuntime,
-				interrupted:
-					current.interrupted ??
-					"The child panel was automatically closed after failure settlement",
-			};
+			return withoutRuntime;
 		});
 	}
 
@@ -1057,36 +1054,6 @@ export class SubagentManager {
 		const cleanTask = stripHindsightContent(input.task).trim();
 		if (cleanTask === "") return failure("spawn", "Task must not be empty");
 
-		if (input.id !== undefined && input.id.trim() !== "") {
-			const targetId = input.id.trim();
-			const existing = await this.#deps.registry.get(targetId);
-			if (existing !== undefined) {
-				if (existing.state === "running" || existing.state === "starting") {
-					return failure(
-						"spawn",
-						`Subagent ${targetId} is already running`,
-						targetId,
-						existing.state,
-					);
-				}
-				await this.#update(targetId, (current) => {
-					const { interrupted: _interrupted, ...clean } = current;
-					return {
-						...clean,
-						intent: "active",
-						state: "idle",
-					};
-				});
-				const projector = this.#projectors.get(targetId);
-				if (projector !== undefined) {
-					projector.syncState("idle");
-				}
-				const sendResult = await this.send(targetId, cleanTask);
-				if (isOperationError(sendResult)) return sendResult;
-				return { child: sendResult };
-			}
-		}
-
 		let childId: string | undefined;
 		try {
 			const config = await withDeadline(this.#deps.resolve(input), this.#deps.deadlineMs ?? 30_000);
@@ -1191,20 +1158,20 @@ export class SubagentManager {
 		this.#clearIdleHibernate(id);
 		this.#clearFailedPanelClose(id);
 		return this.#mutate(id, async () => {
-			let record = await this.#deps.registry.get(id);
+			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
 			if (record.intent === "stopped" || record.state === "stopped")
-				// A stop is terminal: the session and the identity survive it, but nothing resumes this
-				// child, so the model has to know that a retry cannot work.
 				return failure("send", STOPPED_SEND_REASON, id, record.state, [], false);
 			if (record.state === "failed") {
-				// A child that failed while a runtime might still own its session becomes usable again
-				// once that runtime is gone; while it may still be there, refusing is the only safe
-				// answer, because a second runtime must never be started against one session.
 				const doubt = await this.#runtimeDoubt(id);
-				if (doubt !== undefined) return failure("send", doubt, id, record.state, [], false);
-				record = await this.#update(id, (current) =>
-					current.state === "failed" ? { ...current, state: "done" } : current,
+				return failure(
+					"send",
+					doubt ??
+						`Subagent ${id} encountered an unrecoverable error and cannot continue: ${record.interrupted ?? "fatal error"}. Spawn a new subagent (optionally with forkFrom) to proceed.`,
+					id,
+					record.state,
+					[],
+					false,
 				);
 			}
 
@@ -1483,10 +1450,29 @@ export class SubagentManager {
 			if (reason === "blocked") {
 				const projector = this.#projectors.get(id);
 				if (projector !== undefined) {
+					projector.syncState("blocked");
+				}
+				await this.#update(id, (current) => ({
+					...current,
+					state: "blocked",
+					interrupted: message,
+				}));
+				if (this.#taskRegistry !== undefined) {
+					this.#taskRegistry.settle(id, {
+						status: "failed",
+						output: message,
+						truncated: false,
+					});
+				}
+				this.#scheduleFailedPanelClose(id);
+			} else if (reason === "error") {
+				const projector = this.#projectors.get(id);
+				if (projector !== undefined) {
 					projector.syncState("failed");
 				}
 				await this.#update(id, (current) => ({
 					...current,
+					intent: "stopped",
 					state: "failed",
 					interrupted: message,
 				}));
@@ -1540,6 +1526,15 @@ export class SubagentManager {
 					...current,
 					state: "done",
 				}));
+			} else if (reason === "blocked") {
+				const projector = this.#projectors.get(childId);
+				if (projector !== undefined) {
+					projector.syncState("blocked");
+				}
+				await this.#update(childId, (current) => ({
+					...current,
+					state: "blocked",
+				}));
 			} else {
 				const projector = this.#projectors.get(childId);
 				if (projector !== undefined) {
@@ -1547,6 +1542,7 @@ export class SubagentManager {
 				}
 				await this.#update(childId, (current) => ({
 					...current,
+					intent: "stopped",
 					state: "failed",
 				}));
 			}
