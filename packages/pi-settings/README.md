@@ -1,14 +1,22 @@
 # @hheei/pi-settings
 
-Settings-surface host and Loadout policy owner for HEPI Pi extensions. Its
-`@hheei/pi-ext-core` production dependency is installed automatically; install settings-provider
-extensions such as `@hheei/pi-ext-tools` separately as needed.
+Interactive settings-surface host and Loadout policy manager for HEPI Pi extensions.
 
-Run `/ext-settings` in Pi TUI mode. An optional page id selects the initial page, so
-`/ext-settings loadout` opens the shared router on Loadout. The package hosts registered settings pages, owns
-skill and agent-profile activation policy (tool activation belongs to each tool owner), and temporarily
-suspends core-managed editor widgets while the surface is open.
+```bash
+pi install npm:@hheei/pi-settings
+```
 
-Extension configuration is stored separately from Pi host configuration: global values use
-`<agentDir>/ext_settings.json`, project overrides use `<cwd>/.pi/ext_settings.json`, and each provider
-registers globally unique top-level group IDs. Duplicate group IDs fail during registration.
+The package hosts registered settings pages from various extensions (e.g. `pi-ext-tools`, `pi-optimizer`, `pi-ext-addon`, `pi-ext-memory`), manages skill and agent-profile activation loadouts, and suspends editor widgets while the configuration surface is open.
+
+## Features
+
+- **Interactive Settings Surface**: Run `/ext-settings` in Pi TUI mode to access an organized multi-page configuration router.
+- **Direct Page Navigation**: Open specific settings pages directly, e.g.:
+  - `/ext-settings loadout` — manage tool, skill, and subagent activation loadouts.
+  - `/ext-settings optimizer` — configure input conversions and prompt modes.
+  - `/ext-settings tools` — configure tool execution and collapse preferences.
+- **Hierarchical Persistence**:
+  - **Global**: `<agentDir>/ext_settings.json` (e.g. `~/.pi/agent/ext_settings.json`)
+  - **Project Local**: `<cwd>/.pi/ext_settings.json`
+  - Project configuration overrides global settings cleanly with clear inheritance semantics.
+- **Provider Registry**: Extensions register isolated, unique top-level group IDs without namespace collisions or global state pollution.
