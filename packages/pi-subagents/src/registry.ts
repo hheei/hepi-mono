@@ -131,6 +131,7 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	interactive: true,
 	title: true,
 	task: true,
+	referencedSessionPath: true,
 };
 
 const AGENT_FIELDS: Record<string, true> = {
@@ -322,6 +323,11 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 	if (!isSessionId(sessionId))
 		throw invalid(path, "launchConfig.sessionId is not a valid session id");
 	const sessionPath = expectOptionalString(raw.sessionPath, "launchConfig.sessionPath", path);
+	const referencedSessionPath = expectOptionalString(
+		raw.referencedSessionPath,
+		"launchConfig.referencedSessionPath",
+		path,
+	);
 	const extensions = parseSelection(raw.extensions, path, "extensions");
 	const bridgeExtensionPath = expectString(
 		raw.bridgeExtensionPath,
@@ -342,6 +348,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		sessionId,
 		sessionDir: expectString(raw.sessionDir, "launchConfig.sessionDir", path),
 		...(sessionPath === undefined ? {} : { sessionPath }),
+		...(referencedSessionPath === undefined ? {} : { referencedSessionPath }),
 		agent: parseAgent(raw.agent, path),
 		model: parseModel(raw.model, path),
 		thinking: parseThinking(raw.thinking, path),

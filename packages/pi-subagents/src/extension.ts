@@ -1,11 +1,8 @@
-import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
 import {
 	type BackgroundDelivery,
 	errorMessage,
 	getBackgroundDelivery,
-	getService,
-	MEMORY_COMPACTOR_SERVICE_KEY,
 	registerExtensionLifecycle,
 	TASK_REGISTRY_SERVICE_KEY,
 	type TaskRegistry,
@@ -33,12 +30,8 @@ import {
 	parentBridgeEndpoint,
 	prepareRuntimeDirectory,
 } from "./runtime.js";
-import {
-	persistSubagentIntent,
-	resolveSubagentLaunch,
-	resolveSubagentSessionDir,
-} from "./session-bootstrap.js";
-import { forkSubagentSession } from "./session-fork.js";
+import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
+import { resolveForkSessionReference } from "./session-fork.js";
 import { registerInteractiveToolActivation } from "./tool-activation.js";
 import { registerParentTools } from "./tools.js";
 import { createSubagentWidget } from "./widget.js";
@@ -242,31 +235,27 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					}
 					const records = await registry.list().catch(() => []);
 					const existingSubagentIds = records.map((record) => record.subagentId);
-					let sessionPath: string | undefined;
-					let sessionId: string | undefined;
+					let referencedSessionPath: string | undefined;
 					const forkTarget = input.forkFrom?.trim();
 					if (forkTarget !== undefined && forkTarget !== "") {
 						try {
-							const compactor = getService(pi, MEMORY_COMPACTOR_SERVICE_KEY);
-							const targetSessionId = randomUUID();
+							if (forkTarget === "current") {
+								throw new Error(
+									"forkFrom cannot be 'current'. Use 'parent' to reference the parent session or specify a subagent id like 'agent-1'.",
+								);
+							}
 							const parentSessionFile = context.sessionManager.getSessionFile();
-							sessionPath = await forkSubagentSession({
-								targetSessionId,
-								targetCwd: context.cwd,
-								targetSessionDir: resolveSubagentSessionDir(context.cwd),
+							referencedSessionPath = await resolveForkSessionReference({
 								forkFrom: forkTarget,
 								...(parentSessionFile === undefined
 									? {}
 									: { parentSessionPath: parentSessionFile }),
-								parentEntries: context.sessionManager.getBranch() as unknown[],
-								...(compactor === undefined ? {} : { memoryCompactor: compactor }),
 								registry,
 								onWarning: (message) => context.ui.notify(message, "warning"),
 							});
-							sessionId = targetSessionId;
 						} catch (error) {
 							context.ui.notify(
-								`Fork session failed: ${errorMessage(error)}; starting fresh session`,
+								`Referencing session failed: ${errorMessage(error)}; starting fresh session without reference`,
 								"warning",
 							);
 						}
@@ -279,12 +268,11 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						existingSubagentIds,
 						enforceEnabled: true,
 						onWarning: (message) => context.ui.notify(message, "warning"),
+						...(referencedSessionPath === undefined ? {} : { referencedSessionPath }),
 						parent: {
 							model: { provider: model.provider, id: model.id },
 							thinking,
 						},
-						...(sessionId === undefined ? {} : { sessionId }),
-						...(sessionPath === undefined ? {} : { sessionPath }),
 					});
 				},
 				bootstrap(input) {
