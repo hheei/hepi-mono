@@ -8,4 +8,5 @@ export {
 	formatFooterPath,
 	layoutTwoColumnRow,
 	type ReadonlyFooterDataProvider,
+	type RoutedModelInfo,
 } from "./footer.js";

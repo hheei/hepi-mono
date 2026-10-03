@@ -24,9 +24,9 @@ const OWNER = "@hheei/pi-ext-tools";
 
 /** Task-control tools: registered for every session, activated only while control is needed. */
 export const TASK_TOOL_REGISTRATIONS = [
-	{ id: "list_tasks", owner: OWNER },
-	{ id: "wait_tasks", owner: OWNER },
-	{ id: "stop_tasks", owner: OWNER },
+	{ id: "list_tasks", owner: OWNER, defaultActive: false },
+	{ id: "wait_tasks", owner: OWNER, defaultActive: false },
+	{ id: "stop_tasks", owner: OWNER, defaultActive: false },
 ] as const satisfies readonly ManagedToolRegistration[];
 
 export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
@@ -54,6 +54,7 @@ export function startTaskControl(context: ExtensionLifecycleContext): TaskRegist
 		pi: context.pi,
 		registry,
 		session: context.extension,
+		signal: context.signal,
 		notify: (message, level) => context.extension.ui.notify(message, level),
 	});
 	if (!provideService(context, TASK_REGISTRY_SERVICE_KEY, registry)) {
@@ -181,6 +182,11 @@ export function registerTaskTools(
 		label: "list_tasks",
 		description: "List background tasks started in this session.",
 		parameters: ListParams,
+		defaultActive: false,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
 		async execute(_id, params: ListInput) {
 			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
@@ -199,20 +205,31 @@ export function registerTaskTools(
 			"Do not poll background tasks. Use `wait_tasks` only when the next step needs their results.",
 		],
 		parameters: IdsParams,
+		defaultActive: false,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: false,
+		},
 		async execute(_id, params: IdsInput, signal) {
 			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
-				return textToolResult("wait_tasks needs at least one task id.", { error: "invalid_ids" });
+				return {
+					...textToolResult("wait_tasks needs at least one task id.", { error: "invalid_ids" }),
+					isError: true,
+				};
 			const outcomes = await tasks.wait(ids, signal);
 			const cancelled = outcomes.some(
 				(outcome) => outcome.status !== "not_found" && !outcome.waited,
 			);
-			return textToolResult(waitText(outcomes), {
-				tasks: outcomes,
-				...(cancelled ? { error: "wait_cancelled" } : {}),
-			});
+			return {
+				...textToolResult(waitText(outcomes), {
+					tasks: outcomes,
+					...(cancelled ? { error: "wait_cancelled" } : {}),
+				}),
+				...(cancelled ? { isError: true } : {}),
+			};
 		},
 	};
 	const stopTool: ToolDefinition<typeof IdsParams, unknown> = {
@@ -221,12 +238,19 @@ export function registerTaskTools(
 		description: "Stop listed background tasks. Stopping an already finished task is harmless.",
 		promptGuidelines: ["Stop background tasks when their results are no longer needed."],
 		parameters: IdsParams,
+		defaultActive: false,
+		annotations: {
+			destructiveHint: true,
+		},
 		async execute(_id, params: IdsInput) {
 			const tasks = getRegistry();
 			if (tasks === undefined) return unavailable();
 			const ids = readIds(params.ids);
 			if (ids === undefined)
-				return textToolResult("stop_tasks needs at least one task id.", { error: "invalid_ids" });
+				return {
+					...textToolResult("stop_tasks needs at least one task id.", { error: "invalid_ids" }),
+					isError: true,
+				};
 			const outcomes = tasks.stop(ids);
 			return textToolResult(stopText(outcomes), { tasks: outcomes });
 		},

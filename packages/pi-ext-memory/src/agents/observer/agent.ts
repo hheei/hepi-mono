@@ -5,7 +5,7 @@ import { textToolResult } from "@hheei/pi-ext-core";
 import type { Static } from "typebox";
 import { hashId } from "../../ids.js";
 import { nowTimestamp, truncateRecordContent } from "../../serialize.js";
-import type { Observation, Relevance } from "../../session-ledger/index.js";
+import type { Observation, ObservationKind, Relevance } from "../../session-ledger/index.js";
 import { observationLineTokenCount } from "../../tokens.js";
 import { runWorkerAgent, type WorkerLoopArgs } from "../run-agent.js";
 import { OBSERVER_SYSTEM } from "./prompts.js";
@@ -15,6 +15,13 @@ interface RunObserverArgs extends WorkerLoopArgs {
 	priorObservations: string[];
 	chunk: string;
 	allowedSourceEntryIds: string[];
+	/**
+	 * Local minute timestamp for an observation, derived by the caller from the
+	 * cited source entries. The model does not author times any more: the chunk is
+	 * read long after the conversation happened, so a self-reported time is a guess
+	 * (the incident session carried a hallucinated date and 54 out-of-order lines).
+	 */
+	resolveTimestamp: (sourceEntryIds: readonly string[]) => string;
 }
 
 const RelevanceSchema = Type.Union([
@@ -24,20 +31,27 @@ const RelevanceSchema = Type.Union([
 	Type.Literal("critical"),
 ]);
 
-export const OBSERVATION_TIMESTAMP_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$";
+const KindSchema = Type.Union(
+	[Type.Literal("user"), Type.Literal("decision"), Type.Literal("fact"), Type.Literal("progress")],
+	{
+		description:
+			"What the observation is: 'progress' for work that was done (including anything 'completed:'), " +
+			"'fact' for code, documentation or environment facts, 'decision' for a choice, invariant or plan and " +
+			"its rationale, 'user' for something the user asserted or corrected. Kind decides removal order " +
+			"(progress leaves first), so choose the kind, then rate relevance by how hard it would be to " +
+			"re-derive the fact.",
+	},
+);
 
 const RecordObservationsSchema = Type.Object({
 	observations: Type.Array(
 		Type.Object({
-			timestamp: Type.String({
-				pattern: OBSERVATION_TIMESTAMP_PATTERN,
-				description: "Observation time in local 'YYYY-MM-DD HH:MM' format.",
-			}),
 			content: Type.String({
 				minLength: 1,
 				description: "Single-line plain prose. No markdown, no tags, no embedded timestamp.",
 			}),
 			relevance: RelevanceSchema,
+			kind: KindSchema,
 			sourceEntryIds: Type.Array(Type.String({ minLength: 1 }), {
 				minItems: 1,
 				description:
@@ -92,7 +106,8 @@ export function normalizeSourceEntryIds(
 }
 
 export async function runObserver(args: RunObserverArgs): Promise<Observation[] | undefined> {
-	const { priorReflections, priorObservations, chunk, allowedSourceEntryIds } = args;
+	const { priorReflections, priorObservations, chunk, allowedSourceEntryIds, resolveTimestamp } =
+		args;
 	const conversation = chunk.trim();
 	if (!conversation) return undefined;
 
@@ -122,15 +137,17 @@ export async function runObserver(args: RunObserverArgs): Promise<Observation[] 
 					duplicates++;
 					continue;
 				}
+				const timestamp = resolveTimestamp(sourceEntryIds);
 				accumulated.set(id, {
 					id,
 					content,
-					timestamp: obs.timestamp,
+					timestamp,
 					relevance: obs.relevance as Relevance,
+					kind: obs.kind as ObservationKind,
 					sourceEntryIds,
 					tokenCount: observationLineTokenCount({
 						id,
-						timestamp: obs.timestamp,
+						timestamp,
 						relevance: obs.relevance,
 						content,
 					}),
@@ -162,7 +179,7 @@ ${joinOrEmpty(priorReflections)}
 CURRENT OBSERVATIONS:
 ${joinOrEmpty(priorObservations)}
 
-Compress the following new conversation chunk into observations by calling record_observations one or more times. Do not restate facts already present in current reflections or current observations. Prefer inline conversation timestamps when assigning times; fall back to the current local time above only if no message timestamp applies. Stop calling the tool and reply with a short plain-text confirmation once the chunk is fully covered.
+Compress the following new conversation chunk into observations by calling record_observations one or more times. Do not restate facts already present in current reflections or current observations. Observation times are derived from the source entries you cite, so cite the entries the observation actually comes from. Stop calling the tool and reply with a short plain-text confirmation once the chunk is fully covered.
 
 NEW CONVERSATION CHUNK:
 ${conversation}`;

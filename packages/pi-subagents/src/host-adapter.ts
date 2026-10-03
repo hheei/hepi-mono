@@ -47,12 +47,20 @@ export interface HostObservation {
 	readonly identity: HostAttachmentIdentity;
 	readonly alive: boolean;
 	readonly known: boolean;
+	/**
+	 * Whether a human is looking at this panel. Absent when the host cannot say, which includes
+	 * both hosts without the capability and a lookup that failed just now; the caller must treat
+	 * an absent answer as "do not touch", because an unfocused answer lets it close the panel.
+	 */
+	readonly focused?: boolean;
 	readonly detail: string;
 }
 
 export interface HostAttachment {
 	readonly identity: HostAttachmentIdentity;
 	readonly launch: HostCommandResult;
+	/** True when `observe()` can report focus; idle reclaim needs it and fails open without it. */
+	readonly reportsFocus: boolean;
 	observe(): Promise<HostObservation>;
 	cleanup(): Promise<HostCommandResult>;
 }
@@ -60,7 +68,8 @@ export interface HostAttachment {
 export interface HostAdapter {
 	readonly kind: HostKind;
 	probe(): Promise<HostCapability>;
-	attach(spec: LaunchSpec): Promise<HostAttachment>;
+	/** Opens the child's panel and runs the LaunchSpec in it. */
+	open(spec: LaunchSpec): Promise<HostAttachment>;
 }
 
 export interface SelectHostAdapterOptions {
@@ -155,6 +164,7 @@ export interface HostAdapterOptions {
 	readonly ownerId: string;
 	readonly ownsAttachment: (identity: HostAttachmentIdentity) => boolean;
 	readonly timeoutMs?: number;
+	readonly env?: NodeJS.ProcessEnv;
 }
 
 export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter {
@@ -185,32 +195,56 @@ export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter
 				? { host: "herdr", available: false, reason: "herdr probe returned no current pane id" }
 				: { host: "herdr", available: true, reason: `current pane ${pane}` };
 		},
-		async attach(spec): Promise<HostAttachment> {
-			const current = await runner.run("herdr", ["pane", "current", "--current"], { timeoutMs });
-			const parentPane = parseHerdrPaneId(current.stdout);
-			if (parentPane === undefined) {
-				throw new Error("herdr current pane unavailable");
+		async open(spec): Promise<HostAttachment> {
+			// A dedicated tab, not a split of the parent pane: the child TUI owns its own tab, the
+			// parent session keeps its layout and focus, and the tab is labeled with the child id so
+			// a human can tell whose panel it is.
+			const workspaceId = await resolveHerdrProcessWorkspaceId(
+				runner,
+				timeoutMs,
+				options.env ?? process.env,
+			);
+			const created = await runner.run("herdr", herdrTabCreateArgs(spec, workspaceId), {
+				timeoutMs,
+			});
+			const target = parseHerdrTab(created.stdout);
+			if (target === undefined) {
+				throw new Error("herdr tab create returned no tab and root pane id");
 			}
-			const split = await runner.run("herdr", herdrSplitArgs(parentPane, spec), { timeoutMs });
-			const childPane = parseHerdrPaneId(split.stdout);
-			if (childPane === undefined) {
-				throw new Error("herdr split returned no child pane id");
-			}
-			// pane run sends text+Enter to the new shell. Timeout is not rollback: the pane
+			// pane run sends text+Enter to the tab's root shell. Timeout is not rollback: the tab
 			// already exists and the process may still start after the CLI deadline.
 			const launch = await runner.run(
 				"herdr",
-				["pane", "run", childPane, quotedArgv(spec.command, spec.argv)],
+				["pane", "run", target.paneId, quotedArgv(spec.command, spec.argv)],
 				{ timeoutMs },
 			);
 			return hostAttachment({
-				identity: { host: "herdr", attachmentId: childPane, createdBy: options.ownerId },
+				identity: { host: "herdr", attachmentId: target.tabId, createdBy: options.ownerId },
 				launch,
-				noun: "pane",
-				observe: () =>
-					runner.run("herdr", ["pane", "process-info", "--pane", childPane], { timeoutMs }),
-				isAlive: (result) => result.exitCode === 0 && herdrChildProcessIsRunning(result.stdout),
-				close: () => runner.run("herdr", ["pane", "close", childPane], { timeoutMs }),
+				noun: "tab",
+				reportsFocus: true,
+				observe: async () => {
+					// Aliveness is the pane's foreground process; focus is a fact about the tab *and*
+					// its workspace, so both listings are read together with it.
+					const [process, tabs, workspaces] = await Promise.all([
+						runner.run("herdr", ["pane", "process-info", "--pane", target.paneId], { timeoutMs }),
+						runner.run("herdr", ["tab", "list"], { timeoutMs }),
+						runner.run("herdr", ["workspace", "list"], { timeoutMs }),
+					]);
+					// A listing that did not answer says nothing about focus: reading it anyway turns a
+					// failed command into "unfocused", and the caller closes a panel on that answer.
+					const listed =
+						herdrListingSucceeded(tabs) && herdrListingSucceeded(workspaces)
+							? herdrPanelFocused(tabs.stdout, workspaces.stdout, target.tabId)
+							: undefined;
+					const alive = herdrPaneAlive(process);
+					return {
+						process,
+						...(alive === undefined ? {} : { alive }),
+						...(listed === undefined ? {} : { focused: listed }),
+					};
+				},
+				close: () => runner.run("herdr", ["tab", "close", target.tabId], { timeoutMs }),
 				ownsAttachment: options.ownsAttachment,
 			});
 		},
@@ -234,22 +268,29 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 			}
 			return { host: "cmux", available: true, reason: "cmux responded and exposed capabilities" };
 		},
-		async attach(spec): Promise<HostAttachment> {
+		async open(spec): Promise<HostAttachment> {
 			const launch = await runner.run(
 				"cmux",
-				["--json", "new-split", "right", "--command", cmuxLaunchCommand(spec)],
+				["--json", "new-surface", "--command", cmuxLaunchCommand(spec)],
 				{ timeoutMs },
 			);
 			const attachmentId = parseCmuxSurfaceId(launch.stdout);
 			if (attachmentId === undefined) {
-				throw new Error("cmux split returned no surface id; process state is unknown");
+				throw new Error("cmux new-surface returned no surface id; process state is unknown");
 			}
 			return hostAttachment({
 				identity: { host: "cmux", attachmentId, createdBy: options.ownerId },
 				launch,
 				noun: "surface",
-				observe: () => runner.run("cmux", ["--json", "list-panels"], { timeoutMs }),
-				isAlive: (result) => result.exitCode === 0 && containsString(result.stdout, attachmentId),
+				// TODO(cmux-focus): cmux does not report which surface a human is looking at, so
+				// observation cannot answer `focused` and idle reclaim fails open here: a cmux child
+				// is only ever closed by stop_agent.
+				reportsFocus: false,
+				observe: async () => {
+					const process = await runner.run("cmux", ["--json", "list-panels"], { timeoutMs });
+					if (process.timedOut || process.exitCode !== 0) return { process };
+					return { process, alive: containsString(process.stdout, attachmentId) };
+				},
 				close: () =>
 					runner.run("cmux", ["--json", "close-surface", "--surface", attachmentId], {
 						timeoutMs,
@@ -263,9 +304,14 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 interface HostAttachmentOptions {
 	readonly identity: HostAttachmentIdentity;
 	readonly launch: HostCommandResult;
-	readonly noun: "pane" | "surface";
-	readonly observe: () => Promise<HostCommandResult>;
-	readonly isAlive: (result: HostCommandResult) => boolean;
+	readonly noun: "pane" | "surface" | "tab";
+	readonly reportsFocus: boolean;
+	/** Reads the child's process state; `alive: undefined` means the host could not answer. */
+	readonly observe: () => Promise<{
+		readonly process: HostCommandResult;
+		readonly alive?: boolean;
+		readonly focused?: boolean;
+	}>;
 	readonly close: () => Promise<HostCommandResult>;
 	readonly ownsAttachment: (identity: HostAttachmentIdentity) => boolean;
 }
@@ -273,16 +319,21 @@ interface HostAttachmentOptions {
 function hostAttachment(options: HostAttachmentOptions): HostAttachment {
 	const observe = async (): Promise<HostObservation> => {
 		const result = await options.observe();
+		const focused = options.reportsFocus ? result.focused : undefined;
 		return {
 			identity: options.identity,
-			alive: !result.timedOut && options.isAlive(result),
-			known: !result.timedOut,
-			detail: result.stderr || result.stdout,
+			// A host that could not answer is not reporting a dead child: `alive: false` is what lets
+			// the caller drop the panel and the runtime evidence, so it is only ever said on purpose.
+			alive: result.alive === true,
+			known: result.alive !== undefined,
+			...(focused === undefined ? {} : { focused }),
+			detail: result.process.stderr || result.process.stdout,
 		};
 	};
 	return {
 		identity: options.identity,
 		launch: options.launch,
+		reportsFocus: options.reportsFocus,
 		observe,
 		async cleanup(): Promise<HostCommandResult> {
 			if (!options.ownsAttachment(options.identity)) {
@@ -300,22 +351,123 @@ function hostAttachment(options: HostAttachmentOptions): HostAttachment {
 	};
 }
 
-function herdrSplitArgs(parentPane: string, spec: LaunchSpec): string[] {
+/**
+ * Herdr tab creation carries cwd, env, label, and explicit workspace id matching the parent
+ * process, ensuring the child tab spawns in the process's own workspace rather than whatever
+ * workspace happens to have user focus.
+ */
+export function herdrTabCreateArgs(spec: LaunchSpec, workspaceId?: string): string[] {
 	const args = [
-		"pane",
-		"split",
-		"--pane",
-		parentPane,
-		"--direction",
-		"right",
+		"tab",
+		"create",
 		"--cwd",
 		spec.cwd,
+		"--label",
+		spec.config.subagentId,
 		"--no-focus",
 	];
+	if (workspaceId !== undefined && workspaceId !== "") {
+		args.push("--workspace", workspaceId);
+	}
 	for (const [key, value] of Object.entries(spec.env)) {
 		args.push("--env", `${key}=${value}`);
 	}
 	return args;
+}
+
+export function parseHerdrWorkspaceId(output: string): string | undefined {
+	return parseJsonId(output, ["workspace_id", "workspaceId"]);
+}
+
+/**
+ * Resolves the workspace id of the current process so new tabs open in the same workspace.
+ * Reads environment variables first, falling back to herdr pane queries.
+ */
+export async function resolveHerdrProcessWorkspaceId(
+	runner: HostCommandRunner,
+	timeoutMs: number,
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<string | undefined> {
+	const envWorkspace = env.HERDR_WORKSPACE_ID?.trim();
+	if (envWorkspace) return envWorkspace;
+	const envPane = env.HERDR_PANE_ID?.trim();
+	if (envPane) {
+		const res = await runner.run("herdr", ["pane", "get", envPane], { timeoutMs });
+		if (res.exitCode === 0) {
+			const ws = parseHerdrWorkspaceId(res.stdout);
+			if (ws) return ws;
+		}
+	}
+	const current = await runner.run("herdr", ["pane", "current", "--current"], { timeoutMs });
+	if (current.exitCode === 0) {
+		return parseHerdrWorkspaceId(current.stdout);
+	}
+	return undefined;
+}
+
+/**
+ * Focus is answered from two listings: `tab list` says whether the child's tab is focused and
+ * which workspace owns it, `workspace list` says whether that workspace is the rendered one. A
+ * child is being watched only when both are focused. Anything missing — a failed listing, an absent
+ * field, a tab that is not there — is unknown, never "unfocused", because the caller closes a panel
+ * on an unfocused answer.
+ */
+export function herdrPanelFocused(
+	tabList: string,
+	workspaceList: string,
+	tabId: string,
+): boolean | undefined {
+	const tab = herdrListEntry(tabList, "tabs", "tab_id", tabId);
+	if (tab === undefined) return undefined;
+	const tabFocused = tab.focused;
+	if (typeof tabFocused !== "boolean") return undefined;
+	if (!tabFocused) return false;
+	const workspaceId = tab.workspace_id;
+	if (typeof workspaceId !== "string" || workspaceId === "") return undefined;
+	const workspace = herdrListEntry(workspaceList, "workspaces", "workspace_id", workspaceId);
+	const workspaceFocused = workspace?.focused;
+	return typeof workspaceFocused === "boolean" ? workspaceFocused : undefined;
+}
+
+function herdrListEntry(
+	output: string,
+	collection: string,
+	key: string,
+	id: string,
+): Record<string, unknown> | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(output) as unknown;
+	} catch {
+		return undefined;
+	}
+	const list = findNamedObject(parsed, "result")?.[collection];
+	if (!Array.isArray(list)) return undefined;
+	for (const entry of list) {
+		if (typeof entry !== "object" || entry === null) continue;
+		const record = entry as Record<string, unknown>;
+		if (record[key] === id) return record;
+	}
+	return undefined;
+}
+
+/**
+ * `herdr tab create` answers with the tab and its root pane: the pane runs the LaunchSpec and is
+ * what observation watches, while the tab is what cleanup closes.
+ */
+function parseHerdrTab(
+	output: string,
+): { readonly tabId: string; readonly paneId: string } | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(output) as unknown;
+	} catch {
+		return undefined;
+	}
+	const tabId = findNamedObject(parsed, "tab")?.tab_id;
+	const paneId = findNamedObject(parsed, "root_pane")?.pane_id;
+	if (typeof tabId !== "string" || typeof paneId !== "string") return undefined;
+	return { tabId, paneId };
 }
 
 /** Herdr `pane run` concatenates extra argv with spaces, so quoting happens here once. */
@@ -324,7 +476,9 @@ function quotedArgv(command: string, argv: readonly string[]): string {
 }
 
 /**
- * cmux `new-split --command` is shell text. Encode cwd + env + argv without inventing Pi flags.
+ * cmux `new-surface --command` is shell text. Encode cwd + env + argv without inventing Pi flags.
+ * A surface is cmux's own name for a panel: attaching adds one to the current pane instead of
+ * splitting the parent's layout, and cleanup closes exactly that surface.
  */
 function cmuxLaunchCommand(spec: LaunchSpec): string {
 	const directory = `cd ${shellQuote(spec.cwd)}`;
@@ -390,6 +544,34 @@ function findString(
 		if (found !== undefined) return found;
 	}
 	return undefined;
+}
+
+/** A listing that failed or timed out is not evidence, whatever its stdout happens to contain. */
+function herdrListingSucceeded(result: HostCommandResult): boolean {
+	return !result.timedOut && result.exitCode === 0;
+}
+
+/**
+ * Reads the pane's process state. A pane that no longer exists is a definite "not alive" — that is
+ * how a closed panel looks — while a query that never ran or failed for any other reason is
+ * unknown, because the caller closes the panel on "not alive".
+ */
+export function herdrPaneAlive(result: HostCommandResult): boolean | undefined {
+	if (herdrListingSucceeded(result)) return herdrChildProcessIsRunning(result.stdout);
+	// The CLI writes the error as JSON on stderr.
+	const code = herdrErrorCode(result.stderr) ?? herdrErrorCode(result.stdout);
+	if (code === "pane_not_found" || code === "tab_not_found") return false;
+	return undefined;
+}
+
+/** The error code of a herdr CLI failure, which reports it as JSON. */
+function herdrErrorCode(output: string): string | undefined {
+	try {
+		const parsed = JSON.parse(output) as { error?: { code?: unknown } };
+		return typeof parsed.error?.code === "string" ? parsed.error.code : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function herdrChildProcessIsRunning(output: string): boolean {

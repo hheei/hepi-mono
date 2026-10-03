@@ -2,11 +2,16 @@ import { expect, test } from "vitest";
 import type {
 	ChildBridgeEnvironment,
 	EffectiveLaunchConfig,
-	ExecutionMode,
 	PersistenceState,
+	Presentation,
 } from "../src/domain.js";
-import { assembleChildPrompt, buildLaunchSpec, withBridgeToken } from "../src/launch-spec.js";
-import { TASK_ENVIRONMENT_KEY, taskContractFromEnv } from "../src/task-result.js";
+import { CHILD_TITLE_ENV_KEY } from "../src/domain.js";
+import {
+	assembleChildPrompt,
+	buildLaunchSpec,
+	stripHindsightContent,
+	withBridgeToken,
+} from "../src/launch-spec.js";
 
 const BRIDGE_PATH = "/opt/pi subagents/dist/extension.js";
 const SESSION_DIR = "/home/user/.pi/agent/sessions/--home-user-work--";
@@ -48,18 +53,22 @@ function launchConfig(overrides: Partial<EffectiveLaunchConfig> = {}): Effective
 	};
 }
 
-function spec(config: EffectiveLaunchConfig, mode: ExecutionMode, persistence: PersistenceState) {
+function spec(
+	config: EffectiveLaunchConfig,
+	presentation: Presentation,
+	persistence: PersistenceState,
+) {
 	return buildLaunchSpec({
 		config,
 		invocation: config.invocation,
-		mode,
+		presentation,
 		persistence,
 		bridge: BRIDGE,
 	});
 }
 
 test("keeps every host and flag argv atom intact, including paths with spaces", (): void => {
-	const built = spec(launchConfig(), "rpc", "never_flushed");
+	const built = spec(launchConfig(), "background", "never_flushed");
 	expect(built.command).toBe("/usr/bin/node");
 	expect(built.argv).toEqual([
 		"/usr/lib/pi/cli.js",
@@ -77,6 +86,8 @@ test("keeps every host and flag argv atom intact, including paths with spaces", 
 		"high",
 		"--tools",
 		"read,contact_parent",
+		"--exclude-tools",
+		"hindsight_search_knowledge_pages,hindsight_list_knowledge_pages,hindsight_read_knowledge_page,hindsight_reflect,hindsight_capture_initiative,hindsight_ingest_document,hindsight_sync_status,hindsight_diagnose",
 		"--no-extensions",
 		"-e",
 		BRIDGE_PATH,
@@ -90,12 +101,12 @@ test("keeps every host and flag argv atom intact, including paths with spaces", 
 test("keeps skill discovery unless the definition turned it off", (): void => {
 	// The built-in reviewer relies on discovery to see the review skills: naming one is not possible,
 	// because `--skill` takes a path.
-	const discovered = spec(launchConfig(), "rpc", "never_flushed");
+	const discovered = spec(launchConfig(), "background", "never_flushed");
 	expect(discovered.argv).not.toContain("--no-skills");
 
 	const narrowed = spec(
 		launchConfig({ skills: { discovery: false, paths: ["/skills/ponytail-review"] } }),
-		"rpc",
+		"background",
 		"never_flushed",
 	);
 	expect(narrowed.argv).toContain("--no-skills");
@@ -103,7 +114,7 @@ test("keeps skill discovery unless the definition turned it off", (): void => {
 });
 
 test("creates a never-flushed session with its recorded id and never opens an absent path", (): void => {
-	const built = spec(launchConfig(), "rpc", "never_flushed");
+	const built = spec(launchConfig(), "background", "never_flushed");
 	expect(built.argv).toContain("--session-id");
 	expect(built.argv).not.toContain("--session");
 	expect(built.argv).toContain(SESSION_DIR);
@@ -111,26 +122,31 @@ test("creates a never-flushed session with its recorded id and never opens an ab
 
 test("opens a flushed session by its exact path", (): void => {
 	const config = launchConfig({ sessionPath: SESSION_PATH });
-	const built = spec(config, "rpc", "flushed");
+	const built = spec(config, "background", "flushed");
 	expect(built.argv).toContain("--session");
 	expect(built.argv[built.argv.indexOf("--session") + 1]).toBe(SESSION_PATH);
 	expect(built.argv).not.toContain("--session-id");
 });
 
-test("builds RPC and TUI processes from one config, differing only in mode and stdio", (): void => {
+test("builds background and panel processes from one config, differing only in presentation and stdio", (): void => {
 	const config = launchConfig({ sessionPath: SESSION_PATH });
-	const rpc = spec(config, "rpc", "flushed");
-	const tui = spec(config, "tui", "flushed");
-	expect(rpc.stdio).toBe("pipe");
-	expect(tui.stdio).toBe("inherit");
-	expect(rpc.mode).toBe("rpc");
-	expect(tui.mode).toBe("tui");
-	expect(tui.argv).toEqual(rpc.argv.filter((atom) => atom !== "--mode" && atom !== "rpc"));
-	expect(tui.config).toBe(rpc.config);
+	const background = spec(config, "background", "flushed");
+	const panel = spec(config, "panel", "flushed");
+	expect(background.stdio).toBe("pipe");
+	expect(panel.stdio).toBe("inherit");
+	expect(background.presentation).toBe("background");
+	expect(panel.presentation).toBe("panel");
+	expect(background.argv).not.toContain("--approve");
+	expect(panel.argv).toEqual([
+		background.argv[0],
+		"--approve",
+		...background.argv.slice(1).filter((atom) => atom !== "--mode" && atom !== "rpc"),
+	]);
+	expect(panel.config).toBe(background.config);
 });
 
 test("carries the bridge environment without a controller token", (): void => {
-	const built = spec(launchConfig(), "rpc", "never_flushed");
+	const built = spec(launchConfig(), "background", "never_flushed");
 	expect(built.env).toEqual({
 		PI_SUBAGENTS_PARENT_SESSION_ID: "01J7-parent",
 		PI_SUBAGENTS_CHILD_ID: BRIDGE.subagentId,
@@ -138,8 +154,9 @@ test("carries the bridge environment without a controller token", (): void => {
 		PI_SUBAGENTS_ENDPOINT: "/tmp/pi-subagents-1.sock",
 		PI_SUBAGENTS_AGENT: "reviewer",
 		PI_SUBAGENTS_SESSION_ID: "01J7-session",
-		// Stated as empty rather than left out: an inherited value would give this child a task channel.
-		PI_SUBAGENTS_TASK: "",
+		// Stated as empty rather than left out: the child derives its own session title then.
+		PI_SUBAGENTS_TITLE: "",
+		PI_HINDSIGHT_DISABLE: "1",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
 	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
@@ -149,21 +166,24 @@ test("carries the bridge environment without a controller token", (): void => {
 		"PI_SUBAGENTS_ENDPOINT",
 		"PI_SUBAGENTS_AGENT",
 		"PI_SUBAGENTS_SESSION_ID",
-		"PI_SUBAGENTS_TASK",
+		"PI_SUBAGENTS_TITLE",
+		"PI_HINDSIGHT_DISABLE",
 		"PI_SUBAGENTS_TOKEN",
 	]);
 });
 
 test("refuses a session placement that disagrees with the persistence state", (): void => {
-	expect(() => spec(launchConfig(), "rpc", "flushed")).toThrow(/requires a known session path/u);
-	expect(() => spec(launchConfig({ sessionPath: SESSION_PATH }), "rpc", "never_flushed")).toThrow(
-		/must not claim a session path/u,
+	expect(() => spec(launchConfig(), "background", "flushed")).toThrow(
+		/requires a known session path/u,
 	);
+	expect(() =>
+		spec(launchConfig({ sessionPath: SESSION_PATH }), "background", "never_flushed"),
+	).toThrow(/must not claim a session path/u);
 });
 
 test("refuses to launch a child whose bridge is not in the effective extension selection", (): void => {
 	const config = launchConfig({ extensions: { discovery: false, paths: ["/other/extension.js"] } });
-	expect(() => spec(config, "rpc", "never_flushed")).toThrow(/Bridge extension/u);
+	expect(() => spec(config, "background", "never_flushed")).toThrow(/Bridge extension/u);
 });
 
 test("refuses a bridge identity that disagrees with the persisted child", (): void => {
@@ -172,7 +192,7 @@ test("refuses a bridge identity that disagrees with the persisted child", (): vo
 		buildLaunchSpec({
 			config,
 			invocation: config.invocation,
-			mode: "rpc",
+			presentation: "background",
 			persistence: "never_flushed",
 			bridge: { ...BRIDGE, subagentId: "sa_ffffffffffff" },
 		}),
@@ -185,29 +205,36 @@ test("adds the child bridge preamble to the agent instructions", (): void => {
 	expect(prompt).toContain("delegated Pi subagent");
 	expect(prompt).toContain("contact_parent");
 	expect(prompt).toContain("Do not wait for the parent to poll you");
-	expect(prompt).toContain("you will be reminded");
+	expect(prompt).toContain("Do not send empty status pings");
 });
 
-test("states the task channel as this launch's own, not something inherited", (): void => {
-	// A conversation child must not inherit an outer Task's contract and start expecting one.
-	const plain = spec(launchConfig(), "rpc", "never_flushed");
-	expect(plain.env[TASK_ENVIRONMENT_KEY]).toBe("");
-	expect(taskContractFromEnv(plain.env)).toBeUndefined();
-
-	const task = spec(
-		launchConfig({ task: { softTurns: 60, schema: { type: "object" } } }),
-		"rpc",
-		"never_flushed",
-	);
-	expect(taskContractFromEnv(task.env)).toEqual({ softTurns: 60, schema: { type: "object" } });
+test("carries the spawn title, and states its absence as an empty value", (): void => {
+	expect(spec(launchConfig(), "background", "never_flushed").env[CHILD_TITLE_ENV_KEY]).toBe("");
+	expect(
+		spec(launchConfig({ title: "OVITO properties editor" }), "background", "never_flushed").env[
+			CHILD_TITLE_ENV_KEY
+		],
+	).toBe("OVITO properties editor");
 });
 
-test("tells a Task child not to wait for a parent message it will never get", (): void => {
-	const conversationChild = assembleChildPrompt("Review the change.");
-	expect(conversationChild).toContain("wait for a parent message");
+test("assembles child prompt with reporting and final output guidance", (): void => {
+	const prompt = assembleChildPrompt("Review the change.");
+	expect(prompt).toContain("Review the change.");
+	expect(prompt).toContain("After blocked, wait for a parent send_agent.");
+	expect(prompt).toContain("output your final answer and findings directly in text");
+});
 
-	const taskChild = assembleChildPrompt("Review the change.", true);
-	expect(taskChild).not.toContain("After need_decision or blocked, wait for a parent message.");
-	expect(taskChild).toContain("do not wait for a parent message");
-	expect(taskChild).toContain("submit the final result with submit_task_result");
+test("strips hindsight memory recall tags from tasks and inputs", (): void => {
+	const raw = `Investigate this bug.\n<hindsight-recall>\npage: "Arch"\nsecret context\n</hindsight-recall>\nFocus on the parser.`;
+	expect(stripHindsightContent(raw)).toBe("Investigate this bug.\nFocus on the parser.");
+});
+
+test("excludes all hindsight tools from child Pi argv", (): void => {
+	const built = spec(launchConfig(), "background", "never_flushed");
+	const excludeIdx = built.argv.indexOf("--exclude-tools");
+	expect(excludeIdx).toBeGreaterThan(-1);
+	const excluded = built.argv[excludeIdx + 1];
+	expect(excluded).toContain("hindsight_search_knowledge_pages");
+	expect(excluded).toContain("hindsight_reflect");
+	expect(excluded).toContain("hindsight_ingest_document");
 });

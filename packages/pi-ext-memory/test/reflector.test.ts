@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	normalizeSupportingObservationIds,
 	observationToReflectorLine,
+	reflectionBudgetLine,
 	runReflector,
 	summarizeSupportIdCounts,
 } from "../src/agents/reflector/agent.js";
@@ -17,6 +18,7 @@ describe("runReflector maxTokens clamping", () => {
 		apiKey: "test",
 		reflections: [],
 		observations: [observation("aaaaaaaaaaaa"), observation("bbbbbbbbbbbb")],
+		droppedReflectionIds: new Set<string>(),
 	};
 
 	itClampsMaxTokens((overrides) => runReflector({ ...args, ...overrides }));
@@ -43,6 +45,7 @@ describe("V3 reflector agent", () => {
 		apiKey: "test",
 		reflections: [],
 		observations: [obsA, obsB],
+		droppedReflectionIds: new Set<string>(),
 	};
 
 	it("keeps core reflector prompt guidance in V3 terms", async () => {
@@ -74,6 +77,9 @@ describe("V3 reflector agent", () => {
 			"If the candidate fails that future-agent utility test, leave it as an observation",
 		);
 		expect(systemPrompt).toContain("If unsure, emit no reflection");
+		// A pure merge is work even though it adds no new line.
+		expect(systemPrompt).toContain("or a merge of current ones");
+		expect(systemPrompt).toContain("a pure merge that adds nothing new is a valid proposal");
 		expect(systemPrompt).toContain(
 			"High and critical observations deserve careful review, not automatic reflection",
 		);
@@ -226,14 +232,17 @@ describe("V3 reflector agent", () => {
 
 		const result = await runReflector({ ...baseArgs, agentLoop: loop });
 
-		expect(result).toEqual([
-			{
-				id: hashId(content),
-				content,
-				supportingObservationIds: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
-				tokenCount: estimateStringTokens(content),
-			},
-		]);
+		expect(result).toEqual({
+			reflections: [
+				{
+					id: hashId(content),
+					content,
+					supportingObservationIds: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+					tokenCount: estimateStringTokens(content),
+				},
+			],
+			supersededReflectionIds: [],
+		});
 	});
 
 	it("rejects invented support ids and multiline content", async () => {
@@ -264,7 +273,245 @@ describe("V3 reflector agent", () => {
 
 		const result = await runReflector({ ...baseArgs, reflections: [existing], agentLoop: loop });
 
-		expect(result?.map((item) => item.content)).toEqual(["New durable fact."]);
+		expect(result?.reflections.map((item) => item.content)).toEqual(["New durable fact."]);
+	});
+
+	it("retires the reflections a new reflection supersedes", async () => {
+		const refA = reflection("aaaaaaaaaaaa", ["dddddddddddd"]);
+		const merged = "User prefers terse updates without preamble.";
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [
+					{
+						content: merged,
+						supportingObservationIds: ["dddddddddddd"],
+						supersedes: ["aaaaaaaaaaaa"],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			observations: [{ ...obsA, id: "dddddddddddd" }],
+			reflections: [refA],
+			agentLoop: loop,
+		});
+
+		expect(result?.reflections.map((item) => item.content)).toEqual([merged]);
+		expect(result?.supersededReflectionIds).toEqual(["aaaaaaaaaaaa"]);
+	});
+
+	it("merges into an existing wording and still retires the replaced reflections", async () => {
+		const keep = "User prefers terse updates.";
+		const drop = "User likes short answers.";
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				// Same content as the reflection that stays, so nothing new lands — the
+				// merge is the tombstone, not a new line.
+				reflections: [
+					{
+						content: keep,
+						supportingObservationIds: ["aaaaaaaaaaaa"],
+						supersedes: ["eeeeeeeeeeee"],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			reflections: [
+				reflection(hashId(keep), ["aaaaaaaaaaaa"], { content: keep }),
+				reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"], { content: drop }),
+			],
+			agentLoop: loop,
+		});
+
+		expect(result?.reflections).toEqual([]);
+		expect(result?.supersededReflectionIds).toEqual(["eeeeeeeeeeee"]);
+	});
+
+	it("ignores unknown supersede ids", async () => {
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [
+					{
+						content: "User prefers terse updates and no preamble.",
+						supportingObservationIds: ["aaaaaaaaaaaa"],
+						supersedes: ["ffffffffffff"],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({ ...baseArgs, agentLoop: loop });
+
+		expect(result?.reflections).toHaveLength(1);
+		expect(result?.supersededReflectionIds).toEqual([]);
+	});
+
+	it("never retires the replacement itself", async () => {
+		const existing = "User prefers terse updates.";
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [
+					{
+						content: existing,
+						supportingObservationIds: ["aaaaaaaaaaaa"],
+						supersedes: [hashId(existing)],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			reflections: [reflection(hashId(existing), ["aaaaaaaaaaaa"], { content: existing })],
+			agentLoop: loop,
+		});
+
+		// Nothing new to record and nothing to retire: the line already stands for the
+		// merged content.
+		expect(result).toBeUndefined();
+	});
+
+	it("refuses a proposal that restates a permanently retired reflection", async () => {
+		const content = "User prefers terse updates.";
+		const other = "User prefers short updates.";
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [
+					{
+						content,
+						supportingObservationIds: ["aaaaaaaaaaaa"],
+						supersedes: [hashId(other)],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			droppedReflectionIds: new Set([hashId(content)]),
+			reflections: [reflection(hashId(other), ["aaaaaaaaaaaa"], { content: other })],
+			agentLoop: loop,
+		});
+
+		// The tombstone is permanent, so this proposal can never become active: retiring its target
+		// would leave neither reflection in active memory.
+		expect(result).toBeUndefined();
+	});
+
+	it("retires only the merges whose replacement can become active", async () => {
+		const retired = "User prefers terse updates.";
+		const other = "User prefers short updates.";
+		const active = reflection(hashId(other), ["aaaaaaaaaaaa"], { content: other });
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [
+					{ content: retired, supportingObservationIds: ["aaaaaaaaaaaa"], supersedes: [active.id] },
+					{
+						content: "User prefers compact summaries.",
+						supportingObservationIds: ["aaaaaaaaaaaa"],
+						supersedes: [active.id],
+					},
+				],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			droppedReflectionIds: new Set([hashId(retired)]),
+			reflections: [active],
+			agentLoop: loop,
+		});
+
+		// One proposal stands in for nothing, so it retires nothing — while the merge in the same
+		// round that really replaces the line still retires it.
+		expect(result?.reflections.map((entry) => entry.content)).toEqual([
+			"User prefers compact summaries.",
+		]);
+		expect(result?.supersededReflectionIds).toEqual([active.id]);
+	});
+
+	it("merges without observations and inherits the evidence of what it replaces", async () => {
+		const first = reflection("cccccccccccc", ["dddddddddddd", "eeeeeeeeeeee"], {
+			content: "User prefers terse updates.",
+		});
+		const second = reflection("ffffffffffff", ["aaaaaaaaaaaa"], {
+			content: "User prefers no preamble.",
+		});
+		const merged = "User prefers terse updates and no preamble.";
+		const loop = fakeAgentLoop(async (_prompts, context) => {
+			await context.tools[0].execute("tool-1", {
+				reflections: [{ content: merged, supersedes: [first.id, second.id] }],
+			});
+		});
+
+		const result = await runReflector({
+			...baseArgs,
+			observations: [],
+			reflections: [first, second],
+			agentLoop: loop,
+		});
+
+		// The observation pool can be empty while the reflection pool still has to shrink — that is
+		// exactly what the enforcer leaves behind — so a merge inherits the evidence it merged.
+		expect(result?.reflections).toEqual([
+			{
+				id: hashId(merged),
+				content: merged,
+				supportingObservationIds: ["dddddddddddd", "eeeeeeeeeeee", "aaaaaaaaaaaa"],
+				tokenCount: estimateStringTokens(merged),
+			},
+		]);
+		expect(result?.supersededReflectionIds).toEqual([first.id, second.id]);
+	});
+
+	it("omits the budget line when the reflection share is unknown", () => {
+		expect(
+			reflectionBudgetLine({
+				visibleReflections: 0,
+				activeReflections: 0,
+				activeReflectionTokens: 0,
+				budgetTokens: undefined,
+			}),
+		).toBe("");
+		expect(
+			reflectionBudgetLine({
+				visibleReflections: 0,
+				activeReflections: 0,
+				activeReflectionTokens: 0,
+				budgetTokens: 100,
+			}),
+		).toBe(
+			"REFLECTION BUDGET: active reflections ~0 tokens (0 total); the rendered memory leaves ~100 tokens for reflections.",
+		);
+	});
+
+	it("tells the reflector when the reflection pool is over its budget", async () => {
+		let userText = "";
+		const loop = fakeAgentLoop((prompts) => {
+			const content = prompts[0]?.content;
+			userText = typeof content === "string" ? content : (content?.[0]?.text ?? "");
+		});
+
+		await runReflector({
+			...baseArgs,
+			reflections: [
+				reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"], { content: "x".repeat(400), tokenCount: 10 }),
+			],
+			// The view shows one of five reflections: the pool, not the view, decides.
+			reflectionPool: { count: 5, tokens: 400 },
+			reflectionBudgetTokens: 100,
+			agentLoop: loop,
+		});
+
+		expect(userText).toContain("REFLECTION BUDGET: active reflections ~400 tokens (5 total");
+		expect(userText).toContain("1 shown here, 4 not shown");
+		expect(userText).toContain("leaves ~100 tokens for reflections");
+		expect(userText).toContain("Over budget: merge near-duplicate reflections (supersedes)");
 	});
 
 	it("returns undefined when no tool call records reflections", async () => {

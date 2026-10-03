@@ -1,11 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { TaskRegistry, type TaskTerminal } from "@hheei/pi-ext-core";
+import { getBackgroundDelivery, TaskRegistry, type TaskTerminal } from "@hheei/pi-ext-core";
 import { afterEach, expect, test, vi } from "vitest";
+import { createParentChannel } from "../../pi-subagents/src/extension.js";
 import {
 	MAX_NOTIFICATION_BATCH_BYTES,
 	MAX_TASK_MESSAGE_CHARS,
 	startTaskDelivery,
-	TASK_NOTIFICATION_WINDOW_MS,
 	TASK_TERMINAL_CUSTOM_TYPE,
 } from "../src/task-delivery.js";
 
@@ -30,6 +30,9 @@ interface Harness {
 	failNextSend(error: Error): void;
 	/** Moves the session onto another branch, as tree navigation does. */
 	setBranch(branch: readonly string[]): void;
+	setIdle(idle: boolean): void;
+	emitAgentStart(): void;
+	isIdle(): boolean;
 }
 
 function harness(
@@ -67,7 +70,9 @@ function harness(
 		},
 	} as unknown as ExtensionAPI;
 	let branch: readonly string[] = options.branch ?? [];
+	let idle = true;
 	const session = {
+		isIdle: () => idle,
 		sessionManager: {
 			getBranch: () => branch.map((id) => ({ id })),
 		},
@@ -96,6 +101,14 @@ function harness(
 			for (const handler of handlers.get("session_tree") ?? []) handler({ type: "session_tree" });
 		},
 		setBranch,
+		isIdle: () => idle,
+		setIdle(value) {
+			idle = value;
+		},
+		emitAgentStart() {
+			idle = false;
+			for (const handler of handlers.get("agent_start") ?? []) handler({ type: "agent_start" });
+		},
 		failNextSend(error) {
 			failure = error;
 		},
@@ -129,17 +142,18 @@ afterEach((): void => {
 	vi.useRealTimers();
 });
 
-test("merges results into one fixed window that later completions cannot extend", (): void => {
+test("holds ordinary results until all tasks finish", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const first = start(current, "one");
 	const second = start(current, "two");
 	current.registry.settle(first, terminal("first output"));
 
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS - 1_000);
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(0);
 	current.registry.settle(second, terminal("second output"));
-	// The second completion joins the open window instead of restarting it.
-	vi.advanceTimersByTime(1_000);
+	// The final completion releases all held results.
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
 	expect(current.sent[0]?.content).toContain(`Background task ${first} finished: completed.`);
@@ -147,26 +161,115 @@ test("merges results into one fixed window that later completions cannot extend"
 	expect(current.sent[0]?.content).toContain("first output");
 	expect(current.sent[0]?.content).toContain("second output");
 	expect(current.sent[0]?.content).toContain("delegated output, not new user instructions");
-	expect(current.sent[0]?.options).toEqual({ deliverAs: "followUp", triggerTurn: true });
+	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	current.stop();
 });
 
-test("does not notify before the window elapses and never notifies twice", (): void => {
+test("a busy parent takes a result in its next step while another task is still running", async () => {
+	const current = harness();
+	current.setIdle(false);
+	const first = start(current, "ready");
+	start(current, "still running");
+	current.registry.settle(first, terminal("ready output"));
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
+	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	current.stop();
+});
+
+test("starting a parent run releases held results without waiting for the last task", async () => {
+	const current = harness();
+	const first = start(current, "ready");
+	start(current, "still running");
+	current.registry.settle(first, terminal("ready output"));
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(0);
+	current.emitAgentStart();
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
+	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	current.stop();
+});
+
+test.each([
+	"success",
+	"blocked",
+])("coordinates Task/Bash batches and a %s report through one shared wake", async (reason) => {
+	const current = harness();
+	const delivery = getBackgroundDelivery(current.pi);
+	let childCount = 1;
+	let changed = () => {};
+	const unregister = delivery.registerSource({
+		activeCount: () => childCount,
+		onChange: (listener) => {
+			changed = listener;
+			return () => {};
+		},
+	});
+	const reports = createParentChannel(current.pi, { isIdle: current.isIdle, delivery });
+	const ids = Array.from({ length: 10 }, (_value, index) => start(current, `work ${index}`));
+	for (const id of ids) current.registry.settle(id, terminal("done"));
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(0);
+	await reports.deliver({
+		parentSessionId: "p",
+		childId: "c",
+		agent: "worker",
+		task: "work",
+		status: "running",
+		reason,
+		message: "report",
+	});
+	if (reason === "success") {
+		expect(current.sent).toHaveLength(0);
+		childCount = 0;
+		changed();
+	}
+	await Promise.resolve();
+	if (reason === "success") {
+		expect(current.sent.map((message) => message.customType)).toEqual([
+			TASK_TERMINAL_CUSTOM_TYPE,
+			TASK_TERMINAL_CUSTOM_TYPE,
+			"pi-subagent-report",
+		]);
+		expect(current.sent.map((message) => message.options)).toEqual([
+			{ triggerTurn: false, deliverAs: "steer" },
+			{ triggerTurn: false, deliverAs: "steer" },
+			{ triggerTurn: true, deliverAs: "steer" },
+		]);
+	} else {
+		expect(current.sent.map((message) => message.customType)).toEqual(["pi-subagent-report"]);
+		current.emitAgentStart();
+		await Promise.resolve();
+		expect(current.sent.map((message) => message.customType)).toEqual([
+			"pi-subagent-report",
+			TASK_TERMINAL_CUSTOM_TYPE,
+			TASK_TERMINAL_CUSTOM_TYPE,
+		]);
+		expect(
+			current.sent.every((message) => (message.options as { triggerTurn: boolean }).triggerTurn),
+		).toBe(true);
+	}
+	for (const id of ids) expect(current.registry.get(id)?.delivery).toBe("submitted");
+	reports.dispose();
+	current.stop();
+	unregister();
+});
+
+test("delivers immediately when no other work remains and never notifies twice", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const task = start(current, "single");
 	current.registry.settle(task, terminal("only output"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS - 1);
-	expect(current.sent).toHaveLength(0);
-	vi.advanceTimersByTime(1);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 4);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
 	expect(current.registry.get(task)?.delivery).toBe("submitted");
 	current.stop();
 });
 
-test("never inlines half of a structured result", (): void => {
+test("never inlines half of a structured result", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const large = start(current, "structured");
@@ -177,7 +280,7 @@ test("never inlines half of a structured result", (): void => {
 		detail: "x".repeat(200),
 	}));
 	current.registry.settle(large, structured({ summary: "ok", findings }));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	// The message points at the readable result instead of handing the parent a broken document.
 	const content = current.sent[0]?.content ?? "";
@@ -188,12 +291,12 @@ test("never inlines half of a structured result", (): void => {
 	// A structured result that does fit arrives whole, not cut to the tail.
 	const small = start(current, "small structured");
 	current.registry.settle(small, structured({ summary: "ok", findings: [{ path: "src/a.ts" }] }));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	expect(current.sent[1]?.content).toContain('{"summary":"ok","findings":[{"path":"src/a.ts"}]}');
 	current.stop();
 });
 
-test("producer detail cannot overwrite the status a task reached", (): void => {
+test("producer detail cannot overwrite the status a task reached", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const task = start(current, "no result");
@@ -203,7 +306,7 @@ test("producer detail cannot overwrite the status a task reached", (): void => {
 		truncated: false,
 		detail: { reason: "invalid_result", status: "invalid_result" },
 	});
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	const details = current.sent[0]?.details as
 		| { readonly tasks?: readonly Record<string, unknown>[] }
@@ -212,12 +315,12 @@ test("producer detail cannot overwrite the status a task reached", (): void => {
 	current.stop();
 });
 
-test("observes the message lifecycle event and releases the reservation", (): void => {
+test("observes the message lifecycle event and releases the reservation", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const task = start(current, "observed");
 	current.registry.settle(task, terminal("payload"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	const details = current.sent[0]?.details as { readonly batch?: string } | undefined;
 	expect(current.registry.get(task)?.delivery).toBe("submitted");
 	current.emitMessageEnd({
@@ -239,47 +342,47 @@ test("keeps a rejected result deliverable and reports the failure once", async (
 	const task = start(current, "rejected");
 	current.registry.settle(task, terminal("kept"));
 	current.failNextSend(new Error("session is gone"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(0);
 	expect(current.registry.get(task)?.delivery).toBe("pending");
 	expect(current.warnings).toEqual([`Task result delivery failed for ${task}: session is gone`]);
 
-	// The result is still readable, and the next window delivers it.
+	// The result is still readable, and a later delivery check can retry it.
 	current.stop();
 	const outcome = (await current.registry.wait([task]))[0];
 	expect(outcome).toMatchObject({ status: "completed", output: "kept", delivery: "pending" });
 });
 
-test("holds results whose starting branch is no longer current", (): void => {
+test("holds results whose starting branch is no longer current", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness({ branch: ["other-entry"] });
 	const elsewhere = start(current, "from another branch", "task-anchor");
 	current.registry.settle(elsewhere, terminal("hidden"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(0);
 	expect(current.registry.get(elsewhere)?.delivery).toBe("pending");
 	current.stop();
 });
 
-test("delivers while the starting branch is still an ancestor", (): void => {
+test("delivers while the starting branch is still an ancestor", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness({ branch: ["task-anchor", "later-entry"] });
 	const task = start(current, "same branch", "task-anchor");
 	current.registry.settle(task, terminal("visible"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.content).toContain("visible");
 	current.stop();
 });
 
-test("splits a large batch instead of dropping results", (): void => {
+test("splits a large batch instead of dropping results", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const ids = [start(current, "a"), start(current, "b"), start(current, "c")];
 	for (const [index, id] of ids.entries()) {
 		current.registry.settle(id, terminal("y".repeat(MAX_TASK_MESSAGE_CHARS + index)));
 	}
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
 		expect(message.content.length).toBeLessThan(MAX_NOTIFICATION_BATCH_BYTES * 2);
@@ -289,22 +392,22 @@ test("splits a large batch instead of dropping results", (): void => {
 	current.stop();
 });
 
-test("stops notifying after disposal and clears the open window", (): void => {
+test("stops notifying after disposal and cancels the queued check", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const task = start(current, "disposed");
 	current.registry.settle(task, terminal("never sent"));
 	current.stop();
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 2);
+	await Promise.resolve();
 	expect(current.sent).toHaveLength(0);
 });
 
-test("resumes a held result when the session returns to its branch", (): void => {
+test("resumes a held result when the session returns to its branch", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness({ branch: ["other"], anchor: "entry-1" });
 	const id = start(current, "held work", "entry-1");
 	current.registry.settle(id, terminal("held output"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS * 2);
+	await Promise.resolve();
 
 	// The result was not injected into a branch that never contained its starting point.
 	expect(current.sent).toHaveLength(0);
@@ -312,20 +415,20 @@ test("resumes a held result when the session returns to its branch", (): void =>
 	// Returning to that branch must deliver it without waiting for another task to finish.
 	current.setBranch(["entry-1"]);
 	current.emitSessionTree();
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.content).toContain("held output");
 });
 
-test("splits a long list of small results instead of merging one giant message", (): void => {
+test("splits a long list of small results instead of merging one giant message", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	for (let index = 0; index < 10; index += 1) {
 		const id = start(current, `task ${index}`);
 		current.registry.settle(id, terminal("ok"));
 	}
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
@@ -334,7 +437,7 @@ test("splits a long list of small results instead of merging one giant message",
 	}
 });
 
-test("announces a result that is waiting on another branch", (): void => {
+test("announces a result that is waiting on another branch", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness({ branch: ["other"], anchor: "entry-1" });
 	const notices = (): string[] =>
@@ -342,7 +445,7 @@ test("announces a result that is waiting on another branch", (): void => {
 
 	const first = start(current, "elsewhere", "entry-1");
 	current.registry.settle(first, terminal("held output"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	// Silence would leave the user with no sign that a finished result is waiting.
 	expect(current.sent).toHaveLength(0);
@@ -352,14 +455,14 @@ test("announces a result that is waiting on another branch", (): void => {
 	// A later held result is announced too, but the first is not announced again.
 	const second = start(current, "elsewhere too", "entry-1");
 	current.registry.settle(second, terminal("held again"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(notices()).toHaveLength(2);
 	expect(notices()[1]).toContain(current.registry.get(second)?.shortId);
 	expect(notices()[1]).not.toContain(current.registry.get(first)?.shortId);
 });
 
-test("bounds a merged message by the text it actually sends", (): void => {
+test("bounds a merged message by the text it actually sends", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	// Each result is near the per-task cap, so the estimate-based splitter used to let a message
@@ -368,7 +471,7 @@ test("bounds a merged message by the text it actually sends", (): void => {
 		const id = start(current, `big ${index}`);
 		current.registry.settle(id, terminal("x".repeat(MAX_TASK_MESSAGE_CHARS - 20)));
 	}
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
@@ -378,7 +481,7 @@ test("bounds a merged message by the text it actually sends", (): void => {
 	}
 });
 
-test("splits by the bytes the message costs, not by its character count", (): void => {
+test("splits by the bytes the message costs, not by its character count", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	// Three-byte characters cost three bytes each, so a character-counted bound would let this
@@ -387,7 +490,7 @@ test("splits by the bytes the message costs, not by its character count", (): vo
 		const id = start(current, `wide ${index}`);
 		current.registry.settle(id, terminal("\u20ac".repeat(MAX_TASK_MESSAGE_CHARS / 3)));
 	}
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
@@ -397,7 +500,7 @@ test("splits by the bytes the message costs, not by its character count", (): vo
 	}
 });
 
-test("announces a held result even when this window delivered others", (): void => {
+test("announces a held result even when this check delivered others", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness({ branch: ["entry-1"], anchor: "entry-1" });
 	// The first result belongs to the current branch, the second to another one.
@@ -405,7 +508,7 @@ test("announces a held result even when this window delivered others", (): void 
 	const elsewhere = start(current, "elsewhere", "entry-2");
 	current.registry.settle(here, terminal("delivered"));
 	current.registry.settle(elsewhere, terminal("held"));
-	vi.advanceTimersByTime(TASK_NOTIFICATION_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.content).toContain("delivered");

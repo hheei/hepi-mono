@@ -15,6 +15,7 @@ import {
 	observationsRecordedEntry,
 	oldV2CompactionDetails,
 	reflection,
+	reflectionsDroppedEntry,
 	reflectionsRecordedEntry,
 	textCustomMessage,
 } from "./fixtures/session.js";
@@ -41,6 +42,33 @@ describe("session-ledger V3 projections", () => {
 
 		expect(projection.observations.map((obs) => obs.id)).toEqual(["bbbbbbbbbbbb"]);
 		expect(projection.reflections.map((ref) => ref.id)).toEqual(["eeeeeeeeeeee"]);
+	});
+
+	it("full projection retires superseded reflections at the drop boundary", () => {
+		const refA = reflection("aaaaaaaaaaaa", ["cccccccccccc"]);
+		const refB = reflection("bbbbbbbbbbbb", ["cccccccccccc"]);
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			reflectionsRecordedEntry("om-ref-1", { reflections: [refA, refB], coversUpToId: "raw-1" }),
+			reflectionsDroppedEntry("om-ref-drop", {
+				reflectionIds: ["aaaaaaaaaaaa"],
+				coversUpToId: "raw-1",
+			}),
+		];
+
+		expect(fullProjection(entries).reflections.map((ref) => ref.id)).toEqual(["bbbbbbbbbbbb"]);
+	});
+
+	it("reports reflections the full fold dropped while the render still shows them", () => {
+		const visible = {
+			observations: [],
+			reflections: [reflection("aaaaaaaaaaaa", ["cccccccccccc"])],
+		};
+		const full = { observations: [], reflections: [] };
+
+		const diff = diffProjection(visible, full);
+
+		expect(diff.droppedReflectionsOnlyInFull.map((ref) => ref.id)).toEqual(["aaaaaaaaaaaa"]);
 	});
 
 	it("visible projection is empty when there is no V3 compaction", () => {

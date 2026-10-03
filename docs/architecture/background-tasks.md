@@ -25,8 +25,9 @@
 
 | Owner | 职责 | 不承担 |
 | --- | --- | --- |
-| ext-core `TaskRegistry` | task identity、状态、wait/stop 契约、终态保留、纯终态通知 | 启动进程、Pi 消息文案、模型路由、5 秒产品策略 |
-| pi-ext-tools task-control | 创建并 `provideService` 当前 session 的唯一 registry；注册 list/wait/stop；固定通知窗口与父会话消息 | 解析 agent 定义、管理 RPC child |
+| ext-core `TaskRegistry` | task identity、状态、wait/stop 契约、终态保留、纯终态通知 | 启动进程、Pi 消息文案、模型路由、产品交付策略 |
+| ext-core `BackgroundDelivery` | 同一 runtime 的后台活动源与交付通道协调、单次唤醒 | 结果存储、执行、模型路由 |
+| pi-ext-tools task-control | 创建并 `provideService` 当前 session 的唯一 registry；注册 list/wait/stop；结果消息与交付确认 | 解析 agent 定义、管理 child |
 | Bash producer | Bash 进程、日志、timeout、停止与退出确认 | Agent 并发队列 |
 | pi-subagents | agent 解析、RPC 生命周期、agent admission、软提示、schema 结果校验、`task` 入口 | Bash 进程、第二套 registry |
 
@@ -78,9 +79,15 @@ guideline 都要各自说明这一点。
 
 ## 交付
 
-第一个待交付结果在 t0 到达时开启**固定**窗口，t0+5s 提交；窗口内完成的结果合并，后续完成不延长
-窗口。合并同时受总字节与条目数约束，小结果很多时也会拆成多条消息，而不是堆成一条无法阅读的
-长消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`task` 的缺省方式）在受理时就登记为
+不再使用固定时间窗口。Bash/task 结果与 `spawn_agent` 的报告共用同一 runtime 的完成门控：
+
+- 父 agent 正在运行时，待交付内容立即以 `steer` 进入下一模型步骤，不打断当前工具批次。
+- 父 agent 空闲时，普通结果与报告等待所有活动后台工作结束，再统一触发一次新回合。TaskRegistry 的 queued/starting/running/stopping 均为活动；child 的启动与运行直到 `agent_settled` 才结束，`agent_end` 不算最终完成。
+- `need_decision` / `blocked` 是例外：空闲父 agent 只先接收紧急报告并立即被唤醒，避免 child 等待父回复而门控又等待 child 的死锁。普通结果不借紧急报告绕过空闲门控，父 agent 开始运行后才以 `steer` 进入下一步。
+- 同一轮检查先追加所有消息，只有最后一条请求新回合；忙时所有消息都走 `steer`。同一事件批次通过微任务合并检查，不引入新的秒级窗口。
+- 工作源与通道由各具体 extension 注册并清理；ext-core 只协调，不拥有队列或 transcript。单独安装任一 extension 仍成立。lifecycle signal 中止后，通道不能请求新回合；拆卸时 subagent 报告只追加，Task 结果仍遵循原交付确认规则。
+
+合并仍受总字节与条目数约束，小结果很多时拆成多条消息。`wait_tasks` 直接返回终态与受限结果，不消费、不提前 flush 自动通知。阻塞调用（`task` 的缺省方式）在受理时就登记为
 “结果由调用方自己上报”，因此终态不预留通知容量、也不会再被通知一次；它的结果只走本次 tool_result。
 若该调用被中断，调用方在返回前显式放弃这份内联结果（`releaseInlineResult`），此后无论任务以
 `completed`（结果已提交）还是 `cancelled` 收尾，都会走正常的后台通知通道，而不是把结果留在已经返回的
@@ -100,7 +107,7 @@ host 明确拒收（`sendMessage` 同步抛错）时会把该批次退回 `pendi
 registry 是 session runtime 状态，不新增持久化调度器。session 替换/reload 会通过
 `session_shutdown` 清理旧 timer、waiter、订阅与队列。`/tree` 不触发 session_shutdown，因此任务
 记录启动分支的 entry anchor：当前分支不再包含该 anchor 时暂停自动投递，任务仍可显式查看/停止；回到该分支
-（`session_tree`）时重新开启窗口投递待交付结果，已经交给 host 队列的消息无法撤回。
+（`session_tree`）时重新按完成门控检查待交付结果，已经交给 host 队列的消息无法撤回。
 
 ## 失败与恢复边界
 
@@ -116,6 +123,13 @@ registry 是 session runtime 状态，不新增持久化调度器。session 替�
   使用的 `done`；仍可能存活时继续拒绝。没有留下任何进程证据（未记录 runner pid）的启动只能保守拒绝：无法证伪的
   进程不能被第二个 runner 覆盖，这是有意的残留限制。
 - 不承诺跨进程崩溃的 exactly-once，也不为此新增持久化 outbox。
+
+## 完成门控的不变量
+
+- 初始输入投递未确认不能推导出工作结束；已开始的 child 保持活动计数，直到最终 settled、确认退出或实际状态查询确认空闲。
+- child 状态查询与 transcript 获取独立。transcript 获取失败不妨碍确认忙闲；实际状态也无法确认时明确报告恢复失败，不伪装成已恢复。后续 bridge 重连重新确认。
+- 活动计数按启动版本保护；旧 `agent_settled` 或 adoption 的异步写回不能覆盖更新的 `agent_start`。
+- 交付前重新确认通道仍注册且未取消。若最后的唤醒通道在同步交付中被取消，不能为了补唤醒而制造额外消息或请求已取消的回合。
 
 ## Agent 结果契约
 

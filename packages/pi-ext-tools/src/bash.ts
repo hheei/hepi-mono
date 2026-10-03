@@ -7,6 +7,8 @@ import {
 	type ExtensionContext,
 	type Theme,
 	type ToolDefinition,
+	type ToolLoadout,
+	type ToolLoadoutChanges,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
@@ -544,6 +546,37 @@ export function registerBashTool(
 		promptSnippet: BASH_DESCRIPTION,
 		promptGuidelines: BASH_PROMPT_GUIDELINES,
 		parameters: BashInput,
+		annotations: {
+			openWorldHint: true,
+			destructiveHint: true,
+		},
+		prepareLoadout(loadout: ToolLoadout): ToolLoadoutChanges {
+			const declared = new Set(loadout.declared.map((t) => t.name));
+			const hasEval = declared.has("eval");
+			const hasCodemode = declared.has("codemode");
+			if (hasEval && hasCodemode) {
+				return {
+					descriptions: {
+						bash: `${BASH_DESCRIPTION} Prefer eval for persistent Python computation, and codemode for tool orchestration or filtering.`,
+					},
+				};
+			}
+			if (hasEval) {
+				return {
+					descriptions: {
+						bash: `${BASH_DESCRIPTION} Prefer eval over python -c for multi-step computation.`,
+					},
+				};
+			}
+			if (hasCodemode) {
+				return {
+					descriptions: {
+						bash: `${BASH_DESCRIPTION} Prefer codemode over complex shell loops or pipeline filtering.`,
+					},
+				};
+			}
+			return {};
+		},
 		renderResult(
 			result: Parameters<UpstreamRenderResult>[0],
 			options: Parameters<UpstreamRenderResult>[1],

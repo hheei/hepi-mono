@@ -6,7 +6,7 @@ export type PatchHunkOutcome =
 			readonly length: number;
 			readonly match: "exact" | "fuzzy";
 	  }
-	| { readonly kind: "context_not_found"; readonly hunkIndex: number }
+	| { readonly kind: "context_not_found"; readonly hunkIndex: number; readonly hint?: string }
 	| {
 			readonly kind: "ambiguous_exact";
 			readonly hunkIndex: number;

@@ -1,5 +1,9 @@
 # pi-subagents：投递、观测与 widget
 
+**前提更正（2026-10-01）**：本文件的「agent 默认在 RPC 后台运行、attach 时才进 TUI」这一前提已被
+[`PLAN-panel-bridge.md`](PLAN-panel-bridge.md) 取代（child 现在由 bridge 驱动，panel 呈现由 spawn 决定）。
+其余禁令（不 fire-and-forget 启动、不 send-keys、不 readScreen、不扫 session、不写 activity sidecar）不变。
+
 本文件是对 maplezzk/HazAT `pi-interactive-subagents`（MIT，`7a5c96b`）的**有选择借用计划**。原设计仍以 [`PLAN.md`](PLAN.md) 为准；当前合同以 [`spec.md`](spec.md) 为准。实施状态以 [`tickets.md`](tickets.md) 的 `SUB-P*` 为准。
 
 目标：把他们已经做对的**话术、interactive 策略位、widget 投影**接到现有 RPC 运行时上。不替换 runner、LaunchSpec、registry、IPC。不引入第二套文件总线。

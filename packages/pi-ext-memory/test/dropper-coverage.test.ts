@@ -88,9 +88,21 @@ describe("V3 dropper reflection coverage helpers", () => {
 
 		expect(line).toContain("[aaaaaaaaaaaa]");
 		expect(line).toContain("[critical]");
+		// Plain facts are the default kind: the rank only has to be visible for the
+		// model where it matters, which the test below covers.
+		expect(line).toContain("[kind: fact]");
 		expect(line).toContain("[coverage: strong]");
 		expect(line).toContain("Important fact");
 		expect(line).not.toContain("drop-priority");
 		expect(line).not.toContain("drop-resistance");
+	});
+
+	it("shows the recorded kind so the drop rank is visible to the model", () => {
+		expect(
+			observationToDropperLine(observation("aaaaaaaaaaaa", { kind: "progress" }), "none"),
+		).toContain("[kind: progress]");
+		expect(
+			observationToDropperLine(observation("bbbbbbbbbbbb", { kind: "decision" }), "none"),
+		).toContain("[kind: decision]");
 	});
 });

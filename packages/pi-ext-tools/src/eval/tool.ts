@@ -31,8 +31,9 @@ const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const EVAL_DESCRIPTION =
-	"Run trusted local Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox.";
-const EVAL_CODE_DESCRIPTION = "Non-empty trusted source, at most 1 MiB.";
+	"Run trusted local Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox. Do not write any comments in the code.";
+const EVAL_CODE_DESCRIPTION =
+	"Non-empty trusted source, at most 1 MiB. Do not write any comments in the code.";
 const EVAL_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
 export const EVAL_PROMPT_SNIPPET =
 	"Persistent Python kernel. One cell per call; names survive until reset or that kernel dies.";
@@ -42,10 +43,12 @@ export function evalPromptGuidelines(catalog: EditCatalog): string[] {
 		"eval: use for computation, data wrangling, and inspecting values that should persist across cells.",
 		evalMutationGuideline(catalog),
 		"eval: work incrementally — import, define, then use. Reuse top-level names. Re-run setup only after reset or a kernel crash.",
-		"eval: use Python. Call nested tools as `tool.name(...)` with kwargs or a dict.",
+		"eval: use Python. Call nested tools as `tools.name(...)` with kwargs or a dict.",
 		evalNestedGuideline(catalog),
+		"eval: nested tools return text strings, or structured dicts for tools declaring schemas (e.g. bash).",
 		"eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
 		"eval: reset: true wipes the Python kernel and scope. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
+		"eval: do not write any comments in the code. Write only executable code.",
 	];
 }
 
@@ -75,6 +78,7 @@ function evalNestedGuideline(catalog: EditCatalog): string {
 export const EVAL_TOOL_REGISTRATION: ManagedToolRegistration = {
 	id: "eval",
 	owner: OWNER,
+	exposure: "model-only",
 };
 
 export const EVAL_PARAMETERS = Type.Object(
@@ -126,6 +130,10 @@ export function createEvalTool(
 		promptSnippet: EVAL_PROMPT_SNIPPET,
 		promptGuidelines: evalPromptGuidelines("native"),
 		parameters: EVAL_PARAMETERS,
+		exposure: "model-only",
+		annotations: {
+			openWorldHint: true,
+		},
 		executionMode: "sequential",
 		renderShell: "self",
 		renderResult: (result, options, theme, context) =>
@@ -250,7 +258,10 @@ export function createEvalTool(
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
 			};
-			return textToolResult(transcript(rows), details);
+			return {
+				...textToolResult(transcript(rows), details),
+				...(failure !== undefined ? { isError: true } : {}),
+			};
 		},
 	};
 }

@@ -135,6 +135,17 @@ if (env.FAKE_PI_EXIT_AFTER_MS !== undefined) {
 }
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+// Real Pi shuts down when its RPC stdin ends, which is the exit close_writer waits for.
+// FAKE_PI_IGNORE_STDIN_END models a writer that only signals can end.
+lines.on("close", () => {
+	if (env.FAKE_PI_IGNORE_STDIN_END === "1") {
+		// Keep the event loop alive: real Pi also stays up when its RPC stdin ends without a
+		// shutdown it honours.
+		setInterval(() => {}, 1_000);
+		return;
+	}
+	process.exit(Number(env.FAKE_PI_STDIN_END_CODE ?? "0"));
+});
 lines.on("line", (line) => {
 	if (line.trim() === "") return;
 	let command;

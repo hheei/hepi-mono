@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, it, vi } from "vitest";
 import observationalMemory from "../src/index.js";
 
@@ -40,7 +41,7 @@ describe("observationalMemory extension entry", () => {
 		expect(Object.keys(commands)).toEqual(["om"]);
 
 		// Tool
-		expect(tools).toHaveProperty("recall");
+		expect(tools).toHaveProperty("om_recall_evidence");
 
 		// Lifecycle session start & shutdown
 		const sessionContext = {
@@ -50,6 +51,12 @@ describe("observationalMemory extension entry", () => {
 			},
 		};
 		await handlers.session_start?.(undefined, sessionContext);
+
+		const registry = getRuntimeSettingsRegistry(pi as unknown as ExtensionAPI);
+		expect(registry.get("pi-ext-memory")).toBeDefined();
+		expect(registry.get("pi-ext-memory")?.id).toBe("pi-ext-memory");
+
 		await handlers.session_shutdown?.(undefined, sessionContext);
+		expect(registry.get("pi-ext-memory")).toBeUndefined();
 	});
 });

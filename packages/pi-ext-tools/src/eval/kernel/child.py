@@ -251,7 +251,7 @@ def _execute(cell_id: str, code: str) -> None:
     _NS["print"] = _print
     _NS["display"] = _display
     _NS["cwd"] = _cwd
-    _NS["tool"] = _ToolProxy()
+    _NS["tools"] = _ToolProxy()
     _NS["EvalToolError"] = EvalToolError
     _NS.pop("__eval_final__", None)
     try:

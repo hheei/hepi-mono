@@ -135,7 +135,9 @@ function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
 	return rejection.diagnostics.map((diagnostic) => {
 		switch (diagnostic.kind) {
 			case "context_not_found":
-				return `${prefix}, hunk ${diagnostic.hunkIndex}: context not found`;
+				return diagnostic.hint !== undefined
+					? `${prefix}, hunk ${diagnostic.hunkIndex}: context not found (${diagnostic.hint})`
+					: `${prefix}, hunk ${diagnostic.hunkIndex}: context not found`;
 			case "ambiguous_exact":
 				return `${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
 					.slice(0, MAX_CANDIDATES)
@@ -352,12 +354,17 @@ export function createApplyPatchTool(
 						: {}),
 				});
 				const warning = remote ? "" : externalPathWarning(ctx.cwd, result);
-				return textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
-					...result,
-					status: statusFor(result),
-					durationMs: Math.round(performance.now() - startedAt),
-					...(host === undefined ? {} : { target: host }),
-				}) satisfies AgentToolResult<ApplyPatchToolDetails>;
+				const status = statusFor(result);
+				const isError = status !== "success";
+				return {
+					...textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
+						...result,
+						status,
+						durationMs: Math.round(performance.now() - startedAt),
+						...(host === undefined ? {} : { target: host }),
+					}),
+					...(isError ? { isError: true } : {}),
+				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
 				const message = errorMessage(error);
 				const recovery = failureRecovery(message);

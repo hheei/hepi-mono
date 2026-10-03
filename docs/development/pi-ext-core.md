@@ -48,6 +48,9 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
   Loadout registration、root-session-scoped subagent execution 与 extension JSON settings transport。
   它们不得扩张为 page content、Loadout policy、feature schema/state、Settings UI、agent/config/UI/delivery
   policy、clipboard policy、Pi private API facade 或 schema-driven framework。
+  共享后台交付的受限协调原语见 [后台任务契约](../architecture/background-tasks.md)：只汇总
+  consumer 提供的活动计数、协调父会话忙/闲边界与单次唤醒，不拥有消息内容、队列、紧急原因、
+  分支规则、交付确认或生产者执行。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
 - process-global state 只能保存 lazy registry；不得保留 `ExtensionContext`、component 或 session

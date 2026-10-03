@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { type ChildIdentity, PROTOCOL_VERSION } from "../src/domain.js";
 import {
+	BRIDGE_OPERATIONS,
+	CHILD_INPUT_EVENT,
+	CHILD_LIFECYCLE_EVENT,
 	DEFAULT_MAX_BUFFERED_EVENTS,
 	DEFAULT_MAX_FRAME_BYTES,
 	DEFAULT_MAX_PENDING_REQUESTS,
@@ -11,9 +14,6 @@ import {
 	isHelloFrame,
 	isRequestFrame,
 	isResponseFrame,
-	RUNNER_EVENTS_DROPPED_EVENT,
-	RUNNER_EXIT_EVENT,
-	RUNNER_OPERATIONS,
 	successResponse,
 } from "../src/protocol.js";
 
@@ -27,10 +27,11 @@ const identity: ChildIdentity = {
 
 const hello = { version: PROTOCOL_VERSION, type: "hello", ...identity };
 
-describe("runner protocol frames", () => {
+describe("bridge protocol frames", () => {
 	test("accepts a complete hello frame and rejects incomplete ones", () => {
 		expect(isHelloFrame(hello)).toBe(true);
-		expect(isHelloFrame({ ...hello, role: "bridge" })).toBe(true);
+		expect(isHelloFrame({ ...hello, role: "child" })).toBe(true);
+		expect(isHelloFrame({ ...hello, role: "controller" })).toBe(false);
 		const { endpoint: _endpoint, ...withoutEndpoint } = hello;
 		expect(isHelloFrame(withoutEndpoint)).toBe(false);
 		expect(isHelloFrame({ ...hello, version: PROTOCOL_VERSION + 1 })).toBe(false);
@@ -47,7 +48,7 @@ describe("runner protocol frames", () => {
 	});
 
 	test("accepts every declared operation and rejects unknown ones", () => {
-		for (const operation of RUNNER_OPERATIONS) {
+		for (const operation of BRIDGE_OPERATIONS) {
 			expect(
 				isRequestFrame({ version: PROTOCOL_VERSION, type: "request", id: "1", operation }),
 			).toBe(true);
@@ -115,7 +116,7 @@ describe("runner protocol frames", () => {
 		expect(DEFAULT_MAX_FRAME_BYTES).toBe(1024 * 1024);
 		expect(DEFAULT_MAX_PENDING_REQUESTS).toBeGreaterThan(0);
 		expect(DEFAULT_MAX_BUFFERED_EVENTS).toBeGreaterThan(0);
-		expect(RUNNER_EXIT_EVENT).toBe("runner_exit");
-		expect(RUNNER_EVENTS_DROPPED_EVENT).toBe("runner_events_dropped");
+		expect(CHILD_LIFECYCLE_EVENT).toBe("child_lifecycle");
+		expect(CHILD_INPUT_EVENT).toBe("child_input");
 	});
 });

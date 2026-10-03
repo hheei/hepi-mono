@@ -19,11 +19,21 @@ import {
 	parseModelRef,
 } from "./auto-title.js";
 import {
+	applyBatchToolRules,
+	BATCH_TOOL_RULES_GROUP,
+	type BatchToolRulesConfig,
+	createBatchToolRulesSettingsProvider,
+	DEFAULT_BATCH_TOOL_RULES_CONFIG,
+	normalizeBatchToolRulesConfig,
+} from "./batch-tool-rules.js";
+import { createCodemodeGuard } from "./codemode-guard.js";
+import {
 	createDollarSkillFeature,
 	createDollarSkillSettingsProvider,
 	loadDollarSkillConfig,
 	registerDollarSkillInputTransform,
 } from "./dollar-skill/index.js";
+import { registerSessionRecoveryGuard } from "./session-recovery-guard.js";
 
 /** Registers Pi opt-in host enhancement features: dollar skill references and auto session titles. */
 export default function piExtAddonExtension(pi: ExtensionAPI): void {
@@ -32,6 +42,15 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 	const dollarSkillSettings = createDollarSkillSettingsProvider({
 		onChange: (config) => dollarSkill.setConfig(config),
 	});
+
+	let batchToolRulesConfig: BatchToolRulesConfig = DEFAULT_BATCH_TOOL_RULES_CONFIG;
+	const batchToolRulesSettings = createBatchToolRulesSettingsProvider({
+		onSettingsChange: (config) => {
+			batchToolRulesConfig = config;
+		},
+	});
+	const codemodeGuard = createCodemodeGuard();
+	const sessionRecoveryGuard = registerSessionRecoveryGuard(pi);
 
 	let autoTitleCoordinator: AutoTitleCoordinator | undefined;
 	let runAutoTitle: (() => void) | undefined;
@@ -51,10 +70,26 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_info_changed", (event) => autoTitleCoordinator?.sessionInfoChanged(event.name));
-	pi.on("before_agent_start", () => autoTitleCoordinator?.beforeAgentStart());
+	pi.on("before_agent_start", (event) => {
+		autoTitleCoordinator?.beforeAgentStart();
+		applyBatchToolRules(
+			event as {
+				systemPromptOptions?: {
+					sections?: Record<string, string>;
+					selectedTools?: readonly string[];
+				};
+			},
+			batchToolRulesConfig,
+			() => (typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []),
+		);
+	});
+	pi.on("tool_result", (event, context) => {
+		return codemodeGuard.recordToolResult(event, context?.model);
+	});
 	pi.on("agent_settled", () => autoTitleCoordinator?.agentSettled());
 	pi.on("session_start", (event) => {
 		if (event.reason === "startup" || event.reason === "new") autoTitleWanted = true;
+		codemodeGuard.reset();
 	});
 
 	registerExtensionLifecycle(pi, {
@@ -180,6 +215,33 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			runtime.resources.add("auto-title", () => {
 				disposeAutoTitleCoordinator();
 				runAutoTitle = undefined;
+			});
+
+			// 3. Batch tool rules (applies to all models)
+			runtime.resources.add(
+				"batch-tool-rules-settings",
+				registerSettings(batchToolRulesSettings, settingsRegistry),
+			);
+			try {
+				const context = { sessionId, cwd: runtime.extension.cwd };
+				const state = await batchToolRulesSettings.storage.load(context);
+				if (state?.[BATCH_TOOL_RULES_GROUP]) {
+					batchToolRulesConfig = normalizeBatchToolRulesConfig(state[BATCH_TOOL_RULES_GROUP]);
+				}
+			} catch (error) {
+				runtime.extension.ui.notify(
+					`Unable to load batch tool rules settings: ${errorMessage(error)}`,
+					"error",
+				);
+			}
+			runtime.resources.add("batch-tool-rules", () => {
+				batchToolRulesConfig = DEFAULT_BATCH_TOOL_RULES_CONFIG;
+			});
+			runtime.resources.add("codemode-guard", () => {
+				codemodeGuard.reset();
+			});
+			runtime.resources.add("session-recovery-guard", () => {
+				sessionRecoveryGuard.reset();
 			});
 		},
 	});

@@ -3,20 +3,26 @@ import { describe, expect, it } from "vitest";
 import {
 	buildObservationsDroppedData,
 	buildObservationsRecordedData,
+	buildReflectionsDroppedData,
 	buildReflectionsRecordedData,
 	isMemoryDetails,
 	isObservation,
+	isObservationKind,
 	isObservationsDroppedData,
 	isObservationsDroppedEntry,
 	isObservationsRecordedData,
 	isObservationsRecordedEntry,
 	isReflection,
+	isReflectionsDroppedData,
+	isReflectionsDroppedEntry,
 	isReflectionsRecordedData,
 	isReflectionsRecordedEntry,
 	OM_FOLDED,
 	OM_OBSERVATIONS_DROPPED,
 	OM_OBSERVATIONS_RECORDED,
+	OM_REFLECTIONS_DROPPED,
 	OM_REFLECTIONS_RECORDED,
+	observationKind,
 } from "../src/session-ledger/index.js";
 import {
 	memoryDetails,
@@ -44,6 +50,23 @@ describe("session-ledger V3 type guards and builders", () => {
 			false,
 		);
 		expect(isObservation({ ...observation("dddddddddddd"), tokenCount: undefined })).toBe(false);
+	});
+
+	it("keeps the recorded kind, defaults unknown and legacy observations to fact", () => {
+		expect(isObservation(observation("aaaaaaaaaaaa", { kind: "progress" }))).toBe(true);
+		expect(isObservationKind("progress")).toBe(true);
+		expect(isObservationKind("narration")).toBe(false);
+
+		// Entries written before the field existed, and entries whose kind was
+		// corrupted on disk, both read as the conservative default.
+		expect(observationKind(observation("bbbbbbbbbbbb", { kind: "decision" }))).toBe("decision");
+		expect(observationKind(observation("cccccccccccc"))).toBe("fact");
+		expect(
+			observationKind({
+				...observation("dddddddddddd"),
+				kind: "narration" as never,
+			}),
+		).toBe("fact");
 	});
 
 	it("accepts valid V3 reflection records", () => {
@@ -136,5 +159,33 @@ describe("session-ledger V3 type guards and builders", () => {
 	it("ignores old V2 observation entries and old V2 compaction details", () => {
 		expect(isObservationsRecordedEntry(oldV2ObservationEntry("v2-entry"))).toBe(false);
 		expect(isMemoryDetails(oldV2CompactionDetails())).toBe(false);
+	});
+});
+
+describe("reflection tombstones", () => {
+	it("accepts a built tombstone and rejects malformed data", () => {
+		const built = buildReflectionsDroppedData(["aaaaaaaaaaaa"], "raw-1");
+
+		expect(built).toEqual({ reflectionIds: ["aaaaaaaaaaaa"], coversUpToId: "raw-1" });
+		expect(buildReflectionsDroppedData([], "raw-1")).toBeUndefined();
+		expect(buildReflectionsDroppedData(["aaaaaaaaaaaa"], "")).toBeUndefined();
+		expect(isReflectionsDroppedData(built)).toBe(true);
+		expect(isReflectionsDroppedData({ reflectionIds: [], coversUpToId: "raw-1" })).toBe(false);
+		expect(isReflectionsDroppedData({ reflectionIds: ["aaaaaaaaaaaa"] })).toBe(false);
+	});
+
+	it("recognizes the tombstone entry and ignores it when the shape is wrong", () => {
+		const entry = {
+			type: "custom",
+			id: "om-ref-drop",
+			customType: OM_REFLECTIONS_DROPPED,
+			data: { reflectionIds: ["aaaaaaaaaaaa"], coversUpToId: "raw-1" },
+		};
+
+		expect(isReflectionsDroppedEntry(entry)).toBe(true);
+		expect(isReflectionsDroppedEntry({ ...entry, customType: OM_OBSERVATIONS_DROPPED })).toBe(
+			false,
+		);
+		expect(isReflectionsDroppedEntry({ ...entry, data: { reflectionIds: [] } })).toBe(false);
 	});
 });

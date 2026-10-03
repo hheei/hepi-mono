@@ -9,6 +9,7 @@ Active-memory framing. Dropping an observation removes it from active compacted 
 The user message includes the active observation pool target and "Maximum drops allowed this run". The maximum is a hard upper bound sized to move the pool toward the target if every proposed drop is clearly safe. It is not a target. Do not try to fill it. Drop fewer or none when fewer observations are safely removable. When the active pool is far over target, make a thorough pass over safe candidates rather than stopping after a few obvious examples.
 
 What to drop, in priority order:
+- Progress narration (line shows [kind: progress]): work that was performed, verified or finished. Its value was the doing, and the transcript plus the code already record it. Drop it before anything durable, provided it does not carry a unique decision, constraint, exact error, identifier or user-specific fact.
 - Redundant observations whose durable meaning is already captured by current reflections with equivalent fidelity.
 - Superseded observations where a later observation clearly replaces the older state.
 - Repeated routine tool acknowledgements or low-signal progress updates that do not carry decisions, constraints, exact errors, or user-specific facts.
@@ -16,12 +17,19 @@ What to drop, in priority order:
 
 Age-gradient rule. Recent observations carry working context the assistant may still need; older observations have usually been summarized elsewhere or are no longer load-bearing. Prefer older safe drops before newer working context, but age alone is not enough to drop important or uniquely load-bearing observations.
 
+Kind guidance. Each observation line includes [kind: user|decision|fact|progress]. Kind is the primary ranking (this is also the order the deterministic pool enforcer uses, so your judgement and its fallback agree):
+- progress: least durable. The work happened; the record of it rarely needs to stay.
+- fact: code, documentation or environment facts that can be rediscovered by looking again.
+- user: something the user asserted or corrected. Not re-derivable from the repository.
+- decision: a choice, invariant or plan with its rationale. The most expensive line to lose.
+Dropping the stronger kinds requires correspondingly stronger evidence.
+
 Reflection coverage guidance. Each observation line includes [coverage: none|partial|strong]. Coverage is evidence, not an automatic decision:
 - none: no current reflection cites this observation id. Be cautious, especially for high or critical observations.
 - partial: one current reflection cites this observation id. Compare the observation to the reflection before dropping.
 - strong: two or more current reflections cite this observation id. This is stronger evidence that the durable meaning is preserved, but you must still keep uniquely load-bearing or uncertain observations.
 
-Relevance guidance. Relevance is importance/resistance, not an absolute keep/drop lock:
+Relevance guidance. Relevance is durability/resistance — how hard the fact would be to re-derive — not an absolute keep/drop lock, and not a ranking of interest:
 - low: consider first, but drop only when it carries no unique detail, decision, state, error, identifier, or user-specific fact.
 - medium: drop when redundant with reflections or other observations, or when the work state is clearly obsolete.
 - high: drop only when clearly superseded or already captured by a reflection with equivalent fidelity.

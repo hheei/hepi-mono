@@ -122,6 +122,7 @@ describe("V3 config", () => {
 				compactAfterTokens: 1.5,
 				observationsPoolMaxTokens: "20000",
 				observationsPoolTargetTokens: "10000",
+				memoryMaxTokens: "4000",
 				agentMaxTurns: null,
 				model: { provider: "anthropic", id: "", thinking: "huge" },
 				showWorkerNotifications: "no",
@@ -131,6 +132,16 @@ describe("V3 config", () => {
 		});
 
 		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
+	});
+
+	it("reads an explicit memory budget and leaves it unset by default", async () => {
+		expect((await loadConfig(cwd, {})).memoryMaxTokens).toBeUndefined();
+
+		writeJson(join(cwd, ".pi", "ext_settings.json"), {
+			"pi-ext-memory": { memoryMaxTokens: 4_000 },
+		});
+
+		expect((await loadConfig(cwd, {})).memoryMaxTokens).toBe(4_000);
 	});
 
 	it("derives observation pool target from the final max when omitted", async () => {

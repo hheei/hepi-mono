@@ -68,7 +68,8 @@ The `hindsight` block is a separate opt-in feature and is documented in [Hindsig
 | `idleCompactionTtl` | duration string, number, or boolean | `"1800s"` | Idle duration threshold before triggering background proactive compaction. Numbers and numeric strings are in seconds (e.g. `1800` or `"1800"` = 1800s). Unit strings like `"1800s"`, `"30m"`, `"1h"` are supported. Set to `"never"`, `false`, or `0` to disable. |
 | `idleCompactionMinTokens` | positive integer | `75000` | Minimum uncompacted tokens required to qualify for idle compaction. |
 | `observationsPoolMaxTokens` | positive integer | `20000` | Normal compaction-projection observation-token pressure that makes compaction do a full fold. |
-| `observationsPoolTargetTokens` | positive integer below max | half of `observationsPoolMaxTokens` | Folded active observation target used by post-reflection dropper maintenance. |
+| `observationsPoolTargetTokens` | positive integer below max | half of `observationsPoolMaxTokens` | Folded active observation target used by post-reflection dropper maintenance, and the observation share of the rendered memory budget. |
+| `memoryMaxTokens` | positive integer | derived | Hard upper bound on how many tokens of memory may stay visible. |
 | `agentMaxTurns` | positive integer | `16` | Shared nested-agent turn cap for observer, reflector, and dropper. |
 | `agentMaxTokens` | positive integer | `32000` | Maximum output tokens requested for memory-agent loops. Clamped to the model's own `maxTokens` when available. Lower it for local servers with a modest context window. |
 | `model` | object | unset | Optional model override for observer, reflector, and dropper. |
@@ -159,6 +160,45 @@ Dropper input includes deterministic reflection coverage evidence for every acti
 
 This target does not affect compaction full-fold pressure. Visible compaction pressure remains based on `observationsPoolMaxTokens`.
 
+It also sets the observation share of the rendered memory budget: at compaction, observations may occupy up to `observationsPoolTargetTokens` of that budget and reflections take the rest, with unused share handed back to each other. See [`memoryMaxTokens`](#memorymaxtokens).
+
+## `memoryMaxTokens`
+
+Default: derived, `min(floor(effective trigger × 0.5), floor(model contextWindow × 0.1))`, never below `4000`.
+
+This is the hard upper bound on how many tokens of memory may stay **visible**, and it is shared by three things:
+
+1. the rendered compaction summary,
+2. the observation-pool target the dropper works against,
+3. what the observer, reflector, and dropper are given to read.
+
+Without this bound the deterministic summary could grow past the model window. In one real session the summary reached 750,382 characters (about 186k tokens) against an `81000` trigger and a 272,000-token window: compaction could not converge, the next request exceeded the window, and the turn aborted. Memory is now sized from whatever is left of the trigger after Pi's retained tail and the system prompt:
+
+```
+softLimit    = min(compactAfterTokens, contextWindow − Pi's reserveTokens)
+available    = softLimit − retained tail tokens − system prompt tokens
+renderBudget = clamp(available × 0.5, 4000, memoryMaxTokens)
+```
+
+Pi reports the retained tail of a compaction (`firstKeptEntryId` onward), and the budget reacts to it: at an `81000` trigger, a session retaining a 44,000-token tail leaves 15,500 tokens for memory, while a session retaining the default 200,000-token-relative tail leaves the full cap. When Pi compacts because the context already overflowed, the render budget is halved again.
+
+Selection inside the budget is deterministic and never a model decision. Observations are kept first when no reflection covers them, then by kind (`decision`/`user`, then `fact`, then `progress`), then by higher relevance, then newer; reflections are kept by the session's first eight entries as anchors, then newest. Trimmed lines are not deleted: they stay in the session ledger and remain recallable by id with the `om_recall_evidence` tool.
+
+The memory agents read the same bounded view, so their prompts stop growing with the session and they stay accountable only for the memory that stays visible. Two exceptions keep the view from becoming the whole truth:
+
+- The dropper reads that view, but its drop budget and pool numbers are computed from the real active pool (readiness is measured on the real pool, and the count of lines it should consider is sized from how far the real pool is over target), so a pool that is over target is never silently left to the deterministic enforcer.
+- The reflector reads that view plus a `REFLECTION BUDGET` line: how many tokens of the render budget are left for reflections after observations take their `observationsPoolTargetTokens` share, measured against the whole active reflection pool (with a note when the view hid some of it, since those ids cannot be named in `supersedes`). When the current reflections are over it, the reflector is expected to merge near-duplicates (declaring `supersedes`) before adding new lines.
+
+Reflections can only leave active memory through such a merge: the reflector's `supersedes` ids become one `om.reflections.dropped` tombstone in the same run, and the replaced reflections stay readable in the ledger (`/om view full`, recall) while no longer counting against the cap. Only a valid replacement can retire a reflection: superseding ids are restricted to the reflections the reflector was shown, and a proposal with invalid content produces no tombstone.
+
+Set `memoryMaxTokens` only when the derived cap is wrong for a workload — for example to hold long-lived memory back on a small-window model, or to allow more of it on a large-window model whose trigger is small. Whatever you write is honored, including values below `4000`.
+
+The last render is reported by `/om status` (`── Memory budget ──`) and stored on the compaction entry as `details.budget` (budget, rendered tokens, retained tail, trigger, trimmed counts).
+
+### Pool convergence
+
+Trimmed lines stay in the ledger, so the ledger itself is bounded by a deterministic stage: above `cap × 1.5` active memory, a model-free enforcer reclaims non-critical observations down to `min(observationsPoolTargetTokens, max(0, cap - reflectionTokens))` and writes one `om.observations.dropped` entry. It never runs while the pool is under that watermark, never removes `critical` observations, and is idempotent. `/om status` shows `Over watermark:` while it is pending and `Reflections leave under the observation target:` when reflections leave less than `observationsPoolTargetTokens` of room under the cap — with reflections over the cap the observation target is zero and every non-critical observation is reclaimed from active memory (still recallable by id).
+
 ## `agentMaxTurns`
 
 Default: `16`.
@@ -201,7 +241,7 @@ Workers stream through Pi's composed provider runtime, not `@earendil-works/pi-a
 
 Default: `true`.
 
-When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages) and the end-of-run summary line. Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, and explicit `/om` subcommand output remain visible.
+When `false`, the extension hides routine observer, reflector, and dropper progress notifications (including deliberate-empty observer info messages) and the end-of-run summary line. Model fallback/unavailability, worker failures (including observer stream errors), compaction notifications, the pool enforcer's reclaim notice, and explicit `/om` subcommand output remain visible.
 
 With notifications on, a run that recorded something ends with a single delta line, for example `consolidation complete (+3 obs, +1 refl, -2 dropped) · $0.0038`. A run that changed nothing stays silent, because each stage already explains its own skip.
 

@@ -85,9 +85,34 @@ function lfView(lines: readonly TextLine[]): string {
 	return out;
 }
 
-function findExactStarts(haystack: readonly string[], needle: readonly string[]): number[] {
-	if (needle.length === 0) return [];
-	const starts: number[] = [];
+function normalizeUnicode(value: string): string {
+	return value
+		.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/gu, "-")
+		.replace(/[\u2018\u2019\u201a\u201b]/gu, "'")
+		.replace(/[\u201c\u201d\u201e\u201f]/gu, '"')
+		.replace(
+			/[\u00a0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000]/gu,
+			" ",
+		);
+}
+
+type MatchTier = "exact" | "trimEnd" | "trim" | "ambiguous" | "none";
+
+interface TieredMatchResult {
+	readonly starts: readonly number[];
+	readonly tier: MatchTier;
+	readonly indentShift?: string;
+	readonly eofTrimmedCount?: number;
+}
+
+function findTieredStarts(
+	haystack: readonly string[],
+	needle: readonly string[],
+): TieredMatchResult {
+	if (needle.length === 0) return { starts: [], tier: "exact" };
+
+	// Tier 1: exact match
+	const exactStarts: number[] = [];
 	for (let index = 0; index + needle.length <= haystack.length; index += 1) {
 		let matched = true;
 		for (let offset = 0; offset < needle.length; offset += 1) {
@@ -96,22 +121,168 @@ function findExactStarts(haystack: readonly string[], needle: readonly string[])
 				break;
 			}
 		}
-		if (matched) starts.push(index);
+		if (matched) exactStarts.push(index);
 	}
-	return starts;
+	if (exactStarts.length === 1) return { starts: exactStarts, tier: "exact" };
+	if (exactStarts.length > 1) return { starts: exactStarts, tier: "ambiguous" };
+
+	// Tier 2: trimEnd + unicode normalization
+	const normHaystack2 = haystack.map((line) => normalizeUnicode(line).trimEnd());
+	const normNeedle2 = needle.map((line) => normalizeUnicode(line).trimEnd());
+	const tier2Starts: number[] = [];
+	for (let index = 0; index + needle.length <= haystack.length; index += 1) {
+		let matched = true;
+		for (let offset = 0; offset < needle.length; offset += 1) {
+			if (normHaystack2[index + offset] !== normNeedle2[offset]) {
+				matched = false;
+				break;
+			}
+		}
+		if (matched) tier2Starts.push(index);
+	}
+	if (tier2Starts.length === 1) return { starts: tier2Starts, tier: "trimEnd" };
+	if (tier2Starts.length > 1) return { starts: tier2Starts, tier: "ambiguous" };
+
+	// Tier 3: trim (indentation tolerance) + unicode normalization
+	const normHaystack3 = haystack.map((line) => normalizeUnicode(line).trim());
+	const normNeedle3 = needle.map((line) => normalizeUnicode(line).trim());
+	const tier3Starts: number[] = [];
+	for (let index = 0; index + needle.length <= haystack.length; index += 1) {
+		let matched = true;
+		for (let offset = 0; offset < needle.length; offset += 1) {
+			if (normHaystack3[index + offset] !== normNeedle3[offset]) {
+				matched = false;
+				break;
+			}
+		}
+		if (matched) tier3Starts.push(index);
+	}
+	if (tier3Starts.length === 1) {
+		return { starts: tier3Starts, tier: "trim" };
+	}
+	if (tier3Starts.length > 1) return { starts: tier3Starts, tier: "ambiguous" };
+
+	// EOF Tail match: when LLM context extends past EOF with trailing empty/whitespace lines
+	const trimmedNeedle = [...needle];
+	while (trimmedNeedle.length > 0 && trimmedNeedle[trimmedNeedle.length - 1]?.trim() === "") {
+		trimmedNeedle.pop();
+	}
+	if (trimmedNeedle.length > 0 && trimmedNeedle.length < needle.length) {
+		const tailMatch = findTieredStarts(haystack, trimmedNeedle);
+		if (tailMatch.starts.length === 1) {
+			const start = tailMatch.starts[0] ?? 0;
+			if (start + trimmedNeedle.length === haystack.length) {
+				return { ...tailMatch, eofTrimmedCount: needle.length - trimmedNeedle.length };
+			}
+		}
+	}
+
+	return { starts: [], tier: "none" };
+}
+
+function adjustIndent(
+	cleanText: string,
+	lastOrigIndent: string,
+	lastHunkIndent: string,
+	indentMap?: ReadonlyMap<string, string>,
+): string {
+	if (cleanText.trim() === "") return "";
+	const curHunkIndent = cleanText.match(/^\s*/)?.[0] ?? "";
+	if (indentMap?.has(curHunkIndent)) {
+		const mapped = indentMap.get(curHunkIndent) ?? "";
+		return `${mapped}${cleanText.trimStart()}`;
+	}
+	const diff = curHunkIndent.length - lastHunkIndent.length;
+	const targetLen = Math.max(0, lastOrigIndent.length + diff);
+	if (targetLen === 0) return cleanText.trimStart();
+	if (targetLen <= lastOrigIndent.length) {
+		return `${lastOrigIndent.slice(0, targetLen)}${cleanText.trimStart()}`;
+	}
+	const extra = curHunkIndent.slice(lastHunkIndent.length);
+	return `${lastOrigIndent}${extra}${cleanText.trimStart()}`;
+}
+
+function findDiagnosticHint(
+	searchable: readonly string[],
+	needle: readonly string[],
+	prefixLines: number,
+): string | undefined {
+	if (needle.length === 0) return undefined;
+	if (searchable.length < needle.length) {
+		return `context exceeds file length (file has ${prefixLines + searchable.length} lines, but hunk context expects ${needle.length} lines)`;
+	}
+	const firstNeedle = needle[0] ?? "";
+	const normNeedle = normalizeUnicode(firstNeedle).trim();
+	if (normNeedle === "") return undefined;
+	for (let index = 0; index < searchable.length; index += 1) {
+		const line = searchable[index] ?? "";
+		if (normalizeUnicode(line).trim() === normNeedle) {
+			const lineNum = prefixLines + index + 1;
+			return `found similar line with different indentation/whitespace at line ${lineNum}: expected "${firstNeedle.trim()}", actual "${line.trim()}"`;
+		}
+	}
+	return undefined;
+}
+
+function isEofAnchor(anchor: string): boolean {
+	const trimmed = anchor.trim();
+	return /^(?:end\s+of\s+file|eof|\*{0,3}\s*end\s+of\s+file\*{0,3})$/i.test(trimmed);
 }
 
 function anchorConstraint(
 	lines: readonly TextLine[],
 	hunk: V4aUpdateHunk,
-): { readonly prefixLines: number } | RejectedPatchHunk {
+): { readonly prefixLines: number; readonly endOfFile?: true } | RejectedPatchHunk {
 	let start = 0;
+	let endOfFile = hunk.endOfFile;
 	const anchors = hunk.anchors ?? (hunk.anchor === undefined ? [] : [hunk.anchor]);
-	for (const anchor of anchors) {
+	for (let anchor of anchors) {
+		if (isEofAnchor(anchor)) {
+			endOfFile = true;
+			continue;
+		}
+		const lineNumMatch = anchor.match(/^(?:line\s*)?(\d+)$/i);
+		if (lineNumMatch?.[1]) {
+			const lineNum = Number.parseInt(lineNumMatch[1], 10);
+			if (lineNum > lines.length) {
+				endOfFile = true;
+			} else {
+				start = Math.max(0, lineNum - 1);
+			}
+			continue;
+		}
+		// Handle git hunk headers: @@ -x,y +x,y @@ text or @@ -x,y +x,y @@
+		const gitRangeMatch = anchor.match(
+			/^-(?<oldStart>\d+)(?:,\d+)?\s+\+\d+(?:,\d+)?(?:\s*@@\s*(?<trailing>.*))?$/,
+		);
+		if (gitRangeMatch?.groups) {
+			const trailing = gitRangeMatch.groups.trailing?.trim();
+			if (trailing) {
+				anchor = trailing;
+			} else {
+				const oldStart = Number.parseInt(gitRangeMatch.groups.oldStart ?? "0", 10);
+				if (oldStart > lines.length) {
+					endOfFile = true;
+				} else {
+					start = Math.max(0, oldStart - 1);
+				}
+				continue;
+			}
+		}
 		const candidates: number[] = [];
 		for (let index = start; index < lines.length; index += 1)
 			if (lines[index]?.text.includes(anchor)) candidates.push(index);
-		if (candidates.length === 0) return { kind: "context_not_found", hunkIndex: 0 };
+		if (candidates.length === 0) {
+			// Try normalized anchor
+			const normAnchor = normalizeUnicode(anchor).trim();
+			for (let index = start; index < lines.length; index += 1) {
+				const line = lines[index]?.text ?? "";
+				if (normalizeUnicode(line).includes(normAnchor)) candidates.push(index);
+			}
+			if (candidates.length === 0) {
+				return { kind: "context_not_found", hunkIndex: 0, hint: `anchor "${anchor}" not found` };
+			}
+		}
 		if (candidates.length > 1)
 			return {
 				kind: "ambiguous_exact",
@@ -120,7 +291,7 @@ function anchorConstraint(
 			};
 		start = (candidates[0] ?? 0) + 1;
 	}
-	return { prefixLines: start };
+	return { prefixLines: start, ...(endOfFile === true ? { endOfFile: true as const } : {}) };
 }
 
 function nearbyEnd(original: readonly TextLine[], start: number, oldLength: number): string {
@@ -185,23 +356,39 @@ function rebuildExactBytes(
 	hunk: V4aUpdateHunk,
 	start: number,
 	afterView: string,
+	tier: MatchTier = "exact",
 ): Uint8Array {
 	const result: TextLine[] = original.map((line) => ({ ...line }));
 	let cursor = start;
 	let removedEnds: string[] = [];
 	let addedCount = 0;
+	let lastOrigIndent = "";
+	let lastHunkIndent = "";
+	const indentMap = new Map<string, string>();
 	for (const line of hunk.lines) {
+		const cleanText = stripEol(line.text);
 		if (line.kind === "remove") {
+			const origText = result[cursor]?.text ?? "";
+			lastOrigIndent = origText.match(/^\s*/)?.[0] ?? "";
+			lastHunkIndent = cleanText.match(/^\s*/)?.[0] ?? "";
+			indentMap.set(lastHunkIndent, lastOrigIndent);
 			removedEnds.push(result[cursor]?.end ?? "");
 			result.splice(cursor, 1);
 			continue;
 		}
 		if (line.kind === "context") {
-			cursor += 1;
-			removedEnds = [];
-			addedCount = 0;
+			if (cursor < result.length) {
+				const origText = result[cursor]?.text ?? "";
+				lastOrigIndent = origText.match(/^\s*/)?.[0] ?? "";
+				lastHunkIndent = cleanText.match(/^\s*/)?.[0] ?? "";
+				indentMap.set(lastHunkIndent, lastOrigIndent);
+				cursor += 1;
+				removedEnds = [];
+				addedCount = 0;
+			}
 			continue;
 		}
+		if (cursor > result.length) cursor = result.length;
 		const end =
 			line.noNewline === true
 				? ""
@@ -209,7 +396,11 @@ function rebuildExactBytes(
 					removedEnds.at(-1) ??
 					result[cursor]?.end ??
 					nearbyEnd(result, cursor, 0));
-		result.splice(cursor, 0, { text: stripEol(line.text), end });
+		let addText = cleanText;
+		if (tier === "trim" && (lastOrigIndent !== "" || lastHunkIndent !== "")) {
+			addText = adjustIndent(cleanText, lastOrigIndent, lastHunkIndent, indentMap);
+		}
+		result.splice(cursor, 0, { text: addText, end });
 		cursor += 1;
 		addedCount += 1;
 	}
@@ -345,52 +536,132 @@ function processHunks(
 		}
 		const oldTexts = oldSideTexts(hunk);
 		const oldLength = oldTexts.length;
+		const isEof = constraint.endOfFile === true || hunk.endOfFile === true;
 		const anchored = original.slice(constraint.prefixLines);
-		const eofLines = hunk.endOfFile === undefined ? 0 : Math.max(0, anchored.length - oldLength);
+		const eofLines = isEof ? Math.max(0, anchored.length - oldLength) : 0;
 		const prefixLines = constraint.prefixLines + eofLines;
 		const searchable = original.slice(prefixLines);
 		let insertAt = prefixLines;
 		if (oldLength === 0) {
-			if (hunk.endOfFile === true) insertAt = original.length;
+			if (isEof || prefixLines >= original.length) insertAt = original.length;
 			else insertAt = prefixLines;
 		}
-		const exactStarts = findExactStarts(
+		const tieredMatch = findTieredStarts(
 			searchable.map((line) => line.text),
 			oldTexts,
-		).map((start) => start + prefixLines);
-		if (oldLength > 0 && exactStarts.length > 1) {
+		);
+		const matchedStarts = tieredMatch.starts.map((start) => start + prefixLines);
+		if (oldLength > 0 && tieredMatch.tier === "ambiguous") {
 			rejected.push({
 				kind: "ambiguous_exact",
 				hunkIndex,
-				candidateStartLines: exactStarts.map((start) => start + 1),
+				candidateStartLines: matchedStarts.map((start) => start + 1),
 			});
 			continue;
 		}
-		const parsed = parseOneHunk(diff.parsePatch, input.unifiedDiff, hunk);
+		const sourceView = lfView(original);
+		let parsed: StructuredPatch | RejectedPatchHunk;
+		const shouldUseSynthDiff =
+			oldLength > 0 &&
+			(tieredMatch.tier === "trimEnd" ||
+				tieredMatch.tier === "trim" ||
+				(tieredMatch.eofTrimmedCount ?? 0) > 0);
+		if (shouldUseSynthDiff) {
+			// Synthesize a structured patch aligned with the original lines so diff.applyPatch succeeds
+			const matchStart = matchedStarts[0] ?? prefixLines;
+			let origCursor = matchStart;
+			let lastOrigIndent = "";
+			let lastHunkIndent = "";
+			const indentMap = new Map<string, string>();
+			const bodyLines: string[] = [];
+			let emittedOld = 0;
+			let emittedNew = 0;
+			for (const line of hunk.lines) {
+				const cleanText = stripEol(line.text);
+				if (line.kind === "context") {
+					if (origCursor < original.length) {
+						const origLine = original[origCursor];
+						const text = origLine?.text ?? cleanText;
+						lastOrigIndent = text.match(/^\s*/)?.[0] ?? "";
+						lastHunkIndent = cleanText.match(/^\s*/)?.[0] ?? "";
+						indentMap.set(lastHunkIndent, lastOrigIndent);
+						bodyLines.push(` ${text}\n`);
+						if (origLine?.end === "") bodyLines.push("\\ No newline at end of file\n");
+						origCursor += 1;
+						emittedOld += 1;
+						emittedNew += 1;
+					}
+					continue;
+				}
+				if (line.kind === "remove") {
+					const origLine = original[origCursor];
+					const text = origLine?.text ?? cleanText;
+					lastOrigIndent = text.match(/^\s*/)?.[0] ?? "";
+					lastHunkIndent = cleanText.match(/^\s*/)?.[0] ?? "";
+					indentMap.set(lastHunkIndent, lastOrigIndent);
+					bodyLines.push(`-${text}\n`);
+					if (origLine?.end === "" || line.noNewline === true) {
+						bodyLines.push("\\ No newline at end of file\n");
+					}
+					origCursor += 1;
+					emittedOld += 1;
+					continue;
+				}
+				let addText = cleanText;
+				if (tieredMatch.tier === "trim" && (lastOrigIndent !== "" || lastHunkIndent !== "")) {
+					addText = adjustIndent(cleanText, lastOrigIndent, lastHunkIndent, indentMap);
+				}
+				bodyLines.push(`+${addText}\n`);
+				if (line.noNewline === true) bodyLines.push("\\ No newline at end of file\n");
+				emittedNew += 1;
+			}
+			const diffLines: string[] = [
+				"--- a/target\n",
+				"+++ b/target\n",
+				`@@ -${matchStart + 1},${emittedOld} +${matchStart + 1},${emittedNew} @@\n`,
+				...bodyLines,
+			];
+			const synthDiff = diffLines.join("");
+			try {
+				parsed = diff.parsePatch(synthDiff)[0] ?? { kind: "context_not_found", hunkIndex: 0 };
+			} catch {
+				parsed = parseOneHunk(diff.parsePatch, input.unifiedDiff, hunk);
+			}
+		} else {
+			parsed = parseOneHunk(diff.parsePatch, input.unifiedDiff, hunk);
+		}
 		if ("kind" in parsed) {
 			rejected.push({ ...parsed, hunkIndex });
 			continue;
 		}
 		const parsedHunk = parsed.hunks[0];
 		if (parsedHunk === undefined) {
-			rejected.push({ kind: "context_not_found", hunkIndex });
+			const hint = findDiagnosticHint(
+				searchable.map((line) => line.text),
+				oldTexts,
+				prefixLines,
+			);
+			rejected.push({
+				kind: "context_not_found",
+				hunkIndex,
+				...(hint !== undefined ? { hint } : {}),
+			});
 			continue;
 		}
 		if (oldLength === 0) {
 			parsedHunk.oldStart = insertAt + 1;
 			parsedHunk.newStart = insertAt + 1;
-		} else if (exactStarts.length === 1) {
-			const start = exactStarts[0] ?? 0;
+		} else if (matchedStarts.length === 1) {
+			const start = matchedStarts[0] ?? 0;
 			parsedHunk.oldStart = start + 1;
 			parsedHunk.newStart = start + 1;
 		}
-		const sourceView = lfView(original);
 		let applied = diff.applyPatch(sourceView, parsed, {
 			fuzzFactor: 0,
 			autoConvertLineEndings: false,
 		});
 		let match: "exact" | "fuzzy" = "exact";
-		if (applied === false && exactStarts.length === 0 && data.fuzzFactor > 0) {
+		if (applied === false && matchedStarts.length === 0 && data.fuzzFactor > 0) {
 			applied = diff.applyPatch(sourceView, parsed, {
 				fuzzFactor: data.fuzzFactor,
 				autoConvertLineEndings: false,
@@ -398,7 +669,16 @@ function processHunks(
 			match = "fuzzy";
 		}
 		if (applied === false) {
-			rejected.push({ kind: "context_not_found", hunkIndex });
+			const hint = findDiagnosticHint(
+				searchable.map((line) => line.text),
+				oldTexts,
+				prefixLines,
+			);
+			rejected.push({
+				kind: "context_not_found",
+				hunkIndex,
+				...(hint !== undefined ? { hint } : {}),
+			});
 			continue;
 		}
 		const changes = diff
@@ -408,15 +688,16 @@ function processHunks(
 			.hunks.filter((change) =>
 				change.lines.some((line) => line.startsWith("+") || line.startsWith("-")),
 			);
-		const rebuilt =
-			match === "exact"
-				? rebuildExactBytes(
-						original,
-						hunk,
-						oldLength === 0 ? insertAt : (exactStarts[0] ?? insertAt),
-						applied,
-					)
-				: rebuildBytes(original, hunk, changes, applied);
+		const canUseExactRebuild = matchedStarts.length === 1 || oldLength === 0;
+		const rebuilt = canUseExactRebuild
+			? rebuildExactBytes(
+					original,
+					hunk,
+					oldLength === 0 ? insertAt : (matchedStarts[0] ?? insertAt),
+					applied,
+					tieredMatch.tier,
+				)
+			: rebuildBytes(original, hunk, changes, applied);
 		if (rebuilt.length > MAX_FILE_SIZE) throw new Error(`file_too_large: ${rebuilt.length} bytes`);
 		const rebuiltLines = textLines(rebuilt);
 		const rebuiltView = lfView(rebuiltLines);
@@ -433,7 +714,7 @@ function processHunks(
 		let startLine: number;
 		let length: number;
 		if (finalChanges.length === 0) {
-			startLine = oldLength === 0 ? insertAt + 1 : (exactStarts[0] ?? prefixLines) + 1;
+			startLine = oldLength === 0 ? insertAt + 1 : (matchedStarts[0] ?? prefixLines) + 1;
 			length = 0;
 		} else {
 			const starts = finalChanges.map((change) => change.oldStart);
@@ -444,7 +725,11 @@ function processHunks(
 			const end = Math.max(...ends);
 			length = finalChanges.every((change) => change.oldLines === 0) ? 0 : end - startLine;
 		}
-		outcomes.push({ kind: "applied", hunkIndex, startLine, length, match });
+		const userVisibleMatch: "exact" | "fuzzy" =
+			match === "fuzzy" || tieredMatch.tier !== "exact" || (tieredMatch.eofTrimmedCount ?? 0) > 0
+				? "fuzzy"
+				: "exact";
+		outcomes.push({ kind: "applied", hunkIndex, startLine, length, match: userVisibleMatch });
 		const beforeTexts = original.map((line) => line.text);
 		const afterTexts = rebuiltLines.map((line) => line.text);
 		for (const change of finalChanges)

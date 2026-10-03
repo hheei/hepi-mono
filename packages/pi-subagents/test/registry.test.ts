@@ -50,7 +50,7 @@ function record(
 		initialTask: "Do the work.",
 		intent: "active",
 		state: "starting",
-		mode: "rpc",
+		presentation: "background",
 		persistence: "never_flushed",
 		launchConfig: launchConfig(subagentId, cwd),
 		unacknowledgedInput: "Do the work.",
@@ -117,7 +117,7 @@ test("rejects stale revisions, duplicate ids, unknown children, and mismatched r
 		await store.update("sa_aaaa", 1, (current) => ({
 			...current,
 			state: "running",
-			runtime: { runtimeIdentity: "runtime-2", endpoint: "/tmp/socket", pid: 42 },
+			runtime: { runtimeIdentity: "runtime-2", endpoint: "/tmp/socket" },
 		}));
 
 		const cases: ReadonlyArray<{ readonly code: string; readonly run: () => Promise<unknown> }> = [
@@ -228,6 +228,15 @@ test("refuses records with unknown fields, secrets, or inconsistent session stat
 				reason: /state is invalid/u,
 			},
 			{
+				// A record from the attach era names its presentation `mode`, and the field means
+				// something else now, so the user deletes it instead of this version guessing.
+				candidate: ((): unknown => {
+					const { presentation: _presentation, ...legacy } = record("sa_aaaa", cwd);
+					return { ...legacy, mode: "tui" };
+				})(),
+				reason: /was written by an older version \(mode "tui"\); delete this record/u,
+			},
+			{
 				candidate: {
 					...record("sa_aaaa", cwd),
 					launchConfig: {
@@ -276,100 +285,20 @@ test("drops foreign root keys while keeping every record", async (): Promise<voi
 	});
 });
 
-test("serializes runtime claims and consumes a reconnect token once", async (): Promise<void> => {
+test("round-trips the frozen spawn title and keeps an absent one absent", async (): Promise<void> => {
 	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
-		const store = registry(path);
-		const child = record("sa_claim", join(directory, "work"), {
-			runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/runner.sock", pid: 123 },
+		await registry(path).create(record("sa_aaaa", join(directory, "work")));
+		expect((await registry(path).get("sa_aaaa"))?.launchConfig.title).toBeUndefined();
+
+		const titled = record("sa_bbbb", join(directory, "work"));
+		await registry(path).create({
+			...titled,
+			launchConfig: { ...titled.launchConfig, title: "OVITO properties editor" },
 		});
-		await store.create(child);
-		const base = {
-			kind: "reconnect" as const,
-			holderPid: process.pid,
-			runtimeIdentity: "runtime-1",
-			endpoint: "/tmp/runner.sock",
-		};
-		const claims = [
-			{
-				...base,
-				claimId: "claim-a",
-				controllerTokenHash: "a".repeat(64),
-			},
-			{
-				...base,
-				claimId: "claim-b",
-				controllerTokenHash: "b".repeat(64),
-			},
-		];
-
-		const outcomes = await Promise.allSettled(
-			claims.map((claim) => store.claim("sa_claim", 1, claim, "runtime-1")),
+		expect((await registry(path).get("sa_bbbb"))?.launchConfig.title).toBe(
+			"OVITO properties editor",
 		);
-		expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-		expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
-		const winner = (await store.get("sa_claim"))?.claim;
-		if (winner === undefined) throw new Error("claim winner missing");
-		await expect(
-			store.consumeReconnectClaim("sa_claim", winner.claimId, "f".repeat(64)),
-		).rejects.toMatchObject({ code: "claim_mismatch" });
-		await expect(
-			store.consumeReconnectClaim(
-				"sa_claim",
-				winner.claimId,
-				winner.controllerTokenHash,
-				"wrong-runtime-id",
-			),
-		).rejects.toMatchObject({ code: "runtime_mismatch" });
-		await store.consumeReconnectClaim(
-			"sa_claim",
-			winner.claimId,
-			winner.controllerTokenHash,
-			"runtime-1",
-		);
-		expect((await store.get("sa_claim"))?.claim).toBeUndefined();
-	});
-});
-
-test("refuses to claim a stopped child and a stolen replacement", async (): Promise<void> => {
-	await withTempDir("pi-subagents-registry-", async (directory) => {
-		const path = join(directory, "registry.json");
-		const store = registry(path);
-		const cwd = join(directory, "work");
-		await store.create(record("sa_stop", cwd, { intent: "stopped", state: "stopped" }));
-		await expect(
-			store.claim("sa_stop", 1, {
-				claimId: "claim-stop",
-				kind: "replacement",
-				holderPid: process.pid,
-				runtimeIdentity: "runtime-new",
-				endpoint: "/tmp/new.sock",
-				controllerTokenHash: "c".repeat(64),
-			}),
-		).rejects.toMatchObject({ code: "stopped_child" });
-
-		await store.create(
-			record("sa_live", cwd, {
-				runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/runner.sock", pid: 9 },
-			}),
-		);
-		const claimed = await store.claim(
-			"sa_live",
-			1,
-			{
-				claimId: "claim-a",
-				kind: "replacement",
-				holderPid: process.pid,
-				runtimeIdentity: "runtime-1",
-				endpoint: "/tmp/runner.sock",
-				controllerTokenHash: "d".repeat(64),
-			},
-			"runtime-1",
-		);
-		await expect(store.activateClaim("sa_live", "claim-b", process.pid)).rejects.toMatchObject({
-			code: "claim_mismatch",
-		});
-		expect(claimed.claim?.claimId).toBe("claim-a");
 	});
 });
 
@@ -395,7 +324,7 @@ test("defaults missing launchConfig.interactive to false and rejects non-boolean
 	});
 });
 
-test("supports atomic updates with undefined expectedRevision and tolerates revision changes during mark/activate", async (): Promise<void> => {
+test("applies an update with an undefined expected revision and guards a replaced runtime", async (): Promise<void> => {
 	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
@@ -404,54 +333,20 @@ test("supports atomic updates with undefined expectedRevision and tolerates revi
 		const updated = await store.update("sa_atomic", undefined, (current) => ({
 			...current,
 			state: "running",
+			runtime: { runtimeIdentity: "runtime-atomic", endpoint: "/tmp/atomic.sock" },
 		}));
 		expect(updated.revision).toBe(2);
-		expect(updated.state).toBe("running");
+		expect(updated.runtime?.runtimeIdentity).toBe("runtime-atomic");
 
-		const claimed = await store.claim("sa_atomic", 2, {
-			claimId: "claim-atomic",
-			kind: "replacement",
-			holderPid: process.pid,
-			runtimeIdentity: "runtime-atomic",
-			endpoint: "/tmp/atomic.sock",
-			controllerTokenHash: "e".repeat(64),
-		});
-		expect(claimed.revision).toBe(3);
-
-		const marked = await store.markClaimRunner("sa_atomic", "claim-atomic", 12345);
-		expect(marked.revision).toBe(4);
-		expect(marked.claim?.runnerPid).toBe(12345);
-
-		const activated = await store.activateClaim("sa_atomic", "claim-atomic", 12345);
-		expect(activated.revision).toBe(5);
-		expect(activated.runtime?.pid).toBe(12345);
-		expect(activated.claim).toBeUndefined();
-
-		const afterActivate = await store.markClaimRunner("sa_atomic", "claim-atomic", 12345);
-		expect(afterActivate.runtime?.pid).toBe(12345);
-	});
-});
-
-test("rejects a Task contract the child could not satisfy", async (): Promise<void> => {
-	await withTempDir("pi-subagents-registry-", async (directory) => {
-		const store = registry(join(directory, "registry.json"));
-		const withTask = (task: unknown): SubagentRecord =>
-			record("sa_aaaa", directory, {
-				launchConfig: { ...launchConfig("sa_aaaa", directory), task } as EffectiveLaunchConfig,
-			});
-
-		await expect(store.create(withTask({ softTurns: 0 }))).rejects.toThrow(
-			/launchConfig\.task\.softTurns must be a positive integer/u,
-		);
-		await expect(store.create(withTask({ softTurns: 1.5 }))).rejects.toThrow(
-			/launchConfig\.task\.softTurns must be a positive integer/u,
-		);
-		await expect(store.create(withTask({ softTurns: 60, extra: true }))).rejects.toThrow(
-			/launchConfig\.task has unsupported field extra/u,
-		);
+		// A stale writer naming the runtime it replaced must not overwrite the newer launch.
 		await expect(
-			store.create(withTask({ softTurns: 60, schema: { type: "wibble" } })),
-		).rejects.toThrow(/launchConfig\.task\.schema is not usable/u);
-		expect(await store.list()).toEqual([]);
+			store.update(
+				"sa_atomic",
+				undefined,
+				(current) => ({ ...current, state: "done" }),
+				"runtime-old",
+			),
+		).rejects.toMatchObject({ code: "runtime_mismatch" });
+		expect((await store.get("sa_atomic"))?.state).toBe("running");
 	});
 });

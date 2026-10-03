@@ -68,6 +68,7 @@ describe("runObserver composed stream dispatch", () => {
 			priorObservations: [],
 			chunk: "[Source entry id: entry-a]\nhello",
 			allowedSourceEntryIds: ["entry-a"],
+			resolveTimestamp: () => "2026-05-02 10:30",
 			agentLoop: loop,
 			modelRegistry: {
 				streamSimple: composed,

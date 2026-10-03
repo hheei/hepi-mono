@@ -7,6 +7,7 @@ import {
 	isManagedTool,
 	isSkillEnabled,
 	observeLoadoutInventory,
+	redeclareManagedTool,
 	registerLoadoutResource,
 	registerManagedTool,
 	setDisabledSkillKeys,
@@ -129,6 +130,34 @@ describe("Loadout core contract", () => {
 		expect(second.registered).toHaveLength(1);
 		expect(isManagedTool(second.pi, "read")).toBe(true);
 		expect(isManagedTool(second.pi, "grep")).toBe(false);
+	});
+
+	test("replaces its own registration when state that Pi reads per session changes", () => {
+		const h = host();
+		registerManagedTool(h.pi, { id: "read", owner: OWNER, exposure: "deferred" }, {
+			name: "read",
+		} as never);
+		redeclareManagedTool(h.pi, { id: "read", owner: OWNER, exposure: "hidden" }, {
+			name: "read",
+		} as never);
+		expect(h.registered).toEqual([
+			{ name: "read", exposure: "deferred" },
+			{ name: "read", exposure: "hidden" },
+		]);
+		expect(isManagedTool(h.pi, "read")).toBe(true);
+	});
+
+	test("still rejects a redeclaration from another owner", () => {
+		const events = {};
+		const first = host(events);
+		const second = host(events);
+		registerManagedTool(first.pi, registration("read"), { name: "read" } as never);
+		expect(() =>
+			redeclareManagedTool(second.pi, registration("read", "@hheei/other"), {
+				name: "read",
+			} as never),
+		).toThrow("Managed tool id already registered: read");
+		expect(second.registered).toHaveLength(0);
 	});
 
 	test("rejects a different owner claiming a managed tool name", () => {

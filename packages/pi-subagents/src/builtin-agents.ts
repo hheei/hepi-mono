@@ -39,9 +39,8 @@ You are a read-only scout. Your job is to look things up and report exactly what
 Rules:
 - Read and search only. You cannot write files, run commands, or change state; do not pretend otherwise.
 - Ground every claim in a file path and the line you read. If you could not verify something, say so.
-- Report progress and blockers to the parent with contact_parent. Keep progress reports short; the parent does not poll you.
-- Finish by reporting your findings: a Task execution submits them with submit_task_result as the
-  only tool call in that message, a conversation execution reports them with contact_parent.
+- Finish by writing your final findings and summary as normal text in your response; the harness automatically delivers it to the parent once completed.
+- Use contact_parent ONLY if you are blocked or urgently require a parent decision midway; NEVER call contact_parent to report success or task completion.
 `;
 
 const WORKER_DEFINITION = `---
@@ -49,6 +48,7 @@ name: worker
 description: Carries out an implementation task in the repository and reports what it changed.
 hidden: false
 tools: read,grep,find,ls,bash,edit,write,contact_parent
+model: inherit
 ---
 
 You are a worker. Carry out the task in the repository you were given, and report what you did.
@@ -59,11 +59,10 @@ Rules:
 - Run the focused checks the change needs (tests, typecheck, lint) and report their real output,
   including failures. Do not describe a check you did not run.
 - Do not commit, push, or open a pull request unless the task asks for it explicitly.
-- Report progress and blockers to the parent with contact_parent. Keep progress reports short; the
-  parent does not poll you.
-- Finish by reporting what changed, what you verified, and what you could not verify: a Task
-  execution submits that with submit_task_result as the only tool call in that message, a
-  conversation execution reports it with contact_parent.
+- Finish by writing what changed, what you verified, and what you could not verify as normal text
+  in your response; the harness automatically delivers it to the parent once completed.
+- Use contact_parent ONLY if you are blocked or urgently require a parent decision midway; NEVER
+  call contact_parent to report success or task completion.
 `;
 
 const REVIEWER_DEFINITION = `---
@@ -72,6 +71,7 @@ description: Reviews code or a change and reports findings, using the review ski
 hidden: false
 skills: true
 tools: read,grep,find,ls,bash,contact_parent
+model: inherit
 ---
 
 You are a reviewer. Inspect what you were pointed at and report findings. Do not change files unless
@@ -91,9 +91,10 @@ Rules:
   real output, not your expectation.
 - A child cannot delegate further, so when a skill or a plan asks for parallel sub-agents, run those
   passes yourself instead of trying to spawn them, and say that is what you did.
-- Report progress and blockers to the parent with contact_parent. Finish by reporting your findings:
-  a Task execution submits them with submit_task_result as the only tool call in that message, a
-  conversation execution reports them with contact_parent.
+- Finish by writing your findings as normal text in your response; the harness automatically
+  delivers it to the parent once completed.
+- Use contact_parent ONLY if you are blocked or urgently require a parent decision midway; NEVER
+  call contact_parent to report success or task completion.
 `;
 
 interface BuiltinDefinition {
@@ -108,15 +109,13 @@ const DEFINITIONS: readonly BuiltinDefinition[] = [
 	{ text: REVIEWER_DEFINITION, requiredTools: REVIEWER_REQUIRED_TOOLS },
 ];
 
-/** Reads the comma form and the YAML list form, so a built-in definition may use either. */
+/** Reads the comma form used by built-in definitions. */
 function toolNames(value: unknown): string[] {
-	let names: readonly string[] = [];
-	if (typeof value === "string") {
-		names = value.split(",");
-	} else if (Array.isArray(value)) {
-		names = value.filter((entry): entry is string => typeof entry === "string");
-	}
-	return names.map((entry) => entry.trim()).filter((entry) => entry !== "");
+	if (typeof value !== "string") return [];
+	return value
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter(Boolean);
 }
 
 let parsed: readonly DiscoveredAgent[] | undefined;
@@ -152,13 +151,11 @@ function parseDefinition(definition: BuiltinDefinition): DiscoveredAgent {
  * Why a resolved tool allowlist would break a built-in agent's promise, or `undefined` when it
  * does not. A built-in ships exactly the tools it names, so an allowlist that lost them, gained
  * others, or became empty (which Pi reads as "every tool") would give the agent different powers
- * than its definition advertises; resolution fails instead. `additionallyAllowed` names the one
- * extra channel a Task child must have.
+ * than its definition advertises; resolution fails instead.
  */
 export function builtinAgentToolProblem(
 	sourcePath: string,
 	tools: readonly string[],
-	additionallyAllowed: readonly string[] = [],
 ): string | undefined {
 	const definition = builtinAgents().find((agent) => agent.path === sourcePath);
 	if (definition === undefined) return undefined;
@@ -170,9 +167,7 @@ export function builtinAgentToolProblem(
 	if (missing.length > 0) {
 		return `tools it declares are missing: ${missing.join(", ")}`;
 	}
-	const gained = tools.filter(
-		(tool) => !declared.includes(tool) && !additionallyAllowed.includes(tool),
-	);
+	const gained = tools.filter((tool) => !declared.includes(tool));
 	if (gained.length > 0) {
 		return `it would gain tools it never declared: ${gained.join(", ")}`;
 	}

@@ -42,6 +42,16 @@ export async function runConsolidateCommand(
 		return false;
 	};
 
+	const entryCount =
+		"getEntryCount" in ctx.sessionManager &&
+		typeof (ctx.sessionManager as { getEntryCount?: () => number }).getEntryCount === "function"
+			? (ctx.sessionManager as { getEntryCount: () => number }).getEntryCount()
+			: undefined;
+	if (entryCount === 0) {
+		notify("om: nothing to consolidate yet (no uncovered conversation and no memories).", "info");
+		return;
+	}
+
 	if (refuse(ctx.sessionManager.getBranch() as Entry[])) return;
 	await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
 	if (!runtime.isSessionCurrent(sessionGeneration)) return;
@@ -53,7 +63,7 @@ export async function runConsolidateCommand(
 	if (
 		rawTokensSinceObservationCoverage(entries) === 0 &&
 		folded.activeObservations.length === 0 &&
-		folded.reflections.length === 0
+		folded.activeReflections.length === 0
 	) {
 		notify("om: nothing to consolidate yet (no uncovered conversation and no memories).", "info");
 		return;

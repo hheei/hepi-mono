@@ -13,6 +13,15 @@ export function estimateStringTokens(text: string): number {
  * metadata overhead (id + timestamp + relevance tags), so the configured
  * pool target was reached later than the rendered memory actually allowed.
  */
+/**
+ * A reflection's weight **in the pool**: what its rendered summary line costs,
+ * id and newline included. `Reflection.tokenCount` is the content-only measure
+ * stored in the ledger, so pool accounting must not use it directly.
+ */
+export function reflectionLineTokenCount(reflection: { id: string; content: string }): number {
+	return estimateStringTokens(`[${reflection.id}] ${reflection.content}\n`);
+}
+
 export function observationLineTokenCount(observation: {
 	id: string;
 	timestamp: string;

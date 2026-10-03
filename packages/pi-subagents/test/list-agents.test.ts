@@ -74,7 +74,7 @@ describe("list_agents tool", () => {
 			id: "sa_interactive1",
 			agent: "worker",
 			state: "idle",
-			mode: "rpc",
+			presentation: "background",
 			cwd: "/test",
 			sessionId: "s1",
 			summary: "interactive partner",

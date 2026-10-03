@@ -98,10 +98,10 @@ async function startMockAnthropic(
 				toolUseStream({
 					observations: [
 						{
-							timestamp: "2026-05-02 10:30",
 							content:
 								"User authenticated with an OAuth provider and asked for memory consolidation.",
 							relevance: "high",
+							kind: "progress",
 							sourceEntryIds: ["raw-1"],
 						},
 					],

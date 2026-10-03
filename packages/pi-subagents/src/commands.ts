@@ -4,24 +4,24 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { splitSubcommand, subcommandCompletions } from "@hheei/pi-ext-core";
-import { type PublicSubagent, SUBAGENT_GLYPH } from "./domain.js";
+import { type PublicSubagent, toVisualSubagentState, VISUAL_SUBAGENT_GLYPH } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 
 const STATUS_KEY = "pi-subagents";
 /** Verbs of the dispatcher below; the completer and the no-argument picker share them. */
-const SUBAGENT_SUBCOMMANDS = ["list", "inspect", "attach", "send", "stop"] as const;
-const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|attach [id]|send|stop [id]";
+const SUBAGENT_SUBCOMMANDS = ["list", "inspect", "send", "stop"] as const;
+const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|send|stop [id]";
 
 export function formatStatusLine(children: readonly PublicSubagent[]): string | undefined {
 	const visible = children.filter((child) => child.state !== "done" && child.state !== "stopped");
 	if (visible.length === 0) return undefined;
 	return visible
 		.map((child) => {
-			const glyph = SUBAGENT_GLYPH[child.state] ?? "󰄰";
+			const visual = toVisualSubagentState(child.state, child.interrupted);
+			const glyph = VISUAL_SUBAGENT_GLYPH[visual];
 			const name = child.displayName ?? child.agent;
-			const mode = child.mode === "tui" ? "tui" : child.state;
-			const flag = child.interrupted !== undefined ? " interrupted" : "";
-			return `${glyph} ${name} ${mode}${flag}`;
+			const mode = child.presentation === "panel" ? `${visual} panel` : visual;
+			return `${glyph} ${name} ${mode}`;
 		})
 		.join(" · ");
 }
@@ -39,9 +39,10 @@ function notifyResult(
 }
 
 function childLabel(child: PublicSubagent): string {
-	const glyph = SUBAGENT_GLYPH[child.state] ?? "󰄰";
+	const visual = toVisualSubagentState(child.state, child.interrupted);
+	const glyph = VISUAL_SUBAGENT_GLYPH[visual];
 	const name = child.displayName ?? child.agent;
-	return `${glyph} ${name} #${child.id} ${child.state}/${child.mode}`;
+	return `${glyph} ${name} #${child.id} ${visual}/${child.presentation}`;
 }
 
 async function pickChild(
@@ -58,23 +59,6 @@ async function pickChild(
 	const selected = await ctx.ui.select(title, labels);
 	if (selected === undefined) return undefined;
 	return children[labels.indexOf(selected)];
-}
-
-async function attachSelected(
-	ctx: ExtensionCommandContext,
-	manager: SubagentManager,
-	id?: string,
-): Promise<void> {
-	if (id !== undefined && id !== "") {
-		notifyResult(ctx, await manager.attach(id), `Attached ${id}`);
-		return;
-	}
-	const idle = (await manager.list()).filter(
-		(child) => child.mode === "rpc" && child.state === "idle",
-	);
-	const child = await pickChild(ctx, idle, "Attach idle subagent");
-	if (child === undefined) return;
-	notifyResult(ctx, await manager.attach(child.id), `Attached ${child.id}`);
 }
 
 async function stopSelected(
@@ -96,7 +80,7 @@ async function stopSelected(
 
 export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManager): void {
 	pi.registerCommand("subagents", {
-		description: "Manage subagents: /subagents [list | inspect | attach [id] | send | stop [id]]",
+		description: "Manage subagents: /subagents [list | inspect | send | stop [id]]",
 		getArgumentCompletions: subcommandCompletions(SUBAGENT_SUBCOMMANDS),
 		handler: async (args, ctx) => {
 			if (ctx.mode !== "tui") {
@@ -130,17 +114,13 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				);
 				return;
 			}
-			if (action === "attach") {
-				await attachSelected(ctx, manager, target);
-				return;
-			}
 			if (action === "stop") {
 				await stopSelected(ctx, manager, target);
 				return;
 			}
 			if (action === "send") {
 				const live = children.filter(
-					(child) => child.mode === "rpc" && (child.state === "idle" || child.state === "running"),
+					(child) => child.state === "idle" || child.state === "running",
 				);
 				const child = await pickChild(ctx, live, "Send to subagent");
 				if (child === undefined) return;
@@ -151,13 +131,6 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 			}
 
 			ctx.ui.notify(`Unknown subcommand "${action}". ${SUBAGENT_COMMAND_USAGE}`, "warning");
-		},
-	});
-	pi.registerShortcut("ctrl+shift+a", {
-		description: "Attach idle subagent",
-		handler: (ctx) => {
-			if (ctx.mode !== "tui") return;
-			return attachSelected(ctx as ExtensionCommandContext, manager);
 		},
 	});
 	pi.registerShortcut("ctrl+shift+s", {

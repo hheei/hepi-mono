@@ -9,11 +9,15 @@ import {
 	foldLedger,
 	fullProjection,
 	latestGateEnabled,
+	latestMemoryBudget,
+	MEMORY_POOL_WATERMARK,
 	rawTokensSinceLastCompaction,
 	rawTokensSinceObservationCoverage,
 	rawTokensSinceReflectionCoverage,
+	resolveMemoryBudget,
 	visibleProjection,
 } from "../session-ledger/index.js";
+import { reflectionLineTokenCount } from "../tokens.js";
 import { renderTimeline } from "./timeline.js";
 
 function pct(current: number, total: number): number {
@@ -70,7 +74,10 @@ export async function runStatusCommand(
 	const drift = diffProjection(visible, full);
 
 	const visibleObservationTokens = tokenSum(visible.observations);
-	const visibleReflectionTokens = tokenSum(visible.reflections);
+	const visibleReflectionTokens = visible.reflections.reduce(
+		(sum, reflection) => sum + reflectionLineTokenCount(reflection),
+		0,
+	);
 	const activeObservationPool = observationPoolMetrics(
 		folded.activeObservations,
 		runtime.config.observationsPoolTargetTokens,
@@ -83,8 +90,11 @@ export async function runStatusCommand(
 		],
 	);
 	const reflectionLine = appendSuffixes(
-		`Reflections:  ${folded.reflections.length} recorded / ${visible.reflections.length} visible`,
-		[deltaSuffix(drift.reflectionsOnlyInFull.length, "+")],
+		`Reflections:  ${folded.reflections.length} recorded / ${folded.droppedReflectionIds.size} superseded / ${folded.activeReflections.length} active / ${visible.reflections.length} visible`,
+		[
+			deltaSuffix(drift.reflectionsOnlyInFull.length, "+"),
+			deltaSuffix(drift.droppedReflectionsOnlyInFull.length, "-"),
+		],
 	);
 	const obsProgress = rawTokensSinceObservationCoverage(entries);
 	const reflectionProgress = rawTokensSinceReflectionCoverage(entries);
@@ -92,6 +102,44 @@ export async function runStatusCommand(
 	const contextWindow =
 		typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : undefined;
 	const compactThreshold = resolveCompactAfterTokens(runtime.config, contextWindow);
+	const memoryBudget = resolveMemoryBudget({ config: runtime.config, contextWindow });
+	// Same basis as the pool enforcer's gate: active reflections at their rendered
+	// line weight, ids included, so this line and the enforcement threshold agree.
+	const activeReflectionTokens = folded.activeReflections.reduce(
+		(sum, reflection) => sum + reflectionLineTokenCount(reflection),
+		0,
+	);
+	const activeMemoryTokens = activeObservationPool.observationTokens + activeReflectionTokens;
+	const lastRender = latestMemoryBudget(entries);
+	const budgetLines = [
+		"",
+		"── Memory budget ──",
+		`Cap:           ~${memoryBudget.cap.toLocaleString()} tokens (${memoryBudget.softLimit.toLocaleString()} token compaction trigger, ${runtime.config.memoryMaxTokens !== undefined ? "configured" : "derived"})`,
+		`Active memory: ~${activeMemoryTokens.toLocaleString()} / ${memoryBudget.cap.toLocaleString()} tokens (${pct(activeMemoryTokens, memoryBudget.cap)}%)`,
+	];
+	if (lastRender) {
+		const trimmed = lastRender.trimmedObservations + lastRender.trimmedReflections;
+		budgetLines.push(
+			[
+				`Last render:   ~${lastRender.renderedTokens.toLocaleString()} / ${lastRender.maxTokens.toLocaleString()} tokens`,
+				trimmed > 0 ? `trimmed ${trimmed.toLocaleString()} lines` : "nothing trimmed",
+				`tail ${lastRender.tailTokens.toLocaleString()} tokens`,
+			].join(" · "),
+		);
+	}
+	// Every line is bounded to the terminal width before it is shown, so these stay
+	// short enough to survive a narrow terminal with their hint intact.
+	if (activeMemoryTokens > Math.floor(memoryBudget.cap * MEMORY_POOL_WATERMARK)) {
+		budgetLines.push("Over watermark: next consolidation reclaims non-critical observations");
+	} else if (activeMemoryTokens > memoryBudget.cap) {
+		budgetLines.push("Over budget: compaction renders a trimmed view; the excess stays recallable");
+	}
+	if (
+		activeReflectionTokens >
+		Math.max(0, memoryBudget.cap - runtime.config.observationsPoolTargetTokens)
+	) {
+		budgetLines.push("Reflections leave under the observation target: run /om consolidate");
+	}
 
 	const passiveLines =
 		runtime.config.passive === true
@@ -118,6 +166,7 @@ export async function runStatusCommand(
 		`Visible observation pool: ~${visibleObservationTokens.toLocaleString()} / ${runtime.config.observationsPoolMaxTokens.toLocaleString()} tokens (${pct(visibleObservationTokens, runtime.config.observationsPoolMaxTokens)}%)`,
 		`Active observation pool: ~${activeObservationPool.observationTokens.toLocaleString()} / ${runtime.config.observationsPoolTargetTokens.toLocaleString()} target tokens (${pct(activeObservationPool.observationTokens, runtime.config.observationsPoolTargetTokens)}%)`,
 		`Reflection pool:         ~${visibleReflectionTokens.toLocaleString()} tokens`,
+		...budgetLines,
 	];
 
 	if (runtime.consolidationInFlight || runtime.compactInFlight || runtime.compactHookInFlight) {
@@ -132,11 +181,17 @@ export async function runStatusCommand(
 
 	lines.push(...workerCostLines(runtime));
 
-	if (runtime.lastObserverError || runtime.lastReflectorError || runtime.lastDropperError) {
+	if (
+		runtime.lastObserverError ||
+		runtime.lastReflectorError ||
+		runtime.lastDropperError ||
+		runtime.lastEnforcerError
+	) {
 		lines.push("", "── Last error ──");
 		if (runtime.lastObserverError) lines.push(`Observer: ${runtime.lastObserverError}`);
 		if (runtime.lastReflectorError) lines.push(`Reflector: ${runtime.lastReflectorError}`);
 		if (runtime.lastDropperError) lines.push(`Dropper: ${runtime.lastDropperError}`);
+		if (runtime.lastEnforcerError) lines.push(`Enforcer: ${runtime.lastEnforcerError}`);
 	}
 
 	const width = terminalWidth();

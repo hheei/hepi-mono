@@ -4,7 +4,9 @@ import { Type } from "@earendil-works/pi-ai";
 import type { Static } from "typebox";
 import { debugLog } from "../../debug-log.js";
 import {
+	OBSERVATION_KIND_DROP_RANK,
 	type Observation,
+	observationKind,
 	type Reflection,
 	reflectionToSummaryLine,
 } from "../../session-ledger/index.js";
@@ -17,7 +19,7 @@ import {
 	summarizeCoverageByRelevance,
 	summarizeCoverageByRelevanceForIds,
 } from "./coverage.js";
-import { observationPoolMetrics } from "./pool.js";
+import { observationPoolFullness, observationPoolMetrics } from "./pool.js";
 import { DROPPER_SYSTEM } from "./prompts.js";
 
 export type {
@@ -50,6 +52,12 @@ interface RunDropperArgs extends WorkerLoopArgs {
 	reflections: Reflection[];
 	observations: Observation[];
 	targetTokens: number;
+	/**
+	 * Tokens of the real active pool when `observations` is a bounded view of it.
+	 * The agent can only propose lines it was shown, but it has to be told how far
+	 * the pool it belongs to is over target.
+	 */
+	activePoolTokens?: number | undefined;
 }
 
 const RELEVANCE_DROP_RANK: Record<Observation["relevance"], number> = {
@@ -105,6 +113,13 @@ function timestampRank(timestamp: string): number {
 	return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+/**
+ * Deterministic drop order for a set of proposed ids: least valuable first.
+ *
+ * Shared by the dropper (which proposes) and the enforcer (which decides on its
+ * own). Ordering is kind, then reflection coverage, then relevance, then age,
+ * then the order the ids were proposed in, so the result is stable.
+ */
 export function selectDropCandidates(
 	ids: readonly string[],
 	observations: readonly Observation[],
@@ -127,6 +142,11 @@ export function selectDropCandidates(
 				candidate.observation !== undefined,
 		)
 		.sort((a, b) => {
+			// Kind first: process narration is the cheapest thing to lose, and it is
+			// the one judgement the model does not have to make.
+			const kindDelta =
+				OBSERVATION_KIND_DROP_RANK[observationKind(a.observation)] -
+				OBSERVATION_KIND_DROP_RANK[observationKind(b.observation)];
 			const coverageDelta =
 				REFLECTION_COVERAGE_DROP_RANK[coverageTierForObservation(a.observation, coverageById)] -
 				REFLECTION_COVERAGE_DROP_RANK[coverageTierForObservation(b.observation, coverageById)];
@@ -134,7 +154,7 @@ export function selectDropCandidates(
 				RELEVANCE_DROP_RANK[a.observation.relevance] - RELEVANCE_DROP_RANK[b.observation.relevance];
 			const ageDelta =
 				timestampRank(a.observation.timestamp) - timestampRank(b.observation.timestamp);
-			return coverageDelta || relevanceDelta || ageDelta || a.index - b.index;
+			return kindDelta || coverageDelta || relevanceDelta || ageDelta || a.index - b.index;
 		})
 		.slice(0, maxDrops)
 		.map((candidate) => candidate.id);
@@ -145,7 +165,17 @@ export async function runDropper(args: RunDropperArgs): Promise<string[] | undef
 	if (observations.length === 0) return undefined;
 
 	const metrics = observationPoolMetrics(observations, targetTokens);
-	const { observationTokens, fullness, tokensOverTarget, maxDropsAllowed } = metrics;
+	const observationTokens = args.activePoolTokens ?? metrics.observationTokens;
+	const fullness = observationPoolFullness(observationTokens, targetTokens);
+	const tokensOverTarget = Math.max(0, observationTokens - targetTokens);
+	// Sized from the real excess against the average size of the lines the agent can
+	// see, and capped by how many of them there are: dropping the visible lines has to
+	// be enough to matter, and the agent cannot propose ids it was not shown.
+	const averageLineTokens = metrics.observationTokens / observations.length;
+	const maxDropsAllowed =
+		tokensOverTarget <= 0 || averageLineTokens <= 0
+			? 0
+			: Math.min(observations.length, Math.max(1, Math.ceil(tokensOverTarget / averageLineTokens)));
 	const coverageById = reflectionCoverageMap(observations, reflections);
 	const coverageSummaryByRelevance = summarizeCoverageByRelevance(observations, coverageById);
 	debugLog("dropper.agent_start", {

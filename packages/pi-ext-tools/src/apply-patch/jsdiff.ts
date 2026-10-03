@@ -24,8 +24,14 @@ function isFiniteInteger(value: unknown): value is number {
 function parseRejected(value: unknown): RejectedPatchHunk | undefined {
 	if (!isRecord(value) || !isFiniteInteger(value.hunkIndex) || value.hunkIndex < 1)
 		return undefined;
-	if (value.kind === "context_not_found")
-		return { kind: "context_not_found", hunkIndex: value.hunkIndex };
+	if (value.kind === "context_not_found") {
+		const hint = typeof value.hint === "string" ? value.hint : undefined;
+		return {
+			kind: "context_not_found",
+			hunkIndex: value.hunkIndex,
+			...(hint !== undefined ? { hint } : {}),
+		};
+	}
 	if (value.kind !== "ambiguous_exact" || !Array.isArray(value.candidateStartLines))
 		return undefined;
 	const candidateStartLines: number[] = [];

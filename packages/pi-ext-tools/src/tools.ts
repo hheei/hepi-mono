@@ -11,6 +11,7 @@ import {
 	registerApplyPatchTool,
 } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
+import { CODEMODE_TOOL_REGISTRATION, registerCodemodeTool } from "./codemode.js";
 import { EDIT_TOOL_REGISTRATION, registerEditTool } from "./edit.js";
 import { type EvalNestedToolName, EvalToolBridge } from "./eval/bridge.js";
 import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.js";
@@ -68,6 +69,7 @@ export function registerTools(
 	registerLsTool(pi, tui);
 	registerTaskTools(pi, state, tui);
 	nested.set("apply_patch", registerApplyPatchTool(pi, tui, state));
+	registerCodemodeTool(pi, tui);
 	return registerEvalTool(
 		pi,
 		evalState,
@@ -111,3 +113,5 @@ function nestedResultIsError(
 		record.outcome !== "no_change"
 	);
 }
+
+export { CODEMODE_TOOL_REGISTRATION, registerCodemodeTool };

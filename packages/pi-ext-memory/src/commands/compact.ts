@@ -62,7 +62,7 @@ export async function runCompactCommand(
 		return;
 	}
 	const folded = foldLedger(entries);
-	if (folded.activeObservations.length === 0 && folded.reflections.length === 0) {
+	if (folded.activeObservations.length === 0 && folded.activeReflections.length === 0) {
 		notify("om: no memories to compact (run /om consolidate first).", "info");
 		return;
 	}

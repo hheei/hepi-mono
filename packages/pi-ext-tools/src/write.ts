@@ -313,6 +313,10 @@ export function registerWriteTool(
 	const tool: ToolDefinition<typeof WRITE_PARAMETERS, unknown, WriteState> = {
 		...baseTool,
 		parameters: WRITE_PARAMETERS,
+		annotations: {
+			destructiveHint: true,
+			idempotentHint: true,
+		},
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
 			const path = filePath(params);
 			if (params.target !== undefined && params.target !== "local") {
@@ -320,7 +324,10 @@ export function registerWriteTool(
 				const remote = await writeRemoteFile(state, params.target, path, content, signal);
 				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
 					return withWriteDetails(
-						textToolResult(remoteMutationFailureText("Write", remote), undefined),
+						{
+							...textToolResult(remoteMutationFailureText("Write", remote), undefined),
+							isError: true,
+						},
 						undefined,
 						undefined,
 						remote,

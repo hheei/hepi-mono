@@ -100,10 +100,15 @@ type Observation = {
   content: string;
   timestamp: string;
   relevance: "low" | "medium" | "high" | "critical";
+  kind?: "user" | "decision" | "fact" | "progress";
   sourceEntryIds: string[];
   tokenCount: number;
 }
 ```
+
+`timestamp` is not written by the observer: it is derived from the source entries the observation cites — the earliest of them, in local time to the minute — so a line is placed in conversation time rather than in "when the observer happened to run". A cited entry with no usable time is skipped, and if nothing usable is left the chunk's own last source entry stands in, then the recording moment.
+
+`kind` is what the observation *is*: `progress` for work that was performed, verified or finished, `fact` for code, documentation or environment facts, `decision` for a choice, invariant or plan with its rationale, and `user` for something the user asserted or corrected. It is optional on the record (entries written before the field read as `fact`) and it is the first thing memory removal looks at: progress narration leaves active memory before facts, and both before user assertions and decisions. `relevance` is the second axis and means durability — how hard the fact would be to re-derive — not how interesting the line was.
 
 The builder rejects empty observation arrays, so no empty progress entries are written.
 
@@ -281,6 +286,41 @@ When exact source context is needed for precision or traceability, use the recal
 
 The renderer is deterministic. It does not call a model and does not rewrite memory content.
 
+## Memory budget
+
+Rendered memory is bounded to a token budget so that compaction can always converge. The budget is derived at compaction time from the effective trigger, Pi's `reserveTokens`, the retained tail Pi reports through `firstKeptEntryId`, and the system prompt, and may be pinned with `memoryMaxTokens` (see [configuration](configuration.md#memorymaxtokens)).
+
+Within the budget, selection is deterministic and value-ordered:
+
+- observations: not covered by a reflection first, then by kind (`decision` and `user` before `fact` before `progress`), then by relevance (`critical` down to `low`), then newest;
+- reflections: the session's first eight entries as anchors, then newest;
+- the observation share is `observationsPoolTargetTokens`, reflections take the rest, and whichever section cannot fill its share hands the leftover budget to the other one in both directions — including a reflection that is larger than its share and is therefore dropped whole, whose seat is then offered back to observations, and observations that cannot fill their share handing the room back to reflections in one bounded pass.
+
+Trimmed lines are not deleted: they stay in the ledger and remain recallable by id. Trimming changes which lines are present, and observations are rendered chronologically (same-minute lines keep ledger order), which is what the preamble's "in chronological order" and "the most recent observation reflects the latest known state" promises. Reflections keep ledger order. Observations recorded before timestamps became derived carry a model-authored time and are not migrated, so for those lines the chronological order is only as good as that time (in the incident session that motivated this change, 166 of 838 legacy lines had a time differing from the entries they cite, one by 92 days); `/om view` still shows ledger order for auditing. When the projection is empty the renderer still returns an empty string and compaction is left to Pi's own summarizer.
+
+The same budget view is what the observer, reflector, and dropper are given to read, keeping worker prompts bounded as a session grows. Every compaction records what it spent as `details.budget` (`maxTokens`, `renderedTokens`, `tailTokens`, `softLimit`, `trimmedObservations`, `trimmedReflections`), which `/om status` reports, and a trim that costs a quarter or more of the memory lines raises one notification instead of staying silent.
+
+### Pool convergence (the enforcer)
+
+Rendering is bounded either way, so the ledger itself is bounded by a deterministic last stage that runs after the observer, reflector and dropper and calls no model:
+
+- it acts only when active memory exceeds the cap by half again (`MEMORY_POOL_WATERMARK` 1.5);
+- it targets `min(observationsPoolTargetTokens, max(0, cap - reflectionTokens))`, so observations yield to reflections and never displace them;
+- it never removes `critical` observations;
+- it writes at most one `om.observations.dropped` entry per run, with `coversUpToId` set to the latest observation coverage marker, and is idempotent (the tombstones take the dropped observations out of the next fold).
+
+The dropper still runs first — model judgement, quality first — and a healthy pool never reaches the enforcer. When reflections alone fill the cap the observation target is zero, which means every non-critical observation is reclaimed from active memory at once; `/om status` reports `Reflections leave under the observation target` in that situation (and whenever reflections leave less than the configured observation target under the cap), and the lines stay in the ledger, recallable by id, until reflection merging shrinks the reflection pool.
+
+### Reflection lifecycle (merging)
+
+Reflections are never evicted deterministically. They leave active memory only when the reflector replaces them: in the same `record_reflections` call it proposes the merged reflection and lists the reflection ids it replaces in `supersedes`, and the stage writes one `om.reflections.dropped` tombstone after the new reflections entry.
+
+- The invariant is that a reflection never leaves active memory without a replacement: a proposal whose content is invalid produces no tombstone, and superseding ids are restricted to the reflections the reflector was shown (unknown ids are ignored).
+- Merging into an existing wording works: proposing content identical to a current reflection still carries its `supersedes`, so the replaced lines leave while the repeated content stays. The surviving reflection keeps its own supporting observation ids, because the ledger is first-record-wins and has no update path — the replaced reflection's observations simply lose their coverage, which only makes them harder to trim. A merge that proposes *new* content inherits the supporting observation ids of what it replaces, so a merge with no observations left to cite (which is exactly the state the pool enforcer creates) still has evidence. Each proposal's `supersedes` stands on its own: a proposal whose replacement can never become active is skipped, and the other merges in the same round still retire their targets.
+- A merge is dropped when its replacement cannot become active: ids are content hashes and a tombstone is permanent, so restating a reflection retired earlier would leave neither the replacement nor its targets in active memory. The stage checks that and writes no tombstone rather than retiring the targets.
+- Superseded reflections keep their records in the ledger — `/om view full`, the visible/full drift and `om_recall_evidence` still see them — but they stop counting toward the memory cap's reflection share and stop providing coverage for observations.
+- The reflector is told what reflections may use (`REFLECTION BUDGET`), measured on the whole active pool and not on the trimmed view, with how many reflections it was not shown; when the pool is over that share, the prompt requires merging before adding new lines. Reflections trimmed out of the view cannot be named in `supersedes`, so merging covers the newest lines, which is where duplication accumulates.
+
 ## Commands
 
 ### `/om:status`
@@ -288,12 +328,13 @@ The renderer is deterministic. It does not call a model and does not rewrite mem
 Shows:
 
 - recorded/dropped/visible observation counts, with plain `+N` / `-N` visible-vs-full drift suffixes when drift exists;
-- recorded/visible reflection counts, with a plain `+N` drift suffix when full memory has extra reflections;
+- recorded/superseded/active/visible reflection counts, with plain `+N` / `-N` visible-vs-full drift suffixes;
 - next observation/reflection/compaction token progress and drop coverage since the last successful drop;
 - visible observation pool pressure against `observationsPoolMaxTokens` from the current compaction projection;
 - active observation pool pressure against `observationsPoolTargetTokens` from folded active observations;
 - dropper state explaining whether the active pool is under target or waiting for the next successful reflection;
-- reflection pool token total;
+- reflection pool token total (rendered reflections in the visible projection);
+- memory budget: derived or configured cap, active memory against it, and the last render's tokens, trimmed lines and retained tail;
 - passive mode;
 - worker in-flight flags;
 - last observer and reflect/drop errors.

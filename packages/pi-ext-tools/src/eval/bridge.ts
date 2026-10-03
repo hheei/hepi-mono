@@ -93,7 +93,14 @@ export function clearEvalNestedLive(): void {
 	liveChars = 0;
 }
 
-/** Explicit local bridge; Pi does not expose an API to invoke a registered tool by name. */
+/**
+ * Bridge for tool execution inside eval cells.
+ *
+ * In Pi 1.0.0, when `context.executeTool()` is available, it leverages Pi's native
+ * nested tool dispatch for unified tracing, hooks, and parameter validation.
+ * When running without full session dispatch (e.g. standalone test harnesses),
+ * it falls back to direct execution against registered tool definitions.
+ */
 export class EvalToolBridge {
 	readonly #tools: ReadonlyMap<EvalNestedToolName, ToolDefinition>;
 	readonly #isActive: (name: EvalNestedToolName) => boolean;
@@ -121,15 +128,53 @@ export class EvalToolBridge {
 		if (!this.#isActive(name))
 			throw new Error(`Eval tool is unavailable in the active catalog: ${name}`);
 		if (name === "bash") rejectNestedBash(args);
+		const startedAt = performance.now();
+		const toolCallId = `eval-${crypto.randomUUID()}`;
+
+		if (typeof context.executeTool === "function") {
+			try {
+				const outcome = await context.executeTool(name, args, {
+					...(signal === undefined ? {} : { signal }),
+				});
+				const result = outcome.result;
+				const actualId = outcome.toolCall?.id ?? toolCallId;
+				rememberEvalNestedLive(actualId, result);
+				const isError =
+					outcome.isError || result.isError === true || this.#isErrorResult(name, result);
+				const trace = traceFor(
+					name,
+					args,
+					result,
+					Math.round(performance.now() - startedAt),
+					isError,
+					actualId,
+				);
+				onTrace(trace);
+				if (isError) throw new EvalToolError(trace);
+				return extractToolScriptValue(result, trace.text);
+			} catch (error) {
+				if (error instanceof EvalToolError) throw error;
+				const trace: EvalNestedTrace = {
+					name,
+					args,
+					text: "",
+					details: undefined,
+					durationMs: Math.round(performance.now() - startedAt),
+					error: errorMessage(error),
+					toolCallId,
+				};
+				onTrace(trace);
+				throw new EvalToolError(trace);
+			}
+		}
+
 		const tool = this.#tools.get(name);
 		if (tool === undefined) throw new Error(`Eval tool is not registered: ${name}`);
 		if (!Value.Check(tool.parameters, args)) throw new Error(`Invalid arguments for ${name}.`);
-		const startedAt = performance.now();
-		const toolCallId = `eval-${crypto.randomUUID()}`;
 		try {
 			const result = await tool.execute(toolCallId, args as never, signal, undefined, context);
 			rememberEvalNestedLive(toolCallId, result);
-			if (this.#isErrorResult(name, result)) {
+			if (result.isError === true || this.#isErrorResult(name, result)) {
 				const trace = traceFor(
 					name,
 					args,
@@ -150,7 +195,7 @@ export class EvalToolBridge {
 				toolCallId,
 			);
 			onTrace(trace);
-			return result.details ?? trace.text;
+			return extractToolScriptValue(result, trace.text);
 		} catch (error) {
 			if (error instanceof EvalToolError) throw error;
 			const trace: EvalNestedTrace = {
@@ -209,4 +254,18 @@ function traceFor(
 		...(toolCallId === undefined ? {} : { toolCallId }),
 		...(isError ? { error: agentResultText(result) || "tool failed" } : {}),
 	};
+}
+
+/**
+ * Extracts the value returned to the eval Python kernel for a nested tool call.
+ * Aligns with upstream Pi 1.0.0 codemode's `toScriptValue`:
+ * - If the tool returns `structuredContent` (e.g. bash), return it as a structured object.
+ * - Otherwise (e.g. read, grep, find, ls), return the text content as a string.
+ * - If text is empty and details exist, fall back to details for specialized non-text tools.
+ */
+function extractToolScriptValue(result: AgentToolResult<unknown>, traceText: string): unknown {
+	if (result.structuredContent !== undefined) {
+		return result.structuredContent;
+	}
+	return traceText !== "" ? traceText : (result.details ?? traceText);
 }

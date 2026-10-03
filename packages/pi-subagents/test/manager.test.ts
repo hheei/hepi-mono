@@ -1,1231 +1,1511 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TaskRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, test, vi } from "vitest";
+import type { EffectiveLaunchConfig, SpawnSubagentInput, SubagentRecord } from "../src/domain.js";
+import type { HostAttachment, HostObservation } from "../src/host-adapter.js";
+import { assembleChildPrompt } from "../src/launch-spec.js";
 import {
-	type EffectiveLaunchConfig,
-	isOperationError,
-	type SubagentRecord,
-} from "../src/domain.js";
-import type { HostAdapter, HostAttachment } from "../src/host-adapter.js";
-import {
-	type AttachHost,
-	type ManagerDependencies,
-	type RunnerLike,
+	type ChildBridgeTransport,
+	extractLastAssistantText,
+	type ParentChannelReport,
 	SubagentManager,
 } from "../src/manager.js";
-import { type SubagentRegistry, SubagentRegistryError } from "../src/registry.js";
-import {
-	createRuntimeTokenStore,
-	isPidConfirmedDead,
-	isRecordedRunnerConfirmedDead,
-} from "../src/runtime.js";
+import { BridgeError, type BridgeOperation } from "../src/protocol.js";
+import { createSubagentRegistry } from "../src/registry.js";
+import type { LaunchOutcome, RuntimeTokenStore } from "../src/runtime.js";
 
-const PARENT_ID = "parent-test";
-const CHILD_ID = "sa_manager";
+const PARENT_SESSION_ID = "01J7-parent";
 
-function launchConfig(): EffectiveLaunchConfig {
+interface FakeRuntime {
+	readonly pid: number;
+	alive: boolean;
+	readonly exited: Promise<number | null>;
+	terminate(graceMs?: number): Promise<void>;
+	terminated: number;
+	/** Makes the next terminate() leave the process running, as a kill it did not win would. */
+	refuseToDie: boolean;
+	/** Ends the process outside terminate(), as a crash or a self-exit would. */
+	exit(code: number): void;
+}
+
+/** The panel this parent opened for a child, with the two answers the manager acts on. */
+class FakeAttachment implements HostAttachment {
+	readonly identity = {
+		host: "herdr",
+		attachmentId: "wG:tH",
+		createdBy: PARENT_SESSION_ID,
+	} as const;
+	readonly launch = { stdout: "", stderr: "", exitCode: 0, timedOut: false };
+	readonly reportsFocus: boolean;
+	public alive = true;
+	public focused: boolean | undefined = false;
+	/** Makes cleanup() fail and leave the panel standing, as a refusing host would. */
+	public refuseToClose = false;
+	/** Makes observation time out, which is not the same answer as "the panel is gone". */
+	public unknown = false;
+	public cleanups = 0;
+
+	public constructor(reportsFocus: boolean) {
+		this.reportsFocus = reportsFocus;
+	}
+
+	public async observe(): Promise<HostObservation> {
+		return {
+			identity: this.identity,
+			alive: this.unknown ? false : this.alive,
+			known: !this.unknown,
+			...(this.focused === undefined ? {} : { focused: this.focused }),
+			detail: "",
+		};
+	}
+
+	public async cleanup(): Promise<HostAttachment["launch"]> {
+		this.cleanups += 1;
+		if (this.refuseToClose) {
+			return { stdout: "", stderr: "close denied", exitCode: 1, timedOut: false };
+		}
+		this.alive = false;
+		return this.launch;
+	}
+}
+
+interface Harness {
+	readonly manager: SubagentManager;
+	readonly bridge: FakeBridge;
+	readonly launch: ReturnType<typeof vi.fn>;
+	readonly openPanel: ReturnType<typeof vi.fn>;
+	/** The background process handles this harness's launches created, by child id. */
+	readonly runtimes: Map<string, FakeRuntime>;
+	readonly panels: Map<string, FakeAttachment>;
+	readonly connect: ReturnType<typeof vi.fn>;
+	readonly tokens: RuntimeTokenStore;
+	readonly reports: ParentChannelReport[];
+	readonly registry: ReturnType<typeof createSubagentRegistry>;
+	readonly cwd: string;
+	addChild(id: string, overrides?: Partial<SubagentRecord>): SubagentRecord;
+}
+
+class FakeBridge implements ChildBridgeTransport {
+	readonly connected = new Set<string>();
+	readonly requests: Array<{ childId: string; operation: string; payload: unknown }> = [];
+	#events = new Set<(childId: string, event: unknown) => void>();
+	#connections = new Set<(childId: string, connected: boolean) => void>();
+	public responses = new Map<string, () => Promise<unknown>>();
+	public fallbackResponse: (childId: string, operation: BridgeOperation) => Promise<unknown> =
+		async () => undefined;
+
+	public isConnected(childId: string): boolean {
+		return this.connected.has(childId);
+	}
+
+	public async request(
+		childId: string,
+		operation: BridgeOperation,
+		payload?: unknown,
+	): Promise<unknown> {
+		this.requests.push({ childId, operation, payload });
+		if (!this.connected.has(childId)) {
+			throw new BridgeError("child_not_connected", `Child ${childId} is not connected`);
+		}
+		const responder = this.responses.get(`${childId}:${operation}`);
+		return responder === undefined
+			? await this.fallbackResponse(childId, operation)
+			: await responder();
+	}
+
+	public onEvent(listener: (childId: string, event: unknown) => void): () => void {
+		this.#events.add(listener);
+		return () => {
+			this.#events.delete(listener);
+		};
+	}
+
+	public onConnectionChange(listener: (childId: string, connected: boolean) => void): () => void {
+		this.#connections.add(listener);
+		return () => {
+			this.#connections.delete(listener);
+		};
+	}
+
+	public connect(childId: string): void {
+		this.connected.add(childId);
+		for (const listener of [...this.#connections]) listener(childId, true);
+	}
+
+	public disconnect(childId: string): void {
+		this.connected.delete(childId);
+		for (const listener of [...this.#connections]) listener(childId, false);
+	}
+
+	public emit(childId: string, event: unknown): void {
+		for (const listener of [...this.#events]) listener(childId, event);
+	}
+
+	/** Waits until the child's per-transition chain has applied everything queued so far. */
+	public async settle(): Promise<void> {
+		for (let index = 0; index < 20; index++) await Promise.resolve();
+	}
+}
+
+function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 	return {
-		subagentId: CHILD_ID,
-		invocation: { command: process.execPath, args: ["pi.js"] },
-		cwd: process.cwd(),
-		sessionId: "session-test",
-		sessionDir: "/tmp/sessions",
+		subagentId,
+		invocation: { command: process.execPath, args: ["-e", "process.stdin.resume()"] },
+		cwd,
+		sessionId: `${subagentId}-session`,
+		sessionDir: join(cwd, "sessions"),
 		agent: {
 			name: "worker",
 			hidden: false,
-			sourcePath: "/tmp/worker.md",
-			instructions: "Work.",
+			sourcePath: join(cwd, "worker.md"),
+			instructions: "Do the work.",
 		},
-		model: { provider: "test", id: "model", source: "parent" },
-		thinking: { level: "off", source: "parent" },
+		model: { provider: "anthropic", id: "claude-sonnet-4", source: "parent" },
+		thinking: { level: "medium", source: "parent" },
 		tools: ["contact_parent"],
 		excludeTools: [],
-		extensions: { discovery: false, paths: ["/tmp/extension.js"] },
-		skills: { discovery: false, paths: [] },
-		prompt: "Work.",
-		bridgeExtensionPath: "/tmp/extension.js",
+		extensions: { discovery: false, paths: ["/pkg/dist/extension.js"] },
+		skills: { discovery: true, paths: [] },
+		prompt: assembleChildPrompt("Do the work."),
+		bridgeExtensionPath: "/pkg/dist/extension.js",
 		interactive: false,
 	};
 }
 
-function childRecord(state: SubagentRecord["state"] = "idle"): SubagentRecord {
-	return {
-		subagentId: CHILD_ID,
-		parentSessionId: PARENT_ID,
-		revision: 1,
-		createdAt: new Date(0).toISOString(),
-		updatedAt: new Date(0).toISOString(),
-		sessionId: "session-test",
-		cwd: process.cwd(),
-		initialTask: "Work.",
-		intent: "active",
-		state,
-		mode: "rpc",
-		persistence: "never_flushed",
-		launchConfig: launchConfig(),
-		runtime: { runtimeIdentity: "runtime-test", endpoint: "/tmp/runner.sock" },
-	};
-}
-
-function memoryRegistry(
-	initial?: SubagentRecord,
-): SubagentRegistry & { current: SubagentRecord | undefined } {
-	const store: SubagentRegistry & { current: SubagentRecord | undefined } = {
-		current: initial,
-		path: "/tmp/registry.json",
-		parentSessionId: PARENT_ID,
-		async get(id) {
-			return id === store.current?.subagentId ? store.current : undefined;
-		},
-		async list() {
-			return store.current === undefined ? [] : [store.current];
-		},
-		async create(record) {
-			store.current = record;
-			return record;
-		},
-		async update(id, expectedRevision, updater, expectedRuntimeIdentity) {
-			const current = store.current;
-			if (current === undefined || current.subagentId !== id) throw new Error("unknown child");
-			if (expectedRevision !== undefined && current.revision !== expectedRevision) {
-				throw new SubagentRegistryError("stale_revision", "stale revision");
-			}
-			if (
-				expectedRuntimeIdentity !== undefined &&
-				current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
-			)
-				throw new Error("runtime mismatch");
-			store.current = {
-				...updater(current),
-				revision: current.revision + 1,
-				updatedAt: new Date(current.revision * 1_000).toISOString(),
-			};
-			return store.current;
-		},
-		async claim(id, expectedRevision, claim) {
-			return store.update(id, expectedRevision, (current) => ({ ...current, claim }));
-		},
-		async markClaimRunner(id, claimId, runnerPid) {
-			const current = store.current;
-			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
-			return store.update(id, current.revision, (value) => ({
-				...value,
-				claim: { ...value.claim!, runnerPid },
-			}));
-		},
-		async activateClaim(id, claimId, runnerPid) {
-			const current = store.current;
-			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
-			return store.update(id, current.revision, (value) => {
-				const claim = value.claim!;
-				const { claim: _claim, ...rest } = value;
-				return {
-					...rest,
-					runtime: {
-						runtimeIdentity: claim.runtimeIdentity,
-						endpoint: claim.endpoint,
-						pid: runnerPid,
-					},
-				};
-			});
-		},
-		async consumeReconnectClaim(id, claimId, controllerTokenHash, expectedRuntimeIdentity) {
-			const current = store.current;
-			if (
-				current?.claim?.claimId !== claimId ||
-				current.claim.controllerTokenHash !== controllerTokenHash ||
-				(expectedRuntimeIdentity !== undefined &&
-					current.runtime?.runtimeIdentity !== expectedRuntimeIdentity)
-			)
-				throw new Error("claim mismatch");
-			return store.update(id, current.revision, (value) => {
-				const { claim: _claim, ...rest } = value;
-				return rest;
-			});
-		},
-		async releaseClaim(id, claimId) {
-			const current = store.current;
-			if (current?.claim?.claimId !== claimId) throw new Error("claim mismatch");
-			return store.update(id, current.revision, (value) => {
-				const { claim: _claim, ...rest } = value;
-				return rest;
-			});
-		},
-	};
-	return store;
-}
-
-class FakeRunner implements RunnerLike {
-	public connected = true;
-	public busy = false;
-	public writerClosed = false;
-	public readonly requests: string[] = [];
-	public rejectSend = false;
-	public rejectPrompt = false;
-	public rejectCloseWriter = false;
-	public rejectStartRpc = false;
-	public pauseCancelled = false;
-	#pauseWaiter:
-		| { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }
-		| undefined;
-	readonly #listeners = new Set<(event: unknown) => void>();
-
-	public ackPause(generation = 1): void {
-		this.busy = false;
-		this.#pauseWaiter?.resolve({ paused: true, idle: false, generation });
-		this.#pauseWaiter = undefined;
-	}
-
-	public async request(operation: Parameters<RunnerLike["request"]>[0]): Promise<unknown> {
-		this.requests.push(operation);
-		if (this.rejectPrompt && operation === "prompt") throw new Error("connection lost");
-		if (this.rejectSend && operation === "follow_up") throw new Error("connection lost");
-		if (operation === "get_state")
-			return {
-				isStreaming: this.busy,
-				isCompacting: false,
-				pendingMessageCount: 0,
-			};
-		if (operation === "pause") {
-			if (!this.busy) return { paused: true, idle: true, generation: 0 };
-			return new Promise((resolve, reject) => {
-				this.#pauseWaiter = { resolve, reject };
-			});
-		}
-		if (operation === "cancel_pause") {
-			this.pauseCancelled = true;
-			this.#pauseWaiter?.reject(new Error("pause cancelled"));
-			this.#pauseWaiter = undefined;
-			return { cancelled: true };
-		}
-		if (operation === "close_writer") {
-			if (this.rejectCloseWriter) throw new Error("close_writer failed");
-			this.writerClosed = true;
-			return { closed: true };
-		}
-		if (operation === "start_rpc") {
-			if (this.rejectStartRpc) throw new Error("start_rpc failed");
-			this.writerClosed = false;
-			return { isStreaming: false, isCompacting: false, pendingMessageCount: 0 };
-		}
-		if (operation === "shutdown") {
-			queueMicrotask(() => this.emit({ type: "agent_start" }));
-			this.connected = false;
-		}
+async function harness(
+	options: {
+		idleTimeoutMs?: number;
+		deadlineMs?: number;
+		/** Set when this parent has a presentation host and spawns into panels by default. */
+		host?: boolean;
+		/** Set when the host cannot report focus, which is how cmux behaves today. */
+		blindHost?: boolean;
+	} = {},
+): Promise<Harness> {
+	const cwd = process.cwd();
+	const path = join(await withTempDirPath(), "registry.json");
+	const registry = createSubagentRegistry({ parentSessionId: PARENT_SESSION_ID, filePath: path });
+	const bridge = new FakeBridge();
+	bridge.fallbackResponse = async (id, operation) => {
 		if (operation === "get_entries") return { entries: [] };
-		return undefined;
-	}
-
-	public close(): void {
-		this.connected = false;
-	}
-
-	public onEvent(listener: (event: unknown) => void): () => void {
-		this.#listeners.add(listener);
-		return () => this.#listeners.delete(listener);
-	}
-
-	public emit(event: unknown): void {
-		for (const listener of this.#listeners) listener(event);
-	}
-}
-
-/** A real process that carries the runtime identity a record refers to. */
-async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-	while (!condition()) {
-		if (Date.now() >= deadline) throw new Error("condition was never met");
-		await new Promise<void>((resolve) => setTimeout(resolve, 10));
-	}
-}
-
-async function spawnRecordedRuntime(): Promise<{ readonly pid: number; stop: () => void }> {
-	const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-		env: { ...process.env, PI_SUBAGENTS_RUNTIME_ID: "runtime-test" },
-		stdio: "ignore",
+		if (operation !== "get_state") return undefined;
+		const record = await registry.get(id);
+		return {
+			idle: record?.state !== "starting" && record?.state !== "running",
+			pendingMessages: false,
+		};
+	};
+	const tokens: RuntimeTokenStore = {
+		remember: vi.fn(),
+		get: vi.fn(() => undefined),
+		forget: vi.fn(),
+	};
+	const reports: ParentChannelReport[] = [];
+	let sequence = 0;
+	const runtimes = new Map<string, FakeRuntime>();
+	const panels = new Map<string, FakeAttachment>();
+	/** Whatever starts a child's runtime also records it and lets the bridge connect, as Pi does. */
+	const startRuntime = async (record: SubagentRecord): Promise<FakeRuntime> => {
+		let exit: (code: number) => void = () => {};
+		const runtime: FakeRuntime = {
+			pid: 1000 + sequence,
+			alive: true,
+			// A real process exits on its own schedule, so the exit promise is resolved explicitly.
+			exited: new Promise<number>((resolve) => {
+				exit = resolve;
+			}),
+			terminated: 0,
+			refuseToDie: false,
+			async terminate(): Promise<void> {
+				runtime.terminated += 1;
+				if (runtime.refuseToDie) return;
+				runtime.alive = false;
+				bridge.connect(record.subagentId);
+				bridge.disconnect(record.subagentId);
+				exit(0);
+			},
+			exit,
+		};
+		runtimes.set(record.subagentId, runtime);
+		// The real launcher records which runtime it started before the child connects.
+		await registry.update(record.subagentId, undefined, (current) => ({
+			...current,
+			runtime: { runtimeIdentity: `runtime-${sequence}`, endpoint: "/tmp/parent.sock" },
+		}));
+		bridge.connect(record.subagentId);
+		return runtime;
+	};
+	const launch = vi.fn(async (record: SubagentRecord): Promise<LaunchOutcome<FakeRuntime>> => {
+		return { handle: await startRuntime(record) };
 	});
-	const pid = child.pid;
-	if (pid === undefined) throw new Error("test runtime did not start");
-	const deadline = Date.now() + 5_000;
-	// Wait until the process is observable as the recorded runtime, never merely alive.
-	while (
-		await isRecordedRunnerConfirmedDead({
-			runtime: { runtimeIdentity: "runtime-test", endpoint: "/tmp/runner.sock", pid },
-		} as SubagentRecord)
-	) {
-		if (Date.now() >= deadline) throw new Error("test runtime did not become observable");
-		await new Promise<void>((resolve) => setTimeout(resolve, 10));
-	}
-	return { pid, stop: () => child.kill("SIGKILL") };
-}
-
-function managerWith(
-	record: SubagentRecord,
-	runner: FakeRunner,
-	registry = memoryRegistry(record),
-	extra: Partial<ManagerDependencies> = {},
-) {
+	const openPanel = vi.fn(
+		async (record: SubagentRecord): Promise<LaunchOutcome<FakeAttachment>> => {
+			await startRuntime(record);
+			const attachment = new FakeAttachment(options.blindHost !== true);
+			panels.set(record.subagentId, attachment);
+			return { handle: attachment };
+		},
+	);
+	const connect = vi.fn(async (record: SubagentRecord) => bridge.isConnected(record.subagentId));
+	const recordFactory = (id: string, overrides: Partial<SubagentRecord> = {}): SubagentRecord => {
+		const config = launchConfig(id, cwd);
+		return {
+			subagentId: id,
+			parentSessionId: PARENT_SESSION_ID,
+			revision: 1,
+			createdAt: new Date(0).toISOString(),
+			updatedAt: new Date(0).toISOString(),
+			sessionId: config.sessionId,
+			cwd,
+			initialTask: "Do the work.",
+			intent: "active",
+			state: "starting",
+			presentation: "background",
+			persistence: "never_flushed",
+			launchConfig: config,
+			...overrides,
+		};
+	};
 	const manager = new SubagentManager({
-		parentSessionId: PARENT_ID,
+		parentSessionId: PARENT_SESSION_ID,
 		registry,
-		resolve: async () => launchConfig(),
-		bootstrap: async () => record,
-		launch: async () => runner,
-		deadlineMs: 1_000,
-		...extra,
-	});
-	return { manager, registry };
-}
-
-function readyHost(attach: HostAdapter["attach"]): AttachHost {
-	const adapter: HostAdapter = {
-		kind: "herdr",
-		probe: async () => ({ host: "herdr", available: true, reason: "ready" }),
-		attach,
-	};
-	return {
-		async select() {
-			return {
-				available: true,
-				selectedHost: "herdr",
-				adapter,
-				explicit: false,
-				reason: "ready",
-				attempts: [],
-			};
-		},
-	};
-}
-
-function hostAttachment(
-	cleanup: HostAttachment["cleanup"] = async () => ({
-		stdout: "",
-		stderr: "",
-		exitCode: 0,
-		timedOut: false,
-	}),
-	observeAlive = true,
-): HostAttachment & { setAlive(next: boolean): void } {
-	const identity = { host: "herdr" as const, attachmentId: "pane-1", createdBy: PARENT_ID };
-	let alive = observeAlive;
-	return {
-		identity,
-		launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
-		async observe() {
-			return { identity, alive, known: true, detail: "ok" };
-		},
-		async cleanup() {
-			const result = await cleanup();
-			if (result.exitCode === 0 && !result.timedOut) alive = false;
-			return result;
-		},
-		setAlive(next) {
-			alive = next;
-		},
-	};
-}
-
-async function flushedSessionPath(sessionId = "session-test"): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-attach-"));
-	const sessionPath = join(dir, `${sessionId}.jsonl`);
-	await writeFile(sessionPath, `${JSON.stringify({ type: "session", id: sessionId, cwd: dir })}\n`);
-	return sessionPath;
-}
-
-function markIdleFlushed(
-	registry: { current: SubagentRecord | undefined },
-	sessionPath: string,
-	state: SubagentRecord["state"] = "idle",
-): void {
-	const current = registry.current!;
-	registry.current = {
-		...current,
-		state,
-		persistence: "flushed",
-		sessionPath,
-		launchConfig: { ...current.launchConfig, sessionPath },
-	};
-}
-
-function attachDeps(attach: HostAdapter["attach"]): Partial<ManagerDependencies> {
-	const tokens = createRuntimeTokenStore();
-	tokens.remember("runtime-test", "bridge-token");
-	return {
+		bridge,
+		launch,
+		connect,
 		tokens,
-		attachHost: readyHost(attach),
-	};
+		...(options.host === true
+			? { presentation: { reason: "default host herdr is available", openPanel } }
+			: {}),
+		channel: {
+			async deliver(report): Promise<void> {
+				reports.push(report);
+			},
+		},
+		deadlineMs: options.deadlineMs ?? 1_000,
+		...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
+		async resolve(input: SpawnSubagentInput): Promise<EffectiveLaunchConfig> {
+			sequence += 1;
+			return launchConfig(`sa_child${sequence}`, input.cwd ?? cwd);
+		},
+		async bootstrap({ task, launchConfig: config, presentation }): Promise<SubagentRecord> {
+			const record = recordFactory(config.subagentId, {
+				state: "starting",
+				initialTask: task,
+				launchConfig: config,
+				presentation,
+			});
+			return await registry.create(record);
+		},
+	});
+	return {
+		manager,
+		bridge,
+		launch,
+		openPanel,
+		panels,
+		runtimes,
+		connect,
+		tokens,
+		reports,
+		registry,
+		cwd,
+		async addChild(id: string, overrides: Partial<SubagentRecord> = {}): Promise<SubagentRecord> {
+			return await registry.create(recordFactory(id, overrides));
+		},
+	} as unknown as Harness;
 }
 
-describe("SubagentManager contracts", () => {
-	test("marks uncertain input non-retryable and persists it before dispatch", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const { manager, registry } = managerWith(record, runner);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		registry.current = { ...registry.current!, state: "idle" };
-		runner.rejectSend = true;
+async function withTempDirPath(): Promise<string> {
+	const { mkdtemp } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	return await mkdtemp(join(tmpdir(), "pi-subagents-manager-"));
+}
 
-		const result = await manager.send(CHILD_ID, "next", "auto");
-		expect(result).toMatchObject({ safeToRetry: false });
-		expect(registry.current).toMatchObject({
-			unacknowledgedInput: "next",
-			interrupted: expect.stringContaining("not yet confirmed"),
-		});
-	});
+describe("SubagentManager over the bridge", () => {
+	test("spawns a child, delivers the task over the bridge, and reports it running", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
 
-	test("keeps a launched child controllable when initial delivery is uncertain", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		runner.rejectPrompt = true;
-		const { manager, registry } = managerWith(record, runner);
-
-		const result = await manager.spawn({ task: "Work.", agent: "worker" });
-
-		expect(result).toMatchObject({ childId: CHILD_ID, state: "failed", safeToRetry: false });
-		expect(registry.current).toMatchObject({
-			state: "failed",
-			unacknowledgedInput: "Work.",
-			interrupted: expect.stringContaining("not confirmed"),
-		});
-		expect(await manager.get(CHILD_ID)).toMatchObject({ freshness: "live" });
-		expect(await manager.stop(CHILD_ID)).toMatchObject({ state: "stopped" });
-	});
-
-	test("retains runtime metadata when stop has no attached controller", async () => {
-		const record = childRecord("running");
-		const registry = memoryRegistry(record);
-		const manager = new SubagentManager({
-			parentSessionId: PARENT_ID,
-			registry,
-			resolve: async () => launchConfig(),
-			bootstrap: async () => record,
-			launch: async () => new FakeRunner(),
-		});
-
-		const result = await manager.stop(CHILD_ID);
-
-		expect(result).toMatchObject({
-			state: "stopped",
-			safeToRetry: true,
-			sideEffects: ["stopped intent persisted", "runtime metadata retained"],
-		});
-		expect(registry.current?.runtime).toEqual(record.runtime);
-	});
-
-	test("stop is not reported as stopped while the child process is still alive", async () => {
-		const runtime = await spawnRecordedRuntime();
-		try {
-			const record = childRecord("running");
-			const runtimeMetadata = record.runtime;
-			if (runtimeMetadata === undefined) throw new Error("the fixture needs runtime metadata");
-			const live: SubagentRecord = {
-				...record,
-				runtime: { ...runtimeMetadata, pid: runtime.pid },
-			};
-			const runner = new FakeRunner();
-			const { manager, registry } = managerWith(live, runner);
-			await manager.spawn({ task: "Work.", agent: "worker" });
-
-			// The shutdown request was answered and the socket closed, but the process is still there:
-			// reporting a clean stop would let the caller free the capacity it still occupies.
-			const refused = await manager.stop(CHILD_ID);
-			expect(refused).toMatchObject({
-				state: "stopped",
-				safeToRetry: true,
-				sideEffects: ["stopped intent persisted", "runtime metadata retained"],
-			});
-			expect(registry.current?.runtime).toEqual(live.runtime);
-
-			// A dead process is proof, so the retry finishes the stop and lets the evidence go.
-			runtime.stop();
-			expect(await manager.stop(CHILD_ID)).toMatchObject({ state: "stopped" });
-			expect(registry.current?.runtime).toBeUndefined();
-		} finally {
-			runtime.stop();
-		}
-	});
-
-	test("stop wins over a late runtime event and clears matching runtime metadata", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const { manager, registry } = managerWith(record, runner);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-
-		const result = await manager.stop(CHILD_ID);
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		expect(result).toMatchObject({ state: "stopped", freshness: "last_known" });
-		expect(registry.current?.state).toBe("stopped");
-		expect(registry.current?.runtime).toBeUndefined();
-	});
-	test("get and list stop calling a disconnected handle live", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const { manager } = managerWith(record, runner);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		runner.connected = false;
-		expect(await manager.get(CHILD_ID)).toMatchObject({
-			freshness: "last_known",
-			interactive: false,
-			model: { provider: "test", id: "model", source: "parent" },
-			thinking: { level: "off", source: "parent" },
-		});
-		expect(await manager.list()).toEqual([
-			expect.objectContaining({ freshness: "last_known", interactive: false }),
+		expect(spawned.child.state).toBe("running");
+		expect(spawned.child.freshness).toBe("live");
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+		// The bridge connection also triggers adoption reads; the task itself is one prompt.
+		expect(test1.bridge.requests.filter((request) => request.operation === "prompt")).toEqual([
+			{ childId: spawned.child.id, operation: "prompt", payload: { message: "Do the work." } },
 		]);
 	});
 
-	test("delivers only an authenticated report for the current runtime", async () => {
-		const delivered = vi.fn(async () => undefined);
-		const channel = { deliver: delivered };
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const registry = memoryRegistry(record);
-		const manager = new SubagentManager({
-			parentSessionId: PARENT_ID,
-			registry,
-			resolve: async () => launchConfig(),
-			bootstrap: async () => record,
-			launch: async () => runner,
-			channel,
+	test("persists an unconfirmed initial delivery as failed and not retryable", async () => {
+		const test1 = await harness();
+		test1.bridge.responses.set("sa_child1:prompt", async () => {
+			// Lose the acknowledgement only after the started run has been projected, not while
+			// its event is still queued (which would itself re-add the work count).
+			const startedEvent = { type: "agent_start" };
+			let observed = false;
+			let resolveApplied = () => {};
+			const applied = new Promise<void>((resolve) => {
+				resolveApplied = resolve;
+			});
+			const stopEvents = test1.manager.onChildEvent((_id, event) => {
+				if (event === startedEvent) observed = true;
+			});
+			const stopChange = test1.manager.onChange(() => {
+				if (observed) resolveApplied();
+			});
+			test1.bridge.emit("sa_child1", startedEvent);
+			await applied;
+			stopEvents();
+			stopChange();
+			throw new BridgeError("timeout", "no answer");
 		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		runner.emit({
-			type: "subagent_report",
-			report: {
-				type: "pi_subagent_report",
-				parentSessionId: PARENT_ID,
-				childId: CHILD_ID,
-				runtimeIdentity: "runtime-test",
-				reason: "important_finding",
-				message: "found it",
-			},
+		test1.bridge.responses.set("sa_child1:get_state", async () => ({
+			idle: false,
+			pendingMessages: false,
+		}));
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		expect(spawned).toMatchObject({
+			operation: "spawn",
+			reason: "no answer",
+			state: "failed",
+			safeToRetry: false,
 		});
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		expect(delivered).toHaveBeenCalledWith(
-			expect.objectContaining({ message: "found it", agent: "worker", childId: CHILD_ID }),
+		expect(await test1.manager.get("sa_child1")).toMatchObject({
+			state: "failed",
+			freshness: "live",
+		});
+		expect(test1.manager.activeCount).toBe(1);
+		test1.bridge.emit("sa_child1", { type: "agent_settled" });
+		await vi.waitFor(() => expect(test1.manager.activeCount).toBe(0));
+	});
+
+	test("selects steer, follow_up and prompt from the child's real state", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_live", { state: "running" });
+		test1.bridge.connect("sa_live");
+		await test1.manager.send("sa_live", "more");
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
+
+		await test1.addChild("sa_idle", { state: "idle" });
+		test1.bridge.connect("sa_idle");
+		await test1.manager.send("sa_idle", "more");
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
+	});
+
+	test("resumes a child whose runtime is gone instead of asking a dead socket", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_gone", { state: "idle" });
+		const sent = await test1.manager.send("sa_gone", "keep going");
+		if ("reason" in sent) throw new Error(sent.reason);
+
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+		expect(test1.bridge.requests.at(-1)).toMatchObject({
+			childId: "sa_gone",
+			operation: "prompt",
+			payload: { message: "keep going" },
+		});
+	});
+
+	test("refuses unknown, stopped and Task children", async () => {
+		const test1 = await harness();
+		expect(await test1.manager.send("sa_nope", "x")).toMatchObject({ reason: "Unknown child" });
+		await test1.addChild("sa_stop", { intent: "stopped", state: "stopped" });
+		// A terminal refusal says so: the model must not retry a send that can never work.
+		expect(await test1.manager.send("sa_stop", "x")).toMatchObject({
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+	});
+
+	test("reports liveness only while the bridge connection is up", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_quiet", { state: "idle" });
+		expect(await test1.manager.get("sa_quiet")).toMatchObject({ freshness: "last_known" });
+		expect(await test1.manager.list()).toEqual([
+			expect.objectContaining({ id: "sa_quiet", freshness: "last_known" }),
+		]);
+		test1.bridge.connect("sa_quiet");
+		expect(await test1.manager.get("sa_quiet")).toMatchObject({ freshness: "live" });
+	});
+
+	test("stops a child by writing the intent first and ending the process", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+
+		const stopped = await test1.manager.stop(spawned.child.id);
+		expect(stopped).toMatchObject({ id: spawned.child.id, state: "stopped" });
+		const record = await test1.manager.get(spawned.child.id);
+		expect(record).toMatchObject({ state: "stopped", freshness: "last_known" });
+		// The runtime metadata goes with the process, so nothing is left that could hold the session.
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeUndefined();
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
+		// A stop is terminal even though the session survives it: the answer says so instead of
+		// leaving the model to retry a send that can never work.
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+	});
+
+	test("refuses to call a stop confirmed while the process is still alive", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const runtime = test1.runtimes.get(spawned.child.id);
+		if (runtime === undefined) throw new Error("no runtime was started");
+		runtime.refuseToDie = true;
+
+		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({
+			state: "stopped",
+			reason: expect.stringContaining("not confirmed"),
+		});
+		// The evidence stays behind: a process that ignored the kill may still own the session.
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeDefined();
+	});
+
+	test("hibernates an idle child: shutdown over the bridge, then the process, then done", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10 });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await test1.manager.get(spawned.child.id);
+
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "done" });
+		});
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeUndefined();
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
+	});
+
+	test("keeps an unconfirmed idle runtime and refuses to start a second one", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		// The panel refuses to close and still reports the child running: the exit is unconfirmed.
+		attachment.refuseToClose = true;
+
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "failed" });
+		});
+		// The handle is kept, so the next send cannot start a second runtime for the same session.
+		const sent = await test1.manager.send(spawned.child.id, "keep going");
+		expect(sent).toMatchObject({ reason: expect.stringContaining("not confirmed gone") });
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+	});
+
+	test("settles a background child whose process exits after its bridge dropped", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const runtime = test1.runtimes.get(spawned.child.id);
+		if (runtime === undefined) throw new Error("no runtime was started");
+
+		// A turn is in flight when the bridge goes away while the process is still running: nothing is
+		// settled yet, because the process may reconnect.
+		test1.bridge.emit(spawned.child.id, { type: "agent_start" });
+		await test1.bridge.settle();
+		test1.bridge.disconnect(spawned.child.id);
+		await test1.bridge.settle();
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "running" });
+		// The handle is still held, so nothing may start a second runtime for this session yet.
+		expect(await test1.manager.send(spawned.child.id, "already?")).toMatchObject({
+			reason: expect.stringContaining("not confirmed gone"),
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+
+		// The process ends afterwards, with no second connection event to carry the news.
+		runtime.alive = false;
+		runtime.exit(0);
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+				state: "idle",
+				freshness: "last_known",
+			});
+		});
+		// The handle goes with the process, so a later send starts a fresh runtime.
+		expect(test1.runtimes.size).toBe(1);
+		await expect(test1.manager.send(spawned.child.id, "again")).resolves.toMatchObject({
+			id: spawned.child.id,
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(2);
+	});
+
+	test("confirms unacknowledged input once the child's own transcript shows it", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_input", { state: "running", unacknowledgedInput: "keep going" });
+		test1.bridge.connect("sa_input");
+		test1.bridge.responses.set("sa_input:get_entries", async () => ({
+			entries: [{ type: "message", message: { role: "user", content: "keep going" } }],
+		}));
+		test1.bridge.emit("sa_input", { type: "agent_end", messages: [] });
+		await vi.waitFor(async () => {
+			const record = await test1.manager.get("sa_input");
+			expect(record).toMatchObject({ state: "running" });
+			expect((await test1.registry.get("sa_input"))?.unacknowledgedInput).toBeUndefined();
+		});
+	});
+
+	test("counts startup and post-agent_end work until the final settle", async () => {
+		const current = await harness({ idleTimeoutMs: 10 });
+		const spawned = await current.manager.spawn({ agent: "worker", task: "work" });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const id = spawned.child.id;
+		expect(current.manager.activeCount).toBe(1);
+		current.bridge.emit(id, { type: "agent_start" });
+		current.bridge.emit(id, { type: "agent_end", messages: [] });
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		expect(current.manager.activeCount).toBe(1);
+		expect(await current.manager.get(id)).toMatchObject({ state: "running" });
+		expect(current.bridge.requests.some((request) => request.operation === "shutdown")).toBe(false);
+		current.bridge.emit(id, { type: "agent_settled" });
+		await vi.waitFor(() => expect(current.manager.activeCount).toBe(0));
+		current.manager.closeLocalConnections();
+	});
+
+	test("does not clear new work when an older settled event is still queued", async () => {
+		const current = await harness();
+		const spawned = await current.manager.spawn({ agent: "worker", task: "work" });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const counts: number[] = [];
+		const unsubscribe = current.manager.onChange(() => counts.push(current.manager.activeCount));
+		current.bridge.emit(spawned.child.id, { type: "agent_settled" });
+		current.bridge.emit(spawned.child.id, { type: "agent_start" });
+		await vi.waitFor(() => expect(counts.length).toBeGreaterThanOrEqual(3));
+		expect(counts).not.toContain(0);
+		expect(current.manager.activeCount).toBe(1);
+		current.bridge.emit(spawned.child.id, { type: "agent_settled" });
+		await vi.waitFor(() => expect(current.manager.activeCount).toBe(0));
+		unsubscribe();
+		current.manager.closeLocalConnections();
+	});
+
+	test("adopts actual work state even when transcript retrieval fails", async () => {
+		const current = await harness();
+		await current.addChild("sa_partial", { state: "running" });
+		current.bridge.connected.add("sa_partial");
+		current.bridge.responses.set("sa_partial:get_entries", async () => {
+			throw new Error("entries unavailable");
+		});
+		current.bridge.responses.set("sa_partial:get_state", async () => ({
+			idle: true,
+			pendingMessages: false,
+		}));
+		expect(await current.manager.recover()).toMatchObject({
+			recovered: ["sa_partial"],
+			failures: [],
+		});
+		expect(current.manager.activeCount).toBe(0);
+		expect(await current.manager.get("sa_partial")).toMatchObject({ state: "idle" });
+		current.manager.closeLocalConnections();
+	});
+
+	test("reports an unavailable adoption state and converges on a later reconnect", async () => {
+		const current = await harness();
+		await current.addChild("sa_unknown", { state: "running" });
+		current.bridge.connected.add("sa_unknown");
+		current.bridge.responses.set("sa_unknown:get_state", async () => {
+			throw new Error("state unavailable");
+		});
+		expect(await current.manager.recover()).toMatchObject({
+			recovered: [],
+			failures: [{ childId: "sa_unknown", reason: "state unavailable" }],
+		});
+		expect(current.manager.activeCount).toBe(1);
+		current.bridge.responses.set("sa_unknown:get_state", async () => ({
+			idle: true,
+			pendingMessages: false,
+		}));
+		current.bridge.connect("sa_unknown");
+		await vi.waitFor(() => expect(current.manager.activeCount).toBe(0));
+		current.manager.closeLocalConnections();
+	});
+
+	test("reports a user interrupt to the parent and keeps it visible", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_int", {
+			state: "running",
+			runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/parent.sock" },
+		});
+		test1.bridge.connect("sa_int");
+		test1.bridge.emit("sa_int", {
+			type: "child_lifecycle",
+			parentSessionId: PARENT_SESSION_ID,
+			childId: "sa_int",
+			runtimeIdentity: "runtime-1",
+			kind: "user_interrupt",
+			sessionId: "sa_int-session",
+			message: "Task is unfinished and waiting for user intent.",
+		});
+		await vi.waitFor(() => {
+			expect(test1.reports.map((report) => report.reason)).toEqual(["user_interrupt"]);
+		});
+		expect((await test1.registry.get("sa_int"))?.interrupted).toBe(
+			"Task is unfinished and waiting for user intent.",
 		);
 	});
-	test("recovers a persisted child without replaying its task", async () => {
-		const record = { ...childRecord("idle"), unacknowledgedInput: "Work." };
-		const runner = new FakeRunner();
-		const registry = memoryRegistry(record);
-		const connect = vi.fn(async () => runner);
-		const manager = new SubagentManager({
-			parentSessionId: PARENT_ID,
-			registry,
-			resolve: async () => launchConfig(),
-			bootstrap: async () => record,
-			launch: async () => new FakeRunner(),
-			connect,
+
+	test("ignores lifecycle notices that name another runtime", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_stale", {
+			state: "running",
+			runtime: { runtimeIdentity: "runtime-now", endpoint: "/tmp/parent.sock" },
+		});
+		test1.bridge.connect("sa_stale");
+		test1.bridge.emit("sa_stale", {
+			type: "child_lifecycle",
+			parentSessionId: PARENT_SESSION_ID,
+			childId: "sa_stale",
+			runtimeIdentity: "runtime-old",
+			kind: "user_interrupt",
+			sessionId: "sa_stale-session",
+		});
+		await test1.bridge.settle();
+		expect(test1.reports).toEqual([]);
+	});
+
+	test("delivers a report the child sends and refuses a stale or repeated one", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_report", {
+			state: "running",
+			runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/parent.sock" },
+		});
+		await expect(
+			test1.manager.handleChildRequest("sa_report", "contact_parent", {
+				type: "pi_subagent_report",
+				parentSessionId: PARENT_SESSION_ID,
+				childId: "sa_report",
+				runtimeIdentity: "runtime-1",
+				reason: "blocked",
+				message: "halfway",
+			}),
+		).resolves.toEqual({ delivered: true });
+		expect(test1.reports).toHaveLength(1);
+
+		await expect(
+			test1.manager.handleChildRequest("sa_report", "contact_parent", {
+				type: "pi_subagent_report",
+				parentSessionId: PARENT_SESSION_ID,
+				childId: "sa_report",
+				runtimeIdentity: "runtime-old",
+				reason: "blocked",
+				message: "halfway",
+			}),
+		).rejects.toMatchObject({ code: "stale_report" });
+	});
+
+	test("refuses to resume a panel child whose runtime never reconnected after a restart", async () => {
+		const test1 = await harness({ host: true });
+		const record = await test1.addChild("sa_leftover", {
+			state: "running",
+			presentation: "panel",
+			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
 		});
 
-		const result = await manager.recover();
+		// A panel child is held by the host, so it outlives the parent. Its bridge did not come back,
+		// and nothing here can observe whether that process is still running.
+		await expect(test1.manager.recover()).resolves.toMatchObject({ recovered: [] });
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("exit cannot be confirmed"),
+			safeToRetry: false,
+		});
+		expect(test1.launch).not.toHaveBeenCalled();
+		expect(test1.openPanel).not.toHaveBeenCalled();
 
-		expect(result).toEqual({ recovered: [CHILD_ID], failures: [] });
-		expect(connect).toHaveBeenCalledOnce();
-		expect(runner.requests).toEqual(["get_entries"]);
-		expect(await manager.get(CHILD_ID)).toMatchObject({
-			freshness: "live",
-			interrupted: "Parent recovered; pending input was not replayed",
+		// The runtime shows itself: the doubt is gone and the child takes input again.
+		test1.bridge.connect(record.subagentId);
+		await test1.bridge.settle();
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			id: record.subagentId,
+		});
+		expect(
+			test1.bridge.requests.some(
+				(request) => request.childId === record.subagentId && request.operation === "steer",
+			),
+		).toBe(true);
+	});
+
+	test("keeps a stopped child stopped and says plainly that a new child is needed", async () => {
+		const test1 = await harness({ host: true });
+		const record = await test1.addChild("sa_leftover_stopped", {
+			state: "running",
+			presentation: "panel",
+			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
+		});
+
+		// Stopping the leftover is the documented way out of an unconfirmed runtime, and it is
+		// terminal: the session survives, but the send after it must fail visibly and say that a new
+		// child is what the model has to spawn.
+		await expect(test1.manager.recover()).resolves.toMatchObject({ recovered: [] });
+		await expect(test1.manager.stop(record.subagentId)).resolves.toMatchObject({
+			id: record.subagentId,
+			state: "stopped",
+		});
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+		expect(test1.launch).not.toHaveBeenCalled();
+		expect(test1.openPanel).not.toHaveBeenCalled();
+	});
+
+	test("clears the runtime a background child had before the parent restarted", async () => {
+		const test1 = await harness();
+		const record = await test1.addChild("sa_bg", {
+			state: "running",
+			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
+		});
+
+		// A background child is held by this process's stdin pipe, so it died with the parent: the
+		// evidence is stale and the next send starts it again from the same session.
+		await test1.manager.recover();
+		const settled = await test1.registry.get(record.subagentId);
+		expect(settled?.runtime).toBeUndefined();
+		expect(settled?.state).toBe("idle");
+		expect(settled?.interrupted).toContain("ended with the parent process");
+
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			id: record.subagentId,
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+	});
+
+	test("keeps a record idle when a state-less event follows an adoption", async () => {
+		const test1 = await harness({ host: true });
+		const record = await test1.addChild("sa_adopted", { state: "running" });
+		test1.bridge.responses.set("sa_adopted:get_entries", async () => ({ entries: [] }));
+		test1.bridge.responses.set("sa_adopted:get_state", async () => ({
+			idle: true,
+			pendingMessages: false,
+		}));
+
+		test1.bridge.connect(record.subagentId);
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(record.subagentId)).toMatchObject({ state: "idle" });
+		});
+
+		// A tool event carries no state of its own, so it must not write the older projection back.
+		// The record is written back asynchronously, so wait for that write instead of for a state
+		// that was already there before the event.
+		const originalUpdate = test1.registry.update.bind(test1.registry);
+		const writes: Array<Promise<unknown>> = [];
+		vi.spyOn(test1.registry, "update").mockImplementation((id, revision, updater) => {
+			const result = originalUpdate(id, revision, updater);
+			writes.push(result);
+			return result;
+		});
+		test1.bridge.emit(record.subagentId, {
+			type: "tool_execution_start",
+			toolCallId: "t1",
+			toolName: "bash",
+		});
+		await vi.waitFor(() => {
+			expect(writes.length).toBeGreaterThan(0);
+		});
+		await Promise.all(writes);
+		expect(await test1.manager.get(record.subagentId)).toMatchObject({ state: "idle" });
+	});
+
+	test("refuses a request from an unknown child and an operation the parent does not serve", async () => {
+		const test1 = await harness();
+		await expect(
+			test1.manager.handleChildRequest("sa_ghost", "contact_parent", {}),
+		).rejects.toMatchObject({ code: "unknown_child" });
+		await test1.addChild("sa_ops", { state: "idle" });
+		await expect(test1.manager.handleChildRequest("sa_ops", "prompt", {})).rejects.toMatchObject({
+			code: "unsupported_operation",
 		});
 	});
 
-	test("skips stopped children and reports connect failures without hanging", async () => {
-		const stopped = { ...childRecord("stopped"), intent: "stopped" as const };
-		const registry = memoryRegistry(stopped);
-		const connect = vi.fn(async () => new FakeRunner());
-		const manager = new SubagentManager({
-			parentSessionId: PARENT_ID,
-			registry,
-			resolve: async () => launchConfig(),
-			bootstrap: async () => stopped,
-			launch: async () => new FakeRunner(),
-			connect,
+	test("adopts a child that reconnects and notices a runtime that went away", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_adopt", { state: "starting" });
+		test1.bridge.responses.set("sa_adopt:get_entries", async () => ({ entries: [] }));
+		test1.bridge.responses.set("sa_adopt:get_state", async () => ({
+			idle: false,
+			pendingMessages: false,
+			sessionId: "sa_adopt-session",
+		}));
+		test1.bridge.connect("sa_adopt");
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get("sa_adopt")).toMatchObject({
+				state: "running",
+				freshness: "live",
+			});
 		});
-		expect(await manager.recover()).toEqual({ recovered: [], failures: [] });
-		expect(connect).not.toHaveBeenCalled();
 
-		const live = childRecord("idle");
-		registry.current = live;
-		connect.mockRejectedValueOnce(new Error("endpoint missing"));
-		expect(await manager.recover()).toEqual({
-			recovered: [],
-			failures: [{ childId: CHILD_ID, reason: "endpoint missing" }],
+		test1.bridge.disconnect("sa_adopt");
+		await vi.waitFor(async () => {
+			const record = await test1.manager.get("sa_adopt");
+			expect(record).toMatchObject({ state: "idle", freshness: "last_known" });
+			expect((await test1.registry.get("sa_adopt"))?.interrupted).toContain("runtime ended");
 		});
-		expect(await manager.get(CHILD_ID)).toMatchObject({ state: "idle", freshness: "last_known" });
 	});
 
-	test("notifies presentation listeners after spawn and exposes interactive", async () => {
-		const base = childRecord("starting");
-		const record = { ...base, launchConfig: { ...base.launchConfig, interactive: true } };
-		const runner = new FakeRunner();
-		const { manager } = managerWith(record, runner);
-		const seen: number[] = [];
-		const unsubscribe = manager.onChange(() => seen.push(seen.length));
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		expect(seen.length).toBeGreaterThan(0);
-		expect(await manager.get(CHILD_ID)).toMatchObject({
-			interactive: true,
-			freshness: "live",
+	test("adopts surviving children on recovery and never launches anything", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_alive", { state: "running" });
+		await test1.addChild("sa_dead", { state: "running" });
+		test1.bridge.connect("sa_alive");
+		test1.bridge.responses.set("sa_alive:get_entries", async () => ({ entries: [] }));
+		test1.bridge.responses.set("sa_alive:get_state", async () => ({
+			idle: true,
+			pendingMessages: false,
+			sessionId: "sa_alive-session",
+		}));
+
+		const recovery = await test1.manager.recover();
+		expect(recovery.recovered).toEqual(["sa_alive"]);
+		// A child that does not reconnect is simply not running; that is not a recovery failure,
+		// and nothing is launched on its behalf.
+		expect(recovery.failures).toEqual([]);
+		expect(test1.launch).not.toHaveBeenCalled();
+		expect(await test1.manager.get("sa_alive")).toMatchObject({ state: "idle" });
+	});
+
+	test("stops listening to the transport when it is disposed", async () => {
+		const test1 = await harness();
+		await test1.addChild("sa_dispose", { state: "running" });
+		test1.manager.dispose();
+		test1.bridge.connect("sa_dispose");
+		await test1.bridge.settle();
+		expect(await test1.manager.get("sa_dispose")).toMatchObject({ state: "running" });
+	});
+	/** Waits out one idle countdown plus slack, for the cases that assert a panel was left alone. */
+	async function waitPastIdle(idleTimeoutMs: number): Promise<void> {
+		await new Promise((resolve) => setTimeout(resolve, idleTimeoutMs * 4));
+	}
+
+	test("spawns into a panel when a host is available and says so when it is not", async () => {
+		const withHost = await harness({ host: true });
+		const panelChild = await withHost.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in panelChild) throw new Error(panelChild.reason);
+		expect(panelChild.child.presentation).toBe("panel");
+		expect(panelChild.note).toBeUndefined();
+		expect(withHost.openPanel).toHaveBeenCalledTimes(1);
+		expect(withHost.launch).not.toHaveBeenCalled();
+
+		// No host: the same spawn runs headless, and the result says why instead of leaving the
+		// caller to guess which presentation it got.
+		const headless = await harness();
+		const background = await headless.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in background) throw new Error(background.reason);
+		expect(background.child.presentation).toBe("background");
+		expect(background.note).toContain("runs in the background");
+		expect(headless.launch).toHaveBeenCalledTimes(1);
+	});
+
+	test("runs a child in a panel when a host exists", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({
 			agent: "worker",
+			task: "Do the work.",
+			presentation: "auto",
 		});
-		unsubscribe();
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		expect(spawned.child.presentation).toBe("panel");
+		expect(spawned.note).toBeUndefined();
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(test1.launch).not.toHaveBeenCalled();
 	});
 
-	test("hibernates an idle child after idleTimeoutMs, shuts down runner, and marks state done", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-			idleTimeoutMs: 100,
-		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
+	test("stops a panel child by closing its panel, not by killing a process it does not own", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		expect(test1.launch).not.toHaveBeenCalled();
 
-		// Simulate child finishing and becoming idle
-		runner.emit({ type: "agent_end" });
+		const stopped = await test1.manager.stop(spawned.child.id);
+		expect(stopped).toMatchObject({
+			id: spawned.child.id,
+			state: "stopped",
+			presentation: "panel",
+		});
+		expect(attachment.cleanups).toBe(1);
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
+		// The runtime evidence goes with the panel, so nothing is left that could hold the session.
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeUndefined();
+	});
+
+	test("refuses to call a panel stop confirmed while the panel is still there", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.refuseToClose = true;
+
+		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({
+			state: "stopped",
+			reason: expect.stringContaining("not confirmed gone"),
+		});
+		// The evidence stays behind: a panel the parent could not close may still run the child.
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeDefined();
+		const requestsBeforeReconnect = test1.bridge.requests.length;
+		test1.bridge.disconnect(spawned.child.id);
+		test1.bridge.connect(spawned.child.id);
+		// send drains the queued connection transitions before answering, so this checks the state
+		// after reconnection handling rather than the stopped value that already existed.
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			safeToRetry: false,
+			reason: expect.stringContaining("never resumes"),
+		});
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "stopped" });
+		expect(test1.bridge.requests).toHaveLength(requestsBeforeReconnect);
+	});
+
+	test("treats an unobservable panel as unconfirmed rather than closed", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.unknown = true;
+
+		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({
+			state: "stopped",
+			reason: expect.stringContaining("not confirmed gone"),
+		});
+		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeDefined();
+	});
+
+	test("retires a child that left its session: no control of the new one, and the panel is not closed", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		const record = await test1.registry.get(spawned.child.id);
+		if (record?.runtime === undefined) throw new Error("no runtime was recorded");
+
+		test1.bridge.emit(spawned.child.id, {
+			type: "child_lifecycle",
+			parentSessionId: PARENT_SESSION_ID,
+			childId: spawned.child.id,
+			runtimeIdentity: record.runtime.runtimeIdentity,
+			kind: "left_session",
+			sessionId: "another-session",
+		});
+		await vi.waitFor(async () => {
+			expect((await test1.registry.get(spawned.child.id))?.runtime).toBeUndefined();
+		});
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+			state: "idle",
+			freshness: "last_known",
+		});
+		// The panel now belongs to the session the human switched to.
+		expect(attachment.cleanups).toBe(0);
+		expect(test1.tokens.forget).toHaveBeenCalledWith(record.runtime.runtimeIdentity);
+
+		// A send starts a fresh runtime for the delegated session instead of typing into that session.
+		const sent = await test1.manager.send(spawned.child.id, "keep going");
+		if ("reason" in sent) throw new Error(sent.reason);
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
+		expect(test1.bridge.requests.at(-1)).toMatchObject({
+			childId: spawned.child.id,
+			operation: "prompt",
+			payload: { message: "keep going" },
+		});
+	});
+
+	test("idle reclaim leaves a focused panel alone, then closes it once nobody is watching", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.focused = true;
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await test1.bridge.settle();
+
+		await waitPastIdle(10);
+		expect(attachment.cleanups).toBe(0);
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "idle" });
+
+		attachment.focused = false;
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "done" });
+		});
+		expect(attachment.cleanups).toBeGreaterThan(0);
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
+		// A disconnect arriving after idle reclaim is not a manual close. A later send still resumes
+		// the same child and session rather than failing as stopped.
+		test1.bridge.disconnect(spawned.child.id);
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			id: spawned.child.id,
+			state: "running",
+		});
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
+		expect((await test1.registry.get(spawned.child.id))?.sessionId).toBe(spawned.child.sessionId);
+	});
+
+	test("idle observation of an already exited panel is terminal before its delayed disconnect", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.alive = false;
+		attachment.focused = false;
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		// The host confirms exit while the old socket still looks connected. No shutdown has been
+		// requested by us yet, so this must not become a resumable automatic reclaim.
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "stopped" });
+		});
+		test1.bridge.disconnect(spawned.child.id);
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(false);
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+	});
+
+	test("does not reclaim a panel that started being used while the check was in flight", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.focused = false;
+		const realObserve = attachment.observe.bind(attachment);
+		let entered: (() => void) | undefined;
+		let release: (() => void) | undefined;
+		const observing = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const blocked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		attachment.observe = async () => {
+			// The answer is taken first, so what the host said cannot change while it is held.
+			const answer = await realObserve();
+			entered?.();
+			await blocked;
+			return answer;
+		};
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await test1.bridge.settle();
+		await observing;
+		// Someone started using the panel while the host was answering. The event is queued behind
+		// the reclaim, so only the count of inbound signals can stop a decision already in flight.
+		test1.bridge.emit(spawned.child.id, {
+			type: "child_input",
+			parentSessionId: PARENT_SESSION_ID,
+			childId: spawned.child.id,
+			runtimeIdentity: "runtime-1",
+			source: "interactive",
+		});
+		attachment.focused = true;
+		release?.();
+		await test1.bridge.settle();
+		await waitPastIdle(20);
+
+		expect(attachment.cleanups).toBe(0);
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(false);
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "idle" });
+	});
+
+	test("never reclaims a panel whose host cannot report focus", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true, blindHost: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		test1.bridge.emit(spawned.child.id, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await test1.bridge.settle();
+
+		await waitPastIdle(10);
+		expect(attachment.cleanups).toBe(0);
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "idle" });
+	});
+
+	test("human input in the panel cancels the countdown but a parent message does not", async () => {
+		const test1 = await harness({ idleTimeoutMs: 30, host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		const settled = {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		};
+		const input = (source: string): unknown => ({
+			type: "child_input",
+			parentSessionId: PARENT_SESSION_ID,
+			childId: spawned.child.id,
+			runtimeIdentity: "runtime-1",
+			source,
+		});
+		test1.bridge.emit(spawned.child.id, settled);
+		test1.bridge.emit(spawned.child.id, input("interactive"));
+		await test1.bridge.settle();
+		await waitPastIdle(30);
+		expect(attachment.cleanups).toBe(0);
+
+		// A message the parent sent over the bridge says nothing about the panel, so the countdown
+		// that follows the next finished turn still closes it.
+		test1.bridge.emit(spawned.child.id, settled);
+		test1.bridge.emit(spawned.child.id, input("rpc"));
+		await test1.bridge.settle();
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "done" });
+		});
+		expect(attachment.cleanups).toBeGreaterThan(0);
+	});
+
+	test.each([
+		"running",
+		"idle",
+	] as const)("manual panel close while %s is terminal", async (state) => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+
+		// The host no longer runs the child: the panel is a leftover, so it is closed without being
+		// asked to be.
+		await test1.registry.update(spawned.child.id, undefined, (current) => ({ ...current, state }));
+		attachment.alive = false;
+		test1.bridge.disconnect(spawned.child.id);
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+				state: "stopped",
+				freshness: "last_known",
+			});
+		});
+		// The session and identity survive for inspection, but a manual close must not reopen it.
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+		expect(attachment.cleanups).toBe(1);
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(await test1.registry.get(spawned.child.id)).toMatchObject({
+			intent: "stopped",
+			sessionId: spawned.child.sessionId,
+		});
+		expect(test1.tokens.forget).toHaveBeenCalledWith("runtime-1");
+	});
+
+	test("send detecting a closed panel fails in that same call", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+		attachment.alive = false;
+		// The socket is already gone, but its disconnect notification has not been handled yet.
+		test1.bridge.connected.delete(spawned.child.id);
+		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("never resumes"),
+			safeToRetry: false,
+		});
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+	});
+
+	test("an adopted panel losing its bridge refuses send without guessing that it exited", async () => {
+		const test1 = await harness({ host: true });
+		const record = await test1.addChild("sa_adopted_closed", {
+			state: "running",
+			presentation: "panel",
+			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
+		});
+		test1.bridge.connect(record.subagentId);
+		await test1.manager.recover();
+		test1.bridge.disconnect(record.subagentId);
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			operation: "send",
+			reason: expect.stringContaining("exit cannot be confirmed"),
+			safeToRetry: false,
+		});
+		expect(test1.openPanel).not.toHaveBeenCalled();
+		expect((await test1.registry.get(record.subagentId))?.runtime).toBeDefined();
+	});
+
+	test("keeps a panel standing when its child's bridge drops but the process lives", async () => {
+		const test1 = await harness({ host: true });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const attachment = test1.panels.get(spawned.child.id);
+		if (attachment === undefined) throw new Error("no panel was opened");
+
+		// A live process behind a missing bridge may be serving the session the human switched to, and
+		// nobody asked for that panel to be closed.
+		test1.bridge.disconnect(spawned.child.id);
+		await test1.bridge.settle();
+		expect(attachment.cleanups).toBe(0);
+		// Closing it stays possible on request: stop is an instruction, not an inference.
+		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({ state: "stopped" });
+		expect(attachment.cleanups).toBe(1);
+	});
+
+	test("gives no idle countdown to a child whose runtime this process does not own", async () => {
+		const test1 = await harness({ idleTimeoutMs: 10, host: true });
+		await test1.addChild("sa_orphan", { state: "idle", presentation: "panel" });
+		test1.bridge.connect("sa_orphan");
+		test1.bridge.emit("sa_orphan", {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await test1.bridge.settle();
+
+		await waitPastIdle(10);
+		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(false);
+		expect((await test1.registry.get("sa_orphan"))?.runtime).toBeUndefined();
+	});
+
+	test("extractLastAssistantText extracts string or structured text from the trailing assistant message", () => {
+		const emptyEntries: unknown[] = [];
+		expect(extractLastAssistantText(emptyEntries)).toBeUndefined();
+
+		const noAssistant = [{ message: { role: "user", content: "hello" } }];
+		expect(extractLastAssistantText(noAssistant)).toBeUndefined();
+
+		const singleText = [
+			{ message: { role: "user", content: "hello" } },
+			{ message: { role: "assistant", content: "Hi there!" } },
+		];
+		expect(extractLastAssistantText(singleText)).toBe("Hi there!");
+
+		const multiParts = [
+			{ message: { role: "user", content: "hello" } },
+			{ message: { role: "assistant", content: "Older reply" } },
+			{ message: { role: "user", content: "next" } },
+			{
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Part 1" },
+						{ type: "toolCall", name: "read" },
+						{ type: "text", text: "Part 2" },
+					],
+				},
+			},
+		];
+		expect(extractLastAssistantText(multiParts)).toBe("Part 1\nPart 2");
+	});
+
+	test("registers subagent into TaskRegistry and updates on stop", async () => {
+		const test1 = await harness();
+		const taskRegistry = new TaskRegistry();
+		test1.manager.bindTaskRegistry(taskRegistry);
+
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Investigate database performance",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		const tasks = taskRegistry.list();
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0]?.id).toBe(childId);
+		expect(tasks[0]?.type).toBe("agent");
+		expect(tasks[0]?.purpose).toBe("worker: Investigate database performance");
+
+		await test1.manager.stop(childId);
+		const stoppedTasks = taskRegistry.list(true);
+		expect(stoppedTasks[0]?.status).toBe("cancelled");
+	});
+
+	test("settles task as failed when child reports blocked via contactParent", async () => {
+		const test1 = await harness();
+		const taskRegistry = new TaskRegistry();
+		test1.manager.bindTaskRegistry(taskRegistry);
+
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Investigate database performance",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		await test1.manager.contactParent(childId, "blocked", "Missing credentials to access DB");
+		expect(test1.reports).toHaveLength(1);
+		expect(test1.reports[0]?.reason).toBe("blocked");
+		expect(test1.reports[0]?.message).toBe("Missing credentials to access DB");
+
+		const [outcome] = await taskRegistry.wait([childId]);
+		expect(outcome?.status).toBe("failed");
+		if (outcome?.status === "failed") {
+			expect(outcome.output).toBe("Missing credentials to access DB");
+		}
+	});
+
+	test("reports blocked and settles task as failed when subagent encounters error and settles", async () => {
+		const test1 = await harness();
+		const taskRegistry = new TaskRegistry();
+		test1.manager.bindTaskRegistry(taskRegistry);
+
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Investigate database performance",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		test1.bridge.responses.set(`${childId}:get_entries`, async () => ({
+			entries: [
+				{
+					type: "message",
+					id: "msg-1",
+					message: {
+						role: "assistant",
+						stopReason: "error",
+						errorMessage: "Rate limit exceeded",
+						content: [{ type: "text", text: "Attempting to query..." }],
+					},
+				},
+			],
+		}));
+
+		await test1.manager.handleEvent(childId, {
+			type: "agent_end",
+		});
+		await test1.manager.handleEvent(childId, {
+			type: "agent_settled",
+			message: {
+				role: "assistant",
+				stopReason: "error",
+				errorMessage: "Rate limit exceeded",
+			},
+		});
+
 		await vi.waitFor(
 			() => {
-				expect(registry.current?.state).toBe("idle");
+				expect(test1.reports.length).toBeGreaterThan(0);
 			},
-			{ interval: 2, timeout: 1_000 },
+			{ timeout: 6_000 },
 		);
-		expect(runner.requests).not.toContain("shutdown");
 
-		// The idle timer fires after idleTimeoutMs, which a loaded test runner may stretch; wait for
-		// the effect instead of sleeping past a wall-clock estimate.
-		await vi.waitFor(() => {
-			expect(runner.requests).toContain("shutdown");
-			expect(registry.current?.state).toBe("done");
-		});
+		expect(test1.reports[0]?.reason).toBe("blocked");
+		expect(test1.reports[0]?.message).toContain("Rate limit exceeded");
 
-		manager.dispose();
-	});
-
-	test("keeps runtime evidence and refuses the child when a hibernating runner never confirms exit", async () => {
-		const runtime = await spawnRecordedRuntime();
-		try {
-			const baseline = childRecord("starting");
-			const record: SubagentRecord = {
-				...baseline,
-				runtime: { ...baseline.runtime!, pid: runtime.pid },
-			};
-			const runner = new FakeRunner();
-			const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-				idleTimeoutMs: 20,
-				deadlineMs: 100,
-			});
-			await manager.spawn({ task: "Work.", agent: "worker" });
-			runner.emit({ type: "agent_end" });
-			// The confirmation deadline may take longer than the idle timer under load; wait for the
-			// verdict instead of sleeping past an estimate of it.
-			await vi.waitFor(() => {
-				expect(registry.current?.state).toBe("failed");
-			});
-			// The runner acknowledged shutdown, but the recorded process is still alive.
-			expect(runner.requests).toContain("shutdown");
-			expect(registry.current?.interrupted).toContain("unconfirmed");
-			expect(registry.current?.runtime?.pid).toBe(runtime.pid);
-			// No blind second execution is attempted while the old runtime may still own the session.
-			expect(await manager.send(CHILD_ID, "Follow up", "auto")).toMatchObject({
-				reason: "Child is not accepting input",
-			});
-			manager.dispose();
-		} finally {
-			runtime.stop();
+		const [outcome] = await taskRegistry.wait([childId]);
+		expect(outcome?.status).toBe("failed");
+		if (outcome?.status === "failed") {
+			expect(outcome.output).toContain("Rate limit exceeded");
 		}
-	});
+	}, 10_000);
 
-	test("refuses to hibernate when the child session placement cannot be verified", async () => {
-		const parent = await mkdtemp(join(tmpdir(), "pi-subagents-placement-"));
-		const blocker = join(parent, "sessions");
-		await writeFile(blocker, "not a directory");
-		const baseline = childRecord("starting");
-		const record: SubagentRecord = {
-			...baseline,
-			launchConfig: { ...baseline.launchConfig, sessionDir: blocker },
-		};
-		const runner = new FakeRunner();
-		let launches = 0;
-		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-			idleTimeoutMs: 20,
-			launch: async () => {
-				launches += 1;
-				return runner;
+	test("does not report error while retrying and reports success after successful retry", async () => {
+		const test1 = await harness();
+		const taskRegistry = new TaskRegistry();
+		test1.manager.bindTaskRegistry(taskRegistry);
+
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Investigate database performance",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		await test1.manager.handleEvent(childId, {
+			type: "agent_end",
+			message: {
+				role: "assistant",
+				stopReason: "error",
+				errorMessage: "Rate limit exceeded",
 			},
 		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		runner.emit({ type: "agent_end" });
-		// Hibernation runs after the idle buffer: wait for the placement attempt, not for a delay.
-		await vi.waitFor(() => {
-			expect(registry.current?.interrupted ?? "").toContain("could not be verified");
+		await test1.manager.handleEvent(childId, {
+			type: "auto_retry_start",
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 1000,
 		});
 
-		// An unreadable session directory is not proof that the session does not exist, so the
-		// child keeps its id and stays inspectable instead of hibernating with a stale placement.
-		const settled = registry.current;
-		expect(settled?.state).toBe("idle");
-		expect(settled?.persistence).toBe("never_flushed");
-		expect(settled?.sessionPath).toBeUndefined();
-		expect(settled?.interrupted).toContain("could not be verified");
-		const resumed = await manager.send(CHILD_ID, "Follow up", "auto");
-		expect(resumed).toMatchObject({ reason: expect.stringContaining("could not be verified") });
-		expect(launches).toBe(1);
-		manager.dispose();
-	});
+		expect(test1.reports).toHaveLength(0);
 
-	test("separates a resume that never started from one that left a runtime behind", async () => {
-		const neverStarted = childRecord("done");
-		const first = managerWith(neverStarted, new FakeRunner(), memoryRegistry(neverStarted), {
-			launch: async () => {
-				throw new Error("handshake failed");
-			},
+		await test1.manager.handleEvent(childId, {
+			type: "agent_start",
 		});
-		const failedStart = await first.manager.send(CHILD_ID, "Follow up", "auto");
-		expect(failedStart).toMatchObject({ safeToRetry: true, state: "done" });
-		expect(first.registry.current).toMatchObject({ state: "done" });
-		expect(first.registry.current?.interrupted).toContain("before a runtime was confirmed started");
-		first.manager.dispose();
-
-		// A claim written before the spawn is the only evidence left when the launch fails
-		// during the handshake and no pid was recorded yet: retrying would risk a second runner
-		// for the same session, so this must count as an unconfirmed start.
-		const claimedOnly = childRecord("done");
-		const claimRegistry = memoryRegistry(claimedOnly);
-		const third = managerWith(claimedOnly, new FakeRunner(), claimRegistry, {
-			launch: async () => {
-				await claimRegistry.update(CHILD_ID, undefined, (value) => ({
-					...value,
-					claim: {
-						claimId: "claim-1",
-						kind: "replacement",
-						holderPid: process.pid,
-						runtimeIdentity: "runtime-1",
-						endpoint: "/tmp/nowhere.sock",
-						controllerTokenHash: "hash",
-					},
-				}));
-				throw new Error("handshake aborted");
-			},
-		});
-		const claimUnconfirmed = await third.manager.send(CHILD_ID, "Follow up", "auto");
-		expect(claimUnconfirmed).toMatchObject({ safeToRetry: false, state: "failed" });
-		expect(claimRegistry.current?.interrupted).toContain("after the runtime was claimed");
-		third.manager.dispose();
-
-		const runtime = await spawnRecordedRuntime();
-		try {
-			const claimed = childRecord("done");
-			const registry = memoryRegistry(claimed);
-			const second = managerWith(claimed, new FakeRunner(), registry, {
-				launch: async () => {
-					await registry.update(CHILD_ID, undefined, (value) => ({
-						...value,
-						runtime: { ...value.runtime!, pid: runtime.pid },
-					}));
-					throw new Error("handshake timed out");
-				},
-			});
-			const unconfirmed = await second.manager.send(CHILD_ID, "Follow up", "auto");
-			expect(unconfirmed).toMatchObject({ safeToRetry: false, state: "failed" });
-			expect(registry.current?.interrupted).toContain("after the runtime was claimed");
-			expect(registry.current?.runtime?.pid).toBe(runtime.pid);
-			second.manager.dispose();
-		} finally {
-			runtime.stop();
-		}
-	});
-
-	test("frees a failed child once its runner is confirmed gone", async () => {
-		const runtime = await spawnRecordedRuntime();
-		const failed = childRecord("failed");
-		const record: SubagentRecord = {
-			...failed,
-			runtime: { runtimeIdentity: "runtime-test", endpoint: "/tmp/runner.sock", pid: runtime.pid },
-		};
-		const registry = memoryRegistry(record);
-		let launches = 0;
-		const { manager } = managerWith(record, new FakeRunner(), registry, {
-			launch: async () => {
-				launches += 1;
-				throw new Error("handshake failed");
-			},
-		});
-
-		// The recorded process is still alive, so a second execution must not be started for the
-		// session it owns: the failed child stays unavailable.
-		const refused = await manager.send(CHILD_ID, "Follow up", "auto");
-		expect(refused).toMatchObject({ reason: "Child is not accepting input", state: "failed" });
-		// Nothing was launched, so this attempt consumed nothing.
-		expect(launches).toBe(0);
-
-		// Once nothing can be running, refusing input forever would strand a session nobody uses.
-		runtime.stop();
-		await until(() => isPidConfirmedDead(runtime.pid));
-		const revived = await manager.send(CHILD_ID, "Follow up", "auto");
-		expect(launches).toBe(1);
-		expect(revived).toMatchObject({ safeToRetry: true, state: "done" });
-		expect(registry.current?.state).toBe("done");
-		manager.dispose();
-	});
-
-	test("does not report a stop as confirmed while a claim's runner may still start", async () => {
-		const runtime = await spawnRecordedRuntime();
-		// The window between the spawn and the runner writing its own runtime metadata: the claim
-		// holds the pid, and no runtime has been recorded yet.
-		const { runtime: _runtime, ...withoutRuntime } = childRecord("running");
-		const claimed: SubagentRecord = {
-			...withoutRuntime,
-			claim: {
-				claimId: "claim-1",
-				kind: "replacement",
-				holderPid: process.pid,
-				runtimeIdentity: "runtime-1",
-				endpoint: "/tmp/nowhere.sock",
-				controllerTokenHash: "hash",
-				runnerPid: runtime.pid,
-			},
-		};
-		const registry = memoryRegistry(claimed);
-		const { manager } = managerWith(claimed, new FakeRunner(), registry);
-
-		// Reporting this as stopped would free the session for a second runner while the first one is
-		// still starting up, so the stop stays unconfirmed and keeps its evidence.
-		const unconfirmed = await manager.stop(CHILD_ID);
-		expect(unconfirmed).toMatchObject({
-			operation: "stop",
-			state: "stopped",
-			reason: expect.stringContaining("could not be confirmed"),
-		});
-		expect(registry.current?.claim).toBeDefined();
-
-		// An unconfirmed stop is not a dead end: once the process is provably gone, the same stop
-		// completes.
-		runtime.stop();
-		await until(() => isPidConfirmedDead(runtime.pid));
-		const stopped = await manager.stop(CHILD_ID);
-		expect(isOperationError(stopped)).toBe(false);
-		manager.dispose();
-	});
-
-	test("frees a dead claim instead of leaving the child unusable", async () => {
-		const runtime = await spawnRecordedRuntime();
-		const pid = runtime.pid;
-		runtime.stop();
-		await until(() => isPidConfirmedDead(pid));
-		const claimed: SubagentRecord = {
-			...childRecord("failed"),
-			claim: {
-				claimId: "claim-1",
-				kind: "replacement",
-				holderPid: process.pid,
-				runtimeIdentity: "runtime-1",
-				endpoint: "/tmp/nowhere.sock",
-				controllerTokenHash: "hash",
-				runnerPid: pid,
-			},
-		};
-		const registry = memoryRegistry(claimed);
-		const { manager } = managerWith(claimed, new FakeRunner(), registry, {
-			launch: async () => {
-				throw new Error("handshake aborted");
-			},
-		});
-
-		// The claim belongs to this parent and its runner is gone, so it blocks nothing any more.
-		const revived = await manager.send(CHILD_ID, "Follow up", "auto");
-		expect(registry.current?.claim).toBeUndefined();
-		expect(revived).toMatchObject({ safeToRetry: true, state: "done" });
-		manager.dispose();
-	});
-
-	test("auto-resumes a done or hibernated child on send with prompt operation", async () => {
-		const record = childRecord("starting");
-		const runner1 = new FakeRunner();
-		const runner2 = new FakeRunner();
-		let launches = 0;
-		const registry = memoryRegistry(record);
-		const manager = new SubagentManager({
-			parentSessionId: PARENT_ID,
-			registry,
-			resolve: async () => launchConfig(),
-			bootstrap: async () => record,
-			launch: async () => {
-				launches += 1;
-				return launches === 1 ? runner1 : runner2;
-			},
-			deadlineMs: 1_000,
-			idleTimeoutMs: 20,
-		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
-
-		// Transition to idle then hibernate to done
-		runner1.emit({ type: "agent_end" });
-		await vi.waitFor(() => {
-			expect(registry.current?.state).toBe("done");
-		});
-
-		// Send message to the done child -> triggers Auto-Resume
-		const resumed = await manager.send(CHILD_ID, "Follow up task", "auto");
-		expect(launches).toBe(2);
-		expect(runner2.requests).toContain("prompt");
-		expect(resumed).toMatchObject({ state: "running", freshness: "live" });
-		expect(registry.current?.state).toBe("running");
-
-		manager.dispose();
-	});
-});
-
-describe("SubagentManager native TUI attach", () => {
-	test("attaches an idle flushed child and restores RPC after host cleanup", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async (spec) => {
-				expect(spec.mode).toBe("tui");
-				expect(spec.stdio).toBe("inherit");
-				expect(spec.env.PI_SUBAGENTS_TOKEN).toBe("bridge-token");
-				return hostAttachment();
-			}),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-
-		const attached = await manager.attach(CHILD_ID);
-		expect(attached).toMatchObject({
-			host: "herdr",
-			attachmentId: "pane-1",
-			child: { id: CHILD_ID, mode: "tui", state: "idle" },
-		});
-		expect(runner.writerClosed).toBe(true);
-		expect(runner.requests).toContain("close_writer");
-		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "tui" });
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
-
-		expect(await manager.send(CHILD_ID, "later")).toMatchObject({
-			reason: "Child input is frozen for attach",
-		});
-
-		const restored = await manager.restoreRpc(CHILD_ID);
-		expect(restored).toMatchObject({ id: CHILD_ID, mode: "rpc" });
-		expect(runner.requests).toContain("start_rpc");
-		expect(runner.writerClosed).toBe(false);
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
-		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
-	});
-
-	test("does not restore RPC when host cleanup cannot confirm the TUI is gone", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () =>
-				hostAttachment(async () => ({
-					stdout: "",
-					stderr: "pane still owned",
-					exitCode: 1,
-					timedOut: false,
-				})),
-			),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		expect(await manager.attach(CHILD_ID)).toMatchObject({ host: "herdr" });
-		expect(await manager.restoreRpc(CHILD_ID)).toMatchObject({
-			operation: "restore_rpc",
-			reason: "pane still owned",
-		});
-		expect(runner.requests).not.toContain("start_rpc");
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
-	});
-
-	test("rejects attach when the session file is not flushed", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => hostAttachment()),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		registry.current = { ...registry.current!, state: "idle" };
-
-		expect(await manager.attach(CHILD_ID)).toMatchObject({
-			reason: "Session has not been flushed; attach refused",
-		});
-		expect(runner.requests).not.toContain("close_writer");
-	});
-
-	test("attaches a busy child after the pause handshake acks", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		runner.busy = true;
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => hostAttachment()),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath, "running");
-
-		const attached = manager.attach(CHILD_ID);
-		await vi.waitFor(() => {
-			expect(runner.requests).toContain("pause");
-		});
-		runner.ackPause();
-		expect(await attached).toMatchObject({ child: { id: CHILD_ID, mode: "tui" } });
-		expect(runner.requests).toContain("close_writer");
-	});
-
-	test("keeps RPC when a busy child does not pause in time", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		runner.busy = true;
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-			...attachDeps(async () => hostAttachment()),
-			deadlineMs: 40,
-		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath, "running");
-
-		expect(await manager.attach(CHILD_ID)).toMatchObject({
-			reason: expect.stringContaining("Child did not pause before attach deadline"),
-		});
-		expect(runner.pauseCancelled).toBe(true);
-		expect(runner.requests).not.toContain("close_writer");
-		expect(runner.writerClosed).toBe(false);
-	});
-
-	test("restores RPC when host attach fails after the writer closed", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => {
-				throw new Error("herdr pane failed");
-			}),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-
-		expect(await manager.attach(CHILD_ID)).toMatchObject({
-			reason: "herdr pane failed",
-		});
-		expect(runner.requests).toContain("close_writer");
-		expect(runner.requests).toContain("start_rpc");
-		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "rpc" });
-		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
-	});
-
-	test("aborts an in-flight attach before stop serializes", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		let resumeAttach: (() => void) | undefined;
-		const blocked = new Promise<void>((resolve) => {
-			resumeAttach = resolve;
-		});
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => {
-				await blocked;
-				return hostAttachment();
-			}),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-
-		const attachPromise = manager.attach(CHILD_ID);
-		await vi.waitFor(() => {
-			expect(runner.writerClosed).toBe(true);
-		});
-		const stopped = manager.stop(CHILD_ID);
-		resumeAttach?.();
-		expect(await attachPromise).toMatchObject({ reason: "Attach was cancelled" });
-		expect(await stopped).toMatchObject({ state: "stopped" });
-	});
-
-	test("does not detach when a pane event arrives but the TUI process is still alive", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const attachment = hostAttachment();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => attachment),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		expect(await manager.attach(CHILD_ID)).toMatchObject({ host: "herdr" });
-		expect(await manager.inspectHost(CHILD_ID)).toMatchObject({ alive: true, known: true });
-		expect(runner.requests).not.toContain("start_rpc");
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(true);
-	});
-
-	test("restores RPC after a confirmed TUI process exit", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const attachment = hostAttachment();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => attachment),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		await manager.attach(CHILD_ID);
-		attachment.setAlive(false);
-		expect(await manager.inspectHost(CHILD_ID)).toMatchObject({ id: CHILD_ID, mode: "rpc" });
-		expect(runner.requests).toContain("start_rpc");
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
-	});
-
-	test("unbinds A without closing the TUI after a confirmed session switch", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		let cleaned = 0;
-		const attachment = hostAttachment(async () => {
-			cleaned += 1;
-			return { stdout: "", stderr: "", exitCode: 0, timedOut: false };
-		});
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => attachment),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		await manager.attach(CHILD_ID);
-		runner.emit({
-			type: "child_lifecycle",
-			kind: "left_session",
-			parentSessionId: PARENT_ID,
-			childId: CHILD_ID,
-			runtimeIdentity: "runtime-test",
-			sessionId: "session-b",
-		});
-		await vi.waitFor(() => {
-			expect(runner.requests).toContain("start_rpc");
-		});
-		expect(cleaned).toBe(0);
-		expect(manager.ownsHostAttachment({ host: "herdr", attachmentId: "pane-1" })).toBe(false);
-		expect(await manager.get(CHILD_ID)).toMatchObject({ mode: "rpc" });
-		expect(await manager.send(CHILD_ID, "later")).toMatchObject({ id: CHILD_ID });
-	});
-
-	test("notifies the parent on a confirmed TUI interrupt without restoring RPC", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const reports: Array<{ reason: string; message: string }> = [];
-		const { manager, registry } = managerWith(record, runner, memoryRegistry(record), {
-			...attachDeps(async () => hostAttachment()),
-			channel: {
-				async deliver(report) {
-					reports.push({ reason: report.reason, message: report.message });
-				},
-			},
-		});
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		await manager.attach(CHILD_ID);
-		runner.emit({
-			type: "child_lifecycle",
-			kind: "user_interrupt",
-			parentSessionId: PARENT_ID,
-			childId: CHILD_ID,
-			runtimeIdentity: "runtime-test",
-			sessionId: "session-test",
-			message: "Task is unfinished and waiting for user intent. Last activity: editing.",
-		});
-		await vi.waitFor(() => {
-			expect(reports).toEqual([
+		test1.bridge.responses.set(`${childId}:get_entries`, async () => ({
+			entries: [
 				{
-					reason: "user_interrupt",
-					message: "Task is unfinished and waiting for user intent. Last activity: editing.",
+					type: "message",
+					id: "msg-1",
+					message: {
+						role: "assistant",
+						stopReason: "error",
+						errorMessage: "Rate limit exceeded",
+					},
 				},
-			]);
+				{
+					type: "message",
+					id: "msg-2",
+					message: {
+						role: "assistant",
+						stopReason: "stop",
+						content: [{ type: "text", text: "Successfully completed after retry." }],
+					},
+				},
+			],
+		}));
+		await test1.manager.handleEvent(childId, {
+			type: "agent_end",
 		});
-		expect(runner.requests).not.toContain("start_rpc");
-		expect(await manager.get(CHILD_ID)).toMatchObject({
-			mode: "tui",
-			interrupted: "Task is unfinished and waiting for user intent. Last activity: editing.",
-		});
-	});
-
-	test("does not restore a stopped child after TUI exit", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		const sessionPath = await flushedSessionPath();
-		const { manager, registry } = managerWith(
-			record,
-			runner,
-			memoryRegistry(record),
-			attachDeps(async () => hostAttachment()),
-		);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		markIdleFlushed(registry, sessionPath);
-		await manager.attach(CHILD_ID);
-		expect(await manager.stop(CHILD_ID)).toMatchObject({ state: "stopped" });
-		expect(await manager.detach(CHILD_ID, { origin: "tui_exit" })).toMatchObject({
-			reason: "Stopped child is not restored",
-		});
-		expect(runner.requests.filter((operation) => operation === "start_rpc")).toEqual([]);
-	});
-
-	test("mutate does not leak unhandled promise rejections when an action rejects", async () => {
-		const record = childRecord("starting");
-		const runner = new FakeRunner();
-		let shouldFail = false;
-		const baseRegistry = memoryRegistry(record);
-		const originalUpdate = baseRegistry.update.bind(baseRegistry);
-		const failingRegistry: ReturnType<typeof memoryRegistry> = {
-			...baseRegistry,
-			async update(id, expectedRevision, updater, expectedRuntimeIdentity, signal) {
-				if (shouldFail) {
-					throw new Error("fatal write failure");
-				}
-				return originalUpdate(id, expectedRevision, updater, expectedRuntimeIdentity, signal);
+		await test1.manager.handleEvent(childId, {
+			type: "agent_settled",
+			message: {
+				role: "assistant",
+				stopReason: "stop",
 			},
-		};
-		const { manager } = managerWith(record, runner, failingRegistry);
-		await manager.spawn({ task: "Work.", agent: "worker" });
-		shouldFail = true;
-		let unhandled = false;
-		const handler = () => {
-			unhandled = true;
-		};
-		process.once("unhandledRejection", handler);
-		try {
-			// Trigger an event from the runner which causes #observe -> #update to reject
-			runner.emit({ type: "agent_start" });
-			// Allow any microtasks / unhandled rejection turns to settle
-			await new Promise((resolve) => setTimeout(resolve, 50));
-			expect(unhandled).toBe(false);
-		} finally {
-			process.removeListener("unhandledRejection", handler);
+		});
+
+		await vi.waitFor(
+			() => {
+				expect(test1.reports.length).toBeGreaterThan(0);
+			},
+			{ timeout: 6_000 },
+		);
+
+		expect(test1.reports).toHaveLength(1);
+		expect(test1.reports[0]?.reason).toBe("success");
+		expect(test1.reports[0]?.message).toBe("Successfully completed after retry.");
+
+		const [outcome] = await taskRegistry.wait([childId]);
+		expect(outcome?.status).toBe("completed");
+		if (outcome?.status === "completed") {
+			expect(outcome.output).toBe("Successfully completed after retry.");
 		}
-	});
+
+		expect((await test1.manager.get(childId)).state).toBe("done");
+	}, 10_000);
 });

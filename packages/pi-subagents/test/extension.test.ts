@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createBackgroundDelivery } from "@hheei/pi-ext-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import piSubagentsExtension, {
 	createParentChannel,
-	REPORT_MERGE_WINDOW_MS,
 	skillCatalogFromLoaded,
 } from "../src/extension.js";
 import { registerParentTools } from "../src/tools.js";
@@ -57,9 +57,8 @@ describe("extension branch", () => {
 		expect(tools[0]?.description).toContain("Do NOT poll");
 		expect(tools[0]?.promptSnippet).toContain("do not poll");
 		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("tail session/log files");
-		// A conversation child is the wrong tool when the answer is needed now, so the prompt says
-		// which one is right instead of leaving the model to discover it.
-		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("it waits for the result by default");
+		// Spawning clarifies that idle subagents need not be frozen or stopped.
+		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("idle subagents consume no compute");
 		expect(tools[1]?.description).toContain("Do NOT poll");
 		expect(tools[2]?.description).toContain("not to wait");
 		expect(tools[3]?.description).toContain("not to wait");
@@ -88,29 +87,7 @@ describe("extension branch", () => {
 		]);
 	});
 
-	test("a Task child gets its result channel and no way to delegate further", () => {
-		const previous = process.env;
-		process.env = {
-			...previous,
-			PI_SUBAGENTS_PARENT_SESSION_ID: "p",
-			PI_SUBAGENTS_CHILD_ID: "c",
-			PI_SUBAGENTS_RUNTIME_ID: "r",
-			PI_SUBAGENTS_ENDPOINT: "/x",
-			PI_SUBAGENTS_TOKEN: "t",
-			PI_SUBAGENTS_TASK: JSON.stringify({ softTurns: 60 }),
-		};
-		try {
-			const { pi, tools } = fakePi();
-			piSubagentsExtension(pi);
-			// Ownership: delegation is a parent-only capability, so a Task child can report but
-			// cannot start work nobody would deliver. This branch is where that is enforced.
-			expect(tools.map((tool) => tool.name)).toEqual(["contact_parent", "submit_task_result"]);
-		} finally {
-			process.env = previous;
-		}
-	});
-
-	test("child only receives contact_parent and listens for completion nudge events", () => {
+	test("child only receives contact_parent and registers bridge lifecycle listeners", () => {
 		const previous = process.env;
 		process.env = {
 			...previous,
@@ -124,11 +101,10 @@ describe("extension branch", () => {
 			const { pi, tools, events } = fakePi();
 			piSubagentsExtension(pi);
 			expect(tools.map((tool) => tool.name)).toEqual(["contact_parent"]);
-			expect(tools[0]?.description).toContain("parent is woken");
+			expect(tools[0]?.description).toContain("BLOCKED");
 			expect(events).toEqual(
 				expect.arrayContaining([
 					"input",
-					"before_agent_start",
 					"agent_start",
 					"agent_end",
 					"session_start",
@@ -189,12 +165,13 @@ function report(childId: string, message: string) {
 	};
 }
 
-test("a child report reaches the parent as a follow-up, not on the next user message", async () => {
+test("a completed child report reaches the next parent activity without a timer", async () => {
 	const parent = fakeParent();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true });
+	const delivery = createBackgroundDelivery();
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
 
 	await channel.deliver(report("c", "found it"));
-	vi.advanceTimersByTime(REPORT_MERGE_WINDOW_MS);
+	await Promise.resolve();
 
 	expect(parent.sent).toHaveLength(1);
 	expect(parent.sent[0]?.message).toMatchObject({
@@ -204,59 +181,116 @@ test("a child report reaches the parent as a follow-up, not on the next user mes
 	});
 	// `nextTurn` parks a message until the user speaks again, which is not what a finished child
 	// owes the parent.
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 });
 
-test("reports that arrive in one idle window leave as a single follow-up", async () => {
+test("reports wait until all registered work finishes", async () => {
 	const parent = fakeParent();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true });
-
+	const delivery = createBackgroundDelivery();
+	let count = 2;
+	let changed = () => {};
+	const unregister = delivery.registerSource({
+		activeCount: () => count,
+		onChange: (listener) => {
+			changed = listener;
+			return () => {};
+		},
+	});
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
 	await channel.deliver(report("a", "first"));
-	vi.advanceTimersByTime(REPORT_MERGE_WINDOW_MS - 1_000);
+	count = 1;
+	changed();
+	await Promise.resolve();
+	expect(parent.sent).toHaveLength(0);
 	await channel.deliver(report("b", "second"));
-	// A later report never extends the window opened by the first one.
-	vi.advanceTimersByTime(1_000);
-
+	count = 0;
+	changed();
+	await Promise.resolve();
 	expect(parent.sent).toHaveLength(1);
 	expect(String(parent.sent[0]?.message.content)).toContain("first");
 	expect(String(parent.sent[0]?.message.content)).toContain("second");
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
+	channel.dispose();
+	unregister();
 });
 
-test("a parent that starts its own run takes the held reports with it", async () => {
+test("a parent that starts its own run takes held reports into the next step", async () => {
 	const parent = fakeParent();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true });
-
+	const delivery = createBackgroundDelivery();
+	let idle = true;
+	const unregister = delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => idle, delivery });
 	await channel.deliver(report("a", "first"));
+	await Promise.resolve();
+	expect(parent.sent).toHaveLength(0);
+	idle = false;
 	parent.startRun();
-
-	// Queued for the activity already in flight, so it is read in that run rather than parked.
+	await Promise.resolve();
 	expect(parent.sent).toHaveLength(1);
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
-	vi.advanceTimersByTime(REPORT_MERGE_WINDOW_MS);
-	expect(parent.sent).toHaveLength(1);
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
+	channel.dispose();
+	unregister();
 });
 
 test("a report that arrives while the parent is busy is not held", async () => {
 	const parent = fakeParent();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => false });
+	const delivery = createBackgroundDelivery();
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => false, delivery });
 
 	await channel.deliver(report("a", "first"));
+	await Promise.resolve();
 
 	expect(parent.sent).toHaveLength(1);
-	// Busy parents batch queued follow-ups, so this joins the run instead of waiting for the user.
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+	// Steer enters the next model step rather than waiting until this run ends.
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
+});
+
+test("only a blocked report bypasses idle gating, ordinary reports stay held", async () => {
+	const parent = fakeParent();
+	const delivery = createBackgroundDelivery();
+	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
+	let idle = true;
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => idle, delivery });
+	await channel.deliver(report("a", "ordinary progress"));
+	await channel.deliver({ ...report("b", "urgent help"), reason: "blocked" });
+	expect(parent.sent).toHaveLength(1);
+	expect(parent.sent[0]?.message.content).toContain("urgent help");
+	expect(parent.sent[0]?.message.content).not.toContain("ordinary progress");
+	idle = false;
+	parent.startRun();
+	await Promise.resolve();
+	expect(parent.sent).toHaveLength(2);
+	expect(parent.sent[1]?.message.content).toContain("ordinary progress");
+	channel.dispose();
+});
+
+test("a cancelled lifecycle cannot wake the parent from a queued check", async () => {
+	const parent = fakeParent();
+	const controller = new AbortController();
+	const channel = createParentChannel(parent.pi as never, {
+		isIdle: () => true,
+		delivery: createBackgroundDelivery(),
+		signal: controller.signal,
+	});
+	const accepted = channel.deliver(report("a", "held"));
+	controller.abort();
+	await accepted;
+	expect(parent.sent).toHaveLength(0);
+	channel.dispose();
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: false, deliverAs: "steer" });
 });
 
 test("teardown appends what is still held without waking the parent", async () => {
 	const parent = fakeParent();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true });
+	const delivery = createBackgroundDelivery();
+	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
 
 	await channel.deliver(report("a", "first"));
 	channel.dispose();
 
 	expect(parent.sent).toHaveLength(1);
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: false, deliverAs: "followUp" });
-	vi.advanceTimersByTime(REPORT_MERGE_WINDOW_MS);
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: false, deliverAs: "steer" });
+	await Promise.resolve();
 	expect(parent.sent).toHaveLength(1);
 });

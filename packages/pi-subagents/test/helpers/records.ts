@@ -6,7 +6,7 @@ export function child(overrides: Partial<PublicSubagent> = {}): PublicSubagent {
 		id: "sa_aaaaaaaaaaaa",
 		agent: "worker",
 		state: "running",
-		mode: "rpc",
+		presentation: "background",
 		cwd: "/tmp/work",
 		sessionId: "session-1",
 		freshness: "live",

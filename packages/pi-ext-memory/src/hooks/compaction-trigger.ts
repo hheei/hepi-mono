@@ -115,7 +115,7 @@ function hasIdleCompactionWork(entries: Entry[], runtime: Runtime): boolean {
 	if (countSourceEntriesAfterCompaction(entries) === 0) return false;
 	if (rawTokensSinceLastCompaction(entries) < runtime.config.idleCompactionMinTokens) return false;
 	const folded = foldLedger(entries);
-	return folded.activeObservations.length > 0 || folded.reflections.length > 0;
+	return folded.activeObservations.length > 0 || folded.activeReflections.length > 0;
 }
 
 function scheduleIdleCompaction(

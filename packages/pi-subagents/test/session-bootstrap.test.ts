@@ -11,11 +11,11 @@ import {
 	persistSubagentIntent,
 	planSessionPlacement,
 	resetSubagentIdCounter,
+	resolveDefaultSessionDir,
 	resolveSubagentLaunch,
+	resolveSubagentSessionDir,
 } from "../src/session-bootstrap.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
-
-const TASK_CONTRACT = { softTurns: 60 } as const;
 
 const PARENT_SESSION_ID = "01J7-parent";
 const PARENT = {
@@ -112,7 +112,7 @@ test("the built-in scout keeps its read-only tools and gains the result channel"
 		await writeFile(bridge, "", "utf8");
 
 		const config = await resolveSubagentLaunch({
-			input: { task: "Map the callers", agent: "scout", taskContract: TASK_CONTRACT },
+			input: { task: "Map the callers", agent: "scout" },
 			cwd,
 			parent: PARENT,
 			modelRegistry: MODEL_REGISTRY,
@@ -120,14 +120,7 @@ test("the built-in scout keeps its read-only tools and gains the result channel"
 		});
 
 		expect(config.agent.sourcePath).toBe("<builtin>/scout.md");
-		expect(config.tools).toEqual([
-			"read",
-			"grep",
-			"find",
-			"ls",
-			"contact_parent",
-			"submit_task_result",
-		]);
+		expect(config.tools).toEqual(["read", "grep", "find", "ls", "contact_parent"]);
 	});
 });
 
@@ -205,43 +198,6 @@ test("a Task child's tool allowlist includes the result channel it must use", as
 			bridgeExtensionPath: bridge,
 		});
 		expect(conversational.tools).toEqual(["read", "contact_parent"]);
-		expect(conversational.task).toBeUndefined();
-
-		// Without this the child could never submit a result and every task would settle as
-		// invalid_result while the child had no way to say what went wrong.
-		const asTask = await resolveSubagentLaunch({
-			input: { task: "Review the file", agent: "limited", taskContract: TASK_CONTRACT },
-			cwd,
-			parent: PARENT,
-			modelRegistry: MODEL_REGISTRY,
-			bridgeExtensionPath: bridge,
-		});
-		expect(asTask.tools).toEqual(["read", "contact_parent", "submit_task_result"]);
-		expect(asTask.task).toEqual(TASK_CONTRACT);
-	});
-});
-
-test("refuses to run a Task whose result channel is excluded", async (): Promise<void> => {
-	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
-		const cwd = join(directory, "work");
-		await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
-		await writeFile(
-			join(cwd, ".pi", "agents", "excluded.md"),
-			"---\nname: excluded\nexclude_tools:\n  - submit_task_result\n---\nDo the work.\n",
-			"utf8",
-		);
-		const bridge = join(directory, "bridge.js");
-		await writeFile(bridge, "", "utf8");
-
-		await expect(
-			resolveSubagentLaunch({
-				input: { task: "Review the file", agent: "excluded", taskContract: TASK_CONTRACT },
-				cwd,
-				parent: PARENT,
-				modelRegistry: MODEL_REGISTRY,
-				bridgeExtensionPath: bridge,
-			}),
-		).rejects.toThrow(/exclude_tools cannot disable submit_task_result/u);
 	});
 });
 
@@ -291,52 +247,13 @@ test("persists the spawn intent before any process starts and keeps the task rec
 			initialTask: "Fix the failing test",
 			unacknowledgedInput: "Fix the failing test",
 			state: "starting",
-			mode: "rpc",
+			presentation: "background",
 			persistence: "never_flushed",
 			intent: "active",
 			revision: 1,
 		});
 		expect(record.sessionPath).toBeUndefined();
 		expect(await registry.get(config.subagentId)).toEqual(record);
-	});
-});
-
-test("a Task child's result contract survives persistence", async (): Promise<void> => {
-	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
-		const cwd = join(directory, "work");
-		await writeAgent(cwd);
-		const bridge = join(directory, "bridge.js");
-		await writeFile(bridge, "", "utf8");
-		const contract = {
-			schema: {
-				type: "object",
-				properties: { answer: { type: "string" } },
-				required: ["answer"],
-			},
-			softTurns: 60,
-		};
-		const registry = createSubagentRegistry({
-			parentSessionId: PARENT_SESSION_ID,
-			filePath: join(directory, "registry.json"),
-		});
-		const config = await resolveSubagentLaunch({
-			input: { task: "Answer the question", agent: "worker", taskContract: contract },
-			cwd,
-			parent: PARENT,
-			modelRegistry: MODEL_REGISTRY,
-			bridgeExtensionPath: bridge,
-		});
-
-		await persistSubagentIntent({
-			registry,
-			parentSessionId: PARENT_SESSION_ID,
-			task: "Answer the question",
-			launchConfig: config,
-		});
-
-		// Every later launch step re-reads the record from disk, so a contract field the record
-		// parser does not accept makes the child impossible to start.
-		expect((await registry.get(config.subagentId))?.launchConfig.task).toEqual(contract);
 	});
 });
 
@@ -366,6 +283,57 @@ test("refuses to persist an intent whose registry belongs to another parent sess
 			}),
 		).rejects.toThrow(/belongs to parent session/u);
 		expect(await registry.list()).toEqual([]);
+	});
+});
+
+test("keeps delegated sessions in a child-scoped subdirectory of the parent session dir", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		const expected = join(resolveDefaultSessionDir(cwd), "agents");
+		expect(resolveSubagentSessionDir(cwd)).toBe(expected);
+		const planned = await planSessionPlacement({ sessionId: "01J7-child", cwd });
+		expect(planned).toEqual({
+			sessionId: "01J7-child",
+			sessionDir: expected,
+			persistence: "never_flushed",
+		});
+	});
+});
+
+test("freezes the requested spawn title and treats a blank one as absent", async (): Promise<void> => {
+	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
+		const cwd = join(directory, "work");
+		await writeAgent(cwd);
+		const bridge = join(directory, "bridge.js");
+		await writeFile(bridge, "", "utf8");
+		const shared = {
+			cwd,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: bridge,
+		};
+		const derived = await resolveSubagentLaunch({
+			...shared,
+			input: { task: "Fix the failing test", agent: "worker" },
+		});
+		expect(derived.title).toBeUndefined();
+
+		const titled = await resolveSubagentLaunch({
+			...shared,
+			input: {
+				task: "Fix the failing test",
+				agent: "worker",
+				title: "  OVITO properties editor  ",
+			},
+		});
+		expect(titled.title).toBe("OVITO properties editor");
+
+		// A blank title means "name it yourself", not a failure: it never reaches the config.
+		const blank = await resolveSubagentLaunch({
+			...shared,
+			input: { task: "Fix the failing test", agent: "worker", title: "   " },
+		});
+		expect(blank.title).toBeUndefined();
 	});
 });
 

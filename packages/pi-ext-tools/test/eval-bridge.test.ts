@@ -49,7 +49,7 @@ describe("Eval tool bridge", () => {
 				undefined,
 				(trace) => traces.push(trace),
 			),
-		).resolves.toEqual({ text: "contents" });
+		).resolves.toBe("contents");
 		expect(traces).toHaveLength(1);
 		await expect(
 			bridge.call(
@@ -280,5 +280,76 @@ describe("nested live results are bounded by what they retain", () => {
 		// The base64 payload is what is retained, so a text-only measurement would keep this.
 		const id = await remember(imageTool("a".repeat(520 * 1024)));
 		expect(evalNestedLiveResult(id)).toBeUndefined();
+	});
+
+	test("dispatches through context.executeTool when available in Pi 1.0.0", async () => {
+		const bridge = new EvalToolBridge(new Map([["read", readTool()]]), () => true);
+		const traces: unknown[] = [];
+		const mockExecuteTool = async (name: string, args: unknown) => ({
+			toolCall: { id: "native-eval-call-1", name, arguments: args },
+			result: {
+				content: [{ type: "text" as const, text: "from native executeTool" }],
+				details: { text: "from native executeTool" },
+			},
+			isError: false,
+		});
+
+		const mockCtx = {
+			executeTool: mockExecuteTool,
+		} as unknown as ExtensionToolContext;
+
+		const result = await bridge.call("read", { path: "hello.txt" }, mockCtx, undefined, (trace) =>
+			traces.push(trace),
+		);
+
+		expect(result).toBe("from native executeTool");
+		expect(traces).toHaveLength(1);
+		expect(traces[0]).toMatchObject({
+			name: "read",
+			toolCallId: "native-eval-call-1",
+			text: "from native executeTool",
+		});
+		expect(evalNestedLiveResult("native-eval-call-1")).toBeDefined();
+	});
+
+	test("returns structuredContent directly when tool provides it (aligning with codemode toScriptValue)", async () => {
+		const structuredBashTool: ToolDefinition = {
+			name: "bash",
+			label: "bash",
+			description: "test bash",
+			parameters: BashInput,
+			async execute() {
+				return {
+					content: [{ type: "text", text: "line 1\nline 2" }],
+					structuredContent: {
+						output: "line 1\nline 2",
+						exit_code: 0,
+						truncated: false,
+						wall_time_seconds: 0.05,
+					},
+					details: { exitCode: 0 },
+				};
+			},
+		};
+
+		const bridge = new EvalToolBridge(
+			new Map<EvalNestedToolName, ToolDefinition>([["bash", structuredBashTool]]),
+			() => true,
+		);
+		const traces: unknown[] = [];
+		const result = await bridge.call(
+			"bash",
+			{ command: "echo ok", blocking: true },
+			{} as unknown as ExtensionToolContext,
+			undefined,
+			(trace) => traces.push(trace),
+		);
+
+		expect(result).toEqual({
+			output: "line 1\nline 2",
+			exit_code: 0,
+			truncated: false,
+			wall_time_seconds: 0.05,
+		});
 	});
 });

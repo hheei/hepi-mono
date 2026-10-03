@@ -33,10 +33,12 @@ tool 的 Pi 注册由 core 传输，但**不由 Loadout 决定 activation**：
 | API | 用途 |
 | --- | --- |
 | `registerManagedTool(pi, { id, owner }, tool)` | 在 extension initialization 注册 HEPI-owned non-native tool；稳定 owner 让同一 package 在完整 `/reload` 产生新 runner 时替换旧 registration |
+| `redeclareManagedTool(pi, { id, owner }, tool)` | 同一个 runner 按 session 状态重新声明自己已注册的 tool（例如 exposure 在 `deferred` 与 `hidden` 之间切换）；只放行 owner 相同且 runner 相同的自我替换 |
 | `setManagedToolsActive(context, registrations, active)` | owner 自己开关一组 runtime capability bundle（例如 pi-ext-tools 的 edit/apply_patch/eval catalog）；active 路径把 ids 加进 Pi active 集合，并注册 lifecycle cleanup 在退出时移除 |
 | `isManagedTool(pi, id)` | 查询某个 Pi tool 是否经 core 注册 |
 
-同一 runtime 中一个 tool ID 只能由一个 owner 登记；不同 owner 抢占或同一 Pi runner 内重复注册立即报错。
+同一 runtime 中一个 tool ID 只能由一个 owner 登记；不同 owner 抢占或同一 Pi runner 内重复注册立即报错；
+同一 runner 需要按 session 状态重新声明自己已注册的 tool 时，用 `redeclareManagedTool` 显式表达该意图。
 managed tool 只能在 extension initialization 登记，不能在 session 内动态新增；所有 HEPI-owned non-native
 tool 必须使用 managed mode，feature package 不得直接调用 Pi tool registration API。
 

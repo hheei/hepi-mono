@@ -19,6 +19,30 @@ export {
 	safeTitle,
 } from "./auto-title.js";
 export {
+	applyBatchToolRules,
+	BATCH_TOOL_RULES_CUSTOM_FIELD,
+	BATCH_TOOL_RULES_ENABLED_FIELD,
+	BATCH_TOOL_RULES_GROUP,
+	BATCH_TOOL_RULES_SECTION,
+	BATCH_TOOL_RULES_SETTINGS_PROVIDER_ID,
+	type BatchToolRulesConfig,
+	type BatchToolRulesSettingsOptions,
+	buildBatchToolPrompt,
+	buildDefaultBatchToolPrompt,
+	createBatchToolRulesSettingsProvider,
+	createBatchToolRulesStorage,
+	DEFAULT_BATCH_TOOL_RULES_CONFIG,
+	normalizeBatchToolRulesConfig,
+} from "./batch-tool-rules.js";
+export {
+	type CodemodeGuard,
+	type CodemodeGuardOptions,
+	createCodemodeGuard,
+	DEFAULT_CODEMODE_BATCH_REMINDER,
+	DEFAULT_CODEMODE_GUARD_THRESHOLD,
+	isGeminiModel,
+} from "./codemode-guard.js";
+export {
 	createDollarSkillAtomicEditor,
 	createDollarSkillAutocompleteProvider,
 	createDollarSkillFeature,
@@ -41,3 +65,11 @@ export {
 	saveDollarSkillConfig,
 } from "./dollar-skill/index.js";
 export { default } from "./extension.js";
+export {
+	is409SessionError,
+	isGptModel,
+	RECOVERY_ERROR_409_PATTERN,
+	registerSessionRecoveryGuard,
+	type SessionRecoveryGuard,
+	stripEncryptedThinking,
+} from "./session-recovery-guard.js";
