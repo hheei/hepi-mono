@@ -140,7 +140,7 @@ describe("interactive tool activation", () => {
 		const liveChild = {
 			id: "sa_live1",
 			agent: "worker",
-			state: "idle",
+			state: "running",
 			presentation: "background",
 			cwd: "/test",
 			sessionId: "s1",

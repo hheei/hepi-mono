@@ -58,7 +58,7 @@ function record(id: string, cwd: string): SubagentRecord {
 		cwd,
 		initialTask: "Do the work.",
 		intent: "active",
-		state: "starting",
+		state: "running",
 		presentation: "background",
 		persistence: "never_flushed",
 		launchConfig: config,

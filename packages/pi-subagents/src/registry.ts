@@ -20,6 +20,7 @@ import {
 	isSubagentIntent,
 	isSubagentState,
 	isThinkingLevel,
+	normalizeSubagentState,
 	REGISTRY_VERSION,
 } from "./domain.js";
 
@@ -107,6 +108,7 @@ const RECORD_FIELDS: Record<string, true> = {
 	launchConfig: true,
 	runtime: true,
 	latestSummary: true,
+	activeTool: true,
 	usage: true,
 	interrupted: true,
 	unacknowledgedInput: true,
@@ -132,6 +134,7 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	title: true,
 	task: true,
 	referencedSessionPath: true,
+	codemodeOnly: true,
 };
 
 const AGENT_FIELDS: Record<string, true> = {
@@ -361,6 +364,9 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
 		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
+		...(expectOptionalBoolean(raw.codemodeOnly, "launchConfig.codemodeOnly", path, false)
+			? { codemodeOnly: true }
+			: {}),
 		...(title === undefined ? {} : { title }),
 	});
 }
@@ -394,8 +400,9 @@ export function parseSubagentRecord(
 	if (!Number.isInteger(revision) || revision < 1) {
 		throw invalid(path, `record ${key} revision must be a positive integer`);
 	}
-	const state = raw.state;
-	if (!isSubagentState(state)) throw invalid(path, `record ${key} state is invalid`);
+	const rawState = raw.state;
+	if (!isSubagentState(rawState)) throw invalid(path, `record ${key} state is invalid`);
+	const state = normalizeSubagentState(rawState) ?? (rawState as SubagentRecord["state"]);
 	const presentation = raw.presentation;
 	if (!isPresentation(presentation)) throw invalid(path, `record ${key} presentation is invalid`);
 	const intent = raw.intent;
@@ -426,6 +433,7 @@ export function parseSubagentRecord(
 	const runtime = raw.runtime === undefined ? undefined : parseRuntime(raw.runtime, path);
 	const usage = raw.usage === undefined ? undefined : parseUsage(raw.usage, path);
 	const latestSummary = expectOptionalString(raw.latestSummary, "latestSummary", path);
+	const activeTool = expectOptionalString(raw.activeTool, "activeTool", path);
 	const interrupted = expectOptionalString(raw.interrupted, "interrupted", path);
 	const unacknowledgedInput = expectOptionalString(
 		raw.unacknowledgedInput,
@@ -450,6 +458,7 @@ export function parseSubagentRecord(
 		launchConfig,
 		...(runtime === undefined ? {} : { runtime }),
 		...(latestSummary === undefined ? {} : { latestSummary }),
+		...(activeTool === undefined ? {} : { activeTool }),
 		...(usage === undefined ? {} : { usage }),
 		...(interrupted === undefined ? {} : { interrupted }),
 		...(unacknowledgedInput === undefined ? {} : { unacknowledgedInput }),

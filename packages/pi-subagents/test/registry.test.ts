@@ -49,7 +49,7 @@ function record(
 		cwd,
 		initialTask: "Do the work.",
 		intent: "active",
-		state: "starting",
+		state: "running",
 		presentation: "background",
 		persistence: "never_flushed",
 		launchConfig: launchConfig(subagentId, cwd),
@@ -94,7 +94,7 @@ test("keeps concurrent updates of different children from losing fields", async 
 			first.update("sa_aaaa", 1, (current) => ({ ...current, state: "running" })),
 			second.update("sa_bbbb", 1, (current) => ({
 				...current,
-				state: "idle",
+				state: "done",
 				latestSummary: "done",
 			})),
 		]);
@@ -102,7 +102,7 @@ test("keeps concurrent updates of different children from losing fields", async 
 		const records = await first.list();
 		expect(records.map((item) => [item.subagentId, item.state, item.revision])).toEqual([
 			["sa_aaaa", "running", 2],
-			["sa_bbbb", "idle", 2],
+			["sa_bbbb", "done", 2],
 		]);
 		expect(records[1]?.latestSummary).toBe("done");
 	});

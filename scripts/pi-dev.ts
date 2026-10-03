@@ -144,15 +144,26 @@ for (const directory of builtPackageDirs) {
 for (const source of explicitExtensionSources) {
 	extensionArgs.push("--extension", source);
 }
-const childEnv = { ...process.env };
+const childEnv = {
+	...process.env,
+	PI_DEV: "1",
+	PI_DEV_BIN: process.env.PI_DEV_BIN ?? path.join(root, "scripts", "pi-dev"),
+};
 delete childEnv.OPENAI_API_KEY;
-const result = spawnSync(
-	process.execPath,
-	[piCli, "--no-approve", "--no-extensions", ...extensionArgs, ...process.argv.slice(2)],
-	{
-		cwd: process.cwd(),
-		env: childEnv,
-		stdio: "inherit",
-	},
-);
+
+const argsToPass = process.argv.slice(2);
+const hasApproveOption = argsToPass.includes("--approve") || argsToPass.includes("--no-approve");
+const spawnArgs = [
+	piCli,
+	...(hasApproveOption ? [] : ["--no-approve"]),
+	"--no-extensions",
+	...extensionArgs,
+	...argsToPass,
+];
+
+const result = spawnSync(process.execPath, spawnArgs, {
+	cwd: process.cwd(),
+	env: childEnv,
+	stdio: "inherit",
+});
 process.exit(result.status ?? 1);

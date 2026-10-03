@@ -47,10 +47,29 @@ describe("state projection", () => {
 			interrupted: "Assistant turn was interrupted",
 		});
 		projector.applyEvent({ type: "error", message: "boom" });
-		expect(projector.snapshot()).toMatchObject({ state: "failed", interrupted: "boom" });
+		expect(projector.snapshot()).toMatchObject({ state: "error", interrupted: "boom" });
 	});
+	test("tracks activeTool and realtime message_update text", () => {
+		const projector = createStateProjector("running");
+		projector.applyEvent({ type: "tool_execution_start", toolName: "git status" });
+		expect(projector.snapshot().activeTool).toBe("git status");
+
+		projector.applyEvent({
+			type: "message_update",
+			message: { role: "assistant", content: [{ type: "text", text: "streaming reply..." }] },
+		});
+		expect(projector.snapshot().summary).toBe("streaming reply...");
+		expect(projector.snapshot().activeTool).toBeUndefined();
+
+		projector.applyEvent({ type: "tool_execution_start", toolName: "read" });
+		expect(projector.snapshot().activeTool).toBe("read");
+
+		projector.applyEvent({ type: "tool_execution_end" });
+		expect(projector.snapshot().activeTool).toBeUndefined();
+	});
+
 	test("follows a turn from agent_start to agent_settled", () => {
-		const projector = createStateProjector("starting");
+		const projector = createStateProjector("running");
 		projector.applyEvent({ type: "agent_start" });
 		expect(projector.snapshot().state).toBe("running");
 		projector.applyEvent({ type: "agent_end", messages: [] });
@@ -59,13 +78,13 @@ describe("state projection", () => {
 			type: "agent_settled",
 			message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
 		});
-		expect(projector.snapshot()).toMatchObject({ state: "idle", summary: "done" });
+		expect(projector.snapshot()).toMatchObject({ state: "done", summary: "done" });
 	});
 	test("clears interrupted on auto_retry_start and on successful agent_settled", () => {
 		const projector = createStateProjector("running");
 		projector.applyEvent({ type: "error", message: "504 upstream timeout" });
 		expect(projector.snapshot().interrupted).toBe("504 upstream timeout");
-		expect(projector.snapshot().state).toBe("failed");
+		expect(projector.snapshot().state).toBe("error");
 
 		projector.applyEvent({ type: "auto_retry_start" });
 		expect(projector.snapshot().state).toBe("running");
@@ -79,7 +98,7 @@ describe("state projection", () => {
 				stopReason: "stop",
 			},
 		});
-		expect(projector.snapshot().state).toBe("idle");
+		expect(projector.snapshot().state).toBe("done");
 		expect(projector.snapshot().interrupted).toBeUndefined();
 	});
 });

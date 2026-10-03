@@ -1,8 +1,9 @@
 import type { Dirent } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { expandHome, isRecord } from "@hheei/pi-ext-core";
 import { builtinAgents } from "./builtin-agents.js";
 import type {
@@ -32,7 +33,47 @@ const SUPPORTED_FIELDS: Record<string, true> = {
 	extensions: true,
 	skills: true,
 	interactive: true,
+	codemode: true,
 };
+
+/** Detects whether codemode is configured with mode: "only" in settings or environment. */
+export function detectCodemodeOnly(cwd?: string, homeDirectory?: string): boolean {
+	if (process.env.PI_CODEMODE_MODE === "only") return true;
+	try {
+		const agentDir =
+			process.env.PI_CODING_AGENT_DIR !== undefined && process.env.PI_CODING_AGENT_DIR !== ""
+				? process.env.PI_CODING_AGENT_DIR
+				: homeDirectory !== undefined
+					? join(homeDirectory, ".pi", "agent")
+					: getAgentDir();
+		const candidates = [
+			join(agentDir, "settings.json"),
+			...(cwd ? [join(cwd, ".pi", "settings.json")] : []),
+		];
+		for (const candidate of candidates) {
+			if (existsSync(candidate)) {
+				const content: unknown = JSON.parse(readFileSync(candidate, "utf8"));
+				if (isRecord(content) && isRecord(content.codemode) && content.codemode.mode === "only") {
+					return true;
+				}
+			}
+		}
+	} catch {
+		// Ignore filesystem or JSON parse failures
+	}
+	return false;
+}
+
+export function isCodemodeOnlyMode(options: {
+	cwd?: string;
+	homeDirectory?: string;
+	frontmatterCodemode?: unknown;
+}): boolean {
+	const val = options.frontmatterCodemode;
+	if (val === "only" || val === true) return true;
+	if (val === "on" || val === false || val === "off") return false;
+	return detectCodemodeOnly(options.cwd, options.homeDirectory);
+}
 
 /** Recognized candidate fields with no execution semantics yet; silently ignoring them is prohibited. */
 const DEFERRED_FIELDS: Record<string, true> = {
@@ -353,7 +394,23 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 	const body = discovered.body.trim();
 	if (body === "") throw readableError(path, "Markdown body must not be empty");
 
-	const tools = stringList(discovered.frontmatter.tools, "tools", path);
+	const codemodeValue = discovered.frontmatter.codemode;
+	if (
+		codemodeValue !== undefined &&
+		codemodeValue !== "only" &&
+		codemodeValue !== "on" &&
+		codemodeValue !== "off" &&
+		typeof codemodeValue !== "boolean"
+	) {
+		throw readableError(path, "codemode must be boolean, 'only', 'on', or 'off'");
+	}
+	const codemodeOnly = isCodemodeOnlyMode({
+		cwd: options.cwd,
+		homeDirectory,
+		frontmatterCodemode: codemodeValue,
+	});
+
+	const rawTools = stringList(discovered.frontmatter.tools, "tools", path);
 	const excludeTools = stringList(discovered.frontmatter.exclude_tools, "exclude_tools", path);
 	if (excludeTools.includes(CONTACT_PARENT_TOOL_NAME)) {
 		throw readableError(
@@ -361,12 +418,17 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			`exclude_tools cannot disable the required ${CONTACT_PARENT_TOOL_NAME} bridge`,
 		);
 	}
-	const overlap = tools.find((tool) => excludeTools.includes(tool));
+	const overlap = rawTools.find((tool) => excludeTools.includes(tool));
 	if (overlap !== undefined)
 		throw readableError(path, `tool ${overlap} is both allowed and excluded`);
-	if (tools.length > 0 && !tools.includes(CONTACT_PARENT_TOOL_NAME)) {
+	if (rawTools.length > 0 && !rawTools.includes(CONTACT_PARENT_TOOL_NAME)) {
 		throw readableError(path, `tools must include the required ${CONTACT_PARENT_TOOL_NAME} bridge`);
 	}
+
+	const tools =
+		codemodeOnly && !rawTools.includes("codemode") && !excludeTools.includes("codemode")
+			? [...rawTools, "codemode"]
+			: rawTools;
 
 	const thinkingValue = discovered.frontmatter.thinking;
 	if (thinkingValue !== undefined && !isThinkingLevel(thinkingValue)) {
@@ -415,6 +477,7 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			source: thinkingValue === undefined ? "parent" : "agent",
 		}),
 		tools: Object.freeze(tools),
+		codemodeOnly,
 		excludeTools: Object.freeze(excludeTools),
 		extensions: Object.freeze<ExtensionSelection>({
 			discovery: extensionSelection.discovery,

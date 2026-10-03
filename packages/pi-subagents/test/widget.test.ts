@@ -2,11 +2,9 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import {
-	createChildIdentityWidget,
 	createSubagentWidget,
 	formatElapsed,
 	isWidgetVisibleChild,
-	renderChildIdentityWidget,
 	renderSubagentWidget,
 } from "../src/widget.js";
 import { child } from "./helpers/records.js";
@@ -26,27 +24,20 @@ describe("subagent widget projection", () => {
 		// Outside the 15-second retain window: hidden
 		const longAgo = Date.parse("2026-01-01T00:01:00.000Z");
 		expect(isWidgetVisibleChild(child({ state: "done" }), longAgo)).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "stopped" }), longAgo)).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "failed" }), longAgo)).toBe(false);
-		expect(isWidgetVisibleChild(child({ state: "failed", presentation: "panel" }), longAgo)).toBe(
+		expect(isWidgetVisibleChild(child({ state: "blocked" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "error" }), longAgo)).toBe(false);
+		expect(isWidgetVisibleChild(child({ state: "error", presentation: "panel" }), longAgo)).toBe(
 			false,
 		);
-		expect(
-			isWidgetVisibleChild(child({ state: "idle", interrupted: "upstream error" }), longAgo),
-		).toBe(false);
 
 		// Inside the 15-second retain window: visible so user can see final outcome
 		const recent = Date.parse("2026-01-01T00:00:10.000Z");
 		expect(isWidgetVisibleChild(child({ state: "done" }), recent)).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "stopped" }), recent)).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "failed" }), recent)).toBe(true);
-		expect(
-			isWidgetVisibleChild(child({ state: "idle", interrupted: "upstream error" }), recent),
-		).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "blocked" }), recent)).toBe(true);
+		expect(isWidgetVisibleChild(child({ state: "error" }), recent)).toBe(true);
 
-		// Non-terminal states: always visible
-		expect(isWidgetVisibleChild(child({ state: "idle" }), longAgo)).toBe(true);
-		expect(isWidgetVisibleChild(child({ state: "starting" }), longAgo)).toBe(true);
+		// Running state: always visible
+		expect(isWidgetVisibleChild(child({ state: "running" }), longAgo)).toBe(true);
 		expect(isWidgetVisibleChild(child({ state: "running", presentation: "panel" }), longAgo)).toBe(
 			true,
 		);
@@ -58,13 +49,17 @@ describe("subagent widget projection", () => {
 	test("renders identity and state without a border on narrow and wide widths", () => {
 		const children = [
 			child({ id: "sa_running00000", agent: "worker", state: "running" }),
-			child({ id: "sa_idle00000000", agent: "reviewer", state: "idle" }),
+			child({ id: "sa_idle00000000", agent: "reviewer", state: "running" }),
 		];
 		for (const width of [24, 40, 80, 120]) {
 			const lines = renderSubagentWidget(children, width, identityTheme);
-			expect(lines[0]).toContain("Subagents (2)");
-			expect(lines.some((line) => line.includes("worker"))).toBe(true);
-			expect(lines.some((line) => line.includes("reviewer"))).toBe(true);
+			expect(lines[0]).toContain("Agents:");
+			if (width >= 40) {
+				expect(lines.some((line) => line.includes("worker"))).toBe(true);
+				expect(lines.some((line) => line.includes("reviewer"))).toBe(true);
+			} else {
+				expect(lines.some((line) => line.includes("work"))).toBe(true);
+			}
 			expect(lines.some((line) => /[╭╮╰╯┌┐]/.test(line))).toBe(false);
 			for (const line of lines) {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
@@ -78,13 +73,14 @@ describe("subagent widget projection", () => {
 	test("uses theme tokens instead of hardcoded colors", () => {
 		const now = Date.parse("2026-01-01T00:00:12.000Z");
 		const running = renderSubagentWidget([child()], 200, recordingTheme(), now);
-		expect(running[0]).toContain("<accent>󰪠</accent>");
-		expect(running[0]).toContain("<text>Subagents</text>");
-		expect(running[0]).toContain("<dim>(1)</dim>");
-		expect(running[1]).toContain("<text>worker</text>");
+		expect(running[0]).toContain("🤖");
+		expect(running[0]).toContain("<text>Agents:</text>");
+		expect(running[1]).toContain("<accent>󰪠</accent>");
 		expect(running[1]).toContain("<dim>#sa_aaaaaaaaaaaa</dim>");
+		expect(running[1]).toContain("<text>worker</text>");
+		expect(running[1]).toContain("<dim>12s</dim>");
 		expect(running[1]).toContain("<accent>running</accent>");
-		expect(running[1]).toContain("<dim>· 12s</dim>");
+		expect(running[1]).toContain("<dim>0 turns</dim>");
 
 		const interrupted = renderSubagentWidget(
 			[child({ state: "blocked", interrupted: "waiting for confirm" })],
@@ -95,7 +91,7 @@ describe("subagent widget projection", () => {
 		expect(interrupted[1]).toContain("<warning>blocked</warning>");
 		expect(
 			renderSubagentWidget(
-				[child({ displayName: "Reviewer", freshness: "last_known", state: "idle" })],
+				[child({ displayName: "Reviewer", freshness: "last_known", state: "done" })],
 				200,
 				recordingTheme(),
 				now,
@@ -127,7 +123,7 @@ describe("subagent widget projection", () => {
 		expect(typeof calls[0]?.content).toBe("function");
 		widget.refresh([child({ state: "done" })]);
 		expect(calls.at(-1)?.content).toBeUndefined();
-		widget.refresh([child({ state: "idle" })]);
+		widget.refresh([child({ state: "running" })]);
 		expect(typeof calls.at(-1)?.content).toBe("function");
 		controller.abort();
 		expect(calls.at(-1)?.content).toBeUndefined();
@@ -148,33 +144,25 @@ describe("subagent widget projection", () => {
 			identityTheme,
 			now,
 		);
-		expect(lines[1]).toContain("· 5m 12s");
+		expect(lines[1]).toContain("5m 12s");
 		expect(lines[1]).toContain("Found the leak in auth.ts");
 	});
 
-	test("renders a borderless child identity line", () => {
-		for (const width of [24, 40, 80]) {
-			const lines = renderChildIdentityWidget(
-				{ agent: "worker", toolCount: 3 },
-				width,
-				identityTheme,
-			);
-			expect(lines[0]).toContain("[worker]");
-			expect(lines.some((line) => /[╭╮╰╯┌┐]/.test(line))).toBe(false);
-			for (const line of lines) {
-				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-			}
-		}
-		expect(
-			renderChildIdentityWidget({ agent: "worker", toolCount: 3 }, 80, identityTheme)[0],
-		).toContain("contact_parent");
-		expect(
-			createChildIdentityWidget(
-				{ events: {} } as unknown as ExtensionAPI,
-				{ mode: "rpc", ui: { setWidget: () => undefined } } as unknown as ExtensionContext,
-				new AbortController().signal,
-				{ agent: "worker", toolCount: 1 },
-			),
-		).toBeUndefined();
+	test("prioritizes activeTool over summary when tool is executing", () => {
+		const now = Date.parse("2026-01-01T00:00:10.000Z");
+		const lines = renderSubagentWidget(
+			[
+				child({
+					createdAt: "2026-01-01T00:00:00.000Z",
+					activeTool: "bash",
+					summary: "previous turn summary",
+				}),
+			],
+			200,
+			identityTheme,
+			now,
+		);
+		expect(lines[1]).toContain("bash");
+		expect(lines[1]).not.toContain("previous turn summary");
 	});
 });

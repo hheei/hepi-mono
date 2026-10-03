@@ -13,22 +13,22 @@ bridge and session-leave reporting.
 | Tool | Purpose |
 | --- | --- |
 | `subagent_enable({})` | Enable interactive agent tools (`spawn_agent`, `send_agent`, `get_agent`, `stop_agent`) on demand. Deactivated by default in new sessions to save tokens; appends available interactive agents if any are defined, and enabled tools become available on the next model request. |
-| `spawn_agent({ task, agent, cwd?, title? })` | Start one child and return when its bridge is ready and the initial task was delivered. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. `title` (<= 60 chars) names the child's Pi session, shown as `🤖 <title>`. Requires `subagent_enable`. Do not poll `get`/`list` for completion; reports arrive automatically as `pi-subagent-report` messages. Do not pause or freeze other subagents before spawning. |
-| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. Idle-reclaimed or finished children resume the same session automatically. Do not wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing. Requires `subagent_enable`. |
+| `spawn_agent({ task, agent, cwd?, title? })` | Start one child and return when its bridge is ready and the initial task was delivered. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `send_agent` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. `title` (<= 60 chars) names the child's Pi session, shown as `🤖 <title>`. Requires `subagent_enable`. Do not poll `get`/`list` for completion; reports arrive automatically as `subagent-report` messages. Do not pause or freeze other subagents before spawning. |
+| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle or completed (`done`/`blocked`) children resume their existing session automatically with historical context intact, maximizing cache and memory efficiency. Do not wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing. Requires `subagent_enable`. |
 | `get_agent({ id })` | Inspect one child: state (`running` / `done` / `blocked`), presentation (`panel`/`background`), session, summary, usage, runtime freshness, and model/thinking. Requires `subagent_enable`. |
 | `list_agents({})` | List available interactive agent definitions and running subagents owned by this parent session. |
 | `stop_agent({ id })` | Persist a stopped intent, then end the runtime: a background child is killed, a panel child has its panel closed and verified gone. Requires `subagent_enable`. |
 
 ### Unified Task Management
 
-Subagent execution tasks automatically register with ext-core's `TaskRegistry`. Background bash jobs and subagents are uniformly tracked and waited upon using `wait_tasks`, eliminating fragmented or redundant task tools.
+Subagent execution tasks automatically register with ext-core's `TaskRegistry`. Background bash jobs and subagents are uniformly tracked and waited upon using `wait_jobs`, eliminating fragmented or redundant task tools.
 
 ## Child execution and reporting
 
 Subagents communicate with the parent over a dedicated Unix domain socket bridge:
 
 - **Completion by Direct Output**: Subagents do **not** need to call any reporting tool upon successful completion. The subagent simply outputs its final answer as normal assistant text.
-- **Settlement Debounce**: When a subagent finishes a turn and remains idle for 5 seconds (to prevent false idles), the harness automatically captures the trailing assistant text and delivers it to the parent conversation dialog as a completed `pi-subagent-report`.
+- **Settlement Debounce**: When a subagent finishes a turn and remains idle for 5 seconds (to prevent false idles), the harness automatically captures the trailing assistant text and delivers it to the parent conversation dialog as a completed `subagent-report`.
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
 - **Automatic Retry**: If a subagent encounters a transient error, the harness allows one automatic retry before marking the task failed or delivering a blocked notification.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.

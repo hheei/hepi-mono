@@ -34,7 +34,7 @@ const spawnSchema = Type.Object({
 	forkFrom: Type.Optional(
 		Type.String({
 			description:
-				"Optional session or subagent id to reference context from: 'parent' (parent session), or a subagent id like 'agent-1'. Does not inject past conversation into the prompt; provides the referenced session JSONL path in instructions so the subagent can inspect prior context on demand via read or grep. Cannot be 'current'.",
+				"Optional session or subagent id to reference context from: 'parent' (parent session), or a subagent id like 'agent-1' (including subagents that ended in 'error'). Does not inject past conversation into the prompt; provides the referenced session JSONL path in instructions so the subagent can inspect prior context on demand via read or grep. Cannot be 'current'.",
 		}),
 	),
 });
@@ -73,10 +73,11 @@ const SUBAGENTS_NAMESPACE = {
 } as const;
 
 const SPAWN_DESCRIPTION =
-	"Start an independent background RPC agent. This call waits until the child runtime is ready, then returns the child id and initial state. Do NOT freeze, pause, or stop other sub-workers before spawning: idle subagents do not consume compute or interfere, so do not waste an agent turn freezing them. Do NOT poll get_agent or list_agents to wait for the child's work. Results are automatically captured when the child settles, and delivered as a pi-subagent-report message to start your next turn; while you are idle, reports from several children may arrive together. After this tool returns, either end your turn or work on other independent tasks, including spawning more agents in parallel. Do not fabricate or assume the child's results.";
+	"Start an independent background RPC agent. PREFER REUSING EXISTING SUBAGENTS: For subtasks with identical or related functionality, prefer reusing an existing subagent via send_agent (even if in 'done' or 'blocked' state) rather than spawning a fresh subagent each time. Reusing subagents avoids redundant session initialization, preserves ongoing context, and maximizes prompt cache and pi-ext-memory efficiency. Only spawn a new agent when a distinct role or isolated fresh context is genuinely needed. Do NOT freeze, pause, or stop other sub-workers before spawning: idle subagents do not consume compute or interfere, so do not waste an agent turn freezing them. Do NOT poll get_agent or list_agents to wait for the child's work. Results are automatically captured when the child settles, and delivered as a subagent-report message to start your next turn; while you are idle, reports from several children may arrive together. After this tool returns, either end your turn or work on other independent tasks, including spawning more agents in parallel. Do not fabricate or assume the child's results.";
 const SPAWN_SNIPPET =
-	"Start a background RPC agent. No need to freeze/stop other workers (idle workers do no work). Results arrive as pi-subagent-report; do not poll.";
+	"Start a background RPC agent. Prefer reusing existing subagents via send_agent for related work to preserve context and maximize memory/cache efficiency. No need to freeze/stop other workers. Results arrive as subagent-report; do not poll.";
 const SPAWN_GUIDELINES = [
+	"Prefer reusing existing subagents: for subtasks that have the same or related functionality, reuse an existing subagent via send_agent (which auto-resumes 'done' or 'blocked' agents) instead of spawning a new one. This preserves conversational continuity and maximizes prompt cache and memory efficiency.",
 	"Do not freeze, pause, or stop other subagents: idle subagents consume no compute and do not interfere. Do not waste a turn stopping them.",
 	"Do not poll get_agent or list_agents waiting for the child to finish.",
 	"Do not sleep, wait, or tail session/log files to detect completion. The harness delivers reports automatically.",
@@ -84,13 +85,13 @@ const SPAWN_GUIDELINES = [
 	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
 ] as const;
 const SEND_DESCRIPTION =
-	"Send a steer or follow-up message to one owned child. You can send to active or finished (done) children; finished children will automatically wake up and resume with their previous session context. Do NOT wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing until sent to. Dispatch reviewers or follow-up tasks immediately without wasting turns on freeze ceremonies. Do NOT poll get_agent or list_agents afterwards. Child reports arrive as pi-subagent-report messages that start your next turn.";
+	"Send a steer or follow-up message to one owned child. PREFERRED FOR SUBSEQUENT/RELATED TASKS: Prefer reusing existing subagents in 'done' or 'blocked' states via send_agent instead of spawning new subagents every time; 'blocked' and 'done' children automatically rebuild and resume with their conversation context intact, maximizing prompt cache and memory efficiency. Subagents in 'error' cannot be continued; use spawn_agent with forkFrom to reference their session context. Do NOT wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing until sent to. Dispatch reviewers or follow-up tasks immediately without wasting turns on freeze ceremonies. Do NOT poll get_agent or list_agents afterwards. Child reports arrive as subagent-report messages that start your next turn.";
 const SEND_SNIPPET =
-	"Send a message to one owned child (auto-resumes if finished). Reports arrive as pi-subagent-report; do not poll afterwards.";
+	"Send a message to one owned child (auto-resumes if finished/blocked). Prefer reusing existing agents for related tasks. Reports arrive as subagent-report; do not poll afterwards.";
 const GET_DESCRIPTION =
 	"Inspect one owned child: state, presentation (panel or background), summary, usage, and whether the view is live or last-known. Use this when you need current identity or state, not to wait for the child to finish.";
 const LIST_DESCRIPTION =
-	"List available interactive agent definitions and running subagents owned by this parent session. Use this to inspect active subagents or discover interactive agents that can be spawned with spawn_agent, not to wait for work to finish. Reports still arrive as pi-subagent-report messages.";
+	"List available interactive agent definitions and running or past subagents owned by this parent session with their state ('running', 'done', 'blocked', 'error'). Use this to inspect existing subagents that can be reused via send_agent before deciding to spawn a new agent, not to wait for work to finish. Reports still arrive as subagent-report messages.";
 const LIST_SNIPPET = "List available interactive agent definitions and running subagents.";
 const STOP_DESCRIPTION = "Persist a stopped intent, then end that child's runtime.";
 const CONTACT_DESCRIPTION =
@@ -163,9 +164,10 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		description: SEND_DESCRIPTION,
 		promptSnippet: SEND_SNIPPET,
 		promptGuidelines: [
+			"Prefer reusing an existing subagent in 'done' or 'blocked' states via send_agent for subsequent or functionally identical/related subtasks instead of spawning a new subagent each time. This preserves context and maximizes memory and prompt cache efficiency.",
 			"Do not wait for or ask workers to 'freeze': idle subagents are dormant and touch nothing. Dispatch reviewers or follow-ups immediately.",
 			"Do not poll get_agent or list_agents afterwards.",
-			"Child reports arrive as pi-subagent-report messages that start your next turn.",
+			"Child reports arrive as subagent-report messages that start your next turn.",
 		],
 		parameters: sendSchema,
 		defaultActive: false,

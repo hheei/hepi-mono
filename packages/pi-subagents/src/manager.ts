@@ -30,7 +30,8 @@ import { createStateProjector, type StateProjector } from "./state.js";
  * session lock, so an idle one is reclaimed after this window and a later `send_agent` starts it
  * again from the same session.
  */
-export const SUBAGENT_IDLE_TIMEOUT_MS = 60_000;
+export const SUBAGENT_IDLE_TIMEOUT_MS = 15_000;
+export const SUBAGENT_SETTLED_CLOSE_TIMEOUT_MS = 15_000;
 
 /** How long stop waits for an adopted child's bridge to go away before calling the exit unconfirmed. */
 export const SUBAGENT_EXIT_WAIT_MS = 2_000;
@@ -99,6 +100,7 @@ export interface ManagerDependencies {
 	/** Waits for an already-running runtime to reconnect; false when it does not. */
 	readonly connect: (record: SubagentRecord) => Promise<boolean>;
 	readonly deadlineMs?: number;
+	readonly settledCloseTimeoutMs?: number;
 	readonly idleTimeoutMs?: number;
 	readonly failedPanelCloseTimeoutMs?: number;
 	readonly channel?: ParentChannel;
@@ -157,6 +159,7 @@ function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
 		cwd: record.cwd,
 		sessionId: record.sessionId,
 		...(record.latestSummary === undefined ? {} : { summary: record.latestSummary }),
+		...(record.activeTool === undefined ? {} : { activeTool: record.activeTool }),
 		...(record.usage === undefined ? {} : { usage: record.usage }),
 		...(record.interrupted === undefined ? {} : { interrupted: record.interrupted }),
 		freshness: live ? "live" : "last_known",
@@ -256,9 +259,8 @@ export class SubagentManager {
 	readonly #working = new Set<string>();
 	/** A settled event from an older run cannot clear a newer synchronous start signal. */
 	readonly #workVersions = new Map<string, number>();
-	readonly #idleTimers = new Map<string, NodeJS.Timeout>();
+	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #autoReportTimers = new Map<string, NodeJS.Timeout>();
-	readonly #failedPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #lastDeliveredTurn = new Map<string, string>();
 	readonly #stopping = new Set<string>();
 	readonly #listeners = new Set<() => void>();
@@ -309,10 +311,10 @@ export class SubagentManager {
 	}
 
 	public dispose(): void {
-		for (const timer of this.#idleTimers.values()) {
+		for (const timer of this.#settledPanelCloseTimers.values()) {
 			clearTimeout(timer);
 		}
-		this.#idleTimers.clear();
+		this.#settledPanelCloseTimers.clear();
 		for (const unsubscribe of this.#unsubscribe.splice(0)) unsubscribe();
 	}
 
@@ -323,8 +325,6 @@ export class SubagentManager {
 	 */
 	public closeLocalConnections(): void {
 		this.dispose();
-		for (const timer of this.#failedPanelCloseTimers.values()) clearTimeout(timer);
-		this.#failedPanelCloseTimers.clear();
 		this.#processes.clear();
 		this.#attachments.clear();
 		this.#leftSessions.clear();
@@ -388,14 +388,14 @@ export class SubagentManager {
 		if (this.#deps.bridge.isConnected(id)) return;
 		this.#working.delete(id);
 		await this.#releasePanel(id);
-		this.#clearIdleHibernate(id);
+		this.#clearSettledPanelClose(id);
 		this.#projectors.delete(id);
 		const record = await this.#update(id, (current) => {
 			if (current.intent === "stopped") return current;
 			if (current.state !== "running") return current;
 			return {
 				...current,
-				state: "idle",
+				state: "blocked",
 				interrupted:
 					current.presentation === "panel"
 						? "The child bridge disconnected; its panel process exit is not confirmed"
@@ -409,7 +409,6 @@ export class SubagentManager {
 			record.presentation === "panel" &&
 			record.intent === "active" &&
 			record.state !== "done" &&
-			record.state !== "blocked" &&
 			record.runtime !== undefined &&
 			!this.#attachments.has(id)
 		) {
@@ -450,7 +449,7 @@ export class SubagentManager {
 	#bumpActivity(id: string): void {
 		this.#activity.set(id, (this.#activity.get(id) ?? 0) + 1);
 		this.#clearAutoReport(id);
-		this.#clearFailedPanelClose(id);
+		this.#clearSettledPanelClose(id);
 	}
 
 	/**
@@ -469,16 +468,16 @@ export class SubagentManager {
 			if (current.intent === "stopped") return current;
 			retired = current.runtime?.runtimeIdentity;
 			const { runtime: _runtime, ...withoutRuntime } = current;
-			if (current.state === "idle" || current.state === "done") {
+			if (current.state === "done" || current.state === "blocked") {
 				return {
 					...withoutRuntime,
-					state: "done",
+					state: current.state,
 				};
 			}
 			return {
 				...withoutRuntime,
 				intent: "stopped",
-				state: "stopped",
+				state: "error",
 				interrupted: "The child panel was closed while running; spawn a new child for more work",
 			};
 		});
@@ -488,7 +487,7 @@ export class SubagentManager {
 			projector.syncState("done");
 		}
 		if (record.intent === "stopped") {
-			this.#clearIdleHibernate(id);
+			this.#clearSettledPanelClose(id);
 			this.#projectors.delete(id);
 			this.#unresolvedRuntimes.delete(id);
 		}
@@ -531,28 +530,6 @@ export class SubagentManager {
 	 * focus (cmux) never get a timer: neither the exit nor the focus could be judged, and a panel is
 	 * only ever closed on a judgement, never on a guess.
 	 */
-	#scheduleIdleHibernate(id: string): void {
-		const attachment = this.#attachments.get(id);
-		if (attachment === undefined && this.#processes.get(id) === undefined) return;
-		if (attachment !== undefined && !attachment.reportsFocus) return;
-		this.#clearIdleHibernate(id);
-		const timer = setTimeout(() => {
-			this.#idleTimers.delete(id);
-			void this.#hibernate(id).catch((error) => {
-				diagnose(`failed to hibernate idle child ${id}: ${errorMessage(error)}`);
-			});
-		}, this.#deps.idleTimeoutMs ?? SUBAGENT_IDLE_TIMEOUT_MS);
-		timer.unref?.();
-		this.#idleTimers.set(id, timer);
-	}
-
-	#clearIdleHibernate(id: string): void {
-		const timer = this.#idleTimers.get(id);
-		if (timer !== undefined) {
-			clearTimeout(timer);
-			this.#idleTimers.delete(id);
-		}
-	}
 
 	#scheduleAutoReport(id: string, record: SubagentRecord): void {
 		this.#clearAutoReport(id);
@@ -572,70 +549,112 @@ export class SubagentManager {
 		}
 	}
 
-	#scheduleFailedPanelClose(id: string): void {
+	#scheduleSettledPanelClose(id: string): void {
 		const attachment = this.#attachments.get(id);
-		if (attachment === undefined) return;
-		this.#clearFailedPanelClose(id);
-		const timeoutMs = this.#deps.failedPanelCloseTimeoutMs ?? 15_000;
+		const runtime = this.#processes.get(id);
+		if (attachment === undefined && runtime === undefined) return;
+		if (attachment !== undefined && !attachment.reportsFocus) return;
+		this.#clearSettledPanelClose(id);
+		const timeoutMs =
+			this.#deps.settledCloseTimeoutMs ??
+			this.#deps.failedPanelCloseTimeoutMs ??
+			this.#deps.idleTimeoutMs ??
+			SUBAGENT_SETTLED_CLOSE_TIMEOUT_MS;
 		const timer = setTimeout(() => {
-			this.#failedPanelCloseTimers.delete(id);
-			void this.#closeFailedPanel(id).catch((error) => {
-				diagnose(`failed to close failed panel for child ${id}: ${errorMessage(error)}`);
+			this.#settledPanelCloseTimers.delete(id);
+			void this.#closeSettledPanel(id).catch((error) => {
+				diagnose(`failed to close settled panel for child ${id}: ${errorMessage(error)}`);
 			});
 		}, timeoutMs);
 		timer.unref?.();
-		this.#failedPanelCloseTimers.set(id, timer);
+		this.#settledPanelCloseTimers.set(id, timer);
 	}
 
-	#clearFailedPanelClose(id: string): void {
-		const timer = this.#failedPanelCloseTimers.get(id);
+	#clearSettledPanelClose(id: string): void {
+		const timer = this.#settledPanelCloseTimers.get(id);
 		if (timer !== undefined) {
 			clearTimeout(timer);
-			this.#failedPanelCloseTimers.delete(id);
+			this.#settledPanelCloseTimers.delete(id);
 		}
 	}
 
-	async #closeFailedPanel(id: string): Promise<void> {
-		const attachment = this.#attachments.get(id);
-		if (attachment === undefined) return;
-		const record = await this.#deps.registry.get(id);
-		if (record === undefined || record.state === "running" || record.intent === "stopped") {
-			return;
-		}
-		if (this.#deps.bridge.isConnected(id)) {
-			await this.#request(id, "shutdown").catch(() => undefined);
-			this.#deps.bridge.disconnect(id);
-		}
-		const runtime = this.#processes.get(id);
-		if (runtime !== undefined) {
-			await runtime.terminate().catch(() => undefined);
-			this.#processes.delete(id);
-		}
-		try {
-			await attachment.cleanup();
-		} catch (error) {
-			diagnose(`failed to cleanup panel for failed child ${id}: ${errorMessage(error)}`);
-		}
-		this.#attachments.delete(id);
-		this.#unresolvedRuntimes.delete(id);
-		await this.#update(id, (current) => {
-			if (current.intent === "stopped") return current;
-			const { runtime: _runtime, ...withoutRuntime } = current;
-			return withoutRuntime;
+	async #closeSettledPanel(id: string): Promise<void> {
+		await this.#mutate(id, async () => {
+			const record = await this.#deps.registry.get(id);
+			if (record === undefined || record.state === "running" || record.intent === "stopped") {
+				return;
+			}
+			const attachment = this.#attachments.get(id);
+			const runtime = this.#processes.get(id);
+			if (attachment === undefined && runtime === undefined) return;
+			if (!this.#isLive(id)) return;
+
+			const activity = this.#activity.get(id) ?? 0;
+			if (attachment !== undefined) {
+				const observed = await attachment.observe();
+				if (observed.known && !observed.alive) {
+					await this.#releasePanel(id);
+					return;
+				}
+				if ((this.#activity.get(id) ?? 0) !== activity) {
+					this.#scheduleSettledPanelClose(id);
+					return;
+				}
+				if (attachment.reportsFocus && (!observed.known || observed.focused !== false)) {
+					this.#scheduleSettledPanelClose(id);
+					return;
+				}
+			}
+
+			if (this.#deps.bridge.isConnected(id)) {
+				await this.#request(id, "shutdown").catch(() => undefined);
+				this.#deps.bridge.disconnect(id);
+			}
+			if (runtime !== undefined) {
+				await runtime.terminate().catch(() => undefined);
+			}
+			if (attachment !== undefined) {
+				try {
+					await attachment.cleanup();
+				} catch (error) {
+					diagnose(`failed to cleanup panel for child ${id}: ${errorMessage(error)}`);
+				}
+			}
+			const exited =
+				(runtime === undefined || !runtime.alive) && (await this.#panelGone(attachment));
+			if (exited) {
+				if (runtime !== undefined) this.#processes.delete(id);
+				if (attachment !== undefined) this.#attachments.delete(id);
+				this.#unresolvedRuntimes.delete(id);
+				await this.#update(id, (current) => {
+					if (current.intent === "stopped") return current;
+					const { runtime: _runtime, ...withoutRuntime } = current;
+					return withoutRuntime;
+				});
+			} else {
+				await this.#update(id, (current) => {
+					if (current.intent === "stopped") return current;
+					return {
+						...current,
+						state: "error",
+						interrupted:
+							"The child panel is not confirmed gone: the child process may still be running",
+					};
+				});
+			}
 		});
 	}
 
 	async #performAutoReport(id: string, _record: SubagentRecord): Promise<void> {
 		if (this.#working.has(id)) return;
 		const record = (await this.#deps.registry.get(id)) ?? _record;
-		if (record.intent === "stopped" || record.state === "running" || record.state === "starting")
-			return;
+		if (record.intent === "stopped" || record.state === "running") return;
 
 		const entries = await this.#entries(id);
 		const text = entries !== undefined ? extractLastAssistantText(entries) : undefined;
 
 		const hasError =
-			record.state === "failed" ||
+			record.state === "error" ||
 			(record.interrupted !== undefined && record.interrupted.trim() !== "");
 
 		const isBlocked = hasError;
@@ -685,26 +704,27 @@ export class SubagentManager {
 		const taskStatus = isBlocked ? "failed" : "completed";
 
 		const projector = this.#projectors.get(id);
-		if (!isBlocked) {
-			if (projector !== undefined) {
-				projector.syncState("done");
-			}
-			await this.#update(id, (current) => {
-				const { interrupted: _interrupted, ...clean } = current;
-				return {
-					...clean,
-					state: "done",
-				};
-			});
-		} else {
-			if (projector !== undefined) {
-				projector.syncState("failed");
-			}
-			await this.#update(id, (current) => ({
-				...current,
-				state: "failed",
-				interrupted: current.interrupted ?? message,
-			}));
+		const updatedRecord = !isBlocked
+			? await this.#update(id, (current) => {
+					const { interrupted: _interrupted, ...clean } = current;
+					return {
+						...clean,
+						state: "done",
+					};
+				})
+			: await this.#update(id, (current) => ({
+					...current,
+					state: "blocked",
+					interrupted: current.interrupted ?? message,
+				}));
+
+		if (projector !== undefined) {
+			projector.syncState(isBlocked ? "blocked" : "done");
+		}
+		this.#scheduleSettledPanelClose(id);
+
+		if (this.#deps.channel !== undefined) {
+			await this.contactParent(id, reason, message, updatedRecord);
 		}
 		if (this.#taskRegistry !== undefined) {
 			this.#taskRegistry.settle(id, {
@@ -712,9 +732,6 @@ export class SubagentManager {
 				output: message,
 				truncated: false,
 			});
-		}
-		if (this.#deps.channel !== undefined) {
-			await this.contactParent(id, reason, message);
 		}
 	}
 
@@ -809,81 +826,6 @@ export class SubagentManager {
 		);
 	}
 
-	/**
-	 * Ends an idle child's runtime and keeps its identity. The process is what is reclaimed: the
-	 * session, the cwd and the launch snapshot stay recorded, so a later send starts the same child
-	 * again instead of replaying anything it was interrupted in.
-	 */
-	async #hibernate(id: string): Promise<void> {
-		await this.#mutate(id, async () => {
-			const record = await this.#deps.registry.get(id);
-			if (
-				record === undefined ||
-				(record.state !== "idle" && record.state !== "done") ||
-				record.intent === "stopped"
-			) {
-				return;
-			}
-			const runtime = this.#processes.get(id);
-			const attachment = this.#attachments.get(id);
-			if (!this.#isLive(id)) return;
-			// Signals that arrive while the panel is being checked are queued behind this task, so this
-			// count is what tells the reclaim that the child moved after it looked: someone who started
-			// using the child must not lose its panel to a decision already in flight.
-			const activity = this.#activity.get(id) ?? 0;
-			if (attachment !== undefined) {
-				// A panel with a human in front of it is not idle, however long ago its last turn ended:
-				// the countdown restarts instead of closing the panel under the user.
-				const observed = await attachment.observe();
-				if (observed.known && !observed.alive) {
-					// It had already exited before our shutdown: this is not automatic idle reclaim.
-					await this.#releasePanel(id);
-					return;
-				}
-				if (!observed.known || observed.focused !== false) {
-					this.#scheduleIdleHibernate(id);
-					return;
-				}
-			}
-			if ((this.#activity.get(id) ?? 0) !== activity) {
-				this.#scheduleIdleHibernate(id);
-				return;
-			}
-			let shutdownFailure: string | undefined;
-			if (this.#deps.bridge.isConnected(id)) {
-				await this.#request(id, "shutdown").catch((error: unknown) => {
-					shutdownFailure = errorMessage(error);
-				});
-			}
-			if (runtime !== undefined) await runtime.terminate();
-			if (attachment !== undefined) await attachment.cleanup();
-			const exited =
-				(runtime === undefined || !runtime.alive) && (await this.#panelGone(attachment));
-			// The handles are kept while the exit is unconfirmed: they are what stops the next send
-			// from starting a second runtime, and what a retried stop can act on.
-			if (exited) {
-				this.#processes.delete(id);
-				this.#attachments.delete(id);
-			}
-			this.#projectors.delete(id);
-			await this.#update(id, (current) => {
-				if ((current.state !== "idle" && current.state !== "done") || current.intent === "stopped")
-					return current;
-				if (!exited) {
-					// The runtime may still be alive, so hibernating would let the next send start a
-					// second execution against a session this one still owns.
-					return {
-						...current,
-						state: "failed",
-						interrupted: `Runtime exit is unconfirmed${shutdownFailure === undefined ? "" : ` (${shutdownFailure})`}; the recorded runtime was kept and the child stays unavailable until it is gone`,
-					};
-				}
-				const { runtime: _runtime, ...withoutRuntime } = current;
-				return { ...withoutRuntime, state: "done" };
-			});
-		});
-	}
-
 	#notify(): void {
 		for (const listener of this.#listeners) {
 			try {
@@ -901,14 +843,11 @@ export class SubagentManager {
 	 */
 	public async recover(): Promise<RecoveryResult> {
 		const records = (await this.#deps.registry.list()).filter(
-			(record) =>
-				record.intent === "active" && record.state !== "done" && record.state !== "stopped",
+			(record) => record.intent === "active" && record.state === "running",
 		);
 		const outcomes = await Promise.all(
 			records.map(async (record) => {
-				if (record.state === "starting" || record.state === "running") {
-					this.#working.add(record.subagentId);
-				}
+				this.#working.add(record.subagentId);
 				if (!this.#projectors.has(record.subagentId)) {
 					this.#projectors.set(record.subagentId, createStateProjector(record.state));
 				}
@@ -959,7 +898,7 @@ export class SubagentManager {
 			const { runtime: _runtime, ...rest } = current;
 			return {
 				...rest,
-				...(current.state === "running" ? { state: "idle" as const } : {}),
+				...(current.state === "running" ? { state: "done" as const } : {}),
 				interrupted:
 					"The child runtime ended with the parent process; a later send starts it again from the same session",
 			};
@@ -991,7 +930,7 @@ export class SubagentManager {
 		// The child's own answer decides whether it is working right now; a transcript that recorded a
 		// failed turn still outranks it. Without this the projector keeps saying "running" and the
 		// next event that carries no state of its own writes that back onto the record.
-		if (projector.snapshot().state !== "failed") projector.syncState(idle ? "idle" : "running");
+		if (projector.snapshot().state !== "error") projector.syncState(idle ? "done" : "running");
 		const snapshot = projector.snapshot();
 		const confirmedInput =
 			entries !== undefined &&
@@ -1007,11 +946,10 @@ export class SubagentManager {
 					confirmedInput === undefined
 						? current
 						: (({ unacknowledgedInput: _input, ...rest }) => rest)(current);
-				// A transcript that recorded a failed turn outranks the session's own idleness.
-				const failed = snapshot.state === "failed";
+				const hasError = snapshot.state === "error";
 				return {
 					...base,
-					state: failed ? "failed" : idle ? "idle" : "running",
+					state: hasError ? "error" : idle ? "done" : "running",
 					...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
 					usage: snapshot.usage,
 					...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
@@ -1019,6 +957,11 @@ export class SubagentManager {
 			},
 			workVersion,
 		);
+		if (snapshot.state === "done" || snapshot.state === "blocked" || snapshot.state === "error") {
+			this.#scheduleSettledPanelClose(id);
+		} else {
+			this.#clearSettledPanelClose(id);
+		}
 	}
 
 	/**
@@ -1078,15 +1021,15 @@ export class SubagentManager {
 			try {
 				await this.#request(record.subagentId, "prompt", { message: cleanTask });
 			} catch (error) {
-				let failureState: SubagentState = "starting";
+				let failureState: SubagentState = "error";
 				try {
 					await this.#mutateUpdate(record.subagentId, (current) => ({
 						...current,
-						state: "failed",
+						state: "error",
 						interrupted: "Initial task delivery was not confirmed",
 						unacknowledgedInput: cleanTask,
 					}));
-					failureState = "failed";
+					failureState = "error";
 				} catch (updateError) {
 					diagnose(
 						`failed to persist initial delivery uncertainty for ${record.subagentId}: ${errorMessage(updateError)}`,
@@ -1115,6 +1058,7 @@ export class SubagentManager {
 						id: record.subagentId,
 						type: "agent",
 						purpose: `${input.agent}: ${input.task}`,
+						inlineResult: true,
 						begin: () => ({
 							stop: () => {
 								void this.stop(record.subagentId);
@@ -1155,19 +1099,16 @@ export class SubagentManager {
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
 		const message = stripHindsightContent(rawMessage);
-		this.#clearIdleHibernate(id);
-		this.#clearFailedPanelClose(id);
+		this.#clearSettledPanelClose(id);
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
-			if (record.intent === "stopped" || record.state === "stopped")
-				return failure("send", STOPPED_SEND_REASON, id, record.state, [], false);
-			if (record.state === "failed") {
+			if (record.intent === "stopped" || record.state === "error") {
 				const doubt = await this.#runtimeDoubt(id);
 				return failure(
 					"send",
 					doubt ??
-						`Subagent ${id} encountered an unrecoverable error and cannot continue: ${record.interrupted ?? "fatal error"}. Spawn a new subagent (optionally with forkFrom) to proceed.`,
+						`Subagent ${id} is in error state and cannot continue (${record.interrupted ?? "fatal error"}). You can reference its context via spawn_agent with forkFrom: "${id}".`,
 					id,
 					record.state,
 					[],
@@ -1199,7 +1140,7 @@ export class SubagentManager {
 				const { sessionPath, persistence } = placement;
 				const resumedRecord = await this.#update(id, (current) => ({
 					...current,
-					state: "starting",
+					state: "running",
 					persistence,
 					...(sessionPath === undefined ? {} : { sessionPath }),
 					launchConfig:
@@ -1220,11 +1161,11 @@ export class SubagentManager {
 					// the only safe answer.
 					const started = this.#runtimeStarted(id);
 					const settled = await this.#update(id, (current) => {
-						if (current.state !== "starting") return current;
+						if (current.state !== "running") return current;
 						if (started) {
 							return {
 								...current,
-								state: "failed",
+								state: "error",
 								interrupted: `Resume failed after the runtime was started (${reason}); the recorded runtime was kept and the child stays unavailable until it is gone`,
 							};
 						}
@@ -1240,14 +1181,14 @@ export class SubagentManager {
 						id,
 						settled.state,
 						started
-							? ["starting state persisted", "runtime start unconfirmed"]
-							: ["starting state rolled back", "no runtime was confirmed started"],
+							? ["running state persisted", "runtime start unconfirmed"]
+							: ["running state rolled back", "no runtime was confirmed started"],
 						!started,
 					);
 				}
 			}
 
-			const state = isResumed ? "starting" : record.state;
+			const state = isResumed ? "running" : record.state;
 			const operation = isResumed
 				? "prompt"
 				: mode === "auto"
@@ -1258,7 +1199,7 @@ export class SubagentManager {
 			if (operation === undefined)
 				return failure("send", "Cannot infer send mode from unknown state", id, state);
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
-			this.#clearFailedPanelClose(id);
+			this.#clearSettledPanelClose(id);
 			const pending = await this.#update(id, (current) => {
 				const { interrupted: _interrupted, ...clean } = current;
 				return {
@@ -1301,11 +1242,10 @@ export class SubagentManager {
 	}
 
 	public stop(id: string): Promise<OperationError | PublicSubagent> {
-		this.#clearIdleHibernate(id);
+		this.#clearSettledPanelClose(id);
 		return this.#mutate(id, async () => {
 			if (this.#stopping.has(id)) return this.get(id);
 			this.#stopping.add(id);
-			this.#clearFailedPanelClose(id);
 			let record: SubagentRecord | undefined;
 			try {
 				record = await this.#deps.registry.get(id);
@@ -1323,7 +1263,7 @@ export class SubagentManager {
 				stopped = await this.#update(id, (current) => ({
 					...current,
 					intent: "stopped",
-					state: "stopped",
+					state: "error",
 				}));
 			} catch (error) {
 				this.#stopping.delete(id);
@@ -1345,7 +1285,7 @@ export class SubagentManager {
 							"stop",
 							"Child process termination is not confirmed: the process may still be running",
 							id,
-							"stopped",
+							"error",
 							["stopped intent persisted", "runtime metadata retained"],
 							true,
 						);
@@ -1363,7 +1303,7 @@ export class SubagentManager {
 							"stop",
 							`The child's ${attachment.identity.host} panel is not confirmed gone (${cleanup.stderr || "its state could not be observed"}): the child process may still be running`,
 							id,
-							"stopped",
+							"error",
 							["stopped intent persisted", "runtime metadata retained"],
 							true,
 						);
@@ -1385,7 +1325,7 @@ export class SubagentManager {
 							"stop",
 							"Child was asked to shut down but its exit is unconfirmed: this process does not own the child's runtime, so close its panel manually",
 							id,
-							"stopped",
+							"error",
 							["stopped intent persisted", "runtime metadata retained"],
 							true,
 						);
@@ -1418,7 +1358,7 @@ export class SubagentManager {
 					"stop",
 					errorMessage(error),
 					id,
-					"stopped",
+					"error",
 					["stopped intent persisted", "runtime termination may be incomplete"],
 					true,
 				);
@@ -1432,8 +1372,9 @@ export class SubagentManager {
 		id: string,
 		reason: string,
 		message: string,
+		knownRecord?: SubagentRecord,
 	): Promise<OperationError | { readonly delivered: true }> {
-		const record = await this.#deps.registry.get(id);
+		const record = knownRecord ?? (await this.#deps.registry.get(id));
 		if (record === undefined) return failure("contact_parent", "Unknown child", id);
 		if (this.#deps.channel === undefined)
 			return failure("contact_parent", "Parent channel unavailable", id, record.state, [], true);
@@ -1464,16 +1405,16 @@ export class SubagentManager {
 						truncated: false,
 					});
 				}
-				this.#scheduleFailedPanelClose(id);
+				this.#scheduleSettledPanelClose(id);
 			} else if (reason === "error") {
 				const projector = this.#projectors.get(id);
 				if (projector !== undefined) {
-					projector.syncState("failed");
+					projector.syncState("error");
 				}
 				await this.#update(id, (current) => ({
 					...current,
 					intent: "stopped",
-					state: "failed",
+					state: "error",
 					interrupted: message,
 				}));
 				if (this.#taskRegistry !== undefined) {
@@ -1483,7 +1424,7 @@ export class SubagentManager {
 						truncated: false,
 					});
 				}
-				this.#scheduleFailedPanelClose(id);
+				this.#scheduleSettledPanelClose(id);
 			}
 			return { delivered: true };
 		} catch (error) {
@@ -1515,7 +1456,7 @@ export class SubagentManager {
 				throw new BridgeError("stale_report", "This report does not belong to the current runtime");
 			}
 			const reason = payload.reason ?? "blocked";
-			const delivered = await this.contactParent(childId, reason, payload.message);
+			const delivered = await this.contactParent(childId, reason, payload.message, record);
 			if ("reason" in delivered) throw new BridgeError("delivery_failed", delivered.reason);
 			if (reason === "success") {
 				const projector = this.#projectors.get(childId);
@@ -1538,12 +1479,12 @@ export class SubagentManager {
 			} else {
 				const projector = this.#projectors.get(childId);
 				if (projector !== undefined) {
-					projector.syncState("failed");
+					projector.syncState("error");
 				}
 				await this.#update(childId, (current) => ({
 					...current,
 					intent: "stopped",
-					state: "failed",
+					state: "error",
 				}));
 			}
 			return { delivered: true };
@@ -1625,11 +1566,11 @@ export class SubagentManager {
 					value.message === undefined || value.message === ""
 						? "Task is unfinished and waiting for user intent."
 						: value.message;
-				await this.#update(id, (current) => ({
+				const updated = await this.#update(id, (current) => ({
 					...current,
 					interrupted: message,
 				}));
-				await this.contactParent(id, "user_interrupt", message);
+				await this.contactParent(id, "user_interrupt", message, updated);
 				return;
 			}
 			if (value.kind === "left_session") {
@@ -1639,7 +1580,7 @@ export class SubagentManager {
 				// later adopt can mistake the new session for this child; the panel belongs to that other
 				// session from now on, which is why it is forgotten here and never closed.
 				const retired = record.runtime?.runtimeIdentity;
-				this.#clearIdleHibernate(id);
+				this.#clearSettledPanelClose(id);
 				this.#projectors.delete(id);
 				this.#attachments.delete(id);
 				this.#leftSessions.add(id);
@@ -1651,7 +1592,7 @@ export class SubagentManager {
 					const { runtime: _runtime, ...withoutRuntime } = current;
 					return {
 						...withoutRuntime,
-						state: "idle",
+						state: "done",
 						interrupted:
 							"The child left its session; the surface is no longer controlled by the parent",
 					};
@@ -1667,7 +1608,7 @@ export class SubagentManager {
 			// Someone typed into the panel, so the child is not idle any more. Only human input counts:
 			// a message this parent sent over the bridge arrives as `rpc` and says nothing about the
 			// panel. The turn that follows re-arms the countdown when it ends with nothing pending.
-			if (value.source === "interactive") this.#clearIdleHibernate(id);
+			if (value.source === "interactive") this.#clearSettledPanelClose(id);
 			return;
 		}
 		const record = await this.#deps.registry.get(id);
@@ -1696,7 +1637,7 @@ export class SubagentManager {
 		await this.#update(
 			id,
 			(entry) => {
-				const { interrupted: _prevInterrupted, ...cleanEntry } = entry;
+				const { interrupted: _prevInterrupted, activeTool: _prevActiveTool, ...cleanEntry } = entry;
 				const base =
 					confirmedInput === undefined
 						? cleanEntry
@@ -1705,16 +1646,17 @@ export class SubagentManager {
 					...base,
 					state: snapshot.state,
 					...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
+					...(snapshot.activeTool === undefined ? {} : { activeTool: snapshot.activeTool }),
 					usage: snapshot.usage,
 					...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
 				};
 			},
 			workVersion,
 		);
-		if (snapshot.state === "idle") {
-			this.#scheduleIdleHibernate(id);
+		if (snapshot.state === "done" || snapshot.state === "blocked" || snapshot.state === "error") {
+			this.#scheduleSettledPanelClose(id);
 		} else {
-			this.#clearIdleHibernate(id);
+			this.#clearSettledPanelClose(id);
 		}
 		if (value.type === "agent_settled" && (this.#workVersions.get(id) ?? 0) === workVersion) {
 			this.#working.delete(id);
@@ -1741,8 +1683,8 @@ export class SubagentManager {
 		// lose a concurrent field update and no stale_revision retry is needed.
 		const next = await this.#deps.registry.update(id, undefined, updater);
 		if (workVersion === undefined || workVersion === (this.#workVersions.get(id) ?? 0)) {
-			if (next.state === "starting" || next.state === "running") this.#working.add(id);
-			else if (next.state !== "failed") this.#working.delete(id);
+			if (next.state === "running") this.#working.add(id);
+			else if (next.state !== "error") this.#working.delete(id);
 		}
 		this.#notify();
 		return next;

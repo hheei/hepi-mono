@@ -13,7 +13,7 @@ const SUBAGENT_SUBCOMMANDS = ["list", "inspect", "send", "stop"] as const;
 const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|send|stop [id]";
 
 export function formatStatusLine(children: readonly PublicSubagent[]): string | undefined {
-	const visible = children.filter((child) => child.state !== "done" && child.state !== "stopped");
+	const visible = children.filter((child) => child.state !== "done" && child.state !== "error");
 	if (visible.length === 0) return undefined;
 	return visible
 		.map((child) => {
@@ -71,7 +71,7 @@ async function stopSelected(
 		return;
 	}
 	const live = (await manager.list()).filter(
-		(child) => child.state !== "done" && child.state !== "stopped",
+		(child) => child.state !== "done" && child.state !== "error",
 	);
 	const child = await pickChild(ctx, live, "Stop subagent");
 	if (child === undefined) return;
@@ -119,9 +119,7 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 				return;
 			}
 			if (action === "send") {
-				const live = children.filter(
-					(child) => child.state === "idle" || child.state === "running",
-				);
+				const live = children.filter((child) => child.state === "running");
 				const child = await pickChild(ctx, live, "Send to subagent");
 				if (child === undefined) return;
 				const message = await ctx.ui.input("Message for subagent");

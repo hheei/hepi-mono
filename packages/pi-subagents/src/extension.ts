@@ -99,7 +99,7 @@ export function createParentChannel(
 		try {
 			pi.sendMessage(
 				{
-					customType: "pi-subagent-report",
+					customType: "subagent-report",
 					content: reports.map(reportText).join("\n\n"),
 					display: true,
 					details: { reports },

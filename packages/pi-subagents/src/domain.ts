@@ -3,14 +3,28 @@ import { isRecord } from "@hheei/pi-ext-core";
 export const PROTOCOL_VERSION = 1 as const;
 export const REGISTRY_VERSION = 1 as const;
 
-export type SubagentState =
-	| "starting"
-	| "running"
-	| "idle"
-	| "done"
-	| "stopped"
-	| "blocked"
-	| "failed";
+export type SubagentState = "running" | "done" | "blocked" | "error";
+
+export function normalizeSubagentState(value: unknown): SubagentState | undefined {
+	if (typeof value !== "string") return undefined;
+	switch (value) {
+		case "running":
+		case "starting":
+		case "idle":
+			return "running";
+		case "done":
+			return "done";
+		case "blocked":
+			return "blocked";
+		case "error":
+		case "failed":
+		case "stopped":
+			return "error";
+		default:
+			return undefined;
+	}
+}
+
 /**
  * Where a child is presented: `panel` is the native Pi TUI in a host panel (herdr tab / cmux
  * surface), `background` is a headless Pi the parent owns over stdio. It is frozen when the child
@@ -19,23 +33,16 @@ export type SubagentState =
 export type Presentation = "panel" | "background";
 export type SendMode = "steer" | "follow_up" | "auto";
 
-export type VisualSubagentState = "running" | "done" | "blocked" | "error";
+export type VisualSubagentState = SubagentState;
 
 export function toVisualSubagentState(
 	state: SubagentState,
 	interrupted?: string,
 ): VisualSubagentState {
-	if (state === "failed" || state === "stopped") return "error";
+	if (state === "error") return "error";
 	if (state === "blocked") return "blocked";
 	if (interrupted !== undefined && state !== "done") return "blocked";
-	switch (state) {
-		case "starting":
-		case "running":
-		case "idle":
-			return "running";
-		case "done":
-			return "done";
-	}
+	return state;
 }
 
 export const VISUAL_SUBAGENT_GLYPH: Record<VisualSubagentState, string> = {
@@ -55,28 +62,10 @@ export const VISUAL_SUBAGENT_TONE: Record<
 	error: "error",
 };
 
-export const SUBAGENT_GLYPH: Record<SubagentState, string> = {
-	starting: "󰪠",
-	running: "󰪠",
-	idle: "󰪠",
-	done: "󰄴",
-	blocked: "󰀪",
-	stopped: "󰅚",
-	failed: "󰅚",
-};
+export const SUBAGENT_GLYPH: Record<SubagentState, string> = VISUAL_SUBAGENT_GLYPH;
 
-export const SUBAGENT_TONE: Record<
-	SubagentState,
-	"muted" | "warning" | "accent" | "success" | "dim" | "error"
-> = {
-	starting: "accent",
-	running: "accent",
-	idle: "accent",
-	done: "success",
-	blocked: "warning",
-	failed: "error",
-	stopped: "error",
-};
+export const SUBAGENT_TONE: Record<SubagentState, "accent" | "success" | "warning" | "error"> =
+	VISUAL_SUBAGENT_TONE;
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type LaunchValueSource = "agent" | "parent";
@@ -162,6 +151,8 @@ export interface EffectiveLaunchConfig {
 	readonly bridgeExtensionPath: string;
 	/** Frozen at spawn. Interactive children do not auto-wake the parent except via contact_parent. */
 	readonly interactive: boolean;
+	/** Whether the subagent operates in codemode-only mode. */
+	readonly codemodeOnly?: boolean;
 	/**
 	 * Session title asked for at spawn, frozen so a relaunched child re-applies the same name.
 	 * Presentation only: it never changes the child's identity or its host attachment label.
@@ -178,6 +169,7 @@ export interface ResolvedAgentPolicy {
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
 	readonly interactive: boolean;
+	readonly codemodeOnly?: boolean;
 	readonly enabled?: boolean;
 }
 
@@ -216,6 +208,7 @@ export interface SubagentRecord {
 	readonly launchConfig: EffectiveLaunchConfig;
 	readonly runtime?: RuntimeMetadata;
 	readonly latestSummary?: string;
+	readonly activeTool?: string;
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;
 	readonly unacknowledgedInput?: string;
@@ -230,6 +223,7 @@ export interface PublicSubagent {
 	readonly cwd: string;
 	readonly sessionId: string;
 	readonly summary?: string;
+	readonly activeTool?: string;
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;
 	readonly freshness: "live" | "last_known";
@@ -250,8 +244,6 @@ export interface OperationError {
 }
 
 export interface SpawnSubagentInput {
-	/** Optional existing subagent id (e.g. 'agent-1') to re-awaken instead of creating a new one. */
-	readonly id?: string;
 	readonly task: string;
 	readonly agent: string;
 	readonly cwd?: string;
@@ -324,17 +316,17 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 }
 
 const SUBAGENT_STATES: Record<string, true> = {
-	starting: true,
 	running: true,
-	idle: true,
 	done: true,
-	stopped: true,
 	blocked: true,
-	failed: true,
+	error: true,
 };
 
 export function isSubagentState(value: unknown): value is SubagentState {
-	return typeof value === "string" && SUBAGENT_STATES[value] === true;
+	return (
+		typeof value === "string" &&
+		(SUBAGENT_STATES[value] === true || normalizeSubagentState(value) !== undefined)
+	);
 }
 
 const PRESENTATIONS: Record<string, true> = { panel: true, background: true };

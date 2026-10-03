@@ -11,20 +11,18 @@ import { child } from "./helpers/records.js";
 
 describe("parent status line", () => {
 	test("hides when every child is terminal and names interrupted panel children", () => {
-		expect(
-			formatStatusLine([child({ state: "done" }), child({ state: "stopped" })]),
-		).toBeUndefined();
+		expect(formatStatusLine([child({ state: "done" }), child({ state: "error" })])).toBeUndefined();
 		expect(
 			formatStatusLine([
 				child({
 					displayName: "Reviewer",
-					state: "idle",
+					state: "blocked",
 					presentation: "panel",
 					interrupted: "paused",
 				}),
-				child({ agent: "scout", state: "failed" }),
+				child({ agent: "scout", state: "error" }),
 			]),
-		).toBe("󰀪 Reviewer blocked panel · 󰅚 scout error");
+		).toBe("󰀪 Reviewer blocked panel");
 	});
 
 	test("bindParentStatus safely handles stale context during refresh and disposal", async () => {
