@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "@hheei/pi-ext-core";
+import { Text } from "@earendil-works/pi-tui";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { resolveCompactAfterTokens } from "../config.js";
 import type { Runtime } from "../runtime.js";
 import {
@@ -11,6 +12,25 @@ import {
 	rawTokensSinceLastCompaction,
 } from "../session-ledger/index.js";
 import { formatTokensK } from "../tokens.js";
+
+export const OM_IDLE_NOTICE = "om:idle-notice";
+
+export function formatIdleDuration(seconds: number): string {
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	const remainingSeconds = seconds % 60;
+	if (minutes < 60) {
+		return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+	}
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	if (hours < 24) {
+		return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+	}
+	const days = Math.floor(hours / 24);
+	const remainingHours = hours % 24;
+	return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
 
 function isActiveSession(
 	runtime: Runtime,
@@ -55,47 +75,47 @@ async function runIdleCompaction(
 		if (!ctx.isIdle()) return;
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
-		// The gate may have been turned off while this timer was pending.
 		if (!latestGateEnabled(entries)) return;
 		if (!hasIdleCompactionWork(entries, runtime)) return;
 
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
 
-		if (hasUI) {
-			try {
-				const secs = runtime.config.idleCompactionTtlSeconds;
-				ui?.notify(
-					`om: idle timeout reached (${secs}s elapsed); compacting cold context in background`,
-					"info",
-				);
-			} catch {}
-		}
-
 		runtime.compactInFlight = true;
 		runtime.idleCompactInFlight = true;
-		ctx.compact({
-			onComplete: () => {
-				if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
-				runtime.idleCompactInFlight = false;
-				runtime.compactInFlight = false;
-				if (hasUI) {
-					try {
-						ui?.notify("om: idle compaction complete", "info");
-					} catch {}
-				}
-			},
-			onError: (error: { message: string }) => {
-				if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
-				runtime.idleCompactInFlight = false;
-				runtime.compactInFlight = false;
-				if (error.message === "Compaction cancelled" || error.message.includes("stale")) return;
-				if (hasUI) {
-					try {
-						ui?.notify(`om: ${error.message}`, "error");
-					} catch {}
-				}
-			},
+		await new Promise<void>((resolve) => {
+			ctx.compact({
+				onComplete: () => {
+					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) {
+						resolve();
+						return;
+					}
+					runtime.idleCompactInFlight = false;
+					runtime.compactInFlight = false;
+					if (hasUI) {
+						try {
+							ui?.notify("om: idle compaction complete", "info");
+						} catch {}
+					}
+					resolve();
+				},
+				onError: (error: { message: string }) => {
+					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) {
+						resolve();
+						return;
+					}
+					runtime.idleCompactInFlight = false;
+					runtime.compactInFlight = false;
+					if (error.message !== "Compaction cancelled" && !error.message.includes("stale")) {
+						if (hasUI) {
+							try {
+								ui?.notify(`om: ${error.message}`, "error");
+							} catch {}
+						}
+					}
+					resolve();
+				},
+			});
 		});
 	} catch (error) {
 		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
@@ -118,51 +138,78 @@ function hasIdleCompactionWork(entries: Entry[], runtime: Runtime): boolean {
 	return folded.activeObservations.length > 0 || folded.activeReflections.length > 0;
 }
 
-function scheduleIdleCompaction(
-	ctx: IdleCompactionContext,
-	runtime: Runtime,
-	delayMs: number,
-): void {
-	if (runtime.lifecycleSignal?.aborted === true) return;
-	const sessionGeneration = runtime.sessionGeneration;
-	const lifecycleSignal = runtime.lifecycleSignal;
-	runtime.pendingIdleCompactionTimer = setTimeout(() => {
-		runtime.pendingIdleCompactionTimer = undefined;
-		void runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal);
-	}, delayMs);
-}
-
-// Session cold resume handling called from lifecycle start
-export function scheduleColdResumeCompaction(ctx: IdleCompactionContext, runtime: Runtime): void {
-	runtime.clearPendingIdleCompactionTimer();
-	if (runtime.config.passive === true) return;
-	if (runtime.config.idleCompactionTtlSeconds === undefined) return;
-
-	const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
-	if (!entries) return;
-	if (!latestGateEnabled(entries)) return;
-
-	const nowSec = Math.floor(Date.now() / 1000);
-	const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
-	if (persistedSettledSec === undefined) return;
-
-	const elapsedSec = nowSec - persistedSettledSec;
-	const ttlSec = runtime.config.idleCompactionTtlSeconds;
-	if (!hasIdleCompactionWork(entries, runtime)) return;
-	const delayMs = elapsedSec < ttlSec ? (ttlSec - elapsedSec) * 1000 : 5_000;
-	// Delay overdue startup work briefly so session initialization can finish.
-	scheduleIdleCompaction(ctx, runtime, delayMs);
-}
-
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
-	// Clear idle timer as soon as user interaction begins
-	const clearIdleTimer = () => runtime.clearPendingIdleCompactionTimer();
-	pi.on("before_agent_start", clearIdleTimer);
-	pi.on("agent_start", clearIdleTimer);
-	pi.on("turn_start", clearIdleTimer);
+	if (typeof pi.registerEntryRenderer === "function") {
+		pi.registerEntryRenderer(OM_IDLE_NOTICE, (entry, _options, theme) => {
+			const data = entry.data;
+			const text = isRecord(data) && typeof data.text === "string" ? data.text : "";
+			if (!text) return undefined;
+			return new Text(theme.fg("dim", `󰔛 ${text}`), 1, 0);
+		});
+	}
+
+	// Idle compaction is evaluated exclusively when a new message turn starts.
+	// We directly check timestamps against the last persisted settle time rather than
+	// running background timers, avoiding timer-related bugs on exit, resume, and fork.
+	pi.on("before_agent_start", async (_event, ctx) => {
+		if (runtime.config.passive === true) return;
+		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
+		if (runtime.compactInFlight) return;
+
+		const sessionGeneration = runtime.sessionGeneration;
+		const lifecycleSignal = runtime.lifecycleSignal;
+		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+
+		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
+		if (!entries) return;
+		if (!latestGateEnabled(entries)) return;
+
+		const nowSec = Math.floor(Date.now() / 1000);
+		const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
+		if (persistedSettledSec === undefined) return;
+
+		const elapsedSec = nowSec - persistedSettledSec;
+		const ttlSec = runtime.config.idleCompactionTtlSeconds;
+		const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
+		const waitJobsSec = Math.floor(waitJobsDurationMs / 1000);
+		const totalIdleSec = elapsedSec + waitJobsSec;
+
+		if (totalIdleSec < ttlSec) return;
+		if (!hasIdleCompactionWork(entries, runtime)) return;
+
+		const timeStr = formatIdleDuration(totalIdleSec);
+		const noticeText = `The conversation was idle for ${timeStr}. Compacting context before the next turn.`;
+
+		try {
+			pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
+		} catch {
+			// Ignore if appendEntry fails (e.g. unpersisted or detached session)
+		}
+
+		if (ctx.hasUI) {
+			try {
+				ctx.ui?.notify(noticeText, "info");
+			} catch {}
+		}
+		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal);
+	});
+
+	// Track wait_jobs execution duration to count towards session idle lifespan
+	pi.on("tool_execution_start", (event) => {
+		if (isRecord(event) && event.toolName === "wait_jobs") {
+			runtime.recordWaitJobsStart();
+		}
+	});
+	pi.on("tool_execution_end", (event) => {
+		if (isRecord(event) && event.toolName === "wait_jobs") {
+			runtime.recordWaitJobsEnd();
+		}
+	});
 
 	// Pi emits agent_settled only after retries, automatic compaction, and queued
 	// continuation have finished, so retry policy stays owned by Pi.
+	// Only token-threshold compaction runs here; idle compaction is strictly deferred
+	// to before_agent_start on the subsequent user/message turn.
 	pi.on("agent_settled", async (_event, ctx) => {
 		const sessionGeneration = runtime.sessionGeneration;
 		const lifecycleSignal = runtime.lifecycleSignal;
@@ -187,7 +234,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		if (progress >= threshold) {
 			// Immediate compaction path
-			runtime.clearPendingIdleCompactionTimer();
 			if (hasUI)
 				ui?.notify(
 					`om: compaction threshold reached (${formatTokensK(progress)} estimated source tokens); triggering compaction`,
@@ -272,15 +318,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 					}
 				}
 			}, 0);
-			return;
 		}
-
-		// Idle compaction qualification path
-		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
-		if (!hasIdleCompactionWork(entries, runtime)) return;
-
-		// Schedule idle compaction timer
-		runtime.clearPendingIdleCompactionTimer();
-		scheduleIdleCompaction(ctx, runtime, runtime.config.idleCompactionTtlSeconds * 1000);
 	});
 }

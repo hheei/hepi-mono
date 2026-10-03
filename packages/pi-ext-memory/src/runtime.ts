@@ -172,7 +172,25 @@ export class Runtime {
 	lastEnforcerError: string | undefined;
 	lifecycleSignal?: AbortSignal | undefined;
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
-	pendingIdleCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
+	accumulatedWaitJobsMs = 0;
+	currentWaitJobsStartMs?: number | undefined;
+
+	recordWaitJobsStart(nowMs = Date.now()): void {
+		this.currentWaitJobsStartMs = nowMs;
+	}
+
+	recordWaitJobsEnd(nowMs = Date.now()): void {
+		if (this.currentWaitJobsStartMs !== undefined) {
+			this.accumulatedWaitJobsMs += Math.max(0, nowMs - this.currentWaitJobsStartMs);
+			this.currentWaitJobsStartMs = undefined;
+		}
+	}
+
+	consumeWaitJobsDuration(): number {
+		const duration = this.accumulatedWaitJobsMs;
+		this.accumulatedWaitJobsMs = 0;
+		return duration;
+	}
 	private lifecycleAbortCleanup: (() => void) | undefined;
 	/** provider -> epoch ms of the last availability re-check (see `recheckProviderCredential`). */
 	availabilityRecheckedAt = new Map<string, number>();
@@ -189,7 +207,8 @@ export class Runtime {
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
-		this.clearPendingIdleCompactionTimer();
+		this.accumulatedWaitJobsMs = 0;
+		this.currentWaitJobsStartMs = undefined;
 		this.sessionGeneration += 1;
 		this.config = { ...DEFAULTS };
 		this.configLoaded = false;
@@ -209,9 +228,6 @@ export class Runtime {
 		this.availabilityRecheckedAt.clear();
 		this.observerEmptyBackoff = undefined;
 		this.lifecycleSignal = signal;
-		const clearIdleTimer = () => this.clearPendingIdleCompactionTimer();
-		signal.addEventListener("abort", clearIdleTimer, { once: true });
-		this.lifecycleAbortCleanup = () => signal.removeEventListener("abort", clearIdleTimer);
 		await this.ensureConfig(cwd, signal);
 		return this.sessionGeneration;
 	}
@@ -221,7 +237,6 @@ export class Runtime {
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
-		this.clearPendingIdleCompactionTimer();
 		this.lifecycleSignal = undefined;
 		this.sessionGeneration += 1;
 		this.consolidationInFlight = false;
@@ -256,13 +271,6 @@ export class Runtime {
 		if (this.pendingCompactionTimer !== undefined) {
 			clearTimeout(this.pendingCompactionTimer);
 			this.pendingCompactionTimer = undefined;
-		}
-	}
-
-	clearPendingIdleCompactionTimer(): void {
-		if (this.pendingIdleCompactionTimer !== undefined) {
-			clearTimeout(this.pendingIdleCompactionTimer);
-			this.pendingIdleCompactionTimer = undefined;
 		}
 	}
 

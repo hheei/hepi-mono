@@ -14,10 +14,7 @@ import { transformHindsightMarkdown } from "./hindsight/markdown.js";
 import { type HindsightSession, startHindsightSession } from "./hindsight/session.js";
 import { declareHindsightTools } from "./hindsight/tools.js";
 import { registerCompactionHook } from "./hooks/compaction-hook.js";
-import {
-	registerCompactionTrigger,
-	scheduleColdResumeCompaction,
-} from "./hooks/compaction-trigger.js";
+import { registerCompactionTrigger } from "./hooks/compaction-trigger.js";
 import { registerConsolidationTrigger } from "./hooks/consolidation-trigger.js";
 import { createMemoryInfo } from "./info.js";
 import { Runtime } from "./runtime.js";
@@ -78,7 +75,6 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 			resources.add("observational-memory-runtime", () => {
 				runtime.endSession(generation);
 			});
-			scheduleColdResumeCompaction(extension, runtime);
 
 			provideService(context, MEMORY_COMPACTOR_SERVICE_KEY, {
 				createCompactionDraft(firstKeptEntryId) {
