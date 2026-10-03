@@ -49,6 +49,13 @@ describe("buildDefaultBatchToolPrompt & buildBatchToolPrompt", () => {
 		const custom = "<my_rules>do this</my_rules>";
 		expect(buildBatchToolPrompt({ hasCodemode: true, customPrompt: custom })).toBe(custom);
 	});
+
+	it("includes parallel read/grep guidance when isGemini is true", () => {
+		const prompt = buildBatchToolPrompt({ hasCodemode: true, hasEval: false, isGemini: true });
+		expect(prompt).toContain(
+			"Call as many `read` and `grep` operations in parallel as possible to locate information much faster.",
+		);
+	});
 });
 
 describe("normalizeBatchToolRulesConfig", () => {
@@ -147,6 +154,26 @@ describe("applyBatchToolRules", () => {
 	it("handles missing sections safely without throwing", () => {
 		expect(() => applyBatchToolRules({})).not.toThrow();
 		expect(() => applyBatchToolRules({ systemPromptOptions: {} })).not.toThrow();
+	});
+
+	it("detects Gemini model and injects enhanced parallel read/grep rules", () => {
+		const sections: Record<string, string> = {};
+		const event = {
+			systemPromptOptions: {
+				sections,
+				selectedTools: ["codemode"],
+			},
+		};
+
+		applyBatchToolRules(event, DEFAULT_BATCH_TOOL_RULES_CONFIG, () => ["codemode"], {
+			id: "gemini-3.8-flash",
+			provider: "gm",
+		});
+
+		expect(sections[BATCH_TOOL_RULES_SECTION]).toBeDefined();
+		expect(sections[BATCH_TOOL_RULES_SECTION]).toContain(
+			"Call as many `read` and `grep` operations in parallel as possible to locate information much faster.",
+		);
 	});
 });
 

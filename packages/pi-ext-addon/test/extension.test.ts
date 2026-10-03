@@ -12,7 +12,11 @@ function fakePi() {
 		Array<(event: unknown, context?: unknown) => void | Promise<void>>
 	>();
 	const commands = new Map<string, unknown>();
+	const sentMessages: Array<{ msg: unknown; opts: unknown }> = [];
 	const pi = {
+		sendMessage: (msg: unknown, opts: unknown) => {
+			sentMessages.push({ msg, opts });
+		},
 		on: (channel: string, handler: (event: unknown, context?: unknown) => void | Promise<void>) => {
 			const list = handlers.get(channel) ?? [];
 			list.push(handler);
@@ -31,7 +35,7 @@ function fakePi() {
 		setSessionName: () => undefined,
 		appendEntry: () => undefined,
 	} as unknown as ExtensionAPI;
-	return { pi, handlers, commands };
+	return { pi, handlers, commands, sentMessages };
 }
 
 async function emit(
@@ -217,10 +221,10 @@ describe("pi-ext-addon extension lifecycle", () => {
 		}
 	});
 
-	test("tool_result fires codemode guard reminder on 4th single-tool call for Gemini model", async () => {
+	test("tool_result fires codemode guard reminder via sendMessage on 4th single-tool call for Gemini model", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-guard-"));
 		try {
-			const { pi, handlers } = fakePi();
+			const { pi, handlers, sentMessages } = fakePi();
 			piExtAddonExtension(pi);
 			const context = {
 				...fakeExtension(dir),
@@ -238,15 +242,19 @@ describe("pi-ext-addon extension lifecycle", () => {
 				const res = await emit(handlers, "tool_result", makeEvent(i), context);
 				expect(res).toBeUndefined();
 			}
+			expect(sentMessages).toHaveLength(0);
 
-			// Call 4: reminder triggered!
-			const res4 = (await emit(handlers, "tool_result", makeEvent(4), context)) as {
-				content: Array<{ type: string; text?: string }>;
-			};
-			expect(res4).toBeDefined();
-			expect(res4.content[0]?.text).toContain("output 4");
-			expect(res4.content[0]?.text).toContain("<system-reminder>");
-			expect(res4.content[0]?.text).toContain("4 consecutive `codemode` calls");
+			// Call 4: reminder triggered via sendMessage, tool result content remains untouched
+			const res4 = await emit(handlers, "tool_result", makeEvent(4), context);
+			expect(res4).toBeUndefined();
+			expect(sentMessages).toHaveLength(1);
+			expect((sentMessages[0]?.msg as { content?: string })?.content).toContain(
+				"<system-reminder>",
+			);
+			expect((sentMessages[0]?.msg as { content?: string })?.content).toContain(
+				"4 consecutive `codemode` calls",
+			);
+			expect(sentMessages[0]?.opts).toEqual({ deliverAs: "steer" });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

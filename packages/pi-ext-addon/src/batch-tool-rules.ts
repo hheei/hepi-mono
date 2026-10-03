@@ -6,6 +6,7 @@ import {
 	type SettingsStorage,
 	setPromptSection,
 } from "@hheei/pi-ext-core";
+import { isGeminiModel } from "./codemode-guard.js";
 
 export const BATCH_TOOL_RULES_SECTION = "tool_execution_rules";
 export const BATCH_TOOL_RULES_GROUP = "batch-tool-rules";
@@ -13,13 +14,20 @@ export const BATCH_TOOL_RULES_SETTINGS_PROVIDER_ID = "batch-tool-rules";
 export const BATCH_TOOL_RULES_ENABLED_FIELD = "enabled";
 export const BATCH_TOOL_RULES_CUSTOM_FIELD = "prompt";
 
-export function buildDefaultBatchToolPrompt(hasCodemode: boolean, hasEval: boolean): string {
+export function buildDefaultBatchToolPrompt(
+	hasCodemode: boolean,
+	hasEval: boolean,
+	isGemini = false,
+): string {
 	let viaClause = "";
 	if (hasCodemode) {
 		viaClause = hasEval ? " via `codemode` or `eval`" : " via `codemode`";
 	}
+	const geminiGuidance = isGemini
+		? " Call as many `read` and `grep` operations in parallel as possible to locate information much faster."
+		: "";
 	return `<tool_execution_rules>
-Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn${viaClause}.
+Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn${viaClause}.${geminiGuidance}
 </tool_execution_rules>`;
 }
 
@@ -28,12 +36,17 @@ export function buildBatchToolPrompt(
 		readonly hasCodemode?: boolean;
 		readonly hasEval?: boolean;
 		readonly customPrompt?: string;
+		readonly isGemini?: boolean;
 	} = {},
 ): string {
 	if (options.customPrompt !== undefined && options.customPrompt.trim() !== "") {
 		return options.customPrompt;
 	}
-	return buildDefaultBatchToolPrompt(options.hasCodemode ?? false, options.hasEval ?? false);
+	return buildDefaultBatchToolPrompt(
+		options.hasCodemode ?? false,
+		options.hasEval ?? false,
+		options.isGemini ?? false,
+	);
 }
 
 export interface BatchToolRulesConfig {
@@ -141,6 +154,7 @@ export function applyBatchToolRules(
 	},
 	config: BatchToolRulesConfig = DEFAULT_BATCH_TOOL_RULES_CONFIG,
 	getActiveTools?: () => readonly string[],
+	model?: unknown,
 ): void {
 	const sections = event.systemPromptOptions?.sections;
 	if (!sections) return;
@@ -151,11 +165,13 @@ export function applyBatchToolRules(
 		const hasCodemode =
 			(selected?.includes("codemode") ?? false) || (active?.includes("codemode") ?? false);
 		const hasEval = (selected?.includes("eval") ?? false) || (active?.includes("eval") ?? false);
+		const isGemini = isGeminiModel(model);
 
 		const prompt = buildBatchToolPrompt({
 			hasCodemode,
 			hasEval,
 			customPrompt: config.prompt,
+			isGemini,
 		});
 		setPromptSection(sections, BATCH_TOOL_RULES_SECTION, prompt);
 	} else {

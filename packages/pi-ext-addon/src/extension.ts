@@ -33,6 +33,7 @@ import {
 	loadDollarSkillConfig,
 	registerDollarSkillInputTransform,
 } from "./dollar-skill/index.js";
+import { registerGeminiThoughtGuard } from "./gemini-thought-guard.js";
 import { registerSessionRecoveryGuard } from "./session-recovery-guard.js";
 
 /** Registers Pi opt-in host enhancement features: dollar skill references and auto session titles. */
@@ -49,8 +50,20 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			batchToolRulesConfig = config;
 		},
 	});
-	const codemodeGuard = createCodemodeGuard();
+	const codemodeGuard = createCodemodeGuard({
+		sendMessage: (msg, opts) => {
+			try {
+				pi.sendMessage(
+					msg as Parameters<typeof pi.sendMessage>[0],
+					opts as Parameters<typeof pi.sendMessage>[1],
+				);
+			} catch {
+				// ignore if sendMessage is unavailable in context
+			}
+		},
+	});
 	const sessionRecoveryGuard = registerSessionRecoveryGuard(pi);
+	registerGeminiThoughtGuard(pi);
 
 	let autoTitleCoordinator: AutoTitleCoordinator | undefined;
 	let runAutoTitle: (() => void) | undefined;
@@ -70,7 +83,8 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_info_changed", (event) => autoTitleCoordinator?.sessionInfoChanged(event.name));
-	pi.on("before_agent_start", (event) => {
+	pi.on("before_agent_start", (event, ctx) => {
+		codemodeGuard.resetLoop();
 		autoTitleCoordinator?.beforeAgentStart();
 		applyBatchToolRules(
 			event as {
@@ -81,12 +95,16 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			},
 			batchToolRulesConfig,
 			() => (typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []),
+			ctx?.model,
 		);
 	});
 	pi.on("tool_result", (event, context) => {
 		return codemodeGuard.recordToolResult(event, context?.model);
 	});
-	pi.on("agent_settled", () => autoTitleCoordinator?.agentSettled());
+	pi.on("agent_settled", () => {
+		codemodeGuard.resetLoop();
+		autoTitleCoordinator?.agentSettled();
+	});
 	pi.on("session_start", (event) => {
 		if (event.reason === "startup" || event.reason === "new") autoTitleWanted = true;
 		codemodeGuard.reset();
