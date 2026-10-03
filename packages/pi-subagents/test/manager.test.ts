@@ -1560,7 +1560,7 @@ describe("SubagentManager over the bridge", () => {
 		);
 
 		const updatedRecord = await test1.manager.get(childId);
-		expect(updatedRecord.state).toBe("failed");
+		expect(updatedRecord.state).toBe("blocked");
 	});
 
 	test("cancels panel close countdown if a new message is sent before timeout", async () => {
@@ -1627,14 +1627,74 @@ describe("SubagentManager over the bridge", () => {
 
 		expect((await test1.registry.get(childId))?.intent).toBe("active");
 
-		// Re-awaken via spawn with id
-		const respawned = await test1.manager.spawn({
-			id: childId,
+		// Re-awaken via send
+		const resumed = await test1.manager.send(childId, "Follow-up task after panel close");
+		if ("reason" in resumed) throw new Error(resumed.reason);
+		expect(resumed.id).toBe(childId);
+		expect(resumed.state).toBe("running");
+	});
+
+	test("blocked subagent panel closes after timeout and can be re-awakened via send", async () => {
+		const test1 = await harness({ host: true, failedPanelCloseTimeoutMs: 50 });
+		const spawned = await test1.manager.spawn({
 			agent: "worker",
-			task: "Follow-up task after panel close",
+			task: "Blocked panel reawaken test",
+			presentation: "auto",
 		});
-		if ("reason" in respawned) throw new Error(respawned.reason);
-		expect(respawned.child.id).toBe(childId);
-		expect(respawned.child.state).toBe("running");
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		const panel = test1.panels.get(childId);
+		expect(panel).toBeDefined();
+
+		// Report blocked
+		await test1.manager.contactParent(childId, "blocked", "Waiting for auth token");
+
+		const blockedRecord = await test1.manager.get(childId);
+		expect(blockedRecord.state).toBe("blocked");
+
+		// Wait out the 50ms close timeout
+		await new Promise((resolve) => setTimeout(resolve, 80));
+
+		// Panel should now be cleaned up and closed
+		expect(panel?.cleanups).toBe(1);
+
+		// Record state is still blocked
+		const afterClose = await test1.manager.get(childId);
+		expect(afterClose.state).toBe("blocked");
+
+		// Can be re-awakened via send
+		const sent = await test1.manager.send(childId, "Here is your token: secret123");
+		if ("reason" in sent) throw new Error(sent.reason);
+		expect(sent.id).toBe(childId);
+		expect(sent.state).toBe("running");
+
+		// A new panel was opened to resume the session
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
+	});
+
+	test("error subagent reports error, marks failed, and cannot be resumed via send", async () => {
+		const test1 = await harness({ host: true, failedPanelCloseTimeoutMs: 50 });
+		const spawned = await test1.manager.spawn({
+			agent: "worker",
+			task: "Error report test",
+			presentation: "auto",
+		});
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+
+		// Report fatal error
+		await test1.manager.contactParent(childId, "error", "Fatal unrecoverable crash");
+
+		const errorRecord = await test1.manager.get(childId);
+		expect(errorRecord.state).toBe("failed");
+
+		// Send is refused because error cannot continue
+		const sent = await test1.manager.send(childId, "Try to continue anyway");
+		expect(sent).toMatchObject({
+			operation: "send",
+			safeToRetry: false,
+			reason: expect.stringMatching(/never resumes|unrecoverable error/),
+		});
 	});
 });

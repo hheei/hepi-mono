@@ -24,7 +24,7 @@ describe("parent status line", () => {
 				}),
 				child({ agent: "scout", state: "failed" }),
 			]),
-		).toBe("󰅚 Reviewer blocked panel · 󰅚 scout blocked");
+		).toBe("󰀪 Reviewer blocked panel · 󰅚 scout error");
 	});
 
 	test("bindParentStatus safely handles stale context during refresh and disposal", async () => {
