@@ -61,6 +61,20 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 任何需要跨包共同演进的行为，先判断 Service 或 ExtensionPoint 是否足够。不能表达时，由实际
 需求方暂时拥有低层兼容实现；不得预建通用 event bus、schema layer、RPC 或 execution framework。
 
+## 公开 API 选用指南
+
+开发具体扩展（`pi-<name>`）时，遵循以下 API 匹配规则，优先复用已有的 core 原语：
+
+- **生命周期与清理**：必须使用 `registerExtensionLifecycle`；所有异步任务、timer、订阅必须使用 `context.resources.add` 注册逆序清理，所有支持取消的操作必须透传 `context.signal`。
+- **跨扩展能力共享**：单一独占能力使用 `provideService` / `getService`（或异步 `waitForService`）；多对一挂载与观察使用 `registerExtensionHook` / `openExtensionPoint`。
+- **后台任务与统一管理**：凡产生后台等待或异步执行的任务（例如后台命令、子 Agent 会话），必须通过 `TaskRegistry` 统一接入（分配任务 ID、维护状态、提供 `wait_tasks` 观测）。
+- **异步结果向主会话投递**：使用 `createBackgroundDelivery` / `getBackgroundDelivery`，禁止扩展内部直接启动定时器轮询主会话忙闲。
+- **工具与元数据注册**：非原生工具统一使用 `registerManagedTool`；技能与外部资源元数据统一接入 `registerLoadoutResource`。
+- **全屏或弹出式 UI**：使用 `openTuiSurface` 或 `openExtensionPageRouter`，不得在扩展内自行监听原始键盘事件打断 Pi 渲染循环。
+- **编辑器附着组件**：使用 `registerWidget` 挂载上下组件，配合 `EditorWorkingStatusIndicator` 展示转轮动画。
+- **持久化配置**：必须使用 `readJsonSettingsSection` / `readMergedJsonSettingsSection` / `updateJsonSettingsRoot`，配置统一落盘至 `ext_settings.json`，严禁写入 Pi 原生 `settings.json`。
+- **错误提取与取消**：跨不可信或未知边界提取异常字符串必须使用 `errorMessage`；取消一律使用 `abortError` 或 `throwIfAborted`。
+
 ## Lifecycle 与异步所有权
 
 - 每个 feature 以 extension package name 注册 lifecycle，并把它创建的资源放入

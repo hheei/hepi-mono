@@ -2,11 +2,10 @@
 
 ## 状态
 
-已实现 v1：`@hheei/pi-ext-core` package、focused tests 与 lifecycle、Service、ExtensionPoint、
-JSON settings provider registry、managed tool registration 与 Loadout resource registration 均已建立。custom surface runtime
-与 Extension page router 已实现，边界见 [TUI 宿主架构](tui.md)。
-`pi-settings` host 与 Loadout router page 已由 `packages/pi-settings` 实现；
-editor rail compositor 仍属后续设计，不应与现有 Settings host 混为未实现能力。
+已全面实现：`@hheei/pi-ext-core` 提供基础会话生命周期、Service Registry、ExtensionPoint、
+TaskRegistry 任务状态机、BackgroundDelivery 完成门控、JSON settings 传输、受控工具（Managed Tool）与
+Loadout 资源注册、全屏 Custom Surface 与 Extension Page Router、挂件（Widgets）与编辑器状态合成器、
+模型与思考深度选择器、上下文用量估算器、统一工具 TUI 渲染抽象、响应性能遥测底栏，以及无副作用的跨包通用工具函数集。
 
 维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
 
@@ -319,26 +318,149 @@ root；因此建议每个 `pi-<name>` 把 `@hheei/pi-ext-core` 声明为 direct 
 runtime registry 因此必须通过 `globalThis` 的稳定 symbol name 共享，不能仅依赖 ESM module
 singleton。
 
-## 包和测试布局
+## 完整公开 API 目录
 
-已建立：
+`@hheei/pi-ext-core` 根入口为所有公开能力的单一收敛点。所有 API 按以下 15 个功能域正交组织：
+
+### 1. 生命周期与错误处理 (Lifecycle & Errors)
+- `registerExtensionLifecycle(pi, options)`: 注册以 package name 为稳定 key 的扩展生命周期，提供幂等清理与 `context.signal`。
+- `DisposerRegistry`: 逆序安全清理闭包容器。
+- `errorMessage(error)`: 安全字符串化未知异常。
+- `abortError(message?)`: 构造规范 `AbortError`。
+- `throwIfAborted(signal)`: 检查中止信号并快速抛出。
+
+### 2. 跨扩展服务协作 (Service Registry)
+- `createServiceKey<T>(id)`: 声明强类型服务 Key。
+- `provideService(context, key, value)`: 注册 1:1 服务实例（first-provider-wins，生命周期结束自动清理）。
+- `getService(pi, key)`: 同步读取当前可用服务实例。
+- `waitForService(pi, key, options?)`: 异步等待服务就绪（支持非阻塞 continuation 与超时/中止）。
+- `MEMORY_COMPACTOR_SERVICE_KEY`: 预置会话即时内存压缩服务 Key。
+- `TASK_REGISTRY_SERVICE_KEY`: 预置后台任务注册表 Key。
+
+### 3. 后台任务状态机 (TaskRegistry)
+- `TaskRegistry`: 统一管理后台 Bash 任务与子 Agent 任务的生命周期、并发排队与终态结算。
+- `isTerminalTaskStatus(status)`: 终态校验判定。
+- 常量与异常: `TaskCapacityError`, `TaskQueueFullError`, `TaskRegistryClosedError`, `DEFAULT_TASK_CONCURRENCY`。
+
+### 4. 完成门控与后台交付 (BackgroundDelivery)
+- `createBackgroundDelivery(pi)` / `getBackgroundDelivery(pi)`: 统一后台结果投递协调器。
+- `BackgroundWorkSource` / `BackgroundDeliveryChannel`: 工作源活动计数与按通道交付抽象（区分普通结果门控与 blocked 紧急立即唤醒）。
+
+### 5. 扩展点与动态钩子 (Extension Points)
+- `createExtensionPointKey(id)`: 声明扩展点 Key。
+- `registerExtensionHook(context, key, hook)`: 注册 1:N 动态钩子。
+- `openExtensionPoint(pi, key, options?)`: 开放并消费挂载的钩子集。
+
+### 6. 工具托管与装配策略 (Managed Tools & Loadout)
+- `registerManagedTool(pi, registration)`: 注册受控工具。
+- `redeclareManagedTool(pi, name, exposure)`: 动态更新受控工具可见性（visible/hidden）。
+- `setManagedToolsActive(pi, names)`: 批量变更受控工具激活集合。
+- `isManagedTool(tool)`: 托管工具类型判定。
+- `registerLoadoutResource(pi, resource)`: 登记技能与自定义资源元数据。
+- `observeLoadoutInventory(pi, observer)`: 监听装配清单变化。
+
+### 7. TUI 视图路由与自定义界面 (Page Router & Surfaces)
+- `openExtensionPageRouter(ctx, options)`: 打开设置多页面路由宿主。
+- `registerExtensionPage(registration)`: 注册设置子页面。
+- `openTuiSurface(ctx, options)`: 打开全屏独立 TUI Surface。
+- `TuiSurfaceQueueFullError`: 并发排队异常。
+
+### 8. 挂件与编辑器底栏状态 (Widgets & Editor Status)
+- `registerWidget(pi, placement, widget)`: 在编辑器上下方挂载展示组件。
+- `suspendWidgets(pi)`: 临时挂起所有活动挂件。
+- `EditorWorkingStatusIndicator`: 点阵微旋转动画状态指示器。
+- `registerActiveEditor(editor)` / `unregisterActiveEditor`: 编辑器实例跟踪。
+- `setPreTurnWorkingStatus(options)`: 设定回合前即时状态。
+- `BRAILLE_SPINNER_FRAMES`: 标准点阵动画帧。
+
+### 9. 配置持久化与存储 (JSON Settings Transport)
+- `readJsonSettingsRoot(path)` / `updateJsonSettingsRoot(path, updater)`: JSON 配置根对象原子读写。
+- `readJsonSettingsSection(path, sectionKey)`: 单 section 读取。
+- `readMergedJsonSettingsSection(paths, sectionKey)`: 全局与项目两层合并读取与来源标注。
+- `defaultExtensionSettingsPaths(env?, cwd?)`: 默认路径解析。
+- `createJsonSettingsStorage(options)`: 强类型配置存储适配器。
+- `registerSettings(pi, provider)` / `getRuntimeSettingsRegistry`: 配置注册与查询。
+
+### 10. 模型选择与思考深度 (Model Selection & Thinking)
+- `modelSelectionOptions(models)`: 生成下拉选择列表。
+- `authenticatedModelSelectionOptions(models, authRegistry)`: 过滤具备鉴权的模型。
+- `createModelSelectionField(options)`: 创建交互式模型选择字段。
+- `clampThinkingLevel(level)`: 收敛思考级别。
+- `thinkingGlyph(level)`: 获取级别指示符号。
+
+### 11. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
+- `resolvePiContextUsage(reading, options)`: 规范化上下文压力读数。
+- `estimatePiPrefixTokens(systemPrompt, tools)`: 估算前缀 token。
+- `estimatePiToolDefinitionTokens(tools)`: 估算工具定义 token。
+- `estimateTextTokens(text)`: 纯文本字符 token 估算。
+
+### 12. 进程内子代理协调器 (Subagent Coordinator)
+- `startSubagent(spec)`: 启动进程内轻量子代理（completion/task/conversation）。
+- `lookupSubagent(pi, id)`: 句柄查询。
+- `redeliverTask(pi, options)`: 未确认结果重新交付。
+- `configureSubagentCoordinator(pi, options)`: 配置全局配额与并发。
+- `ensureSubagentCoordinator(pi)`: 初始化或读取协调器。
+
+### 13. 工具 TUI 交互与渲染 (Tool TUI)
+- `createToolTui(pi, options)` / `getToolTui(pi)`: 统一工具渲染实例。
+- `registerToolTuiTrace(pi, trace)`: 注册输出追踪条目。
+- `isTuiScrolledUp(tui)`: TUI 向上滚动状态判定。
+
+### 14. 响应遥测与编辑器底轨 (Response Telemetry & Editor Rail)
+- `createResponseStatusFeature(pi, options)`: 模型性能遥测组件。
+- `formatTelemetryStatus(metrics)`: 遥测文本格式化。
+- `renderBottomRailBorder(options)`: 底栏边框对齐渲染。
+- `wrapEditorBottomRail(editor, renderRail)`: 编辑器底栏渲染装饰器。
+
+### 15. 通用辅助工具 (Utilities)
+- `runCommand(command, args, options?)`: 一次性安全进程执行。
+- `shellQuote(str)`: POSIX shell 转义。
+- `isSubagentProcess(env?)`: 子进程环境探针。
+- `expandHome(filepath, env?)`: 家目录展开。
+- `splitSubcommand(text)` / `subcommandCompletions(subcommands, options?)`: 斜杠命令双层子命令自动补全。
+- `fitRow(text, width)`: ANSI 彩色单行文本等宽截断或填充。
+- `isRecord(value)`: 非空 Plain Object 严格守卫。
+- `escapeXml(str)`: XML 字符转义。
+- `isSkillEnabled(pi, name)` 等: 技能激活状态存取。
+- `textToolResult(text, isError?)` / `agentResultText(result)` / `formatDuration(ms)`: 工具结果与耗时格式化。
+
+## 包和测试布局
 
 ```text
 packages/pi-ext-core/
   package.json
   src/
-    index.ts
-    runtime-identity.ts
-    lifecycle.ts
-    service.ts
-    extension-point.ts
+    background-delivery.ts
+    command-completions.ts
+    context-usage.ts
+    custom-surface.ts
     disposer-registry.ts
-  test/
-    runtime-identity.test.ts
-    lifecycle.test.ts
-    service.test.ts
-    extension-point.test.ts
-    disposer-registry.test.ts
+    editor-working-status.ts
+    errors.ts
+    extension-point.ts
+    global-state.ts
+    index.ts
+    json-settings.ts
+    lifecycle.ts
+    loadout.ts
+    model-selection.ts
+    page-router.ts
+    paths.ts
+    process.ts
+    prompt-section.ts
+    record.ts
+    response-status.ts
+    row-fit.ts
+    runtime-identity.ts
+    service.ts
+    settings.ts
+    skill-state.ts
+    subagents.ts
+    tasks.ts
+    text.ts
+    tool-result.ts
+    tool-tui.ts
+    widgets.ts
 ```
 
 已实现 API 先建立公开类型与函数签名，再写 focused tests，最后实现。下一阶段 Loadout tests 的
