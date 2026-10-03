@@ -1,14 +1,15 @@
 import { errorMessage, isRecord, type TaskRegistry } from "@hheei/pi-ext-core";
 import type { ChildRuntime } from "./child-process.js";
-import type {
-	EffectiveLaunchConfig,
-	OperationError,
-	Presentation,
-	PublicSubagent,
-	SendMode,
-	SpawnSubagentInput,
-	SubagentRecord,
-	SubagentState,
+import {
+	type EffectiveLaunchConfig,
+	isOperationError,
+	type OperationError,
+	type Presentation,
+	type PublicSubagent,
+	type SendMode,
+	type SpawnSubagentInput,
+	type SubagentRecord,
+	type SubagentState,
 } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
@@ -21,7 +22,8 @@ import {
 } from "./protocol.js";
 import type { SubagentRegistry } from "./registry.js";
 import type { LaunchOutcome, RuntimeTokenStore } from "./runtime.js";
-import { planSessionPlacement } from "./session-bootstrap.js";
+import { findSessionFile, planSessionPlacement } from "./session-bootstrap.js";
+import { readSessionJsonlEntries } from "./session-fork.js";
 import { createStateProjector, type StateProjector } from "./state.js";
 
 /**
@@ -464,20 +466,27 @@ export class SubagentManager {
 		if (!(observed.known && !observed.alive)) return;
 		let retired: string | undefined;
 		const record = await this.#update(id, (current) => {
-			// Idle reclaim removes its own attachment and lands done before queued disconnects run.
-			// A confirmed panel exit outside that path is terminal, including a human closing it.
-			if (current.state === "done" || current.intent === "stopped") return current;
+			if (current.intent === "stopped") return current;
 			retired = current.runtime?.runtimeIdentity;
 			const { runtime: _runtime, ...withoutRuntime } = current;
+			if (current.state === "idle" || current.state === "done") {
+				return {
+					...withoutRuntime,
+					state: "done",
+				};
+			}
 			return {
 				...withoutRuntime,
 				intent: "stopped",
 				state: "stopped",
-				interrupted:
-					"The child panel was closed or its process exited; spawn a new child for more work",
+				interrupted: "The child panel was closed while running; spawn a new child for more work",
 			};
 		});
 		if (retired !== undefined) this.#deps.tokens?.forget(retired);
+		const projector = this.#projectors.get(id);
+		if (record.state === "done" && projector !== undefined) {
+			projector.syncState("done");
+		}
 		if (record.intent === "stopped") {
 			this.#clearIdleHibernate(id);
 			this.#projectors.delete(id);
@@ -628,7 +637,33 @@ export class SubagentManager {
 		const entries = await this.#entries(id);
 		const text = entries !== undefined ? extractLastAssistantText(entries) : undefined;
 
-		const isBlocked = record.state === "failed" || text === undefined || text.trim() === "";
+		const hasError =
+			record.state === "failed" ||
+			(record.interrupted !== undefined && record.interrupted.trim() !== "");
+
+		const isBlocked = hasError;
+
+		if (!isBlocked && (text === undefined || text.trim() === "")) {
+			const projector = this.#projectors.get(id);
+			if (projector !== undefined) {
+				projector.syncState("done");
+			}
+			await this.#update(id, (current) => {
+				const { interrupted: _interrupted, ...clean } = current;
+				return {
+					...clean,
+					state: "done",
+				};
+			});
+			if (this.#taskRegistry !== undefined) {
+				this.#taskRegistry.settle(id, {
+					status: "completed",
+					output: "",
+					truncated: false,
+				});
+			}
+			return;
+		}
 
 		let message: string;
 		if (isBlocked) {
@@ -745,10 +780,29 @@ export class SubagentManager {
 		return { sessionPath: record.sessionPath, persistence: record.persistence };
 	}
 
-	/** Reads a child's session entries over the bridge; undefined when it cannot answer. */
+	/** Reads a child's session entries over the bridge, falling back to disk when disconnected. */
 	async #entries(id: string): Promise<readonly unknown[] | undefined> {
-		const response = await this.#request(id, "get_entries").catch(() => undefined);
-		return isRecord(response) && Array.isArray(response.entries) ? response.entries : undefined;
+		if (this.#deps.bridge.isConnected(id)) {
+			const response = await this.#request(id, "get_entries").catch(() => undefined);
+			if (isRecord(response) && Array.isArray(response.entries) && response.entries.length > 0) {
+				return response.entries;
+			}
+		}
+		const record = await this.#deps.registry.get(id).catch(() => undefined);
+		if (record !== undefined) {
+			const sessionPath =
+				record.sessionPath ??
+				(await findSessionFile(record.launchConfig.sessionDir, record.sessionId));
+			if (sessionPath !== undefined) {
+				try {
+					const diskEntries = await readSessionJsonlEntries(sessionPath);
+					if (diskEntries.length > 0) return diskEntries;
+				} catch {
+					// return undefined below
+				}
+			}
+		}
+		return undefined;
 	}
 
 	#request(id: string, operation: BridgeOperation, payload?: unknown): Promise<unknown> {
@@ -1000,7 +1054,39 @@ export class SubagentManager {
 	}
 
 	public async spawn(input: SpawnSubagentInput): Promise<SpawnResult | OperationError> {
-		if (input.task.trim() === "") return failure("spawn", "Task must not be empty");
+		const cleanTask = stripHindsightContent(input.task).trim();
+		if (cleanTask === "") return failure("spawn", "Task must not be empty");
+
+		if (input.id !== undefined && input.id.trim() !== "") {
+			const targetId = input.id.trim();
+			const existing = await this.#deps.registry.get(targetId);
+			if (existing !== undefined) {
+				if (existing.state === "running" || existing.state === "starting") {
+					return failure(
+						"spawn",
+						`Subagent ${targetId} is already running`,
+						targetId,
+						existing.state,
+					);
+				}
+				await this.#update(targetId, (current) => {
+					const { interrupted: _interrupted, ...clean } = current;
+					return {
+						...clean,
+						intent: "active",
+						state: "idle",
+					};
+				});
+				const projector = this.#projectors.get(targetId);
+				if (projector !== undefined) {
+					projector.syncState("idle");
+				}
+				const sendResult = await this.send(targetId, cleanTask);
+				if (isOperationError(sendResult)) return sendResult;
+				return { child: sendResult };
+			}
+		}
+
 		let childId: string | undefined;
 		try {
 			const config = await withDeadline(this.#deps.resolve(input), this.#deps.deadlineMs ?? 30_000);

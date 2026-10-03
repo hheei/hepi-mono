@@ -235,6 +235,8 @@ export interface OperationError {
 }
 
 export interface SpawnSubagentInput {
+	/** Optional existing subagent id (e.g. 'agent-1') to re-awaken instead of creating a new one. */
+	readonly id?: string;
 	readonly task: string;
 	readonly agent: string;
 	readonly cwd?: string;
