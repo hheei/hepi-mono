@@ -1,34 +1,36 @@
 # @hheei/pi-debug
 
-Development diagnostics for Pi extensions.
+Development diagnostics, prompt cache analysis, and TUI replay tools for Pi extensions.
 
-## Tools
+```bash
+pi install npm:@hheei/pi-debug
+```
+
+## Features
 
 ### Prompt cache debugger
 
-Hash-only provider payload diagnostics correlated with `cacheRead` and `cacheWrite`. The Pi extension exposes `/cache-debug` and writes JSONL without prompt or response text.
+Hash-only provider payload diagnostics correlated with `cacheRead` and `cacheWrite`. The Pi extension exposes `/cache-debug` and records structured JSONL traces without storing sensitive prompt or response text.
 
-See [Cache Debugging Guide](./CACHE_DEBUG.md).
+- Command: `/cache-debug` in Pi TUI mode.
+- See the [Cache Debugging Guide](./CACHE_DEBUG.md) for detailed trace interpretation.
 
-### TUI replay
+### Deterministic TUI Replay
 
-Deterministic component replay with input, key, resize, wait, and optional real-model actions. The library captures ANSI frames and can write plain text, ANSI, metadata, and SVG artifacts.
+Headless component replay with input, keystrokes, resize events, artificial wait timers, and optional real-model responses. Captures clean ANSI terminal frames and exports plain text, ANSI, SVG, or metadata artifacts for documentation and snapshot testing.
 
-See [TUI Replay Guide](./TUI_REPLAY.md).
+- See the [TUI Replay Guide](./TUI_REPLAY.md) for replay scripting and CLI parameters.
 
 ## Package entry points
 
 ```text
-@hheei/pi-debug                      Pi extension and cache probe API
-@hheei/pi-debug/tui-replay           TUI replay library
+@hheei/pi-debug                 Pi extension and cache probe API
+@hheei/pi-debug/tui-replay      Deterministic TUI replay library
 pi-tui-replay                   Automatic replay and shell snapshot CLI
 replay                          Incremental action-journal CLI
 ```
 
 ## Development
-
-The unit suite lives in `test/`. Cases that spawn the real replay CLI live in `test-integration/`, because
-each one costs a process launch; `pnpm test` skips them and `pnpm run test:integration` runs them.
 
 ```bash
 pnpm test -- packages/pi-debug/test

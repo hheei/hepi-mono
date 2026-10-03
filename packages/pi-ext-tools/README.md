@@ -14,6 +14,14 @@ FFF runtime, commands, autocomplete, and enhancement settings are included;
 `/fff status` and `/fff reindex`. Tab completion after `/fff ` and `/todo ` offers the
 available subcommands.
 
+
+## Python eval and codemode
+
+In addition to canonical filesystem and execution tools, `pi-ext-tools` provides advanced batch execution runtimes:
+
+- **`eval`**: Persistent local Python execution kernel with support for multi-step data wrangling and direct nested tool calls (e.g. `tools.read(...)`, `tools.bash(...)`). State and variable bindings survive across calls until explicitly reset.
+- **`codemode`**: JavaScript sandbox orchestration tool that compiles and evaluates top-level async scripts calling nested tools in parallel or loops via `await Promise.all(...)`, drastically reducing conversational turns. Features budget-aware truncation, image signature verification, and execution metric badges matching Pi 1.0.
+
 ## Background results
 
 Task/Bash notifications and subagent reports share completion-gated delivery. While the parent
