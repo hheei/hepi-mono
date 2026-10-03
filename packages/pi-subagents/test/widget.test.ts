@@ -31,12 +31,18 @@ describe("subagent widget projection", () => {
 		expect(isWidgetVisibleChild(child({ state: "failed", presentation: "panel" }), longAgo)).toBe(
 			false,
 		);
+		expect(
+			isWidgetVisibleChild(child({ state: "idle", interrupted: "upstream error" }), longAgo),
+		).toBe(false);
 
 		// Inside the 15-second retain window: visible so user can see final outcome
 		const recent = Date.parse("2026-01-01T00:00:10.000Z");
 		expect(isWidgetVisibleChild(child({ state: "done" }), recent)).toBe(true);
 		expect(isWidgetVisibleChild(child({ state: "stopped" }), recent)).toBe(true);
 		expect(isWidgetVisibleChild(child({ state: "failed" }), recent)).toBe(true);
+		expect(
+			isWidgetVisibleChild(child({ state: "idle", interrupted: "upstream error" }), recent),
+		).toBe(true);
 
 		// Non-terminal states: always visible
 		expect(isWidgetVisibleChild(child({ state: "idle" }), longAgo)).toBe(true);
