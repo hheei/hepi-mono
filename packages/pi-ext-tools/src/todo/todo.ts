@@ -40,9 +40,10 @@ export const TODO_COMMAND_NAME = "todo";
  * without allowing a different extension to claim `todo`. Loadout does not
  * manage tool activation, so the declaration carries owner only.
  */
-const TODO_TOOL_REGISTRATION = {
+export const TODO_TOOL_REGISTRATION = {
 	id: TODO_TOOL_NAME,
 	owner: "@hheei/pi-ext-tools",
+	defaultActive: false,
 } as const;
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
@@ -599,7 +600,10 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			}
 			const current = active;
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) {
-				ctx.ui.notify("Todo runtime is not active", "error");
+				ctx.ui.notify(
+					"Todo tool is disabled in settings. Enable it in /settings to use.",
+					"warning",
+				);
 				return;
 			}
 			const input = args.trim();

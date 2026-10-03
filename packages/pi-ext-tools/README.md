@@ -1,9 +1,9 @@
 # @hheei/pi-ext-tools
 
 Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
-`list_tasks`, `wait_tasks`, `stop_tasks`, strict Codex V4A `apply_patch`,
-opt-in `eval`, and `todo`.
-Todo includes `/todo`, task scheduling, reminders, and a left-side footer status.
+`list_jobs`, `wait_jobs`, `stop_jobs`, strict Codex V4A `apply_patch`,
+opt-in `eval`, and opt-in `todo`.
+Todo includes `/todo`, task scheduling, reminders, and a left-side footer status (disabled by default, opt-in via settings).
 `apply_patch` matches and rewrites text in pure
 JavaScript with jsdiff; it never requires a user-managed executable or a package-owned
 native addon. `@hheei/pi-ext-core` is a production dependency, not a separately loaded
@@ -27,7 +27,7 @@ In addition to canonical filesystem and execution tools, `pi-ext-tools` provides
 Task/Bash notifications and subagent reports share completion-gated delivery. While the parent
 is working, results enter its next model step. While it is idle, ordinary results wait for all
 background work to finish and wake one shared turn. Subagent decision requests and blockers
-wake an idle parent immediately. There is no fixed notification window; `wait_tasks` remains
+wake an idle parent immediately. There is no fixed notification window; `wait_jobs` remains
 an independent read path and does not consume automatic notifications.
 
 ## apply_patch
@@ -91,14 +91,14 @@ and in the model-visible arguments.
 
 ## task control
 
-`list_tasks`, `wait_tasks`, and `stop_tasks` are registered for every session but stay
+`list_jobs`, `wait_jobs`, and `stop_jobs` are registered for every session but stay
 inactive until that session starts its first background task, so a session that never uses
 background work carries none of their schemas or guidelines. Activation is derived from Pi's
 own `getActiveTools()`: the session start deactivates them (Pi activates every registered
 extension tool), the first `tasks.create()` activates them, and they are removed again only at
 `session_compact` or `session_tree` while nothing needs control — no active task and no result the
 parent has not confirmed reading (`registry.requiresControl`). `do not poll` lives on
-`wait_tasks` itself, so it reaches `<rules>` only while task control is active.
+`wait_jobs` itself, so it reaches `<rules>` only while job control is active.
 
 ## Tool Output
 

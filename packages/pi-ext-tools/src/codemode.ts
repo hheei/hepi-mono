@@ -309,7 +309,8 @@ export function codemodeWarning(result: AgentToolResult<unknown>): boolean {
 /** Captures upstream's ToolDefinition to preserve identical QuickJS execution, loadout, and sampling. */
 export function createUnderlyingCodemodeTool(pi: ExtensionAPI): ToolDefinition {
 	let captured: ToolDefinition | undefined;
-	const factory = createCodemodeExtension();
+	const mode = process.env.PI_CODEMODE_MODE === "only" ? "only" : undefined;
+	const factory = createCodemodeExtension(mode ? { mode } : {});
 	factory({
 		registerTool(tool: ToolDefinition) {
 			captured = tool;
@@ -317,7 +318,27 @@ export function createUnderlyingCodemodeTool(pi: ExtensionAPI): ToolDefinition {
 		appendEntry: (customType: string, data: unknown) => {
 			pi.appendEntry?.(customType, data);
 		},
-		getAllTools: () => pi.getAllTools?.() ?? [],
+		getAllTools: () => {
+			const all = pi.getAllTools?.() ?? [];
+			return all.map((tool) => {
+				if (tool.name !== "bash") return tool;
+				// In codemode, bash executes strictly in foreground without 'blocking' parameter.
+				const params = isRecord(tool.parameters) ? { ...tool.parameters } : {};
+				const properties = isRecord(params.properties) ? { ...params.properties } : {};
+				delete properties.blocking;
+				const required = Array.isArray(params.required)
+					? (params.required as string[]).filter((k) => k !== "blocking")
+					: ["command"];
+				return {
+					...tool,
+					parameters: {
+						...params,
+						properties,
+						required,
+					} as typeof tool.parameters,
+				};
+			});
+		},
 		getSettings: () => pi.getSettings?.() ?? {},
 	} as unknown as ExtensionAPI);
 

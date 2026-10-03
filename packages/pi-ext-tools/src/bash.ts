@@ -23,8 +23,6 @@ import {
 	formatDuration,
 	isRecord,
 	registerManagedTool,
-	type TaskRegistry,
-	type TaskSnapshot,
 	type ToolCompletion,
 	type ToolTui,
 	textToolResult,
@@ -33,12 +31,12 @@ import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
+import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
 import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { DEFAULT_FFF_SETTINGS } from "./fff/settings.js";
 import { WrappedTextBody } from "./pretty/wrapped-text.js";
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
-import { promoteBashJobToTask, startBashTask } from "./tasks/bash-task.js";
+import { startBashJob } from "./tasks/bash-job.js";
 
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
 const BASH_MAX_BODY_LINES = 10;
@@ -46,11 +44,11 @@ const BASH_MAX_BODY_LINES = 10;
 const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
-	"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_tasks` to wait for any unfinished background tasks.",
-	"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed. After completing immediate work, wait for them with `wait_tasks`.",
+	"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_jobs` to wait for any unfinished background jobs.",
 	"Remote `target` is an authorized SSH host and always runs in the foreground.",
 ] as const;
-const BASH_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
+const BASH_TIMEOUT_DESCRIPTION =
+	"Timeout in seconds (optional, default 180s, or 25s for pure search commands like rg/fd/grep/find)";
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
 const Target = Type.Optional(
 	Type.String({
@@ -64,7 +62,7 @@ const BashInput = Type.Object(
 		blocking: Type.Optional(
 			Type.Boolean({
 				description:
-					"Wait for completion instead of returning immediately. Pass false to run in background; use wait_tasks once hands-on work is complete to wait for it.",
+					"Wait for completion instead of returning immediately. Pass false to run in background; use wait_jobs once hands-on work is complete to wait for it.",
 			}),
 		),
 		target: Target,
@@ -102,11 +100,8 @@ function bashFooter(
 	completion: ToolCompletion | undefined,
 ): string {
 	const details = detailsRecord(result.details);
-	if (details.autoAsyncTransition === true && typeof details.taskId === "string") {
-		return `transitioned to ${details.taskId} · running in background · ${details.elapsedSeconds ?? 60}s`;
-	}
 	if (typeof details.taskId === "string") {
-		return `task ${details.taskId} · background`;
+		return `job ${details.taskId} · background`;
 	}
 	const output = typeof details.output === "string" ? details.output : agentResultText(result);
 	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
@@ -219,6 +214,12 @@ class BashOutputBody implements Component {
 	}
 }
 
+const DEFAULT_BASH_TIMEOUT_SECONDS = 180;
+
+export function resolveDefaultBashTimeout(command: string): number {
+	return isSearchOnlyCommand(command) ? SEARCH_BASH_TIMEOUT_SECONDS : DEFAULT_BASH_TIMEOUT_SECONDS;
+}
+
 async function runForeground(
 	command: string,
 	context: ExtensionContext,
@@ -227,12 +228,10 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	anchor: string | undefined,
 	jobs?: BashJobRegistry | undefined,
-	tasks?: TaskRegistry | undefined,
-	autoAsyncSeconds = 60,
 ): Promise<BashToolResult> {
 	const startedAt = performance.now();
+	const effectiveTimeout = timeoutSeconds ?? resolveDefaultBashTimeout(command);
 	if (signal?.aborted)
 		return Promise.resolve(
 			withBashStructuredContent(textToolResult("Bash aborted", { error: "aborted" }), {
@@ -253,7 +252,7 @@ async function runForeground(
 				await createLocalBashOperations({ shellPath }).exec(command, context.cwd, {
 					onData: update,
 					...(signal === undefined ? {} : { signal }),
-					...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
+					timeout: effectiveTimeout,
 				})
 			).exitCode;
 		} catch (error) {
@@ -283,8 +282,6 @@ async function runForeground(
 		}) as BashToolResult;
 	}
 
-	const shouldAutoAsync =
-		timeoutSeconds === undefined && tasks !== undefined && autoAsyncSeconds > 0;
 	let streaming = true;
 	const onData = (data: Buffer): void => {
 		if (streaming) update(data);
@@ -295,7 +292,7 @@ async function runForeground(
 			command,
 			cwd: context.cwd,
 			shellPath,
-			...(timeoutSeconds === undefined ? {} : { timeoutMs: Math.max(0, timeoutSeconds * 1000) }),
+			timeoutMs: Math.max(0, effectiveTimeout * 1000),
 			onData,
 		});
 	} catch (error) {
@@ -314,13 +311,9 @@ async function runForeground(
 
 	return new Promise<BashToolResult>((resolve) => {
 		let settled = false;
-		let autoAsyncTimer: NodeJS.Timeout | undefined;
-		// A refused transition is a real, inspectable policy outcome, not a silent fallback.
-		let transitionRefused: string | undefined;
 
 		const cleanup = (): void => {
 			streaming = false;
-			if (autoAsyncTimer !== undefined) clearTimeout(autoAsyncTimer);
 			signal?.removeEventListener("abort", onAbort);
 		};
 
@@ -331,17 +324,11 @@ async function runForeground(
 			const output = sink.finish();
 			const timedOut = jobSnapshot.timedOut;
 			const exitCode = jobSnapshot.exitCode ?? (timedOut ? 124 : 0);
-			const result = textToolResult(
-				transitionRefused === undefined
-					? output.output
-					: `${output.output}\n\nThis command stayed in the foreground: it could not become a background task (${transitionRefused}).`,
-				{
-					...output,
-					...(timedOut ? { timedOut: true } : {}),
-					exitCode,
-					...(transitionRefused === undefined ? {} : { transitionRefused }),
-				},
-			);
+			const result = textToolResult(output.output, {
+				...output,
+				...(timedOut ? { timedOut: true } : {}),
+				exitCode,
+			});
 			resolve(
 				withBashStructuredContent(result, {
 					output: output.output,
@@ -369,72 +356,6 @@ async function runForeground(
 		};
 
 		signal?.addEventListener("abort", onAbort, { once: true });
-
-		if (shouldAutoAsync) {
-			autoAsyncTimer = setTimeout(() => {
-				if (settled) return;
-				const current = jobs.get(job.id);
-				if (current === undefined || current.status !== "running") return;
-
-				let task: TaskSnapshot | undefined;
-				try {
-					task = promoteBashJobToTask({
-						tasks,
-						jobs,
-						jobId: job.id,
-						command,
-						...(anchor === undefined ? {} : { anchor }),
-					});
-				} catch (error) {
-					// Admission refused the transition, so the command keeps waiting in the foreground
-					// instead of losing its result or blocking new tasks. The model and the user both
-					// need to know that the 60s policy did not apply this time.
-					transitionRefused = errorMessage(error);
-					context.ui.notify(
-						`bash stayed in the foreground: background task refused (${transitionRefused})`,
-						"warning",
-					);
-					return;
-				}
-				if (task === undefined) return;
-
-				settled = true;
-				cleanup();
-				// A very short command can finish between the promotion and this message, so report
-				// what the task actually reached instead of claiming it is still running.
-				const currentTask = tasks.get(task.id) ?? task;
-				const finished = currentTask.status !== "running";
-				const snapshotOutput = finished ? sink.finish() : sink.snapshot();
-				const message = finished
-					? `Command completed while transitioning to background task ${task.id} (status: ${currentTask.status}).\n\n` +
-						`Output:\n${snapshotOutput.output}`
-					: `Command has been running for ${autoAsyncSeconds}s without an explicit timeout.\n` +
-						`To avoid blocking the session, it was transitioned to background task ${task.id}.\n\n` +
-						`Output preview so far:\n${snapshotOutput.output}\n\n` +
-						`The command is STILL RUNNING in the background. Its result will be added to the context when finished.\n` +
-						`- To wait for it now: wait_tasks({ ids: ["${task.id}"] })\n` +
-						`- To stop it: stop_tasks({ ids: ["${task.id}"] })`;
-
-				const result = textToolResult(message, {
-					taskId: task.id,
-					type: task.type,
-					status: currentTask.status,
-					autoAsyncTransition: true,
-					elapsedSeconds: autoAsyncSeconds,
-					purpose: task.purpose,
-					outputPreview: snapshotOutput.output,
-					truncated: snapshotOutput.truncated,
-				});
-				resolve(
-					withBashStructuredContent(result, {
-						output: snapshotOutput.output,
-						truncated: snapshotOutput.truncated,
-						exitCode: 0,
-						startedAt,
-					}) as BashToolResult,
-				);
-			}, autoAsyncSeconds * 1000);
-		}
 		jobs.waitFor(job.id).then((finalSnapshot) => {
 			if (finalSnapshot) finishForeground(finalSnapshot);
 		});
@@ -456,9 +377,7 @@ function bashResultWarning(result: { readonly details: unknown }): boolean {
 	if (typeof result.details !== "object" || result.details === null) return false;
 	const details = result.details as Record<string, unknown>;
 	return (
-		details.timedOut === true ||
-		details.autoAsyncTransition === true ||
-		(typeof details.exitCode === "number" && details.exitCode !== 0)
+		details.timedOut === true || (typeof details.exitCode === "number" && details.exitCode !== 0)
 	);
 }
 
@@ -483,13 +402,12 @@ async function runRemoteBash(
 			exitCode: 130,
 			startedAt,
 		}) as BashToolResult;
+	const effectiveTimeout = timeoutSeconds ?? resolveDefaultBashTimeout(command);
 	const sink = new BashOutputSink(tailBytes);
 	try {
 		const { code, timedOut } = await runtime.exec(target, command, {
 			...(signal === undefined ? {} : { signal }),
-			...(timeoutSeconds === undefined || timeoutSeconds <= 0
-				? {}
-				: { timeoutMs: timeoutSeconds * 1000 }),
+			...(effectiveTimeout <= 0 ? {} : { timeoutMs: effectiveTimeout * 1000 }),
 			onData: outputStreamer(sink, onUpdate),
 		});
 		const output = sink.finish();
@@ -656,7 +574,7 @@ export function registerBashTool(
 						},
 					);
 				try {
-					const task = startBashTask({
+					const job = startBashJob({
 						tasks,
 						jobs,
 						command: validatedParams.command,
@@ -664,16 +582,19 @@ export function registerBashTool(
 						shellPath: settings.shellPath,
 						...(anchor === undefined ? {} : { anchor }),
 						...(validatedParams.timeout === undefined
-							? {}
+							? isSearchOnlyCommand(validatedParams.command)
+								? { timeoutMs: SEARCH_BASH_TIMEOUT_SECONDS * 1000 }
+								: {}
 							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
 					});
-					const msg = `Started background task ${task.id}. Its result is added to the context when it finishes; use wait_tasks only if the next step needs it now.`;
+					const msg = `Started background job ${job.id}. Its result is added to the context when it finishes; use wait_jobs only if the next step needs it now.`;
 					return withBashStructuredContent(
 						textToolResult(msg, {
-							taskId: task.id,
-							type: task.type,
-							status: task.status,
-							purpose: task.purpose,
+							jobId: job.id,
+							taskId: job.id,
+							type: job.type,
+							status: job.status,
+							purpose: job.purpose,
 						}),
 						{
 							output: msg,
@@ -683,7 +604,7 @@ export function registerBashTool(
 						},
 					);
 				} catch (error) {
-					const msg = `Unable to start background task: ${errorMessage(error)}`;
+					const msg = `Unable to start background job: ${errorMessage(error)}`;
 					return withBashStructuredContent(
 						textToolResult(msg, {
 							error: "start_failed",
@@ -705,13 +626,7 @@ export function registerBashTool(
 				settings?.shellPath ?? defaultShellPath(),
 				validatedParams.timeout,
 				(settings?.bashOutputTailKiB ?? 10) * 1024,
-				anchor,
 				jobs,
-				tasks,
-				// An explicit blocking request waits, so only an omitted `blocking` may promote.
-				validatedParams.blocking === true
-					? 0
-					: (settings?.autoAsyncSeconds ?? DEFAULT_FFF_SETTINGS.autoAsyncSeconds),
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
@@ -742,4 +657,4 @@ export function registerBashTool(
 	return tool;
 }
 
-export { BashInput };
+export { BashInput, isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS, Target, Timeout };

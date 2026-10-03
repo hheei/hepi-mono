@@ -230,7 +230,7 @@ test.each([
 		expect(current.sent.map((message) => message.customType)).toEqual([
 			TASK_TERMINAL_CUSTOM_TYPE,
 			TASK_TERMINAL_CUSTOM_TYPE,
-			"pi-subagent-report",
+			"subagent-report",
 		]);
 		expect(current.sent.map((message) => message.options)).toEqual([
 			{ triggerTurn: false, deliverAs: "steer" },
@@ -238,11 +238,11 @@ test.each([
 			{ triggerTurn: true, deliverAs: "steer" },
 		]);
 	} else {
-		expect(current.sent.map((message) => message.customType)).toEqual(["pi-subagent-report"]);
+		expect(current.sent.map((message) => message.customType)).toEqual(["subagent-report"]);
 		current.emitAgentStart();
 		await Promise.resolve();
 		expect(current.sent.map((message) => message.customType)).toEqual([
-			"pi-subagent-report",
+			"subagent-report",
 			TASK_TERMINAL_CUSTOM_TYPE,
 			TASK_TERMINAL_CUSTOM_TYPE,
 		]);
@@ -285,7 +285,7 @@ test("never inlines half of a structured result", async (): Promise<void> => {
 	// The message points at the readable result instead of handing the parent a broken document.
 	const content = current.sent[0]?.content ?? "";
 	expect(content).toContain("too large to inline");
-	expect(content).toContain(`wait_tasks ${large}`);
+	expect(content).toContain(`wait_jobs ${large}`);
 	expect(content).not.toContain('"findings"');
 
 	// A structured result that does fit arrives whole, not cut to the tail.

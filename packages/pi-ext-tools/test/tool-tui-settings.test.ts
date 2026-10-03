@@ -42,6 +42,44 @@ describe("Tool Output settings", () => {
 		expect(readToolCollapseMode({ toolTui: { collapseMode: "off" } })).toBe("off");
 	});
 
+	test("defaults subagents to off (mapped to immediate collapse on)", () => {
+		const subagentEnv = { PI_SUBAGENTS_CHILD_ID: "child-1" };
+		// Default when no setting is saved
+		expect(readToolCollapseMode(undefined, subagentEnv)).toBe("on");
+		// Unrelated main session setting does not override subagent default
+		expect(readToolCollapseMode({ toolTui: { collapseMode: "auto" } }, subagentEnv)).toBe("on");
+		// Explicit subagent setting with "off" maps to "on" (fully collapsed)
+		expect(readToolCollapseMode({ toolTui: { subagentCollapseMode: "off" } }, subagentEnv)).toBe(
+			"on",
+		);
+		// Explicit subagent setting with other modes
+		expect(readToolCollapseMode({ toolTui: { subagentCollapseMode: "auto" } }, subagentEnv)).toBe(
+			"auto",
+		);
+		expect(
+			readToolCollapseMode({ toolTui: { subagentCollapseMode: "pertrace" } }, subagentEnv),
+		).toBe("pertrace");
+	});
+
+	test("subagent provider onChange applies off as immediate collapse on", async () => {
+		const applied: ToolCollapseMode[] = [];
+		const subagentEnv = { PI_SUBAGENTS_CHILD_ID: "child-1" };
+		const provider = createToolTuiSettingsProvider({
+			apply: (mode) => applied.push(mode),
+			env: subagentEnv,
+		});
+		await provider.onChange?.(
+			{
+				groupId: "toolTui",
+				fieldId: "subagentCollapseMode",
+				value: "off",
+				state: { toolTui: { subagentCollapseMode: "off" } },
+			},
+			{ sessionId: "settings-test" },
+		);
+		expect(applied).toEqual(["on"]);
+	});
+
 	test("persists the mode in the toolTui group", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "hepi-tool-tui-settings-"));
 		try {

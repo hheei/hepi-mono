@@ -163,8 +163,7 @@ test("bash exposes only background use guidance", (): void => {
 	expect(bash.description).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
 	expect(bash.promptGuidelines).toEqual([
-		"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_tasks` to wait for any unfinished background tasks.",
-		"Local commands without timeout transition to background tasks (e.g. bash-1) after 60s unless `blocking: true` is passed. After completing immediate work, wait for them with `wait_tasks`.",
+		"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_jobs` to wait for any unfinished background jobs.",
 		"Remote `target` is an authorized SSH host and always runs in the foreground.",
 	]);
 });
@@ -181,8 +180,8 @@ test("task-control tools carry their own activation-scoped guidelines", (): void
 	);
 	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([
 		undefined,
-		["Do not poll background tasks. Use `wait_tasks` only when the next step needs their results."],
-		["Stop background tasks when their results are no longer needed."],
+		["Do not poll background jobs. Use `wait_jobs` only when the next step needs their results."],
+		["Stop background jobs when their results are no longer needed."],
 	]);
 });
 
