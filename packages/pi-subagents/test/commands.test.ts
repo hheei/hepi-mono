@@ -128,11 +128,11 @@ describe("/subagents command", () => {
 		expect(commandSetup([]).completions()?.("nope")).toBeNull();
 	});
 
-	test("exposes no attach verb and no attach shortcut", () => {
+	test("exposes no attach verb and registers no global shortcuts", () => {
 		// Attaching was a hand-off between transports; a child is presented where it was spawned.
 		const setup = commandSetup([]);
 		expect(setup.completions()?.("att")).toBeNull();
-		expect(setup.shortcuts).toEqual(["ctrl+shift+s"]);
+		expect(setup.shortcuts).toEqual([]);
 	});
 
 	test("stops by id without opening the picker", async () => {

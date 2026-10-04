@@ -154,6 +154,7 @@ Rules:
 
 ### Editor-Adjacent UI
 
+- `pi-subagents` 不注册全局快捷键；用户通过 `/subagents` 命令管理 child，停止操作使用 `/subagents stop [id]`。
 - Widgets and rails are status-oriented, normally unframed, and do not take editor focus.
 - Use compact semantic formatting and stable left/right regions.
 - Preserve usable editor height; temporary status SHOULD disappear when no longer useful.
