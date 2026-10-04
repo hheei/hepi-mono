@@ -208,7 +208,7 @@ host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 
 
 三个管控工具按需注入：它们始终注册（Host 需要知道它们存在），但 session 开始时 `pi-ext-tools` 会真实停用
 它们一次（Host 会以 `includeAllExtensionTools` 激活全部 extension 工具，`/tree` 还会按 transcript 恢复），
-只有会话产生第一个后台任务时才激活（显式 `blocking: false`、60s auto-async 晋升，或其它
+只有会话产生第一个后台任务时才激活（显式 `blocking: false`，或其它
 `tasks.create()` 调用者，例如 `pi-subagents` 的 `task`）。任务跑完后普通对话轮次内保持激活，便于查看终态或收尾；
 只有在 `session_compact` 或 `session_tree` 这类宏观边界，且没有运行中的任务、也没有尚未确认读到的结果
 （`registry.requiresControl`）时才卸载，绝不因单轮结束而突变。`wait_tasks` 的
@@ -220,8 +220,7 @@ registry，因此共享同一套激活与通知策略，不再各自维护状态
 指针，绝不把已校验的结果截断成非法 JSON。
 
 后台 job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。缺省（不传 `blocking`）的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract。当本地普通前台调用未指定 `timeout` 且运行时间达到 `autoAsyncSeconds`（默认 60s，可通过 `pi-ext-tools.bash.autoAsyncSeconds` 配置，设为 0 禁用）时，该命令会自动晋升为后台任务（短 id `bash-1`），将当前 tool call 返回给 Agent 并附带截至超时前的输出快照，避免会话死锁；显式 `blocking: true`、显式指定 `timeout`、远程 SSH 任务或 admission 拒绝该转换（容量已满 /
-registry 已关闭）时不触发该自动化，后者会在结果里明确报告转换未发生。
+默认 shell 由平台环境决定。缺省（不传 `blocking`）的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract，默认超时为 180s（纯搜索命令为 25s）。显式 `blocking: false` 时在本地启动后台 job；远程 SSH 任务始终在前台执行，不支持后台运行。
 
 ## Tool Ownership
 

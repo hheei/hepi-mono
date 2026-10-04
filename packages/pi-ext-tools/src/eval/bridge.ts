@@ -226,7 +226,7 @@ function rejectNestedBash(args: unknown): void {
 	const value = args as Record<string, unknown>;
 	if (value.blocking === false) {
 		throw new Error(
-			"Eval cannot read a background result: pass `blocking: true` so the command finishes inside the cell. Omitting `blocking` only keeps the command in the cell while it is quick; once it outlives the auto-background delay the cell receives a task preview instead of the result.",
+			"Eval cannot read a background result: omit `blocking` or pass `blocking: true` so the command finishes inside the cell.",
 		);
 	}
 }

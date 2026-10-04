@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-tools",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Canonical Pi replacements for core coding tools.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -54,9 +54,9 @@
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "1.0.0",
-		"@earendil-works/pi-ai": "1.0.0",
-		"@earendil-works/pi-coding-agent": "1.0.0",
-		"@earendil-works/pi-tui": "1.0.0"
+		"@earendil-works/pi-agent-core": "1.0.2",
+		"@earendil-works/pi-ai": "1.0.2",
+		"@earendil-works/pi-coding-agent": "1.0.2",
+		"@earendil-works/pi-tui": "1.0.2"
 	}
 }
