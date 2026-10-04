@@ -148,10 +148,11 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		});
 	}
 
-	// Idle compaction is evaluated exclusively when a new message turn starts.
-	// We directly check timestamps against the last persisted settle time rather than
-	// running background timers, avoiding timer-related bugs on exit, resume, and fork.
+	// When a turn starts, clear any pending idle notice timer.
+	// Compaction itself runs only on this new message turn, avoiding background mutation while idle.
 	pi.on("before_agent_start", async (_event, ctx) => {
+		runtime.clearPendingIdleNoticeTimer();
+
 		if (runtime.config.passive === true) return;
 		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
 		if (runtime.compactInFlight) return;
@@ -177,21 +178,27 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		if (totalIdleSec < ttlSec) return;
 		if (!hasIdleCompactionWork(entries, runtime)) return;
 
-		const timeStr = formatIdleDuration(totalIdleSec);
-		const noticeText = `The conversation was idle for ${timeStr}. Compacting context before the next turn.`;
+		// If the idle notice was not emitted earlier (e.g. cold resume), emit it once now
+		if (!runtime.idleNoticeEmitted) {
+			runtime.idleNoticeEmitted = true;
+			const timeStr = formatIdleDuration(totalIdleSec);
+			const noticeText = `The conversation has idled for ${timeStr}. Compacting context before the next turn.`;
 
-		try {
-			pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
-		} catch {
-			// Ignore if appendEntry fails (e.g. unpersisted or detached session)
-		}
-
-		if (ctx.hasUI) {
 			try {
-				ctx.ui?.notify(noticeText, "info");
-			} catch {}
+				pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
+			} catch {
+				// Ignore if appendEntry fails (e.g. unpersisted or detached session)
+			}
+
+			if (ctx.hasUI) {
+				try {
+					ctx.ui?.notify(noticeText, "info");
+				} catch {}
+			}
 		}
+
 		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal);
+		runtime.idleNoticeEmitted = false;
 	});
 
 	// Track wait_jobs execution duration to count towards session idle lifespan
@@ -231,6 +238,50 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		// may outlive the extension ctx (stale after session replacement/reload).
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
+
+		// Idle notification is delivered directly once the idle TTL expires (one-off).
+		// Compaction execution itself is deferred to before_agent_start on the next turn.
+		if (runtime.config.idleCompactionTtlSeconds !== undefined && !runtime.config.passive) {
+			const ttlSec = runtime.config.idleCompactionTtlSeconds;
+			runtime.clearPendingIdleNoticeTimer();
+			runtime.idleNoticeEmitted = false;
+
+			runtime.pendingIdleNoticeTimer = setTimeout(
+				() => {
+					runtime.pendingIdleNoticeTimer = undefined;
+					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+					if (runtime.idleNoticeEmitted) return;
+					if (!ctx.isIdle()) return;
+
+					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
+					if (!currentEntries || !latestGateEnabled(currentEntries)) return;
+					if (!hasIdleCompactionWork(currentEntries, runtime)) return;
+
+					const nowSec = Math.floor(Date.now() / 1000);
+					const persistedSettledSec = findPersistedSettledTime(currentEntries, nowSec);
+					const elapsedSec =
+						persistedSettledSec !== undefined ? nowSec - persistedSettledSec : ttlSec;
+					const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
+					const totalIdleSec = elapsedSec + Math.floor(waitJobsDurationMs / 1000);
+					if (totalIdleSec < ttlSec) return;
+
+					runtime.idleNoticeEmitted = true;
+					const timeStr = formatIdleDuration(totalIdleSec);
+					const noticeText = `The conversation has idled for ${timeStr}. Next turn will compact context.`;
+
+					try {
+						pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
+					} catch {}
+
+					if (hasUI) {
+						try {
+							ui?.notify(noticeText, "info");
+						} catch {}
+					}
+				},
+				Math.max(0, ttlSec * 1000),
+			);
+		}
 
 		if (progress >= threshold) {
 			// Immediate compaction path
