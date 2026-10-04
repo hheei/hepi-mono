@@ -107,13 +107,10 @@ function bash(command: string, input: Record<string, unknown> = {}): TestBashEve
 	};
 }
 
-test("RTK rewrites eligible foreground Bash with the configured executable and audits the decision", async () => {
+test("RTK rewrites eligible foreground Bash with the configured executable without extra info", async () => {
 	const exec = vi.fn(async () => result(3, "rtk git status"));
 	const { runtime, info } = harness(exec);
 	const event = bash("git status");
-	info.mockImplementation(() => {
-		expect(event.input.command).toBe("git status");
-	});
 	await runtime.rewrite(event, context(), { enabled: true, path: "/tools/my rtk" });
 
 	expect(event.input.command).toBe("'/tools/my rtk' git status");
@@ -122,15 +119,7 @@ test("RTK rewrites eligible foreground Bash with the configured executable and a
 		["rewrite", "git status"],
 		expect.objectContaining({ timeout: 1_000, signal: expect.any(AbortSignal) }),
 	);
-	expect(info).toHaveBeenCalledWith(
-		expect.stringContaining("RTK ·"),
-		expect.objectContaining({
-			toolCallId: "call-7",
-			originalCommand: "git status",
-			executionCommand: "'/tools/my rtk' git status",
-			reason: "rtk rewrite",
-		}),
-	);
+	expect(info).not.toHaveBeenCalled();
 });
 
 test("RTK overlays use the configured executable for inferred and explicit calls", async () => {
@@ -140,10 +129,6 @@ test("RTK overlays use the configured executable for inferred and explicit calls
 	const explicit = bash("FOO=bar rtk git status && BAR=x rtk git diff");
 	const settings = { enabled: true, path: "/tools/my rtk" };
 	await runtime.rewrite(inferred, context(), settings);
-	info.mockClear();
-	info.mockImplementation(() => {
-		expect(explicit.input.command).toBe("FOO=bar rtk git status && BAR=x rtk git diff");
-	});
 	await runtime.rewrite(explicit, context(), settings);
 	await runtime.rewrite(bash("'/tools/my rtk' test bun test"), context(), settings);
 	expect(inferred.input.command).toBe("'/tools/my rtk' test bun test");
@@ -151,10 +136,7 @@ test("RTK overlays use the configured executable for inferred and explicit calls
 		"FOO=bar '/tools/my rtk' git status && BAR=x '/tools/my rtk' git diff",
 	);
 	expect(rewriteCalls(exec)).toBe(1);
-	expect(info).toHaveBeenCalledWith(
-		expect.stringContaining("RTK ·"),
-		expect.objectContaining({ reason: "configured RTK path" }),
-	);
+	expect(info).not.toHaveBeenCalled();
 });
 
 test("RTK leaves ineligible calls and unchanged rewrites unrecorded", async () => {
@@ -179,7 +161,7 @@ test("RTK leaves ineligible calls and unchanged rewrites unrecorded", async () =
 	expect(info).not.toHaveBeenCalled();
 });
 
-test("a repeated command reuses the cached rewrite and still audits the call", async () => {
+test("a repeated command reuses the cached rewrite without extra info", async () => {
 	const exec = vi.fn(async () => result(3, "rtk git status"));
 	const { runtime, info } = harness(exec);
 	const first = bash("git status");
@@ -189,15 +171,7 @@ test("a repeated command reuses the cached rewrite and still audits the call", a
 
 	expect(rewriteCalls(exec)).toBe(1);
 	expect(second.input.command).toBe("rtk git status");
-	expect(info).toHaveBeenCalledTimes(2);
-	expect(info).toHaveBeenLastCalledWith(
-		expect.stringContaining("RTK ·"),
-		expect.objectContaining({
-			toolCallId: "call-8",
-			executionCommand: "rtk git status",
-			reason: "rtk rewrite",
-		}),
-	);
+	expect(info).not.toHaveBeenCalled();
 });
 
 test("a cached no-match stays unrecorded and reset re-derives it", async () => {
@@ -333,10 +307,7 @@ test("a later session reuses the persisted rewrite instead of spawning rtk", asy
 	await second.runtime.rewrite(event, context(), enabled);
 	expect(rewriteCalls(secondExec)).toBe(0);
 	expect(event.input.command).toBe("rtk git status");
-	expect(second.info).toHaveBeenCalledWith(
-		expect.stringContaining("RTK \u00b7"),
-		expect.objectContaining({ executionCommand: "rtk git status", reason: "rtk rewrite" }),
-	);
+	expect(second.info).not.toHaveBeenCalled();
 });
 
 test("a different reported rtk version discards the stored decisions", async () => {
