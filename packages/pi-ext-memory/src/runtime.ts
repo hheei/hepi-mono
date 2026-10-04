@@ -172,6 +172,8 @@ export class Runtime {
 	lastEnforcerError: string | undefined;
 	lifecycleSignal?: AbortSignal | undefined;
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
+	pendingIdleNoticeTimer?: ReturnType<typeof setTimeout> | undefined;
+	idleNoticeEmitted = false;
 	accumulatedWaitJobsMs = 0;
 	currentWaitJobsStartMs?: number | undefined;
 
@@ -237,6 +239,8 @@ export class Runtime {
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
+		this.clearPendingIdleNoticeTimer();
+		this.idleNoticeEmitted = false;
 		this.lifecycleSignal = undefined;
 		this.sessionGeneration += 1;
 		this.consolidationInFlight = false;
@@ -271,6 +275,13 @@ export class Runtime {
 		if (this.pendingCompactionTimer !== undefined) {
 			clearTimeout(this.pendingCompactionTimer);
 			this.pendingCompactionTimer = undefined;
+		}
+	}
+
+	clearPendingIdleNoticeTimer(): void {
+		if (this.pendingIdleNoticeTimer !== undefined) {
+			clearTimeout(this.pendingIdleNoticeTimer);
+			this.pendingIdleNoticeTimer = undefined;
 		}
 	}
 

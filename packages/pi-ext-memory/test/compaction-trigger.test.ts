@@ -578,20 +578,85 @@ describe("V3 compaction trigger", () => {
 			expect(formatIdleDuration(90000)).toBe("1d 1h");
 		});
 
-		it("does not run or schedule idle compaction in agent_settled", async () => {
-			const { handler, runtime } = captureHandler({
+		it("notifies user directly once idle timeout expires without running compaction", async () => {
+			const { handler, runtime, pi } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
 				idleCompactionMinTokens: 1,
 			});
-			const branch = [rawMessage("raw-1", "hello"), validObsEntry];
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = [
+				rawMessage("raw-1", "some text for token estimation", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text for token estimation" }],
+					},
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
 			const ctx = fakeCtx([branch]);
 
 			handler(agentSettled(), ctx);
-			await vi.runAllTimersAsync();
+			expect(pi.appendEntry).not.toHaveBeenCalled();
 
+			// Advance timers to trigger the idle notification timer
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(
+						/The conversation has idled for 1m. Next turn will compact context./,
+					),
+				}),
+			);
+			expect(ctx.ui.notify).toHaveBeenCalledWith(
+				expect.stringMatching(/The conversation has idled for 1m. Next turn will compact context./),
+				"info",
+			);
+			// Crucial: compaction itself is NOT executed on the timer
 			expect(ctx.compact).not.toHaveBeenCalled();
 			expect(runtime.compactInFlight).toBe(false);
+			expect(runtime.idleNoticeEmitted).toBe(true);
+		});
+
+		it("does not repeat notice in before_agent_start when already notified at timeout", async () => {
+			const { handler, handlers, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = [
+				rawMessage("raw-1", "some text for token estimation", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text for token estimation" }],
+					},
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts) => opts?.onComplete?.()),
+			});
+
+			handler(agentSettled(), ctx);
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+			expect(runtime.idleNoticeEmitted).toBe(true);
+
+			// User starts the next turn
+			const beforeAgentStart = handlers.get("before_agent_start");
+			await beforeAgentStart?.({}, ctx);
+
+			// Compaction runs before the turn
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+			// Notification was ONE-OFF: appendEntry is not called again
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
 		});
 
 		it("checks cold context in before_agent_start and compacts before starting turn if idle threshold exceeded", async () => {
@@ -626,13 +691,13 @@ describe("V3 compaction trigger", () => {
 				OM_IDLE_NOTICE,
 				expect.objectContaining({
 					text: expect.stringMatching(
-						/The conversation was idle for 2m. Compacting context before the next turn./,
+						/The conversation has idled for 2m. Compacting context before the next turn./,
 					),
 				}),
 			);
 			expect(ctx.ui.notify).toHaveBeenCalledWith(
 				expect.stringMatching(
-					/The conversation was idle for 2m. Compacting context before the next turn./,
+					/The conversation has idled for 2m. Compacting context before the next turn./,
 				),
 				"info",
 			);
