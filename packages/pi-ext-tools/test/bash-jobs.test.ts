@@ -822,8 +822,8 @@ test("task tools activate on the first background task, survive turns, and unloa
 	await tasks.wait([secondId]);
 });
 
-test("activation follows running tasks across boundaries and auto-async transitions", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
+test("activation follows running tasks across boundaries", async (): Promise<void> => {
+	const { host, tasks } = taskControlSession();
 	const runningId = taskIdOf(
 		await toolFor(host.tools, "bash").execute(
 			"bash-boundary-running",
@@ -873,7 +873,7 @@ test("activation follows running tasks across boundaries and auto-async transiti
 });
 
 test("a boundary restores control tools the host re-activated behind a waiting result", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession({ autoAsyncSeconds: 0.05 });
+	const { host, tasks } = taskControlSession();
 	const running = taskIdOf(
 		await toolFor(host.tools, "bash").execute(
 			"bash-tree-restore",
