@@ -125,6 +125,14 @@ with `npm publish`. Host-provided `typebox` belongs in `peerDependencies` with a
 not runtime dependencies. These checks also apply to ext-core and other shared packages.
 A real tag or publish still requires explicit approval for that exact version and action.
 
+Release CI uses [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)
+through GitHub Actions OIDC, not a long-lived token secret. The publish job explicitly
+installs npm 11.21.0: OIDC publishing requires npm CLI >=11.5.1 and Node >=22.14.0;
+the npm bundled with Node 22.19.0 is too old. Keep `id-token: write` enabled.
+Each public package's npm Trusted Publisher must match `hheei`, `hepi-mono`, and
+`release.yml` (filename only), permit direct `npm publish`, and omit an environment
+restriction unless the publish job declares the same GitHub environment.
+
 ## Package Checklist
 
 Before considering an extension ready:
