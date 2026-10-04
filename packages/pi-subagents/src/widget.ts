@@ -79,7 +79,10 @@ export function renderSubagentWidget(
 		const glyphStyled = theme.fg(tone, glyph);
 		const idStyled = theme.fg("dim", `#${child.id}`);
 		const nameStyled = theme.fg("text", child.displayName ?? child.agent);
-		const elapsed = formatElapsed(child.createdAt, nowMs);
+		const elapsed = formatElapsed(
+			child.createdAt,
+			isTerminalState(child.state) ? Date.parse(child.updatedAt) : nowMs,
+		);
 		const timeStyled = theme.fg("dim", elapsed === "" ? "0s" : elapsed);
 		const stateStyled = theme.fg(tone, visual);
 		const turnsCount = child.usage?.turns ?? 0;

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	createSubagentWidget,
 	formatElapsed,
@@ -164,5 +164,36 @@ describe("subagent widget projection", () => {
 		);
 		expect(lines[1]).toContain("bash");
 		expect(lines[1]).not.toContain("previous turn summary");
+	});
+
+	test("freezes terminal elapsed and stops the timer when the error row expires", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+		const controller = new AbortController();
+		try {
+			const failed = child({ state: "error", updatedAt: new Date().toISOString() });
+			for (const now of [Date.now(), Date.now() + 10_000]) {
+				const row = renderSubagentWidget([failed], 200, identityTheme, now)[1];
+				expect(row).toContain("10s");
+				expect(row).toContain("error");
+			}
+			const setWidget = vi.fn();
+			const widget = createSubagentWidget(
+				{ events: {} } as unknown as ExtensionAPI,
+				{ mode: "tui", ui: { setWidget } } as unknown as ExtensionContext,
+				controller.signal,
+				[child()],
+			);
+			if (widget === undefined) throw new Error("expected widget");
+			widget.refresh([failed]);
+			expect(vi.getTimerCount()).toBeGreaterThan(0);
+			vi.advanceTimersByTime(15_000);
+			expect(setWidget.mock.calls.at(-1)?.[1]).toBeUndefined();
+			expect(vi.getTimerCount()).toBe(0);
+			widget.dispose();
+		} finally {
+			controller.abort();
+			vi.useRealTimers();
+		}
 	});
 });

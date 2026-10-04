@@ -40,7 +40,7 @@ for (const field of ["dependencies", "optionalDependencies"]) {
 				() =>
 					validatePackedDependencies({
 						name: "fixture",
-						[field]: { [name]: "1.0.0" },
+						[field]: { [name]: "1.0.2" },
 					}),
 				/host-provided/,
 			);

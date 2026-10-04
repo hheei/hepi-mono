@@ -326,6 +326,67 @@ async function withTempDirPath(): Promise<string> {
 }
 
 describe("SubagentManager over the bridge", () => {
+	test("settles failed startup and reports persisted identity and retry safety", async () => {
+		const test1 = await harness();
+		test1.launch.mockImplementation(async () => ({ failure: "bridge startup failed" }));
+		expect(await test1.manager.spawn({ agent: "worker", task: "work" })).toMatchObject({
+			childId: "sa_child1",
+			state: "error",
+			safeToRetry: true,
+			sideEffects: ["registry record persisted", "no runtime remains"],
+		});
+		expect(await test1.manager.get("sa_child1")).toMatchObject({
+			state: "error",
+			interrupted: "bridge startup failed",
+		});
+		expect(test1.manager.activeCount).toBe(0);
+	});
+
+	test("does not permit retry after an unconfirmed panel startup", async () => {
+		const test1 = await harness({ host: true });
+		test1.openPanel.mockImplementation(async () => ({
+			unconfirmed: true,
+			failure: "host timeout",
+		}));
+		expect(await test1.manager.spawn({ agent: "worker", task: "work" })).toMatchObject({
+			childId: "sa_child1",
+			state: "error",
+			safeToRetry: false,
+		});
+		expect(test1.manager.activeCount).toBe(0);
+		expect(await test1.manager.send("sa_child1", "continue")).toMatchObject({ safeToRetry: false });
+	});
+
+	test("discards an automatic report if a new turn starts during transcript inspection", async () => {
+		const test1 = await harness({ host: true, idleTimeoutMs: 60_000 });
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "work" });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		let resolveEntries: (entries: unknown) => void = () => {};
+		const entries = new Promise<unknown>((resolve) => {
+			resolveEntries = resolve;
+		});
+		const getEntries = vi.fn(() => entries);
+		test1.bridge.responses.set(`${spawned.child.id}:get_entries`, getEntries);
+		test1.bridge.emit(spawned.child.id, { type: "agent_settled" });
+		await vi.waitFor(() => expect(getEntries).toHaveBeenCalled(), { timeout: 6_000 });
+		test1.bridge.emit(spawned.child.id, { type: "agent_start" });
+		resolveEntries({ entries: [{ message: { role: "assistant", content: "old answer" } }] });
+		await vi.waitFor(async () =>
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "running" }),
+		);
+		expect(test1.reports).toHaveLength(0);
+		expect(test1.manager.activeCount).toBe(1);
+		test1.bridge.emit(spawned.child.id, { type: "tool_execution_start", toolName: "bash" });
+		await vi.waitFor(async () =>
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+				state: "running",
+				activeTool: "bash",
+			}),
+		);
+		expect(test1.reports).toHaveLength(0);
+		expect(test1.panels.get(spawned.child.id)?.cleanups).toBe(0);
+		await test1.manager.stop(spawned.child.id);
+	}, 10_000);
 	test("spawns a child, delivers the task over the bridge, and reports it running", async () => {
 		const test1 = await harness();
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });

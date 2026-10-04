@@ -216,6 +216,15 @@ export async function launchChild(
 		};
 	}
 	options.tokens.forget(plan.runtimeIdentity);
+	await options.registry.update(
+		record.subagentId,
+		undefined,
+		(current) => {
+			const { runtime: _runtime, ...rest } = current;
+			return rest;
+		},
+		plan.runtimeIdentity,
+	);
 	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
 }
 
@@ -285,6 +294,15 @@ export async function openChildPanel(
 		};
 	}
 	options.tokens.forget(plan.runtimeIdentity);
+	await options.registry.update(
+		record.subagentId,
+		undefined,
+		(current) => {
+			const { runtime: _runtime, ...rest } = current;
+			return rest;
+		},
+		plan.runtimeIdentity,
+	);
 	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
 }
 

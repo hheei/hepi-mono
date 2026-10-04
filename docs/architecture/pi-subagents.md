@@ -34,6 +34,14 @@ panel 中 child 的外部退出与 `stop_agent` 则落终态 `stopped`：send �
 提示新建 child；session 文件仍保留。runtime 死活不明时同样明确拒绝，不启动第二个 writer，
 不增加 panel 身份持久化或恢复探测。
 
+启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
+已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。
+新 runtime 的 bridge 启动窗口为 20 秒，旧 runtime 的恢复窗口仍为 5 秒；启动包含宿主命令和清理，
+manager 的默认启动 deadline 为 60 秒。`forkFrom` 只是上下文文件引用，bridge 启动失败不等于引用解析失败。
+自动汇报读取 transcript 后必须重新核对工作版本、入站活动和当前状态；过期汇报不能覆盖新 turn 或触发回收。
+widget 在终态冻结 elapsed，保留展示 15 秒后隐藏并停止刷新计时器。宿主确认进程退出不能说明是人工关闭，
+诊断不得将退出原因归到用户。
+
 ## Unified background tasks
 
 子 Agent 的生命周期由 `SubagentManager` 通过 `bindTaskRegistry` 统一接入 ext-core 的 `TaskRegistry`，与后台 Bash 任务共享同一套 `wait_tasks` 跟踪与管理体系（契约见 [`background-tasks.md`](background-tasks.md)）。
