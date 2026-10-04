@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packValidatedPackage } from "./package-artifact.mjs";
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run") || process.env.DRY_RUN === "true";
@@ -68,17 +72,22 @@ for (const pkg of publicPackages) {
 	}
 
 	console.log(`Publishing ${packageSpec}...`);
-	const publishArgs = ["--filter", pkg.name, "publish", "--access", "public", "--no-git-checks"];
-	if (isDryRun) publishArgs.push("--dry-run");
-	else if (isCi) publishArgs.push("--provenance");
-
-	const result = spawnSync("pnpm", publishArgs, {
-		cwd: repoRoot,
-		stdio: "inherit",
-		env: process.env,
-	});
-	if (result.status !== 0) {
-		throw new Error(`Failed to publish ${packageSpec} (exit ${result.status ?? "unknown"})`);
+	const destination = mkdtempSync(join(tmpdir(), "pi-package-publish-"));
+	try {
+		const tarball = packValidatedPackage(pkg, destination);
+		const publishArgs = ["publish", tarball, "--access", "public", "--ignore-scripts"];
+		if (isDryRun) publishArgs.push("--dry-run");
+		else if (isCi) publishArgs.push("--provenance");
+		const result = spawnSync("npm", publishArgs, {
+			cwd: repoRoot,
+			stdio: "inherit",
+			env: process.env,
+		});
+		if (result.status !== 0) {
+			throw new Error(`Failed to publish ${packageSpec} (exit ${result.status ?? "unknown"})`);
+		}
+	} finally {
+		rmSync(destination, { recursive: true, force: true });
 	}
 	publishedCount++;
 }
