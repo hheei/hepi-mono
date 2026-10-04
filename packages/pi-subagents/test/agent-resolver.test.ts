@@ -578,7 +578,7 @@ test("codemode only detection appends codemode to tools and marks codemodeOnly",
 		// Agent with explicit codemode: only in frontmatter
 		await writeAgent(
 			directory,
-			"project",
+			".agents",
 			"code-worker",
 			[
 				"---",
@@ -606,7 +606,7 @@ test("codemode only detection appends codemode to tools and marks codemodeOnly",
 
 		await writeAgent(
 			directory,
-			"project",
+			".agents",
 			"plain-worker",
 			[
 				"---",

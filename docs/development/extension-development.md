@@ -117,8 +117,13 @@ pnpm run publish:dry-run
 The build step compiles packages with generated `dist/` artifacts; source-entry packages
 are validated from their declared files. The artifact-validation step then verifies every
 publishable package, and the final command inventories each npm tarball and simulates
-publication. A real tag or publish still requires explicit approval for that exact version
-and action.
+publication. Validation reads the actual tarball manifest and rejects unresolved
+`workspace:`, `link:` and `file:` dependency ranges and bundled host runtime dependencies.
+The publisher uses `pnpm pack` to resolve workspace ranges, validates the resulting archive,
+then passes that same archive to `npm publish`; never publish a workspace source directory
+with `npm publish`. Host-provided `typebox` belongs in `peerDependencies` with a `"*"` range,
+not runtime dependencies. These checks also apply to ext-core and other shared packages.
+A real tag or publish still requires explicit approval for that exact version and action.
 
 ## Package Checklist
 

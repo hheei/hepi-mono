@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-subagents",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Independent background Pi subagent sessions with durable identity and RPC control.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -39,12 +39,12 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:^",
-		"typebox": "1.3.27"
+		"@hheei/pi-ext-core": "workspace:^"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": ">=1.0.0",
-		"@earendil-works/pi-tui": ">=1.0.0"
+		"@earendil-works/pi-tui": ">=1.0.0",
+		"typebox": "*"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "1.0.0",
