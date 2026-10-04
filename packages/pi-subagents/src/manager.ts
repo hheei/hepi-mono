@@ -478,7 +478,8 @@ export class SubagentManager {
 				...withoutRuntime,
 				intent: "stopped",
 				state: "error",
-				interrupted: "The child panel was closed while running; spawn a new child for more work",
+				interrupted:
+					"The host reports that the child process exited while running; the cause is unknown. Spawn a new child for more work",
 			};
 		});
 		if (retired !== undefined) this.#deps.tokens?.forget(retired);
@@ -535,7 +536,9 @@ export class SubagentManager {
 		this.#clearAutoReport(id);
 		const timer = setTimeout(() => {
 			this.#autoReportTimers.delete(id);
-			void this.#performAutoReport(id, record);
+			void this.#performAutoReport(id, record).catch((error: unknown) => {
+				diagnose(`failed to report child ${id}: ${errorMessage(error)}`);
+			});
 		}, 5_000);
 		timer.unref?.();
 		this.#autoReportTimers.set(id, timer);
@@ -581,7 +584,12 @@ export class SubagentManager {
 	async #closeSettledPanel(id: string): Promise<void> {
 		await this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
-			if (record === undefined || record.state === "running" || record.intent === "stopped") {
+			if (
+				record === undefined ||
+				record.state === "running" ||
+				record.intent === "stopped" ||
+				this.#working.has(id)
+			) {
 				return;
 			}
 			const attachment = this.#attachments.get(id);
@@ -649,90 +657,104 @@ export class SubagentManager {
 		if (this.#working.has(id)) return;
 		const record = (await this.#deps.registry.get(id)) ?? _record;
 		if (record.intent === "stopped" || record.state === "running") return;
+		const activity = this.#activity.get(id) ?? 0;
+		const workVersion = this.#workVersions.get(id) ?? 0;
 
 		const entries = await this.#entries(id);
 		const text = entries !== undefined ? extractLastAssistantText(entries) : undefined;
+		await this.#mutate(id, async () => {
+			const current = await this.#deps.registry.get(id);
+			if (
+				current === undefined ||
+				current.intent === "stopped" ||
+				current.state === "running" ||
+				this.#working.has(id) ||
+				(this.#activity.get(id) ?? 0) !== activity ||
+				(this.#workVersions.get(id) ?? 0) !== workVersion
+			)
+				return;
 
-		const hasError =
-			record.state === "error" ||
-			(record.interrupted !== undefined && record.interrupted.trim() !== "");
+			const hasError =
+				record.state === "error" ||
+				(record.interrupted !== undefined && record.interrupted.trim() !== "");
 
-		const isBlocked = hasError;
+			const isBlocked = hasError;
 
-		if (!isBlocked && (text === undefined || text.trim() === "")) {
-			const projector = this.#projectors.get(id);
-			if (projector !== undefined) {
-				projector.syncState("done");
-			}
-			await this.#update(id, (current) => {
-				const { interrupted: _interrupted, ...clean } = current;
-				return {
-					...clean,
-					state: "done",
-				};
-			});
-			if (this.#taskRegistry !== undefined) {
-				this.#taskRegistry.settle(id, {
-					status: "completed",
-					output: "",
-					truncated: false,
-				});
-			}
-			return;
-		}
-
-		let message: string;
-		if (isBlocked) {
-			if (record.interrupted !== undefined && record.interrupted.trim() !== "") {
-				message =
-					text !== undefined && text.trim() !== ""
-						? `${record.interrupted}\n\n${text}`
-						: record.interrupted;
-			} else if (text !== undefined && text.trim() !== "") {
-				message = text;
-			} else {
-				message = "Subagent became idle without completing its task (interrupted or failed).";
-			}
-		} else {
-			message = text ?? "";
-		}
-
-		if (this.#lastDeliveredTurn.get(id) === message) return;
-		this.#lastDeliveredTurn.set(id, message);
-
-		const reason = isBlocked ? "blocked" : "success";
-		const taskStatus = isBlocked ? "failed" : "completed";
-
-		const projector = this.#projectors.get(id);
-		const updatedRecord = !isBlocked
-			? await this.#update(id, (current) => {
+			if (!isBlocked && (text === undefined || text.trim() === "")) {
+				const projector = this.#projectors.get(id);
+				if (projector !== undefined) {
+					projector.syncState("done");
+				}
+				await this.#update(id, (current) => {
 					const { interrupted: _interrupted, ...clean } = current;
 					return {
 						...clean,
 						state: "done",
 					};
-				})
-			: await this.#update(id, (current) => ({
-					...current,
-					state: "blocked",
-					interrupted: current.interrupted ?? message,
-				}));
+				});
+				if (this.#taskRegistry !== undefined) {
+					this.#taskRegistry.settle(id, {
+						status: "completed",
+						output: "",
+						truncated: false,
+					});
+				}
+				return;
+			}
 
-		if (projector !== undefined) {
-			projector.syncState(isBlocked ? "blocked" : "done");
-		}
-		this.#scheduleSettledPanelClose(id);
+			let message: string;
+			if (isBlocked) {
+				if (record.interrupted !== undefined && record.interrupted.trim() !== "") {
+					message =
+						text !== undefined && text.trim() !== ""
+							? `${record.interrupted}\n\n${text}`
+							: record.interrupted;
+				} else if (text !== undefined && text.trim() !== "") {
+					message = text;
+				} else {
+					message = "Subagent became idle without completing its task (interrupted or failed).";
+				}
+			} else {
+				message = text ?? "";
+			}
 
-		if (this.#deps.channel !== undefined) {
-			await this.contactParent(id, reason, message, updatedRecord);
-		}
-		if (this.#taskRegistry !== undefined) {
-			this.#taskRegistry.settle(id, {
-				status: taskStatus,
-				output: message,
-				truncated: false,
-			});
-		}
+			if (this.#lastDeliveredTurn.get(id) === message) return;
+			this.#lastDeliveredTurn.set(id, message);
+
+			const reason = isBlocked ? "blocked" : "success";
+			const taskStatus = isBlocked ? "failed" : "completed";
+
+			const projector = this.#projectors.get(id);
+			const updatedRecord = !isBlocked
+				? await this.#update(id, (current) => {
+						const { interrupted: _interrupted, ...clean } = current;
+						return {
+							...clean,
+							state: "done",
+						};
+					})
+				: await this.#update(id, (current) => ({
+						...current,
+						state: "blocked",
+						interrupted: current.interrupted ?? message,
+					}));
+
+			if (projector !== undefined) {
+				projector.syncState(isBlocked ? "blocked" : "done");
+			}
+			this.#scheduleSettledPanelClose(id);
+
+			if (this.#deps.channel !== undefined) {
+				await this.contactParent(id, reason, message, updatedRecord);
+			}
+			if (this.#taskRegistry !== undefined) {
+				this.#taskRegistry.settle(id, {
+					status: taskStatus,
+					output: message,
+					truncated: false,
+				});
+			}
+		});
 	}
 
 	/** Reads a child's session entries; exposed for Task completion inspection. */
@@ -1017,7 +1039,7 @@ export class SubagentManager {
 			childId = record.subagentId;
 			this.#working.add(childId);
 			this.#notify();
-			await withDeadline(this.#start(record), this.#deps.deadlineMs ?? 30_000);
+			await withDeadline(this.#start(record), this.#deps.deadlineMs ?? 60_000);
 			try {
 				await this.#request(record.subagentId, "prompt", { message: cleanTask });
 			} catch (error) {
@@ -1080,15 +1102,36 @@ export class SubagentManager {
 				...(placement.note === undefined ? {} : { note: placement.note }),
 			};
 		} catch (error) {
-			if (
-				childId !== undefined &&
-				!this.#runtimeStarted(childId) &&
-				!this.#unresolvedRuntimes.has(childId)
-			) {
-				this.#working.delete(childId);
-			}
-			this.#notify();
-			return failure("spawn", errorMessage(error), undefined, undefined, [], true);
+			if (childId === undefined) return failure("spawn", errorMessage(error));
+			const failedId = childId;
+			const reason = errorMessage(error);
+			const failed = await this.#mutate(failedId, async () => {
+				const record = await this.#deps.registry.get(failedId);
+				const uncertain =
+					this.#runtimeStarted(failedId) ||
+					this.#unresolvedRuntimes.has(failedId) ||
+					record?.runtime !== undefined;
+				if (uncertain) this.#unresolvedRuntimes.add(failedId);
+				if (!this.#isLive(failedId)) this.#working.delete(failedId);
+				await this.#update(failedId, (current) => ({
+					...current,
+					state: "error",
+					interrupted: reason,
+				}));
+				this.#projectors.get(failedId)?.syncState("error");
+				return failure(
+					"spawn",
+					reason,
+					failedId,
+					"error",
+					[
+						"registry record persisted",
+						...(uncertain ? ["runtime start or cleanup unconfirmed"] : ["no runtime remains"]),
+					],
+					!uncertain,
+				);
+			});
+			return failed;
 		}
 	}
 
@@ -1099,6 +1142,7 @@ export class SubagentManager {
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
 		const message = stripHindsightContent(rawMessage);
+		this.#bumpActivity(id);
 		this.#clearSettledPanelClose(id);
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
@@ -1152,7 +1196,7 @@ export class SubagentManager {
 					this.#projectors.set(id, createStateProjector(resumedRecord.state));
 				}
 				try {
-					await withDeadline(this.#start(resumedRecord), this.#deps.deadlineMs ?? 30_000);
+					await withDeadline(this.#start(resumedRecord), this.#deps.deadlineMs ?? 60_000);
 					isResumed = true;
 				} catch (error) {
 					const reason = errorMessage(error);

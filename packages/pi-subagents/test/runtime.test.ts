@@ -192,8 +192,8 @@ describe("launching a child runtime", () => {
 			expect(launched.handle).toBeUndefined();
 
 			const current = await registry.get("sa_silent");
-			// The evidence of which runtime was asked for stays; its token does not.
-			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
+			// Confirmed cleanup leaves no runtime evidence that could block a safe retry.
+			expect(current?.runtime).toBeUndefined();
 			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeUndefined();
 		});
 	});
@@ -321,7 +321,7 @@ describe("opening a child in a host panel", () => {
 
 			expect(cleanups()).toBe(1);
 			const current = await registry.get("sa_panel");
-			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
+			expect(current?.runtime).toBeUndefined();
 			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeUndefined();
 		});
 	});

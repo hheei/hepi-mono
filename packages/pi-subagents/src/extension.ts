@@ -40,6 +40,7 @@ const CHILD_ENV_KEYS = Object.values(BRIDGE_ENVIRONMENT_KEYS);
 
 /** How long startup waits for a child that survived a parent restart to reconnect its bridge. */
 const ADOPT_WINDOW_MS = 5_000;
+const START_WINDOW_MS = 20_000;
 
 function diagnose(message: string): void {
 	if (process.env.DEBUG || process.env.PI_SUBAGENTS_DEBUG) {
@@ -286,7 +287,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						tokens,
 						waitForBridge: (childId, signal) =>
 							server.waitForConnection(childId, {
-								timeoutMs: ADOPT_WINDOW_MS,
+								timeoutMs: START_WINDOW_MS,
 								...(signal === undefined ? {} : { signal }),
 							}),
 						signal: runtime.signal,
@@ -305,7 +306,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 										host: hostSelection.adapter,
 										waitForBridge: (childId, signal) =>
 											server.waitForConnection(childId, {
-												timeoutMs: ADOPT_WINDOW_MS,
+												timeoutMs: START_WINDOW_MS,
 												...(signal === undefined ? {} : { signal }),
 											}),
 										signal: runtime.signal,

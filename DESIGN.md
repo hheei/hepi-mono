@@ -125,6 +125,8 @@ Rules:
 - opt-in `eval` 使用共享 `ToolTui`，label 为 `eval py`（唯一 kernel 是 Python）。call phase 的 header 只有 label 与 call facts：dim `(reset)` 与 dim `(timeout Ns)`，并声明 `headerLine: "truncate"`。code cell 本身是 request body：逐行原样显示、按宽度换行、剥离终端控制序列，保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）；header 因此只写 body 看不到的调用事实，不重复 code。result phase 按 execution 顺序显示 printed text、bounded display values、nested tool traces 与 final value：每个 printed line 一行，结尾换行只结束当前行而不额外产生空行，kernel 分块送来的同一行改写该行而不新开一行，空行仍是独立一行，且行内不保留 cell 打印的终端控制序列；display value 与 final value 各带 dim `display:` / `result:` label。未展开时最多 10 行，随后显示 `N output row(s) · duration` footer，仅当本 cell 真的调用过 nested tool 时才追加 `N nested call(s)`。nested trace 优先复用该 canonical tool 的 renderer；unavailable historical renderer 降级为 typed name、input summary 与 result/error summary。details 缺失时保留 persisted model-visible text，不重跑 code 或读取 workspace。current、partial、final、cross-trace 与 resumed rendering 都只有一套 ToolTui frame；宽度与 collapse 规则沿用本节通用 contract。Eval settings form presents `Enable Eval`, `Enable Code Mode`, and `Python interpreter`; Code Mode remains visibly inactive until its exposition is implemented, and all values apply after reload or a new session.
 - NEVER fabricate counts, metrics, deltas, or success state absent from the underlying result.
 
+- `pi-subagents` 的终态行冻结 elapsed 于该终态的 `updatedAt`，不继续显示增长的运行时间；15 秒保留窗口结束后隐藏。启动失败必须刷新为错误状态，不能留下持续计时的 `running` 行。
+
 ### Lists and Forms
 
 - Lists keep one focus point, stable selection/indentation slots, and stable columns while scrolling.
