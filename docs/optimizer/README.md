@@ -49,9 +49,9 @@ Prompt 复用 OMP 原文与档位逻辑，通过 `setPromptSection()` 写入自�
 
 RTK 复用现有 Pi 的 signal/timeout/custom path/失败处理，以官方 rewrite 为主，仅对可安全识别的命令应用 OMP 补充规则。跳过非 local Target、PTY、async 与已经包装的命令。不能把有限 quote scanner 当完整 shell parser。只在 rewrite 查询失败且命令尚未执行时回到原命令；已执行的命令失败后绝不自动重跑。取消或 session 替换后的异步结果不得更新命令或新 session 状态。
 
-命令重写与失败必须可检查，保留原命令及执行命令的可见记录；headless/RPC 不能仅依赖 transient notification。Output 保存实际子进程输出，即 RTK 模式下的过滤后输出，不承诺还原 RTK 丢弃的原始文本。用户可在执行前关闭 RTK 获得未过滤输出；本次不增加 raw capture。
+RTK 成功应用（含缓存命中及自定义路径替换）不追加提示或 `optimizer-info` entry；实际执行命令由 bash 工具调用展示。查询失败与缓存异常仍通过持久化 info 告警，headless/RPC 不能仅依赖 transient notification。Output 保存实际子进程输出，即 RTK 模式下的过滤后输出，不承诺还原 RTK 丢弃的原始文本。用户可在执行前关闭 RTK 获得未过滤输出；本次不增加 raw capture。
 
-所有实际注入统一使用 Pi 原生 `optimizer-info` custom entry：T2S 仅在文本改变时记录原文/结果；Prompt 每轮注入时记录启用档位及完整注入片段；RTK 记录原命令/执行命令或查询失败原因。Settings 保存成功与错误也进入同一 info 流。使用 `appendEntry` + `registerEntryRenderer`，不使用 steering/custom message 队列：TUI 在 `entry_appended` 时立即显示，resume 可重放，且记录不进入模型上下文、不触发额外 turn。默认显示紧凑 info 摘要，展开保留完整 payload；不是仅显示 transient notify，也不另造审计框架。
+需要展示的注入与异常统一使用 Pi 原生 `optimizer-info` custom entry：T2S 仅在文本改变时记录原文/结果；Prompt 每轮注入时记录启用档位及完整注入片段；RTK 仅记录查询失败或缓存异常，不记录成功应用提示。Settings 保存成功与错误也进入同一 info 流。使用 `appendEntry` + `registerEntryRenderer`，不使用 steering/custom message 队列：TUI 在 `entry_appended` 时立即显示，resume 可重放，且记录不进入模型上下文、不触发额外 turn。默认显示紧凑 info 摘要，展开保留完整 payload；不是仅显示 transient notify，也不另造审计框架。
 
 Settings schema 同时定义运行时类型与有效值，原生菜单/参数命令复用 provider 字段，不重复维护档位分支。原子保存、取消和会话身份边界由当前 provider/storage contract 统一处理。
 

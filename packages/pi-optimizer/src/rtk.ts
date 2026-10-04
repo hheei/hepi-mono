@@ -206,15 +206,6 @@ export function createRtkRuntime(
 			const trimmed = command.trimStart();
 			const environment = trimmed.match(LEADING_ENV_ASSIGNMENT)?.[0] ?? "";
 			const invocation = trimmed.slice(environment.length);
-			const notify = (executionCommand: string, reason: string): void => {
-				info(`RTK · ${command} → ${executionCommand}`, {
-					toolCallId: event.toolCallId,
-					originalCommand: command,
-					executionCommand,
-					reason,
-				});
-				input.command = executionCommand;
-			};
 			if (/^rtk(?:\s|$)/.test(invocation)) {
 				if (!settings.path || executable === "rtk") return;
 				let executionCommand = applyRtkOverlays(command, command, executable);
@@ -223,7 +214,7 @@ export function createRtkRuntime(
 						command.slice(0, command.length - trimmed.length) +
 						environment +
 						invocation.replace(/^rtk/u, executable);
-				notify(executionCommand, "configured RTK path");
+				input.command = executionCommand;
 				return;
 			}
 			if (invocation === executable || invocation.startsWith(`${executable} `)) return;
@@ -234,7 +225,7 @@ export function createRtkRuntime(
 			const cached = rewrites.get(cacheKey);
 			if (cached === null) return;
 			if (cached !== undefined) {
-				notify(cached, "rtk rewrite");
+				input.command = cached;
 				return;
 			}
 			const failure = (reason: string): void =>
@@ -287,7 +278,7 @@ export function createRtkRuntime(
 			}
 			remember(cacheKey, executionCommand);
 			saveCache();
-			notify(executionCommand, "rtk rewrite");
+			input.command = executionCommand;
 		},
 		reset(): void {
 			for (const controller of activeQueries) controller.abort();

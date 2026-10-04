@@ -36,7 +36,7 @@ const model: Model<"openai-completions"> = {
 
 const inputSchema = Type.Object({ command: Type.String() });
 
-test("the real Pi agent executes rewritten native Bash arguments after recording a model-invisible audit", async () => {
+test("the real Pi agent executes rewritten native Bash arguments without extra info", async () => {
 	const sessionManager = SessionManager.inMemory(tmpdir());
 	const info = createOptimizerInfo({
 		appendEntry: (type, data) => sessionManager.appendCustomEntry(type, data),
@@ -89,20 +89,8 @@ test("the real Pi agent executes rewritten native Bash arguments after recording
 				{ signal } as ExtensionContext,
 				{ enabled: true, path: "configured-rtk" },
 			);
-			expect(sessionManager.getEntries()).toContainEqual(
-				expect.objectContaining({
-					type: "custom",
-					customType: "optimizer-info",
-					data: expect.objectContaining({
-						summary: expect.stringContaining("RTK ·"),
-						details: expect.objectContaining({
-							toolCallId: "optimizer-bash-call",
-							originalCommand: "printf optimizer-original",
-							executionCommand: "printf optimizer-rewritten",
-						}),
-					}),
-				}),
-			);
+			expect(args.command).toBe("printf optimizer-rewritten");
+			expect(sessionManager.getEntries()).toEqual([]);
 			return undefined;
 		},
 		finishTurn: () => ({ action: "end" }),
