@@ -703,6 +703,117 @@ describe("V3 compaction trigger", () => {
 			);
 		});
 
+		it("schedules remaining idle delay on session resume and notifies at exact timeout", async () => {
+			const { handlers, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			// Settled 40s ago; with 60s TTL, remaining delay is 20s
+			const branch = [
+				rawMessage("raw-1", "some text for token estimation", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text for token estimation" }],
+					},
+					timestamp: new Date((nowSec - 40) * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch]);
+
+			const sessionStart = handlers.get("session_start");
+			expect(sessionStart).toBeDefined();
+
+			await sessionStart?.({ reason: "resume" }, ctx);
+
+			// At 10s into resume (total 50s): notice should NOT be emitted yet
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+
+			// At 20s into resume (total 60s): notice emitted directly!
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(
+						/The conversation has idled for 1m. Next turn will compact context./,
+					),
+				}),
+			);
+		});
+
+		it("emits notice immediately on resume or fork when already past idle TTL", async () => {
+			const { handlers, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			// Settled 120s ago (already > 60s TTL)
+			const branch = [
+				rawMessage("raw-1", "some text for token estimation", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text for token estimation" }],
+					},
+					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch]);
+
+			const sessionStart = handlers.get("session_start");
+			await sessionStart?.({ reason: "fork" }, ctx);
+
+			// Immediately emitted on start/fork without waiting
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(
+						/The conversation has idled for 2m. Next turn will compact context./,
+					),
+				}),
+			);
+		});
+
+		it("does not duplicate notice on resume if notice was already persisted in branch", async () => {
+			const { handlers, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = [
+				rawMessage("raw-1", "some text for token estimation", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text for token estimation" }],
+					},
+					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
+				}),
+				validObsEntry,
+				{
+					type: "custom",
+					id: "notice-1",
+					parentId: null,
+					customType: OM_IDLE_NOTICE,
+					data: { text: "already notified" },
+					timestamp: new Date((nowSec - 60) * 1000).toISOString(),
+				},
+			];
+			const ctx = fakeCtx([branch]);
+
+			const sessionStart = handlers.get("session_start");
+			await sessionStart?.({ reason: "resume" }, ctx);
+
+			// Notice already persisted: zero new appendEntry calls
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+		});
+
 		it("skips compaction in before_agent_start if idle threshold has not been exceeded", async () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,

@@ -15,6 +15,34 @@ import { formatTokensK } from "../tokens.js";
 
 export const OM_IDLE_NOTICE = "om:idle-notice";
 
+/**
+ * Checks whether an OM_IDLE_NOTICE entry has already been appended to this branch
+ * after the latest completed assistant message or compaction entry.
+ */
+export function hasPersistedIdleNotice(entries: Entry[]): boolean {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry) continue;
+		if (
+			entry.type === "custom" &&
+			(entry as { customType?: string }).customType === OM_IDLE_NOTICE
+		) {
+			return true;
+		}
+		const isCompletedAssistant =
+			entry.type === "message" &&
+			isRecord(entry.message) &&
+			entry.message.role === "assistant" &&
+			entry.message.stopReason !== "toolUse" &&
+			entry.message.stopReason !== "aborted" &&
+			entry.message.stopReason !== "error";
+		if (isCompletedAssistant || entry.type === "compaction") {
+			return false;
+		}
+	}
+	return false;
+}
+
 export function formatIdleDuration(seconds: number): string {
 	if (seconds < 60) return `${seconds}s`;
 	const minutes = Math.floor(seconds / 60);
@@ -148,6 +176,94 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		});
 	}
 
+	const evaluateAndScheduleIdleNotice = (ctx: IdleCompactionContext) => {
+		runtime.clearPendingIdleNoticeTimer();
+		if (runtime.config.idleCompactionTtlSeconds === undefined || runtime.config.passive) return;
+		if (runtime.compactInFlight) return;
+
+		const sessionGeneration = runtime.sessionGeneration;
+		const lifecycleSignal = runtime.lifecycleSignal;
+		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+
+		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
+		if (!entries || !latestGateEnabled(entries)) return;
+		if (!hasIdleCompactionWork(entries, runtime)) return;
+		if (hasPersistedIdleNotice(entries)) {
+			runtime.idleNoticeEmitted = true;
+			return;
+		}
+
+		const nowSec = Math.floor(Date.now() / 1000);
+		const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
+		if (persistedSettledSec === undefined) return;
+
+		const elapsedSec = nowSec - persistedSettledSec;
+		const ttlSec = runtime.config.idleCompactionTtlSeconds;
+		const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
+		const totalIdleSec = elapsedSec + Math.floor(waitJobsDurationMs / 1000);
+
+		const emitNotice = (seconds: number) => {
+			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+			if (runtime.idleNoticeEmitted) return;
+			const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
+			if (!currentEntries || !latestGateEnabled(currentEntries)) return;
+			if (hasPersistedIdleNotice(currentEntries)) {
+				runtime.idleNoticeEmitted = true;
+				return;
+			}
+			if (!hasIdleCompactionWork(currentEntries, runtime)) return;
+
+			runtime.idleNoticeEmitted = true;
+			const timeStr = formatIdleDuration(seconds);
+			const noticeText = `The conversation has idled for ${timeStr}. Next turn will compact context.`;
+
+			try {
+				pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
+			} catch {}
+
+			if (ctx.hasUI) {
+				try {
+					ctx.ui?.notify(noticeText, "info");
+				} catch {}
+			}
+		};
+
+		if (totalIdleSec >= ttlSec) {
+			// Already idle for >= ttlSec (e.g. resumed or forked after expiration): emit directly once
+			emitNotice(totalIdleSec);
+		} else {
+			// Schedule one-off notification timer for the exact remaining time until ttlSec
+			const remainingSec = ttlSec - totalIdleSec;
+			runtime.pendingIdleNoticeTimer = setTimeout(
+				() => {
+					runtime.pendingIdleNoticeTimer = undefined;
+					if (!ctx.isIdle()) return;
+					const currentNowSec = Math.floor(Date.now() / 1000);
+					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
+					const currentSettledSec = currentEntries
+						? findPersistedSettledTime(currentEntries, currentNowSec)
+						: undefined;
+					const currentElapsedSec =
+						currentSettledSec !== undefined ? currentNowSec - currentSettledSec : ttlSec;
+					const currentTotalIdleSec =
+						currentElapsedSec + Math.floor(runtime.consumeWaitJobsDuration() / 1000);
+					if (currentTotalIdleSec < ttlSec) return;
+					emitNotice(currentTotalIdleSec);
+				},
+				Math.max(0, remainingSec * 1000),
+			);
+		}
+	};
+
+	// On session start, resume, fork, or tree branch switch, evaluate whether
+	// the session has idled and schedule the exact remaining idle duration timer.
+	pi.on("session_start", async (_event, ctx) => {
+		evaluateAndScheduleIdleNotice(ctx);
+	});
+	pi.on("session_tree", async (_event, ctx) => {
+		evaluateAndScheduleIdleNotice(ctx);
+	});
+
 	// When a turn starts, clear any pending idle notice timer.
 	// Compaction itself runs only on this new message turn, avoiding background mutation while idle.
 	pi.on("before_agent_start", async (_event, ctx) => {
@@ -178,8 +294,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		if (totalIdleSec < ttlSec) return;
 		if (!hasIdleCompactionWork(entries, runtime)) return;
 
-		// If the idle notice was not emitted earlier (e.g. cold resume), emit it once now
-		if (!runtime.idleNoticeEmitted) {
+		// If the idle notice was not emitted earlier (e.g. cold resume in non-interactive CLI), emit it once
+		if (!hasPersistedIdleNotice(entries) && !runtime.idleNoticeEmitted) {
 			runtime.idleNoticeEmitted = true;
 			const timeStr = formatIdleDuration(totalIdleSec);
 			const noticeText = `The conversation has idled for ${timeStr}. Compacting context before the next turn.`;
@@ -239,49 +355,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
 
-		// Idle notification is delivered directly once the idle TTL expires (one-off).
-		// Compaction execution itself is deferred to before_agent_start on the next turn.
-		if (runtime.config.idleCompactionTtlSeconds !== undefined && !runtime.config.passive) {
-			const ttlSec = runtime.config.idleCompactionTtlSeconds;
-			runtime.clearPendingIdleNoticeTimer();
-			runtime.idleNoticeEmitted = false;
-
-			runtime.pendingIdleNoticeTimer = setTimeout(
-				() => {
-					runtime.pendingIdleNoticeTimer = undefined;
-					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
-					if (runtime.idleNoticeEmitted) return;
-					if (!ctx.isIdle()) return;
-
-					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
-					if (!currentEntries || !latestGateEnabled(currentEntries)) return;
-					if (!hasIdleCompactionWork(currentEntries, runtime)) return;
-
-					const nowSec = Math.floor(Date.now() / 1000);
-					const persistedSettledSec = findPersistedSettledTime(currentEntries, nowSec);
-					const elapsedSec =
-						persistedSettledSec !== undefined ? nowSec - persistedSettledSec : ttlSec;
-					const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
-					const totalIdleSec = elapsedSec + Math.floor(waitJobsDurationMs / 1000);
-					if (totalIdleSec < ttlSec) return;
-
-					runtime.idleNoticeEmitted = true;
-					const timeStr = formatIdleDuration(totalIdleSec);
-					const noticeText = `The conversation has idled for ${timeStr}. Next turn will compact context.`;
-
-					try {
-						pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
-					} catch {}
-
-					if (hasUI) {
-						try {
-							ui?.notify(noticeText, "info");
-						} catch {}
-					}
-				},
-				Math.max(0, ttlSec * 1000),
-			);
-		}
+		evaluateAndScheduleIdleNotice(ctx);
 
 		if (progress >= threshold) {
 			// Immediate compaction path
