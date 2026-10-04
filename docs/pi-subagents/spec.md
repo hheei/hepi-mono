@@ -386,7 +386,7 @@ V1 UI保持最小：
 - tools完整显示结果并可引用collapsed output；
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
-- 只有 `ctrl+shift+s`（stop）快捷键，与 `/subagents stop` 调用同一 SubagentManager 语义操作；attach 及其快捷键已随 §3.2 一并删除；
+- 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `stop_agent`；attach 及其快捷键已随 §3.2 一并删除；
 - TUI parent 用 ext-core above-editor widget 投影 `SubagentManager.list()` 中的活 child（`starting | running | idle`；`done | stopped | failed` 为终态，一律隐藏，与 presentation 无关）。无边框、不持有第二份 running set、不轮询文件；elapsed 按 spawn 时间计、有可见 child 时每秒刷新；零可见 child 时隐藏。Headless/RPC parent 不挂 widget。
 - TUI child 显示一行无边框身份（agent 名、`contact_parent` 通道、当前 tool 数），不替代 parent widget，不成为控制面。
 

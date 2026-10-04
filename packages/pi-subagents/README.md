@@ -10,6 +10,9 @@ bridge and session-leave reporting.
 
 ## Parent tools
 
+The extension registers no global keyboard shortcuts. Use `/subagents` to manage
+children and `/subagents stop [id]` to stop one without conflicting with other extensions.
+
 | Tool | Purpose |
 | --- | --- |
 | `subagent_enable({})` | Enable interactive agent tools (`spawn_agent`, `send_agent`, `get_agent`, `stop_agent`) on demand. Deactivated by default in new sessions to save tokens; appends available interactive agents if any are defined, and enabled tools become available on the next model request. |
