@@ -245,6 +245,24 @@ describe("V4A patch parser", () => {
 		).toThrow("Add content lines must begin with + at line 4");
 	});
 
+	test("tolerates blank lines without + marker in Add File", () => {
+		const operation = parseV4aPatch(
+			"*** Begin Patch\n*** Add File: doc.md\n+# Title\n\n+Paragraph\n*** End Patch",
+		).operations[0];
+		if (operation === undefined || operation.kind !== "add") throw new Error("expected add");
+		expect(operation.content).toBe("# Title\n\nParagraph\n");
+	});
+
+	test("tolerates blank lines without space marker as context in Update File", () => {
+		const operation = parseV4aPatch(
+			"*** Begin Patch\n*** Update File: doc.md\n # Title\n\n-Old\n+New\n*** End Patch",
+		).operations[0];
+		if (operation === undefined || operation.kind !== "update") throw new Error("expected update");
+		expect(compileV4aUpdateToUnifiedDiff(operation)).toBe(
+			"--- a/doc.md\n+++ b/doc.md\n@@ -1,3 +1,3 @@\n # Title\n \n-Old\n+New\n",
+		);
+	});
+
 	test("compiles update into unified diff with synthetic ranges", () => {
 		const operation: V4aPatchOperation | undefined = parseV4aPatch(
 			"*** Begin Patch\n*** Update File: x\n-old\n+new\n*** End Patch",
@@ -282,7 +300,7 @@ describe("V4A prefix preview", () => {
 	test("counts completed add and update lines without inventing delete size", () => {
 		expect(
 			previewV4aPatchPrefix(
-				"*** Begin Patch\n*** Add File: new.txt\n+one\n*** Update File: old.txt\n-old\n+new\n*** Delete File: gone.txt\n",
+				"*** Begin Patch\n*** Add File: new.txt\n+one\n\n*** Update File: old.txt\n-old\n+new\n*** Delete File: gone.txt\n",
 				false,
 			),
 		).toEqual([

@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-addon",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Collection of opt-in host enhancement features for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -48,9 +48,9 @@
 		"@earendil-works/pi-tui": ">=1.0.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "1.0.2",
-		"@earendil-works/pi-ai": "1.0.2",
-		"@earendil-works/pi-coding-agent": "1.0.2",
-		"@earendil-works/pi-tui": "1.0.2"
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0"
 	}
 }

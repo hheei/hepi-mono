@@ -174,8 +174,10 @@ describe("pi-ext-tools target runtime", () => {
 				["dcu-cluster"],
 			);
 			try {
-				await expect(runtime.grep("dcu-cluster", "rg --json foo")).rejects.toThrow("Connection refused");
-				await expect(runtime.grep("dcu-cluster", "rg --json foo")).resolves.toBe("Linux\n");
+				await expect(runtime.sshCapture("dcu-cluster", "echo foo")).rejects.toThrow("Connection refused");
+				await expect(runtime.sshCapture("dcu-cluster", "echo foo")).resolves.toMatchObject({
+					stdout: "Linux\n",
+				});
 			} finally {
 				await runtime.close();
 			}

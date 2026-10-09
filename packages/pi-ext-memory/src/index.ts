@@ -1,18 +1,26 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRuntimeSettingsRegistry,
+	isRecord,
 	isSubagentProcess,
 	MEMORY_COMPACTOR_SERVICE_KEY,
 	provideService,
 	registerExtensionLifecycle,
 	registerSettings,
-	registerToolTuiTrace,
 	setPreTurnWorkingStatus,
 } from "@hheei/pi-ext-core";
 import { registerOmCommand } from "./commands/om.js";
 import { transformHindsightMarkdown } from "./hindsight/markdown.js";
+import {
+	checkMcpFileOverride,
+	HINDSIGHT_MCP_SERVER_NAME,
+	HINDSIGHT_MCP_TIMEOUT_SECONDS,
+	HINDSIGHT_MCP_TOOL_EXPOSURES,
+	isHindsightBusinessError,
+	isHindsightWriteTool,
+} from "./hindsight/mcp.js";
+import { registerHindsightRenderers } from "./hindsight/renderers.js";
 import { type HindsightSession, startHindsightSession } from "./hindsight/session.js";
-import { declareHindsightTools } from "./hindsight/tools.js";
 import { registerCompactionHook } from "./hooks/compaction-hook.js";
 import { registerCompactionTrigger } from "./hooks/compaction-trigger.js";
 import { registerConsolidationTrigger } from "./hooks/consolidation-trigger.js";
@@ -29,17 +37,18 @@ import { createMemorySettingsProvider } from "./settings.js";
 import { registerRecallTool } from "./tools/recall-observation.js";
 
 export default function observationalMemory(pi: ExtensionAPI): void {
-	registerToolTuiTrace(pi);
+	registerHindsightRenderers(pi);
 	const runtime = new Runtime();
-	// Hindsight tools follow the session that is running: they resolve their state through this
-	// holder, and a session declares them `deferred` or `hidden` according to its own option.
 	let hindsight: HindsightSession | undefined;
+	let lastFileOverride: string | undefined;
 
 	registerConsolidationTrigger(pi, runtime);
 	registerCompactionTrigger(pi, runtime);
 	registerCompactionHook(pi, runtime);
 
-	registerOmCommand(pi, runtime);
+	registerOmCommand(pi, runtime, {
+		getHindsightDiagnostics: () => hindsight?.diagnostics(lastFileOverride),
+	});
 	registerRecallTool(pi);
 	if (typeof pi.registerMarkdownTransformer === "function") {
 		pi.registerMarkdownTransformer(transformHindsightMarkdown);
@@ -65,6 +74,31 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	pi.on("agent_end", async (event, context) => {
 		if (isSubagentProcess()) return;
 		hindsight?.agentEnd(event, context);
+	});
+	pi.on("tool_result", async (event) => {
+		if (isSubagentProcess()) return;
+		if (!event.toolName.startsWith("mcp__hindsight__")) return;
+
+		const isBusinessError = isHindsightBusinessError(event);
+		if (isBusinessError) {
+			let structuredContent = event.structuredContent;
+			let innerNeedsFix = false;
+			if (isRecord(structuredContent) && structuredContent.isError !== true) {
+				structuredContent = { ...structuredContent, isError: true };
+				innerNeedsFix = true;
+			}
+			if (!event.isError || innerNeedsFix) {
+				return {
+					isError: true,
+					...(structuredContent !== undefined ? { structuredContent } : {}),
+				};
+			}
+			return;
+		}
+
+		if (hindsight !== undefined && isHindsightWriteTool(event.toolName, pi.getAllTools())) {
+			hindsight.invalidateRecallCache();
+		}
 	});
 
 	registerExtensionLifecycle(pi, {
@@ -106,28 +140,55 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 			const isSub = isSubagentProcess();
 			const started = isSub
 				? { status: "disabled" as const }
-				: await startHindsightSession(extension.cwd, signal);
-			const toolProvider = (): ReturnType<HindsightSession["toolContext"]> | undefined =>
-				hindsight?.toolContext();
+				: await startHindsightSession(extension, signal);
 			if (started.status !== "ready") {
 				if (started.status === "error" && !isSub) {
 					extension.ui.notify(`Hindsight memory: ${started.error}`, "warning");
 				}
-				// Pi cannot unregister a tool, so a session that cannot use Hindsight withdraws the
-				// tools an earlier session declared instead of leaving them reachable but refusing.
-				declareHindsightTools(pi, toolProvider, "hidden");
 				return;
 			}
 
-			declareHindsightTools(pi, toolProvider, "deferred");
 			const session = started.session;
 			hindsight = session;
-			// Registered last so it is torn down first: the pending session writeback is
-			// flushed before the memory runtime it reports through is released.
+
+			// Registered before mcp-server so on shutdown, mcp-server unregisters first,
+			// and then hindsight-session flushes writeback before runtime is torn down.
 			resources.add("hindsight-session", () => {
-				if (hindsight === session) hindsight = undefined;
+				if (hindsight === session) {
+					hindsight = undefined;
+					lastFileOverride = undefined;
+				}
 				return session.dispose();
 			});
+
+			resources.add("hindsight-mcp-server", () => {
+				pi.unregisterMcpServer(HINDSIGHT_MCP_SERVER_NAME);
+			});
+
+			const fileOverride = await checkMcpFileOverride(extension.cwd);
+			lastFileOverride = fileOverride;
+			if (fileOverride) {
+				extension.ui.notify(
+					`Hindsight memory: MCP server "hindsight" is ${fileOverride}. Session bank routing may be overridden by the file configuration.`,
+					"warning",
+				);
+			}
+
+			try {
+				pi.registerMcpServer(HINDSIGHT_MCP_SERVER_NAME, {
+					type: "http",
+					url: session.resolved.bankMcpUrl,
+					exposure: "deferred",
+					toolExposure: { ...HINDSIGHT_MCP_TOOL_EXPOSURES },
+					description: "Hindsight memory and knowledge vault tools",
+					timeout: HINDSIGHT_MCP_TIMEOUT_SECONDS,
+					...(session.resolved.config.apiToken
+						? { headers: { Authorization: `Bearer ${session.resolved.config.apiToken}` } }
+						: {}),
+				});
+			} catch {
+				extension.ui.notify("Hindsight memory: failed to register MCP server", "error");
+			}
 		},
 	});
 }

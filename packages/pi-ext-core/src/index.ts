@@ -4,6 +4,7 @@
  * shared registration, lifecycle, cancellation, and cross-package coordination.
  */
 
+export type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 export type {
 	BackgroundDelivery,
 	BackgroundDeliveryChannel,
@@ -78,15 +79,11 @@ export type {
 	LoadoutResourceDetail,
 	LoadoutResourceDetailContext,
 	LoadoutResourceMetadata,
-	ManagedToolRegistration,
 } from "./loadout.js";
 export {
-	isManagedTool,
 	observeLoadoutInventory,
-	redeclareManagedTool,
 	registerLoadoutResource,
-	registerManagedTool,
-	setManagedToolsActive,
+	setSessionToolsActive,
 } from "./loadout.js";
 export type {
 	CreateModelSelectionFieldOptions,
@@ -257,23 +254,7 @@ export {
 } from "./tasks.js";
 export { escapeXml } from "./text.js";
 export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
-export type {
-	ToolCollapseMode,
-	ToolCompletion,
-	ToolRequestRenderer,
-	ToolTui,
-	ToolTuiPresentation,
-} from "./tool-tui.js";
-export {
-	AUTO_COLLAPSE_DELAY_MS,
-	AUTO_COLLAPSE_RETRY_DELAY_MS,
-	createToolTui,
-	DEFAULT_MAX_BODY_LINES,
-	DEFAULT_MAX_REQUEST_LINES,
-	getToolTui,
-	isTuiScrolledUp,
-	registerToolTuiTrace,
-} from "./tool-tui.js";
+
 export type {
 	WidgetHandle,
 	WidgetPlacement,

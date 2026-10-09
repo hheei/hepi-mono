@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { splitSubcommand, subcommandCompletions } from "@hheei/pi-ext-core";
+import type { HindsightDiagnostics } from "../hindsight/session.js";
 import type { Runtime } from "../runtime.js";
 import { runCompactCommand } from "./compact.js";
 import { runConsolidateCommand } from "./consolidate.js";
@@ -13,6 +14,7 @@ const USAGE = `Usage: /om ${OM_SUBCOMMANDS.join("|")}`;
 
 export interface OmCommandOptions {
 	readonly view?: ViewCommandOptions;
+	readonly getHindsightDiagnostics?: () => HindsightDiagnostics | undefined;
 }
 
 /**
@@ -45,7 +47,7 @@ export function registerOmCommand(
 					setGateEnabled(pi, verb === "on", ctx);
 					return;
 				case "status":
-					await runStatusCommand(runtime, ctx);
+					await runStatusCommand(runtime, ctx, options.getHindsightDiagnostics);
 					return;
 				case "view":
 					await runViewCommand(runtime, ctx, rest, options.view);

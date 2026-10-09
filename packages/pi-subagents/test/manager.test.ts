@@ -168,7 +168,6 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
-		interactive: false,
 	};
 }
 
@@ -281,6 +280,10 @@ async function harness(
 			async deliver(report): Promise<void> {
 				reports.push(report);
 			},
+			dismiss(childId): void {
+				const index = reports.findIndex((r) => r.childId === childId);
+				if (index !== -1) reports.splice(index, 1);
+			},
 		},
 		deadlineMs: options.deadlineMs ?? 1_000,
 		...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
@@ -387,6 +390,32 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.panels.get(spawned.child.id)?.cleanups).toBe(0);
 		await test1.manager.stop(spawned.child.id);
 	}, 10_000);
+	test("projects a compact streaming update into the child's activity", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "work" });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const id = spawned.child.id;
+
+		test1.bridge.emit(id, {
+			type: "message_update",
+			assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0 },
+			message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] },
+		});
+		await vi.waitFor(async () =>
+			expect(await test1.manager.get(id)).toMatchObject({ activeTool: "read" }),
+		);
+
+		test1.bridge.emit(id, {
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta" },
+			message: { role: "assistant", content: [] },
+		});
+		await vi.waitFor(async () =>
+			expect(await test1.manager.get(id)).toMatchObject({ summary: "generating..." }),
+		);
+		await test1.manager.stop(id);
+	});
+
 	test("spawns a child, delivers the task over the bridge, and reports it running", async () => {
 		const test1 = await harness();
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
@@ -471,14 +500,33 @@ describe("SubagentManager over the bridge", () => {
 		});
 	});
 
-	test("refuses unknown, stopped and Task children", async () => {
+	test("refuses unknown children and resumes stopped children", async () => {
 		const test1 = await harness();
 		expect(await test1.manager.send("sa_nope", "x")).toMatchObject({ reason: "Unknown child" });
 		await test1.addChild("sa_stop", { intent: "stopped", state: "error" });
-		// A terminal refusal says so: the model must not retry a send that can never work.
 		expect(await test1.manager.send("sa_stop", "x")).toMatchObject({
-			reason: expect.stringMatching(/never resumes|error state/),
-			safeToRetry: false,
+			id: "sa_stop",
+			state: "running",
+		});
+		expect(await test1.registry.get("sa_stop")).toMatchObject({ intent: "active" });
+	});
+
+	test.each([
+		"error",
+		"done",
+		"blocked",
+	] as const)("resumes disconnected %s children with the same session", async (state) => {
+		const test1 = await harness();
+		const record = await test1.addChild("sa_resume", { state });
+		expect(await test1.manager.send(record.subagentId, "try again")).toMatchObject({
+			id: record.subagentId,
+			state: "running",
+			sessionId: record.sessionId,
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(1);
+		expect(test1.bridge.requests.at(-1)).toMatchObject({
+			operation: "prompt",
+			payload: { message: "try again" },
 		});
 	});
 
@@ -499,20 +547,19 @@ describe("SubagentManager over the bridge", () => {
 		if ("reason" in spawned) throw new Error(spawned.reason);
 
 		const stopped = await test1.manager.stop(spawned.child.id);
-		expect(stopped).toMatchObject({ id: spawned.child.id, state: "error" });
+		expect(stopped).toMatchObject({ id: spawned.child.id, state: "done" });
 		const record = await test1.manager.get(spawned.child.id);
-		expect(record).toMatchObject({ state: "error", freshness: "last_known" });
+		expect(record).toMatchObject({ state: "done", freshness: "last_known" });
 		// The runtime metadata goes with the process, so nothing is left that could hold the session.
 		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeUndefined();
 		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
-		// A stop is terminal even though the session survives it: the answer says so instead of
-		// leaving the model to retry a send that can never work.
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringMatching(/never resumes|error state/),
-			safeToRetry: false,
+			id: spawned.child.id,
+			state: "running",
+			sessionId: spawned.child.sessionId,
 		});
-		expect(test1.launch).toHaveBeenCalledTimes(1);
+		expect(test1.launch).toHaveBeenCalledTimes(2);
+		expect(await test1.registry.get(spawned.child.id)).toMatchObject({ intent: "active" });
 	});
 
 	test("refuses to call a stop confirmed while the process is still alive", async () => {
@@ -620,6 +667,42 @@ describe("SubagentManager over the bridge", () => {
 			expect(record).toMatchObject({ state: "running" });
 			expect((await test1.registry.get("sa_input"))?.unacknowledgedInput).toBeUndefined();
 		});
+	});
+
+	test("refreshes usage after each turn without settling the running child or double-counting", async () => {
+		const current = await harness();
+		const spawned = await current.manager.spawn({ agent: "worker", task: "work" });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const id = spawned.child.id;
+		const entries = [
+			{
+				type: "message",
+				id: "first",
+				message: {
+					role: "assistant",
+					stopReason: "toolUse",
+					usage: { input: 2, output: 3, cacheRead: 4, cacheWrite: 5, cost: { total: 0.1 } },
+				},
+			},
+		];
+		current.bridge.responses.set(`${id}:get_entries`, async () => ({ entries }));
+		current.bridge.emit(id, { type: "turn_end" });
+		await vi.waitFor(async () => {
+			expect(await current.manager.get(id)).toMatchObject({
+				state: "running",
+				usage: { turns: 1, inputTokens: 2, outputTokens: 3, costUsd: 0.1 },
+			});
+		});
+		entries.push({ ...entries[0]!, id: "second" });
+		current.bridge.emit(id, { type: "turn_end" });
+		await vi.waitFor(async () => {
+			expect(await current.manager.get(id)).toMatchObject({ usage: { turns: 2, inputTokens: 4 } });
+		});
+		current.bridge.emit(id, { type: "agent_end", messages: [] });
+		await current.bridge.settle();
+		expect(await current.manager.get(id)).toMatchObject({ state: "running", usage: { turns: 2 } });
+		expect(current.manager.activeCount).toBe(1);
+		expect(current.reports).toHaveLength(0);
 	});
 
 	test("counts startup and post-agent_end work until the final settle", async () => {
@@ -802,7 +885,7 @@ describe("SubagentManager over the bridge", () => {
 		).toBe(true);
 	});
 
-	test("keeps a stopped child stopped and says plainly that a new child is needed", async () => {
+	test("resumes a stopped child after clearing an unconfirmed runtime", async () => {
 		const test1 = await harness({ host: true });
 		const record = await test1.addChild("sa_leftover_stopped", {
 			state: "running",
@@ -810,21 +893,19 @@ describe("SubagentManager over the bridge", () => {
 			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
 		});
 
-		// Stopping the leftover is the documented way out of an unconfirmed runtime, and it is
-		// terminal: the session survives, but the send after it must fail visibly and say that a new
-		// child is what the model has to spawn.
+		// Stop clears the unconfirmed runtime before send restarts the existing session.
 		await expect(test1.manager.recover()).resolves.toMatchObject({ recovered: [] });
 		await expect(test1.manager.stop(record.subagentId)).resolves.toMatchObject({
 			id: record.subagentId,
-			state: "error",
+			state: "done",
 		});
 		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringMatching(/never resumes|error state/),
-			safeToRetry: false,
+			id: record.subagentId,
+			state: "running",
+			sessionId: record.sessionId,
 		});
 		expect(test1.launch).not.toHaveBeenCalled();
-		expect(test1.openPanel).not.toHaveBeenCalled();
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
 	});
 
 	test("clears the runtime a background child had before the parent restarted", async () => {
@@ -998,7 +1079,7 @@ describe("SubagentManager over the bridge", () => {
 		const stopped = await test1.manager.stop(spawned.child.id);
 		expect(stopped).toMatchObject({
 			id: spawned.child.id,
-			state: "error",
+			state: "done",
 			presentation: "panel",
 		});
 		expect(attachment.cleanups).toBe(1);
@@ -1028,7 +1109,7 @@ describe("SubagentManager over the bridge", () => {
 		// after reconnection handling rather than the stopped value that already existed.
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
 			safeToRetry: false,
-			reason: expect.stringMatching(/never resumes|error state/),
+			reason: expect.stringContaining("not confirmed gone"),
 		});
 		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "error" });
 		expect(test1.bridge.requests).toHaveLength(requestsBeforeReconnect);
@@ -1240,7 +1321,7 @@ describe("SubagentManager over the bridge", () => {
 		});
 	});
 
-	test("manual panel close while running is terminal", async () => {
+	test("manual panel close while running can resume the same session", async () => {
 		const test1 = await harness({ host: true });
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
@@ -1260,14 +1341,13 @@ describe("SubagentManager over the bridge", () => {
 			});
 		});
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringMatching(/never resumes|error state/),
-			safeToRetry: false,
+			id: spawned.child.id,
+			state: "running",
 		});
 		expect(attachment.cleanups).toBe(1);
-		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 		expect(await test1.registry.get(spawned.child.id)).toMatchObject({
-			intent: "stopped",
+			intent: "active",
 			sessionId: spawned.child.sessionId,
 		});
 		expect(test1.tokens.forget).toHaveBeenCalledWith("runtime-1");
@@ -1299,7 +1379,7 @@ describe("SubagentManager over the bridge", () => {
 		});
 	});
 
-	test("send detecting a closed panel fails in that same call", async () => {
+	test("send detecting a closed panel resumes in that same call", async () => {
 		const test1 = await harness({ host: true });
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
@@ -1309,11 +1389,10 @@ describe("SubagentManager over the bridge", () => {
 		// The socket is already gone, but its disconnect notification has not been handled yet.
 		test1.bridge.connected.delete(spawned.child.id);
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringContaining("never resumes"),
-			safeToRetry: false,
+			id: spawned.child.id,
+			state: "running",
 		});
-		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 	});
 
 	test("an adopted panel losing its bridge refuses send without guessing that it exited", async () => {
@@ -1348,7 +1427,7 @@ describe("SubagentManager over the bridge", () => {
 		await test1.bridge.settle();
 		expect(attachment.cleanups).toBe(0);
 		// Closing it stays possible on request: stop is an instruction, not an inference.
-		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({ state: "error" });
+		expect(await test1.manager.stop(spawned.child.id)).toMatchObject({ state: "done" });
 		expect(attachment.cleanups).toBe(1);
 	});
 
@@ -1447,7 +1526,7 @@ describe("SubagentManager over the bridge", () => {
 		}
 	});
 
-	test("reports blocked and settles task as failed when subagent encounters error and settles", async () => {
+	test("preserves error through automatic delivery and settles task as failed", async () => {
 		const test1 = await harness();
 		const taskRegistry = new TaskRegistry();
 		test1.manager.bindTaskRegistry(taskRegistry);
@@ -1491,18 +1570,24 @@ describe("SubagentManager over the bridge", () => {
 			() => {
 				expect(test1.reports.length).toBeGreaterThan(0);
 			},
-			{ timeout: 6_000 },
+			{ timeout: 12_000 },
 		);
 
-		expect(test1.reports[0]?.reason).toBe("blocked");
-		expect(test1.reports[0]?.message).toContain("Rate limit exceeded");
+		expect(test1.reports[0]?.reason).toBe("error");
+		expect(test1.reports[0]?.status).toBe("error");
+		expect(test1.reports[0]?.message).toBe("Rate limit exceeded");
+		expect(await test1.manager.get(childId)).toMatchObject({ state: "error" });
+		expect(await test1.manager.send(childId, "continue")).toMatchObject({
+			id: childId,
+			state: "running",
+		});
 
 		const [outcome] = await taskRegistry.wait([childId]);
 		expect(outcome?.status).toBe("failed");
 		if (outcome?.status === "failed") {
 			expect(outcome.output).toContain("Rate limit exceeded");
 		}
-	}, 10_000);
+	}, 15_000);
 
 	test("does not report error while retrying and reports success after successful retry", async () => {
 		const test1 = await harness();
@@ -1733,7 +1818,7 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 	});
 
-	test("error subagent reports error, marks failed, and cannot be resumed via send", async () => {
+	test("error subagent reports error and accepts retry via send without a duplicate runtime", async () => {
 		const test1 = await harness({ host: true, failedPanelCloseTimeoutMs: 50 });
 		const spawned = await test1.manager.spawn({
 			agent: "worker",
@@ -1749,13 +1834,12 @@ describe("SubagentManager over the bridge", () => {
 		const errorRecord = await test1.manager.get(childId);
 		expect(errorRecord.state).toBe("error");
 
-		// Send is refused because error cannot continue
 		const sent = await test1.manager.send(childId, "Try to continue anyway");
-		expect(sent).toMatchObject({
-			operation: "send",
-			safeToRetry: false,
-			reason: expect.stringMatching(/never resumes|unrecoverable error/),
-		});
+		expect(sent).toMatchObject({ id: childId, state: "running" });
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
+		expect(await test1.registry.get(childId)).toMatchObject({ intent: "active" });
+		expect((await test1.registry.get(childId))?.interrupted).toBeUndefined();
 	});
 
 	test("spawns subagent with inlineResult: true so TaskRegistry does not treat it as pending delivery", async () => {
@@ -1810,4 +1894,103 @@ describe("SubagentManager over the bridge", () => {
 		// TaskRegistry has no pending deliveries (no duplicate task-terminal)
 		expect(taskRegistry.pendingDeliveries()).toHaveLength(0);
 	}, 10_000);
+
+	test("markConsumed dismisses only the waited subagent report and leaves other reports intact", async () => {
+		const test1 = await harness();
+		const taskRegistry = new TaskRegistry();
+		test1.manager.bindTaskRegistry(taskRegistry);
+
+		const s1 = await test1.manager.spawn({ agent: "worker", task: "Task 1", presentation: "auto" });
+		const s2 = await test1.manager.spawn({ agent: "worker", task: "Task 2", presentation: "auto" });
+		const s3 = await test1.manager.spawn({ agent: "worker", task: "Task 3", presentation: "auto" });
+		if ("reason" in s1 || "reason" in s2 || "reason" in s3) throw new Error("Spawn failed");
+
+		// Settle all 3
+		for (const [id, msg] of [
+			[s1.child.id, "Report 1"],
+			[s2.child.id, "Report 2"],
+			[s3.child.id, "Report 3"],
+		] as const) {
+			test1.bridge.responses.set(`${id}:get_entries`, async () => ({
+				entries: [
+					{
+						type: "message",
+						id: "msg-1",
+						message: {
+							role: "assistant",
+							stopReason: "stop",
+							content: [{ type: "text", text: msg }],
+						},
+					},
+				],
+			}));
+			await test1.manager.handleEvent(id, { type: "agent_end" });
+			await test1.manager.handleEvent(id, {
+				type: "agent_settled",
+				message: { role: "assistant", stopReason: "stop" },
+			});
+		}
+
+		await vi.waitFor(
+			() => {
+				expect(test1.reports).toHaveLength(3);
+			},
+			{ timeout: 6_000 },
+		);
+
+		// wait_jobs waits for s2 only and marks it consumed
+		const [outcome] = await taskRegistry.wait([s2.child.id]);
+		expect(outcome?.status).toBe("completed");
+		taskRegistry.markConsumed([s2.child.id]);
+
+		// test1.reports now only contains s1 and s3
+		expect(test1.reports.map((r) => r.childId)).toEqual([s1.child.id, s3.child.id]);
+	}, 12_000);
+
+	test("batches auto-reports when multiple children settle together and exposes task in get", async () => {
+		const test1 = await harness();
+		const c1 = await test1.manager.spawn({ agent: "worker", task: "Task 1" });
+		const c2 = await test1.manager.spawn({ agent: "worker", task: "Task 2" });
+		if ("reason" in c1 || "reason" in c2) throw new Error("spawn failed");
+
+		// 1. Check get exposes initialTask as task
+		const g1 = await test1.manager.get(c1.child.id);
+		if ("operation" in g1) throw new Error("get failed");
+		expect(g1.task).toBe("Task 1");
+
+		// 2. Both settle shortly after each other with assistant entries
+		for (const [id, msg] of [
+			[c1.child.id, "Finished 1"],
+			[c2.child.id, "Finished 2"],
+		] as const) {
+			test1.bridge.responses.set(`${id}:get_entries`, async () => ({
+				entries: [
+					{
+						type: "message",
+						id: "msg-1",
+						message: {
+							role: "assistant",
+							stopReason: "stop",
+							content: [{ type: "text", text: msg }],
+						},
+					},
+				],
+			}));
+			await test1.manager.handleEvent(id, { type: "agent_end" });
+			await test1.manager.handleEvent(id, {
+				type: "agent_settled",
+				message: { role: "assistant", stopReason: "stop" },
+			});
+		}
+
+		// Wait for batch report delivery (500ms delay)
+		await vi.waitFor(
+			() => {
+				expect(test1.reports.map((r) => r.childId).sort()).toEqual(
+					[c1.child.id, c2.child.id].sort(),
+				);
+			},
+			{ timeout: 3_000 },
+		);
+	});
 });

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { aggregateUsage, createStateProjector, summarizeCurrentBranch } from "../src/state.js";
+import {
+	aggregateUsage,
+	assistantUpdatePhase,
+	createStateProjector,
+	summarizeCurrentBranch,
+} from "../src/state.js";
 
 function turn(id: string, text: string, stopReason = "stop", cost: number | null = 0): unknown {
 	return {
@@ -19,6 +24,34 @@ function turn(id: string, text: string, stopReason = "stop", cost: number | null
 		},
 	};
 }
+
+describe("assistant update phase", () => {
+	test("categorizes thinking, generating, and tool call deltas", () => {
+		expect(assistantUpdatePhase({ type: "thinking_delta" }, undefined)).toEqual({
+			kind: "thinking",
+		});
+		expect(assistantUpdatePhase({ type: "text_delta" }, undefined)).toEqual({ kind: "generating" });
+		expect(
+			assistantUpdatePhase(
+				{ type: "toolcall_delta", contentIndex: 0 },
+				{ content: [{ type: "toolCall", name: "read" }] },
+			),
+		).toEqual({ kind: "toolcall", toolName: "read" });
+	});
+
+	test("reads generating from the message text when the update names no type", () => {
+		expect(assistantUpdatePhase(undefined, { content: [{ type: "text", text: "hi" }] })).toEqual({
+			kind: "generating",
+		});
+		expect(assistantUpdatePhase(undefined, { content: [] })).toBeUndefined();
+	});
+
+	test("omits the tool name until the streamed call has one", () => {
+		expect(
+			assistantUpdatePhase({ type: "toolcall_start", contentIndex: 3 }, { content: [] }),
+		).toEqual({ kind: "toolcall" });
+	});
+});
 
 describe("state projection", () => {
 	test("uses the current branch last assistant and deduplicates replayed usage", () => {
@@ -49,16 +82,18 @@ describe("state projection", () => {
 		projector.applyEvent({ type: "error", message: "boom" });
 		expect(projector.snapshot()).toMatchObject({ state: "error", interrupted: "boom" });
 	});
-	test("tracks activeTool and realtime message_update text", () => {
+	test("tracks tool streaming and labels assistant generation", () => {
 		const projector = createStateProjector("running");
 		projector.applyEvent({ type: "tool_execution_start", toolName: "git status" });
+		expect(projector.snapshot().activeTool).toBe("git status");
+		projector.applyEvent({ type: "tool_execution_update", toolName: "git status" });
 		expect(projector.snapshot().activeTool).toBe("git status");
 
 		projector.applyEvent({
 			type: "message_update",
 			message: { role: "assistant", content: [{ type: "text", text: "streaming reply..." }] },
 		});
-		expect(projector.snapshot().summary).toBe("streaming reply...");
+		expect(projector.snapshot().summary).toBe("generating...");
 		expect(projector.snapshot().activeTool).toBeUndefined();
 
 		projector.applyEvent({ type: "tool_execution_start", toolName: "read" });
@@ -66,9 +101,41 @@ describe("state projection", () => {
 
 		projector.applyEvent({ type: "tool_execution_end" });
 		expect(projector.snapshot().activeTool).toBeUndefined();
+		expect(projector.snapshot().summary).toBe("thinking...");
+		projector.applyEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1 },
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "Reading" },
+					{ type: "toolCall", name: "read" },
+				],
+			},
+		});
+		expect(projector.snapshot().activeTool).toBe("read");
 	});
 
 	test("follows a turn from agent_start to agent_settled", () => {
+		const projector = createStateProjector("running");
+		projector.rebuild([turn("old", "previous answer")]);
+		projector.applyEvent({ type: "turn_start" });
+		expect(projector.snapshot()).toMatchObject({ state: "running", summary: "thinking..." });
+		projector.applyEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "thinking_delta" },
+			message: { role: "assistant", content: [{ type: "text", text: "earlier text" }] },
+		});
+		expect(projector.snapshot().summary).toBe("thinking...");
+		projector.applyEvent({
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta" },
+			message: { role: "assistant", content: [{ type: "text", text: "new answer" }] },
+		});
+		expect(projector.snapshot().summary).toBe("generating...");
+	});
+
+	test("settles after agent_end", () => {
 		const projector = createStateProjector("running");
 		projector.applyEvent({ type: "agent_start" });
 		expect(projector.snapshot().state).toBe("running");
@@ -79,6 +146,27 @@ describe("state projection", () => {
 			message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
 		});
 		expect(projector.snapshot()).toMatchObject({ state: "done", summary: "done" });
+	});
+	test("successful settlement replaces a stale error even without a retry-start event", () => {
+		const projector = createStateProjector("running");
+		projector.applyEvent({ type: "error", message: "upstream timeout" });
+		projector.applyEvent({
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+		});
+		expect(projector.snapshot()).toMatchObject({ state: "done", summary: "done" });
+		expect(projector.snapshot().interrupted).toBeUndefined();
+	});
+	test("settled interruption is blocked before delivery", () => {
+		const projector = createStateProjector("running");
+		projector.applyEvent({
+			type: "agent_settled",
+			aborted: true,
+		});
+		expect(projector.snapshot()).toMatchObject({
+			state: "blocked",
+			interrupted: "Assistant turn was interrupted",
+		});
 	});
 	test("clears interrupted on auto_retry_start and on successful agent_settled", () => {
 		const projector = createStateProjector("running");

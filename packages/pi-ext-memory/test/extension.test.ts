@@ -3,6 +3,10 @@ import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
 import { describe, expect, it, vi } from "vitest";
 import observationalMemory from "../src/index.js";
 
+vi.mock("../src/hindsight/session.js", () => ({
+	startHindsightSession: vi.fn(async () => ({ status: "disabled" })),
+}));
+
 describe("observationalMemory extension entry", () => {
 	it("registers triggers, hooks, commands, tools, and ext-core lifecycle", async () => {
 		const registeredEvents: string[] = [];
@@ -22,6 +26,7 @@ describe("observationalMemory extension entry", () => {
 				tools[tool.name] = tool;
 			}),
 			registerEntryRenderer: vi.fn(),
+			registerToolRenderer: vi.fn(),
 			appendEntry: vi.fn(),
 		};
 

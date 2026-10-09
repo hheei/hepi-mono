@@ -402,8 +402,8 @@ singleton。
 - `ensureSubagentCoordinator(pi)`: 初始化或读取协调器。
 
 ### 13. 工具 TUI 交互与渲染 (Tool TUI)
-- `createToolTui(pi, options)` / `getToolTui(pi)`: 统一工具渲染实例。
-- `registerToolTuiTrace(pi, trace)`: 注册输出追踪条目。
+- `createToolTui()` / `getToolTui(pi)`: 统一工具渲染实例，提供 `frame(tool, presentation?)` 包装本地工具执行，以及 `renderers(tool, presentation?)` 接入宿主 MCP / renderer-only 工具并返回 `ToolRenderers`。
+- `registerToolTuiTrace(pi)`: 注册输出追踪条目与宿主工具生命周期监听（订阅 `agent_start`、`session_start`、`session_shutdown`、`tool_execution_*` 与 `tool_result`，驱动已登记 MCP 工具的耗时记录与终态追踪）。
 - `isTuiScrolledUp(tui)`: TUI 向上滚动状态判定。
 
 ### 14. 响应遥测与编辑器底轨 (Response Telemetry & Editor Rail)

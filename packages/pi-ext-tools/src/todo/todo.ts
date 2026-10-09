@@ -1,15 +1,11 @@
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import {
-	escapeXml,
-	formatDuration,
-	getToolTui,
-	isRecord,
-	registerManagedTool,
-	registerToolTuiTrace,
-	subcommandCompletions,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { escapeXml, isRecord, subcommandCompletions, textToolResult } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	COMPLETED_DISPLAY_DURATION_MS,
@@ -40,11 +36,6 @@ export const TODO_COMMAND_NAME = "todo";
  * without allowing a different extension to claim `todo`. Loadout does not
  * manage tool activation, so the declaration carries owner only.
  */
-export const TODO_TOOL_REGISTRATION = {
-	id: TODO_TOOL_NAME,
-	owner: "@hheei/pi-ext-tools",
-	defaultActive: false,
-} as const;
 
 export const TODO_REMINDER_IDLE_TURNS = 3;
 export const TODO_REMINDER_IDLE_MS = 3 * 60_000;
@@ -387,29 +378,8 @@ function readTodoToolDetails(value: unknown): TodoToolDetails | undefined {
 	return { state, operations, ...(listStatus === undefined ? {} : { listStatus }) };
 }
 
-function pushTaskId(ids: number[], value: unknown): void {
-	const id = canonicalPositiveInteger(value);
-	if (id === undefined || ids.includes(id)) return;
-	ids.push(id);
-}
-
 function formatTodoIds(ids: readonly number[]): string {
 	return ids.map((id) => `#${id}`).join(" ");
-}
-
-/** Tasks this call lists: never suppressed, narrowed to the requested status. */
-function listedTasks(details: TodoToolDetails): Task[] {
-	return details.state.tasks.filter(
-		(task) =>
-			task.status !== "suppressed" &&
-			(details.listStatus === undefined || task.status === details.listStatus),
-	);
-}
-
-function listedTaskIds(details: TodoToolDetails): number[] {
-	return listedTasks(details)
-		.map((task) => task.id)
-		.sort((left, right) => left - right);
 }
 
 function isListDetails(details: TodoToolDetails): boolean {
@@ -417,29 +387,6 @@ function isListDetails(details: TodoToolDetails): boolean {
 		details.listStatus !== undefined ||
 		details.operations.some((operation) => operation.action === "list")
 	);
-}
-
-function todoHeaderIds(value: unknown, latest: { readonly details?: unknown } | undefined): string {
-	const details = latest === undefined ? undefined : readTodoToolDetails(latest.details);
-	if (details !== undefined) {
-		if (isListDetails(details)) return formatTodoIds(listedTaskIds(details));
-		const ids: number[] = [];
-		for (const operation of details.operations) {
-			if (operation.changed) pushTaskId(ids, operation.id);
-		}
-		return formatTodoIds(ids);
-	}
-	if (!value || typeof value !== "object" || Array.isArray(value)) return "";
-	const operations = (value as { readonly operations?: unknown }).operations;
-	if (!Array.isArray(operations)) return "";
-	const ids: number[] = [];
-	for (const operation of operations) {
-		if (typeof operation !== "object" || operation === null || Array.isArray(operation)) continue;
-		const record = operation as Record<string, unknown>;
-		if (record.action === "list") continue;
-		pushTaskId(ids, record.id);
-	}
-	return formatTodoIds(ids);
 }
 
 function taskRow(task: Task, theme: Theme): string {
@@ -515,80 +462,65 @@ function renderTodoToolTuiResult(
 	return new Text(rows.join("\n"), 0, 0);
 }
 
-function todoToolTuiFooter(
-	result: { readonly details?: unknown },
-	completion: { readonly durationMs?: number } | undefined,
-): string | undefined {
-	const details = readTodoToolDetails(result.details);
-	if (details === undefined) return undefined;
-	const tasks = listedTasks(details);
-	const parts: string[] = [];
-	const active = tasks.filter((task) => task.status === "in_progress");
-	if (active.length > 0) parts.push(`active ${active.map((task) => `#${task.id}`).join(" ")}`);
-	const pending = tasks.filter((task) => task.status === "pending").length;
-	if (pending > 0) parts.push(`${pending} pending`);
-	const duration = formatDuration(completion?.durationMs);
-	if (duration !== undefined) parts.push(duration);
-	return parts.length === 0 ? undefined : parts.join(" · ");
-}
-
 export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions = {}): TodoFeature {
 	let active: ActiveTodoRuntime | undefined;
 	const now = options.now ?? (() => performance.now());
 	const clock = options.clock ?? (() => Date.now());
-	registerToolTuiTrace(pi);
-	const tool = getToolTui(pi).frame(
-		{
-			name: TODO_TOOL_NAME,
-			label: "todo",
-			description: TODO_TOOL_DESCRIPTION,
-			promptSnippet: TODO_PROMPT_SNIPPET,
-			promptGuidelines: [...TODO_PROMPT_GUIDELINES],
-			parameters: TODO_PARAMETERS,
-			prepareArguments: prepareTodoArguments,
-			executionMode: "sequential",
-			renderResult(result, options, theme, context) {
-				return renderTodoToolTuiResult(result, theme, context.isError, options.expanded);
-			},
-			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				signal?.throwIfAborted();
-				const current = active;
-				if (!current || current.sessionId !== ctx.sessionManager.getSessionId())
-					throw new Error("Todo runtime is not active");
-				// applyTodo validates the entire candidate batch before returning a new
-				// state. Keep the live state untouched on every error to preserve atomicity.
-				const todoParams = params as TodoParams;
-				const result = applyTodo(current.state, todoParams, clock());
-				if (!result.ok) {
-					const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
-					throw new Error(`${message}\nNo change made.`);
-				}
-				if (result.changed) {
-					current.state = result.state;
-					current.idleTurns = 0;
-					current.reminderWindowStartedAtMs = now();
-					current.todoChangedThisTurn = true;
-					current.footerController.update(current.state);
-				}
-				const listOperation =
-					todoParams.operations.length === 1 && todoParams.operations[0]?.action === "list"
-						? todoParams.operations[0]
-						: undefined;
-				return textToolResult(formatTodoResult(todoParams, result), {
-					snapshot: snapshotFromState(current.state),
-					operations: result.operations,
-					...(listOperation?.status === undefined ? {} : { listStatus: listOperation.status }),
-				});
-			},
+	const tool = {
+		name: TODO_TOOL_NAME,
+		label: "todo",
+		description: TODO_TOOL_DESCRIPTION,
+		promptSnippet: TODO_PROMPT_SNIPPET,
+		promptGuidelines: [...TODO_PROMPT_GUIDELINES],
+		parameters: TODO_PARAMETERS,
+		prepareArguments: prepareTodoArguments,
+		executionMode: "sequential" as const,
+		renderResult(
+			result: Parameters<typeof renderTodoToolTuiResult>[0],
+			options: { expanded?: boolean },
+			theme: Parameters<typeof renderTodoToolTuiResult>[1],
+			context: { isError: boolean },
+		) {
+			return renderTodoToolTuiResult(result, theme, context.isError, options.expanded ?? false);
 		},
-		{
-			summary: todoHeaderIds,
-			summarySeparator: "space",
-			footer: todoToolTuiFooter,
-			maxBodyLines: Number.POSITIVE_INFINITY,
+		async execute(
+			_toolCallId: string,
+			params: unknown,
+			signal?: AbortSignal,
+			_onUpdate?: unknown,
+			ctx?: ExtensionContext,
+		) {
+			signal?.throwIfAborted();
+			const current = active;
+			if (!current || current.sessionId !== ctx?.sessionManager?.getSessionId())
+				throw new Error("Todo runtime is not active");
+			// applyTodo validates the entire candidate batch before returning a new
+			// state. Keep the live state untouched on every error to preserve atomicity.
+			const todoParams = params as TodoParams;
+			const result = applyTodo(current.state, todoParams, clock());
+			if (!result.ok) {
+				const message = result.error.endsWith(".") ? result.error : `${result.error}.`;
+				throw new Error(`${message}\nNo change made.`);
+			}
+			if (result.changed) {
+				current.state = result.state;
+				current.idleTurns = 0;
+				current.reminderWindowStartedAtMs = now();
+				current.todoChangedThisTurn = true;
+				current.footerController.update(current.state);
+			}
+			const listOperation =
+				todoParams.operations.length === 1 && todoParams.operations[0]?.action === "list"
+					? todoParams.operations[0]
+					: undefined;
+			return textToolResult(formatTodoResult(todoParams, result), {
+				snapshot: snapshotFromState(current.state),
+				operations: result.operations,
+				...(listOperation?.status === undefined ? {} : { listStatus: listOperation.status }),
+			});
 		},
-	);
-	registerManagedTool(pi, TODO_TOOL_REGISTRATION, tool);
+	};
+	pi.registerTool({ ...tool, defaultActive: false } as ToolDefinition);
 
 	pi.registerCommand(TODO_COMMAND_NAME, {
 		description: "Manage todos: /todo [list | clear | cancel #ID...]",

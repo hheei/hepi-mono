@@ -1,5 +1,12 @@
-import type { BeforeAgentStartEvent } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
+import {
+	type BeforeAgentStartEvent,
+	type BuildSystemPromptOptions,
+	type NormalizedBuildSystemPromptOptions,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as client from "../../src/hindsight/client.js";
+import * as config from "../../src/hindsight/config.js";
 import { MEMORY_DISCLAIMER, MEMORY_PREAMBLE_HEADING } from "../../src/hindsight/prompt.js";
 import {
 	HindsightSession,
@@ -8,24 +15,39 @@ import {
 } from "../../src/hindsight/session.js";
 import { fakeGateway, fakeResolved } from "./fixtures.js";
 
+// Exercise Pi's actual section diff; this module has no public package export.
+const { normalizeBuildSystemPromptOptions, buildSystemPromptSections, diffSystemPromptSections } =
+	(await import(
+		new URL("core/system-prompt.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href
+	)) as {
+		normalizeBuildSystemPromptOptions(
+			options: BuildSystemPromptOptions,
+		): NormalizedBuildSystemPromptOptions;
+		buildSystemPromptSections(options: BuildSystemPromptOptions): Record<string, string>;
+		diffSystemPromptSections(
+			previous: Record<string, string | null>,
+			current: Record<string, string>,
+		): Record<string, string | null> | undefined;
+	};
+
+afterEach(() => vi.restoreAllMocks());
+
 /** Pi hands every handler the rendered prompt plus the mutable sections it owns. */
 function beforeStart(
 	prompt: string,
 	systemPrompt = "BASE PROMPT",
 ): BeforeAgentStartEvent & { readonly sections: Record<string, string> } {
-	const sections: Record<string, string> = {};
+	const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/hepi-mono" });
 	return {
-		...({
-			type: "before_agent_start",
-			prompt,
-			systemPrompt,
-			systemPromptOptions: { sections },
-		} as unknown as BeforeAgentStartEvent),
-		sections,
+		type: "before_agent_start",
+		prompt,
+		systemPrompt,
+		systemPromptOptions,
+		sections: systemPromptOptions.sections,
 	};
 }
 
-const PREAMBLE_SECTION = "pi-ext-memory-preamble";
+const PREAMBLE_SECTION = "hindsight-preamble";
 const RECALL_SECTION = "hindsight-recall";
 
 function sessionWith(overrides: Parameters<typeof fakeGateway>[0] = {}, signal?: AbortSignal) {
@@ -46,17 +68,21 @@ function contextFor(sessionId: string) {
 
 describe("hindsight session prompt injection", () => {
 	it("disables hindsight when running in a subagent process", async () => {
-		const res = await startHindsightSession("/tmp", new AbortController().signal, {
-			PI_SUBAGENTS_CHILD_ID: "sa_123",
-		} as NodeJS.ProcessEnv);
+		const res = await startHindsightSession(
+			{ cwd: "/tmp", sessionManager: SessionManager.inMemory() },
+			new AbortController().signal,
+			{
+				PI_SUBAGENTS_CHILD_ID: "sa_123",
+			} as NodeJS.ProcessEnv,
+		);
 		expect(res).toEqual({ status: "disabled" });
 	});
 
-	it("injects the preamble once, then only the retrieved facts", async () => {
+	it("keeps the preamble on later turns without a Pi prompt update or another page lookup", async () => {
 		const searchPages = vi.fn(async () => [
 			{ page: "Conventions", pageId: "kp-1", snippet: "always use pnpm", score: 1 },
 		]);
-		const { session } = sessionWith({
+		const { session, gateway } = sessionWith({
 			searchPages,
 			listPages: vi.fn(async () => ({
 				pages: [{ id: "kp-1", title: "Conventions" }],
@@ -84,11 +110,18 @@ describe("hindsight session prompt injection", () => {
 		expect(firstInjection?.truncated).toBe(false);
 
 		const second = beforeStart("carry on");
-		await session.beforeAgentStart(second);
-		// Guidance the model already read is not sent again.
-		expect(second.sections[PREAMBLE_SECTION]).toBeUndefined();
+		const secondInjection = await session.beforeAgentStart(second);
+		expect(second.sections[PREAMBLE_SECTION]).toBe(first.sections[PREAMBLE_SECTION]);
 		expect(second.sections[RECALL_SECTION]).toContain(MEMORY_DISCLAIMER);
 		expect(second.systemPrompt).toBe("BASE PROMPT");
+		expect(secondInjection?.summary).toBe("recalled 1 page");
+		expect(gateway.listPages).toHaveBeenCalledTimes(1);
+		expect(
+			diffSystemPromptSections(
+				buildSystemPromptSections(first.systemPromptOptions),
+				buildSystemPromptSections(second.systemPromptOptions),
+			),
+		).toBeUndefined();
 	});
 
 	it("reports when the injected memory had to be cut to its budget", async () => {
@@ -114,11 +147,79 @@ describe("hindsight session prompt injection", () => {
 			searchPages: vi.fn(async () => []),
 			listPages: vi.fn(async () => ({ pages: [], pagesAvailable: true })),
 		});
-		// First turn still adds the preamble; the second has neither pages nor hits.
-		await session.beforeAgentStart(beforeStart("first"));
+		const first = beforeStart("first");
+		await session.beforeAgentStart(first);
 		const second = beforeStart("second");
-		await session.beforeAgentStart(second);
-		expect(second.sections).toEqual({});
+		expect(await session.beforeAgentStart(second)).toBeUndefined();
+		expect(second.sections[PREAMBLE_SECTION]).toBe(first.sections[PREAMBLE_SECTION]);
+		expect(
+			diffSystemPromptSections(
+				buildSystemPromptSections(first.systemPromptOptions),
+				buildSystemPromptSections(second.systemPromptOptions),
+			),
+		).toBeUndefined();
+	});
+
+	it("replays the branch preamble on resume even when remote pages change", async () => {
+		const first = beforeStart("first");
+		const original = sessionWith({
+			listPages: vi.fn(async () => ({
+				pages: [{ id: "kp-old", title: "Original index" }],
+				pagesAvailable: true,
+			})),
+		});
+		await original.session.beforeAgentStart(first);
+		const previous = buildSystemPromptSections(first.systemPromptOptions);
+		const sessionManager = SessionManager.inMemory("/work/hepi-mono");
+		sessionManager.appendMessage({ role: "system", content: "", sections: previous, timestamp: 1 });
+		const gateway = fakeGateway({
+			listPages: vi.fn(async () => ({
+				pages: [{ id: "kp-new", title: "Changed index" }],
+				pagesAvailable: true,
+			})),
+		});
+		vi.spyOn(config, "loadHindsightConfig").mockResolvedValue(fakeResolved());
+		vi.spyOn(client, "openHindsightGateway").mockResolvedValue(gateway);
+		const started = await startHindsightSession(
+			{ cwd: "/work/hepi-mono", sessionManager },
+			new AbortController().signal,
+		);
+		expect(started.status).toBe("ready");
+		if (started.status !== "ready") throw new Error("Hindsight failed to resume");
+		for (const prompt of ["resume", "continue"]) {
+			const event = beforeStart(prompt);
+			await started.session.beforeAgentStart(event);
+			expect(
+				diffSystemPromptSections(previous, buildSystemPromptSections(event.systemPromptOptions)),
+			).toBeUndefined();
+		}
+		expect(gateway.listPages).not.toHaveBeenCalled();
+	});
+
+	it("builds a new guide when resumed bank configuration differs", async () => {
+		const first = beforeStart("first");
+		await sessionWith().session.beforeAgentStart(first);
+		const sessionManager = SessionManager.inMemory("/work/hepi-mono");
+		sessionManager.appendMessage({
+			role: "system",
+			content: "",
+			sections: buildSystemPromptSections(first.systemPromptOptions),
+			timestamp: 1,
+		});
+		const gateway = fakeGateway();
+		vi.spyOn(config, "loadHindsightConfig").mockResolvedValue(
+			fakeResolved({ bankId: "other-bank" }),
+		);
+		vi.spyOn(client, "openHindsightGateway").mockResolvedValue(gateway);
+		const started = await startHindsightSession(
+			{ cwd: "/work/hepi-mono", sessionManager },
+			new AbortController().signal,
+		);
+		if (started.status !== "ready") throw new Error("Hindsight failed to resume");
+		const event = beforeStart("resume");
+		await started.session.beforeAgentStart(event);
+		expect(event.sections[PREAMBLE_SECTION]).toContain("other-bank");
+		expect(gateway.listPages).toHaveBeenCalledTimes(1);
 	});
 
 	it("skips retrieval when auto-recall is off but still explains the memory", async () => {

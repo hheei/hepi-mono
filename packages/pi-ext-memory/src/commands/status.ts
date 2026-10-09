@@ -2,6 +2,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { observationPoolMetrics } from "../agents/dropper/pool.js";
 import { resolveCompactAfterTokens } from "../config.js";
+import type { HindsightDiagnostics } from "../hindsight/session.js";
 import type { Runtime } from "../runtime.js";
 import {
 	diffProjection,
@@ -48,6 +49,37 @@ function terminalWidth(): number {
 	return typeof columns === "number" && columns > 0 ? columns : 80;
 }
 
+function hindsightStatusLines(diagnostics?: HindsightDiagnostics): string[] {
+	if (!diagnostics) return [];
+	const isolationNote =
+		diagnostics.isolationMode === "tagged-shared-bank" ? " (shared bank, not isolated)" : "";
+	const overrideNote = diagnostics.fileConfigOverride
+		? ` [warning: ${diagnostics.fileConfigOverride}]`
+		: "";
+	const lines = [
+		"",
+		"── Hindsight long-term memory ──",
+		`Bank:           ${diagnostics.bankId} (${diagnostics.bankSource})`,
+		`Isolation:      ${diagnostics.isolationMode}${isolationNote}`,
+		`Endpoint:       ${diagnostics.apiUrl}`,
+		`MCP server:     ${diagnostics.bankMcpUrl}${overrideNote}`,
+		`Token:          ${diagnostics.tokenConfigured ? "configured" : "none"}`,
+		`Auto-recall:    ${diagnostics.autoRecall ? "on" : "off"}`,
+		`Session retain: ${diagnostics.retainSessions ? "on" : "off"}`,
+		`Writeback:      ${diagnostics.writeback.retainedTurns} turns retained, ${diagnostics.writeback.pendingBatches} pending, ${diagnostics.writeback.inFlight ? "in flight" : "idle"}`,
+	];
+	if (diagnostics.scopeTags.length > 0) {
+		lines.push(`Scope tags:     ${diagnostics.scopeTags.join(", ")}`);
+	}
+	if (diagnostics.retainTags.length > 0) {
+		lines.push(`Retain tags:    ${diagnostics.retainTags.join(", ")}`);
+	}
+	if (diagnostics.writeback.lastError) {
+		lines.push(`Last error:     ${diagnostics.writeback.lastError}`);
+	}
+	return lines;
+}
+
 function workerCostLines(runtime: Runtime): string[] {
 	const { runs } = runtime.workerCost;
 	const total = runs.observer + runs.reflector + runs.dropper;
@@ -65,6 +97,7 @@ function workerCostLines(runtime: Runtime): string[] {
 export async function runStatusCommand(
 	runtime: Runtime,
 	ctx: ExtensionCommandContext,
+	getHindsightDiagnostics?: () => HindsightDiagnostics | undefined,
 ): Promise<void> {
 	await runtime.ensureConfig(ctx.cwd, runtime.lifecycleSignal);
 	const entries = ctx.sessionManager.getBranch() as Entry[];
@@ -180,6 +213,7 @@ export async function runStatusCommand(
 	}
 
 	lines.push(...workerCostLines(runtime));
+	lines.push(...hindsightStatusLines(getHindsightDiagnostics?.()));
 
 	if (
 		runtime.lastObserverError ||

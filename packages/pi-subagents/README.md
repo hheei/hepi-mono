@@ -15,16 +15,15 @@ children and `/subagents stop [id]` to stop one without conflicting with other e
 
 | Tool | Purpose |
 | --- | --- |
-| `subagent_enable({})` | Enable interactive agent tools (`spawn_agent`, `send_agent`, `get_agent`, `stop_agent`) on demand. Deactivated by default in new sessions to save tokens; appends available interactive agents if any are defined, and enabled tools become available on the next model request. |
-| `spawn_agent({ task, agent, cwd?, title? })` | Start one child and return when its bridge is ready and the initial task was delivered. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `send_agent` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. `title` (<= 60 chars) names the child's Pi session, shown as `🤖 <title>`. Requires `subagent_enable`. Do not poll `get`/`list` for completion; reports arrive automatically as `subagent-report` messages. Do not pause or freeze other subagents before spawning. |
-| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle or completed (`done`/`blocked`) children resume their existing session automatically with historical context intact, maximizing cache and memory efficiency. Do not wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing. Requires `subagent_enable`. |
-| `get_agent({ id })` | Inspect one child: state (`running` / `done` / `blocked`), presentation (`panel`/`background`), session, summary, usage, runtime freshness, and model/thinking. Requires `subagent_enable`. |
+| `spawn_agent({ task, agent, cwd?, title? })` | Start one child and return when its bridge is ready and the initial task was delivered. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `send_agent` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. `title` (<= 60 chars) names the child's Pi session, shown as `🤖 <title>`. Deferred by default; discover via `tool_search({ query: "agent" })`. Do not poll `get`/`list` for completion; reports arrive automatically as `subagent-report` messages. Do not pause or freeze other subagents before spawning. |
+| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle or completed (`done`/`blocked`/`error`, including stopped children) children resume their existing session automatically with historical context intact, maximizing cache and memory efficiency. Do not wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `get_agent({ id })` | Inspect one child: state (`running` / `done` / `blocked` / `error`), presentation (`panel`/`background`), session, summary, usage, runtime freshness, and model/thinking. Deferred by default; discover via `tool_search({ query: "agent" })`. |
 | `list_agents({})` | List available interactive agent definitions and running subagents owned by this parent session. |
-| `stop_agent({ id })` | Persist a stopped intent, then end the runtime: a background child is killed, a panel child has its panel closed and verified gone. Requires `subagent_enable`. |
+| `stop_agent({ id })` | Persist a stopped intent, then end the runtime: a background child is killed, a panel child has its panel closed and verified gone. Deferred by default; discover via `tool_search({ query: "agent" })`. |
 
 ### Unified Task Management
 
-Subagent execution tasks automatically register with ext-core's `TaskRegistry`. Background bash jobs and subagents are uniformly tracked and waited upon using `wait_jobs`, eliminating fragmented or redundant task tools.
+Subagent execution tasks automatically register with ext-core's `TaskRegistry`, alongside background bash jobs. Child reports arrive automatically; do not use `wait_jobs` or poll status to detect child completion. Use `wait_jobs` for other background jobs only when the next step needs their results. Deferred subagent tools are loaded via `tool_search`; parent operation tools do not append snippets or guidelines to the system prompt.
 
 ## Child execution and reporting
 
@@ -35,20 +34,19 @@ Subagents communicate with the parent over a dedicated Unix domain socket bridge
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
 - **Automatic Retry**: If a subagent encounters a transient error, the harness allows one automatic retry before marking the task failed or delivering a blocked notification.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
-- **Session Reference (`forkFrom`)**: `spawn_agent` can reference past conversation via `forkFrom: 'parent'` or a subagent id like `agent-1` (cannot be `'current'`). Instead of injecting the entire transcript into the subagent's prompt, the subagent's instructions reference the source session JSONL file path, allowing the model to inspect earlier context on demand using `read` or `grep` without token bloat.
-
 ## Three visual states
 
-Subagent lifecycle is streamlined into three visual states in the TUI widget and status line:
+Subagent lifecycle is shown in the TUI widget above the editor; subagent status is omitted from the footer:
 
 - **`running`** (blue/amber): Starting, executing turns, auto-retrying, or waiting out the 5-second settlement debounce.
 - **`done`** (green checkmark `✓`): Succeeded and automatically reported final assistant text back to the parent.
-- **`blocked`** (red/dim `!`): Failed, interrupted, stopped, or explicitly blocked via `contact_parent`.
+- **`blocked`**: Interrupted or waiting for input/guidance.
+- **`error`**: The turn failed or the runtime was stopped. You may retry with `send_agent` or create a new child via `spawn_agent`. Sending to a stopped child reactivates its existing session after the previous runtime is confirmed gone; retrying does not guarantee the underlying failure is resolved.
 
 ## Host Integration and Isolation
 
 - **Herdr Workspace Affinity**: When spawning in Herdr, tabs are explicitly created in the parent process's current workspace (`--workspace <WORKSPACE_ID>`), preventing child tabs from jumping to whichever workspace happens to have user focus.
-- **Hindsight Memory Isolation**: Subagents are completely isolated from the parent's long-term Hindsight memory. `PI_HINDSIGHT_DISABLE=1` is set in the child environment, hindsight tools are excluded via `--exclude-tools`, and any memory recall prompt blocks are stripped to protect memory banks from subagent noise.
+- **Hindsight Memory Isolation**: `PI_HINDSIGHT_DISABLE=1` is set in the child environment and memory auto-registration/recall/writeback are disabled. The child bridge blocks all `mcp__hindsight__*` calls (including nested codemode calls and future server tools), even if that server is configured in a file. Memory recall prompt blocks are stripped. This boundary applies to the reserved `hindsight` server name, not arbitrary external servers registered under other names.
 
 ## Agent definitions
 

@@ -70,8 +70,9 @@ describe("hindsight prompt injection", () => {
 		});
 		expect(text).toContain(MEMORY_PREAMBLE_HEADING);
 		expect(text).toContain("`repo:hepi-mono` tag");
-		expect(text).toContain("hindsight_search_knowledge_pages");
-		expect(text).toContain("hindsight_reflect");
+		expect(text).toContain("mcp__hindsight__search_knowledge_base");
+		expect(text).toContain("mcp__hindsight__reflect");
+		expect(text).toContain("Correction: <topic>");
 		expect(text).toContain("kp-1 — Conventions: repo-wide rules");
 	});
 

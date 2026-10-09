@@ -29,7 +29,6 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
-		interactive: false,
 	};
 }
 
@@ -298,28 +297,6 @@ test("round-trips the frozen spawn title and keeps an absent one absent", async 
 		});
 		expect((await registry(path).get("sa_bbbb"))?.launchConfig.title).toBe(
 			"OVITO properties editor",
-		);
-	});
-});
-
-test("defaults missing launchConfig.interactive to false and rejects non-booleans", async (): Promise<void> => {
-	await withTempDir("pi-subagents-registry-", async (directory) => {
-		const path = join(directory, "registry.json");
-		const store = registry(path);
-		await store.create(record("sa_aaaa", join(directory, "work")));
-		const saved = JSON.parse(await readFile(path, "utf8")) as {
-			records: Record<string, { launchConfig: { interactive?: unknown } }>;
-		};
-		const launch = saved.records.sa_aaaa?.launchConfig;
-		if (launch === undefined) throw new Error("launchConfig missing");
-		delete launch.interactive;
-		await writeFile(path, `${JSON.stringify(saved)}\n`, "utf8");
-		expect((await registry(path).get("sa_aaaa"))?.launchConfig.interactive).toBe(false);
-
-		launch.interactive = "yes";
-		await writeFile(path, `${JSON.stringify(saved)}\n`, "utf8");
-		await expect(registry(path).list()).rejects.toThrow(
-			/launchConfig.interactive must be boolean/u,
 		);
 	});
 });

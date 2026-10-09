@@ -11,11 +11,13 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 }));
 
 import {
+	buildBankMcpUrl,
 	expandConfigPath,
 	HINDSIGHT_DEFAULTS,
 	loadHindsightConfig,
 	resolveHindsightConfig,
 	resolveRepoName,
+	sanitizeUrlForLogging,
 } from "../../src/hindsight/config.js";
 
 function writeJson(path: string, value: unknown): void {
@@ -177,7 +179,6 @@ describe("hindsight config resolution", () => {
 		});
 		expect(resolved?.config.readTimeoutMs).toBe(HINDSIGHT_DEFAULTS.readTimeoutMs);
 		expect(resolved?.config.maxMemoryChars).toBe(HINDSIGHT_DEFAULTS.maxMemoryChars);
-		expect(resolved?.config.reflectBudget).toBe(HINDSIGHT_DEFAULTS.reflectBudget);
 		expect(resolved?.config.autoRecall).toBe(HINDSIGHT_DEFAULTS.autoRecall);
 		expect(resolved?.config.retainSessions).toBe(false);
 		// A blank bank id is not a bank id.
@@ -288,5 +289,81 @@ describe("resolveRepoName", () => {
 		const plain = join(root, "scratch");
 		mkdirSync(plain, { recursive: true });
 		expect(await resolveRepoName(plain)).toBe("scratch");
+	});
+});
+
+describe("buildBankMcpUrl regression & security tests", () => {
+	const validMcpUrl = "http://oracle-kr:38887/mcp";
+
+	it("appends encoded bankId to mcp base url", () => {
+		expect(buildBankMcpUrl(validMcpUrl, "my-bank")).toBe("http://oracle-kr:38887/mcp/my-bank/");
+		expect(buildBankMcpUrl("http://oracle-kr:38887", "my-bank")).toBe(
+			"http://oracle-kr:38887/mcp/my-bank/",
+		);
+		expect(buildBankMcpUrl("http://oracle-kr:38887/mcp/", "coding-agent::repo")).toBe(
+			"http://oracle-kr:38887/mcp/coding-agent%3A%3Arepo/",
+		);
+	});
+
+	it("rejects empty or whitespace-only bankId", () => {
+		expect(() => buildBankMcpUrl(validMcpUrl, "")).toThrow("Invalid bankId");
+		expect(() => buildBankMcpUrl(validMcpUrl, "   ")).toThrow("Invalid bankId");
+	});
+
+	it("rejects '.' and '..' bankId to prevent normalization to MCP root/multi-bank", () => {
+		expect(() => buildBankMcpUrl(validMcpUrl, ".")).toThrow(
+			"Invalid bankId: dot segments not allowed",
+		);
+		expect(() => buildBankMcpUrl(validMcpUrl, "..")).toThrow(
+			"Invalid bankId: dot segments not allowed",
+		);
+	});
+
+	it("rejects slash and backslash in bankId to prevent path traversal", () => {
+		expect(() => buildBankMcpUrl(validMcpUrl, "foo/bar")).toThrow(
+			"Invalid bankId: path separators not allowed",
+		);
+		expect(() => buildBankMcpUrl(validMcpUrl, "foo\\bar")).toThrow(
+			"Invalid bankId: path separators not allowed",
+		);
+		expect(() => buildBankMcpUrl(validMcpUrl, "../other")).toThrow(
+			"Invalid bankId: path separators not allowed",
+		);
+	});
+
+	it("rejects mcpUrl with credentials, query, or fragment", () => {
+		expect(() => buildBankMcpUrl("http://user:pass@host/mcp", "bank")).toThrow(
+			"credentials not allowed",
+		);
+		expect(() => buildBankMcpUrl("http://host/mcp?token=secret", "bank")).toThrow(
+			"query and fragment not allowed",
+		);
+		expect(() => buildBankMcpUrl("http://host/mcp#fragment", "bank")).toThrow(
+			"query and fragment not allowed",
+		);
+	});
+
+	it("boundary error in resolveHindsightConfig throws for traversal or invalid bank without fallback", () => {
+		expect(() =>
+			resolveHindsightConfig({
+				settings: { enabled: true, bankId: ".." },
+				env: {},
+				fallback: undefined,
+				cwd: "/work/repo",
+				repo: "repo",
+			}),
+		).toThrow("Invalid bankId: dot segments not allowed");
+	});
+});
+
+describe("sanitizeUrlForLogging", () => {
+	it("strips user, password, search query, and hash fragment", () => {
+		expect(sanitizeUrlForLogging("http://user:secret@oracle-kr:38887/mcp?token=xyz#admin")).toBe(
+			"http://oracle-kr:38887/mcp",
+		);
+	});
+
+	it("returns [invalid-url] without leaking unparseable strings", () => {
+		expect(sanitizeUrlForLogging("not a valid url with secret ?foo=bar")).toBe("[invalid-url]");
 	});
 });

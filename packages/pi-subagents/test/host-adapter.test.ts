@@ -498,6 +498,7 @@ test("system cmux probe is a capability failure when cmux is not live", async ()
 test.skipIf(process.env.HERDR_ENV !== "1")(
 	"Herdr live open launches a process from a TUI LaunchSpec in its own tab and closes only that tab",
 	async () => {
+		vi.unstubAllEnvs();
 		const adapter = createHerdrHostAdapter({
 			ownerId: "sub-07-smoke",
 			ownsAttachment,

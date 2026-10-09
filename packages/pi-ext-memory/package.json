@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-memory",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Observational memory extension for Pi — cache-friendly tiered compaction with observations and reflections.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -47,15 +47,15 @@
 	"peerDependencies": {
 		"@earendil-works/pi-agent-core": ">=1.0.0",
 		"@earendil-works/pi-ai": ">=1.0.0",
-		"@earendil-works/pi-coding-agent": ">=1.0.0",
+		"@earendil-works/pi-coding-agent": ">=1.0.1",
 		"@earendil-works/pi-tui": ">=1.0.0",
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "1.0.2",
-		"@earendil-works/pi-ai": "1.0.2",
-		"@earendil-works/pi-coding-agent": "1.0.2",
-		"@earendil-works/pi-tui": "1.0.2",
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0",
 		"@types/node": "^22.0.0",
 		"typescript": "^5.6.0"
 	}

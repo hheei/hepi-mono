@@ -1,82 +1,50 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import {
-	createToolTui,
-	type ExtensionLifecycleContext,
-	setManagedToolsActive,
-	type ToolTui,
-} from "@hheei/pi-ext-core";
-import {
-	APPLY_PATCH_TOOL_REGISTRATION,
-	isApplyPatchToolDetails,
-	registerApplyPatchTool,
-} from "./apply-patch-tool.js";
+import { type ExtensionLifecycleContext, setSessionToolsActive } from "@hheei/pi-ext-core";
+import { isApplyPatchToolDetails, registerApplyPatchTool } from "./apply-patch-tool.js";
 import { registerBashTool } from "./bash.js";
-import { CODEMODE_TOOL_REGISTRATION, registerCodemodeTool } from "./codemode.js";
-import { EDIT_TOOL_REGISTRATION, registerEditTool } from "./edit.js";
+import { registerEditTool } from "./edit.js";
 import { type EvalNestedToolName, EvalToolBridge } from "./eval/bridge.js";
 import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.js";
-import {
-	applyEvalPromptGuidelines,
-	EVAL_TOOL_REGISTRATION,
-	registerEvalTool,
-} from "./eval/tool.js";
+import { registerPythonEvalTool } from "./eval/tool.js";
 import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
-import type { EditCatalog } from "./fff/settings.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
-import { registerLsTool } from "./ls.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
 import { registerTaskTools } from "./task-tools.js";
-import { TODO_TOOL_REGISTRATION } from "./todo/todo.js";
-import { registerWriteTool, WRITE_TOOL_REGISTRATION } from "./write.js";
+import { registerWriteTool } from "./write.js";
 
-const NATIVE_EDIT_REGISTRATIONS = [EDIT_TOOL_REGISTRATION, WRITE_TOOL_REGISTRATION] as const;
-const APPLY_PATCH_REGISTRATIONS = [APPLY_PATCH_TOOL_REGISTRATION] as const;
-const EVAL_REGISTRATIONS = [EVAL_TOOL_REGISTRATION] as const;
-export const TODO_REGISTRATIONS = [TODO_TOOL_REGISTRATION] as const;
-
-/** Activates and publishes only the resolved execution catalog. */
-export function activateEditCatalog(
-	context: ExtensionLifecycleContext,
-	catalog: EditCatalog,
-	evalTool?: ReturnType<typeof registerEvalTool>,
-): void {
-	if (evalTool !== undefined) {
-		applyEvalPromptGuidelines(evalTool, catalog);
-		context.pi.registerTool(evalTool);
-	}
-	setManagedToolsActive(context, NATIVE_EDIT_REGISTRATIONS, catalog === "native");
-	setManagedToolsActive(context, APPLY_PATCH_REGISTRATIONS, catalog === "apply_patch");
+export function activateApplyPatchTool(context: ExtensionLifecycleContext, enabled: boolean): void {
+	setSessionToolsActive(context, ["apply_patch"], enabled);
 }
 
-export function activateEvalCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
-	setManagedToolsActive(context, EVAL_REGISTRATIONS, enabled);
+export function activatePythonEvalCatalog(
+	context: ExtensionLifecycleContext,
+	enabled: boolean,
+): void {
+	setSessionToolsActive(context, ["python_eval"], enabled);
 }
 
 export function activateTodoCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
-	setManagedToolsActive(context, TODO_REGISTRATIONS, enabled);
+	setSessionToolsActive(context, ["todo"], enabled);
 }
 
-/** Statically registers the explicitly approved canonical tool catalog. */
+/** Statically registers the tool catalog. */
 export function registerTools(
 	pi: ExtensionAPI,
 	state: FffRuntimeState = createFffRuntimeState(),
-	tui: ToolTui = createToolTui(),
 	evalState: EvalRuntimeState = createEvalRuntimeState(),
-): ReturnType<typeof registerEvalTool> {
+): ReturnType<typeof registerPythonEvalTool> {
 	const nested = new Map<EvalNestedToolName, ToolDefinition>();
-	nested.set("read", registerReadTool(pi, state, tui));
-	nested.set("grep", registerGrepTool(pi, state, tui));
-	nested.set("find", registerFindTool(pi, state, tui));
-	nested.set("edit", registerEditTool(pi, tui, state));
-	nested.set("write", registerWriteTool(pi, tui, state));
-	nested.set("bash", registerBashTool(pi, state, tui));
-	registerLsTool(pi, tui);
-	registerTaskTools(pi, state, tui);
-	nested.set("apply_patch", registerApplyPatchTool(pi, tui, state));
-	registerCodemodeTool(pi, tui);
-	return registerEvalTool(
+	nested.set("read", registerReadTool(pi, state));
+	nested.set("grep", registerGrepTool(pi, state));
+	nested.set("find", registerFindTool(pi, state));
+	nested.set("edit", registerEditTool(pi, state));
+	nested.set("write", registerWriteTool(pi, state));
+	nested.set("bash", registerBashTool(pi, state));
+	registerTaskTools(pi, state);
+	nested.set("apply_patch", registerApplyPatchTool(pi, state));
+	return registerPythonEvalTool(
 		pi,
 		evalState,
 		new EvalToolBridge(
@@ -84,9 +52,9 @@ export function registerTools(
 			(name) => pi.getActiveTools().includes(name),
 			(name, result) => nestedResultIsError(name, result),
 		),
-		tui,
 	);
 }
+
 function nestedResultIsError(
 	name: EvalNestedToolName,
 	result: { readonly details?: unknown },
@@ -119,5 +87,3 @@ function nestedResultIsError(
 		record.outcome !== "no_change"
 	);
 }
-
-export { CODEMODE_TOOL_REGISTRATION, registerCodemodeTool };

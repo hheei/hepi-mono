@@ -8,9 +8,7 @@ import type {
 	ExtensionToolContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
 import {
-	createToolTui,
 	type ExtensionLifecycleContext,
 	isTerminalTaskStatus,
 	TaskRegistry,
@@ -21,8 +19,7 @@ import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
 import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
-import { framedHost, toolFor, toolHost } from "./fixtures/harness.js";
-import { plainTheme } from "./fixtures/theme.js";
+import { toolFor, toolHost } from "./fixtures/harness.js";
 
 const registries: BashJobRegistry[] = [];
 const taskRegistries: TaskRegistry[] = [];
@@ -394,55 +391,12 @@ test("task tools list, wait for, and stop background tasks", async (): Promise<v
 		{ type: "text", text: expect.stringContaining("bash-1 cancelled · npm run build") },
 	]);
 	expect(finished.content).toEqual([
-		{ type: "text", text: expect.stringContaining("result not sent") },
+		{ type: "text", text: expect.stringContaining("result in context") },
 	]);
 	for (const tool of [wait, stop]) {
 		const rejected = await runTool(tool, "invalid", { ids: [] });
 		expect(rejected.details).toMatchObject({ error: "invalid_ids" });
 	}
-});
-
-test("renders task tool headers inside narrow terminal widths", async (): Promise<void> => {
-	const tasks = tracked(new TaskRegistry());
-	const { pi, tools, tui } = framedHost();
-	registerTaskTools(pi, runtimeState(tasks), tui);
-	const wait = toolFor(tools, "wait_jobs");
-	for (const context of [
-		{ isPartial: true, executionStarted: false, expanded: false },
-		{ isPartial: false, executionStarted: true, expanded: false },
-		{ isPartial: false, executionStarted: true, expanded: true },
-	]) {
-		const lines =
-			wait
-				.renderCall?.({ ids: ["bash-test-1", "bash-test-2", "bash-test-3"] }, plainTheme, {
-					...context,
-					isError: false,
-					lastComponent: undefined,
-					state: {},
-					toolCallId: "narrow-wait",
-					invalidate: (): void => undefined,
-				} as never)
-				?.render(30) ?? [];
-		expect(lines.length).toBeGreaterThan(0);
-		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
-	}
-
-	tui.beginTrace();
-	const collapsed =
-		wait
-			.renderCall?.({ ids: ["bash-test-1", "bash-test-2", "bash-test-3"] }, plainTheme, {
-				isPartial: false,
-				isError: false,
-				executionStarted: true,
-				expanded: false,
-				lastComponent: undefined,
-				state: {},
-				toolCallId: "narrow-wait",
-				invalidate: (): void => undefined,
-			} as never)
-			?.render(30) ?? [];
-	expect(collapsed).toHaveLength(1);
-	for (const line of collapsed) expect(visibleWidth(line)).toBeLessThanOrEqual(30);
 });
 
 test("terminalizes a job whose shell cannot be spawned", async (): Promise<void> => {
@@ -480,43 +434,6 @@ test("bounds the records left by repeated start failures", (): void => {
 		).toThrow("spawn failed");
 	// Failed startups are terminal records, so they obey the same 64-record retention cap.
 	expect(tasks.list(true).length).toBeLessThanOrEqual(64);
-});
-
-function taskFrame(tool: ToolDefinition, args: unknown, toolCallId: string): string {
-	return (
-		tool
-			.renderCall?.(args, plainTheme, {
-				isPartial: false,
-				isError: false,
-				executionStarted: true,
-				expanded: false,
-				lastComponent: undefined,
-				state: {},
-				toolCallId,
-				invalidate: (): void => undefined,
-			} as never)
-			?.render(80)
-			.join("\n") ?? ""
-	);
-}
-
-test("warns on stop_jobs only when an id did not stop", async (): Promise<void> => {
-	const tasks = tracked(new TaskRegistry());
-	const host = toolHost();
-	registerTaskTools(host.pi, runtimeState(tasks), createToolTui());
-	const stop = toolFor(host.tools, "stop_jobs");
-	tasks.create({
-		type: "bash",
-		purpose: "npm run build",
-		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
-	});
-	await runTool(stop, "stop-live", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-live")).toContain("󰄴 stop_jobs bash-1");
-	tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false });
-	await runTool(stop, "stop-done", { ids: ["bash-1"] });
-	expect(taskFrame(stop, { ids: ["bash-1"] }, "stop-done")).toContain("󰄴 stop_jobs bash-1");
-	await runTool(stop, "stop-missing", { ids: ["bash-9"] });
-	expect(taskFrame(stop, { ids: ["bash-9"] }, "stop-missing")).toContain("󰀪 stop_jobs bash-9");
 });
 
 test("a command stays in foreground and runs to completion", async (): Promise<void> => {
@@ -645,7 +562,7 @@ const HOST_ACTIVE_TOOLS: readonly string[] = [
 	"wait_jobs",
 	"stop_jobs",
 	"apply_patch",
-	"eval",
+	"python_eval",
 ];
 
 function taskControlHost(): TaskControlHost {

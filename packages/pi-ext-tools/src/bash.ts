@@ -16,32 +16,21 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import {
-	agentResultText,
-	createToolTui,
-	errorMessage,
-	formatDuration,
-	isRecord,
-	registerManagedTool,
-	type ToolCompletion,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { agentResultText, errorMessage, isRecord, textToolResult } from "@hheei/pi-ext-core";
+
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
 import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
-import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
-import { WrappedTextBody } from "./pretty/wrapped-text.js";
+
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
 import { startBashJob } from "./tasks/bash-job.js";
 
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
 const BASH_MAX_BODY_LINES = 10;
 
-const OWNER = "@hheei/pi-ext-tools";
 const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
 const BASH_PROMPT_GUIDELINES = [
 	"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_jobs` to wait for any unfinished background jobs.",
@@ -93,21 +82,6 @@ type BashToolResult = AgentToolResult<Record<string, unknown>>;
 
 function detailsRecord(value: unknown): Readonly<Record<string, unknown>> {
 	return isRecord(value) ? value : {};
-}
-
-function bashFooter(
-	result: AgentToolResult<unknown>,
-	completion: ToolCompletion | undefined,
-): string {
-	const details = detailsRecord(result.details);
-	if (typeof details.taskId === "string") {
-		return `job ${details.taskId} · background`;
-	}
-	const output = typeof details.output === "string" ? details.output : agentResultText(result);
-	const exitCode = typeof details.exitCode === "number" ? details.exitCode : "?";
-	const lines = outputTotalLines(result, output);
-	const duration = formatDuration(completion?.durationMs) ?? "completed";
-	return `exit ${exitCode} · ${counted(lines, "line")} · ${duration}`;
 }
 
 function logicalOutputLines(output: string): string[] {
@@ -366,14 +340,14 @@ async function runForeground(
  * The frame header states how the call was made. The command itself is the request body, so only an
  * explicit timeout and a non-blocking request are worth repeating above it.
  */
-function bashHeaderFacts(args: Input): string | undefined {
+function _bashHeaderFacts(args: Input): string | undefined {
 	const facts: string[] = [];
 	if (args.blocking === false) facts.push("non-blocking");
 	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
 	return facts.length === 0 ? undefined : facts.join(" ");
 }
 
-function bashResultWarning(result: { readonly details: unknown }): boolean {
+function _bashResultWarning(result: { readonly details: unknown }): boolean {
 	if (typeof result.details !== "object" || result.details === null) return false;
 	const details = result.details as Record<string, unknown>;
 	return (
@@ -447,11 +421,7 @@ async function runRemoteBash(
 }
 
 /** Pi original definition remains default execution; background control is extension-owned. */
-export function registerBashTool(
-	pi: ExtensionAPI,
-	state?: FffRuntimeState,
-	tui: ToolTui = createToolTui(),
-): ToolDefinition {
+export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
 	const {
 		renderCall: _upstreamRenderCall,
 		renderResult: upstreamRenderResult,
@@ -470,19 +440,19 @@ export function registerBashTool(
 		},
 		prepareLoadout(loadout: ToolLoadout): ToolLoadoutChanges {
 			const declared = new Set(loadout.declared.map((t) => t.name));
-			const hasEval = declared.has("eval");
+			const hasEval = declared.has("python_eval");
 			const hasCodemode = declared.has("codemode");
 			if (hasEval && hasCodemode) {
 				return {
 					descriptions: {
-						bash: `${BASH_DESCRIPTION} Prefer eval for persistent Python computation, and codemode for tool orchestration or filtering.`,
+						bash: `${BASH_DESCRIPTION} Prefer python_eval for persistent Python computation, and codemode for tool orchestration or filtering.`,
 					},
 				};
 			}
 			if (hasEval) {
 				return {
 					descriptions: {
-						bash: `${BASH_DESCRIPTION} Prefer eval over python -c for multi-step computation.`,
+						bash: `${BASH_DESCRIPTION} Prefer python_eval over python -c for multi-step computation.`,
 					},
 				};
 			}
@@ -630,30 +600,7 @@ export function registerBashTool(
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
-	registerManagedTool(
-		pi,
-		{
-			id: "bash",
-			owner: OWNER,
-		},
-		tui.frame(tool, {
-			maxBodyLines: Number.POSITIVE_INFINITY,
-			longOutput: true,
-			// The command is a request body, so the header carries only invocation facts.
-			headerLine: "truncate",
-			summary: () => "",
-			suffix: bashHeaderFacts,
-			request: (args, theme) => {
-				const command = typeof args.command === "string" ? args.command : "";
-				return command === ""
-					? undefined
-					: new WrappedTextBody(stripTerminalSequences(command), theme);
-			},
-			footer: (result, completion, options) =>
-				options.isPartial ? undefined : bashFooter(result, completion),
-			warning: bashResultWarning,
-		}),
-	);
+	pi.registerTool(tool);
 	return tool;
 }
 

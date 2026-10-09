@@ -45,15 +45,16 @@ export interface Config {
 	compactAfterTokensMode: CompactAfterTokensMode;
 	compactAfterTokensRatio: number;
 	/**
-	 * Idle duration before triggering proactive background compaction.
+	 * Idle duration before notifying that the next message will trigger compaction.
 	 * Formats: "30m", "1h", "300s", or raw seconds.
 	 * Set to "never", false, or 0 to disable.
 	 */
 	idleCompactionTtlSeconds?: number | undefined;
 	/**
-	 * Minimum uncompacted tokens required to qualify for idle compaction.
+	 * Minimum uncompacted tokens accumulated before idle compaction may trigger.
+	 * When unset, defaults to Pi's compaction keepRecentTokens cap (or 20,000).
 	 */
-	idleCompactionMinTokens: number;
+	idleCompactionMinTokens?: number | undefined;
 	observationsPoolMaxTokens: number;
 	observationsPoolTargetTokens: number;
 	/**
@@ -89,7 +90,6 @@ export const DEFAULTS: Config = {
 	compactAfterTokensMode: "calibrated",
 	compactAfterTokensRatio: 0.68,
 	idleCompactionTtlSeconds: 1800,
-	idleCompactionMinTokens: 75_000,
 	observationsPoolMaxTokens: 20_000,
 	observationsPoolTargetTokens: 10_000,
 	agentMaxTurns: 16,
@@ -302,6 +302,7 @@ function normalizeSettingsConfig(value: Record<string, unknown>): Partial<Config
 		"reflectAfterTokens",
 		"observerChunkMaxTokens",
 		"compactAfterTokens",
+		"idleCompactionMinTokens",
 		"observationsPoolMaxTokens",
 		"observationsPoolTargetTokens",
 		"memoryMaxTokens",
@@ -319,10 +320,6 @@ function normalizeSettingsConfig(value: Record<string, unknown>): Partial<Config
 	if (ratio !== undefined) normalized.compactAfterTokensRatio = ratio;
 	if (value.idleCompactionTtl !== undefined) {
 		normalized.idleCompactionTtlSeconds = parseDurationToSeconds(value.idleCompactionTtl);
-	}
-	const idleMinTokens = positiveIntegerOrUndefined(value.idleCompactionMinTokens);
-	if (idleMinTokens !== undefined) {
-		normalized.idleCompactionMinTokens = idleMinTokens;
 	}
 	if (typeof value.showWorkerNotifications === "boolean")
 		normalized.showWorkerNotifications = value.showWorkerNotifications;

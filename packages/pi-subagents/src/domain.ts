@@ -13,12 +13,12 @@ export function normalizeSubagentState(value: unknown): SubagentState | undefine
 		case "idle":
 			return "running";
 		case "done":
+		case "stopped":
 			return "done";
 		case "blocked":
 			return "blocked";
 		case "error":
 		case "failed":
-		case "stopped":
 			return "error";
 		default:
 			return undefined;
@@ -138,8 +138,6 @@ export interface EffectiveLaunchConfig {
 	readonly sessionDir: string;
 	/** Known only once the session has been flushed to disk. */
 	readonly sessionPath?: string;
-	/** Optional path to a prior session JSONL file referenced for on-demand context inspection. */
-	readonly referencedSessionPath?: string;
 	readonly agent: ResolvedAgentIdentity;
 	readonly model: ResolvedModel;
 	readonly thinking: ResolvedThinking;
@@ -149,8 +147,6 @@ export interface EffectiveLaunchConfig {
 	readonly skills: SkillSelection;
 	readonly prompt: string;
 	readonly bridgeExtensionPath: string;
-	/** Frozen at spawn. Interactive children do not auto-wake the parent except via contact_parent. */
-	readonly interactive: boolean;
 	/** Whether the subagent operates in codemode-only mode. */
 	readonly codemodeOnly?: boolean;
 	/**
@@ -168,7 +164,6 @@ export interface ResolvedAgentPolicy {
 	readonly excludeTools: readonly string[];
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
-	readonly interactive: boolean;
 	readonly codemodeOnly?: boolean;
 	readonly enabled?: boolean;
 }
@@ -222,12 +217,12 @@ export interface PublicSubagent {
 	readonly presentation: Presentation;
 	readonly cwd: string;
 	readonly sessionId: string;
+	readonly task?: string;
 	readonly summary?: string;
 	readonly activeTool?: string;
 	readonly usage?: UsageSummary;
 	readonly interrupted?: string;
 	readonly freshness: "live" | "last_known";
-	readonly interactive: boolean;
 	readonly model: ResolvedModel;
 	readonly thinking: ResolvedThinking;
 	readonly createdAt: string;
@@ -256,11 +251,6 @@ export interface SpawnSubagentInput {
 	readonly presentation?: Presentation | "auto";
 	/** Optional child session title; the child branch prefixes it with the subagent marker. */
 	readonly title?: string;
-	/**
-	 * Optional session or agent to fork context from (e.g. 'parent', or a subagent id like 'agent-1').
-	 * Thinking blocks are stripped and context is compacted if pi-ext-memory is active.
-	 */
-	readonly forkFrom?: string;
 }
 
 /** True when a manager call returned a structured failure instead of a value. */

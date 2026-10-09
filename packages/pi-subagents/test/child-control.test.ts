@@ -389,4 +389,207 @@ describe("registerChildControl", () => {
 		const imageBlock = sanitized.result.content[1] as { type: string; data: string };
 		expect(imageBlock.data).toBe("[image omitted for bridge event]");
 	});
+
+	test("sanitizeEventForBridge truncates large text content in message_update", () => {
+		const largeText = "b".repeat(5000);
+		const rawEvent = {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: largeText }],
+			},
+		};
+
+		const sanitized = sanitizeEventForBridge(rawEvent) as typeof rawEvent;
+		expect(sanitized.type).toBe("message_update");
+		const textBlock = sanitized.message.content[0] as { type: string; text: string };
+		expect(textBlock.text.length).toBeLessThan(300);
+		expect(textBlock.text).toContain("[truncated for bridge event]");
+	});
+
+	test("throttles streaming message_update deltas within the same phase", async () => {
+		const parent = await startParent();
+		const { pi } = await startChild(parent);
+
+		// Multiple thinking deltas in a row: only the first should be forwarded
+		pi.emit(
+			"message_update",
+			{
+				type: "message_update",
+				assistantMessageEvent: { type: "thinking_delta" },
+				message: { role: "assistant", content: [] },
+			},
+			{},
+		);
+		pi.emit(
+			"message_update",
+			{
+				type: "message_update",
+				assistantMessageEvent: { type: "thinking_delta" },
+				message: { role: "assistant", content: [] },
+			},
+			{},
+		);
+
+		// Switch to text delta: should be forwarded once
+		pi.emit(
+			"message_update",
+			{
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta" },
+				message: { role: "assistant", content: [{ type: "text", text: "hi" }] },
+			},
+			{},
+		);
+		pi.emit(
+			"message_update",
+			{
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta" },
+				message: { role: "assistant", content: [{ type: "text", text: "hi there" }] },
+			},
+			{},
+		);
+
+		await vi.waitFor(() => {
+			expect(parent.events).toHaveLength(2);
+		});
+		expect(
+			(parent.events[0] as { assistantMessageEvent: { type: string } }).assistantMessageEvent.type,
+		).toBe("thinking_delta");
+		expect(
+			(parent.events[1] as { assistantMessageEvent: { type: string } }).assistantMessageEvent.type,
+		).toBe("text_delta");
+	});
+
+	test("sanitizeEventForBridge reduces a streaming update to compact phase telemetry", () => {
+		const huge = "x".repeat(2 * 1024 * 1024);
+		const rawEvent = {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_delta",
+				contentIndex: 0,
+				delta: huge,
+				content: huge,
+				partial: { role: "assistant", content: [{ type: "text", text: huge }] },
+			},
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: huge },
+					{ type: "toolCall", name: "read", arguments: { path: huge } },
+				],
+			},
+		};
+
+		const sanitized = sanitizeEventForBridge(rawEvent) as {
+			assistantMessageEvent: Record<string, unknown>;
+			message: { content: Array<Record<string, unknown>> };
+		};
+		expect(sanitized.assistantMessageEvent).toEqual({ type: "toolcall_delta", contentIndex: 0 });
+		expect(JSON.stringify(sanitized.assistantMessageEvent).length).toBeLessThan(200);
+		expect(sanitized.assistantMessageEvent.partial).toBeUndefined();
+		const toolCall = sanitized.message.content[1] as { name?: string; arguments?: unknown };
+		expect(toolCall.name).toBe("read");
+		expect(toolCall.arguments).toBeUndefined();
+		expect(JSON.stringify(sanitized).length).toBeLessThan(4096);
+	});
+
+	test("sanitizeEventForBridge drops bulky tool arguments and bounds agent_end", () => {
+		const started = sanitizeEventForBridge({
+			type: "tool_execution_start",
+			toolName: "write",
+			toolCallId: "call-1",
+			args: { content: "x".repeat(1024 * 1024) },
+		});
+		expect(started).toEqual({
+			type: "tool_execution_start",
+			toolName: "write",
+			toolCallId: "call-1",
+		});
+
+		const settled = sanitizeEventForBridge({
+			type: "agent_end",
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "y".repeat(5000) }],
+					stopReason: "stop",
+				},
+			],
+		}) as { messages: Array<{ content: Array<{ text: string }> }> };
+		expect(settled.messages).toHaveLength(1);
+		expect(settled.messages[0]?.content[0]?.text.length).toBeLessThan(300);
+	});
+
+	test("resends the current phase after the bridge reconnects", async () => {
+		const parent = await startParent();
+		const { pi } = await startChild(parent);
+		const thinkingDelta = {
+			type: "message_update",
+			assistantMessageEvent: { type: "thinking_delta" },
+			message: { role: "assistant", content: [] },
+		};
+
+		pi.emit("message_update", thinkingDelta, {});
+		await vi.waitFor(() => {
+			expect(parent.events).toHaveLength(1);
+		});
+
+		// The parent goes away and comes back; it must learn the phase it missed.
+		parent.server.disconnect("agent-1");
+		await vi.waitFor(
+			() => {
+				expect(parent.server.isConnected("agent-1")).toBe(true);
+			},
+			{ timeout: 5_000 },
+		);
+		await vi.waitFor(
+			() => {
+				expect(parent.events).toHaveLength(2);
+			},
+			{ timeout: 5_000 },
+		);
+		expect(
+			(parent.events[1] as { assistantMessageEvent: { type: string } }).assistantMessageEvent.type,
+		).toBe("thinking_delta");
+
+		// A repeated delta in the same phase is still dropped while the parent is listening.
+		pi.emit("message_update", thinkingDelta, {});
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(parent.events).toHaveLength(2);
+	}, 10_000);
+
+	test("get_entries prefers active branch entries over all raw tree entries", async () => {
+		const parent = await startParent();
+		const rawEntries = [
+			{ type: "message", id: "entry-1" },
+			{ type: "message", id: "old-branch" },
+		];
+		const activeBranchEntries = [
+			{ type: "message", id: "entry-1" },
+			{ type: "message", id: "active-branch" },
+		];
+		const pi = fakePi();
+		const context = fakeContext({ entries: rawEntries });
+		(context.context.sessionManager as { getBranch?: () => unknown[] }).getBranch = () =>
+			activeBranchEntries;
+		const control = registerChildControl(pi.api, {
+			endpoint: parent.server.endpoint,
+			identity: identityFor(parent.server.endpoint),
+			diagnose: () => {},
+		});
+		cleanup.push(async () => {
+			control.dispose();
+		});
+		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
+		control.start(context.context);
+		await vi.waitFor(() => {
+			expect(parent.server.isConnected("agent-1")).toBe(true);
+		});
+
+		await expect(parent.server.request("agent-1", "get_entries")).resolves.toEqual({
+			entries: activeBranchEntries,
+		});
+	});
 });

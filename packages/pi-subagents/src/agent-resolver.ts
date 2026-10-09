@@ -32,7 +32,6 @@ const SUPPORTED_FIELDS: Record<string, true> = {
 	exclude_tools: true,
 	extensions: true,
 	skills: true,
-	interactive: true,
 	codemode: true,
 };
 
@@ -46,16 +45,31 @@ export function detectCodemodeOnly(cwd?: string, homeDirectory?: string): boolea
 				: homeDirectory !== undefined
 					? join(homeDirectory, ".pi", "agent")
 					: getAgentDir();
-		const candidates = [
-			join(agentDir, "settings.json"),
-			...(cwd ? [join(cwd, ".pi", "settings.json")] : []),
-		];
-		for (const candidate of candidates) {
-			if (existsSync(candidate)) {
-				const content: unknown = JSON.parse(readFileSync(candidate, "utf8"));
-				if (isRecord(content) && isRecord(content.codemode) && content.codemode.mode === "only") {
-					return true;
+
+		// Project settings (.pi/settings.json in cwd) take precedence over user settings (.pi/agent/settings.json)
+		if (cwd) {
+			const projectSettings = join(cwd, ".pi", "settings.json");
+			if (existsSync(projectSettings)) {
+				const content: unknown = JSON.parse(readFileSync(projectSettings, "utf8"));
+				if (
+					isRecord(content) &&
+					isRecord(content.codemode) &&
+					typeof content.codemode.mode === "string"
+				) {
+					return content.codemode.mode === "only";
 				}
+			}
+		}
+
+		const userSettings = join(agentDir, "settings.json");
+		if (existsSync(userSettings)) {
+			const content: unknown = JSON.parse(readFileSync(userSettings, "utf8"));
+			if (
+				isRecord(content) &&
+				isRecord(content.codemode) &&
+				typeof content.codemode.mode === "string"
+			) {
+				return content.codemode.mode === "only";
 			}
 		}
 	} catch {
@@ -426,7 +440,10 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 	}
 
 	const tools =
-		codemodeOnly && !rawTools.includes("codemode") && !excludeTools.includes("codemode")
+		rawTools.length > 0 &&
+		codemodeOnly &&
+		!rawTools.includes("codemode") &&
+		!excludeTools.includes("codemode")
 			? [...rawTools, "codemode"]
 			: rawTools;
 
@@ -454,12 +471,6 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 	);
 	const displayName = optionalString(discovered.frontmatter.display_name, "display_name", path);
 	const description = optionalString(discovered.frontmatter.description, "description", path);
-	const interactiveValue = discovered.frontmatter.interactive;
-	if (interactiveValue !== undefined && typeof interactiveValue !== "boolean") {
-		throw readableError(path, "interactive must be boolean");
-	}
-	const interactive = interactiveValue === true;
-
 	return Object.freeze({
 		agent: Object.freeze({
 			name,
@@ -487,7 +498,6 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			discovery: skills.discovery,
 			paths: Object.freeze([...skills.paths]),
 		}),
-		interactive,
 		enabled: discovered.enabled !== false,
 	});
 }

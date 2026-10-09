@@ -3,13 +3,7 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-	createToolTui,
-	errorMessage,
-	registerManagedTool,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
@@ -20,19 +14,11 @@ import {
 } from "./fff/query.js";
 import {
 	type FindToolDetails,
-	findCollapsedFooter,
 	formatFindModelOutput,
 	renderFindResult,
 } from "./search-renderer.js";
 import { FIND_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
-import {
-	isTargetError,
-	type RemoteFindCandidate,
-	type TargetOutcome,
-	type TargetRuntime,
-} from "./targets.js";
 
-const OWNER = "@hheei/pi-ext-tools";
 const DEFAULT_LIMIT = 30;
 const FIND_DESCRIPTION =
 	"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.";
@@ -49,22 +35,10 @@ const FIND_PARAMETER_DESCRIPTIONS = {
 	path: "Path constraint: directory prefix, filename, or glob, applied to the repo-relative path.",
 	limit: "Max results per page (default 30)",
 	cursor: "Pagination cursor from the previous result",
-	target: "Execution target: local or an authorized SSH host",
 } as const;
 const NO_FIND_RESULTS = "No files found matching pattern";
 const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
 let cursorSequence = 0;
-const remoteCursorStore = new Map<
-	string,
-	{
-		target: string;
-		query: string;
-		path: string | undefined;
-		candidates: readonly RemoteFindCandidate[];
-		limit: number;
-		pageIndex: number;
-	}
->();
 
 type FindParams = {
 	readonly pattern: string;
@@ -72,7 +46,6 @@ type FindParams = {
 	readonly exclude?: string | string[];
 	readonly limit?: number;
 	readonly cursor?: string;
-	readonly target?: string;
 };
 
 const schema = Type.Object({
@@ -81,7 +54,6 @@ const schema = Type.Object({
 	exclude: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
 	limit: Type.Optional(Type.Number({ description: FIND_PARAMETER_DESCRIPTIONS.limit })),
 	cursor: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.cursor })),
-	target: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.target })),
 });
 
 function nextCursor(query: string, limit: number, pageIndex: number): string {
@@ -92,38 +64,6 @@ function nextCursor(query: string, limit: number, pageIndex: number): string {
 		if (typeof oldest === "string") cursorStore.delete(oldest);
 	}
 	return cursor;
-}
-
-function nextRemoteCursor(
-	target: string,
-	query: string,
-	path: string | undefined,
-	candidates: readonly RemoteFindCandidate[],
-	limit: number,
-	pageIndex: number,
-): string {
-	const cursor = `find-remote:${++cursorSequence}`;
-	remoteCursorStore.set(cursor, { target, query, path, candidates, limit, pageIndex });
-	if (remoteCursorStore.size > 200) {
-		const oldest = remoteCursorStore.keys().next().value;
-		if (typeof oldest === "string") remoteCursorStore.delete(oldest);
-	}
-	return cursor;
-}
-
-function createExcludePredicate(value: string | string[] | undefined): (path: string) => boolean {
-	if (value === undefined) return () => false;
-	const patterns = (Array.isArray(value) ? value : [value]).filter((p) => p.trim() !== "");
-	if (patterns.length === 0) return () => false;
-	const regexes = patterns.map((pattern) => {
-		let escaped = "";
-		for (const character of pattern) {
-			if ("\\.^$+()[]{}|".includes(character)) escaped += "\\";
-			escaped += character;
-		}
-		return new RegExp(`^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`, "u");
-	});
-	return (path: string) => regexes.some((re) => re.test(path));
 }
 
 function rejectWhenAborted(signal: AbortSignal): Promise<never> {
@@ -155,48 +95,6 @@ async function executeFind(
 	state: FffRuntimeState,
 ) {
 	if (signal.aborted) throw new Error("Operation aborted");
-	const startedAt = performance.now();
-	if (params.target !== undefined && params.target !== "local") {
-		const targetRuntime: TargetRuntime | undefined = state.getTargetRuntime();
-		if (targetRuntime === undefined) throw new Error("Target runtime is unavailable.");
-		const resumed = params.cursor === undefined ? undefined : remoteCursorStore.get(params.cursor);
-		if (params.cursor !== undefined && resumed === undefined)
-			throw new Error("Invalid or expired find cursor.");
-		if (resumed !== undefined && resumed.target !== params.target)
-			throw new Error("Find cursor belongs to another target.");
-		const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
-		const isExcluded = createExcludePredicate(params.exclude);
-		const candidates =
-			resumed?.candidates ??
-			(await targetRuntime.find(params.target, params.path, params.pattern, signal)).filter(
-				(candidate) => !isExcluded(candidate.path),
-			);
-		const pageIndex = resumed?.pageIndex ?? 0;
-		const page = candidates.slice(pageIndex * limit, (pageIndex + 1) * limit);
-		const details = {
-			format: "canonical-find" as const,
-			candidates: page.map((candidate) => ({
-				path: candidate.path,
-				matchType: candidate.matchType,
-			})),
-			totalMatched: candidates.length,
-			totalFiles: candidates.length,
-			durationMs: Math.round(performance.now() - startedAt),
-			target: params.target,
-			...(params.path === undefined ? {} : { path: params.path }),
-			outcome: "ok" as const,
-		} satisfies FindToolDetails;
-		const hasMore = (pageIndex + 1) * limit < candidates.length;
-		const cursorLine = hasMore
-			? `cursor: ${nextRemoteCursor(params.target, params.pattern, params.path, candidates, limit, pageIndex + 1)}`
-			: undefined;
-		return textToolResult(
-			[formatFindModelOutput(details), cursorLine]
-				.filter((line): line is string => line !== undefined)
-				.join("\n") || NO_FIND_RESULTS,
-			details,
-		);
-	}
 	const native = async () => {
 		const result = await createFindToolDefinition(context.cwd).execute(
 			id,
@@ -249,7 +147,6 @@ async function executeFind(
 		})),
 		totalMatched: result.value.totalMatched,
 		totalFiles: result.value.totalFiles,
-		durationMs: Math.round(performance.now() - startedAt),
 	} satisfies FindToolDetails;
 	const cursorLine = result.value.hasMore
 		? `cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`
@@ -262,11 +159,7 @@ async function executeFind(
 	);
 }
 
-export function registerFindTool(
-	pi: ExtensionAPI,
-	state: FffRuntimeState,
-	tui: ToolTui = createToolTui(),
-): ToolDefinition {
+export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): ToolDefinition {
 	const tool = {
 		name: "find",
 		label: "find",
@@ -291,36 +184,17 @@ export function registerFindTool(
 			try {
 				return await executeFind(id, params, combined, onUpdate, context, state);
 			} catch (error) {
-				const outcome: TargetOutcome | undefined =
-					timeout.aborted && signal?.aborted !== true
-						? "timeout"
-						: isTargetError(error)
-							? error.outcome
-							: undefined;
-				if (outcome !== undefined)
-					return textToolResult(
-						outcome === "timeout" ? FIND_TIMEOUT_RECOVERY : errorMessage(error),
-						{
-							outcome,
-							...(params.target === undefined ? {} : { target: params.target }),
-							...(params.path === undefined ? {} : { path: params.path }),
-							...(outcome === "timeout" ? { timedOut: true } : {}),
-						},
-					);
+				if (timeout.aborted && signal?.aborted !== true) {
+					return textToolResult(FIND_TIMEOUT_RECOVERY, {
+						outcome: "timeout",
+						...(params.path === undefined ? {} : { path: params.path }),
+						timedOut: true,
+					});
+				}
 				throw error;
 			}
 		},
 	};
-	registerManagedTool(
-		pi,
-		{
-			id: "find",
-			owner: OWNER,
-		},
-		tui.frame(tool, {
-			footer: findCollapsedFooter,
-			longOutput: true,
-		}),
-	);
+	pi.registerTool(tool as ToolDefinition);
 	return tool as ToolDefinition;
 }

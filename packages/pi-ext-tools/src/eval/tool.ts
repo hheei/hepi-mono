@@ -1,85 +1,36 @@
 import { performance } from "node:perf_hooks";
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	Theme,
-	ToolDefinition,
-	ToolRenderResultOptions,
-} from "@earendil-works/pi-coding-agent";
-import { type Component, Container, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
-import {
-	agentResultText,
-	createToolTui,
-	errorMessage,
-	formatDuration,
-	isRecord,
-	type ManagedToolRegistration,
-	registerManagedTool,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
-import { type Static, Type } from "typebox";
-import { counted } from "../counted.js";
-import type { EditCatalog } from "../fff/settings.js";
-import { WrappedTextBody } from "../pretty/wrapped-text.js";
-import { type EvalNestedTrace, type EvalToolBridge, evalNestedLiveResult } from "./bridge.js";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { errorMessage, textToolResult } from "@hheei/pi-ext-core";
+import { Type } from "typebox";
+import type { EvalNestedTrace, EvalToolBridge } from "./bridge.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
-const OWNER = "@hheei/pi-ext-tools";
 const MAX_CODE_BYTES = 1024 * 1024;
 const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const EVAL_DESCRIPTION =
-	"Run trusted local Python in a persistent session kernel. Use eval for multi-step computation that reuses bindings. This is not a sandbox. Do not write any comments in the code.";
+	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. This is not a sandbox. Do not write any comments in the code.";
 const EVAL_CODE_DESCRIPTION =
 	"Non-empty trusted source, at most 1 MiB. Do not write any comments in the code.";
 const EVAL_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
-export const EVAL_PROMPT_SNIPPET =
+export const PYTHON_EVAL_PROMPT_SNIPPET =
 	"Persistent Python kernel. One cell per call; names survive until reset or that kernel dies.";
 
-export function evalPromptGuidelines(catalog: EditCatalog): string[] {
+export function pythonEvalPromptGuidelines(): string[] {
 	return [
-		"eval: use for computation, data wrangling, and inspecting values that should persist across cells.",
-		evalMutationGuideline(catalog),
-		"eval: work incrementally — import, define, then use. Reuse top-level names. Re-run setup only after reset or a kernel crash.",
-		"eval: use Python. Call nested tools as `tools.name(...)` with kwargs or a dict.",
-		evalNestedGuideline(catalog),
-		"eval: nested tools return text strings, or structured dicts for tools declaring schemas (e.g. bash).",
-		"eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
-		"eval: reset: true wipes the Python kernel and scope. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
-		"eval: do not write any comments in the code. Write only executable code.",
+		"python_eval: use for computation, data wrangling, and inspecting values that should persist across cells.",
+		"python_eval: use bash for one-shot shell, grep/find for search, and edit/write for file changes. Do not run JS/Python via bash -e/-c.",
+		"python_eval: work incrementally — import, define, then use. Reuse top-level names. Re-run setup only after reset or a kernel crash.",
+		"python_eval: use Python. Call nested tools as `tools.name(...)` with kwargs or a dict.",
+		"python_eval: nested tools are read, grep, find, foreground bash, edit, write, and apply_patch. No python_eval, wait, or other extension tools. Nested bash rejects async.",
+		"python_eval: nested tools return text strings, or structured dicts for tools declaring schemas (e.g. bash).",
+		"python_eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
+		"python_eval: reset: true wipes the Python kernel and scope. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
+		"python_eval: do not write any comments in the code. Write only executable code.",
 	];
 }
-
-export function applyEvalPromptGuidelines(
-	tool: { promptGuidelines?: string[] },
-	catalog: EditCatalog,
-): void {
-	tool.promptGuidelines = evalPromptGuidelines(catalog);
-}
-
-function evalMutationGuideline(catalog: EditCatalog): string {
-	if (catalog === "apply_patch")
-		return "eval: use bash for one-shot shell, grep/find for search, and apply_patch for file changes. Do not run JS/Python via bash -e/-c.";
-	if (catalog === "none")
-		return "eval: use bash for one-shot shell and grep/find for search. File mutation tools are not available. Do not run JS/Python via bash -e/-c.";
-	return "eval: use bash for one-shot shell, grep/find for search, and edit/write for file changes. Do not run JS/Python via bash -e/-c.";
-}
-
-function evalNestedGuideline(catalog: EditCatalog): string {
-	if (catalog === "apply_patch")
-		return "eval: nested tools are read, grep, find, foreground bash, and apply_patch. No eval, wait, or other extension tools. Nested bash rejects async.";
-	if (catalog === "none")
-		return "eval: nested tools are read, grep, find, and foreground bash. No file-mutation tools, eval, wait, or other extension tools. Nested bash rejects async.";
-	return "eval: nested tools are read, grep, find, foreground bash, edit, and write. No eval, wait, or other extension tools. Nested bash rejects async.";
-}
-
-export const EVAL_TOOL_REGISTRATION: ManagedToolRegistration = {
-	id: "eval",
-	owner: OWNER,
-	exposure: "model-only",
-};
 
 export const EVAL_PARAMETERS = Type.Object(
 	{
@@ -102,7 +53,6 @@ export const EVAL_PARAMETERS = Type.Object(
 	{ additionalProperties: false },
 );
 
-type EvalParameters = Static<typeof EVAL_PARAMETERS>;
 type EvalRow =
 	| { readonly kind: "text"; text: string }
 	| { readonly kind: "display"; readonly text: string }
@@ -110,7 +60,7 @@ type EvalRow =
 	| { readonly kind: "result"; readonly text: string };
 
 export interface EvalToolDetails {
-	readonly format: "pi-ext-tools-eval";
+	readonly format: "pi-ext-tools-python-eval";
 	readonly rows: readonly EvalRow[];
 	readonly durationMs: number;
 	readonly error?: string;
@@ -118,34 +68,31 @@ export interface EvalToolDetails {
 
 const activeRuns = new WeakSet<EvalRuntimeState>();
 
-export function createEvalTool(
+export function createPythonEvalTool(
 	state: EvalRuntimeState,
 	bridge: EvalToolBridge,
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
 	return {
-		name: "eval",
-		// The only kernel is Python, so the frame always labels the cell `eval py`.
-		label: "eval py",
+		name: "python_eval",
+		label: "python_eval",
 		description: EVAL_DESCRIPTION,
-		promptSnippet: EVAL_PROMPT_SNIPPET,
-		promptGuidelines: evalPromptGuidelines("native"),
+		promptSnippet: PYTHON_EVAL_PROMPT_SNIPPET,
+		promptGuidelines: pythonEvalPromptGuidelines(),
 		parameters: EVAL_PARAMETERS,
 		exposure: "model-only",
+		defaultActive: false,
 		annotations: {
 			openWorldHint: true,
 		},
 		executionMode: "sequential",
-		renderShell: "self",
-		renderResult: (result, options, theme, context) =>
-			renderEvalResult(result, options, theme, context, bridge),
 		async execute(_toolCallId, params, signal, onUpdate, context) {
-			if (params.code.trim() === "") throw new Error("Eval code must not be blank.");
+			if (params.code.trim() === "") throw new Error("Python_eval code must not be blank.");
 			if (Buffer.byteLength(params.code) > MAX_CODE_BYTES)
-				throw new Error("Eval code exceeds 1 MiB.");
+				throw new Error("Python_eval code exceeds 1 MiB.");
 			const runtime = state.getRuntime();
 			if (runtime === undefined)
-				throw new Error("Eval runtime is unavailable outside an active session.");
-			if (activeRuns.has(state)) throw new Error("Eval is already running in this session.");
+				throw new Error("Python_eval runtime is unavailable outside an active session.");
+			if (activeRuns.has(state)) throw new Error("Python_eval is already running in this session.");
 			const watchdog = startEvalTimeout(params.timeout);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
@@ -156,7 +103,7 @@ export function createEvalTool(
 			const publish = (): void => {
 				onUpdate?.(
 					textToolResult(transcript(rows), {
-						format: "pi-ext-tools-eval",
+						format: "pi-ext-tools-python-eval",
 						rows,
 						durationMs: Math.round(performance.now() - startedAt),
 					}),
@@ -253,7 +200,7 @@ export function createEvalTool(
 				});
 			}
 			const details = {
-				format: "pi-ext-tools-eval" as const,
+				format: "pi-ext-tools-python-eval" as const,
 				rows,
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
@@ -266,147 +213,23 @@ export function createEvalTool(
 	};
 }
 
-export function registerEvalTool(
+export function registerPythonEvalTool(
 	pi: ExtensionAPI,
 	state: EvalRuntimeState,
 	bridge: EvalToolBridge,
-	tui: ToolTui = createToolTui(),
 ): ToolDefinition<typeof EVAL_PARAMETERS, EvalToolDetails> {
-	const tool = createEvalTool(state, bridge);
-	const framed = tui.frame(tool, {
-		// The code is the request body, so the header states only what the body cannot: the call facts.
-		summary: () => "",
-		suffix: (args) => evalSuffix(args as EvalParameters),
-		maxBodyLines: 10,
-		longOutput: true,
-		headerLine: "truncate",
-		request: (args, theme) => {
-			const code = (args as EvalParameters).code;
-			return typeof code === "string" && code !== ""
-				? new WrappedTextBody(stripTerminalSequences(code), theme)
-				: undefined;
-		},
-		footer: (result, completion) => {
-			const details = result.details;
-			if (!isEvalToolDetails(details))
-				return completion?.durationMs === undefined
-					? undefined
-					: (formatDuration(completion.durationMs) ?? `${completion.durationMs}ms`);
-			const calls = details.rows.filter((row) => row.kind === "tool").length;
-			const duration = formatDuration(details.durationMs) ?? `${details.durationMs}ms`;
-			// A cell that called nothing says nothing about nested calls.
-			return [
-				counted(details.rows.length, "output row"),
-				calls === 0 ? undefined : counted(calls, "nested call"),
-				duration,
-			]
-				.filter((part): part is string => part !== undefined)
-				.join(" · ");
-		},
-	});
-	registerManagedTool(pi, EVAL_TOOL_REGISTRATION, framed);
-	return framed;
+	const tool = createPythonEvalTool(state, bridge);
+	pi.registerTool(tool);
+	return tool;
 }
 
-export function isEvalToolDetails(value: unknown): value is EvalToolDetails {
+export function isPythonEvalToolDetails(value: unknown): value is EvalToolDetails {
 	return (
 		typeof value === "object" &&
 		value !== null &&
 		"format" in value &&
-		value.format === "pi-ext-tools-eval"
+		value.format === "pi-ext-tools-python-eval"
 	);
-}
-
-function renderEvalResult(
-	result: AgentToolResult<EvalToolDetails>,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
-	bridge: EvalToolBridge,
-): Component {
-	const details = result.details;
-	if (!isEvalToolDetails(details)) return new Text(agentResultText(result), 0, 0);
-	const body = new Container();
-	for (const row of details.rows) {
-		body.addChild(
-			row.kind === "tool"
-				? renderNestedTrace(row.trace, options, theme, context, bridge)
-				: renderEvalRow(row, theme),
-		);
-	}
-	return body;
-}
-
-/** `Text` renders nothing for whitespace-only content, so a blank printed line is a row of its own. */
-class EvalBlankRow implements Component {
-	render(): string[] {
-		return [""];
-	}
-
-	invalidate(): void {}
-}
-
-/** A printed line stands alone; a display value and the cell's final value say what they are. */
-function renderEvalRow(row: Exclude<EvalRow, { kind: "tool" }>, theme: Theme): Component {
-	if (row.kind === "display" || row.kind === "result")
-		return new Text(`${theme.fg("dim", `${row.kind}:`)} ${row.text}`, 0, 0);
-	return row.text.trim() === "" ? new EvalBlankRow() : new Text(row.text, 0, 0);
-}
-
-/** Reuses the canonical renderer of a nested tool, falling back to a typed one-line summary. */
-function renderNestedTrace(
-	trace: EvalNestedTrace,
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	context: Parameters<NonNullable<ToolDefinition["renderResult"]>>[3] | undefined,
-	bridge: EvalToolBridge,
-): Component {
-	const suffix = trace.error === undefined ? trace.text : trace.error;
-	const fallback = new Text(
-		theme.fg(trace.error === undefined ? "accent" : "error", `${trace.name}: ${suffix}`),
-		0,
-		0,
-	);
-	const tool = bridge.definition(trace.name);
-	const live = trace.toolCallId === undefined ? undefined : evalNestedLiveResult(trace.toolCallId);
-	// A canonical renderer reads the fields of a parsed argument object. Once the arguments were too
-	// large to keep, the trace holds bounded text instead, and handing that over would lose the path a
-	// read row draws from; the bounded trace line is the honest rendering then.
-	const args = trace.args;
-	if (tool?.renderResult === undefined || live === undefined || !isRecord(args)) return fallback;
-	try {
-		// The nested call is over — its result is what is being re-rendered — so the outer cell's
-		// streaming state must not make it look like a call that is still running. Expansion does pass
-		// through, because that is about this cell's display.
-		const nestedOptions: ToolRenderResultOptions = { ...options, isPartial: false };
-		const rendered = tool.renderResult(live as never, nestedOptions, theme, {
-			args,
-			toolCallId: trace.toolCallId ?? context?.toolCallId ?? trace.name,
-			invalidate: context?.invalidate ?? (() => undefined),
-			lastComponent: undefined,
-			state: context?.state,
-			cwd: context?.cwd ?? process.cwd(),
-			executionStarted: true,
-			argsComplete: true,
-			isPartial: false,
-			expanded: options.expanded,
-			showImages: context?.showImages ?? false,
-			isError: trace.error !== undefined,
-		} as never);
-		// The nested renderer draws output only, so the row keeps its own name: several calls in one
-		// cell are otherwise impossible to tell apart.
-		const label = new Text(
-			theme.fg(trace.error === undefined ? "accent" : "error", trace.name),
-			0,
-			0,
-		);
-		const body = new Container();
-		body.addChild(label);
-		body.addChild(rendered);
-		return body;
-	} catch {
-		return fallback;
-	}
 }
 
 function transcript(rows: readonly EvalRow[]): string {
@@ -426,15 +249,7 @@ function transcript(rows: readonly EvalRow[]): string {
 		.join("\n");
 	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
 		? value
-		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nEval transcript truncated in tool result.`;
-}
-
-/** Header call facts: the same form bash uses for its timeout, one dim suffix per fact. */
-function evalSuffix(args: EvalParameters): string | undefined {
-	const facts: string[] = [];
-	if (args.reset === true) facts.push("(reset)");
-	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
-	return facts.length === 0 ? undefined : facts.join(" ");
+		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nPython_eval transcript truncated in tool result.`;
 }
 
 function inspectValue(value: unknown): string {
@@ -548,7 +363,7 @@ class EvalIdleTimeout {
 	#arm(): void {
 		this.#timer = setTimeout(() => {
 			this.#timer = undefined;
-			this.#controller.abort(new Error(`Eval timed out after ${this.#ms / 1000}s.`));
+			this.#controller.abort(new Error(`Python_eval timed out after ${this.#ms / 1000}s.`));
 		}, this.#ms);
 		this.#timer.unref?.();
 	}

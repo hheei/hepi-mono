@@ -2,15 +2,11 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
 	defaultExtensionSettingsPaths,
-	errorMessage,
 	expandHome,
 	isRecord,
 	readMergedJsonSettingsSection,
 } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
-
-/** Reflect reasoning budget forwarded to the Hindsight reflect endpoint. */
-export type ReflectBudget = "low" | "mid" | "high";
 
 /**
  * How the resolved bank relates to the current repository.
@@ -18,27 +14,30 @@ export type ReflectBudget = "low" | "mid" | "high";
  * - `dedicated-bank`: the bank was derived per repository (template or git-derived), so
  *   its contents belong to this repository alone and no extra scope tag is applied.
  * - `tagged-shared-bank`: the bank is shared (explicit, path-mapped, or the fallback
- *   file's static default), so every read and write carries a `repo:<name>` scope tag to
- *   keep repositories from contaminating each other.
+ *   file's static default). Automatic background session writeback carries a `repo:<name>`
+ *   scope tag. Native MCP operations are bank-wide against the bank's endpoint.
  */
 export type HindsightIsolationMode = "dedicated-bank" | "tagged-shared-bank";
 
-/** Where the effective bank id came from; exposed by `hindsight_diagnose`. */
+/** Where the effective bank id came from; exposed by `/om status`. */
 export type HindsightBankSource = "settings" | "path-map" | "template" | "fallback" | "derived";
 
 export interface HindsightConfig {
 	apiUrl: string;
+	/**
+	 * Base URL for Hindsight MCP endpoints (typically ending in `/mcp`).
+	 * Per-bank MCP endpoints are derived by appending `/{bank_id}/` to this base.
+	 */
+	mcpUrl: string;
 	apiToken?: string | undefined;
 	/**
 	 * Inject knowledge-page hits for the current prompt before each turn.
 	 *
-	 * Retrieval only — deep reasoning stays an explicit `hindsight_reflect` tool call,
+	 * Retrieval only — deep reasoning stays an explicit `mcp__hindsight__reflect` tool call,
 	 * because an agentic reflect call costs seconds and would block every turn.
 	 */
 	autoRecall: boolean;
 	retainSessions: boolean;
-	reflectBudget: ReflectBudget;
-	reflectTimeoutMs: number;
 	readTimeoutMs: number;
 	maxMemoryChars: number;
 	/** Path to the Hindsight fallback config file; `~` is expanded. */
@@ -49,6 +48,7 @@ export interface ResolvedHindsight {
 	readonly config: HindsightConfig;
 	readonly bankId: string;
 	readonly bankSource: HindsightBankSource;
+	readonly bankMcpUrl: string;
 	readonly repo: string;
 	readonly scopeTags: readonly string[];
 	/** Tags applied to every retained turn: scope tags plus the bank's configured tags. */
@@ -65,20 +65,18 @@ export const HINDSIGHT_REPO_TAG_PREFIX = "repo:";
 
 export const HINDSIGHT_DEFAULTS: HindsightConfig = {
 	apiUrl: "https://api.hindsight.vectorize.io",
+	mcpUrl: "https://api.hindsight.vectorize.io/mcp",
 	autoRecall: true,
 	retainSessions: true,
-	reflectBudget: "high",
-	reflectTimeoutMs: 45_000,
 	readTimeoutMs: 15_000,
 	maxMemoryChars: 8_000,
 	configPath: DEFAULT_HINDSIGHT_CONFIG_PATH,
 };
 
-const REFLECT_BUDGETS: readonly ReflectBudget[] = ["low", "mid", "high"];
-
 /** Env var names consumed by the Hindsight layer, in decreasing precedence. */
 export const HINDSIGHT_ENV = {
 	apiUrl: "HINDSIGHT_API_URL",
+	mcpUrl: "HINDSIGHT_MCP_URL",
 	apiToken: "HINDSIGHT_API_TOKEN",
 	bankId: "HINDSIGHT_BANK_ID",
 	configPath: "HINDSIGHT_CONFIG",
@@ -110,16 +108,91 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
 	return typeof value === "boolean" ? value : undefined;
 }
 
-function reflectBudgetOrUndefined(value: unknown): ReflectBudget | undefined {
-	return typeof value === "string" && (REFLECT_BUDGETS as readonly string[]).includes(value)
-		? (value as ReflectBudget)
-		: undefined;
-}
-
 /** Expands a leading `~` and resolves relative paths against `cwd`. */
 export function expandConfigPath(path: string, cwd: string): string {
 	const expanded = expandHome(path);
 	return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
+}
+
+function validateHttpUrl(url: string, description: string): string {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new Error(`Invalid ${description}: must be a valid URL`);
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new Error(`Invalid ${description}: must be http or https`);
+	}
+	if (parsed.username || parsed.password) {
+		throw new Error(`Invalid ${description}: credentials not allowed`);
+	}
+	if (parsed.search || parsed.hash) {
+		throw new Error(`Invalid ${description}: query and fragment not allowed`);
+	}
+	return url.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Constructs the single-bank MCP endpoint URL for a given bank ID.
+ * Follows the `/mcp/{bank_id}/` format required by Hindsight.
+ * Requires `mcpUrl` to be an http/https base URL without credentials, query, or fragment.
+ * Rejects empty bank IDs, dot segments ('.' or '..'), and path separators ('/' or '\\') to prevent
+ * URL path traversal or accidental routing to multi-bank endpoints.
+ */
+export function buildBankMcpUrl(mcpUrl: string, bankId: string): string {
+	if (!bankId || typeof bankId !== "string" || !bankId.trim()) {
+		throw new Error("Invalid bankId: must be a non-empty string");
+	}
+	const trimmedBankId = bankId.trim();
+	if (trimmedBankId === "." || trimmedBankId === "..") {
+		throw new Error("Invalid bankId: dot segments not allowed");
+	}
+	if (trimmedBankId.includes("/") || trimmedBankId.includes("\\")) {
+		throw new Error("Invalid bankId: path separators not allowed");
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(mcpUrl);
+	} catch {
+		throw new Error("Invalid MCP base URL: must be a valid URL");
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new Error("Invalid MCP base URL: must be http or https");
+	}
+	if (parsed.username || parsed.password) {
+		throw new Error("Invalid MCP base URL: credentials not allowed");
+	}
+	if (parsed.search || parsed.hash) {
+		throw new Error("Invalid MCP base URL: query and fragment not allowed");
+	}
+
+	const trimmedPath = parsed.pathname.replace(/\/+$/, "");
+	const basePath = trimmedPath.endsWith("/mcp") ? trimmedPath : `${trimmedPath}/mcp`;
+	const encodedBank = encodeURIComponent(trimmedBankId);
+	parsed.pathname = `${basePath}/${encodedBank}/`;
+
+	// Regression guard: ensure pathname was not normalized away or traversed
+	if (!parsed.pathname.endsWith(`/${encodedBank}/`)) {
+		throw new Error("Invalid bankId: path traversal detected");
+	}
+
+	return parsed.toString();
+}
+
+/** Strips credentials, search query parameters, and fragments from URL strings for logging and diagnostics. */
+export function sanitizeUrlForLogging(urlString: string): string {
+	try {
+		const parsed = new URL(urlString);
+		parsed.username = "";
+		parsed.password = "";
+		parsed.search = "";
+		parsed.hash = "";
+		return parsed.toString();
+	} catch {
+		return "[invalid-url]";
+	}
 }
 
 /**
@@ -220,20 +293,25 @@ export function resolveHindsightConfig(input: {
 
 	const fallback = input.fallback;
 	const env = input.env;
+	const rawApiUrl =
+		nonEmptyString(settings.apiUrl) ??
+		nonEmptyString(env[HINDSIGHT_ENV.apiUrl]) ??
+		nonEmptyString(fallback?.apiUrl) ??
+		HINDSIGHT_DEFAULTS.apiUrl;
+	const apiUrl = validateHttpUrl(rawApiUrl, "apiUrl");
+
+	const rawMcpUrl =
+		nonEmptyString(settings.mcpUrl) ??
+		nonEmptyString(env[HINDSIGHT_ENV.mcpUrl]) ??
+		nonEmptyString(fallback?.mcpUrl) ??
+		`${apiUrl}/mcp`;
+	const mcpUrl = validateHttpUrl(rawMcpUrl, "mcpUrl");
 	const config: HindsightConfig = {
-		apiUrl:
-			nonEmptyString(settings.apiUrl) ??
-			nonEmptyString(env[HINDSIGHT_ENV.apiUrl]) ??
-			nonEmptyString(fallback?.apiUrl) ??
-			HINDSIGHT_DEFAULTS.apiUrl,
+		apiUrl,
+		mcpUrl,
 		autoRecall: booleanOrUndefined(settings.autoRecall) ?? HINDSIGHT_DEFAULTS.autoRecall,
 		retainSessions:
 			booleanOrUndefined(settings.retainSessions) ?? HINDSIGHT_DEFAULTS.retainSessions,
-		reflectBudget:
-			reflectBudgetOrUndefined(settings.reflectBudget) ?? HINDSIGHT_DEFAULTS.reflectBudget,
-		reflectTimeoutMs:
-			positiveIntegerOrUndefined(settings.reflectToolTimeoutMs) ??
-			HINDSIGHT_DEFAULTS.reflectTimeoutMs,
 		readTimeoutMs:
 			positiveIntegerOrUndefined(settings.readTimeoutMs) ?? HINDSIGHT_DEFAULTS.readTimeoutMs,
 		maxMemoryChars:
@@ -259,11 +337,13 @@ export function resolveHindsightConfig(input: {
 		isolationMode === "tagged-shared-bank" ? [`${HINDSIGHT_REPO_TAG_PREFIX}${input.repo}`] : [];
 	const overrides = bankOverrides(fallback, bankId);
 	const retainTags = [...new Set([...scopeTags, ...overrides.retainTags])];
+	const bankMcpUrl = buildBankMcpUrl(config.mcpUrl, bankId);
 
 	return {
 		config,
 		bankId,
 		bankSource: source,
+		bankMcpUrl,
 		repo: input.repo,
 		scopeTags,
 		retainTags,
@@ -283,11 +363,8 @@ async function readFallbackConfig(path: string, signal?: AbortSignal): Promise<u
 	try {
 		const parsed: unknown = JSON.parse(text);
 		return isRecord(parsed) ? parsed : undefined;
-	} catch (error) {
-		debugLog("hindsight.config_fallback_invalid", {
-			path,
-			error: errorMessage(error),
-		});
+	} catch {
+		debugLog("hindsight.config_fallback_invalid", { path });
 		return undefined;
 	}
 }

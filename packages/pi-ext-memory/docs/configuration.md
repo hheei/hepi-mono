@@ -34,7 +34,6 @@ The extension loads config once for its runtime. After changing settings, restar
     "observerChunkMaxTokens": 60000,
     "compactAfterTokens": 81000,
     "idleCompactionTtl": "1800s",
-    "idleCompactionMinTokens": 75000,
     "observationsPoolMaxTokens": 20000,
     "observationsPoolTargetTokens": 10000,
     "agentMaxTurns": 16,
@@ -65,8 +64,7 @@ The `hindsight` block is a separate opt-in feature and is documented in [Hindsig
 | `reflectAfterTokens` | positive integer | `20000` | Raw/source token threshold for reflector runs; successful reflection creates dropper maintenance opportunities. |
 | `observerChunkMaxTokens` | positive integer | derived; minimum `256` | Maximum estimated tokens sent to one observer run. Unset: 20% of the resolved memory model's context window, or `60000` when unknown. |
 | `compactAfterTokens` | positive integer | `81000` | Estimated source-entry threshold for proactive auto-compaction, counted after the latest compaction boundary. |
-| `idleCompactionTtl` | duration string, number, or boolean | `"1800s"` | Idle duration threshold before triggering background proactive compaction. Numbers and numeric strings are in seconds (e.g. `1800` or `"1800"` = 1800s). Unit strings like `"1800s"`, `"30m"`, `"1h"` are supported. Set to `"never"`, `false`, or `0` to disable. |
-| `idleCompactionMinTokens` | positive integer | `75000` | Minimum uncompacted tokens required to qualify for idle compaction. |
+| `idleCompactionTtl` | duration string, number, or boolean | `"1800s"` | Idle duration before a notice; compaction runs before the next message is sent to the model. Numbers and numeric strings are in seconds (e.g. `1800` or `"1800"` = 1800s). Unit strings like `"1800s"`, `"30m"`, `"1h"` are supported. Set to `"never"`, `false`, or `0` to disable. |
 | `observationsPoolMaxTokens` | positive integer | `20000` | Normal compaction-projection observation-token pressure that makes compaction do a full fold. |
 | `observationsPoolTargetTokens` | positive integer below max | half of `observationsPoolMaxTokens` | Folded active observation target used by post-reflection dropper maintenance, and the observation share of the rendered memory budget. |
 | `memoryMaxTokens` | positive integer | derived | Hard upper bound on how many tokens of memory may stay visible. |
@@ -120,21 +118,20 @@ This trigger does not wait for observer, reflector, or dropper work. Actual comp
 
 Pi's own window-pressure compaction and manual compaction can still happen independently of this proactive trigger.
 
-## `idleCompactionTtl` and `idleCompactionMinTokens`
+## `idleCompactionTtl`
 
-Defaults: `idleCompactionTtl = "1800s"` (30 minutes), `idleCompactionMinTokens = 75000`.
+Default: `idleCompactionTtl = "1800s"` (30 minutes).
 
 Most LLM providers have a Prompt Cache TTL of ~5 minutes. When a user is actively chatting, preserving a longer dialogue history continuously hits the cache. When a user steps away for an extended period (idle for >= 1800 seconds / 30 minutes), the server-side cache has expired (cold cache).
 
-`idleCompactionTtl` acts as a local idle heuristic: when the session is idle for at least this duration, and uncompacted source tokens are at or above `idleCompactionMinTokens`, the extension schedules a quiet background compaction so that when the user returns later, the cold session usually starts with a compact, summarized context. Overdue cold-resume work uses a short startup debounce, and Pi may require a retry if a prompt arrives while compaction is still running.
+`idleCompactionTtl` acts as a local idle heuristic: when the session is idle for at least this duration, the extension shows a notice. On the next message, `before_agent_start` waits for compaction to finish before requesting the model. Neither the notice nor idle compaction has a token threshold. The removed `idleCompactionMinTokens` setting is ignored in existing configuration files.
 
 ### Preconditions for idle compaction
 Idle compaction triggers only when all of the following conditions are met:
 1. `idleCompactionTtl` is enabled (not `"never"`, `false`, or `0`).
 2. The agent is idle (`ctx.isIdle() === true`).
-3. Uncompacted tokens since last compaction are `>= idleCompactionMinTokens`.
-4. There are new source messages strictly after the latest compaction boundary (ledger-derived deduplication).
-5. The memory projection (`foldLedger`) contains valid observations or reflections. If empty, idle compaction is skipped to prevent falling back to a slow, costly native LLM summarizer.
+3. There are new source messages strictly after the latest compaction boundary (ledger-derived deduplication).
+4. The memory projection (`foldLedger`) contains valid observations or reflections. If empty, idle compaction is skipped to prevent falling back to a slow, costly native LLM summarizer.
 
 If the user submits a new prompt before the idle timer fires, the timer is immediately cancelled to preserve active cache.
 
@@ -380,7 +377,14 @@ PI_OBSERVATIONAL_MEMORY_PASSIVE=1 pi
 
 ## Hindsight long-term memory
 
-The `hindsight` section is a separate, **opt-in** feature: cross-session repository memory served by a Hindsight deployment. It is disabled unless `enabled` is literally `true`, and while disabled it registers no agent tools, reads no Hindsight config file, and makes no request.
+The `hindsight` section is a separate, **opt-in** feature: cross-session repository memory served by a Hindsight deployment. It is disabled unless `enabled` is literally `true`, and while disabled it registers no extension-owned MCP server, reads no Hindsight config file, and makes no network request.
+
+External file-configured MCP servers (e.g. in `~/.pi/agent/mcp.json` or `.pi/mcp.json`) remain independent and functional regardless of whether this feature is enabled. When enabled, `pi-ext-memory` registers the session-scoped `hindsight` MCP server. If an external file configuration for `hindsight` exists, Pi gives precedence to the file configuration, and `pi-ext-memory` warns about the override in `/om status` and UI notifications.
+
+### Prerequisites
+
+* Requires **Pi >= 1.0.1**.
+* Requires Pi's **`builtin:mcp`** extension enabled.
 
 ```json
 {
@@ -388,12 +392,11 @@ The `hindsight` section is a separate, **opt-in** feature: cross-session reposit
     "hindsight": {
       "enabled": false,
       "apiUrl": "https://api.hindsight.vectorize.io",
+      "mcpUrl": "https://api.hindsight.vectorize.io/mcp",
       "apiToken": "",
       "bankId": "",
       "autoRecall": true,
       "retainSessions": true,
-      "reflectBudget": "high",
-      "reflectToolTimeoutMs": 45000,
       "readTimeoutMs": 15000,
       "maxMemoryChars": 8000,
       "configPath": "~/.hindsight/coding-agent.json"
@@ -405,17 +408,26 @@ The `hindsight` section is a separate, **opt-in** feature: cross-session reposit
 | Setting | Type | Default | What it controls |
 | --- | --- | ---: | --- |
 | `enabled` | boolean | `false` | Turns the feature on. Only `true` enables it; it is never read from the environment. |
-| `apiUrl` | string | cloud API URL | Hindsight endpoint. |
-| `apiToken` | string | unset | Bearer token. Never printed by `hindsight_diagnose`. |
-| `bankId` | string | derived | Pins the bank instead of deriving it from the repository. Setting it makes the bank shared. |
-| `autoRecall` | boolean | `true` | Runs a knowledge-page search for each prompt and injects the hits inside a `<memory>` container. Retrieval only — `hindsight_reflect` is never automatic. |
+| `apiUrl` | string | cloud API URL | Hindsight REST API endpoint. |
+| `mcpUrl` | string | `<apiUrl>/mcp` | Hindsight MCP base URL (e.g. `http://host:38887/mcp` or `http://host:38887`). Streamable HTTP MCP endpoint (not SSE). Ports are independent and not inferred from `apiUrl`. |
+| `apiToken` | string | unset | Bearer token. Never printed by `/om status`. |
+| `bankId` | string | derived | Pins the bank instead of deriving it from the repository. Setting it makes the bank shared (not repository-isolated for knowledge pages or MCP tools). |
+| `autoRecall` | boolean | `true` | Runs a knowledge-page search for each prompt and injects the hits inside a `<memory>` container. Retrieval only — `mcp__hindsight__reflect` is never automatic. |
 | `retainSessions` | boolean | `true` | Writes the run's turns back to Hindsight at turn end. |
-| `reflectBudget` | `low`/`mid`/`high` | `high` | Reasoning budget for `hindsight_reflect`. |
-| `reflectToolTimeoutMs` | positive integer | `45000` | Deadline for one reflect call. |
-| `readTimeoutMs` | positive integer | `15000` | Deadline for page, search, retain, and status calls. |
+| `readTimeoutMs` | positive integer | `15000` | Deadline for SDK page, search, retain, and status calls. MCP tool timeout is 60s natively. |
 | `maxMemoryChars` | positive integer | `8000` | Hard cap on injected memory per turn; the rest is truncated with an explicit marker. |
 | `configPath` | string | `~/.hindsight/coding-agent.json` | Fallback config file, read only when the feature is enabled. `~` is expanded. |
 
-Values come from the project settings, the global settings, the `HINDSIGHT_*` environment variables, then the fallback file, then these defaults — each layer overriding the ones below it. A missing or malformed fallback file is ignored rather than fatal.
+Values come from the project settings, the global settings, the `HINDSIGHT_*` environment variables (`HINDSIGHT_API_URL`, `HINDSIGHT_API_TOKEN`, `HINDSIGHT_BANK_ID`, `HINDSIGHT_MCP_URL`, `HINDSIGHT_CONFIG`), then the fallback file, then these defaults — each layer overriding the ones below it. A missing or malformed fallback file is ignored rather than fatal.
 
-Invalid values fall back to their default. `bankId` is chosen by `hindsight.bankId`, then the fallback file's `mapPathToBank` (longest matching path prefix), then its `bankIdTemplate` with `{gitProject}` substituted, then its `bankId`, then `coding-agent::{gitProject}` from the git root. Banks derived per repository are dedicated; every other bank is shared, and retained turns then carry a `repo:<name>` tag plus the bank's `retainTags` and `retainMetadata`.
+Invalid values fall back to their default. `bankId` is chosen by `hindsight.bankId`, then the fallback file's `mapPathToBank` (longest matching path prefix), then its `bankIdTemplate` with `{gitProject}` substituted, then its `bankId`, then `coding-agent::{gitProject}` from the git root. Banks derived per repository are dedicated; every other bank is shared.
+
+**Repository isolation & shared bank limitations:**
+* **Dedicated banks** isolate all knowledge and turns in separate banks.
+* **Shared banks (no repo filter on MCP tools or knowledge pages):** Native MCP tools (`mcp__hindsight__*`) connect directly to `/mcp/{bank_id}/` and operate **bank-wide without repository filtering**. Likewise, automatic knowledge-page search in Hindsight is bank-wide (Hindsight knowledge pages have no repository tag filter). Only automatic SDK background turn writeback stamps turns with `repo:<name>`. In a shared bank, knowledge pages and MCP queries are not repository-isolated; use dedicated banks when strict repository isolation is required.
+
+**Native MCP Server & Authoritative Tools:**
+The upstream Hindsight MCP server is authoritative for tool authoring, definitions, and schemas. `pi-ext-memory` registers the server with:
+* Direct exposure for `get_knowledge_base_tree`, `search_knowledge_base`, `get_knowledge_page`, `recall`, `reflect`, and `retain`.
+* Deferred exposure for all other server tools.
+* Diagnostics via `/om status` (reporting bank ID, isolation mode, API endpoint, MCP endpoint `/mcp/{bank_id}/`, token presence, reachability, file config overrides, auto-recall, retention, and writeback state).

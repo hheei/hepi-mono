@@ -35,7 +35,7 @@ function readLayer(layer: string, value: unknown): Partial<ApplyPatchPolicy> {
 				key,
 				`is not supported; remove ${key} and set global ${APPLY_PATCH_SETTINGS_KEY}.fuzzFactor to 0 or 2`,
 			);
-		if (key !== "fuzzFactor") invalid(layer, key, "is not supported");
+		if (key !== "fuzzFactor" && key !== "enabled") invalid(layer, key, "is not supported");
 	}
 	if (!Object.hasOwn(value, "fuzzFactor")) return {};
 	const item = value.fuzzFactor;

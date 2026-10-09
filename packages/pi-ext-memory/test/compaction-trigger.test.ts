@@ -24,7 +24,7 @@ function captureHandler(
 		compactAfterTokensMode?: "calibrated" | "ratio";
 		compactAfterTokensRatio?: number;
 		idleCompactionTtlSeconds?: number | undefined;
-		idleCompactionMinTokens?: number;
+		idleCompactionMinTokens?: number | undefined;
 		passive?: boolean;
 		compactInFlight?: boolean;
 	} = {},
@@ -45,10 +45,12 @@ function captureHandler(
 		compactAfterTokens: args.compactAfterTokens ?? 3,
 		compactAfterTokensMode: args.compactAfterTokensMode ?? "calibrated",
 		compactAfterTokensRatio: args.compactAfterTokensRatio ?? 0.68,
-		idleCompactionMinTokens: args.idleCompactionMinTokens ?? 75_000,
 		passive: args.passive ?? false,
 	};
 	runtime.config.idleCompactionTtlSeconds = args.idleCompactionTtlSeconds;
+	if (args.idleCompactionMinTokens !== undefined) {
+		runtime.config.idleCompactionMinTokens = args.idleCompactionMinTokens;
+	}
 	runtime.configLoaded = true;
 	runtime.ensureConfig = vi.fn();
 	runtime.compactInFlight = args.compactInFlight ?? false;
@@ -168,7 +170,6 @@ describe("V3 compaction trigger", () => {
 		const { handler } = captureHandler({
 			compactAfterTokens: 1_000,
 			idleCompactionTtlSeconds: 60,
-			idleCompactionMinTokens: 1,
 		});
 		const entries = [
 			...dueBranch,
@@ -612,7 +613,7 @@ describe("V3 compaction trigger", () => {
 					),
 				}),
 			);
-			expect(ctx.ui.notify).toHaveBeenCalledWith(
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
 				expect.stringMatching(/The conversation has idled for 1m. Next turn will compact context./),
 				"info",
 			);
@@ -695,7 +696,7 @@ describe("V3 compaction trigger", () => {
 					),
 				}),
 			);
-			expect(ctx.ui.notify).toHaveBeenCalledWith(
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
 				expect.stringMatching(
 					/The conversation has idled for 2m. Compacting context before the next turn./,
 				),
@@ -818,7 +819,6 @@ describe("V3 compaction trigger", () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
@@ -846,7 +846,6 @@ describe("V3 compaction trigger", () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: undefined,
-				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
@@ -868,11 +867,10 @@ describe("V3 compaction trigger", () => {
 			expect(runtime.compactInFlight).toBe(false);
 		});
 
-		it("skips compaction in before_agent_start if tokens are below idleCompactionMinTokens", async () => {
+		it("skips idle compaction for short conversations below compaction cap", async () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 50_000,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
@@ -885,20 +883,57 @@ describe("V3 compaction trigger", () => {
 				}),
 				validObsEntry,
 			];
-			const ctx = fakeCtx([branch]);
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts) => opts?.onComplete?.()),
+			});
 
 			const beforeAgentStart = handlers.get("before_agent_start");
 			await beforeAgentStart?.({}, ctx);
 
+			// Below default keepRecentTokens (20_000), compaction must not be called
 			expect(ctx.compact).not.toHaveBeenCalled();
 			expect(runtime.compactInFlight).toBe(false);
+		});
+
+		it("silently handles Nothing to compact without notifying UI error", async () => {
+			const { handlers, runtime } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = [
+				rawMessage("raw-1", "some text", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "some text" }],
+					},
+					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts) =>
+					opts?.onError?.({ message: "Compaction failed: Nothing to compact (session too small)" }),
+				),
+			});
+
+			const beforeAgentStart = handlers.get("before_agent_start");
+			await beforeAgentStart?.({}, ctx);
+
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+				expect.stringContaining("Nothing to compact"),
+				"error",
+			);
+			expect(runtime.compactInFlight).toBe(false);
+			expect(runtime.idleCompactInFlight).toBe(false);
 		});
 
 		it("skips compaction in before_agent_start if foldLedger has no observations or reflections", async () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
@@ -923,7 +958,6 @@ describe("V3 compaction trigger", () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
@@ -950,7 +984,6 @@ describe("V3 compaction trigger", () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [

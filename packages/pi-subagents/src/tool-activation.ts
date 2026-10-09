@@ -1,14 +1,7 @@
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	ExtensionContext,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { getToolTui, isRecord, textToolResult } from "@hheei/pi-ext-core";
-import { Type } from "typebox";
-import { type DiscoveredAgent, discoverAgents } from "./agent-resolver.js";
-import { builtinAgents } from "./builtin-agents.js";
+import { isRecord, setPromptSection } from "@hheei/pi-ext-core";
+import { discoverAgents } from "./agent-resolver.js";
 import type { SubagentManager } from "./manager.js";
 
 /** Interactive agent tools managed by dynamic activation. */
@@ -21,16 +14,43 @@ export const INTERACTIVE_TOOL_NAMES = [
 
 export type InteractiveToolName = (typeof INTERACTIVE_TOOL_NAMES)[number];
 
-export const SUBAGENT_LOADER_NAME = "subagent_enable";
-export const SUBAGENTS_LOADER_NAME = SUBAGENT_LOADER_NAME;
+export const SUBAGENT_PROMPT_SECTION = "subagent_guidance";
 
-const DESCRIPTION =
-	"Enable interactive agent tools (spawn_agent, send_agent, get_agent, stop_agent) for running interactive subagents. Enabled tools are available on the next model request.";
+export const SUBAGENT_DEFERRED_PROMPT_GUIDANCE =
+	'Subagent tools (spawn_agent, send_agent, get_agent, stop_agent) are deferred. Use tool_search ({ query: "agent" }) to discover and load them when needed.';
 
-const SNIPPET =
-	"Interactive subagents (spawn_agent, send_agent, get_agent, stop_agent) require activation. Call subagent_enable to activate them.";
+export const USAGE_GUIDE = [
+	"Reuse an existing subagent via send_agent for related work. Inspect available definitions and owned children with list_agents before creating a new child; use get_agent for current identity or state.",
+	"Spawn a new agent only when a distinct role or fresh context is needed. Idle children consume no compute and do not need to be frozen, paused, or stopped before other work starts.",
+	"send_agent can resume done, blocked, errored, or stopped children with their session context. After an error, retry send_agent or create a new child with spawn_agent; neither guarantees recovery. A previous runtime must be confirmed stopped before starting a replacement.",
+	"Child results arrive automatically as subagent-report messages, including while you work on other tasks. After spawn or send, do independent work or end your turn. Do not poll get_agent or list_agents, sleep, wait, or tail session/log files to detect completion. Do not fabricate or summarize results before a report arrives.",
+	"Background job controls may become available when a task starts. Subagent task ids use the same agent-X format returned by spawn_agent, for example agent-1. Do not use wait_jobs to wait for subagent reports: healthy subagents report automatically and close themselves. wait_jobs is optional and only for directly reading a result when needed; stop_jobs is optional and only for explicitly terminating a job that should not continue. Use stop_agent to end a child runtime intentionally.",
+].join("\n");
 
-const emptySchema = Type.Object({}, { additionalProperties: false });
+export async function buildSubagentPromptGuidance(cwd: string): Promise<string> {
+	const allAgents = await discoverAgents(cwd);
+	const availableAgents = allAgents
+		.filter((agent) => agent.enabled !== false && agent.frontmatter.hidden !== true)
+		.map((agent) => ({
+			name: agent.name,
+			description:
+				typeof agent.frontmatter.description === "string" &&
+				agent.frontmatter.description.trim() !== ""
+					? agent.frontmatter.description.trim()
+					: "No description provided.",
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	const lines = [USAGE_GUIDE];
+	if (availableAgents.length > 0) {
+		lines.push("", "<available_agents>");
+		for (const agent of availableAgents) {
+			lines.push(`- ${agent.name}: ${agent.description}`);
+		}
+		lines.push("</available_agents>");
+	}
+	return lines.join("\n");
+}
 
 export function supportsDynamicTools(pi: ExtensionAPI): boolean {
 	return (
@@ -67,6 +87,7 @@ const LEGACY_TOOL_NAMES = new Set([
 	"stop_subagent",
 	"list_subagents",
 	"subagents_enable",
+	"subagent_enable",
 ]);
 
 function branchHasSubagentCalls(
@@ -83,15 +104,11 @@ function branchHasSubagentCalls(
 					(part.type === "tool_use" || part.type === "toolCall") &&
 					typeof part.name === "string"
 				) {
-					if (part.name === SUBAGENT_LOADER_NAME || names.has(part.name)) return true;
+					if (names.has(part.name)) return true;
 				}
 			}
 		}
-		if (
-			msg.role === "tool" &&
-			typeof msg.toolName === "string" &&
-			(msg.toolName === SUBAGENT_LOADER_NAME || names.has(msg.toolName))
-		) {
+		if (msg.role === "tool" && typeof msg.toolName === "string" && names.has(msg.toolName)) {
 			return true;
 		}
 	}
@@ -121,106 +138,8 @@ export function registerInteractiveToolActivation(
 	}
 
 	const names: readonly string[] = INTERACTIVE_TOOL_NAMES;
-	const tui = getToolTui(pi);
-
-	const loaderTool: ToolDefinition<typeof emptySchema> = {
-		name: SUBAGENT_LOADER_NAME,
-		label: "Enable Interactive Subagents",
-		description: DESCRIPTION,
-		promptSnippet: SNIPPET,
-		parameters: emptySchema,
-		async execute(_id, _params, _signal, _onUpdate, execCtx): Promise<AgentToolResult<unknown>> {
-			const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-			const unavailable = names.filter((name) => !registered.has(name));
-			if (unavailable.length > 0) {
-				throw new Error(`Cannot enable unavailable tools: ${unavailable.join(", ")}.`);
-			}
-
-			const cwd =
-				execCtx !== undefined &&
-				typeof execCtx === "object" &&
-				"cwd" in execCtx &&
-				typeof execCtx.cwd === "string"
-					? execCtx.cwd
-					: (context.cwd ?? process.cwd());
-
-			let allAgents: readonly DiscoveredAgent[];
-			try {
-				allAgents = await discoverAgents(cwd);
-			} catch {
-				allAgents = builtinAgents();
-			}
-
-			const interactiveAgents = allAgents
-				.filter(
-					(agent) => agent.frontmatter.interactive === true && agent.frontmatter.hidden !== true,
-				)
-				.map((agent) => ({
-					name: agent.name,
-					description:
-						typeof agent.frontmatter.description === "string" &&
-						agent.frontmatter.description.trim() !== ""
-							? agent.frontmatter.description.trim()
-							: "No description provided.",
-				}))
-				.sort((a, b) => a.name.localeCompare(b.name));
-
-			const currentlyActive = new Set(pi.getActiveTools());
-			const alreadyActive = names.every((name) => currentlyActive.has(name));
-
-			if (!alreadyActive) {
-				try {
-					pi.setActiveTools([...new Set([...pi.getActiveTools(), ...names])]);
-				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					throw new Error(`Activation failed: ${message}.`);
-				}
-			}
-
-			const lines: string[] = [
-				alreadyActive
-					? `Interactive agent tools are already enabled: ${names.join(", ")}.`
-					: `Enabled interactive agent tools: ${names.join(", ")}. They will be available on the next model request.`,
-			];
-
-			if (interactiveAgents.length > 0) {
-				lines.push("");
-				lines.push("<interactive_agents>");
-				for (const agent of interactiveAgents) {
-					lines.push(`- ${agent.name}: ${agent.description}`);
-				}
-				lines.push("</interactive_agents>");
-			}
-
-			return textToolResult(lines.join("\n"), {
-				enabled: [...names],
-				...(interactiveAgents.length > 0 ? { interactiveAgents } : {}),
-			});
-		},
-	};
-
-	pi.registerTool(
-		tui.frame(loaderTool, {
-			summary: () => "enable interactive subagents",
-			headerLine: "truncate",
-			footer: (result) => {
-				const details = result.details as { readonly enabled?: readonly string[] } | undefined;
-				const count = details?.enabled?.length;
-				return count !== undefined
-					? count === 1
-						? "1 tool enabled"
-						: `${count} tools enabled`
-					: undefined;
-			},
-		}),
-	);
-
-	function loaderAvailable(): boolean {
-		return pi.getAllTools().some((tool) => tool.name === SUBAGENT_LOADER_NAME);
-	}
 
 	async function selectFromSession(ctx: ExtensionContext): Promise<void> {
-		if (!loaderAvailable()) return;
 		try {
 			let messages: readonly unknown[] = [];
 			try {
@@ -255,7 +174,7 @@ export function registerInteractiveToolActivation(
 			if (shouldBeActive) {
 				for (const name of names) active.push(name);
 			}
-			pi.setActiveTools([...new Set([...active, SUBAGENT_LOADER_NAME])]);
+			pi.setActiveTools([...new Set(active)]);
 		} catch (error) {
 			console.warn(
 				`[pi-subagents] Subagent tool activation setup fallback: ${
@@ -271,12 +190,19 @@ export function registerInteractiveToolActivation(
 	const unbindSessionTree = pi.on("session_tree", (_event, ctx) => {
 		void selectFromSession(ctx);
 	});
-	const unbindBeforeAgentStart = () => {
-		if (!loaderAvailable() || pi.getActiveTools().includes(SUBAGENT_LOADER_NAME)) return;
-		try {
-			pi.setActiveTools([...pi.getActiveTools(), SUBAGENT_LOADER_NAME]);
-		} catch {
-			// Best effort
+	const unbindBeforeAgentStart = async (event: {
+		systemPromptOptions?: { sections: Record<string, string> };
+	}) => {
+		const sections = event.systemPromptOptions?.sections;
+		if (sections !== undefined) {
+			const activeTools = new Set(pi.getActiveTools());
+			const isInteractiveActive = names.some((name) => activeTools.has(name));
+			if (isInteractiveActive) {
+				const guidance = await buildSubagentPromptGuidance(context.cwd ?? process.cwd());
+				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, guidance);
+			} else {
+				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, SUBAGENT_DEFERRED_PROMPT_GUIDANCE);
+			}
 		}
 	};
 	const unbindBeforeAgent = pi.on("before_agent_start", unbindBeforeAgentStart);

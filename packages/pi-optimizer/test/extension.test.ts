@@ -181,9 +181,23 @@ describe("extension session integration", () => {
 		expect(
 			await emit(host.handlers, "input", { text: "設定", source: "interactive" }, first),
 		).toEqual([{ action: "transform", text: "设定" }]);
+		// Subsequent interactive T2S conversion in the same session is transformed without repeating info entry
+		expect(
+			await emit(host.handlers, "input", { text: "再次設定", source: "interactive" }, first),
+		).toEqual([{ action: "transform", text: "再次设定" }]);
 		expect(await emit(host.handlers, "input", { text: "設定", source: "rpc" }, first)).toEqual([
 			undefined,
 		]);
+		expect(
+			host.entries.filter(
+				(entry) =>
+					typeof entry.data === "object" &&
+					entry.data !== null &&
+					"summary" in entry.data &&
+					typeof entry.data.summary === "string" &&
+					entry.data.summary.includes("T2S"),
+			),
+		).toHaveLength(1);
 		const beforeInactivePrompt = host.entries.length;
 		expect(await emit(host.handlers, "before_agent_start", beforeStart(), first)).toEqual([
 			undefined,
@@ -200,6 +214,7 @@ describe("extension session integration", () => {
 		);
 		// The rendered prompt is host-owned; the handler only adds its own section.
 		expect(firstEvent.systemPrompt).toBe("base");
+		// Info is emitted once on mode activation; subsequent turns with same mode do not repeat info
 		expect(
 			host.entries.filter(
 				(entry) =>
@@ -208,7 +223,7 @@ describe("extension session integration", () => {
 					"summary" in entry.data &&
 					entry.data.summary === "Prompt · Caveman full",
 			),
-		).toHaveLength(2);
+		).toHaveLength(1);
 		const oldProvider = getRuntimeSettingsRegistry(host.pi).get("pi-optimizer");
 		await writeFile(path, "{}");
 		await emit(host.handlers, "session_shutdown", {}, first);

@@ -4,7 +4,6 @@ import {
 	registerExtensionLifecycle,
 	registerSettings,
 } from "@hheei/pi-ext-core";
-import { clearEvalNestedLive } from "./bridge.js";
 import { EvalKernelHost } from "./kernel/host.js";
 import type { EvalRuntimeHooks } from "./runtime.js";
 import { createEvalSettingsProvider } from "./settings.js";
@@ -42,7 +41,6 @@ export function startEvalRuntime(state: EvalRuntimeState, runtime: EvalExecutor)
 	return () => {
 		if (mutable.runtime !== runtime) return;
 		runtime.dispose();
-		clearEvalNestedLive();
 		mutable.runtime = undefined;
 	};
 }

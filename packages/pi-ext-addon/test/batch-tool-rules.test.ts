@@ -18,22 +18,25 @@ describe("buildDefaultBatchToolPrompt & buildBatchToolPrompt", () => {
 		expect(prompt).toContain(
 			"Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn via `codemode`.",
 		);
-		expect(prompt).not.toContain("or `eval`");
+		expect(prompt).toContain("Do not write comments when using `codemode` and `python_eval`.");
+		expect(prompt).not.toContain("or `python_eval`");
 		expect(prompt).not.toContain("SHOULD provide complete");
 	});
 
 	it("generates via codemode or eval when both are available", () => {
 		const prompt = buildBatchToolPrompt({ hasCodemode: true, hasEval: true });
 		expect(prompt).toContain(
-			"Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn via `codemode` or `eval`.",
+			"Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn via `codemode` or `python_eval`.",
 		);
+		expect(prompt).toContain("Do not write comments when using `codemode` and `python_eval`.");
 	});
 
 	it("omits via clause when codemode is not available even if eval is available", () => {
 		const prompt = buildBatchToolPrompt({ hasCodemode: false, hasEval: true });
 		expect(prompt).toContain(
-			"Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn.\n</tool_execution_rules>",
+			"Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn.",
 		);
+		expect(prompt).toContain("Do not write comments when using `codemode` and `python_eval`.");
 		expect(prompt).not.toContain("via");
 	});
 
@@ -99,14 +102,17 @@ describe("applyBatchToolRules", () => {
 		const event = {
 			systemPromptOptions: {
 				sections,
-				selectedTools: ["codemode", "eval"],
+				selectedTools: ["codemode", "python_eval"],
 			},
 		};
 
 		applyBatchToolRules(event);
 
 		expect(sections[BATCH_TOOL_RULES_SECTION]).toBeDefined();
-		expect(sections[BATCH_TOOL_RULES_SECTION]).toContain("via `codemode` or `eval`.");
+		expect(sections[BATCH_TOOL_RULES_SECTION]).toContain("via `codemode` or `python_eval`.");
+		expect(sections[BATCH_TOOL_RULES_SECTION]).toContain(
+			"Do not write comments when using `codemode` and `python_eval`.",
+		);
 	});
 
 	it("injects prompt without via when codemode is not active even if eval is active", () => {
@@ -114,7 +120,7 @@ describe("applyBatchToolRules", () => {
 		const event = {
 			systemPromptOptions: {
 				sections,
-				selectedTools: ["read", "eval"],
+				selectedTools: ["read", "python_eval"],
 			},
 		};
 

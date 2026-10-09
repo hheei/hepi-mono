@@ -14,7 +14,6 @@ import { createFffAutocompleteProvider } from "./autocomplete.js";
 import { FffRuntime } from "./fff.js";
 import {
 	createBashSettingsProvider,
-	createEditSettingsProvider,
 	createFffSettingsProvider,
 	DEFAULT_FFF_SETTINGS,
 	type FffSettings,
@@ -96,10 +95,7 @@ async function startFffLifecycle(
 		"bash-settings",
 		registerSettings(bashProvider, getRuntimeSettingsRegistry(pi)),
 	);
-	context.resources.add(
-		"edit-settings",
-		registerSettings(createEditSettingsProvider(), getRuntimeSettingsRegistry(pi)),
-	);
+
 	context.resources.add(
 		"target-settings",
 		registerSettings(targetProvider, getRuntimeSettingsRegistry(pi)),

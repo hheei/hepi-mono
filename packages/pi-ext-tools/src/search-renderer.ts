@@ -9,30 +9,37 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import {
-	agentResultText,
-	DEFAULT_MAX_BODY_LINES,
-	formatDuration,
-	type ToolCompletion,
-} from "@hheei/pi-ext-core";
+import { agentResultText, formatDuration } from "@hheei/pi-ext-core";
+
+const DEFAULT_MAX_BODY_LINES = 20;
+
 import { counted } from "./counted.js";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "./grep.js";
-import { RST } from "./pretty/ansi.js";
-import { renderCodeGutter, renderDiffOmission, resolveDiffColors } from "./pretty/diff-render.js";
-import { hlBlock } from "./pretty/highlight.js";
-import { lang } from "./pretty/lang.js";
 
 const DIM = "\x1b[2m";
+const RST = "\x1b[0m";
+const FG_LNUM = "\x1b[38;2;100;100;100m";
+const FG_DIM = "\x1b[38;2;80;80;80m";
+const FG_RULE = "\x1b[38;2;50;50;50m";
+const BG_ADD = "\x1b[48;2;18;42;28m";
+
+function renderDiffOmission(nw: number, signed = true): string {
+	const width = Math.max(1, nw);
+	const gap = signed ? "  " : " ";
+	return ` ${FG_DIM}${"…".padStart(width)}${RST}${gap}${FG_RULE}┊ ${RST}`;
+}
+
+function renderCodeGutter(lineNumber: number, numberWidth: number, body: string): string {
+	const num = String(lineNumber).padStart(Math.max(1, numberWidth));
+	return ` ${FG_LNUM}${num}${RST} ${FG_RULE}│ ${RST}${body}`;
+}
 
 export type FindToolDetails = {
 	readonly format: "canonical-find";
 	readonly candidates: readonly { readonly path: string; readonly matchType?: string }[];
 	readonly totalMatched: number;
 	readonly totalFiles: number;
-	readonly durationMs: number;
-	readonly target?: string;
 	readonly path?: string;
-	readonly outcome?: import("./targets.js").TargetOutcome;
 };
 
 type RenderContext = { readonly isError: boolean; readonly lastComponent: Component | undefined };
@@ -158,20 +165,14 @@ function submatchCharRanges(
 	});
 }
 
-function highlightSource(source: string, path: string, theme: Theme): string {
-	const highlighted = hlBlock(source, lang(path), theme);
-	return highlighted.length === 1 ? (highlighted[0] ?? source) : source;
-}
-
 function renderGrepSource(
 	line: Extract<GrepDisplayLine, { type: "match" | "context" }>,
-	theme: Theme,
+	_theme: Theme,
 	lineNumberWidth: number,
-	path: string,
+	_path: string,
 ): string {
-	const highlighted = highlightSource(line.source, path, theme);
 	const ranges = line.type === "match" ? submatchCharRanges(line.source, line.submatches) : [];
-	const body = overlayGrepSource(highlighted, line.source, ranges, resolveDiffColors(theme).bgAdd);
+	const body = overlayGrepSource(line.source, line.source, ranges, BG_ADD);
 	return renderCodeGutter(line.lineNumber, lineNumberWidth, body);
 }
 
@@ -224,7 +225,7 @@ class GrepResultComponent implements Component {
 
 export function grepCollapsedFooter(
 	result: AgentToolResult<unknown>,
-	completion: ToolCompletion | undefined,
+	durationMs?: number,
 ): string | undefined {
 	const details = grepDetails(result.details);
 	if (details === undefined) return undefined;
@@ -242,7 +243,7 @@ export function grepCollapsedFooter(
 		counted(details.totalMatched, fuzzy ? "fuzzy" : "match", fuzzy ? "fuzzies" : "matches"),
 		counted(details.totalFiles, "file"),
 		counted(details.totalLines, "line"),
-		formatDuration(completion?.durationMs ?? details.durationMs),
+		formatDuration(durationMs),
 	]
 		.filter((part): part is string => part !== undefined)
 		.join(" · ");
@@ -311,8 +312,7 @@ function findDetails(value: unknown): FindToolDetails | undefined {
 	return details.format === "canonical-find" &&
 		Array.isArray(details.candidates) &&
 		typeof details.totalMatched === "number" &&
-		typeof details.totalFiles === "number" &&
-		typeof details.durationMs === "number"
+		typeof details.totalFiles === "number"
 		? (details as FindToolDetails)
 		: undefined;
 }
@@ -382,7 +382,7 @@ export function formatFindModelOutput(details: FindToolDetails): string {
 		.join("\n");
 }
 
-function findFooter(details: FindToolDetails, completion?: ToolCompletion): string {
+function findFooter(details: FindToolDetails, durationMs?: number): string {
 	const fuzzyPath = details.candidates.filter(
 		(candidate) => findGroup(candidate.matchType) === "fuzzy paths",
 	).length;
@@ -391,17 +391,17 @@ function findFooter(details: FindToolDetails, completion?: ToolCompletion): stri
 		fuzzyFilename > 0 ? counted(fuzzyFilename, "fuzzy file") : undefined,
 		fuzzyPath > 0 ? counted(fuzzyPath, "fuzzy path") : undefined,
 		counted(findBodyLines(details).length, "line"),
-		formatDuration(completion?.durationMs ?? details.durationMs),
+		formatDuration(durationMs),
 	];
 	return parts.filter((part): part is string => part !== undefined).join(" · ");
 }
 
 export function findCollapsedFooter(
 	result: AgentToolResult<unknown>,
-	completion: ToolCompletion | undefined,
+	durationMs?: number,
 ): string | undefined {
 	const details = findDetails(result.details);
-	return details === undefined ? undefined : findFooter(details, completion);
+	return details === undefined ? undefined : findFooter(details, durationMs);
 }
 
 export function renderFindResult(

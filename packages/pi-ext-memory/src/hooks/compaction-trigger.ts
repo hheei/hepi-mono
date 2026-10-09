@@ -85,6 +85,7 @@ async function runIdleCompaction(
 	runtime: Runtime,
 	sessionGeneration: number,
 	lifecycleSignal: AbortSignal | undefined,
+	minTokens = 20_000,
 ): Promise<void> {
 	if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 	if (runtime.compactInFlight) return;
@@ -104,7 +105,7 @@ async function runIdleCompaction(
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
 		if (!latestGateEnabled(entries)) return;
-		if (!hasIdleCompactionWork(entries, runtime)) return;
+		if (!hasIdleCompactionWork(entries, minTokens)) return;
 
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
@@ -134,7 +135,13 @@ async function runIdleCompaction(
 					}
 					runtime.idleCompactInFlight = false;
 					runtime.compactInFlight = false;
-					if (error.message !== "Compaction cancelled" && !error.message.includes("stale")) {
+					const isTooSmall =
+						error.message.includes("Nothing to compact") || error.message.includes("too small");
+					if (
+						error.message !== "Compaction cancelled" &&
+						!error.message.includes("stale") &&
+						!isTooSmall
+					) {
 						if (hasUI) {
 							try {
 								ui?.notify(`om: ${error.message}`, "error");
@@ -150,7 +157,8 @@ async function runIdleCompaction(
 		runtime.idleCompactInFlight = false;
 		runtime.compactInFlight = false;
 		const msg = errorMessage(error);
-		if (msg.includes("stale")) return;
+		if (msg.includes("stale") || msg.includes("Nothing to compact") || msg.includes("too small"))
+			return;
 		if (ctx.hasUI) {
 			try {
 				ctx.ui?.notify(`om: idle compact threw: ${msg}`, "error");
@@ -159,9 +167,24 @@ async function runIdleCompaction(
 	}
 }
 
-function hasIdleCompactionWork(entries: Entry[], runtime: Runtime): boolean {
+export function resolveIdleCompactionMinTokens(
+	config: { readonly idleCompactionMinTokens?: number | undefined },
+	pi?: ExtensionAPI,
+): number {
+	if (typeof config.idleCompactionMinTokens === "number" && config.idleCompactionMinTokens > 0) {
+		return config.idleCompactionMinTokens;
+	}
+	const settings = pi?.getSettings?.();
+	const keepRecentTokens = settings?.compaction?.keepRecentTokens;
+	if (typeof keepRecentTokens === "number" && keepRecentTokens > 0) {
+		return keepRecentTokens;
+	}
+	return 20_000;
+}
+
+export function hasIdleCompactionWork(entries: Entry[], minTokens = 20_000): boolean {
 	if (countSourceEntriesAfterCompaction(entries) === 0) return false;
-	if (rawTokensSinceLastCompaction(entries) < runtime.config.idleCompactionMinTokens) return false;
+	if (rawTokensSinceLastCompaction(entries) <= minTokens) return false;
 	const folded = foldLedger(entries);
 	return folded.activeObservations.length > 0 || folded.activeReflections.length > 0;
 }
@@ -187,7 +210,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries || !latestGateEnabled(entries)) return;
-		if (!hasIdleCompactionWork(entries, runtime)) return;
+		const minTokens = resolveIdleCompactionMinTokens(runtime.config, pi);
+		if (!hasIdleCompactionWork(entries, minTokens)) return;
 		if (hasPersistedIdleNotice(entries)) {
 			runtime.idleNoticeEmitted = true;
 			return;
@@ -211,7 +235,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 				runtime.idleNoticeEmitted = true;
 				return;
 			}
-			if (!hasIdleCompactionWork(currentEntries, runtime)) return;
+			if (!hasIdleCompactionWork(currentEntries, minTokens)) return;
 
 			runtime.idleNoticeEmitted = true;
 			const timeStr = formatIdleDuration(seconds);
@@ -220,12 +244,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			try {
 				pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
 			} catch {}
-
-			if (ctx.hasUI) {
-				try {
-					ctx.ui?.notify(noticeText, "info");
-				} catch {}
-			}
 		};
 
 		if (totalIdleSec >= ttlSec) {
@@ -292,7 +310,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const totalIdleSec = elapsedSec + waitJobsSec;
 
 		if (totalIdleSec < ttlSec) return;
-		if (!hasIdleCompactionWork(entries, runtime)) return;
+		const minTokens = resolveIdleCompactionMinTokens(runtime.config, pi);
+		if (!hasIdleCompactionWork(entries, minTokens)) return;
 
 		// If the idle notice was not emitted earlier (e.g. cold resume in non-interactive CLI), emit it once
 		if (!hasPersistedIdleNotice(entries) && !runtime.idleNoticeEmitted) {
@@ -305,15 +324,9 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			} catch {
 				// Ignore if appendEntry fails (e.g. unpersisted or detached session)
 			}
-
-			if (ctx.hasUI) {
-				try {
-					ctx.ui?.notify(noticeText, "info");
-				} catch {}
-			}
 		}
 
-		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal);
+		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal, minTokens);
 		runtime.idleNoticeEmitted = false;
 	});
 

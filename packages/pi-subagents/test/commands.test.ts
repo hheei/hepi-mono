@@ -1,70 +1,9 @@
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
-import { bindParentStatus, formatStatusLine, registerParentCommands } from "../src/commands.js";
+import { registerParentCommands } from "../src/commands.js";
 import type { PublicSubagent } from "../src/domain.js";
 import type { SubagentManager } from "../src/manager.js";
 import { child } from "./helpers/records.js";
-
-describe("parent status line", () => {
-	test("hides when every child is terminal and names interrupted panel children", () => {
-		expect(formatStatusLine([child({ state: "done" }), child({ state: "error" })])).toBeUndefined();
-		expect(
-			formatStatusLine([
-				child({
-					displayName: "Reviewer",
-					state: "blocked",
-					presentation: "panel",
-					interrupted: "paused",
-				}),
-				child({ agent: "scout", state: "error" }),
-			]),
-		).toBe("󰀪 Reviewer blocked panel");
-	});
-
-	test("bindParentStatus safely handles stale context during refresh and disposal", async () => {
-		let listener: (() => void) | undefined;
-		const manager = {
-			list: vi.fn().mockResolvedValue([child({ state: "running" })]),
-			onChange: vi.fn((fn: () => void) => {
-				listener = fn;
-				return () => {
-					listener = undefined;
-				};
-			}),
-		} as unknown as SubagentManager;
-
-		const setStatus = vi.fn();
-		const context = {
-			ui: {
-				setStatus,
-			},
-		} as unknown as ExtensionContext;
-
-		const controller = new AbortController();
-		const unbind = bindParentStatus({} as ExtensionAPI, context, manager, controller.signal);
-
-		await Promise.resolve();
-		expect(setStatus).toHaveBeenCalledWith("pi-subagents", "󰪠 worker running");
-
-		// Simulate stale context throwing error
-		Object.defineProperty(context, "ui", {
-			get() {
-				throw new Error("This extension ctx is stale after session replacement or reload.");
-			},
-		});
-
-		// Trigger change after invalidation — must not throw or unhandled reject
-		listener?.();
-		await Promise.resolve();
-
-		// Disposal on stale context — must not throw
-		expect(() => unbind()).not.toThrow();
-	});
-});
 
 function commandSetup(children: PublicSubagent[], mode = "tui") {
 	const commands: {

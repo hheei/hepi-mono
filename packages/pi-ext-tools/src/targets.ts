@@ -2,17 +2,15 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
-import { runCommand, setPromptSection, shellQuote } from "@hheei/pi-ext-core";
+import { runCommand, setPromptSection } from "@hheei/pi-ext-core";
 
 export const LOCAL_TARGET = "local";
 export const REMOTE_TIMEOUT_MS = 20_000;
 export const CONTROL_PERSIST = "15m";
-export const MAX_REMOTE_FIND_PATHS = 1_024;
-export const MAX_REMOTE_FIND_BYTES = 256 * 1024;
 const TARGET_PROMPT_SECTION = "pi-ext-tools-targets";
 const TARGET_PROMPT_LINES = [
-	"read, grep, find, edit, and write accept target: local or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
-	"Omitting target uses local. Remote targets are POSIX hosts. read/grep/find use a 20 second timeout and do not use FFF; bash has no default timeout and does not support async. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
+	"edit, and write accept target: local or an authorized SSH host. bash and apply_patch accept local or an authorized SSH host.",
+	"Omitting target uses local. Remote targets are POSIX hosts. bash has no default timeout and does not support async. apply_patch, remote edit, and remote write files are capped at 32 MiB.",
 ] as const;
 
 export type TargetOutcome =
@@ -107,37 +105,6 @@ export function rejectUnsupportedTarget(tool: string, params: unknown): void {
 	throw new TargetError("unauthorized", `${tool} does not support remote targets.`);
 }
 
-function isGlob(value: string): boolean {
-	return /[*?[{]/u.test(value);
-}
-
-function splitWords(value: string): readonly string[] {
-	return value.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
-}
-
-function fuzzyScore(value: string, query: string): number | undefined {
-	const lower = value.toLocaleLowerCase();
-	let score = 0;
-	for (const word of splitWords(query)) {
-		let cursor = 0;
-		let previous = -1;
-		for (const character of word) {
-			const index = lower.indexOf(character, cursor);
-			if (index < 0) return undefined;
-			if (index === previous + 1) score += 2;
-			score += Math.max(1, 20 - index);
-			previous = index;
-			cursor = index + 1;
-		}
-	}
-	return score;
-}
-
-function globRegex(pattern: string): RegExp {
-	const escaped = pattern.replace(/[.+^${}()|[\]\\]/gu, "\\$&");
-	return new RegExp(`^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`, "iu");
-}
-
 function sftpQuote(value: string): string {
 	return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
@@ -154,15 +121,6 @@ function literalHostAliases(config: string): ReadonlySet<string> {
 		}
 	}
 	return aliases;
-}
-
-function missingRemoteCommand(result: ProcessResult, command: string): boolean {
-	if (result.code === 127) return true;
-	const stderr = result.stderr.toString("utf8");
-	return new RegExp(
-		`(?:command not found|not found):?\\s+${command}\\b|${command}:\\s+not found`,
-		"iu",
-	).test(stderr);
 }
 
 async function removeStaleControlSockets(root: string): Promise<void> {
@@ -414,31 +372,6 @@ export class TargetRuntime {
 		return await this.sftpBatch(target, batch, options);
 	}
 
-	async grep(
-		target: string,
-		command: string,
-		signal?: AbortSignal,
-		maxStdoutBytes?: number,
-	): Promise<string> {
-		this.assertHost(target);
-		await this.assertPosix(target, signal);
-		const result = await runProcess("ssh", this.sshArgs(target, [`cd "$HOME" && ${command}`]), {
-			signal,
-			timeoutMs: REMOTE_TIMEOUT_MS,
-			...(maxStdoutBytes === undefined ? {} : { maxStdoutBytes }),
-		});
-		if (missingRemoteCommand(result, "rg"))
-			throw new TargetError("dependency", "Remote host is missing rg.");
-		const stdout = result.stdout.toString("utf8");
-		if (result.code !== 0 && result.code !== 1) {
-			const stderr = result.stderr.toString("utf8");
-			const diagnostics = result.code === 2 ? accessDeniedDiagnostics(stderr) : undefined;
-			if (diagnostics !== undefined) throw new RemoteGrepAccessDeniedError(stdout, diagnostics);
-			throw new Error(stderr.trim() || "Remote search failed.");
-		}
-		return stdout;
-	}
-
 	async exec(
 		target: string,
 		command: string,
@@ -458,44 +391,6 @@ export class TargetRuntime {
 			...(options.onData === undefined ? {} : { onData: options.onData }),
 		});
 		return { code: result.code, timedOut: result.timedOut };
-	}
-
-	async find(
-		target: string,
-		path: string | undefined,
-		pattern: string,
-		signal?: AbortSignal,
-	): Promise<readonly RemoteFindCandidate[]> {
-		const remotePath = isGlob(path ?? "") ? "." : this.remotePath(path ?? ".");
-		const pathMatcher = isGlob(path ?? "") ? globRegex(path ?? "") : undefined;
-		const output = await this.grep(
-			target,
-			`rg --files --hidden --color=never -- ${shellQuote(remotePath)}`,
-			signal,
-			MAX_REMOTE_FIND_BYTES + 1,
-		);
-		const paths = output.split(/\r?\n/u).filter(Boolean);
-		if (
-			paths.length > MAX_REMOTE_FIND_PATHS ||
-			Buffer.byteLength(output, "utf8") > MAX_REMOTE_FIND_BYTES
-		)
-			throw new RemoteScopeTooBroadError();
-		const matcher = isGlob(pattern) ? globRegex(pattern) : undefined;
-		const candidates: RemoteFindCandidate[] = [];
-		for (const candidate of paths) {
-			const relative = candidate.startsWith("./") ? candidate.slice(2) : candidate;
-			if (pathMatcher !== undefined && !pathMatcher.test(relative)) continue;
-			if (matcher !== undefined) {
-				if (matcher.test(relative))
-					candidates.push({ path: relative, matchType: "path", score: 1 });
-				continue;
-			}
-			const score = fuzzyScore(relative, pattern);
-			if (score !== undefined) candidates.push({ path: relative, matchType: "fuzzy", score });
-		}
-		return candidates.sort(
-			(left, right) => right.score - left.score || left.path.localeCompare(right.path),
-		);
 	}
 
 	async close(): Promise<void> {

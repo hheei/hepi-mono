@@ -1,37 +1,22 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
-	createToolTui,
 	type ExtensionLifecycleContext,
-	formatDuration,
 	isTerminalTaskStatus,
-	type ManagedToolRegistration,
 	provideService,
-	registerManagedTool,
-	setManagedToolsActive,
+	setSessionToolsActive,
 	TASK_REGISTRY_SERVICE_KEY,
 	TaskRegistry,
 	type TaskSnapshot,
 	type TaskStopOutcome,
 	type TaskWaitOutcome,
-	type ToolTui,
 	textToolResult,
 } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { startTaskDelivery } from "./task-delivery.js";
 
-const OWNER = "@hheei/pi-ext-tools";
-
 /** Job-control tools: registered for every session, activated only while control is needed. */
-export const TASK_TOOL_REGISTRATIONS = [
-	{ id: "list_jobs", owner: OWNER, defaultActive: false },
-	{ id: "wait_jobs", owner: OWNER, defaultActive: false },
-	{ id: "stop_jobs", owner: OWNER, defaultActive: false },
-] as const satisfies readonly ManagedToolRegistration[];
-
-export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
-	(registration) => registration.id,
-);
+export const TASK_TOOL_IDS: readonly string[] = ["list_jobs", "wait_jobs", "stop_jobs"];
 
 /**
  * Creates the session's task registry, publishes it as a Service, and owns the activation
@@ -44,9 +29,10 @@ export const TASK_TOOL_IDS: readonly string[] = TASK_TOOL_REGISTRATIONS.map(
  */
 export function startTaskControl(context: ExtensionLifecycleContext): TaskRegistry {
 	const setActive = (active: boolean): void => {
-		const applied = context.pi.getActiveTools().some((id) => TASK_TOOL_IDS.includes(id));
+		const activeTools = context.pi.getActiveTools();
+		const applied = TASK_TOOL_IDS.some((id) => activeTools.includes(id));
 		if (applied === active) return;
-		setManagedToolsActive(context, TASK_TOOL_REGISTRATIONS, active);
+		setSessionToolsActive(context, TASK_TOOL_IDS, active);
 	};
 	const registry = new TaskRegistry({ onFirstTask: () => setActive(true) });
 	setActive(false);
@@ -86,7 +72,7 @@ function unavailable() {
 	return textToolResult(NO_ACTIVE_TASK_SESSION, { error: "session_unavailable" });
 }
 const ID_DESCRIPTION =
-	"Background job ids such as bash-1 or subagent-1; single-job calls pass a one-element array.";
+	"Background job ids such as bash-1 or agent-1; single-job calls pass a one-element array. Subagent ids use the same agent-X format returned by spawn_agent.";
 const Ids = Type.Array(Type.String({ minLength: 1 }), {
 	minItems: 1,
 	maxItems: 32,
@@ -171,11 +157,7 @@ function stopText(outcomes: readonly TaskStopOutcome[]): string {
 		.join("\n");
 }
 
-export function registerTaskTools(
-	pi: ExtensionAPI,
-	state: FffRuntimeState,
-	tui: ToolTui = createToolTui(),
-): void {
+export function registerTaskTools(pi: ExtensionAPI, state: FffRuntimeState): void {
 	const getRegistry = (): TaskRegistry | undefined => state.getTasks();
 	const listTool: ToolDefinition<typeof ListParams, unknown> = {
 		name: "list_jobs",
@@ -200,10 +182,7 @@ export function registerTaskTools(
 		name: "wait_jobs",
 		label: "wait_jobs",
 		description:
-			"Wait until every listed background job finishes (timeout: 1800s) and return their results directly.",
-		promptGuidelines: [
-			"Do not poll background jobs. Use `wait_jobs` only when the next step needs their results.",
-		],
+			"Wait until every listed background job finishes (timeout: 1800s) and return their results directly. Do not poll background jobs. Use this only when the next step needs their results.",
 		parameters: IdsParams,
 		defaultActive: false,
 		annotations: {
@@ -255,6 +234,18 @@ export function registerTaskTools(
 				};
 			}
 
+			const settledIds = outcomes
+				.filter(
+					(outcome) =>
+						outcome.status !== "not_found" &&
+						isTerminalTaskStatus(outcome.status) &&
+						outcome.waited,
+				)
+				.map((outcome) => outcome.id);
+			if (settledIds.length > 0 && typeof tasks.markConsumed === "function") {
+				tasks.markConsumed(settledIds);
+			}
+
 			const cancelled = outcomes.some(
 				(outcome) => outcome.status !== "not_found" && !outcome.waited,
 			);
@@ -270,8 +261,8 @@ export function registerTaskTools(
 	const stopTool: ToolDefinition<typeof IdsParams, unknown> = {
 		name: "stop_jobs",
 		label: "stop_jobs",
-		description: "Stop listed background jobs. Stopping an already finished job is harmless.",
-		promptGuidelines: ["Stop background jobs when their results are no longer needed."],
+		description:
+			"Stop listed background jobs when their results are no longer needed. Stopping an already finished job is harmless.",
 		parameters: IdsParams,
 		defaultActive: false,
 		annotations: {
@@ -290,67 +281,7 @@ export function registerTaskTools(
 			return textToolResult(stopText(outcomes), { tasks: outcomes });
 		},
 	};
-	const [listRegistration, waitRegistration, stopRegistration] = TASK_TOOL_REGISTRATIONS;
-	registerManagedTool(
-		pi,
-		listRegistration,
-		tui.frame(listTool, {
-			summary: (args) => (args.includeTerminal ? "all" : "active"),
-			headerLine: "truncate",
-			footer: (result) => {
-				const details = result.details as { readonly tasks?: readonly TaskSnapshot[] } | undefined;
-				if (!Array.isArray(details?.tasks)) return undefined;
-				const count = details.tasks.length;
-				return count === 1 ? "1 task" : `${count} tasks`;
-			},
-		}),
-	);
-	registerManagedTool(
-		pi,
-		waitRegistration,
-		tui.frame(waitTool, {
-			summary: (args) => args.ids.join(" "),
-			summarySeparator: "space",
-			headerLine: "truncate",
-			footer: (result, completion) => {
-				const details = result.details as
-					| { readonly tasks?: readonly TaskWaitOutcome[] }
-					| undefined;
-				if (!Array.isArray(details?.tasks)) return undefined;
-				const count = details.tasks.length;
-				const taskText = count === 1 ? "1 task" : `${count} tasks`;
-				const duration = formatDuration(completion?.durationMs);
-				return [taskText, duration].filter(Boolean).join(" · ");
-			},
-		}),
-	);
-	registerManagedTool(
-		pi,
-		stopRegistration,
-		tui.frame(stopTool, {
-			summary: (args) => args.ids.join(" "),
-			summarySeparator: "space",
-			headerLine: "truncate",
-			footer: (result) => {
-				const details = result.details as
-					| { readonly tasks?: readonly TaskStopOutcome[] }
-					| undefined;
-				if (!Array.isArray(details?.tasks) || details.tasks.length === 0) return undefined;
-				const count = details.tasks.length;
-				return count === 1 ? "1 task" : `${count} tasks`;
-			},
-			warning: (result) => stopWarning(result.details),
-		}),
-	);
-}
-
-function stopWarning(details: unknown): boolean {
-	if (typeof details !== "object" || details === null) return false;
-	const tasks = (details as { readonly tasks?: unknown }).tasks;
-	if (!Array.isArray(tasks)) return false;
-	return tasks.some((task) => {
-		if (typeof task !== "object" || task === null) return false;
-		const status = (task as { readonly status?: unknown }).status;
-		return status === "stop_failed" || status === "not_found";
-	});
+	pi.registerTool({ ...listTool, defaultActive: false });
+	pi.registerTool({ ...waitTool, defaultActive: false });
+	pi.registerTool({ ...stopTool, defaultActive: false });
 }

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { errorMessage, isRecord, type TaskRegistry } from "@hheei/pi-ext-core";
 import type { ChildRuntime } from "./child-process.js";
 import type {
@@ -10,6 +11,7 @@ import type {
 	SubagentRecord,
 	SubagentState,
 } from "./domain.js";
+import { isOperationError } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
 import {
@@ -22,7 +24,23 @@ import {
 import type { SubagentRegistry } from "./registry.js";
 import type { LaunchOutcome, RuntimeTokenStore } from "./runtime.js";
 import { findSessionFile, planSessionPlacement } from "./session-bootstrap.js";
-import { readSessionJsonlEntries } from "./session-fork.js";
+
+async function readSessionJsonlEntries(filePath: string): Promise<readonly unknown[]> {
+	const content = await readFile(filePath, "utf8");
+	const entries: unknown[] = [];
+	for (const line of content.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed.length > 0) {
+			try {
+				entries.push(JSON.parse(trimmed));
+			} catch {
+				// Ignore corrupted line
+			}
+		}
+	}
+	return entries;
+}
+
 import { createStateProjector, type StateProjector } from "./state.js";
 
 /**
@@ -57,6 +75,7 @@ export interface ParentChannelReport {
 
 export interface ParentChannel {
 	deliver(report: ParentChannelReport): Promise<void>;
+	dismiss?(childId: string): void;
 }
 
 /**
@@ -158,12 +177,12 @@ function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
 		presentation: record.presentation,
 		cwd: record.cwd,
 		sessionId: record.sessionId,
+		...(record.initialTask === undefined ? {} : { task: record.initialTask }),
 		...(record.latestSummary === undefined ? {} : { summary: record.latestSummary }),
 		...(record.activeTool === undefined ? {} : { activeTool: record.activeTool }),
 		...(record.usage === undefined ? {} : { usage: record.usage }),
 		...(record.interrupted === undefined ? {} : { interrupted: record.interrupted }),
 		freshness: live ? "live" : "last_known",
-		interactive: record.launchConfig.interactive,
 		model: record.launchConfig.model,
 		thinking: record.launchConfig.thinking,
 		createdAt: record.createdAt,
@@ -260,8 +279,12 @@ export class SubagentManager {
 	/** A settled event from an older run cannot clear a newer synchronous start signal. */
 	readonly #workVersions = new Map<string, number>();
 	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
-	readonly #autoReportTimers = new Map<string, NodeJS.Timeout>();
-	readonly #lastDeliveredTurn = new Map<string, string>();
+	readonly #pendingAutoReports = new Map<string, SubagentRecord>();
+	#autoReportBatchTimer: NodeJS.Timeout | undefined;
+	readonly #lastDeliveredTurn = new Map<
+		string,
+		{ readonly workVersion: number; readonly message: string }
+	>();
 	readonly #stopping = new Set<string>();
 	readonly #listeners = new Set<() => void>();
 	readonly #childEventListeners = new Set<(childId: string, event: unknown) => void>();
@@ -311,6 +334,11 @@ export class SubagentManager {
 	}
 
 	public dispose(): void {
+		if (this.#autoReportBatchTimer !== undefined) {
+			clearTimeout(this.#autoReportBatchTimer);
+			this.#autoReportBatchTimer = undefined;
+		}
+		this.#pendingAutoReports.clear();
 		for (const timer of this.#settledPanelCloseTimers.values()) {
 			clearTimeout(timer);
 		}
@@ -325,6 +353,11 @@ export class SubagentManager {
 	 */
 	public closeLocalConnections(): void {
 		this.dispose();
+		if (this.#autoReportBatchTimer !== undefined) {
+			clearTimeout(this.#autoReportBatchTimer);
+			this.#autoReportBatchTimer = undefined;
+		}
+		this.#pendingAutoReports.clear();
 		this.#processes.clear();
 		this.#attachments.clear();
 		this.#leftSessions.clear();
@@ -432,12 +465,14 @@ export class SubagentManager {
 			// A panel the host confirms is gone stops holding this child — the handle it left behind is
 			// also what a retried stop would act on, so it is released here before refusing.
 			await this.#releasePanel(id).catch(() => undefined);
-			if ((await this.#deps.registry.get(id))?.intent === "stopped") {
-				return STOPPED_SEND_REASON;
-			}
 		}
 		if (this.#runtimeStarted(id)) {
 			return "This child's previous runtime is not confirmed gone (its process or panel may still be running); stop the child to end it, then spawn a new one for this work";
+		}
+		if (this.#attachments.has(id)) {
+			if ((await this.#deps.registry.get(id))?.intent === "stopped") {
+				return STOPPED_SEND_REASON;
+			}
 		}
 		if (this.#unresolvedRuntimes.has(id)) {
 			return "This child's panel runtime is disconnected and its exit cannot be confirmed; no replacement was started. Close any remaining panel, stop the child, then spawn a new child for this work";
@@ -533,22 +568,30 @@ export class SubagentManager {
 	 */
 
 	#scheduleAutoReport(id: string, record: SubagentRecord): void {
-		this.#clearAutoReport(id);
-		const timer = setTimeout(() => {
-			this.#autoReportTimers.delete(id);
-			void this.#performAutoReport(id, record).catch((error: unknown) => {
-				diagnose(`failed to report child ${id}: ${errorMessage(error)}`);
-			});
-		}, 5_000);
-		timer.unref?.();
-		this.#autoReportTimers.set(id, timer);
+		this.#pendingAutoReports.set(id, record);
+		if (this.#autoReportBatchTimer !== undefined) {
+			clearTimeout(this.#autoReportBatchTimer);
+		}
+		// Batch reports: if all children settled, flush in 500ms; otherwise wait up to 2000ms for others
+		const delayMs = this.#working.size > 0 ? 2_000 : 500;
+		this.#autoReportBatchTimer = setTimeout(async () => {
+			this.#autoReportBatchTimer = undefined;
+			const batch = [...this.#pendingAutoReports.entries()];
+			this.#pendingAutoReports.clear();
+			for (const [childId, childRecord] of batch) {
+				await this.#performAutoReport(childId, childRecord).catch((error: unknown) => {
+					diagnose(`failed to report child ${childId}: ${errorMessage(error)}`);
+				});
+			}
+		}, delayMs);
+		this.#autoReportBatchTimer.unref?.();
 	}
 
 	#clearAutoReport(id: string): void {
-		const timer = this.#autoReportTimers.get(id);
-		if (timer !== undefined) {
-			clearTimeout(timer);
-			this.#autoReportTimers.delete(id);
+		this.#pendingAutoReports.delete(id);
+		if (this.#pendingAutoReports.size === 0 && this.#autoReportBatchTimer !== undefined) {
+			clearTimeout(this.#autoReportBatchTimer);
+			this.#autoReportBatchTimer = undefined;
 		}
 	}
 
@@ -674,13 +717,16 @@ export class SubagentManager {
 			)
 				return;
 
-			const hasError =
-				record.state === "error" ||
-				(record.interrupted !== undefined && record.interrupted.trim() !== "");
+			const isError = current.state === "error" || record.state === "error";
+			const isBlocked =
+				!isError &&
+				(current.state === "blocked" ||
+					record.state === "blocked" ||
+					(current.interrupted !== undefined && current.interrupted.trim() !== "") ||
+					(record.interrupted !== undefined && record.interrupted.trim() !== ""));
+			const failed = isError || isBlocked;
 
-			const isBlocked = hasError;
-
-			if (!isBlocked && (text === undefined || text.trim() === "")) {
+			if (!failed && (text === undefined || text.trim() === "")) {
 				const projector = this.#projectors.get(id);
 				if (projector !== undefined) {
 					projector.syncState("done");
@@ -703,12 +749,15 @@ export class SubagentManager {
 			}
 
 			let message: string;
-			if (isBlocked) {
-				if (record.interrupted !== undefined && record.interrupted.trim() !== "") {
+			const interruptedText = current.interrupted?.trim() || record.interrupted?.trim();
+			if (isError) {
+				message = interruptedText || "Subagent failed without error details.";
+			} else if (isBlocked) {
+				if (interruptedText !== undefined && interruptedText !== "") {
 					message =
 						text !== undefined && text.trim() !== ""
-							? `${record.interrupted}\n\n${text}`
-							: record.interrupted;
+							? `${interruptedText}\n\n${text}`
+							: interruptedText;
 				} else if (text !== undefined && text.trim() !== "") {
 					message = text;
 				} else {
@@ -718,14 +767,20 @@ export class SubagentManager {
 				message = text ?? "";
 			}
 
-			if (this.#lastDeliveredTurn.get(id) === message) return;
-			this.#lastDeliveredTurn.set(id, message);
+			const lastDelivered = this.#lastDeliveredTurn.get(id);
+			if (
+				lastDelivered !== undefined &&
+				lastDelivered.workVersion === workVersion &&
+				lastDelivered.message === message
+			) {
+				return;
+			}
 
-			const reason = isBlocked ? "blocked" : "success";
-			const taskStatus = isBlocked ? "failed" : "completed";
+			const reason = isError ? "error" : isBlocked ? "blocked" : "success";
+			const taskStatus = failed ? "failed" : "completed";
 
 			const projector = this.#projectors.get(id);
-			const updatedRecord = !isBlocked
+			const updatedRecord = !failed
 				? await this.#update(id, (current) => {
 						const { interrupted: _interrupted, ...clean } = current;
 						return {
@@ -735,17 +790,24 @@ export class SubagentManager {
 					})
 				: await this.#update(id, (current) => ({
 						...current,
-						state: "blocked",
+						state: isError ? "error" : "blocked",
 						interrupted: current.interrupted ?? message,
 					}));
 
 			if (projector !== undefined) {
-				projector.syncState(isBlocked ? "blocked" : "done");
+				projector.syncState(isError ? "error" : isBlocked ? "blocked" : "done");
 			}
 			this.#scheduleSettledPanelClose(id);
 
+			let deliveryOk = true;
 			if (this.#deps.channel !== undefined) {
-				await this.contactParent(id, reason, message, updatedRecord);
+				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
+				if (isOperationError(contactResult)) {
+					deliveryOk = false;
+				}
+			}
+			if (deliveryOk) {
+				this.#lastDeliveredTurn.set(id, { workVersion, message });
 			}
 			if (this.#taskRegistry !== undefined) {
 				this.#taskRegistry.settle(id, {
@@ -1089,6 +1151,9 @@ export class SubagentManager {
 								output: `Subagent ${record.subagentId} (${input.agent}) is running`,
 								truncated: false,
 							}),
+							consume: () => {
+								this.#deps.channel?.dismiss?.(record.subagentId);
+							},
 						}),
 					});
 				} catch (regError) {
@@ -1147,17 +1212,11 @@ export class SubagentManager {
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
-			if (record.intent === "stopped" || record.state === "error") {
+			if (record.intent === "stopped") {
 				const doubt = await this.#runtimeDoubt(id);
-				return failure(
-					"send",
-					doubt ??
-						`Subagent ${id} is in error state and cannot continue (${record.interrupted ?? "fatal error"}). You can reference its context via spawn_agent with forkFrom: "${id}".`,
-					id,
-					record.state,
-					[],
-					false,
-				);
+				if (doubt !== undefined) {
+					return failure("send", doubt, id, record.state, ["runtime metadata retained"], false);
+				}
 			}
 
 			let isResumed = false;
@@ -1185,6 +1244,7 @@ export class SubagentManager {
 				const resumedRecord = await this.#update(id, (current) => ({
 					...current,
 					state: "running",
+					intent: "active",
 					persistence,
 					...(sessionPath === undefined ? {} : { sessionPath }),
 					launchConfig:
@@ -1249,6 +1309,7 @@ export class SubagentManager {
 				return {
 					...clean,
 					state: "running",
+					intent: "active",
 					unacknowledgedInput: message,
 				};
 			});
@@ -1264,15 +1325,27 @@ export class SubagentManager {
 					false,
 				);
 			}
-			return publicChild((await this.#deps.registry.get(id)) ?? record, true);
+			return publicChild((await this.#deps.registry.get(id)) ?? pending, true);
 		});
 	}
 
 	public async get(id: string): Promise<PublicSubagent | OperationError> {
 		const record = await this.#deps.registry.get(id);
-		return record === undefined
-			? failure("get", "Unknown child", id)
-			: publicChild(record, this.#isLive(id));
+		if (record === undefined) return failure("get", "Unknown child", id);
+		const live = this.#isLive(id);
+		const projector = this.#projectors.get(id);
+		if (projector !== undefined) {
+			const snap = projector.snapshot();
+			const mergedRecord: SubagentRecord = {
+				...record,
+				...(snap.activeTool !== undefined ? { activeTool: snap.activeTool } : {}),
+				...(snap.summary !== undefined ? { latestSummary: snap.summary } : {}),
+				...(snap.interrupted !== undefined ? { interrupted: snap.interrupted } : {}),
+				usage: snap.usage ?? record.usage,
+			};
+			return publicChild(mergedRecord, live);
+		}
+		return publicChild(record, live);
 	}
 
 	public async list(): Promise<readonly PublicSubagent[]> {
@@ -1307,7 +1380,6 @@ export class SubagentManager {
 				stopped = await this.#update(id, (current) => ({
 					...current,
 					intent: "stopped",
-					state: "error",
 				}));
 			} catch (error) {
 				this.#stopping.delete(id);
@@ -1343,6 +1415,9 @@ export class SubagentManager {
 					// bridge-only stop.
 					const cleanup = await attachment.cleanup();
 					if (!(await this.#panelGone(attachment))) {
+						await this.#update(id, (current) => ({ ...current, state: "error" })).catch(
+							() => undefined,
+						);
 						return failure(
 							"stop",
 							`The child's ${attachment.identity.host} panel is not confirmed gone (${cleanup.stderr || "its state could not be observed"}): the child process may still be running`,
@@ -1385,7 +1460,10 @@ export class SubagentManager {
 				if (current !== undefined) {
 					stopped = await this.#deps.registry.update(id, current.revision, (value) => {
 						const { runtime: _runtime, ...withoutRuntime } = value;
-						return withoutRuntime;
+						return {
+							...withoutRuntime,
+							state: "done",
+						};
 					});
 				}
 				if (this.#taskRegistry !== undefined) {
@@ -1457,7 +1535,6 @@ export class SubagentManager {
 				}
 				await this.#update(id, (current) => ({
 					...current,
-					intent: "stopped",
 					state: "error",
 					interrupted: message,
 				}));
@@ -1661,7 +1738,7 @@ export class SubagentManager {
 		if (projector === undefined) return;
 		projector.applyEvent(event);
 		let confirmedInput: string | undefined;
-		if (value.type === "agent_end") {
+		if (value.type === "turn_end" || value.type === "agent_end") {
 			// A finished turn is exactly when the session file has the message, so this is where
 			// unacknowledged input becomes part of the child's conversation.
 			const entries = await this.#entries(id);

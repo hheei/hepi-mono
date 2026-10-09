@@ -8,7 +8,6 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
-import { createToolTui } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { registerGrepTool } from "../src/grep.js";
 
@@ -37,12 +36,10 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 				getSettings: () => ({ grepEnhancement: false }),
 				getTargetRuntime: () => undefined,
 			} as never;
-			const tui = createToolTui();
-			registerGrepTool(pi, state, tui);
+			registerGrepTool(pi, state);
 			const grep = registered[0];
 			if (grep === undefined) throw new Error("grep did not register");
 			const ui = { requestRender: (): void => undefined } as unknown as TUI;
-			tui.beginTrace();
 			const component = new ToolExecutionComponent(
 				"grep",
 				"grep-inaccessible",
@@ -62,13 +59,12 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 			);
 			component.updateResult({ ...result, isError: false });
 			const header = stripTerminalSequences(component.render(100).join("\n"));
-			expect(header).toContain("󰀪 grep");
+			expect(header).toContain("grep");
 			expect(outputOccurrences(component, "Results may be incomplete")).toBe(1);
 			component.invalidate();
 			component.invalidate();
 			expect(outputOccurrences(component, "Results may be incomplete")).toBe(1);
 
-			tui.beginTrace();
 			const resumed = new ToolExecutionComponent(
 				"grep",
 				"resumed-grep-inaccessible",

@@ -288,6 +288,7 @@ describe("response status", () => {
 			clearScreen: vi.fn(),
 			setTitle: vi.fn(),
 			setProgress: vi.fn(),
+			setProgramStatus: vi.fn(),
 		} satisfies Terminal;
 		const screen = new TuiMainScreen(terminal);
 

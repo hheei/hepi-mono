@@ -51,7 +51,6 @@ describe("V3 config", () => {
 			compactAfterTokensMode: "calibrated",
 			compactAfterTokensRatio: 0.68,
 			idleCompactionTtlSeconds: 1800,
-			idleCompactionMinTokens: 75_000,
 			observationsPoolMaxTokens: 20000,
 			observationsPoolTargetTokens: 10000,
 			agentMaxTurns: 16,
@@ -380,7 +379,7 @@ describe("V3 config", () => {
 	});
 
 	describe("idle compaction config loading", () => {
-		it("loads custom idleCompaction settings", async () => {
+		it("loads idle TTL and idleCompactionMinTokens", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
 				"pi-ext-memory": {
 					idleCompactionTtl: "1h",

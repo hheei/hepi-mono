@@ -5,7 +5,6 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
-import { createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 
 /** The render context Pi hands a tool renderer, with every field it passes. */
 export interface RenderContextInput {
@@ -71,11 +70,9 @@ export function toolFor(tools: readonly ToolDefinition[], name: string): ToolDef
 	return tool;
 }
 
-/** The same host, plus the ToolTui its tool frames are registered with. */
-export function framedHost(
-	activeTools?: readonly string[],
-): ReturnType<typeof toolHost> & { readonly tui: ToolTui } {
-	return { ...toolHost(activeTools), tui: createToolTui() };
+/** The same host double. */
+export function framedHost(activeTools?: readonly string[]): ReturnType<typeof toolHost> {
+	return toolHost(activeTools);
 }
 
 /** Pi's repaint handle: a mounted tool only needs to be able to ask for a frame. */

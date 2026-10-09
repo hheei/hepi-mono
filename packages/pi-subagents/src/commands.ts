@@ -7,24 +7,9 @@ import { splitSubcommand, subcommandCompletions } from "@hheei/pi-ext-core";
 import { type PublicSubagent, toVisualSubagentState, VISUAL_SUBAGENT_GLYPH } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 
-const STATUS_KEY = "pi-subagents";
 /** Verbs of the dispatcher below; the completer and the no-argument picker share them. */
 const SUBAGENT_SUBCOMMANDS = ["list", "inspect", "send", "stop"] as const;
 const SUBAGENT_COMMAND_USAGE = "Usage: /subagents list|inspect|send|stop [id]";
-
-export function formatStatusLine(children: readonly PublicSubagent[]): string | undefined {
-	const visible = children.filter((child) => child.state !== "done" && child.state !== "error");
-	if (visible.length === 0) return undefined;
-	return visible
-		.map((child) => {
-			const visual = toVisualSubagentState(child.state, child.interrupted);
-			const glyph = VISUAL_SUBAGENT_GLYPH[visual];
-			const name = child.displayName ?? child.agent;
-			const mode = child.presentation === "panel" ? `${visual} panel` : visual;
-			return `${glyph} ${name} ${mode}`;
-		})
-		.join(" · ");
-}
 
 function notifyResult(
 	ctx: ExtensionContext,
@@ -131,40 +116,4 @@ export function registerParentCommands(pi: ExtensionAPI, manager: SubagentManage
 			ctx.ui.notify(`Unknown subcommand "${action}". ${SUBAGENT_COMMAND_USAGE}`, "warning");
 		},
 	});
-}
-
-export function bindParentStatus(
-	_pi: ExtensionAPI,
-	context: ExtensionContext,
-	manager: SubagentManager,
-	signal?: AbortSignal,
-): () => void {
-	let disposed = false;
-	const refresh = (): void => {
-		if (disposed || signal?.aborted) return;
-		void manager
-			.list()
-			.then((children) => {
-				if (disposed || signal?.aborted) return;
-				try {
-					context.ui.setStatus(STATUS_KEY, formatStatusLine(children));
-				} catch {
-					// Context may be stale after session replacement or reload.
-				}
-			})
-			.catch(() => {});
-	};
-	const unsubscribe = manager.onChange(refresh);
-	refresh();
-	return () => {
-		if (disposed) return;
-		disposed = true;
-		unsubscribe();
-		if (signal?.aborted) return;
-		try {
-			context.ui.setStatus(STATUS_KEY, undefined);
-		} catch {
-			// Context may be stale after session replacement or reload.
-		}
-	};
 }

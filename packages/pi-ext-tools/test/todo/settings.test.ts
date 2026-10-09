@@ -4,12 +4,10 @@ import {
 	DEFAULT_TODO_ENABLED,
 	readTodoSettings,
 } from "../../src/todo/settings.js";
-import { TODO_TOOL_REGISTRATION } from "../../src/todo/todo.js";
 
 describe("todo settings", () => {
 	it("defaults todo to disabled", () => {
 		expect(DEFAULT_TODO_ENABLED).toBe(false);
-		expect(TODO_TOOL_REGISTRATION.defaultActive).toBe(false);
 	});
 
 	it("reads disabled state by default from non-existent settings", () => {

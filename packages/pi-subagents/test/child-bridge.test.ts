@@ -6,8 +6,6 @@ import { describe, expect, test, vi } from "vitest";
 import { ChildBridgeServer } from "../src/bridge-server.js";
 import {
 	childSessionTitle,
-	isConfirmedUserInterrupt,
-	lastActivityText,
 	registerChildBridge,
 	shouldDisposeBridge,
 	shouldLeaveBoundSession,
@@ -44,15 +42,6 @@ describe("child bridge session policy", () => {
 				}),
 			).toBe(true);
 		}
-	});
-
-	test("only aborted assistant stops count as user interrupts", () => {
-		expect(isConfirmedUserInterrupt([{ role: "assistant", stopReason: "stop" }])).toBe(false);
-		expect(isConfirmedUserInterrupt([{ role: "assistant", stopReason: "error" }])).toBe(false);
-		expect(isConfirmedUserInterrupt([{ role: "assistant", stopReason: "aborted" }])).toBe(true);
-		expect(
-			lastActivityText([{ role: "assistant", content: [{ type: "text", text: "editing files" }] }]),
-		).toBe("editing files");
 	});
 
 	test("disables the identity widget and contact_parent after leaving A", () => {
@@ -95,6 +84,22 @@ describe("child bridge session policy", () => {
 				{ diagnose: () => {} },
 			);
 			expect(state.bound).toBe(true);
+			const memoryGate = events.get("tool_call")?.[0];
+			expect(memoryGate).toBeDefined();
+			for (const toolName of ["mcp__hindsight__retain", "mcp__hindsight__future_admin_tool"]) {
+				expect(
+					memoryGate?.(
+						{ toolName, parentToolCallId: "codemode-1" } as never,
+						{} as ExtensionContext,
+					),
+				).toEqual({
+					block: true,
+					reason: "Hindsight memory is unavailable in delegated processes.",
+				});
+			}
+			expect(
+				memoryGate?.({ toolName: "mcp__other__read" } as never, {} as ExtensionContext),
+			).toBeUndefined();
 			const ctx = {
 				mode: "rpc",
 				sessionManager: { getSessionId: () => "session-b" },

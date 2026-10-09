@@ -204,7 +204,7 @@ For details and tuning guidance, see [`docs/configuration.md`](docs/configuratio
 | `/om view`          | Shows current visible memory and attempts to copy the rendered memory text to the clipboard.                                                   |
 | `/om view full`     | Shows the full current memory state for the branch and attempts to copy the rendered memory text to the clipboard.                             |
 | `recall` agent tool | Recovers source evidence for a 12-character observation/reflection id on the current branch. It is not semantic search or a transcript browser. |
-| `hindsight_*` tools   | Opt-in cross-session long-term memory (see [Hindsight long-term memory](#hindsight-long-term-memory)). Registered with `deferred` exposure while `hindsight.enabled` is `true` — `tool_search` loads them on demand and a codemode script reaches them through `tools` and `ALL_TOOLS` — and withdrawn (`hidden`) while it is off. |
+| `mcp__hindsight__*` tools | Opt-in cross-session long-term memory via native MCP server (see [Hindsight long-term memory](#hindsight-long-term-memory)). When `hindsight.enabled` is `true`, registers the `hindsight` MCP server with direct exposure for key knowledge tools (`get_knowledge_base_tree`, `search_knowledge_base`, `get_knowledge_page`, `recall`, `reflect`, `retain`) and deferred exposure for all other server tools. Withdrawn when disabled. |
 
 Tab completion after `/om ` offers these subcommands (and `full` after `/om view `), through the shared
 `subcommandCompletions` helper of `@hheei/pi-ext-core`.
@@ -293,9 +293,14 @@ Current behavior:
 
 ## Hindsight long-term memory
 
-Observational memory is session-scoped: it compacts the conversation you are in. Hindsight adds **cross-session, repository-level memory** on top of it, and is **off unless you explicitly turn it on**. When the option is disabled nothing is registered, no Hindsight config file is read, and no request is made.
+Observational memory is session-scoped: it compacts the conversation you are in. Hindsight adds **cross-session, repository-level memory** on top of it, and is **off unless you explicitly turn it on** (`enabled: true`). When the option is disabled, `pi-ext-memory` registers no extension-owned MCP server, reads no Hindsight config file, and makes no network requests.
 
-It talks to a Hindsight deployment through the official `@vectorize-io/hindsight-client` SDK, reusing the same service as the Hindsight coding-agent integration.
+External file-configured MCP servers (e.g. configured in `~/.pi/agent/mcp.json` or project `.pi/mcp.json`) remain completely independent and functional regardless of whether `pi-ext-memory`'s Hindsight feature is enabled or disabled.
+
+### Prerequisites
+
+* Requires **Pi >= 1.0.1**.
+* Requires Pi's **`builtin:mcp`** extension enabled.
 
 ### Configuration
 
@@ -305,12 +310,11 @@ It talks to a Hindsight deployment through the official `@vectorize-io/hindsight
     "hindsight": {
       "enabled": false,
       "apiUrl": "https://api.hindsight.vectorize.io",
+      "mcpUrl": "https://api.hindsight.vectorize.io/mcp",
       "apiToken": "",
       "bankId": "",
       "autoRecall": true,
       "retainSessions": true,
-      "reflectBudget": "high",
-      "reflectToolTimeoutMs": 45000,
       "readTimeoutMs": 15000,
       "maxMemoryChars": 8000,
       "configPath": "~/.hindsight/coding-agent.json"
@@ -323,12 +327,15 @@ Values are resolved in this order, each layer overriding the ones below it:
 
 1. `pi-ext-memory.hindsight` in project `ext_settings.json`
 2. `pi-ext-memory.hindsight` in global `ext_settings.json`
-3. `HINDSIGHT_API_URL`, `HINDSIGHT_API_TOKEN`, `HINDSIGHT_BANK_ID`, `HINDSIGHT_CONFIG`
+3. `HINDSIGHT_API_URL`, `HINDSIGHT_API_TOKEN`, `HINDSIGHT_BANK_ID`, `HINDSIGHT_MCP_URL`, `HINDSIGHT_CONFIG`
 4. `banks.<bankId>` in the fallback file (its `retainTags` and `retainMetadata` are inherited)
-5. The fallback file's top-level `apiUrl` / `bankId`
+5. The fallback file's top-level `apiUrl` / `mcpUrl` / `bankId`
 6. The defaults above
 
 `enabled` is only read from settings, never from the environment.
+
+* **Independent MCP endpoint and ports:** `mcpUrl` configures the streamable HTTP MCP endpoint (Pi streamable HTTP MCP transport, not SSE). It defaults to `<apiUrl>/mcp`. The ports for `apiUrl` and `mcpUrl` are independent and are not inferred from each other. If your REST API runs on port 38888 and your MCP endpoint on port 38887, set `mcpUrl` (or `HINDSIGHT_MCP_URL`) explicitly to the MCP endpoint (e.g. `http://host:38887/mcp` or `http://host:38887`).
+* **Session bank routing:** The extension dynamically pins the session MCP connection to the single-bank endpoint `/mcp/{bank_id}/`.
 
 ### Bank routing and repository isolation
 
@@ -342,34 +349,37 @@ The bank is chosen by the first rule that applies:
 
 The repository name is the git root directory name, so every subdirectory of a checkout resolves the same way.
 
-A bank derived per repository (rules 3 and 5) is a **dedicated bank**. Any other bank is treated as a **shared bank**: every retained turn is stamped with a `repo:<name>` tag plus the bank's configured tags and metadata, and reads pass that tag as a filter. `hindsight_diagnose` reports which mode is in effect.
+A bank derived per repository (rules 3 and 5) is a **dedicated bank**. Any other bank is treated as a **shared bank**.
 
-Use a dedicated bank when repositories must not influence each other. With a shared bank, isolation depends on the server honoring tag filters, and pages are bank-wide.
+* **Dedicated banks:** Provide strong repository isolation by keeping memory, knowledge pages, and notes in physically distinct banks.
+* **Shared banks (no repo filter on MCP tools or knowledge pages):** Native MCP tools (`mcp__hindsight__*`) communicate directly with `/mcp/{bank_id}/` and operate **bank-wide without repository filtering**. Similarly, automatic SDK knowledge-page search in Hindsight is bank-wide (Hindsight knowledge pages have no repository tag filter). Only automatic SDK background session writeback stamps turns with a `repo:<name>` tag. Therefore, shared banks are **not repository-isolated** for knowledge pages or MCP tool operations. Always use dedicated banks when complete isolation between repositories is required.
+* **Diagnostics:** Run `/om status` to inspect effective bank routing, isolation mode, endpoints, token status, external file config overrides, auto-recall, retention, and writeback state. Never logs or prints auth tokens.
 
 ### Behavior
 
-* **First turn.** The preamble explaining the memory and its tools goes into its own `pi-ext-memory-preamble` prompt section, together with the current knowledge-page index.
-* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `hindsight-recall` section inside a `<memory>` container. Pi sends a section only when its text changed, and an unchanged section is never repeated as a prompt update — the request itself still carries whatever the host and provider keep in context.
-* **Injection log.** Every turn that injects something appends a `memory-info` transcript entry naming what went in. It lists the recalled page titles (`󰄴` for a page that did reach the prompt), expands (Ctrl+O) to each page id and the recalled snippet the model was given, and marks a container that had to be cut to `maxMemoryChars` with a `󰀪` warning row. It is native Pi territory: visible immediately, kept by resume, and never part of the model's context. Retrieval failures are silent. Deep `hindsight_reflect` synthesis is never automatic: it costs seconds and stays an explicit tool call.
+* **Stable guide.** The preamble explaining the memory and its tools goes into its own `hindsight-preamble` prompt section, together with a snapshot of the knowledge-page index. Every turn supplies the same text so Pi keeps the section. Resume reuses the active branch's persisted guide when its repository, bank, scope, and guidance still match; otherwise a new guide is built. Remote page changes do not rewrite an existing guide on resume.
+* **Later turns.** With `autoRecall`, a knowledge-page search runs for the prompt and up to `maxMemoryChars` characters of escaped, untrusted-by-construction hits land in a `hindsight-recall` section inside a `<memory>` container. Pi sends a section only when its text changed, and an unchanged section is never repeated as a prompt update — the request itself still carries whatever the host and provider keep in context. Retrieval failures are silent. Deep `mcp__hindsight__reflect` synthesis is never automatic: it stays an explicit tool call.
+* **Injection log.** Every turn that injects something appends a `memory-info` transcript entry naming what went in. It lists the recalled page titles (`󰄴` for a page that did reach the prompt), expands (Ctrl+O) to each page id and the recalled snippet the model was given, and marks a container that had to be cut to `maxMemoryChars` with a `󰀪` warning row. It is native Pi territory: visible immediately, kept by resume, and never part of the model's context.
+* **Native write cache invalidation.** Whenever a mutating MCP tool (such as `mcp__hindsight__retain` or custom authoring tools without `readOnlyHint`) is invoked, `pi-ext-memory` automatically invalidates the auto-recall cache so subsequent turns immediately reflect the new memory.
+* **Error normalization.** Business errors returned inside MCP `CallToolResult` payloads are detected and normalized to `isError: true` on both the outer event and the inner structured content wrapper.
 * **Turn end.** The run's user/assistant turns are reduced to a compact transcript (tool results and injected memory dropped, failed or aborted responses skipped) and written back in order, one request at a time. The operation id is derived from the bank, session, and batch content, so a retry or a repeated `agent_end` folds server-side instead of duplicating.
 * **Session end.** Pending writeback is flushed within a five-second grace period, then cancelled. A failed writeback is recorded and never interrupts the conversation.
 
 ### Tools
 
-All eight tools are registered with the `hindsight_` prefix and are unavailable while the option is off:
+Tools are provided by the native Hindsight MCP server under the `mcp__hindsight__` namespace.
 
-| Tool | Purpose |
-| ---- | ------- |
-| `hindsight_search_knowledge_pages` | Hybrid page search; first stop for questions the project's accumulated knowledge can answer. |
-| `hindsight_list_knowledge_pages` | Page index with titles and descriptions. |
-| `hindsight_read_knowledge_page` | Full page markdown by id. |
-| `hindsight_reflect` | Deep agentic synthesis over the repository's full memory. |
-| `hindsight_capture_initiative` | Create or update a tracked initiative page. |
-| `hindsight_ingest_document` | Store durable notes, and correct stale memory with `Correction: <topic>`. |
-| `hindsight_sync_status` | Server version, page count, document total. |
-| `hindsight_diagnose` | Effective bank, routing source, isolation mode, endpoint, token presence, reachability, writeback state. Never prints the token. |
-
-If the deployment does not support knowledge pages (404/405/501), the three page tools answer with `Knowledge pages are unavailable on this Hindsight server. Use hindsight_reflect for memory reasoning.` instead of failing.
+* **Upstream authoritative server:** The Hindsight server is the sole authority for tool authoring, definitions, schemas, and execution logic. `pi-ext-memory` does not author or wrap tools, enabling future server-side tool additions to work out of the box without extension changes.
+* **Exposure:**
+  * **Direct exposure** (directly available in the model's context):
+    * `mcp__hindsight__get_knowledge_base_tree`: Page hierarchy and structure of the knowledge base.
+    * `mcp__hindsight__search_knowledge_base`: Semantic search across the bank's knowledge vault.
+    * `mcp__hindsight__get_knowledge_page`: Fetch full markdown content of a page by path.
+    * `mcp__hindsight__recall`: Fact and turn recall from long-term memory.
+    * `mcp__hindsight__reflect`: Deep agentic reflection and cross-conversation synthesis over memory.
+    * `mcp__hindsight__retain`: Store durable facts, decisions, and corrections (with content starting with `Correction: <topic>`).
+  * **Deferred exposure:** All other tools provided by the Hindsight server are registered as `deferred` (loaded on demand via `tool_search` or callable via codemode scripts).
+* **Execution & timeout:** MCP tool calls run through Pi's native MCP client with a 60-second timeout (`timeout: 60`), accommodating deep reflection queries without client-side budget hacks.
 
 ---
 

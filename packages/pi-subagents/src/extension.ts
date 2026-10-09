@@ -11,7 +11,7 @@ import {
 import type { SkillCatalogEntry } from "./agent-resolver.js";
 import { ChildBridgeServer } from "./bridge-server.js";
 import { registerChildBridge } from "./child-bridge.js";
-import { bindParentStatus, registerParentCommands } from "./commands.js";
+import { registerParentCommands } from "./commands.js";
 import type { ChildIdentity } from "./domain.js";
 import { BRIDGE_ENVIRONMENT_KEYS, isThinkingLevel } from "./domain.js";
 import {
@@ -31,7 +31,7 @@ import {
 	prepareRuntimeDirectory,
 } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
-import { resolveForkSessionReference } from "./session-fork.js";
+
 import { registerInteractiveToolActivation } from "./tool-activation.js";
 import { registerParentTools } from "./tools.js";
 import { createSubagentWidget } from "./widget.js";
@@ -50,6 +50,7 @@ function diagnose(message: string): void {
 
 /** Parent channel plus the teardown its owner must call. */
 export interface ParentChannelHandle extends ParentChannel {
+	dismiss(childId: string): void;
 	/** Unregisters delivery and appends anything still held without waking the parent. */
 	dispose(): void;
 }
@@ -94,7 +95,9 @@ export function createParentChannel(
 
 	const flush = (triggerTurn: boolean, urgentOnly = false): void => {
 		if (held.length === 0) return;
-		const reports = urgentOnly ? held.filter((report) => report.reason === "blocked") : [...held];
+		const reports = urgentOnly
+			? held.filter((report) => report.reason === "blocked" || report.reason === "error")
+			: [...held];
 		if (reports.length === 0) return;
 		for (const report of reports) held.splice(held.indexOf(report), 1);
 		try {
@@ -125,7 +128,11 @@ export function createParentChannel(
 		async deliver(report: ParentChannelReport): Promise<void> {
 			if (disposed) throw new Error("Parent report channel is disposed");
 			held.push(report);
-			registration.request(report.reason === "blocked");
+			registration.request(report.reason === "blocked" || report.reason === "error");
+		},
+		dismiss(childId: string): void {
+			const index = held.findIndex((report) => report.childId === childId);
+			if (index !== -1) held.splice(index, 1);
 		},
 		dispose(): void {
 			disposed = true;
@@ -236,31 +243,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					}
 					const records = await registry.list().catch(() => []);
 					const existingSubagentIds = records.map((record) => record.subagentId);
-					let referencedSessionPath: string | undefined;
-					const forkTarget = input.forkFrom?.trim();
-					if (forkTarget !== undefined && forkTarget !== "") {
-						try {
-							if (forkTarget === "current") {
-								throw new Error(
-									"forkFrom cannot be 'current'. Use 'parent' to reference the parent session or specify a subagent id like 'agent-1'.",
-								);
-							}
-							const parentSessionFile = context.sessionManager.getSessionFile();
-							referencedSessionPath = await resolveForkSessionReference({
-								forkFrom: forkTarget,
-								...(parentSessionFile === undefined
-									? {}
-									: { parentSessionPath: parentSessionFile }),
-								registry,
-								onWarning: (message) => context.ui.notify(message, "warning"),
-							});
-						} catch (error) {
-							context.ui.notify(
-								`Referencing session failed: ${errorMessage(error)}; starting fresh session without reference`,
-								"warning",
-							);
-						}
-					}
 					return resolveSubagentLaunch({
 						input,
 						cwd: context.cwd,
@@ -269,7 +251,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						existingSubagentIds,
 						enforceEnabled: true,
 						onWarning: (message) => context.ui.notify(message, "warning"),
-						...(referencedSessionPath === undefined ? {} : { referencedSessionPath }),
 						parent: {
 							model: { provider: model.provider, id: model.id },
 							thinking,
@@ -381,11 +362,9 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					.catch(() => {});
 			};
 			const unsubscribe = manager.onChange(refreshWidget);
-			const unbindStatus = bindParentStatus(pi, context, manager, runtime.signal);
 			refreshWidget();
 			runtime.resources.add("subagent-widget", () => {
 				unsubscribe();
-				unbindStatus();
 				widget?.dispose();
 			});
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());

@@ -5,7 +5,6 @@ import {
 	formatRecallCallForTui,
 	formatRecallRenderedResultForTui,
 	RECALL_OBSERVATION_TOOL_NAME,
-	RECALL_TOOL_REGISTRATION,
 	recallObservationTool,
 	registerRecallTool,
 } from "../src/tools/recall-observation.js";
@@ -58,10 +57,6 @@ describe("V3 recall tool", () => {
 		expect(pi.registerTool).toHaveBeenCalledWith(
 			expect.objectContaining({ name: "om_recall_evidence", label: "Recall memory evidence" }),
 		);
-		expect(RECALL_TOOL_REGISTRATION).toEqual({
-			id: "om_recall_evidence",
-			owner: "@hheei/pi-ext-memory",
-		});
 	});
 
 	it("renders active observation source evidence", async () => {

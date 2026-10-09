@@ -114,6 +114,47 @@ export function aggregateUsage(entries: readonly unknown[]): UsageSummary {
 	}
 	return total;
 }
+/** The phase a streaming assistant update is in: what the parent shows as the child's activity. */
+export type AssistantPhaseKind = "thinking" | "generating" | "toolcall";
+
+export interface AssistantPhase {
+	readonly kind: AssistantPhaseKind;
+	/** The tool being streamed, when the phase is a tool call. */
+	readonly toolName?: string;
+}
+
+/**
+ * Categorizes a streaming assistant update into the phase the parent projects. The child throttles
+ * duplicate deltas with the same answer, so both ends of the bridge agree on what "still thinking"
+ * means instead of each re-deriving it from a different subset of the event.
+ */
+export function assistantUpdatePhase(
+	assistantMessageEvent: unknown,
+	message: unknown,
+): AssistantPhase | undefined {
+	const update = record(assistantMessageEvent);
+	const type = typeof update?.type === "string" ? update.type : undefined;
+	const current = record(message);
+	const currentText = current === undefined ? undefined : text(current);
+	if (type === undefined) {
+		return currentText === undefined ? undefined : { kind: "generating" };
+	}
+	if (type.startsWith("thinking_")) return { kind: "thinking" };
+	if (type.startsWith("toolcall_")) {
+		const index = typeof update?.contentIndex === "number" ? update.contentIndex : undefined;
+		const part =
+			current !== undefined && Array.isArray(current.content) && index !== undefined
+				? record(current.content[index])
+				: undefined;
+		return {
+			kind: "toolcall",
+			...(typeof part?.name === "string" ? { toolName: part.name } : {}),
+		};
+	}
+	if (type.startsWith("text_") || currentText !== undefined) return { kind: "generating" };
+	return undefined;
+}
+
 export function createStateProjector(initialState: SubagentState = "running"): StateProjector {
 	let state = initialState;
 	let summary: string | undefined;
@@ -133,42 +174,54 @@ export function createStateProjector(initialState: SubagentState = "running"): S
 			if (value === undefined) return snapshot();
 			if (
 				value.type === "agent_start" ||
+				value.type === "turn_start" ||
 				value.type === "auto_retry_start" ||
 				value.type === "auto_retry"
 			) {
 				state = "running";
+				summary = "thinking...";
 				interrupted = undefined;
 				activeTool = undefined;
-			} else if (value.type === "tool_execution_start") {
+			} else if (value.type === "tool_execution_start" || value.type === "tool_execution_update") {
 				activeTool = typeof value.toolName === "string" ? value.toolName : undefined;
 			} else if (value.type === "tool_execution_end") {
 				activeTool = undefined;
+				summary = "thinking...";
 			} else if (value.type === "message_update") {
 				const message = record(value.message);
 				if (message?.role === "assistant") {
-					const currentText = text(message);
-					if (currentText !== undefined) {
-						summary = currentText;
+					const phase = assistantUpdatePhase(value.assistantMessageEvent, message);
+					if (phase?.kind === "thinking") {
+						summary = "thinking...";
+						activeTool = undefined;
+					} else if (phase?.kind === "toolcall") {
+						activeTool = phase.toolName;
+					} else if (phase?.kind === "generating") {
+						summary = "generating...";
 						activeTool = undefined;
 					}
 				}
 			} else if (value.type === "agent_end" || value.type === "agent_settled") {
 				activeTool = undefined;
-				// agent_end precedes retries, compaction and queued continuation work.
-				if (value.type === "agent_settled") {
-					if (state !== "error" && state !== "blocked") {
-						state = "done";
-						interrupted = undefined;
-					}
-				}
 				const messages = Array.isArray(value.messages) ? value.messages : [];
 				const message = record(messages.length > 0 ? messages[messages.length - 1] : value.message);
 				if (message?.role === "assistant") {
 					summary = text(message) ?? summary;
-					if (value.type === "agent_settled") {
+					if (value.type === "agent_end" && message.stopReason === "error") {
+						state = "error";
 						interrupted = diagnostic(message);
-						if (message.stopReason === "error") state = "error";
-						else interrupted = undefined;
+					}
+				}
+				if (value.type === "agent_settled") {
+					if (value.aborted === true) {
+						state = "blocked";
+						interrupted = "Assistant turn was interrupted";
+					} else if (message?.stopReason === "error") {
+						state = "error";
+						interrupted = diagnostic(message);
+					} else {
+						state = "done";
+						interrupted = undefined;
 					}
 				}
 			} else if (value.type === "error") {
