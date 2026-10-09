@@ -1,10 +1,11 @@
 /**
  * Owns one named section of Pi's structured system prompt.
  *
- * Pi records the prompt as independent sections and, on every provider request, sends only the
- * sections whose text changed, replacing the previous text of the section it names. An
- * extension that instead concatenates its text onto `event.systemPrompt` forces Pi to send the
- * whole prompt again every turn, and the injected text is no longer replaceable on its own.
+ * Every turn must supply the complete desired sections, including unchanged text. Pi diffs
+ * that state against the transcript and records only changed or removed sections. Omitting a
+ * section removes it. Providers that support mid-conversation system messages keep updates
+ * in place; other providers fold them into the leading prompt, which can invalidate its cache.
+ * Returning a forced `systemPrompt` projects the whole prompt onto the request instead.
  *
  * Pass `undefined` (or empty text) to remove the section. `name` must match Pi's section-name
  * rule — a lower-case identifier that may contain digits, `-` and `_` — because Pi rejects an

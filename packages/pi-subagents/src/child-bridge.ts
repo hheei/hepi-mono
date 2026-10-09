@@ -12,13 +12,10 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@hheei/pi-ext-core";
 import { type ChildControl, registerChildControl } from "./child-control.js";
 import type { ChildIdentity } from "./domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, CHILD_TITLE_ENV_KEY } from "./domain.js";
 import { registerChildTools } from "./tools.js";
-
-const USER_INTERRUPT_STOP_REASON = "aborted";
 
 export type ChildLifecycleKind = "left_session" | "tui_quit" | "user_interrupt";
 
@@ -80,42 +77,6 @@ export function shouldReportTuiQuit(params: {
 	return params.reason === "quit" && params.mode === "tui";
 }
 
-export function isConfirmedUserInterrupt(
-	messages: readonly { role?: string; stopReason?: string }[] | undefined,
-): boolean {
-	if (messages === undefined) return false;
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index];
-		if (message?.role !== "assistant") continue;
-		return message.stopReason === USER_INTERRUPT_STOP_REASON;
-	}
-	return false;
-}
-
-export function lastActivityText(
-	messages: readonly { role?: string; content?: unknown }[] | undefined,
-): string {
-	if (messages === undefined) return "";
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index];
-		const text = messageText(message?.content);
-		if (text !== "") return text;
-	}
-	return "";
-}
-
-function messageText(content: unknown): string {
-	if (typeof content === "string") return content.trim();
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((part) => {
-			const value = isRecord(part) ? part : undefined;
-			return value?.type === "text" && typeof value.text === "string" ? value.text : "";
-		})
-		.join("")
-		.trim();
-}
-
 function currentSessionId(ctx: ExtensionContext): string {
 	return ctx.sessionManager.getSessionId();
 }
@@ -138,6 +99,14 @@ export function registerChildBridge(
 	};
 	const isBound = (sessionId: string): boolean =>
 		state.bound && (state.boundSessionId === "" || sessionId === state.boundSessionId);
+	// File-configured MCP servers can connect even when memory's automatic registration is
+	// disabled. A prefix gate also covers future tools and nested codemode calls.
+	pi.on("tool_call", (event) => {
+		if (event.toolName.startsWith("mcp__hindsight__")) {
+			return { block: true, reason: "Hindsight memory is unavailable in delegated processes." };
+		}
+		return undefined;
+	});
 	const control: ChildControl = registerChildControl(pi, {
 		endpoint: identity.endpoint,
 		identity,
@@ -237,17 +206,13 @@ export function registerChildBridge(
 			control.dispose();
 		}
 	});
-	pi.on("agent_end", (event, ctx) => {
+	pi.on("agent_settled", (event, ctx) => {
 		if (!state.bound || currentSessionId(ctx) !== state.boundSessionId) return;
-		const messages = Array.isArray(event.messages) ? event.messages : undefined;
-		if (!isConfirmedUserInterrupt(messages)) return;
-		const activity = lastActivityText(messages);
+		if (!event.aborted) return;
 		reportLifecycle(
 			"user_interrupt",
 			state.boundSessionId,
-			activity === ""
-				? "Task is unfinished and waiting for user intent."
-				: `Task is unfinished and waiting for user intent. Last activity: ${activity}`,
+			"Task is unfinished and waiting for user intent.",
 		);
 	});
 	return state;

@@ -174,8 +174,10 @@ describe("pi-ext-tools target runtime", () => {
 				["ileqm"],
 			);
 			try {
-				await expect(runtime.grep("ileqm", "rg --json foo")).rejects.toThrow("Connection refused");
-				await expect(runtime.grep("ileqm", "rg --json foo")).resolves.toBe("Linux\n");
+				await expect(runtime.sshCapture("ileqm", "echo foo")).rejects.toThrow("Connection refused");
+				await expect(runtime.sshCapture("ileqm", "echo foo")).resolves.toMatchObject({
+					stdout: "Linux\n",
+				});
 			} finally {
 				await runtime.close();
 			}

@@ -1,10 +1,4 @@
-import type {
-	ExtensionAPI,
-	Theme,
-	ToolDefinition,
-	ToolExposure,
-} from "@earendil-works/pi-coding-agent";
-import type { TSchema } from "typebox";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getGlobalState } from "./global-state.js";
 import type { ExtensionLifecycleContext } from "./lifecycle.js";
 import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
@@ -40,7 +34,7 @@ export interface LoadoutResourceDetail {
  * A lifecycle-owned non-tool resource rendered and activated by Loadout.
  *
  * Loadout manages resources, never tools: the active tool set belongs to the tool
- * owner, and core transports tool registration separately (see `registerManagedTool`).
+ * owner, and extensions register tools directly via Pi's `registerTool`.
  * `defaultActive` is the contributor's discovered default; the profile owner still
  * intersects the resolved state with its own settings.
  */
@@ -58,33 +52,14 @@ export interface LoadoutResourceMetadata {
 	readonly detail?: LoadoutResourceDetail;
 }
 
-/**
- * A static HEPI tool declaration. Core owns the Pi registration transport so an
- * independently loaded contributor does not depend on the host's load order.
- * The owner stays stable across Pi reloads, allowing a new runner to replace the
- * old registration without allowing a second extension to claim the same name.
- */
-export interface ManagedToolRegistration {
-	readonly id: string;
-	readonly owner: string;
-	readonly defaultActive?: boolean;
-	readonly exposure?: ToolExposure;
-}
-
 export interface LoadoutInventoryObserver {
 	/** Aborting the signal removes this observer; `onChange` receives an immediate snapshot. */
 	readonly signal: AbortSignal;
 	onChange(items: readonly LoadoutResourceMetadata[]): void;
 }
 
-interface ManagedToolRecord {
-	readonly owner: string;
-	readonly runner: object;
-}
-
 interface RuntimeLoadoutState {
 	readonly resources: Map<string, LoadoutResourceMetadata>;
-	readonly managed: Map<string, ManagedToolRecord>;
 	readonly observers: Set<LoadoutInventoryObserver>;
 }
 
@@ -102,7 +77,6 @@ function stateFor(pi: RuntimeHost): RuntimeLoadoutState {
 	if (existing !== undefined) return existing;
 	const created: RuntimeLoadoutState = {
 		resources: new Map(),
-		managed: new Map(),
 		observers: new Set(),
 	};
 	registries().byRuntime.set(identity, created);
@@ -119,11 +93,6 @@ function validateResourceMetadata(metadata: LoadoutResourceMetadata): void {
 		throw new Error(`Loadout resource label must not be empty: ${metadata.id}`);
 	if (!metadata.owner.trim())
 		throw new Error(`Loadout resource owner must not be empty: ${metadata.id}`);
-}
-
-function validateManagedRegistration(registration: ManagedToolRegistration): void {
-	if (!registration.id.trim()) throw new Error("Managed tool id must not be empty");
-	if (!registration.owner.trim()) throw new Error("Managed tool owner must not be empty");
 }
 
 function snapshot(state: RuntimeLoadoutState): readonly LoadoutResourceMetadata[] {
@@ -179,90 +148,16 @@ export function registerLoadoutResource(
 }
 
 /**
- * Registers a HEPI-owned executable tool. Registration happens during extension
- * construction because Pi has no unregister API; the stable owner permits only the
- * same package to replace its declaration on /reload. Loadout does not manage the
- * tool's activation, so registration carries no policy metadata.
+ * Toggles a set of tool names in Pi's active tools for the given session lifecycle context.
+ * When active, adds the tools and registers a lifecycle resource cleanup that removes them on session exit.
+ * When inactive, removes the tools from Pi's active tools.
  */
-export function registerManagedTool<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	registration: ManagedToolRegistration,
-	tool: ToolDefinition<TParams, TDetails, TState>,
-): void {
-	registerManaged(pi, registration, tool, false);
-}
-
-/**
- * Replaces this runner's own declaration of a managed tool, for registration metadata that a
- * session changes — `deferred` versus `hidden` exposure, for example. Pi reads the declaration on
- * every request, so a runner that follows session state needs to declare the same tool more than
- * once, which {@link registerManagedTool} rejects as a duplicate.
- */
-export function redeclareManagedTool<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	registration: ManagedToolRegistration,
-	tool: ToolDefinition<TParams, TDetails, TState>,
-): void {
-	registerManaged(pi, registration, tool, true);
-}
-
-function registerManaged<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	registration: ManagedToolRegistration,
-	tool: ToolDefinition<TParams, TDetails, TState>,
-	allowSelfReplace: boolean,
-): void {
-	validateManagedRegistration(registration);
-	if (registration.id !== tool.name)
-		throw new Error(`Managed tool id must match the Pi tool name: ${registration.id}`);
-	const state = stateFor(pi);
-	const current = state.managed.get(registration.id);
-	if (
-		current !== undefined &&
-		(current.owner !== registration.owner || (current.runner === pi && !allowSelfReplace))
-	)
-		throw new Error(`Managed tool id already registered: ${registration.id}`);
-
-	const effectiveTool: ToolDefinition<TParams, TDetails, TState> = {
-		...tool,
-		...(tool.defaultActive === undefined && registration.defaultActive !== undefined
-			? { defaultActive: registration.defaultActive }
-			: {}),
-		...(tool.exposure === undefined && registration.exposure !== undefined
-			? { exposure: registration.exposure }
-			: {}),
-	};
-
-	pi.registerTool(effectiveTool);
-	state.managed.set(registration.id, { owner: registration.owner, runner: pi });
-}
-
-/** Returns whether a Pi tool was registered through core's managed transport. */
-export function isManagedTool(pi: ExtensionAPI, id: string): boolean {
-	return stateFor(pi).managed.has(id);
-}
-
-/**
- * Applies one concrete extension's runtime capability bundle without taking
- * ownership of its activation predicate. The active path adds every id to Pi's
- * active set and registers a lifecycle cleanup that removes them again.
- */
-export function setManagedToolsActive(
+export function setSessionToolsActive(
 	context: ExtensionLifecycleContext,
-	registrations: readonly ManagedToolRegistration[],
+	toolNames: readonly string[],
 	active: boolean,
 ): void {
-	const ids = new Set<string>();
-	const state = stateFor(context.pi);
-	for (const registration of registrations) {
-		validateManagedRegistration(registration);
-		if (ids.has(registration.id))
-			throw new Error(`Managed tool id is repeated: ${registration.id}`);
-		ids.add(registration.id);
-		if (state.managed.get(registration.id)?.owner !== registration.owner)
-			throw new Error(`Managed tool is not registered by owner: ${registration.id}`);
-	}
-
+	const ids = [...new Set(toolNames)];
 	const apply = (enabled: boolean): void => {
 		const next = new Set(context.pi.getActiveTools());
 		for (const id of ids) next.delete(id);
@@ -271,7 +166,7 @@ export function setManagedToolsActive(
 	};
 	apply(active);
 	if (!active) return;
-	addResourceCleanup(context.resources, `managed-tools:${[...ids].join(",")}`, () => apply(false));
+	addResourceCleanup(context.resources, `session-tools:${ids.join(",")}`, () => apply(false));
 }
 
 /** Observes the current resource inventory and its lifecycle-bound dynamic registrations. */

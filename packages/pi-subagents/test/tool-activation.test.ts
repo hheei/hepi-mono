@@ -1,7 +1,6 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	ExtensionToolContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
@@ -10,7 +9,8 @@ import type { SubagentManager } from "../src/manager.js";
 import {
 	INTERACTIVE_TOOL_NAMES,
 	registerInteractiveToolActivation,
-	SUBAGENTS_LOADER_NAME,
+	SUBAGENT_DEFERRED_PROMPT_GUIDANCE,
+	SUBAGENT_PROMPT_SECTION,
 } from "../src/tool-activation.js";
 import { registerParentTools } from "../src/tools.js";
 
@@ -62,15 +62,29 @@ function createFakePi(initialActiveTools: string[] = []) {
 }
 
 describe("interactive tool activation", () => {
-	test("deactivates interactive tools on initial clean session start", async () => {
+	test("registers interactive tools with exposure deferred", () => {
+		const { pi, registeredTools } = createFakePi();
+		const manager = {
+			list: vi.fn().mockResolvedValue([]),
+		} as unknown as SubagentManager;
+
+		registerParentTools(pi, manager);
+
+		for (const toolName of INTERACTIVE_TOOL_NAMES) {
+			const tool = registeredTools.find((t) => t.name === toolName);
+			expect(tool).toBeDefined();
+			expect(tool?.exposure).toBe("deferred");
+			expect(tool?.defaultActive).toBe(false);
+		}
+	});
+
+	test("deactivates interactive tools on initial clean session start and injects deferred guidance", async () => {
 		const { pi, registeredTools, getActive } = createFakePi();
 		const manager = {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
-		// Simulate Pi registering parent tools
 		registerParentTools(pi, manager);
-		// Simulate Pi activating all registered extension tools by default
 		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
@@ -80,21 +94,25 @@ describe("interactive tool activation", () => {
 		} as unknown as ExtensionContext;
 
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
-
-		// Wait for selectFromSession to finish
 		await activation.selectFromSession(context);
 
-		// subagent_enable and list_agents should be active, but not the interactive tools
-		expect(getActive()).toContain(SUBAGENTS_LOADER_NAME);
 		expect(getActive()).toContain("list_agents");
 		for (const toolName of INTERACTIVE_TOOL_NAMES) {
 			expect(getActive()).not.toContain(toolName);
 		}
 
+		// before_agent_start injects deferred discovery guidance
+		const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		pi.emit("before_agent_start", startEvent);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
+		expect(guidance).toBe(SUBAGENT_DEFERRED_PROMPT_GUIDANCE);
+
 		activation.dispose();
 	});
 
-	test("executing subagent_enable activates interactive tools and omits interactive_agents when none exist", async () => {
+	test("injects full collaboration guidance when interactive tools become active", async () => {
 		const { pi, registeredTools, getActive } = createFakePi();
 		const manager = {
 			list: vi.fn().mockResolvedValue([]),
@@ -108,29 +126,23 @@ describe("interactive tool activation", () => {
 			sessionManager: {
 				getBranch: () => [],
 			},
-		} as unknown as ExtensionToolContext;
+		} as unknown as ExtensionContext;
 
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
 		await activation.selectFromSession(context);
 
-		const loaderTool = registeredTools.find((t) => t.name === SUBAGENTS_LOADER_NAME);
-		expect(loaderTool).toBeDefined();
+		// Activate interactive tools (as tool_search does)
+		pi.setActiveTools([...getActive(), ...INTERACTIVE_TOOL_NAMES]);
 
-		const result = await loaderTool!.execute("call_1", {}, undefined, undefined, context);
-		const firstText = result.content[0]?.type === "text" ? result.content[0].text : "";
-		expect(firstText).toContain("Enabled interactive agent tools");
-		// Since probe/worker/scout/reviewer are not interactive, <interactive_agents> should not be appended
-		expect(firstText).not.toContain("<interactive_agents>");
+		const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		pi.emit("before_agent_start", startEvent);
+		await new Promise((resolve) => setTimeout(resolve, 10));
 
-		for (const toolName of INTERACTIVE_TOOL_NAMES) {
-			expect(getActive()).toContain(toolName);
-		}
-
-		// Idempotent execution
-		const secondResult = await loaderTool!.execute("call_2", {}, undefined, undefined, context);
-		const secondText = secondResult.content[0]?.type === "text" ? secondResult.content[0].text : "";
-		expect(secondText).toContain("already enabled");
-		expect(secondText).not.toContain("<interactive_agents>");
+		const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
+		expect(guidance).toBeDefined();
+		expect(guidance).toContain("Reuse an existing subagent via send_agent");
+		expect(guidance).toContain("Do not poll get_agent or list_agents");
+		expect(guidance).toContain("<available_agents>");
 
 		activation.dispose();
 	});
@@ -146,7 +158,6 @@ describe("interactive tool activation", () => {
 			sessionId: "s1",
 			summary: "working",
 			freshness: "live",
-			interactive: true,
 			model: { provider: "mock", id: "mock-model", source: "agent" },
 			thinking: { level: "off", source: "agent" },
 			createdAt: new Date().toISOString(),
@@ -168,11 +179,9 @@ describe("interactive tool activation", () => {
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
 		await activation.selectFromSession(context);
 
-		// Since there is a live child, all tools stay active
 		for (const toolName of INTERACTIVE_TOOL_NAMES) {
 			expect(getActive()).toContain(toolName);
 		}
-		expect(getActive()).toContain(SUBAGENTS_LOADER_NAME);
 
 		activation.dispose();
 	});
@@ -204,7 +213,6 @@ describe("interactive tool activation", () => {
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
 		await activation.selectFromSession(context);
 
-		// Branch had subagent call, so tools stay active
 		for (const toolName of INTERACTIVE_TOOL_NAMES) {
 			expect(getActive()).toContain(toolName);
 		}

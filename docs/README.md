@@ -28,6 +28,9 @@ This directory records high-level information for users and developers. Detailed
 
 ## Research
 
+- [Gemini Responses thinking 显示调查](research/gemini-responses-thinking.md)：medium 请求、流解析、签名载体与跨 provider 历史转换的证据及待确认问题。
+- [Gemini 与 OpenAI 系统指令及缓存](research/gemini-system-messages-and-cache.md)：官方 API 的指令角色差异、动态工具追加、Gemini 缓存方案与 Interactions API 限制。
+- [Pi Durable 调研](research/pi-durable.md)：持久执行底座、TUI／功能分离边界与渐进迁移风险。
 - [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.
 - [FFF search research](pi-fff.md): FFF SDK data model, precise match ranges, lifecycle, pagination, and Pi integration boundaries.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.

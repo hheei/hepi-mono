@@ -444,7 +444,10 @@ describe("V3 compaction hook", () => {
 		expect(wideResult.compaction?.details.budget?.softLimit).toBe(81_000);
 	});
 
-	it("sanitizes retained assistant messages and appends context_edit during compaction", async () => {
+	it.each([
+		["OpenAI reasoning", "Deep thought", "opaque-openai-replay"],
+		["Gemini tool carrier", "", "cpa-gemini-responses-carrier-v1:next:function:ZmFrZQ"],
+	])("preserves retained %s replay data during compaction", async (_label, thinking, encryptedContent) => {
 		const obs = observation("aaaaaaaaaaaa");
 		const entries = [
 			textCustomMessage("raw-1", "aaaa"),
@@ -466,28 +469,49 @@ describe("V3 compaction hook", () => {
 					content: [
 						{
 							type: "thinking",
-							thinking: "Deep thought",
-							thinkingSignature: JSON.stringify({ encrypted_content: "xyz" }),
+							thinking,
+							thinkingSignature: JSON.stringify({
+								id: "rs-retained",
+								type: "reasoning",
+								encrypted_content: encryptedContent,
+								summary: [],
+							}),
 						},
 						{
 							type: "text",
 							text: "Clear answer.",
 						},
+						{
+							type: "toolCall",
+							id: "call-retained",
+							name: "lookup",
+							arguments: { query: "strawberry" },
+						},
 					],
 				},
 			},
+			{
+				id: "raw-retained-result",
+				parentId: "raw-retained-assistant",
+				timestamp: "2026-10-02T12:00:02.000Z",
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "call-retained",
+					toolName: "lookup",
+					content: [{ type: "text", text: "Found strawberry." }],
+					isError: false,
+				},
+			},
 		];
+		const snapshot = structuredClone(entries);
 		const { run, appendContextEdit } = setup({ entries });
 
 		const result = (await run("raw-cut")) as CompactionHookTestResult;
 
 		expect(result.compaction).toBeDefined();
-		expect(appendContextEdit).toHaveBeenCalledTimes(1);
-		expect(appendContextEdit).toHaveBeenCalledWith("raw-retained-assistant", {
-			content: [
-				{ type: "thinking", thinking: "Deep thought" },
-				{ type: "text", text: "Clear answer." },
-			],
-		});
+		expect(result.compaction?.firstKeptEntryId).toBe("raw-cut");
+		expect(appendContextEdit).not.toHaveBeenCalled();
+		expect(entries).toEqual(snapshot);
 	});
 });

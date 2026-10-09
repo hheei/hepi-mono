@@ -5,20 +5,13 @@ import {
 	type AgentToolResult,
 	createWriteToolDefinition,
 	type ExtensionAPI,
-	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import {
-	agentResultText,
-	formatDuration,
-	isRecord,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { agentResultText, isRecord, textToolResult } from "@hheei/pi-ext-core";
+import * as Diff from "diff";
 import { type Static, Type } from "typebox";
 import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	REMOTE_MUTATION_DETAILS,
@@ -27,23 +20,38 @@ import {
 	remoteMutationFailureText,
 	writeRemoteFile,
 } from "./native-remote.js";
-import {
-	createCanonicalExecutionTool,
-	createCanonicalToolRegistration,
-	registerCanonicalTool,
-} from "./native-tool.js";
-import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
-import { normalizeLineEndings, type ParsedDiff, parseDiff } from "./pretty/diff.js";
-import { renderSplit, resolveDiffColors, summarize } from "./pretty/diff-render.js";
-import { hlBlock } from "./pretty/highlight.js";
-import { lang } from "./pretty/lang.js";
-import { LinesBody } from "./pretty/lines-body.js";
+
+export const MAX_HL_CHARS = 256 * 1024;
+export const MAX_RENDER_LINES = 1000;
+
+function normalizeLineEndings(text: string): string {
+	if (!text.includes("\r")) return text;
+	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function summarize(a: number, d: number): string {
+	const parts: string[] = [];
+	if (a > 0) parts.push(`+${a}`);
+	if (d > 0) parts.push(`-${d}`);
+	return parts.length ? parts.join(" ") : "no changes";
+}
 
 const WRITE_RENDER_DETAILS = "__piExtToolsWrite";
 const WRITE_VIEW_KEY = "__piExtToolsWriteView";
-const NEW_FILE_PREVIEW_LINES = 20;
-const EXPAND_HINT = "ctrl+o to expand";
-export const WRITE_TOOL_REGISTRATION = createCanonicalToolRegistration("write");
+const _NEW_FILE_PREVIEW_LINES = 20;
+const _EXPAND_HINT = "ctrl+o to expand";
+
+function createExecutionTool<TParams extends TypeBoxSchema, TDetails, TState>(
+	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
+): ToolDefinition<TParams, TDetails, TState> {
+	const template = factory(process.cwd());
+	return {
+		...template,
+		async execute(toolCallId, params, signal, onUpdate, context) {
+			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
+		},
+	};
+}
 
 const WRITE_PARAMETERS = Type.Object(
 	{
@@ -67,7 +75,7 @@ type WriteState = { targetExists?: { readonly path: string; readonly exists: boo
  * synchronous syscall. The answer cannot change before this write runs, so the
  * row's renderer state keeps it for the row's lifetime.
  */
-function writeTargetExists(state: WriteState, cwd: string, path: string): boolean {
+function _writeTargetExists(state: WriteState, cwd: string, path: string): boolean {
 	const cached = state.targetExists;
 	if (cached !== undefined && cached.path === path) return cached.exists;
 	const exists = existsSync(resolvePath(cwd, path));
@@ -75,39 +83,39 @@ function writeTargetExists(state: WriteState, cwd: string, path: string): boolea
 	return exists;
 }
 
+type WriteDiffLine = {
+	readonly type: "add" | "del" | "ctx" | "sep";
+	readonly oldNum: number | null;
+	readonly newNum: number | null;
+	readonly content: string;
+};
+
 type WriteView =
 	| {
 			readonly kind: "diff";
 			readonly summary: string;
-			readonly language: string | undefined;
+			readonly language?: string | undefined;
 			readonly added?: number;
 			readonly removed?: number;
 			readonly chars?: number;
-			readonly lines?: ParsedDiff["lines"];
-			readonly oldContent?: string;
-			readonly newContent?: string;
+			readonly lines?: readonly WriteDiffLine[];
 	  }
 	| {
 			readonly kind: "new";
 			readonly lines: number;
-			readonly language: string | undefined;
+			readonly language?: string | undefined;
 			readonly content?: string;
 	  }
 	| {
 			readonly kind: "replace";
 			readonly lines: number;
-			readonly language: string | undefined;
+			readonly language?: string | undefined;
 			readonly content?: string;
 	  }
 	| { readonly kind: "noChange" };
 
 function filePath(args: WriteArgs): string {
-	const extra = args as WriteArgs & { file_path?: unknown };
-	return typeof args.path === "string"
-		? args.path
-		: typeof extra.file_path === "string"
-			? extra.file_path
-			: "";
+	return typeof args.path === "string" ? args.path : "";
 }
 
 function resolvePath(cwd: string, path: string): string {
@@ -162,7 +170,7 @@ function withWriteDetails(
 	};
 }
 
-function readWriteMetrics(
+function _readWriteMetrics(
 	result: AgentToolResult<unknown>,
 ): { bytes: number; lines: number } | undefined {
 	const details = result.details;
@@ -178,7 +186,7 @@ function readWriteMetrics(
 		: undefined;
 }
 
-function writeView(result: AgentToolResult<unknown>): WriteView | undefined {
+function _writeView(result: AgentToolResult<unknown>): WriteView | undefined {
 	const details = result.details;
 	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
 	const value = (details as Record<string, unknown>)[WRITE_VIEW_KEY];
@@ -189,123 +197,83 @@ function writeView(result: AgentToolResult<unknown>): WriteView | undefined {
 		: undefined;
 }
 
-function previewLines(
-	content: string,
-	language: string | undefined,
-	theme: Theme,
-	expanded: boolean,
-): string[] {
-	const raw = content.split("\n");
-	const visibleCount =
-		expanded || raw.length <= NEW_FILE_PREVIEW_LINES ? raw.length : NEW_FILE_PREVIEW_LINES - 1;
-	const source = raw.length === visibleCount ? content : raw.slice(0, visibleCount).join("\n");
-	const lines = hlBlock(source, language, theme);
-	if (raw.length === visibleCount) return lines;
-	return [...lines, theme.fg("dim", `… (${raw.length - visibleCount} more lines, ${EXPAND_HINT})`)];
-}
-
-function renderWritePreview(
-	kind: "new" | "replace",
-	lines: number,
-	content: string,
-	language: string | undefined,
-	theme: Theme,
-	expanded: boolean,
-): LinesBody {
-	const heading = theme.fg(
-		"success",
-		kind === "new" ? `new file (${lines} lines)` : `wrote (${lines} lines)`,
+function persistWriteDiff(oldText: string, newText: string): Extract<WriteView, { kind: "diff" }> {
+	const patch = Diff.structuredPatch(
+		"",
+		"",
+		normalizeLineEndings(oldText),
+		normalizeLineEndings(newText),
+		"",
+		"",
+		{ context: 3 },
 	);
-	return new LinesBody(() => {
-		const body = previewLines(content, language, theme, expanded);
-		return content === "" ? [heading] : [heading, ...body];
-	});
-}
-
-function parsedWriteDiff(view: Extract<WriteView, { kind: "diff" }>): ParsedDiff {
-	if (view.lines !== undefined)
-		return {
-			lines: view.lines,
-			added: view.added ?? 0,
-			removed: view.removed ?? 0,
-			chars: view.chars ?? 0,
-		};
-	return parseDiff(view.oldContent ?? "", view.newContent ?? "");
-}
-
-function persistWriteDiff(
-	parsed: ParsedDiff,
-	language: string | undefined,
-): Extract<WriteView, { kind: "diff" }> {
+	const lines: {
+		type: "add" | "del" | "ctx" | "sep";
+		oldNum: number | null;
+		newNum: number | null;
+		content: string;
+	}[] = [];
+	let added = 0;
+	let removed = 0;
+	for (let hi = 0; hi < patch.hunks.length; hi++) {
+		const h = patch.hunks[hi];
+		if (!h) continue;
+		if (hi > 0) {
+			const prev = patch.hunks[hi - 1];
+			const gap = prev ? h.oldStart - (prev.oldStart + prev.oldLines) : 0;
+			lines.push({ type: "sep", oldNum: null, newNum: gap > 0 ? gap : null, content: "" });
+		}
+		let oL = h.oldStart;
+		let nL = h.newStart;
+		for (const raw of h.lines) {
+			if (raw === "\\ No newline at end of file") continue;
+			const ch = raw[0];
+			const text = raw.slice(1);
+			if (ch === "+") {
+				lines.push({ type: "add", oldNum: null, newNum: nL++, content: text });
+				added++;
+			} else if (ch === "-") {
+				lines.push({ type: "del", oldNum: oL++, newNum: null, content: text });
+				removed++;
+			} else {
+				lines.push({ type: "ctx", oldNum: oL++, newNum: nL++, content: text });
+			}
+		}
+	}
 	return {
 		kind: "diff",
-		summary: summarize(parsed.added, parsed.removed),
-		language,
-		added: parsed.added,
-		removed: parsed.removed,
-		chars: parsed.chars,
-		lines: parsed.lines.slice(0, MAX_RENDER_LINES),
+		summary: summarize(added, removed),
+		added,
+		removed,
+		chars: oldText.length + newText.length,
+		lines: lines.slice(0, MAX_RENDER_LINES),
 	};
-}
-
-function renderWriteDiff(
-	diff: ParsedDiff,
-	language: string | undefined,
-	theme: Theme,
-	width: number,
-): string[] {
-	const text = renderSplit(
-		diff,
-		language,
-		MAX_RENDER_LINES,
-		resolveDiffColors(theme),
-		width,
-		false,
-	);
-	return text === "" ? [] : text.split("\n");
-}
-
-function previewSource(
-	view: Extract<WriteView, { kind: "new" | "replace" }>,
-	args: WriteArgs,
-): string {
-	if (typeof view.content === "string") return view.content;
-	const content = typeof args.content === "string" ? args.content : "";
-	return content.length > MAX_HL_CHARS ? content.slice(0, MAX_HL_CHARS) : content;
 }
 
 function writePresentation(
 	args: WriteArgs,
 	baseline: { readonly exists: boolean; readonly text?: string },
 ): { readonly metrics: { bytes: number; lines: number } | undefined; readonly view: WriteView } {
-	const path = filePath(args);
 	const content = typeof args.content === "string" ? args.content : "";
-	const language = lang(path);
 	const old = baseline.text;
-	const parsed = old === undefined ? undefined : parseDiff(old, content);
 	const metrics = writeMetrics(args);
-	const preview = { lines: metrics?.lines ?? 0, language };
+	const preview = { lines: metrics?.lines ?? 0 };
 	const view: WriteView = !baseline.exists
 		? { kind: "new", ...preview }
 		: old !== undefined &&
-				parsed !== undefined &&
 				content.length <= MAX_HL_CHARS &&
 				normalizeLineEndings(old) !== normalizeLineEndings(content)
-			? persistWriteDiff(parsed, language)
-			: old !== undefined &&
-					parsed !== undefined &&
-					normalizeLineEndings(old) === normalizeLineEndings(content)
+			? persistWriteDiff(old, content)
+			: old !== undefined && normalizeLineEndings(old) === normalizeLineEndings(content)
 				? { kind: "noChange" }
 				: { kind: "replace", ...preview };
 	return { metrics, view };
 }
 
-export function registerWriteTool(
-	pi: ExtensionAPI,
-	tui: ToolTui,
-	state?: FffRuntimeState,
-): ToolDefinition {
-	const baseTool = createCanonicalExecutionTool(createWriteToolDefinition) as ToolDefinition<
+type TypeBoxSchema = import("typebox").TSchema;
+
+export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
+	const baseTool = createExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
 		WriteState
@@ -357,18 +325,10 @@ export function registerWriteTool(
 				return withWriteDetails(result, presentation.metrics, presentation.view);
 			});
 		},
-		renderCall(args, theme, context) {
-			const path = filePath(args);
-			const content = typeof args.content === "string" ? args.content : "";
-			if (
-				content === "" ||
-				(args.target !== undefined && args.target !== "local") ||
-				writeTargetExists(context.state, context.cwd, path)
-			)
-				return new Container();
-			return new LinesBody(() => previewLines(content, lang(path), theme, context.expanded));
+		renderCall() {
+			return new Container();
 		},
-		renderResult(result, options, theme, context) {
+		renderResult(result, _options, theme, context) {
 			const remote = remoteMutationDetails(result.details);
 			if (context.isError && remote?.outcome === "unconfirmed")
 				return new Text(
@@ -389,61 +349,10 @@ export function registerWriteTool(
 					0,
 				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const view = writeView(result);
-			const args = context.args as WriteArgs;
-			if (view === undefined) {
-				const content = typeof args.content === "string" ? args.content : "";
-				const lines = content === "" ? 0 : content.split("\n").length;
-				return renderWritePreview(
-					"replace",
-					lines,
-					content.length > MAX_HL_CHARS ? content.slice(0, MAX_HL_CHARS) : content,
-					lang(filePath(args)),
-					theme,
-					options.expanded,
-				);
-			}
-			if (view.kind === "noChange") return new Text(theme.fg("muted", "no changes"), 0, 0);
-			if (view.kind === "new" || view.kind === "replace") {
-				return renderWritePreview(
-					view.kind,
-					view.lines,
-					previewSource(view, args),
-					view.language,
-					theme,
-					options.expanded,
-				);
-			}
-			return new LinesBody((width) =>
-				renderWriteDiff(parsedWriteDiff(view), view.language, theme, width),
-			);
+			const fallback = agentResultText(result);
+			return fallback === "" ? new Container() : new Text(fallback, 0, 0);
 		},
 	};
-	registerCanonicalTool(
-		pi,
-		WRITE_TOOL_REGISTRATION,
-		tui.frame(tool, {
-			summary: (args) => filePath(args as WriteArgs) || undefined,
-			summarySeparator: "space",
-			remotePathSummary: true,
-			maxBodyLines: Number.POSITIVE_INFINITY,
-			longOutput: true,
-			footer(result, completion) {
-				const metrics = readWriteMetrics(result);
-				const view = writeView(result);
-				const duration = formatDuration(completion?.durationMs);
-				const delta =
-					view?.kind === "diff" && view.summary !== "no changes" ? view.summary : undefined;
-				return [
-					metrics === undefined ? undefined : counted(metrics.bytes, "byte"),
-					delta !== undefined && delta !== "no changes" ? delta : undefined,
-					metrics === undefined ? undefined : counted(metrics.lines, "line"),
-					duration,
-				]
-					.filter((value): value is string => value !== undefined)
-					.join(" · ");
-			},
-		}),
-	);
+	pi.registerTool(tool as ToolDefinition);
 	return tool as ToolDefinition;
 }

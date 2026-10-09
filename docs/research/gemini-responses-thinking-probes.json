@@ -1,0 +1,1079 @@
+{
+  "endpoint": "https://api.hheei.cc",
+  "note": "Synthetic independent requests. Authorization omitted; opaque signatures redacted. Native requests are gateway Gemini protocol, not direct Google upstream captures.",
+  "cases": [
+    {
+      "request": {
+        "path": "/v1/responses",
+        "body": {
+          "model": "gemini-3.8-flash",
+          "input": [
+            {
+              "role": "user",
+              "content": "Use lookup with query strawberry. Before calling, reason about which argument to use."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "name": "lookup",
+              "description": "Look up a word",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          ],
+          "reasoning": {
+            "effort": "medium",
+            "summary": "auto"
+          },
+          "include": [
+            "reasoning.encrypted_content"
+          ],
+          "stream": true,
+          "max_output_tokens": 1024
+        }
+      },
+      "response": {
+        "label": "responses-medium",
+        "seconds": 4.52,
+        "events": [
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541417,
+              "error": null,
+              "id": "resp_psDIapDNObPC0-kPiJeloAM",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 1,
+            "type": "response.created"
+          },
+          {
+            "response": {
+              "created_at": 1791541417,
+              "id": "resp_psDIapDNObPC0-kPiJeloAM",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 2,
+            "type": "response.in_progress"
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 3,
+            "output_index": 0,
+            "item": {
+              "id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+              "type": "message",
+              "status": "in_progress",
+              "content": [],
+              "role": "assistant"
+            }
+          },
+          {
+            "type": "response.content_part.added",
+            "sequence_number": 4,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": ""
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 5,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "I need to call the `lookup` tool",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 6,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": " to search for the word \"strawberry\". \n\nThe tool takes a single required parameter, `query`, of type string. Therefore",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 7,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": ", the argument to use is `query=\"strawberry\"`.",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.done",
+            "sequence_number": 8,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "I need to call the `lookup` tool to search for the word \"strawberry\". \n\nThe tool takes a single required parameter, `query`, of type string. Therefore, the argument to use is `query=\"strawberry\"`.",
+            "logprobs": []
+          },
+          {
+            "type": "response.content_part.done",
+            "sequence_number": 9,
+            "item_id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": "I need to call the `lookup` tool to search for the word \"strawberry\". \n\nThe tool takes a single required parameter, `query`, of type string. Therefore, the argument to use is `query=\"strawberry\"`."
+            }
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 10,
+            "output_index": 0,
+            "item": {
+              "id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+              "type": "message",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "I need to call the `lookup` tool to search for the word \"strawberry\". \n\nThe tool takes a single required parameter, `query`, of type string. Therefore, the argument to use is `query=\"strawberry\"`."
+                }
+              ],
+              "role": "assistant"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 11,
+            "output_index": 1,
+            "item": {
+              "id": "rs_resp_psDIapDNObPC0-kPiJeloAM_detached_before_1",
+              "type": "reasoning",
+              "status": "in_progress",
+              "encrypted_content": "[redacted signature]",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 12,
+            "output_index": 1,
+            "item": {
+              "id": "rs_resp_psDIapDNObPC0-kPiJeloAM_detached_before_1",
+              "type": "reasoning",
+              "encrypted_content": "[redacted signature]",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 13,
+            "output_index": 2,
+            "item": {
+              "id": "fc_call_1791541418371443082_536",
+              "type": "function_call",
+              "status": "in_progress",
+              "arguments": "",
+              "call_id": "call_1791541418371443082_536",
+              "name": "lookup"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.delta",
+            "sequence_number": 14,
+            "item_id": "fc_call_1791541418371443082_536",
+            "output_index": 2,
+            "delta": "{\"query\": \"strawberry\"}"
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "sequence_number": 15,
+            "item_id": "fc_call_1791541418371443082_536",
+            "output_index": 2,
+            "arguments": "{\"query\": \"strawberry\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 16,
+            "output_index": 2,
+            "item": {
+              "id": "fc_call_1791541418371443082_536",
+              "type": "function_call",
+              "status": "completed",
+              "arguments": "{\"query\": \"strawberry\"}",
+              "call_id": "call_1791541418371443082_536",
+              "name": "lookup"
+            }
+          },
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541417,
+              "error": null,
+              "id": "resp_psDIapDNObPC0-kPiJeloAM",
+              "max_output_tokens": 1024,
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [
+                {
+                  "id": "msg_resp_psDIapDNObPC0-kPiJeloAM_0",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "I need to call the `lookup` tool to search for the word \"strawberry\". \n\nThe tool takes a single required parameter, `query`, of type string. Therefore, the argument to use is `query=\"strawberry\"`."
+                    }
+                  ],
+                  "role": "assistant"
+                },
+                {
+                  "id": "rs_resp_psDIapDNObPC0-kPiJeloAM_detached_before_1",
+                  "type": "reasoning",
+                  "encrypted_content": "[redacted signature]",
+                  "summary": []
+                },
+                {
+                  "id": "fc_call_1791541418371443082_536",
+                  "type": "function_call",
+                  "status": "completed",
+                  "arguments": "{\"query\": \"strawberry\"}",
+                  "call_id": "call_1791541418371443082_536",
+                  "name": "lookup"
+                }
+              ],
+              "reasoning": {
+                "effort": "medium",
+                "summary": "auto"
+              },
+              "status": "completed",
+              "store": false,
+              "tools": [
+                {
+                  "description": "Look up a word",
+                  "name": "lookup",
+                  "parameters": {
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "function"
+                }
+              ],
+              "usage": {
+                "input_tokens": 56,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens": 175,
+                "output_tokens_details": {
+                  "reasoning_tokens": 114
+                },
+                "total_tokens": 231
+              }
+            },
+            "sequence_number": 17,
+            "type": "response.completed"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "path": "/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "Use lookup with query strawberry. Before calling, reason about which argument to use."
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "lookup",
+                  "description": "Look up a word",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "thinkingConfig": {
+              "thinkingLevel": "medium",
+              "includeThoughts": true
+            },
+            "maxOutputTokens": 1024
+          }
+        }
+      },
+      "response": {
+        "label": "native-medium",
+        "seconds": 4.13,
+        "events": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "The tool `lookup` requires a single argument, `query`, of type string representing"
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "psDIavzaObnW9tMP0tuouQQ",
+            "usageMetadata": {
+              "promptTokenCount": 56,
+              "candidatesTokenCount": 17,
+              "totalTokenCount": 176,
+              "thoughtsTokenCount": 103
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": " the word to be looked up. Based on the request, the value to assign to `query` is `\"strawberry\"`."
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "psDIavzaObnW9tMP0tuouQQ",
+            "usageMetadata": {
+              "promptTokenCount": 56,
+              "candidatesTokenCount": 42,
+              "totalTokenCount": 201,
+              "thoughtsTokenCount": 103
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "thoughtSignature": "[redacted signature]",
+                      "functionCall": {
+                        "name": "lookup",
+                        "args": {
+                          "query": "strawberry"
+                        },
+                        "id": "call_294087"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "psDIavzaObnW9tMP0tuouQQ",
+            "usageMetadata": {
+              "promptTokenCount": 56,
+              "candidatesTokenCount": 56,
+              "totalTokenCount": 215,
+              "thoughtsTokenCount": 103
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": ""
+                    }
+                  ]
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "psDIavzaObnW9tMP0tuouQQ",
+            "usageMetadata": {
+              "promptTokenCount": 56,
+              "candidatesTokenCount": 56,
+              "totalTokenCount": 215,
+              "thoughtsTokenCount": 103
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "path": "/v1/responses",
+        "body": {
+          "model": "gemini-3.8-flash",
+          "input": [
+            {
+              "role": "user",
+              "content": "How many r letters are in strawberry? Think carefully before answering."
+            }
+          ],
+          "reasoning": {
+            "effort": "medium",
+            "summary": "auto"
+          },
+          "include": [
+            "reasoning.encrypted_content"
+          ],
+          "stream": true,
+          "max_output_tokens": 1024
+        }
+      },
+      "response": {
+        "label": "responses-medium-text",
+        "seconds": 4.6,
+        "events": [
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541444,
+              "error": null,
+              "id": "resp_wcDIavGhB4yEvr0PlpnY0Q4",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 1,
+            "type": "response.created"
+          },
+          {
+            "response": {
+              "created_at": 1791541444,
+              "id": "resp_wcDIavGhB4yEvr0PlpnY0Q4",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 2,
+            "type": "response.in_progress"
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 3,
+            "output_index": 0,
+            "item": {
+              "id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+              "type": "reasoning",
+              "status": "in_progress",
+              "encrypted_content": "[redacted signature]",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.reasoning_summary_part.added",
+            "sequence_number": 4,
+            "item_id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+            "output_index": 0,
+            "summary_index": 0,
+            "part": {
+              "type": "summary_text",
+              "text": ""
+            }
+          },
+          {
+            "type": "response.reasoning_summary_text.delta",
+            "sequence_number": 5,
+            "item_id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+            "output_index": 0,
+            "summary_index": 0,
+            "delta": "The target word is \"strawberry\" and the letter to count is \"r.\" Spelling out the word letter by letter to identify each \"r\" occurrence is the most straightforward approach. There is one \"r\" at position 3 and another \"r\" at position 8. Thus, there are two \"r\"s.\n\n\n"
+          },
+          {
+            "type": "response.reasoning_summary_text.done",
+            "sequence_number": 6,
+            "item_id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+            "output_index": 0,
+            "summary_index": 0,
+            "text": "The target word is \"strawberry\" and the letter to count is \"r.\" Spelling out the word letter by letter to identify each \"r\" occurrence is the most straightforward approach. There is one \"r\" at position 3 and another \"r\" at position 8. Thus, there are two \"r\"s.\n\n\n"
+          },
+          {
+            "type": "response.reasoning_summary_part.done",
+            "sequence_number": 7,
+            "item_id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+            "output_index": 0,
+            "summary_index": 0,
+            "part": {
+              "type": "summary_text",
+              "text": "The target word is \"strawberry\" and the letter to count is \"r.\" Spelling out the word letter by letter to identify each \"r\" occurrence is the most straightforward approach. There is one \"r\" at position 3 and another \"r\" at position 8. Thus, there are two \"r\"s.\n\n\n"
+            }
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 8,
+            "output_index": 0,
+            "item": {
+              "id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+              "type": "reasoning",
+              "encrypted_content": "[redacted signature]",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "The target word is \"strawberry\" and the letter to count is \"r.\" Spelling out the word letter by letter to identify each \"r\" occurrence is the most straightforward approach. There is one \"r\" at position 3 and another \"r\" at position 8. Thus, there are two \"r\"s.\n\n\n"
+                }
+              ]
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 9,
+            "output_index": 1,
+            "item": {
+              "id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+              "type": "message",
+              "status": "in_progress",
+              "content": [],
+              "role": "assistant"
+            }
+          },
+          {
+            "type": "response.content_part.added",
+            "sequence_number": 10,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": ""
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 11,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "delta": "There are **3** \"r\"s in the word **strawberry**.\n\nHere is the breakdown:\nst**r**awbe",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 12,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "delta": "**rr**y\n1. st**r**... (1st)\n2. ...be**r**... (2",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.delta",
+            "sequence_number": 13,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "delta": "nd)\n3. ...**r**y (3rd)",
+            "logprobs": []
+          },
+          {
+            "type": "response.output_text.done",
+            "sequence_number": 14,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "text": "There are **3** \"r\"s in the word **strawberry**.\n\nHere is the breakdown:\nst**r**awbe**rr**y\n1. st**r**... (1st)\n2. ...be**r**... (2nd)\n3. ...**r**y (3rd)",
+            "logprobs": []
+          },
+          {
+            "type": "response.content_part.done",
+            "sequence_number": 15,
+            "item_id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+            "output_index": 1,
+            "content_index": 0,
+            "part": {
+              "type": "output_text",
+              "annotations": [],
+              "logprobs": [],
+              "text": "There are **3** \"r\"s in the word **strawberry**.\n\nHere is the breakdown:\nst**r**awbe**rr**y\n1. st**r**... (1st)\n2. ...be**r**... (2nd)\n3. ...**r**y (3rd)"
+            }
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 16,
+            "output_index": 1,
+            "item": {
+              "id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+              "type": "message",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "annotations": [],
+                  "logprobs": [],
+                  "text": "There are **3** \"r\"s in the word **strawberry**.\n\nHere is the breakdown:\nst**r**awbe**rr**y\n1. st**r**... (1st)\n2. ...be**r**... (2nd)\n3. ...**r**y (3rd)"
+                }
+              ],
+              "role": "assistant"
+            }
+          },
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541444,
+              "error": null,
+              "id": "resp_wcDIavGhB4yEvr0PlpnY0Q4",
+              "max_output_tokens": 1024,
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [
+                {
+                  "id": "rs_resp_wcDIavGhB4yEvr0PlpnY0Q4_0",
+                  "type": "reasoning",
+                  "encrypted_content": "[redacted signature]",
+                  "summary": [
+                    {
+                      "type": "summary_text",
+                      "text": "The target word is \"strawberry\" and the letter to count is \"r.\" Spelling out the word letter by letter to identify each \"r\" occurrence is the most straightforward approach. There is one \"r\" at position 3 and another \"r\" at position 8. Thus, there are two \"r\"s.\n\n\n"
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_resp_wcDIavGhB4yEvr0PlpnY0Q4_1",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "There are **3** \"r\"s in the word **strawberry**.\n\nHere is the breakdown:\nst**r**awbe**rr**y\n1. st**r**... (1st)\n2. ...be**r**... (2nd)\n3. ...**r**y (3rd)"
+                    }
+                  ],
+                  "role": "assistant"
+                }
+              ],
+              "reasoning": {
+                "effort": "medium",
+                "summary": "auto"
+              },
+              "status": "completed",
+              "store": false,
+              "usage": {
+                "input_tokens": 14,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens": 321,
+                "output_tokens_details": {
+                  "reasoning_tokens": 252
+                },
+                "total_tokens": 335
+              }
+            },
+            "sequence_number": 17,
+            "type": "response.completed"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "path": "/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "How many r letters are in strawberry? Think carefully before answering."
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "thinkingConfig": {
+              "thinkingLevel": "medium",
+              "includeThoughts": true
+            },
+            "maxOutputTokens": 1024
+          }
+        }
+      },
+      "response": {
+        "label": "native-medium-text",
+        "seconds": 4.62,
+        "events": [
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "There are **3**"
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "wcDIaoCDKKjR0-kPx_axgAo",
+            "usageMetadata": {
+              "promptTokenCount": 14,
+              "candidatesTokenCount": 5,
+              "totalTokenCount": 224,
+              "thoughtsTokenCount": 205
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": " \"r\" letters in the word **strawberry**.\n\nHere is the breakdown:\n* st**r**awberry"
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "wcDIaoCDKKjR0-kPx_axgAo",
+            "usageMetadata": {
+              "promptTokenCount": 14,
+              "candidatesTokenCount": 29,
+              "totalTokenCount": 248,
+              "thoughtsTokenCount": 205
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": " (1st 'r')\n* strawbe**r**ry (2nd 'r')\n* strawber"
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "wcDIaoCDKKjR0-kPx_axgAo",
+            "usageMetadata": {
+              "promptTokenCount": 14,
+              "candidatesTokenCount": 53,
+              "totalTokenCount": 272,
+              "thoughtsTokenCount": 205
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "**r**y (3rd 'r')"
+                    }
+                  ]
+                }
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "wcDIaoCDKKjR0-kPx_axgAo",
+            "usageMetadata": {
+              "promptTokenCount": 14,
+              "candidatesTokenCount": 63,
+              "totalTokenCount": 282,
+              "thoughtsTokenCount": 205
+            }
+          },
+          {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "thoughtSignature": "[redacted signature]",
+                      "text": ""
+                    }
+                  ]
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "modelVersion": "gemini-3.8-flash",
+            "responseId": "wcDIaoCDKKjR0-kPx_axgAo",
+            "usageMetadata": {
+              "promptTokenCount": 14,
+              "candidatesTokenCount": 63,
+              "totalTokenCount": 282,
+              "thoughtsTokenCount": 205
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "path": "/v1/responses",
+        "body": {
+          "model": "gemini-3.8-flash",
+          "input": [
+            {
+              "role": "user",
+              "content": "Use lookup with query strawberry."
+            }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "name": "lookup",
+              "description": "Look up a word",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          ],
+          "reasoning": {
+            "effort": "medium",
+            "summary": "auto"
+          },
+          "include": [
+            "reasoning.encrypted_content"
+          ],
+          "stream": true,
+          "max_output_tokens": 1024
+        }
+      },
+      "response": {
+        "label": "responses-medium-tool-neutral",
+        "seconds": 3.05,
+        "events": [
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541580,
+              "error": null,
+              "id": "resp_SsHIauq3K5jUrfcPha2hoAw",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 1,
+            "type": "response.created"
+          },
+          {
+            "response": {
+              "created_at": 1791541580,
+              "id": "resp_SsHIauq3K5jUrfcPha2hoAw",
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [],
+              "status": "in_progress",
+              "store": false
+            },
+            "sequence_number": 2,
+            "type": "response.in_progress"
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 3,
+            "output_index": 0,
+            "item": {
+              "id": "rs_resp_SsHIauq3K5jUrfcPha2hoAw_detached_before_0",
+              "type": "reasoning",
+              "status": "in_progress",
+              "encrypted_content": "[redacted signature]",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 4,
+            "output_index": 0,
+            "item": {
+              "id": "rs_resp_SsHIauq3K5jUrfcPha2hoAw_detached_before_0",
+              "type": "reasoning",
+              "encrypted_content": "[redacted signature]",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "sequence_number": 5,
+            "output_index": 1,
+            "item": {
+              "id": "fc_call_1791541580631309577_546",
+              "type": "function_call",
+              "status": "in_progress",
+              "arguments": "",
+              "call_id": "call_1791541580631309577_546",
+              "name": "lookup"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.delta",
+            "sequence_number": 6,
+            "item_id": "fc_call_1791541580631309577_546",
+            "output_index": 1,
+            "delta": "{\"query\": \"strawberry\"}"
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "sequence_number": 7,
+            "item_id": "fc_call_1791541580631309577_546",
+            "output_index": 1,
+            "arguments": "{\"query\": \"strawberry\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "sequence_number": 8,
+            "output_index": 1,
+            "item": {
+              "id": "fc_call_1791541580631309577_546",
+              "type": "function_call",
+              "status": "completed",
+              "arguments": "{\"query\": \"strawberry\"}",
+              "call_id": "call_1791541580631309577_546",
+              "name": "lookup"
+            }
+          },
+          {
+            "response": {
+              "background": false,
+              "created_at": 1791541580,
+              "error": null,
+              "id": "resp_SsHIauq3K5jUrfcPha2hoAw",
+              "max_output_tokens": 1024,
+              "model": "gemini-3.8-flash",
+              "object": "response",
+              "output": [
+                {
+                  "id": "rs_resp_SsHIauq3K5jUrfcPha2hoAw_detached_before_0",
+                  "type": "reasoning",
+                  "encrypted_content": "[redacted signature]",
+                  "summary": []
+                },
+                {
+                  "id": "fc_call_1791541580631309577_546",
+                  "type": "function_call",
+                  "status": "completed",
+                  "arguments": "{\"query\": \"strawberry\"}",
+                  "call_id": "call_1791541580631309577_546",
+                  "name": "lookup"
+                }
+              ],
+              "reasoning": {
+                "effort": "medium",
+                "summary": "auto"
+              },
+              "status": "completed",
+              "store": false,
+              "tools": [
+                {
+                  "description": "Look up a word",
+                  "name": "lookup",
+                  "parameters": {
+                    "properties": {
+                      "query": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "query"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "function"
+                }
+              ],
+              "usage": {
+                "input_tokens": 46,
+                "input_tokens_details": {
+                  "cached_tokens": 0
+                },
+                "output_tokens": 51,
+                "output_tokens_details": {
+                  "reasoning_tokens": 37
+                },
+                "total_tokens": 97
+              }
+            },
+            "sequence_number": 9,
+            "type": "response.completed"
+          }
+        ]
+      }
+    }
+  ]
+}

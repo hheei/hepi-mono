@@ -11,19 +11,30 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => ({
 	getAgentDir: () => mock.agentDir,
 }));
 
-import { HINDSIGHT_TOOL_NAMES } from "../../src/hindsight/tools.js";
+import {
+	HINDSIGHT_MCP_SERVER_NAME,
+	HINDSIGHT_MCP_TIMEOUT_SECONDS,
+	HINDSIGHT_MCP_TOOL_EXPOSURES,
+} from "../../src/hindsight/mcp.js";
 import observationalMemory from "../../src/index.js";
 
 interface Hooks {
 	readonly names: string[];
 	readonly registered: string[];
+	readonly mcpServers: Map<string, unknown>;
+	readonly toolRenderers: unknown[];
 	readonly handlers: Map<string, (event: unknown, context: unknown) => unknown>;
+	readonly uiNotifications: Array<{ message: string; type: string }>;
 }
 
 function installExtension(): Hooks {
 	const names: string[] = [];
 	const registered: string[] = [];
+	const mcpServers = new Map<string, unknown>();
+	const toolRenderers: unknown[] = [];
 	const handlers = new Map<string, (event: unknown, context: unknown) => unknown>();
+	const uiNotifications: Array<{ message: string; type: string }> = [];
+
 	const pi = {
 		on: (eventName: string, handler: (event: unknown, context: unknown) => unknown) => {
 			names.push(eventName);
@@ -38,22 +49,40 @@ function installExtension(): Hooks {
 		setActiveTools: () => {},
 		registerEntryRenderer: () => {},
 		appendEntry: () => {},
+		registerToolRenderer: (resolver: unknown) => {
+			toolRenderers.push(resolver);
+		},
+		registerMcpServer: (name: string, config: unknown) => {
+			mcpServers.set(name, config);
+		},
+		unregisterMcpServer: (name: string) => {
+			mcpServers.delete(name);
+		},
+		getMcpServers: () =>
+			[...mcpServers.entries()].map(([name, config]) => ({
+				name,
+				config,
+				extensionPath: "fake",
+			})),
 	} as unknown as ExtensionAPI;
 	observationalMemory(pi);
-	return { names, registered, handlers };
+	return { names, registered, mcpServers, toolRenderers, handlers, uiNotifications };
 }
 
-async function startSession(hooks: Hooks, cwd: string): Promise<void> {
+async function startSession(hooks: Hooks, cwd: string): Promise<() => Promise<void>> {
 	const sessionContext = {
 		cwd,
-		ui: { notify: () => {} },
-		sessionManager: { getSessionId: () => "session-1" },
+		ui: {
+			notify: (message: string, type: string) => {
+				hooks.uiNotifications.push({ message, type });
+			},
+		},
+		sessionManager: { getSessionId: () => "session-1", getBranch: () => [] },
 	};
 	await hooks.handlers.get("session_start")?.(undefined, sessionContext);
-}
-
-function hindsightTools(hooks: Hooks): string[] {
-	return hooks.registered.filter((name) => name.startsWith("hindsight_"));
+	return async () => {
+		await hooks.handlers.get("session_shutdown")?.(undefined, sessionContext);
+	};
 }
 
 describe("hindsight opt-in gating", () => {
@@ -61,7 +90,15 @@ describe("hindsight opt-in gating", () => {
 	let cwd: string;
 	let agentDir: string;
 
+	let origChildId: string | undefined;
+	let origHindsightDisable: string | undefined;
+
 	beforeEach(() => {
+		origChildId = process.env.PI_SUBAGENTS_CHILD_ID;
+		origHindsightDisable = process.env.PI_HINDSIGHT_DISABLE;
+		delete process.env.PI_SUBAGENTS_CHILD_ID;
+		delete process.env.PI_HINDSIGHT_DISABLE;
+
 		root = `${tmpdir()}/hindsight-gating-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 		cwd = join(root, "project");
 		agentDir = join(root, "agent");
@@ -71,13 +108,19 @@ describe("hindsight opt-in gating", () => {
 	});
 
 	afterEach(() => {
+		if (origChildId !== undefined) process.env.PI_SUBAGENTS_CHILD_ID = origChildId;
+		else delete process.env.PI_SUBAGENTS_CHILD_ID;
+		if (origHindsightDisable !== undefined) process.env.PI_HINDSIGHT_DISABLE = origHindsightDisable;
+		else delete process.env.PI_HINDSIGHT_DISABLE;
+
 		rmSync(root, { recursive: true, force: true });
 	});
 
-	it("registers no Hindsight tool without an explicit opt-in", async () => {
+	it("registers no Hindsight MCP server or legacy tools without an explicit opt-in", async () => {
 		const absent = installExtension();
 		await startSession(absent, cwd);
-		expect(hindsightTools(absent)).toEqual([]);
+		expect(absent.mcpServers.has(HINDSIGHT_MCP_SERVER_NAME)).toBe(false);
+		expect(absent.registered.filter((n) => n.startsWith("hindsight_"))).toEqual([]);
 		// The session-scoped memory tool is still registered: gating applies only to Hindsight.
 		expect(absent.registered).toContain("om_recall_evidence");
 
@@ -90,10 +133,57 @@ describe("hindsight opt-in gating", () => {
 		);
 		const disabled = installExtension();
 		await startSession(disabled, cwd);
-		expect(hindsightTools(disabled)).toEqual([]);
+		expect(disabled.mcpServers.has(HINDSIGHT_MCP_SERVER_NAME)).toBe(false);
+		expect(disabled.registered.filter((n) => n.startsWith("hindsight_"))).toEqual([]);
 	});
 
-	it("registers exactly the eight prefixed tools once enabled", async () => {
+	it("registers the hindsight MCP server once enabled and unregisters it on shutdown", async () => {
+		writeFileSync(
+			join(agentDir, "ext_settings.json"),
+			JSON.stringify({
+				"pi-ext-memory": {
+					hindsight: {
+						enabled: true,
+						apiUrl: "http://hindsight.test:38888",
+						bankId: "coding-agent::project",
+					},
+				},
+			}),
+			"utf-8",
+		);
+		const hooks = installExtension();
+		const shutdown = await startSession(hooks, cwd);
+
+		expect(hooks.mcpServers.has(HINDSIGHT_MCP_SERVER_NAME)).toBe(true);
+		const config = hooks.mcpServers.get(HINDSIGHT_MCP_SERVER_NAME) as Record<string, unknown>;
+		expect(config.type).toBe("http");
+		expect(config.url).toBe("http://hindsight.test:38888/mcp/coding-agent%3A%3Aproject/");
+		expect(config.exposure).toBe("deferred");
+		expect(config.toolExposure).toEqual(HINDSIGHT_MCP_TOOL_EXPOSURES);
+		expect(config.timeout).toBe(HINDSIGHT_MCP_TIMEOUT_SECONDS);
+
+		// On session shutdown, the MCP server is unregistered cleanly
+		await shutdown();
+		expect(hooks.mcpServers.has(HINDSIGHT_MCP_SERVER_NAME)).toBe(false);
+	});
+
+	it("registers an explicitly shared bank without a startup warning", async () => {
+		writeFileSync(
+			join(agentDir, "ext_settings.json"),
+			JSON.stringify({
+				"pi-ext-memory": {
+					hindsight: { enabled: true, apiUrl: "http://hindsight.test:38888", bankId: "hheei" },
+				},
+			}),
+			"utf-8",
+		);
+		const hooks = installExtension();
+		await startSession(hooks, cwd);
+		expect(hooks.mcpServers.has(HINDSIGHT_MCP_SERVER_NAME)).toBe(true);
+		expect(hooks.uiNotifications.some((n) => n.message.includes("using shared bank"))).toBe(false);
+	});
+
+	it("notifies warning when an external mcp.json overrides hindsight", async () => {
 		writeFileSync(
 			join(agentDir, "ext_settings.json"),
 			JSON.stringify({
@@ -101,8 +191,19 @@ describe("hindsight opt-in gating", () => {
 			}),
 			"utf-8",
 		);
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(
+			join(cwd, ".pi", "mcp.json"),
+			JSON.stringify({ mcpServers: { [HINDSIGHT_MCP_SERVER_NAME]: { url: "http://other" } } }),
+			"utf-8",
+		);
+
 		const hooks = installExtension();
 		await startSession(hooks, cwd);
-		expect(hindsightTools(hooks).sort()).toEqual([...HINDSIGHT_TOOL_NAMES].sort());
+		expect(
+			hooks.uiNotifications.some(
+				(n) => n.type === "warning" && n.message.includes("overridden by .pi/mcp.json"),
+			),
+		).toBe(true);
 	});
 });

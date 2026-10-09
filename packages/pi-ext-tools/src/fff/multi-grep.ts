@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerManagedTool, textToolResult } from "@hheei/pi-ext-core";
+import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { formatGrepError } from "./error-format.js";
 import {
@@ -9,7 +9,6 @@ import {
 } from "./extension-common.js";
 import type { FffRuntimeState } from "./lifecycle.js";
 
-const OWNER = "@hheei/pi-ext-tools";
 const MULTI_GREP_DESCRIPTION =
 	"Search file contents for any of multiple literal patterns using fff multi-grep.";
 
@@ -62,12 +61,5 @@ export function registerMultiGrepTool(pi: ExtensionAPI, state: FffRuntimeState):
 			return textToolResult(result.value.formatted, buildGrepDetails(result.value));
 		},
 	};
-	registerManagedTool(
-		pi,
-		{
-			id: "fff_multi_grep",
-			owner: OWNER,
-		},
-		tool,
-	);
+	pi.registerTool(tool);
 }

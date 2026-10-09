@@ -1,18 +1,9 @@
-import { performance } from "node:perf_hooks";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-	createToolTui,
-	defaultExtensionSettingsPaths,
-	errorMessage,
-	type ManagedToolRegistration,
-	registerManagedTool,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { defaultExtensionSettingsPaths, errorMessage, textToolResult } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import {
 	type ApplyPatchInWorkspaceResult,
@@ -22,22 +13,12 @@ import {
 	createSftpPatchFs,
 	loadApplyPatchPolicy,
 } from "./apply-patch/index.js";
-import {
-	createV4aPreviewCursor,
-	previewV4aPatchFileCount,
-	type V4aPreviewCursor,
-} from "./apply-patch/parser.js";
+
 import { isPatchPathOutsideWorkspace } from "./apply-patch/paths.js";
-import {
-	formatApplyPatchFooter,
-	renderApplyPatchCall,
-	renderApplyPatchResult,
-} from "./apply-patch/renderer.js";
-import { counted } from "./counted.js";
+
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { LOCAL_TARGET } from "./targets.js";
 
-const OWNER = "@hheei/pi-ext-tools";
 const MAX_CANDIDATES = 6;
 const APPLY_PATCH_DESCRIPTION =
 	"Apply one Codex V4A patch to the local workspace or an authorized SSH host. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
@@ -62,11 +43,6 @@ const RECOVERY_INVALID_PATCH =
 const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
 const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
 
-export const APPLY_PATCH_TOOL_REGISTRATION: ManagedToolRegistration = {
-	id: "apply_patch",
-	owner: OWNER,
-};
-
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
@@ -85,7 +61,6 @@ export type ApplyPatchStatus = "success" | "partial" | "failed";
 export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
 	readonly status: ApplyPatchStatus;
 	readonly progress?: ApplyPatchProgress;
-	readonly durationMs?: number;
 	readonly target?: string;
 }
 
@@ -252,11 +227,7 @@ function externalPathWarning(workspaceRoot: string, result: ApplyPatchInWorkspac
 		: `\nWarning: changed path outside the workspace: ${paths.join(", ")}`;
 }
 
-function progressDetails(
-	progress: ApplyPatchProgress,
-	durationMs: number,
-	target?: string,
-): ApplyPatchToolDetails {
+function progressDetails(progress: ApplyPatchProgress, target?: string): ApplyPatchToolDetails {
 	return {
 		changedPaths: [],
 		addedLines: progress.addedLines,
@@ -271,39 +242,8 @@ function progressDetails(
 		notApplied: [],
 		status: "success",
 		progress,
-		durationMs,
 		...(target === undefined ? {} : { target }),
 	};
-}
-
-export function applyPatchHeader(
-	latest: AgentToolResult<ApplyPatchToolDetails> | undefined,
-	args?: unknown,
-	state?: unknown,
-): string | undefined {
-	const details = latest?.details;
-	if (isApplyPatchToolDetails(details)) {
-		const progress = details.progress;
-		const files = progress?.files ?? details.changedPaths.length;
-		return counted(files, "file");
-	}
-	const patch =
-		typeof args === "object" && args !== null && "patch" in args && typeof args.patch === "string"
-			? args.patch
-			: "";
-	const files = previewV4aPatchFileCount(patch, previewCursor(state));
-	return files === 0 ? undefined : counted(files, "file");
-}
-
-function previewCursor(state: unknown): V4aPreviewCursor {
-	if (typeof state === "object" && state !== null) {
-		const current = (state as { cursor?: V4aPreviewCursor }).cursor;
-		if (current !== undefined) return current;
-		const created = createV4aPreviewCursor();
-		(state as { cursor?: V4aPreviewCursor }).cursor = created;
-		return created;
-	}
-	return createV4aPreviewCursor();
 }
 
 export function createApplyPatchTool(
@@ -317,11 +257,7 @@ export function createApplyPatchTool(
 		promptSnippet: APPLY_PATCH_PROMPT_SNIPPET,
 		promptGuidelines: APPLY_PATCH_PROMPT_GUIDELINES,
 		executionMode: "sequential",
-		renderCall: (args, theme, context) => renderApplyPatchCall(args, theme, context),
-		renderResult: (result, options, theme) =>
-			renderApplyPatchResult(result, options.expanded, theme),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const startedAt = performance.now();
 			const { patch, target } = parseApplyPatchParameters(params);
 			try {
 				const policy = await loadApplyPatchPolicy({
@@ -347,7 +283,7 @@ export function createApplyPatchTool(
 					onProgress: (progress) =>
 						onUpdate?.({
 							content: [],
-							details: progressDetails(progress, Math.round(performance.now() - startedAt), host),
+							details: progressDetails(progress, host),
 						}),
 					...(remote && runtime !== undefined && target !== undefined
 						? { fs: createSftpPatchFs(runtime, target), lockKey: `ssh:${target}` }
@@ -360,7 +296,6 @@ export function createApplyPatchTool(
 					...textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
 						...result,
 						status,
-						durationMs: Math.round(performance.now() - startedAt),
 						...(host === undefined ? {} : { target: host }),
 					}),
 					...(isError ? { isError: true } : {}),
@@ -376,26 +311,8 @@ export function createApplyPatchTool(
 	};
 }
 
-export function registerApplyPatchTool(
-	pi: ExtensionAPI,
-	tui: ToolTui = createToolTui(),
-	state?: FffRuntimeState,
-): ToolDefinition {
+export function registerApplyPatchTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
 	const tool = createApplyPatchTool(state);
-	registerManagedTool(
-		pi,
-		APPLY_PATCH_TOOL_REGISTRATION,
-		tui.frame(tool, {
-			summary: (args, latest, context) => applyPatchHeader(latest, args, context?.state),
-			summarySeparator: "space",
-			footer: (result, completion) => {
-				return isApplyPatchToolDetails(result.details)
-					? formatApplyPatchFooter(result, completion)
-					: undefined;
-			},
-			warning: (result) =>
-				isApplyPatchToolDetails(result.details) && result.details.status !== "success",
-		}),
-	);
+	pi.registerTool({ ...tool, defaultActive: false });
 	return tool as ToolDefinition;
 }

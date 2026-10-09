@@ -10,7 +10,6 @@ import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../../src/fff/settings.j
 import { registerFindTool } from "../../src/find.js";
 import { registerGrepTool } from "../../src/grep.js";
 import { GREP_TIMEOUT_RECOVERY } from "../../src/search-timeout.js";
-import { RemoteGrepAccessDeniedError, type TargetRuntime } from "../../src/targets.js";
 import { toolFor, toolHost } from "../fixtures/harness.js";
 
 /** The fff collaborators none of these tests reach. */
@@ -100,36 +99,6 @@ describe("FFF tool registration", () => {
 		}
 	});
 
-	test("joins remote find pages with real newlines and records target details", async () => {
-		const host = toolHost();
-		const state = runtimeState({
-			settings: { grepEnhancement: false, readEnhancement: false, findEnhancement: false },
-			targetRuntime: {
-				find: async () => [
-					{ path: "a.ts", matchType: "path", score: 2 },
-					{ path: "b.ts", matchType: "fuzzy", score: 1 },
-				],
-			} as unknown as TargetRuntime,
-		});
-		registerFindTool(host.pi, state);
-		const find = toolFor(host.tools, "find");
-		const result = await find.execute(
-			"find-remote-newlines",
-			{ pattern: "ts", target: "devbox" },
-			undefined,
-			undefined,
-			{ cwd: process.cwd() } as never,
-		);
-		const content = result.content[0];
-		if (content?.type !== "text") throw new Error("Expected find text result");
-		expect(content.text).toContain("a.ts");
-		expect(content.text).toContain("b.ts");
-		expect(content.text).not.toContain("\\n");
-		expect(content.text.split("\n").length).toBeGreaterThan(1);
-		expect((result.details as { target?: string; outcome?: string }).target).toBe("devbox");
-		expect((result.details as { outcome?: string }).outcome).toBe("ok");
-	});
-
 	test("uses FFF for unscoped non-glob find queries when enabled", async () => {
 		const host = toolHost();
 		const runtime = new FffRuntime(process.cwd(), {
@@ -174,7 +143,6 @@ describe("FFF tool registration", () => {
 			candidates: [{ path: "src/find-enhancement.ts", matchType: "fuzzy" }],
 			totalMatched: 2,
 			totalFiles: 2,
-			__piExtToolsCompletion: { durationMs: expect.any(Number) },
 		});
 	});
 
@@ -382,48 +350,6 @@ describe("FFF tool registration", () => {
 		} finally {
 			await chmod(blocked, 0o700).catch(() => undefined);
 			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
-	test("preserves remote grep matches after an access-denied diagnostic", async () => {
-		try {
-			const stdout = [
-				'{"type":"match","data":{"path":{"text":"visible.txt"},"lines":{"text":"needle\\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"needle"},"start":0,"end":6}]}}',
-				'{"type":"summary","data":{"stats":{"searches":1}}}',
-			].join("\n");
-			const state = runtimeState({
-				settings: { grepEnhancement: false, readEnhancement: true, findEnhancement: true },
-				targetRuntime: {
-					validateRemotePath: () => undefined,
-					grep: async () => {
-						throw new RemoteGrepAccessDeniedError(stdout, [
-							"rg: /root: Permission denied (os error 13)",
-						]);
-					},
-				} as unknown as TargetRuntime,
-			});
-			const host = toolHost();
-			registerGrepTool(host.pi, state);
-			const grep = toolFor(host.tools, "grep");
-			const result = await grep.execute(
-				"grep-remote-inaccessible",
-				{ pattern: "needle", path: ".", target: "ileqm" },
-				undefined,
-				undefined,
-				{ cwd: process.cwd() } as never,
-			);
-			const content = result.content[0];
-			if (content?.type !== "text") throw new Error("Expected grep text result");
-			expect(content.text).toContain("visible.txt");
-			expect(content.text).toContain("Results may be incomplete");
-			expect(result.details).toMatchObject({
-				target: "ileqm",
-				incomplete: {
-					reason: "access_denied",
-					noSearchablePaths: false,
-				},
-			});
-		} finally {
 		}
 	});
 

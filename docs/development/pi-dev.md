@@ -27,22 +27,24 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | `pi-ext-addon` | `packages/pi-ext-addon/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-memory` | `packages/pi-ext-memory/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
+| `pi-ext-ui` | `packages/pi-ext-ui/dist/extension.js` | 增量构建 TypeScript |
 | `pi-optimizer` | `packages/pi-optimizer/dist/extension.js` | 增量构建 TypeScript |
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
 | `pi-status` | `packages/pi-status/dist/extension.js` | 增量构建 TypeScript |
 | `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
 | `pi-web-access` | `npm:pi-web-access` | 外部包（无需本地构建） |
-| `codemode`（内置） | `builtin:codemode` | 无需构建；`--no-extensions` 会禁用内置扩展，因此必须显式加载 |
+| `codemode`（内置） | `builtin:codemode` | 无需构建；由 `pi-ext-ui` 通过 `registerToolRenderer` 提供折叠与元工具看板渲染 |
 | `tool-search`（内置） | `builtin:tool-search` | 无需构建；同上，且它默认 inactive，需由 `defaultTools` 激活 |
+| `mcp`（内置） | `builtin:mcp` | 无需构建；消费配置文件及 extension 的原生 MCP server 注册 |
 
-`codemode` 与 `tool-search` 用 `builtin:` 路径显式加载，这样 pi-dev 会话同样受 `defaultTools`（例如
-`["+codemode", "+tool_search"]`）和 `codemode.mode` 设置控制。这些设置只被对应的内置扩展自己读取：
-内置扩展被 `--no-extensions` 禁用时，工具不会注册，`defaultTools` 里的名字被 Pi 静默忽略，
-`codemode.mode` 也没有任何消费者。`tool-search` 注册为 inactive，仅加载它并不会激活它。
+`codemode` 由 `pi-ext-tools` 注册，复用 Pi host 的 codemode 工厂并读取 host 设置；重复加载
+`builtin:codemode` 会产生工具冲突警告。`tool-search` 用 `builtin:` 路径显式加载。
+pi-dev 会话同样受 `defaultTools`（例如 `["+codemode", "+tool_search"]`）和 `codemode.mode`
+设置控制。`tool-search` 注册为 inactive，仅加载它并不会激活它。
 
 两者配合的方式：`codemode.mode: "only"` 把 `direct` 工具从模型声明中隐藏，只留 codemode 描述里的
 目录；`deferred` 工具既不进声明也不进那个目录，靠 `tool_search` 按查询加载，或由 codemode 脚本通过
-`tools` 全局与 `ALL_TOOLS` 访问。其他内置扩展（`mcp`、`llama.cpp`）仍保持禁用；需要时用同样的
+`tools` 全局与 `ALL_TOOLS` 访问。MCP 同样显式加载，支持 memory 的 session-scoped Hindsight 注册，并读取 Pi 的 MCP 配置；其他内置扩展（如 `llama.cpp`）仍保持禁用；需要时用同样的
 `--extension builtin:<name>` 显式追加。
 
 `pi-ext-core` 在上述 TypeScript 扩展之前构建，但不会作为扩展加载。
@@ -57,9 +59,10 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 ## 运行与认证边界
 
 - 这不是隔离配置环境：沿用 `~/.pi/agent`，不复制或链接认证、模型文件，也不创建独立 profile。
-- 启动参数包含 `--no-extensions` 和 `--no-approve`；默认扩展发现、内置扩展及扩展审批被禁用，
-  应只运行可信的本地代码。`builtin:codemode` 与 `builtin:tool-search` 是唯一的例外，由启动器显式
-  重新启用。
+- 启动参数包含 `--no-extensions`，默认扩展发现和内置扩展被禁用；`builtin:tool-search` 与
+  `builtin:mcp` 由启动器显式重新启用。
+- 默认传入 `--approve`，本次运行信任当前项目并加载项目资源；不写入持久化信任决定。
+  显式传入 `--no-approve` 可覆盖默认值，忽略项目本地资源。
 - 技能、prompt、theme 和项目配置仍由 Pi 默认路径与传入参数决定。
 - 启动器移除子进程的 `OPENAI_API_KEY`，避免它覆盖 Pi 默认认证。需要临时显式指定密钥时，可使用 Pi 的 `--api-key` 参数。
 - Pi 继承调用者的当前工作目录；从其他目录调用脚本时，项目资源按该目录解析。

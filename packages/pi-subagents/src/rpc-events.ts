@@ -10,7 +10,6 @@ export const FORWARDED_PI_EVENT_TYPES = [
 	"turn_start",
 	"turn_end",
 	"tool_execution_start",
-	"tool_execution_update",
 	"tool_execution_end",
 	"auto_retry",
 	"auto_retry_start",

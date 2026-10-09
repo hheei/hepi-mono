@@ -36,17 +36,6 @@ export interface LaunchSpec {
 	readonly config: EffectiveLaunchConfig;
 }
 
-export const HINDSIGHT_TOOLS = [
-	"hindsight_search_knowledge_pages",
-	"hindsight_list_knowledge_pages",
-	"hindsight_read_knowledge_page",
-	"hindsight_reflect",
-	"hindsight_capture_initiative",
-	"hindsight_ingest_document",
-	"hindsight_sync_status",
-	"hindsight_diagnose",
-] as const;
-
 export function stripHindsightContent(text: string): string {
 	return text
 		.replace(/\s*<hindsight-recall>[\s\S]*?<\/hindsight-recall>\s*/gi, (match) =>
@@ -206,11 +195,11 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 	argv.push("--provider", config.model.provider, "--model", config.model.id);
 	argv.push("--thinking", config.thinking.level);
 	const effectiveTools =
-		config.codemodeOnly && !config.tools.includes("codemode")
+		config.tools.length > 0 && config.codemodeOnly && !config.tools.includes("codemode")
 			? [...config.tools, "codemode"]
 			: config.tools;
 	if (effectiveTools.length > 0) argv.push("--tools", effectiveTools.join(","));
-	const excludeTools = Array.from(new Set([...config.excludeTools, ...HINDSIGHT_TOOLS]));
+	const excludeTools = Array.from(new Set(config.excludeTools));
 	if (excludeTools.length > 0) argv.push("--exclude-tools", excludeTools.join(","));
 	if (!config.extensions.discovery) argv.push("--no-extensions");
 	for (const path of config.extensions.paths) argv.push("-e", path);

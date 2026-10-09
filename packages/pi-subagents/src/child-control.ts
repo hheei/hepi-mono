@@ -12,6 +12,7 @@ import { ChildBridgeClient, type ChildBridgeRequest } from "./bridge-client.js";
 import type { ChildIdentity } from "./domain.js";
 import { BridgeError, type ChildInputSource } from "./protocol.js";
 import { FORWARDED_PI_EVENT_TYPES, shouldForwardPiEvent } from "./rpc-events.js";
+import { assistantUpdatePhase } from "./state.js";
 
 const CHILD_INPUT_SOURCES: readonly string[] = ["interactive", "extension", "rpc"];
 
@@ -75,38 +76,132 @@ export function childState(ctx: ExtensionContext): Record<string, unknown> {
 }
 
 /**
- * Truncates bulky data (like huge file reads, grep blocks, or base64 images) in advisory events
- * before they are serialized and pushed over the bridge. The parent projector only requires
- * turn-level signals, not multi-megabyte payloads.
+ * The dedup key for a streaming update: its phase plus the tool it names. Two deltas with the same
+ * key are the same telemetry, so only the first is forwarded while the parent is listening.
+ */
+function assistantPhaseKey(event: Record<string, unknown>): string | undefined {
+	const phase = assistantUpdatePhase(event.assistantMessageEvent, event.message);
+	if (phase === undefined) return undefined;
+	return phase.toolName === undefined ? phase.kind : `${phase.kind}:${phase.toolName}`;
+}
+
+/** Text kept from a message part: enough for the parent's summary, never the whole payload. */
+const BRIDGE_MESSAGE_TEXT_LIMIT = 200;
+/** Text kept from a tool result part: the parent shows tool activity, not tool output. */
+const BRIDGE_TOOL_TEXT_LIMIT = 1000;
+/** Content parts kept per message, so a frame stays bounded no matter how long the stream runs. */
+const BRIDGE_MAX_CONTENT_PARTS = 32;
+
+/**
+ * Reduces one content part to what the parent's projector reads. Text is truncated, image data is
+ * replaced by a marker, and a tool call keeps its name but not its arguments: the parent projects
+ * turn-level activity, so it never needs the payload that produced it.
+ */
+function compactContentPart(part: unknown, textLimit: number): unknown {
+	if (!isRecord(part)) return part;
+	if (part.type === "text" && typeof part.text === "string") {
+		return part.text.length > textLimit
+			? { ...part, text: `${part.text.slice(0, textLimit)}\n... [truncated for bridge event]` }
+			: part;
+	}
+	if (part.type === "image") {
+		return {
+			type: "image",
+			mimeType: part.mimeType,
+			data: "[image omitted for bridge event]",
+		};
+	}
+	if (part.type === "toolCall") {
+		return {
+			type: "toolCall",
+			...(typeof part.id === "string" ? { id: part.id } : {}),
+			...(typeof part.name === "string" ? { name: part.name } : {}),
+		};
+	}
+	return typeof part.type === "string" ? { type: part.type } : {};
+}
+
+function compactContent(content: unknown, textLimit: number): unknown[] | undefined {
+	if (!Array.isArray(content)) return undefined;
+	return content
+		.slice(0, BRIDGE_MAX_CONTENT_PARTS)
+		.map((part) => compactContentPart(part, textLimit));
+}
+
+/** Keeps only the turn-level message fields the projector reads, dropping the rest. */
+function compactMessage(message: unknown, textLimit: number): Record<string, unknown> | undefined {
+	const value = isRecord(message) ? message : undefined;
+	if (value === undefined) return undefined;
+	const content = compactContent(value.content, textLimit);
+	return {
+		...(typeof value.role === "string" ? { role: value.role } : {}),
+		...(typeof value.stopReason === "string" ? { stopReason: value.stopReason } : {}),
+		...(typeof value.errorMessage === "string" ? { errorMessage: value.errorMessage } : {}),
+		...(content === undefined ? {} : { content }),
+	};
+}
+
+/**
+ * Compacts an advisory event to the telemetry the parent projects before it is serialized and
+ * pushed over the bridge. A streaming update carries the whole partial message — text, tool
+ * arguments, the accumulating `partial` — which is what the parent neither reads nor needs; only
+ * the phase metadata (type, content index) and the tool name survive, so a frame stays far below
+ * the protocol limit under any payload size.
  */
 export function sanitizeEventForBridge(event: unknown): unknown {
 	if (!isRecord(event)) return event;
+	if (event.type === "message_update") {
+		const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
+		const message = compactMessage(event.message, BRIDGE_MESSAGE_TEXT_LIMIT);
+		return {
+			type: "message_update",
+			...(message === undefined ? {} : { message }),
+			...(update === undefined
+				? {}
+				: {
+						assistantMessageEvent: {
+							...(typeof update.type === "string" ? { type: update.type } : {}),
+							...(typeof update.contentIndex === "number"
+								? { contentIndex: update.contentIndex }
+								: {}),
+						},
+					}),
+		};
+	}
+	if (event.type === "tool_execution_start") {
+		return {
+			type: "tool_execution_start",
+			...(typeof event.toolName === "string" ? { toolName: event.toolName } : {}),
+			...(typeof event.toolCallId === "string" ? { toolCallId: event.toolCallId } : {}),
+		};
+	}
 	if (event.type === "tool_execution_end" && isRecord(event.result)) {
-		const result = event.result;
-		if (Array.isArray(result.content)) {
-			const sanitizedContent = result.content.map((part) => {
-				if (
-					isRecord(part) &&
-					part.type === "text" &&
-					typeof part.text === "string" &&
-					part.text.length > 2000
-				) {
-					return {
-						...part,
-						text: `${part.text.slice(0, 1000)}\n... [truncated for bridge event]`,
-					};
-				}
-				if (isRecord(part) && part.type === "image") {
-					return {
-						type: "image",
-						mimeType: part.mimeType,
-						data: "[image omitted for bridge event]",
-					};
-				}
-				return part;
-			});
-			return { ...event, result: { ...result, content: sanitizedContent } };
-		}
+		const content = compactContent(event.result.content, BRIDGE_TOOL_TEXT_LIMIT);
+		return {
+			...event,
+			result: {
+				...(content === undefined ? {} : { content }),
+				...(typeof event.result.isError === "boolean" ? { isError: event.result.isError } : {}),
+			},
+		};
+	}
+	if (event.type === "turn_end") {
+		const message = compactMessage(event.message, BRIDGE_MESSAGE_TEXT_LIMIT);
+		return {
+			type: "turn_end",
+			...(typeof event.turnIndex === "number" ? { turnIndex: event.turnIndex } : {}),
+			...(message === undefined ? {} : { message }),
+		};
+	}
+	if (event.type === "agent_end" || event.type === "agent_settled") {
+		const messages = Array.isArray(event.messages) ? event.messages : undefined;
+		const last = messages?.[messages.length - 1];
+		const message = compactMessage(last ?? event.message, BRIDGE_MESSAGE_TEXT_LIMIT);
+		return {
+			type: event.type,
+			...(event.type === "agent_settled" ? { aborted: event.aborted } : {}),
+			...(message === undefined ? {} : { message, messages: [message] }),
+		};
 	}
 	return event;
 }
@@ -154,8 +249,12 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 				return deliverPrompt(request.payload, "followUp");
 			case "get_state":
 				return childState(requireContext());
-			case "get_entries":
-				return { entries: requireContext().sessionManager.getEntries() };
+			case "get_entries": {
+				const sm = requireContext().sessionManager;
+				const branch = typeof sm.getBranch === "function" ? sm.getBranch() : undefined;
+				const entries = Array.isArray(branch) && branch.length > 0 ? branch : sm.getEntries();
+				return { entries };
+			}
 			case "abort":
 				requireContext().abort();
 				return { accepted: true };
@@ -169,13 +268,31 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 				);
 		}
 	};
+	const dispose: Array<() => void> = [];
+	let currentPhase: string | undefined;
+	/** The compact event carrying the current phase, resent when the parent reconnects. */
+	let lastPhaseEvent: unknown;
+	const phaseResetEvents: readonly string[] = [
+		"agent_start",
+		"agent_end",
+		"turn_start",
+		"turn_end",
+		"agent_settled",
+		"tool_execution_start",
+		"tool_execution_end",
+	];
 	const client = new ChildBridgeClient({
 		endpoint: options.endpoint,
 		identity: options.identity,
 		handleRequest,
 		...(options.diagnose === undefined ? {} : { diagnose: options.diagnose }),
+		onConnect: () => {
+			// A reconnected parent knows nothing of the phase this child reached while the socket was
+			// down, so the current compact phase is resent before new deltas arrive.
+			if (lastPhaseEvent !== undefined) client.sendEvent(lastPhaseEvent);
+		},
 	});
-	const dispose: Array<() => void> = [];
+
 	// `pi.on` is declared as literal-name overloads, so a loop over the forwarded event types cannot
 	// be typed through them; every name in FORWARDED_PI_EVENT_TYPES is a real Pi event.
 	const onPiEvent = pi.on as (
@@ -186,7 +303,27 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		dispose.push(
 			onPiEvent(type, (event) => {
 				if (!isActive()) return;
-				if (shouldForwardPiEvent(event)) client.sendEvent(sanitizeEventForBridge(event));
+				if (!shouldForwardPiEvent(event)) return;
+				const compact = sanitizeEventForBridge(event);
+
+				if (isRecord(event)) {
+					if (typeof event.type === "string" && phaseResetEvents.includes(event.type)) {
+						currentPhase = undefined;
+						lastPhaseEvent = undefined;
+					} else if (event.type === "message_update") {
+						const phase = assistantPhaseKey(event);
+						if (phase !== undefined) {
+							lastPhaseEvent = compact;
+							// While the parent is listening, repetitive deltas in the same phase are dropped to
+							// prevent socket floods. A disconnected parent suppresses nothing: the phase is
+							// resent from `onConnect` instead, so a dropped delta cannot hide it.
+							if (phase === currentPhase && client.connected) return;
+							currentPhase = phase;
+						}
+					}
+				}
+
+				client.sendEvent(compact);
 			}),
 		);
 	}

@@ -4,21 +4,14 @@ import { createDisposerRegistry } from "../src/disposer-registry.js";
 import {
 	clearDisabledSkillKeys,
 	getDisabledSkillKeys,
-	isManagedTool,
 	isSkillEnabled,
 	observeLoadoutInventory,
-	redeclareManagedTool,
 	registerLoadoutResource,
-	registerManagedTool,
 	setDisabledSkillKeys,
-	setManagedToolsActive,
+	setSessionToolsActive,
 } from "../src/index.js";
 
 const OWNER = "@hheei/test-extension";
-
-function registration(id: string, owner = OWNER) {
-	return { id, owner } as const;
-}
 
 function agentResource(id: string, overrides: Record<string, unknown> = {}) {
 	return {
@@ -65,112 +58,27 @@ function observer(pi: ExtensionAPI) {
 }
 
 describe("Loadout core contract", () => {
-	test("activates a managed bundle without changing unrelated tools and cleans it up", async () => {
+	test("activates session tools without changing unrelated tools and cleans them up", async () => {
 		const h = host();
-		registerManagedTool(h.pi, registration("alpha"), { name: "alpha" } as never);
-		registerManagedTool(h.pi, registration("beta"), { name: "beta" } as never);
 		const resources = createDisposerRegistry();
 		const context = { pi: h.pi, resources } as never;
-		setManagedToolsActive(context, [registration("alpha"), registration("beta")], true);
+		setSessionToolsActive(context, ["alpha", "beta"], true);
 		expect(h.activeTools).toEqual(["read", "alpha", "beta"]);
 		await resources.cleanup();
 		expect(h.activeTools).toEqual(["read"]);
 	});
 
-	test("switches between managed catalogs without touching unrelated tools", () => {
+	test("switches between session tool sets without touching unrelated tools", () => {
 		const h = host();
-		registerManagedTool(h.pi, registration("alpha"), { name: "alpha" } as never);
-		registerManagedTool(h.pi, registration("beta"), { name: "beta" } as never);
 		const resources = createDisposerRegistry();
 		const context = { pi: h.pi, resources } as never;
-		setManagedToolsActive(context, [registration("alpha")], true);
-		setManagedToolsActive(context, [registration("alpha")], false);
-		setManagedToolsActive(context, [registration("beta")], true);
+		setSessionToolsActive(context, ["alpha"], true);
+		setSessionToolsActive(context, ["alpha"], false);
+		setSessionToolsActive(context, ["beta"], true);
 		expect(h.activeTools).toEqual(["read", "beta"]);
-		setManagedToolsActive(context, [registration("beta")], false);
-		setManagedToolsActive(context, [registration("alpha")], true);
+		setSessionToolsActive(context, ["beta"], false);
+		setSessionToolsActive(context, ["alpha"], true);
 		expect(h.activeTools).toEqual(["read", "alpha"]);
-	});
-
-	test("rejects bundles whose ids are unknown, foreign, or repeated", () => {
-		const h = host();
-		registerManagedTool(h.pi, registration("alpha"), { name: "alpha" } as never);
-		const resources = createDisposerRegistry();
-		const context = { pi: h.pi, resources } as never;
-		expect(() => setManagedToolsActive(context, [registration("missing")], true)).toThrow(
-			"Managed tool is not registered by owner: missing",
-		);
-		expect(() =>
-			setManagedToolsActive(context, [registration("alpha", "@hheei/other")], true),
-		).toThrow("Managed tool is not registered by owner: alpha");
-		expect(() =>
-			setManagedToolsActive(context, [registration("alpha"), registration("alpha")], true),
-		).toThrow("Managed tool id is repeated: alpha");
-		expect(h.activeTools).toEqual(["read"]);
-	});
-
-	test("requires a managed registration to match the Pi tool name", () => {
-		const h = host();
-		expect(() =>
-			registerManagedTool(h.pi, registration("read"), { name: "grep" } as never),
-		).toThrow("Managed tool id must match the Pi tool name: read");
-		expect(h.registered).toHaveLength(0);
-	});
-
-	test("keeps a managed tool owned by one package across runners", () => {
-		const events = {};
-		const first = host(events);
-		const second = host(events);
-		registerManagedTool(first.pi, registration("read"), { name: "read" } as never);
-		expect(() =>
-			registerManagedTool(first.pi, registration("read"), { name: "read" } as never),
-		).toThrow("Managed tool id already registered: read");
-		registerManagedTool(second.pi, registration("read"), { name: "read" } as never);
-		expect(first.registered).toHaveLength(1);
-		expect(second.registered).toHaveLength(1);
-		expect(isManagedTool(second.pi, "read")).toBe(true);
-		expect(isManagedTool(second.pi, "grep")).toBe(false);
-	});
-
-	test("replaces its own registration when state that Pi reads per session changes", () => {
-		const h = host();
-		registerManagedTool(h.pi, { id: "read", owner: OWNER, exposure: "deferred" }, {
-			name: "read",
-		} as never);
-		redeclareManagedTool(h.pi, { id: "read", owner: OWNER, exposure: "hidden" }, {
-			name: "read",
-		} as never);
-		expect(h.registered).toEqual([
-			{ name: "read", exposure: "deferred" },
-			{ name: "read", exposure: "hidden" },
-		]);
-		expect(isManagedTool(h.pi, "read")).toBe(true);
-	});
-
-	test("still rejects a redeclaration from another owner", () => {
-		const events = {};
-		const first = host(events);
-		const second = host(events);
-		registerManagedTool(first.pi, registration("read"), { name: "read" } as never);
-		expect(() =>
-			redeclareManagedTool(second.pi, registration("read", "@hheei/other"), {
-				name: "read",
-			} as never),
-		).toThrow("Managed tool id already registered: read");
-		expect(second.registered).toHaveLength(0);
-	});
-
-	test("rejects a different owner claiming a managed tool name", () => {
-		const events = {};
-		const first = host(events);
-		const second = host(events);
-		registerManagedTool(first.pi, registration("read"), { name: "read" } as never);
-		expect(() =>
-			registerManagedTool(second.pi, registration("read", "@hheei/other"), {
-				name: "read",
-			} as never),
-		).toThrow("Managed tool id already registered: read");
-		expect(second.registered).toHaveLength(0);
 	});
 
 	test("registers and disposes a dynamic non-tool resource", () => {

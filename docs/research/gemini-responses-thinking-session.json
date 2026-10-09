@@ -1,0 +1,255 @@
+{
+  "source_session_id": "01a11c1b-3d1d-74fd-87b9-03c25c636a71",
+  "recovery_copy": {
+    "path": "/tmp/gemini-signature-recovery.jsonl",
+    "restored_signature_edits": 26,
+    "leaf": "5e710db0",
+    "original_unchanged": true
+  },
+  "original_derived_session_probe": {
+    "sessionId": "-4199336073481727004",
+    "method": "Reconstructed gpt-load affinity HMAC and CPA derived session ID on oracle-kr with original accessKeyID and credential 26; removed safetySettings as executor does. Direct Google, no gateway replay.",
+    "stripped": { "thoughtChars": 317, "visibleChars": 0, "functionCall": "python_eval", "pseudoCall": false },
+    "restored": { "thoughtChars": 398, "visibleChars": 0, "functionCall": "python_eval", "pseudoCall": false },
+    "conclusion": "Original pseudo-call not reproduced with either variant. Signature deletion is a confirmed client bug, not a demonstrated sufficient cause of pseudo-call generation."
+  },
+  "compaction_id": "ae44393b",
+  "anomaly_id": "f00623a0",
+  "anomaly_parent": "5e710db0",
+  "method": "Offline reconstructed context through installed Pi buildSessionContext + convertToLlm + Responses onPayload; no extension context hooks replayed. CPA v8.0.8 request conversion on same fixtures. Not historical wire capture.",
+  "verified_signature_only_context_edits": 26,
+  "offline_replay": {
+    "method": "CPA prepareAntigravityGeminiReasoningReplayPayload with reconstructed after fixture",
+    "calls": 26,
+    "cold_native_signed": 0,
+    "matching_hot_native_signed": 26,
+    "before_compaction_ledger_native_signed": 0,
+    "different_credential_lane_native_signed": 0,
+    "context_hash": "Full content prefix validation rejects signatures after modified history prefix",
+    "non_signature_difference": "Two args.code strings HTML-escaped >= as \u003e=; parsed JSON semantics unchanged"
+  },
+  "counts": {
+    "before_compaction": {
+      "calls": 137,
+      "results": 137,
+      "reasoning_items": 133,
+      "nonempty_carriers": 130,
+      "native_signed_calls": 130
+    },
+    "after_compaction": {
+      "calls": 26,
+      "results": 26,
+      "reasoning_items": 0,
+      "native_signed_calls": 0,
+      "skip_signature_validator_calls": 26
+    },
+    "after_restoring_signature_edits": {
+      "calls": 26,
+      "results": 26,
+      "reasoning_items": 26,
+      "native_signed_calls": 26
+    }
+  },
+  "bounded_prefix_sha256": {
+    "system": "965d79b8fccbad25c9b67f52a3b31ce02c92fa56be71e1f3c130a2699123467e",
+    "first_user": "442eac61fe3c7897ece389f930050b40a1b5cb49c042f41b257c5d75969b4f37",
+    "unchanged": true
+  },
+  "live_probe": {
+    "host": "oracle-kr",
+    "endpoint": "Google Antigravity streamGenerateContent",
+    "model": "gemini-3.8-flash-high",
+    "thinkingConfig": {
+      "thinkingLevel": "medium",
+      "includeThoughts": true
+    },
+    "maxOutputTokens": 1500,
+    "sessionId": "fresh random per variant",
+    "credential_id": 26,
+    "variants": [
+      {
+        "variant": "stripped",
+        "seconds": 7.93,
+        "events": [
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thought": true,
+                        "text": "The user explicitly requested a \"medium\" think level and confirms this was sent. Method one, presumably a previous suggestion, is not the correct solution. This means the root cause lies elsewhere, since the basic request protocol appears correct and the suggested solution didn't fix the issue. The goal now is to identify the source of the displayed thinking content.\n\n\n"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "totalTokenCount": 67717
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIasrzMMix2roP_uOE6QI"
+            },
+            "traceId": "750777d25205c8eb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thoughtSignature": "[redacted signature]",
+                        "functionCall": {
+                          "name": "python_eval",
+                          "args": {
+                            "code": "# Let's inspect Pi's openai-responses provider: what does buildParams send?\nwith open(\"/home/chlo/Documents/dev/hepi-mono/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_@aws-sdk+credential-provider-node@3.972.83_@smith_3a803e5942dc975e3ba50a1992b94a2e/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/openai-responses-EZ7FJ2KL.js\") as f:\n    content = f.read()\n\nidx = content.find(\"buildParams\")\nprint(content[idx:idx+800])\n"
+                          },
+                          "id": "call_210652"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "candidatesTokenCount": 200,
+                "totalTokenCount": 68316,
+                "thoughtsTokenCount": 399
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIasrzMMix2roP_uOE6QI"
+            },
+            "traceId": "750777d25205c8eb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": ""
+                      }
+                    ]
+                  },
+                  "finishReason": "STOP"
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "candidatesTokenCount": 200,
+                "totalTokenCount": 68316,
+                "thoughtsTokenCount": 399
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIasrzMMix2roP_uOE6QI"
+            },
+            "traceId": "750777d25205c8eb",
+            "metadata": {}
+          }
+        ]
+      },
+      {
+        "variant": "restored",
+        "seconds": 5.8,
+        "events": [
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thought": true,
+                        "text": "The user's assertion that the request specified a medium thinking level via the responses protocol raises a critical issue: the thinking level isn't being respected. Previously considered solutions don't address this. Further investigation is needed to trace the request's journey and determine why the specified thinking level is not resulting in the expected behavior.\n\n\n"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "totalTokenCount": 67717
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIauGtFd6f1e8Plu3XqQQ"
+            },
+            "traceId": "136891f479af372c",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thoughtSignature": "[redacted signature]",
+                        "functionCall": {
+                          "name": "python_eval",
+                          "args": {
+                            "code": "# Search for openai-responses stream handling in pi-ai / pi-coding-agent\nres = tools.grep(pattern=\"reasoning_summary_text\", path=\"node_modules\")\nprint(res[:1500])\n"
+                          },
+                          "id": "call_1721"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "candidatesTokenCount": 66,
+                "totalTokenCount": 68135,
+                "thoughtsTokenCount": 352
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIauGtFd6f1e8Plu3XqQQ"
+            },
+            "traceId": "136891f479af372c",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": ""
+                      }
+                    ]
+                  },
+                  "finishReason": "STOP"
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 67717,
+                "candidatesTokenCount": 66,
+                "totalTokenCount": 68135,
+                "thoughtsTokenCount": 352
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "FdDIauGtFd6f1e8Plu3XqQQ"
+            },
+            "traceId": "136891f479af372c",
+            "metadata": {}
+          }
+        ]
+      }
+    ],
+    "conclusion": "Both variants returned structured python_eval with marked thinking and no visible text. Original pseudo-toolcall not reproduced. Signature removal is confirmed context corruption, not proven sufficient cause of original visible text."
+  }
+}

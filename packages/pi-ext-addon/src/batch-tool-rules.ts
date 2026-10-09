@@ -21,13 +21,15 @@ export function buildDefaultBatchToolPrompt(
 ): string {
 	let viaClause = "";
 	if (hasCodemode) {
-		viaClause = hasEval ? " via `codemode` or `eval`" : " via `codemode`";
+		viaClause = hasEval ? " via `codemode` or `python_eval`" : " via `codemode`";
 	}
 	const geminiGuidance = isGemini
 		? " Call as many `read` and `grep` operations in parallel as possible to locate information much faster."
 		: "";
+	const noCommentsGuidance =
+		hasCodemode || hasEval ? " Do not write comments when using `codemode` and `python_eval`." : "";
 	return `<tool_execution_rules>
-Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn${viaClause}.${geminiGuidance}
+Agent turns are extremely expensive. You MUST batch and execute as many tool calls as possible in a single turn${viaClause}.${geminiGuidance}${noCommentsGuidance}
 </tool_execution_rules>`;
 }
 
@@ -164,7 +166,8 @@ export function applyBatchToolRules(
 		const active = getActiveTools?.();
 		const hasCodemode =
 			(selected?.includes("codemode") ?? false) || (active?.includes("codemode") ?? false);
-		const hasEval = (selected?.includes("eval") ?? false) || (active?.includes("eval") ?? false);
+		const hasEval =
+			(selected?.includes("python_eval") ?? false) || (active?.includes("python_eval") ?? false);
 		const isGemini = isGeminiModel(model);
 
 		const prompt = buildBatchToolPrompt({

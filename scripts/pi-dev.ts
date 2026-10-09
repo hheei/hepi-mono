@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +16,7 @@ const builtPackageNames = [
 	"pi-ext-addon",
 	"pi-ext-memory",
 	"pi-ext-tools",
+	"pi-ext-ui",
 	"pi-optimizer",
 	"pi-settings",
 	"pi-status",
@@ -27,6 +29,7 @@ const explicitExtensionSources = [
 	"npm:pi-web-access",
 	"builtin:codemode",
 	"builtin:tool-search",
+	"builtin:mcp",
 ] as const;
 const builtPackageDirs = builtPackageNames
 	.map((name) => path.join(packageRoot, name))
@@ -144,6 +147,10 @@ for (const directory of builtPackageDirs) {
 for (const source of explicitExtensionSources) {
 	extensionArgs.push("--extension", source);
 }
+const moshiHookPath = path.join(homedir(), ".pi", "agent", "extensions", "moshi-hooks.ts");
+if (existsSync(moshiHookPath)) {
+	extensionArgs.push("--extension", moshiHookPath);
+}
 const childEnv = {
 	...process.env,
 	PI_DEV: "1",
@@ -155,7 +162,7 @@ const argsToPass = process.argv.slice(2);
 const hasApproveOption = argsToPass.includes("--approve") || argsToPass.includes("--no-approve");
 const spawnArgs = [
 	piCli,
-	...(hasApproveOption ? [] : ["--no-approve"]),
+	...(hasApproveOption ? [] : ["--approve"]),
 	"--no-extensions",
 	...extensionArgs,
 	...argsToPass,

@@ -42,7 +42,6 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
-		interactive: false,
 	};
 }
 

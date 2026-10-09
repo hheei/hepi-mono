@@ -4,20 +4,13 @@ import {
 	type AgentToolResult,
 	createEditToolDefinition,
 	type ExtensionAPI,
-	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import {
-	agentResultText,
-	formatDuration,
-	isRecord,
-	type ToolTui,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { agentResultText, isRecord, textToolResult } from "@hheei/pi-ext-core";
+import * as Diff from "diff";
 import { type Static, Type } from "typebox";
 import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import { counted } from "./counted.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	editRemoteFile,
@@ -26,30 +19,28 @@ import {
 	remoteMutationDetails,
 	remoteMutationFailureText,
 } from "./native-remote.js";
-import {
-	createCanonicalExecutionTool,
-	createCanonicalToolRegistration,
-	registerCanonicalTool,
-} from "./native-tool.js";
-import { MAX_HL_CHARS, MAX_RENDER_LINES } from "./pretty/config.js";
-import {
-	normalizeLineEndings,
-	type ParsedDiff,
-	parseDiff,
-	parseUnifiedPatch,
-} from "./pretty/diff.js";
-import {
-	renderDiffOmission,
-	renderSplit,
-	resolveDiffColors,
-	summarize,
-} from "./pretty/diff-render.js";
-import { lang } from "./pretty/lang.js";
-import { LinesBody } from "./pretty/lines-body.js";
+
+export const MAX_HL_CHARS = 256 * 1024;
+
+export function normalizeLineEndings(text: string): string {
+	if (!text.includes("\r")) return text;
+	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
 
 const EDIT_RENDER_DETAILS = "__piExtToolsEdit";
 const EDIT_VIEW_KEY = "__piExtToolsEditView";
-export const EDIT_TOOL_REGISTRATION = createCanonicalToolRegistration("edit");
+
+function createExecutionTool<TParams extends TypeBoxSchema, TDetails, TState>(
+	factory: (cwd: string) => ToolDefinition<TParams, TDetails, TState>,
+): ToolDefinition<TParams, TDetails, TState> {
+	const template = factory(process.cwd());
+	return {
+		...template,
+		async execute(toolCallId, params, signal, onUpdate, context) {
+			return factory(context.cwd).execute(toolCallId, params, signal, onUpdate, context);
+		},
+	};
+}
 
 const EDIT_PARAMETERS = Type.Object(
 	{
@@ -88,7 +79,7 @@ type EditOperation = {
 type EditOpView = {
 	readonly oldContent: string;
 	readonly newContent: string;
-	readonly language: string | undefined;
+	readonly language?: string | undefined;
 	readonly editLine: number;
 	readonly startLine: number;
 };
@@ -102,8 +93,7 @@ function stringField(value: unknown): string {
 }
 
 function filePath(args: EditArgs): string {
-	const extra = args as EditArgs & { file_path?: unknown };
-	return stringField(args.path) || stringField(extra.file_path);
+	return stringField(args.path);
 }
 
 function resolvePath(cwd: string, path: string): string {
@@ -119,47 +109,23 @@ function readTextIfSmall(path: string): string {
 	}
 }
 
-function operationText(value: {
-	oldText?: unknown;
-	newText?: unknown;
-	old_text?: unknown;
-	new_text?: unknown;
-}): EditOperation {
-	return {
-		oldText: stringField(value.oldText) || stringField(value.old_text),
-		newText: stringField(value.newText) || stringField(value.new_text),
-	};
+function operationText(value: { oldText?: unknown; newText?: unknown }): EditOperation {
+	return { oldText: stringField(value.oldText), newText: stringField(value.newText) };
 }
 
 export function getEditOperations(input: EditArgs): EditOperation[] {
-	const fromArray = Array.isArray(input.edits)
-		? input.edits
-				.map(operationText)
-				.filter((edit) => edit.oldText !== "" && edit.oldText !== edit.newText)
-		: [];
-	if (fromArray.length > 0) return fromArray;
-	const top = operationText(
-		input as EditArgs & {
-			oldText?: unknown;
-			newText?: unknown;
-			old_text?: unknown;
-			new_text?: unknown;
-		},
-	);
-	return top.oldText !== "" && top.oldText !== top.newText ? [top] : [];
+	if (!Array.isArray(input.edits)) return [];
+	return input.edits
+		.map(operationText)
+		.filter((edit) => edit.oldText !== "" && edit.oldText !== edit.newText);
 }
 
-function contextualOperation(
-	file: string,
-	operation: EditOperation,
-	language: string | undefined,
-): EditOpView {
+function contextualOperation(file: string, operation: EditOperation): EditOpView {
 	const index = file.indexOf(operation.oldText);
 	if (index < 0) {
 		return {
 			oldContent: operation.oldText,
 			newContent: operation.newText,
-			language,
 			editLine: 0,
 			startLine: 0,
 		};
@@ -189,7 +155,6 @@ function contextualOperation(
 			index + operation.oldText.length,
 			end,
 		)}`,
-		language,
 		editLine: lineNumberAt(file, index),
 		startLine: lineNumberAt(file, start),
 	};
@@ -228,50 +193,23 @@ function withEditDetails(
 	};
 }
 
-function editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined {
-	const details = result.details;
-	if (!isRecord(details)) return undefined;
-	const record = details;
-	const value = record[EDIT_RENDER_DETAILS];
-	if (isRecord(value)) {
-		const metrics = value;
-		if (
-			typeof metrics.replacements === "number" &&
-			typeof metrics.added === "number" &&
-			typeof metrics.removed === "number"
-		)
-			return {
-				replacements: metrics.replacements,
-				added: metrics.added,
-				removed: metrics.removed,
-			};
-	}
-	const view = record[EDIT_VIEW_KEY];
-	if (isRecord(view)) {
-		const legacy = view;
-		if (
-			typeof legacy.edits === "number" &&
-			typeof legacy.added === "number" &&
-			typeof legacy.removed === "number"
-		)
-			return {
-				replacements: legacy.edits,
-				added: legacy.added,
-				removed: legacy.removed,
-			};
-	}
-	const diff = legacyEditDiff(result);
-	if (diff === undefined) return undefined;
-	const patch = record.patch;
-	const hunks = typeof patch === "string" ? (patch.match(/^@@/gm)?.length ?? 0) : 0;
+function _editMetrics(result: AgentToolResult<unknown>): EditMetrics | undefined {
+	const value = isRecord(result.details) ? result.details[EDIT_RENDER_DETAILS] : undefined;
+	if (
+		!isRecord(value) ||
+		typeof value.replacements !== "number" ||
+		typeof value.added !== "number" ||
+		typeof value.removed !== "number"
+	)
+		return undefined;
 	return {
-		replacements: Math.max(1, hunks),
-		added: diff.added,
-		removed: diff.removed,
+		replacements: value.replacements,
+		added: value.added,
+		removed: value.removed,
 	};
 }
 
-function editView(result: AgentToolResult<unknown>): EditView | undefined {
+function _editView(result: AgentToolResult<unknown>): EditView | undefined {
 	const details = result.details;
 	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
 	const value = (details as Record<string, unknown>)[EDIT_VIEW_KEY];
@@ -280,79 +218,32 @@ function editView(result: AgentToolResult<unknown>): EditView | undefined {
 	return kind === "single" || kind === "multi" ? (value as EditView) : undefined;
 }
 
-function legacyEditDiff(result: AgentToolResult<unknown>): ParsedDiff | undefined {
-	const details = result.details;
-	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
-	const patch = (details as Record<string, unknown>).patch;
-	return typeof patch === "string" ? parseUnifiedPatch(patch) : undefined;
-}
-
-function maxNumberWidth(diffs: readonly ReturnType<typeof parseDiff>[]): number {
-	let max = 0;
-	for (const diff of diffs) {
-		for (const line of diff.lines) {
-			const n = Math.max(line.oldNum ?? 0, line.newNum ?? 0);
-			if (n > max) max = n;
-		}
-	}
-	return Math.max(2, String(max).length);
-}
-
-function renderEditDiff(ops: readonly EditOpView[], theme: Theme, width: number): string[] {
-	const colors = resolveDiffColors(theme);
-	const diffs = ops.map((op) => parseDiff(op.oldContent, op.newContent, 3, op.startLine));
-	const numberWidth = maxNumberWidth(diffs);
-	const blocks = diffs.map((parsed, index) =>
-		renderSplit(parsed, ops[index]?.language, MAX_RENDER_LINES, colors, width, false, numberWidth),
-	);
-	return blocks.join(`\n${renderDiffOmission(numberWidth)}\n`).split("\n");
-}
-
-function renderLegacyEditDiff(
-	diff: ParsedDiff,
-	language: string | undefined,
-	theme: Theme,
-	width: number,
-): string[] {
-	return renderSplit(
-		diff,
-		language,
-		MAX_RENDER_LINES,
-		resolveDiffColors(theme),
-		width,
-		false,
-		maxNumberWidth([diff]),
-	).split("\n");
-}
-
-function editFooter(
-	metrics: EditMetrics | undefined,
-	durationMs: number | undefined,
-): string | undefined {
-	const duration = formatDuration(durationMs);
-	if (metrics === undefined) return duration ? `error · ${duration}` : "error";
-	const edits = counted(metrics.replacements, "edit");
-	const changed = metrics.added + metrics.removed;
-	const lines =
-		changed > 0
-			? `${summarize(metrics.added, metrics.removed)} ${changed === 1 ? "line" : "lines"}`
-			: undefined;
-	return [edits, lines, duration]
-		.filter((value): value is string => value !== undefined)
-		.join(" · ");
-}
-
 function editPresentation(
 	before: string,
-	path: string,
+	_path: string,
 	operations: readonly EditOperation[],
 ): { readonly metrics: EditMetrics | undefined; readonly view: EditView | undefined } {
-	const language = lang(path);
-	const ops = operations.map((operation) => contextualOperation(before, operation, language));
+	const ops = operations.map((operation) => contextualOperation(before, operation));
 	const totals = ops.reduce(
 		(sum, op) => {
-			const parsed = parseDiff(op.oldContent, op.newContent);
-			return { added: sum.added + parsed.added, removed: sum.removed + parsed.removed };
+			const patch = Diff.structuredPatch(
+				"",
+				"",
+				normalizeLineEndings(op.oldContent),
+				normalizeLineEndings(op.newContent),
+				"",
+				"",
+				{ context: 3 },
+			);
+			let added = 0;
+			let removed = 0;
+			for (const hunk of patch.hunks) {
+				for (const line of hunk.lines) {
+					if (line.startsWith("+")) added++;
+					else if (line.startsWith("-")) removed++;
+				}
+			}
+			return { added: sum.added + added, removed: sum.removed + removed };
 		},
 		{ added: 0, removed: 0 },
 	);
@@ -370,12 +261,10 @@ function editPresentation(
 	};
 }
 
-export function registerEditTool(
-	pi: ExtensionAPI,
-	tui: ToolTui,
-	state?: FffRuntimeState,
-): ToolDefinition {
-	const baseTool = createCanonicalExecutionTool(createEditToolDefinition) as ToolDefinition<
+type TypeBoxSchema = import("typebox").TSchema;
+
+export function registerEditTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
+	const baseTool = createExecutionTool(createEditToolDefinition) as ToolDefinition<
 		EditDefinition["parameters"],
 		unknown,
 		EditState
@@ -450,33 +339,10 @@ export function registerEditTool(
 					0,
 				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const view = editView(result);
-			if (view !== undefined) {
-				const ops = view.kind === "single" ? [view.op] : view.ops;
-				return new LinesBody((width) => renderEditDiff(ops, theme, width));
-			}
-			const diff = legacyEditDiff(result);
-			if (diff === undefined) {
-				const fallback = agentResultText(result);
-				return fallback === "" ? new Container() : new Text(fallback, 0, 0);
-			}
-			const language = lang(filePath(context.args as EditArgs));
-			return new LinesBody((width) => renderLegacyEditDiff(diff, language, theme, width));
+			const fallback = agentResultText(result);
+			return fallback === "" ? new Container() : new Text(fallback, 0, 0);
 		},
 	};
-	registerCanonicalTool(
-		pi,
-		EDIT_TOOL_REGISTRATION,
-		tui.frame(tool, {
-			summary: (args) => filePath(args as EditArgs) || undefined,
-			summarySeparator: "space",
-			remotePathSummary: true,
-			maxBodyLines: Number.POSITIVE_INFINITY,
-			longOutput: true,
-			footer(result, completion) {
-				return editFooter(editMetrics(result), completion?.durationMs);
-			},
-		}),
-	);
+	pi.registerTool(tool as ToolDefinition);
 	return tool as ToolDefinition;
 }

@@ -5,14 +5,12 @@ import {
 	type SettingsState,
 } from "@hheei/pi-ext-core";
 import { defaultShellPath } from "../bash-jobs.js";
-import { readGlobalSettingsGroup } from "../global-settings.js";
 
 const GROUP = "fff";
 const BASH_GROUP = "bash";
-const EDIT_GROUP = "edit";
 const TARGET_GROUP = "targets";
 const FFF_SETTINGS_DESCRIPTIONS = {
-	provider: "Configure FFF runtime behavior. Tool activation remains owned by Loadout.",
+	provider: "Configure FFF runtime behavior.",
 	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
 	outputTail: "Visible Bash output retained in each result tail.",
 	read: "Use FFF path resolution to improve read operations when safely applicable.",
@@ -22,47 +20,11 @@ const FFF_SETTINGS_DESCRIPTIONS = {
 	grep: "Use FFF content search when its semantics are compatible with the requested grep operation.",
 } as const;
 
-const EDIT_SETTINGS_DESCRIPTIONS = {
-	provider: "Choose the static editing tool catalog for pi-ext-tools.",
-	mode: "auto uses apply_patch when the session model contains gpt, otherwise native edit/write. Pin native, apply_patch, or none; reload or start a new session after saving.",
-} as const;
-const GPT_MODEL_TOKEN = "gpt";
-
-export type EditMode = "auto" | "native" | "apply_patch" | "none";
-export type EditCatalog = Exclude<EditMode, "auto">;
-export const DEFAULT_EDIT_MODE: EditMode = "auto";
-
-export type EditModelIdentity = {
-	readonly provider?: string;
-	readonly id?: string;
-	readonly name?: string;
-};
-
-export function editModelKey(model: EditModelIdentity | undefined): string {
-	if (model === undefined) return "";
-	return [model.provider, model.id, model.name]
-		.filter((part): part is string => typeof part === "string" && part !== "")
-		.join(" ");
-}
-
-export function resolveEditCatalog(
-	mode: EditMode,
-	model: EditModelIdentity | string | undefined,
-): EditCatalog {
-	if (mode !== "auto") return mode;
-	const key = typeof model === "string" ? model : editModelKey(model);
-	return key.toLowerCase().includes(GPT_MODEL_TOKEN) ? "apply_patch" : "native";
-}
-
 export interface FffSettingsProviderOptions {
 	readonly path?: string;
 }
 
 export interface BashSettingsProviderOptions {
-	readonly path?: string;
-}
-
-export interface EditSettingsProviderOptions {
 	readonly path?: string;
 }
 
@@ -143,10 +105,6 @@ export function fffSettingsFromState(state: SettingsState | undefined): FffSetti
 	};
 }
 
-export function editModeFromState(state: SettingsState | undefined): EditMode {
-	return editModeFromValue(state?.[EDIT_GROUP]?.mode);
-}
-
 export function targetSettingsFromState(state: SettingsState | undefined): TargetSettings {
 	const value = state?.[TARGET_GROUP]?.sshWhitelist;
 	if (!Array.isArray(value)) return DEFAULT_TARGET_SETTINGS;
@@ -168,17 +126,6 @@ export async function loadTargetSettings(
 	context: SettingsContext,
 ): Promise<TargetSettings> {
 	return targetSettingsFromState(await provider.storage.load(context));
-}
-
-function editModeFromValue(value: unknown): EditMode {
-	return value === "auto" || value === "native" || value === "apply_patch" || value === "none"
-		? value
-		: DEFAULT_EDIT_MODE;
-}
-
-/** Static catalog settings are read before tool registration; malformed files retain the default. */
-export function readEditMode(path?: string): EditMode {
-	return editModeFromValue(readGlobalSettingsGroup(EDIT_GROUP, path)?.mode);
 }
 
 export async function loadFffSettings(
@@ -294,46 +241,5 @@ export function createFffSettingsProvider(
 			},
 		],
 		storage,
-	};
-}
-
-export function createEditSettingsProvider(
-	options: EditSettingsProviderOptions = {},
-): SettingsProvider {
-	return {
-		id: "pi-ext-tools.edit",
-		title: "Edit",
-		origin: "@hheei/pi-ext-tools",
-		description: EDIT_SETTINGS_DESCRIPTIONS.provider,
-		groups: [
-			{
-				id: EDIT_GROUP,
-				title: "",
-				fields: [
-					{
-						id: "mode",
-						label: "Edit Mode",
-						type: "enum",
-						defaultValue: DEFAULT_EDIT_MODE,
-						description: EDIT_SETTINGS_DESCRIPTIONS.mode,
-						options: [
-							{ value: "auto", label: "Auto" },
-							{ value: "native", label: "Native" },
-							{ value: "apply_patch", label: "Apply Patch" },
-							{ value: "none", label: "None" },
-						],
-						parse: (value) => value,
-						validate: (value) =>
-							value === "auto" || value === "native" || value === "apply_patch" || value === "none"
-								? undefined
-								: "Edit Mode must be auto, native, apply_patch, or none",
-					},
-				],
-			},
-		],
-		storage: createJsonSettingsStorage({
-			...(options.path === undefined ? {} : { path: options.path }),
-			group: EDIT_GROUP,
-		}),
 	};
 }

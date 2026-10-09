@@ -1,0 +1,335 @@
+{
+  "host": "oracle-kr",
+  "binary_sha256": "4a71c83e3e265bd0778c19af2583c2711a402a468e225eded8042b90c84091cb",
+  "binary_revision": "f346cc22db14560e75cd6c4fb16065c9bd55175e",
+  "CPA": "v8.0.8",
+  "route": {
+    "channel": "antigravity",
+    "connection_type": "subscription",
+    "client_model": "gemini-3.8-flash",
+    "configured_upstream_model": "gemini-3.8-flash-high",
+    "group_proxy": "direct",
+    "group_params": {},
+    "group_overrides": {}
+  },
+  "original_abnormal_request": {
+    "id": "d0838b26-8e64-406a-a52b-d8e8c083fe79",
+    "completed_at_ms": 1791540232069,
+    "credential_id": 26,
+    "channel_id": "antigravity",
+    "upstream_model": "gemini-3.8-flash-high",
+    "upstream_reported_model": "gemini-3.8-flash-high",
+    "protocol": "openai-responses",
+    "reasoning_effort": "medium",
+    "duration_ms": 8158
+  },
+  "paired_gateway_request": {
+    "id": "6e72c923-65cc-4f5f-96dc-fcbd757cd5cb",
+    "credential_id": 23,
+    "channel_id": "antigravity",
+    "upstream_model": "gemini-3.8-flash-high",
+    "upstream_reported_model": "gemini-3.8-flash-high",
+    "reasoning_effort": "medium",
+    "attempt_count": 1,
+    "status_code": 200,
+    "output_tokens": 82,
+    "completed_at_ms": 1791542718835
+  },
+  "direct_google_request_headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "antigravity/hub/2.9.1 darwin/arm64",
+    "Authorization": "[omitted]"
+  },
+  "direct_google_observations": {
+    "endpoint": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+    "model": "gemini-3.8-flash-high",
+    "results": [
+      {
+        "prompt": "Use lookup with query strawberry. Before calling, reason about which argument to use.",
+        "seconds": 3.6,
+        "request_thinking_config": {
+          "thinkingLevel": "medium",
+          "includeThoughts": true
+        },
+        "events": [
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thought": true,
+                        "text": "The `lookup` tool requires a `query` argument. The user's input \"strawberry\" directly corresponds to the required `query` parameter. Thus, \"strawberry\" will be used as the argument.\n\n\n"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "totalTokenCount": 56
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "To look up the word \"strawberry\", we should use the `lookup` tool."
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "candidatesTokenCount": 17,
+                "totalTokenCount": 205,
+                "thoughtsTokenCount": 132
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": " This tool requires a single argument, `query`, which takes a string representing the word to be defined or looked up. Therefore"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "candidatesTokenCount": 42,
+                "totalTokenCount": 230,
+                "thoughtsTokenCount": 132
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": ", the argument `query` should be set to `\"strawberry\"`."
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "candidatesTokenCount": 56,
+                "totalTokenCount": 244,
+                "thoughtsTokenCount": 132
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thoughtSignature": "[redacted signature]",
+                        "functionCall": {
+                          "name": "lookup",
+                          "args": {
+                            "query": "strawberry"
+                          },
+                          "id": "call_191562"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "candidatesTokenCount": 70,
+                "totalTokenCount": 258,
+                "thoughtsTokenCount": 132
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": ""
+                      }
+                    ]
+                  },
+                  "finishReason": "STOP"
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 56,
+                "candidatesTokenCount": 70,
+                "totalTokenCount": 258,
+                "thoughtsTokenCount": 132
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "P8bIapPXK6ex2roP17HquQE"
+            },
+            "traceId": "4adcea950b5b7dbb",
+            "metadata": {}
+          }
+        ]
+      },
+      {
+        "prompt": "Use lookup with query strawberry.",
+        "seconds": 2.49,
+        "request_thinking_config": {
+          "thinkingLevel": "medium",
+          "includeThoughts": true
+        },
+        "events": [
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "thoughtSignature": "[redacted signature]",
+                        "functionCall": {
+                          "name": "lookup",
+                          "args": {
+                            "query": "strawberry"
+                          },
+                          "id": "call_212013"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 46,
+                "candidatesTokenCount": 14,
+                "totalTokenCount": 80,
+                "thoughtsTokenCount": 20
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "QMbIareUDtnw2roPlu6h6AE"
+            },
+            "traceId": "c922983317479bd",
+            "metadata": {}
+          },
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": ""
+                      }
+                    ]
+                  },
+                  "finishReason": "STOP"
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 46,
+                "candidatesTokenCount": 14,
+                "totalTokenCount": 80,
+                "thoughtsTokenCount": 20
+              },
+              "modelVersion": "gemini-3.8-flash-n",
+              "responseId": "QMbIareUDtnw2roPlu6h6AE"
+            },
+            "traceId": "c922983317479bd",
+            "metadata": {}
+          }
+        ]
+      }
+    ]
+  },
+  "note": "Two direct Google synthetic tool requests sent from oracle-kr using existing unexpired credential. Project/account/token stayed on server. thoughtSignature redacted; no gpt-load response conversion in direct observations. Old-UA 2.2.1 probes returned 404; 2.9.1 matching CPA fallback succeeded. Older model list from old UA is not current model routing evidence.",
+  "google_model_catalog": {
+    "gemini-3.8-flash-low": {
+      "supportsThinking": true,
+      "thinkingBudget": 1000,
+      "minThinkingBudget": 32,
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M320",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "reasoning_tool_experiments": {}
+    },
+    "gemini-3.8-flash-tiered": {
+      "supportsThinking": true,
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M322",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "reasoning_tool_experiments": {}
+    },
+    "gemini-3.8-flash-medium": {
+      "supportsThinking": true,
+      "thinkingBudget": 4000,
+      "minThinkingBudget": 32,
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M319",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "reasoning_tool_experiments": {}
+    },
+    "gemini-3.8-flash-high": {
+      "supportsThinking": true,
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M318",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "reasoning_tool_experiments": {}
+    }
+  }
+}

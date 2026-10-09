@@ -316,10 +316,6 @@ test("rejects unknown, unimplemented, and conflicting agent fields", async (): P
 				definition: "---\nname: labour\nhidden: yes\n---\nbody\n",
 				reason: /hidden must be boolean/u,
 			},
-			{
-				definition: "---\nname: labour\ninteractive: yes\n---\nbody\n",
-				reason: /interactive must be boolean/u,
-			},
 			{ definition: "---\nname: other\n---\nbody\n", reason: /Unknown agent labour/u },
 		];
 		for (const item of cases) {
@@ -378,29 +374,6 @@ test("reports an unknown agent name and an unreadable frontmatter document", asy
 		await expect(resolve(directory, "nameless", bridge)).rejects.toThrow(
 			/name must be a non-empty string/u,
 		);
-	});
-});
-
-test("defaults interactive to false and freezes an explicit true", async (): Promise<void> => {
-	await withTempDir("pi-subagents-agents-", async (directory) => {
-		const bridge = join(directory, "bridge.js");
-		await writeFile(bridge, "", "utf8");
-		await writeAgent(directory, ".pi", "worker", "---\nname: worker\n---\nbody\n");
-		expect((await resolve(directory, "worker", bridge)).interactive).toBe(false);
-		await writeAgent(
-			directory,
-			".pi",
-			"worker",
-			"---\nname: worker\ninteractive: true\n---\nbody\n",
-		);
-		expect((await resolve(directory, "worker", bridge)).interactive).toBe(true);
-		await writeAgent(
-			directory,
-			".pi",
-			"worker",
-			"---\nname: worker\ninteractive: false\n---\nbody\n",
-		);
-		expect((await resolve(directory, "worker", bridge)).interactive).toBe(false);
 	});
 });
 
@@ -539,12 +512,13 @@ test("subagent in user domain overwrites built-in with empty body, inheriting bu
 		expect(scout).toBeDefined();
 		expect(scout?.enabled).toBe(true);
 		expect(scout?.frontmatter.description).toContain("Read-only reconnaissance");
-		expect(scout?.body).toContain("You are a read-only scout");
+		const builtinBody = builtinAgents().find((agent) => agent.name === "scout")!.body;
+		expect(scout?.body).toBe(builtinBody);
 
 		const resolved = await resolve(directory, "scout", bridge);
 		expect(resolved.model).toEqual({ provider: "openai", id: "gpt-5-codex", source: "agent" });
 		expect(resolved.thinking).toEqual({ level: "low", source: "agent" });
-		expect(resolved.agent.instructions).toContain("You are a read-only scout");
+		expect(resolved.agent.instructions).toBe(builtinBody);
 		expect(resolved.tools).toContain("read");
 		expect(resolved.tools).toContain("contact_parent");
 		expect(resolved.enabled).toBe(true);
@@ -621,5 +595,43 @@ test("codemode only detection appends codemode to tools and marks codemodeOnly",
 		const resolvedPlain = await resolve(directory, "plain-worker", bridge);
 		expect(resolvedPlain.codemodeOnly).toBe(true);
 		expect(resolvedPlain.tools).toEqual(["read", "contact_parent", "codemode"]);
+	});
+});
+
+test("detectCodemodeOnly respects project settings over user settings", async () => {
+	await withTempDir("test-settings-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+		const userSettingsPath = join(homeDir, ".pi", "agent", "settings.json");
+		const projSettingsPath = join(projDir, ".pi", "settings.json");
+
+		await mkdir(dirname(userSettingsPath), { recursive: true });
+		await mkdir(dirname(projSettingsPath), { recursive: true });
+
+		await writeFile(userSettingsPath, JSON.stringify({ codemode: { mode: "only" } }));
+		await writeFile(projSettingsPath, JSON.stringify({ codemode: { mode: "on" } }));
+
+		const { detectCodemodeOnly } = await import("../src/agent-resolver.js");
+		expect(detectCodemodeOnly(projDir, homeDir)).toBe(false);
+	});
+});
+
+test("resolveAgent keeps tools unrestricted when frontmatter omits tools in codemodeOnly mode", async () => {
+	await withTempDir("test-tools-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+		await writeAgent(directory, ".pi", "open-bot", "---\nname: open-bot\n---\nPrompt body here.\n");
+
+		const resolved = await resolveAgent({
+			name: "open-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+			skillCatalog: [],
+		});
+
+		expect(resolved.tools).toEqual([]);
 	});
 });

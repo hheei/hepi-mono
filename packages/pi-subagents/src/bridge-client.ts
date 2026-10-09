@@ -44,6 +44,11 @@ export interface ChildBridgeClientOptions {
 	readonly identity: ChildIdentity;
 	/** Executes a parent request; a thrown error becomes a failure response. */
 	readonly handleRequest: (request: ChildBridgeRequest) => Promise<unknown>;
+	/**
+	 * Called after every successful handshake, including the first. A reconnecting child uses it to
+	 * resend whatever state the parent needs to stay synchronized.
+	 */
+	readonly onConnect?: () => void;
 	readonly reconnectDelayMs?: number;
 	readonly maxBufferedReports?: number;
 	readonly maxFrameBytes?: number;
@@ -355,6 +360,11 @@ export class ChildBridgeClient {
 		this.#connected = true;
 		socket.on("close", () => this.#teardown(socket));
 		socket.on("error", () => this.#teardown(socket));
+		try {
+			this.#options.onConnect?.();
+		} catch (error) {
+			this.#diagnose(`onConnect handler failed: ${errorMessage(error)}`);
+		}
 		void this.#flush();
 		return true;
 	}

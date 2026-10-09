@@ -16,7 +16,6 @@ import {
 	registerActiveEditor,
 	unregisterActiveEditor,
 } from "./editor-working-status.js";
-import { getToolTui, isTuiScrolledUp } from "./tool-tui.js";
 
 export interface TelemetryMetrics {
 	readonly input: number;
@@ -278,7 +277,6 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			previousEditorFactory = context.ui.getEditorComponent();
 			installedEditorFactory = (tui, theme, keybindings) => {
 				activeTui = tui;
-				getToolTui(pi).setScrolledUpPredicate(() => isTuiScrolledUp(activeTui));
 				const baseEditor =
 					previousEditorFactory?.(tui, theme, keybindings) ??
 					new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
@@ -293,7 +291,6 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		dispose(sessionId) {
 			if (activeSessionId !== sessionId) return;
 			clearDismissTimer();
-			getToolTui(pi).setScrolledUpPredicate(undefined);
 			if (
 				activeContext !== undefined &&
 				installedEditorFactory !== undefined &&

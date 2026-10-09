@@ -42,6 +42,8 @@ export interface TaskBinding {
 	stop(): void;
 	/** Current output of a task that has not reached a terminal state. */
 	describe(): TaskProgress;
+	/** Notify that the terminal result was consumed directly (e.g. by wait_jobs). */
+	consume?(): void;
 }
 
 export interface TaskRequest {
@@ -534,6 +536,27 @@ export class TaskRegistry {
 	markObserved(batch: string): void {
 		for (const record of this.#records.values()) {
 			if (record.delivery === "submitted" && record.batch === batch) record.delivery = "observed";
+		}
+		this.#evict();
+	}
+
+	/**
+	 * Marks terminal results as consumed directly by an inline tool (e.g. wait_jobs).
+	 * Sets delivery to 'observed' for specified tasks so background notification channels do not redeliver them,
+	 * and notifies the task binding via consume() if provided.
+	 */
+	markConsumed(ids: readonly string[]): void {
+		for (const id of ids) {
+			const record = this.#records.get(id);
+			if (record === undefined) continue;
+			if (record.delivery === "pending" || record.delivery === "submitted") {
+				record.delivery = "observed";
+			}
+			try {
+				record.binding?.consume?.();
+			} catch {
+				// Producers must not fail registry consumption
+			}
 		}
 		this.#evict();
 	}

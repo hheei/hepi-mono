@@ -14,7 +14,6 @@ import {
 	renderSummary,
 	resolveMemoryBudget,
 	retainedTailTokens,
-	sanitizeRetainedAssistantMessages,
 	selectVisibleMemory,
 } from "../session-ledger/index.js";
 import { estimateStringTokens } from "../tokens.js";
@@ -56,13 +55,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 				}
 				const { preparation, branchEntries } = event;
 				const { firstKeptEntryId, tokensBefore } = preparation;
-				const rawEntries = branchEntries as Entry[];
-				const { sanitizedEntries } = sanitizeRetainedAssistantMessages(
-					rawEntries,
-					firstKeptEntryId,
-					ctx.sessionManager,
-				);
-				const entries = sanitizedEntries;
+				const entries = branchEntries as Entry[];
 				// Optional call: hosts older than this extension's minimum Pi version may
 				// not report a system prompt, and the budget falls back to a constant.
 				const systemPrompt = ctx.getSystemPrompt?.();

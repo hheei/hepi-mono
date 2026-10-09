@@ -34,7 +34,7 @@ Kernel 子进程不继承 `*_API_KEY` / `*_TOKEN` / `*_SECRET`。Python 把 sess
 
 每个 cell 开始时把 cwd 设回 session cwd。JavaScript 把 `process.stdout` / `process.stderr` 的 write 转进 Transcript。soft-cancel 清除该 JS kernel 上尚未触发的 timer。POSIX 上 kernel 在 host 消失后退出。`PYTHONPATH` 与 `LD_LIBRARY_PATH` 会传给 kernel。
 
-NDJSON 单行超过约 1 MiB 时该语言 kernel 失败。details 最多保留 200 行、每行文本最多 4,000 字符；超出该行数的部分只由一行 `… N more output row(s) omitted` 记录。model-visible `content` 由这些行拼成，封顶 12,000 字符（超出时追加一行 `Eval transcript truncated in tool result.`），不再另存一份 Output 缓冲；失败行与省略提示各占一行、不参与行数上限，因此长输出之后的异常不会被截掉。nested live renderer cache 只在本进程内保留可重绘的 nested 结果，按实际保留内容的字符预算（512 KiB：文本、图片 base64 与 stringify 后的 details 都计入）淘汰最旧项，单项超过整个预算或 details 无法序列化时不保留，而不是被下一格清空；进程重启或 reload 后历史 nested 行回退为 `name: text` 文本，不持久化 raw details。执行过程通过 `onUpdate` 推送 rows。Python fd 1 由背景线程 drain，避免子进程写满 pipe。
+NDJSON 单行超过约 1 MiB 时该语言 kernel 失败。details 最多保留 200 行、每行文本最多 4,000 字符；超出该行数的部分只由一行 `… N more output row(s) omitted` 记录。model-visible `content` 由这些行拼成，封顶 12,000 字符（超出时追加一行 `Eval transcript truncated in tool result.`），不再另存一份 Output 缓冲；失败行与省略提示各占一行、不参与行数上限，因此长输出之后的异常不会被截掉。执行过程通过 `onUpdate` 推送 rows。Python fd 1 由背景线程 drain，避免子进程写满 pipe。
 
 `pi-ext-tools.eval.enabled` 默认 `false`。construction 注册 canonical definition 与 renderer；`session_start` 仅在设置启用时把 `eval` 放进 active catalog 与 Loadout。设置变化只在 reload 或新 session 生效。
 
@@ -87,7 +87,7 @@ Final Value 是最后 expression 的 awaited 值；`undefined` 不产生 final-r
 
 rows 是 line-oriented 的：kernel 分块送来的 `onText` 按 newline 断行，一个 printed line 一行；结尾 newline 只结束当前行而不额外产生空行，尚未收到 newline 的同一行在后续 chunk 里改写该行（不会变成两行），空行仍是独立一行，行内剥离 cell 自身打印的终端控制序列。`display` 与 `result` 行各自带 dim `display:` / `result:` label，二者与 printed line 一样进入 model-visible Transcript。
 
-TUI 使用 ToolTui，契约见 [DESIGN.md](../../DESIGN.md)；结果 body 声明 `longOutput: true`，因此与其他长输出工具一样受 Tool Output collapse 策略约束。nested trace 优先重用 owned canonical renderer。resume 只读 persisted Eval Result Detail。
+渲染由 pi-ext-ui 的 ToolView 负责（工具定义本身不声明 renderer）：collapsed header 为 `eval py (reset) · (timeout Ns) · N calls/rows · duration`，容器规则下顶层不画 ✓/◐；Level 0 的 collapsed rows 显示每个 nested tool 调用的 `<tool> <path> (+N -M)` 摘要行（复用 file-tool presentation，`trace.args` 是完整对象），Level 1/2 按 execution 顺序展开全部 rows（text 行原样、`display:`/`result:` 带 dim label、tool 行同 collapsed 摘要格式）。✗ 只在 cell 自身失败（`details.error` 存在且无 nested 调用分担失败）时出现；nested tool 失败时 ✗ 保留在该子行。copy primary 是 `args.code`，full 是 code + 输出。resume 只读 persisted Eval Result Detail（`format: "pi-ext-tools-eval"`），不重跑 code 或读取 workspace。
 
 ## 已批准、未实现的 Code Mode Exposition
 

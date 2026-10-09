@@ -1,7 +1,9 @@
-import type {
-	AgentEndEvent,
-	BeforeAgentStartEvent,
-	ExtensionContext,
+import { getCurrentSystemMessage } from "@earendil-works/pi-ai/utils/transcript";
+import {
+	type AgentEndEvent,
+	type BeforeAgentStartEvent,
+	buildSessionContext,
+	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { errorMessage, isSubagentProcess, setPromptSection } from "@hheei/pi-ext-core";
 import { debugLog } from "../debug-log.js";
@@ -11,10 +13,14 @@ import {
 	type HindsightPageSummary,
 	openHindsightGateway,
 } from "./client.js";
-import { loadHindsightConfig, type ResolvedHindsight } from "./config.js";
+import {
+	type HindsightBankSource,
+	type HindsightIsolationMode,
+	loadHindsightConfig,
+	type ResolvedHindsight,
+} from "./config.js";
 import { renderHindsightPreamble, renderMemoryContainer, TRUNCATION_NOTICE } from "./prompt.js";
-import { HindsightRetainQueue } from "./queue.js";
-import type { HindsightToolContext } from "./tools.js";
+import { HindsightRetainQueue, type HindsightRetainStatus } from "./queue.js";
 import { buildHindsightTurns } from "./transcript.js";
 
 /** Knowledge-page hits injected before a turn when auto-recall is on. */
@@ -32,7 +38,7 @@ export interface HindsightInjection {
  * Prompt sections this extension owns. Pi diffs sections per request, so the preamble is sent
  * once and recalled facts are replaced only when they change.
  */
-const PREAMBLE_SECTION = "pi-ext-memory-preamble";
+const PREAMBLE_SECTION = "hindsight-preamble";
 const RECALL_SECTION = "hindsight-recall";
 
 /**
@@ -95,6 +101,24 @@ interface PromptRecallResult {
 	readonly truncated: boolean;
 }
 
+/** Local diagnostic snapshot exposed to `/om status`. */
+export interface HindsightDiagnostics {
+	readonly bankId: string;
+	readonly bankSource: HindsightBankSource;
+	readonly repo: string;
+	readonly isolationMode: HindsightIsolationMode;
+	readonly scopeTags: readonly string[];
+	readonly retainTags: readonly string[];
+	readonly apiUrl: string;
+	readonly mcpUrl: string;
+	readonly bankMcpUrl: string;
+	readonly tokenConfigured: boolean;
+	readonly autoRecall: boolean;
+	readonly retainSessions: boolean;
+	readonly writeback: HindsightRetainStatus;
+	readonly fileConfigOverride?: string | undefined;
+}
+
 /** Result of booting the Hindsight layer for one session. */
 export type HindsightStart =
 	| { readonly status: "disabled" }
@@ -118,23 +142,39 @@ export class HindsightSession {
 	#lastRecallResult: PromptRecallResult | undefined;
 	#firstTurn = true;
 	#lifecycleSignal: AbortSignal;
-	#preamblePromise: Promise<string> | undefined;
+	readonly #preamblePromise: Promise<string>;
 
-	constructor(resolved: ResolvedHindsight, gateway: HindsightGateway, signal: AbortSignal) {
+	constructor(
+		resolved: ResolvedHindsight,
+		gateway: HindsightGateway,
+		signal: AbortSignal,
+		preamble?: string,
+	) {
 		this.resolved = resolved;
 		this.gateway = gateway;
 		this.retainQueue = new HindsightRetainQueue(gateway);
 		this.#lifecycleSignal = signal;
-		this.#preamblePromise = this.#renderPreamble();
+		this.#preamblePromise =
+			preamble === undefined ? this.#renderPreamble() : Promise.resolve(preamble);
 	}
 
-	/** Context handed to the tool registrations. */
-	toolContext(): HindsightToolContext {
+	/** Snapshot of local configuration and writeback queue state. */
+	diagnostics(fileConfigOverride?: string): HindsightDiagnostics {
 		return {
-			gateway: this.gateway,
-			resolved: this.resolved,
-			retainQueue: this.retainQueue,
-			invalidateRecallCache: () => this.invalidateRecallCache(),
+			bankId: this.resolved.bankId,
+			bankSource: this.resolved.bankSource,
+			repo: this.resolved.repo,
+			isolationMode: this.resolved.isolationMode,
+			scopeTags: this.resolved.scopeTags,
+			retainTags: this.resolved.retainTags,
+			apiUrl: this.resolved.config.apiUrl,
+			mcpUrl: this.resolved.config.mcpUrl,
+			bankMcpUrl: this.resolved.bankMcpUrl,
+			tokenConfigured: this.resolved.config.apiToken !== undefined,
+			autoRecall: this.resolved.config.autoRecall,
+			retainSessions: this.resolved.config.retainSessions,
+			writeback: this.retainQueue.status(),
+			...(fileConfigOverride ? { fileConfigOverride } : {}),
 		};
 	}
 
@@ -146,10 +186,9 @@ export class HindsightSession {
 	/**
 	 * Adds long-term memory to the prompt as two named sections.
 	 *
-	 * The first turn of a session receives the preamble that explains the memory and its
-	 * tools; later turns only receive retrieved facts, so guidance the model has already
-	 * read is not paid for again. Sections are independent: a turn whose recall is
-	 * unchanged sends no prompt update at all.
+	 * Every turn supplies the complete desired sections. Omitting a section tells Pi to
+	 * delete it; supplying the same cached preamble lets Pi avoid a prompt update.
+	 * Only the first turn reports the guide in the visible injection summary.
 	 */
 	async beforeAgentStart(event: BeforeAgentStartEvent): Promise<HindsightInjection | undefined> {
 		if (this.#lifecycleSignal.aborted) return undefined;
@@ -157,21 +196,17 @@ export class HindsightSession {
 		const firstTurn = this.#firstTurn;
 		this.#firstTurn = false;
 
-		const preamblePromise = firstTurn
-			? (this.#preamblePromise ?? this.#renderPreamble())
-			: undefined;
-		this.#preamblePromise = undefined;
-
 		const recallPromise =
 			this.resolved.config.autoRecall && event.prompt.trim().length > 0
 				? this.#recallForPrompt(event.prompt)
 				: undefined;
 
-		const [preamble, recalled] = await Promise.all([preamblePromise, recallPromise]);
+		const [preamble, recalled] = await Promise.all([this.#preamblePromise, recallPromise]);
+		if (this.#lifecycleSignal.aborted) return undefined;
+		setPromptSection(sections, PREAMBLE_SECTION, preamble);
 
 		const summary: string[] = [];
-		if (preamble !== undefined) {
-			setPromptSection(sections, PREAMBLE_SECTION, preamble);
+		if (firstTurn) {
 			summary.push("memory guide");
 		}
 		let pages: HindsightPageHit[] = [];
@@ -285,14 +320,38 @@ function sessionIdOf(ctx: ExtensionContext): string {
  * fallback config file read — unless `pi-ext-memory.hindsight.enabled` is explicitly true.
  */
 export async function startHindsightSession(
-	cwd: string,
+	context: Pick<ExtensionContext, "cwd" | "sessionManager">,
 	signal: AbortSignal,
 	env: NodeJS.ProcessEnv = process.env,
 ): Promise<HindsightStart> {
-	if (isSubagentProcess(env)) return { status: "disabled" };
-	const resolved = await loadHindsightConfig(cwd, env, signal);
-	if (resolved === undefined) return { status: "disabled" };
-	const gateway = await openHindsightGateway(resolved);
-	if ("error" in gateway) return { status: "error", error: gateway.error };
-	return { status: "ready", session: new HindsightSession(resolved, gateway, signal) };
+	try {
+		if (isSubagentProcess(env)) return { status: "disabled" };
+		const resolved = await loadHindsightConfig(context.cwd, env, signal);
+		if (resolved === undefined) return { status: "disabled" };
+		const gateway = await openHindsightGateway(resolved);
+		if ("error" in gateway) return { status: "error", error: gateway.error };
+		const messages = buildSessionContext(context.sessionManager.getBranch()).messages;
+		const persisted = getCurrentSystemMessage(
+			messages.filter((message) => message.role === "system"),
+		)?.sections?.[PREAMBLE_SECTION];
+		const opening = `<${PREAMBLE_SECTION}>\n`;
+		const closing = `\n</${PREAMBLE_SECTION}>`;
+		const body =
+			persisted?.startsWith(opening) && persisted.endsWith(closing)
+				? persisted.slice(opening.length, -closing.length)
+				: undefined;
+		const guide = renderHindsightPreamble({
+			repo: resolved.repo,
+			bankId: resolved.bankId,
+			isolationMode: resolved.isolationMode,
+			pagesAvailable: true,
+			pages: [],
+		});
+		const preamble = body?.startsWith(guide.slice(0, guide.indexOf("\n\nKnowledge pages:")))
+			? body
+			: undefined;
+		return { status: "ready", session: new HindsightSession(resolved, gateway, signal, preamble) };
+	} catch (error) {
+		return { status: "error", error: errorMessage(error) };
+	}
 }

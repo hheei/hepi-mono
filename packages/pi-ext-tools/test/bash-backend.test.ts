@@ -4,11 +4,9 @@ import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionToolContext,
-	Theme,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
-import { createToolTui, type ToolTui } from "@hheei/pi-ext-core";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
@@ -16,8 +14,8 @@ import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycl
 import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
 import { TargetRuntime } from "../src/targets.js";
 import { registerTaskTools } from "../src/task-tools.js";
-import { renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
-import { plainTheme, roleTheme } from "./fixtures/theme.js";
+import { toolFor, toolHost } from "./fixtures/harness.js";
+import { roleTheme } from "./fixtures/theme.js";
 
 initTheme(undefined, false);
 
@@ -53,9 +51,9 @@ function bashContext(
 }
 
 /** Registers bash on a capturing host and returns it, optionally framed by a ToolTui. */
-function bashTool(tui?: ToolTui): ToolDefinition {
+function bashTool(): ToolDefinition {
 	const host = toolHost();
-	registerBashTool(host.pi, undefined, tui);
+	registerBashTool(host.pi, undefined);
 	return toolFor(host.tools, "bash");
 }
 
@@ -168,7 +166,7 @@ test("bash exposes only background use guidance", (): void => {
 	]);
 });
 
-test("task-control tools carry their own activation-scoped guidelines", (): void => {
+test("task-control tools keep usage guidance in descriptions without changing system rules", (): void => {
 	const tools: ToolDefinition[] = [];
 	registerTaskTools(
 		{
@@ -178,146 +176,14 @@ test("task-control tools carry their own activation-scoped guidelines", (): void
 		} as unknown as ExtensionAPI,
 		createFffRuntimeState(),
 	);
-	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([
-		undefined,
-		["Do not poll background jobs. Use `wait_jobs` only when the next step needs their results."],
-		["Stop background jobs when their results are no longer needed."],
-	]);
-});
-
-test("bash states its invocation facts in the header and keeps the command in the body", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBashTool({
-		registerTool(tool: ToolDefinition): void {
-			tools.push(tool);
-		},
-	} as unknown as ExtensionAPI);
-	const bash = toolFor(tools, "bash");
-	const theme = {
-		bg: (_role: string, text: string): string => text,
-		fg: (role: string, text: string): string => (role === "dim" ? `<dim>${text}</dim>` : text),
-		bold: (text: string): string => text,
-	} as Theme;
-	const text = bash
-		.renderCall?.({ command: "printf one", timeout: 120 }, theme, {
-			isError: false,
-			isPartial: true,
-			lastComponent: undefined,
-			state: {},
-		} as never)
-		.render(120);
-	if (text === undefined) throw new Error("Expected bash call renderer");
-	// The command is the request body, so the header only repeats the call facts.
-	expect(text[0]).toBe("󰪠 bash<dim> (timeout 120s)</dim>");
-	expect(text[2]).toBe("printf one");
-});
-
-test("bash keeps a multi-line command in the body and its timeout in the header", (): void => {
-	const bash = bashTool();
-	const theme = plainTheme;
-	const text = bash
-		.renderCall?.({ command: "printf first\nprintf second", timeout: 20 }, theme, {
-			isError: false,
-			isPartial: true,
-			lastComponent: undefined,
-			state: {},
-		} as never)
-		.render(80)
-		.join("\n");
-	expect(text).toContain("bash (timeout 20s)");
-	expect(text).toContain("printf first");
-	expect(text).toContain("printf second");
-});
-
-test("bash keeps the full command in a request body after the result arrives", (): void => {
-	const bash = bashTool();
-	const theme = plainTheme;
-	const rows =
-		bash
-			.renderCall?.({ command: "printf first\nprintf second", timeout: 20 }, theme, {
-				isError: false,
-				isPartial: false,
-				lastComponent: undefined,
-				state: {},
-				toolCallId: "bash-request",
-				executionStarted: true,
-				expanded: false,
-				invalidate: (): void => undefined,
-			} as never)
-			.render(120) ?? [];
-	// The header keeps only the call facts; the request body keeps the command verbatim.
-	expect(rows[0]).toBe("󰄴 bash (timeout 20s)");
-	expect(rows[1]).toBe("─".repeat(120));
-	expect(rows[2]).toBe("printf first");
-	expect(rows[3]).toBe("printf second");
-	expect(rows[4]).toBe("─".repeat(120));
-});
-
-test("a previous bash trace keeps its facts and drops the command", async (): Promise<void> => {
-	const tui = createToolTui();
-	const bash = bashTool(tui);
-	tui.beginTrace();
-	await bash.execute("previous-bash", { command: "true" }, undefined, undefined, {
-		cwd: process.cwd(),
-		sessionManager: { getLeafId: () => null },
-	} as unknown as ExtensionToolContext);
-	tui.beginTrace();
-	const theme = plainTheme;
-	const line = bash
-		.renderCall?.({ command: `printf ${"x".repeat(80)}`, timeout: 20 }, theme, {
-			isError: false,
-			isPartial: false,
-			lastComponent: undefined,
-			state: {},
-			toolCallId: "previous-bash",
-			executionStarted: false,
-			expanded: false,
-			invalidate: (): void => undefined,
-		} as never)
-		.render(40)[0];
-	expect(line).toBe("󰄴 bash (timeout 20s)");
-});
-
-test("bash closes its output with a full-width divider above the typed footer", (): void => {
-	const bash = bashTool();
-	const theme = roleTheme;
-	// The host renders the call before its result under the same tool call id, and that call body is
-	// what closes the section the result continues: without it, the result opens the rail itself.
-	const context = renderContextFor({
-		args: { command: "printf stdout" },
-		toolCallId: "call-1",
-		cwd: process.cwd(),
+	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([undefined, undefined, undefined]);
+	expect(toolFor(tools, "wait_jobs").description).toContain("Do not poll background jobs");
+	expect(toolFor(tools, "wait_jobs").parameters).toMatchObject({
+		properties: { ids: { description: expect.stringContaining("agent-1") } },
 	});
-	bash.renderCall?.({ command: "printf stdout" }, theme, context);
-	const lines = bash
-		.renderResult?.(
-			{ content: [{ type: "text", text: "stdout" }], details: {} },
-			{ expanded: false, isPartial: false },
-			theme,
-			context,
-		)
-		.render(40);
-	// The request body above already closed its own section, so the result body opens without a rail.
-	expect(lines?.[0]).toBe("stdout");
-	expect(lines?.[1]).toBe(`<muted>${"─".repeat(40)}</muted>`);
-	expect(lines?.[2]).toBe("<dim>exit ? · 1 line · completed</dim>");
-	expect(lines?.join("\n")).toContain("stdout");
-	expect(lines?.join("\n")).not.toContain("<text>stdout");
-	expect(lines?.join("\n")).not.toContain("<toolOutput>stdout</toolOutput>");
-});
-
-test("bash omits body rails when output has zero lines", (): void => {
-	const bash = bashTool();
-	const theme = roleTheme;
-	const lines = bash
-		.renderResult?.(
-			{ content: [{ type: "text", text: "" }], details: { output: "", exitCode: 0 } },
-			{ expanded: false, isPartial: false },
-			theme,
-			bashContext("true"),
-		)
-		.render(40);
-	expect(lines).toEqual(["<dim>exit 0 · 0 lines · completed</dim>"]);
+	expect(toolFor(tools, "stop_jobs").description).toContain(
+		"when their results are no longer needed",
+	);
 });
 
 test("bash removes renderer padding around short newline-terminated output", (): void => {
@@ -360,8 +226,6 @@ test("bash compacts and dims its collapsed earlier-lines hint", (): void => {
 		.render(120)
 		.join("\n");
 	expect(text).toMatch(/<dim>… \(\d+ earlier lines,/);
-	expect(text).not.toMatch(/\n<text><\/text>\n<text><dim>\.\.\./);
-	expect(text).not.toMatch(/<\/dim><\/text>\n<text><\/text>\n<text>line/);
 });
 
 test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void => {
@@ -442,39 +306,6 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 		.filter((line) => !line.includes("─"));
 	if (tail === undefined) throw new Error("Expected tailed bash body");
 	expect(tail[0]).toContain("… (77 earlier lines, ctrl+o to expand)");
-});
-
-test("bash summarizes exit code, output lines, and duration in collapsed traces", async (): Promise<void> => {
-	const tui = createToolTui();
-	const bash = bashTool(tui);
-	tui.beginTrace();
-	const result = await bash.execute(
-		"completed-bash",
-		{ command: "printf 'one\\ntwo\\n'" },
-		undefined,
-		undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
-	);
-	tui.beginTrace();
-	const theme = plainTheme;
-	const footer = bash
-		.renderResult?.(
-			result,
-			{ expanded: false, isPartial: false },
-			theme,
-			bashContext("printf 'one\\ntwo\\n'", false, {
-				toolCallId: "completed-bash",
-				executionStarted: false,
-				expanded: false,
-				invalidate: (): void => undefined,
-			}),
-		)
-		.render(120)
-		.join("\n");
-	expect(footer).toMatch(/exit 0 · 2 lines · \d+ms/);
 });
 
 test("bash rejects background execution on SSH targets", async (): Promise<void> => {

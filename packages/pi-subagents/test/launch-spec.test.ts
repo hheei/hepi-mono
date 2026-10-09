@@ -49,7 +49,6 @@ function launchConfig(overrides: Partial<EffectiveLaunchConfig> = {}): Effective
 		skills: { discovery: true, paths: [] },
 		prompt: assembleChildPrompt("Review the change."),
 		bridgeExtensionPath: BRIDGE_PATH,
-		interactive: false,
 		...overrides,
 	};
 }
@@ -87,8 +86,6 @@ test("keeps every host and flag argv atom intact, including paths with spaces", 
 		"high",
 		"--tools",
 		"read,contact_parent",
-		"--exclude-tools",
-		"hindsight_search_knowledge_pages,hindsight_list_knowledge_pages,hindsight_read_knowledge_page,hindsight_reflect,hindsight_capture_initiative,hindsight_ingest_document,hindsight_sync_status,hindsight_diagnose",
 		"--no-extensions",
 		"-e",
 		BRIDGE_PATH,
@@ -245,14 +242,17 @@ test("strips hindsight memory recall tags from tasks and inputs", (): void => {
 	expect(stripHindsightContent(raw)).toBe("Investigate this bug.\nFocus on the parser.");
 });
 
-test("excludes all hindsight tools from child Pi argv", (): void => {
-	const built = spec(launchConfig(), "background", "never_flushed");
+test("preserves explicit exclusions without maintaining a Hindsight tool list", (): void => {
+	const built = spec(
+		launchConfig({ excludeTools: ["write", "write"] }),
+		"background",
+		"never_flushed",
+	);
 	const excludeIdx = built.argv.indexOf("--exclude-tools");
 	expect(excludeIdx).toBeGreaterThan(-1);
 	const excluded = built.argv[excludeIdx + 1];
-	expect(excluded).toContain("hindsight_search_knowledge_pages");
-	expect(excluded).toContain("hindsight_reflect");
-	expect(excluded).toContain("hindsight_ingest_document");
+	expect(excluded).toBe("write");
+	expect(spec(launchConfig(), "background", "never_flushed").argv).not.toContain("--exclude-tools");
 });
 
 test("resolvePiInvocation prioritizes PI_DEV_BIN when running under pi-dev", (): void => {

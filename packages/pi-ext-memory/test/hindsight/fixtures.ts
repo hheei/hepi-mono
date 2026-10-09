@@ -1,25 +1,27 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 import type { HindsightGateway } from "../../src/hindsight/client.js";
-import type { ResolvedHindsight } from "../../src/hindsight/config.js";
+import { buildBankMcpUrl, type ResolvedHindsight } from "../../src/hindsight/config.js";
 import { HindsightRetainQueue } from "../../src/hindsight/queue.js";
 
 /** Resolved configuration with a shared bank, so scope tags are exercised by default. */
 export function fakeResolved(overrides: Partial<ResolvedHindsight> = {}): ResolvedHindsight {
 	const config = {
 		apiUrl: "http://hindsight.test:38888",
+		mcpUrl: "http://hindsight.test:38888/mcp",
 		autoRecall: true,
 		retainSessions: true,
-		reflectBudget: "high" as const,
-		reflectTimeoutMs: 45_000,
 		readTimeoutMs: 15_000,
 		maxMemoryChars: 8_000,
 		configPath: "/tmp/hindsight.json",
 	};
+	const bankId = overrides.bankId ?? "hheei";
+	const mcpUrl = overrides.config?.mcpUrl ?? config.mcpUrl;
 	return {
 		config,
-		bankId: "hheei",
+		bankId,
 		bankSource: "fallback",
+		bankMcpUrl: buildBankMcpUrl(mcpUrl, bankId),
 		repo: "hepi-mono",
 		scopeTags: ["repo:hepi-mono"],
 		retainTags: ["repo:hepi-mono", "source:codex"],
@@ -40,10 +42,6 @@ export function fakeGateway(overrides: Partial<HindsightGateway> = {}): FakeGate
 		listPages: vi.fn(async () => ({ pages: [], pagesAvailable: true })),
 		readPage: vi.fn(async (pageId: string) => ({ id: pageId, title: pageId, markdown: "" })),
 		searchPages: vi.fn(async () => []),
-		reflect: vi.fn(async () => "nothing remembered"),
-		captureInitiative: vi.fn(async () => ({ pageId: "kp-new" })),
-		ingestDocument: vi.fn(async () => ({ documentId: "doc" })),
-		syncStatus: vi.fn(async () => ({ pagesAvailable: true, pageCount: 0, documentTotal: 0 })),
 		retainTurns: vi.fn(async () => ({ operationId: "op", documentId: "doc", turns: 0 })),
 	};
 	return { ...base, ...overrides } as FakeGateway;
@@ -53,6 +51,8 @@ export interface FakePi {
 	readonly pi: ExtensionAPI;
 	readonly registered: Map<string, unknown>;
 	readonly active: string[];
+	readonly mcpServers: Map<string, unknown>;
+	readonly toolRenderers: unknown[];
 }
 
 /**
@@ -64,10 +64,11 @@ export interface FakePi {
 export function fakePi(): FakePi {
 	const registered = new Map<string, unknown>();
 	const active: string[] = [];
+	const mcpServers = new Map<string, unknown>();
+	const toolRenderers: unknown[] = [];
 	const pi = {
 		registerTool: (tool: { name: string; exposure?: string; defaultActive?: boolean }) => {
 			registered.set(tool.name, tool);
-			// Pi activates a tool at registration only when it is declarable to the model.
 			const declarable =
 				tool.exposure === undefined || tool.exposure === "direct" || tool.exposure === "model-only";
 			if (declarable && tool.defaultActive !== false && !active.includes(tool.name)) {
@@ -79,9 +80,24 @@ export function fakePi(): FakePi {
 			active.length = 0;
 			active.push(...names);
 		},
+		registerMcpServer: (name: string, config: unknown) => {
+			mcpServers.set(name, config);
+		},
+		unregisterMcpServer: (name: string) => {
+			mcpServers.delete(name);
+		},
+		getMcpServers: () =>
+			[...mcpServers.entries()].map(([name, config]) => ({
+				name,
+				config,
+				extensionPath: "fake",
+			})),
+		registerToolRenderer: (resolver: unknown) => {
+			toolRenderers.push(resolver);
+		},
 		on: () => () => {},
 	} as unknown as ExtensionAPI;
-	return { pi, registered, active };
+	return { pi, registered, active, mcpServers, toolRenderers };
 }
 
 /** Queue plus the gateway it writes through, so tests can assert both sides. */

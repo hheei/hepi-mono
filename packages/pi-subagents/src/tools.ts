@@ -3,10 +3,8 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { getToolTui, isRecord, registerToolTuiTrace, textToolResult } from "@hheei/pi-ext-core";
+import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { type DiscoveredAgent, discoverAgents } from "./agent-resolver.js";
-import { builtinAgents } from "./builtin-agents.js";
 import { type ChildIdentity, isOperationError, type PublicSubagent } from "./domain.js";
 
 import type { SubagentManager } from "./manager.js";
@@ -31,12 +29,6 @@ const spawnSchema = Type.Object({
 				"Short session title for this child, e.g. 'OVITO properties editor'. It becomes the child's Pi session title, prefixed with a robot marker so delegated sessions stay recognizable; omit it — or leave it blank — to derive one from the agent name and child id.",
 		}),
 	),
-	forkFrom: Type.Optional(
-		Type.String({
-			description:
-				"Optional session or subagent id to reference context from: 'parent' (parent session), or a subagent id like 'agent-1' (including subagents that ended in 'error'). Does not inject past conversation into the prompt; provides the referenced session JSONL path in instructions so the subagent can inspect prior context on demand via read or grep. Cannot be 'current'.",
-		}),
-	),
 });
 const sendSchema = Type.Object({
 	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
@@ -56,7 +48,7 @@ const contactSchema = Type.Object({
 	reason: Type.Optional(
 		Type.Union([Type.Literal("blocked"), Type.Literal("error")], {
 			description:
-				"Reason: 'blocked' if waiting for input/guidance (can be resumed via send_agent), or 'error' if fatal unrecoverable failure (cannot continue). Defaults to 'blocked'.",
+				"Reason: 'blocked' if waiting for input/guidance (can be resumed via send_agent), or 'error' if the turn failed (you may retry via send_agent or create a new child). Defaults to 'blocked'.",
 		}),
 	),
 });
@@ -72,27 +64,13 @@ const SUBAGENTS_NAMESPACE = {
 	description: "Subagent orchestration and delegation tools",
 } as const;
 
-const SPAWN_DESCRIPTION =
-	"Start an independent background RPC agent. PREFER REUSING EXISTING SUBAGENTS: For subtasks with identical or related functionality, prefer reusing an existing subagent via send_agent (even if in 'done' or 'blocked' state) rather than spawning a fresh subagent each time. Reusing subagents avoids redundant session initialization, preserves ongoing context, and maximizes prompt cache and pi-ext-memory efficiency. Only spawn a new agent when a distinct role or isolated fresh context is genuinely needed. Do NOT freeze, pause, or stop other sub-workers before spawning: idle subagents do not consume compute or interfere, so do not waste an agent turn freezing them. Do NOT poll get_agent or list_agents to wait for the child's work. Results are automatically captured when the child settles, and delivered as a subagent-report message to start your next turn; while you are idle, reports from several children may arrive together. After this tool returns, either end your turn or work on other independent tasks, including spawning more agents in parallel. Do not fabricate or assume the child's results.";
-const SPAWN_SNIPPET =
-	"Start a background RPC agent. Prefer reusing existing subagents via send_agent for related work to preserve context and maximize memory/cache efficiency. No need to freeze/stop other workers. Results arrive as subagent-report; do not poll.";
-const SPAWN_GUIDELINES = [
-	"Prefer reusing existing subagents: for subtasks that have the same or related functionality, reuse an existing subagent via send_agent (which auto-resumes 'done' or 'blocked' agents) instead of spawning a new one. This preserves conversational continuity and maximizes prompt cache and memory efficiency.",
-	"Do not freeze, pause, or stop other subagents: idle subagents consume no compute and do not interfere. Do not waste a turn stopping them.",
-	"Do not poll get_agent or list_agents waiting for the child to finish.",
-	"Do not sleep, wait, or tail session/log files to detect completion. The harness delivers reports automatically.",
-	"After spawn returns, end your turn or do other independent work, including spawning more agents in parallel.",
-	"Do not fabricate, assume, or summarize the child's results before a report arrives.",
-] as const;
+const SPAWN_DESCRIPTION = "Start an independent background RPC agent with a new task.";
 const SEND_DESCRIPTION =
-	"Send a steer or follow-up message to one owned child. PREFERRED FOR SUBSEQUENT/RELATED TASKS: Prefer reusing existing subagents in 'done' or 'blocked' states via send_agent instead of spawning new subagents every time; 'blocked' and 'done' children automatically rebuild and resume with their conversation context intact, maximizing prompt cache and memory efficiency. Subagents in 'error' cannot be continued; use spawn_agent with forkFrom to reference their session context. Do NOT wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing until sent to. Dispatch reviewers or follow-up tasks immediately without wasting turns on freeze ceremonies. Do NOT poll get_agent or list_agents afterwards. Child reports arrive as subagent-report messages that start your next turn.";
-const SEND_SNIPPET =
-	"Send a message to one owned child (auto-resumes if finished/blocked). Prefer reusing existing agents for related tasks. Reports arrive as subagent-report; do not poll afterwards.";
+	"Send a steer or follow-up message to one owned child, resuming its session when needed.";
 const GET_DESCRIPTION =
-	"Inspect one owned child: state, presentation (panel or background), summary, usage, and whether the view is live or last-known. Use this when you need current identity or state, not to wait for the child to finish.";
+	"Inspect one owned child: state, presentation, summary, usage, and whether the view is live or last-known.";
 const LIST_DESCRIPTION =
-	"List available interactive agent definitions and running or past subagents owned by this parent session with their state ('running', 'done', 'blocked', 'error'). Use this to inspect existing subagents that can be reused via send_agent before deciding to spawn a new agent, not to wait for work to finish. Reports still arrive as subagent-report messages.";
-const LIST_SNIPPET = "List available interactive agent definitions and running subagents.";
+	"List available interactive agent definitions and this parent session's running or past children with their state.";
 const STOP_DESCRIPTION = "Persist a stopped intent, then end that child's runtime.";
 const CONTACT_DESCRIPTION =
 	"Notify the parent session when you are BLOCKED and cannot continue without parent decision or intervention. Do NOT call this on success or task completion: simply output your final answer directly as normal text in your response, and the harness will automatically capture and report your result to the parent.";
@@ -104,51 +82,46 @@ const CONTACT_GUIDELINES = [
 	"After reporting a blocker, wait for a parent send_agent instruction.",
 ] as const;
 
-function spawnFooter(result: AgentToolResult<unknown>): string | undefined {
-	const details = result.details as { readonly child?: PublicSubagent } | undefined;
-	const child = details?.child;
-	if (child !== undefined && typeof child.id === "string") {
-		const agent = child.displayName ?? child.agent;
-		return `#${child.id} · ${agent}`;
+export function formatChildAgentText(child: PublicSubagent): string {
+	const lines: string[] = [];
+	const agentLabel = child.displayName ? `${child.displayName} (${child.agent})` : child.agent;
+	lines.push(`Agent ${child.id} [${agentLabel}]:`);
+	lines.push(`- State: ${child.state}`);
+	if (child.task) {
+		lines.push(`- Task: ${child.task}`);
 	}
-	return undefined;
-}
-
-function childStateFooter(result: AgentToolResult<unknown>): string | undefined {
-	const details = result.details as { readonly child?: PublicSubagent } | undefined;
-	const child = details?.child;
-	if (child !== undefined && typeof child.id === "string") {
-		return `#${child.id} · ${child.state}`;
+	if (child.activeTool) {
+		lines.push(`- Active tool: ${child.activeTool}`);
 	}
-	return undefined;
-}
-
-function listFooter(result: AgentToolResult<unknown>): string | undefined {
-	const details = result.details;
-	if (isRecord(details) && Array.isArray(details.runningAgents)) {
-		const count = details.runningAgents.length;
-		if (count === 0) return undefined;
-		return count === 1 ? "1 child" : `${count} children`;
+	if (child.interrupted) {
+		lines.push(`- Interrupted: ${child.interrupted}`);
 	}
-	if (Array.isArray(details)) {
-		const count = details.length;
-		if (count === 0) return undefined;
-		return count === 1 ? "1 child" : `${count} children`;
+	if (child.summary) {
+		lines.push(`- Recent output: ${child.summary}`);
 	}
-	return undefined;
+	if (child.usage) {
+		const parts: string[] = [];
+		if (child.usage.turns > 0) parts.push(`${child.usage.turns} turn(s)`);
+		const tokens = child.usage.inputTokens + child.usage.outputTokens;
+		if (tokens > 0) {
+			parts.push(
+				`${tokens} tokens (${child.usage.inputTokens} in / ${child.usage.outputTokens} out)`,
+			);
+		}
+		if (parts.length > 0) lines.push(`- Usage: ${parts.join(", ")}`);
+	}
+	lines.push(`- Freshness: ${child.freshness}`);
+	return lines.join("\n");
 }
 
 export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager): void {
-	registerToolTuiTrace(pi);
-	const tui = getToolTui(pi);
 	const spawn: ToolDefinition<typeof spawnSchema> = {
 		name: "spawn_agent",
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "Spawn agent",
 		description: SPAWN_DESCRIPTION,
-		promptSnippet: SPAWN_SNIPPET,
-		promptGuidelines: [...SPAWN_GUIDELINES],
 		parameters: spawnSchema,
+		exposure: "deferred",
 		defaultActive: false,
 		annotations: {
 			openWorldHint: true,
@@ -162,14 +135,8 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "Send to agent",
 		description: SEND_DESCRIPTION,
-		promptSnippet: SEND_SNIPPET,
-		promptGuidelines: [
-			"Prefer reusing an existing subagent in 'done' or 'blocked' states via send_agent for subsequent or functionally identical/related subtasks instead of spawning a new subagent each time. This preserves context and maximizes memory and prompt cache efficiency.",
-			"Do not wait for or ask workers to 'freeze': idle subagents are dormant and touch nothing. Dispatch reviewers or follow-ups immediately.",
-			"Do not poll get_agent or list_agents afterwards.",
-			"Child reports arrive as subagent-report messages that start your next turn.",
-		],
 		parameters: sendSchema,
+		exposure: "deferred",
 		defaultActive: false,
 		annotations: {
 			openWorldHint: true,
@@ -183,15 +150,17 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "Get agent",
 		description: GET_DESCRIPTION,
-		promptSnippet: GET_DESCRIPTION,
 		parameters: idSchema,
+		exposure: "deferred",
 		defaultActive: false,
 		annotations: {
 			readOnlyHint: true,
 			idempotentHint: true,
 		},
 		async execute(_id, params) {
-			return result(await manager.get(params.id));
+			const child = await manager.get(params.id);
+			if (isOperationError(child)) throw new Error(JSON.stringify(child));
+			return textToolResult(formatChildAgentText(child), child);
 		},
 	};
 	const list: ToolDefinition<typeof emptySchema> = {
@@ -199,68 +168,30 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "List agents",
 		description: LIST_DESCRIPTION,
-		promptSnippet: LIST_SNIPPET,
 		parameters: emptySchema,
 		annotations: {
 			readOnlyHint: true,
 			idempotentHint: true,
 		},
-		async execute(_id, _params, _signal, _onUpdate, ctx) {
+		async execute(_id, _params, _signal, _onUpdate, _ctx) {
 			const children = await manager.list();
-			const cwd =
-				ctx !== undefined && typeof ctx === "object" && "cwd" in ctx && typeof ctx.cwd === "string"
-					? ctx.cwd
-					: process.cwd();
-			let allAgents: readonly DiscoveredAgent[];
-			try {
-				allAgents = await discoverAgents(cwd);
-			} catch {
-				allAgents = builtinAgents();
-			}
-			const visible = allAgents.filter(
-				(agent) => agent.enabled !== false && agent.frontmatter.hidden !== true,
-			);
-
-			const interactiveAgents = visible
-				.filter((agent) => agent.frontmatter.interactive === true)
-				.map((agent) => ({
-					name: agent.name,
-					description:
-						typeof agent.frontmatter.description === "string" &&
-						agent.frontmatter.description.trim() !== ""
-							? agent.frontmatter.description.trim()
-							: "No description provided.",
-				}))
-				.sort((a, b) => a.name.localeCompare(b.name));
-
 			const lines: string[] = [];
-
-			if (interactiveAgents.length > 0) {
-				lines.push("<interactive_agents>");
-				for (const agent of interactiveAgents) {
-					lines.push(`- ${agent.name}: ${agent.description}`);
-				}
-				lines.push("</interactive_agents>");
-			}
-
 			if (children.length > 0) {
-				if (lines.length > 0) lines.push("");
-				lines.push("<running_agents>");
+				lines.push("<owned_child_agents>");
 				for (const child of children) {
 					const summaryPart = child.summary ? ` | summary: ${child.summary}` : "";
 					lines.push(
 						`- id: ${child.id} | agent: ${child.agent} | state: ${child.state}${summaryPart}`,
 					);
 				}
-				lines.push("</running_agents>");
+				lines.push("</owned_child_agents>");
 			}
 
 			if (lines.length === 0) {
-				lines.push("No active or available interactive subagents.");
+				lines.push("No child agents are currently owned by this parent session.");
 			}
 
 			return textToolResult(lines.join("\n"), {
-				...(interactiveAgents.length > 0 ? { interactiveAgents } : {}),
 				runningAgents: children,
 			});
 		},
@@ -271,6 +202,7 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 		label: "Stop agent",
 		description: STOP_DESCRIPTION,
 		parameters: idSchema,
+		exposure: "deferred",
 		defaultActive: false,
 		annotations: {
 			destructiveHint: true,
@@ -279,41 +211,11 @@ export function registerParentTools(pi: ExtensionAPI, manager: SubagentManager):
 			return result(await manager.stop(params.id));
 		},
 	};
-	pi.registerTool(
-		tui.frame(spawn, {
-			summary: (args) => args.agent,
-			headerLine: "truncate",
-			footer: spawnFooter,
-		}),
-	);
-	pi.registerTool(
-		tui.frame(send, {
-			summary: (args) => args.id,
-			headerLine: "truncate",
-			footer: childStateFooter,
-		}),
-	);
-	pi.registerTool(
-		tui.frame(get, {
-			summary: (args) => args.id,
-			headerLine: "truncate",
-			footer: childStateFooter,
-		}),
-	);
-	pi.registerTool(
-		tui.frame(list, {
-			summary: () => "owned children",
-			headerLine: "truncate",
-			footer: listFooter,
-		}),
-	);
-	pi.registerTool(
-		tui.frame(stop, {
-			summary: (args) => args.id,
-			headerLine: "truncate",
-			footer: childStateFooter,
-		}),
-	);
+	pi.registerTool(spawn);
+	pi.registerTool(send);
+	pi.registerTool(get);
+	pi.registerTool(list);
+	pi.registerTool(stop);
 }
 
 /** Sends a child-initiated request over the bridge and resolves with the parent's answer. */
@@ -334,8 +236,6 @@ export function registerChildTools(
 	identity: ChildIdentity,
 	options: RegisterChildToolsOptions,
 ): void {
-	registerToolTuiTrace(pi);
-	const tui = getToolTui(pi);
 	const tool: ToolDefinition<typeof contactSchema> = {
 		name: "contact_parent",
 		label: "Contact parent",
@@ -369,10 +269,5 @@ export function registerChildTools(
 			);
 		},
 	};
-	pi.registerTool(
-		tui.frame(tool, {
-			summary: (args) => args.message,
-			headerLine: "truncate",
-		}),
-	);
+	pi.registerTool(tool);
 }

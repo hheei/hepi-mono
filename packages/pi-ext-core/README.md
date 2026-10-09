@@ -76,10 +76,7 @@
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `registerManagedTool(pi, registration)` | 函数 | 注册受控工具，标明所有者扩展与激活状态 |
-| `redeclareManagedTool(pi, name, exposure)` | 函数 | 动态更新工具可见性声明（visible / hidden） |
-| `setManagedToolsActive(pi, names)` | 函数 | 批量变更受控工具的激活集合 |
-| `isManagedTool(tool)` | 函数 | 判定指定工具是否属于受控托管工具 |
+| `setSessionToolsActive(context, names, active)` | 函数 | 批量变更当前会话工具的激活集合，并在退出时自动清理 |
 | `registerLoadoutResource(pi, resource)` | 函数 | 注册技能、扩展或自定义资源到装配清单 |
 | `observeLoadoutInventory(pi, observer)` | 函数 | 监听装配清单变化事件 |
 
@@ -148,10 +145,11 @@
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `createToolTui(pi, options)` | 函数 | 创建统一工具 TUI 渲染实例，支持自动折叠、展开与错误高亮 |
+| `createToolTui()` | 函数 | 创建统一工具 TUI 渲染实例，支持本地工具 `frame()` 包装与宿主 MCP `renderers()` 接入 |
 | `getToolTui(pi)` | 函数 | 获取会话共享的工具 TUI 实例 |
-| `registerToolTuiTrace(pi, trace)` | 函数 | 注册工具输出追踪条目 |
+| `registerToolTuiTrace(pi)` | 函数 | 注册工具输出追踪条目与宿主工具生命周期监听（支持 MCP 工具时长与终态追踪） |
 | `isTuiScrolledUp(tui)` | 函数 | 判定 TUI 是否正处于向上翻页滚动状态，防止自动输出刷屏 |
+| `ToolRendererDefinition` | 接口 | 纯渲染器工具定义接口（`name`, `label?`, `renderCall?`, `renderResult?`） |
 
 ### 14. 响应遥测与底栏边框 (Response Telemetry & Editor Rail)
 

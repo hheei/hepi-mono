@@ -199,12 +199,13 @@ function applyPreviewLine(state: V4aPreviewCursor, text: string): boolean {
 		return true;
 	}
 	if (current.kind === "add") {
+		if (text === "") return true;
 		if (!text.startsWith("+")) return false;
 		if (text.slice(1).length > 0) current.addedLines += 1;
 		return true;
 	}
 	if (current.kind === "delete") return false;
-	if (text.startsWith("@@") || text.startsWith(" ")) return true;
+	if (text.startsWith("@@") || text.startsWith(" ") || text === "") return true;
 	if (text.startsWith("+")) {
 		current.addedLines += 1;
 		return true;
@@ -391,6 +392,11 @@ function parseAdd(
 		if (line.text === END && content.length === 0)
 			throw parseError("End Patch cannot appear before Add File content");
 		if (isHeaderOrEnd(line.text)) break;
+		if (line.text === "") {
+			content.push("", line.newline);
+			index += 1;
+			continue;
+		}
 		if (!line.text.startsWith("+"))
 			throw parseError("Add content lines must begin with +", line.number);
 		content.push(line.text.slice(1), line.newline);
@@ -494,6 +500,7 @@ function parseUpdate(
 }
 
 function parseUpdateLine(line: SourceLine): V4aUpdateLine {
+	if (line.text === "") return Object.freeze({ kind: "context", text: line.newline });
 	const marker = line.text[0];
 	const text = `${line.text.slice(1)}${line.newline}`;
 	if (marker === " ") return Object.freeze({ kind: "context", text });
@@ -586,7 +593,7 @@ function keepOuterEnvelope(lines: readonly SourceLine[]): readonly SourceLine[] 
 	if (start < 0 || end <= start) return lines;
 	const inner = lines
 		.slice(start + 1, end)
-		.filter((line) => line.text !== BEGIN && line.text !== END && line.text !== "");
+		.filter((line) => line.text !== BEGIN && line.text !== END);
 	return [lines[start] as SourceLine, ...inner, lines[end] as SourceLine];
 }
 

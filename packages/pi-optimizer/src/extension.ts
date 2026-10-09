@@ -29,11 +29,17 @@ export default function piOptimizerExtension(
 			? active
 			: undefined;
 
+	let lastReportedPromptModes: string | undefined;
+	let t2sReported = false;
+
 	pi.on("input", (event, context) => {
 		if (event.source !== "interactive" || getSession(context)?.settings.t2s.mode !== "t2s") return;
 		const text = convertInputText(event.text);
 		if (text === event.text) return;
-		info("T2S · Traditional → Simplified", { original: event.text, transformed: text });
+		if (!t2sReported) {
+			t2sReported = true;
+			info("T2S · Traditional → Simplified", { original: event.text, transformed: text });
+		}
 		return { action: "transform", text };
 	});
 	pi.on("before_agent_start", (event, context) => {
@@ -49,7 +55,10 @@ export default function piOptimizerExtension(
 		]
 			.filter(Boolean)
 			.join(" · ");
-		info(`Prompt · ${modes}`, { prompt });
+		if (modes && lastReportedPromptModes !== modes) {
+			lastReportedPromptModes = modes;
+			info(`Prompt · ${modes}`, { prompt });
+		}
 		setPromptSection(event.systemPromptOptions.sections, OPTIMIZER_PROMPT_SECTION, prompt);
 	});
 	pi.on("tool_call", async (event, context) => {
@@ -72,6 +81,8 @@ export default function piOptimizerExtension(
 				onSaved(settings): void {
 					if (active !== session || session.signal.aborted) return;
 					session.settings = settings;
+					lastReportedPromptModes = undefined;
+					t2sReported = false;
 					info("Settings saved", settings);
 				},
 			});
@@ -93,6 +104,8 @@ export default function piOptimizerExtension(
 				},
 			};
 			active = session;
+			lastReportedPromptModes = undefined;
+			t2sReported = false;
 			rtk.reset();
 			runtime.resources.add("optimizer-session", () => {
 				if (active === session) active = undefined;

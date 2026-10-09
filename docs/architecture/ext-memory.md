@@ -1,5 +1,17 @@
 # 观测式记忆扩展 (pi-ext-memory) 架构与持久化配置契约
 
+## 压缩保留尾部的 provider 数据
+
+压缩只替换被摘要覆盖的历史；保留尾部的 assistant、工具调用与结果必须保留原始 provider replay 数据，包括 thinkingSignature、thoughtSignature、textSignature 和空文本的签名载体。`encrypted_content` 是协议的不透明数据，不是可以按字段名删除的冗余文本。具体 extension 不解释或清洗它；由 Pi host 的 provider 转换器处理同模型回放与模型切换。
+
+预算按完整尾部计算，优先缩减记忆摘要，不通过写入 context_edit 删除签名来腾出空间。该修复不自动撤销历史中已有的 context_edit；旧 session 的修复必须从原始条目恢复并保持分支语义。
+
+## 空闲压缩契约
+
+`idleCompactionTtl` 到期后只显示提示并记录 `om:idle-notice`；下一次发送消息时在 `before_agent_start` 中等待压缩完成，再请求模型。空闲提示和压缩均不设 token 门槛，移除 `idleCompactionMinTokens` 配置，旧配置字段按未知字段忽略。
+
+仍要求门控开启、非 passive、最近压缩后有新增源条目且记忆投影非空；保留取消、session generation 验证和在途 consolidation 等待。到期计时器不执行压缩；`compactAfterTokens` 的独立压缩路径继续使用原有门槛。
+
 本文档记录 `@hheei/pi-ext-memory` 的架构边界与持久化配置契约，重点阐述从 Pi 宿主 `settings.json` 迁移至 ext-core 统一传输规范 `ext_settings.json` 的契约变更。
 
 ---
@@ -162,32 +174,12 @@ trimmedObservations, trimmedReflections }` 写入 compaction 条目（`version` 
 
 ---
 
-## 4. Hindsight 工具暴露契约（`deferred`）
+## 4. Hindsight 原生 MCP 契约
 
-8 个 `hindsight_*` 工具由 `declareHindsightTools(pi, provider, exposure)` 按**当前 session** 声明：
-Hindsight 可用时 `exposure: "deferred"`，不可用（选项关闭、服务端不可达、启动失败）时 `exposure: "hidden"`。
-这是 Pi 没有 unregister API 的直接结果：注册属于进程，而可用性属于 session，所以只能把注册的**可见性**
-跟着 session 改。
-deferred 同时解决两个问题：工具不占用模型声明，也不占用 codemode 描述里的 inline 目录（`inlineBudget`
-只统计 `direct` 工具），但依然可被调用。
+Hindsight 工具由 Pi host 通过 session-scoped MCP 注册、发现与执行，不再由 memory 定义 schema 或注册旧 hindsight_* 名称。常用记忆工具 direct，其余工具 deferred；工具集合与 authoring / 运维能力由服务端 allowlist 决定。未来服务开放工具后无需复制客户端注册。
 
-两条暴露路径：
+memory 只负责 bank 解析、自动 recall、transcript 写回与本地诊断。使用单 bank endpoint；保留已有显式 bank，不自动迁移数据。共享 bank 只保证连接范围，不保证仓库隔离，SDK 自动写回仍可附带 repo tags。
 
-1. `tool_search`：按查询 BM25 排序还没激活的 `codemode` / `deferred` 工具，命中的写回 active
-   集合，因此**下一次模型调用**才把它们声明给模型。这是让工具“被激活”的唯一路径。
-2. codemode 脚本：脚本内的 `tools.<name>` 与 `ALL_TOOLS` / `searchTools()` / `describeTool()`
-   始终能看到全部已注册的可调用工具，不需要先激活。
+Pi host 拥有连接、取消、重连、权限管线与完整结果；ext-core 经 renderer resolver 提供共享 ToolTui。session 清理撤销 extension 注册，不撤销文件配置。子 agent 的 child bridge 阻止保留名称 mcp__hindsight__ 下的调用，包括嵌套与未来新增工具。
 
-不变量：
-
-- **不激活是刻意的**。`_isActivatedOnRegistration` 只对 `direct` / `model-only` 为真，所以
-  `deferred` 工具在运行时注册后不会进入 active 集合；而显式 `setActiveTools` 会把所有非
-  `hidden` 的 active 工具声明给模型，一旦激活就抵消了 defer 的意义。
-- **不可用就是不可达**。`hidden` 既不声明、也不被 `tool_search` 搜索、也不是 callable，所以“此 session
-  不记忆”不会变成“模型能发现 8 个只会拒绝的工具”。`hidden` 只在已经注册过时生效：一个从未成功启用过
-  Hindsight 的进程根本不会注册任何工具。
-- **注册只在首个可用 session 发生一次**，之后每次 session start 只重声明 exposure（`redeclareManagedTool`）。
-  因此“已注册但在本 session 不可用”是正常状态，而不是残留。
-- **每次调用的 session 门控仍然存在**（`provider()` 返回 `undefined` 时返回 `HINDSIGHT_DISABLED_TEXT`）：
-  它是兜底，与暴露状态无关。
-- **声明的时机由 `tool_search` 决定**，不由扩展决定：扩展只注册和门控，不激活。```
+具体配置、清理、缓存和 UI 不变量见 [Hindsight 原生 MCP 集成](hindsight-mcp.md)。

@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe("extension branch", () => {
-	test("registers exactly five parent tools that forbid polling for results", () => {
+	test("registers five parent tools without injecting system prompt guidance", () => {
 		const { pi, tools } = fakePi();
 		registerParentTools(pi, { closeLocalConnections: vi.fn() } as never);
 		expect(tools.map((tool) => tool.name)).toEqual([
@@ -54,14 +54,12 @@ describe("extension branch", () => {
 			"list_agents",
 			"stop_agent",
 		]);
-		expect(tools[0]?.description).toContain("Do NOT poll");
-		expect(tools[0]?.promptSnippet).toContain("do not poll");
-		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("tail session/log files");
-		// Spawning clarifies that idle subagents need not be frozen or stopped.
-		expect(tools[0]?.promptGuidelines?.join("\n")).toContain("idle subagents consume no compute");
-		expect(tools[1]?.description).toContain("Do NOT poll");
-		expect(tools[2]?.description).toContain("not to wait");
-		expect(tools[3]?.description).toContain("not to wait");
+		for (const tool of tools) {
+			expect(tool.promptSnippet).toBeUndefined();
+			expect(tool.promptGuidelines).toBeUndefined();
+		}
+		expect(tools[0]?.description).toContain("background RPC agent");
+		expect(tools[1]?.description).toContain("resuming its session");
 	});
 
 	test("the loaded skill list becomes the name to path catalog a definition resolves", () => {
@@ -165,6 +163,40 @@ function report(childId: string, message: string) {
 	};
 }
 
+test("dismiss removes only the targeted child report while leaving others to flush", async () => {
+	const parent = fakeParent();
+	const delivery = createBackgroundDelivery();
+	let active = 3;
+	let notifyChanged = () => {};
+	delivery.registerSource({
+		activeCount: () => active,
+		onChange: (listener) => {
+			notifyChanged = listener;
+			return () => {};
+		},
+	});
+	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
+
+	await channel.deliver(report("child-1", "report 1"));
+	await channel.deliver(report("child-2", "report 2"));
+	await channel.deliver(report("child-3", "report 3"));
+	expect(parent.sent).toHaveLength(0);
+
+	// wait_jobs consumes child-2
+	channel.dismiss("child-2");
+
+	// Remaining work finishes
+	active = 0;
+	notifyChanged();
+	await Promise.resolve();
+
+	expect(parent.sent).toHaveLength(1);
+	const details = parent.sent[0]?.message.details as
+		| { reports: Array<{ childId: string }> }
+		| undefined;
+	expect(details?.reports.map((r) => r.childId)).toEqual(["child-1", "child-3"]);
+});
+
 test("a completed child report reaches the next parent activity without a timer", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
@@ -245,15 +277,19 @@ test("a report that arrives while the parent is busy is not held", async () => {
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 });
 
-test("only a blocked report bypasses idle gating, ordinary reports stay held", async () => {
+test.each([
+	"blocked",
+	"error",
+])("a %s report bypasses idle gating and wakes the parent", async (reason) => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
 	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
 	let idle = true;
 	const channel = createParentChannel(parent.pi as never, { isIdle: () => idle, delivery });
 	await channel.deliver(report("a", "ordinary progress"));
-	await channel.deliver({ ...report("b", "urgent help"), reason: "blocked" });
+	await channel.deliver({ ...report("b", "urgent help"), reason });
 	expect(parent.sent).toHaveLength(1);
+	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 	expect(parent.sent[0]?.message.content).toContain("urgent help");
 	expect(parent.sent[0]?.message.content).not.toContain("ordinary progress");
 	idle = false;

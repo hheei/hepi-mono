@@ -13,14 +13,7 @@ import { plainTheme } from "./fixtures/theme.js";
 /** The details these tests need; `GrepToolDetails` also carries a budget report nobody here reads. */
 type FixtureDetails = Pick<
 	GrepToolDetails,
-	| "format"
-	| "engine"
-	| "events"
-	| "display"
-	| "totalMatched"
-	| "totalFiles"
-	| "totalLines"
-	| "durationMs"
+	"format" | "engine" | "events" | "display" | "totalMatched" | "totalFiles" | "totalLines"
 >;
 
 /** One match row; the fields this renderer ignores keep their defaults. */
@@ -53,7 +46,6 @@ function grepResult(
 		totalMatched: 1,
 		totalFiles: 1,
 		totalLines: 1,
-		durationMs: 5,
 		display,
 	} satisfies FixtureDetails;
 	return {
@@ -100,10 +92,9 @@ describe("search-renderer", () => {
 			totalMatched: 14,
 			totalFiles: 5,
 			totalLines: 63,
-			durationMs: 12,
 		});
 
-		expect(grepCollapsedFooter(result, undefined)).toBe("14 matches · 5 files · 63 lines · 12ms");
+		expect(grepCollapsedFooter(result, 12)).toBe("14 matches · 5 files · 63 lines · 12ms");
 	});
 
 	it("groups find candidates by directory and summarizes them", () => {
@@ -119,7 +110,6 @@ describe("search-renderer", () => {
 				candidates,
 				totalMatched: 3,
 				totalFiles: 3,
-				durationMs: 4,
 			},
 		};
 
@@ -133,6 +123,6 @@ describe("search-renderer", () => {
 		);
 
 		expect(output).toContain("src/tools/");
-		expect(findCollapsedFooter(result, undefined)).toContain("3 fuzzy files");
+		expect(findCollapsedFooter(result, 4)).toBe("3 fuzzy files · 5 lines · 4ms");
 	});
 });

@@ -386,6 +386,49 @@ test("tracks delivery state from pending to observed and requeues a failed submi
 	expect(tasks.requiresControl).toBe(false);
 });
 
+test("markConsumed consumes only targeted tasks and invokes binding consume", (): void => {
+	const tasks = registry();
+	let consumed1 = false;
+	let consumed2 = false;
+	const t1 = tasks.create({
+		type: "bash",
+		purpose: "job 1",
+		begin: () => ({
+			stop: () => {},
+			describe: () => ({ output: "", truncated: false }),
+			consume: () => {
+				consumed1 = true;
+			},
+		}),
+	});
+	const t2 = tasks.create({
+		type: "bash",
+		purpose: "job 2",
+		begin: () => ({
+			stop: () => {},
+			describe: () => ({ output: "", truncated: false }),
+			consume: () => {
+				consumed2 = true;
+			},
+		}),
+	});
+	const t3 = tasks.create({ type: "bash", purpose: "job 3", begin: idleBinding });
+	tasks.settle(t1.id, { status: "completed", output: "out1", truncated: false });
+	tasks.settle(t2.id, { status: "completed", output: "out2", truncated: false });
+	tasks.settle(t3.id, { status: "completed", output: "out3", truncated: false });
+
+	expect(tasks.pendingDeliveries()).toHaveLength(3);
+
+	tasks.markConsumed([t1.id]);
+
+	expect(consumed1).toBe(true);
+	expect(consumed2).toBe(false);
+	expect(tasks.get(t1.id)?.delivery).toBe("observed");
+	expect(tasks.get(t2.id)?.delivery).toBe("pending");
+	expect(tasks.get(t3.id)?.delivery).toBe("pending");
+	expect(tasks.pendingDeliveries().map((d) => d.id)).toEqual([t2.id, t3.id]);
+});
+
 test("bounds stored output and marks the truncation", async (): Promise<void> => {
 	const tasks = registry();
 	const task = tasks.create({ type: "bash", purpose: "big", begin: idleBinding });

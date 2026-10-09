@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-core",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "Shared lifecycle and coordination primitives for independent Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -44,10 +44,10 @@
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "1.0.2",
-		"@earendil-works/pi-ai": "1.0.2",
-		"@earendil-works/pi-coding-agent": "1.0.2",
-		"@earendil-works/pi-tui": "1.0.2",
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0",
 		"@types/proper-lockfile": "4.1.4"
 	}
 }

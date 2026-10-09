@@ -29,7 +29,7 @@ function createFakePi() {
 }
 
 describe("list_agents tool", () => {
-	test("formats empty message when no interactive agents or running subagents exist", async () => {
+	test("formats empty message when no child agents exist", async () => {
 		const { pi, registeredTools } = createFakePi();
 		const manager = {
 			list: vi.fn().mockResolvedValue([]),
@@ -46,25 +46,13 @@ describe("list_agents tool", () => {
 		const result = await listTool!.execute("call_1", {}, undefined, undefined, context);
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 
-		// list_agents is only for interactive subagents, so task agents must NOT be included
-		expect(text).not.toContain("<task_agents>");
-		expect(text).not.toContain("scout:");
-		expect(text).not.toContain("worker:");
-		expect(text).not.toContain("reviewer:");
-		expect(text).not.toContain("probe:");
-
-		// Empty blocks should NOT be present
-		expect(text).not.toContain("<interactive_agents>");
-		expect(text).not.toContain("<running_agents>");
 		expect(text).not.toContain("<subagents>");
 
-		expect(text).toBe("No active or available interactive subagents.");
+		expect(text).toBe("No child agents are currently owned by this parent session.");
 
 		const details = result.details as {
-			interactiveAgents?: Array<{ name: string }>;
 			runningAgents: unknown[];
 		};
-		expect(details.interactiveAgents).toBeUndefined();
 		expect(details.runningAgents).toEqual([]);
 	});
 
@@ -79,7 +67,6 @@ describe("list_agents tool", () => {
 			sessionId: "s1",
 			summary: "interactive partner",
 			freshness: "live",
-			interactive: true,
 			model: { provider: "mock", id: "mock-model", source: "agent" },
 			thinking: { level: "off", source: "agent" },
 			createdAt: new Date().toISOString(),
@@ -99,13 +86,12 @@ describe("list_agents tool", () => {
 		const result = await listTool!.execute("call_2", {}, undefined, undefined, context);
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 
-		expect(text).not.toContain("<task_agents>");
-		expect(text).toContain("<running_agents>");
+		expect(text).toContain("<owned_child_agents>");
 		expect(text).toContain("sa_interactive1");
 		expect(text).toContain("worker");
 		expect(text).toContain("done");
 		expect(text).toContain("interactive partner");
-		expect(text).toContain("</running_agents>");
+		expect(text).toContain("</owned_child_agents>");
 	});
 
 	test("declares readOnlyHint and idempotentHint annotations for get_agent and list_agents", () => {
@@ -124,5 +110,56 @@ describe("list_agents tool", () => {
 			readOnlyHint: true,
 			idempotentHint: true,
 		});
+	});
+
+	test("get_agent formats detailed state and recent information with task", async () => {
+		const { pi, registeredTools } = createFakePi();
+		const mockChild: PublicSubagent = {
+			id: "agent-9",
+			agent: "scout",
+			displayName: "Code Scout",
+			state: "done",
+			presentation: "panel",
+			cwd: "/mock/repo",
+			sessionId: "session-9",
+			task: "Investigate performance bottleneck",
+			summary: "Found hot loop in query tokenizer",
+			freshness: "live",
+			model: { provider: "mock", id: "m1", source: "agent" },
+			thinking: { level: "low", source: "agent" },
+			createdAt: "2026-10-05T00:00:00Z",
+			updatedAt: "2026-10-05T00:01:00Z",
+			usage: {
+				inputTokens: 1200,
+				outputTokens: 300,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costUsd: 0.01,
+				turns: 2,
+			},
+		};
+		const manager = {
+			get: vi.fn(async () => mockChild),
+		} as unknown as SubagentManager;
+		registerParentTools(pi, manager);
+
+		const getTool = registeredTools.find((t) => t.name === "get_agent");
+		const context = { cwd: process.cwd() } as unknown as ExtensionToolContext;
+
+		const result = await getTool!.execute(
+			"call_get",
+			{ id: "agent-9" },
+			undefined,
+			undefined,
+			context,
+		);
+		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+
+		expect(text).toContain("Agent agent-9 [Code Scout (scout)]:");
+		expect(text).toContain("- State: done");
+		expect(text).toContain("- Task: Investigate performance bottleneck");
+		expect(text).toContain("- Recent output: Found hot loop in query tokenizer");
+		expect(text).toContain("- Usage: 2 turn(s), 1500 tokens");
+		expect(result.details).toMatchObject(mockChild);
 	});
 });

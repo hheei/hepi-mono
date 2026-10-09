@@ -130,10 +130,8 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	skills: true,
 	prompt: true,
 	bridgeExtensionPath: true,
-	interactive: true,
 	title: true,
 	task: true,
-	referencedSessionPath: true,
 	codemodeOnly: true,
 };
 
@@ -326,11 +324,6 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 	if (!isSessionId(sessionId))
 		throw invalid(path, "launchConfig.sessionId is not a valid session id");
 	const sessionPath = expectOptionalString(raw.sessionPath, "launchConfig.sessionPath", path);
-	const referencedSessionPath = expectOptionalString(
-		raw.referencedSessionPath,
-		"launchConfig.referencedSessionPath",
-		path,
-	);
 	const extensions = parseSelection(raw.extensions, path, "extensions");
 	const bridgeExtensionPath = expectString(
 		raw.bridgeExtensionPath,
@@ -351,7 +344,6 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		sessionId,
 		sessionDir: expectString(raw.sessionDir, "launchConfig.sessionDir", path),
 		...(sessionPath === undefined ? {} : { sessionPath }),
-		...(referencedSessionPath === undefined ? {} : { referencedSessionPath }),
 		agent: parseAgent(raw.agent, path),
 		model: parseModel(raw.model, path),
 		thinking: parseThinking(raw.thinking, path),
@@ -363,7 +355,6 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		skills: parseSelection(raw.skills, path, "skills"),
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
-		interactive: expectOptionalBoolean(raw.interactive, "launchConfig.interactive", path, false),
 		...(expectOptionalBoolean(raw.codemodeOnly, "launchConfig.codemodeOnly", path, false)
 			? { codemodeOnly: true }
 			: {}),

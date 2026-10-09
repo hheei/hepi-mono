@@ -3,13 +3,7 @@ import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import {
-	getToolTui,
-	isRecord,
-	type ManagedToolRegistration,
-	registerManagedTool,
-	textToolResult,
-} from "@hheei/pi-ext-core";
+import { textToolResult } from "@hheei/pi-ext-core";
 import {
 	formatRecallTimestamp,
 	renderRecallSourceEntries,
@@ -696,32 +690,6 @@ export const recallObservationTool = defineTool({
 	},
 });
 
-export const RECALL_TOOL_REGISTRATION: ManagedToolRegistration = {
-	id: RECALL_OBSERVATION_TOOL_NAME,
-	owner: "@hheei/pi-ext-memory",
-};
-
 export function registerRecallTool(pi: ExtensionAPI): void {
-	const tui = getToolTui(pi);
-	registerManagedTool(
-		pi,
-		RECALL_TOOL_REGISTRATION,
-		tui.frame(recallObservationTool, {
-			summary: (args) => (isRecord(args) && typeof args.id === "string" ? args.id : undefined),
-			headerLine: "truncate",
-			warning: (result) => {
-				const details = result.details as RecallObservationToolDetails | undefined;
-				return details !== undefined && isFailureStatus(details.status);
-			},
-			footer: (result) => {
-				const details = result.details as RecallObservationToolDetails | undefined;
-				if (!details) return undefined;
-				if (details.status === "ok") {
-					const count = details.sourceEntries?.length ?? 0;
-					return count === 1 ? "1 source entry" : `${count} source entries`;
-				}
-				return details.status.replace(/_/g, " ");
-			},
-		}),
-	);
+	pi.registerTool(recallObservationTool);
 }
