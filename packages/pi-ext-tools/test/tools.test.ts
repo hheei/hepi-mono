@@ -5,7 +5,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { MAX_HL_CHARS } from "../src/edit.js";
-import { startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
+import { startTaskControl } from "../src/task-tools.js";
 import { activateApplyPatchTool, activatePythonEvalCatalog, registerTools } from "../src/tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
@@ -44,26 +44,27 @@ describe("pi-ext-tools catalog", () => {
 			"edit",
 			"write",
 			"bash",
-			"list_jobs",
-			"wait_jobs",
-			"stop_jobs",
+			"bg_bash_spawn",
+			"bg_bash_get",
+			"bg_bash_stop",
 			"apply_patch",
 			"python_eval",
 		]);
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 	});
 
-	test("keeps task-control tools out of the catalog until the first task starts", (): void => {
+	test("task-control tools remain stable without dynamic flapping", (): void => {
 		const host = registeredTools();
 		const catalog = host.tools.map((tool) => tool.name);
-		// Pi activates every registered extension tool before session_start runs.
 		host.pi.setActiveTools([...catalog]);
 		const tasks = startTaskControl({
 			pi: host.pi,
 			resources: { add: (): void => undefined },
 		} as unknown as ExtensionLifecycleContext);
-		expect(host.activeTools()).toEqual(catalog.filter((name) => !TASK_TOOL_IDS.includes(name)));
-		expect(host.activeTools()).toEqual(expect.arrayContaining(["read", "bash", "python_eval"]));
+		expect(host.activeTools()).toEqual(catalog);
+		expect(host.activeTools()).toEqual(
+			expect.arrayContaining(["read", "bash", "bg_bash_spawn", "bg_bash_get", "bg_bash_stop"]),
+		);
 		tasks.dispose();
 	});
 

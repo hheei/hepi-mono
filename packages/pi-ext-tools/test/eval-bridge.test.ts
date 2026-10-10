@@ -57,17 +57,8 @@ describe("Eval tool bridge", () => {
 		).rejects.toThrow("Invalid arguments");
 	});
 
-	test("rejects nested background Bash and invalid arguments before execution", async () => {
+	test("rejects invalid arguments before execution", async () => {
 		const bridge = new EvalToolBridge(new Map([["bash", bashTool()]]), () => true);
-		await expect(
-			bridge.call(
-				"bash",
-				{ command: "pwd", blocking: false },
-				{} as unknown as ExtensionToolContext,
-				undefined,
-				() => {},
-			),
-		).rejects.toThrow("python_eval cannot read a background result");
 		await expect(
 			bridge.call(
 				"bash",
@@ -227,7 +218,7 @@ describe("Eval tool bridge", () => {
 		const traces: unknown[] = [];
 		const result = await bridge.call(
 			"bash",
-			{ command: "echo ok", blocking: true },
+			{ command: "echo ok" },
 			{} as unknown as ExtensionToolContext,
 			undefined,
 			(trace) => traces.push(trace),

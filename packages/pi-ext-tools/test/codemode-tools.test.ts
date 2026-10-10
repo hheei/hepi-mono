@@ -176,22 +176,15 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 		expect(changesWithoutEval?.descriptions?.bash).toBeUndefined();
 	});
 
-	test("task tools declare defaultActive false and appropriate annotations", () => {
+	test("task tools declare appropriate annotations", () => {
 		const host = toolHost();
 		const state = createFffRuntimeState();
 		registerTaskTools(host.pi, state);
 
-		const listTasks = toolFor(host.tools, "list_jobs");
-		const waitTasks = toolFor(host.tools, "wait_jobs");
-		const stopTasks = toolFor(host.tools, "stop_jobs");
+		const listTasks = toolFor(host.tools, "bg_bash_get");
+		const stopTasks = toolFor(host.tools, "bg_bash_stop");
 
-		expect(listTasks.defaultActive).toBe(false);
 		expect(listTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: true });
-
-		expect(waitTasks.defaultActive).toBe(false);
-		expect(waitTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: false });
-
-		expect(stopTasks.defaultActive).toBe(false);
 		expect(stopTasks.annotations).toEqual({ destructiveHint: true });
 	});
 

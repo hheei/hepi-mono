@@ -1,8 +1,18 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { join } from "node:path";
+import type { TaskProgress, TaskRegistry, TaskSnapshot, TaskTerminal } from "@hheei/pi-ext-core";
 import { BashOutputSink } from "./bash-output.js";
 
 export const MAX_JOB_OUTPUT = 1024 * 1024;
+export const BASH_IDLE_NOTICE_MS = 180_000;
+export const BASH_HEARTBEAT_MS = 1_800_000;
+
+export interface BashJobReminder {
+	readonly kind: "idle" | "heartbeat";
+	readonly job: BashJobSnapshot;
+	readonly anchor?: string;
+}
 
 /**
  * Signals a whole job tree, not just its shell.
@@ -36,14 +46,63 @@ function killProcessTree(pid: number): void {
 }
 
 export interface BashJobRequest {
+	readonly id?: string;
+	readonly reminders?: boolean;
+	readonly anchor?: string;
 	readonly command: string;
 	readonly cwd: string;
 	readonly shellPath?: string;
 	readonly timeoutMs?: number;
+	readonly logPath?: string;
 	/** Optional real-time stream callback receiving raw output chunks. */
 	readonly onData?: (data: Buffer) => void;
 	/** Called once when the job reaches a terminal state and the registry is still open. */
 	readonly onTerminal?: (job: BashJobSnapshot) => void;
+}
+
+/** Task registration request for `BashJobRegistry.startAsTask`. */
+export interface BashTaskRequest {
+	readonly command: string;
+	readonly cwd: string;
+	readonly shellPath: string;
+	readonly timeoutMs?: number;
+	readonly logPath?: string;
+	readonly resolveLogPath?: (taskId: string) => string;
+	/** Branch marker captured when the command started. */
+	readonly anchor?: string;
+}
+
+const MAX_PURPOSE_CHARS = 200;
+
+/** One-line intent shown in job listings and terminal deliveries. */
+export function bashJobPurpose(command: string): string {
+	const line =
+		command
+			.split("\n")
+			.find((candidate) => candidate.trim() !== "")
+			?.trim() ?? "";
+	if (line === "") return "background command";
+	return line.length > MAX_PURPOSE_CHARS ? `${line.slice(0, MAX_PURPOSE_CHARS)}…` : line;
+}
+
+function terminalFrom(job: BashJobSnapshot): TaskTerminal {
+	return {
+		status: job.timedOut
+			? "timed_out"
+			: job.status === "completed"
+				? "completed"
+				: job.status === "stopped"
+					? "cancelled"
+					: "failed",
+		output: job.output,
+		truncated: job.truncated,
+		detail: {
+			jobId: job.id,
+			exitCode: job.exitCode,
+			...(job.logPath !== undefined ? { logPath: job.logPath } : {}),
+			...(job.timedOut ? { timedOut: true } : {}),
+		},
+	};
 }
 
 export interface BashJobSnapshot {
@@ -56,11 +115,19 @@ export interface BashJobSnapshot {
 	readonly endedAt?: number;
 	readonly output: string;
 	readonly truncated: boolean;
+	readonly logPath?: string;
 	/** True only when this registry stopped the job after its requested timeout. */
 	readonly timedOut: boolean;
+	readonly diagnostic?: string;
 }
 
 interface Job {
+	idleTimer?: NodeJS.Timeout | undefined;
+	heartbeatTimer?: NodeJS.Timeout | undefined;
+	idleNotified: boolean;
+	reminders: boolean;
+	anchor?: string;
+	diagnostic?: string;
 	id: string;
 	command: string;
 	cwd: string;
@@ -69,6 +136,8 @@ interface Job {
 	startedAt: number;
 	endedAt?: number;
 	timedOut: boolean;
+	logPath?: string | undefined;
+	logStream?: WriteStream | undefined;
 	process?: ChildProcess;
 	outputSink: BashOutputSink;
 	timeout?: NodeJS.Timeout | undefined;
@@ -92,14 +161,17 @@ function snapshot(job: Job): BashJobSnapshot {
 		exitCode: job.exitCode,
 		startedAt: job.startedAt,
 		timedOut: job.timedOut,
+		...(job.diagnostic === undefined ? {} : { diagnostic: job.diagnostic }),
 		...(job.endedAt === undefined ? {} : { endedAt: job.endedAt }),
 		output: output.output,
 		truncated: output.truncated,
+		...(job.logPath === undefined ? {} : { logPath: job.logPath }),
 	};
 }
 
 export class BashJobRegistry {
 	readonly #jobs = new Map<string, Job>();
+	readonly #reminderListeners = new Set<(event: BashJobReminder) => void>();
 	#closed: boolean = false;
 	readonly #tailBytes: number | undefined;
 	constructor(tailBytes?: number) {
@@ -108,8 +180,25 @@ export class BashJobRegistry {
 	start(request: BashJobRequest): BashJobSnapshot {
 		if (this.#closed) throw new Error("Bash job registry is disposed");
 		const outputSink = new BashOutputSink(this.#tailBytes);
-		const id = crypto.randomUUID();
+		const id = request.id ?? crypto.randomUUID();
+		if (this.#jobs.has(id)) throw new Error(`Bash job ${id} already exists`);
+		let logStream: WriteStream | undefined;
+		let effectiveLogPath = request.logPath;
+		if (request.logPath !== undefined) {
+			try {
+				logStream = createWriteStream(request.logPath, { flags: "a" });
+				logStream.on("error", () => {
+					effectiveLogPath = undefined;
+					logStream = undefined;
+				});
+			} catch {
+				effectiveLogPath = undefined;
+			}
+		}
 		const job: Job = {
+			idleNotified: false,
+			reminders: request.reminders === true,
+			...(request.anchor === undefined ? {} : { anchor: request.anchor }),
 			id,
 			command: request.command,
 			cwd: request.cwd,
@@ -117,6 +206,8 @@ export class BashJobRegistry {
 			exitCode: null,
 			startedAt: Date.now(),
 			timedOut: false,
+			logPath: effectiveLogPath,
+			logStream,
 			outputSink,
 			terminalized: false,
 			waiter: undefined,
@@ -136,12 +227,22 @@ export class BashJobRegistry {
 		child.stdout?.on("data", (data: Buffer) => {
 			if (!this.#closed) {
 				job.outputSink.push(data);
+				this.#resetIdleTimer(job);
+				if (job.logStream && !job.logStream.write(data)) {
+					child.stdout?.pause();
+					job.logStream.once("drain", () => child.stdout?.resume());
+				}
 				request.onData?.(data);
 			}
 		});
 		child.stderr?.on("data", (data: Buffer) => {
 			if (!this.#closed) {
 				job.outputSink.push(data);
+				this.#resetIdleTimer(job);
+				if (job.logStream && !job.logStream.write(data)) {
+					child.stderr?.pause();
+					job.logStream.once("drain", () => child.stderr?.resume());
+				}
 				request.onData?.(data);
 			}
 		});
@@ -153,12 +254,14 @@ export class BashJobRegistry {
 					request.onData?.(messageBuf);
 				}
 				job.status = "failed";
+				job.diagnostic = error.message;
 				job.endedAt = Date.now();
 			}
 			// `close` usually follows a spawn failure, but a post-spawn error may not report one.
 			this.#terminalize(job, !this.#closed);
 		});
 		child.once("exit", (code, signal) => {
+			this.#clearReminders(job);
 			clearTimeout(job.timeout);
 			if (job.status === "running") {
 				job.exitCode = code;
@@ -196,15 +299,105 @@ export class BashJobRegistry {
 			}, request.timeoutMs);
 		}
 		this.#jobs.set(id, job);
+		if (job.reminders) {
+			this.#resetIdleTimer(job);
+			job.heartbeatTimer = setInterval(() => this.#remind(job, "heartbeat"), BASH_HEARTBEAT_MS);
+			job.heartbeatTimer.unref();
+		}
 		return snapshot(job);
 	}
+
+	/**
+	 * Starts one background Bash job and registers it as an observable task.
+	 *
+	 * The registry owns the task wiring: the job id equals the task id, terminal snapshots settle the
+	 * task, and the returned binding routes stop/describe back to this registry.
+	 */
+	startAsTask(
+		tasks: TaskRegistry,
+		request: BashTaskRequest,
+	): { task: TaskSnapshot; logPath?: string | undefined } {
+		let resolvedLogPath = request.logPath;
+		const task = tasks.create({
+			type: "bash",
+			purpose: bashJobPurpose(request.command),
+			...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+			begin: (taskId: string) => {
+				if (resolvedLogPath === undefined && request.resolveLogPath !== undefined) {
+					resolvedLogPath = request.resolveLogPath(taskId);
+				}
+				const job = this.start({
+					id: taskId,
+					reminders: true,
+					...(request.anchor === undefined ? {} : { anchor: request.anchor }),
+					command: request.command,
+					cwd: request.cwd,
+					shellPath: request.shellPath,
+					...(resolvedLogPath !== undefined ? { logPath: resolvedLogPath } : {}),
+					...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+					onTerminal: (finished): void => {
+						tasks.settle(taskId, terminalFrom(finished));
+					},
+				});
+				return {
+					stop: (): void => {
+						this.stop(job.id);
+					},
+					describe: (): TaskProgress => {
+						const current = this.get(job.id);
+						return {
+							output: current?.output ?? "",
+							truncated: current?.truncated ?? false,
+						};
+					},
+				};
+			},
+		});
+		return { task, ...(resolvedLogPath === undefined ? {} : { logPath: resolvedLogPath }) };
+	}
+	onReminder(listener: (event: BashJobReminder) => void): () => void {
+		this.#reminderListeners.add(listener);
+		return () => this.#reminderListeners.delete(listener);
+	}
+	#remind(job: Job, kind: BashJobReminder["kind"]): void {
+		if (this.#closed || job.status !== "running" || job.terminalized) return;
+		const event = {
+			kind,
+			job: snapshot(job),
+			...(job.anchor === undefined ? {} : { anchor: job.anchor }),
+		};
+		for (const listener of this.#reminderListeners) listener(event);
+	}
+	#resetIdleTimer(job: Job): void {
+		if (!job.reminders || job.idleNotified || job.status !== "running") return;
+		if (job.idleTimer !== undefined) {
+			job.idleTimer.refresh();
+			return;
+		}
+		job.idleTimer = setTimeout(() => {
+			job.idleTimer = undefined;
+			job.idleNotified = true;
+			this.#remind(job, "idle");
+		}, BASH_IDLE_NOTICE_MS);
+		job.idleTimer.unref();
+	}
+	#clearReminders(job: Job): void {
+		clearTimeout(job.idleTimer);
+		clearInterval(job.heartbeatTimer);
+		job.idleTimer = undefined;
+		job.heartbeatTimer = undefined;
+	}
 	#terminalize(job: Job, notify: boolean): void {
+		this.#clearReminders(job);
+		clearTimeout(job.timeout);
 		if (job.terminalized) return;
 		job.terminalized = true;
 		if (job.cleanupTimer !== undefined) {
 			clearTimeout(job.cleanupTimer);
 			job.cleanupTimer = undefined;
 		}
+		job.logStream?.end();
+		job.logStream = undefined;
 		job.outputSink.finish();
 		const finalSnapshot = snapshot(job);
 		const waiter = job.waiter;
@@ -236,6 +429,7 @@ export class BashJobRegistry {
 		const job = this.#jobs.get(id);
 		if (!job) return undefined;
 		if (job.status !== "running") return snapshot(job);
+		this.#clearReminders(job);
 		job.status = "stopped";
 		job.endedAt = Date.now();
 		const child = job.process;
@@ -272,5 +466,6 @@ export class BashJobRegistry {
 		for (const id of this.#jobs.keys()) this.stop(id);
 		for (const job of this.#jobs.values()) this.#terminalize(job, false);
 		this.#jobs.clear();
+		this.#reminderListeners.clear();
 	}
 }

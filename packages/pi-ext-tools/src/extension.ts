@@ -4,6 +4,8 @@ import {
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
+	setPromptSection,
+	setSectionBullet,
 } from "@hheei/pi-ext-core";
 import {
 	createApplyPatchSettingsProvider,
@@ -11,6 +13,12 @@ import {
 } from "./apply-patch/settings.js";
 import { registerApplyPatchGuard } from "./apply-patch-guard.js";
 import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
+import {
+	BG_BASH_CODEMODE_BULLET,
+	BG_BASH_GUIDANCE,
+	BG_BASH_PROMPT_SECTION,
+	BG_BASH_TOOL_SEARCH_BULLET,
+} from "./bash.js";
 import { createEvalRuntimeState, registerEvalLifecycle } from "./eval/lifecycle.js";
 import { readEvalSettings } from "./eval/settings.js";
 import { isPythonEvalToolDetails } from "./eval/tool.js";
@@ -74,6 +82,22 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	registerEvalLifecycle(pi, evalState, evalEnabled, evalSettings.pythonBin);
 	pi.on("before_agent_start", (event) => {
 		applyTargetPromptSection(event.systemPromptOptions.sections, state.getTargetRuntime());
+		const sections = event.systemPromptOptions.sections;
+		const activeTools = new Set(pi.getActiveTools());
+		const isSpawnBashActive = activeTools.has("bg_bash_spawn");
+		if (isSpawnBashActive) {
+			setSectionBullet(sections, "deferred_tools", "background bash", undefined);
+			setPromptSection(sections, BG_BASH_PROMPT_SECTION, BG_BASH_GUIDANCE);
+		} else {
+			setPromptSection(sections, BG_BASH_PROMPT_SECTION, undefined);
+			if (activeTools.has("tool_search")) {
+				setSectionBullet(sections, "deferred_tools", "background bash", BG_BASH_TOOL_SEARCH_BULLET);
+			} else if (activeTools.has("codemode")) {
+				setSectionBullet(sections, "deferred_tools", "background bash", BG_BASH_CODEMODE_BULLET);
+			} else {
+				setSectionBullet(sections, "deferred_tools", "background bash", undefined);
+			}
+		}
 	});
 	pi.on("tool_result", (event) => {
 		if (

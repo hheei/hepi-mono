@@ -1,21 +1,18 @@
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type {
 	ExtensionAPI,
 	ExtensionToolContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-	type ExtensionLifecycleContext,
-	isTerminalTaskStatus,
-	TaskRegistry,
-} from "@hheei/pi-ext-core";
+import { type ExtensionLifecycleContext, TaskRegistry } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
+import piExtToolsExtension from "../src/extension.js";
 import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
 import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
 import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
@@ -283,119 +280,128 @@ test("settles a task that fails to start without claiming it started", (): void 
 	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-1", status: "failed" });
 });
 
-test("background bash returns a job id whose result arrives through wait_jobs", async (): Promise<void> => {
+test("bg_bash_spawn returns id and log path; get uses the same path key", async (): Promise<void> => {
 	const tasks = tracked(new TaskRegistry());
 	const state = runtimeState(tasks);
 	const host = toolHost();
 	registerBashTool(host.pi, state);
-	const bash = toolFor(host.tools, "bash");
-	const result = await runTool(bash, "bash-async-task", {
+	const spawnBash = toolFor(host.tools, "bg_bash_spawn");
+	await expect(
+		runTool(spawnBash, "caller-id", { command: "printf never", id: "bash-1" }),
+	).rejects.toThrow("Invalid bg_bash_spawn parameters");
+	const started = await runTool(spawnBash, "bash-async-task", {
 		command: "printf task-output",
-		blocking: false,
 	});
-	expect(result.content).toEqual([
-		{
-			type: "text",
-			text: "Started background job bash-1. Its result is added to the context when it finishes; use wait_jobs only if the next step needs it now.",
-		},
-	]);
-	expect(result.details).toMatchObject({ taskId: "bash-1", type: "bash", status: "running" });
+	const content = started.content[0];
+	if (content?.type !== "text") throw new Error("expected spawn result text");
+	const spawned = JSON.parse(content.text);
+	expect(spawned).toEqual({ id: "bash-1", path: expect.stringMatching(/bash-1\.log$/) });
+	expect(isAbsolute(spawned.path)).toBe(true);
+	expect(started.details).toEqual(spawned);
+	expect(started).not.toHaveProperty("structuredContent");
+	registerTaskTools(host.pi, state);
+	const progress = await runTool(toolFor(host.tools, "bg_bash_get"), "inspect", {
+		id: "bash-1",
+		keys: "progress",
+	});
+	expect(progress.details).toMatchObject({
+		progress: { path: spawned.path },
+	});
 	const waited = await tasks.wait(["bash-1"]);
 	expect(waited[0]).toMatchObject({ id: "bash-1", status: "completed", delivery: "pending" });
 	if (waited[0] === undefined || waited[0].status === "not_found")
 		throw new Error("expected a result");
 	expect(waited[0].output).toContain("task-output");
+	expect(readFileSync(spawned.path, "utf8")).toContain("task-output");
 });
 
 test("reports a background task that cannot start", async (): Promise<void> => {
 	const tasks = tracked(new TaskRegistry());
+	const jobs = jobRegistry();
+	jobs.dispose();
 	const state: FffRuntimeState = {
 		...runtimeState(tasks),
-		getBashJobs: () =>
-			({
-				start: () => {
-					throw new Error("registry is disposed");
-				},
-			}) as never,
+		getBashJobs: () => jobs,
 	};
 	const host = toolHost();
 	registerBashTool(host.pi, state);
-	const bash = toolFor(host.tools, "bash");
-	const result = await runTool(bash, "bash-start-failure", {
+	const spawnBash = toolFor(host.tools, "bg_bash_spawn");
+	const result = await runTool(spawnBash, "bash-start-failure", {
 		command: "printf never",
-		blocking: false,
 	});
 	expect(result.content).toEqual([
-		{ type: "text", text: "Unable to start background job: registry is disposed" },
+		{ type: "text", text: "Unable to start background job: Bash job registry is disposed" },
 	]);
-	expect(result.details).toMatchObject({ error: "start_failed" });
+	expect(result.details).toBeUndefined();
+	expect(result).toMatchObject({ isError: true });
+	expect(result).not.toHaveProperty("structuredContent");
 	expect(tasks.list(true)[0]).toMatchObject({ id: "bash-1", status: "failed" });
 });
 
-test("task tools report unavailable before session start", async (): Promise<void> => {
+test("background Bash controls reject missing sessions", async () => {
 	const host = toolHost();
 	registerTaskTools(host.pi, createFffRuntimeState());
-	expect(host.tools.map((tool) => tool.name)).toEqual(["list_jobs", "wait_jobs", "stop_jobs"]);
-	expect(host.tools[0]?.parameters).toMatchObject({
-		additionalProperties: false,
-		properties: { includeTerminal: { type: "boolean" } },
-	});
-	expect(host.tools[1]?.parameters).toMatchObject({
-		additionalProperties: false,
-		required: ["ids"],
-	});
+	expect(host.tools.map((tool) => tool.name)).toEqual(["bg_bash_get", "bg_bash_stop"]);
 	for (const tool of host.tools) {
-		const result = await runTool(
-			tool,
-			"task-tool-1",
-			tool.name === "list_jobs" ? {} : { ids: ["bash-1"] },
+		expect(tool.exposure).toBe("deferred");
+		expect(tool.defaultActive).toBe(false);
+		await expect(runTool(tool, "unavailable", { id: "bash-1" })).rejects.toThrow(
+			"No active background Bash session",
 		);
-		expect(result).toMatchObject({
-			content: [{ type: "text", text: "No active task session" }],
-			details: { error: "session_unavailable" },
-		});
 	}
 });
 
-test("task tools list, wait for, and stop background tasks", async (): Promise<void> => {
+test("background Bash controls project runtime fields without consuming terminal delivery", async () => {
 	const tasks = tracked(new TaskRegistry());
+	const state = runtimeState(tasks);
 	const host = toolHost();
-	registerTaskTools(host.pi, runtimeState(tasks));
-	const list = toolFor(host.tools, "list_jobs");
-	const wait = toolFor(host.tools, "wait_jobs");
-	const stop = toolFor(host.tools, "stop_jobs");
+	registerTaskTools(host.pi, state);
+	const get = toolFor(host.tools, "bg_bash_get");
+	const stop = toolFor(host.tools, "bg_bash_stop");
+	let stopped = 0;
 	tasks.create({
 		type: "bash",
 		purpose: "npm run build",
 		begin: () => ({
-			stop: () => tasks.settle("bash-1", { status: "cancelled", output: "", truncated: false }),
-			describe: () => ({ output: "", truncated: false }),
+			stop: () => {
+				stopped += 1;
+				tasks.settle("bash-1", {
+					status: "cancelled",
+					output: "terminal output",
+					truncated: false,
+				});
+			},
+			describe: () => ({ output: "partial", truncated: false }),
 		}),
 	});
-	const listed = await runTool(list, "list", {});
-	expect(listed.content).toEqual([
-		{ type: "text", text: expect.stringContaining("bash-1 running · npm run build") },
-	]);
-	const stopping = await runTool(stop, "stop", { ids: ["bash-1"] });
-	expect(stopping.content).toEqual([{ type: "text", text: "bash-1 stop requested" }]);
-	const waited = await runTool(wait, "wait", { ids: ["bash-1"] });
-	expect(waited.content[0]).toMatchObject({ type: "text" });
-	expect((waited.content[0] as { text: string }).text).toContain("bash-1 cancelled");
-	expect(waited.details).toMatchObject({
-		tasks: [{ id: "bash-1", status: "cancelled", delivery: "pending" }],
+	const running = await runTool(get, "get", { id: "bash-1" });
+	expect(running.details).toEqual({ status: "running", progress: { command: "npm run build" } });
+	expect((await runTool(get, "project", { id: "bash-1", keys: "status" })).details).toEqual({
+		status: "running",
 	});
-	const empty = await runTool(list, "list", {});
-	expect(empty.content).toEqual([{ type: "text", text: "No active background jobs." }]);
-	const finished = await runTool(list, "list-finished", { includeTerminal: true });
-	expect(finished.content).toEqual([
-		{ type: "text", text: expect.stringContaining("bash-1 cancelled · npm run build") },
+	await expect(runTool(get, "unknown", { id: "bash-1", keys: "output" })).rejects.toThrow(
+		"Unknown bg_bash_get key",
+	);
+	const stoppedResult = await runTool(stop, "stop", { id: "bash-1" });
+	expect(stoppedResult.content).toEqual([{ type: "text", text: "Stop requested." }]);
+	expect(stoppedResult.details).toBeUndefined();
+	expect(stopped).toBe(1);
+	expect((await runTool(stop, "stop-again", { id: "bash-1" })).content).toEqual([
+		{ type: "text", text: "Task already finished." },
 	]);
-	expect(finished.content).toEqual([
-		{ type: "text", text: expect.stringContaining("result in context") },
-	]);
-	for (const tool of [wait, stop]) {
-		const rejected = await runTool(tool, "invalid", { ids: [] });
-		expect(rejected.details).toMatchObject({ error: "invalid_ids" });
+	const finished = await runTool(get, "finished", { id: "bash-1" });
+	expect(finished.details).toEqual({ status: "cancelled", progress: { command: "npm run build" } });
+	expect(JSON.stringify(finished)).not.toContain("terminal output");
+	expect(tasks.pendingDeliveries()).toHaveLength(1);
+	tasks.create({
+		type: "agent",
+		purpose: "agent task",
+		begin: () => ({ stop: () => undefined, describe: () => ({ output: "", truncated: false }) }),
+	});
+	for (const tool of [get, stop]) {
+		await expect(runTool(tool, "wrong-type", { id: "agent-1" })).rejects.toThrow(
+			"Background Bash task agent-1 not found",
+		);
 	}
 });
 
@@ -557,10 +563,10 @@ const HOST_ACTIVE_TOOLS: readonly string[] = [
 	"edit",
 	"write",
 	"bash",
+	"bg_bash_spawn",
 	"ls",
-	"list_jobs",
-	"wait_jobs",
-	"stop_jobs",
+	"bg_bash_get",
+	"bg_bash_stop",
 	"apply_patch",
 	"python_eval",
 ];
@@ -615,10 +621,6 @@ function taskControlHost(): TaskControlHost {
 	};
 }
 
-function withoutTaskTools(active: readonly string[]): readonly string[] {
-	return active.filter((id) => !TASK_TOOL_IDS.includes(id));
-}
-
 /** Registers the task catalog as extension construction does, then starts one session. */
 function taskControlSession(overrides?: Partial<FffSettings>): {
 	readonly host: TaskControlHost;
@@ -639,12 +641,13 @@ function taskControlSession(overrides?: Partial<FffSettings>): {
 }
 
 /** Reads the task id a bash result reports, so a session-minted id is never hard-coded. */
-function taskIdOf(result: { readonly details?: unknown }): string {
-	const details = result.details;
-	if (typeof details !== "object" || details === null) throw new Error("expected tool details");
-	const taskId = (details as { readonly taskId?: unknown }).taskId;
-	if (typeof taskId !== "string") throw new Error("expected a background task id");
-	return taskId;
+function taskIdOf(result: {
+	readonly content: readonly { readonly type: string; readonly text?: string }[];
+}): string {
+	const first = result.content[0];
+	if (first?.type !== "text" || first.text === undefined)
+		throw new Error("expected a background task id");
+	return JSON.parse(first.text).id;
 }
 
 /** Executes a registered tool the way Pi does, at the session cwd. */
@@ -680,29 +683,23 @@ function bashHarness(settings?: Partial<FffSettings>): {
 	return { bash: toolFor(host.tools, "bash"), tasks };
 }
 
-test("host-activated task tools are removed at session start", (): void => {
+test("task tools remain permanently active without dynamic flapping", (): void => {
 	const host = taskControlHost();
-	// Precondition: Pi activates every registered extension tool before session_start runs.
-	expect(host.activeTools()).toContain("list_jobs");
+	expect(host.activeTools()).toContain("bg_bash_get");
 	registerTaskTools(host.pi, runtimeState(undefined));
-
 	tracked(startTaskControl(host.context));
-
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
+	expect(host.activeTools()).toEqual(HOST_ACTIVE_TOOLS);
 });
 
-test("task tools activate on the first background task, survive turns, and unload at a boundary", async (): Promise<void> => {
+test("bg_bash_spawn tracks running tasks in the session registry", async (): Promise<void> => {
 	const { host, tasks } = taskControlSession();
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-
-	const started = await toolFor(host.tools, "bash").execute(
+	const started = await toolFor(host.tools, "bg_bash_spawn").execute(
 		"bash-on-demand",
-		{ command: "printf task-output", blocking: false },
+		{ command: "printf task-output" },
 		undefined,
 		undefined,
 		toolContext(),
 	);
-	// The session registry mints its own runtime discriminator, so read the id back.
 	const firstId = taskIdOf(started);
 	expect(firstId).toBe("bash-1");
 	expect(tasks.activeCount).toBe(1);
@@ -710,116 +707,12 @@ test("task tools activate on the first background task, survive turns, and unloa
 
 	await tasks.wait([firstId]);
 	expect(tasks.activeCount).toBe(0);
-	// Ordinary turns keep the tools: a finished task must stay inspectable and activation must not churn.
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-
-	// The result still needs notification, so a boundary cannot unload the tools yet.
+	// Boundaries do not flap or unload the tools
 	host.emit("session_compact");
 	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	// Handing the result to the host is not proof that the model read it, so the tools stay until
-	// the message lifecycle confirms it.
-	tasks.markSubmitted([firstId], "first-delivery");
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	tasks.markObserved("first-delivery");
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-
-	// The next task brings them back.
-	const second = await toolFor(host.tools, "bash").execute(
-		"bash-reactivate",
-		{ command: "printf second", blocking: false },
-		undefined,
-		undefined,
-		toolContext(),
-	);
-	const secondId = taskIdOf(second);
-	expect(secondId).toBe("bash-2");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	await tasks.wait([secondId]);
 });
 
-test("activation follows running tasks across boundaries", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession();
-	const runningId = taskIdOf(
-		await toolFor(host.tools, "bash").execute(
-			"bash-boundary-running",
-			{ command: 'node -e "setTimeout(() => {}, 3000)"', blocking: false },
-			undefined,
-			undefined,
-			toolContext(),
-		),
-	);
-	expect(tasks.activeCount).toBe(1);
-
-	host.emit("session_compact");
-	host.emit("session_tree");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-
-	tasks.stop([runningId]);
-	await eventually(
-		() => tasks.get(runningId),
-		(task) => isTerminalTaskStatus(task.status),
-	);
-	// This producer confirms the stop synchronously, so the request was visible as `stopping` only
-	// while it was in flight.
-	expect(tasks.activeCount).toBe(0);
-	// A cancelled task still needs its control tools until the result is handed to the parent.
-	expect(tasks.requiresControl).toBe(true);
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	tasks.markSubmitted([runningId], "session-boundary");
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	tasks.markObserved("session-boundary");
-	host.emit("session_compact");
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-
-	// Another background job brings them back.
-	const res = await toolFor(host.tools, "bash").execute(
-		"bash-another-job",
-		{ command: "printf third", blocking: false },
-		undefined,
-		undefined,
-		toolContext(),
-	);
-	const newId = taskIdOf(res);
-	expect(tasks.activeCount).toBe(1);
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	await tasks.wait([newId]);
-});
-
-test("a boundary restores control tools the host re-activated behind a waiting result", async (): Promise<void> => {
-	const { host, tasks } = taskControlSession();
-	const running = taskIdOf(
-		await toolFor(host.tools, "bash").execute(
-			"bash-tree-restore",
-			{ command: 'node -e "setTimeout(() => {}, 120)"', blocking: false },
-			undefined,
-			undefined,
-			toolContext(),
-		),
-	);
-	await eventually(
-		() => tasks.get(running),
-		(task) => task.status !== "running",
-	);
-
-	// `/tree` republishes the transcript tool set, so control can come back even though nothing
-	// asked for it: a result still waiting for the parent must keep its readers available.
-	host.pi.setActiveTools([...HOST_ACTIVE_TOOLS].filter((id) => !TASK_TOOL_IDS.includes(id)));
-	host.emit("session_tree");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-
-	tasks.markSubmitted([running], "tree-restore");
-	host.emit("session_tree");
-	expect(host.activeTools()).toEqual(expect.arrayContaining([...TASK_TOOL_IDS]));
-	tasks.markObserved("tree-restore");
-	host.emit("session_tree");
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
-});
-
-test("a task that cannot start leaves the tools off, and teardown clears the next session", (): void => {
+test("a task that cannot start leaves active count at 0, and teardown clears the next session", (): void => {
 	const host = taskControlHost();
 	registerTaskTools(host.pi, runtimeState(undefined));
 	const tasks = tracked(startTaskControl(host.context));
@@ -834,7 +727,6 @@ test("a task that cannot start leaves the tools off, and teardown clears the nex
 		}),
 	).toThrow("spawn failed");
 	expect(tasks.activeCount).toBe(0);
-	expect(host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 
 	// Session teardown disposes the registry, so the next session starts clean.
 	tasks.create({
@@ -851,7 +743,6 @@ test("a task that cannot start leaves the tools off, and teardown clears the nex
 
 	const second = taskControlSession();
 	expect(second.tasks.activeCount).toBe(0);
-	expect(second.host.activeTools()).toEqual(withoutTaskTools(HOST_ACTIVE_TOOLS));
 });
 
 test("session teardown releases the boundary listeners", async (): Promise<void> => {
@@ -889,4 +780,48 @@ test("cleanly terminalizes when stopped even if descendant holds stdio open", as
 		(job) => job.status === "stopped",
 	);
 	expect(stopped.status).toBe("stopped");
+});
+
+test("injects background bash into deferred_tools when inactive, and into bg_bash_guidance when active", (): void => {
+	const host = toolHost();
+	piExtToolsExtension(host.pi);
+
+	// Without tool_search or codemode, no deferred bullet is injected
+	const startEventNone = { systemPromptOptions: { sections: {} as Record<string, string> } };
+	host.emit("before_agent_start", startEventNone);
+	expect(startEventNone.systemPromptOptions.sections.deferred_tools).toBeUndefined();
+	expect(startEventNone.systemPromptOptions.sections.bg_bash_guidance).toBeUndefined();
+
+	// With tool_search active, deferred bullet points to tool_search
+	host.pi.setActiveTools([...host.activeTools(), "tool_search"]);
+	const startEventSearch = { systemPromptOptions: { sections: {} as Record<string, string> } };
+	host.emit("before_agent_start", startEventSearch);
+	expect(startEventSearch.systemPromptOptions.sections.deferred_tools).toContain(
+		"- background bash:",
+	);
+	expect(startEventSearch.systemPromptOptions.sections.deferred_tools).toContain("tool_search");
+	expect(startEventSearch.systemPromptOptions.sections.bg_bash_guidance).toBeUndefined();
+
+	// With codemode active without tool_search, deferred bullet points to codemode
+	host.pi.setActiveTools(
+		host
+			.activeTools()
+			.filter((t) => t !== "tool_search")
+			.concat("codemode"),
+	);
+	const startEventCode = { systemPromptOptions: { sections: {} as Record<string, string> } };
+	host.emit("before_agent_start", startEventCode);
+	expect(startEventCode.systemPromptOptions.sections.deferred_tools).toContain(
+		"- background bash:",
+	);
+	expect(startEventCode.systemPromptOptions.sections.deferred_tools).toContain("codemode");
+
+	// With bg_bash_spawn active, deferred bullet is removed and full guidance injected
+	host.pi.setActiveTools([...host.activeTools(), "bg_bash_spawn"]);
+	const startEventActive = { systemPromptOptions: { sections: {} as Record<string, string> } };
+	host.emit("before_agent_start", startEventActive);
+	expect(startEventActive.systemPromptOptions.sections.deferred_tools).toBeUndefined();
+	expect(startEventActive.systemPromptOptions.sections.bg_bash_guidance).toContain(
+		"Use bg_bash_spawn for commands",
+	);
 });
