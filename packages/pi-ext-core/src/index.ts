@@ -111,7 +111,7 @@ export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { isSubagentProcess, runCommand, shellQuote } from "./process.js";
-export { setPromptSection } from "./prompt-section.js";
+export { setPromptSection, setSectionBullet } from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
 	BottomRailBorderOptions,
@@ -253,6 +253,12 @@ export {
 	TaskRegistryClosedError,
 } from "./tasks.js";
 export { escapeXml } from "./text.js";
+export type { ToolPresentation, ToolPresentationProvider } from "./tool-presentation.js";
+export {
+	createToolPresentationRenderers,
+	getRegisteredToolPresentationProvider,
+	getToolPresentationProvider,
+} from "./tool-presentation.js";
 export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
 
 export type {
