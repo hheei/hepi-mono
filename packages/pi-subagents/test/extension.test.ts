@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBackgroundDelivery } from "@hheei/pi-ext-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { DiscoveredAgent } from "../src/agent-resolver.js";
 import piSubagentsExtension, {
 	createParentChannel,
 	skillCatalogFromLoaded,
@@ -44,22 +45,54 @@ afterEach(() => {
 });
 
 describe("extension branch", () => {
-	test("registers five parent tools without injecting system prompt guidance", () => {
+	test("registers four parent tools without injecting system prompt guidance", () => {
 		const { pi, tools } = fakePi();
-		registerParentTools(pi, { closeLocalConnections: vi.fn() } as never);
+		registerParentTools(pi, { closeLocalConnections: vi.fn() } as never, []);
 		expect(tools.map((tool) => tool.name)).toEqual([
-			"spawn_agent",
-			"send_agent",
-			"get_agent",
-			"list_agents",
-			"stop_agent",
+			"agent_spawn",
+			"agent_send",
+			"agent_get",
+			"agent_stop",
 		]);
 		for (const tool of tools) {
 			expect(tool.promptSnippet).toBeUndefined();
 			expect(tool.promptGuidelines).toBeUndefined();
 		}
-		expect(tools[0]?.description).toContain("background RPC agent");
+		expect(tools[0]?.description).toContain("subagent task");
+		expect(tools[0]?.description).toContain("<available_agents>\nNone.\n</available_agents>");
+		expect(tools[0]?.description).toContain("Results are returned automatically");
+		expect(tools[0]?.description).toContain("do not poll agent_get");
 		expect(tools[1]?.description).toContain("resuming its session");
+		expect(tools[1]?.description).toContain("Results are returned automatically");
+		expect(tools[2]?.description).toContain("Results are returned automatically");
+	});
+
+	test("spawn description lists visible enabled agents with their roles", () => {
+		const { pi, tools } = fakePi();
+		const agents: DiscoveredAgent[] = [
+			{
+				name: "worker",
+				path: "/worker.md",
+				body: "Implement",
+				enabled: true,
+				frontmatter: { description: " Implements changes. " },
+			},
+			{
+				name: "hidden",
+				path: "/hidden.md",
+				body: "Private",
+				enabled: true,
+				frontmatter: { hidden: true },
+			},
+			{ name: "disabled", path: "/disabled.md", body: "Disabled", enabled: false, frontmatter: {} },
+			{ name: "reviewer", path: "/reviewer.md", body: "Review", enabled: true, frontmatter: {} },
+		];
+		registerParentTools(pi, {} as never, agents);
+		expect(tools[0]?.description).toContain(
+			"<available_agents>\n- reviewer: No description provided.\n- worker: Implements changes.\n</available_agents>",
+		);
+		expect(tools[0]?.description).not.toContain("- hidden:");
+		expect(tools[0]?.description).not.toContain("- disabled:");
 	});
 
 	test("the loaded skill list becomes the name to path catalog a definition resolves", () => {
@@ -182,7 +215,7 @@ test("dismiss removes only the targeted child report while leaving others to flu
 	await channel.deliver(report("child-3", "report 3"));
 	expect(parent.sent).toHaveLength(0);
 
-	// wait_jobs consumes child-2
+	// consuming the task result dismisses child-2
 	channel.dismiss("child-2");
 
 	// Remaining work finishes

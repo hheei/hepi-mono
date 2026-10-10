@@ -188,6 +188,9 @@ async function harness(
 	const bridge = new FakeBridge();
 	bridge.fallbackResponse = async (id, operation) => {
 		if (operation === "get_entries") return { entries: [] };
+		if (operation === "prompt" || operation === "steer" || operation === "follow_up") {
+			return { accepted: true, path: join(cwd, "sessions", `${id}-session.jsonl`) };
+		}
 		if (operation !== "get_state") return undefined;
 		const record = await registry.get(id);
 		return {
@@ -423,11 +426,44 @@ describe("SubagentManager over the bridge", () => {
 
 		expect(spawned.child.state).toBe("running");
 		expect(spawned.child.freshness).toBe("live");
+		expect(spawned.path).toBe(join(test1.cwd, "sessions", `${spawned.child.id}-session.jsonl`));
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ path: spawned.path });
+		expect(await test1.registry.get(spawned.child.id)).toMatchObject({
+			persistence: "never_flushed",
+		});
+		expect(await test1.registry.get(spawned.child.id)).not.toHaveProperty("sessionPath");
 		expect(test1.launch).toHaveBeenCalledTimes(1);
 		// The bridge connection also triggers adoption reads; the task itself is one prompt.
 		expect(test1.bridge.requests.filter((request) => request.operation === "prompt")).toEqual([
 			{ childId: spawned.child.id, operation: "prompt", payload: { message: "Do the work." } },
 		]);
+	});
+
+	test("refuses a spawn acknowledgement without the actual session path", async () => {
+		const current = await harness();
+		current.bridge.fallbackResponse = async () => ({ accepted: true });
+		const spawned = await current.manager.spawn({ agent: "worker", task: "Do the work." });
+		expect(spawned).toMatchObject({
+			operation: "spawn",
+			reason: "Child did not confirm its session path",
+			safeToRetry: false,
+		});
+	});
+
+	test("send refreshes the display path without claiming session durability", async () => {
+		const current = await harness();
+		const spawned = await current.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		await current.manager.stop(spawned.child.id);
+		const path = join(current.cwd, "sessions", "resumed-session.jsonl");
+		current.bridge.responses.set(`${spawned.child.id}:prompt`, async () => ({
+			accepted: true,
+			path,
+		}));
+		const sent = await current.manager.send(spawned.child.id, "Continue");
+		expect(sent).toMatchObject({ path });
+		expect(await current.manager.get(spawned.child.id)).toMatchObject({ path });
+		expect(await current.registry.get(spawned.child.id)).not.toHaveProperty("sessionPath");
 	});
 
 	test("persists an unconfirmed initial delivery as failed and not retryable", async () => {
@@ -1938,7 +1974,7 @@ describe("SubagentManager over the bridge", () => {
 			{ timeout: 6_000 },
 		);
 
-		// wait_jobs waits for s2 only and marks it consumed
+		// the task registry wait resolves s2 only and marks it consumed
 		const [outcome] = await taskRegistry.wait([s2.child.id]);
 		expect(outcome?.status).toBe("completed");
 		taskRegistry.markConsumed([s2.child.id]);

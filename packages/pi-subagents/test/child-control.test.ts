@@ -69,7 +69,7 @@ function fakePi(): FakePi {
 }
 
 function fakeContext(
-	options: { idle?: boolean; pending?: boolean; entries?: unknown[] } = {},
+	options: { idle?: boolean; pending?: boolean; entries?: unknown[]; path?: string | null } = {},
 ): FakeContext {
 	const abort = vi.fn();
 	const shutdown = vi.fn();
@@ -83,7 +83,8 @@ function fakeContext(
 			shutdown,
 			sessionManager: {
 				getSessionId: () => "child-session",
-				getSessionFile: () => "/tmp/child-session.jsonl",
+				getSessionFile: () =>
+					options.path === null ? undefined : (options.path ?? "/tmp/child-session.jsonl"),
 				getEntries: () => options.entries ?? [],
 			},
 		} as unknown as ExtensionContext,
@@ -178,7 +179,7 @@ describe("registerChildControl", () => {
 			idle: false,
 			pendingMessages: true,
 			sessionId: "child-session",
-			sessionPath: "/tmp/child-session.jsonl",
+			path: "/tmp/child-session.jsonl",
 		});
 	});
 
@@ -188,19 +189,33 @@ describe("registerChildControl", () => {
 
 		await expect(
 			parent.server.request("agent-1", "prompt", { message: "start the task" }),
-		).resolves.toEqual({ accepted: true });
+		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
 		await expect(
 			parent.server.request("agent-1", "steer", { message: "go faster" }),
-		).resolves.toEqual({ accepted: true });
+		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
 		await expect(
 			parent.server.request("agent-1", "follow_up", { message: "continue" }),
-		).resolves.toEqual({ accepted: true });
+		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
 
 		expect(pi.sendUserMessage.mock.calls).toEqual([
 			["start the task"],
 			["go faster", { deliverAs: "steer" }],
 			["continue", { deliverAs: "followUp" }],
 		]);
+	});
+
+	test("refuses input before delivery when Pi has no session path", async () => {
+		const parent = await startParent();
+		const { pi } = await startChild(parent);
+		pi.emit(
+			"session_start",
+			{ type: "session_start", reason: "startup" },
+			fakeContext({ path: null }).context,
+		);
+		await expect(
+			parent.server.request("agent-1", "prompt", { message: "start the task" }),
+		).rejects.toThrow("This child has no session file path");
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	test("refuses a prompt without a message", async () => {

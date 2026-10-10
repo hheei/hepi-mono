@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
 import type {
 	ModelRegistryLike,
@@ -247,11 +247,11 @@ export async function resolveSubagentLaunch(
 	options: ResolveSubagentLaunchOptions,
 ): Promise<EffectiveLaunchConfig> {
 	const task = options.input.task.trim();
-	if (task === "") throw new Error("spawn_agent requires a non-empty task");
+	if (task === "") throw new Error("agent_spawn requires a non-empty task");
 	const name = options.input.agent?.trim();
 	if (name === undefined || name === "") {
 		throw new Error(
-			"spawn_agent requires an explicit agent name; V1 has no built-in default agent",
+			"agent_spawn requires an explicit agent name; V1 has no built-in default agent",
 		);
 	}
 	const cwd = resolve(options.input.cwd?.trim() || options.cwd);
@@ -273,7 +273,7 @@ export async function resolveSubagentLaunch(
 	});
 	if (options.enforceEnabled === true && policy.enabled === false) {
 		throw new Error(
-			`Agent "${policy.agent.name}" is disabled: no model is specified in user configuration (~/.pi/agent/agents/ or .pi/agents/)`,
+			`Agent "${policy.agent.name}" is disabled: no model is specified in user configuration (${join(getAgentDir(), "agents")}/ or .pi/agents/)`,
 		);
 	}
 	const instructions = policy.agent.instructions;

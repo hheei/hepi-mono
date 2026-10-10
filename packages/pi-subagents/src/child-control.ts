@@ -66,12 +66,12 @@ export function promptMessage(payload: unknown): string {
  * parent never infers it from how long ago it last heard something.
  */
 export function childState(ctx: ExtensionContext): Record<string, unknown> {
-	const sessionPath = ctx.sessionManager.getSessionFile();
+	const path = ctx.sessionManager.getSessionFile();
 	return {
 		idle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
 		sessionId: ctx.sessionManager.getSessionId(),
-		...(sessionPath ? { sessionPath } : {}),
+		...(path ? { path } : {}),
 	};
 }
 
@@ -226,10 +226,13 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		const message = promptMessage(payload);
 		// A message needs a session to land in: while the process is between sessions the parent
 		// hears that instead of a silent drop.
-		requireContext();
+		const path = requireContext().sessionManager.getSessionFile();
+		if (path === undefined) {
+			throw new BridgeError("session_not_ready", "This child has no session file path");
+		}
 		if (deliverAs !== undefined) pi.sendUserMessage(message, { deliverAs });
 		else pi.sendUserMessage(message);
-		return { accepted: true };
+		return { accepted: true, path };
 	};
 	const handleRequest = async (request: ChildBridgeRequest): Promise<unknown> => {
 		if (!isActive()) {

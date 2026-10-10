@@ -211,6 +211,8 @@ export interface SubagentRecord {
 
 export interface PublicSubagent {
 	readonly id: string;
+	/** Pi-assigned session file path; the first write may still be pending. */
+	readonly path?: string;
 	readonly agent: string;
 	readonly displayName?: string;
 	readonly state: SubagentState;
@@ -246,7 +248,7 @@ export interface SpawnSubagentInput {
 	 * Where to run this child. `auto` (the default) means a panel whenever this parent has a
 	 * presentation host, and the background otherwise; the Task tool pins `background` because a
 	 * Task is settled by its parent and never handed to a human. This is not a model-facing
-	 * parameter: `spawn_agent` always spawns with `auto`.
+	 * parameter: `agent_spawn` always spawns with `auto`.
 	 */
 	readonly presentation?: Presentation | "auto";
 	/** Optional child session title; the child branch prefixes it with the subagent marker. */

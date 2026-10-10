@@ -45,7 +45,7 @@ import { createStateProjector, type StateProjector } from "./state.js";
 
 /**
  * How long an idle child keeps its runtime. A background child holds a whole Pi process and its
- * session lock, so an idle one is reclaimed after this window and a later `send_agent` starts it
+ * session lock, so an idle one is reclaimed after this window and a later `agent_send` starts it
  * again from the same session.
  */
 export const SUBAGENT_IDLE_TIMEOUT_MS = 15_000;
@@ -139,6 +139,7 @@ export interface PresentationDeps {
 
 export interface SpawnResult {
 	readonly child: PublicSubagent;
+	readonly path: string;
 	/** Set when the child did not run where it would have by default. */
 	readonly note?: string;
 }
@@ -166,9 +167,26 @@ function failure(
 	};
 }
 
-function publicChild(record: SubagentRecord, live: boolean): PublicSubagent {
+function acknowledgedPath(response: unknown): string {
+	if (
+		!isRecord(response) ||
+		response.accepted !== true ||
+		typeof response.path !== "string" ||
+		response.path === ""
+	) {
+		throw new BridgeError("invalid_state", "Child did not confirm its session path");
+	}
+	return response.path;
+}
+
+function publicChild(
+	record: SubagentRecord,
+	live: boolean,
+	path: string | undefined = record.sessionPath,
+): PublicSubagent {
 	return {
 		id: record.subagentId,
+		...(path === undefined ? {} : { path }),
 		agent: record.launchConfig.agent.name,
 		...(record.launchConfig.agent.displayName === undefined
 			? {}
@@ -274,6 +292,8 @@ export class SubagentManager {
 	/** Bumped by every inbound bridge signal, so a reclaim in flight can tell the child moved. */
 	readonly #activity = new Map<string, number>();
 	readonly #projectors = new Map<string, StateProjector>();
+	/** Display paths do not imply that a session has been flushed to disk. */
+	readonly #paths = new Map<string, string>();
 	/** Known child work in flight, separate from failures recorded before Pi finally settles. */
 	readonly #working = new Set<string>();
 	/** A settled event from an older run cannot clear a newer synchronous start signal. */
@@ -364,6 +384,7 @@ export class SubagentManager {
 		this.#unresolvedRuntimes.clear();
 		this.#activity.clear();
 		this.#projectors.clear();
+		this.#paths.clear();
 		this.#working.clear();
 		this.#workVersions.clear();
 		this.#notify();
@@ -1007,6 +1028,9 @@ export class SubagentManager {
 			throw new BridgeError("invalid_state", `Child ${id} did not confirm its current work state`);
 		}
 		const idle = state.idle && !state.pendingMessages;
+		if (typeof state.path === "string" && state.path !== "") {
+			this.#paths.set(id, state.path);
+		}
 		if ((this.#workVersions.get(id) ?? 0) === workVersion) {
 			if (idle) this.#working.delete(id);
 			else this.#working.add(id);
@@ -1102,8 +1126,12 @@ export class SubagentManager {
 			this.#working.add(childId);
 			this.#notify();
 			await withDeadline(this.#start(record), this.#deps.deadlineMs ?? 60_000);
+			let path: string;
 			try {
-				await this.#request(record.subagentId, "prompt", { message: cleanTask });
+				path = acknowledgedPath(
+					await this.#request(record.subagentId, "prompt", { message: cleanTask }),
+				);
+				this.#paths.set(record.subagentId, path);
 			} catch (error) {
 				let failureState: SubagentState = "error";
 				try {
@@ -1163,7 +1191,12 @@ export class SubagentManager {
 				}
 			}
 			return {
-				child: publicChild((await this.#deps.registry.get(record.subagentId)) ?? record, true),
+				child: publicChild(
+					(await this.#deps.registry.get(record.subagentId)) ?? record,
+					true,
+					path,
+				),
+				path,
 				...(placement.note === undefined ? {} : { note: placement.note }),
 			};
 		} catch (error) {
@@ -1258,6 +1291,32 @@ export class SubagentManager {
 				try {
 					await withDeadline(this.#start(resumedRecord), this.#deps.deadlineMs ?? 60_000);
 					isResumed = true;
+					if (this.#taskRegistry !== undefined) {
+						try {
+							this.#taskRegistry.create({
+								id: resumedRecord.subagentId,
+								type: "agent",
+								purpose: `${resumedRecord.launchConfig.agent}: resumed task`,
+								inlineResult: true,
+								begin: () => ({
+									stop: () => {
+										void this.stop(resumedRecord.subagentId);
+									},
+									describe: () => ({
+										output: `Subagent ${resumedRecord.subagentId} (${resumedRecord.launchConfig.agent}) is running`,
+										truncated: false,
+									}),
+									consume: () => {
+										this.#deps.channel?.dismiss?.(resumedRecord.subagentId);
+									},
+								}),
+							});
+						} catch (regError) {
+							diagnose(
+								`failed to renew background task for subagent ${resumedRecord.subagentId}: ${errorMessage(regError)}`,
+							);
+						}
+					}
 				} catch (error) {
 					const reason = errorMessage(error);
 					// A launch that failed may still have started a process that owns the session, so the
@@ -1314,7 +1373,8 @@ export class SubagentManager {
 				};
 			});
 			try {
-				await this.#request(id, operation, { message });
+				const path = acknowledgedPath(await this.#request(id, operation, { message }));
+				this.#paths.set(id, path);
 			} catch (error) {
 				return failure(
 					"send",
@@ -1325,7 +1385,7 @@ export class SubagentManager {
 					false,
 				);
 			}
-			return publicChild((await this.#deps.registry.get(id)) ?? pending, true);
+			return publicChild((await this.#deps.registry.get(id)) ?? pending, true, this.#paths.get(id));
 		});
 	}
 
@@ -1343,9 +1403,9 @@ export class SubagentManager {
 				...(snap.interrupted !== undefined ? { interrupted: snap.interrupted } : {}),
 				usage: snap.usage ?? record.usage,
 			};
-			return publicChild(mergedRecord, live);
+			return publicChild(mergedRecord, live, this.#paths.get(id));
 		}
-		return publicChild(record, live);
+		return publicChild(record, live, this.#paths.get(id));
 	}
 
 	public async list(): Promise<readonly PublicSubagent[]> {

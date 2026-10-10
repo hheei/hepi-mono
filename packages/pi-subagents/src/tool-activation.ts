@@ -1,55 +1,45 @@
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { isRecord, setPromptSection } from "@hheei/pi-ext-core";
+import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isRecord, setPromptSection, setSectionBullet } from "@hheei/pi-ext-core";
 import { discoverAgents } from "./agent-resolver.js";
 import type { SubagentManager } from "./manager.js";
+import { formatAvailableAgents } from "./tools.js";
 
 /** Interactive agent tools managed by dynamic activation. */
 export const INTERACTIVE_TOOL_NAMES = [
-	"spawn_agent",
-	"send_agent",
-	"get_agent",
-	"stop_agent",
+	"agent_spawn",
+	"agent_send",
+	"agent_get",
+	"agent_stop",
 ] as const;
 
 export type InteractiveToolName = (typeof INTERACTIVE_TOOL_NAMES)[number];
 
 export const SUBAGENT_PROMPT_SECTION = "subagent_guidance";
+export const DEFERRED_TOOLS_SECTION = "deferred_tools";
 
-export const SUBAGENT_DEFERRED_PROMPT_GUIDANCE =
-	'Subagent tools (spawn_agent, send_agent, get_agent, stop_agent) are deferred. Use tool_search ({ query: "agent" }) to discover and load them when needed.';
+export const SUBAGENT_TOOL_SEARCH_BULLET =
+	'Subagent orchestration and delegation tools (agent_spawn, agent_send, agent_get, agent_stop). Use tool_search ({ query: "agent" }) to load.';
+export const SUBAGENT_CODEMODE_BULLET =
+	"Subagent orchestration and delegation tools (agent_spawn, agent_send, agent_get, agent_stop). Call from codemode scripts via tools.agent_spawn.";
 
-export const USAGE_GUIDE = [
-	"Reuse an existing subagent via send_agent for related work. Inspect available definitions and owned children with list_agents before creating a new child; use get_agent for current identity or state.",
-	"Spawn a new agent only when a distinct role or fresh context is needed. Idle children consume no compute and do not need to be frozen, paused, or stopped before other work starts.",
-	"send_agent can resume done, blocked, errored, or stopped children with their session context. After an error, retry send_agent or create a new child with spawn_agent; neither guarantees recovery. A previous runtime must be confirmed stopped before starting a replacement.",
-	"Child results arrive automatically as subagent-report messages, including while you work on other tasks. After spawn or send, do independent work or end your turn. Do not poll get_agent or list_agents, sleep, wait, or tail session/log files to detect completion. Do not fabricate or summarize results before a report arrives.",
-	"Background job controls may become available when a task starts. Subagent task ids use the same agent-X format returned by spawn_agent, for example agent-1. Do not use wait_jobs to wait for subagent reports: healthy subagents report automatically and close themselves. wait_jobs is optional and only for directly reading a result when needed; stop_jobs is optional and only for explicitly terminating a job that should not continue. Use stop_agent to end a child runtime intentionally.",
-].join("\n");
+export function buildUsageGuide(): string {
+	return [
+		`Choose an agent from <available_agents> in the agent_spawn tool description. Custom definitions are markdown files in project (.pi/agents/*.md, .agents/agents/*.md) and user (${join(getAgentDir(), "agents")}/*.md) directories; read a definition when you need its full instructions.`,
+		"agent_spawn returns JSON { id, path }, where path is the child session file path. agent_get progress.path provides the same path; the first write may still be pending.",
+		"Reuse an existing subagent via agent_send for related work; use agent_get for current identity or state.",
+		"Spawn a new agent only when a distinct role or fresh context is needed. Idle children consume no compute and do not need to be frozen, paused, or stopped before other work starts.",
+		"agent_send can resume done, blocked, errored, or stopped children with their session context. After an error, retry agent_send or create a new child with agent_spawn; neither guarantees recovery.",
+		"Child results arrive automatically as <task-notice> or subagent-report messages, including while you work on other tasks. After spawn or send, do independent work or end your turn. Do not poll agent_get, sleep, or wait to detect completion.",
+		"Use agent_stop to end a running subagent's runtime by its id (e.g. agent-1); a later agent_send can resume it.",
+	].join("\n");
+}
+
+export const USAGE_GUIDE = buildUsageGuide();
 
 export async function buildSubagentPromptGuidance(cwd: string): Promise<string> {
-	const allAgents = await discoverAgents(cwd);
-	const availableAgents = allAgents
-		.filter((agent) => agent.enabled !== false && agent.frontmatter.hidden !== true)
-		.map((agent) => ({
-			name: agent.name,
-			description:
-				typeof agent.frontmatter.description === "string" &&
-				agent.frontmatter.description.trim() !== ""
-					? agent.frontmatter.description.trim()
-					: "No description provided.",
-		}))
-		.sort((a, b) => a.name.localeCompare(b.name));
-
-	const lines = [USAGE_GUIDE];
-	if (availableAgents.length > 0) {
-		lines.push("", "<available_agents>");
-		for (const agent of availableAgents) {
-			lines.push(`- ${agent.name}: ${agent.description}`);
-		}
-		lines.push("</available_agents>");
-	}
-	return lines.join("\n");
+	return [buildUsageGuide(), "", formatAvailableAgents(await discoverAgents(cwd))].join("\n");
 }
 
 export function supportsDynamicTools(pi: ExtensionAPI): boolean {
@@ -80,21 +70,11 @@ function currentTranscriptToolNames(messages: readonly unknown[]): string[] {
 	return [...tools];
 }
 
-const LEGACY_TOOL_NAMES = new Set([
-	"spawn_subagent",
-	"send_subagent",
-	"get_subagent",
-	"stop_subagent",
-	"list_subagents",
-	"subagents_enable",
-	"subagent_enable",
-]);
-
 function branchHasSubagentCalls(
 	messages: readonly unknown[],
 	toolNames: readonly string[],
 ): boolean {
-	const names = new Set([...toolNames, ...LEGACY_TOOL_NAMES]);
+	const names = new Set(toolNames);
 	for (const msg of messages) {
 		if (!isRecord(msg)) continue;
 		if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -198,10 +178,23 @@ export function registerInteractiveToolActivation(
 			const activeTools = new Set(pi.getActiveTools());
 			const isInteractiveActive = names.some((name) => activeTools.has(name));
 			if (isInteractiveActive) {
+				setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", undefined);
 				const guidance = await buildSubagentPromptGuidance(context.cwd ?? process.cwd());
 				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, guidance);
 			} else {
-				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, SUBAGENT_DEFERRED_PROMPT_GUIDANCE);
+				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, undefined);
+				if (activeTools.has("tool_search")) {
+					setSectionBullet(
+						sections,
+						DEFERRED_TOOLS_SECTION,
+						"subagents",
+						SUBAGENT_TOOL_SEARCH_BULLET,
+					);
+				} else if (activeTools.has("codemode")) {
+					setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", SUBAGENT_CODEMODE_BULLET);
+				} else {
+					setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", undefined);
+				}
 			}
 		}
 	};

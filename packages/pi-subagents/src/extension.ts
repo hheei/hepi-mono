@@ -8,7 +8,7 @@ import {
 	type TaskRegistry,
 	waitForService,
 } from "@hheei/pi-ext-core";
-import type { SkillCatalogEntry } from "./agent-resolver.js";
+import { discoverAgents, type SkillCatalogEntry } from "./agent-resolver.js";
 import { ChildBridgeServer } from "./bridge-server.js";
 import { registerChildBridge } from "./child-bridge.js";
 import { registerParentCommands } from "./commands.js";
@@ -330,7 +330,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					"error",
 				);
 			}
-			registerParentTools(pi, manager);
+			registerParentTools(pi, manager, await discoverAgents(context.cwd));
 			if (typeof pi.registerMarkdownTransformer === "function") {
 				pi.registerMarkdownTransformer(transformSubagentsMarkdown);
 			}
