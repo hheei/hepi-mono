@@ -167,7 +167,7 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 
 `pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。
 
-`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`non-blocking`、`(timeout Ns)`，远端再加 `(host)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
+`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`(timeout Ns)`，远端再加 `(host)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
 
 ### Optional optimizer integration
 
@@ -177,50 +177,15 @@ Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，�
 
 ### Extension-owned background Bash
 
-`bash` 可显式接受 `blocking: false`。当前路径不是 Pi host Bash 的 fallback：`pi-ext-tools` 创建
-session-scoped background job，并在共享的 ext-core `TaskRegistry` 中登记为一个 model-visible task，立即返回
-完整 task id（`bash-<discriminator>-<sequence>`）。UI 标签与消息 details 另带短 id（`bash-1`），通知文本保留
-完整 id。任务进入终态后，extension 通过 Pi host 的 custom message（`pi-ext-tools:task-terminal`）把 purpose、
-终态、截断标记与有限 tail 放入当前 session，并以 `deliverAs: "followUp"` + `triggerTurn: true` 排入父 context，
-因此结果不需要轮询就能进入下一次 agent 活动，同时消息里标明它是委派输出而不是新的用户指令。第一条终态结果开启固定
-5 秒窗口，窗口内完成的结果合并为一条消息（按字节与条数上限拆分），窗口不被后续结果延长。后台 job 不绑定原 tool call
-的 AbortSignal，工具调用返回后任务继续运行。
+`bash` 只在前台执行，默认超时 180s（纯搜索命令 25s）；远端 SSH 同样只支持前台。后台命令使用 deferred `bg_bash_spawn({ command, timeout? })`，成功返回 JSON `{ id, path }`，path 是完整日志文件的绝对路径，失败只返回原因，不接受调用方 ID。完成结果以 `<task-notice>` 自动返回，不轮询或等待。
 
-Task-control 契约（`@hheei/pi-ext-core` 的 `TaskRegistry`，由 `pi-ext-tools` 以单一 Service 提供）是唯一的状态源：
+`bg_bash_get({ id, keys? })` 默认返回 `status,progress`，可选 `diagnostic`；keys 是逗号分隔字符串，未知 key 报错。只返回当前运行信息与终态生命周期，不重复终态输出。progress.path 与 spawn 返回的 path 一致，自动通知也提供日志路径，完整日志由 read/grep 读取。`bg_bash_stop({ id })` 只停止本工具族的后台进程，成功只返回一句确认，失败只返回原因，不控制 child agent。没有 list 或等待工具。
 
-- id 为 `<type>-<discriminator>-<sequence>`，discriminator 在每个 session lifecycle 重新生成且不持久化，因此
-  id 不会跨 session 复用；UI 只显示短 id。
-- 一次终态只投递一条 completion message；投递失败会回到 pending 并报一次 warning，`wait_tasks` 直接读取结果，
-  既不消费也不重复投递通知。
-- registry 只负责 id、状态、一次性投递与 list/wait/stop 查询；进程 spawn、输出 tail、取消
-  仍由 producer 拥有（Bash 即 `BashJobRegistry`），registry 不执行也不调度。
-- 终态记录保留最近 64 条，未确认投递的结果不会被淘汰（因此实际上限约为 64 条终态 + 64 条未投递），
-  更早的终态 task 不再可查询，避免长 session 无界增长。
+`BashJobRegistry` 拥有进程与 timer：连续 180 秒无 stdout/stderr 时发一次 idle notice，每 1800 秒发 heartbeat；onData 重置尚未发出的 idle timer，无轮询。仅后台 Bash 使用提醒，stop、terminal 和 dispose 全部取消 timer。停止会清理整棵进程树：POSIX 使用进程组，Windows 使用 taskkill。
 
-模型可见的控制面只有三个工具：`list_tasks({ includeTerminal? })`、`wait_tasks({ ids })`、
-`stop_tasks({ ids })`。单任务操作使用单元素 `ids` 数组。`wait_tasks` 是一个 barrier：只在下一步确实需要结果时调用；
-host 取消等待只结束观察，不会取消被等待的 task。`stop_tasks` 只发出取消请求，最终状态仍由一致路径的 completion delivery 报告。
+Bash 和 child agent 通过 ext-core `TaskRegistry` 共享内部活动登记，通过 `BackgroundDelivery` 协调交付。普通结果在 parent 忙时 steer 进入下一模型步骤，空闲时等待全部后台活动结束统一唤醒；提醒可以提前唤醒，但不能携带被门控的普通结果，也不消费结果或修改终态交付状态。通知有固定输出、字节和条目上限；进程日志保留完整输出。终态使用 pending/submitted/observed 确认，失败恢复 pending 并报告。
 
-停止一个后台 job 会终止**整棵进程树**，而不只是 job 的 shell：POSIX 上 job 以 `detached` 启动、自成进程组，
-先给进程组 `SIGTERM`，250ms 后仍未退出则升级为 `SIGKILL`；Windows 没有进程组，`child.kill()` 只能结束 `cmd.exe`
-并把它的子进程变成孤儿，因此直接调用 `taskkill /F /T /PID <pid>` 收树（Windows 上没有“先温柔再升级”这一步：
-一旦 shell 先死，`taskkill` 依赖的父子链就断了）。
-
-三个管控工具按需注入：它们始终注册（Host 需要知道它们存在），但 session 开始时 `pi-ext-tools` 会真实停用
-它们一次（Host 会以 `includeAllExtensionTools` 激活全部 extension 工具，`/tree` 还会按 transcript 恢复），
-只有会话产生第一个后台任务时才激活（显式 `blocking: false`，或其它
-`tasks.create()` 调用者，例如 `pi-subagents` 的 `task`）。任务跑完后普通对话轮次内保持激活，便于查看终态或收尾；
-只有在 `session_compact` 或 `session_tree` 这类宏观边界，且没有运行中的任务、也没有尚未确认读到的结果
-（`registry.requiresControl`）时才卸载，绝不因单轮结束而突变。`wait_tasks` 的
-“不要轮询”规范挂在工具自身的 `promptGuidelines` 上，随激活进入 `<rules>`，不再常驻 `bash` 规则。
-跨 package 的 producer（`pi-subagents` 的 `task`）通过 ext-core 的 `TASK_REGISTRY_SERVICE_KEY` 使用同一个
-registry，因此共享同一套激活与通知策略，不再各自维护状态源。
-
-后台任务完成消息内联最多 10,000 字符的 output tail 并标明是否截断；更大的结构化结果只给 `wait_tasks <id>`
-指针，绝不把已校验的结果截断成非法 JSON。
-
-后台 job 使用 `pi-ext-tools` 自己的 shell-path setting，而不是读取 Pi host 的 private shell setting；
-默认 shell 由平台环境决定。缺省（不传 `blocking`）的调用由 `pi-ext-tools` 的前台 shell 路径执行，并保留其原有 cwd、streaming、abort 与 output contract，默认超时为 180s（纯搜索命令为 25s）。显式 `blocking: false` 时在本地启动后台 job；远程 SSH 任务始终在前台执行，不支持后台运行。
+工具默认 deferred，激活后保持可用，不随任务开始或结束反复变动。未激活时通过 deferred_tools 介绍，激活后通过 bg_bash_guidance 说明自动交付与日志检查。完整生命周期和容量约束见 [后台任务契约](../architecture/background-tasks.md)。
 
 ## Tool Ownership
 
