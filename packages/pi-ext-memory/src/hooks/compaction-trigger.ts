@@ -223,8 +223,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const elapsedSec = nowSec - persistedSettledSec;
 		const ttlSec = runtime.config.idleCompactionTtlSeconds;
-		const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
-		const totalIdleSec = elapsedSec + Math.floor(waitJobsDurationMs / 1000);
 
 		const emitNotice = (seconds: number) => {
 			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
@@ -246,12 +244,12 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 			} catch {}
 		};
 
-		if (totalIdleSec >= ttlSec) {
+		if (elapsedSec >= ttlSec) {
 			// Already idle for >= ttlSec (e.g. resumed or forked after expiration): emit directly once
-			emitNotice(totalIdleSec);
+			emitNotice(elapsedSec);
 		} else {
 			// Schedule one-off notification timer for the exact remaining time until ttlSec
-			const remainingSec = ttlSec - totalIdleSec;
+			const remainingSec = ttlSec - elapsedSec;
 			runtime.pendingIdleNoticeTimer = setTimeout(
 				() => {
 					runtime.pendingIdleNoticeTimer = undefined;
@@ -263,10 +261,8 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 						: undefined;
 					const currentElapsedSec =
 						currentSettledSec !== undefined ? currentNowSec - currentSettledSec : ttlSec;
-					const currentTotalIdleSec =
-						currentElapsedSec + Math.floor(runtime.consumeWaitJobsDuration() / 1000);
-					if (currentTotalIdleSec < ttlSec) return;
-					emitNotice(currentTotalIdleSec);
+					if (currentElapsedSec < ttlSec) return;
+					emitNotice(currentElapsedSec);
 				},
 				Math.max(0, remainingSec * 1000),
 			);
@@ -305,18 +301,15 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const elapsedSec = nowSec - persistedSettledSec;
 		const ttlSec = runtime.config.idleCompactionTtlSeconds;
-		const waitJobsDurationMs = runtime.consumeWaitJobsDuration();
-		const waitJobsSec = Math.floor(waitJobsDurationMs / 1000);
-		const totalIdleSec = elapsedSec + waitJobsSec;
 
-		if (totalIdleSec < ttlSec) return;
+		if (elapsedSec < ttlSec) return;
 		const minTokens = resolveIdleCompactionMinTokens(runtime.config, pi);
 		if (!hasIdleCompactionWork(entries, minTokens)) return;
 
 		// If the idle notice was not emitted earlier (e.g. cold resume in non-interactive CLI), emit it once
 		if (!hasPersistedIdleNotice(entries) && !runtime.idleNoticeEmitted) {
 			runtime.idleNoticeEmitted = true;
-			const timeStr = formatIdleDuration(totalIdleSec);
+			const timeStr = formatIdleDuration(elapsedSec);
 			const noticeText = `The conversation has idled for ${timeStr}. Compacting context before the next turn.`;
 
 			try {
@@ -328,18 +321,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal, minTokens);
 		runtime.idleNoticeEmitted = false;
-	});
-
-	// Track wait_jobs execution duration to count towards session idle lifespan
-	pi.on("tool_execution_start", (event) => {
-		if (isRecord(event) && event.toolName === "wait_jobs") {
-			runtime.recordWaitJobsStart();
-		}
-	});
-	pi.on("tool_execution_end", (event) => {
-		if (isRecord(event) && event.toolName === "wait_jobs") {
-			runtime.recordWaitJobsEnd();
-		}
 	});
 
 	// Pi emits agent_settled only after retries, automatic compaction, and queued
