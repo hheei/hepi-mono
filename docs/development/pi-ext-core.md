@@ -67,7 +67,7 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 
 - **生命周期与清理**：必须使用 `registerExtensionLifecycle`；所有异步任务、timer、订阅必须使用 `context.resources.add` 注册逆序清理，所有支持取消的操作必须透传 `context.signal`。
 - **跨扩展能力共享**：单一独占能力使用 `provideService` / `getService`（或异步 `waitForService`）；多对一挂载与观察使用 `registerExtensionHook` / `openExtensionPoint`。
-- **后台任务与统一管理**：凡产生后台等待或异步执行的任务（例如后台命令、子 Agent 会话），必须通过 `TaskRegistry` 统一接入（分配任务 ID、维护状态、提供 `wait_tasks` 观测）。
+- **后台任务与统一管理**：凡产生后台等待或异步执行的任务（例如后台命令、子 Agent 会话），必须通过 `TaskRegistry` 统一接入（分配任务 ID、维护状态、协调活动计数与终态交付）。
 - **异步结果向主会话投递**：使用 `createBackgroundDelivery` / `getBackgroundDelivery`，禁止扩展内部直接启动定时器轮询主会话忙闲。
 - **工具与元数据注册**：非原生工具统一使用 `registerManagedTool`；技能与外部资源元数据统一接入 `registerLoadoutResource`。
 - **全屏或弹出式 UI**：使用 `openTuiSurface` 或 `openExtensionPageRouter`，不得在扩展内自行监听原始键盘事件打断 Pi 渲染循环。
