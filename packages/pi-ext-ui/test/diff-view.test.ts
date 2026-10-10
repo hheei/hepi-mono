@@ -10,6 +10,7 @@ import {
 	type DiffSource,
 	DiffView,
 	diffStats,
+	inlinePresentation,
 	registerCollapsibleToolRenderer,
 	type ToolRenderContext,
 	type ToolView,
@@ -306,11 +307,10 @@ describe("edit rendering through ToolView", () => {
 
 		const rows = result.render(80);
 		expect(rows[0]).toContain("▸ codemode 2 ok · 1 failed · 200ms");
-		expect(rows.slice(1)).toEqual([
-			"▎ ✓ edit src/index.ts 12ms",
-			"▎ ✗ edit src/other.ts",
-			'▎ ✓ grep {"pattern":"x"}',
-		]);
+		expect(rows[1]).toContain("▎ ✓ edit src/index.ts 12ms");
+		expect(rows[1]).toContain("󰆏");
+		expect(rows[2]).toContain("▎ ✗ edit src/other.ts");
+		expect(rows[3]).toContain("▎ ✓ grep x");
 	});
 
 	test("pi-ext-tools edit view renders old/new fragments with file line numbers", () => {
@@ -434,5 +434,51 @@ describe("edit rendering through ToolView", () => {
 			createMockContext({ args: { path: "src/index.ts" } }),
 		) as ToolView;
 		expect(unchanged.render(80)[0]).toContain("▸ write src/index.ts (no changes)");
+	});
+
+	test("inlinePresentation formats diverse tools into their folded single-line format", () => {
+		// Truncated edit JSON string (200 chars preview from QuickJS)
+		const truncatedEditArgs =
+			'{"path":"packages/pi-subagents/test/tool-activation.test.ts","edits":[{"oldText":"export const A = 1;","newText":"export const A = 2;';
+		expect(inlinePresentation("edit", truncatedEditArgs, undefined, false)?.summary).toBe(
+			"edit packages/pi-subagents/test/tool-activation.test.ts",
+		);
+
+		// Shell command
+		expect(inlinePresentation("bash", '{"command":"pnpm test"}', undefined, false)?.summary).toBe(
+			"bash pnpm test",
+		);
+		expect(
+			inlinePresentation("bg_bash_spawn", '{"command":"pnpm run build"}', undefined, false)
+				?.summary,
+		).toBe("bg_bash_spawn pnpm run build");
+
+		// Search tools
+		expect(
+			inlinePresentation("grep", '{"pattern":"tool_search","path":"src"}', undefined, false)
+				?.summary,
+		).toBe("grep tool_search src");
+		expect(inlinePresentation("find", '{"pattern":"*.ts"}', undefined, false)?.summary).toBe(
+			"find *.ts",
+		);
+
+		// Read tool with range
+		expect(
+			inlinePresentation("read", '{"path":"file.ts","offset":5,"limit":10}', undefined, false)
+				?.summary,
+		).toBe("read file.ts:5-14");
+
+		// Task tools
+		expect(
+			inlinePresentation("agent_spawn", '{"agent":"reviewer"}', undefined, false)?.summary,
+		).toBe("agent_spawn reviewer");
+		expect(inlinePresentation("bg_bash_get", '{"id":"bash-1"}', undefined, false)?.summary).toBe(
+			"bg_bash_get bash-1",
+		);
+
+		// Unknown tool without key arg returns undefined for default rendering fallback
+		expect(
+			inlinePresentation("custom_tool", '{"unknownField":123}', undefined, false),
+		).toBeUndefined();
 	});
 });

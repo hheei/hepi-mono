@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { previewV4aOperations } from "../src/apply-patch-preview.js";
 import { applyPatchFacts, formatApplyPatchOperationRow } from "../src/apply-patch-view.js";
-import { createCollapsibleToolRendererResolver } from "../src/renderer.js";
+import { createCollapsibleToolRendererResolver, inlinePresentation } from "../src/renderer.js";
 import type { ToolView } from "../src/tool-view.js";
 
 const plainTheme = {
@@ -35,6 +35,59 @@ describe("apply-patch preview", () => {
 });
 
 describe("apply_patch render", () => {
+	test("collapsed summaries count unique changed paths and retain zero deltas, including nested calls", () => {
+		const patch =
+			"*** Begin Patch\n*** Update File: a.ts\n@@\n-old\n+new\n*** Update File: a.ts\n@@\n-old2\n+new2\n*** End Patch";
+		expect(inlinePresentation("apply_patch", { patch }, undefined, false)?.summary).toBe(
+			"apply_patch modify 1 file (+2 -2)",
+		);
+		const details = {
+			status: "partial",
+			changedPaths: ["a.ts", "a.ts"],
+			addedLines: 2,
+			removedLines: 0,
+			operations: [
+				{ kind: "update", path: "a.ts", status: "applied", addedLines: 2, removedLines: 0 },
+				{
+					kind: "update",
+					path: "untouched.ts",
+					status: "rejected",
+					addedLines: 0,
+					removedLines: 0,
+				},
+			],
+		};
+		const result = { content: [{ type: "text" as const, text: "partial" }], details };
+		const resolve = createCollapsibleToolRendererResolver();
+		const direct = resolve("apply_patch", () => undefined)!.renderResult!(
+			result,
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			mockContext({ args: { patch } }) as never,
+		);
+		expect(direct.render(100)[0]).toContain("modify 1 file (+2 -0)");
+		const parent = resolve("codemode", () => undefined)!.renderResult!(
+			{
+				content: [],
+				details: {
+					__piExtUiCapturedCalls: [
+						{
+							toolCallId: "c1/1",
+							toolName: "apply_patch",
+							args: { patch },
+							result,
+							isError: false,
+						},
+					],
+				},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			mockContext() as never,
+		);
+		expect(parent.render(100).join("\n")).toContain("apply_patch modify 1 file (+2 -0)");
+	});
+
 	test("streams pending rows from a partial patch before execute starts", () => {
 		const resolve = createCollapsibleToolRendererResolver();
 		const renderers = resolve("apply_patch", () => undefined)!;
@@ -48,7 +101,7 @@ describe("apply_patch render", () => {
 		});
 		const view = renderers.renderCall!(ctx.args, plainTheme, ctx as never) as ToolView;
 		const lines = view.render(100);
-		expect(lines[0]).toContain("apply_patch 2 files");
+		expect(lines[0]).toContain("apply_patch modify 2 files (+2 -1)");
 		expect(lines.join("\n")).toContain("⋯ create first.txt (+1)");
 		expect(lines.join("\n")).toContain("⋯ modify second.ts (+1 -1)");
 	});
@@ -58,7 +111,7 @@ describe("apply_patch render", () => {
 		const renderers = resolve("apply_patch", () => undefined)!;
 		const details = {
 			status: "partial",
-			changedPaths: ["a.ts"],
+			changedPaths: ["a.ts", "b.ts"],
 			addedLines: 4,
 			removedLines: 1,
 			operations: [
@@ -99,7 +152,7 @@ describe("apply_patch render", () => {
 		) as ToolView;
 		const lines = view.render(100);
 		expect(lines[0]).toContain("! apply_patch");
-		expect(lines[0]).toContain("2 files · +4 -1 · 120ms");
+		expect(lines[0]).toContain("modify 2 files (+4 -1) · 120ms");
 		expect(lines.join("\n")).toContain("✓ create a.ts (+4)");
 		expect(lines.join("\n")).toContain("▲ modify b.ts (-1) (1/2 hunks applied; hunk 2)");
 	});
@@ -138,7 +191,7 @@ describe("apply_patch render", () => {
 			ctx as never,
 		) as ToolView;
 		const lines = view.render(100);
-		expect(lines[0]).toContain("▸ apply_patch 1 file");
+		expect(lines[0]).toContain("▸ apply_patch modify 1 file (+3 -0)");
 		expect(lines[1]).toContain("✓ create a.ts (+3)");
 	});
 
