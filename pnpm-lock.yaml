@@ -320,6 +320,10 @@ importers:
         version: 1.1.0
 
   packages/pi-ext-ui:
+    dependencies:
+      '@hheei/pi-ext-core':
+        specifier: workspace:^
+        version: link:../pi-ext-core
     devDependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 1.1.0

@@ -1,12 +1,20 @@
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	Theme,
-	ToolRendererResolver,
-	ToolRenderers,
-	ToolRenderResultOptions,
+import {
+	type AgentToolResult,
+	type ExtensionAPI,
+	getLanguageFromPath,
+	highlightCode,
+	type Theme,
+	type ToolRendererResolver,
+	type ToolRenderers,
+	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, stripTerminalSequences } from "@earendil-works/pi-tui";
+import {
+	agentResultText,
+	getRegisteredToolPresentationProvider,
+	getToolPresentationProvider,
+	type ToolPresentationProvider,
+} from "@hheei/pi-ext-core";
 import { applyPatchGlyph } from "./apply-patch-glyph.js";
 import { previewV4aOperations, type V4aPreviewCursor } from "./apply-patch-preview.js";
 import {
@@ -16,13 +24,21 @@ import {
 	formatApplyPatchOperationRow,
 } from "./apply-patch-view.js";
 import { type DiffLine, type DiffSource, DiffView, diffStats } from "./diff-view.js";
+import { NestedCallsView } from "./nested-calls-view.js";
 import {
 	type FoldLevel,
+	type RailColorToken,
 	type RailSection,
 	type ToolStatusKind,
 	ToolView,
 	type ToolViewCopySpec,
 } from "./tool-view.js";
+import {
+	type CapturedToolCall,
+	getCapturedNestedCalls,
+	recordToolExecutionEnd,
+	recordToolExecutionStart,
+} from "./tracker.js";
 
 export type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
@@ -143,12 +159,60 @@ export function extractCodemodeHeaderFacts(args: unknown): string {
 	return facts.join(" ");
 }
 
+function parseCallArgs(raw: unknown): Record<string, unknown> | undefined {
+	if (isRecord(raw)) return raw;
+	if (typeof raw !== "string") return undefined;
+	const text = raw.trim();
+	if (text === "") return undefined;
+	if (text.startsWith("{")) {
+		try {
+			const parsed = JSON.parse(text);
+			if (isRecord(parsed)) return parsed;
+		} catch {
+			const record: Record<string, unknown> = {};
+			const extractString = (key: string) => {
+				const regex = new RegExp(`"${key}"\\s*:\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`);
+				const match = regex.exec(text);
+				if (match?.[1]) {
+					record[key] = match[1].replace(/\\"/g, '"');
+				}
+			};
+			const extractNumber = (key: string) => {
+				const regex = new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`);
+				const match = regex.exec(text);
+				if (match?.[1]) {
+					record[key] = Number(match[1]);
+				}
+			};
+
+			extractString("path");
+			extractString("file_path");
+			extractString("command");
+			extractString("pattern");
+			extractString("glob");
+			extractString("query");
+			extractString("url");
+			extractString("id");
+			extractString("agent");
+			extractString("topic");
+			extractString("source");
+			extractNumber("offset");
+			extractNumber("limit");
+
+			if (Object.keys(record).length > 0) return record;
+		}
+	}
+	return undefined;
+}
+
 function extractSummaryArg(toolName: string, args: unknown): string {
 	if (toolName === "codemode") {
 		return extractCodemodeHeaderFacts(args);
 	}
-	if (!isRecord(args)) return "";
+	const parsed = parseCallArgs(args);
+	if (!parsed) return "";
 	for (const key of [
+		"command",
 		"query",
 		"queries",
 		"url",
@@ -159,9 +223,11 @@ function extractSummaryArg(toolName: string, args: unknown): string {
 		"search_id",
 		"topic",
 		"path",
+		"file_path",
 		"pattern",
+		"agent",
 	]) {
-		const val = args[key];
+		const val = parsed[key];
 		if (typeof val === "string" && val.trim() !== "") {
 			return stripTerminalSequences(val.trim());
 		}
@@ -245,12 +311,13 @@ function extractResultText(
 	const parts: string[] = [];
 	for (const block of result.content) {
 		if (block.type === "text" && block.text.trim() !== "") {
-			parts.push(stripTerminalSequences(block.text));
+			parts.push(block.text);
 		}
 	}
 	const joined = parts.join("\n");
 	if (toolName === "codemode") {
-		const match = CODEMODE_SCRIPT_HEADER.exec(joined);
+		const stripped = stripTerminalSequences(joined);
+		const match = CODEMODE_SCRIPT_HEADER.exec(stripped);
 		const wallTimeSeconds = match?.[1] !== undefined ? Number.parseFloat(match[1]) : undefined;
 		const cleaned = joined.replace(CODEMODE_SCRIPT_HEADER, "").trim();
 		return { outputText: cleaned, wallTimeSeconds };
@@ -277,20 +344,37 @@ function resolveContainerStatus(params: {
 	return params.isError ? "error" : "ok";
 }
 
+function detectCodeLanguage(toolName: string): string | undefined {
+	if (toolName === "bash") return "bash";
+	if (toolName === "python_eval") return "python";
+	if (toolName === "codemode") return "javascript";
+	return undefined;
+}
+
 function createInputCodeSection(
 	toolName: string,
 	args: unknown,
 	theme: Theme,
+	railToken: RailColorToken = "muted",
 ): RailSection | undefined {
 	const raw = extractHeavyInputCommand(toolName, args);
 	if (raw === undefined || raw === "") return undefined;
 	const isShell = toolName === "bash";
-	const lines = raw
-		.replace(/\r/g, "")
-		.replace(/\t/g, "  ")
-		.split("\n")
-		.map((line, i) => theme.fg("mdCode", isShell ? (i === 0 ? `$ ${line}` : `  ${line}`) : line));
-	return { railToken: "muted", content: lines };
+	const clean = raw.replace(/\r/g, "").replace(/\t/g, "  ");
+	const lang = detectCodeLanguage(toolName);
+
+	let lines: string[];
+	if (isShell) {
+		lines = clean.split("\n").map((line, i) => (i === 0 ? `$ ${line}` : `  ${line}`));
+	} else {
+		try {
+			lines = highlightCode(clean, lang);
+		} catch {
+			lines = clean.split("\n").map((line) => theme.fg("mdCode", line));
+		}
+	}
+
+	return { railToken, content: lines };
 }
 
 function formatArgsPreview(args: unknown): string {
@@ -361,16 +445,10 @@ function hideCallView(context: ToolRenderContext, toolName: string, isPartial: b
 }
 
 function toolPath(args: unknown): string {
-	let value = args;
-	if (typeof value === "string") {
-		try {
-			value = JSON.parse(value);
-		} catch {
-			return "";
-		}
-	}
-	if (!isRecord(value)) return "";
-	return typeof value.path === "string" ? value.path.trim() : "";
+	const parsed = parseCallArgs(args);
+	if (!parsed) return "";
+	const val = parsed.path ?? parsed.file_path;
+	return typeof val === "string" ? val.trim() : "";
 }
 
 function editPath(args: unknown): string {
@@ -461,7 +539,14 @@ function fileToolPresentation(
 	const path = toolPath(args);
 	if (toolName === "read") {
 		if (path === "") return undefined;
-		return { summary: `read ${path}`, status: isError ? "error" : "ok" };
+		const parsed = parseCallArgs(args);
+		let range = "";
+		if (typeof parsed?.offset === "number" || typeof parsed?.limit === "number") {
+			const start = typeof parsed.offset === "number" ? parsed.offset : 1;
+			const end = typeof parsed.limit === "number" ? start + parsed.limit - 1 : "";
+			range = `:${String(start)}${end ? `-${String(end)}` : ""}`;
+		}
+		return { summary: `read ${path}${range}`, status: isError ? "error" : "ok" };
 	}
 	if (toolName === WRITE_TOOL_NAME) {
 		const presentation = isError ? undefined : writePresentation(args, details);
@@ -652,10 +737,67 @@ function patchTextForCopy(details: unknown): string | undefined {
 	);
 }
 
+function patchSummary(files: number, added: number, removed: number): string {
+	return `modify ${files}${files === 1 ? " file" : " files"} (+${added} -${removed})`;
+}
+
+function formatToolSummary(toolName: string, parsed: Record<string, unknown>): string | undefined {
+	const path =
+		typeof parsed.path === "string"
+			? parsed.path.trim()
+			: typeof parsed.file_path === "string"
+				? parsed.file_path.trim()
+				: "";
+
+	switch (toolName) {
+		case "read": {
+			if (!path) return undefined;
+			let range = "";
+			if (typeof parsed.offset === "number" || typeof parsed.limit === "number") {
+				const start = typeof parsed.offset === "number" ? parsed.offset : 1;
+				const end = typeof parsed.limit === "number" ? start + parsed.limit - 1 : "";
+				range = `:${String(start)}${end ? `-${String(end)}` : ""}`;
+			}
+			return `read ${path}${range}`;
+		}
+		case EDIT_TOOL_NAME: {
+			return path ? `${EDIT_TOOL_NAME} ${path}` : undefined;
+		}
+		case WRITE_TOOL_NAME: {
+			return path ? `${WRITE_TOOL_NAME} ${path}` : undefined;
+		}
+		case APPLY_PATCH_TOOL_NAME: {
+			return path ? `${APPLY_PATCH_TOOL_NAME} ${path}` : undefined;
+		}
+		case "bash": {
+			const cmd = typeof parsed.command === "string" ? parsed.command.trim() : "";
+			if (!cmd) return undefined;
+			const shortCmd = cmd.length > 70 ? `${cmd.slice(0, 67)}…` : cmd;
+			return `${toolName} ${shortCmd}`;
+		}
+		case "grep": {
+			const pattern = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
+			if (!pattern) return undefined;
+			const target = path && path !== "." ? ` ${path}` : "";
+			return `grep ${pattern}${target}`;
+		}
+		case "find": {
+			const pattern = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
+			if (!pattern) return undefined;
+			const target = path && path !== "." ? ` ${path}` : "";
+			return `find ${pattern}${target}`;
+		}
+		default: {
+			const keyArg = extractSummaryArg(toolName, parsed);
+			return keyArg ? `${toolName} ${keyArg}` : undefined;
+		}
+	}
+}
+
 /**
- * One compact nested summary for a file tool. Reports the delta only when the
- * caller actually has result details; a codemode nested record keeps arguments
- * alone, so it degrades to `<tool> <path>` instead of inventing counts.
+ * One compact nested summary for a tool call. Adopts the tool's standard collapsed
+ * single-line format when recognized, degrading to undefined so callers can use
+ * the default argument rendering.
  */
 export function inlinePresentation(
 	toolName: string,
@@ -665,15 +807,49 @@ export function inlinePresentation(
 ): InlinePresentation | undefined {
 	const fileTool = fileToolPresentation(toolName, args, details, isError);
 	if (fileTool !== undefined) return fileTool;
-	if (toolName !== EDIT_TOOL_NAME) return undefined;
-	const path = editPath(args);
-	const source = isError ? undefined : editDiffSource(details);
-	const stats = source === undefined ? undefined : diffStats(source);
-	if (path === "" && stats === undefined) return undefined;
-	const label = path === "" ? EDIT_TOOL_NAME : `${EDIT_TOOL_NAME} ${path}`;
+
+	const parsed = parseCallArgs(args);
+	if (toolName === APPLY_PATCH_TOOL_NAME) {
+		const facts = applyPatchFacts(details);
+		if (facts !== undefined) {
+			return {
+				summary: `${APPLY_PATCH_TOOL_NAME} ${patchSummary(new Set(facts.changedPaths).size, facts.addedLines, facts.removedLines)}`,
+				status: isError ? "error" : "ok",
+			};
+		}
+		if (parsed === undefined || typeof parsed.patch !== "string") return undefined;
+		const operations = previewV4aOperations(parsed.patch, true, undefined);
+		return {
+			summary: `${APPLY_PATCH_TOOL_NAME} ${patchSummary(
+				new Set(operations.map((operation) => operation.path)).size,
+				operations.reduce((sum, operation) => sum + operation.addedLines, 0),
+				operations.reduce((sum, operation) => sum + operation.removedLines, 0),
+			)}`,
+			status: isError ? "error" : "ok",
+		};
+	}
+	if (parsed === undefined) return undefined;
+
+	if (toolName === EDIT_TOOL_NAME) {
+		const path = toolPath(parsed);
+		const source = isError ? undefined : editDiffSource(details);
+		const stats = source === undefined ? undefined : diffStats(source);
+		if (path === "" && stats === undefined) return undefined;
+		const label = path === "" ? EDIT_TOOL_NAME : `${EDIT_TOOL_NAME} ${path}`;
+		return {
+			summary:
+				stats === undefined
+					? label
+					: `${label} (+${String(stats.added)} -${String(stats.removed)})`,
+			status: isError ? "error" : "ok",
+		};
+	}
+
+	const baseSummary = formatToolSummary(toolName, parsed);
+	if (baseSummary === undefined) return undefined;
+
 	return {
-		summary:
-			stats === undefined ? label : `${label} (+${String(stats.added)} -${String(stats.removed)})`,
+		summary: baseSummary,
 		status: isError ? "error" : "ok",
 	};
 }
@@ -944,15 +1120,17 @@ function renderPythonEvalResult(params: {
 				const prefix = theme.fg("dim", `${row.kind}:`);
 				const lines = row.text.replace(/\r/g, "").split("\n");
 				for (let i = 0; i < lines.length; i++) {
-					outputRows.push(i === 0 ? `${prefix} ${lines[i]}` : `  ${lines[i]}`);
+					const lineText = theme.fg("dim", lines[i] ?? "");
+					outputRows.push(i === 0 ? `${prefix} ${lineText}` : `  ${lineText}`);
 				}
 			} else if (row.text !== "") {
-				outputRows.push(...row.text.replace(/\r/g, "").split("\n"));
+				const lines = row.text.replace(/\r/g, "").split("\n");
+				outputRows.push(...lines.map((l) => (isError ? theme.fg("error", l) : theme.fg("dim", l))));
 			}
 		}
 		if (outputRows.length > 0) {
 			sections.push({
-				railToken: isError ? "error" : "dim",
+				railToken: isError ? "error" : "success",
 				content: outputRows,
 			});
 		}
@@ -961,7 +1139,11 @@ function renderPythonEvalResult(params: {
 			extractResultText(PYTHON_EVAL_TOOL_NAME, result).outputText,
 		);
 		if (output !== "") {
-			sections.push({ railToken: isError ? "error" : "dim", content: output });
+			const rawLines = output.split("\n");
+			const outputLines = isError
+				? rawLines.map((l) => theme.fg("error", l))
+				: rawLines.map((l) => theme.fg("dim", l));
+			sections.push({ railToken: isError ? "error" : "success", content: outputLines });
 		}
 	}
 
@@ -1027,7 +1209,14 @@ function renderApplyPatchCallView(params: {
 	}
 
 	const files = new Set(operations.map((operation) => operation.path)).size;
-	const summary = files > 0 ? `${String(files)} ${files === 1 ? "file" : "files"}` : "";
+	const summary =
+		files > 0
+			? patchSummary(
+					files,
+					operations.reduce((sum, operation) => sum + operation.addedLines, 0),
+					operations.reduce((sum, operation) => sum + operation.removedLines, 0),
+				)
+			: "";
 	const rows = operations.map((operation) =>
 		formatApplyPatchOperationRow(
 			{
@@ -1096,10 +1285,9 @@ function renderApplyPatchResultView(params: {
 	);
 	const parts: string[] = [];
 	if (facts !== undefined) {
-		const files = facts.operations.length;
-		if (files > 0) parts.push(`${String(files)} ${files === 1 ? "file" : "files"}`);
-		if (facts.addedLines > 0 || facts.removedLines > 0)
-			parts.push(`+${String(facts.addedLines)} -${String(facts.removedLines)}`);
+		parts.push(
+			patchSummary(new Set(facts.changedPaths).size, facts.addedLines, facts.removedLines),
+		);
 	}
 	const durText = formatDurationMs(context.durationMs);
 	if (durText !== "") parts.push(durText);
@@ -1229,6 +1417,9 @@ function renderGenericResult(params: {
 		  ) => Component)
 		| undefined;
 	readonly options: CollapsibleToolRendererOptions | undefined;
+	readonly resolvePresentation?:
+		| ((toolName: string) => ToolPresentationProvider | undefined)
+		| undefined;
 }): ToolView {
 	const {
 		toolName,
@@ -1239,26 +1430,37 @@ function renderGenericResult(params: {
 		defaultLevel,
 		originalRenderCall,
 		originalRenderResult,
+		resolvePresentation,
 		options,
 	} = params;
 
 	const heavyCmd = extractHeavyInputCommand(toolName, context.args);
 	const nestedCalls = extractNestedCalls(result);
-	const isMetaTool = toolName === "codemode" || toolName === "subagent" || nestedCalls.length > 0;
+	const captured =
+		toolName === "codemode"
+			? (getCapturedNestedCalls(context.toolCallId) ??
+				(isRecord(result.details) &&
+				Array.isArray((result.details as Record<string, unknown>).__piExtUiCapturedCalls)
+					? ((result.details as Record<string, unknown>)
+							.__piExtUiCapturedCalls as CapturedToolCall[])
+					: undefined))
+			: undefined;
+	const childCalls = captured ?? nestedCalls;
+	const isMetaTool = toolName === "codemode" || toolName === "subagent" || childCalls.length > 0;
 	const { outputText: rawOutput, wallTimeSeconds } = extractResultText(toolName, result);
 	const isError = (context.isError ?? false) || (result.isError ?? false);
 
 	const status: ToolStatusKind =
 		toolName === "codemode"
-			? nestedCalls.length === 0 && isError
+			? childCalls.length === 0 && isError
 				? "error"
 				: "none"
 			: isMetaTool
 				? resolveContainerStatus({
 						isError,
 						isPartial: renderOptions.isPartial === true,
-						hasChildren: nestedCalls.length > 0,
-						selfFailed: nestedCalls.length === 0 && isError,
+						hasChildren: childCalls.length > 0,
+						selfFailed: childCalls.length === 0 && isError,
 					})
 				: isError
 					? "error"
@@ -1279,9 +1481,11 @@ function renderGenericResult(params: {
 		if (stripped !== "") summaryParts.push(stripped);
 	}
 
-	if (isMetaTool && nestedCalls.length > 0) {
-		const failCount = nestedCalls.filter((c) => c.isError || c.isWarning).length;
-		summaryParts.push(...callStatsParts(nestedCalls.length, failCount));
+	if (isMetaTool && childCalls.length > 0) {
+		const failCount = childCalls.filter((c) =>
+			Boolean(c.isError || ("status" in c && c.status === "error")),
+		).length;
+		summaryParts.push(...callStatsParts(childCalls.length, failCount));
 	}
 
 	if (context.durationMs !== undefined) {
@@ -1290,34 +1494,94 @@ function renderGenericResult(params: {
 		summaryParts.push(formatDurationMs(wallTimeSeconds * 1000));
 	}
 
-	const totalCost = nestedCalls.reduce((sum, c) => sum + (c.cost ?? 0), 0);
+	const totalCost = childCalls.reduce((sum, c) => sum + (c.cost ?? 0), 0);
 	if (totalCost > 0) {
 		summaryParts.push(formatCostUsd(totalCost));
 	}
 
 	const summary = summaryParts.join(" · ");
 
-	const collapsedRows =
-		isMetaTool && nestedCalls.length > 0
-			? nestedCalls.map((call) => formatNestedCallRow(call, theme))
+	const codemodeNestedView =
+		toolName === "codemode" && childCalls.length > 0
+			? new NestedCallsView({
+					calls: childCalls,
+					theme,
+					context,
+					resolveChildRenderer: (childName: string) => {
+						return {
+							renderResult: (childResult, childOptions, childTheme, childCtx) => {
+								const provider = resolvePresentation?.(childName);
+								if (provider !== undefined) {
+									return renderOwnedPresentation({
+										toolName: childName,
+										provider,
+										result: childResult,
+										theme: childTheme,
+										context: childCtx,
+										defaultLevel: childOptions.expanded ? 2 : 1,
+										options,
+									});
+								}
+								const specialized = renderSpecializedResult({
+									toolName: childName,
+									theme: childTheme,
+									context: childCtx,
+									result: childResult,
+									renderOptions: childOptions,
+									defaultLevel: childOptions.expanded ? 2 : 1,
+									options,
+								});
+								if (specialized !== undefined) return specialized;
+
+								return renderGenericResult({
+									toolName: childName,
+									theme: childTheme,
+									context: childCtx,
+									result: childResult,
+									renderOptions: childOptions,
+									defaultLevel: childOptions.expanded ? 2 : 1,
+									originalRenderCall: undefined,
+									originalRenderResult: undefined,
+									resolvePresentation,
+									options,
+								});
+							},
+						};
+					},
+					copyToClipboard: options?.copyToClipboard,
+					stateHolder: context.state,
+					resolvePresentation,
+					invalidate: () => context.invalidate(),
+				})
 			: undefined;
 
-	const inputSection = createInputCodeSection(toolName, context.args, theme);
+	const collapsedRows =
+		codemodeNestedView !== undefined
+			? codemodeNestedView
+			: isMetaTool && nestedCalls.length > 0
+				? nestedCalls.map((call) => formatNestedCallRow(call, theme))
+				: undefined;
+
+	const toolRailToken: RailColorToken = isError
+		? "error"
+		: renderOptions.isPartial
+			? "accent"
+			: "success";
+
+	// Upper room (input code) uses neutral/muted rail; lower room (output) uses toolRailToken (success/error)
+	const inputSection = createInputCodeSection(toolName, context.args, theme, "muted");
 	const sections: RailSection[] = inputSection !== undefined ? [inputSection] : [];
 
-	const outputRailToken = isError ? "error" : renderOptions.isPartial ? "accent" : "dim";
-
 	if (toolName === "codemode") {
+		// Nested tool calls belong only to collapsedRows (Level 0), hidden when expanded
 		if (rawOutput !== "") {
-			const outputColor = isError ? "error" : "toolOutput";
-			const coloredLines = rawOutput
-				.replace(/\r/g, "")
-				.replace(/\t/g, "  ")
-				.split("\n")
-				.map((line) => theme.fg(outputColor, line));
+			const rawLines = rawOutput.replace(/\r/g, "").replace(/\t/g, "  ").split("\n");
+			const outputLines = isError
+				? rawLines.map((line) => theme.fg("error", line))
+				: rawLines.map((line) => theme.fg("dim", line));
 			sections.push({
-				railToken: outputRailToken,
-				content: coloredLines,
+				railToken: toolRailToken,
+				content: outputLines,
 			});
 		}
 	} else if (originalRenderResult !== undefined) {
@@ -1340,30 +1604,52 @@ function renderGenericResult(params: {
 			invalidate(): void {},
 		};
 		sections.push({
-			railToken: outputRailToken,
+			railToken: toolRailToken,
 			content: lazyUpstreamComponent,
 			maxLines: effectiveExpanded ? Number.POSITIVE_INFINITY : 9,
 		});
 	} else if (rawOutput !== "") {
-		const outputColor = isError ? "error" : "toolOutput";
-		const coloredLines = rawOutput.split("\n").map((line) => theme.fg(outputColor, line));
+		const rawLines = rawOutput.split("\n");
+		let outputLines: string[];
+		if (isError) {
+			outputLines = rawLines.map((line) => theme.fg("error", line));
+		} else if (toolName === "read" || toolPath(context.args) !== "") {
+			const filePath = toolPath(context.args);
+			const lang = filePath !== "" ? getLanguageFromPath(filePath) : undefined;
+			if (lang !== undefined) {
+				try {
+					outputLines = highlightCode(rawOutput, lang);
+				} catch {
+					outputLines = rawLines;
+				}
+			} else {
+				outputLines = rawLines;
+			}
+		} else if (toolName === "bash") {
+			outputLines = rawLines.map((line) => theme.fg("dim", line));
+		} else {
+			outputLines = rawLines;
+		}
 		sections.push({
-			railToken: outputRailToken,
-			content: coloredLines,
+			railToken: toolRailToken,
+			content: outputLines,
 		});
 	}
-
 	let copy: ToolViewCopySpec | undefined;
-	if (heavyCmd !== undefined && heavyCmd !== "") {
+	if (toolName === "codemode") {
+		copy = undefined;
+	} else if (heavyCmd !== undefined && heavyCmd !== "") {
+		const cleanOutput = stripTerminalSequences(rawOutput);
 		copy = {
 			primary: heavyCmd,
-			full: rawOutput !== "" ? `${heavyCmd}\n---\n${rawOutput}` : heavyCmd,
+			full: rawOutput !== "" ? `${heavyCmd}\n---\n${cleanOutput}` : heavyCmd,
 		};
 	} else if (rawOutput !== "") {
+		const cleanOutput = stripTerminalSequences(rawOutput);
 		const argsFormatted = formatArgsPreview(context.args);
 		copy = {
-			primary: rawOutput,
-			full: argsFormatted !== "" ? `${argsFormatted}\n\n${rawOutput}` : rawOutput,
+			primary: cleanOutput,
+			full: argsFormatted !== "" ? `${argsFormatted}\n\n${cleanOutput}` : cleanOutput,
 		};
 	}
 
@@ -1374,6 +1660,7 @@ function renderGenericResult(params: {
 			status,
 			summary,
 		},
+		railToken: toolRailToken,
 		collapsedRows,
 		sections,
 		copy,
@@ -1386,14 +1673,93 @@ function renderGenericResult(params: {
 	});
 }
 
+function renderOwnedPresentation(params: {
+	readonly toolName: string;
+	readonly provider: ToolPresentationProvider;
+	readonly result?: AgentToolResult<unknown>;
+	readonly theme: Theme;
+	readonly context: ToolRenderContext;
+	readonly defaultLevel: FoldLevel;
+	readonly options: CollapsibleToolRendererOptions | undefined;
+}): ToolView {
+	const { toolName, provider, result, theme, context, defaultLevel, options } = params;
+	const presentation = provider(context.args, result, theme);
+	const isError = context.isError || result?.isError === true;
+	const pending = result === undefined || context.isPartial;
+	const status: ToolStatusKind = isError
+		? "error"
+		: pending
+			? context.argsComplete
+				? "running"
+				: "streaming"
+			: "ok";
+	const railToken: RailColorToken = isError ? "error" : pending ? "accent" : "success";
+	const output =
+		isError && result !== undefined
+			? agentResultText(result)
+			: (presentation.output ?? (result === undefined ? "" : agentResultText(result)));
+	const sections: RailSection[] = [];
+	if (presentation.request) {
+		sections.push({ railToken: "muted", content: stripTerminalSequences(presentation.request) });
+	}
+	if (output !== "") {
+		const lines = stripTerminalSequences(output).split("\n");
+		sections.push({
+			railToken,
+			content: isError ? lines.map((line) => theme.fg("error", line)) : lines,
+		});
+	}
+	const duration = result === undefined ? "" : formatDurationMs(context.durationMs);
+	const summary = [stripTerminalSequences(presentation.summary), duration]
+		.filter(Boolean)
+		.join(" · ");
+	const copy =
+		presentation.copy === undefined
+			? undefined
+			: {
+					primary: stripTerminalSequences(presentation.copy.primary),
+					...(presentation.copy.full === undefined
+						? {}
+						: { full: stripTerminalSequences(presentation.copy.full) }),
+				};
+	return new ToolView({
+		theme,
+		header: { title: toolName, status, summary },
+		railToken,
+		collapsedRows:
+			isError && output !== ""
+				? output
+						.split("\n")
+						.slice(0, 1)
+						.map((line) => theme.fg("error", stripTerminalSequences(line)))
+				: presentation.collapsedRows?.map(stripTerminalSequences),
+		sections,
+		copy,
+		outputPad: context.outputPad,
+		stateHolder: context.state,
+		defaultLevel,
+		globalExpanded: context.expanded,
+		invalidate: () => context.invalidate(),
+		copyToClipboard: options?.copyToClipboard,
+	});
+}
+
 export function createCollapsibleToolRendererResolver(
 	options?: CollapsibleToolRendererOptions,
+): ToolRendererResolver {
+	return createRendererResolver(options);
+}
+
+function createRendererResolver(
+	options?: CollapsibleToolRendererOptions,
+	resolvePresentation?: (toolName: string) => ToolPresentationProvider | undefined,
 ): ToolRendererResolver {
 	const defaultLevel: FoldLevel = options?.defaultCollapsed === false ? 1 : 0;
 
 	return (toolName: string, next: () => ToolRenderers | undefined): ToolRenderers | undefined => {
 		const upstream = next();
-		if (!shouldInterceptTool(toolName, options)) {
+		const provider = getToolPresentationProvider(upstream);
+		if (provider === undefined && !shouldInterceptTool(toolName, options)) {
 			return upstream;
 		}
 
@@ -1403,6 +1769,18 @@ export function createCollapsibleToolRendererResolver(
 		return {
 			renderShell: "self",
 			renderCall(args, theme, context) {
+				if (provider !== undefined) {
+					const view = renderOwnedPresentation({
+						toolName,
+						provider,
+						theme,
+						context: { ...context, args },
+						defaultLevel,
+						options,
+					});
+					rememberCallView(context, view, toolName);
+					return view;
+				}
 				if (toolName === APPLY_PATCH_TOOL_NAME) {
 					const view = renderApplyPatchCallView({
 						theme,
@@ -1500,6 +1878,21 @@ export function createCollapsibleToolRendererResolver(
 			},
 			renderResult(result, renderOptions, theme, context) {
 				hideCallView(context, toolName, renderOptions.isPartial);
+				if (provider !== undefined) {
+					return renderOwnedPresentation({
+						toolName,
+						provider,
+						result,
+						theme,
+						context: {
+							...context,
+							expanded: renderOptions.expanded,
+							isPartial: renderOptions.isPartial,
+						},
+						defaultLevel,
+						options,
+					});
+				}
 
 				const specialized = renderSpecializedResult({
 					toolName,
@@ -1521,6 +1914,7 @@ export function createCollapsibleToolRendererResolver(
 					defaultLevel,
 					originalRenderCall,
 					originalRenderResult,
+					resolvePresentation,
 					options,
 				});
 			},
@@ -1532,5 +1926,28 @@ export function registerCollapsibleToolRenderer(
 	pi: ExtensionAPI,
 	options?: CollapsibleToolRendererOptions,
 ): void {
-	pi.registerToolRenderer(createCollapsibleToolRendererResolver(options));
+	if (typeof (pi as { on?: unknown }).on === "function") {
+		pi.on("tool_execution_start", (event) => {
+			recordToolExecutionStart(event);
+		});
+		pi.on("tool_execution_end", (event) => {
+			recordToolExecutionEnd(event);
+		});
+		pi.on("tool_result", (event) => {
+			const captured = getCapturedNestedCalls(event.toolCallId);
+			if (captured && captured.length > 0) {
+				const currentDetails = isRecord(event.details) ? event.details : {};
+				return {
+					details: {
+						...currentDetails,
+						__piExtUiCapturedCalls: captured,
+					},
+				};
+			}
+			return undefined;
+		});
+	}
+	pi.registerToolRenderer(
+		createRendererResolver(options, (name) => getRegisteredToolPresentationProvider(pi, name)),
+	);
 }

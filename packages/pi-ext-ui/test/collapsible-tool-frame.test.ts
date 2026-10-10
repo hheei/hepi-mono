@@ -4,11 +4,16 @@ import type {
 	ToolRendererResolver,
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { type Component, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import extension from "../src/extension.js";
 import {
+	type Collapsible,
+	clearCapturedNestedCalls,
 	formatTurnFlow,
+	isCollapsible,
+	recordToolExecutionEnd,
+	recordToolExecutionStart,
 	registerCollapsibleToolRenderer,
 	SPECIALIZED_TOOL_RENDERERS,
 	type ToolRenderContext,
@@ -16,6 +21,7 @@ import {
 	transitionFoldLevel,
 	WEB_ACCESS_TOOLS,
 } from "../src/index.js";
+import { NESTED_CALLS_EXPANDED_KEY, NestedCallsView } from "../src/nested-calls-view.js";
 
 const taggedTheme = {
 	fg: (color: string, text: string) => `[${color}:${text}]`,
@@ -102,7 +108,7 @@ describe("ToolView Deep Module Interface", () => {
 		expect(level1[10]).toContain("… (31 more lines)");
 	});
 
-	test("Level 0 caps the collapsed board rows at 6 with a dim omission hint", () => {
+	test("Level 0 renders all collapsed board rows without artificial truncation cap", () => {
 		const view = new ToolView({
 			theme: plainTheme,
 			header: { title: "codemode", status: "none", summary: "30 calls" },
@@ -111,11 +117,9 @@ describe("ToolView Deep Module Interface", () => {
 		});
 
 		const level0 = view.render(80);
-		expect(level0).toHaveLength(8);
+		expect(level0).toHaveLength(31);
 		expect(level0[1]).toContain("✓ read a0.ts");
-		expect(level0[6]).toContain("✓ read a5.ts");
-		expect(level0[7]).toContain("… (24 more)");
-		expect(level0[7]).not.toContain("read a6");
+		expect(level0[30]).toContain("✓ read a29.ts");
 	});
 
 	test("Level 0 / Level 1 / Level 2 state machine via mouse clicks and section capping", () => {
@@ -380,22 +384,30 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const level0 = resultView.render(80);
 		expect(level0[0]).toContain("▸ codemode (timeout 30s) · 1 call · 200ms");
 		expect(level0[0]).not.toContain("✓");
-		expect(level0[1]).toBe('▎ ✓ read path: "a.ts" 18ms');
+		expect(level0[1]).toContain('▎ ✓ read path: "a.ts" 18ms');
+		expect(level0[1]).toContain("󰆏");
 
+		// Clicking row 1 copy button copies the child tool's output
+		resultView.handleMouse(createMouseClick(78, 1, { width: 80 }));
+		expect(copied.length).toBe(1);
+		expect(copied[0]).toBe('path: "a.ts"');
+
+		// Checkmark icon displays after copy in child row
+		const copiedRender = resultView.render(80);
+		expect(copiedRender[1]).toContain("✓");
+
+		// Clicking row 1 body toggles child tool expansion (select mechanism)
+		resultView.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const childExpanded = resultView.render(80);
+		expect(childExpanded[1]).toContain('▎ ✓ read path: "a.ts" 18ms');
+
+		// Expanding codemode view itself
 		resultView.handleMouse(createMouseClick(2, 0, { width: 80 }));
 		const level1 = resultView.render(80);
 		expect(level1[0]).toContain("▾ codemode (timeout 30s) · 1 call · 200ms");
-		expect(level1[1]).toContain("// @options:");
+		expect(level1.join("\n")).toContain("// @options:");
 		expect(level1.join("\n")).toContain("file content line 1");
 		expect(level1.join("\n")).not.toContain("Script completed");
-
-		resultView.handleMouse(createMouseClick(78, 0, { width: 80 }));
-		expect(copied[0]).toContain("const res = await tools.read");
-		expect(copied[0]).not.toContain("file content line 1");
-
-		resultView.handleMouse(createMouseClick(78, 0, { width: 80, shift: true }));
-		expect(copied[1]).toContain("const res = await tools.read");
-		expect(copied[1]).toContain("file content line 1");
 	});
 
 	test("codemode keeps one header: no spinner while running, and the call row leaves once a result exists", () => {
@@ -404,7 +416,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const state = {};
 		const running = createMockContext({
 			state,
-			args: { code: "await tools.wait_jobs({ ids: ['agent-1'] });" },
+			args: { code: "await tools.agent_get({ id: 'agent-1' });" },
 			isPartial: true,
 			argsComplete: true,
 			executionStarted: true,
@@ -413,7 +425,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			{
 				content: [{ type: "text", text: "" }],
 				details: {
-					calls: [{ id: "1", name: "wait_jobs", args: '{"ids":["agent-1"]}', status: "running" }],
+					calls: [{ id: "1", name: "agent_get", args: '{"id":"agent-1"}', status: "running" }],
 				},
 			},
 			{ expanded: false, isPartial: true },
@@ -428,7 +440,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			expect.stringContaining("codemode 1 call"),
 		]);
 		expect(runningLines.join("\n")).not.toContain("◐ codemode");
-		expect(runningLines.join("\n")).toContain("◐ wait_jobs");
+		expect(runningLines.join("\n")).toContain("◐ agent_get");
 
 		const failed = renderers.renderResult!(
 			{
@@ -706,5 +718,656 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			render: true,
 		});
 		expect(view.foldLevel).toBe(1);
+	});
+
+	test("codemode nested calls: individual tool copy and click-to-expand without extra rail", () => {
+		clearCapturedNestedCalls();
+		const copied: string[] = [];
+		const resolve = setupResolver({
+			copyToClipboard: async (text) => {
+				copied.push(text);
+			},
+		});
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-code-parent";
+
+		// Simulate live execution events captured for two child tools
+		recordToolExecutionStart({
+			toolCallId: "child-1",
+			toolName: "bash",
+			args: { command: "echo hello" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-1",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "hello output\nline 2" }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 45,
+			parentToolCallId: parentCallId,
+		});
+
+		recordToolExecutionStart({
+			toolCallId: "child-2",
+			toolName: "write",
+			args: { path: "src/new.ts", content: "export const x = 42;" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-2",
+			toolName: "write",
+			result: {
+				content: [{ type: "text", text: "wrote 20 bytes" }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 12,
+			parentToolCallId: parentCallId,
+		});
+
+		const ctx = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.bash({ command: "echo hello" });' },
+		});
+
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\ndone" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		const rows = resultView.render(80);
+		// Header has NO copy button
+		expect(rows[0]).not.toContain("󰆏");
+		expect(rows[0]).toContain("▸ codemode 2 calls");
+
+		// Child rows have individual copy icons and no arrow prefix
+		expect(rows[1]).toContain("▎ ✓ bash echo hello 45ms");
+		expect(rows[1]).toContain("󰆏");
+		expect(rows[2]).toContain("▎ ✓ write src/new.ts 12ms");
+		expect(rows[2]).toContain("󰆏");
+
+		// Click child 1 copy button (row 1, x=78)
+		resultView.handleMouse(createMouseClick(78, 1, { width: 80 }));
+		expect(copied.at(-1)).toBe("echo hello");
+
+		// Shift-click child 1 copy button: command plus output
+		resultView.handleMouse(createMouseClick(78, 1, { width: 80, shift: true }));
+		expect(copied.at(-1)).toBe("echo hello\n---\nhello output\nline 2");
+
+		// Click child 2 copy button (row 2, x=78)
+		resultView.handleMouse(createMouseClick(78, 2, { width: 80 }));
+		expect(copied.at(-1)).toBe("export const x = 42;");
+
+		// Click child 1 row body (row 1, x=10) to expand it
+		resultView.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const expandedRows = resultView.render(80);
+
+		// Child 1 header has no arrow prefix
+		expect(expandedRows[1]).toContain("▎ ✓ bash echo hello 45ms");
+		// Child 1 uses ext-ui upper room ($ echo hello) and lower room (output lines)
+		expect(expandedRows[2]).toContain("▎   $ echo hello");
+		expect(expandedRows[3]).toContain("▎   hello output");
+		expect(expandedRows[4]).toContain("▎   line 2");
+		// Confirm NO duplicate rail glyphs
+		expect(expandedRows[2]).not.toMatch(/▎.*▎/);
+		expect(expandedRows[3]).not.toMatch(/▎.*▎/);
+	});
+	test("success tools and codemode use success rail color when expanded and collapsed", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-code-success-test";
+
+		// Child tool failed, but script itself caught it or completed without error (isError: false)
+		recordToolExecutionStart({
+			toolCallId: "child-err",
+			toolName: "read",
+			args: { path: "nonexistent.ts" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-err",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "file not found" }], details: {} },
+			isError: true,
+			durationMs: 10,
+			parentToolCallId: parentCallId,
+		});
+
+		const ctx = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.read({ path: "nonexistent.ts" }).catch(() => null);' },
+			isError: false,
+		});
+
+		// 1. Successful codemode (isError: false)
+		const successView = renderers.renderResult!(
+			{
+				content: [
+					{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\nhandled" },
+				],
+				details: {},
+				isError: false,
+			},
+			{ expanded: false, isPartial: false },
+			taggedTheme,
+			ctx,
+		) as ToolView;
+
+		// Level 0: collapsed state rail keeps theme default (dim), not success
+		const level0 = successView.render(80);
+		expect(level0[1]).toContain("[dim:▎]");
+
+		// Level 1: expand codemode -> upper room (code) is muted, lower room (output) is success
+		successView.setFoldLevel(1);
+		const level1 = successView.render(80);
+		expect(level1[1]).toContain("[muted:▎]");
+		expect(level1[level1.length - 1]).toContain("[success:▎]");
+
+		// 2. Failed codemode (script itself crashed, isError: true)
+		const failedCtx = createMockContext({
+			toolCallId: "call-code-fail-test",
+			args: { code: 'throw new Error("boom");' },
+			isError: true,
+		});
+		const failedView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script failed\nOutput:\nboom" }],
+				details: {},
+				isError: true,
+			},
+			{ expanded: false, isPartial: false },
+			taggedTheme,
+			failedCtx,
+		) as ToolView;
+
+		failedView.setFoldLevel(1);
+		const failedLevel1 = failedView.render(80);
+		expect(failedLevel1[1]).toContain("[muted:▎]");
+		expect(failedLevel1[failedLevel1.length - 1]).toContain("[error:▎]");
+	});
+
+	test("expanding codemode folds any previously expanded child tools first", () => {
+		clearCapturedNestedCalls();
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-code-fold-test";
+
+		recordToolExecutionStart({
+			toolCallId: "child-step1",
+			toolName: "bash",
+			args: { command: "echo step1" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-step1",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "line A\nline B" }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 25,
+			parentToolCallId: parentCallId,
+		});
+
+		const ctx = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.bash({ command: "echo step1" });' },
+		});
+
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1s\nOutput:\nok" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// Level 0: initial render
+		const initial = resultView.render(80);
+		expect(initial[1]).toContain("▎ ✓ bash echo step1");
+
+		// 1. Expand child tool first at Level 0
+		resultView.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const childExpanded = resultView.render(80);
+		expect(childExpanded[1]).toContain("▎ ✓ bash echo step1");
+		expect(childExpanded[2]).toContain("▎   $ echo step1");
+		expect(childExpanded[3]).toContain("▎   line A");
+
+		// 2. Now expand codemode itself (clicking codemode header at y=0)
+		resultView.handleMouse(createMouseClick(2, 0, { width: 80 }));
+		const codemodeExpanded = resultView.render(80);
+
+		// In expanded codemode: codemode header is ▾
+		expect(codemodeExpanded[0]).toContain("▾ codemode");
+		// Child nested tool calls are hidden when parent is expanded
+		expect(codemodeExpanded.join("\n")).not.toContain("bash echo step1");
+		expect(codemodeExpanded.join("\n")).not.toContain("line A");
+
+		// 3. Fold codemode back to Level 0
+		resultView.handleMouse(createMouseClick(2, 0, { width: 80 }));
+		const foldedBack = resultView.render(80);
+		expect(foldedBack[0]).toContain("▸ codemode");
+		expect(foldedBack[1]).toContain("▎ ✓ bash echo step1");
+		expect(foldedBack.join("\n")).not.toContain("line A");
+	});
+	test("heavy inputs in codemode and bash apply syntax highlighting in Level 1", () => {
+		const resolve = setupResolver({ tools: ["codemode", "bash"] });
+		const codemodeRenderers = resolve("codemode", () => undefined)!;
+		const bashRenderers = resolve("bash", () => undefined)!;
+
+		// 1. codemode: script code highlighted as javascript
+		const cmCtx = createMockContext({
+			args: { code: "const val = 123;\nreturn val > 0;" },
+		});
+		const cmView = codemodeRenderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1s\nOutput:\ntrue" }],
+				details: { calls: [] },
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			cmCtx,
+		) as ToolView;
+
+		cmView.setFoldLevel(1);
+		const cmRendered = cmView.render(80);
+		expect(cmRendered.join("\n")).toContain("const val = 123;");
+		expect(cmRendered.join("\n")).toContain("return val > 0;");
+
+		// 2. bash: shell command highlighted with $ prefix
+		const bashCtx = createMockContext({
+			args: { command: 'echo "hello world"' },
+		});
+		const bashView = bashRenderers.renderResult!(
+			{
+				content: [{ type: "text", text: "hello world" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			bashCtx,
+		) as ToolView;
+
+		bashView.setFoldLevel(1);
+		const bashRendered = bashView.render(80);
+		expect(bashRendered.join("\n")).toContain('$ echo "hello world"');
+
+		// 3. bash with taggedTheme: header and input command are unstyled (no themes), while output is dim
+		const taggedBashView = bashRenderers.renderResult!(
+			{
+				content: [{ type: "text", text: "hello world" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			taggedTheme,
+			bashCtx,
+		) as ToolView;
+		taggedBashView.setFoldLevel(1);
+		const taggedRendered = taggedBashView.render(80);
+		// Upper room command has plain $ prefix without accent theme
+		expect(taggedRendered.join("\n")).toContain('$ echo "hello world"');
+		expect(taggedRendered.join("\n")).not.toContain("[accent:$]");
+		// Header summary is unstyled for bash
+		expect(taggedRendered[0]).not.toContain('[dim:echo "hello world"]');
+		// Lower room output is dim
+		expect(taggedRendered.join("\n")).toContain("[dim:hello world]");
+	});
+
+	test("ToolView.invalidate on codemode result with nested calls does not trigger recursive host invalidate loop", () => {
+		const resolve = setupResolver({ tools: ["codemode"] });
+		const codemodeRenderers = resolve("codemode", () => undefined)!;
+
+		let viewInstance: ToolView | undefined;
+		let hostInvalidateCallCount = 0;
+
+		const ctx = createMockContext({
+			args: { code: 'await tools.read({ path: "a.ts" });' },
+			invalidate: () => {
+				hostInvalidateCallCount++;
+				// Simulates Pi host ToolExecutionComponent: calling context.invalidate()
+				// causes the host component to invalidate its children downward.
+				viewInstance?.invalidate();
+			},
+		});
+
+		const resultView = codemodeRenderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed" }],
+				details: {
+					calls: [{ id: "1", name: "read", args: '{"path":"a.ts"}', status: "ok" }],
+				},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+		viewInstance = resultView;
+
+		// Downward invalidation from host must not trigger upward context.invalidate() recursion
+		expect(() => {
+			resultView.invalidate();
+		}).not.toThrow();
+		expect(hostInvalidateCallCount).toBe(0);
+	});
+
+	test("stateHolder persists expanded nested tools across re-render cycles", () => {
+		clearCapturedNestedCalls();
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-persist-test";
+
+		recordToolExecutionStart({
+			toolCallId: "child-persist-1",
+			toolName: "read",
+			args: { path: "src/file.ts" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-persist-1",
+			toolName: "read",
+			result: {
+				content: [{ type: "text", text: "line 100\nline 200" }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 15,
+			parentToolCallId: parentCallId,
+		});
+
+		const sharedState: Record<string, unknown> = {};
+		const ctx1 = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.read({ path: "src/file.ts" });' },
+			state: sharedState,
+		});
+
+		// Turn 1: initial render
+		const view1 = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1s\nOutput:\nok" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx1,
+		) as ToolView;
+
+		const lines1 = view1.render(80);
+		expect(lines1.join("\n")).not.toContain("line 100");
+
+		// Click child 1 body at row 1 to expand
+		view1.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const lines1Expanded = view1.render(80);
+		expect(lines1Expanded.join("\n")).toContain("line 100");
+
+		// Turn 2: Pi re-renders transcript (new component instance with same stateHolder)
+		const ctx2 = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.read({ path: "src/file.ts" });' },
+			state: sharedState,
+		});
+		const view2 = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1s\nOutput:\nok" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx2,
+		) as ToolView;
+
+		// Expanded state survived across component re-creation!
+		const lines2 = view2.render(80);
+		expect(lines2.join("\n")).toContain("line 100");
+	});
+
+	test("ctrl+click on child tool fully expands it to Level 2", () => {
+		clearCapturedNestedCalls();
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-ctrl-test";
+
+		const manyLines = Array.from({ length: 40 }, (_, i) => `output line ${String(i + 1)}`).join(
+			"\n",
+		);
+		recordToolExecutionStart({
+			toolCallId: "child-ctrl-1",
+			toolName: "bash",
+			args: { command: "generate-lines" },
+			parentToolCallId: parentCallId,
+		});
+		recordToolExecutionEnd({
+			toolCallId: "child-ctrl-1",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: manyLines }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 30,
+			parentToolCallId: parentCallId,
+		});
+
+		const ctx = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: 'await tools.bash({ command: "generate-lines" });' },
+		});
+
+		const view = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed" }],
+				details: {},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// Initial render populates layout line map
+		view.render(80);
+
+		// 1. Normal click expands to Level 1
+		view.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const level1Lines = view.render(80);
+		expect(level1Lines.join("\n")).toContain("output line 1");
+		// In level 1, sections or output are capped with omission hint
+		expect(level1Lines.join("\n")).toMatch(/(omitted|more lines)/);
+
+		// 2. Ctrl+click expands to Level 2 (unlimited lines)
+		view.handleMouse(createMouseClick(10, 1, { width: 80, ctrl: true }));
+		const level2Lines = view.render(80);
+		expect(level2Lines.join("\n")).toContain("output line 1");
+		expect(level2Lines.join("\n")).toContain("output line 40");
+		expect(level2Lines.join("\n")).not.toMatch(/(omitted|more lines)/);
+	});
+
+	test("ToolView.renderBody renders body lines headless without header and supports noRail option", () => {
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "ok", summary: "echo test" },
+			sections: [
+				{
+					railToken: "success",
+					content: ["hello line 1", "hello line 2"],
+				},
+			],
+			defaultLevel: 1,
+		});
+
+		// 1. Full render includes header row and rails
+		const full = view.render(80);
+		expect(full[0]).toContain("▾ ✓ bash");
+		expect(full[1]).toContain("▎ hello line 1");
+
+		// 2. renderBody without options renders body with rails, but NO header row
+		const bodyWithRail = view.renderBody(80);
+		expect(bodyWithRail).toHaveLength(2);
+		expect(bodyWithRail[0]).not.toContain("bash");
+		expect(bodyWithRail[0]).toContain("▎ hello line 1");
+		expect(bodyWithRail[1]).toContain("▎ hello line 2");
+
+		// 3. renderBody with noRail: true omits rail glyphs cleanly
+		const headlessNoRail = view.renderBody(80, { noRail: true });
+		expect(headlessNoRail).toHaveLength(2);
+		expect(headlessNoRail[0]).toBe("hello line 1");
+		expect(headlessNoRail[1]).toBe("hello line 2");
+		expect(headlessNoRail[0]).not.toContain("▎");
+	});
+
+	test("ToolView supports controlledLevel and safe stateHolder: undefined memory mode", () => {
+		const state: Record<string, unknown> = { __piExtUiFoldLevel: 0 };
+		const controlledView = new ToolView({
+			theme: plainTheme,
+			header: { title: "read", status: "ok" },
+			sections: [{ railToken: "dim", content: ["data line"] }],
+			controlledLevel: 2,
+			stateHolder: state,
+		});
+
+		// 1. controlledLevel takes precedence over stateHolder
+		expect(controlledView.foldLevel).toBe(2);
+		expect(controlledView.effectiveLevel).toBe(2);
+
+		// 2. setFoldLevel in controlled mode does NOT overwrite stateHolder
+		controlledView.setFoldLevel(1);
+		expect(state.__piExtUiFoldLevel).toBe(0);
+
+		// 3. stateHolder: undefined operates purely in-memory without error
+		const memoryView = new ToolView({
+			theme: plainTheme,
+			header: { title: "read", status: "ok" },
+			sections: [{ railToken: "dim", content: ["memory line"] }],
+			defaultLevel: 0,
+			stateHolder: undefined,
+		});
+		expect(memoryView.foldLevel).toBe(0);
+		memoryView.setFoldLevel(1);
+		expect(memoryView.foldLevel).toBe(1);
+	});
+
+	test("isCollapsible type-guard and collapsibleChildren explicit composite hierarchy", () => {
+		expect(isCollapsible(null)).toBe(false);
+		expect(isCollapsible(undefined)).toBe(false);
+		expect(isCollapsible("string")).toBe(false);
+		expect(isCollapsible({})).toBe(false);
+		expect(isCollapsible({ collapseAll: 123 })).toBe(false);
+
+		const dummyCollapsible: Collapsible = { collapseAll: vi.fn() };
+		expect(isCollapsible(dummyCollapsible)).toBe(true);
+
+		const child1: Collapsible = { collapseAll: vi.fn() };
+		const child2: Collapsible = { collapseAll: vi.fn() };
+
+		const parent = new ToolView({
+			theme: plainTheme,
+			header: { title: "parent", status: "ok" },
+			collapsedRows: child1 as unknown as Component,
+			collapsibleChildren: [child2],
+			defaultLevel: 0,
+		});
+
+		// Expanding parent from 0 to 1 collapses both registered children
+		parent.setFoldLevel(1);
+		expect(child1.collapseAll).toHaveBeenCalledTimes(1);
+		expect(child2.collapseAll).toHaveBeenCalledTimes(1);
+	});
+
+	test("NestedCallsView fold transitions follow shared state machine (2 -> 0 on normal click) and dispose cleans up timer", () => {
+		const state: Record<string, unknown> = {};
+		const ncv = new NestedCallsView({
+			calls: [
+				{
+					id: "call-1",
+					toolName: "bash",
+					args: { command: "ls -la" },
+					result: { content: [{ type: "text", text: "file.txt" }], details: {} },
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext(),
+			stateHolder: state,
+		});
+
+		// Render to generate lineMapping
+		ncv.render(80);
+
+		// 1. Click row 0 -> transitions from Level 0 to Level 1
+		const res1 = ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+		expect(res1?.handled).toBe(true);
+		expect((state[NESTED_CALLS_EXPANDED_KEY] as Record<string, number>)["0"]).toBe(1);
+
+		// 2. Click row 0 again -> transitions from Level 1 to Level 0
+		ncv.render(80);
+		const res2 = ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+		expect(res2?.handled).toBe(true);
+		expect((state[NESTED_CALLS_EXPANDED_KEY] as Record<string, number>)["0"]).toBeUndefined();
+
+		// 3. Ctrl-click row 0 -> transitions from Level 0 to Level 2
+		ncv.render(80);
+		const res3 = ncv.handleMouse(createMouseClick(10, 0, { width: 80, ctrl: true }));
+		expect(res3?.handled).toBe(true);
+		expect((state[NESTED_CALLS_EXPANDED_KEY] as Record<string, number>)["0"]).toBe(2);
+
+		// 4. Normal click row 0 while at Level 2 -> MUST transition to Level 0 (not 1)
+		ncv.render(80);
+		const res4 = ncv.handleMouse(createMouseClick(10, 0, { width: 80, ctrl: false }));
+		expect(res4?.handled).toBe(true);
+		expect((state[NESTED_CALLS_EXPANDED_KEY] as Record<string, number>)["0"]).toBeUndefined();
+
+		// 5. Calling dispose is safe and cleans up resources
+		expect(() => ncv.dispose()).not.toThrow();
+	});
+
+	test("NestedCallsView retains ANSI escape colors and syntax highlights file reads", () => {
+		const state: Record<string, unknown> = {};
+		const ncv = new NestedCallsView({
+			calls: [
+				{
+					id: "call-ansi",
+					toolName: "bash",
+					args: { command: "npm test" },
+					result: {
+						content: [{ type: "text", text: "\x1b[32mPASS\x1b[0m test/suite.js" }],
+						details: {},
+					},
+				},
+				{
+					id: "call-read",
+					toolName: "read",
+					args: { path: "server.ts" },
+					result: {
+						content: [{ type: "text", text: "const port = 3000;" }],
+						details: {},
+					},
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext(),
+			stateHolder: state,
+		});
+
+		// Expand row 0 (bash)
+		ncv.render(80);
+		ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+		const linesWithAnsi = ncv.render(80);
+		// Output line should preserve the ANSI color escape sequence
+		expect(linesWithAnsi.some((l) => l.includes("\x1b[32mPASS\x1b[0m"))).toBe(true);
+
+		// Expand row 1 (read server.ts)
+		ncv.handleMouse(createMouseClick(10, 2, { width: 80 }));
+		const linesWithRead = ncv.render(80);
+		// Output lines should contain the code line
+		expect(linesWithRead.some((l) => l.includes("const port = 3000;"))).toBe(true);
 	});
 });

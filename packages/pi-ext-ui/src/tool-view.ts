@@ -26,6 +26,7 @@ export interface ToolViewHeaderSpec {
 	readonly title: string;
 	readonly status?: ToolStatusKind | undefined;
 	readonly summary?: string | undefined;
+	readonly unstyledSummary?: boolean | undefined;
 }
 
 export interface ToolViewCopySpec {
@@ -33,19 +34,37 @@ export interface ToolViewCopySpec {
 	readonly full?: string | undefined;
 }
 
+/** Micro-contract for child views that can reset their internal expansion. */
+export interface Collapsible {
+	collapseAll(): void;
+}
+
+export function isCollapsible(value: unknown): value is Collapsible {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"collapseAll" in value &&
+		typeof (value as Collapsible).collapseAll === "function"
+	);
+}
+
 export interface ToolViewSpec {
 	readonly theme: Theme;
 	readonly header: ToolViewHeaderSpec;
-	readonly collapsedRows?: readonly string[] | Component | undefined;
+	readonly collapsedRows?: readonly string[] | Component | (Component & Collapsible) | undefined;
 	readonly sections?: readonly RailSection[] | undefined;
+	readonly collapsibleChildren?: readonly Collapsible[] | undefined;
 	readonly copy?: ToolViewCopySpec | undefined;
 	readonly stateHolder?: unknown;
 	readonly outputPad?: number | undefined;
 	readonly defaultLevel?: FoldLevel | undefined;
+	readonly controlledLevel?: FoldLevel | undefined;
 	readonly globalExpanded?: boolean | undefined;
 	readonly invalidate?: (() => void) | undefined;
 	readonly copyToClipboard?: ((text: string) => Promise<void>) | undefined;
 	readonly copyFeedbackDurationMs?: number | undefined;
+	readonly noRail?: boolean | undefined;
+	readonly railToken?: RailColorToken | undefined;
 }
 
 /** Public composition entry point for extensions that need the shared view behavior. */
@@ -57,7 +76,6 @@ const FOLD_LEVEL_STATE_KEY = "__piExtUiFoldLevel";
 const COPIED_UNTIL_STATE_KEY = "__piExtUiCopiedUntil";
 const COPY_FEEDBACK_TIMER_KEY = "__piExtUiCopyTimer";
 const DEFAULT_MAX_SECTION_LINES = 9;
-const DEFAULT_MAX_COLLAPSED_ROWS = 6;
 const DEFAULT_COPY_FEEDBACK_MS = 1200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,11 +154,39 @@ export class ToolView implements Component {
 
 	constructor(spec: ToolViewSpec) {
 		this.#spec = spec;
-		const initial = spec.defaultLevel ?? 0;
-		this.#localLevel = readFoldLevel(spec.stateHolder, initial);
+		const initial = spec.controlledLevel ?? spec.defaultLevel ?? 0;
+		this.#localLevel =
+			spec.controlledLevel !== undefined
+				? spec.controlledLevel
+				: readFoldLevel(spec.stateHolder, initial);
+
+		if (isRecord(spec.stateHolder)) {
+			const until = spec.stateHolder[COPIED_UNTIL_STATE_KEY];
+			if (typeof until === "number" && until > Date.now()) {
+				this.#localCopiedUntil = until;
+				const remaining = until - Date.now();
+				if (!spec.stateHolder[COPY_FEEDBACK_TIMER_KEY]) {
+					const timer = setTimeout(() => {
+						this.#localCopiedUntil = 0;
+						if (isRecord(this.#spec.stateHolder)) {
+							this.#spec.stateHolder[COPIED_UNTIL_STATE_KEY] = 0;
+							this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = undefined;
+						}
+						this.#localTimer = undefined;
+						this.#spec.invalidate?.();
+					}, remaining);
+					timer.unref?.();
+					this.#localTimer = timer;
+					spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = timer;
+				}
+			}
+		}
 	}
 
 	get foldLevel(): FoldLevel {
+		if (this.#spec.controlledLevel !== undefined) {
+			return this.#spec.controlledLevel;
+		}
 		return readFoldLevel(this.#spec.stateHolder, this.#localLevel);
 	}
 
@@ -155,11 +201,26 @@ export class ToolView implements Component {
 		return this.foldLevel === 0;
 	}
 
+	#collapseChildren(): void {
+		const { collapsedRows, collapsibleChildren } = this.#spec;
+		if (collapsibleChildren !== undefined) {
+			for (const child of collapsibleChildren) {
+				child.collapseAll();
+			}
+		}
+		if (isCollapsible(collapsedRows)) {
+			collapsedRows.collapseAll();
+		}
+	}
+
 	setFoldLevel(next: FoldLevel): void {
 		const prev = this.foldLevel;
 		this.#localLevel = next;
-		writeFoldLevel(this.#spec.stateHolder, next);
+		if (this.#spec.controlledLevel === undefined) {
+			writeFoldLevel(this.#spec.stateHolder, next);
+		}
 		if (prev !== next) {
+			this.#collapseChildren();
 			this.#spec.invalidate?.();
 		}
 	}
@@ -222,7 +283,9 @@ export class ToolView implements Component {
 		const statusPart = formatStatusGlyph(header.status, theme);
 		const titlePart = theme.fg("toolTitle", theme.bold(header.title));
 		const summaryRaw = header.summary?.trim() ?? "";
-		const summaryPart = summaryRaw === "" ? "" : ` ${theme.fg("dim", summaryRaw)}`;
+		const isUnstyled = header.unstyledSummary === true || header.title === "bash";
+		const summaryPart =
+			summaryRaw === "" ? "" : isUnstyled ? ` ${summaryRaw}` : ` ${theme.fg("dim", summaryRaw)}`;
 		const leftContent = `${pin} ${statusPart}${titlePart}${summaryPart}`;
 
 		if (copy === undefined || safeWidth < 6) {
@@ -248,50 +311,39 @@ export class ToolView implements Component {
 		this.#hidden = true;
 	}
 
-	render(width: number): string[] {
+	/**
+	 * Renders only the interior content of the view without the header row.
+	 * When `noRail: true` is specified, outer rail glyphs are omitted, allowing
+	 * clean embedding inside composite parent components without regex text scraping.
+	 */
+	renderBody(width: number, options?: { noRail?: boolean }): string[] {
 		if (this.#hidden) return [];
 		const pad = Math.max(0, this.#spec.outputPad ?? 0);
 		const safeWidth = Math.max(1, width - pad * 2);
-		this.#lastWidth = width;
 		const level = this.effectiveLevel;
 		const { theme, collapsedRows, sections } = this.#spec;
-		const output: string[] = [this.#renderHeader(safeWidth, level)];
-
-		const finalize = (lines: string[]): string[] => {
-			if (pad > 0) {
-				const leftPad = " ".repeat(pad);
-				return lines.map((line) => `${leftPad}${line}`);
-			}
-			return lines;
-		};
-
-		const innerWidth = Math.max(1, safeWidth - 2);
+		const noRail = options?.noRail ?? this.#spec.noRail ?? false;
+		const innerWidth = noRail ? safeWidth : Math.max(1, safeWidth - 2);
+		const output: string[] = [];
 
 		if (level === 0) {
 			if (collapsedRows !== undefined) {
-				const rail = `${theme.fg("dim", "▎")} `;
+				const railColor: RailColorToken = this.#spec.header.status === "error" ? "error" : "dim";
+				const rail = noRail ? "" : `${theme.fg(railColor, "▎")} `;
 				const rows = resolveLines(collapsedRows, innerWidth);
-				const visibleRows =
-					rows.length > DEFAULT_MAX_COLLAPSED_ROWS
-						? rows.slice(0, DEFAULT_MAX_COLLAPSED_ROWS)
-						: rows;
-				for (const row of visibleRows) {
+				for (const row of rows) {
 					output.push(truncate(rail + row, safeWidth));
 				}
-				if (rows.length > visibleRows.length) {
-					const hint = theme.fg("dim", `… (${String(rows.length - visibleRows.length)} more)`);
-					output.push(truncate(rail + hint, safeWidth));
-				}
 			}
-			return finalize(output);
+			return output;
 		}
 
 		if (sections === undefined || sections.length === 0) {
-			return finalize(output);
+			return output;
 		}
 
 		for (const section of sections) {
-			const rail = `${theme.fg(section.railToken, "▎")} `;
+			const rail = noRail ? "" : `${theme.fg(section.railToken, "▎")} `;
 			const rawLines = resolveLines(section.content, innerWidth);
 			const cap =
 				level === 1 ? (section.maxLines ?? DEFAULT_MAX_SECTION_LINES) : Number.POSITIVE_INFINITY;
@@ -308,14 +360,35 @@ export class ToolView implements Component {
 			}
 		}
 
-		return finalize(output);
+		return output;
+	}
+
+	render(width: number): string[] {
+		if (this.#hidden) return [];
+		const pad = Math.max(0, this.#spec.outputPad ?? 0);
+		const safeWidth = Math.max(1, width - pad * 2);
+		this.#lastWidth = width;
+		const level = this.effectiveLevel;
+		if (level !== 0) {
+			this.#collapseChildren();
+		}
+
+		const header = this.#renderHeader(safeWidth, level);
+		const body = this.renderBody(width);
+		const allLines = [header, ...body];
+
+		if (pad > 0) {
+			const leftPad = " ".repeat(pad);
+			return allLines.map((line) => `${leftPad}${line}`);
+		}
+		return allLines;
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		if (event.type === "wheel") {
 			return undefined;
 		}
-		if (event.type !== "click" || event.button !== "left" || event.y !== 0) {
+		if (event.type !== "click" || event.button !== "left") {
 			return undefined;
 		}
 
@@ -326,18 +399,47 @@ export class ToolView implements Component {
 		if (innerX < 0 || innerX >= innerWidth) {
 			return undefined;
 		}
-		if (
-			this.#spec.copy !== undefined &&
-			innerWidth >= 6 &&
-			innerX >= innerWidth - 3 &&
-			innerX < innerWidth - 1
-		) {
-			this.#triggerCopy(event.shift === true);
+
+		if (event.y === 0) {
+			if (
+				this.#spec.copy !== undefined &&
+				innerWidth >= 6 &&
+				innerX >= innerWidth - 3 &&
+				innerX < innerWidth
+			) {
+				this.#triggerCopy(event.shift === true);
+				return { handled: true, render: true };
+			}
+
+			this.toggle(event.ctrl === true);
 			return { handled: true, render: true };
 		}
 
-		this.toggle(event.ctrl === true);
-		return { handled: true, render: true };
+		const level = this.effectiveLevel;
+		if (level === 0 && this.#spec.collapsedRows !== undefined) {
+			const rows = this.#spec.collapsedRows;
+			if (
+				typeof rows === "object" &&
+				rows !== null &&
+				"handleMouse" in rows &&
+				typeof (rows as { handleMouse?: unknown }).handleMouse === "function"
+			) {
+				const handler = (
+					rows as { handleMouse: (e: TuiMouseEvent) => TuiMouseEventResult | undefined }
+				).handleMouse;
+				const railOffset = this.#spec.noRail ? 0 : 2;
+				const subEvent: TuiMouseEvent = {
+					...event,
+					y: event.y - 1,
+					x: Math.max(0, innerX - railOffset),
+					width: Math.max(1, innerWidth - railOffset),
+				};
+				const res = handler.call(rows, subEvent);
+				if (res?.handled) return res;
+			}
+		}
+
+		return undefined;
 	}
 
 	invalidate(): void {
@@ -358,6 +460,3 @@ export class ToolView implements Component {
 		}
 	}
 }
-
-export type { ToolViewSpec as CollapsibleToolFrameOptions };
-export { ToolView as CollapsibleToolFrame };
