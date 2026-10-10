@@ -174,25 +174,6 @@ export class Runtime {
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
 	pendingIdleNoticeTimer?: ReturnType<typeof setTimeout> | undefined;
 	idleNoticeEmitted = false;
-	accumulatedWaitJobsMs = 0;
-	currentWaitJobsStartMs?: number | undefined;
-
-	recordWaitJobsStart(nowMs = Date.now()): void {
-		this.currentWaitJobsStartMs = nowMs;
-	}
-
-	recordWaitJobsEnd(nowMs = Date.now()): void {
-		if (this.currentWaitJobsStartMs !== undefined) {
-			this.accumulatedWaitJobsMs += Math.max(0, nowMs - this.currentWaitJobsStartMs);
-			this.currentWaitJobsStartMs = undefined;
-		}
-	}
-
-	consumeWaitJobsDuration(): number {
-		const duration = this.accumulatedWaitJobsMs;
-		this.accumulatedWaitJobsMs = 0;
-		return duration;
-	}
 	private lifecycleAbortCleanup: (() => void) | undefined;
 	/** provider -> epoch ms of the last availability re-check (see `recheckProviderCredential`). */
 	availabilityRecheckedAt = new Map<string, number>();
@@ -209,8 +190,6 @@ export class Runtime {
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
-		this.accumulatedWaitJobsMs = 0;
-		this.currentWaitJobsStartMs = undefined;
 		this.sessionGeneration += 1;
 		this.config = { ...DEFAULTS };
 		this.configLoaded = false;

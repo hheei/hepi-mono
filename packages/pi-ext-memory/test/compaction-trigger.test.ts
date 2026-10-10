@@ -1006,45 +1006,6 @@ describe("V3 compaction trigger", () => {
 			expect(runtime.compactInFlight).toBe(false);
 		});
 
-		it("counts wait_jobs duration towards idle lifespan in before_agent_start", async () => {
-			const { handlers, runtime } = captureHandler({
-				compactAfterTokens: 100_000,
-				idleCompactionTtlSeconds: 60,
-				idleCompactionMinTokens: 1,
-			});
-			const nowSec = Math.floor(Date.now() / 1000);
-			// Only 10s elapsed since last settle, but wait_jobs waited 70s -> total 80s > 60s TTL
-			const branch = [
-				rawMessage("raw-1", "hello", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "hello" }],
-					},
-					timestamp: new Date((nowSec - 10) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
-			const ctx = fakeCtx([branch], {
-				compact: vi.fn((opts) => opts?.onComplete?.()),
-			});
-
-			const toolStart = handlers.get("tool_execution_start");
-			const toolEnd = handlers.get("tool_execution_end");
-			expect(toolStart).toBeDefined();
-			expect(toolEnd).toBeDefined();
-
-			const startMs = 10000;
-			toolStart?.({ toolName: "wait_jobs" }, ctx);
-			runtime.currentWaitJobsStartMs = startMs;
-			runtime.recordWaitJobsEnd(startMs + 70_000); // 70s wait
-
-			const beforeAgentStart = handlers.get("before_agent_start");
-			await beforeAgentStart?.({}, ctx);
-
-			expect(ctx.compact).toHaveBeenCalledTimes(1);
-			expect(runtime.compactInFlight).toBe(false);
-		});
-
 		it("awaits in-flight consolidation in before_agent_start before compacting and re-reads branch", async () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
