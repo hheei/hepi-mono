@@ -15,15 +15,20 @@ children and `/subagents stop [id]` to stop one without conflicting with other e
 
 | Tool | Purpose |
 | --- | --- |
-| `spawn_agent({ task, agent, cwd?, title? })` | Start one child and return when its bridge is ready and the initial task was delivered. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `send_agent` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. `title` (<= 60 chars) names the child's Pi session, shown as `🤖 <title>`. Deferred by default; discover via `tool_search({ query: "agent" })`. Do not poll `get`/`list` for completion; reports arrive automatically as `subagent-report` messages. Do not pause or freeze other subagents before spawning. |
-| `send_agent({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle or completed (`done`/`blocked`/`error`, including stopped children) children resume their existing session automatically with historical context intact, maximizing cache and memory efficiency. Do not wait for or ask workers to 'freeze': idle subagents are completely dormant and touch nothing. Deferred by default; discover via `tool_search({ query: "agent" })`. |
-| `get_agent({ id })` | Inspect one child: state (`running` / `done` / `blocked` / `error`), presentation (`panel`/`background`), session, summary, usage, runtime freshness, and model/thinking. Deferred by default; discover via `tool_search({ query: "agent" })`. |
-| `list_agents({})` | List available interactive agent definitions and running subagents owned by this parent session. |
-| `stop_agent({ id })` | Persist a stopped intent, then end the runtime: a background child is killed, a panel child has its panel closed and verified gone. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agent_spawn({ task, agent, cwd?, title? })` | Spawn an independent background subagent task. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `agent_send` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. Tool description lists available agent names and roles, excluding disabled or hidden definitions. Deferred by default; discover via `tool_search({ query: "agent" })`. Do not poll for completion; results return automatically. |
+| `agent_send({ id, message, mode? })` | Send `steer`, `follow_up`, or `auto` input to a specific child. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle, blocked, done, or errored children resume their existing session automatically with historical context intact. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agent_get({ id, keys? })` | Inspect one subagent by id. `keys` is a comma-separated selection of `status` (default), `progress` (default), and `diagnostic`; unknown keys fail. The view never returns the child's task parameters or terminal result, which arrive automatically as reports. From the second successful inspection of the same child in this parent runtime, the result adds a short reminder that results return automatically and must not be polled. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agent_stop({ id })` | Stop one subagent's runtime by id. The child keeps its session, so a later `agent_send` can resume it. Deferred by default; discover via `tool_search({ query: "agent" })`. |
 
 ### Unified Task Management
 
-Subagent execution tasks automatically register with ext-core's `TaskRegistry`, alongside background bash jobs. Child reports arrive automatically; do not use `wait_jobs` or poll status to detect child completion. Use `wait_jobs` for other background jobs only when the next step needs their results. Deferred subagent tools are loaded via `tool_search`; parent operation tools do not append snippets or guidelines to the system prompt.
+`agent_spawn` returns JSON `{ id, path }` on success. `path` is the absolute child session file path
+assigned by Pi; its first write may still be pending. `agent_get` exposes the same `progress.path`.
+`agent_send` and `agent_stop` return one confirmation
+sentence. Failures return only their reason. Operation results omit session IDs, presentation, and
+state snapshots; use `agent_get` for runtime inspection.
+
+Subagent execution tasks register with ext-core's `TaskRegistry` when pi-ext-tools provides it, alongside background Bash jobs. Child reports arrive automatically; do not poll status to detect completion. Bash uses separate `bg_bash_*` tools. Deferred subagent tools are loaded via `tool_search`; activation supplies `subagent_guidance`. Both get tools return the same `status`, `progress`, and optional `diagnostic` envelope. Diagnostics describe blockers, failed turns, or uncertain runtime state.
 
 ## Child execution and reporting
 
@@ -41,7 +46,7 @@ Subagent lifecycle is shown in the TUI widget above the editor; subagent status 
 - **`running`** (blue/amber): Starting, executing turns, auto-retrying, or waiting out the 5-second settlement debounce.
 - **`done`** (green checkmark `✓`): Succeeded and automatically reported final assistant text back to the parent.
 - **`blocked`**: Interrupted or waiting for input/guidance.
-- **`error`**: The turn failed or the runtime was stopped. You may retry with `send_agent` or create a new child via `spawn_agent`. Sending to a stopped child reactivates its existing session after the previous runtime is confirmed gone; retrying does not guarantee the underlying failure is resolved.
+- **`error`**: The turn failed or the runtime was stopped. You may retry with `agent_send` or create a new child via `agent_spawn`. Sending to a stopped child reactivates its existing session after the previous runtime is confirmed gone; retrying does not guarantee the underlying failure is resolved.
 
 ## Host Integration and Isolation
 
@@ -54,7 +59,7 @@ Agent Markdown files are discovered in this order, most specific first, by `name
 
 ```text
 <cwd>/.pi/agents/*.md
-<cwd>/.agents/agents/*.md
+<cwd>/.pi/agents/*.md
 ~/.pi/agent/agents/*.md
 ```
 

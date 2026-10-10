@@ -269,9 +269,12 @@ async function markdownFiles(directory: string): Promise<string[]> {
 
 /** Most specific scope first; the first definition of a name wins deterministically. */
 function agentDirectories(cwd: string, homeDirectory: string): readonly string[] {
-	const userAgentDir = process.env.PI_CODING_AGENT_DIR
-		? join(process.env.PI_CODING_AGENT_DIR, "agents")
-		: join(homeDirectory, ".pi", "agent", "agents");
+	const userAgentDir =
+		homeDirectory === homedir()
+			? join(getAgentDir(), "agents")
+			: process.env.PI_CODING_AGENT_DIR
+				? join(process.env.PI_CODING_AGENT_DIR, "agents")
+				: join(homeDirectory, ".pi", "agent", "agents");
 	return [join(cwd, ".pi", "agents"), join(cwd, ".agents", "agents"), userAgentDir];
 }
 

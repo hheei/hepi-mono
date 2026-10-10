@@ -7,10 +7,12 @@ import { describe, expect, test, vi } from "vitest";
 import type { PublicSubagent } from "../src/domain.js";
 import type { SubagentManager } from "../src/manager.js";
 import {
+	DEFERRED_TOOLS_SECTION,
 	INTERACTIVE_TOOL_NAMES,
 	registerInteractiveToolActivation,
-	SUBAGENT_DEFERRED_PROMPT_GUIDANCE,
+	SUBAGENT_CODEMODE_BULLET,
 	SUBAGENT_PROMPT_SECTION,
+	SUBAGENT_TOOL_SEARCH_BULLET,
 } from "../src/tool-activation.js";
 import { registerParentTools } from "../src/tools.js";
 
@@ -68,7 +70,7 @@ describe("interactive tool activation", () => {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
-		registerParentTools(pi, manager);
+		registerParentTools(pi, manager, []);
 
 		for (const toolName of INTERACTIVE_TOOL_NAMES) {
 			const tool = registeredTools.find((t) => t.name === toolName);
@@ -84,7 +86,7 @@ describe("interactive tool activation", () => {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
-		registerParentTools(pi, manager);
+		registerParentTools(pi, manager, []);
 		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
@@ -96,18 +98,41 @@ describe("interactive tool activation", () => {
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
 		await activation.selectFromSession(context);
 
-		expect(getActive()).toContain("list_agents");
 		for (const toolName of INTERACTIVE_TOOL_NAMES) {
 			expect(getActive()).not.toContain(toolName);
 		}
 
-		// before_agent_start injects deferred discovery guidance
-		const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
-		pi.emit("before_agent_start", startEvent);
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		// With neither tool_search nor codemode active, no deferred bullet is injected
+		const startEventNone = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		pi.emit("before_agent_start", startEventNone);
+		await vi.waitFor(() => {
+			expect(startEventNone.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION]).toBeUndefined();
+			expect(startEventNone.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toBeUndefined();
+		});
 
-		const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
-		expect(guidance).toBe(SUBAGENT_DEFERRED_PROMPT_GUIDANCE);
+		// With tool_search active, injects tool_search guidance
+		pi.setActiveTools([...getActive(), "tool_search"]);
+		const startEventSearch = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		pi.emit("before_agent_start", startEventSearch);
+		await vi.waitFor(() => {
+			expect(startEventSearch.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toContain(
+				SUBAGENT_TOOL_SEARCH_BULLET,
+			);
+		});
+
+		// With codemode active (no tool_search), injects codemode guidance
+		pi.setActiveTools(
+			getActive()
+				.filter((t) => t !== "tool_search")
+				.concat("codemode"),
+		);
+		const startEventCode = { systemPromptOptions: { sections: {} as Record<string, string> } };
+		pi.emit("before_agent_start", startEventCode);
+		await vi.waitFor(() => {
+			expect(startEventCode.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toContain(
+				SUBAGENT_CODEMODE_BULLET,
+			);
+		});
 
 		activation.dispose();
 	});
@@ -118,7 +143,7 @@ describe("interactive tool activation", () => {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
-		registerParentTools(pi, manager);
+		registerParentTools(pi, manager, []);
 		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
@@ -136,13 +161,14 @@ describe("interactive tool activation", () => {
 
 		const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
 		pi.emit("before_agent_start", startEvent);
-		await new Promise((resolve) => setTimeout(resolve, 10));
-
-		const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
-		expect(guidance).toBeDefined();
-		expect(guidance).toContain("Reuse an existing subagent via send_agent");
-		expect(guidance).toContain("Do not poll get_agent or list_agents");
-		expect(guidance).toContain("<available_agents>");
+		await vi.waitFor(() => {
+			expect(startEvent.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toBeUndefined();
+			const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
+			expect(guidance).toBeDefined();
+			expect(guidance).toContain("Reuse an existing subagent via agent_send");
+			expect(guidance).toContain("Do not poll agent_get");
+			expect(guidance).toContain("<available_agents>");
+		});
 
 		activation.dispose();
 	});
@@ -167,7 +193,7 @@ describe("interactive tool activation", () => {
 			list: vi.fn().mockResolvedValue([liveChild]),
 		} as unknown as SubagentManager;
 
-		registerParentTools(pi, manager);
+		registerParentTools(pi, manager, []);
 		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
@@ -192,7 +218,7 @@ describe("interactive tool activation", () => {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
-		registerParentTools(pi, manager);
+		registerParentTools(pi, manager, []);
 		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
@@ -203,7 +229,7 @@ describe("interactive tool activation", () => {
 						type: "message",
 						message: {
 							role: "assistant",
-							content: [{ type: "tool_use", name: "spawn_agent" }],
+							content: [{ type: "tool_use", name: "agent_spawn" }],
 						},
 					},
 				],
