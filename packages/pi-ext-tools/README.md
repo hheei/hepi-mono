@@ -1,7 +1,7 @@
 # @hheei/pi-ext-tools
 
 Canonical owner for Pi `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`,
-`list_jobs`, `wait_jobs`, `stop_jobs`, strict Codex V4A `apply_patch`,
+`bg_bash_spawn`, `bg_bash_get`, `bg_bash_stop`, strict Codex V4A `apply_patch`,
 opt-in `eval`, and opt-in `todo`.
 Todo includes `/todo`, task scheduling, reminders, and a left-side footer status (disabled by default, opt-in via settings).
 `apply_patch` matches and rewrites text in pure
@@ -27,8 +27,8 @@ In addition to canonical filesystem and execution tools, `pi-ext-tools` provides
 Task/Bash notifications and subagent reports share completion-gated delivery. While the parent
 is working, results enter its next model step. While it is idle, ordinary results wait for all
 background work to finish and wake one shared turn. Subagent decision requests and blockers
-wake an idle parent immediately. There is no fixed notification window; `wait_jobs` remains
-an independent read path and does not consume automatic notifications.
+wake an idle parent immediately. Bash idle notices (once after 180s without stdout/stderr) and
+1800s heartbeats use the same BackgroundDelivery channel while ordinary terminal results remain gated.
 
 ## apply_patch
 
@@ -74,28 +74,29 @@ unsupported and must be removed; they are not mapped to `fuzzFactor`.
 
 ## bash
 
-`bash` runs one shell command or short pipeline. It runs in the foreground by default with an
-invocation timeout (default 180s, or 25s for pure search commands), and supports local background
-execution when explicitly requested with `blocking: false`.
-Remote `target` is an authorized SSH host and always runs in the foreground; `blocking: false` is
-rejected there. Working directory on SSH is the remote home.
-`output` remains unsupported.
+`bash` runs one shell command or short pipeline in the foreground with an invocation timeout
+(default 180s, or 25s for pure search commands). Remote `target` is an authorized SSH host;
+working directory on SSH is the remote home. `blocking`, `async`, and `output` are unsupported.
 
-A multi-line command is the request body: one row per command line, wrapped to the terminal, so the
-frame never grows a row per command line and the header keeps only the call facts (`non-blocking`,
-`(timeout Ns)`, plus `(host)` on an SSH Target). The full command stays in the persisted tool call
-and in the model-visible arguments.
+A multi-line command stays in the persisted tool call and model-visible arguments. The renderer
+shows command input separately from output, with timeout and SSH target facts in its header.
 
-## task control
+## Background Bash
 
-`list_jobs`, `wait_jobs`, and `stop_jobs` are registered for every session but stay
-inactive until that session starts its first background task, so a session that never uses
-background work carries none of their schemas or guidelines. Activation is derived from Pi's
-own `getActiveTools()`: the session start deactivates them (Pi activates every registered
-extension tool), the first `tasks.create()` activates them, and they are removed again only at
-`session_compact` or `session_tree` while nothing needs control — no active task and no result the
-parent has not confirmed reading (`registry.requiresControl`). `do not poll` lives on
-`wait_jobs` itself, so it reaches `<rules>` only while job control is active.
+`bg_bash_spawn({ command, timeout? })` starts a local command and returns JSON `{ id, path }`,
+where `path` is the absolute log file path, on success, or the reason on failure.
+It does not accept a caller ID.
+`bg_bash_get({ id, keys? })` queries `status`, `progress`, or `diagnostic` using a comma-separated
+keys string; default is `status,progress`. Unknown keys fail. Progress is bounded runtime context;
+completed output returns through automatic `<task-notice>` delivery. Progress and automatic notices
+provide the same path (`progress.path` in get); read/grep that file for full output.
+`bg_bash_stop({ id })` stops that Bash process tree and returns one confirmation sentence or a failure
+reason. These tools reject agent IDs.
+
+All three tools use deferred exposure and can be discovered with `tool_search` query `bg_bash`.
+There are no list or wait tools. BashJobRegistry owns a single idle notice after 180s without
+stdout/stderr and periodic 1800s heartbeats, with timers cleared on stop, terminal state, or disposal.
+PTY work is deferred. Subagents use their separate `agent_*` tools and share TaskRegistry coordination.
 
 ## Tool Output
 

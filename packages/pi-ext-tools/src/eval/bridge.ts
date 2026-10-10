@@ -72,7 +72,6 @@ export class EvalToolBridge {
 		if (!isNestedToolName(name)) throw new Error(`python_eval cannot call tool: ${name}`);
 		if (!this.#isActive(name))
 			throw new Error(`python_eval tool is unavailable in the active catalog: ${name}`);
-		if (name === "bash") rejectNestedBash(args);
 		const startedAt = performance.now();
 		const toolCallId = `eval-${crypto.randomUUID()}`;
 
@@ -162,16 +161,6 @@ export class EvalToolBridge {
 
 function isNestedToolName(value: string): value is EvalNestedToolName {
 	return (EVAL_NESTED_TOOL_NAMES as readonly string[]).includes(value);
-}
-
-function rejectNestedBash(args: unknown): void {
-	if (typeof args !== "object" || args === null || Array.isArray(args)) return;
-	const value = args as Record<string, unknown>;
-	if (value.blocking === false) {
-		throw new Error(
-			"python_eval cannot read a background result: omit `blocking` or pass `blocking: true` so the command finishes inside the cell.",
-		);
-	}
 }
 
 function traceFor(

@@ -23,11 +23,10 @@ test("bash uses one flat object schema for strict tool providers", (): void => {
 	expect(BashInput).toMatchObject({ type: "object", additionalProperties: false });
 	expect(BashInput).not.toHaveProperty("anyOf");
 	expect(BashInput.properties).toHaveProperty("command");
-	expect(BashInput.properties).toHaveProperty("blocking");
+	expect(BashInput.properties).not.toHaveProperty("blocking");
 	expect(BashInput.properties).not.toHaveProperty("async");
 	expect(Value.Check(BashInput, { command: "pwd" })).toBe(true);
-	expect(Value.Check(BashInput, { command: "pwd", blocking: false })).toBe(true);
-	expect(Value.Check(BashInput, { command: "pwd", blocking: true })).toBe(true);
+	expect(Value.Check(BashInput, { command: "pwd", blocking: false })).toBe(false);
 	// The legacy `async` parameter is rejected instead of being silently reinterpreted.
 	expect(Value.Check(BashInput, { command: "pwd", async: true })).toBe(false);
 	expect(Value.Check(BashInput, {})).toBe(false);
@@ -124,7 +123,7 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 	const bash = bashTool();
 	const result = await bash.execute(
 		"bash-null-optional-fields",
-		{ command: "printf normalized", timeout: null, blocking: null, target: null },
+		{ command: "printf normalized", timeout: null, target: null },
 		undefined,
 		undefined,
 		{
@@ -158,10 +157,9 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 
 test("bash exposes only background use guidance", (): void => {
 	const bash = bashTool();
-	expect(bash.description).toBe("Run one shell command or short pipeline.");
-	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline.");
+	expect(bash.description).toBe("Run one shell command or short pipeline in the foreground.");
+	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline in the foreground.");
 	expect(bash.promptGuidelines).toEqual([
-		"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_jobs` to wait for any unfinished background jobs.",
 		"Remote `target` is an authorized SSH host and always runs in the foreground.",
 	]);
 });
@@ -176,13 +174,10 @@ test("task-control tools keep usage guidance in descriptions without changing sy
 		} as unknown as ExtensionAPI,
 		createFffRuntimeState(),
 	);
-	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([undefined, undefined, undefined]);
-	expect(toolFor(tools, "wait_jobs").description).toContain("Do not poll background jobs");
-	expect(toolFor(tools, "wait_jobs").parameters).toMatchObject({
-		properties: { ids: { description: expect.stringContaining("agent-1") } },
-	});
-	expect(toolFor(tools, "stop_jobs").description).toContain(
-		"when their results are no longer needed",
+	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([undefined, undefined]);
+	expect(toolFor(tools, "bg_bash_get").description).toContain("Inspect background Bash runtime");
+	expect(toolFor(tools, "bg_bash_stop").description).toContain(
+		"Stop one background Bash process tree",
 	);
 });
 
@@ -308,23 +303,9 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 	expect(tail[0]).toContain("… (77 earlier lines, ctrl+o to expand)");
 });
 
-test("bash rejects background execution on SSH targets", async (): Promise<void> => {
+test("bash rejects missing runtime on SSH targets", async (): Promise<void> => {
 	const bash = bashTool();
 	const context = { cwd: process.cwd() } as unknown as ExtensionToolContext;
-	expect(
-		await bash.execute(
-			"bash-remote-async",
-			{ command: "true", target: "ileqm", blocking: false },
-			undefined,
-			undefined,
-			context,
-		),
-	).toMatchObject({
-		content: [
-			{ type: "text", text: "Background Bash is local-only; omit blocking for SSH targets." },
-		],
-		details: { error: "background_unsupported", target: "ileqm" },
-	});
 	await expect(
 		bash.execute(
 			"bash-remote-missing-runtime",

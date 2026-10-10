@@ -42,7 +42,7 @@ export interface TaskBinding {
 	stop(): void;
 	/** Current output of a task that has not reached a terminal state. */
 	describe(): TaskProgress;
-	/** Notify that the terminal result was consumed directly (e.g. by wait_jobs). */
+	/** Notify that the terminal result was consumed directly. */
 	consume?(): void;
 }
 
@@ -541,7 +541,7 @@ export class TaskRegistry {
 	}
 
 	/**
-	 * Marks terminal results as consumed directly by an inline tool (e.g. wait_jobs).
+	 * Marks terminal results as consumed directly by an inline tool.
 	 * Sets delivery to 'observed' for specified tasks so background notification channels do not redeliver them,
 	 * and notifies the task binding via consume() if provided.
 	 */

@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import {
 	type AgentToolResult,
@@ -5,6 +7,7 @@ import {
 	createLocalBashOperations,
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 	type Theme,
 	type ToolDefinition,
 	type ToolLoadout,
@@ -20,20 +23,19 @@ import { agentResultText, errorMessage, isRecord, textToolResult } from "@hheei/
 
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
+import { backgroundBashRenderers } from "./background-presentation.js";
 import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
 import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
 import type { FffRuntimeState } from "./fff/lifecycle.js";
 
 import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
-import { startBashJob } from "./tasks/bash-job.js";
 
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
 const BASH_MAX_BODY_LINES = 10;
 
-const BASH_DESCRIPTION = "Run one shell command or short pipeline.";
+const BASH_DESCRIPTION = "Run one shell command or short pipeline in the foreground.";
 const BASH_PROMPT_GUIDELINES = [
-	"Use `blocking: false` only for finite commands that may outlive this tool call. Work on other tasks while it runs; once hands-on work is complete, call `wait_jobs` to wait for any unfinished background jobs.",
 	"Remote `target` is an authorized SSH host and always runs in the foreground.",
 ] as const;
 const BASH_TIMEOUT_DESCRIPTION =
@@ -48,23 +50,51 @@ const BashInput = Type.Object(
 	{
 		command: Type.String({ minLength: 1 }),
 		timeout: Timeout,
-		blocking: Type.Optional(
-			Type.Boolean({
-				description:
-					"Wait for completion instead of returning immediately. Pass false to run in background; use wait_jobs once hands-on work is complete to wait for it.",
-			}),
-		),
 		target: Target,
 	},
 	{ additionalProperties: false },
 );
 type Input = Static<typeof BashInput>;
 
+const SPAWN_BASH_DESCRIPTION =
+	"Start a shell command in the background as a task and return JSON { id, path }, where path is the absolute log file path. The terminal result is delivered automatically via <task-notice> when the command finishes. Related background task tools: bg_bash_get, bg_bash_stop.";
+const SPAWN_BASH_PROMPT_GUIDELINES = [
+	"Use bg_bash_spawn for commands that run for a long time (tests, builds, dev servers, watchers).",
+	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered via <task-notice> and automatically wakes a follow-up turn.",
+	"After calling bg_bash_spawn, yield the turn or continue other independent work. Do NOT poll or sleep merely to wait for completion.",
+	"Read or grep the returned path for full output; bg_bash_get progress.path provides the same path.",
+] as const;
+
+export const BG_BASH_PROMPT_SECTION = "bg_bash_guidance";
+export const BG_BASH_TOOL_SEARCH_BULLET =
+	'Run long-running shell commands in the background (bg_bash_spawn, bg_bash_get, bg_bash_stop). Use tool_search ({ query: "bg_bash" }) to load.';
+export const BG_BASH_CODEMODE_BULLET =
+	"Run long-running shell commands in the background (bg_bash_spawn, bg_bash_get, bg_bash_stop). Call from codemode scripts via tools.bg_bash_spawn.";
+export const BG_BASH_GUIDANCE = [
+	"Use bg_bash_spawn for commands that run for a long time (tests, builds, dev servers, watchers).",
+	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered via <task-notice> and automatically wakes a follow-up turn.",
+	"After calling bg_bash_spawn, yield the turn or continue other independent work. Do NOT poll bg_bash_get or sleep merely to wait for completion.",
+	"Read or grep the returned path for full output; bg_bash_get progress.path provides the same path.",
+	"Use bg_bash_stop to explicitly terminate any running background bash task by its taskId (e.g. bash-1).",
+].join("\n");
+const SpawnBashInput = Type.Object(
+	{
+		command: Type.String({ minLength: 1, description: "Shell command to run in the background" }),
+		timeout: Type.Optional(
+			Type.Number({
+				description:
+					"Timeout in seconds; no timeout by default, except 25s for pure search commands.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+type SpawnBashParams = Static<typeof SpawnBashInput>;
+
 function normalizeBashInput(value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
 	const input = { ...(value as Record<string, unknown>) };
 	if (input.timeout === null) delete input.timeout;
-	if (input.blocking === null) delete input.blocking;
 	if (input.target === null) delete input.target;
 	return input;
 }
@@ -297,11 +327,14 @@ async function runForeground(
 			cleanup();
 			const output = sink.finish();
 			const timedOut = jobSnapshot.timedOut;
-			const exitCode = jobSnapshot.exitCode ?? (timedOut ? 124 : 0);
+			const isFailed = jobSnapshot.status === "failed";
+			const exitCode = jobSnapshot.exitCode ?? (timedOut ? 124 : isFailed ? 127 : 0);
+			const isError = isFailed || exitCode !== 0;
 			const result = textToolResult(output.output, {
 				...output,
 				...(timedOut ? { timedOut: true } : {}),
 				exitCode,
+				...(isError ? { isError: true } : {}),
 			});
 			resolve(
 				withBashStructuredContent(result, {
@@ -342,7 +375,6 @@ async function runForeground(
  */
 function _bashHeaderFacts(args: Input): string | undefined {
 	const facts: string[] = [];
-	if (args.blocking === false) facts.push("non-blocking");
 	if (typeof args.timeout === "number") facts.push(`(timeout ${args.timeout}s)`);
 	return facts.length === 0 ? undefined : facts.join(" ");
 }
@@ -499,22 +531,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 			const validatedParams = normalizeBashInput(params);
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
 			const settings = state?.getSettings();
-			const background = validatedParams.blocking === false;
-			const startedAt = performance.now();
 			if (isRemoteBashTarget(validatedParams.target)) {
-				if (background)
-					return withBashStructuredContent(
-						textToolResult("Background Bash is local-only; omit blocking for SSH targets.", {
-							error: "background_unsupported",
-							target: validatedParams.target,
-						}),
-						{
-							output: "Background Bash is local-only; omit blocking for SSH targets.",
-							truncated: false,
-							exitCode: 1,
-							startedAt,
-						},
-					);
 				const runtime = state?.getTargetRuntime();
 				if (runtime === undefined) throw new Error("Target runtime is unavailable.");
 				return runRemoteBash(
@@ -527,67 +544,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 					(settings?.bashOutputTailKiB ?? 10) * 1024,
 				);
 			}
-			const tasks = state?.getTasks();
 			const jobs = state?.getBashJobs();
-			const anchor = taskAnchor(context);
-			if (background) {
-				if (settings === undefined || tasks === undefined || jobs === undefined)
-					return withBashStructuredContent(
-						textToolResult("Background Bash unavailable outside active session", {
-							error: "session_unavailable",
-						}),
-						{
-							output: "Background Bash unavailable outside active session",
-							truncated: false,
-							exitCode: 1,
-							startedAt,
-						},
-					);
-				try {
-					const job = startBashJob({
-						tasks,
-						jobs,
-						command: validatedParams.command,
-						cwd: context.cwd,
-						shellPath: settings.shellPath,
-						...(anchor === undefined ? {} : { anchor }),
-						...(validatedParams.timeout === undefined
-							? isSearchOnlyCommand(validatedParams.command)
-								? { timeoutMs: SEARCH_BASH_TIMEOUT_SECONDS * 1000 }
-								: {}
-							: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
-					});
-					const msg = `Started background job ${job.id}. Its result is added to the context when it finishes; use wait_jobs only if the next step needs it now.`;
-					return withBashStructuredContent(
-						textToolResult(msg, {
-							jobId: job.id,
-							taskId: job.id,
-							type: job.type,
-							status: job.status,
-							purpose: job.purpose,
-						}),
-						{
-							output: msg,
-							truncated: false,
-							exitCode: 0,
-							startedAt,
-						},
-					);
-				} catch (error) {
-					const msg = `Unable to start background job: ${errorMessage(error)}`;
-					return withBashStructuredContent(
-						textToolResult(msg, {
-							error: "start_failed",
-						}),
-						{
-							output: msg,
-							truncated: false,
-							exitCode: 1,
-							startedAt,
-						},
-					);
-				}
-			}
 			return runForeground(
 				validatedParams.command,
 				context,
@@ -601,7 +558,79 @@ export function registerBashTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;
 	pi.registerTool(tool);
+
+	const spawnBashTool: ToolDefinition<typeof SpawnBashInput, unknown> = {
+		name: "bg_bash_spawn",
+		...backgroundBashRenderers(pi, "bg_bash_spawn"),
+		namespace: { name: "bg_bash", description: "Background Bash commands" },
+		label: "bg_bash_spawn",
+		description: SPAWN_BASH_DESCRIPTION,
+		promptSnippet: "Start a background shell command; terminal notification wakes a follow-up turn",
+		promptGuidelines: [...SPAWN_BASH_PROMPT_GUIDELINES],
+		parameters: SpawnBashInput,
+		exposure: "deferred",
+		defaultActive: false,
+		annotations: {
+			openWorldHint: true,
+			destructiveHint: true,
+		},
+		async execute(
+			_id: string,
+			params: SpawnBashParams,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+			context: ExtensionContext,
+		) {
+			const validatedParams = params;
+			if (!Value.Check(SpawnBashInput, validatedParams))
+				throw new Error("Invalid bg_bash_spawn parameters");
+			const settings = state?.getSettings();
+			const tasks = state?.getTasks();
+			const jobs = state?.getBashJobs();
+			if (settings === undefined || tasks === undefined || jobs === undefined) {
+				return {
+					...textToolResult("Background Bash unavailable outside active session", undefined),
+					isError: true,
+				};
+			}
+			const anchor = taskAnchor(context);
+			const sessionId = context.sessionManager?.getSessionId?.() ?? "session";
+			const sessionFile = context.sessionManager?.getSessionFile?.();
+			const baseDir = sessionFile ? dirname(sessionFile) : join(getAgentDir(), "sessions");
+			const logDir = join(baseDir, "tasks", sessionId);
+			try {
+				mkdirSync(logDir, { recursive: true });
+				const { task } = jobs.startAsTask(tasks, {
+					command: validatedParams.command,
+					cwd: context.cwd,
+					shellPath: settings.shellPath,
+					resolveLogPath: (taskId) => join(logDir, `${taskId}.log`),
+					...(anchor === undefined ? {} : { anchor }),
+					...(validatedParams.timeout === undefined
+						? isSearchOnlyCommand(validatedParams.command)
+							? { timeoutMs: SEARCH_BASH_TIMEOUT_SECONDS * 1000 }
+							: {}
+						: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
+				});
+				const id = task.id;
+				const path = join(logDir, `${id}.log`);
+				return textToolResult(JSON.stringify({ id, path }), { id, path });
+			} catch (error) {
+				const msg = `Unable to start background job: ${errorMessage(error)}`;
+				return { ...textToolResult(msg, undefined), isError: true };
+			}
+		},
+	};
+	pi.registerTool(spawnBashTool);
+
 	return tool;
 }
 
-export { BashInput, isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS, Target, Timeout };
+export {
+	BashInput,
+	isSearchOnlyCommand,
+	SEARCH_BASH_TIMEOUT_SECONDS,
+	SpawnBashInput,
+	Target,
+	Timeout,
+};

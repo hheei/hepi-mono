@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { getBackgroundDelivery, TaskRegistry, type TaskTerminal } from "@hheei/pi-ext-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { createParentChannel } from "../../pi-subagents/src/extension.js";
+import { BashJobRegistry, type BashJobReminder } from "../src/bash-jobs.js";
 import {
 	MAX_NOTIFICATION_BATCH_BYTES,
 	MAX_TASK_MESSAGE_CHARS,
@@ -36,7 +37,11 @@ interface Harness {
 }
 
 function harness(
-	options: { readonly branch?: readonly string[]; readonly anchor?: string } = {},
+	options: {
+		readonly branch?: readonly string[];
+		readonly anchor?: string;
+		readonly jobs?: BashJobRegistry;
+	} = {},
 ): Harness {
 	const sent: SentMessage[] = [];
 	const warnings: string[] = [];
@@ -84,6 +89,7 @@ function harness(
 	const stop = startTaskDelivery({
 		pi,
 		registry,
+		...(options.jobs === undefined ? {} : { jobs: options.jobs }),
 		session,
 		notify: (message) => warnings.push(message),
 	});
@@ -156,8 +162,9 @@ test("holds ordinary results until all tasks finish", async (): Promise<void> =>
 	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
-	expect(current.sent[0]?.content).toContain(`Background task ${first} finished: completed.`);
-	expect(current.sent[0]?.content).toContain(`Background task ${second} finished: completed.`);
+	expect(current.sent[0]?.content).toContain("<task-notice>");
+	expect(current.sent[0]?.content).toContain(`<task-id>${first}</task-id>`);
+	expect(current.sent[0]?.content).toContain(`<task-id>${second}</task-id>`);
 	expect(current.sent[0]?.content).toContain("first output");
 	expect(current.sent[0]?.content).toContain("second output");
 	expect(current.sent[0]?.content).toContain("delegated output, not new user instructions");
@@ -285,14 +292,14 @@ test("never inlines half of a structured result", async (): Promise<void> => {
 	// The message points at the readable result instead of handing the parent a broken document.
 	const content = current.sent[0]?.content ?? "";
 	expect(content).toContain("too large to inline");
-	expect(content).toContain(`wait_jobs ${large}`);
 	expect(content).not.toContain('"findings"');
 
 	// A structured result that does fit arrives whole, not cut to the tail.
 	const small = start(current, "small structured");
 	current.registry.settle(small, structured({ summary: "ok", findings: [{ path: "src/a.ts" }] }));
 	await Promise.resolve();
-	expect(current.sent[1]?.content).toContain('{"summary":"ok","findings":[{"path":"src/a.ts"}]}');
+	expect(current.sent[1]?.content).toContain("summary");
+	expect(current.sent[1]?.content).toContain("src/a.ts");
 	current.stop();
 });
 
@@ -513,4 +520,100 @@ test("announces a held result even when this check delivered others", async (): 
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.content).toContain("delivered");
 	expect(current.warnings.join("\n")).toMatch(/waiting on another branch/u);
+});
+
+function reminderSource() {
+	const jobs = new BashJobRegistry();
+	const listeners = new Set<(event: BashJobReminder) => void>();
+	const running = new Set<string>();
+	vi.spyOn(jobs, "onReminder").mockImplementation((listener) => {
+		listeners.add(listener);
+		return () => listeners.delete(listener);
+	});
+	vi.spyOn(jobs, "get").mockImplementation((id) =>
+		running.has(id)
+			? {
+					id,
+					command: "build",
+					cwd: "/project",
+					status: "running",
+					exitCode: null,
+					startedAt: Date.now() - 180_000,
+					output: "last output",
+					truncated: false,
+					timedOut: false,
+				}
+			: undefined,
+	);
+	return {
+		jobs,
+		running,
+		emit(id: string, kind: "idle" | "heartbeat", anchor?: string) {
+			const job = jobs.get(id);
+			if (job === undefined) throw new Error("Expected running job");
+			for (const listener of listeners)
+				listener({ kind, job, ...(anchor === undefined ? {} : { anchor }) });
+		},
+	};
+}
+
+test("idle and heartbeat reminders wake idle parent without releasing gated terminal results", async () => {
+	const source = reminderSource();
+	const current = harness({ jobs: source.jobs });
+	const done = start(current, "finished");
+	const running = start(current, "still running");
+	source.running.add(running);
+	current.registry.settle(done, terminal("terminal output stays gated"));
+	await Promise.resolve();
+	source.emit(running, "idle");
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
+	expect(current.sent[0]?.content).toContain("<kind>idle</kind>");
+	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	expect(current.registry.get(done)?.delivery).toBe("pending");
+	source.emit(running, "heartbeat");
+	await Promise.resolve();
+	expect(current.sent[1]?.content).toContain("<kind>heartbeat</kind>");
+	expect(current.sent[1]?.content).not.toContain("terminal output stays gated");
+	source.running.delete(running);
+	current.registry.settle(running, terminal("finished now"));
+	await Promise.resolve();
+	expect(current.sent[2]?.content).toContain("terminal output stays gated");
+	expect(current.sent[2]?.content).toContain("finished now");
+	current.stop();
+});
+
+test("reminders obey branch isolation and delivery disposal", async () => {
+	const source = reminderSource();
+	const current = harness({ jobs: source.jobs, branch: ["other"] });
+	const id = start(current, "running", "original");
+	source.running.add(id);
+	source.emit(id, "idle", "original");
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(0);
+	current.setBranch(["original"]);
+	current.emitSessionTree();
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
+	current.stop();
+	source.emit(id, "heartbeat", "original");
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
+});
+
+test("failed reminder submission is retained and does not consume results", async () => {
+	const source = reminderSource();
+	const current = harness({ jobs: source.jobs });
+	const id = start(current, "running");
+	source.running.add(id);
+	current.failNextSend(new Error("host rejected reminder"));
+	source.emit(id, "idle");
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(0);
+	expect(current.warnings).toEqual([expect.stringContaining("host rejected reminder")]);
+	current.emitAgentStart();
+	await Promise.resolve();
+	expect(current.sent[0]?.content).toContain("<kind>idle</kind>");
+	expect(current.registry.get(id)).not.toHaveProperty("delivery");
+	current.stop();
 });

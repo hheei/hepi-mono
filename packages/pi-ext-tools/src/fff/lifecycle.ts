@@ -130,10 +130,10 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
-	const tasks = startTaskControl(context);
-	state.tasks = tasks;
 	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;
+	const tasks = startTaskControl(context, jobs);
+	state.tasks = tasks;
 	context.resources.add("targets", async () => {
 		await targetRuntime.close();
 		if (state.targets === targetRuntime) state.targets = undefined;
