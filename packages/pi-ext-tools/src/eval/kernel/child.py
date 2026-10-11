@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import codecs
 import io
 import json
 import os
@@ -9,25 +10,44 @@ import sys
 import traceback
 import threading
 import time
+import uuid
 from typing import Any
+
 MAX_EVAL_FRAME_CHARS = 1_048_576 + 65_536
+_STATE_LIST_LIMIT = 12
 _CELL_ID = ""
 _TOOL_SEQ = 0
 _NS: dict[str, Any] = {"__name__": "__main__", "__builtins__": builtins}
 _RAW_STDERR = sys.__stderr__
 _CAPTURE_READ_FD: int | None
+_CAPTURE_TOKEN_FD: int | None
 try:
     _FRAME_FD = os.dup(sys.__stdout__.fileno())
     _FRAME_OUT = os.fdopen(_FRAME_FD, "w", encoding="utf-8", errors="backslashreplace")
     _CAPTURE_READ_FD, _capture_write_fd = os.pipe()
+    _CAPTURE_TOKEN_FD = os.dup(_capture_write_fd)
     os.dup2(_capture_write_fd, sys.__stdout__.fileno())
     os.close(_capture_write_fd)
 except (AttributeError, OSError, ValueError):
     _FRAME_OUT = sys.__stdout__
     _CAPTURE_READ_FD = None
+    _CAPTURE_TOKEN_FD = None
 _SESSION_CWD = os.getcwd()
 if _SESSION_CWD not in sys.path:
     sys.path.insert(0, _SESSION_CWD)
+
+_INJECTED_NAMES = frozenset(
+    {
+        "__name__",
+        "__builtins__",
+        "print",
+        "display",
+        "cwd",
+        "names",
+        "tools",
+        "EvalToolError",
+    }
+)
 
 
 def send(message: dict[str, Any]) -> None:
@@ -47,12 +67,61 @@ def send(message: dict[str, Any]) -> None:
     _FRAME_OUT.flush()
 
 
+_DRAIN_LOCK = threading.Lock()
+_DRAIN_WATCH: tuple[bytes, threading.Event] | None = None
+_DRAIN_BUFFER = b""
+_DRAIN_DECODER = codecs.getincrementaldecoder("utf-8")("replace")
+_DRAIN_THREAD: threading.Thread | None = None
+
+
+def _emit_captured(text: str) -> None:
+    if not text:
+        return
+    if _CELL_ID:
+        send({"type": "text", "cellId": _CELL_ID, "text": text})
+    else:
+        send({"type": "background", "text": text})
+
+
+def _flush_captured_decoder() -> None:
+    global _DRAIN_DECODER
+    text = _DRAIN_DECODER.decode(b"", final=True)
+    _DRAIN_DECODER = codecs.getincrementaldecoder("utf-8")("replace")
+    _emit_captured(text)
+
+
+def _feed_captured(chunk: bytes) -> None:
+    global _DRAIN_BUFFER
+    data = _DRAIN_BUFFER + chunk
+    _DRAIN_BUFFER = b""
+    with _DRAIN_LOCK:
+        watch = _DRAIN_WATCH
+    if watch is None:
+        _emit_captured(_DRAIN_DECODER.decode(data))
+        return
+    token, seen = watch
+    while True:
+        index = data.find(token)
+        if index < 0:
+            break
+        _emit_captured(_DRAIN_DECODER.decode(data[:index]))
+        _flush_captured_decoder()
+        seen.set()
+        data = data[index + len(token) :]
+    hold = 0
+    for size in range(min(len(data), len(token) - 1), 0, -1):
+        if data.endswith(token[:size]):
+            hold = size
+            break
+    if hold:
+        _DRAIN_BUFFER = data[len(data) - hold :]
+        data = data[: len(data) - hold]
+    _emit_captured(_DRAIN_DECODER.decode(data))
+
+
 def _drain_captured_stdout() -> None:
     if _CAPTURE_READ_FD is None:
         return
-    import codecs
-
-    decoder = codecs.getincrementaldecoder("utf-8")("replace")
     while True:
         try:
             chunk = os.read(_CAPTURE_READ_FD, 65536)
@@ -60,31 +129,37 @@ def _drain_captured_stdout() -> None:
             return
         if not chunk:
             return
-        text = decoder.decode(chunk)
-        if text and _CELL_ID:
-            send({"type": "text", "cellId": _CELL_ID, "text": text})
-        elif text:
-            _RAW_STDERR.write(text)
-            _RAW_STDERR.flush()
+        _feed_captured(chunk)
 
 
 def _start_capture_drain() -> None:
+    global _DRAIN_THREAD
     if _CAPTURE_READ_FD is None:
         return
-    threading.Thread(target=_drain_captured_stdout, name="eval-fd1-capture", daemon=True).start()
+    thread = threading.Thread(target=_drain_captured_stdout, name="eval-fd1-capture", daemon=True)
+    _DRAIN_THREAD = thread
+    thread.start()
 
 
-def _wait_capture_idle() -> None:
-    if _CAPTURE_READ_FD is None:
+def _flush_captured_output() -> None:
+    global _DRAIN_WATCH
+    if _CAPTURE_READ_FD is None or _CAPTURE_TOKEN_FD is None:
         return
-    import select
-
-    deadline = time.monotonic() + 0.2
-    while time.monotonic() < deadline:
-        ready, _, _ = select.select([_CAPTURE_READ_FD], [], [], 0)
-        if not ready:
-            return
-        time.sleep(0.005)
+    token = b"\xff<drain:" + uuid.uuid4().hex.encode() + b">\xff"
+    seen = threading.Event()
+    with _DRAIN_LOCK:
+        _DRAIN_WATCH = (token, seen)
+    try:
+        os.write(_CAPTURE_TOKEN_FD, token)
+        while not seen.wait(0.1):
+            thread = _DRAIN_THREAD
+            if thread is None or not thread.is_alive():
+                return
+    except OSError:
+        return
+    finally:
+        with _DRAIN_LOCK:
+            _DRAIN_WATCH = None
 
 
 def _json_default(value: Any) -> str:
@@ -103,8 +178,11 @@ def clone_value(value: Any) -> Any:
 class _StdStream(io.TextIOBase):
     def write(self, data: Any) -> int:  # type: ignore[override]
         text = data if isinstance(data, str) else str(data)
-        if text and _CELL_ID:
-            send({"type": "text", "cellId": _CELL_ID, "text": text})
+        if text:
+            if _CELL_ID:
+                send({"type": "text", "cellId": _CELL_ID, "text": text})
+            else:
+                send({"type": "background", "text": text})
         return len(text)
 
     def flush(self) -> None:
@@ -150,8 +228,12 @@ def _print(*args: Any, **kwargs: Any) -> None:
     buffer = io.StringIO()
     builtins.print(*args, file=buffer, **kwargs)
     text = buffer.getvalue()
-    if text and _CELL_ID:
+    if not text:
+        return
+    if _CELL_ID:
         send({"type": "text", "cellId": _CELL_ID, "text": text})
+    else:
+        send({"type": "background", "text": text})
 
 
 def _display(value: Any) -> None:
@@ -162,6 +244,47 @@ def _display(value: Any) -> None:
 
 def _cwd() -> str:
     return os.getcwd()
+
+
+def _user_names() -> set[str]:
+    return {
+        name
+        for name in _NS
+        if name not in _INJECTED_NAMES and not name.startswith("__")
+    }
+
+
+def _names() -> list[str]:
+    return sorted(_user_names())
+
+
+def _imported_names(code: str) -> list[str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    names: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.append(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    names.append(alias.asname or alias.name)
+    return names
+
+
+def _state_payload(before: set[str], imported: list[str]) -> dict[str, Any]:
+    current = _user_names()
+    added = sorted(current - before)
+    redundant = sorted({name for name in imported if name in before})
+    return {
+        "names": len(current),
+        "addedCount": len(added),
+        "added": added[:_STATE_LIST_LIMIT],
+        "redundant": redundant[:_STATE_LIST_LIMIT],
+    }
 
 
 class EvalToolError(Exception):
@@ -251,15 +374,23 @@ def _execute(cell_id: str, code: str) -> None:
     _NS["print"] = _print
     _NS["display"] = _display
     _NS["cwd"] = _cwd
+    _NS["names"] = _names
     _NS["tools"] = _ToolProxy()
     _NS["EvalToolError"] = EvalToolError
     _NS.pop("__eval_final__", None)
+    before = _user_names()
+    imported = _imported_names(code)
     try:
         compiled, has_value = _compile_source(code)
         exec(compiled, _NS, _NS)
         value = _NS.pop("__eval_final__", None) if has_value else None
-        _wait_capture_idle()
-        done: dict[str, Any] = {"type": "done", "cellId": cell_id, "ok": True}
+        _flush_captured_output()
+        done: dict[str, Any] = {
+            "type": "done",
+            "cellId": cell_id,
+            "ok": True,
+            "state": _state_payload(before, imported),
+        }
         # A None value carries no information for the host and would render a bare `null`
         # row on every print/assignment cell, so omit it the way Python's own displayhook
         # suppresses None.
@@ -267,12 +398,28 @@ def _execute(cell_id: str, code: str) -> None:
             done["value"] = clone_value(value)
         send(done)
     except KeyboardInterrupt:
-        _wait_capture_idle()
-        send({"type": "done", "cellId": cell_id, "ok": False, "error": "Eval was aborted."})
+        _flush_captured_output()
+        send(
+            {
+                "type": "done",
+                "cellId": cell_id,
+                "ok": False,
+                "error": "Eval was aborted.",
+                "state": _state_payload(before, imported),
+            }
+        )
     except Exception as error:
-        _wait_capture_idle()
+        _flush_captured_output()
         message = traceback.format_exc() or str(error) or type(error).__name__
-        send({"type": "done", "cellId": cell_id, "ok": False, "error": message[:4000]})
+        send(
+            {
+                "type": "done",
+                "cellId": cell_id,
+                "ok": False,
+                "error": message[:4000],
+                "state": _state_payload(before, imported),
+            }
+        )
     finally:
         _CELL_ID = ""
 

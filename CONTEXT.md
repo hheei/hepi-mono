@@ -17,8 +17,8 @@ A path interpreted on an SSH Target. A relative path is remote-home-relative; an
 _Avoid_: Remote URL, workspace path, `host:path`
 
 **Grep Result**:
-The canonical representation of content-search matches, based on ripgrep match data. FFF results add available indexed-search metadata without replacing the common match meaning.
-_Avoid_: FFF result, rg result
+The canonical representation of content-search matches, based on ripgrep match data.
+_Avoid_: raw grep output, backend-specific search result
 
 **Trace**:
 One complete Pi agent loop from `agent_start` through `agent_end`. When the next Trace begins, completed tools from every prior Trace collapse in an unexpanded view. On session resume, all historical tools are collapsed until globally expanded.
@@ -31,7 +31,7 @@ _Avoid_: Provider job
 A tool-owned, metrics-only completion summary rendered when a prior Trace is collapsed. It never parses model content. Failed or cancelled tools render only a concise reason plus duration.
 
 **Search Engine**:
-FFF or ripgrep, selected to execute a grep request and recorded only as internal result provenance. It is never shown to the model or TUI. An Output is a search input source, never a Search Engine.
+Ripgrep (`rg`), executed to satisfy grep requests on local and authorized SSH targets. Recorded as internal result provenance. An Output is a search input source, never a Search Engine.
 _Avoid_: Backend
 
 **Path Outcome**:
@@ -102,8 +102,12 @@ Terminating the active Eval Cell and aborting its Nested Tool calls. Python firs
 _Avoid_: Immediate kill on every cancel, cooperative-only inline abort, execution timeout
 
 **Eval Transcript**:
-The ordered model-visible execution record for one Eval: printed text, Nested Tool summaries, and final serialized result. It is distinct from persisted structured details and from the tool's rendered body.
+The ordered model-visible execution record for one Eval: printed text, Nested Tool summaries, the kernel's namespace report, and final serialized result. It is distinct from persisted structured details and from the tool's rendered body.
 _Avoid_: TUI trace, details payload
+
+**Eval Kernel State Report**:
+The namespace report the kernel sends with every cell's `done`: the current top-level name count, the names this cell bound for the first time, and the names it imported again. It is the model's only direct evidence that names survived, so a cell reports it on success, failure, and cancellation alike. Distinct from the host's own observations, which are the restart notice and the unattributed output captured between cells.
+_Avoid_: Snapshot, persistence, dump
 
 **Eval Nested Catalog Policy**:
 The invoke table injected into an Eval Kernel for one Exposition. The v1 Sibling Exposition admits read, grep, find, foreground bash, and the active Edit Mode tools, and excludes the task-control tools, Eval, wait, and every tool owned outside pi-ext-tools. A later Code Mode Exposition may inject a wider table that still excludes Eval and wait. The kernel never reads the Pi registry.
@@ -138,7 +142,7 @@ The supported host bindings in Eval Source: injected `tool` methods, `console`/`
 _Avoid_: Helper bag, Bun API contract, OMP prelude
 
 **Eval Request**:
-The public Eval input for the Sibling Exposition. It identifies Eval Source and the language backend (`js` default, or `py`). Optional reset wipes that language kernel only. Optional timeout matches bash: seconds, no default, omitted or `<= 0` disables. Nested tools pause the clock and start a fresh window when they return. It has no title, target, cwd, or model-routing parameter, and does not accept wait or yield fields in v1.
+The public Eval input for the Sibling Exposition. It identifies Eval Source and the language backend (`js` default, or `py`). Optional reset wipes that language kernel only. Optional `timeout_ms` matches codemode's option of the same name: milliseconds, no default, and a hard deadline for the whole cell, so nested tool calls count toward it. It has no title, target, cwd, or model-routing parameter, and does not accept wait or yield fields in v1.
 _Avoid_: Execution profile, target selector, code mode request, title
 
 **Caught Eval Tool Error**:

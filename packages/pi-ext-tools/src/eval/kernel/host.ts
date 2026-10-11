@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { errorMessage } from "@hheei/pi-ext-core";
 import { EvalToolError } from "../bridge.js";
-import type { EvalRuntimeHooks } from "../runtime.js";
+import type { EvalRunResult, EvalRuntimeHooks } from "../runtime.js";
 import {
 	type ChildToHostMessage,
+	EvalCellError,
+	type EvalKernelState,
 	type EvalLanguage,
 	type HostToChildMessage,
 	MAX_EVAL_FRAME_CHARS,
@@ -14,6 +16,14 @@ import {
 
 const READY_TIMEOUT_MS = 10_000;
 const INTERRUPT_ESCALATION_MS = 5_000;
+/** Bound on output that arrived between cells, so a chatty detached task cannot grow without limit. */
+const MAX_BACKGROUND_CHARS = 8_192;
+
+/** What the kernel reported for one cell, before the host adds what it knows about the process. */
+type EvalCellOutcome = {
+	readonly value: unknown;
+	readonly state: EvalKernelState | undefined;
+};
 
 type KernelSlot = {
 	readonly language: EvalLanguage;
@@ -26,14 +36,20 @@ export class EvalKernelHost {
 	readonly #cwd: string;
 	readonly #pythonBin: string | undefined;
 	readonly #slots = new Map<EvalLanguage, KernelSlot>();
+	/** The kernel that ran the last completed cell; a different one means the scope was lost. */
+	#lastKernel: KernelSlot | undefined;
+	/** Output that arrived with no active cell; the next cell reports it rather than dropping it. */
+	#background = "";
+	#backgroundTruncated = false;
 	#execute:
 		| {
 				language: EvalLanguage;
 				cellId: string;
 				hooks: EvalRuntimeHooks;
-				resolve: (value: unknown) => void;
+				resolve: (outcome: EvalCellOutcome) => void;
 				reject: (error: Error) => void;
 				aborted: boolean;
+				state: EvalKernelState | undefined;
 				escalate?: ReturnType<typeof setTimeout>;
 				abortError?: Error;
 		  }
@@ -55,14 +71,23 @@ export class EvalKernelHost {
 		hooks: EvalRuntimeHooks,
 		signal?: AbortSignal,
 		reset = false,
-	): Promise<unknown> {
+	): Promise<EvalRunResult> {
 		if (this.#disposed) throw new Error("Eval runtime is unavailable after session cleanup.");
 		signal?.throwIfAborted();
 		if (this.#execute !== undefined) throw new Error("Eval is already running in this session.");
 		if (reset) this.#dropKernel("python");
+		const previous = this.#lastKernel;
+		// Only the kernel that ran the previous cell can still hold its names. A reset is an
+		// explicit request, so it reports nothing; any other change of process is a loss.
+		const restarted = !reset && previous !== undefined && this.#slots.get("python") !== previous;
 		await this.#ensureChild("python");
+		// Recorded before the cell runs: a kernel that dies mid-cell is still the one the next
+		// cell has to compare against, so the loss is reported once rather than never.
+		this.#lastKernel = this.#slots.get("python");
+		// Delivered before the cell runs, because these bytes were written before it.
+		this.#flushBackground(hooks);
 		const cellId = crypto.randomUUID();
-		return await new Promise<unknown>((resolve, reject) => {
+		return await new Promise<EvalCellOutcome>((resolve, reject) => {
 			const fail = (error: Error): void => {
 				signal?.removeEventListener("abort", onAbort);
 				if (this.#execute?.cellId === cellId) {
@@ -96,6 +121,7 @@ export class EvalKernelHost {
 				},
 				reject: fail,
 				aborted: false,
+				state: undefined,
 			};
 			if (signal?.aborted) {
 				fail(abortReason(signal));
@@ -107,7 +133,7 @@ export class EvalKernelHost {
 			} catch (error) {
 				fail(error instanceof Error ? error : new Error(String(error)));
 			}
-		});
+		}).then((result) => ({ ...result, restarted }));
 	}
 
 	dispose(): void {
@@ -197,6 +223,10 @@ export class EvalKernelHost {
 			onReady();
 			return;
 		}
+		if (message.type === "background") {
+			this.#appendBackground(message.text);
+			return;
+		}
 		const current = this.#execute;
 		if (
 			current === undefined ||
@@ -214,9 +244,10 @@ export class EvalKernelHost {
 			return;
 		}
 		if (message.type === "done") {
+			current.state = message.state;
 			if (current.aborted) current.reject(current.abortError ?? new Error("Eval was aborted."));
-			else if (message.ok) current.resolve(message.value);
-			else current.reject(new Error(message.error));
+			else if (message.ok) current.resolve({ value: message.value, state: message.state });
+			else current.reject(new EvalCellError(message.error, message.state));
 			return;
 		}
 		if (message.type !== "toolCall") return;
@@ -237,6 +268,26 @@ export class EvalKernelHost {
 							},
 			});
 		}
+	}
+
+	#appendBackground(text: string): void {
+		if (text === "") return;
+		const room = MAX_BACKGROUND_CHARS - this.#background.length;
+		if (room <= 0) {
+			this.#backgroundTruncated = true;
+			return;
+		}
+		this.#background += text.slice(0, room);
+		if (text.length > room) this.#backgroundTruncated = true;
+	}
+
+	#flushBackground(hooks: EvalRuntimeHooks): void {
+		const text = this.#background;
+		const truncated = this.#backgroundTruncated;
+		this.#background = "";
+		this.#backgroundTruncated = false;
+		if (text !== "") hooks.onBackground(text);
+		if (truncated) hooks.onBackground("… background output truncated");
 	}
 
 	#send(language: EvalLanguage, message: HostToChildMessage): void {

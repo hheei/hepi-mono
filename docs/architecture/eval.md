@@ -20,10 +20,10 @@ Eval 不是 sandbox。Kernel 隔离是为了可杀与语言后端，不是安全
 Sibling v1 的 public request：
 
 ```ts
-{ code: string, reset?: boolean, timeout?: number }
+{ code: string, reset?: boolean, timeout_ms?: number }
 ```
 
-模型可见 Eval 固定使用 Python kernel。`code` 非空且最多 1 MiB。`reset: true` 在跑之前丢掉 Python kernel 与 scope。`timeout` 与 `bash` 相同：可选秒数，schema 文案为 `Timeout in seconds (optional, no default timeout)`；省略或 `<= 0` 没有 timeout。计时只覆盖 kernel 自己在跑的时间，nested tool 期间暂停，返回后重新开一个同样长度的窗口。没有 `language`、`title`、`target`、`cwd`、yield 或模型路由参数。始终使用当前 session cwd。v1 不注册 `wait`。`title` 暂不做。
+模型可见 Eval 固定使用 Python kernel。`code` 非空且最多 1 MiB。`reset: true` 在跑之前丢掉 Python kernel 与 scope。`timeout_ms` 与 codemode 的同名 option 同名同义：可选正整数毫秒（1..2147483647），schema 文案为 `Hard deadline for the whole cell, in milliseconds. Unset by default.`；省略则没有 deadline，`0` 或越界由 schema 拒绝。它是整个 cell 的墙钟硬截止，nested tool 调用同样计入，不因等待 nested tool 而暂停。没有 `language`、`title`、`target`、`cwd`、yield 或模型路由参数。始终使用当前 session cwd。v1 不注册 `wait`。`title` 暂不做。
 
 模型可见 Python kernel 使用 CPython 3.9+ 与持久 namespace，共用 NDJSON 协议。Bun host 的内部 JavaScript/TypeScript kernel 保留给兼容性 smoke，不由模型请求。每次 execute 带 `cell_id`；v1 阻塞到 cell 结束。取消先中断 cell：Python `SIGINT`，内部 JavaScript 在 await 边界 cancel。cell 停下则保留对应 kernel 与 scope；约 5 秒后仍不停则 SIGKILL，丢掉对应 scope。session dispose 仍杀掉全部 kernel。
 
@@ -31,6 +31,8 @@ Python：模型可见的唯一语言；同一 Nested Tool / print / display / cw
 JavaScript/TypeScript：仅限 Bun host 内部兼容性 smoke；支持 top-level `await`；无 TypeScript、static/dynamic import、`require`。
 
 Kernel 子进程不继承 `*_API_KEY` / `*_TOKEN` / `*_SECRET`。Python 把 session cwd 放进 `sys.path[0]`。Python fd 1 与 NDJSON 分离，子进程 stdout 进 Transcript 而不是协议。未捕获错误带 capped traceback。
+
+fd 1 的排空用 drain token 屏障而不是轮询启发式：cell 结束前往私有 write fd 写一个随机 token，背景 drain 线程读到它才把此前的字节全部送完，`done` 之后才发。因此 C 扩展、子进程或 `os.write` 的迟到字节不会被误判成「已排空」，也不会串到下一个 cell 的 row 里。
 
 每个 cell 开始时把 cwd 设回 session cwd。JavaScript 把 `process.stdout` / `process.stderr` 的 write 转进 Transcript。soft-cancel 清除该 JS kernel 上尚未触发的 timer。POSIX 上 kernel 在 host 消失后退出。`PYTHONPATH` 与 `LD_LIBRARY_PATH` 会传给 kernel。
 
@@ -60,6 +62,10 @@ eval request
 ```
 
 每次执行都有 `cell_id`。v1 `eval` 阻塞到 cell 结束或被 terminate。协议允许以后的 `wait`/`terminate` 挂到同一 id；v1 不 yield。取消会 abort Nested Tool，并先中断 cell；必要时杀掉 Kernel。没有默认 timeout。
+
+Kernel 在每次 `done` 里回报该 cell 的 namespace：当前顶层名字总数，本 cell 首次绑定的名字，以及本次重复 import 的名字。host 把它作为一行 state 放进 Transcript，因为模型唯一能观测「名字还在」的证据就是这个回报；没有它，模型只能靠 import 声明行事，于是会反复 import。cell 失败或被取消时同样回报，所以 `NameError` 之后模型仍知道 kernel 里剩什么。`names()` 是只读查询，返回当前顶层名字的排序列表。
+
+Host 还回报两类它自己观测到的事实。cell 之间到达的无归属输出（detached task、thread、raw fd write）在**下一个 cell 开始之前**作为一行 text 发出，因此它不会被误读成那个 cell 自己的输出，也不会被丢弃。上一个 cell 用的 kernel 已经不是当前 kernel 时（SIGKILL 重生、ready 超时、协议越界），加一行 `kernel restarted — earlier names are gone`；这个判断在 cell 运行前记录 kernel，所以 cell 中途把 kernel 弄死也只在下一个 cell 报一次。`reset: true` 是显式请求，不报 restart。
 
 `last expression` 只有在值不是 `None` 时才成为 Eval Final Value：kernel 在 `done` 消息里省略 `value`，host 把缺失视为"没有结果"。这与 Python 自身 displayhook 抑制 `None` 的行为一致，因此 `print(...)`、纯赋值、`list.append(...)` 这类 cell 不会多渲染一行 `null`；显式写成最后一个表达式的 `None` 同样不显示。
 

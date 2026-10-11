@@ -1,33 +1,40 @@
 import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { errorMessage, textToolResult } from "@hheei/pi-ext-core";
+import { errorMessage, formatDuration, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { EvalNestedTrace, EvalToolBridge } from "./bridge.js";
+import type { EvalKernelState } from "./kernel/protocol.js";
+import { evalCellState } from "./kernel/protocol.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 
 const MAX_CODE_BYTES = 1024 * 1024;
+/** Largest delay `setTimeout` supports, which bounds `timeout_ms` exactly like codemode's option. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const EVAL_DESCRIPTION =
-	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. This is not a sandbox. Do not write any comments in the code.";
+	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. Every cell reports its namespace, so bindings stay visible across calls. This is not a sandbox. Do not write any comments in the code.";
 const EVAL_CODE_DESCRIPTION =
 	"Non-empty trusted source, at most 1 MiB. Do not write any comments in the code.";
-const EVAL_TIMEOUT_DESCRIPTION = "Timeout in seconds (optional, no default timeout)";
+const EVAL_TIMEOUT_DESCRIPTION =
+	"Hard deadline for the whole cell, in milliseconds. Unset by default.";
 export const PYTHON_EVAL_PROMPT_SNIPPET =
-	"Persistent Python kernel. One cell per call; names survive until reset or that kernel dies.";
+	"Persistent Python kernel. One cell per call; names survive across cells until a cell reports the kernel restarted.";
 
 export function pythonEvalPromptGuidelines(): string[] {
 	return [
 		"python_eval: use for computation, data wrangling, and inspecting values that should persist across cells.",
 		"python_eval: use bash for one-shot shell, grep/find for search, and edit/write for file changes. Do not run JS/Python via bash -e/-c.",
-		"python_eval: work incrementally — import, define, then use. Reuse top-level names. Re-run setup only after reset or a kernel crash.",
+		"python_eval: import, define, and load once, then keep using those names in later cells. Each cell reports the names it added and any import it repeated, so state is visible instead of assumed.",
+		"python_eval: re-run setup only when a cell reports the kernel restarted, or after reset: true.",
 		"python_eval: use Python. Call nested tools as `tools.name(...)` with kwargs or a dict.",
 		"python_eval: nested tools are read, grep, find, foreground bash, edit, write, and apply_patch. No python_eval, wait, or other extension tools. Nested bash rejects async.",
 		"python_eval: nested tools return text strings, or structured dicts for tools declaring schemas (e.g. bash).",
 		"python_eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
-		"python_eval: reset: true wipes the Python kernel and scope. timeout is optional seconds with no default; nested tools pause it. On error, fix and re-run only the failing cell.",
+		"python_eval: names() lists the current top-level names when you need to check what a kernel still holds.",
+		"python_eval: reset: true wipes the Python kernel and scope. timeout_ms is a hard deadline for the whole cell, unset by default; nested tool calls count toward it. On error, fix and re-run only the failing cell.",
 		"python_eval: do not write any comments in the code. Write only executable code.",
 	];
 }
@@ -44,8 +51,10 @@ export const EVAL_PARAMETERS = Type.Object(
 				description: "Wipe the Python kernel before running.",
 			}),
 		),
-		timeout: Type.Optional(
-			Type.Number({
+		timeout_ms: Type.Optional(
+			Type.Integer({
+				minimum: 1,
+				maximum: MAX_TIMEOUT_MS,
 				description: EVAL_TIMEOUT_DESCRIPTION,
 			}),
 		),
@@ -57,7 +66,8 @@ type EvalRow =
 	| { readonly kind: "text"; text: string }
 	| { readonly kind: "display"; readonly text: string }
 	| { readonly kind: "tool"; readonly trace: EvalNestedTrace }
-	| { readonly kind: "result"; readonly text: string };
+	| { readonly kind: "result"; readonly text: string }
+	| { readonly kind: "state"; readonly text: string };
 
 export interface EvalToolDetails {
 	readonly format: "pi-ext-tools-python-eval";
@@ -93,13 +103,13 @@ export function createPythonEvalTool(
 			if (runtime === undefined)
 				throw new Error("Python_eval runtime is unavailable outside an active session.");
 			if (activeRuns.has(state)) throw new Error("Python_eval is already running in this session.");
-			const watchdog = startEvalTimeout(params.timeout);
+			const deadline = startEvalDeadline(params.timeout_ms);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
 			let omittedRows = 0;
 			const startedAt = performance.now();
 			let failure: string | undefined;
-			const runSignal = mergeAbortSignals(signal, watchdog?.signal);
+			const runSignal = mergeAbortSignals(signal, deadline?.signal);
 			const publish = (): void => {
 				onUpdate?.(
 					textToolResult(transcript(rows), {
@@ -138,6 +148,14 @@ export function createPythonEvalTool(
 				printedLine = "";
 				printedRow = undefined;
 			};
+			// The cell is over: a half-written line still counts, but an empty buffer is not a row.
+			const flushPrintedLine = (): void => {
+				if (printedLine === "") {
+					printedRow = undefined;
+					return;
+				}
+				endPrintedLine();
+			};
 			/**
 			 * Printed output is line-oriented, like a bash body: the newline that ends a printed line ends
 			 * its row, and a captured line keeps no terminal control of its own.
@@ -153,7 +171,7 @@ export function createPythonEvalTool(
 				if (tail !== "") paintPrintedLine();
 			};
 			try {
-				const value = await runtime.runWithHooks(
+				const run = await runtime.runWithHooks(
 					params.code,
 					{
 						cwd: context.cwd,
@@ -164,32 +182,54 @@ export function createPythonEvalTool(
 							const text = inspectValue(display);
 							append({ kind: "display", text: boundedText(text) });
 						},
-						callTool: async (name, args) => {
-							watchdog?.pause();
-							try {
-								return await bridge.call(name, args, context, runSignal, (trace) => {
-									append({ kind: "tool", trace: boundedTrace(trace) });
-								});
-							} finally {
-								watchdog?.resume();
-							}
+						onBackground: (text) => {
+							flushPrintedLine();
+							append({
+								kind: "text",
+								text: boundedText(stripTerminalSequences(text.replace(/\r/g, "").trimEnd())),
+							});
 						},
+						callTool: async (name, args) =>
+							await bridge.call(name, args, context, runSignal, (trace) => {
+								append({ kind: "tool", trace: boundedTrace(trace) });
+							}),
 					},
 					runSignal,
 					params.reset === true,
 				);
-				if (value !== undefined) {
-					const text = inspectValue(value);
+				flushPrintedLine();
+				if (run.restarted) {
+					append({
+						kind: "state",
+						text: "kernel restarted — earlier names are gone",
+					});
+				}
+				if (run.state !== undefined) {
+					append({ kind: "state", text: formatState(run.state) });
+				}
+				if (run.value !== undefined) {
+					const text = inspectValue(run.value);
 					append({ kind: "result", text: boundedText(text) });
 				}
 			} catch (error) {
-				failure = errorMessage(error);
+				// A user cancellation reaches the model as bare text, so the elapsed time is the only
+				// record of how long the cell ran. The deadline already names its own budget.
+				const reason = errorMessage(error);
+				const elapsed =
+					runSignal?.aborted === true && deadline?.signal.aborted !== true
+						? formatDuration(performance.now() - startedAt)
+						: undefined;
+				failure = elapsed === undefined ? reason : `${reason.replace(/\.$/, "")} after ${elapsed}.`;
 				// The failure is the row the user has to see, so it keeps its slot even when the detail cap
 				// has already been reached.
 				append({ kind: "text", text: `error: ${boundedText(failure)}` }, true);
+				// A failed cell still reports what the kernel holds, so a NameError does not leave the
+				// model guessing which names survived.
+				const state = evalCellState(error);
+				if (state !== undefined) append({ kind: "state", text: formatState(state) });
 			} finally {
 				activeRuns.delete(state);
-				watchdog?.dispose();
+				deadline?.dispose();
 			}
 			if (omittedRows > 0) {
 				// The hint takes a row of its own rather than displacing one: the row it would push out is the
@@ -232,6 +272,21 @@ export function isPythonEvalToolDetails(value: unknown): value is EvalToolDetail
 	);
 }
 
+/** One line naming what the kernel holds, what the cell added, and what it imported again. */
+function formatState(state: EvalKernelState): string {
+	const more = (count: number, listed: number): string => (count > listed ? ", …" : "");
+	const parts = [`state: ${String(state.names)} ${state.names === 1 ? "name" : "names"}`];
+	if (state.addedCount > 0) {
+		parts.push(`+${state.added.join(", ")}${more(state.addedCount, state.added.length)}`);
+	}
+	if (state.redundantCount > 0) {
+		parts.push(
+			`re-imported ${state.redundant.join(", ")}${more(state.redundantCount, state.redundant.length)}`,
+		);
+	}
+	return parts.join(" · ");
+}
+
 function transcript(rows: readonly EvalRow[]): string {
 	const value = rows
 		.map((row) => {
@@ -242,6 +297,8 @@ function transcript(rows: readonly EvalRow[]): string {
 					return `display: ${row.text}`;
 				case "result":
 					return `result: ${row.text}`;
+				case "state":
+					return row.text;
 				default:
 					return row.text;
 			}
@@ -321,50 +378,29 @@ function mergeAbortSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal
 	return AbortSignal.any([left, right]);
 }
 
-function startEvalTimeout(timeout: number | undefined): EvalIdleTimeout | undefined {
-	if (timeout === undefined || !Number.isFinite(timeout) || timeout <= 0) return undefined;
-	return new EvalIdleTimeout(timeout * 1000);
+function startEvalDeadline(timeoutMs: number | undefined): EvalDeadline | undefined {
+	if (timeoutMs === undefined) return undefined;
+	return new EvalDeadline(timeoutMs);
 }
 
-class EvalIdleTimeout {
+/**
+ * A hard deadline for the whole cell, matching codemode's `timeout_ms`: it runs on the host clock and
+ * keeps running while a nested tool call is in flight, so waiting on a tool cannot extend the cell.
+ */
+class EvalDeadline {
 	readonly signal: AbortSignal;
-	readonly #ms: number;
-	readonly #controller = new AbortController();
-	#timer: ReturnType<typeof setTimeout> | undefined;
-	#depth = 0;
+	readonly #timer: ReturnType<typeof setTimeout>;
 
 	constructor(ms: number) {
-		this.#ms = ms;
-		this.signal = this.#controller.signal;
-		this.#arm();
-	}
-
-	pause(): void {
-		if (this.#controller.signal.aborted) return;
-		this.#depth += 1;
-		if (this.#depth !== 1) return;
-		if (this.#timer !== undefined) {
-			clearTimeout(this.#timer);
-			this.#timer = undefined;
-		}
-	}
-
-	resume(): void {
-		if (this.#controller.signal.aborted || this.#depth === 0) return;
-		this.#depth -= 1;
-		if (this.#depth === 0) this.#arm();
+		const controller = new AbortController();
+		this.signal = controller.signal;
+		this.#timer = setTimeout(() => {
+			controller.abort(new Error(`Execution timed out after ${ms} ms`));
+		}, ms);
+		this.#timer.unref?.();
 	}
 
 	dispose(): void {
-		if (this.#timer !== undefined) clearTimeout(this.#timer);
-		this.#timer = undefined;
-	}
-
-	#arm(): void {
-		this.#timer = setTimeout(() => {
-			this.#timer = undefined;
-			this.#controller.abort(new Error(`Python_eval timed out after ${this.#ms / 1000}s.`));
-		}, this.#ms);
-		this.#timer.unref?.();
+		clearTimeout(this.#timer);
 	}
 }

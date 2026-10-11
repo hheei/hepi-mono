@@ -2,7 +2,7 @@
 
 ## 状态
 
-`@hheei/pi-ext-tools` 是 Canonical catalog 与 FFF enhancement 的唯一 extension owner。它不修改 Pi 源码，不引入
+`@hheei/pi-ext-tools` 是 Canonical catalog 工具替换的唯一 extension owner。它不修改 Pi 源码，不引入
 `pi-select`，也不让 `pi-ext-core` 解释具体 tool 语义。每个 catalog module 复用 upstream definition，并在执行时以
 tool call 的 `cwd` 重新创建 definition，避免 extension construction cwd 泄漏。
 
@@ -162,10 +162,13 @@ extension 也保留兼容 guard：当前 active tools 不含 `apply_patch` 时�
 ## Bash backend
 
 `bash` 保留 Pi-compatible `{ command, timeout }` 参数，但执行、streaming、timeout、输出截断与 output
-均由 `pi-ext-tools` 管理；它不复用 Pi host `createBashToolDefinition()`。这是为了避免 Pi host 的
-`pi-bash-*.log` 与 extension output 重复持有同一份完整输出，也绝不把 host 临时路径传给模型或 TUI。
+均由 `pi-ext-tools` 管理；它只从 Pi host `createBashToolDefinition()` 取 schema 与 prompt metadata，执行与
+renderer 都由本 package 提供。这是为了避免 Pi host 的 `pi-bash-*.log` 与 extension output 重复持有同一份
+完整输出，也绝不把 host 临时路径传给模型或 TUI。
 
-`pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。
+`pi-ext-tools` 的 `BashOutputSink` 保留 bounded UTF-8-safe visible tail 与截断 metadata；完整输出不注册为 URI resource。settings 属于 concrete extension，配置 visible-tail 上限。因为模型只收到 tool result 的 text part，`structuredContent` 的 `output`/`truncated`/`exit_code`/`wall_time_seconds` 只服务 codemode 与 python_eval 这类程序化调用方，不承担任何模型可见语义。
+
+失败调用的原因与耗时必须写进 model-visible text，因为 provider 只转发 text part：取消时保留已产生的 partial output 并附一行 `Bash aborted after <duration>`，超时时附一行 `Command timed out after <timeout>s`。命令在启动前就被取消时不报耗时，因为该数字没有信息量。耗时由 ext-core `formatDuration` 统一格式化。
 
 `bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`(timeout Ns)`，远端再加 `(host)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
 
@@ -198,28 +201,6 @@ Bash 和 child agent 通过 ext-core `TaskRegistry` 共享内部活动登记，�
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
 
-## FFF enhancement
-
-FFF runtime、commands、autocomplete 与 settings 都在本 package 的 `src/fff/`。命令面只有 `/fff status` 与 `/fff reindex`；
-session start 读取 settings snapshot、
-创建 session-scoped runtime、注册 settings/autocomplete，并异步 warm index；shutdown/reload 通过 lifecycle resources
-dispose runtime。settings 写入在下一 session 或 `/reload` 生效。
-
-`readEnhancement`、`grepEnhancement`、`findEnhancement`、`autocomplete` 与 `statusUI` 默认开启。read/grep 的 toggle
-只控制对应 Pi native tool 的 FFF acceleration/resolution：关闭、runtime unavailable、FFF error 或请求语义不兼容时都完整委托
-upstream factory；selection renderer 不受 read enhancement 影响。当前 FFF fuzzy/ranked `findFiles` 不能保真 Pi native
-find 的 glob/path/result contract，因此 `find` 始终 native fallback；`findEnhancement` 仅为未来出现保真 mapping 保留。
-FFF settings 只读取和写入 `pi-ext-tools.fff`；Bash settings（shell path、output tail）只读取和写入 `pi-ext-tools.bash`。RTK settings 已迁到 `pi-optimizer`。不注册 `find_files`，也不保留其 cursor/query schema。`src/fff/multi-grep.ts`
-保留为未注册的 future implementation；只有形成 translated unified `grep` contract 且出现 product consumer 后才能接入 catalog。
-
-FFF `find` 结果按首次命中顺序聚合目录。一个目录出现至少两个候选时，输出一个 `dir/` 标题，候选行只显示文件名；根目录和仅一个候选的目录保留完整 repo-relative path。分组只改变展示，不改变 FFF 的候选、排序、limit 或 cursor。renderer 使用 grep 一致的 `text` 目录标题、`success` 匹配标签和 `text` 路径。
-
-当 FFF `grep` 达到 page limit 时，原始 tool result 使用 `path:line,line (N matches)` 汇总，模型仍接收此完整文本。TUI 将 path 渲染为 `text`、行号段渲染为 `mdCode`、计数渲染为 `success`；theme 不改变模型上下文。
-
-压缩 grep 汇总也按 parent dir 合并：同一目录至少两个匹配文件时输出 `dir/` 标题，文件行只保留 basename；根目录和单项目录继续输出完整 path。该原始结构同时发送给模型和 renderer。
-
-grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的数字。模型 compact output 首行是 `N matches in M files` 或 `N fuzzy matches in M files`；approximate match 仍用 `:`，不引入 `?`。TUI path 使用 `text`，行号与 `│` 使用 `dim`，普通文本保持基础 theme，match range 使用 `success` highlight。未展开的整个结果（含 engine header 与 expansion hint）最多 15 行。
-
 ## Target 路由
 
 `read`、`grep`、`find`、`bash` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。`apply_patch`、`edit` 与 `write` 的 SSH Publish 接入见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md) 与 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)。真实 Pi `ToolExecutionComponent` smoke 覆盖见 `test/tool-execution-smoke.test.ts`。
@@ -228,5 +209,3 @@ grep renderer 在每个文件块内以最大行号宽度右对齐 `│` 前的�
 
 - 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）
   和 Loadout activation tests。
-- FFF enhancement：验证三个 toggle 关闭、runtime unavailable、FFF error、语义不兼容时均完整回退 upstream；验证 autocomplete
-  reload 只保留 live runtime closure。dormant multi-grep implementation 的 tests 不构成 catalog contract。
