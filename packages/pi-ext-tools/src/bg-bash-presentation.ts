@@ -5,7 +5,7 @@ import {
 	isRecord,
 	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
-import { bashJobPurpose } from "./bash-jobs.js";
+import { bashJobPurpose } from "./bg-bash-jobs.js";
 
 /** Successful `bg_bash_spawn` details; the same id/path the model receives as JSON. */
 export interface BashSpawnDetails {
@@ -141,7 +141,7 @@ export const bgBashStopPresentation: ToolPresentationProvider = (args, result) =
 	};
 };
 
-export function backgroundBashRenderers(
+export function bgBashPresentationRenderers(
 	pi: ExtensionAPI,
 	name: "bg_bash_spawn" | "bg_bash_get" | "bg_bash_stop",
 ): ToolRenderers {
@@ -153,3 +153,5 @@ export function backgroundBashRenderers(
 				: bgBashStopPresentation;
 	return createToolPresentationRenderers(pi, name, provider);
 }
+
+export const backgroundBashRenderers = bgBashPresentationRenderers;

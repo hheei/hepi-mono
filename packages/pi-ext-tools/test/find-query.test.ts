@@ -3,9 +3,10 @@ import {
 	filterNativeFindText,
 	filterNativeGrepText,
 	isValidRegexPattern,
-} from "../../src/fff/query.js";
+	nativeFallbackPattern,
+} from "../src/find-query.js";
 
-describe("FFF native fallback filters", () => {
+describe("find query utilities", () => {
 	test("recognizes malformed regular expressions", (): void => {
 		expect(isValidRegexPattern("catch (error")).toBe(false);
 		expect(isValidRegexPattern("catch \\(error\\)")).toBe(true);
@@ -21,5 +22,10 @@ describe("FFF native fallback filters", () => {
 		expect(filterNativeGrepText("src/main.ts:2:needle\ntest/main.test.ts:4:needle", "test/")).toBe(
 			"src/main.ts:2:needle",
 		);
+	});
+
+	test("creates glob pattern from search words", (): void => {
+		expect(nativeFallbackPattern("hello world")).toBe("*hello*world*");
+		expect(nativeFallbackPattern("")).toBe("*");
 	});
 });

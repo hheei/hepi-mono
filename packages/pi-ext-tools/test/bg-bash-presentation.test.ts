@@ -3,8 +3,8 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { getToolPresentationProvider, textToolResult } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
-import { createFffRuntimeState } from "../src/fff/lifecycle.js";
-import { registerTaskTools } from "../src/task-tools.js";
+import { registerBgBashTools } from "../src/bg-bash-tools.js";
+import { createFffRuntimeState } from "../src/session-state.js";
 import { renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 
 const theme = {
@@ -15,7 +15,7 @@ function registered() {
 	const host = toolHost();
 	const state = createFffRuntimeState();
 	registerBashTool(host.pi, state);
-	registerTaskTools(host.pi, state);
+	registerBgBashTools(host.pi, state);
 	return host.tools;
 }
 

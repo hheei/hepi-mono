@@ -2,8 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { targetSettingsFromState } from "../src/fff/settings.js";
-import { createTargetSettingsProvider } from "../src/fff/target-settings.js";
+import { createTargetSettingsProvider, targetSettingsFromState } from "../src/target-settings.js";
 import {
 	applyTargetPromptSection,
 	isPosixUname,

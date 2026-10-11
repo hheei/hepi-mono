@@ -1,8 +1,10 @@
+> 状态：已归档 / 历史调研。本项目已完全移除 FFF 扩展与原生依赖，文件与代码搜索已统一收敛至 ripgrep。本文仅保留作为历史技术调研记录，不代表当前运行时行为。
+
 # FFF：索引搜索、数据格式与 Pi 集成
 
 本文记录 [FFF](https://github.com/dmtrKovalenko/fff.nvim) 的 Node SDK 能力，以及它和 Pi host、`pi-ext-tools`、Pix 的边界。面向需要设计搜索工具、renderer 或 fallback 的开发者。
 
-这是一份研究记录，不替代 `docs/tools/fff-search.md` 的 `pi-ext-tools` 工具契约，也不代表 Pi host 已原生使用 FFF。
+这是一份研究记录，不替代 `docs/tools/search.md` 的 `pi-ext-tools` 工具契约，也不代表 Pi host 已原生使用 FFF。
 
 ## 结论先行
 
@@ -172,7 +174,7 @@ Pi host 管理 tool call、session message、TUI shell 与最终结果 middlewar
 | call/result row 生命周期 | Pi host `ToolExecutionComponent` |
 | FFF range highlight | concrete extension renderer |
 
-本仓库的具体工具边界和默认值见 [FFF 搜索](tools/fff-search.md)。它与第三方 Pix 的 `pix-grep` 不是同一个实现。
+本仓库的具体工具边界和默认值见 [统一搜索](tools/search.md)。它与第三方 Pix 的 `pix-grep` 不是同一个实现。
 
 ## Pix `pix-grep`：可复用经验与缺口
 

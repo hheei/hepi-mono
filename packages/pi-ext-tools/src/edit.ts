@@ -4,14 +4,20 @@ import {
 	type AgentToolResult,
 	createEditToolDefinition,
 	type ExtensionAPI,
+	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
-import { agentResultText, isRecord, textToolResult } from "@hheei/pi-ext-core";
+import {
+	agentResultText,
+	createToolPresentationRenderers,
+	isRecord,
+	type ToolPresentation,
+	textToolResult,
+} from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
 import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	editRemoteFile,
 	REMOTE_MUTATION_DETAILS,
@@ -19,6 +25,7 @@ import {
 	remoteMutationDetails,
 	remoteMutationFailureText,
 } from "./native-remote.js";
+import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
 
@@ -261,9 +268,47 @@ function editPresentation(
 	};
 }
 
+export function createEditPresentation(
+	args: unknown,
+	result: AgentToolResult<unknown> | undefined,
+	_theme: Theme,
+): ToolPresentation {
+	const path =
+		typeof args === "object" && args !== null && "path" in args && typeof args.path === "string"
+			? args.path
+			: "";
+	if (result === undefined) {
+		return { kind: "text", summary: `edit ${path}` };
+	}
+	const isError = result.isError === true;
+	if (isError) {
+		return { kind: "text", summary: `edit ${path}`, output: agentResultText(result) };
+	}
+	const details = isRecord(result.details) ? result.details : undefined;
+	const patch = typeof details?.patch === "string" ? details.patch : undefined;
+	const metrics = _editMetrics(result);
+	if (patch !== undefined && patch.trim() !== "") {
+		const stats = metrics ? { additions: metrics.added, deletions: metrics.removed } : undefined;
+		const statStr = stats ? ` (+${stats.additions} -${stats.deletions})` : "";
+		return {
+			kind: "diff",
+			path,
+			diff: patch,
+			...(stats === undefined ? {} : { stats }),
+			summary: `${path}${statStr}`,
+			copy: { primary: patch },
+		};
+	}
+	return {
+		kind: "text",
+		summary: metrics ? `${path} (+${metrics.added} -${metrics.removed})` : path,
+		output: agentResultText(result),
+	};
+}
+
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerEditTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
+export function registerEditTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
 	const baseTool = createExecutionTool(createEditToolDefinition) as ToolDefinition<
 		EditDefinition["parameters"],
 		unknown,
@@ -277,6 +322,7 @@ export function registerEditTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 			idempotentHint: false,
 		},
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
+			createToolPresentationRenderers(pi, "edit", createEditPresentation);
 			const path = filePath(params);
 			const operations = getEditOperations(params);
 			if (params.target !== undefined && params.target !== "local") {
@@ -315,8 +361,15 @@ export function registerEditTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 				return withEditDetails(result, presentation.metrics, presentation.view);
 			});
 		},
-		renderCall() {
-			return new Container();
+		renderCall(args, theme, renderContext) {
+			const presentationRenderers = createToolPresentationRenderers(
+				pi,
+				"edit",
+				createEditPresentation,
+			);
+			return presentationRenderers.renderCall
+				? presentationRenderers.renderCall(args, theme, renderContext)
+				: new Container();
 		},
 		renderResult(result, _options, theme, context) {
 			const remote = remoteMutationDetails(result.details);
@@ -339,8 +392,14 @@ export function registerEditTool(pi: ExtensionAPI, state?: FffRuntimeState): Too
 					0,
 				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const fallback = agentResultText(result);
-			return fallback === "" ? new Container() : new Text(fallback, 0, 0);
+			const presentationRenderers = createToolPresentationRenderers(
+				pi,
+				"edit",
+				createEditPresentation,
+			);
+			return presentationRenderers.renderResult
+				? presentationRenderers.renderResult(result, _options, theme, context)
+				: new Container();
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

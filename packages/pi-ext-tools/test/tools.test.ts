@@ -5,7 +5,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { MAX_HL_CHARS } from "../src/edit.js";
-import { startTaskControl } from "../src/task-tools.js";
+import { startTaskControl } from "../src/task-control.js";
 import { activateApplyPatchTool, activatePythonEvalCatalog, registerTools } from "../src/tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
@@ -191,7 +191,7 @@ describe("pi-ext-tools catalog", () => {
 		).not.toContain("cursor:");
 	});
 
-	test("exposes the upstream FFF grep and find schemas", (): void => {
+	test("exposes the grep and find schemas", (): void => {
 		const host = registeredTools();
 		const grep = toolFor(host.tools, "grep");
 		const find = toolFor(host.tools, "find");
@@ -345,7 +345,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(collapsed.length).toBeGreaterThan(0);
 		const findResult = find
 			.renderResult?.(
-				{ content: [{ type: "text", text: "1. one.ts (fff_fuzzy)" }], details: undefined },
+				{ content: [{ type: "text", text: "1. one.ts" }], details: undefined },
 				{ isPartial: false, expanded: false },
 				theme,
 				renderContext,
@@ -353,7 +353,7 @@ describe("pi-ext-tools catalog", () => {
 			.render(200)
 			.join("\n")
 			.trimEnd();
-		expect(findResult).toContain("1. one.ts (fff_fuzzy)");
+		expect(findResult).toContain("1. one.ts");
 	});
 
 	test("keeps grep match syntax bright and dims the rest of the line", (): void => {
@@ -457,7 +457,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(stripTerminalSequences(result)).toContain(source);
 	});
 
-	test("renders structured FFF find results inside the shared tool frame", (): void => {
+	test("renders structured find results inside the shared tool frame", (): void => {
 		const host = registeredTools();
 		const find = toolFor(host.tools, "find");
 		if (find === undefined) throw new Error("Missing find tool");

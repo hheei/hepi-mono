@@ -5,14 +5,20 @@ import {
 	type AgentToolResult,
 	createWriteToolDefinition,
 	type ExtensionAPI,
+	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { agentResultText, isRecord, textToolResult } from "@hheei/pi-ext-core";
+import { Text } from "@earendil-works/pi-tui";
+import {
+	agentResultText,
+	createToolPresentationRenderers,
+	isRecord,
+	type ToolPresentation,
+	textToolResult,
+} from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
 import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import type { FffRuntimeState } from "./fff/lifecycle.js";
 import {
 	REMOTE_MUTATION_DETAILS,
 	type RemoteMutationDetails,
@@ -20,6 +26,7 @@ import {
 	remoteMutationFailureText,
 	writeRemoteFile,
 } from "./native-remote.js";
+import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
 export const MAX_RENDER_LINES = 1000;
@@ -157,6 +164,7 @@ function withWriteDetails(
 	metrics: { bytes: number; lines: number } | undefined,
 	view: WriteView | undefined,
 	remote?: RemoteMutationDetails,
+	patch?: string,
 ): AgentToolResult<unknown> {
 	const details = isRecord(result.details) ? result.details : {};
 	return {
@@ -166,6 +174,7 @@ function withWriteDetails(
 			...(metrics === undefined ? {} : { [WRITE_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [WRITE_VIEW_KEY]: view }),
 			...(remote === undefined ? {} : { [REMOTE_MUTATION_DETAILS]: remote }),
+			...(patch === undefined ? {} : { patch }),
 		},
 	};
 }
@@ -251,28 +260,98 @@ function persistWriteDiff(oldText: string, newText: string): Extract<WriteView, 
 }
 
 function writePresentation(
+	path: string,
 	args: WriteArgs,
 	baseline: { readonly exists: boolean; readonly text?: string },
-): { readonly metrics: { bytes: number; lines: number } | undefined; readonly view: WriteView } {
+): {
+	readonly metrics: { bytes: number; lines: number } | undefined;
+	readonly view: WriteView;
+	readonly patch?: string;
+} {
 	const content = typeof args.content === "string" ? args.content : "";
 	const old = baseline.text;
 	const metrics = writeMetrics(args);
 	const preview = { lines: metrics?.lines ?? 0 };
+	const isDiff =
+		baseline.exists &&
+		old !== undefined &&
+		content.length <= MAX_HL_CHARS &&
+		normalizeLineEndings(old) !== normalizeLineEndings(content);
 	const view: WriteView = !baseline.exists
 		? { kind: "new", ...preview }
-		: old !== undefined &&
-				content.length <= MAX_HL_CHARS &&
-				normalizeLineEndings(old) !== normalizeLineEndings(content)
+		: isDiff
 			? persistWriteDiff(old, content)
 			: old !== undefined && normalizeLineEndings(old) === normalizeLineEndings(content)
 				? { kind: "noChange" }
 				: { kind: "replace", ...preview };
-	return { metrics, view };
+	const patch = isDiff ? Diff.createPatch(path, old, content, "", "", { context: 3 }) : undefined;
+	return { metrics, view, ...(patch === undefined ? {} : { patch }) };
+}
+
+export function createWritePresentation(
+	args: unknown,
+	result: AgentToolResult<unknown> | undefined,
+	_theme: Theme,
+): ToolPresentation {
+	const path =
+		typeof args === "object" && args !== null && "path" in args && typeof args.path === "string"
+			? args.path
+			: "";
+	if (result === undefined) {
+		return { kind: "text", summary: `write ${path}` };
+	}
+	const isError = result.isError === true;
+	if (isError) {
+		return { kind: "text", summary: `write ${path}`, output: agentResultText(result) };
+	}
+	const details = isRecord(result.details) ? result.details : undefined;
+	const patch = typeof details?.patch === "string" ? details.patch : undefined;
+	const view = _writeView(result);
+	const metrics = _readWriteMetrics(result);
+	if (patch !== undefined && patch.trim() !== "" && view && view.kind === "diff") {
+		const additions = typeof view.added === "number" ? view.added : 0;
+		const deletions = typeof view.removed === "number" ? view.removed : 0;
+		const stats = { additions, deletions };
+		return {
+			kind: "diff",
+			path,
+			diff: patch,
+			stats,
+			summary: `${path} (+${stats.additions} -${stats.deletions})`,
+			copy: { primary: patch },
+		};
+	}
+	if (view?.kind === "new") {
+		const lines = metrics?.lines ?? 0;
+		const content =
+			typeof args === "object" &&
+			args !== null &&
+			"content" in args &&
+			typeof args.content === "string"
+				? args.content
+				: "";
+		return {
+			kind: "text",
+			summary: `${path} (new file (${lines} lines))`,
+			...(content ? { copy: { primary: content } } : {}),
+		};
+	}
+	if (view?.kind === "noChange") {
+		return {
+			kind: "text",
+			summary: `${path} (no changes)`,
+		};
+	}
+	return {
+		kind: "text",
+		summary: path,
+		output: agentResultText(result),
+	};
 }
 
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): ToolDefinition {
+export function registerWriteTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
 	const baseTool = createExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
@@ -286,6 +365,7 @@ export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): To
 			idempotentHint: true,
 		},
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
+			createToolPresentationRenderers(pi, "write", createWritePresentation);
 			const path = filePath(params);
 			if (params.target !== undefined && params.target !== "local") {
 				const content = typeof params.content === "string" ? params.content : "";
@@ -304,7 +384,7 @@ export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): To
 					exists: remote.existed,
 					...(remote.before === undefined ? {} : { text: new TextDecoder().decode(remote.before) }),
 				};
-				const presentation = writePresentation(params, baseline);
+				const presentation = writePresentation(path, params, baseline);
 				return withWriteDetails(
 					textToolResult(
 						remote.outcome === "no_change"
@@ -315,18 +395,32 @@ export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): To
 					presentation.metrics,
 					presentation.view,
 					remote,
+					presentation.patch,
 				);
 			}
 			return await withMutationLock(context.cwd, signal, async () => {
 				const resolved = resolvePath(context.cwd, path);
 				const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
 				const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
-				const presentation = writePresentation(params, baseline);
-				return withWriteDetails(result, presentation.metrics, presentation.view);
+				const presentation = writePresentation(path, params, baseline);
+				return withWriteDetails(
+					result,
+					presentation.metrics,
+					presentation.view,
+					undefined,
+					presentation.patch,
+				);
 			});
 		},
-		renderCall() {
-			return new Container();
+		renderCall(args, theme, renderContext) {
+			const presentationRenderers = createToolPresentationRenderers(
+				pi,
+				"write",
+				createWritePresentation,
+			);
+			return presentationRenderers.renderCall
+				? presentationRenderers.renderCall(args, theme, renderContext)
+				: new Text("", 0, 0);
 		},
 		renderResult(result, _options, theme, context) {
 			const remote = remoteMutationDetails(result.details);
@@ -349,8 +443,14 @@ export function registerWriteTool(pi: ExtensionAPI, state?: FffRuntimeState): To
 					0,
 				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const fallback = agentResultText(result);
-			return fallback === "" ? new Container() : new Text(fallback, 0, 0);
+			const presentationRenderers = createToolPresentationRenderers(
+				pi,
+				"write",
+				createWritePresentation,
+			);
+			return presentationRenderers.renderResult
+				? presentationRenderers.renderResult(result, _options, theme, context)
+				: new Text("", 0, 0);
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

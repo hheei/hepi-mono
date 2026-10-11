@@ -4,56 +4,44 @@
 
 ## 目标
 
-`grep` 对模型和 TUI 提供一份以 ripgrep match data 为基准的 Grep Result。FFF 是可选 Search Engine，提供同一 match 含义及额外索引 metadata；它不再拥有独立的文本格式、renderer 或分页合约。
+`grep` 对模型和 TUI 提供一份以 ripgrep match data 为基准的 Grep Result。统一采用 ripgrep (`rg --json`) 作为单一搜索引擎，消除双引擎分流、fallback 与状态分歧。
 
 ```text
 Pi grep call
     |
+    +-- local filesystem  -> local rg --json
     |
-    +-- Git worktree root, no path/glob/ignoreCase -> FFF
-    |                                                    |
-    |                                      operational failure
-    |                                                    v
-    +----------------------------------------------> rg
-                                                         |
-FFF / rg result -> canonical Grep Result -> compact formatter -> content + details -> renderer
+    +-- SSH target alias  -> remote rg --json
+    |
+    v
+canonical Grep Result -> compact formatter -> content + details -> renderer
 ```
 
-Search Engine 选择只记录为内部 `details` provenance，不显示在 TUI 或模型 `content`。
+Search Engine 统一为 `rg`，记录为内部 `details.engine` provenance，不显示在 TUI 或模型 `content`。
 
-## Engine admission
+## Engine 执行
 
-- 非 local 的 authorized SSH target 使用 remote rg。
-- 对 local filesystem search，只有启用 `grepEnhancement`、session `cwd` 等于 Git worktree root，且请求没有 `path`、`glob` 或 `ignoreCase: true` 时，才尝试 FFF。其他请求直接使用 rg。
-- FFF 保留自身的排序。rg 的 file groups 按 canonical path 字典序排列。
-- FFF 的 page cursor 仅用于一次 grep execute 内部取完结果。`grep` schema、模型 content 与 details 都不公开 cursor，也不维护 cursor store。
-
-## Fallback 与 operational recovery
-
-- FFF exact search 返回 `0 matches` 后，只能在同一 FFF runtime 内执行 fuzzy fallback；fuzzy matches 必须标记为 approximate，并在模型 summary 中写为 `N fuzzy matches in M files`。不能因此降级 rg。
-- FFF regex 编译失败时，grep 返回错误和 `regexFallbackError`；不使用 FFF 的 literal fallback 结果，也不降级 rg。
-- FFF 查询返回 operational failure 时，丢弃此前 FFF pages，从头以 rg 重跑同一请求。不可混合 partial FFF 与 rg results。
-- 取消必须终止 rg child；FFF 在每个 page 边界检查取消并停止后续查询。两者都不发送 partial tool result。
+- 非 local 的 authorized SSH target 使用 remote rg（经由 SSH/SFTP 控制通道）。
+- local filesystem 搜索直接执行本地 `rg --json`。
+- `grep` 严格保证单引擎原子性；不存在模糊回退或跨引擎切换。
+- `grep` schema、模型 content 与 details 都不公开 cursor，也不维护外部 cursor store。
 
 ## Public input schema
 
-`grep` 的八个公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local 或 authorized SSH host。
-
+`grep` 的公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local 或 authorized SSH host。
 
 ## Canonical Grep Result
 
-每个 engine adapter 在返回后立刻转为 canonical result；之后没有 backend-specific formatter 或 second normalization。
+ripgrep NDJSON 输出在返回后立刻转为 canonical result；之后没有 backend-specific formatter 或 second normalization。
 
 - 有序 `GrepEvent[]` 对齐 `rg --json`：`match` event 保留 path、lines、line number、absolute offset 和 `submatches[]`；`context` event 保留 rg context data。
-- FFF 将 `matchRanges` 映射为同语义 `submatches[]`，并把 before/after context 映射为有序、去重的 context events。
-- FFF 可用的 frecency、git status、`col`、`byteOffset` 等仅放在明确命名的 FFF metadata；不能替换 common fields。
-- `details` 保存 canonical result、内部 `engine` provenance、可用 metadata、cap 与 recovery metadata。模型 `content` 只保存 compact formatter 输出。
+- `details` 保存 canonical result、内部 `engine: "rg"` provenance、可用 metadata、cap 与 recovery metadata。模型 `content` 只保存 compact formatter 输出。
 - `renderResult` 只读 structured details，不以 regex 重解析 `content`。它使用 `submatches` 做安全高亮；无效或跨 UTF-8 code point 的 range 跳过高亮，仍显示完整行。
 - grep 不注册 `tool_result` handler。execute 的唯一 formatter 同时产生最终 `content` 与 `details`。
 
 ## Result 与显示上限
 
-`limit` 保留 Pi native grep 的参数语义。canonical result 同时继承 Pi native grep 的 `50 KB / 2000 rows` 上限，但取消每行 500-character 截断。rg stdout 在 child exit 后一次解析完整 NDJSON rows；不会 streaming parse 或发出 partial result。FFF 内部取 page 直到请求完成或上述 canonical cap。
+`limit` 保留 Pi native grep 的参数语义（默认 100）。canonical result 同时继承 Pi native grep 的 `50 KB / 2000 rows` 上限，但取消每行 500-character 截断。rg stdout 在 child exit 后一次解析完整 NDJSON rows；不会 streaming parse 或发出 partial result。
 
 compact formatter 在 canonical result 之后执行，规则参考 rtk：
 
@@ -61,21 +49,21 @@ compact formatter 在 canonical result 之后执行，规则参考 rtk：
 - 全局最多显示 200 个 `match` events。
 - context event 不消耗 25/200；保留 match 相邻 context，并去重。
 - 显示内容 trim whitespace，长行截到 80 characters，长 path compact。details 与 recovery 不丢失原始 canonical fields。
-- FFF 维持 FFF item/file 顺序；rg 以 path 字典序 group。
+- rg 以 path 字典序分组展示。
 
 ## TUI
 
-`renderCall` 显示 `grep /PATTERN/ in path`：`grep` 使用原工具的 accent、pattern 使用 `mdCode`、`in path` 与 body path 使用终端默认色（跨 Trace 为 `dim`），不套 theme `text`。find 与 bash 正文遵循同一套 tone。`renderResult` 显示 compact result、cap/recovery 状态；未展开时**整个 result 最多 15 行**，包括 expansion hint。每个文件块的 path 相对于 grep `path`；搜单个文件时省略 path heading。行号和 `│` 使用 `dim` 并按该文件最大行号宽度右对齐；`submatches` 使用 `success` highlight。Pi 的 `expanded` state 仍可展开已保存的 tool result。颜色不是唯一的信息载体；path、match/context 结构和 omission marker 必须在无颜色时可读。
+`renderCall` 显示 `grep /PATTERN/ in path`：`grep` 使用原工具的 accent、pattern 使用 `mdCode`、`in path` 与 body path 使用终端默认色（跨 Trace 为 `dim`），不套 theme `text`。find 与 bash 正文遵循同一套 tone。`renderResult` 显示 compact result、cap/recovery 状态；未展开时**整个 result 最多 15 行**，包括 expansion hint。每个文件块的 path 相对于 grep `path`；搜单个文件时省略 path heading。行号和 `│` 使用 `dim` 并按该文件最大行号宽度右对齐；`submatches` 使用 `success` highlight。Pi 的 `expanded` state 仍可展开已保存的 tool result。
 
-当下一 Trace 的 `agent_start` 到来且 Pi 全局 tools 未展开时，已完成的 grep block 收起为 header、rule、`N matches · M files · duration`；FFF fuzzy fallback 使用 `N fuzzies · M files · duration`。展开时继续显示完整 block。
+当下一 Trace 的 `agent_start` 到来且 Pi 全局 tools 未展开时，已完成的 grep block 收起为 header、rule、`N matches · M files · duration`。展开时继续显示完整 block。
 
 ## Ownership 与验证
 
-`pi-ext-tools` 拥有 engine admission、rg execution、FFF adapter、canonical result、compact formatter 与 renderer；ext-core 不拥有 grep policy、limits 或 rendering。
+`pi-ext-tools` 拥有 engine admission、rg execution、canonical result、compact formatter 与 renderer；ext-core 不拥有 grep policy、limits 或 rendering。
 
 聚焦测试至少覆盖：
 
-- FFF / rg 都生成同一 canonical match 与 context contract；FFF range 映射正确。
-- admission、exact `0 matches` 后的 FFF fuzzy fallback、regex error、FFF page failure 后完整 rg retry、取消与 Pi cap。
-- 25/file、200/global、context 不计 cap、FFF ordering、rg ordering、80-character trimming 与 path compact。
+- rg 生成 canonical match 与 context contract；range 映射正确。
+- regex error、取消与 Pi cap 处理。
+- 25/file、200/global、context 不计 cap、rg 字典序 ordering、80-character trimming 与 path compact。
 - renderer 从 details 高亮 submatches，窄/宽 layout、无效 byte range、expanded state。

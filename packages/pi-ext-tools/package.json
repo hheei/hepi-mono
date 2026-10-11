@@ -41,7 +41,6 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@ff-labs/fff-node": "^0.10.3",
 		"@hheei/pi-ext-core": "workspace:^",
 		"acorn": "^8.18.0",
 		"diff": "^9.0.0"

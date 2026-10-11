@@ -5,21 +5,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import type { FffRuntimeState } from "./fff/lifecycle.js";
-import {
-	buildFffQuery,
-	filterNativeFindText,
-	nativeFallbackPattern,
-	supportsFffPath,
-} from "./fff/query.js";
-import {
-	type FindToolDetails,
-	formatFindModelOutput,
-	renderFindResult,
-} from "./search-renderer.js";
+import { filterNativeFindText, nativeFallbackPattern } from "./find-query.js";
+import { renderFindResult } from "./search-renderer.js";
 import { FIND_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
+import type { ToolsRuntimeState } from "./session-state.js";
 
-const DEFAULT_LIMIT = 30;
 const FIND_DESCRIPTION =
 	"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.";
 const FIND_PROMPT_SNIPPET = "Find files by path or glob";
@@ -36,9 +26,6 @@ const FIND_PARAMETER_DESCRIPTIONS = {
 	limit: "Max results per page (default 30)",
 	cursor: "Pagination cursor from the previous result",
 } as const;
-const NO_FIND_RESULTS = "No files found matching pattern";
-const cursorStore = new Map<string, { query: string; limit: number; pageIndex: number }>();
-let cursorSequence = 0;
 
 type FindParams = {
 	readonly pattern: string;
@@ -56,28 +43,6 @@ const schema = Type.Object({
 	cursor: Type.Optional(Type.String({ description: FIND_PARAMETER_DESCRIPTIONS.cursor })),
 });
 
-function nextCursor(query: string, limit: number, pageIndex: number): string {
-	const cursor = `find:${++cursorSequence}`;
-	cursorStore.set(cursor, { query, limit, pageIndex });
-	if (cursorStore.size > 200) {
-		const oldest = cursorStore.keys().next().value;
-		if (typeof oldest === "string") cursorStore.delete(oldest);
-	}
-	return cursor;
-}
-
-function rejectWhenAborted(signal: AbortSignal): Promise<never> {
-	return new Promise((_, reject) => {
-		if (signal.aborted) {
-			reject(new Error("Operation aborted"));
-			return;
-		}
-		signal.addEventListener("abort", () => reject(new Error("Operation aborted")), {
-			once: true,
-		});
-	});
-}
-
 function nativeParams(params: FindParams): { pattern: string; path?: string; limit?: number } {
 	return {
 		pattern: params.path?.match(/[*?[{]/) ? params.path : nativeFallbackPattern(params.pattern),
@@ -92,74 +57,27 @@ async function executeFind(
 	signal: AbortSignal,
 	onUpdate: undefined,
 	context: { cwd: string },
-	state: FffRuntimeState,
+	_state: ToolsRuntimeState,
 ) {
 	if (signal.aborted) throw new Error("Operation aborted");
-	const native = async () => {
-		const result = await createFindToolDefinition(context.cwd).execute(
-			id,
-			nativeParams(params),
-			signal,
-			onUpdate,
-			context as never,
-		);
-		return {
-			...result,
-			content: result.content.map((part) =>
-				part.type === "text" && "text" in part
-					? { ...part, text: filterNativeFindText(part.text, params.exclude) }
-					: part,
-			),
-		};
-	};
-	const runtime = state.getRuntime();
-	if (
-		!state.getSettings().findEnhancement ||
-		runtime === undefined ||
-		!supportsFffPath(params.path, context.cwd)
-	) {
-		return native();
-	}
-	const cursor = params.cursor === "" ? undefined : params.cursor;
-	const resumed = cursor === undefined ? undefined : cursorStore.get(cursor);
-	if (cursor !== undefined && resumed === undefined)
-		throw new Error("Invalid or expired find cursor.");
-	const limit = resumed?.limit ?? Math.max(1, params.limit ?? DEFAULT_LIMIT);
-	const query =
-		resumed?.query ?? buildFffQuery(params.path, params.pattern, params.exclude, context.cwd);
-	const result = await Promise.race([
-		runtime.findSearch({
-			query,
-			limit,
-			pageIndex: resumed?.pageIndex ?? 0,
-		}),
-		rejectWhenAborted(signal),
-	]);
-	if (signal.aborted) throw new Error("Operation aborted");
-	if (!result.ok) {
-		return native();
-	}
-	const details = {
-		format: "canonical-find",
-		candidates: result.value.items.map((candidate) => ({
-			path: candidate.item.relativePath,
-			...(candidate.score?.matchType === undefined ? {} : { matchType: candidate.score.matchType }),
-		})),
-		totalMatched: result.value.totalMatched,
-		totalFiles: result.value.totalFiles,
-	} satisfies FindToolDetails;
-	const cursorLine = result.value.hasMore
-		? `cursor: ${nextCursor(query, limit, result.value.pageIndex + 1)}`
-		: undefined;
-	return textToolResult(
-		[formatFindModelOutput(details), cursorLine]
-			.filter((line): line is string => line !== undefined && line !== "")
-			.join("\n") || NO_FIND_RESULTS,
-		details,
+	const result = await createFindToolDefinition(context.cwd).execute(
+		id,
+		nativeParams(params),
+		signal,
+		onUpdate,
+		context as never,
 	);
+	return {
+		...result,
+		content: result.content.map((part) =>
+			part.type === "text" && "text" in part
+				? { ...part, text: filterNativeFindText(part.text, params.exclude) }
+				: part,
+		),
+	};
 }
 
-export function registerFindTool(pi: ExtensionAPI, state: FffRuntimeState): ToolDefinition {
+export function registerFindTool(pi: ExtensionAPI, state: ToolsRuntimeState): ToolDefinition {
 	const tool = {
 		name: "find",
 		label: "find",

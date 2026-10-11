@@ -169,7 +169,7 @@ function snapshot(job: Job): BashJobSnapshot {
 	};
 }
 
-export class BashJobRegistry {
+export class BgBashJobRegistry {
 	readonly #jobs = new Map<string, Job>();
 	readonly #reminderListeners = new Set<(event: BashJobReminder) => void>();
 	#closed: boolean = false;
@@ -469,3 +469,8 @@ export class BashJobRegistry {
 		this.#reminderListeners.clear();
 	}
 }
+
+export { BgBashJobRegistry as BashJobRegistry };
+export type BgBashJobRequest = BashJobRequest;
+export type BgBashJobSnapshot = BashJobSnapshot;
+export type BgBashJobReminder = BashJobReminder;

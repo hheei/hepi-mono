@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { BASH_HEARTBEAT_MS, BASH_IDLE_NOTICE_MS, BashJobRegistry } from "../src/bash-jobs.js";
+import { BASH_HEARTBEAT_MS, BASH_IDLE_NOTICE_MS, BashJobRegistry } from "../src/bg-bash-jobs.js";
 
 const mocked = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocked.spawn }));

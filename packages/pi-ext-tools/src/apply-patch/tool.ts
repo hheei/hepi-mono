@@ -1,0 +1,319 @@
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
+import { defaultExtensionSettingsPaths, errorMessage, textToolResult } from "@hheei/pi-ext-core";
+import { type Static, Type } from "typebox";
+import type { ToolsRuntimeState } from "../session-state.js";
+import { LOCAL_TARGET } from "../targets.js";
+import {
+	type ApplyPatchInWorkspaceResult,
+	type ApplyPatchProgress,
+	type ApplyPatchRejection,
+	applyPatchInWorkspace,
+	createSftpPatchFs,
+	loadApplyPatchPolicy,
+} from "./index.js";
+import { isPatchPathOutsideWorkspace } from "./paths.js";
+
+const MAX_CANDIDATES = 6;
+const APPLY_PATCH_DESCRIPTION =
+	"Apply one Codex V4A patch to the local workspace or an authorized SSH host. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
+const APPLY_PATCH_PARAMETER_DESCRIPTION =
+	"One V4A envelope. First line `*** Begin Patch`, last line `*** End Patch`. Multiple files are multiple Add/Update/Delete sections in this same string, not extra apply_patch calls. Extra Begin/End markers are ignored. Paths may be absolute or workspace-relative.";
+const APPLY_PATCH_PROMPT_SNIPPET =
+	"One V4A patch per call. Multiple files are sections in the same patch, not multiple apply_patch calls.";
+const APPLY_PATCH_PROMPT_GUIDELINES = [
+	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
+	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
+	"apply_patch: use `@@ text` to locate subsequent hunks and `*** End of File` to match the file end. Pure moves use Update File plus Move to without a content hunk. Ambiguous matches are rejected.",
+	"apply_patch: target is local or an authorized SSH alias. Confirmed path changes are never rolled back.",
+];
+const RECOVERY_READ_TARGETS =
+	"Recovery: read every Unconfirmed path before attempting another mutation.";
+const RECOVERY_BUSY =
+	"Recovery: wait for the active apply_patch request to finish, then retry this unchanged patch.";
+const RECOVERY_CANCELLED =
+	"Recovery: confirmed paths stay changed; read Unconfirmed paths; retry only Rejected or NotApplied operations.";
+const RECOVERY_INVALID_PATCH =
+	"Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
+const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
+const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
+
+export const APPLY_PATCH_PARAMETERS = Type.Object(
+	{
+		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
+		target: Type.Optional(
+			Type.String({
+				description: "local or an authorized SSH alias. Omit for local.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+
+type ApplyPatchParameters = Static<typeof APPLY_PATCH_PARAMETERS>;
+export type ApplyPatchStatus = "success" | "partial" | "failed";
+
+export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
+	readonly status: ApplyPatchStatus;
+	readonly progress?: ApplyPatchProgress;
+	readonly target?: string;
+}
+
+export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchToolDetails {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		"status" in value &&
+		((value as { readonly status: unknown }).status === "success" ||
+			(value as { readonly status: unknown }).status === "partial" ||
+			(value as { readonly status: unknown }).status === "failed")
+	);
+}
+
+export function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
+	if (typeof params !== "object" || params === null || Array.isArray(params))
+		throw new Error("apply_patch requires exactly one string parameter: patch");
+	const keys = Object.keys(params).filter((key) => key !== "target");
+	if (keys.length !== 1 || !("patch" in params) || typeof params.patch !== "string")
+		throw new Error("apply_patch requires exactly one string parameter: patch");
+	return {
+		patch: params.patch,
+		...("target" in params && typeof params.target === "string" ? { target: params.target } : {}),
+	};
+}
+
+function statusFor(result: ApplyPatchInWorkspaceResult): ApplyPatchStatus {
+	if (
+		!result.rejected.some((rejection) => rejection.operationIndices.length > 0) &&
+		result.unconfirmed.length === 0 &&
+		result.notApplied.length === 0
+	)
+		return "success";
+	return result.changedPaths.length === 0 ? "failed" : "partial";
+}
+
+function operationText(index: number): string {
+	return `operation ${index + 1}`;
+}
+
+function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
+	const operation = rejection.operationIndices.map(operationText).join(", ");
+	const path = rejection.paths.join(", ");
+	const prefix = `- ${operation}, ${path}`;
+	if (rejection.diagnostics.length === 0) return [`${prefix}: ${rejection.error}`];
+	return rejection.diagnostics.map((diagnostic) => {
+		switch (diagnostic.kind) {
+			case "context_not_found":
+				return diagnostic.hint !== undefined
+					? `${prefix}, hunk ${diagnostic.hunkIndex}: context not found (${diagnostic.hint})`
+					: `${prefix}, hunk ${diagnostic.hunkIndex}: context not found`;
+			case "ambiguous_exact":
+				return `${prefix}, hunk ${diagnostic.hunkIndex}: exact context is ambiguous at lines ${diagnostic.candidateStartLines
+					.slice(0, MAX_CANDIDATES)
+					.join(", ")} (${diagnostic.candidateStartLines.length} candidates)`;
+			default:
+				throw new Error(`Unknown patch diagnostic: ${String(diagnostic)}`);
+		}
+	});
+}
+
+function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
+	const lines: string[] = [];
+	if (result.unconfirmed.length > 0) {
+		const paths = [...new Set(result.unconfirmed.flatMap((entry) => entry.paths))];
+		lines.push(`Recovery: read ${paths.join(", ")} before another mutation of those paths.`);
+	}
+	if (result.rejected.length > 0) {
+		const paths = [...new Set(result.rejected.flatMap((rejection) => rejection.paths))];
+		const operations = [
+			...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
+		];
+		const scope = operations.map(operationText).join(", ");
+		const hasHunkDiagnostics = result.rejected.some(
+			(rejection) => rejection.diagnostics.length > 0,
+		);
+		lines.push(
+			hasHunkDiagnostics
+				? `Recovery: read ${paths.join(", ")}, then retry only rejected hunks from ${scope}.`
+				: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
+		);
+	}
+	if (result.notApplied.length > 0) {
+		const operations = [...new Set(result.notApplied.flatMap((entry) => entry.operationIndices))];
+		lines.push(`Recovery: retry only ${operations.map(operationText).join(", ")}.`);
+	}
+	if (
+		result.applied.length > 0 &&
+		(result.rejected.length > 0 || result.unconfirmed.length > 0 || result.notApplied.length > 0)
+	)
+		lines.push(
+			result.rejected.some((rejection) => rejection.diagnostics.length > 0)
+				? DO_NOT_RETRY_APPLIED_HUNKS
+				: DO_NOT_RETRY_APPLIED_OPERATIONS,
+		);
+	return lines;
+}
+
+export function failureRecovery(message: string): string | undefined {
+	if (message.includes("workspace state indeterminate") || message.includes("outcome is unknown"))
+		return RECOVERY_READ_TARGETS;
+	if (message.includes("already running")) return RECOVERY_BUSY;
+	if (message.includes("cancelled")) return RECOVERY_CANCELLED;
+	if (message.includes("No operations were validated or applied")) return RECOVERY_INVALID_PATCH;
+	return undefined;
+}
+
+export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
+	const status = statusFor(result);
+	const rejectedHunksByOperation = new Map<number, number>();
+	for (const rejection of result.rejected)
+		if (rejection.diagnostics.length > 0)
+			for (const operationIndex of rejection.operationIndices)
+				rejectedHunksByOperation.set(
+					operationIndex,
+					(rejectedHunksByOperation.get(operationIndex) ?? 0) + rejection.diagnostics.length,
+				);
+	const applied = result.applied.map((operation) => {
+		const path = operation.paths.at(-1) ?? "<unknown>";
+		const rejectedHunks = rejectedHunksByOperation.get(operation.operationIndex) ?? 0;
+		const totalHunks = operation.outcomes.length + rejectedHunks;
+		return `- ${path}: ${operation.kind}${totalHunks === 0 ? "" : ` (${operation.outcomes.length}/${totalHunks} hunks applied)`}`;
+	});
+	const fuzzy = result.applied.flatMap((operation) =>
+		operation.outcomes
+			.filter((outcome) => outcome.match === "fuzzy")
+			.map(
+				(outcome) =>
+					`- ${operation.paths.at(-1) ?? "unknown"}, ${operationText(operation.operationIndex)}, hunk ${outcome.hunkIndex}: lines ${outcome.startLine}-${outcome.startLine + outcome.length - 1}, fuzzy`,
+			),
+	);
+	const headline =
+		status === "success"
+			? `Applied patch: ${result.applied.length} operations in ${result.changedPaths.length} files.`
+			: status === "partial"
+				? "Patch partially applied."
+				: "Patch was not applied.";
+	return [
+		headline,
+		...(applied.length === 0 ? [] : ["Changed:", ...applied]),
+		...(fuzzy.length === 0 ? [] : ["Fuzzy-applied:", ...fuzzy]),
+		...(result.rejected.length === 0
+			? []
+			: ["Rejected:", ...result.rejected.flatMap(rejectionLines)]),
+		...(result.unconfirmed.length === 0
+			? []
+			: ["Unconfirmed:", ...result.unconfirmed.flatMap(rejectionLines)]),
+		...(result.notApplied.length === 0
+			? []
+			: ["NotApplied:", ...result.notApplied.flatMap(rejectionLines)]),
+		...recoveryLines(result),
+	].join("\n");
+}
+
+function externalPathWarning(workspaceRoot: string, result: ApplyPatchInWorkspaceResult): string {
+	const paths = [
+		...new Set(
+			result.changedPaths.filter((path) => isPatchPathOutsideWorkspace(workspaceRoot, path)),
+		),
+	];
+	return paths.length === 0
+		? ""
+		: `\nWarning: changed path outside the workspace: ${paths.join(", ")}`;
+}
+
+function progressDetails(progress: ApplyPatchProgress, target?: string): ApplyPatchToolDetails {
+	return {
+		changedPaths: [],
+		addedLines: progress.addedLines,
+		removedLines: progress.removedLines,
+		operations: progress.operations,
+		operationCount: progress.operations.length,
+		exactUpdateCount: 0,
+		fuzzyUpdateCount: 0,
+		applied: [],
+		rejected: [],
+		unconfirmed: [],
+		notApplied: [],
+		status: "success",
+		progress,
+		...(target === undefined ? {} : { target }),
+	};
+}
+
+export function createApplyPatchTool(
+	state?: ToolsRuntimeState,
+): ToolDefinition<typeof APPLY_PATCH_PARAMETERS, ApplyPatchToolDetails, unknown> {
+	return {
+		name: "apply_patch",
+		label: "apply_patch",
+		description: APPLY_PATCH_DESCRIPTION,
+		parameters: APPLY_PATCH_PARAMETERS,
+		promptSnippet: APPLY_PATCH_PROMPT_SNIPPET,
+		promptGuidelines: APPLY_PATCH_PROMPT_GUIDELINES,
+		executionMode: "sequential",
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			const { patch, target } = parseApplyPatchParameters(params);
+			try {
+				const policy = await loadApplyPatchPolicy({
+					paths: defaultExtensionSettingsPaths(ctx.cwd),
+					...(signal === undefined ? {} : { signal }),
+				});
+				const remote = target !== undefined && target !== LOCAL_TARGET;
+				const runtime = remote ? state?.getTargetRuntime() : undefined;
+				if (remote && runtime === undefined) throw new Error("Target runtime is unavailable.");
+				if (
+					remote &&
+					runtime !== undefined &&
+					target !== undefined &&
+					!runtime.isAllowedHost(target)
+				)
+					throw new Error(`Unknown or unauthorized SSH target: ${target}`);
+				const host = remote ? target : undefined;
+				const result = await applyPatchInWorkspace({
+					workspaceRoot: ctx.cwd,
+					patch,
+					policy,
+					...(signal === undefined ? {} : { signal }),
+					onProgress: (progress) =>
+						onUpdate?.({
+							content: [],
+							details: progressDetails(progress, host),
+						}),
+					...(remote && runtime !== undefined && target !== undefined
+						? { fs: createSftpPatchFs(runtime, target), lockKey: `ssh:${target}` }
+						: {}),
+				});
+				const warning = remote ? "" : externalPathWarning(ctx.cwd, result);
+				const status = statusFor(result);
+				const isError = status !== "success";
+				return {
+					...textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
+						...result,
+						status,
+						...(host === undefined ? {} : { target: host }),
+					}),
+					...(isError ? { isError: true } : {}),
+				} satisfies AgentToolResult<ApplyPatchToolDetails>;
+			} catch (error) {
+				const message = errorMessage(error);
+				const recovery = failureRecovery(message);
+				throw new Error(
+					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,
+				);
+			}
+		},
+	};
+}
+
+export function registerApplyPatchTool(
+	pi: ExtensionAPI,
+	state?: ToolsRuntimeState,
+): ToolDefinition {
+	const tool = createApplyPatchTool(state);
+	pi.registerTool({ ...tool, defaultActive: false });
+	return tool as ToolDefinition;
+}

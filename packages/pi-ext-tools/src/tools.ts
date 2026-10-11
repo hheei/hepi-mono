@@ -1,17 +1,17 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type ExtensionLifecycleContext, setSessionToolsActive } from "@hheei/pi-ext-core";
-import { isApplyPatchToolDetails, registerApplyPatchTool } from "./apply-patch-tool.js";
+import { isApplyPatchToolDetails, registerApplyPatchTool } from "./apply-patch/tool.js";
 import { registerBashTool } from "./bash.js";
+import { registerTaskTools } from "./bg-bash-tools.js";
 import { registerEditTool } from "./edit.js";
 import { type EvalNestedToolName, EvalToolBridge } from "./eval/bridge.js";
 import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.js";
 import { registerPythonEvalTool } from "./eval/tool.js";
-import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
 import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
-import { registerTaskTools } from "./task-tools.js";
+import { createToolsRuntimeState, type ToolsRuntimeState } from "./session-state.js";
 import { registerWriteTool } from "./write.js";
 
 export function activateApplyPatchTool(context: ExtensionLifecycleContext, enabled: boolean): void {
@@ -32,7 +32,7 @@ export function activateTodoCatalog(context: ExtensionLifecycleContext, enabled:
 /** Statically registers the tool catalog. */
 export function registerTools(
 	pi: ExtensionAPI,
-	state: FffRuntimeState = createFffRuntimeState(),
+	state: ToolsRuntimeState = createToolsRuntimeState(),
 	evalState: EvalRuntimeState = createEvalRuntimeState(),
 ): ReturnType<typeof registerPythonEvalTool> {
 	const nested = new Map<EvalNestedToolName, ToolDefinition>();

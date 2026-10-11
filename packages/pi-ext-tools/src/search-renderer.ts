@@ -74,12 +74,14 @@ function chunkAt(
 function utf8Boundaries(text: string): ReadonlyMap<number, number> {
 	const boundaries = new Map<number, number>();
 	let bytes = 0;
-	let chars = 0;
 	boundaries.set(0, 0);
-	for (const character of text) {
-		bytes += Buffer.byteLength(character, "utf8");
-		chars += character.length;
-		boundaries.set(bytes, chars);
+	for (let i = 0; i < text.length; ) {
+		const code = text.codePointAt(i) ?? 0;
+		const charLen = code > 0xffff ? 2 : 1;
+		const byteLen = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+		bytes += byteLen;
+		i += charLen;
+		boundaries.set(bytes, i);
 	}
 	return boundaries;
 }
@@ -318,8 +320,7 @@ function findDetails(value: unknown): FindToolDetails | undefined {
 }
 
 function findGroup(matchType: string | undefined): "fuzzy files" | "fuzzy paths" {
-	const normalized = matchType?.replace(/^fff_/, "");
-	return normalized === "fuzzy_path" || normalized === "ffp" ? "fuzzy paths" : "fuzzy files";
+	return matchType === "fuzzy_path" || matchType === "ffp" ? "fuzzy paths" : "fuzzy files";
 }
 
 type FindBodyLine =

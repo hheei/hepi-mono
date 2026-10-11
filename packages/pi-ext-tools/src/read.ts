@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { agentResultText, isRecord } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { createFffRuntimeState, type FffRuntimeState } from "./fff/lifecycle.js";
+import { createToolsRuntimeState, type ToolsRuntimeState } from "./session-state.js";
 
 const READ_METRICS_KEY = "__piExtToolsRead";
 const READ_CONTINUATION =
@@ -35,10 +35,27 @@ function displayText(result: AgentToolResult<unknown>): string | undefined {
 	return text === undefined ? undefined : text.replace(READ_CONTINUATION, "");
 }
 
+function countCodePoints(text: string): number {
+	let count = 0;
+	for (let i = 0; i < text.length; i++, count++) {
+		const code = text.charCodeAt(i);
+		if (code >= 0xd800 && code <= 0xdbff) i++;
+	}
+	return count;
+}
+
+function countLines(text: string): number {
+	let count = 1;
+	for (let i = 0; i < text.length; i++) {
+		if (text.charCodeAt(i) === 10) count++;
+	}
+	return count;
+}
+
 function withReadMetrics<T>(result: AgentToolResult<T>): AgentToolResult<T> {
 	const text = displayText(result);
 	if (text === undefined) return result;
-	const metrics = { characters: Array.from(text).length, lines: text.split("\n").length };
+	const metrics = { characters: countCodePoints(text), lines: countLines(text) };
 	const details = result.details;
 	return {
 		...result,
@@ -51,7 +68,7 @@ function withReadMetrics<T>(result: AgentToolResult<T>): AgentToolResult<T> {
 /** Registers read while recreating execution for the call cwd. */
 export function registerReadTool(
 	pi: ExtensionAPI,
-	state: FffRuntimeState = createFffRuntimeState(),
+	_state: ToolsRuntimeState = createToolsRuntimeState(),
 ): ToolDefinition {
 	const template = createReadToolDefinition(process.cwd());
 	const tool: typeof template = {
@@ -64,35 +81,9 @@ export function registerReadTool(
 		async execute(toolCallId, params, signal, onUpdate, context) {
 			const readParams = params as ReadToolParams;
 			const original = createReadToolDefinition(context.cwd);
-			if (!state.getSettings().readEnhancement)
-				return withReadMetrics(
-					await original.execute(toolCallId, readParams, signal, onUpdate, context),
-				);
-			const runtime = state.getRuntime();
-			if (!runtime)
-				return withReadMetrics(
-					await original.execute(toolCallId, readParams, signal, onUpdate, context),
-				);
-			try {
-				const resolved = await runtime.resolvePath(readParams.path, { allowDirectory: false });
-				if (!resolved.ok)
-					return withReadMetrics(
-						await original.execute(toolCallId, readParams, signal, onUpdate, context),
-					);
-				return withReadMetrics(
-					await original.execute(
-						toolCallId,
-						{ ...readParams, path: resolved.value.relativePath },
-						signal,
-						onUpdate,
-						context,
-					),
-				);
-			} catch {
-				return withReadMetrics(
-					await original.execute(toolCallId, readParams, signal, onUpdate, context),
-				);
-			}
+			return withReadMetrics(
+				await original.execute(toolCallId, readParams, signal, onUpdate, context),
+			);
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

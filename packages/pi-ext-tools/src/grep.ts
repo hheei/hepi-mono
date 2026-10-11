@@ -1,13 +1,10 @@
-import { spawn } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { errorMessage, runCommand, textToolResult, throwIfAborted } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { inferFffGrepMode } from "./fff/extension-common.js";
-import type { GrepMatch } from "./fff/fff.js";
-import type { FffRuntimeState } from "./fff/lifecycle.js";
 import { renderGrepResult } from "./search-renderer.js";
 import { GREP_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
+import type { ToolsRuntimeState } from "./session-state.js";
 
 function accessDeniedDiagnostics(stderr: string): readonly string[] | undefined {
 	const diagnostics = stderr
@@ -30,8 +27,7 @@ const MAX_BYTES = 50 * 1024;
 const MAX_MATCHES_PER_FILE = 25;
 const MAX_DISPLAY_MATCHES = 200;
 const MAX_LINE_CHARS = 80;
-const GREP_DESCRIPTION =
-	"Search file contents with ripgrep or FFF when its exact grep contract applies.";
+const GREP_DESCRIPTION = "Search file contents with ripgrep.";
 const GREP_PROMPT_SNIPPET = "Search file contents for patterns (respects .gitignore)";
 const GREP_PROMPT_GUIDELINES: string[] = [
 	"grep: if search times out, narrow path/glob or use a more specific pattern.",
@@ -317,40 +313,6 @@ function rgOrder(events: readonly GrepEvent[]): GrepEvent[] {
 		.flatMap(([, group]) => group);
 }
 
-function fffEvents(items: readonly GrepMatch[], approximate = false): GrepEvent[] {
-	const files = new Map<string, Map<number, GrepEvent>>();
-	for (const item of items) {
-		const file = files.get(item.relativePath) ?? new Map<number, GrepEvent>();
-		files.set(item.relativePath, file);
-		for (const [index, lines] of (item.contextBefore ?? []).entries()) {
-			const lineNumber = item.lineNumber - (item.contextBefore?.length ?? 0) + index;
-			if (!file.has(lineNumber))
-				file.set(lineNumber, { type: "context", path: item.relativePath, lines, lineNumber });
-		}
-		file.set(item.lineNumber, {
-			type: "match",
-			path: item.relativePath,
-			lines: item.lineContent,
-			lineNumber: item.lineNumber,
-			absoluteOffset: item.byteOffset,
-			submatches: (item.matchRanges ?? []).map(([start, end]) => ({
-				start,
-				end,
-				text: item.lineContent.slice(start, end),
-			})),
-			...(approximate ? { approximate: true } : {}),
-		});
-		for (const [index, lines] of (item.contextAfter ?? []).entries()) {
-			const lineNumber = item.lineNumber + index + 1;
-			if (!file.has(lineNumber))
-				file.set(lineNumber, { type: "context", path: item.relativePath, lines, lineNumber });
-		}
-	}
-	return [...files.values()].flatMap((file) =>
-		[...file.values()].sort((left, right) => left.lineNumber - right.lineNumber),
-	);
-}
-
 function incompleteSummary(incomplete: GrepIncomplete): string {
 	return `Results may be incomplete: skipped ${incomplete.diagnostics.length} inaccessible path${
 		incomplete.diagnostics.length === 1 ? "" : "s"
@@ -545,23 +507,6 @@ function displayText(display: readonly GrepDisplayLine[]): string {
 		.join("\n");
 }
 
-function worktreeRoot(cwd: string): Promise<boolean> {
-	return new Promise((resolveRoot) => {
-		const child = spawn("git", ["rev-parse", "--show-toplevel"], {
-			cwd,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-		const output: Buffer[] = [];
-		child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
-		child.once("error", () => resolveRoot(false));
-		child.once("close", (code) =>
-			resolveRoot(
-				code === 0 && resolve(Buffer.concat(output).toString("utf8").trim()) === resolve(cwd),
-			),
-		);
-	});
-}
-
 function annotateRgRegexError(error: unknown): unknown {
 	if (!(error instanceof Error) || !error.message.includes("regex parse error")) return error;
 	if (error.message.includes(RG_REGEX_PARSE_HINT)) return error;
@@ -609,17 +554,22 @@ async function runRg(
 	}
 	throwIfAborted(signal);
 	const fallbackPath = params.path ?? ".";
-	const events = stdout
-		.split("\n")
-		.filter(Boolean)
-		.flatMap((line) => {
-			try {
-				const event = rgEvent(JSON.parse(line) as unknown, fallbackPath);
-				return event === undefined ? [] : [event];
-			} catch {
-				return [];
-			}
-		});
+	const events: GrepEvent[] = [];
+	let lineStart = 0;
+	while (lineStart < stdout.length) {
+		const lineEnd = stdout.indexOf("\n", lineStart);
+		const line = (
+			lineEnd === -1 ? stdout.slice(lineStart) : stdout.slice(lineStart, lineEnd)
+		).trim();
+		lineStart = lineEnd === -1 ? stdout.length : lineEnd + 1;
+		if (line === "") continue;
+		try {
+			const event = rgEvent(JSON.parse(line) as unknown, fallbackPath);
+			if (event !== undefined) events.push(event);
+		} catch {
+			// Skip unparseable line
+		}
+	}
 	return {
 		...capEvents(rgOrder(events), normalizedLimit(params.limit), context),
 		...(collected.timedOut ? { timedOut: true } : {}),
@@ -627,17 +577,7 @@ async function runRg(
 	};
 }
 
-async function useFff(params: GrepParams, cwd: string, state: FffRuntimeState): Promise<boolean> {
-	return (
-		state.getSettings().grepEnhancement &&
-		params.path === undefined &&
-		params.glob === undefined &&
-		params.ignoreCase !== true &&
-		worktreeRoot(cwd)
-	);
-}
-
-export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): ToolDefinition {
+export function registerGrepTool(pi: ExtensionAPI, _state: ToolsRuntimeState): ToolDefinition {
 	const tool = {
 		name: "grep",
 		label: "grep",
@@ -660,40 +600,8 @@ export function registerGrepTool(pi: ExtensionAPI, state: FffRuntimeState): Tool
 			params = normalizeGrepParams(params);
 			try {
 				throwIfAborted(signal);
-				let engine: GrepToolDetails["engine"] = "rg";
-				let canonical: CanonicalResult | undefined;
-
-				if (await useFff(params, context.cwd, state)) {
-					const runtime = state.getRuntime();
-					if (runtime === undefined) throw new Error("FFF runtime became unavailable.");
-					const result = await runtime.grepSearch({
-						pattern: params.pattern,
-						mode: inferFffGrepMode(params.literal, params.pattern),
-						caseSensitive: true,
-						beforeContext: normalizedContext(params.context),
-						afterContext: normalizedContext(params.context),
-						limit: normalizedLimit(params.limit),
-						fuzzyFallbackOnly: true,
-						...(signal === undefined ? {} : { signal }),
-					});
-					throwIfAborted(signal);
-					if (result.ok && result.value.regexFallbackError !== undefined) {
-						const error = new Error(`FFF regex error: ${result.value.regexFallbackError}`);
-						Object.assign(error, { regexFallbackError: result.value.regexFallbackError });
-						throw error;
-					}
-					if (result.ok) {
-						engine = "fff";
-						canonical = {
-							...capEvents(
-								fffEvents(result.value.items, result.value.approximate === "fuzzy"),
-								normalizedLimit(params.limit),
-								normalizedContext(params.context),
-							),
-							...(result.value.timedOut ? { timedOut: true } : {}),
-						};
-					} else canonical = await runRg(params, context.cwd, undefined, signal);
-				} else canonical = await runRg(params, context.cwd, undefined, signal);
+				const engine: GrepToolDetails["engine"] = "rg";
+				const canonical = await runRg(params, context.cwd, undefined, signal);
 				if (canonical === undefined) throw new Error("Grep execution did not produce a result.");
 				const full = fullOutput(canonical.events, canonical.incomplete);
 				const recoveryMessage =

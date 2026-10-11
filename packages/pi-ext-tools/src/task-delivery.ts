@@ -7,7 +7,23 @@ import {
 	type TaskRegistry,
 	type TaskTerminalEvent,
 } from "@hheei/pi-ext-core";
-import type { BashJobRegistry, BashJobReminder } from "./bash-jobs.js";
+
+export interface TaskReminder {
+	readonly kind: "idle" | "heartbeat";
+	readonly anchor?: string | undefined;
+	readonly job: {
+		readonly id: string;
+		readonly status: string;
+		readonly startedAt: number;
+		readonly output: string;
+		readonly logPath?: string | undefined;
+	};
+}
+
+export interface TaskReminderSource {
+	get(id: string): { readonly status: string } | undefined;
+	onReminder(listener: (event: TaskReminder) => void): () => void;
+}
 
 /** Custom message type used for one terminal notification per task. */
 export const TASK_TERMINAL_CUSTOM_TYPE = "pi-ext-tools:task-terminal";
@@ -34,7 +50,9 @@ function byteSize(text: string): number {
 export interface TaskDeliveryOptions {
 	readonly pi: ExtensionAPI;
 	readonly registry: TaskRegistry;
-	readonly jobs?: BashJobRegistry;
+	readonly reminderSource?: TaskReminderSource | undefined;
+	/** Backward-compatible alias for reminderSource. */
+	readonly jobs?: TaskReminderSource | undefined;
 	/** Session context captured at lifecycle start; reads parent idleness and the current branch. */
 	readonly session: ExtensionContext;
 	readonly signal?: AbortSignal;
@@ -54,15 +72,16 @@ export interface TaskDeliveryOptions {
  */
 export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 	const { pi, registry, session, notify } = options;
+	const reminderSource = options.reminderSource ?? options.jobs;
 	const reported = new Set<string>();
 	const held = new Set<string>();
-	const reminders = new Map<string, BashJobReminder>();
+	const reminders = new Map<string, TaskReminder>();
 	let disposed = false;
 
-	const readyReminders = (): BashJobReminder[] => {
+	const readyReminders = (): TaskReminder[] => {
 		for (const [id] of reminders) {
 			const task = registry.get(id);
-			if (task === undefined || options.jobs?.get(id)?.status !== "running") reminders.delete(id);
+			if (task === undefined || reminderSource?.get(id)?.status !== "running") reminders.delete(id);
 		}
 		return [...reminders.values()].filter((event) => onCurrentBranch(session, event));
 	};
@@ -191,7 +210,7 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 		announceHeld(registry.pendingDeliveries().filter((event) => !onCurrentBranch(session, event)));
 		channel.request(readyReminders().length > 0);
 	};
-	const unremind = options.jobs?.onReminder((event) => {
+	const unremind = reminderSource?.onReminder((event) => {
 		if (disposed || options.signal?.aborted) return;
 		reminders.set(event.job.id, event);
 		channel.request(true);
@@ -224,7 +243,10 @@ export function startTaskDelivery(options: TaskDeliveryOptions): () => void {
 }
 
 /** True when the task's starting point is still an ancestor of the current branch. */
-function onCurrentBranch(session: ExtensionContext, event: { readonly anchor?: string }): boolean {
+function onCurrentBranch(
+	session: ExtensionContext,
+	event: { readonly anchor?: string | undefined },
+): boolean {
 	if (event.anchor === undefined) return true;
 	try {
 		return session.sessionManager.getBranch().some((entry) => entry.id === event.anchor);
@@ -234,7 +256,7 @@ function onCurrentBranch(session: ExtensionContext, event: { readonly anchor?: s
 	}
 }
 
-function reminderText(event: BashJobReminder): string {
+function reminderText(event: TaskReminder): string {
 	const { job, kind } = event;
 	const elapsed = Math.max(0, Math.round((Date.now() - job.startedAt) / 1000));
 	const progress = job.output.slice(-2000);
