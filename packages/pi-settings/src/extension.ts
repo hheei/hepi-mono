@@ -1,40 +1,24 @@
-import type { ExtensionAPI, ExtensionCommandContext, Skill } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
 	getRuntimeSettingsRegistry,
-	isSkillEnabled,
 	openExtensionPageRouter,
 	registerExtensionLifecycle,
 	registerExtensionPage,
 	suspendWidgets,
 } from "@hheei/pi-ext-core";
-import { createLoadoutEngine } from "./loadout/engine.js";
-import { createLoadoutPage } from "./loadout/page.js";
-import { LOADOUT_SETTINGS_KEY } from "./loadout/storage.js";
 import { createSettingsPage } from "./settings-page.js";
 
 interface ActiveSettingsSession {
 	readonly signal: AbortSignal;
 }
 
-/** Loadout is a page of the Settings router, so this is the only command surface. */
+/** Settings router command surface. */
 const SETTINGS_COMMAND = "ext-settings";
 
-/** Keeps the skills Loadout still enables; Pi renders the skill section from this list. */
-export function filterEnabledSkills(pi: ExtensionAPI, skills: readonly Skill[]): Skill[] {
-	return skills.filter((skill) => isSkillEnabled(pi, skill.name));
-}
-
-/** Owns Settings and Loadout policy plus their two direct page-router entries. */
+/** Owns Settings policy and the extension settings page-router entry. */
 export default function piSettingsExtension(pi: ExtensionAPI): void {
 	let active: ActiveSettingsSession | undefined;
-	const loadout = createLoadoutEngine(pi);
-	pi.on("before_agent_start", (event) => {
-		if (active === undefined || active.signal.aborted) return;
-		const skills = event.systemPromptOptions.skills;
-		const enabled = filterEnabledSkills(pi, skills);
-		// Pi builds the skill section from this list, so a disabled skill never reaches the prompt.
-		if (enabled.length !== skills.length) event.systemPromptOptions.skills = enabled;
-	});
+
 	const openSettings = async (
 		initialPageId: string | undefined,
 		context: ExtensionCommandContext,
@@ -66,6 +50,7 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 			},
 		});
 	};
+
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-settings",
 		start: async ({ extension, signal, resources }) => {
@@ -74,14 +59,6 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 			resources.add("settings-session", () => {
 				if (active === session) active = undefined;
 			});
-			resources.add(
-				"loadout-settings-group",
-				getRuntimeSettingsRegistry(pi).registerGroups("@hheei/pi-settings/loadout", [
-					LOADOUT_SETTINGS_KEY,
-				]),
-			);
-			await loadout.start(extension, signal);
-			resources.add("loadout-engine", () => loadout.dispose());
 			registerExtensionPage(
 				{ pi, extension, signal, resources },
 				{
@@ -91,17 +68,9 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 					create: async (context) => createSettingsPage(getRuntimeSettingsRegistry(pi), context),
 				},
 			);
-			registerExtensionPage(
-				{ pi, extension, signal, resources },
-				{
-					id: "loadout",
-					label: "Loadout",
-					order: 100,
-					create: async (context) => createLoadoutPage(pi, loadout, context),
-				},
-			);
 		},
 	});
+
 	pi.registerCommand(SETTINGS_COMMAND, {
 		description: "Open extension settings: /ext-settings [page-id]",
 		handler: async (args: string, context: ExtensionCommandContext): Promise<void> => {

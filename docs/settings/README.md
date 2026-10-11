@@ -3,17 +3,12 @@
 ## 用户意图
 
 `pi-settings` 是 `/ext-settings [page-id]` 宿主。它让安装的 HEPI extension 在同一 Pi custom
-surface 中提供设置页面；它不拥有其他 concrete extension 的 schema 或业务状态。它还拥有 Loadout
-activation policy，`/ext-settings loadout` 以 Loadout 为 initial page 打开同一 router。
-
-第一份页面是 `pi-settings` 提供的 `Loadout`。它编辑工具与技能的 activation delta，但不会在当前
-session hot-apply；用户在关闭 Settings 后自行 `/reload`。
+surface 中提供规范的双栏设置页面（`DualPaneListView`）；它不拥有其他 concrete extension 的 schema 或业务状态。
 
 ## 包与宿主边界
 
 - `pi-settings` 打开 core Extension page router、拥有 `/ext-settings [page-id]`、surface 生命周期、
-  Loadout policy、Loadout page 与退出通知；
-- `/ext-settings loadout` 只决定 initial page 为 Loadout，绝不复制 Settings/Loadout renderer；
+  Settings page 挂载与退出通知；
 - `pi-ext-core` 只拥有 router tabs、page close coordination、page minimum height，以及 core-managed editor
   widget 的注册和 suspension；
 - concrete extension 不互相 import。page 通过 core runtime registry 动态加入 router。
@@ -23,62 +18,7 @@ above-editor/below-editor widget；surface close、abort、reload 与 session sh
 一个 lease 释放后才恢复仍有效的 widget。Pi 没有枚举或恢复其它 extension 直接 `setWidget()` 内容的公开
 API，所以这个保证只覆盖 core-managed widget。
 
-## Loadout 页面
+## 设置页面（DualPaneListView）
 
-Loadout 是 `pi-settings` 的单页 selector，不是二级 tab：Tools 与 Skills 共享同一个可滚动资源列表，
-以 group header 分段。
-顶层 router tab strip 只 highlight active page，`Left`/`Right` 只在页面没有消费输入时切换页面。
-
-宽终端由左侧资源列表、仅溢出时显示的中间 scrollbar、以及右侧单一 Description block 组成。Description
-随 selected row 更新，绝不为每个 row 渲染一块内联说明。窄终端改为列表后接 selected Description，不能把
-三栏挤压到不可读。Loadout 页面没有自己的外框。
-
-列表 row 的 `display group` 是第二列；它不是不稳定的 extension source ID。`●` 表示 effective enabled，
-`○` 表示 effective disabled，`⊘` 表示 conflict locked/inactive，`→` 表示 selected row。所有 locked row
-在 Description 中说明 winner 与解除方式。
-
-页面顶部显示当前 scope 与 extension 配置文件路径：Global 为 `<agentDir>/ext_settings.json`，Project 为
-`<cwd>/.pi/ext_settings.json`。Pi 原生 `settings.json` 不参与 extension 配置。`Ctrl+P` 在 scope 之间切换，
-并在切换前 flush 正在离开的 scope；因此不会发生 global/project 两个 JSON root 的部分提交。直接文字输入
-过滤 name 与 display group；有 filter 时第一次 `Esc` 清 filter，第二次才关闭页面。
-
-`Space` 只在当前 resource/scope 实际可达的选择集合中循环，绝不补出不存在的 inherit 状态：Global resource
-循环 `enabled <-> disabled`；Project global-visible resource 循环
-`inherit -> enabled -> disabled -> inherit`；Project-private resource 循环 `enabled <-> disabled`。左侧圆点永远
-显示 effective state。Description 沿用原 Loadout 的 selected-resource 内容：名称与类型、description、origin、status；
-只有 conflict locked 时追加 winner 与解除方式，不显示 raw delta、inherited/default 或 policy 调试信息。
-
-页面把修改保存在当前 scope draft 中，只有 `Ctrl+P`、离开 Loadout tab 或关闭 Settings 时才 flush。flush
-失败时丢弃未写 draft、允许正常离开并输出 Pi warning。任何一次成功 flush 都使 host 在整个 Settings surface
-实际关闭后只输出一次：`※ Reload to apply Loadout changes.`；无 change 不输出，成功保存不 hot-apply。
-
-## Settings 页面
-
-Settings page 使用单棵组合树，而不是为每个 provider 创建 router page。`pi-settings` 将 core registry
-的 provider groups 映射到一个 display tree：每个 extension/module 只显示一次 header，之后列出其 group
-和 field。group ID 是 `ext_settings.json` 的全局顶层 key；provider 可自由注册任意 ID，但同一 runtime
-中的重复 ID 会在注册时失败。UI、存储和 callback 始终使用该原始 ID，不自动添加 package namespace。
-
-宽终端布局与 Loadout 一致：左侧可滚动的 group/field list、中间仅溢出时显示的 scrollbar、右侧单一 selected
-field Description block。窄终端将 Description 放在列表之后。router 继续拥有 top tab strip 与 structural
-borders；Settings page 不绘制旧 shell tabs 或自己的外框。
-
-Settings 与 Loadout 都在 tab strip 下保留至少 20 行 page content。router 补的是 surface 空白，而不是
-field/resource 假行；短列表仍只显示真实项目。
-
-field row 维持原 Settings 的稳定 label/value columns、selected slot、disabled dim state、group header、以及仅在
-非编辑 selected field 上启用的 long-label marquee。Description 只显示 field description、Origin、Value、正在编辑
-的 value 或 validation error；它不显示 provider storage path、JSON raw state 或 feature policy。
-
-Settings 使用原 Settings transaction：load 时 merge default 并保留 provider-owned unknown fields；field edit 只
-修改内存 draft；provider callback 接收当前 Pi session ID，而不是 Settings host 的固定标识。关闭或 router tab
-handoff 时，按 provider 顺序执行 `validate -> onChange -> storage.save`。此顺序
-使 callback 与保存可预测，但不同 provider 不构成可回滚 transaction。保存失败保留 draft、显示 error 并阻止离开，
-以便用户重试；不会套用 Loadout JSON delta 的 discard-and-warning 行为。
-
-`Space` toggle boolean；enum、text、number 和 path 使用原 Pi `Input` editor。`list` 进入 nested multi-row editor：items 与 add action 共享一个 focus list，支持新增、编辑、移除与上下排序；`Esc` 先关闭该 editor，才回到 Settings page。list 的 value 是 string array，编辑和保存不以逗号分隔文本重编码。`Tab` 只服务 field 的 `tabCycle`；它不会切换 router page。编辑时 `Esc` cancel editor，非编辑时首个 `Esc` clear filter，随后才 close。
-
-## 验证
-
-实现必须覆盖 draft scope switch、flush failure、reload-notice aggregation、router key fallback、widget
-suspension reference count 与 reload cleanup。可见行为必须在 Pi 或 `tui-replay` 的 narrow/wide 尺寸验证。
+宽终端（≥76列）采用左侧设置项列表与右侧上下文详情的两栏响应式布局；窄终端（<76列）采用原生 Pi 的上下堆叠布局。
+单行值（布尔、枚举、短文本）支持就地切换或挂载 SubPane 编辑，避免复杂的弹窗层级。

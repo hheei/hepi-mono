@@ -377,4 +377,94 @@ describe("Settings provider page", () => {
 		rendered = page.component.render(80).join("\n");
 		expect(rendered).toContain("→ Another");
 	});
+	test("renders native Pi stacked top-bottom layout in narrow viewport", async () => {
+		const provider: SettingsProvider = {
+			id: "narrow",
+			title: "Narrow",
+			groups: [
+				{
+					id: "grp",
+					title: "Group",
+					fields: [
+						{
+							id: "f1",
+							label: "Field 1",
+							type: "boolean",
+							defaultValue: true,
+							description: "Description for field 1 in narrow viewport fixture.",
+							parse: (v) => v === "true",
+						},
+						{
+							id: "f2",
+							label: "Field 2",
+							type: "boolean",
+							defaultValue: false,
+							description: "Description for field 2 in narrow viewport fixture.",
+							parse: (v) => v === "true",
+						},
+					],
+				},
+			],
+			storage: { load: () => undefined, save: () => undefined },
+		};
+		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+		const narrowLines = page.component.render(65);
+		expect(narrowLines).toHaveLength(20);
+		// Top section has list with cursor and labels
+		expect(narrowLines.slice(0, 8).join("\n")).toContain("→ Field 1");
+		// Bottom section has description
+		expect(narrowLines.slice(8).join("\n")).toContain("Description for field 1");
+		// Bottom hint line
+		expect(narrowLines[19]).toContain("↕ navigate");
+	});
+
+	test("enters dedicated Sub Pane on edit without two-sided layout", async () => {
+		const saved: SettingsState[] = [];
+		const provider: SettingsProvider = {
+			id: "text-edit",
+			title: "Text Edit",
+			groups: [
+				{
+					id: "grp",
+					title: "Group",
+					fields: [
+						{
+							id: "host",
+							label: "Hostname",
+							type: "text",
+							defaultValue: "localhost",
+							description: "Target server hostname or IP address.",
+							parse: (v) => v,
+						},
+					],
+				},
+			],
+			storage: {
+				load: () => undefined,
+				save: (s) => {
+					saved.push(s);
+				},
+			},
+		};
+		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+		// Before edit, wide view shows dual pane with value
+		expect(page.component.render(100).join("\n")).toContain("Value: localhost");
+		// Enter edit -> enters Sub Pane
+		await page.handleInput("\r");
+		const subPaneRender = page.component.render(100).join("\n");
+		// Sub Pane takes over view: displays title, description, input box and Enter confirm hint
+		expect(subPaneRender).toContain("Hostname");
+		expect(subPaneRender).toContain("Target server hostname or IP address");
+		expect(subPaneRender).toContain("> localhost");
+		expect(subPaneRender).toContain("Enter confirm · Esc cancel");
+		// Type new value
+		await page.handleInput("!");
+		// Confirm
+		await page.handleInput("\r");
+		// Returns to main list, value updated
+		expect(page.component.render(100).join("\n")).toContain("Value: localhost!");
+		// Close flushes save
+		await page.handleInput("\u001b");
+		expect(saved).toEqual([{ grp: { host: "localhost!" } }]);
+	});
 });
