@@ -40,8 +40,8 @@ unknown target、未授权 alias、target/path capability 不匹配、或 remote
 | Tool | local | SSH alias |
 | --- | --- | --- |
 | `read` | existing local behavior | SFTP text/image read |
-| `grep` | existing local/FFF behavior | remote `rg --json` |
-| `find` | existing local/FFF behavior | remote `rg --files` plus local non-FFF ranking |
+| `grep` | local canonical `rg --json` | remote `rg --json` |
+| `find` | local native/rg find with glob & exclude | remote `rg --files` plus local ranking |
 | `bash` | existing local foreground/background | foreground `ssh` only；cwd 为远端 `$HOME` |
 | `apply_patch` | Patch Core + LocalBackend | Patch Core + SftpBackend（ADR-0018） |
 | `edit` / `write` | existing local Pi native | Publish + SftpBackend（ADR-0019；方言仍是 native；实现中） |
@@ -112,14 +112,14 @@ remote bash 不是包一层本机 `ssh` 的 local bash：
 
 ## 远程搜索
 
-remote target 永远跳过 FFF。`grep` 将 remote ripgrep JSON 转换为既有 canonical grep result/details 与 ToolTui body；它不把 remote shell output 当作 local `rg` output，也不泄漏 remote command construction。
+`grep` 将 remote ripgrep JSON 转换为既有 canonical grep result/details 与 ToolTui body；它不把 remote shell output 当作 local `rg` output，也不泄漏 remote command construction。
 
-remote `find` 先通过 `rg --files` 取得 snapshot，再在 extension 本地完成 non-FFF filtering/ranking：
+remote `find` 先通过 `rg --files` 取得 snapshot，再在 extension 本地完成 filtering/ranking：
 
 - glob 维持 find 的 glob/path constraint；
 - 普通文字是 case-insensitive path subsequence fuzzy match；
 - 多字 query 的每个字都必须命中；
-- details 只报告 `fuzzy` 或 `path` match type，不报告 FFF frecency、Git status 或 index metadata。
+- details 只报告 `fuzzy` 或 `path` match type。
 
 `grep` 专门处理部分权限拒绝：当 ripgrep 的 stderr 全部可明确归类为 `EACCES`/`EPERM`（例如 `Permission denied`）时，已在 stdout 确认的 matches 仍返回；typed details 持久化每项诊断，TUI 与模型明确标示 results may be incomplete。它是 warning，不把已有 matches 变成 tool error。若请求范围没有任何可搜索路径，则 `grep` 返回 structured access-denied error，绝不谎称 `No matches found`。其他 ripgrep exit `2`（regex/glob/path/transport 等）仍失败。这个宽容规则只属于 content `grep`；`find` 的 directory snapshot 不完整时仍严格失败，避免返回看似完整的文件列表。
 
@@ -141,6 +141,6 @@ path 类工具在当前 Trace 使用 warning 色 `host:path`；bash 使用 warni
 - whitelist snapshot/reload behavior、reserved collision、SSH config literal validation 与 no-probe load；
 - SFTP read text/image、remote `rg` conversion、timeout、abort、non-interactive authentication failure、POSIX rejection；
 - remote bash：SSH exec、home cwd、optional timeout、cancel、`output`/`blocking: false` 拒绝、无 RTK、`(host)` header、details.target；
-- remote path rules、FFF bypass、find snapshot cursor、scope limits 与 cursor expiry；
+- remote path rules、find snapshot cursor、scope limits 与 cursor expiry；
 - - list<string> storage validation and Settings TUI narrow/wide add/edit/remove/reorder behavior;
 - real Pi lifecycle smoke checks for target tool rendering, partial/final states and resumed historical output.

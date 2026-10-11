@@ -9,17 +9,12 @@ JavaScript with jsdiff; it never requires a user-managed executable or a package
 native addon. `@hheei/pi-ext-core` is a production dependency, not a separately loaded
 Pi extension. Install `@hheei/pi-settings` separately for the Settings and Loadout UI.
 
-FFF runtime, commands, autocomplete, and enhancement settings are included;
-`fff_multi_grep` is not registered as a model tool. The command surface is
-`/fff status` and `/fff reindex`. Tab completion after `/fff ` and `/todo ` offers the
-available subcommands.
-
 
 ## Python eval and codemode
 
 In addition to canonical filesystem and execution tools, `pi-ext-tools` provides advanced batch execution runtimes:
 
-- **`eval`**: Persistent local Python execution kernel with support for multi-step data wrangling and direct nested tool calls (e.g. `tools.read(...)`, `tools.bash(...)`). State and variable bindings survive across calls until explicitly reset.
+- **`eval`**: Persistent local Python execution kernel with support for multi-step data wrangling and direct nested tool calls (e.g. `tools.read(...)`, `tools.bash(...)`). State and variable bindings survive across calls until explicitly reset. Every cell reports its namespace — the current name count, the names it added, and any import it repeated — so the model can see that state survived instead of re-importing defensively. `names()` returns the current top-level names. Output with no owning cell (a detached task, thread, or raw fd write) is reported to the next cell rather than dropped, and a kernel that is not the one the previous cell used reports `kernel restarted — earlier names are gone`.
 - **`codemode`**: JavaScript sandbox orchestration tool that compiles and evaluates top-level async scripts calling nested tools in parallel or loops via `await Promise.all(...)`, drastically reducing conversational turns. Features budget-aware truncation, image signature verification, and execution metric badges matching Pi 1.0.
 
 ## Background results
@@ -81,6 +76,11 @@ working directory on SSH is the remote home. `blocking`, `async`, and `output` a
 A multi-line command stays in the persisted tool call and model-visible arguments. The renderer
 shows command input separately from output, with timeout and SSH target facts in its header.
 
+A provider forwards only a tool result's text parts, so a failed call states its reason and elapsed
+time there: a cancellation keeps the partial output and appends `Bash aborted after <duration>`, and
+a timeout appends `Command timed out after <timeout>s`. `structuredContent` serves programmatic
+callers such as codemode and python_eval and carries no model-visible meaning.
+
 ## Background Bash
 
 `bg_bash_spawn({ command, timeout? })` starts a local command and returns JSON `{ id, path }`,
@@ -124,5 +124,4 @@ stored value. A pending timer never crosses `agent_start`, a session reset, or
 shutdown. Collapsing changes only the visible frame, never the model-visible
 result, and Ctrl+O still expands everything.
 
-Third-party native packages such as `@ff-labs/fff-node` are unrelated to this
 patch/bash runtime.

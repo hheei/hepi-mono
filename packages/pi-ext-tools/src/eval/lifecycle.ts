@@ -5,7 +5,7 @@ import {
 	registerSettings,
 } from "@hheei/pi-ext-core";
 import { EvalKernelHost } from "./kernel/host.js";
-import type { EvalRuntimeHooks } from "./runtime.js";
+import type { EvalRunResult, EvalRuntimeHooks } from "./runtime.js";
 import { createEvalSettingsProvider } from "./settings.js";
 
 export interface EvalExecutor {
@@ -14,7 +14,7 @@ export interface EvalExecutor {
 		hooks: EvalRuntimeHooks,
 		signal?: AbortSignal,
 		reset?: boolean,
-	): Promise<unknown>;
+	): Promise<EvalRunResult>;
 	dispose(): void;
 }
 

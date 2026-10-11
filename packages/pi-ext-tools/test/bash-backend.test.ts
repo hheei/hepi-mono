@@ -10,10 +10,10 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
-import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
-import { DEFAULT_FFF_SETTINGS } from "../src/fff/settings.js";
+import { DEFAULT_BASH_SETTINGS } from "../src/bash-settings.js";
+import { registerBgBashTools as registerTaskTools } from "../src/bg-bash-tools.js";
+import { createFffRuntimeState, type FffRuntimeState } from "../src/session-state.js";
 import { TargetRuntime } from "../src/targets.js";
-import { registerTaskTools } from "../src/task-tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { roleTheme } from "./fixtures/theme.js";
 
@@ -149,10 +149,48 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 			sessionManager: { getLeafId: () => null },
 		} as unknown as ExtensionToolContext,
 	);
+	// Nothing ran, so there is no elapsed time to report.
 	expect(result).toMatchObject({
 		content: [{ type: "text", text: "Bash aborted" }],
 		details: { error: "aborted" },
 	});
+});
+
+test("bash reports the elapsed time and keeps partial output when cancelled", async (): Promise<void> => {
+	const bash = bashTool();
+	const controller = new AbortController();
+	setTimeout(() => controller.abort(), 120);
+	const result = await bash.execute(
+		"bash-aborted-running",
+		{ command: "printf partial; sleep 5" },
+		controller.signal,
+		() => undefined,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
+	);
+	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+	expect(text).toMatch(/^partial\n\nBash aborted after \d+(\.\d+)?(ms|s)$/);
+	expect(result.details).toMatchObject({ error: "aborted" });
+});
+
+test("bash names the expired budget when a command times out", async (): Promise<void> => {
+	const bash = bashTool();
+	const result = await bash.execute(
+		"bash-timed-out",
+		{ command: "printf started; sleep 5", timeout: 0.2 },
+		undefined,
+		() => undefined,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
+	);
+	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+	expect(text).toBe("started\n\nCommand timed out after 0.2s");
+	expect(result.details).toMatchObject({ timedOut: true, exitCode: 124 });
+	expect(result.isError).toBe(true);
 });
 
 test("bash exposes only background use guidance", (): void => {
@@ -174,7 +212,8 @@ test("task-control tools keep usage guidance in descriptions without changing sy
 		} as unknown as ExtensionAPI,
 		createFffRuntimeState(),
 	);
-	expect(tools.map((tool) => tool.promptGuidelines)).toEqual([undefined, undefined]);
+	expect(toolFor(tools, "bg_bash_get").promptGuidelines).toBeUndefined();
+	expect(toolFor(tools, "bg_bash_stop").promptGuidelines).toBeUndefined();
 	expect(toolFor(tools, "bg_bash_get").description).toContain("Inspect background Bash runtime");
 	expect(toolFor(tools, "bg_bash_stop").description).toContain(
 		"Stop one background Bash process tree",
@@ -269,6 +308,32 @@ test("bash keeps its unexpanded body to the shared ToolTui height cap", (): void
 	expect(completedLines.at(-1)).toContain("line 30");
 });
 
+test("bash reports the duration Pi measured for a finished call", (): void => {
+	const bash = bashTool();
+	const theme = roleTheme;
+	const body = bash
+		.renderResult?.(
+			{ content: [{ type: "text", text: "done" }], details: { totalLines: 1 } },
+			{ expanded: false, isPartial: false },
+			theme,
+			bashContext("printf done", false, { durationMs: 12_340 }),
+		)
+		.render(80)
+		.join("\n");
+	// The body carries no footer while running: only a finished call has a measured duration.
+	expect(body).toContain("<dim>Took 12.3s</dim>");
+	const running = bash
+		.renderResult?.(
+			{ content: [{ type: "text", text: "done" }], details: { totalLines: 1 } },
+			{ expanded: false, isPartial: true },
+			theme,
+			bashContext("printf done", true),
+		)
+		.render(80)
+		.join("\n");
+	expect(running).not.toContain("Took");
+});
+
 test("bash omitted-line count uses logical lines, not wraps or the tail window", (): void => {
 	const bash = bashTool();
 	const theme = roleTheme;
@@ -348,8 +413,7 @@ test("bash executes authorized SSH targets from remote home", async (): Promise<
 		try {
 			const tools: ToolDefinition[] = [];
 			const state: FffRuntimeState = {
-				getRuntime: () => undefined,
-				getSettings: () => DEFAULT_FFF_SETTINGS,
+				getSettings: () => DEFAULT_BASH_SETTINGS,
 				getTasks: () => undefined,
 				getBashJobs: () => undefined,
 				getTargetRuntime: () => runtime,
