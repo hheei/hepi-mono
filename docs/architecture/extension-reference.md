@@ -23,8 +23,7 @@ exception because it is not a Pi extension.
 
 `pi-ext-tools` is the canonical tool owner for an explicit catalog of Pi upstream/basic
 tool replacements. It is a concrete extension, not an ext-core module: it owns each catalog tool's
-upstream compatibility and renderer, while ext-core transports registration. The catalog and integrated
-FFF enhancement boundary are defined in [pi-ext-tools 基础工具替换](../ext-tools/README.md).
+upstream compatibility and renderer, while ext-core transports registration. The catalog tool boundaries are defined in [pi-ext-tools 基础工具替换](../ext-tools/README.md).
 
 `@hheei/pi-ext-core` owns generic coordination mechanisms, plus the explicit Loadout and page-router
 contracts recorded in its ADRs:
