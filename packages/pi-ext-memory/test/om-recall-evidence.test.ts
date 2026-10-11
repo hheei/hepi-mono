@@ -4,10 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	formatRecallCallForTui,
 	formatRecallRenderedResultForTui,
+	OM_RECALL_EVIDENCE_TOOL_NAME,
+	omRecallEvidenceTool,
 	RECALL_OBSERVATION_TOOL_NAME,
 	recallObservationTool,
+	registerRecallEvidenceTool,
 	registerRecallTool,
-} from "../src/tools/recall-observation.js";
+} from "../src/tools/om-recall-evidence.js";
 import {
 	gateEntry,
 	observation,
@@ -30,14 +33,20 @@ function fakeCtx(entries: TestEntry[]) {
 
 async function execute(id: string, entries: TestEntry[]) {
 	const { ctx, getBranch, getEntries } = fakeCtx(entries);
-	const rawResult = await recallObservationTool.execute(
+	const rawResult = await omRecallEvidenceTool.execute(
 		"tool-1",
 		{ id },
-		undefined as any,
-		undefined as any,
-		ctx as any,
+		undefined as unknown as AbortSignal,
+		undefined as unknown as (update: unknown) => void,
+		ctx as unknown as Parameters<typeof omRecallEvidenceTool.execute>[4],
 	);
-	const result = rawResult as { content: typeof rawResult.content; details?: any };
+	const result = rawResult as unknown as {
+		content: (typeof rawResult)["content"];
+		details?: Record<string, unknown> & {
+			matches: Array<{ observation: { status: string } }>;
+			status?: string;
+		};
+	};
 	const text = result.content
 		.filter((part): part is { type: "text"; text: string } => part.type === "text")
 		.map((part) => part.text)
@@ -45,13 +54,16 @@ async function execute(id: string, entries: TestEntry[]) {
 	return { result, text, getBranch, getEntries };
 }
 
-describe("V3 recall tool", () => {
+describe("om_recall_evidence tool", () => {
 	it("keeps the public tool name, metadata, and TUI call rendering", () => {
 		const pi = { registerTool: vi.fn() };
-		registerRecallTool(pi as unknown as ExtensionAPI);
+		registerRecallEvidenceTool(pi as unknown as ExtensionAPI);
 
+		expect(OM_RECALL_EVIDENCE_TOOL_NAME).toBe("om_recall_evidence");
 		expect(RECALL_OBSERVATION_TOOL_NAME).toBe("om_recall_evidence");
-		expect(recallObservationTool.name).toBe("om_recall_evidence");
+		expect(omRecallEvidenceTool.name).toBe("om_recall_evidence");
+		expect(recallObservationTool).toBe(omRecallEvidenceTool);
+		expect(registerRecallTool).toBe(registerRecallEvidenceTool);
 		expect(recallObservationTool.label).toBe("Recall memory evidence");
 		expect(formatRecallCallForTui("aaaaaaaaaaaa")).toBe("om_recall_evidence aaaaaaaaaaaa");
 		expect(pi.registerTool).toHaveBeenCalledWith(
@@ -74,10 +86,20 @@ describe("V3 recall tool", () => {
 		expect(getBranch).toHaveBeenCalledOnce();
 		expect(getEntries).not.toHaveBeenCalled();
 		expect(result.details?.status).toBe("ok");
-		expect(result.details?.matches[0].observation.status).toBe("active");
+		expect(result.details?.matches[0]?.observation.status).toBe("active");
 		expect(text).toContain("I like tea.");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰄴 observation");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰄴 success");
+		expect(
+			formatRecallRenderedResultForTui(
+				result as unknown as Parameters<typeof formatRecallRenderedResultForTui>[0],
+				false,
+			),
+		).toContain("󰄴 observation");
+		expect(
+			formatRecallRenderedResultForTui(
+				result as unknown as Parameters<typeof formatRecallRenderedResultForTui>[0],
+				false,
+			),
+		).toContain("󰄴 success");
 	});
 
 	it("renders dropped observations as recallable but dropped", async () => {
@@ -95,9 +117,12 @@ describe("V3 recall tool", () => {
 		];
 
 		const { result, text } = await execute("aaaaaaaaaaaa", entries);
-		const tui = formatRecallRenderedResultForTui(result as any, false);
+		const tui = formatRecallRenderedResultForTui(
+			result as unknown as Parameters<typeof formatRecallRenderedResultForTui>[0],
+			false,
+		);
 
-		expect(result.details?.matches[0].observation.status).toBe("dropped");
+		expect(result.details?.matches[0]?.observation.status).toBe("dropped");
 		expect(text).toContain("dropped from active memory but remains recallable");
 		expect(tui).toContain("[dropped]");
 		expect(tui).toContain("󰀪 note");
@@ -155,7 +180,12 @@ describe("V3 recall tool", () => {
 
 		expect(result.details?.status).toBe("not_found");
 		expect(text).toContain("No observation or reflection with id aaaaaaaaaaaa was found");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰀪 not found");
+		expect(
+			formatRecallRenderedResultForTui(
+				result as unknown as Parameters<typeof formatRecallRenderedResultForTui>[0],
+				false,
+			),
+		).toContain("󰀪 not found");
 	});
 
 	it("answers with the disabled notice instead of a memory when the session gate is off", async () => {
@@ -171,7 +201,12 @@ describe("V3 recall tool", () => {
 		expect(result.details?.status).toBe("disabled");
 		expect(text).toContain("om is off for this session");
 		expect(text).toContain("/om on");
-		expect(formatRecallRenderedResultForTui(result as any, false)).toContain("󰀪 disabled");
+		expect(
+			formatRecallRenderedResultForTui(
+				result as unknown as Parameters<typeof formatRecallRenderedResultForTui>[0],
+				false,
+			),
+		).toContain("󰀪 disabled");
 		expect(text).not.toContain("source text");
 	});
 

@@ -34,7 +34,7 @@ import {
 } from "./session-ledger/index.js";
 import { renderSummary } from "./session-ledger/render-summary.js";
 import { createMemorySettingsProvider } from "./settings.js";
-import { registerRecallTool } from "./tools/recall-observation.js";
+import { registerRecallEvidenceTool } from "./tools/om-recall-evidence.js";
 
 export default function observationalMemory(pi: ExtensionAPI): void {
 	registerHindsightRenderers(pi);
@@ -49,7 +49,7 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 	registerOmCommand(pi, runtime, {
 		getHindsightDiagnostics: () => hindsight?.diagnostics(lastFileOverride),
 	});
-	registerRecallTool(pi);
+	registerRecallEvidenceTool(pi);
 	if (typeof pi.registerMarkdownTransformer === "function") {
 		pi.registerMarkdownTransformer(transformHindsightMarkdown);
 	}
