@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { isRecord, setPromptSection, setSectionBullet } from "@hheei/pi-ext-core";
+import { isRecord, syncDeferredToolPrompt } from "@hheei/pi-ext-core";
 import { discoverAgents } from "./agent-resolver.js";
 import type { SubagentManager } from "./manager.js";
 import { formatAvailableAgents } from "./tools.js";
@@ -177,25 +177,16 @@ export function registerInteractiveToolActivation(
 		if (sections !== undefined) {
 			const activeTools = new Set(pi.getActiveTools());
 			const isInteractiveActive = names.some((name) => activeTools.has(name));
-			if (isInteractiveActive) {
-				setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", undefined);
-				const guidance = await buildSubagentPromptGuidance(context.cwd ?? process.cwd());
-				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, guidance);
-			} else {
-				setPromptSection(sections, SUBAGENT_PROMPT_SECTION, undefined);
-				if (activeTools.has("tool_search")) {
-					setSectionBullet(
-						sections,
-						DEFERRED_TOOLS_SECTION,
-						"subagents",
-						SUBAGENT_TOOL_SEARCH_BULLET,
-					);
-				} else if (activeTools.has("codemode")) {
-					setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", SUBAGENT_CODEMODE_BULLET);
-				} else {
-					setSectionBullet(sections, DEFERRED_TOOLS_SECTION, "subagents", undefined);
-				}
-			}
+			syncDeferredToolPrompt(sections, activeTools, {
+				key: "subagents",
+				active: isInteractiveActive,
+				guidanceSection: SUBAGENT_PROMPT_SECTION,
+				guidanceContent: isInteractiveActive
+					? await buildSubagentPromptGuidance(context.cwd ?? process.cwd())
+					: undefined,
+				toolSearchBullet: SUBAGENT_TOOL_SEARCH_BULLET,
+				codemodeBullet: SUBAGENT_CODEMODE_BULLET,
+			});
 		}
 	};
 	const unbindBeforeAgent = pi.on("before_agent_start", unbindBeforeAgentStart);

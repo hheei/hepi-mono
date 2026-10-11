@@ -75,17 +75,6 @@ export {
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
 export type {
-	LoadoutInventoryObserver,
-	LoadoutResourceDetail,
-	LoadoutResourceDetailContext,
-	LoadoutResourceMetadata,
-} from "./loadout.js";
-export {
-	observeLoadoutInventory,
-	registerLoadoutResource,
-	setSessionToolsActive,
-} from "./loadout.js";
-export type {
 	CreateModelSelectionFieldOptions,
 	ModelSelectionCandidate,
 	ModelSelectionOption,
@@ -111,7 +100,8 @@ export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { isSubagentProcess, runCommand, shellQuote } from "./process.js";
-export { setPromptSection, setSectionBullet } from "./prompt-section.js";
+export type { DeferredToolPromptSpec } from "./prompt-section.js";
+export { setPromptSection, setSectionBullet, syncDeferredToolPrompt } from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
 	BottomRailBorderOptions,
@@ -143,6 +133,7 @@ export {
 	provideService,
 	waitForService,
 } from "./service.js";
+export { setSessionToolsActive } from "./session-tools.js";
 export type {
 	JsonSettingsStorageOptions,
 	SettingChange,
@@ -165,12 +156,6 @@ export {
 	getRuntimeSettingsRegistry,
 	registerSettings,
 } from "./settings.js";
-export {
-	clearDisabledSkillKeys,
-	getDisabledSkillKeys,
-	isSkillEnabled,
-	setDisabledSkillKeys,
-} from "./skill-state.js";
 export type {
 	CompletionFailure,
 	CompletionSubagentHandle,
@@ -253,7 +238,13 @@ export {
 	TaskRegistryClosedError,
 } from "./tasks.js";
 export { escapeXml } from "./text.js";
-export type { ToolPresentation, ToolPresentationProvider } from "./tool-presentation.js";
+export type {
+	BaseToolPresentation,
+	DiffToolPresentation,
+	TextToolPresentation,
+	ToolPresentation,
+	ToolPresentationProvider,
+} from "./tool-presentation.js";
 export {
 	createToolPresentationRenderers,
 	getRegisteredToolPresentationProvider,

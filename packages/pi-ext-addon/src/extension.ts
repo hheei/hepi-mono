@@ -4,7 +4,6 @@ import {
 	ensureSubagentCoordinator,
 	errorMessage,
 	getRuntimeSettingsRegistry,
-	isSkillEnabled,
 	registerExtensionLifecycle,
 	registerSettings,
 	type SettingsState,
@@ -38,7 +37,7 @@ import { registerSessionRecoveryGuard } from "./session-recovery-guard.js";
 
 /** Registers Pi opt-in host enhancement features: dollar skill references and auto session titles. */
 export default function piExtAddonExtension(pi: ExtensionAPI): void {
-	const dollarSkill = createDollarSkillFeature(pi, (command) => isSkillEnabled(pi, command.name));
+	const dollarSkill = createDollarSkillFeature(pi);
 	registerDollarSkillInputTransform(pi, dollarSkill);
 	const dollarSkillSettings = createDollarSkillSettingsProvider({
 		onChange: (config) => dollarSkill.setConfig(config),

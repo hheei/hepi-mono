@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { setPromptSection, setSectionBullet } from "../src/index.js";
+import { setPromptSection, setSectionBullet, syncDeferredToolPrompt } from "../src/index.js";
 
 describe("setPromptSection", () => {
 	test("adds and replaces one section without touching the others", () => {
@@ -66,6 +66,55 @@ describe("setSectionBullet", () => {
 
 		// Removing the last bullet deletes the entire section
 		setSectionBullet(sections, "deferred_tools", "background bash", "");
+		expect(sections).toEqual({});
+	});
+});
+
+describe("syncDeferredToolPrompt", () => {
+	const spec = {
+		key: "background bash",
+		guidanceSection: "bg_bash_guidance",
+		guidanceContent: "Run background tasks via bg_bash_spawn.",
+		toolSearchBullet: 'Shell tasks. Use tool_search ({ query: "bg_bash" }).',
+		codemodeBullet: "Shell tasks. Use tools.bg_bash_spawn.",
+	};
+
+	test("sets guidance section and clears deferred bullet when tool is active", () => {
+		const sections: Record<string, string> = {};
+		const activeTools = new Set(["bg_bash_spawn", "tool_search"]);
+		syncDeferredToolPrompt(sections, activeTools, { ...spec, active: true });
+		expect(sections).toEqual({
+			bg_bash_guidance: "Run background tasks via bg_bash_spawn.",
+		});
+	});
+
+	test("sets tool_search bullet and removes guidance when tool is deferred and tool_search is active", () => {
+		const sections: Record<string, string> = {
+			bg_bash_guidance: "Run background tasks via bg_bash_spawn.",
+		};
+		const activeTools = new Set(["tool_search"]);
+		syncDeferredToolPrompt(sections, activeTools, { ...spec, active: false });
+		expect(sections).toEqual({
+			deferred_tools: '- background bash: Shell tasks. Use tool_search ({ query: "bg_bash" }).',
+		});
+	});
+
+	test("sets codemode bullet when tool is deferred and only codemode is active", () => {
+		const sections: Record<string, string> = {};
+		const activeTools = new Set(["codemode"]);
+		syncDeferredToolPrompt(sections, activeTools, { ...spec, active: false });
+		expect(sections).toEqual({
+			deferred_tools: "- background bash: Shell tasks. Use tools.bg_bash_spawn.",
+		});
+	});
+
+	test("removes bullet and guidance when neither discovery tool is active", () => {
+		const sections: Record<string, string> = {
+			deferred_tools: "- background bash: Shell tasks",
+			bg_bash_guidance: "Old guidance",
+		};
+		const activeTools = new Set(["read", "write"]);
+		syncDeferredToolPrompt(sections, activeTools, { ...spec, active: false });
 		expect(sections).toEqual({});
 	});
 });

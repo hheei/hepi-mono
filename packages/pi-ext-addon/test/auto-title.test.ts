@@ -145,7 +145,7 @@ describe("Pi Auto Title", () => {
 		).rejects.toThrow("unavailable");
 	});
 
-	test("wires the Loadout settings-change callback", async () => {
+	test("wires the settings-change callback", async () => {
 		const calls: Array<{ enabled: boolean; model: string }> = [];
 		const provider = createAutoTitleSettingsProvider({
 			modelOptions: [{ value: "cx/gpt-5.6-luna", label: "cx/gpt-5.6-luna" }],
