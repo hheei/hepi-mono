@@ -17,6 +17,7 @@ const builtPackageNames = [
 	"pi-ext-memory",
 	"pi-ext-tools",
 	"pi-ext-ui",
+	"pi-loadout",
 	"pi-optimizer",
 	"pi-settings",
 	"pi-status",
