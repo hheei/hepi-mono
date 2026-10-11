@@ -93,3 +93,45 @@ export function setSectionBullet(
 		sections[sectionName] = nextLines.join("\n");
 	}
 }
+
+export interface DeferredToolPromptSpec {
+	readonly key: string;
+	readonly active: boolean;
+	readonly guidanceSection: string;
+	readonly guidanceContent?: string | undefined;
+	readonly toolSearchBullet: string;
+	readonly codemodeBullet: string;
+}
+
+/**
+ * Synchronizes a deferred tool's discovery bullets and activation guidance.
+ *
+ * When `spec.active` is true:
+ * - Clears the discovery bullet from `deferred_tools`.
+ * - Sets the guidance section with `spec.guidanceContent`.
+ *
+ * When `spec.active` is false:
+ * - Clears the guidance section.
+ * - If `tool_search` is active, sets the bullet to `spec.toolSearchBullet`.
+ * - Else if `codemode` is active, sets the bullet to `spec.codemodeBullet`.
+ * - Otherwise, removes the bullet.
+ */
+export function syncDeferredToolPrompt(
+	sections: Record<string, string>,
+	activeTools: ReadonlySet<string>,
+	spec: DeferredToolPromptSpec,
+): void {
+	if (spec.active) {
+		setSectionBullet(sections, "deferred_tools", spec.key, undefined);
+		setPromptSection(sections, spec.guidanceSection, spec.guidanceContent);
+	} else {
+		setPromptSection(sections, spec.guidanceSection, undefined);
+		if (activeTools.has("tool_search")) {
+			setSectionBullet(sections, "deferred_tools", spec.key, spec.toolSearchBullet);
+		} else if (activeTools.has("codemode")) {
+			setSectionBullet(sections, "deferred_tools", spec.key, spec.codemodeBullet);
+		} else {
+			setSectionBullet(sections, "deferred_tools", spec.key, undefined);
+		}
+	}
+}

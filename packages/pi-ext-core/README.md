@@ -70,15 +70,13 @@
 | `registerExtensionHook(context, key, hook)` | 函数 | 向指定扩展点注册动态钩子，生命周期结束自动解绑 |
 | `openExtensionPoint(pi, key, options?)` | 函数 | 开放扩展点并执行挂载的钩子集，支持动态订阅与取消信号 |
 
-### 6. 工具托管与装配清单 (Managed Tools & Loadout)
+### 6. 会话工具管理 (Session Tools)
 
-管理非原生工具的可见性、按需激活策略与统一资源元数据。
+管理非原生工具在会话生命周期内的按需激活与安全退出。
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
 | `setSessionToolsActive(context, names, active)` | 函数 | 批量变更当前会话工具的激活集合，并在退出时自动清理 |
-| `registerLoadoutResource(pi, resource)` | 函数 | 注册技能、扩展或自定义资源到装配清单 |
-| `observeLoadoutInventory(pi, observer)` | 函数 | 监听装配清单变化事件 |
 
 ### 7. TUI 视图路由与自定义界面 (Page Router & Surfaces)
 
@@ -173,7 +171,6 @@
 | `fitRow(text, width)` | 函数 | 将 ANSI 彩色单行文本安全截断或补充至指定单元格宽度 |
 | `isRecord(value)` | 函数 | 严格类型守卫：判定值是否为非数组、非 null 的 Plain Object |
 | `escapeXml(str)` | 函数 | 转义 XML 关键字符（`&<>"'`） |
-| `isSkillEnabled(pi, name)` 等 | 函数 | 查询与管理当前会话技能启用/禁用状态 |
 | `textToolResult(text, isError?)` | 函数 | 构造标准文本型工具执行结果对象 |
 | `agentResultText(result)` | 函数 | 从工具执行结果中提取主要文本内容 |
 | `formatDuration(ms)` | 函数 | 规范化耗时格式化（毫秒或带小数点的秒） |

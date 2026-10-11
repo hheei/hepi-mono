@@ -88,4 +88,24 @@ describe("tool-owned presentation", () => {
 			"Permission denied\nbridge disconnected",
 		);
 	});
+
+	test("native renderers fallback cleanly displays diff text for diff presentation", () => {
+		const pi = host();
+		const diffText = "@@ -1,2 +1,2 @@\n-old\n+new";
+		const native = createToolPresentationRenderers(pi, "edit", () => ({
+			kind: "diff",
+			path: "foo.txt",
+			summary: "foo.txt (+1 -1)",
+			diff: diffText,
+			stats: { additions: 1, deletions: 1 },
+		}));
+		const res = native.renderResult!(
+			textToolResult("ok", undefined),
+			{ expanded: false, isPartial: false },
+			theme,
+			context,
+		).render(80);
+		expect(res.join("\n")).toContain("-old");
+		expect(res.join("\n")).toContain("+new");
+	});
 });

@@ -10,13 +10,26 @@ import { runtimeIdentity } from "./runtime-identity.js";
 import { agentResultText } from "./tool-result.js";
 
 /** Content belongs to the tool; optional consumers own its interactive frame. */
-export interface ToolPresentation {
+export interface BaseToolPresentation {
 	readonly summary: string;
 	readonly request?: string;
 	readonly output?: string;
 	readonly collapsedRows?: readonly string[];
 	readonly copy?: { readonly primary: string; readonly full?: string };
 }
+
+export interface TextToolPresentation extends BaseToolPresentation {
+	readonly kind?: "text";
+}
+
+export interface DiffToolPresentation extends BaseToolPresentation {
+	readonly kind: "diff";
+	readonly path: string;
+	readonly diff: string;
+	readonly stats?: { readonly additions: number; readonly deletions: number };
+}
+
+export type ToolPresentation = TextToolPresentation | DiffToolPresentation;
 
 export type ToolPresentationProvider = (
 	args: unknown,
@@ -63,9 +76,14 @@ export function createToolPresentationRenderers(
 		renderResult(result, _options, theme, context) {
 			const presentation = present(context.args, result, theme);
 			const isError = context.isError || result.isError === true;
-			const output = isError
-				? agentResultText(result)
-				: (presentation.output ?? agentResultText(result));
+			let output: string;
+			if (isError) {
+				output = agentResultText(result);
+			} else if (presentation.kind === "diff") {
+				output = presentation.output ?? presentation.diff;
+			} else {
+				output = presentation.output ?? agentResultText(result);
+			}
 			return new Text(
 				theme.fg(isError ? "error" : "toolOutput", stripTerminalSequences(output)),
 				0,
