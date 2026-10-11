@@ -16,7 +16,14 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolPresentationProvider } from "@hheei/pi-ext-core";
 import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } from "./renderer.js";
-import { type Collapsible, type FoldLevel, ToolView, transitionFoldLevel } from "./tool-view.js";
+import {
+	type Collapsible,
+	type FoldLevel,
+	ToolView,
+	toContentRows,
+	toSingleRow,
+	transitionFoldLevel,
+} from "./tool-view.js";
 import type { CapturedToolCall } from "./tracker.js";
 
 function truncate(text: string, width: number): string {
@@ -140,6 +147,15 @@ export class NestedCallsView implements Component, Collapsible {
 	#copiedIndex: number | undefined = undefined;
 	#copiedTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 	#lineMapping: LineMapEntry[] = [];
+	#renderCache:
+		| {
+				readonly width: number;
+				readonly copiedIndex: number | undefined;
+				readonly levelsKey: string;
+				readonly lines: string[];
+				readonly lineMapping: LineMapEntry[];
+		  }
+		| undefined;
 
 	constructor(props: NestedCallsViewProps) {
 		this.#props = props;
@@ -172,6 +188,7 @@ export class NestedCallsView implements Component, Collapsible {
 					this.#copiedIndex = copiedState.index;
 					this.#copiedTimer = setTimeout(() => {
 						this.#copiedIndex = undefined;
+						this.#renderCache = undefined;
 						const s = this.#props.stateHolder;
 						if (s !== undefined) {
 							delete s[NESTED_CALLS_COPIED_KEY];
@@ -200,12 +217,22 @@ export class NestedCallsView implements Component, Collapsible {
 		return this.#inMemoryLevels.get(index) ?? 0;
 	}
 
+	#getLevelsKey(): string {
+		const parts: string[] = [];
+		for (let i = 0; i < this.#props.calls.length; i++) {
+			const level = this.#getExpansionLevel(i);
+			if (level !== 0) parts.push(`${i}:${level}`);
+		}
+		return parts.join(",");
+	}
+
 	#setExpansionLevel(index: number, level: FoldLevel): void {
 		if (level === 0) {
 			this.#inMemoryLevels.delete(index);
 		} else {
 			this.#inMemoryLevels.set(index, level);
 		}
+		this.#renderCache = undefined;
 		const state = this.#props.stateHolder;
 		if (state !== undefined) {
 			const record: Record<string, number> = {};
@@ -237,6 +264,7 @@ export class NestedCallsView implements Component, Collapsible {
 		const durationMs = 1500;
 		const until = Date.now() + durationMs;
 		this.#copiedIndex = callIndex;
+		this.#renderCache = undefined;
 
 		const state = this.#props.stateHolder;
 		if (state !== undefined) {
@@ -251,6 +279,7 @@ export class NestedCallsView implements Component, Collapsible {
 		}
 		this.#copiedTimer = setTimeout(() => {
 			this.#copiedIndex = undefined;
+			this.#renderCache = undefined;
 			const s = this.#props.stateHolder;
 			if (s !== undefined) {
 				delete s[NESTED_CALLS_COPIED_KEY];
@@ -263,6 +292,17 @@ export class NestedCallsView implements Component, Collapsible {
 	}
 
 	render(width: number): string[] {
+		const safeWidth = Math.max(1, width);
+		const levelsKey = this.#getLevelsKey();
+		if (
+			this.#renderCache !== undefined &&
+			this.#renderCache.width === safeWidth &&
+			this.#renderCache.copiedIndex === this.#copiedIndex &&
+			this.#renderCache.levelsKey === levelsKey
+		) {
+			this.#lineMapping = this.#renderCache.lineMapping;
+			return this.#renderCache.lines;
+		}
 		this.#lineMapping = [];
 		const { calls, theme } = this.#props;
 		const lines: string[] = [];
@@ -302,7 +342,7 @@ export class NestedCallsView implements Component, Collapsible {
 				presentation !== undefined
 					? `${toolName} ${presentation.summary}`
 					: (inline?.summary ?? (argText ? `${toolName} ${argText}` : toolName));
-			mainText = stripTerminalSequences(mainText.trim());
+			mainText = stripTerminalSequences(toSingleRow(mainText));
 
 			const duration = formatDuration(call.durationMs);
 			if (duration) {
@@ -330,17 +370,26 @@ export class NestedCallsView implements Component, Collapsible {
 
 			if (isExpanded) {
 				const bodyLines = this.#renderChildBody(call, Math.max(1, width - 2), expansionLevel);
-				for (const bodyLine of bodyLines) {
-					const bodyLineIdx = lines.length;
-					lines.push(truncate(`  ${bodyLine}`, width));
-					this.#lineMapping[bodyLineIdx] = {
-						callIndex: i,
-						isHeader: false,
-					};
+				for (const rawLine of bodyLines) {
+					for (const bodyLine of toContentRows(rawLine)) {
+						const bodyLineIdx = lines.length;
+						lines.push(truncate(`  ${bodyLine}`, width));
+						this.#lineMapping[bodyLineIdx] = {
+							callIndex: i,
+							isHeader: false,
+						};
+					}
 				}
 			}
 		}
 
+		this.#renderCache = {
+			width: safeWidth,
+			copiedIndex: this.#copiedIndex,
+			levelsKey,
+			lines,
+			lineMapping: this.#lineMapping,
+		};
 		return lines;
 	}
 
@@ -435,7 +484,7 @@ export class NestedCallsView implements Component, Collapsible {
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		if (event.type !== "click" || event.button !== "left") return undefined;
 		const mapping = this.#lineMapping[event.y];
-		if (!mapping) return undefined;
+		if (!mapping) return { handled: true };
 
 		if (mapping.isHeader) {
 			if (mapping.copyRegion && event.x >= mapping.copyRegion.startX) {
@@ -451,7 +500,7 @@ export class NestedCallsView implements Component, Collapsible {
 			return { handled: true, render: true };
 		}
 
-		return { handled: true, render: true };
+		return { handled: true };
 	}
 
 	dispose(): void {
@@ -459,6 +508,7 @@ export class NestedCallsView implements Component, Collapsible {
 			clearTimeout(this.#copiedTimer);
 			this.#copiedTimer = undefined;
 		}
+		this.#renderCache = undefined;
 	}
 
 	collapseAll(): void {
@@ -472,9 +522,11 @@ export class NestedCallsView implements Component, Collapsible {
 			state[NESTED_CALLS_EXPANDED_KEY] = {};
 		}
 		this.#lineMapping = [];
+		this.#renderCache = undefined;
 	}
 
 	invalidate(): void {
 		this.#lineMapping = [];
+		this.#renderCache = undefined;
 	}
 }

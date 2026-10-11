@@ -4,7 +4,7 @@ import type {
 	ToolRendererResolver,
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { type Component, Text, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import extension from "../src/extension.js";
 import {
@@ -410,6 +410,28 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(level1.join("\n")).not.toContain("Script completed");
 	});
 
+	test("a container tool keeps its call row visible until a result exists", () => {
+		const resolve = setupResolver();
+		for (const [toolName, expected] of [
+			["python_eval", "◐ python_eval"],
+			["codemode", "codemode"],
+		] as const) {
+			const renderers = resolve(toolName, () => undefined)!;
+			const running = createMockContext({
+				state: {},
+				args: toolName === "codemode" ? { code: "const a = 1;" } : { code: "print(1)" },
+				isPartial: true,
+				argsComplete: true,
+				executionStarted: true,
+			});
+			// Execution started and no result yet: the call row is the only thing on screen, so
+			// hiding it here would leave the whole tool block blank.
+			const lines = renderers.renderCall!(running.args, plainTheme, running).render(80);
+			expect(lines).toHaveLength(1);
+			expect(lines[0]).toContain(expected);
+		}
+	});
+
 	test("codemode keeps one header: no spinner while running, and the call row leaves once a result exists", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
@@ -421,6 +443,9 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			argsComplete: true,
 			executionStarted: true,
 		});
+		// Host order: the call renderer runs first and stores its view, then the result renderer
+		// hides it in place, so one updateDisplay pass shows one header.
+		const runningCall = renderers.renderCall!(running.args, plainTheme, running);
 		const partial = renderers.renderResult!(
 			{
 				content: [{ type: "text", text: "" }],
@@ -432,16 +457,14 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			plainTheme,
 			running,
 		);
-		const runningLines = [
-			...renderers.renderCall!(running.args, plainTheme, running).render(80),
-			...partial.render(80),
-		];
+		const runningLines = [...runningCall.render(80), ...partial.render(80)];
 		expect(runningLines.filter((line) => line.includes("codemode"))).toEqual([
 			expect.stringContaining("codemode 1 call"),
 		]);
 		expect(runningLines.join("\n")).not.toContain("◐ codemode");
 		expect(runningLines.join("\n")).toContain("◐ agent_get");
 
+		const failedCall = renderers.renderCall!(running.args, plainTheme, running);
 		const failed = renderers.renderResult!(
 			{
 				content: [{ type: "text", text: "Script failed\nWall time 0.0 seconds\nOutput:\nboom" }],
@@ -452,10 +475,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			plainTheme,
 			createMockContext({ state, isError: true }),
 		);
-		const failedLines = [
-			...renderers.renderCall!(running.args, plainTheme, running).render(80),
-			...failed.render(80),
-		];
+		const failedLines = [...failedCall.render(80), ...failed.render(80)];
 		expect(failedLines.filter((line) => line.includes("✗ codemode"))).toEqual([
 			expect.stringContaining("✗ codemode 0ms"),
 		]);
@@ -549,7 +569,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			args: {
 				code: 'res = await tools.read({ path: "a.ts" }); text(res)',
 				reset: true,
-				timeout: 30,
+				timeout_ms: 30000,
 			},
 			durationMs: 200,
 		});
@@ -1369,5 +1389,288 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const linesWithRead = ncv.render(80);
 		// Output lines should contain the code line
 		expect(linesWithRead.some((l) => l.includes("const port = 3000;"))).toBe(true);
+	});
+
+	test("NestedCallsView absorbs clicks on body and unmapped lines without bubbling undefined", () => {
+		const state: Record<string, unknown> = {};
+		const ncv = new NestedCallsView({
+			calls: [
+				{
+					id: "call-1",
+					toolName: "bash",
+					args: { command: "seq 1 5" },
+					result: {
+						content: [{ type: "text", text: "1\n2\n3\n4\n5" }],
+						details: {},
+					},
+				},
+				{
+					id: "call-2",
+					toolName: "bash",
+					args: { command: "echo hello" },
+					result: {
+						content: [{ type: "text", text: "hello" }],
+						details: {},
+					},
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext(),
+			stateHolder: state,
+		});
+
+		// 1. Initial collapsed render has 2 lines: header for call-1, header for call-2
+		const initLines = ncv.render(80);
+		expect(initLines).toHaveLength(2);
+
+		// 2. Expand call-1 by clicking row 0
+		ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+		const expLines = ncv.render(80);
+		expect(expLines.length).toBeGreaterThan(2);
+
+		// 3. Click on a body line (e.g. row 2 which is part of call-1 body)
+		// MUST return handled: true so it never bubbles to outer container MouseRegion
+		const bodyClickRes = ncv.handleMouse(createMouseClick(10, 2, { width: 80 }));
+		expect(bodyClickRes).toEqual({ handled: true });
+
+		// 4. Click on an out-of-bounds / unmapped row
+		const outClickRes = ncv.handleMouse(createMouseClick(10, 99, { width: 80 }));
+		expect(outClickRes).toEqual({ handled: true });
+
+		// 5. Collapse call-1 by clicking row 0 again
+		const collapseRes = ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+		expect(collapseRes?.handled).toBe(true);
+
+		// 6. After collapsing call-1, call-2 remains cleanly visible at row 1
+		const collapsedLines = ncv.render(80);
+		expect(collapsedLines).toHaveLength(2);
+		expect(collapsedLines[0]).toContain("seq 1 5");
+		expect(collapsedLines[1]).toContain("echo hello");
+	});
+
+	test("ToolView absorbs clicks within its rendered boundaries without bubbling to outer MouseRegion", () => {
+		const invalidate = vi.fn();
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "codemode", summary: "2 calls" },
+			sections: [{ railToken: "dim", content: ["output line 1", "output line 2"] }],
+			invalidate,
+		});
+
+		view.setFoldLevel(1);
+		const lines = view.render(80);
+		expect(lines).toHaveLength(3);
+
+		// Click on body line (row 1)
+		const bodyClick = view.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		expect(bodyClick).toEqual({ handled: true });
+
+		// Click outside vertical bounds (row 10)
+		const outsideClick = view.handleMouse(createMouseClick(10, 10, { width: 80 }));
+		expect(outsideClick).toBeUndefined();
+	});
+
+	test("NestedCallsView and ToolView sanitize multiline commands into strict single-line elements", () => {
+		const multilineCommand = "ssh dcu-cluster '\n  export PATH=/opt/bin:$PATH\n  cmake --build build\n'";
+		const ncv = new NestedCallsView({
+			calls: [
+				{
+					id: "call-multi",
+					toolName: "bash",
+					args: { command: multilineCommand },
+					result: {
+						content: [{ type: "text", text: "done" }],
+						details: {},
+					},
+				},
+				{
+					id: "call-next",
+					toolName: "bash",
+					args: { command: "ls -l" },
+					result: {
+						content: [{ type: "text", text: "bin" }],
+						details: {},
+					},
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext(),
+		});
+
+		const rendered = ncv.render(80);
+		expect(rendered).toHaveLength(2);
+		for (const line of rendered) {
+			expect(line).not.toContain("\n");
+			expect(line).not.toContain("\r");
+		}
+
+		const tv = new ToolView({
+			theme: plainTheme,
+			header: { title: "codemode", summary: "multiline\nheader\r\ntest" },
+			collapsedRows: ncv,
+		});
+
+		const tvLines = tv.render(80);
+		expect(tvLines).toHaveLength(3);
+		for (const line of tvLines) {
+			expect(line).not.toContain("\n");
+			expect(line).not.toContain("\r");
+		}
+	});
+
+	test("A board row stays one row: breaks collapse, they do not split the element", () => {
+		// Pi writes one array element as one terminal row, so a break inside a label would silently
+		// push the frame past the rows it reports. It is one row, one label.
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "ok", summary: "progress 10%\rprogress 90%" },
+			collapsedRows: ["a\rb", "c\r\nd", "e\nf"],
+			defaultLevel: 0,
+		});
+
+		const rows = view.render(80);
+		expect(rows).toHaveLength(4);
+		expect(rows[0]).toContain("progress 10% progress 90%");
+		expect(rows[1]).toContain("a b");
+		expect(rows[2]).toContain("c d");
+		expect(rows[3]).toContain("e f");
+		for (const row of rows) {
+			expect(row).not.toMatch(/[\r\n]/);
+		}
+	});
+
+	test("Section content splits into rows and a lone CR is dropped, not treated as a break", () => {
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "ok", summary: "exit 0" },
+			sections: [{ railToken: "dim", content: ["progress 10%\rprogress 90%", "next"] }],
+			defaultLevel: 1,
+		});
+
+		const rows = view.render(80);
+		expect(rows).toHaveLength(3);
+		// A lone CR returns to column 0; dropping it keeps the row instead of overwriting its start.
+		expect(rows[1]).toContain("progress 10%progress 90%");
+		expect(rows[2]).toContain("next");
+		for (const row of rows) {
+			expect(row).not.toMatch(/[\r\n]/);
+		}
+	});
+
+	test("Component rows keep their own indentation while losing their breaks", () => {
+		// A component already laid its rows out; only the breaks are removed, so the indent inside a
+		// collapsed board survives and the section does not re-trim it.
+		const inner = new NestedCallsView({
+			calls: [
+				{
+					id: "call-indent",
+					toolName: "bash",
+					args: { command: "echo step1" },
+					result: { content: [{ type: "text", text: "  $ echo step1\n  line A" }], details: {} },
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext(),
+			stateHolder: {},
+		});
+		inner.render(80);
+		inner.handleMouse(createMouseClick(10, 0, { width: 80 }));
+
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "codemode", status: "none", summary: "1 call" },
+			collapsedRows: inner,
+			defaultLevel: 0,
+		});
+
+		// Row 1 is the nested row's own header; its body keeps the two-space indent the component
+		// rendered, on top of the shared rail.
+		const rows = view.render(80);
+		expect(rows).toHaveLength(4);
+		expect(rows[2]).toContain("▎   $ echo step1");
+		expect(rows[3]).toContain("line A");
+		expect(rows[3]).toContain("▎     line A");
+	});
+
+	test("A hidden view rejects clicks instead of toggling from stale geometry", () => {
+		const invalidate = vi.fn();
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "codemode", status: "none", summary: "1 call" },
+			sections: [{ railToken: "dim", content: ["output line 1"] }],
+			defaultLevel: 1,
+			invalidate,
+		});
+
+		view.render(80);
+		view.hide();
+		expect(view.render(80)).toHaveLength(0);
+
+		// The call view stays mounted under its result view, so a click now belongs to the result
+		// renderer, and the hidden view must not consume it or flip its own fold state.
+		expect(view.handleMouse(createMouseClick(5, 0, { width: 80 }))).toBeUndefined();
+		expect(view.foldLevel).toBe(1);
+		expect(invalidate).not.toHaveBeenCalled();
+	});
+
+	test("python_eval fallback row keeps a multi-line argument on one row", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("python_eval", () => undefined)!;
+		// `args` arrives as a raw string when argument validation failed, so the row has no inline
+		// presentation to lean on and must normalize the text itself.
+		const details = {
+			format: "pi-ext-tools-python-eval",
+			rows: [
+				{
+					kind: "tool",
+					trace: { name: "cmd", args: "l1\nl2\nl3", text: "", durationMs: 5, error: "bad" },
+				},
+			],
+		};
+		const ctx = createMockContext({ args: { code: "x" } });
+		const view = renderers.renderResult!(
+			{ content: [{ type: "text", text: "" }], details } as never,
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		);
+
+		const rows = view.render(190);
+		expect(rows.some((row) => row.includes("cmd l1 l2 l3"))).toBe(true);
+		for (const row of rows) {
+			expect(row).not.toMatch(/[\r\n]/);
+		}
+	});
+
+	test("A normalized header stays one row and keeps the copy icon in its slot at any width", () => {
+		// The copy icon is positioned from the row's measured width, so a break smuggled into the
+		// header used to shorten the measured row and let the icon drift into the body's columns.
+		const multiLine =
+			"ssh dcu-cluster '\n  export PATH=/opt/bin:$PATH\n  srun -p fast bash -c \"hy-smi\"\n'";
+		for (const width of [6, 7, 12, 20, 41, 42, 80, 120, 190, 200]) {
+			const view = new ToolView({
+				theme: plainTheme,
+				header: { title: "bash", summary: multiLine },
+				sections: [{ railToken: "dim", content: [multiLine] }],
+				defaultLevel: 1,
+				copy: { primary: "cmd" },
+				outputPad: 1,
+			});
+
+			const rows = view.render(width);
+			for (const row of rows) {
+				expect(row).not.toMatch(/[\r\n]/);
+				expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+			}
+		}
+
+		const header = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", summary: "a\nb" },
+			copy: { primary: "cmd" },
+		}).render(40)[0]!;
+		expect(visibleWidth(header)).toBe(40);
+		expect(header).toContain("bash a b");
+		expect(header.trimEnd().endsWith("󰆏")).toBe(true);
 	});
 });

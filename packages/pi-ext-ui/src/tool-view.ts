@@ -130,19 +130,51 @@ function formatStatusGlyph(status: ToolStatusKind | undefined, theme: Theme): st
 
 const truncate = (text: string, width: number): string => truncateToWidth(text, width, "…");
 
-function resolveLines(
+/**
+ * Collapses text that must occupy one row: header titles and summaries, board rows, and inline
+ * labels. A break inside one of them is a contract violation, because Pi writes one array element
+ * as one terminal row: `\n` moves to the next row without clearing it, and a lone `\r` returns to
+ * column 0 so later text overwrites the row's start. `visibleWidth` counts both as zero-width, so
+ * the host's per-row width guard cannot catch either, and the frame would silently grow taller
+ * than the rows it reports.
+ */
+export function toSingleRow(text: string): string {
+	if (!text.includes("\r") && !text.includes("\n") && !text.includes("\t")) {
+		return text.trim();
+	}
+	return text.replace(/[\r\n\t]+/g, " ").trim();
+}
+
+/**
+ * Splits multi-line content into rows. A lone `\r` is dropped rather than treated as a break so
+ * CRLF and progress-style output stay cell-safe, and tabs expand to two spaces so indentation does
+ * not depend on the terminal's tab stops.
+ */
+export function toContentRows(text: string): readonly string[] {
+	if (!text.includes("\r") && !text.includes("\t") && !text.includes("\n")) {
+		return [text];
+	}
+	return text.replace(/\r/g, "").replace(/\t/g, "  ").split("\n");
+}
+
+/**
+ * Resolves a row source into rows that are safe to hand to the host. A string element is one
+ * caller-provided label, so `normalize` decides whether it stays a single row or becomes several. A
+ * component returns rows it already laid out, so only its breaks are removed and its indentation is
+ * preserved.
+ */
+function resolveRows(
 	source: string | readonly string[] | Component,
 	width: number,
+	normalize: (text: string) => readonly string[],
 ): readonly string[] {
 	if (typeof source === "string") {
-		return source === "" ? [] : source.replace(/\r/g, "").replace(/\t/g, "  ").split("\n");
+		return source === "" ? [] : normalize(source);
 	}
 	if (Array.isArray(source)) {
-		return source.flatMap((item) =>
-			typeof item === "string" ? item.replace(/\r/g, "").replace(/\t/g, "  ").split("\n") : [],
-		);
+		return source.flatMap((item) => (typeof item === "string" ? normalize(item) : []));
 	}
-	return (source as Component).render(width);
+	return (source as Component).render(width).flatMap((row) => toContentRows(row));
 }
 
 export class ToolView implements Component {
@@ -151,6 +183,15 @@ export class ToolView implements Component {
 	#localCopiedUntil = 0;
 	#localTimer: ReturnType<typeof setTimeout> | undefined;
 	#lastWidth = 80;
+	#lastHeight = 0;
+	#cache:
+		| {
+				readonly width: number;
+				readonly level: FoldLevel;
+				readonly copied: boolean;
+				readonly lines: string[];
+		  }
+		| undefined;
 
 	constructor(spec: ToolViewSpec) {
 		this.#spec = spec;
@@ -173,6 +214,7 @@ export class ToolView implements Component {
 							this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = undefined;
 						}
 						this.#localTimer = undefined;
+						this.#cache = undefined;
 						this.#spec.invalidate?.();
 					}, remaining);
 					timer.unref?.();
@@ -220,6 +262,7 @@ export class ToolView implements Component {
 			writeFoldLevel(this.#spec.stateHolder, next);
 		}
 		if (prev !== next) {
+			this.#cache = undefined;
 			this.#collapseChildren();
 			this.#spec.invalidate?.();
 		}
@@ -266,6 +309,7 @@ export class ToolView implements Component {
 				this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = undefined;
 			}
 			this.#localTimer = undefined;
+			this.#cache = undefined;
 			this.#spec.invalidate?.();
 		}, durationMs);
 		timer.unref?.();
@@ -281,9 +325,10 @@ export class ToolView implements Component {
 		const pinGlyph = level === 0 ? "▸" : "▾";
 		const pin = theme.fg("dim", pinGlyph);
 		const statusPart = formatStatusGlyph(header.status, theme);
-		const titlePart = theme.fg("toolTitle", theme.bold(header.title));
-		const summaryRaw = header.summary?.trim() ?? "";
-		const isUnstyled = header.unstyledSummary === true || header.title === "bash";
+		const title = toSingleRow(header.title);
+		const titlePart = theme.fg("toolTitle", theme.bold(title));
+		const summaryRaw = header.summary === undefined ? "" : toSingleRow(header.summary);
+		const isUnstyled = header.unstyledSummary === true || title === "bash";
 		const summaryPart =
 			summaryRaw === "" ? "" : isUnstyled ? ` ${summaryRaw}` : ` ${theme.fg("dim", summaryRaw)}`;
 		const leftContent = `${pin} ${statusPart}${titlePart}${summaryPart}`;
@@ -309,6 +354,7 @@ export class ToolView implements Component {
 	/** The result renderer of the same tool execution hides this row in place. */
 	hide(): void {
 		this.#hidden = true;
+		this.#cache = undefined;
 	}
 
 	/**
@@ -330,7 +376,7 @@ export class ToolView implements Component {
 			if (collapsedRows !== undefined) {
 				const railColor: RailColorToken = this.#spec.header.status === "error" ? "error" : "dim";
 				const rail = noRail ? "" : `${theme.fg(railColor, "▎")} `;
-				const rows = resolveLines(collapsedRows, innerWidth);
+				const rows = resolveRows(collapsedRows, innerWidth, (row) => [toSingleRow(row)]);
 				for (const row of rows) {
 					output.push(truncate(rail + row, safeWidth));
 				}
@@ -344,7 +390,7 @@ export class ToolView implements Component {
 
 		for (const section of sections) {
 			const rail = noRail ? "" : `${theme.fg(section.railToken, "▎")} `;
-			const rawLines = resolveLines(section.content, innerWidth);
+			const rawLines = resolveRows(section.content, innerWidth, toContentRows);
 			const cap =
 				level === 1 ? (section.maxLines ?? DEFAULT_MAX_SECTION_LINES) : Number.POSITIVE_INFINITY;
 			const visibleLines =
@@ -365,27 +411,44 @@ export class ToolView implements Component {
 
 	render(width: number): string[] {
 		if (this.#hidden) return [];
+		const level = this.effectiveLevel;
+		const copied = isCopiedActive(this.#spec.stateHolder, this.#localCopiedUntil);
+		if (
+			this.#cache !== undefined &&
+			this.#cache.width === width &&
+			this.#cache.level === level &&
+			this.#cache.copied === copied
+		) {
+			return this.#cache.lines;
+		}
+
 		const pad = Math.max(0, this.#spec.outputPad ?? 0);
 		const safeWidth = Math.max(1, width - pad * 2);
 		this.#lastWidth = width;
-		const level = this.effectiveLevel;
 		if (level !== 0) {
 			this.#collapseChildren();
 		}
 
-		const header = this.#renderHeader(safeWidth, level);
-		const body = this.renderBody(width);
-		const allLines = [header, ...body];
-
-		if (pad > 0) {
-			const leftPad = " ".repeat(pad);
-			return allLines.map((line) => `${leftPad}${line}`);
+		const rawLines = [this.#renderHeader(safeWidth, level), ...this.renderBody(width)];
+		const safeLines: string[] = [];
+		const leftPad = pad > 0 ? " ".repeat(pad) : "";
+		for (const rawLine of rawLines) {
+			if (rawLine.includes("\r") || rawLine.includes("\n")) {
+				for (const line of toContentRows(rawLine)) {
+					const truncated = truncate(line, safeWidth);
+					safeLines.push(leftPad !== "" ? `${leftPad}${truncated}` : truncated);
+				}
+			} else {
+				safeLines.push(leftPad !== "" ? `${leftPad}${rawLine}` : rawLine);
+			}
 		}
-		return allLines;
+		this.#lastHeight = safeLines.length;
+		this.#cache = { width, level, copied, lines: safeLines };
+		return safeLines;
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (event.type === "wheel") {
+		if (event.type === "wheel" || this.#hidden) {
 			return undefined;
 		}
 		if (event.type !== "click" || event.button !== "left") {
@@ -397,6 +460,11 @@ export class ToolView implements Component {
 		const innerX = event.x - pad;
 		const innerWidth = Math.max(1, effectiveWidth - pad * 2);
 		if (innerX < 0 || innerX >= innerWidth) {
+			return undefined;
+		}
+		// The last render's row count bounds the clickable area; a view that has not rendered yet has no
+		// extent to test against, and Pi always renders before it dispatches a mouse event.
+		if (this.#lastHeight > 0 && (event.y < 0 || event.y >= this.#lastHeight)) {
 			return undefined;
 		}
 
@@ -435,14 +503,18 @@ export class ToolView implements Component {
 					width: Math.max(1, innerWidth - railOffset),
 				};
 				const res = handler.call(rows, subEvent);
-				if (res?.handled) return res;
+				if (res?.handled) {
+					this.#cache = undefined;
+					return res;
+				}
 			}
 		}
 
-		return undefined;
+		return { handled: true };
 	}
 
 	invalidate(): void {
+		this.#cache = undefined;
 		const { collapsedRows, sections } = this.#spec;
 		if (
 			collapsedRows !== undefined &&
