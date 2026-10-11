@@ -154,4 +154,68 @@ describe("optional owner presentation consumer", () => {
 		expect(h.copyToClipboard).toHaveBeenCalledWith("raw request\nfull result");
 		expect(native.renderShell).toBeUndefined();
 	});
+
+	test("an owner's multi-line summary, request and board rows each stay one row", () => {
+		const h = host();
+		h.register();
+		// A provider owns its text, so the shared frame is what keeps a break out of the row Pi writes.
+		const native = createToolPresentationRenderers(h.pi, "custom_owner", () => ({
+			summary: "first\nsecond\rthird",
+			request: "req\nline2",
+			output: "out\nline2",
+			collapsedRows: ["a\nb"],
+		}));
+		const renderer = h.resolve("custom_owner", native);
+		const ctx = context();
+
+		for (const level of [0, 1, 2] as const) {
+			const view = renderer.renderResult!(
+				textToolResult("payload", undefined),
+				{ expanded: level === 2, isPartial: false },
+				theme,
+				ctx,
+			) as ToolView;
+			view.setFoldLevel(level);
+			const lines = view.render(80);
+			expect(lines.length).toBeGreaterThan(0);
+			for (const line of lines) {
+				expect(line).not.toMatch(/[\r\n]/);
+				expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+			}
+			expect(lines[0]).toContain("custom_owner first second third");
+		}
+	});
+
+	test("renders DiffToolPresentation using DiffView and default copy spec", () => {
+		const copied: string[] = [];
+		const h = host(
+			vi.fn(async (text) => {
+				copied.push(text);
+			}),
+		);
+		h.register();
+
+		const diffText = ["@@ -1,3 +1,3 @@", " line1", "-old", "+new", " line3"].join("\n");
+
+		const native = createToolPresentationRenderers(h.pi, "edit", () => ({
+			kind: "diff",
+			path: "test.txt",
+			diff: diffText,
+			stats: { additions: 1, deletions: 1 },
+			summary: "test.txt (+1 -1)",
+		}));
+		const renderer = h.resolve("edit", native);
+		const ctx = context();
+		const view = renderer.renderResult!(
+			textToolResult("ok", undefined),
+			{ expanded: true, isPartial: false },
+			theme,
+			ctx,
+		) as ToolView;
+		view.setFoldLevel(1);
+		const lines = view.render(80);
+		expect(lines[0]).toContain("edit test.txt (+1 -1)");
+		expect(lines.join("\n")).toContain("- 2 old");
+		expect(lines.join("\n")).toContain("+ 2 new");
+	});
 });
