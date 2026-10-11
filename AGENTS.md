@@ -26,10 +26,17 @@
 直接在仓库根目录使用 `pnpm`（系统已安装独立版，无需 `corepack` 或 `npx` 包装）：
 
 ```bash
-- 只检查本次改动的文件
-pnpm exec biome check <changed-files...>
+# 自动检查本次改动的文件（自动识别 git 改动并过滤）
+pnpm run check:changed
 
-# 只对本次改动的文件自动修复
+# 自动修复本次改动的文件
+pnpm run check:changed:fix
+
+# 按最低足够验证策略自动运行受影响包的检查/构建/测试
+pnpm run verify:changed
+
+# 手动指定文件检查或修复
+pnpm exec biome check <changed-files...>
 pnpm exec biome check --write <changed-files...>
 
 # 单个或多个测试文件
@@ -186,4 +193,4 @@ git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布（tag 仅作�
 - hook 或增量更新产生未提交的 `graphify-out/` 文件是正常的，不应因此跳过 Graphify。只有任务本身是排查过期或错误的 Graphify 输出，或用户明确要求不要使用 Graphify 时，才跳过它。
 - 如果存在 `graphify-out/wiki/index.md`，进行广泛导航时优先使用它，不要直接浏览原始源代码。
 - 只有进行广泛架构审查，或 query/path/explain 没有提供足够上下文时，才读取 `graphify-out/GRAPH_REPORT.md`。
-- 修改代码后运行 `graphify update .`，保持图谱最新。该操作只进行 AST 更新，不产生 API 成本。
+- 修改代码后运行 `pnpm run verify:changed`（会自动检查格式、运行受影响验证并更新图谱）或单独运行 `graphify update .`，保持图谱最新。该操作只进行 AST 更新，不产生 API 成本。
