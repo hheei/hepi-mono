@@ -35,7 +35,7 @@ Node/pnpm monorepo for HEPI [Pi Coding Agent](https://github.com/earendil-works/
 - **[架构设计参考 (docs/architecture/)](./docs/architecture/)**：
   - [Subagents 多 Agent 架构](./docs/architecture/subagents.md)
   - [后台任务与交付契约 (Background Tasks)](./docs/architecture/background-tasks.md)
-  - [统一 Grep / FFF 架构](./docs/architecture/grep.md)
+  - [统一 Grep 架构](./docs/architecture/grep.md)
   - [Loadout 策略架构](./docs/architecture/loadout.md)
 
 ---

@@ -32,7 +32,6 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 				},
 			} as unknown as ExtensionAPI;
 			const state = {
-				getRuntime: () => undefined,
 				getSettings: () => ({ grepEnhancement: false }),
 				getTargetRuntime: () => undefined,
 			} as never;

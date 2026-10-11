@@ -1,8 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getBackgroundDelivery, TaskRegistry, type TaskTerminal } from "@hheei/pi-ext-core";
 import { afterEach, expect, test, vi } from "vitest";
-import { createParentChannel } from "../../pi-subagents/src/extension.js";
-import { BashJobRegistry, type BashJobReminder } from "../src/bash-jobs.js";
+import { BashJobRegistry, type BashJobReminder } from "../src/bg-bash-jobs.js";
 import {
 	MAX_NOTIFICATION_BATCH_BYTES,
 	MAX_TASK_MESSAGE_CHARS,
@@ -198,6 +197,46 @@ test("starting a parent run releases held results without waiting for the last t
 	current.stop();
 });
 
+function createTestReportChannel(
+	pi: ExtensionAPI,
+	deps: {
+		readonly isIdle: () => boolean;
+		readonly delivery: ReturnType<typeof getBackgroundDelivery>;
+	},
+) {
+	const held: Array<{ readonly reason: string; readonly message: string }> = [];
+	const registration = deps.delivery.registerChannel({
+		isIdle: deps.isIdle,
+		hasPending: () => held.length > 0,
+		flush: (triggerTurn, urgentOnly = false) => {
+			if (held.length === 0) return;
+			const reports = urgentOnly
+				? held.filter((r) => r.reason === "blocked" || r.reason === "error")
+				: [...held];
+			if (reports.length === 0) return;
+			for (const r of reports) held.splice(held.indexOf(r), 1);
+			pi.sendMessage(
+				{
+					customType: "subagent-report",
+					content: reports.map((r) => r.message).join("\n\n"),
+					display: true,
+					details: { reports },
+				},
+				{ triggerTurn, deliverAs: "steer" },
+			);
+		},
+	});
+	return {
+		deliver(report: { readonly reason: string; readonly message: string }) {
+			held.push(report);
+			registration.request(report.reason === "blocked" || report.reason === "error");
+		},
+		dispose() {
+			registration.dispose();
+		},
+	};
+}
+
 test.each([
 	"success",
 	"blocked",
@@ -213,17 +252,12 @@ test.each([
 			return () => {};
 		},
 	});
-	const reports = createParentChannel(current.pi, { isIdle: current.isIdle, delivery });
+	const reports = createTestReportChannel(current.pi, { isIdle: current.isIdle, delivery });
 	const ids = Array.from({ length: 10 }, (_value, index) => start(current, `work ${index}`));
 	for (const id of ids) current.registry.settle(id, terminal("done"));
 	await Promise.resolve();
 	expect(current.sent).toHaveLength(0);
 	await reports.deliver({
-		parentSessionId: "p",
-		childId: "c",
-		agent: "worker",
-		task: "work",
-		status: "running",
 		reason,
 		message: "report",
 	});

@@ -11,11 +11,15 @@ import type {
 import { type ExtensionLifecycleContext, TaskRegistry } from "@hheei/pi-ext-core";
 import { afterEach, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
-import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bash-jobs.js";
+import { type BashSettings, DEFAULT_BASH_SETTINGS } from "../src/bash-settings.js";
+import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bg-bash-jobs.js";
+import { registerBgBashTools, TASK_TOOL_IDS } from "../src/bg-bash-tools.js";
 import piExtToolsExtension from "../src/extension.js";
-import { createFffRuntimeState, type FffRuntimeState } from "../src/fff/lifecycle.js";
-import { DEFAULT_FFF_SETTINGS, type FffSettings } from "../src/fff/settings.js";
-import { registerTaskTools, startTaskControl, TASK_TOOL_IDS } from "../src/task-tools.js";
+import { createFffRuntimeState, type FffRuntimeState } from "../src/session-state.js";
+import { startTaskControl } from "../src/task-control.js";
+
+const registerTaskTools = registerBgBashTools;
+
 import { toolFor, toolHost } from "./fixtures/harness.js";
 
 const registries: BashJobRegistry[] = [];
@@ -51,12 +55,11 @@ function jobRegistry(): BashJobRegistry {
 
 function runtimeState(
 	tasks: TaskRegistry | undefined,
-	settingsOverrides?: Partial<typeof DEFAULT_FFF_SETTINGS>,
+	settingsOverrides?: Partial<typeof DEFAULT_BASH_SETTINGS>,
 ): FffRuntimeState {
 	const jobs = jobRegistry();
 	return {
-		getRuntime: () => undefined,
-		getSettings: () => ({ ...DEFAULT_FFF_SETTINGS, ...(settingsOverrides ?? {}) }),
+		getSettings: () => ({ ...DEFAULT_BASH_SETTINGS, ...(settingsOverrides ?? {}) }),
 		getTasks: () => tasks,
 		getBashJobs: () => jobs,
 		getTargetRuntime: () => undefined,
@@ -285,6 +288,7 @@ test("bg_bash_spawn returns id and log path; get uses the same path key", async 
 	const state = runtimeState(tasks);
 	const host = toolHost();
 	registerBashTool(host.pi, state);
+	registerBgBashTools(host.pi, state);
 	const spawnBash = toolFor(host.tools, "bg_bash_spawn");
 	await expect(
 		runTool(spawnBash, "caller-id", { command: "printf never", id: "bash-1" }),
@@ -324,7 +328,7 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 		getBashJobs: () => jobs,
 	};
 	const host = toolHost();
-	registerBashTool(host.pi, state);
+	registerBgBashTools(host.pi, state);
 	const spawnBash = toolFor(host.tools, "bg_bash_spawn");
 	const result = await runTool(spawnBash, "bash-start-failure", {
 		command: "printf never",
@@ -341,10 +345,27 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 test("background Bash controls reject missing sessions", async () => {
 	const host = toolHost();
 	registerTaskTools(host.pi, createFffRuntimeState());
-	expect(host.tools.map((tool) => tool.name)).toEqual(["bg_bash_get", "bg_bash_stop"]);
+	expect(host.tools.map((tool) => tool.name)).toEqual([
+		"bg_bash_spawn",
+		"bg_bash_get",
+		"bg_bash_stop",
+	]);
 	for (const tool of host.tools) {
 		expect(tool.exposure).toBe("deferred");
 		expect(tool.defaultActive).toBe(false);
+	}
+	const spawn = toolFor(host.tools, "bg_bash_spawn");
+	const spawnRes = await spawn.execute(
+		"id",
+		{ command: "echo" },
+		undefined,
+		undefined,
+		toolContext(),
+	);
+	expect(spawnRes).toMatchObject({ isError: true });
+
+	for (const name of ["bg_bash_get", "bg_bash_stop"]) {
+		const tool = toolFor(host.tools, name);
 		await expect(runTool(tool, "unavailable", { id: "bash-1" })).rejects.toThrow(
 			"No active background Bash session",
 		);
@@ -498,7 +519,10 @@ test("aborting foreground command kills the process", async (): Promise<void> =>
 		{ signal: controller.signal },
 	);
 
-	expect(res.content).toEqual([{ type: "text", text: "Bash aborted" }]);
+	// The model sees the elapsed time on a cancellation: details never reach it.
+	expect(res.content).toMatchObject([
+		{ type: "text", text: expect.stringMatching(/^Bash aborted after \d+(\.\d+)?(ms|s)$/) },
+	]);
 	expect(res.details).toMatchObject({ error: "aborted" });
 	expect(tasks.list(true)).toEqual([]);
 });
@@ -622,7 +646,7 @@ function taskControlHost(): TaskControlHost {
 }
 
 /** Registers the task catalog as extension construction does, then starts one session. */
-function taskControlSession(overrides?: Partial<FffSettings>): {
+function taskControlSession(overrides?: Partial<BashSettings>): {
 	readonly host: TaskControlHost;
 	readonly tasks: TaskRegistry;
 } {
@@ -673,7 +697,7 @@ function toolContext(leafId: string | null = "entry-1"): ExtensionToolContext {
 }
 
 /** Registers the bash tool over a fresh task registry, the way one session does. */
-function bashHarness(settings?: Partial<FffSettings>): {
+function bashHarness(settings?: Partial<BashSettings>): {
 	readonly bash: ToolDefinition;
 	readonly tasks: TaskRegistry;
 } {

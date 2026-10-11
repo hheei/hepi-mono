@@ -22,7 +22,7 @@ This directory records high-level information for users and developers. Detailed
 - [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
 - [Subagent extension architecture](architecture/pi-subagents.md): independent reconnectable subagent child sessions and host workspace targeting.
 - [Observational memory architecture](architecture/ext-memory.md): tiered observations, reflections, and instant compaction.
-- [Unified grep architecture](architecture/grep.md): FFF/rg admission, canonical match contract, compact rendering, and Output recovery.
+- [Unified grep architecture](architecture/grep.md): canonical ripgrep match contract, compact rendering, and Output recovery.
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
 - [pi-optimizer](optimizer/README.md): T2S、Caveman/Ponytail 提示词、可选 RTK 与统一设置入口。
 
@@ -32,7 +32,7 @@ This directory records high-level information for users and developers. Detailed
 - [Gemini 与 OpenAI 系统指令及缓存](research/gemini-system-messages-and-cache.md)：官方 API 的指令角色差异、动态工具追加、Gemini 缓存方案与 Interactions API 限制。
 - [Pi Durable 调研](research/pi-durable.md)：持久执行底座、TUI／功能分离边界与渐进迁移风险。
 - [Pi native tools, rendering, and extensions](pi-native-tools.md): installed Pi location, tool lifecycle, TUI rendering, extension boundaries, and native grep/find behavior.
-- [FFF search research](pi-fff.md): FFF SDK data model, precise match ranges, lifecycle, pagination, and Pi integration boundaries.
+- [FFF search research (Archived)](pi-fff.md): archived research on FFF Node SDK and early search exploration.
 - [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
 
 Research records evidence for current code and design. It does not override source, tests, package READMEs, or specifications.

@@ -12,7 +12,7 @@ import {
 	publishPreparedFile,
 	sftpTimeoutMs,
 } from "./apply-patch/index.js";
-import type { FffRuntimeState } from "./fff/lifecycle.js";
+import type { ToolsRuntimeState } from "./session-state.js";
 import { LOCAL_TARGET } from "./targets.js";
 
 export const REMOTE_MUTATION_DETAILS = "__piExtToolsRemoteMutation";
@@ -77,7 +77,7 @@ function failedOutcome(
 	return signal?.aborted === true ? "not_applied" : "rejected";
 }
 
-function remoteFs(state: FffRuntimeState | undefined, target: string, path: string): PatchFs {
+function remoteFs(state: ToolsRuntimeState | undefined, target: string, path: string): PatchFs {
 	if (target === LOCAL_TARGET) throw new Error("Local targets must use the Pi native executor.");
 	const runtime = state?.getTargetRuntime();
 	if (runtime === undefined) throw new Error("Target runtime is unavailable.");
@@ -88,7 +88,7 @@ function remoteFs(state: FffRuntimeState | undefined, target: string, path: stri
 }
 
 async function mutateRemote<T>(
-	state: FffRuntimeState | undefined,
+	state: ToolsRuntimeState | undefined,
 	target: string,
 	path: string,
 	signal: AbortSignal | undefined,
@@ -155,7 +155,7 @@ export function remoteMutationDetails(value: unknown): RemoteMutationDetails | u
 }
 
 export async function writeRemoteFile(
-	state: FffRuntimeState | undefined,
+	state: ToolsRuntimeState | undefined,
 	target: string,
 	path: string,
 	content: string,
@@ -222,7 +222,7 @@ export function applyExactEdits(
 }
 
 export async function editRemoteFile(
-	state: FffRuntimeState | undefined,
+	state: ToolsRuntimeState | undefined,
 	target: string,
 	path: string,
 	edits: readonly ExactEditOperation[],

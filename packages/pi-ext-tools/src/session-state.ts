@@ -7,52 +7,53 @@ import {
 	registerSettings,
 	type TaskRegistry,
 } from "@hheei/pi-ext-core";
-import { BashJobRegistry } from "../bash-jobs.js";
-import { TargetRuntime } from "../targets.js";
-import { startTaskControl } from "../task-tools.js";
-import { createFffAutocompleteProvider } from "./autocomplete.js";
-import { FffRuntime } from "./fff.js";
 import {
+	type BashSettings,
 	createBashSettingsProvider,
-	createFffSettingsProvider,
-	DEFAULT_FFF_SETTINGS,
-	type FffSettings,
-	loadFffSettings,
+	DEFAULT_BASH_SETTINGS,
+	loadBashSettings,
+} from "./bash-settings.js";
+import { BgBashJobRegistry } from "./bg-bash-jobs.js";
+import {
+	createTargetSettingsProvider,
 	loadTargetSettings,
 	type TargetSettings,
-} from "./settings.js";
-import { createTargetSettingsProvider } from "./target-settings.js";
+} from "./target-settings.js";
+import { TargetRuntime } from "./targets.js";
+import { startTaskControl } from "./task-control.js";
 
 /** Live session view consumed by statically registered tools and commands. */
-export interface FffRuntimeState {
-	getRuntime(): FffRuntime | undefined;
-	getSettings(): FffSettings;
+export interface ToolsRuntimeState {
+	getSettings(): BashSettings;
+	getBashSettings?(): BashSettings;
 	getTasks(): TaskRegistry | undefined;
-	getBashJobs(): BashJobRegistry | undefined;
+	getBashJobs(): BgBashJobRegistry | undefined;
 	getTargetRuntime(): TargetRuntime | undefined;
 }
 
-interface MutableFffRuntimeState {
-	runtime: FffRuntime | undefined;
-	settings: FffSettings;
+/** Backward compatibility alias */
+export type FffRuntimeState = ToolsRuntimeState;
+
+interface MutableToolsRuntimeState {
+	settings: BashSettings;
 	tasks: TaskRegistry | undefined;
-	jobs: BashJobRegistry | undefined;
+	jobs: BgBashJobRegistry | undefined;
 	targets: TargetRuntime | undefined;
 }
 
-const runtimeStates = new WeakMap<FffRuntimeState, MutableFffRuntimeState>();
+const runtimeStates = new WeakMap<ToolsRuntimeState, MutableToolsRuntimeState>();
 
-export function createFffRuntimeState(): FffRuntimeState {
-	const state: FffRuntimeState = {
-		getRuntime: (): FffRuntime | undefined => runtimeStates.get(state)?.runtime,
-		getSettings: (): FffSettings => runtimeStates.get(state)?.settings ?? DEFAULT_FFF_SETTINGS,
+export function createToolsRuntimeState(): ToolsRuntimeState {
+	const state: ToolsRuntimeState = {
+		getSettings: (): BashSettings => runtimeStates.get(state)?.settings ?? DEFAULT_BASH_SETTINGS,
+		getBashSettings: (): BashSettings =>
+			runtimeStates.get(state)?.settings ?? DEFAULT_BASH_SETTINGS,
 		getTasks: (): TaskRegistry | undefined => runtimeStates.get(state)?.tasks,
-		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
+		getBashJobs: (): BgBashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 		getTargetRuntime: () => runtimeStates.get(state)?.targets,
 	};
 	runtimeStates.set(state, {
-		runtime: undefined,
-		settings: DEFAULT_FFF_SETTINGS,
+		settings: DEFAULT_BASH_SETTINGS,
 		tasks: undefined,
 		jobs: undefined,
 		targets: undefined,
@@ -60,37 +61,36 @@ export function createFffRuntimeState(): FffRuntimeState {
 	return state;
 }
 
-const autocompleteHosts = new WeakSet<object>();
+export const createFffRuntimeState = createToolsRuntimeState;
 
-/** Register session-owned FFF runtime/settings lifecycle; static registration stays caller-owned. */
-export function registerFffLifecycle(
+/** Register session-owned tools runtime/settings lifecycle; static registration stays caller-owned. */
+export function registerToolsLifecycle(
 	pi: ExtensionAPI,
-	state: FffRuntimeState,
-	provider = createFffSettingsProvider(),
+	state: ToolsRuntimeState,
 	bashProvider = createBashSettingsProvider(),
 	targetProvider = createTargetSettingsProvider(),
 ): void {
 	const mutable = runtimeStates.get(state);
 	if (mutable === undefined)
-		throw new Error("FFF runtime state must be created by createFffRuntimeState()");
+		throw new Error("Tools runtime state must be created by createToolsRuntimeState()");
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools",
 		start: async (context) => {
-			await startFffLifecycle(pi, context, state, mutable, provider, bashProvider, targetProvider);
+			await startToolsLifecycle(pi, context, state, mutable, bashProvider, targetProvider);
 		},
 	});
 }
 
-async function startFffLifecycle(
+export const registerFffLifecycle = registerToolsLifecycle;
+
+async function startToolsLifecycle(
 	pi: ExtensionAPI,
 	context: ExtensionLifecycleContext,
-	publicState: FffRuntimeState,
-	state: MutableFffRuntimeState,
-	provider: ReturnType<typeof createFffSettingsProvider>,
+	_publicState: ToolsRuntimeState,
+	state: MutableToolsRuntimeState,
 	bashProvider: ReturnType<typeof createBashSettingsProvider>,
 	targetProvider: ReturnType<typeof createTargetSettingsProvider>,
 ): Promise<void> {
-	context.resources.add("fff-settings", registerSettings(provider, getRuntimeSettingsRegistry(pi)));
 	context.resources.add(
 		"bash-settings",
 		registerSettings(bashProvider, getRuntimeSettingsRegistry(pi)),
@@ -100,7 +100,7 @@ async function startFffLifecycle(
 		"target-settings",
 		registerSettings(targetProvider, getRuntimeSettingsRegistry(pi)),
 	);
-	let settings: FffSettings;
+	let settings: BashSettings;
 	let targetSettings: TargetSettings;
 	try {
 		const settingsContext = {
@@ -108,11 +108,11 @@ async function startFffLifecycle(
 			cwd: context.extension.cwd,
 		};
 		[settings, targetSettings] = await Promise.all([
-			loadFffSettings(provider, bashProvider, settingsContext),
+			loadBashSettings(bashProvider, settingsContext),
 			loadTargetSettings(targetProvider, settingsContext),
 		]);
 	} catch (error) {
-		settings = DEFAULT_FFF_SETTINGS;
+		settings = DEFAULT_BASH_SETTINGS;
 		targetSettings = { sshWhitelist: [] };
 		context.extension.ui.notify(
 			`Unable to load extension settings: ${errorMessage(error)}`,
@@ -120,8 +120,6 @@ async function startFffLifecycle(
 		);
 	}
 	state.settings = settings;
-	const runtime = new FffRuntime(context.extension.cwd);
-	state.runtime = runtime;
 	const targetRuntime = await TargetRuntime.create(
 		{
 			sessionManager: context.extension.sessionManager,
@@ -130,7 +128,7 @@ async function startFffLifecycle(
 		targetSettings.sshWhitelist,
 	);
 	state.targets = targetRuntime;
-	const jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024);
+	const jobs = new BgBashJobRegistry(settings.bashOutputTailKiB * 1024);
 	state.jobs = jobs;
 	const tasks = startTaskControl(context, jobs);
 	state.tasks = tasks;
@@ -144,18 +142,4 @@ async function startFffLifecycle(
 		jobs.dispose();
 		if (state.jobs === jobs) state.jobs = undefined;
 	});
-	context.resources.add("fff-runtime", () => {
-		runtime.dispose();
-		if (state.runtime === runtime) state.runtime = undefined;
-	});
-	if (!autocompleteHosts.has(context.extension)) {
-		autocompleteHosts.add(context.extension);
-		context.extension.ui.addAutocompleteProvider((baseProvider) =>
-			createFffAutocompleteProvider(
-				baseProvider,
-				publicState.getRuntime,
-				() => publicState.getSettings().autocomplete,
-			),
-		);
-	}
 }

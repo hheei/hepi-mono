@@ -4,28 +4,26 @@ import {
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
-	setPromptSection,
-	setSectionBullet,
+	syncDeferredToolPrompt,
 } from "@hheei/pi-ext-core";
+import { registerApplyPatchGuard } from "./apply-patch/guard.js";
 import {
 	createApplyPatchSettingsProvider,
 	readApplyPatchSettings,
 } from "./apply-patch/settings.js";
-import { registerApplyPatchGuard } from "./apply-patch-guard.js";
-import { isApplyPatchToolDetails } from "./apply-patch-tool.js";
+import { isApplyPatchToolDetails } from "./apply-patch/tool.js";
 import {
 	BG_BASH_CODEMODE_BULLET,
 	BG_BASH_GUIDANCE,
 	BG_BASH_PROMPT_SECTION,
 	BG_BASH_TOOL_SEARCH_BULLET,
-} from "./bash.js";
+} from "./bg-bash-tools.js";
 import { createEvalRuntimeState, registerEvalLifecycle } from "./eval/lifecycle.js";
 import { readEvalSettings } from "./eval/settings.js";
 import { isPythonEvalToolDetails } from "./eval/tool.js";
-import { createFffRuntimeState, registerFffLifecycle } from "./fff/lifecycle.js";
-import { registerCommands } from "./fff/register-commands.js";
 import { grepHasNoSearchablePaths } from "./grep.js";
 import { remoteMutationDetails } from "./native-remote.js";
+import { createToolsRuntimeState, registerToolsLifecycle } from "./session-state.js";
 import { applyTargetPromptSection } from "./targets.js";
 import { createTodoSettingsProvider, readTodoSettings } from "./todo/settings.js";
 import { createTodoFeature } from "./todo/todo.js";
@@ -38,7 +36,7 @@ import {
 
 /** Registers pi-ext-tools' static tool catalog. */
 export default function piExtToolsExtension(pi: ExtensionAPI): void {
-	const state = createFffRuntimeState();
+	const state = createToolsRuntimeState();
 	const evalState = createEvalRuntimeState();
 	const todo = createTodoFeature(pi);
 	const evalSettings = readEvalSettings();
@@ -84,20 +82,14 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 		applyTargetPromptSection(event.systemPromptOptions.sections, state.getTargetRuntime());
 		const sections = event.systemPromptOptions.sections;
 		const activeTools = new Set(pi.getActiveTools());
-		const isSpawnBashActive = activeTools.has("bg_bash_spawn");
-		if (isSpawnBashActive) {
-			setSectionBullet(sections, "deferred_tools", "background bash", undefined);
-			setPromptSection(sections, BG_BASH_PROMPT_SECTION, BG_BASH_GUIDANCE);
-		} else {
-			setPromptSection(sections, BG_BASH_PROMPT_SECTION, undefined);
-			if (activeTools.has("tool_search")) {
-				setSectionBullet(sections, "deferred_tools", "background bash", BG_BASH_TOOL_SEARCH_BULLET);
-			} else if (activeTools.has("codemode")) {
-				setSectionBullet(sections, "deferred_tools", "background bash", BG_BASH_CODEMODE_BULLET);
-			} else {
-				setSectionBullet(sections, "deferred_tools", "background bash", undefined);
-			}
-		}
+		syncDeferredToolPrompt(sections, activeTools, {
+			key: "background bash",
+			active: activeTools.has("bg_bash_spawn"),
+			guidanceSection: BG_BASH_PROMPT_SECTION,
+			guidanceContent: BG_BASH_GUIDANCE,
+			toolSearchBullet: BG_BASH_TOOL_SEARCH_BULLET,
+			codemodeBullet: BG_BASH_CODEMODE_BULLET,
+		});
 	});
 	pi.on("tool_result", (event) => {
 		if (
@@ -130,6 +122,5 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 		return;
 	});
 	registerApplyPatchGuard(pi);
-	registerCommands(pi, { getRuntime: () => state.getRuntime() ?? null });
-	registerFffLifecycle(pi, state);
+	registerToolsLifecycle(pi, state);
 }
