@@ -1,337 +1,89 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Input, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	Input,
+	Key,
+	matchesKey,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import {
 	type ExtensionPageView,
 	type ExtensionPageViewContext,
 	errorMessage,
 	fitRow,
-	type SettingField,
-	type SettingsContext,
 	type SettingsPanel,
-	type SettingsProvider,
 	type SettingsRegistry,
-	type SettingsState,
-	type SettingValue,
 } from "@hheei/pi-ext-core";
 import { combineSettingsProviders } from "./combined.js";
-import { LIST_HINT_ROWS, PANEL_ROWS, pad, scrollbar, VISIBLE_ROWS } from "./page-chrome.js";
+import { createSettingsDraftSession, type FieldRow } from "./draft-session.js";
+import {
+	type DualPaneItem,
+	DualPaneListView,
+	type SubPaneComponent,
+} from "./dual-pane-list-view.js";
+import { LIST_HINT_ROWS, PANEL_ROWS } from "./page-chrome.js";
 
-const MARQUEE_FRAME_MS = 125;
-const MARQUEE_INITIAL_PAUSE_MS = 750;
-const MARQUEE_END_PAUSE_MS = 1_500;
-
-interface FieldRow {
-	readonly groupId: string;
-	readonly field: SettingField;
-}
-
-type ListItem =
+type ListItemData =
 	| { readonly kind: "group"; readonly id: string; readonly label: string }
-	| { readonly kind: "field"; readonly id: string; readonly row: FieldRow }
-	| { readonly kind: "panel"; readonly id: string; readonly panel: SettingsPanel };
-
-function cloneState(state: SettingsState): SettingsState {
-	return Object.fromEntries(Object.entries(state).map(([group, values]) => [group, { ...values }]));
-}
-
-function isValidStoredValue(field: SettingField, value: unknown): value is SettingValue {
-	if (field.type === "list")
-		return Array.isArray(value) && value.every((item) => typeof item === "string");
-	if (value === null || typeof value !== typeof field.defaultValue) return false;
-	if (typeof value === "number" && !Number.isFinite(value)) return false;
-	return (
-		field.options === undefined || field.options.some((option) => Object.is(option.value, value))
-	);
-}
-
-/** Applies only schema defaults; extra provider-owned data remains round-trippable. */
-function mergeDefaults(
-	provider: SettingsProvider,
-	stored: SettingsState | undefined,
-): SettingsState {
-	const state = cloneState(stored ?? {});
-	for (const group of provider.groups) {
-		const values = { ...(state[group.id] ?? {}) };
-		for (const field of group.fields) {
-			const storedValue = values[field.id];
-			values[field.id] = isValidStoredValue(field, storedValue) ? storedValue : field.defaultValue;
-			const related = field.tabCycle;
-			if (related !== undefined) {
-				const relatedValue = values[related.fieldId];
-				values[related.fieldId] =
-					relatedValue !== undefined &&
-					typeof relatedValue === typeof related.defaultValue &&
-					related.options.some((option) => Object.is(option.value, relatedValue))
-						? relatedValue
-						: related.defaultValue;
-			}
-		}
-		state[group.id] = values;
-	}
-	return state;
-}
-
-function isPrintable(input: string): boolean {
-	return input !== "" && !input.startsWith("\x1b") && !/\p{Cc}/u.test(input);
-}
+	| { readonly kind: "panel"; readonly panel: SettingsPanel }
+	| { readonly kind: "field"; readonly row: FieldRow };
 
 function rowId(groupId: string, fieldId: string): string {
-	return `field:${groupId}:${fieldId}`;
+	return `${groupId}:${fieldId}`;
 }
 
 function panelId(panel: SettingsPanel): string {
 	return `panel:${panel.id}`;
 }
 
-function valueFor(row: FieldRow, state: SettingsState): SettingValue {
-	return state[row.groupId]?.[row.field.id] ?? row.field.defaultValue;
-}
-
-function updateValue(state: SettingsState, row: FieldRow, value: SettingValue): SettingsState {
-	return {
-		...state,
-		[row.groupId]: { ...(state[row.groupId] ?? {}), [row.field.id]: value },
-	};
-}
-
-function cycleOption(field: SettingField, value: SettingValue, direction = 1): SettingValue {
-	const options = field.options;
-	if (options === undefined || options.length === 0)
-		throw new Error(`Setting has no options: ${field.id}`);
-	const index = options.findIndex((option) => Object.is(option.value, value));
-	return (
-		options[(Math.max(0, index) + direction + options.length) % options.length]?.value ??
-		field.defaultValue
-	);
-}
-
 function wrap(text: string, width: number): readonly string[] {
 	if (width <= 0) return [];
+	const words = text.split(/\s+/u).filter((word) => word.length > 0);
 	const lines: string[] = [];
-	for (const word of text.split(/\s+/u)) {
-		const previous = lines.at(-1);
-		if (previous === undefined || visibleWidth(`${previous} ${word}`) > width) lines.push(word);
-		else lines[lines.length - 1] = `${previous} ${word}`;
+	let current = "";
+	for (const word of words) {
+		if (current.length === 0) {
+			current = word;
+		} else if (current.length + 1 + word.length <= width) {
+			current = `${current} ${word}`;
+		} else {
+			lines.push(current);
+			current = word;
+		}
 	}
+	if (current.length > 0) lines.push(current);
 	return lines;
 }
 
-function horizontalViewport(text: string, width: number, offset: number): string {
-	let skipped = 0;
-	let result = "";
-	for (const character of text) {
-		const characterWidth = visibleWidth(character);
-		if (skipped + characterWidth <= offset) {
-			skipped += characterWidth;
-			continue;
-		}
-		result += character;
-	}
-	return truncateToWidth(result, width);
+function renderInput(input: Input, width: number): string {
+	const rendered = input.render(Math.max(1, width))[0] ?? "";
+	return rendered.startsWith("> ") ? rendered.slice(2) : rendered;
 }
 
-function formattedValue(
-	row: FieldRow,
-	state: SettingsState,
-	surface: "display" | "description",
-): string {
-	const value = valueFor(row, state);
-	const related = row.field.tabCycle;
-	const relatedValue =
-		related === undefined
-			? undefined
-			: (state[row.groupId]?.[related.fieldId] ?? related.defaultValue);
-	const formatter = surface === "display" ? row.field.formatDisplay : row.field.formatDescription;
-	if (formatter !== undefined) return formatter(value as never, relatedValue as never);
-	const base =
-		row.field.format?.(value as never) ??
-		(value === null ? "" : Array.isArray(value) ? value.join(", ") : String(value));
-	if (related === undefined) return base;
-	const label = related.options.find((option) => Object.is(option.value, relatedValue))?.label;
-	return `${base}${related.separator ?? " · "}${label ?? String(relatedValue)}`;
-}
-
-function allChangedFields(
-	provider: SettingsProvider,
-	before: SettingsState,
-	after: SettingsState,
-): readonly FieldRow[] {
-	const seen = new Set<string>();
-	const result: FieldRow[] = [];
-	for (const group of provider.groups) {
-		for (const field of group.fields) {
-			const candidates = [
-				field.id,
-				...(field.tabCycle === undefined ? [] : [field.tabCycle.fieldId]),
-			];
-			for (const fieldId of candidates) {
-				const key = `${group.id}:${fieldId}`;
-				if (seen.has(key) || Object.is(before[group.id]?.[fieldId], after[group.id]?.[fieldId]))
-					continue;
-				seen.add(key);
-				result.push({ groupId: group.id, field: { ...field, id: fieldId } });
-			}
-		}
-	}
-	return result;
-}
-
-/**
- * Hosts the migrated Settings transaction. Providers retain schema, storage and
- * live-policy ownership; this page only holds a draft until an explicit flush.
- */
 export async function createSettingsPage(
 	registry: SettingsRegistry,
 	context: ExtensionPageViewContext,
 ): Promise<ExtensionPageView> {
 	const provider = combineSettingsProviders(registry.list());
-	const settingsContext: SettingsContext = {
-		// Provider callbacks receive the real session identity. A constant host label would
-		// silently collapse per-session provider behavior when Settings is opened twice.
+	const settingsContext = {
 		sessionId: context.command.sessionManager.getSessionId(),
 		cwd: context.command.cwd,
 		signal: context.signal,
 	};
-	const initial = mergeDefaults(provider, await provider.storage.load(settingsContext));
-	context.signal.throwIfAborted();
-	await provider.onLoad?.(cloneState(initial), settingsContext);
-	context.signal.throwIfAborted();
+
+	const session = await createSettingsDraftSession(provider, settingsContext);
 
 	let theme = context.theme;
-	let committed = cloneState(initial);
-	let draft = cloneState(initial);
-	let search = "";
-	let selectedId: string | undefined;
-	let scrollTop = 0;
-	let editor: Input | undefined;
-	let listDraft: string[] | undefined;
-	let listIndex = 0;
-	let listItemEditor: Input | undefined;
-	let listItemIndex: number | undefined;
-	let editing: FieldRow | undefined;
-	let relatedDraft: SettingValue | undefined;
 	let error: string | undefined;
-	let closed = false;
 	let closing = false;
-	let marqueeIdentity: string | undefined;
-	let marqueeOffset = 0;
-	let marqueeTimer: ReturnType<typeof setTimeout> | undefined;
 
-	const items = (): readonly ListItem[] => {
-		const query = search.trim().toLocaleLowerCase();
-		const result: ListItem[] = [];
-		for (const group of provider.groups) {
-			const fields = group.fields.filter((field) => {
-				if (!query) return true;
-				return `${group.title} ${field.label} ${field.id} ${field.description}`
-					.toLocaleLowerCase()
-					.includes(query);
-			});
-			if (fields.length === 0) continue;
-			if (group.title) result.push({ kind: "group", id: `group:${group.id}`, label: group.title });
-			for (const field of fields)
-				result.push({
-					kind: "field",
-					id: rowId(group.id, field.id),
-					row: { groupId: group.id, field },
-				});
-		}
-		for (const panel of provider.panels ?? []) {
-			if (!query || `${panel.label ?? ""} ${panel.id}`.toLocaleLowerCase().includes(query))
-				result.push({ kind: "panel", id: panelId(panel), panel });
-		}
-		return result;
-	};
-	const isEnabled = (row: FieldRow): boolean => row.field.enabled?.(draft) !== false;
-	const isSelectableItem = (item: ListItem): boolean =>
-		item.kind !== "field" || isEnabled(item.row);
-	const selectable = (): readonly ListItem[] => items().filter((item) => item.kind !== "group");
-	const selectedItem = (): ListItem | undefined => {
-		const available = selectable();
-		const existing = available.find((item) => item.id === selectedId);
-		if (existing !== undefined && isSelectableItem(existing)) return existing;
-		const fallback = available.find(isSelectableItem);
-		selectedId = fallback?.id;
-		return fallback;
-	};
-	const selectedField = (): FieldRow | undefined => {
-		const item = selectedItem();
-		return item?.kind === "field" ? item.row : undefined;
-	};
-	const requestRender = (): void => context.requestRender();
-	const stopMarquee = (): void => {
-		if (marqueeTimer !== undefined) clearTimeout(marqueeTimer);
-		marqueeTimer = undefined;
-	};
-	const syncMarquee = (row: FieldRow | undefined, labelWidth: number): void => {
-		const maxOffset =
-			row === undefined ? 0 : Math.max(0, visibleWidth(row.field.label) - labelWidth);
-		const identity =
-			row === undefined || editing !== undefined || maxOffset === 0
-				? undefined
-				: `${row.groupId}:${row.field.id}:${labelWidth}`;
-		if (identity !== marqueeIdentity) {
-			stopMarquee();
-			marqueeIdentity = identity;
-			marqueeOffset = 0;
-		}
-		if (identity === undefined || marqueeTimer !== undefined || closed) return;
-		const delay =
-			marqueeOffset === 0
-				? MARQUEE_INITIAL_PAUSE_MS
-				: marqueeOffset >= maxOffset
-					? MARQUEE_END_PAUSE_MS
-					: MARQUEE_FRAME_MS;
-		marqueeTimer = setTimeout(() => {
-			marqueeTimer = undefined;
-			marqueeOffset = marqueeOffset >= maxOffset ? 0 : marqueeOffset + 1;
-			requestRender();
-		}, delay);
-	};
-	const persist = async (): Promise<void> => {
-		if (JSON.stringify(draft) === JSON.stringify(committed)) return;
-		// Validate the complete draft before any live callback. Providers may enforce a
-		// cross-field invariant that a single editor commit cannot see in isolation.
-		await provider.storage.validate?.(cloneState(draft), settingsContext);
-		for (const changed of allChangedFields(provider, committed, draft)) {
-			const previousValue = committed[changed.groupId]?.[changed.field.id];
-			await provider.onChange?.(
-				{
-					groupId: changed.groupId,
-					fieldId: changed.field.id,
-					value: draft[changed.groupId]?.[changed.field.id] ?? changed.field.defaultValue,
-					...(previousValue === undefined ? {} : { previousValue }),
-					state: cloneState(draft),
-				},
-				settingsContext,
-			);
-		}
-		// Storage is deliberately serialized by provider. Several providers share Pi's
-		// settings root; core locks individual writes, while this order keeps callback and
-		// persistence observation deterministic. There is no cross-provider rollback.
-		await provider.storage.save(cloneState(draft), settingsContext);
-		committed = cloneState(draft);
-	};
-	const cleanup = async (): Promise<void> => {
-		if (closed) return;
-		closed = true;
-		stopMarquee();
-		const failures: unknown[] = [];
-		try {
-			await provider.onClose?.(cloneState(draft), settingsContext);
-		} catch (cause: unknown) {
-			failures.push(cause);
-		}
-		try {
-			await provider.storage.close?.(settingsContext);
-		} catch (cause: unknown) {
-			failures.push(cause);
-		}
-		if (failures.length > 0) throw new AggregateError(failures, "Settings cleanup failed");
-	};
+	const isEnabled = (row: FieldRow): boolean =>
+		row.field.enabled?.(session.getDraftState()) !== false;
+
 	const flushForNavigation = async (): Promise<boolean> => {
 		try {
-			await persist();
+			await session.commit();
 			return true;
 		} catch (cause: unknown) {
 			error = errorMessage(cause);
@@ -339,412 +91,547 @@ export async function createSettingsPage(
 			return false;
 		}
 	};
+
 	const closeInteractive = async (): Promise<void> => {
-		if (closing || closed) return;
+		if (closing) return;
 		closing = true;
 		if (!(await flushForNavigation())) {
 			closing = false;
 			return;
 		}
 		try {
-			await cleanup();
+			await session.close();
+			dualPane.dispose();
 			context.requestClose();
 		} catch (cause: unknown) {
-			closed = false;
 			closing = false;
 			error = errorMessage(cause);
 			requestRender();
 		}
 	};
-	const move = (offset: number): void => {
-		const available = selectable();
-		if (available.length === 0) return;
-		const index = Math.max(
-			0,
-			available.findIndex((item) => item.id === selectedId),
-		);
-		let next = Math.max(0, Math.min(available.length - 1, index + offset));
-		while (next >= 0 && next < available.length) {
-			const candidate = available[next];
-			if (candidate !== undefined && isSelectableItem(candidate)) break;
-			next += offset < 0 ? -1 : 1;
-		}
-		if (next < 0 || next >= available.length) return;
-		selectedId = available[next]?.id;
-		requestRender();
-	};
-	const beginEdit = (): void => {
-		const row = selectedField();
-		if (row === undefined || !isEnabled(row)) return;
-		if (row.field.type === "boolean") {
-			draft = updateValue(draft, row, !valueFor(row, draft));
-			error = undefined;
-			requestRender();
-			return;
-		}
-		editing = row;
-		relatedDraft =
-			row.field.tabCycle === undefined
-				? undefined
-				: (draft[row.groupId]?.[row.field.tabCycle.fieldId] ?? row.field.tabCycle.defaultValue);
-		if (row.field.type === "list") {
-			listDraft = [...(valueFor(row, draft) as readonly string[])];
-			listIndex = 0;
-			listItemEditor = undefined;
-			listItemIndex = undefined;
-		} else {
-			editor = new Input();
-			editor.setValue(String(valueFor(row, draft) ?? ""));
-			editor.handleInput("\x1b[F");
-		}
-		error = undefined;
-		requestRender();
-	};
-	const cancelEdit = (): void => {
-		editor = undefined;
-		listItemEditor = undefined;
-		listItemIndex = undefined;
-		listDraft = undefined;
-		editing = undefined;
-		relatedDraft = undefined;
-		error = undefined;
-		requestRender();
-	};
-	const startListItemEdit = (index: number): void => {
-		if (listDraft === undefined) return;
-		listIndex = Math.max(0, Math.min(index, listDraft.length));
-		listItemIndex = listIndex;
-		listItemEditor = new Input();
-		listItemEditor.setValue(listDraft[listIndex] ?? "");
-		listItemEditor.handleInput("\x1b[F");
-		error = undefined;
-		requestRender();
-	};
-	const applyListDraft = async (next: readonly string[]): Promise<boolean> => {
-		const row = editing;
-		if (row === undefined || row.field.type !== "list") return false;
-		try {
-			const validation = row.field.validate?.(next as never);
-			if (validation !== undefined) throw new Error(validation);
-			const state = updateValue(draft, row, [...next]);
-			await provider.storage.validate?.(cloneState(state), settingsContext);
-			draft = state;
-			listDraft = [...next];
-			error = undefined;
-			requestRender();
-			return true;
-		} catch (cause: unknown) {
-			error = errorMessage(cause);
-			requestRender();
-			return false;
-		}
-	};
-	const commitListItem = async (): Promise<void> => {
-		if (listDraft === undefined || listItemEditor === undefined || listItemIndex === undefined)
-			return;
-		const value = listItemEditor.getValue().trim();
-		if (value.length === 0) {
-			error = "List items cannot be empty";
-			requestRender();
-			return;
-		}
-		if (listDraft.some((item, index) => index !== listItemIndex && item === value)) {
-			error = "List items must be unique";
-			requestRender();
-			return;
-		}
-		const next = [...listDraft];
-		next[listItemIndex] = value;
-		if (!(await applyListDraft(next))) return;
-		listIndex = listItemIndex;
-		listItemEditor = undefined;
-		listItemIndex = undefined;
-		requestRender();
-	};
-	const cycleEditor = (direction: number): void => {
-		if (editing?.field.type !== "enum" || editor === undefined) return;
-		const current = editing.field.parse(editor.getValue());
-		editor.setValue(String(cycleOption(editing.field, current, direction)));
-		editor.handleInput("\x1b[F");
-		requestRender();
-	};
-	const cycleRelated = (direction: number): void => {
-		const row = editing;
-		const related = row?.field.tabCycle;
-		if (row === undefined || related === undefined) return;
-		const field: SettingField = {
-			...row.field,
-			id: related.fieldId,
-			options: related.options,
-		};
-		relatedDraft = cycleOption(field, relatedDraft ?? related.defaultValue, direction);
-		requestRender();
-	};
-	const commitEdit = async (): Promise<void> => {
-		if (editing?.field.type === "list") {
-			if (listItemEditor !== undefined) await commitListItem();
-			else cancelEdit();
-			return;
-		}
-		const row = editing;
-		if (row === undefined || editor === undefined) return;
-		try {
-			const value = row.field.parse(editor.getValue());
-			const validation = row.field.validate?.(value as never);
-			if (validation !== undefined) throw new Error(validation);
-			let next = updateValue(draft, row, value);
-			const related = row.field.tabCycle;
-			if (related !== undefined)
-				next = updateValue(
-					next,
-					{ groupId: row.groupId, field: { ...row.field, id: related.fieldId } },
-					relatedDraft ?? related.defaultValue,
-				);
-			await provider.storage.validate?.(cloneState(next), settingsContext);
-			draft = next;
-			cancelEdit();
-		} catch (cause: unknown) {
-			error = errorMessage(cause);
-			requestRender();
-		}
-	};
-	const renderListEditor = (width: number): readonly string[] => {
-		const values = listDraft ?? [];
-		const rows = values.map((value, index) => {
-			const marker = index === listIndex ? "→" : " ";
-			const text =
-				listItemIndex === index && listItemEditor !== undefined
-					? renderInput(listItemEditor, width - 4)
-					: value;
-			return fitRow(`${marker} ${text}`, width);
-		});
-		if (values.length === 0) rows.push(theme.fg("muted", "(empty)"));
-		rows.push(theme.fg("dim", "Enter edit/add · a add · d delete · Ctrl+↑/↓ reorder"));
-		return rows;
-	};
-	const renderInput = (input: Input, width: number): string => {
-		const rendered = input.render(Math.max(1, width))[0] ?? "";
-		return rendered.startsWith("> ") ? rendered.slice(2) : rendered;
-	};
-	const renderEditor = (width: number): string => {
-		return editor === undefined ? "" : renderInput(editor, width);
-	};
 
-	return {
-		minRows: 20,
-		component: {
+	const requestRender = (): void => context.requestRender();
+
+	const createEnumSubPane = (row: FieldRow): SubPaneComponent => {
+		const options = row.field.options ?? [];
+		const currentValue = session.get(row.groupId, row.field.id);
+		let selectedIndex = Math.max(
+			0,
+			options.findIndex((opt) => Object.is(opt.value, currentValue)),
+		);
+		let relatedDraft = session.getRelated(row.groupId, row.field.id);
+		let localError: string | undefined;
+
+		return {
 			render(width: number): string[] {
-				const all = items();
-				const selected = selectedItem();
-				const selectedIndex = all.findIndex((item) => item.id === selected?.id);
-				if (selectedIndex >= 0) {
-					// Keep keyboard navigation centered until the viewport reaches either list boundary.
-					const maxTop = Math.max(0, all.length - VISIBLE_ROWS);
-					scrollTop = Math.min(maxTop, Math.max(0, selectedIndex - Math.floor(VISIBLE_ROWS / 2)));
-				}
-				scrollTop = Math.min(scrollTop, Math.max(0, all.length - VISIBLE_ROWS));
-				const wide = width >= 76;
-				const listWidth = wide ? Math.max(34, Math.floor(width * 0.56)) : width;
-				const scrollbarWidth = all.length > VISIBLE_ROWS ? 2 : 0;
-				const detailWidth = wide ? Math.max(0, width - listWidth - scrollbarWidth - 3) : width;
-				const visible = all.slice(scrollTop, scrollTop + VISIBLE_ROWS);
-				// Keep both columns stable while scrolling, without using spare width to push values right.
-				const widestLabel = Math.max(
-					8,
-					...all
-						.filter(
-							(item): item is Extract<ListItem, { readonly kind: "field" }> =>
-								item.kind === "field",
-						)
-						.map((item) => visibleWidth(item.row.field.label)),
-				);
-				const labelWidth = Math.min(widestLabel, Math.max(8, Math.floor(listWidth * 0.55)));
-				const valueWidth = Math.max(1, listWidth - labelWidth - 5);
-				syncMarquee(selected?.kind === "field" ? selected.row : undefined, labelWidth);
-				const list = [
-					// Reserve one cell after the query so a full search does not touch the list boundary.
-					`> ${truncateToWidth(search || "_", Math.max(0, listWidth - 3))} `,
+				const lines: string[] = [
+					theme.bold(theme.fg("accent", truncateToWidth(row.field.label, width))),
 					"",
-					...visible.map((item) => {
-						if (item.kind === "group")
-							return theme.bold(theme.fg("accent", fitRow(`◆ ${item.label}`, listWidth)));
-						if (item.kind === "panel") {
-							const label = `${item.id === selected?.id ? "→" : " "} ◈ ${item.panel.label ?? item.panel.id}`;
-							return item.id === selected?.id ? theme.fg("accent", theme.bold(label)) : label;
-						}
-						const enabled = isEnabled(item.row);
-						const label =
-							item.id === selected?.id && marqueeIdentity !== undefined
-								? horizontalViewport(item.row.field.label, labelWidth, marqueeOffset)
-								: truncateToWidth(item.row.field.label, labelWidth);
-						const row = `${item.id === selected?.id ? "→" : " "} ${pad(label, labelWidth)} ${truncateToWidth(formattedValue(item.row, draft, "display"), valueWidth)}`;
-						const styled = !enabled
-							? theme.fg("dim", row)
-							: item.id === selected?.id
-								? theme.fg("accent", theme.bold(row))
-								: row;
-						return fitRow(styled, listWidth);
-					}),
+					...wrap(row.field.description, width),
+					"",
+					theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+					"",
 				];
-				// Fill the viewport, then pin interaction hints to the final panel row.
-				while (list.length < PANEL_ROWS - LIST_HINT_ROWS) list.push("");
-				list.push(
+
+				if (row.field.tabCycle !== undefined && relatedDraft !== undefined) {
+					lines.push(
+						theme.fg(
+							"accent",
+							`[Tab] ${row.field.tabCycle.label}: ${relatedDraft} (Tab to switch)`,
+						),
+						"",
+					);
+				}
+
+				for (let i = 0; i < options.length; i++) {
+					const opt = options[i];
+					if (opt === undefined) continue;
+					const isSel = i === selectedIndex;
+					const prefix = isSel ? "→ " : "  ";
+					const label = opt.label ?? String(opt.value);
+					const text = `${prefix}${label}`;
+					lines.push(
+						isSel ? theme.fg("accent", theme.bold(fitRow(text, width))) : fitRow(text, width),
+					);
+				}
+
+				if (localError !== undefined) {
+					lines.push("", theme.fg("error", `Error: ${localError}`));
+				}
+
+				while (lines.length < PANEL_ROWS - LIST_HINT_ROWS) lines.push("");
+				lines.splice(PANEL_ROWS - LIST_HINT_ROWS);
+				lines.push(
 					theme.fg(
 						"dim",
-						`↕ navigate · ␣ change · ⎋ ${editing === undefined ? (search ? "clear" : "close") : "cancel"}`,
+						row.field.tabCycle !== undefined
+							? "↕ select · Tab cycle related · Enter confirm · Esc cancel"
+							: "↕ select · Enter confirm · Esc cancel",
 					),
 				);
-				const detail =
-					selected?.kind === "panel"
-						? [...selected.panel.render(detailWidth)]
-						: selected?.kind === "field"
-							? selected.row.field.type === "list"
-								? [
-										theme.bold(truncateToWidth(selected.row.field.label, detailWidth)),
-										"",
-										...wrap(selected.row.field.description, detailWidth),
-										"",
-										theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
-										"",
-										...(editing?.groupId === selected.row.groupId &&
-										editing.field.id === selected.row.field.id
-											? renderListEditor(detailWidth)
-											: [
-													truncateToWidth(
-														formattedValue(selected.row, draft, "description"),
-														detailWidth,
-													),
-												]),
-										...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
-									]
-								: [
-										theme.bold(truncateToWidth(selected.row.field.label, detailWidth)),
-										"",
-										...wrap(selected.row.field.description, detailWidth),
-										"",
-										theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
-										"",
-										theme.fg(
-											"text",
-											`Value: ${editing?.groupId === selected.row.groupId && editing.field.id === selected.row.field.id ? renderEditor(Math.max(0, detailWidth - 7)) : truncateToWidth(formattedValue(selected.row, draft, "description"), Math.max(0, detailWidth - 7))}`,
-										),
-										...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
-									]
-							: [
-									theme.fg(
-										"muted",
-										search ? "No matching settings." : "No extension settings are registered.",
-									),
-								];
-				if (!wide) return [...list, "", ...detail].map((line) => fitRow(line, width));
-				// The Description is intentionally read only within the fixed panel height.
-				const rail = scrollbar(all.length, scrollTop, theme);
-				return Array.from({ length: PANEL_ROWS }, (_, index) => {
-					const left = pad(fitRow(list[index] ?? "", listWidth), listWidth);
-					return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${fitRow(detail[index] ?? "", detailWidth)}`;
-				});
+				return lines.map((line) => fitRow(line, width));
 			},
-			handleInput(): void {},
-			invalidate(): void {
-				const selected = selectedItem();
-				if (selected?.kind === "panel") selected.panel.invalidate?.();
+
+			async handleInput(input: string): Promise<boolean> {
+				if (matchesKey(input, Key.escape)) {
+					dualPane.setSubPane(undefined);
+					return true;
+				}
+
+				if (matchesKey(input, Key.up)) {
+					selectedIndex = Math.max(0, selectedIndex - 1);
+					requestRender();
+					return true;
+				}
+
+				if (matchesKey(input, Key.down)) {
+					selectedIndex = Math.min(options.length - 1, selectedIndex + 1);
+					requestRender();
+					return true;
+				}
+
+				if (matchesKey(input, Key.space)) {
+					selectedIndex = (selectedIndex + 1) % options.length;
+					requestRender();
+					return true;
+				}
+
+				if (matchesKey(input, Key.tab) || matchesKey(input, Key.shift("tab"))) {
+					if (row.field.tabCycle !== undefined) {
+						relatedDraft = session.cycleRelated(
+							row.groupId,
+							row.field.id,
+							matchesKey(input, Key.tab) ? 1 : -1,
+						);
+						requestRender();
+						return true;
+					}
+				}
+
+				if (matchesKey(input, Key.enter)) {
+					const chosen = options[selectedIndex];
+					if (chosen !== undefined) {
+						session.set(row.groupId, row.field.id, chosen.value);
+					}
+					if (row.field.tabCycle !== undefined && relatedDraft !== undefined) {
+						session.set(row.groupId, row.field.tabCycle.fieldId, relatedDraft);
+					}
+					try {
+						const validation = await session.validate();
+						if (validation !== undefined) throw new Error(validation);
+						dualPane.setSubPane(undefined);
+					} catch (cause: unknown) {
+						localError = errorMessage(cause);
+						requestRender();
+					}
+					return true;
+				}
+
+				return false;
+			},
+		};
+	};
+
+	const createTextSubPane = (row: FieldRow): SubPaneComponent => {
+		const editor = new Input();
+		editor.setValue(String(session.get(row.groupId, row.field.id) ?? ""));
+		editor.handleInput("\x1b[F");
+		let localError: string | undefined;
+
+		return {
+			render(width: number): string[] {
+				const lines: string[] = [
+					theme.bold(theme.fg("accent", truncateToWidth(row.field.label, width))),
+					"",
+					...wrap(row.field.description, width),
+					"",
+					theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+					"",
+					`> ${renderInput(editor, Math.max(1, width - 4))}`,
+				];
+
+				if (localError !== undefined) {
+					lines.push("", theme.fg("error", `Error: ${localError}`));
+				}
+
+				while (lines.length < PANEL_ROWS - LIST_HINT_ROWS) lines.push("");
+				lines.splice(PANEL_ROWS - LIST_HINT_ROWS);
+				lines.push(theme.fg("dim", "Enter confirm · Esc cancel"));
+				return lines.map((line) => fitRow(line, width));
+			},
+
+			async handleInput(input: string): Promise<boolean> {
+				if (matchesKey(input, Key.escape)) {
+					dualPane.setSubPane(undefined);
+					return true;
+				}
+
+				if (matchesKey(input, Key.enter)) {
+					try {
+						const value = row.field.parse(editor.getValue());
+						const validation = row.field.validate?.(value as never);
+						if (validation !== undefined) throw new Error(validation);
+						session.set(row.groupId, row.field.id, value);
+						const sessionValidation = await session.validate();
+						if (sessionValidation !== undefined) throw new Error(sessionValidation);
+						dualPane.setSubPane(undefined);
+					} catch (cause: unknown) {
+						localError = errorMessage(cause);
+						requestRender();
+					}
+					return true;
+				}
+
+				editor.handleInput(input);
 				requestRender();
+				return true;
 			},
-		},
-		async handleInput(input: string): Promise<boolean> {
-			if (editing?.field.type === "list") {
+		};
+	};
+
+	const createListSubPane = (row: FieldRow): SubPaneComponent => {
+		let listDraft = [...((session.get(row.groupId, row.field.id) as readonly string[]) ?? [])];
+		let listIndex = 0;
+		let listItemEditor: Input | undefined;
+		let listItemIndex: number | undefined;
+		let localError: string | undefined;
+
+		const applyListDraft = async (next: readonly string[]): Promise<boolean> => {
+			try {
+				const validation = row.field.validate?.(next as never);
+				if (validation !== undefined) throw new Error(validation);
+				session.set(row.groupId, row.field.id, [...next]);
+				const sessionValidation = await session.validate();
+				if (sessionValidation !== undefined) throw new Error(sessionValidation);
+				listDraft = [...next];
+				localError = undefined;
+				requestRender();
+				return true;
+			} catch (cause: unknown) {
+				localError = errorMessage(cause);
+				requestRender();
+				return false;
+			}
+		};
+
+		const startItemEdit = (index: number): void => {
+			listIndex = Math.max(0, Math.min(index, listDraft.length));
+			listItemIndex = listIndex;
+			listItemEditor = new Input();
+			listItemEditor.setValue(listDraft[listIndex] ?? "");
+			listItemEditor.handleInput("\x1b[F");
+			localError = undefined;
+			requestRender();
+		};
+
+		const commitItemEdit = async (): Promise<void> => {
+			if (listItemEditor === undefined || listItemIndex === undefined) return;
+			const value = listItemEditor.getValue().trim();
+			if (value.length === 0) {
+				localError = "List items cannot be empty";
+				requestRender();
+				return;
+			}
+			if (listDraft.some((item, index) => index !== listItemIndex && item === value)) {
+				localError = "List items must be unique";
+				requestRender();
+				return;
+			}
+			const next = [...listDraft];
+			next[listItemIndex] = value;
+			if (!(await applyListDraft(next))) return;
+			listIndex = listItemIndex;
+			listItemEditor = undefined;
+			listItemIndex = undefined;
+			requestRender();
+		};
+
+		return {
+			render(width: number): string[] {
+				const lines: string[] = [
+					theme.bold(theme.fg("accent", truncateToWidth(row.field.label, width))),
+					"",
+					...wrap(row.field.description, width),
+					"",
+					theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+					"",
+				];
+
+				const rows = listDraft.map((value, index) => {
+					const marker = index === listIndex ? "→ " : "  ";
+					const text =
+						listItemIndex === index && listItemEditor !== undefined
+							? renderInput(listItemEditor, Math.max(1, width - 4))
+							: value;
+					return fitRow(`${marker}${text}`, width);
+				});
+
+				if (rows.length === 0) rows.push(theme.fg("muted", "(empty)"));
+				lines.push(...rows);
+
+				if (localError !== undefined) {
+					lines.push("", theme.fg("error", `Error: ${localError}`));
+				}
+
+				while (lines.length < PANEL_ROWS - LIST_HINT_ROWS) lines.push("");
+				lines.splice(PANEL_ROWS - LIST_HINT_ROWS);
+				lines.push(
+					theme.fg(
+						"dim",
+						listItemEditor !== undefined
+							? "Enter confirm item · Esc cancel item"
+							: "Enter edit · a add · d delete · Ctrl+↑/↓ reorder · Esc back",
+					),
+				);
+				return lines.map((line) => fitRow(line, width));
+			},
+
+			async handleInput(input: string): Promise<boolean> {
 				if (listItemEditor !== undefined) {
 					if (matchesKey(input, Key.escape)) {
 						listItemEditor = undefined;
 						listItemIndex = undefined;
-						error = undefined;
+						localError = undefined;
 						requestRender();
-					} else if (matchesKey(input, Key.enter)) await commitListItem();
-					else {
+					} else if (matchesKey(input, Key.enter)) {
+						await commitItemEdit();
+					} else {
 						listItemEditor.handleInput(input);
 						requestRender();
 					}
 					return true;
 				}
-				if (matchesKey(input, Key.escape)) cancelEdit();
-				else if (matchesKey(input, Key.up)) {
+
+				if (matchesKey(input, Key.escape)) {
+					dualPane.setSubPane(undefined);
+					return true;
+				}
+
+				if (matchesKey(input, Key.up)) {
 					listIndex = Math.max(0, listIndex - 1);
 					requestRender();
-				} else if (matchesKey(input, Key.down)) {
-					listIndex = Math.min((listDraft?.length ?? 1) - 1, listIndex + 1);
+					return true;
+				}
+
+				if (matchesKey(input, Key.down)) {
+					listIndex = Math.min(Math.max(0, listDraft.length - 1), listIndex + 1);
 					requestRender();
-				} else if (matchesKey(input, Key.enter)) startListItemEdit(listIndex);
-				else if (input === "a") startListItemEdit(listDraft?.length ?? 0);
-				else if (input === "d" && listDraft !== undefined && listDraft.length > 0) {
+					return true;
+				}
+
+				if (matchesKey(input, Key.enter)) {
+					startItemEdit(listIndex);
+					return true;
+				}
+
+				if (input === "a") {
+					startItemEdit(listDraft.length);
+					return true;
+				}
+
+				if (input === "d" && listDraft.length > 0) {
 					const next = listDraft.filter((_item, index) => index !== listIndex);
-					if (await applyListDraft(next))
+					if (await applyListDraft(next)) {
 						listIndex = Math.max(0, Math.min(listIndex, next.length - 1));
-				} else if (input === "\x1b[1;5A" && listDraft !== undefined && listIndex > 0) {
+					}
+					return true;
+				}
+
+				if (input === "\x1b[1;5A" && listIndex > 0) {
 					const next = [...listDraft];
 					const previous = next[listIndex - 1];
 					const current = next[listIndex];
-					if (previous === undefined || current === undefined) return true;
-					[next[listIndex - 1], next[listIndex]] = [current, previous];
-					if (await applyListDraft(next)) listIndex -= 1;
-				} else if (
-					input === "\x1b[1;5B" &&
-					listDraft !== undefined &&
-					listIndex + 1 < listDraft.length
-				) {
+					if (previous !== undefined && current !== undefined) {
+						[next[listIndex - 1], next[listIndex]] = [current, previous];
+						if (await applyListDraft(next)) listIndex -= 1;
+					}
+					return true;
+				}
+
+				if (input === "\x1b[1;5B" && listIndex + 1 < listDraft.length) {
 					const next = [...listDraft];
 					const current = next[listIndex];
 					const following = next[listIndex + 1];
-					if (current === undefined || following === undefined) return true;
-					[next[listIndex], next[listIndex + 1]] = [following, current];
-					if (await applyListDraft(next)) listIndex += 1;
+					if (current !== undefined && following !== undefined) {
+						[next[listIndex], next[listIndex + 1]] = [following, current];
+						if (await applyListDraft(next)) listIndex += 1;
+					}
+					return true;
 				}
-				return true;
+
+				return false;
+			},
+		};
+	};
+
+	const beginEdit = (row: FieldRow): void => {
+		if (!isEnabled(row)) return;
+		if (row.field.type === "boolean") {
+			session.cycle(row.groupId, row.field.id);
+			error = undefined;
+			requestRender();
+			return;
+		}
+
+		if (row.field.type === "enum") {
+			dualPane.setSubPane(createEnumSubPane(row));
+			return;
+		}
+
+		if (row.field.type === "list") {
+			dualPane.setSubPane(createListSubPane(row));
+			return;
+		}
+
+		dualPane.setSubPane(createTextSubPane(row));
+	};
+
+	const buildItems = (): readonly DualPaneItem<ListItemData>[] => {
+		const result: DualPaneItem<ListItemData>[] = [];
+		for (const group of provider.groups) {
+			if (group.title) {
+				result.push({
+					id: `group:${group.id}`,
+					label: group.title,
+					kind: "group",
+					data: { kind: "group", id: group.id, label: group.title },
+				});
 			}
-			if (editing !== undefined && editor !== undefined) {
-				if (matchesKey(input, Key.escape)) cancelEdit();
-				else if (matchesKey(input, Key.enter)) await commitEdit();
-				else if (matchesKey(input, Key.tab) || matchesKey(input, Key.shift("tab")))
-					cycleRelated(matchesKey(input, Key.tab) ? 1 : -1);
-				else if (editing.field.type === "enum" && matchesKey(input, Key.up)) cycleEditor(-1);
-				else if (editing.field.type === "enum" && matchesKey(input, Key.down)) cycleEditor(1);
-				else if (editing.field.type !== "enum") {
-					editor.handleInput(input);
-					requestRender();
-				}
-				return true;
+			for (const field of group.fields) {
+				const row: FieldRow = { groupId: group.id, field };
+				result.push({
+					id: rowId(group.id, field.id),
+					label: field.label,
+					valueText: session.formattedValue(row, "display"),
+					kind: "item",
+					cyclable: field.type === "boolean",
+					enabled: isEnabled(row),
+					data: { kind: "field", row },
+				});
 			}
-			const selected = selectedItem();
-			if (selected?.kind === "panel" && selected.panel.handleInput !== undefined) {
-				const handled = await selected.panel.handleInput(input);
+		}
+		for (const panel of provider.panels ?? []) {
+			result.push({
+				id: panelId(panel),
+				label: panel.label ?? panel.id,
+				kind: "panel",
+				data: { kind: "panel", panel },
+			});
+		}
+		return result;
+	};
+
+	const dualPane: DualPaneListView<ListItemData> = new DualPaneListView<ListItemData>({
+		theme,
+		items: buildItems,
+		requestRender,
+		hintText: "↕ navigate · ␣ change · ⎋ clear/close",
+		onCycle: (item) => {
+			if (item.data?.kind === "field") {
+				session.cycle(item.data.row.groupId, item.data.row.field.id);
+				error = undefined;
+				requestRender();
+			}
+		},
+		onAction: (item) => {
+			if (item.data?.kind === "field") {
+				beginEdit(item.data.row);
+			}
+		},
+		onClose: () => {
+			void closeInteractive();
+		},
+		renderDetail: (
+			selected: DualPaneItem<ListItemData> | undefined,
+			detailWidth: number,
+		): readonly string[] => {
+			if (selected?.data?.kind === "panel") {
+				return selected.data.panel.render(detailWidth);
+			}
+			if (selected?.data?.kind === "field") {
+				const row = selected.data.row;
+				return [
+					theme.bold(truncateToWidth(row.field.label, detailWidth)),
+					"",
+					...wrap(row.field.description, detailWidth),
+					"",
+					theme.fg("muted", `Origin: ${provider.origin ?? provider.id}`),
+					"",
+					theme.fg(
+						"text",
+						`Value: ${truncateToWidth(session.formattedValue(row, "description"), Math.max(0, detailWidth - 7))}`,
+					),
+					...(error === undefined ? [] : [theme.fg("error", `Error: ${error}`)]),
+				];
+			}
+			return [
+				theme.fg(
+					"muted",
+					dualPane.getSearch() ? "No matching settings." : "No extension settings are registered.",
+				),
+			];
+		},
+	});
+
+	return {
+		minRows: 20,
+		component: {
+			render(width: number): string[] {
+				return dualPane.render(width);
+			},
+			handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+				return dualPane.handleMouse(event);
+			},
+			invalidate(): void {
+				dualPane.invalidate();
+				const selected = dualPane.getSelectedItem();
+				if (selected?.data?.kind === "panel") selected.data.panel.invalidate?.();
+				requestRender();
+			},
+		},
+		async handleInput(input: string): Promise<boolean> {
+			if (dualPane.getSubPane() !== undefined) {
+				return await dualPane.handleInput(input);
+			}
+
+			const selected = dualPane.getSelectedItem();
+			if (selected?.data?.kind === "panel" && selected.data.panel.handleInput !== undefined) {
+				const handled = await selected.data.panel.handleInput(input);
 				if (handled !== false) {
 					requestRender();
 					return true;
 				}
 			}
-			if (matchesKey(input, Key.left) || matchesKey(input, Key.right))
+
+			if (matchesKey(input, Key.left) || matchesKey(input, Key.right)) {
 				return !(await flushForNavigation());
-			if (matchesKey(input, Key.up)) move(-1);
-			else if (matchesKey(input, Key.down)) move(1);
-			else if (matchesKey(input, Key.space) || matchesKey(input, Key.enter)) beginEdit();
-			else if (matchesKey(input, Key.backspace)) {
-				search = search.slice(0, -1);
-				requestRender();
-			} else if (matchesKey(input, Key.escape)) {
-				if (search) {
-					search = "";
-					requestRender();
-				} else await closeInteractive();
-			} else if (isPrintable(input)) {
-				search += input;
-				requestRender();
 			}
-			return true;
+
+			if (matchesKey(input, Key.space) || matchesKey(input, Key.enter)) {
+				if (selected?.data?.kind === "field") {
+					beginEdit(selected.data.row);
+					return true;
+				}
+			}
+
+			if (matchesKey(input, Key.escape)) {
+				if (dualPane.getSearch()) {
+					dualPane.setSearch("");
+				} else {
+					await closeInteractive();
+				}
+				return true;
+			}
+
+			return dualPane.handleInput(input);
 		},
 		onThemeChange(nextTheme: Theme): void {
 			theme = nextTheme;
+			dualPane.setTheme(nextTheme);
 		},
 		async close(): Promise<void> {
-			await cleanup();
+			await session.close();
+			dualPane.dispose();
 		},
 	};
 }

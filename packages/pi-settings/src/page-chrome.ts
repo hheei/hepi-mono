@@ -2,10 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 /**
- * Chrome shared by the settings and loadout pages.
- *
- * Both pages fill the same router-provided panel with a scrolled list, so the row budget
- * and the rail that shows the scroll position must stay identical or the two pages drift.
+ * Chrome and layout constants for settings pages.
  */
 
 // The router guarantees this many rows; keeping it fixed prevents Description length from moving hints.
