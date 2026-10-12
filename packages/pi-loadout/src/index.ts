@@ -1,5 +1,17 @@
 export { default } from "./extension.js";
-export { LoadoutManager, type LoadoutManagerOptions } from "./loadout-manager.js";
+export {
+	CATEGORY_GLYPH,
+	CATEGORY_LABEL,
+	enabledBadge,
+	overrideBadge,
+	scopeBadge,
+	scopeLabel,
+} from "./glyph.js";
+export {
+	LoadoutManager,
+	type LoadoutManagerOptions,
+	resourceDisplayName,
+} from "./loadout-manager.js";
 export {
 	LIST_HEADER_ROWS,
 	LIST_HINT_ROWS,

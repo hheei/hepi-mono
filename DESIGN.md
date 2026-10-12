@@ -196,6 +196,8 @@ Design the same interaction model for narrow and wide terminals.
 
 ## Feature Specs
 
+[`pi-loadout`](docs/architecture/pi-loadout.md) 的 `/ext-loadout` 是 Pi 原生资源装配面板，拥有 `PANEL_ROWS` 行固定高度：上边线、标题行、搜索行、列表视口、提示行、下边线。它按资源类别分组（`skills`、`extensions`、`prompts`、`themes`、`packages`、`tools`），宽终端（≥76 列）列表与详情并排，窄终端上下堆叠。每一行的状态只用 Nerd Font 字形表达，不依赖颜色：`󰄴` 启用、`󰄰` 停用、`󰐙` 项目显式启用、`󰍷` 项目显式停用；项目作用域下无覆盖时显示继承结果。详情面板按优先级排布（名称、来源、Global、Project、Effective、路径、描述），行数不足时先丢掉空行再截断描述，因此状态事实永远可见。Tab 切换写入作用域，并且标记本身随作用域移动，不以颜色区分。同名资源（例如两个 `research` skill）用来源目录限定，避免两行无法区分。
+
 [`DESIGN.md`](http://DESIGN.md) owns shared visual and interaction invariants. Exact dimensions, row counts, feature shortcuts, field layouts, command presentation, and other feature-specific behavior belong in the owning feature's design or architecture document.
 
 Promote a feature rule into this document only after it becomes a genuinely shared pattern.

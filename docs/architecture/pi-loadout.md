@@ -36,9 +36,11 @@
                               v
 +-------------------------------------------------------------+
 |                        LoadoutView                          |
-|  - Top: Scope Bar ([Tab] Global <-> Project)                |
-|  - Left Pane: Grouped Resource List + Status Badges         |
-|  - Right Pane: Metadata, Path, Inherit Logic, Override Spec |
+|  - Rail / Title + Scope Bar ([Tab] Global <-> Project)      |
+|  - Search Row                                               |
+|  - Left Pane: Category Headings + Resource Rows + Rail      |
+|  - Right Pane: Status Facts, Path, Description              |
+|  - Hint Row / Rail                                          |
 +-------------------------------------------------------------+
                               |
         User toggles with Space / cycles overrides
@@ -68,19 +70,27 @@
 - 默认进入当前会话的可信作用域（若项目受信任，默认可查看/编辑项目；按 `Tab` 随时在 `Global` 与 `Project` 间切换）。
 
 ### 3.2 状态解析与视觉语义
-1. **Global 视口**：
-   - `[✓] Enabled`：当前全局启用。
-   - `[ ] Disabled`：当前全局禁用（配置中含 `-pattern` 或显式排除）。
-   - 按 `Space` / `Enter`：在启用与禁用之间切换。
 
-2. **Project 视口**：
-   - `[+] Explicit Override: Enabled`：项目配置中显式写入 `+pattern`。
-   - `[-] Explicit Override: Disabled`：项目配置中显式写入 `-pattern`。
-   - `[•] Inherited (Active)`：项目无覆盖，继承全局启用状态。
-   - `[ ] Inherited (Inactive)`：项目无覆盖，继承全局禁用状态。
-   - 按 `Space` / `Enter` 循环：
-     - 若全局为启用：`Inherited [•]` -> `Override Disabled [-]` -> `Override Enabled [+]` -> `Inherited [•]`
-     - 若全局为禁用：`Inherited [ ]` -> `Override Enabled [+]` -> `Override Disabled [-]` -> `Inherited [ ]`
+列表行只用 Nerd Font 字形表达状态，颜色是辅助而非唯一信号（`DESIGN.md` 的「NEVER communicate selection or status by color alone」）：
+
+| 字形 | 含义 |
+| --- | --- |
+| `󰄴` | 启用 |
+| `󰄰` | 停用 |
+| `󰐙` | 项目显式启用（`+pattern`） |
+| `󰍷` | 项目显式停用（`-pattern`） |
+
+1. **Global 视口**：行内字形报告**全局层自身**的值，与项目覆盖无关。按 `Space` / `Enter` 在启用与停用之间切换。
+
+2. **Project 视口**：行内字形报告**项目决定**；无覆盖时显示继承结果。按 `Space` / `Enter` 循环：
+   - 若全局为启用：`继承` -> `显式停用` -> `显式启用` -> `继承`
+   - 若全局为禁用：`继承` -> `显式启用` -> `显式停用` -> `继承`
+
+3. **详情面板**分别报告 `Global`、`Project`、`Effective` 三个事实。`Global` 行始终画全局层自身的值，因此一个项目覆盖不会让全局值看起来被改写；`Effective` 由 `globalEnabled` 与项目覆盖推导，而不是第二次独立解析，否则未受信任的项目会解析回全局层，使面板自相矛盾。
+
+4. **作用域标记**本身在 `Global` 与 `Project` 之间移动（`● Global  ○ Project` / `○ Global  ● Project`），切换写入目标不依赖 accent 颜色。
+
+5. **同名资源**（例如用户目录与项目目录各有一个 `research` skill）以来源目录限定名称，否则两行完全相同，用户无法知道自己将要停用哪一个。
 
 ---
 
