@@ -383,7 +383,7 @@ export function fileToolPresentation(
 			const end = typeof parsed.limit === "number" ? start + parsed.limit - 1 : "";
 			range = `:${String(start)}${end ? `-${String(end)}` : ""}`;
 		}
-		return { summary: `read ${path}${range}`, status: isError ? "error" : "ok" };
+		return { summary: `${path}${range}`, status: isError ? "error" : "ok" };
 	}
 	if (toolName === WRITE_TOOL_NAME) {
 		const presentation = isError ? undefined : writePresentation(args, details);
@@ -397,7 +397,7 @@ export function fileToolPresentation(
 						: "";
 		if (path === "" && delta === "") return undefined;
 		return {
-			summary: `${WRITE_TOOL_NAME} ${path}${delta}`.trim(),
+			summary: `${path}${delta}`.trim(),
 			status: isError ? "error" : presentation?.kind === "noChange" ? "none" : "ok",
 		};
 	}
@@ -578,7 +578,11 @@ export function patchSummary(files: number, added: number, removed: number): str
 	return `modify ${files}${files === 1 ? " file" : " files"} (+${added} -${removed})`;
 }
 
-export function formatToolSummary(
+/**
+ * The name-free part of a summary for tools whose call arguments read well on their own. The tool
+ * name is the row's title, so repeating it here would print it twice.
+ */
+function formatArgumentSummary(
 	toolName: string,
 	parsed: Record<string, unknown>,
 ): string | undefined {
@@ -590,46 +594,21 @@ export function formatToolSummary(
 				: "";
 
 	switch (toolName) {
-		case "read": {
-			if (!path) return undefined;
-			let range = "";
-			if (typeof parsed.offset === "number" || typeof parsed.limit === "number") {
-				const start = typeof parsed.offset === "number" ? parsed.offset : 1;
-				const end = typeof parsed.limit === "number" ? start + parsed.limit - 1 : "";
-				range = `:${String(start)}${end ? `-${String(end)}` : ""}`;
-			}
-			return `read ${path}${range}`;
-		}
-		case EDIT_TOOL_NAME: {
-			return path ? `${EDIT_TOOL_NAME} ${path}` : undefined;
-		}
-		case WRITE_TOOL_NAME: {
-			return path ? `${WRITE_TOOL_NAME} ${path}` : undefined;
-		}
-		case APPLY_PATCH_TOOL_NAME: {
-			return path ? `${APPLY_PATCH_TOOL_NAME} ${path}` : undefined;
-		}
 		case "bash": {
 			const cmd = typeof parsed.command === "string" ? parsed.command.trim() : "";
 			if (!cmd) return undefined;
-			const shortCmd = cmd.length > 70 ? `${cmd.slice(0, 67)}…` : cmd;
-			return `${toolName} ${shortCmd}`;
+			return cmd.length > 70 ? `${cmd.slice(0, 67)}…` : cmd;
 		}
-		case "grep": {
-			const pattern = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
-			if (!pattern) return undefined;
-			const target = path && path !== "." ? ` ${path}` : "";
-			return `grep ${pattern}${target}`;
-		}
+		case "grep":
 		case "find": {
 			const pattern = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
 			if (!pattern) return undefined;
 			const target = path && path !== "." ? ` ${path}` : "";
-			return `find ${pattern}${target}`;
+			return `${pattern}${target}`;
 		}
 		default: {
 			const keyArg = extractSummaryArg(toolName, parsed);
-			return keyArg ? `${toolName} ${keyArg}` : undefined;
+			return keyArg ? keyArg : undefined;
 		}
 	}
 }
@@ -653,18 +632,22 @@ export function inlinePresentation(
 		const facts = applyPatchFacts(details);
 		if (facts !== undefined) {
 			return {
-				summary: `${APPLY_PATCH_TOOL_NAME} ${patchSummary(new Set(facts.changedPaths).size, facts.addedLines, facts.removedLines)}`,
+				summary: patchSummary(
+					new Set(facts.changedPaths).size,
+					facts.addedLines,
+					facts.removedLines,
+				),
 				status: isError ? "error" : "ok",
 			};
 		}
 		if (parsed === undefined || typeof parsed.patch !== "string") return undefined;
 		const operations = previewV4aOperations(parsed.patch, true, undefined);
 		return {
-			summary: `${APPLY_PATCH_TOOL_NAME} ${patchSummary(
+			summary: patchSummary(
 				new Set(operations.map((operation) => operation.path)).size,
 				operations.reduce((sum, operation) => sum + operation.addedLines, 0),
 				operations.reduce((sum, operation) => sum + operation.removedLines, 0),
-			)}`,
+			),
 			status: isError ? "error" : "ok",
 		};
 	}
@@ -675,17 +658,16 @@ export function inlinePresentation(
 		const source = isError ? undefined : editDiffSource(details);
 		const stats = source === undefined ? undefined : diffStats(source);
 		if (path === "" && stats === undefined) return undefined;
-		const label = path === "" ? EDIT_TOOL_NAME : `${EDIT_TOOL_NAME} ${path}`;
 		return {
 			summary:
 				stats === undefined
-					? label
-					: `${label} (+${String(stats.added)} -${String(stats.removed)})`,
+					? path
+					: `${path} (+${String(stats.added)} -${String(stats.removed)})`.trim(),
 			status: isError ? "error" : "ok",
 		};
 	}
 
-	const baseSummary = formatToolSummary(toolName, parsed);
+	const baseSummary = formatArgumentSummary(toolName, parsed);
 	if (baseSummary === undefined) return undefined;
 
 	return {

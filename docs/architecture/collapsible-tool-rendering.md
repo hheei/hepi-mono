@@ -113,14 +113,15 @@ Header 右侧末端常驻单图标 `󰆏`（点击后切换为 `✓` 绿光持�
 
 ### 5.3 嵌套元工具 (Codemode / Subagents)
 - **状态去重规则**：有子工具调用时，顶层 Header **剥离冗余的 `✓` 图标**，状态完全由子调用列表反映；仅当零子调用（纯计算兜底）时顶层才显示 `✓`，或脚本自身崩溃时显示 `✗`。
+- **子行沿用工具自身的 Header 词汇**：看板子行与同一工具独立出现时的 Header 必须逐 token 一致，只把折叠针 `▸` 换成父级导轨 `▎`。因此子行由 `formatToolHeaderText` 生成，即 `状态字形 + toolTitle(bold(工具名)) + dim(摘要 · duration)`，`bash` 的摘要同样保持终端默认色。看板自行拼行会把子工具摘要染成标题色，同一个调用在容器内外就长得不一样；这条规则由 `test/tool-header.test.ts` 直接比较「独立 Header」与「看板子行」来守住。
 - **未展开态（Level 0，多行紧凑看板）** vs **展开态（Level 1/2，聚焦代码与最终输出）**：
 ```
 [未展开状态 (Level 0: 导轨挂接子工具看板，顶层省略 ✓)]
-▸ codemode "batch search" · 4 calls · 2.1s                           󰆏
-▎ ✓ grep "registerTool" · 14 matches (80ms)
-▎ ✓ read "src/extension.ts" · 45 lines (20ms)
-▎ ✓ read "src/renderer.ts" · 120 lines (35ms)
-▎ ✗ write "dist/output.json" · Permission denied (15ms)
+▸ codemode batch search · 4 calls · 2.1s                             󰆏
+▎ ✓ grep registerTool src · 14 matches · 80ms
+▎ ✓ read src/extension.ts · 45 lines · 20ms
+▎ ✓ read src/renderer.ts · 120 lines · 35ms
+▎ ✗ write dist/output.json · Permission denied · 15ms
 
 [展开状态 (Level 1/2: 隐藏子列表，无缝展示输入脚本与最终聚合产出)]
 ▾ codemode "batch search" · 4 calls · 2.1s                           󰆏

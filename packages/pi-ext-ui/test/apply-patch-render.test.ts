@@ -39,7 +39,7 @@ describe("apply_patch render", () => {
 		const patch =
 			"*** Begin Patch\n*** Update File: a.ts\n@@\n-old\n+new\n*** Update File: a.ts\n@@\n-old2\n+new2\n*** End Patch";
 		expect(inlinePresentation("apply_patch", { patch }, undefined, false)?.summary).toBe(
-			"apply_patch modify 1 file (+2 -2)",
+			"modify 1 file (+2 -2)",
 		);
 		const details = {
 			status: "partial",
@@ -85,7 +85,7 @@ describe("apply_patch render", () => {
 			plainTheme,
 			mockContext() as never,
 		);
-		expect(parent.render(100).join("\n")).toContain("apply_patch modify 1 file (+2 -0)");
+		expect(parent.render(100).join("\n")).toContain("▎ ✓ apply_patch modify 1 file (+2 -0)");
 	});
 
 	test("streams pending rows from a partial patch before execute starts", () => {

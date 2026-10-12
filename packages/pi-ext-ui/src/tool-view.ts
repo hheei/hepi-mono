@@ -111,21 +111,49 @@ function isCopiedActive(stateHolder: unknown, localCopiedUntil: number): boolean
 	return typeof until === "number" && until > now;
 }
 
-function formatStatusGlyph(status: ToolStatusKind | undefined, theme: Theme): string {
+export function formatStatusGlyph(status: ToolStatusKind | undefined, theme: Theme): string {
 	switch (status ?? "ok") {
 		case "streaming":
-			return `${theme.fg("muted", "⋯")} `;
+			return theme.fg("muted", "⋯");
 		case "running":
-			return `${theme.fg("accent", "◐")} `;
+			return theme.fg("accent", "◐");
 		case "ok":
-			return `${theme.fg("success", "✓")} `;
+			return theme.fg("success", "✓");
 		case "warn":
-			return `${theme.fg("warning", "!")} `;
+			return theme.fg("warning", "!");
 		case "error":
-			return `${theme.fg("error", "✗")} `;
+			return theme.fg("error", "✗");
 		case "none":
 			return "";
 	}
+}
+
+/**
+ * The glyph, name, and summary of one tool execution, colored the way every tool row colors them.
+ *
+ * A container tool draws one of these per child call, and so does the row of a tool that ran on its
+ * own. Both must agree, so the token assignment lives here rather than in each board: a board that
+ * assembled its own row painted the child's summary as a title, which read as one bright run and
+ * made a nested call look unlike the same call at top level. The caller owns the fold pin, the
+ * right-aligned action, and the width budget, which are the parts that actually differ.
+ */
+export function formatToolHeaderText(
+	parts: {
+		readonly status?: ToolStatusKind | undefined;
+		readonly title: string;
+		readonly summary?: string | undefined;
+		readonly unstyledSummary?: boolean | undefined;
+	},
+	theme: Theme,
+): string {
+	const statusPart = formatStatusGlyph(parts.status, theme);
+	const title = toSingleRow(parts.title);
+	const titlePart = theme.fg("toolTitle", theme.bold(title));
+	const summaryRaw = parts.summary === undefined ? "" : toSingleRow(parts.summary);
+	const isUnstyled = parts.unstyledSummary === true || title === "bash";
+	const summaryPart =
+		summaryRaw === "" ? "" : isUnstyled ? ` ${summaryRaw}` : ` ${theme.fg("dim", summaryRaw)}`;
+	return `${statusPart === "" ? "" : `${statusPart} `}${titlePart}${summaryPart}`;
 }
 
 const truncate = (text: string, width: number): string => truncateToWidth(text, width, "…");
@@ -324,14 +352,7 @@ export class ToolView implements Component {
 		const safeWidth = Math.max(1, width);
 		const pinGlyph = level === 0 ? "▸" : "▾";
 		const pin = theme.fg("dim", pinGlyph);
-		const statusPart = formatStatusGlyph(header.status, theme);
-		const title = toSingleRow(header.title);
-		const titlePart = theme.fg("toolTitle", theme.bold(title));
-		const summaryRaw = header.summary === undefined ? "" : toSingleRow(header.summary);
-		const isUnstyled = header.unstyledSummary === true || title === "bash";
-		const summaryPart =
-			summaryRaw === "" ? "" : isUnstyled ? ` ${summaryRaw}` : ` ${theme.fg("dim", summaryRaw)}`;
-		const leftContent = `${pin} ${statusPart}${titlePart}${summaryPart}`;
+		const leftContent = `${pin} ${formatToolHeaderText(header, theme)}`;
 
 		if (copy === undefined || safeWidth < 6) {
 			return truncate(leftContent, safeWidth);
