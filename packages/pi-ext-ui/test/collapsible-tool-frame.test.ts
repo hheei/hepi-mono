@@ -384,7 +384,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const level0 = resultView.render(80);
 		expect(level0[0]).toContain("▸ codemode (timeout 30s) · 1 call · 200ms");
 		expect(level0[0]).not.toContain("✓");
-		expect(level0[1]).toContain('▎ ✓ read path: "a.ts" 18ms');
+		expect(level0[1]).toContain('▎ ✓ read path: "a.ts" · 18ms');
 		expect(level0[1]).toContain("󰆏");
 
 		// Clicking row 1 copy button copies the child tool's output
@@ -399,7 +399,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		// Clicking row 1 body toggles child tool expansion (select mechanism)
 		resultView.handleMouse(createMouseClick(10, 1, { width: 80 }));
 		const childExpanded = resultView.render(80);
-		expect(childExpanded[1]).toContain('▎ ✓ read path: "a.ts" 18ms');
+		expect(childExpanded[1]).toContain('▎ ✓ read path: "a.ts" · 18ms');
 
 		// Expanding codemode view itself
 		resultView.handleMouse(createMouseClick(2, 0, { width: 80 }));
@@ -556,8 +556,8 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		) as ToolView;
 
 		const lines = resultView.render(80).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
-		expect(lines.join("\n")).toContain("read x/renderer.ts 1ms");
-		expect(lines.join("\n")).toContain("write b.ts 2ms");
+		expect(lines.join("\n")).toContain("▎ ✓ read x/renderer.ts · 1ms");
+		expect(lines.join("\n")).toContain("▎ ✓ write b.ts · 2ms");
 	});
 
 	test("python_eval renders call facts, nested tool rows, and cell failure rules", () => {
@@ -809,9 +809,9 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(rows[0]).toContain("▸ codemode 2 calls");
 
 		// Child rows have individual copy icons and no arrow prefix
-		expect(rows[1]).toContain("▎ ✓ bash echo hello 45ms");
+		expect(rows[1]).toContain("▎ ✓ bash echo hello · 45ms");
 		expect(rows[1]).toContain("󰆏");
-		expect(rows[2]).toContain("▎ ✓ write src/new.ts 12ms");
+		expect(rows[2]).toContain("▎ ✓ write src/new.ts · 12ms");
 		expect(rows[2]).toContain("󰆏");
 
 		// Click child 1 copy button (row 1, x=78)
@@ -831,7 +831,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const expandedRows = resultView.render(80);
 
 		// Child 1 header has no arrow prefix
-		expect(expandedRows[1]).toContain("▎ ✓ bash echo hello 45ms");
+		expect(expandedRows[1]).toContain("▎ ✓ bash echo hello · 45ms");
 		// Child 1 uses ext-ui upper room ($ echo hello) and lower room (output lines)
 		expect(expandedRows[2]).toContain("▎   $ echo hello");
 		expect(expandedRows[3]).toContain("▎   hello output");

@@ -19,9 +19,9 @@ import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } fro
 import {
 	type Collapsible,
 	type FoldLevel,
+	formatToolHeaderText,
 	ToolView,
 	toContentRows,
-	toSingleRow,
 	transitionFoldLevel,
 } from "./tool-view.js";
 import type { CapturedToolCall } from "./tracker.js";
@@ -319,12 +319,6 @@ export class NestedCallsView implements Component, Collapsible {
 			const expansionLevel = this.#getExpansionLevel(i);
 			const isExpanded = expansionLevel !== 0;
 
-			const statusGlyph = isRunning
-				? theme.fg("accent", "◐")
-				: isError
-					? theme.fg("error", "✗")
-					: theme.fg("success", "✓");
-
 			const rawSummary = "summary" in call ? call.summary : undefined;
 			const rawArgs = "args" in call ? (call as { args?: unknown }).args : undefined;
 			const inline = inlinePresentation(
@@ -338,22 +332,25 @@ export class NestedCallsView implements Component, Collapsible {
 				typeof rawArgs === "string" ? rawArgs : typeof rawSummary === "string" ? rawSummary : "";
 			const provider = this.#props.resolvePresentation?.(toolName);
 			const presentation = provider?.(rawArgs, "result" in call ? call.result : undefined, theme);
-			let mainText =
-				presentation !== undefined
-					? `${toolName} ${presentation.summary}`
-					: (inline?.summary ?? (argText ? `${toolName} ${argText}` : toolName));
-			mainText = stripTerminalSequences(toSingleRow(mainText));
-
+			// The child row is the child's own header minus the fold pin, so it carries the same token
+			// assignment as the row the same call would draw at top level.
+			const childSummary = stripTerminalSequences(
+				presentation?.summary ?? inline?.summary ?? argText,
+			);
 			const duration = formatDuration(call.durationMs);
-			if (duration) {
-				mainText += ` ${theme.fg("dim", duration)}`;
-			}
+			const leftContent = formatToolHeaderText(
+				{
+					status: isRunning ? "running" : isError ? "error" : "ok",
+					title: toolName,
+					summary: [childSummary, duration].filter(Boolean).join(" · "),
+				},
+				theme,
+			);
 
 			const isCopied = this.#copiedIndex === i;
 			const copyIcon = isCopied ? theme.fg("success", "✓") : theme.fg("dim", "󰆏");
 			const copySlotWidth = 2 + rightMargin;
 
-			const leftContent = `${statusGlyph} ${theme.fg("toolTitle", mainText)}`;
 			const maxLeft = Math.max(1, width - copySlotWidth);
 			const truncatedLeft = truncate(leftContent, maxLeft);
 			const leftVis = visibleWidth(truncatedLeft);

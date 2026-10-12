@@ -307,7 +307,7 @@ describe("edit rendering through ToolView", () => {
 
 		const rows = result.render(80);
 		expect(rows[0]).toContain("▸ codemode 2 ok · 1 failed · 200ms");
-		expect(rows[1]).toContain("▎ ✓ edit src/index.ts 12ms");
+		expect(rows[1]).toContain("▎ ✓ edit src/index.ts · 12ms");
 		expect(rows[1]).toContain("󰆏");
 		expect(rows[2]).toContain("▎ ✗ edit src/other.ts");
 		expect(rows[3]).toContain("▎ ✓ grep x");
@@ -437,43 +437,45 @@ describe("edit rendering through ToolView", () => {
 	});
 
 	test("inlinePresentation formats diverse tools into their folded single-line format", () => {
+		// A summary never repeats the tool name: the row's title already carries it, and printing both
+		// produced rows like "edit edit src/index.ts".
 		// Truncated edit JSON string (200 chars preview from QuickJS)
 		const truncatedEditArgs =
 			'{"path":"packages/pi-subagents/test/tool-activation.test.ts","edits":[{"oldText":"export const A = 1;","newText":"export const A = 2;';
 		expect(inlinePresentation("edit", truncatedEditArgs, undefined, false)?.summary).toBe(
-			"edit packages/pi-subagents/test/tool-activation.test.ts",
+			"packages/pi-subagents/test/tool-activation.test.ts",
 		);
 
 		// Shell command
 		expect(inlinePresentation("bash", '{"command":"pnpm test"}', undefined, false)?.summary).toBe(
-			"bash pnpm test",
+			"pnpm test",
 		);
 		expect(
 			inlinePresentation("bg_bash_spawn", '{"command":"pnpm run build"}', undefined, false)
 				?.summary,
-		).toBe("bg_bash_spawn pnpm run build");
+		).toBe("pnpm run build");
 
 		// Search tools
 		expect(
 			inlinePresentation("grep", '{"pattern":"tool_search","path":"src"}', undefined, false)
 				?.summary,
-		).toBe("grep tool_search src");
+		).toBe("tool_search src");
 		expect(inlinePresentation("find", '{"pattern":"*.ts"}', undefined, false)?.summary).toBe(
-			"find *.ts",
+			"*.ts",
 		);
 
 		// Read tool with range
 		expect(
 			inlinePresentation("read", '{"path":"file.ts","offset":5,"limit":10}', undefined, false)
 				?.summary,
-		).toBe("read file.ts:5-14");
+		).toBe("file.ts:5-14");
 
 		// Task tools
 		expect(
 			inlinePresentation("agent_spawn", '{"agent":"reviewer"}', undefined, false)?.summary,
-		).toBe("agent_spawn reviewer");
+		).toBe("reviewer");
 		expect(inlinePresentation("bg_bash_get", '{"id":"bash-1"}', undefined, false)?.summary).toBe(
-			"bg_bash_get bash-1",
+			"bash-1",
 		);
 
 		// Unknown tool without key arg returns undefined for default rendering fallback

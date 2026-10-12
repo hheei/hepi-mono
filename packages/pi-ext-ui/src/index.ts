@@ -29,6 +29,8 @@ export {
 	type Collapsible,
 	createToolView,
 	type FoldLevel,
+	formatStatusGlyph,
+	formatToolHeaderText,
 	isCollapsible,
 	type RailColorToken,
 	type RailSection,

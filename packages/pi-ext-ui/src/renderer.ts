@@ -27,6 +27,7 @@ import { type DiffLine, DiffView, diffStats } from "./diff-view.js";
 import { NestedCallsView } from "./nested-calls-view.js";
 import {
 	type FoldLevel,
+	formatToolHeaderText,
 	type RailColorToken,
 	type RailSection,
 	type ToolStatusKind,
@@ -150,24 +151,6 @@ function formatArgsPreview(args: unknown): string {
 	}
 }
 
-/** Compact nested-row result: a one-line summary plus the status it reports. */
-function nestedStatusGlyph(status: ToolStatusKind, theme: Theme): string {
-	switch (status) {
-		case "streaming":
-			return theme.fg("muted", "⋯");
-		case "running":
-			return theme.fg("accent", "◐");
-		case "ok":
-			return theme.fg("success", "✓");
-		case "warn":
-			return theme.fg("warning", "!");
-		case "error":
-			return theme.fg("error", "✗");
-		case "none":
-			return "";
-	}
-}
-
 /**
  * The host stacks a tool execution's call and result views. Following the
  * official edit renderer, the call view is stored in the shared renderer
@@ -208,19 +191,22 @@ function formatNestedCallRow(call: NestedCallRecord, theme: Theme): string {
 			: call.isWarning === true
 				? "warn"
 				: (inline?.status ?? (call.isError === true ? "error" : "ok"));
-	const glyph = nestedStatusGlyph(status, theme);
-	const name = theme.fg("toolTitle", inline?.summary ?? call.toolName);
 	const cleanArgs =
 		inline !== undefined || call.summary === undefined
 			? ""
 			: stripTerminalSequences(call.summary.trim());
 	const truncatedArgs = cleanArgs.length > 72 ? `${cleanArgs.slice(0, 69)}…` : cleanArgs;
-	const summaryPart = truncatedArgs !== "" ? ` ${theme.fg("muted", truncatedArgs)}` : "";
-	const durText = formatDurationMs(call.durationMs);
-	const durationPart = durText !== "" ? ` ${theme.fg("dim", durText)}` : "";
 	const costText = formatCostUsd(call.cost);
-	const costPart = costText !== "" ? ` ${theme.fg("dim", costText)}` : "";
-	return `${glyph} ${name}${summaryPart}${durationPart}${costPart}`;
+	return formatToolHeaderText(
+		{
+			status,
+			title: call.toolName,
+			summary: [inline?.summary ?? truncatedArgs, formatDurationMs(call.durationMs), costText]
+				.filter(Boolean)
+				.join(" · "),
+		},
+		theme,
+	);
 }
 
 function renderEditResult(params: {
@@ -344,19 +330,21 @@ function renderWriteResult(params: {
 function formatEvalToolRow(row: Extract<EvalRow, { kind: "tool" }>, theme: Theme): string {
 	const isError = row.error !== undefined;
 	const inline = inlinePresentation(row.name, row.args, undefined, isError);
-	const glyph = nestedStatusGlyph(isError ? "error" : "ok", theme);
-	if (inline !== undefined) {
-		const durText = formatDurationMs(row.durationMs);
-		const durationPart = durText !== "" ? ` ${theme.fg("dim", durText)}` : "";
-		return `${glyph} ${theme.fg("toolTitle", inline.summary)}${durationPart}`;
-	}
 	const summary =
 		typeof row.args === "string" && row.args.trim() !== ""
 			? stripTerminalSequences(row.args.trim())
 			: "";
 	const truncated = summary.length > 72 ? `${summary.slice(0, 69)}…` : summary;
-	const summaryPart = truncated !== "" ? ` ${theme.fg("muted", truncated)}` : "";
-	return `${glyph} ${theme.fg("toolTitle", row.name)}${summaryPart}`;
+	return formatToolHeaderText(
+		{
+			status: isError ? "error" : "ok",
+			title: row.name,
+			summary: [inline?.summary ?? truncated, formatDurationMs(row.durationMs)]
+				.filter(Boolean)
+				.join(" · "),
+		},
+		theme,
+	);
 }
 
 function renderPythonEvalResult(params: {
