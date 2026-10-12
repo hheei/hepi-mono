@@ -97,6 +97,7 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
+export { panelScrollbar } from "./panel-scrollbar.js";
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { isSubagentProcess, runCommand, shellQuote } from "./process.js";
