@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import {
 	DefaultPackageManager,
 	getAgentDir,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { ResourcePatternStore } from "./pattern-store.js";
+import { computeEffectiveEnabled, ResourcePatternStore } from "./pattern-store.js";
 import type {
 	LoadoutItem,
 	ProjectOverrideState,
@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 
 const BUILTIN_PATH_PREFIX = "builtin:";
+const NPM_PREFIX = "npm:";
 
 export interface LoadoutManagerOptions {
 	readonly cwd: string;
@@ -26,6 +27,56 @@ const skillDescriptionCache = new Map<
 	string,
 	{ readonly mtimeMs: number; readonly desc: string | undefined }
 >();
+
+/**
+ * Names one resource for the list. A package is named after the package, because
+ * `dist/extension.js` is the same label for every installed package and therefore identifies none
+ * of them; a resource nested deeper inside a package keeps the package name plus its folder.
+ */
+export function resourceDisplayName(params: {
+	readonly category: ResourceCategory;
+	readonly path: string;
+	readonly origin: ResourceOrigin;
+	readonly source: string;
+	readonly baseDir: string | undefined;
+}): string {
+	const { category, path, origin, source, baseDir } = params;
+	const fileName = basename(path);
+	const parentFolder = basename(dirname(path));
+
+	if (origin === "builtin") return path.slice(BUILTIN_PATH_PREFIX.length);
+	if (origin !== "package" || baseDir === undefined) {
+		return category === "skills" && fileName === "SKILL.md" ? parentFolder : fileName;
+	}
+
+	const trimmed = source.startsWith(NPM_PREFIX) ? source.slice(NPM_PREFIX.length) : source;
+	const packageName = basename(trimmed.replace(/\\/g, "/"));
+	// A skill is its own folder; anything else is whatever folder holds the file, which for a
+	// package entry point is the build output directory and therefore no more useful than nothing.
+	const folder =
+		category === "skills" && fileName === "SKILL.md"
+			? parentFolder
+			: basename(dirname(relative(baseDir, path).replace(/\\/g, "/")));
+	if (folder === "." || folder === "" || folder === "dist" || folder === packageName) {
+		return packageName;
+	}
+	return `${packageName}/${folder}`;
+}
+
+/**
+ * Distinguishes resources that would otherwise share one label. Two `research` skills from
+ * different resource directories are two different resources, and an identical row tells the user
+ * nothing about which one they are about to disable.
+ */
+function disambiguateNames(items: readonly LoadoutItem[]): LoadoutItem[] {
+	const counts = new Map<string, number>();
+	for (const item of items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+	return items.map((item) => {
+		if ((counts.get(item.name) ?? 0) < 2) return item;
+		const qualifier = item.baseDir === undefined ? item.origin : basename(item.baseDir);
+		return { ...item, name: `${item.name} (${qualifier})` };
+	});
+}
 
 function extractSkillDescription(skillPath: string): string | undefined {
 	try {
@@ -100,6 +151,8 @@ export class LoadoutManager {
 	}
 
 	async refresh(): Promise<void> {
+		// The global layer is resolved with project trust off, so a project's overrides never
+		// leak into the baseline the project view inherits from.
 		const globalSettingsManager = SettingsManager.create(this.cwd, this.agentDir, {
 			projectTrusted: false,
 		});
@@ -111,16 +164,6 @@ export class LoadoutManager {
 			builtinExtensions: [...this.builtinExtensions],
 		});
 		const globalResolved = await globalPm.resolve();
-
-		const projectPm = new DefaultPackageManager({
-			cwd: this.cwd,
-			agentDir: this.agentDir,
-			settingsManager: this.settingsManager,
-			builtinExtensions: [...this.builtinExtensions],
-		});
-		const projectResolved = this.settingsManager.isProjectTrusted()
-			? await projectPm.resolve()
-			: globalResolved;
 
 		const nextItems: LoadoutItem[] = [];
 
@@ -139,40 +182,29 @@ export class LoadoutManager {
 								? "project"
 								: "user";
 
-				const fileName = basename(path);
-				const parentFolder = basename(dirname(path));
-				let displayName: string;
-				if (metadata.source === "builtin") {
-					displayName = path.slice(BUILTIN_PATH_PREFIX.length);
-				} else if (category === "skills" && fileName === "SKILL.md") {
-					displayName = parentFolder;
-				} else if (category === "extensions" && parentFolder !== "extensions") {
-					displayName = `${parentFolder}/${fileName}`;
-				} else {
-					displayName = fileName;
-				}
+				const name = resourceDisplayName({
+					category,
+					path,
+					origin,
+					source: metadata.source,
+					baseDir: metadata.baseDir,
+				});
 
 				const globalItem = globalResolved[category as keyof typeof globalResolved]?.find(
-					(g) => g.path === path,
+					(candidate) => candidate.path === path,
 				);
-				const projectItem = projectResolved[category as keyof typeof projectResolved]?.find(
-					(p) => p.path === path,
-				);
-
 				const globalEnabled = globalItem?.enabled ?? true;
-				const effectiveEnabled = projectItem?.enabled ?? globalEnabled;
-
 				const projectOverride = this.store.resolveProjectOverride(category, path, metadata);
-
-				let description: string | undefined;
-				if (category === "skills") {
-					description = extractSkillDescription(path);
-				}
+				// Derived from the two facts the panel shows, not from a second resolution: an
+				// untrusted project resolves to the global layer, which would otherwise report the
+				// project decision and its result as contradicting each other.
+				const effectiveEnabled = computeEffectiveEnabled(globalEnabled, projectOverride);
+				const description = category === "skills" ? extractSkillDescription(path) : undefined;
 
 				nextItems.push({
 					id: `${category}:${path}`,
 					category,
-					name: displayName,
+					name,
 					path,
 					origin,
 					source: metadata.source,
@@ -190,7 +222,7 @@ export class LoadoutManager {
 		addCategory("prompts", globalResolved.prompts);
 		addCategory("themes", globalResolved.themes);
 
-		this.#items = nextItems;
+		this.#items = disambiguateNames(nextItems);
 	}
 
 	toggleGlobal(item: LoadoutItem): void {
