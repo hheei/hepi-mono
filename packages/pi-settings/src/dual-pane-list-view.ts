@@ -7,15 +7,8 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { fitRow } from "@hheei/pi-ext-core";
-import {
-	LIST_HEADER_ROWS,
-	LIST_HINT_ROWS,
-	PANEL_ROWS,
-	pad,
-	scrollbar,
-	VISIBLE_ROWS,
-} from "./page-chrome.js";
+import { fitRow, panelScrollbar } from "@hheei/pi-ext-core";
+import { LIST_HEADER_ROWS, LIST_HINT_ROWS, PANEL_ROWS, pad, VISIBLE_ROWS } from "./page-chrome.js";
 
 const MARQUEE_FRAME_MS = 125;
 const MARQUEE_INITIAL_PAUSE_MS = 750;
@@ -412,11 +405,19 @@ export class DualPaneListView<T = unknown> {
 		list.push(this.theme.fg("dim", this.hintText));
 
 		const detail = [...this.renderDetailCallback(selected, detailWidth)];
-		const rail = scrollbar(all.length, this.scrollTop, this.theme);
+		// The rail covers only the list viewport, so it is indexed from the first list row rather
+		// than from the top of the panel.
+		const rail = panelScrollbar({
+			total: all.length,
+			top: this.scrollTop,
+			rows: VISIBLE_ROWS,
+			theme: this.theme,
+		});
 
 		return Array.from({ length: PANEL_ROWS }, (_, index) => {
 			const left = pad(fitRow(list[index] ?? "", listWidth), listWidth);
-			return `${left}${pad(rail[index] ?? "", scrollbarWidth)}   ${fitRow(detail[index] ?? "", detailWidth)}`;
+			const thumb = rail[index - LIST_HEADER_ROWS] ?? "";
+			return `${left}${pad(thumb, scrollbarWidth)}   ${fitRow(detail[index] ?? "", detailWidth)}`;
 		});
 	}
 
