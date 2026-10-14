@@ -133,7 +133,7 @@ test("reports one terminal callback per finished job", async (): Promise<void> =
 	const registry = jobRegistry();
 	const endings: string[] = [];
 	registry.start({
-		command: "printf task-output",
+		command: "echo task-output",
 		cwd: process.cwd(),
 		onTerminal: (job) => void endings.push(`${job.status}:${job.output}`),
 	});
@@ -293,7 +293,7 @@ test("bg_bash_spawn returns id and log path; get uses the same path key", async 
 		runTool(spawnBash, "caller-id", { command: "printf never", id: "bash-1" }),
 	).rejects.toThrow("Invalid bg_bash_spawn parameters");
 	const started = await runTool(spawnBash, "bash-async-task", {
-		command: "printf task-output",
+		command: "echo task-output",
 	});
 	const content = started.content[0];
 	if (content?.type !== "text") throw new Error("expected spawn result text");
@@ -718,7 +718,7 @@ test("bg_bash_spawn tracks running tasks in the session registry", async (): Pro
 	const { host, tasks } = taskControlSession();
 	const started = await toolFor(host.tools, "bg_bash_spawn").execute(
 		"bash-on-demand",
-		{ command: "printf task-output" },
+		{ command: "echo task-output" },
 		undefined,
 		undefined,
 		toolContext(),
