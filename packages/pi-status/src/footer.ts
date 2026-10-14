@@ -4,6 +4,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, visibleWidth } from "@earendil-works/pi-tui";
 import { fitRow, formatCompactNumber, type ThemeLike } from "@hheei/pi-ext-core";
 
+/** Pi native status keys owned by other extensions. */
+const AUTO_TITLE_STATUS_KEY = "auto-title";
+const AGENT_STATUS_KEY = "pi-subagents";
+const TODO_STATUS_KEY = "pi-ext-tools:todo";
+
 type FooterFactory = NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]>;
 export type ReadonlyFooterDataProvider = Parameters<FooterFactory>[2];
 export type FooterTheme = Parameters<FooterFactory>[1];
@@ -178,7 +183,7 @@ export function layoutTwoColumnRow(
 /**
  * Custom 2-line compact footer:
  * Line 1: path (git)                                            title
- * Line 2: provider/model(level) · N%/100K                 todo status
+ * Line 2: provider/model(level) · N%/100K    agent ids ‧ todo status
  */
 export class CompactFooterComponent implements Component {
 	readonly #extension: ExtensionContext;
@@ -212,7 +217,7 @@ export class CompactFooterComponent implements Component {
 		const line1Left = formatFooterPath(cwd, branch, this.#theme, homedir());
 
 		const extensionStatuses = this.#footerData.getExtensionStatuses();
-		const autoTitleStatus = extensionStatuses.get("auto-title");
+		const autoTitleStatus = extensionStatuses.get(AUTO_TITLE_STATUS_KEY);
 		const sessionName = this.#extension.sessionManager.getSessionName();
 		const line1Right =
 			autoTitleStatus !== undefined && autoTitleStatus.trim() !== ""
@@ -238,18 +243,32 @@ export class CompactFooterComponent implements Component {
 		);
 		const line2Left = `${modelPart} ${this.#theme.fg("dim", "·")} ${contextPart}`;
 
-		// Line 2 right: todo status or extension statuses (excluding auto-title which belongs to line 1)
-		let todoStatus = extensionStatuses.get("pi-ext-tools:todo");
-		if (todoStatus === undefined && extensionStatuses.size > 0) {
+		// Line 2 right: running child agents then TODO, joined by a dim separator. A missing
+		// segment drops the separator with it. Any other extension status is only a fallback,
+		// so auto-title (line 1) and these two keys never leak in twice.
+		const agentStatus = extensionStatuses.get(AGENT_STATUS_KEY);
+		const todoStatus = extensionStatuses.get(TODO_STATUS_KEY);
+		const statusParts: string[] = [];
+		if (agentStatus !== undefined && agentStatus.trim() !== "") statusParts.push(agentStatus);
+		if (todoStatus !== undefined && todoStatus.trim() !== "") statusParts.push(todoStatus);
+
+		let line2Right =
+			statusParts.length > 0 ? statusParts.join(this.#theme.fg("dim", " ‧ ")) : undefined;
+		if (line2Right === undefined) {
 			for (const [key, value] of extensionStatuses) {
-				if (key !== "auto-title" && value.trim() !== "") {
-					todoStatus = value;
+				if (
+					key !== AUTO_TITLE_STATUS_KEY &&
+					key !== AGENT_STATUS_KEY &&
+					key !== TODO_STATUS_KEY &&
+					value.trim() !== ""
+				) {
+					line2Right = value;
 					break;
 				}
 			}
 		}
 
-		const line2 = layoutTwoColumnRow(line2Left, todoStatus, width);
+		const line2 = layoutTwoColumnRow(line2Left, line2Right, width);
 
 		return [line1, line2];
 	}
