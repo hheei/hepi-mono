@@ -1,4 +1,20 @@
-import { getCurrentSystemMessage } from "@earendil-works/pi-ai/utils/transcript";
+function getPersistedSystemSection(
+	messages: readonly unknown[],
+	sectionName: string,
+): string | undefined {
+	const sections = new Map<string, string>();
+	for (const msg of messages) {
+		if (!msg || typeof msg !== "object") continue;
+		const m = msg as { role?: unknown; sections?: Record<string, string | null | undefined> };
+		if (m.role !== "system" || !m.sections) continue;
+		for (const [name, value] of Object.entries(m.sections)) {
+			if (value === null || value === undefined) sections.delete(name);
+			else sections.set(name, value);
+		}
+	}
+	return sections.get(sectionName);
+}
+
 import {
 	type AgentEndEvent,
 	type BeforeAgentStartEvent,
@@ -333,9 +349,7 @@ export async function startHindsightSession(
 		const gateway = await openHindsightGateway(resolved);
 		if ("error" in gateway) return { status: "error", error: gateway.error };
 		const messages = buildSessionContext(context.sessionManager.getBranch()).messages;
-		const persisted = getCurrentSystemMessage(
-			messages.filter((message) => message.role === "system"),
-		)?.sections?.[PREAMBLE_SECTION];
+		const persisted = getPersistedSystemSection(messages, PREAMBLE_SECTION);
 		const opening = `<${PREAMBLE_SECTION}>\n`;
 		const closing = `\n</${PREAMBLE_SECTION}>`;
 		const body =
