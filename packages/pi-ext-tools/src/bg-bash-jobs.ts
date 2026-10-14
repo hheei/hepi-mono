@@ -276,7 +276,7 @@ export class BgBashJobRegistry {
 					child.stderr?.destroy();
 					this.#terminalize(job, !this.#closed);
 				}
-			}, 500);
+			}, 1000);
 			job.cleanupTimer.unref();
 		});
 		child.once("close", (code, signal) => {
