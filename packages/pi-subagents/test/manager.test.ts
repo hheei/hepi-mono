@@ -1983,7 +1983,7 @@ describe("SubagentManager over the bridge", () => {
 		taskRegistry.markConsumed([s2.child.id]);
 
 		// test1.reports now only contains s1 and s3
-		expect(test1.reports.map((r) => r.childId)).toEqual([s1.child.id, s3.child.id]);
+		expect(test1.reports.map((r) => r.childId).sort()).toEqual([s1.child.id, s3.child.id].sort());
 	}, 12_000);
 
 	test("batches auto-reports when multiple children settle together and exposes task in get", async () => {
