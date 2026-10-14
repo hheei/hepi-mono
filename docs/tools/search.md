@@ -10,7 +10,7 @@
 
 ### Engine 与执行
 
-- local filesystem grep 直接调用本地 `rg --json`；authorized SSH target 通过远端 `rg --json` 执行。
+- local filesystem grep 直接调用本地 `rg --json`。
 - 搜索结果统一收敛为规范的 `GrepEvent[]` 事件流，提供字符级精确高亮、行列号映射与上下文捕获。
 
 ### 限制与恢复

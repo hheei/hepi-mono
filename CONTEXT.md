@@ -31,7 +31,7 @@ _Avoid_: Provider job
 A tool-owned, metrics-only completion summary rendered when a prior Trace is collapsed. It never parses model content. Failed or cancelled tools render only a concise reason plus duration.
 
 **Search Engine**:
-Ripgrep (`rg`), executed to satisfy grep requests on local and authorized SSH targets. Recorded as internal result provenance. An Output is a search input source, never a Search Engine.
+Ripgrep (`rg`), executed to satisfy grep requests on the local workspace. Recorded as internal result provenance. An Output is a search input source, never a Search Engine.
 _Avoid_: Backend
 
 **Path Outcome**:

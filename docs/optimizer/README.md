@@ -67,7 +67,7 @@ under the included MIT license. T2S and the Pi RTK execution boundary reuse the 
 
 ## 验证
 
-复用并更新 T2S、RTK 与提示词测试。补充配置保存/并发/sibling preservation、保存失败、session 切换/取消、prompt 共存与不累积、真实宿主参数执行路径、单 RTK owner、SSH/PTY/async 跳过、可见命令记录和原生菜单窄宽行为。跨包变更运行根 typecheck 与全量测试，实际 Pi smoke 验证输入转换、配置与命令改写；无可用视觉运行工具时明确报告并以行为 smoke 覆盖。
+复用并更新 T2S、RTK 与提示词测试。补充配置保存/并发/sibling preservation、保存失败、session 切换/取消、prompt 共存与不累积、真实宿主参数执行路径、单 RTK owner、PTY/async 跳过、可见命令记录和原生菜单窄宽行为。跨包变更运行根 typecheck 与全量测试，实际 Pi smoke 验证输入转换、配置与命令改写；无可用视觉运行工具时明确报告并以行为 smoke 覆盖。
 
 ## 使用与已验证边界
 

@@ -10,7 +10,9 @@
 
 `idleCompactionTtl` 到期后只显示提示并记录 `om:idle-notice`；下一次发送消息时在 `before_agent_start` 中等待压缩完成，再请求模型。空闲提示和压缩均不设 token 门槛，移除 `idleCompactionMinTokens` 配置，旧配置字段按未知字段忽略。
 
-仍要求门控开启、非 passive、最近压缩后有新增源条目且记忆投影非空；保留取消、session generation 验证和在途 consolidation 等待。到期计时器不执行压缩；`compactAfterTokens` 的独立压缩路径继续使用原有门槛。
+空闲倒计时与压缩触发必须满足 Pi 原生的压缩下限（`canPiCompact`）：
+- 会话或最近一次压缩后的新增内容必须跨过 Pi 原生切分下限（基于 `findCutPoint` 能够切出非空待摘要消息），内容不足（`session too small`）时不开启空闲倒计时，也不在空闲到期后触发压缩；
+- 仍要求门控开启、非 passive、最近压缩后有新增源条目且记忆投影非空；保留取消、session generation 验证和在途 consolidation 等待。到期计时器不直接在后台静默压缩（避免输入竞态）；`compactAfterTokens` 的独立即时压缩路径继续使用原有门槛。
 
 本文档记录 `@hheei/pi-ext-memory` 的架构边界与持久化配置契约，重点阐述从 Pi 宿主 `settings.json` 迁移至 ext-core 统一传输规范 `ext_settings.json` 的契约变更。
 

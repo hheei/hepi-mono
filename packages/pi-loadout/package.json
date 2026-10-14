@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-loadout",
-	"version": "0.3.0",
+	"version": "0.1.0",
 	"description": "Visual loadout and resource manager for Pi Coding Agent.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -43,11 +43,11 @@
 		"@hheei/pi-ext-core": "workspace:^"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=1.0.0",
-		"@earendil-works/pi-tui": ">=1.0.0"
+		"@earendil-works/pi-coding-agent": ">=1.2.0",
+		"@earendil-works/pi-tui": ">=1.2.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "1.1.0",
-		"@earendil-works/pi-tui": "1.1.0"
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@earendil-works/pi-tui": "1.2.0"
 	}
 }

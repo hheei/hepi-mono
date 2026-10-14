@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-settings",
-	"version": "0.3.0",
+	"version": "0.2.1",
 	"description": "Settings surface host for Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -42,11 +42,11 @@
 		"@hheei/pi-ext-core": "workspace:^"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=1.0.0",
-		"@earendil-works/pi-tui": ">=1.0.0"
+		"@earendil-works/pi-coding-agent": ">=1.2.0",
+		"@earendil-works/pi-tui": ">=1.2.0"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "1.1.0",
-		"@earendil-works/pi-tui": "1.1.0"
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@earendil-works/pi-tui": "1.2.0"
 	}
 }
