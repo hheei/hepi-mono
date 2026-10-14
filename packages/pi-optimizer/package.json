@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-optimizer",
-	"version": "0.3.0",
+	"version": "0.2.3",
 	"description": "Input conversion, prompt modes, and opt-in RTK command optimization for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
@@ -47,14 +47,14 @@
 		"opencc-js": "^1.4.0"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=1.0.0",
-		"@earendil-works/pi-tui": ">=1.0.0",
+		"@earendil-works/pi-coding-agent": ">=1.2.0",
+		"@earendil-works/pi-tui": ">=1.2.0",
 		"typebox": "*"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-agent-core": "1.1.0",
-		"@earendil-works/pi-ai": "1.1.0",
-		"@earendil-works/pi-coding-agent": "1.1.0",
-		"@earendil-works/pi-tui": "1.1.0"
+		"@earendil-works/pi-agent-core": "1.2.0",
+		"@earendil-works/pi-ai": "1.2.0",
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@earendil-works/pi-tui": "1.2.0"
 	}
 }
