@@ -47,6 +47,7 @@ function launchConfig(overrides: Partial<EffectiveLaunchConfig> = {}): Effective
 		excludeTools: [],
 		extensions: { discovery: false, paths: [BRIDGE_PATH] },
 		skills: { discovery: true, paths: [] },
+		mcp: { enabled: true },
 		prompt: assembleChildPrompt("Review the change."),
 		bridgeExtensionPath: BRIDGE_PATH,
 		...overrides,
@@ -273,4 +274,38 @@ test("resolvePiInvocation prioritizes PI_DEV_BIN when running under pi-dev", ():
 		if (origDevBin !== undefined) process.env.PI_DEV_BIN = origDevBin;
 		else delete process.env.PI_DEV_BIN;
 	}
+});
+
+test("buildLaunchSpec emits --no-mcp when mcp is disabled", (): void => {
+	const built = spec(launchConfig({ mcp: { enabled: false } }), "background", "never_flushed");
+	expect(built.argv).toContain("--no-mcp");
+});
+
+test("buildLaunchSpec configures tool filtering and environment for whitelist and excluded MCP servers", (): void => {
+	const whitelistBuilt = spec(
+		launchConfig({ mcp: { enabled: true, servers: ["private-db", "postgres"] } }),
+		"background",
+		"never_flushed",
+	);
+	const toolsIdx = whitelistBuilt.argv.indexOf("--tools");
+	expect(toolsIdx).toBeGreaterThan(-1);
+	const toolsVal = whitelistBuilt.argv[toolsIdx + 1] ?? "";
+	expect(toolsVal).toContain("mcp__private_db__*");
+	expect(toolsVal).toContain("mcp__postgres__*");
+	// Preserves default tools and contact_parent when tools was omitted
+	expect(toolsVal).toContain("read");
+	expect(toolsVal).toContain("contact_parent");
+
+	expect(whitelistBuilt.argv).not.toContain("--exclude-tools");
+	expect(whitelistBuilt.env.PI_SUBAGENT_MCP_SERVERS).toBe("private_db,postgres");
+
+	const excludedBuilt = spec(
+		launchConfig({ mcp: { enabled: true, excluded: ["private-db"] } }),
+		"background",
+		"never_flushed",
+	);
+	const exIdx = excludedBuilt.argv.indexOf("--exclude-tools");
+	expect(exIdx).toBeGreaterThan(-1);
+	expect(excludedBuilt.argv[exIdx + 1]).toContain("mcp__private_db__*");
+	expect(excludedBuilt.env.PI_SUBAGENT_MCP_EXCLUDE).toBe("private_db");
 });

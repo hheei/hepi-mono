@@ -43,8 +43,15 @@ function spawnPresentation(
 		...(id === undefined ? [] : [`id: ${id}`]),
 		...(path === undefined ? [] : [`path: ${path}`]),
 	];
+	const summaryParts: string[] = [agent];
+	if (title !== undefined && title.trim() !== "") {
+		summaryParts.push(title.trim());
+	}
+	if (id !== undefined && id.trim() !== "") {
+		summaryParts.push(id.trim());
+	}
 	return {
-		summary: title === undefined ? agent : `${agent} · ${title}`,
+		summary: summaryParts.join(" · "),
 		...(task === undefined ? {} : { request: task }),
 		...(task === undefined
 			? {}
@@ -54,7 +61,7 @@ function spawnPresentation(
 						full: resultText === undefined ? task : `${task}\n---\n${resultText}`,
 					},
 				}),
-		...(rows.length === 0 ? {} : { output: rows.join("\n"), collapsedRows: rows }),
+		...(rows.length === 0 ? {} : { output: rows.join("\n") }),
 	};
 }
 
@@ -77,7 +84,7 @@ function sendPresentation(
 	return {
 		summary: `${id} · ${mode}`,
 		...(message === undefined ? {} : { request: message }),
-		...(confirmation === undefined ? {} : { output: confirmation, collapsedRows: [confirmation] }),
+		...(confirmation === undefined ? {} : { output: confirmation }),
 		...(copy === undefined ? {} : { copy }),
 	};
 }
@@ -108,6 +115,37 @@ function detailLines(details: Record<string, unknown>): string[] {
 	return lines;
 }
 
+function getCollapsedRow(details: Record<string, unknown>): string | undefined {
+	const parts: string[] = [];
+	const status = stringField(details, "status");
+	if (status !== undefined) parts.push(status);
+	const progress = isRecord(details.progress) ? details.progress : undefined;
+	if (progress !== undefined) {
+		const agent = stringField(progress, "agent");
+		if (agent !== undefined) parts.push(agent);
+		const turns = numberField(progress, "turns");
+		if (turns !== undefined) parts.push(`${turns} turn${turns === 1 ? "" : "s"}`);
+		const tokens = numberField(progress, "tokens");
+		if (tokens !== undefined) {
+			const tokStr =
+				tokens >= 1000 ? `${(tokens / 1000).toFixed(1).replace(/\.0$/u, "")}k` : String(tokens);
+			parts.push(`${tokStr} tok`);
+		}
+		const activeTool = stringField(progress, "activeTool");
+		if (activeTool !== undefined) {
+			parts.push(activeTool);
+		} else {
+			const summary = stringField(progress, "summary");
+			if (summary !== undefined) parts.push(summary.replace(/\s+/gu, " ").trim());
+		}
+	}
+	const diagnostic = stringField(details, "diagnostic");
+	if (diagnostic !== undefined) {
+		parts.push(`diagnostic: ${diagnostic.replace(/\s+/gu, " ").trim()}`);
+	}
+	return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 function getPresentation(
 	args: unknown,
 	result: AgentToolResult<unknown> | undefined,
@@ -117,11 +155,13 @@ function getPresentation(
 	const keys = stringField(record, "keys") ?? "status, progress";
 	const details = result !== undefined && isRecord(result.details) ? result.details : undefined;
 	const lines = details === undefined ? [] : detailLines(details);
+	const collapsedRow = details === undefined ? undefined : getCollapsedRow(details);
 	const resultText = result === undefined ? undefined : agentResultText(result);
 	return {
 		summary: id,
 		request: `keys: ${keys}`,
-		...(lines.length === 0 ? {} : { output: lines.join("\n"), collapsedRows: lines }),
+		...(lines.length === 0 ? {} : { output: lines.join("\n") }),
+		...(collapsedRow === undefined ? {} : { collapsedRows: [collapsedRow] }),
 		...(resultText === undefined ? {} : { copy: { primary: resultText } }),
 	};
 }
@@ -135,7 +175,7 @@ function stopPresentation(
 	const confirmation = result === undefined ? undefined : agentResultText(result);
 	return {
 		summary: id,
-		...(confirmation === undefined ? {} : { output: confirmation, collapsedRows: [confirmation] }),
+		...(confirmation === undefined ? {} : { output: confirmation }),
 		...(confirmation === undefined ? {} : { copy: { primary: confirmation } }),
 	};
 }

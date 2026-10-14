@@ -97,15 +97,15 @@ describe("agent tool presentation providers", () => {
 	test("spawn result exposes id and path from typed details", () => {
 		const provider = getToolPresentationProvider(toolNamed("agent_spawn"))!;
 		const presentation = provider(
-			{ agent: "scout", task: "Inspect the deck" },
+			{ agent: "scout", title: "Deck review", task: "Inspect the deck" },
 			textToolResult('{"id":"agent-3","path":"/tmp/s.jsonl"}', {
 				id: "agent-3",
 				path: "/tmp/s.jsonl",
 			}),
 			plainTheme,
 		);
+		expect(presentation.summary).toBe("scout · Deck review · agent-3");
 		expect(presentation.output).toBe("id: agent-3\npath: /tmp/s.jsonl");
-		expect(presentation.collapsedRows).toEqual(["id: agent-3", "path: /tmp/s.jsonl"]);
 	});
 
 	test("send summary carries id and mode, copy keeps the raw message", () => {
@@ -131,7 +131,21 @@ describe("agent tool presentation providers", () => {
 		expect(presentation.summary).toBe("agent-3");
 		expect(presentation.request).toBe("keys: status, diagnostic");
 		expect(presentation.output).toBe("status: blocked\ndiagnostic: Parent decision required");
+		expect(presentation.collapsedRows).toEqual(["blocked · diagnostic: Parent decision required"]);
 		expect(presentation.output).not.toContain("{");
+	});
+
+	test("get level 0 view formats a concise single-line summary with status and progress", () => {
+		const provider = getToolPresentationProvider(toolNamed("agent_get"))!;
+		const presentation = provider(
+			{ id: "agent-3" },
+			textToolResult("", {
+				status: "running",
+				progress: { agent: "scout", turns: 3, tokens: 1540, activeTool: "bash" },
+			}),
+			plainTheme,
+		);
+		expect(presentation.collapsedRows).toEqual(["running · scout · 3 turns · 1.5k tok · bash"]);
 	});
 
 	test("stop summary carries the id and the confirmation text", () => {

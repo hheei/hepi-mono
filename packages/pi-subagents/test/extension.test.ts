@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { createBackgroundDelivery } from "@hheei/pi-ext-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { DiscoveredAgent } from "../src/agent-resolver.js";
@@ -161,17 +161,26 @@ describe("extension branch", () => {
 // A fake parent: `sendMessage` captures output, `on` lets the test fire parent lifecycle events.
 function fakeParent(): {
 	readonly sent: { message: Record<string, unknown>; options: unknown }[];
+	readonly entries: { type: string; data: unknown }[];
+	readonly ui: Pick<ExtensionUIContext, "notify">;
 	readonly pi: {
 		sendMessage: (m: never, o: never) => void;
+		appendEntry: (type: string, data: unknown) => void;
 		on: (event: string, handler: () => void) => () => void;
 	};
 	readonly startRun: () => void;
 } {
 	const sent: { message: Record<string, unknown>; options: unknown }[] = [];
+	const entries: { type: string; data: unknown }[] = [];
 	const handlers = new Map<string, () => void>();
 	return {
 		sent,
+		entries,
+		ui: { notify: vi.fn<ExtensionUIContext["notify"]>() },
 		pi: {
+			appendEntry: (type, data) => {
+				entries.push({ type, data });
+			},
 			sendMessage: ((message: Record<string, unknown>, options: unknown) => {
 				sent.push({ message, options });
 			}) as never,
@@ -199,28 +208,26 @@ function report(childId: string, message: string) {
 test("dismiss removes only the targeted child report while leaving others to flush", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	let active = 3;
-	let notifyChanged = () => {};
+	const active = 3;
 	delivery.registerSource({
 		activeCount: () => active,
-		onChange: (listener) => {
-			notifyChanged = listener;
+		onChange: (_listener) => {
 			return () => {};
 		},
 	});
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery,
+	});
 
-	await channel.deliver(report("child-1", "report 1"));
-	await channel.deliver(report("child-2", "report 2"));
-	await channel.deliver(report("child-3", "report 3"));
-	expect(parent.sent).toHaveLength(0);
+	void channel.deliver(report("child-1", "report 1"));
+	void channel.deliver(report("child-2", "report 2"));
+	void channel.deliver(report("child-3", "report 3"));
 
 	// consuming the task result dismisses child-2
 	channel.dismiss("child-2");
 
-	// Remaining work finishes
-	active = 0;
-	notifyChanged();
 	await Promise.resolve();
 
 	expect(parent.sent).toHaveLength(1);
@@ -233,7 +240,11 @@ test("dismiss removes only the targeted child report while leaving others to flu
 test("a completed child report reaches the next parent activity without a timer", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery,
+	});
 
 	await channel.deliver(report("c", "found it"));
 	await Promise.resolve();
@@ -241,57 +252,63 @@ test("a completed child report reaches the next parent activity without a timer"
 	expect(parent.sent).toHaveLength(1);
 	expect(parent.sent[0]?.message).toMatchObject({
 		customType: "subagent-report",
-		display: true,
+		display: false,
 		details: { reports: [report("c", "found it")] },
 	});
 	// `nextTurn` parks a message until the user speaks again, which is not what a finished child
 	// owes the parent.
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
+	expect(parent.entries).toEqual([
+		{
+			type: "subagent-info",
+			data: { id: "c", agent: "scout", status: "done", message: "found it" },
+		},
+	]);
+	parent.startRun();
+	await Promise.resolve();
+	expect(parent.entries).toHaveLength(1);
 });
 
-test("reports wait until all registered work finishes", async () => {
+test("an info entry failure is visible and does not resend the model report", async () => {
+	const parent = fakeParent();
+	parent.pi.appendEntry = () => {
+		throw new Error("write failed");
+	};
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery: createBackgroundDelivery(),
+	});
+	await channel.deliver(report("agent-21", "complete report"));
+	expect(parent.ui.notify).toHaveBeenCalledWith(
+		"Could not display subagent report for agent-21: write failed",
+		"error",
+	);
+	parent.startRun();
+	await Promise.resolve();
+	channel.dispose();
+	expect(parent.sent).toHaveLength(1);
+	expect(parent.sent[0]?.message.content).toContain("complete report");
+});
+
+test("reports deliver without waiting for other registered work to finish", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	let count = 2;
-	let changed = () => {};
+	const count = 2;
 	const unregister = delivery.registerSource({
 		activeCount: () => count,
-		onChange: (listener) => {
-			changed = listener;
+		onChange: (_listener) => {
 			return () => {};
 		},
 	});
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery,
+	});
 	await channel.deliver(report("a", "first"));
-	count = 1;
-	changed();
-	await Promise.resolve();
-	expect(parent.sent).toHaveLength(0);
-	await channel.deliver(report("b", "second"));
-	count = 0;
-	changed();
-	await Promise.resolve();
 	expect(parent.sent).toHaveLength(1);
 	expect(String(parent.sent[0]?.message.content)).toContain("first");
-	expect(String(parent.sent[0]?.message.content)).toContain("second");
-	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
-	channel.dispose();
-	unregister();
-});
-
-test("a parent that starts its own run takes held reports into the next step", async () => {
-	const parent = fakeParent();
-	const delivery = createBackgroundDelivery();
-	let idle = true;
-	const unregister = delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => idle, delivery });
-	await channel.deliver(report("a", "first"));
-	await Promise.resolve();
-	expect(parent.sent).toHaveLength(0);
-	idle = false;
-	parent.startRun();
-	await Promise.resolve();
-	expect(parent.sent).toHaveLength(1);
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 	channel.dispose();
 	unregister();
@@ -300,7 +317,11 @@ test("a parent that starts its own run takes held reports into the next step", a
 test("a report that arrives while the parent is busy is not held", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => false, delivery });
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => false,
+		delivery,
+	});
 
 	await channel.deliver(report("a", "first"));
 	await Promise.resolve();
@@ -310,26 +331,20 @@ test("a report that arrives while the parent is busy is not held", async () => {
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 });
 
-test.each([
-	"blocked",
-	"error",
-])("a %s report bypasses idle gating and wakes the parent", async (reason) => {
+test.each(["blocked", "error"])("a %s report delivers and wakes the parent", async (reason) => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
 	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
-	let idle = true;
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => idle, delivery });
-	await channel.deliver(report("a", "ordinary progress"));
+	const idle = true;
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => idle,
+		delivery,
+	});
 	await channel.deliver({ ...report("b", "urgent help"), reason });
 	expect(parent.sent).toHaveLength(1);
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 	expect(parent.sent[0]?.message.content).toContain("urgent help");
-	expect(parent.sent[0]?.message.content).not.toContain("ordinary progress");
-	idle = false;
-	parent.startRun();
-	await Promise.resolve();
-	expect(parent.sent).toHaveLength(2);
-	expect(parent.sent[1]?.message.content).toContain("ordinary progress");
 	channel.dispose();
 });
 
@@ -337,6 +352,7 @@ test("a cancelled lifecycle cannot wake the parent from a queued check", async (
 	const parent = fakeParent();
 	const controller = new AbortController();
 	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
 		isIdle: () => true,
 		delivery: createBackgroundDelivery(),
 		signal: controller.signal,
@@ -353,9 +369,13 @@ test("teardown appends what is still held without waking the parent", async () =
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
 	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
-	const channel = createParentChannel(parent.pi as never, { isIdle: () => true, delivery });
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery,
+	});
 
-	await channel.deliver(report("a", "first"));
+	void channel.deliver(report("a", "first"));
 	channel.dispose();
 
 	expect(parent.sent).toHaveLength(1);

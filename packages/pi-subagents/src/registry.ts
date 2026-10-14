@@ -3,6 +3,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord, readJsonSettingsRoot, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
+	McpSelection,
 	PiInvocation,
 	ResolvedAgentIdentity,
 	ResolvedModel,
@@ -133,6 +134,7 @@ const LAUNCH_CONFIG_FIELDS: Record<string, true> = {
 	title: true,
 	task: true,
 	codemodeOnly: true,
+	mcp: true,
 };
 
 const AGENT_FIELDS: Record<string, true> = {
@@ -317,6 +319,25 @@ function parseRuntime(value: unknown, path: string): RuntimeMetadata {
 	return Object.freeze({ runtimeIdentity, endpoint });
 }
 
+function parseMcpSelection(value: unknown, path: string): McpSelection {
+	if (value === undefined) return Object.freeze({ enabled: true });
+	const raw = expectObject(value, "launchConfig.mcp", path);
+	const enabled = expectOptionalBoolean(raw.enabled, "launchConfig.mcp.enabled", path, true);
+	const servers =
+		raw.servers === undefined
+			? undefined
+			: Object.freeze(expectStringArray(raw.servers, "launchConfig.mcp.servers", path));
+	const excluded =
+		raw.excluded === undefined
+			? undefined
+			: Object.freeze(expectStringArray(raw.excluded, "launchConfig.mcp.excluded", path));
+	return Object.freeze({
+		enabled,
+		...(servers === undefined ? {} : { servers }),
+		...(excluded === undefined ? {} : { excluded }),
+	});
+}
+
 function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig {
 	const raw = expectObject(value, "launchConfig", path);
 	expectKeys(raw, LAUNCH_CONFIG_FIELDS, "launchConfig", path);
@@ -353,6 +374,7 @@ function parseLaunchConfig(value: unknown, path: string): EffectiveLaunchConfig 
 		),
 		extensions,
 		skills: parseSelection(raw.skills, path, "skills"),
+		mcp: parseMcpSelection(raw.mcp, path),
 		prompt: expectString(raw.prompt, "launchConfig.prompt", path),
 		bridgeExtensionPath,
 		...(expectOptionalBoolean(raw.codemodeOnly, "launchConfig.codemodeOnly", path, false)

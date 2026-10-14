@@ -1,6 +1,6 @@
 import type { PublicSubagent } from "../../src/domain.js";
 
-/** A running child record with every field the widget and status line read. */
+/** A running child record with the fields consumed by status and tool views. */
 export function child(overrides: Partial<PublicSubagent> = {}): PublicSubagent {
 	return {
 		id: "sa_aaaaaaaaaaaa",

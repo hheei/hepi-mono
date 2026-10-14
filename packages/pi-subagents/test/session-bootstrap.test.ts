@@ -170,10 +170,9 @@ test("a launch resolves its skill names against the parent's loaded skills", asy
 			skillCatalog: [{ name: "code-review", path: "/skills/code-review/SKILL.md" }],
 			onWarning: (message) => warnings.push(message),
 		});
-		// A name nobody loaded warns and narrows to nothing rather than falling back to everything.
-		expect(unknown.skills).toEqual({ discovery: false, paths: [] });
-		expect(warnings).toHaveLength(1);
-		expect(warnings[0]).toContain("ghost");
+		// A name nobody loaded passes through to the subagent without warning in parent.
+		expect(unknown.skills).toEqual({ discovery: false, paths: ["ghost"] });
+		expect(warnings).toEqual([]);
 	});
 });
 

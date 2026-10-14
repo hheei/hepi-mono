@@ -15,6 +15,7 @@ import {
 	CHILD_SESSION_ENV_KEY,
 	CHILD_TITLE_ENV_KEY,
 	CONTACT_PARENT_TOOL_NAME,
+	DEFAULT_PI_TOOLS,
 	isSessionId,
 } from "./domain.js";
 
@@ -194,17 +195,45 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 	argv.push("--session-dir", config.sessionDir);
 	argv.push("--provider", config.model.provider, "--model", config.model.id);
 	argv.push("--thinking", config.thinking.level);
-	const effectiveTools =
-		config.tools.length > 0 && config.codemodeOnly && !config.tools.includes("codemode")
-			? [...config.tools, "codemode"]
-			: config.tools;
-	if (effectiveTools.length > 0) argv.push("--tools", effectiveTools.join(","));
+	const mcpServers = config.mcp.servers?.map((s) => s.replace(/[^A-Za-z0-9_]/g, "_"));
+	const mcpExcluded = config.mcp.excluded?.map((s) => s.replace(/[^A-Za-z0-9_]/g, "_"));
+
+	const hasExplicitTools = config.tools.length > 0;
+	const baseTools = hasExplicitTools
+		? config.tools
+		: mcpServers && mcpServers.length > 0
+			? [...DEFAULT_PI_TOOLS, CONTACT_PARENT_TOOL_NAME]
+			: [];
+
+	const effectiveTools = [
+		...(baseTools.length > 0 && config.codemodeOnly && !baseTools.includes("codemode")
+			? [...baseTools, "codemode"]
+			: baseTools),
+	];
 	const excludeTools = Array.from(new Set(config.excludeTools));
-	if (excludeTools.length > 0) argv.push("--exclude-tools", excludeTools.join(","));
+
+	if (config.mcp.enabled) {
+		if (mcpServers && mcpServers.length > 0) {
+			for (const server of mcpServers) {
+				effectiveTools.push(`mcp__${server}__*`);
+			}
+		}
+		if (mcpExcluded && mcpExcluded.length > 0) {
+			for (const server of mcpExcluded) {
+				excludeTools.push(`mcp__${server}__*`);
+			}
+		}
+	}
+
+	if (effectiveTools.length > 0)
+		argv.push("--tools", Array.from(new Set(effectiveTools)).join(","));
+	if (excludeTools.length > 0)
+		argv.push("--exclude-tools", Array.from(new Set(excludeTools)).join(","));
 	if (!config.extensions.discovery) argv.push("--no-extensions");
 	for (const path of config.extensions.paths) argv.push("-e", path);
 	if (!config.skills.discovery) argv.push("--no-skills");
 	for (const path of config.skills.paths) argv.push("--skill", path);
+	if (!config.mcp.enabled) argv.push("--no-mcp");
 	argv.push("--append-system-prompt", config.prompt);
 
 	const env: Record<string, string> = {
@@ -218,6 +247,12 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		[CHILD_TITLE_ENV_KEY]: config.title ?? "",
 		PI_HINDSIGHT_DISABLE: "1",
 		...(config.codemodeOnly ? { PI_CODEMODE_MODE: "only" } : {}),
+		...(mcpExcluded && mcpExcluded.length > 0
+			? { PI_SUBAGENT_MCP_EXCLUDE: mcpExcluded.join(",") }
+			: {}),
+		...(mcpServers && mcpServers.length > 0
+			? { PI_SUBAGENT_MCP_SERVERS: mcpServers.join(",") }
+			: {}),
 	};
 
 	return Object.freeze({

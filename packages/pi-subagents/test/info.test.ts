@@ -1,0 +1,71 @@
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { expect, test, vi } from "vitest";
+import { appendSubagentInfo, registerSubagentInfo, renderSubagentInfo } from "../src/info.js";
+
+const theme = { fg: (_color: string, text: string) => text };
+const report = {
+	parentSessionId: "parent",
+	childId: "agent-21",
+	agent: "worker",
+	task: "inspect",
+	status: "running" as const,
+	reason: "success",
+	message: "Complete report\nwith details.",
+};
+
+test.each([
+	["success", "done", "󰄴"],
+	["error", "error", "󰅚"],
+	["blocked", "blocked", "󰀪"],
+])("records a confirmed %s report as a compact info entry", (reason, status, glyph) => {
+	const appendEntry = vi.fn<ExtensionAPI["appendEntry"]>();
+	appendSubagentInfo({ appendEntry }, { ...report, reason });
+	const data = appendEntry.mock.calls[0]?.[1];
+	expect(appendEntry).toHaveBeenCalledWith("subagent-info", {
+		id: "agent-21",
+		agent: "worker",
+		status,
+		message: report.message,
+	});
+	expect(renderSubagentInfo(data, false, theme)).toBe(
+		`info · agents · ${glyph} #21 worker · ${status}`,
+	);
+	expect(renderSubagentInfo(data, true, theme)).toContain(report.message);
+});
+
+test("renders stored info entries safely at narrow and wide widths", () => {
+	const registerEntryRenderer = vi.fn<ExtensionAPI["registerEntryRenderer"]>();
+	registerSubagentInfo({ registerEntryRenderer });
+	const renderer = registerEntryRenderer.mock.calls[0]![1];
+	const data = {
+		id: "agent-21",
+		agent: "worker\b\u0007\nwith a long title",
+		status: "error",
+		message: `\u001b[31mFai\b\u0007\u0085lure\u001b[0m\n\t${"详细报告 ".repeat(30)}`,
+	};
+	expect(renderSubagentInfo(data, false, theme)).toContain("worker with a long title · error");
+	expect(renderSubagentInfo(data, true, theme)).toContain("\nFailure\n    详细报告");
+	const entry = {
+		type: "custom" as const,
+		id: "entry-1",
+		parentId: null,
+		timestamp: "2026-10-13T00:00:00.000Z",
+		customType: "subagent-info",
+		data,
+	};
+	// This renderer only calls Theme.fg; the fixture supplies that method.
+	for (const expanded of [false, true]) {
+		const component = renderer(entry, { expanded }, theme as Theme);
+		for (const width of [24, 80]) {
+			for (const row of component?.render(width) ?? []) {
+				expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+				expect(row).not.toMatch(/[\r\n]/u);
+				expect(row).not.toContain("\b");
+				expect(row).not.toContain("\u0007");
+				expect(row).not.toContain("\u0085");
+			}
+		}
+	}
+	expect(renderSubagentInfo({ ...data, status: "invalid" }, false, theme)).toBeUndefined();
+});

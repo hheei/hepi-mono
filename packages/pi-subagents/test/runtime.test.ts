@@ -40,6 +40,7 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		excludeTools: [],
 		extensions: { discovery: false, paths: ["/pkg/dist/extension.js"] },
 		skills: { discovery: true, paths: [] },
+		mcp: { enabled: true },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
 	};

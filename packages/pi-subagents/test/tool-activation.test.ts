@@ -4,15 +4,10 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
-import type { PublicSubagent } from "../src/domain.js";
 import type { SubagentManager } from "../src/manager.js";
 import {
-	DEFERRED_TOOLS_SECTION,
 	INTERACTIVE_TOOL_NAMES,
 	registerInteractiveToolActivation,
-	SUBAGENT_CODEMODE_BULLET,
-	SUBAGENT_PROMPT_SECTION,
-	SUBAGENT_TOOL_SEARCH_BULLET,
 } from "../src/tool-activation.js";
 import { registerParentTools } from "../src/tools.js";
 
@@ -57,14 +52,11 @@ function createFakePi(initialActiveTools: string[] = []) {
 		pi,
 		registeredTools,
 		getActive: () => activeTools,
-		setLoaded: (t: string[]) => {
-			activeTools = t;
-		},
 	};
 }
 
 describe("interactive tool activation", () => {
-	test("registers interactive tools with exposure deferred", () => {
+	test("registers interactive tools with exposure deferred and defaultActive false", () => {
 		const { pi, registeredTools } = createFakePi();
 		const manager = {
 			list: vi.fn().mockResolvedValue([]),
@@ -80,71 +72,13 @@ describe("interactive tool activation", () => {
 		}
 	});
 
-	test("deactivates interactive tools on initial clean session start and injects deferred guidance", async () => {
-		const { pi, registeredTools, getActive } = createFakePi();
+	test("injects subagents into optional_tools as a stable entry", async () => {
+		const { pi } = createFakePi();
 		const manager = {
 			list: vi.fn().mockResolvedValue([]),
 		} as unknown as SubagentManager;
 
 		registerParentTools(pi, manager, []);
-		pi.setActiveTools(registeredTools.map((t) => t.name));
-
-		const context = {
-			sessionManager: {
-				getBranch: () => [],
-			},
-		} as unknown as ExtensionContext;
-
-		const activation = registerInteractiveToolActivation({ pi, manager, context });
-		await activation.selectFromSession(context);
-
-		for (const toolName of INTERACTIVE_TOOL_NAMES) {
-			expect(getActive()).not.toContain(toolName);
-		}
-
-		// With neither tool_search nor codemode active, no deferred bullet is injected
-		const startEventNone = { systemPromptOptions: { sections: {} as Record<string, string> } };
-		pi.emit("before_agent_start", startEventNone);
-		await vi.waitFor(() => {
-			expect(startEventNone.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION]).toBeUndefined();
-			expect(startEventNone.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toBeUndefined();
-		});
-
-		// With tool_search active, injects tool_search guidance
-		pi.setActiveTools([...getActive(), "tool_search"]);
-		const startEventSearch = { systemPromptOptions: { sections: {} as Record<string, string> } };
-		pi.emit("before_agent_start", startEventSearch);
-		await vi.waitFor(() => {
-			expect(startEventSearch.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toContain(
-				SUBAGENT_TOOL_SEARCH_BULLET,
-			);
-		});
-
-		// With codemode active (no tool_search), injects codemode guidance
-		pi.setActiveTools(
-			getActive()
-				.filter((t) => t !== "tool_search")
-				.concat("codemode"),
-		);
-		const startEventCode = { systemPromptOptions: { sections: {} as Record<string, string> } };
-		pi.emit("before_agent_start", startEventCode);
-		await vi.waitFor(() => {
-			expect(startEventCode.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toContain(
-				SUBAGENT_CODEMODE_BULLET,
-			);
-		});
-
-		activation.dispose();
-	});
-
-	test("injects full collaboration guidance when interactive tools become active", async () => {
-		const { pi, registeredTools, getActive } = createFakePi();
-		const manager = {
-			list: vi.fn().mockResolvedValue([]),
-		} as unknown as SubagentManager;
-
-		registerParentTools(pi, manager, []);
-		pi.setActiveTools(registeredTools.map((t) => t.name));
 
 		const context = {
 			cwd: process.cwd(),
@@ -154,94 +88,15 @@ describe("interactive tool activation", () => {
 		} as unknown as ExtensionContext;
 
 		const activation = registerInteractiveToolActivation({ pi, manager, context });
-		await activation.selectFromSession(context);
-
-		// Activate interactive tools (as tool_search does)
-		pi.setActiveTools([...getActive(), ...INTERACTIVE_TOOL_NAMES]);
 
 		const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
 		pi.emit("before_agent_start", startEvent);
-		await vi.waitFor(() => {
-			expect(startEvent.systemPromptOptions.sections[DEFERRED_TOOLS_SECTION]).toBeUndefined();
-			const guidance = startEvent.systemPromptOptions.sections[SUBAGENT_PROMPT_SECTION];
-			expect(guidance).toBeDefined();
-			expect(guidance).toContain("Reuse an existing subagent via agent_send");
-			expect(guidance).toContain("Do not poll agent_get");
-			expect(guidance).toContain("<available_agents>");
-		});
-
-		activation.dispose();
-	});
-
-	test("retains interactive tools if session has live children", async () => {
-		const { pi, registeredTools, getActive } = createFakePi();
-		const liveChild = {
-			id: "sa_live1",
-			agent: "worker",
-			state: "running",
-			presentation: "background",
-			cwd: "/test",
-			sessionId: "s1",
-			summary: "working",
-			freshness: "live",
-			model: { provider: "mock", id: "mock-model", source: "agent" },
-			thinking: { level: "off", source: "agent" },
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-		} as PublicSubagent;
-		const manager = {
-			list: vi.fn().mockResolvedValue([liveChild]),
-		} as unknown as SubagentManager;
-
-		registerParentTools(pi, manager, []);
-		pi.setActiveTools(registeredTools.map((t) => t.name));
-
-		const context = {
-			sessionManager: {
-				getBranch: () => [],
-			},
-		} as unknown as ExtensionContext;
-
-		const activation = registerInteractiveToolActivation({ pi, manager, context });
-		await activation.selectFromSession(context);
-
-		for (const toolName of INTERACTIVE_TOOL_NAMES) {
-			expect(getActive()).toContain(toolName);
-		}
-
-		activation.dispose();
-	});
-
-	test("retains interactive tools if branch transcript recorded tool addition", async () => {
-		const { pi, registeredTools, getActive } = createFakePi();
-		const manager = {
-			list: vi.fn().mockResolvedValue([]),
-		} as unknown as SubagentManager;
-
-		registerParentTools(pi, manager, []);
-		pi.setActiveTools(registeredTools.map((t) => t.name));
-
-		const context = {
-			sessionManager: {
-				getBranch: () => [
-					{
-						id: "entry_1",
-						type: "message",
-						message: {
-							role: "assistant",
-							content: [{ type: "tool_use", name: "agent_spawn" }],
-						},
-					},
-				],
-			},
-		} as unknown as ExtensionContext;
-
-		const activation = registerInteractiveToolActivation({ pi, manager, context });
-		await activation.selectFromSession(context);
-
-		for (const toolName of INTERACTIVE_TOOL_NAMES) {
-			expect(getActive()).toContain(toolName);
-		}
+		expect(startEvent.systemPromptOptions.sections.optional_tools).toContain(
+			'If not loaded, use tool_search ({ query: "<query>" }) or call via codemode.',
+		);
+		expect(startEvent.systemPromptOptions.sections.optional_tools).toContain(
+			'- subagents (query: "agent"): Subagent orchestration and delegation',
+		);
 
 		activation.dispose();
 	});

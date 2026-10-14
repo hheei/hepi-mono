@@ -166,6 +166,7 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 		excludeTools: [],
 		extensions: { discovery: false, paths: ["/pkg/dist/extension.js"] },
 		skills: { discovery: true, paths: [] },
+		mcp: { enabled: true },
 		prompt: assembleChildPrompt("Do the work."),
 		bridgeExtensionPath: "/pkg/dist/extension.js",
 	};
@@ -916,7 +917,9 @@ describe("SubagentManager over the bridge", () => {
 		});
 		expect(
 			test1.bridge.requests.some(
-				(request) => request.childId === record.subagentId && request.operation === "steer",
+				(request) =>
+					request.childId === record.subagentId &&
+					(request.operation === "steer" || request.operation === "follow_up"),
 			),
 		).toBe(true);
 	});

@@ -243,22 +243,23 @@ Be narrow.
 		expect(none.skills).toEqual({ discovery: false, paths: [] });
 		expect(warnings).toEqual([]);
 
-		// A name the catalog does not know is dropped with a warning: narrowing never widens back
-		// to everything, and a wrong name must not read as "no skills at all" without a trace.
+		// A name the catalog does not know is passed down to Pi so Pi reports it in the subagent panel,
+		// without raising a warning in the main agent.
 		await define("skills:\n  - code-review\n  - ghost\n");
 		const partial = await resolve(directory, "narrow", bridge, { skills: catalog, warnings });
-		expect(partial.skills).toEqual({ discovery: false, paths: ["/skills/code-review/SKILL.md"] });
-		expect(warnings).toHaveLength(1);
-		expect(warnings[0]).toContain('"ghost"');
-		expect(warnings[0]).toContain("narrow.md");
+		expect(partial.skills).toEqual({
+			discovery: false,
+			paths: ["/skills/code-review/SKILL.md", "ghost"],
+		});
+		expect(warnings).toEqual([]);
 
-		// Without a catalog every name is unknown, and the child still inherits nothing.
+		// Without a catalog, names are passed through to Pi to validate and report in subagent.
 		const uncatalogued: string[] = [];
 		await define("skills:\n  - code-review\n");
 		expect((await resolve(directory, "narrow", bridge, { warnings: uncatalogued })).skills).toEqual(
-			{ discovery: false, paths: [] },
+			{ discovery: false, paths: ["code-review"] },
 		);
-		expect(uncatalogued).toHaveLength(1);
+		expect(uncatalogued).toEqual([]);
 
 		// Path-shaped entries keep their old meaning inside the whitelist.
 		await define(`skills:\n  - "~"
@@ -633,5 +634,349 @@ test("resolveAgent keeps tools unrestricted when frontmatter omits tools in code
 		});
 
 		expect(resolved.tools).toEqual([]);
+	});
+});
+
+test("resolves mcp configuration with boolean, whitelist, and modifiers", async () => {
+	await withTempDir("test-mcp-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"no-mcp-bot",
+			"---\nname: no-mcp-bot\nmcp: false\n---\nBody\n",
+		);
+		await writeAgent(
+			directory,
+			".pi",
+			"whitelist-mcp-bot",
+			"---\nname: whitelist-mcp-bot\nmcp: [github, postgres]\n---\nBody\n",
+		);
+		await writeAgent(
+			directory,
+			".pi",
+			"mod-mcp-bot",
+			'---\nname: mod-mcp-bot\nmcp: ["-hindsight"]\n---\nBody\n',
+		);
+
+		const resNoMcp = await resolveAgent({
+			name: "no-mcp-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resNoMcp.mcp).toEqual({ enabled: false });
+
+		const resWhitelist = await resolveAgent({
+			name: "whitelist-mcp-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resWhitelist.mcp).toEqual({ enabled: true, servers: ["github", "postgres"] });
+
+		const resMod = await resolveAgent({
+			name: "mod-mcp-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resMod.mcp).toEqual({ enabled: true, excluded: ["hindsight"] });
+	});
+});
+
+test("tools modifiers merge cleanly onto builtin scout and onto custom agent defaults", async () => {
+	await withTempDir("test-tools-mod-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			"home",
+			"scout",
+			'---\nname: scout\nmodel: openai/gpt-5-codex\ntools: ["+codemode", "-ls"]\n---\n',
+		);
+		const resolvedScout = await resolveAgent({
+			name: "scout",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolvedScout.tools).toContain("codemode");
+		expect(resolvedScout.tools).not.toContain("ls");
+		expect(resolvedScout.tools).toContain("read");
+		expect(resolvedScout.tools).toContain("contact_parent");
+		expect(resolvedScout.mcp).toEqual({ enabled: false });
+
+		await writeAgent(
+			directory,
+			".pi",
+			"custom-mod",
+			'---\nname: custom-mod\ntools: ["+codemode", "-bash"]\n---\nBody\n',
+		);
+		const resolvedCustom = await resolveAgent({
+			name: "custom-mod",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolvedCustom.tools).toContain("codemode");
+		expect(resolvedCustom.tools).not.toContain("bash");
+		expect(resolvedCustom.tools).toContain("read");
+		expect(resolvedCustom.tools).toContain("contact_parent");
+	});
+});
+
+test("skills modifiers filter the parent skills catalog", async () => {
+	await withTempDir("test-skills-mod-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"skill-mod-bot",
+			'---\nname: skill-mod-bot\nskills: ["-code-review"]\n---\nBody\n',
+		);
+		const resolved = await resolveAgent({
+			name: "skill-mod-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+			skillCatalog: [
+				{ name: "code-review", path: "/skills/code-review" },
+				{ name: "test-skill", path: "/skills/test-skill" },
+			],
+		});
+		expect(resolved.skills.discovery).toBe(false);
+		expect(resolved.skills.paths).toEqual(["/skills/test-skill"]);
+	});
+});
+
+test("rejects invalid Pi selection syntax: mixed exact and modifiers or pattern modifiers", async () => {
+	await withTempDir("test-selection-err-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"mixed-tools-bot",
+			'---\nname: mixed-tools-bot\ntools: [read, "+codemode"]\n---\nBody\n',
+		);
+		await expect(
+			resolveAgent({
+				name: "mixed-tools-bot",
+				cwd: projDir,
+				homeDirectory: homeDir,
+				parent: PARENT,
+				modelRegistry: MODEL_REGISTRY,
+				bridgeExtensionPath: "bridge.js",
+			}),
+		).rejects.toThrow(/cannot mix exact names with \+name or -name entries/u);
+
+		await writeAgent(
+			directory,
+			".pi",
+			"pattern-mod-bot",
+			'---\nname: pattern-mod-bot\nmcp: ["+mcp*"]\n---\nBody\n',
+		);
+		await expect(
+			resolveAgent({
+				name: "pattern-mod-bot",
+				cwd: projDir,
+				homeDirectory: homeDir,
+				parent: PARENT,
+				modelRegistry: MODEL_REGISTRY,
+				bridgeExtensionPath: "bridge.js",
+			}),
+		).rejects.toThrow(/\+name and -name entries take exact names, not patterns/u);
+	});
+});
+
+test("applies modifiers in sequential order matching native Pi", async () => {
+	await withTempDir("test-seq-mod-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"seq-bot",
+			'---\nname: seq-bot\ntools: ["-bash", "+bash"]\n---\nBody\n',
+		);
+		const resolved = await resolveAgent({
+			name: "seq-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.tools).toContain("bash");
+	});
+});
+
+test("preserves MCP tool removals into excludeTools when overriding builtin worker", async () => {
+	await withTempDir("test-worker-rem-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			"home",
+			"worker",
+			'---\nname: worker\ntools: ["-mcp__github__write"]\n---\n',
+		);
+		const resolved = await resolveAgent({
+			name: "worker",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.excludeTools).toContain("mcp__github__write");
+	});
+});
+
+test("disabled builtin MCP base applies complete modifier sequence", async () => {
+	await withTempDir("test-scout-rem-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			"home",
+			"scout",
+			'---\nname: scout\nmodel: openai/gpt-5-codex\nmcp: ["+github", "-github"]\n---\n',
+		);
+		const resolved = await resolveAgent({
+			name: "scout",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.mcp).toEqual({ enabled: false });
+	});
+});
+
+test("additive MCP modifier on open set does not convert to restrictive whitelist", async () => {
+	await withTempDir("test-open-mcp-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"open-mcp-bot",
+			'---\nname: open-mcp-bot\nmcp: ["+github"]\n---\nBody\n',
+		);
+		const resolved = await resolveAgent({
+			name: "open-mcp-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.mcp.enabled).toBe(true);
+		expect(resolved.mcp.servers).toBeUndefined();
+	});
+});
+
+test("shadowed lower-priority agent definitions are skipped without validating", async () => {
+	await withTempDir("test-shadow-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		// Higher priority project agent
+		await writeAgent(
+			directory,
+			".pi",
+			"worker",
+			"---\nname: worker\nmodel: openai/gpt-5-codex\n---\nProject worker body\n",
+		);
+		// Lower priority user agent with malformed selection
+		await writeAgent(
+			directory,
+			"home",
+			"worker",
+			'---\nname: worker\ntools: [read, "+invalid"]\n---\nMalformed user body\n',
+		);
+
+		const resolved = await resolveAgent({
+			name: "worker",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.agent.instructions).toBe("Project worker body");
+	});
+});
+
+test("builtin worker override with -bash +bash retains bash without exclusion conflict", async () => {
+	await withTempDir("test-worker-seq-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			"home",
+			"worker",
+			'---\nname: worker\ntools: ["-bash", "+bash"]\n---\n',
+		);
+		const resolved = await resolveAgent({
+			name: "worker",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.tools).toContain("bash");
+		expect(resolved.excludeTools).not.toContain("bash");
+	});
+});
+
+test("open-set mcp with -github +github restores server and does not exclude it", async () => {
+	await withTempDir("test-mcp-restore-", async (directory) => {
+		const homeDir = join(directory, "home");
+		const projDir = join(directory, "project");
+
+		await writeAgent(
+			directory,
+			".pi",
+			"restore-mcp-bot",
+			'---\nname: restore-mcp-bot\nmcp: ["-github", "+github"]\n---\nBody\n',
+		);
+		const resolved = await resolveAgent({
+			name: "restore-mcp-bot",
+			cwd: projDir,
+			homeDirectory: homeDir,
+			parent: PARENT,
+			modelRegistry: MODEL_REGISTRY,
+			bridgeExtensionPath: "bridge.js",
+		});
+		expect(resolved.mcp.enabled).toBe(true);
+		expect(resolved.mcp.excluded).toBeUndefined();
 	});
 });

@@ -32,6 +32,7 @@ name: scout
 description: Read-only reconnaissance of a codebase or a question, reported back to the parent.
 hidden: false
 tools: read,grep,find,ls,contact_parent
+mcp: false
 ---
 
 You are the scout: answer the parent's question with verified, actionable evidence.
@@ -55,6 +56,7 @@ description: Carries out an implementation task in the repository and reports wh
 hidden: false
 tools: read,grep,find,ls,bash,edit,write,contact_parent
 model: inherit
+mcp: true
 ---
 
 You are the worker: complete the assigned change, verify it, and return a compact handoff.
@@ -87,6 +89,7 @@ hidden: false
 skills: true
 tools: read,grep,find,ls,bash,contact_parent
 model: inherit
+mcp: false
 ---
 
 You are the reviewer: identify actionable problems in the assigned scope and support them with evidence.
