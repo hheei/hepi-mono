@@ -629,6 +629,7 @@ export function formatRecallRenderedResultForTui(
 
 export const omRecallEvidenceTool = defineTool({
 	name: OM_RECALL_EVIDENCE_TOOL_NAME,
+	defaultActive: true,
 	label: "Recall memory evidence",
 	description:
 		"Recover exact evidence and source context behind a compacted observational-memory observation or reflection id on the current branch. " +

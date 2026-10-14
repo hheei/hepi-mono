@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import {
+	canPiCompact,
 	formatIdleDuration,
 	type IdleCompactionContext,
 	OM_IDLE_NOTICE,
@@ -566,6 +567,24 @@ describe("V3 compaction trigger", () => {
 			coversUpToId: "raw-1",
 		});
 
+		const makeIdleBranch = (
+			nowSec: number,
+			elapsedSec = 0,
+			text = "some text for token estimation",
+		) => [
+			rawMessage("user-0", "initial prompt", {
+				timestamp: new Date((nowSec - elapsedSec) * 1000).toISOString(),
+			}),
+			rawMessage("raw-1", text, {
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text }],
+				},
+				timestamp: new Date((nowSec - elapsedSec) * 1000).toISOString(),
+			}),
+			validObsEntry,
+		];
+
 		it("formats idle duration correctly", () => {
 			expect(formatIdleDuration(0)).toBe("0s");
 			expect(formatIdleDuration(45)).toBe("45s");
@@ -579,6 +598,14 @@ describe("V3 compaction trigger", () => {
 			expect(formatIdleDuration(90000)).toBe("1d 1h");
 		});
 
+		it("evaluates canPiCompact correctly based on Pi native compaction lower bound", () => {
+			expect(canPiCompact([])).toBe(false);
+			expect(canPiCompact([rawMessage("raw-1", "hello")])).toBe(false);
+			const short = [rawMessage("user-1", "hi"), rawMessage("asst-1", "hello")];
+			expect(canPiCompact(short, 20_000)).toBe(false);
+			expect(canPiCompact(short, 1)).toBe(true);
+		});
+
 		it("notifies user directly once idle timeout expires without running compaction", async () => {
 			const { handler, runtime, pi } = captureHandler({
 				compactAfterTokens: 100_000,
@@ -586,16 +613,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date(nowSec * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec);
 			const ctx = fakeCtx([branch]);
 
 			handler(agentSettled(), ctx);
@@ -630,16 +648,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date(nowSec * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec);
 			const ctx = fakeCtx([branch], {
 				compact: vi.fn((opts) => opts?.onComplete?.()),
 			});
@@ -667,16 +676,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 120);
 			const ctx = fakeCtx([branch], {
 				compact: vi.fn((opts) => opts?.onComplete?.()),
 			});
@@ -712,16 +712,7 @@ describe("V3 compaction trigger", () => {
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			// Settled 40s ago; with 60s TTL, remaining delay is 20s
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date((nowSec - 40) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 40);
 			const ctx = fakeCtx([branch]);
 
 			const sessionStart = handlers.get("session_start");
@@ -754,16 +745,7 @@ describe("V3 compaction trigger", () => {
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			// Settled 120s ago (already > 60s TTL)
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 120);
 			const ctx = fakeCtx([branch]);
 
 			const sessionStart = handlers.get("session_start");
@@ -789,14 +771,7 @@ describe("V3 compaction trigger", () => {
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
 			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
+				...makeIdleBranch(nowSec, 120),
 				{
 					type: "custom",
 					id: "notice-1",
@@ -821,16 +796,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionTtlSeconds: 60,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text for token estimation", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text for token estimation" }],
-					},
-					timestamp: new Date((nowSec - 10) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 10);
 			const ctx = fakeCtx([branch]);
 
 			const beforeAgentStart = handlers.get("before_agent_start");
@@ -848,16 +814,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionTtlSeconds: undefined,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text" }],
-					},
-					timestamp: new Date((nowSec - 3600) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 3600, "some text");
 			const ctx = fakeCtx([branch]);
 
 			const beforeAgentStart = handlers.get("before_agent_start");
@@ -873,16 +830,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionTtlSeconds: 60,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "short message", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "short message" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 120, "short message");
 			const ctx = fakeCtx([branch], {
 				compact: vi.fn((opts) => opts?.onComplete?.()),
 			});
@@ -902,16 +850,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "some text", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "some text" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 120, "some text");
 			const ctx = fakeCtx([branch], {
 				compact: vi.fn((opts) =>
 					opts?.onError?.({ message: "Compaction failed: Nothing to compact (session too small)" }),
@@ -1013,16 +952,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branchBefore = [
-				rawMessage("raw-1", "hello", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "hello" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branchBefore = makeIdleBranch(nowSec, 120, "hello");
 			const branchAfter = [...branchBefore, rawMessage("raw-2", "world")];
 			const ctx = fakeCtx([branchBefore, branchAfter], {
 				compact: vi.fn((opts) => opts?.onComplete?.()),
@@ -1056,16 +986,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = [
-				rawMessage("raw-1", "hello", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "hello" }],
-					},
-					timestamp: new Date((nowSec - 120) * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
+			const branch = makeIdleBranch(nowSec, 120, "hello");
 			let capturedCallbacks: {
 				onComplete?: () => void;
 				onError?: (err: { message: string }) => void;
@@ -1094,6 +1015,86 @@ describe("V3 compaction trigger", () => {
 			// Flags must NOT be cleared by the old callback because generation is now 1
 			expect(runtime.compactInFlight).toBe(true);
 			expect(runtime.idleCompactInFlight).toBe(true);
+		});
+
+		it("does not start idle compaction countdown when content is below Pi's native compaction lower bound", async () => {
+			const { handler, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				// idleCompactionMinTokens unset -> defaults to Pi's keepRecentTokens (20,000)
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			// Short session (~10 tokens) below 20,000 lower bound
+			const branch = makeIdleBranch(nowSec);
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+
+			// Countdown timer must NOT be armed
+			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+		});
+
+		it("does not start idle compaction countdown after compaction until new content exceeds Pi's lower bound", async () => {
+			const { handler, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			// Session had a previous compaction; only a few small messages arrived afterwards
+			const branch = [
+				rawMessage("user-old", "x".repeat(40_000)), // 10k tokens
+				rawMessage("asst-old", "y".repeat(40_000)), // 10k tokens
+				compactionEntry("cmp-1", { firstKeptEntryId: "user-old" }),
+				rawMessage("user-new", "short question"),
+				rawMessage("asst-new", "short answer", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "short answer" }],
+					},
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+
+			// Countdown timer must NOT be armed because new content is below Pi's compaction lower bound
+			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+		});
+
+		it("starts idle compaction countdown when content exceeds Pi's native compaction lower bound", async () => {
+			const { handler, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			// Large session (> 20,000 tokens)
+			const branch = [
+				rawMessage("user-1", "x".repeat(40_000)), // 10k tokens
+				rawMessage("asst-1", "y".repeat(40_000)), // 10k tokens
+				rawMessage("user-2", "z".repeat(40_000)), // 10k tokens
+				rawMessage("asst-2", "w".repeat(40_000), {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "w".repeat(40_000) }],
+					},
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+				validObsEntry,
+			];
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+
+			// Countdown timer MUST be armed because content exceeds Pi's lower bound
+			expect(runtime.pendingIdleNoticeTimer).toBeDefined();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
 		});
 	});
 });

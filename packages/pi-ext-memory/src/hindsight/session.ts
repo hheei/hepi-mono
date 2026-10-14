@@ -197,7 +197,9 @@ export class HindsightSession {
 		this.#firstTurn = false;
 
 		const recallPromise =
-			this.resolved.config.autoRecall && event.prompt.trim().length > 0
+			this.resolved.config.autoRecall &&
+			event.messageType === "user" &&
+			event.prompt.trim().length > 0
 				? this.#recallForPrompt(event.prompt)
 				: undefined;
 
