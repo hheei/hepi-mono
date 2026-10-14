@@ -64,6 +64,7 @@ const contactSchema = Type.Object({
 
 const SUBAGENTS_NAMESPACE = {
 	name: "agent",
+	aliases: ["agent", "agents", "subagent", "subagents"],
 	description: "Subagent orchestration and delegation tools",
 } as const;
 

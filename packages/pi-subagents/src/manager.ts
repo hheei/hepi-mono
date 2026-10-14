@@ -345,7 +345,7 @@ export class SubagentManager {
 		};
 	}
 
-	/** Presentation-only: widget and similar projections re-read list() after this. */
+	/** Presentation-only: status and similar projections re-read list() after this. */
 	public onChange(listener: () => void): () => void {
 		this.#listeners.add(listener);
 		return () => {
@@ -593,8 +593,8 @@ export class SubagentManager {
 		if (this.#autoReportBatchTimer !== undefined) {
 			clearTimeout(this.#autoReportBatchTimer);
 		}
-		// Batch reports: if all children settled, flush in 500ms; otherwise wait up to 2000ms for others
-		const delayMs = this.#working.size > 0 ? 2_000 : 500;
+		// Batch reports: if all children settled, flush in 500ms; otherwise wait up to 10000ms for others
+		const delayMs = this.#working.size > 0 ? 10_000 : 500;
 		this.#autoReportBatchTimer = setTimeout(async () => {
 			this.#autoReportBatchTimer = undefined;
 			const batch = [...this.#pendingAutoReports.entries()];
@@ -820,6 +820,14 @@ export class SubagentManager {
 			}
 			this.#scheduleSettledPanelClose(id);
 
+			if (this.#taskRegistry !== undefined) {
+				this.#taskRegistry.settle(id, {
+					status: taskStatus,
+					output: message,
+					truncated: false,
+				});
+			}
+
 			let deliveryOk = true;
 			if (this.#deps.channel !== undefined) {
 				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
@@ -829,13 +837,6 @@ export class SubagentManager {
 			}
 			if (deliveryOk) {
 				this.#lastDeliveredTurn.set(id, { workVersion, message });
-			}
-			if (this.#taskRegistry !== undefined) {
-				this.#taskRegistry.settle(id, {
-					status: taskStatus,
-					output: message,
-					truncated: false,
-				});
 			}
 		});
 	}
@@ -993,10 +994,35 @@ export class SubagentManager {
 	 */
 	async #settleUnrecovered(record: SubagentRecord): Promise<void> {
 		this.#working.delete(record.subagentId);
+		this.#projectors.delete(record.subagentId);
 		const retired = record.runtime;
-		if (retired === undefined) return;
 		if (record.presentation === "panel") {
-			this.#unresolvedRuntimes.add(record.subagentId);
+			if (retired !== undefined) {
+				this.#unresolvedRuntimes.add(record.subagentId);
+			}
+			await this.#update(record.subagentId, (current) => {
+				if (current.intent === "stopped") return current;
+				if (current.state !== "running") return current;
+				return {
+					...current,
+					state: "blocked",
+					interrupted:
+						"The child panel runtime did not reconnect; its process exit is not confirmed",
+				};
+			});
+			return;
+		}
+		if (retired === undefined) {
+			await this.#update(record.subagentId, (current) => {
+				if (current.intent === "stopped") return current;
+				if (current.state !== "running") return current;
+				return {
+					...current,
+					state: "done",
+					interrupted:
+						"The child runtime ended with the parent process; a later send starts it again from the same session",
+				};
+			});
 			return;
 		}
 		await this.#update(record.subagentId, (current) => {
@@ -1055,8 +1081,9 @@ export class SubagentManager {
 						? current
 						: (({ unacknowledgedInput: _input, ...rest }) => rest)(current);
 				const hasError = snapshot.state === "error";
+				const { interrupted: _interrupted, ...withoutInterrupted } = base;
 				return {
-					...base,
+					...withoutInterrupted,
 					state: hasError ? "error" : idle ? "done" : "running",
 					...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
 					usage: snapshot.usage,

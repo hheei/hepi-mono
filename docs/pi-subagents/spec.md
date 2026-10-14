@@ -386,8 +386,9 @@ V1 UI保持最小：
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
 - 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `agent_stop`；attach 及其快捷键已随 §3.2 一并删除；
-- TUI parent 用 ext-core above-editor widget 投影 `SubagentManager.list()` 中的活 child（`starting | running | idle`；`done | stopped | failed` 为终态，一律隐藏，与 presentation 无关）。无边框、不持有第二份 running set、不轮询文件；elapsed 按 spawn 时间计、有可见 child 时每秒刷新；零可见 child 时隐藏。Headless/RPC parent 不挂 widget。
-- TUI child 显示一行无边框身份（agent 名、`contact_parent` 通道、当前 tool 数），不替代 parent widget，不成为控制面。
+- parent 用原生 `setStatus("pi-subagents", text)` 投影 `SubagentManager.list()` 中正在运行的 child，仅显示一个 running glyph 和编号，例如 `󰪠#21 #22 #23`。`pi-status` 将其放在第二行右侧、TODO 前；两段以 ` ‧ ` 分隔，缺席段不留分隔符。无额外 Widget、elapsed 计时器或终态保留窗口；过期异步投影不得覆盖最新状态，生命周期结束清除状态并取消订阅。
+- 已确认的 done/error/blocked 报告用一次性 `subagent-info` custom entry 展示，默认只显示结果状态和身份，展开查看完整报告；支持 resume 和 Headless `entry_appended`，不进入模型上下文。模型仍接收原有 `subagent-report`，其重复的可见展示隐藏；保留沉降、重试取消和报告去重。
+- TUI child 显示一行无边框身份（agent 名、`contact_parent` 通道、当前 tool 数），不成为控制面。
 
 Native child交互始终使用真实Pi TUI；不实现transcript viewer、RPC event mirror或terminal scraping。
 

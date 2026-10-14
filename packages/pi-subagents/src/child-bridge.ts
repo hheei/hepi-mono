@@ -12,6 +12,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "@hheei/pi-ext-core";
 import { type ChildControl, registerChildControl } from "./child-control.js";
 import type { ChildIdentity } from "./domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, CHILD_TITLE_ENV_KEY } from "./domain.js";
@@ -101,9 +102,62 @@ export function registerChildBridge(
 		state.bound && (state.boundSessionId === "" || sessionId === state.boundSessionId);
 	// File-configured MCP servers can connect even when memory's automatic registration is
 	// disabled. A prefix gate also covers future tools and nested codemode calls.
+	const normalizeServer = (s: string) => s.trim().replace(/[^A-Za-z0-9_]/g, "_");
+	const excludedMcp = new Set(
+		(process.env.PI_SUBAGENT_MCP_EXCLUDE ?? "").split(",").map(normalizeServer).filter(Boolean),
+	);
+	const allowedMcp = new Set(
+		(process.env.PI_SUBAGENT_MCP_SERVERS ?? "").split(",").map(normalizeServer).filter(Boolean),
+	);
+
+	const RESOURCE_TOOLS = new Set([
+		"read_mcp_resource",
+		"list_mcp_resources",
+		"list_mcp_resource_templates",
+	]);
+
 	pi.on("tool_call", (event) => {
 		if (event.toolName.startsWith("mcp__hindsight__")) {
 			return { block: true, reason: "Hindsight memory is unavailable in delegated processes." };
+		}
+		const mcpMatch = /^mcp__(.+?)__(.+)$/.exec(event.toolName);
+		if (mcpMatch) {
+			const server = normalizeServer(mcpMatch[1] ?? "");
+			if (server === "hindsight") {
+				return { block: true, reason: "Hindsight memory is unavailable in delegated processes." };
+			}
+			if (excludedMcp.has(server)) {
+				return { block: true, reason: `MCP server "${server}" is excluded for this subagent.` };
+			}
+			if (allowedMcp.size > 0 && !allowedMcp.has(server)) {
+				return {
+					block: true,
+					reason: `MCP server "${server}" is not in the allowed list for this subagent.`,
+				};
+			}
+		} else if (RESOURCE_TOOLS.has(event.toolName)) {
+			const input = isRecord(event.input) ? (event.input as Record<string, unknown>) : undefined;
+			const rawServer = typeof input?.server === "string" ? input.server : undefined;
+			if (rawServer !== undefined) {
+				const server = normalizeServer(rawServer);
+				if (server === "hindsight") {
+					return { block: true, reason: "Hindsight memory is unavailable in delegated processes." };
+				}
+				if (excludedMcp.has(server)) {
+					return { block: true, reason: `MCP server "${server}" is excluded for this subagent.` };
+				}
+				if (allowedMcp.size > 0 && !allowedMcp.has(server)) {
+					return {
+						block: true,
+						reason: `MCP server "${server}" is not in the allowed list for this subagent.`,
+					};
+				}
+			} else if (excludedMcp.size > 0 || allowedMcp.size > 0) {
+				return {
+					block: true,
+					reason: `${event.toolName} requires an explicit "server" parameter when MCP server restrictions are active.`,
+				};
+			}
 		}
 		return undefined;
 	});

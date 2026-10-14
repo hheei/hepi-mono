@@ -39,9 +39,15 @@ panel 中 child 的外部退出与 `agent_stop` 则记录 `error` 和 stopped in
 新 runtime 的 bridge 启动窗口为 20 秒，旧 runtime 的恢复窗口仍为 5 秒；启动包含宿主命令和清理，
 manager 的默认启动 deadline 为 60 秒。
 自动汇报读取 transcript 后必须重新核对工作版本、入站活动和当前状态；过期汇报不能覆盖新 turn 或触发回收。
-widget 在终态冻结 elapsed，保留展示 15 秒后隐藏并停止刷新计时器。宿主确认进程退出不能说明是人工关闭，
-诊断不得将退出原因归到用户。
-widget 的 turns 是当前 session 分支上已完成且具有有效 usage 的 assistant 轮次；每次 `turn_end` 从 transcript 刷新统计，不能等到整个 agent 结束才更新。`turn_end` 不表示任务完成，仍由 `agent_settled` 确认最终沉降。
+宿主确认进程退出不能说明是人工关闭，诊断不得将退出原因归到用户。
+
+## 紧凑状态与交互报告
+
+父会话通过原生 `setStatus("pi-subagents", text)` 发布机器人 emoji、运行 glyph 与正在运行的 child 编号；`agent-21` 显示为 `#21`，显示编号不改变真实工具 ID。`pi-status` 在 Footer 第二行右侧按 agent、TODO 顺序组合，以 ` ‧ ` 分隔。缺少 pi-status 时使用 Pi 原生状态展示，不需要修改 Pi host 或依赖具体扩展。
+
+移除父会话的多行 Widget、elapsed 刷新和终态保留计时器。状态投影从 manager 读取，过期异步读取不能覆盖新快照；session 切换、reload 或 shutdown 移除状态并取消订阅。子会话自己的身份展示不受影响，完整管理仍通过 `/subagents`。
+
+已确认的报告由原有 ParentChannel 交付后追加一个 `subagent-info` 原生 custom entry：折叠时只显示 glyph、编号、agent 名称和 done/error/blocked 状态，展开时显示完整报告。entry 支持 resume 和 Headless `entry_appended`，不进入模型上下文。对应的模型消息 `subagent-report` 使用 `display: false`，避免可见报告重复；原有后台完成门控、错误等待、自动重试取消和去重继续由 manager 与 ext-core BackgroundDelivery 拥有。加载时不重新生成历史终态 entry。交互渲染剥离终端控制序列与 C0/C1 字符（保留换行、将 tab 转为空格），持久化和模型仍保留完整原文。info 写入失败时使用原生 error 提示说明原因；已经提交的模型报告不重发。
 
 ## 子代理工具说明与动态启用
 

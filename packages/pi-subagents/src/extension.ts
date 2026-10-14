@@ -1,4 +1,4 @@
-import type { ExtensionAPI, Skill } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext, Skill } from "@earendil-works/pi-coding-agent";
 import {
 	type BackgroundDelivery,
 	errorMessage,
@@ -20,6 +20,7 @@ import {
 	type HostAttachmentIdentity,
 	selectHostAdapter,
 } from "./host-adapter.js";
+import { appendSubagentInfo, displaySubagentText, registerSubagentInfo } from "./info.js";
 import { type ParentChannel, type ParentChannelReport, SubagentManager } from "./manager.js";
 import { transformSubagentsMarkdown } from "./markdown.js";
 import { createSubagentRegistry } from "./registry.js";
@@ -31,10 +32,9 @@ import {
 	prepareRuntimeDirectory,
 } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
-
+import { createSubagentStatus } from "./status.js";
 import { registerInteractiveToolActivation } from "./tool-activation.js";
 import { registerParentTools } from "./tools.js";
-import { createSubagentWidget } from "./widget.js";
 
 const CHILD_ENV_KEYS = Object.values(BRIDGE_ENVIRONMENT_KEYS);
 
@@ -83,9 +83,10 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
  * coordinates this channel with Task/Bash results so only one message requests a new idle turn.
  */
 export function createParentChannel(
-	pi: Pick<ExtensionAPI, "sendMessage" | "on">,
+	pi: Pick<ExtensionAPI, "sendMessage" | "on" | "appendEntry">,
 	deps: {
 		readonly isIdle: () => boolean;
+		readonly ui: Pick<ExtensionUIContext, "notify">;
 		readonly delivery: BackgroundDelivery;
 		readonly signal?: AbortSignal;
 	},
@@ -105,7 +106,7 @@ export function createParentChannel(
 				{
 					customType: "subagent-report",
 					content: reports.map(reportText).join("\n\n"),
-					display: true,
+					display: false,
 					details: { reports },
 				},
 				{ triggerTurn, deliverAs: "steer" },
@@ -113,6 +114,19 @@ export function createParentChannel(
 		} catch (error) {
 			held.unshift(...reports);
 			throw error;
+		}
+		for (const report of reports) {
+			try {
+				appendSubagentInfo(pi, report);
+			} catch (error) {
+				// The model already received this batch; an entry failure must not resend it.
+				deps.ui.notify(
+					displaySubagentText(
+						`Could not display subagent report for ${report.childId}: ${errorMessage(error)}`,
+					),
+					"error",
+				);
+			}
 		}
 	};
 
@@ -164,6 +178,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 		registerChildBridge(pi, child);
 		return;
 	}
+	registerSubagentInfo(pi);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-subagents",
 		async start(runtime): Promise<void> {
@@ -186,6 +201,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const delivery = getBackgroundDelivery(pi);
 			const channel = createParentChannel(pi, {
 				isIdle: () => context.isIdle(),
+				ui: context.ui,
 				delivery,
 				signal: runtime.signal,
 			});
@@ -225,7 +241,9 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			// the only name → path catalog; Pi hands it over before every prompt of this session.
 			let skillCatalog: readonly SkillCatalogEntry[] = [];
 			const unsubscribeSkillCatalog = pi.on("before_agent_start", (event) => {
-				skillCatalog = skillCatalogFromLoaded(event.systemPromptOptions.skills);
+				const skills =
+					(event.systemPromptOptions as { skills?: readonly Skill[] } | undefined)?.skills ?? [];
+				skillCatalog = skillCatalogFromLoaded(skills);
 			});
 			runtime.resources.add("subagent-skill-catalog", unsubscribeSkillCatalog);
 
@@ -250,7 +268,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						skillCatalog,
 						existingSubagentIds,
 						enforceEnabled: true,
-						onWarning: (message) => context.ui.notify(message, "warning"),
 						parent: {
 							model: { provider: model.provider, id: model.id },
 							thinking,
@@ -350,22 +367,24 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				.catch((error: unknown) => {
 					diagnose(`Task registry service unavailable for subagents: ${errorMessage(error)}`);
 				});
-			const widget = createSubagentWidget(pi, context, runtime.signal);
-			const refreshWidget = (): void => {
+			const status = createSubagentStatus(context.ui, runtime.signal);
+			let refreshVersion = 0;
+			const refreshStatus = (): void => {
 				if (runtime.signal.aborted) return;
+				const version = ++refreshVersion;
 				void manager
 					.list()
 					.then((children) => {
-						if (runtime.signal.aborted) return;
-						widget?.refresh(children);
+						if (runtime.signal.aborted || version !== refreshVersion) return;
+						status.refresh(children);
 					})
-					.catch(() => {});
+					.catch((error: unknown) => diagnose(`Subagent status failed: ${errorMessage(error)}`));
 			};
-			const unsubscribe = manager.onChange(refreshWidget);
-			refreshWidget();
-			runtime.resources.add("subagent-widget", () => {
+			const unsubscribe = manager.onChange(refreshStatus);
+			refreshStatus();
+			runtime.resources.add("subagent-status", () => {
 				unsubscribe();
-				widget?.dispose();
+				status.dispose();
 			});
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());
 		},

@@ -8,6 +8,7 @@ import { expandHome, isRecord } from "@hheei/pi-ext-core";
 import { builtinAgents } from "./builtin-agents.js";
 import type {
 	ExtensionSelection,
+	McpSelection,
 	ResolvedAgentPolicy,
 	ResolvedModel,
 	Selection,
@@ -33,6 +34,7 @@ const SUPPORTED_FIELDS: Record<string, true> = {
 	extensions: true,
 	skills: true,
 	codemode: true,
+	mcp: true,
 };
 
 /** Detects whether codemode is configured with mode: "only" in settings or environment. */
@@ -183,6 +185,177 @@ function resolveResourcePaths(
 	});
 }
 
+const DEFAULT_PI_TOOLS = ["read", "bash", "edit", "write"] as const;
+
+export type PiSelectionType = "all" | "none" | "whitelist" | "modifier";
+
+export interface ParsedPiSelection {
+	readonly type: PiSelectionType;
+	readonly names?: readonly string[];
+	readonly modifiers?: readonly string[];
+	readonly add?: readonly string[];
+	readonly remove?: readonly string[];
+}
+
+function isModifier(entry: string): boolean {
+	return entry.startsWith("+") || entry.startsWith("-");
+}
+
+export function parsePiSelection(value: unknown, field: string, path: string): ParsedPiSelection {
+	if (value === undefined || value === true || value === "all") {
+		return { type: "all" };
+	}
+	if (value === false || value === "none") {
+		return { type: "none" };
+	}
+	const raw = typeof value === "string" ? value.split(",") : value;
+	if (!Array.isArray(raw)) {
+		throw readableError(path, `${field} must be a boolean, string, or string array`);
+	}
+	const entries = raw.map((item) => requiredString(item, field, path));
+	if (entries.length === 0) {
+		return { type: "none" };
+	}
+	const modifiers = entries.filter(isModifier);
+	if (modifiers.length > 0) {
+		if (modifiers.length < entries.length) {
+			throw readableError(path, `cannot mix exact names with +name or -name entries in ${field}`);
+		}
+		const add: string[] = [];
+		const remove: string[] = [];
+		for (const entry of modifiers) {
+			if (entry.includes("*")) {
+				throw readableError(
+					path,
+					`+name and -name entries take exact names, not patterns: ${entry}`,
+				);
+			}
+			const name = entry.slice(1).trim();
+			if (name === "") {
+				throw readableError(path, `${field} entry has empty modifier name`);
+			}
+			if (entry.startsWith("+")) {
+				if (!add.includes(name)) add.push(name);
+			} else {
+				if (!remove.includes(name)) remove.push(name);
+			}
+		}
+		return {
+			type: "modifier",
+			modifiers: Object.freeze(entries),
+			add: Object.freeze(add),
+			remove: Object.freeze(remove),
+		};
+	}
+	if (new Set(entries).size !== entries.length) {
+		throw readableError(path, `${field} selects the same entry twice`);
+	}
+	return { type: "whitelist", names: Object.freeze(entries) };
+}
+
+function applyModifiers(base: readonly string[], modifiers: readonly string[]): string[] {
+	const result = [...base];
+	for (const entry of modifiers) {
+		const name = entry.slice(1).trim();
+		if (entry.startsWith("+")) {
+			if (!result.includes(name)) result.push(name);
+		} else if (entry.startsWith("-")) {
+			const idx = result.indexOf(name);
+			if (idx !== -1) result.splice(idx, 1);
+		}
+	}
+	return result;
+}
+
+function mergeDiscoveredFrontmatter(
+	builtinFm: Record<string, unknown>,
+	userFm: Record<string, unknown>,
+	path: string,
+	inheritBaseDefaults: boolean,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = inheritBaseDefaults
+		? { ...builtinFm, ...userFm }
+		: { ...userFm };
+
+	if (userFm.tools !== undefined) {
+		const parsedUser = parsePiSelection(userFm.tools, "tools", path);
+		if (parsedUser.type === "modifier") {
+			const baseTools = stringList(builtinFm.tools, "tools", path);
+			const evaluatedTools = applyModifiers(baseTools, parsedUser.modifiers ?? []);
+			merged.tools = evaluatedTools;
+			const existing = Array.isArray(merged.exclude_tools)
+				? (merged.exclude_tools as string[])
+				: typeof merged.exclude_tools === "string"
+					? [merged.exclude_tools]
+					: [];
+			const currentExcludes = existing.filter((e) => !evaluatedTools.includes(e));
+			const finalRemovals = (parsedUser.remove ?? []).filter((r) => !evaluatedTools.includes(r));
+			merged.exclude_tools = Array.from(new Set([...currentExcludes, ...finalRemovals]));
+		}
+	}
+
+	if (userFm.skills !== undefined) {
+		const parsedUser = parsePiSelection(userFm.skills, "skills", path);
+		if (parsedUser.type === "modifier") {
+			if (Array.isArray(builtinFm.skills)) {
+				const baseSkills = stringList(builtinFm.skills, "skills", path);
+				merged.skills = applyModifiers(baseSkills, parsedUser.modifiers ?? []);
+			} else {
+				merged.skills = userFm.skills;
+			}
+		}
+	}
+
+	if (userFm.mcp !== undefined) {
+		const parsedUser = parsePiSelection(userFm.mcp, "mcp", path);
+		if (parsedUser.type === "modifier") {
+			if (Array.isArray(builtinFm.mcp)) {
+				const baseMcp = stringList(builtinFm.mcp, "mcp", path);
+				merged.mcp = applyModifiers(baseMcp, parsedUser.modifiers ?? []);
+			} else if (builtinFm.mcp === false) {
+				const evaluated = applyModifiers([], parsedUser.modifiers ?? []);
+				merged.mcp = evaluated.length > 0 ? evaluated : false;
+			} else {
+				merged.mcp = userFm.mcp;
+			}
+		}
+	}
+
+	return merged;
+}
+
+function mcpSelection(value: unknown, path: string): McpSelection {
+	const parsed = parsePiSelection(value, "mcp", path);
+	if (parsed.type === "none") {
+		return Object.freeze({ enabled: false });
+	}
+	if (parsed.type === "all") {
+		return Object.freeze({ enabled: true });
+	}
+	if (parsed.type === "whitelist") {
+		const servers = parsed.names;
+		return Object.freeze({
+			enabled: true,
+			...(servers !== undefined ? { servers } : {}),
+		});
+	}
+	const excluded: string[] = [];
+	for (const entry of parsed.modifiers ?? []) {
+		const name = entry.slice(1).trim();
+		if (entry.startsWith("-")) {
+			if (!excluded.includes(name)) excluded.push(name);
+		} else if (entry.startsWith("+")) {
+			const idx = excluded.indexOf(name);
+			if (idx !== -1) excluded.splice(idx, 1);
+		}
+	}
+	const result: McpSelection = {
+		enabled: true,
+		...(excluded.length > 0 ? { excluded } : {}),
+	};
+	return Object.freeze(result);
+}
+
 async function resourceSelection(
 	value: unknown,
 	field: "extensions",
@@ -203,10 +376,6 @@ async function resourceSelection(
 	return { discovery: true, paths };
 }
 
-/** `skills: all` is the default and `skills: none` the opt-out; a list is a whitelist. */
-const SKILL_ALL = "all";
-const SKILL_NONE = "none";
-
 /**
  * Skills are chosen as a whitelist, unlike extensions: a list means "exactly these", because
  * inheriting every discovered skill is the thing a definition usually wants to narrow. A bare
@@ -219,36 +388,60 @@ async function skillSelection(
 	path: string,
 	homeDirectory: string,
 	catalog: readonly SkillCatalogEntry[] | undefined,
-	warn: (message: string) => void,
 ): Promise<Selection> {
-	if (value === undefined || value === true || value === SKILL_ALL) {
+	const parsed = parsePiSelection(value, "skills", path);
+	if (parsed.type === "all") {
 		return { discovery: true, paths: [] };
 	}
-	if (value === false || value === SKILL_NONE) return { discovery: false, paths: [] };
+	if (parsed.type === "none") {
+		return { discovery: false, paths: [] };
+	}
+	if (parsed.type === "whitelist") {
+		const paths: string[] = [];
+		for (const entry of parsed.names ?? []) {
+			if (LOCAL_PATH_PATTERN.test(entry)) {
+				const selected = resolve(dirname(path), expandHome(entry, homeDirectory));
+				const exists = await stat(selected).then(
+					() => true,
+					() => false,
+				);
+				if (!exists) throw readableError(path, `skills entry does not exist: ${selected}`);
+				paths.push(selected);
+				continue;
+			}
+			if (entry.includes(":") || entry.includes("/") || entry.includes("\\")) {
+				paths.push(entry);
+				continue;
+			}
+			const match = catalog?.find((skill) => skill.name === entry);
+			if (match === undefined) {
+				// Pass uncatalogued skill name down to Pi CLI so Pi validates it and reports in the subagent panel
+				paths.push(entry);
+				continue;
+			}
+			paths.push(match.path);
+		}
+		return { discovery: false, paths };
+	}
+	if (catalog === undefined || catalog.length === 0) {
+		const paths: string[] = [];
+		for (const entry of parsed.modifiers ?? []) {
+			if (entry.startsWith("+")) {
+				paths.push(entry.slice(1).trim());
+			}
+		}
+		return { discovery: false, paths };
+	}
+	const baseSkillNames = catalog.map((skill) => skill.name);
+	const activeSkillNames = applyModifiers(baseSkillNames, parsed.modifiers ?? []);
 	const paths: string[] = [];
-	for (const entry of stringList(value, "skills", path)) {
-		if (LOCAL_PATH_PATTERN.test(entry)) {
-			const selected = resolve(dirname(path), expandHome(entry, homeDirectory));
-			const exists = await stat(selected).then(
-				() => true,
-				() => false,
-			);
-			if (!exists) throw readableError(path, `skills entry does not exist: ${selected}`);
-			paths.push(selected);
-			continue;
+	for (const name of activeSkillNames) {
+		const match = catalog.find((skill) => skill.name === name);
+		if (match !== undefined) {
+			paths.push(match.path);
+		} else {
+			paths.push(name);
 		}
-		if (entry.includes(":") || entry.includes("/") || entry.includes("\\")) {
-			paths.push(entry);
-			continue;
-		}
-		const match = catalog?.find((skill) => skill.name === entry);
-		if (match === undefined) {
-			warn(
-				`Subagent skill "${entry}" is not among the skills Pi loaded, so ${path} launches without it.`,
-			);
-			continue;
-		}
-		paths.push(match.path);
 	}
 	return { discovery: false, paths };
 }
@@ -302,16 +495,25 @@ export async function discoverAgents(
 	for (const directory of agentDirectories(resolve(cwd), resolve(homeDirectory))) {
 		for (const path of await markdownFiles(directory)) {
 			const raw = await readAgentDefinition(path);
+			if (selected.has(raw.name)) continue;
 			const builtin = builtins.get(raw.name);
 
 			const isBuiltin = builtin !== undefined;
 			const isBodyEmpty = raw.body.trim() === "";
 
-			// If it matches a built-in agent and the user markdown body is empty,
-			// inherit the built-in's body, tools, and description!
-			const frontmatter =
-				isBuiltin && isBodyEmpty ? { ...builtin.frontmatter, ...raw.frontmatter } : raw.frontmatter;
-			const body = isBuiltin && isBodyEmpty ? builtin.body : raw.body;
+			let frontmatter: Record<string, unknown>;
+			let body: string;
+
+			if (isBuiltin && isBodyEmpty) {
+				frontmatter = mergeDiscoveredFrontmatter(builtin.frontmatter, raw.frontmatter, path, true);
+				body = builtin.body;
+			} else if (isBuiltin && !isBodyEmpty) {
+				frontmatter = mergeDiscoveredFrontmatter(builtin.frontmatter, raw.frontmatter, path, false);
+				body = raw.body;
+			} else {
+				frontmatter = raw.frontmatter;
+				body = raw.body;
+			}
 
 			const isCompliant =
 				typeof frontmatter.model === "string" &&
@@ -427,19 +629,49 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 		frontmatterCodemode: codemodeValue,
 	});
 
-	const rawTools = stringList(discovered.frontmatter.tools, "tools", path);
-	const excludeTools = stringList(discovered.frontmatter.exclude_tools, "exclude_tools", path);
-	if (excludeTools.includes(CONTACT_PARENT_TOOL_NAME)) {
+	const excludeToolsRaw = stringList(discovered.frontmatter.exclude_tools, "exclude_tools", path);
+	if (excludeToolsRaw.includes(CONTACT_PARENT_TOOL_NAME)) {
 		throw readableError(
 			path,
 			`exclude_tools cannot disable the required ${CONTACT_PARENT_TOOL_NAME} bridge`,
 		);
 	}
+
+	const parsedTools = parsePiSelection(discovered.frontmatter.tools, "tools", path);
+	let rawTools: string[];
+	const excludeTools: string[] = [...excludeToolsRaw];
+
+	if (parsedTools.type === "none") {
+		rawTools = [CONTACT_PARENT_TOOL_NAME];
+	} else if (parsedTools.type === "whitelist") {
+		rawTools = [...(parsedTools.names ?? [])];
+	} else if (parsedTools.type === "modifier") {
+		const baseTools = [...DEFAULT_PI_TOOLS, CONTACT_PARENT_TOOL_NAME];
+		if (parsedTools.remove?.includes(CONTACT_PARENT_TOOL_NAME)) {
+			throw readableError(
+				path,
+				`tools modifier cannot remove the required ${CONTACT_PARENT_TOOL_NAME} bridge`,
+			);
+		}
+		rawTools = applyModifiers(baseTools, parsedTools.modifiers ?? []);
+		const finalExclusions = (parsedTools.remove ?? []).filter((r) => !rawTools.includes(r));
+		for (const r of finalExclusions) {
+			if (!excludeTools.includes(r)) excludeTools.push(r);
+		}
+	} else {
+		rawTools = [];
+	}
+
 	const overlap = rawTools.find((tool) => excludeTools.includes(tool));
 	if (overlap !== undefined)
 		throw readableError(path, `tool ${overlap} is both allowed and excluded`);
+
 	if (rawTools.length > 0 && !rawTools.includes(CONTACT_PARENT_TOOL_NAME)) {
 		throw readableError(path, `tools must include the required ${CONTACT_PARENT_TOOL_NAME} bridge`);
+	}
+
+	if (excludeTools.length > 0) {
+		rawTools = rawTools.filter((t) => !excludeTools.includes(t));
 	}
 
 	const tools =
@@ -470,8 +702,8 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 		path,
 		homeDirectory,
 		options.skillCatalog,
-		options.onWarning ?? (() => {}),
 	);
+	const mcp = mcpSelection(discovered.frontmatter.mcp, path);
 	const displayName = optionalString(discovered.frontmatter.display_name, "display_name", path);
 	const description = optionalString(discovered.frontmatter.description, "description", path);
 	return Object.freeze({
@@ -501,6 +733,7 @@ export async function resolveAgent(options: ResolveAgentOptions): Promise<Resolv
 			discovery: skills.discovery,
 			paths: Object.freeze([...skills.paths]),
 		}),
+		mcp,
 		enabled: discovered.enabled !== false,
 	});
 }

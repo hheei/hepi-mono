@@ -5,7 +5,7 @@ file, its own runtime, and its own durable identity.
 
 The package is a single concrete extension with one `pi.extensions` entry
 (`dist/extension.js`). The same entry runs on both sides: the parent branch registers the
-model-facing tools, commands, and widget; the child branch registers only the reporting
+model-facing tools, commands, compact footer status, and info entries; the child branch registers only the reporting
 bridge and session-leave reporting.
 
 ## Parent tools
@@ -39,14 +39,13 @@ Subagents communicate with the parent over a dedicated Unix domain socket bridge
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
 - **Automatic Retry**: If a subagent encounters a transient error, the harness allows one automatic retry before marking the task failed or delivering a blocked notification.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
-## Three visual states
+## Compact status and reports
 
-Subagent lifecycle is shown in the TUI widget above the editor; subagent status is omitted from the footer:
+Running children use the native Pi status line: `🤖 󰪠#21 #22 #23`. With pi-status installed, this appears at the bottom right before the existing TODO segment, separated by ` ‧ `. Display shorthand `#21` refers to tool ID `agent-21`. No running children means no agent segment; no multi-line parent widget is mounted.
 
-- **`running`** (blue/amber): Starting, executing turns, auto-retrying, or waiting out the 5-second settlement debounce.
-- **`done`** (green checkmark `✓`): Succeeded and automatically reported final assistant text back to the parent.
-- **`blocked`**: Interrupted or waiting for input/guidance.
-- **`error`**: The turn failed or the runtime was stopped. You may retry with `agent_send` or create a new child via `agent_spawn`. Sending to a stopped child reactivates its existing session after the previous runtime is confirmed gone; retrying does not guarantee the underlying failure is resolved.
+Confirmed done, error, and blocked reports appear once as `subagent-info` transcript entries. Collapsed entries show the outcome, child ID, and agent name; expand to read the complete report. They survive resume and do not enter model context. The original automatic `subagent-report` still reaches the model, with its duplicate transcript display hidden. Transient errors remain subject to settlement and retry checks before reporting.
+
+Use `/subagents` for complete status and management. `agent_send` can resume a done, blocked, errored, or stopped child with its session context intact; retrying does not guarantee the underlying failure is resolved.
 
 ## Host Integration and Isolation
 
@@ -63,7 +62,20 @@ Agent Markdown files are discovered in this order, most specific first, by `name
 ~/.pi/agent/agents/*.md
 ```
 
-Frontmatter is parsed with Pi's `parseFrontmatter` and validated against this package's schema. Supported fields: `name`, `display_name`, `description`, `hidden`, `model`, `thinking`, `tools`, `exclude_tools`, `extensions`, `skills`, `interactive`.
+Frontmatter is parsed with Pi's `parseFrontmatter` and validated against this package's schema. Supported fields: `name`, `display_name`, `description`, `hidden`, `model`, `thinking`, `tools`, `exclude_tools`, `extensions`, `skills`, `mcp`, `codemode`.
+
+### Unified Resource Selection (Pi Semantics)
+
+`tools`, `skills`, and `mcp` follow Pi's unified selection semantics:
+
+- **`boolean` toggle**:
+  - `true` (or omitted): Full inheritance from host defaults.
+  - `false`: Completely disabled (passes `--no-mcp`, `--no-skills`, `--no-tools` respectively; `--no-mcp` physically shuts down the MCP subsystem so no server processes or network connections start).
+  - MCP selection (`mcp: [server1]`) acts at the tool exposure and execution boundary via `--tools` / `--exclude-tools` patterns and child-bridge tool call gating. Non-whitelisted or excluded server tools cannot be viewed or called.
+- **Exact list (Whitelist / Replace)**:
+  - `[item1, item2]`: Activates only the named entries.
+- **Incremental modifiers (`+` / `-`)**:
+  - `["+itemA", "-itemB"]`: Adds or excludes entries relative to base defaults. Exact names and modifiers cannot be mixed.
 
 ### Built-in Agents
 

@@ -291,6 +291,7 @@ export async function resolveSubagentLaunch(
 		excludeTools: policy.excludeTools,
 		extensions: policy.extensions,
 		skills: policy.skills,
+		mcp: policy.mcp,
 		prompt: assembleChildPrompt(instructions),
 		bridgeExtensionPath,
 		...(policy.codemodeOnly ? { codemodeOnly: true } : {}),

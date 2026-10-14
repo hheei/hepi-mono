@@ -345,3 +345,95 @@ describe("child bridge session switch", () => {
 		}
 	});
 });
+
+describe("child bridge mcp tool call gating", () => {
+	test("gates MCP tools based on environment exclusions and whitelists", () => {
+		const prevEnv = process.env;
+		process.env = {
+			...prevEnv,
+			PI_SUBAGENTS_PARENT_SESSION_ID: "p",
+			PI_SUBAGENTS_CHILD_ID: "c",
+			PI_SUBAGENTS_RUNTIME_ID: "r",
+			PI_SUBAGENTS_ENDPOINT: "/x",
+			PI_SUBAGENT_MCP_EXCLUDE: "blocked_server",
+			PI_SUBAGENT_MCP_SERVERS: "allowed_server",
+		};
+		try {
+			let toolCallHandler:
+				| ((event: {
+						toolName: string;
+						input?: unknown;
+				  }) => { block?: boolean; reason?: string } | undefined)
+				| undefined;
+			const pi = {
+				registerTool() {},
+				on(
+					event: string,
+					handler: (event: {
+						toolName: string;
+						input?: unknown;
+					}) => { block?: boolean; reason?: string } | undefined,
+				) {
+					if (event === "tool_call") toolCallHandler = handler;
+					return () => {};
+				},
+			} as unknown as ExtensionAPI;
+
+			registerChildBridge(
+				pi,
+				{
+					parentSessionId: "p",
+					subagentId: "c",
+					runtimeIdentity: "r",
+					endpoint: "/x",
+					token: "t",
+				},
+				{ diagnose: () => {} },
+			);
+
+			expect(toolCallHandler).toBeDefined();
+			// Hindsight is always blocked
+			expect(toolCallHandler!({ toolName: "mcp__hindsight__recall" })).toMatchObject({
+				block: true,
+			});
+			// Blocked server is blocked
+			expect(toolCallHandler!({ toolName: "mcp__blocked_server__do_work" })).toMatchObject({
+				block: true,
+			});
+			// Server not in whitelist is blocked
+			expect(toolCallHandler!({ toolName: "mcp__other_server__read" })).toMatchObject({
+				block: true,
+			});
+			// Allowed server is not blocked
+			expect(toolCallHandler!({ toolName: "mcp__allowed_server__exec" })).toBeUndefined();
+			// Non-MCP tools are not blocked
+			expect(toolCallHandler!({ toolName: "read" })).toBeUndefined();
+
+			// Hyphenated server name normalization
+			process.env.PI_SUBAGENT_MCP_EXCLUDE = "private-db";
+			process.env.PI_SUBAGENT_MCP_SERVERS = "allowed-server";
+			registerChildBridge(
+				pi,
+				{ parentSessionId: "p", subagentId: "c", runtimeIdentity: "r", endpoint: "/x", token: "t" },
+				{ diagnose: () => {} },
+			);
+			expect(toolCallHandler!({ toolName: "mcp__private_db__read" })).toMatchObject({
+				block: true,
+			});
+			expect(toolCallHandler!({ toolName: "mcp__allowed_server__read" })).toBeUndefined();
+
+			// Shared resource tools gating
+			expect(
+				toolCallHandler!({ toolName: "read_mcp_resource", input: { server: "private-db" } }),
+			).toMatchObject({ block: true });
+			expect(
+				toolCallHandler!({ toolName: "read_mcp_resource", input: { server: "allowed-server" } }),
+			).toBeUndefined();
+			expect(toolCallHandler!({ toolName: "list_mcp_resources", input: {} })).toMatchObject({
+				block: true,
+			});
+		} finally {
+			process.env = prevEnv;
+		}
+	});
+});

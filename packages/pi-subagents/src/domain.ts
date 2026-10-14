@@ -128,6 +128,12 @@ export interface Selection {
 export type ExtensionSelection = Selection;
 export type SkillSelection = Selection;
 
+export interface McpSelection {
+	readonly enabled: boolean;
+	readonly servers?: readonly string[];
+	readonly excluded?: readonly string[];
+}
+
 export interface EffectiveLaunchConfig {
 	/** Logical child id; the same value the child bridge reports back. */
 	readonly subagentId: string;
@@ -145,6 +151,7 @@ export interface EffectiveLaunchConfig {
 	readonly excludeTools: readonly string[];
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
+	readonly mcp: McpSelection;
 	readonly prompt: string;
 	readonly bridgeExtensionPath: string;
 	/** Whether the subagent operates in codemode-only mode. */
@@ -164,6 +171,7 @@ export interface ResolvedAgentPolicy {
 	readonly excludeTools: readonly string[];
 	readonly extensions: ExtensionSelection;
 	readonly skills: SkillSelection;
+	readonly mcp: McpSelection;
 	readonly codemodeOnly?: boolean;
 	readonly enabled?: boolean;
 }
@@ -267,6 +275,7 @@ export function isOperationError(value: unknown): value is OperationError {
 
 /** Child bridge tool name; agent tool policy must never remove it. */
 export const CONTACT_PARENT_TOOL_NAME = "contact_parent" as const;
+export const DEFAULT_PI_TOOLS = ["read", "bash", "edit", "write"] as const;
 
 /** Environment contract between a parent launch and the child branch of this extension. */
 export const BRIDGE_ENVIRONMENT_KEYS = {
