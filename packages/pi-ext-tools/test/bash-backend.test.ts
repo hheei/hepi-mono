@@ -1,6 +1,3 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionToolContext,
@@ -10,10 +7,8 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
-import { DEFAULT_BASH_SETTINGS } from "../src/bash-settings.js";
 import { registerBgBashTools as registerTaskTools } from "../src/bg-bash-tools.js";
-import { createFffRuntimeState, type FffRuntimeState } from "../src/session-state.js";
-import { TargetRuntime } from "../src/targets.js";
+import { createToolsRuntimeState } from "../src/session-state.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { roleTheme } from "./fixtures/theme.js";
 
@@ -123,7 +118,7 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 	const bash = bashTool();
 	const result = await bash.execute(
 		"bash-null-optional-fields",
-		{ command: "printf normalized", timeout: null, target: null },
+		{ command: "printf normalized", timeout: null },
 		undefined,
 		undefined,
 		{
@@ -193,13 +188,13 @@ test("bash names the expired budget when a command times out", async (): Promise
 	expect(result.isError).toBe(true);
 });
 
-test("bash exposes only background use guidance", (): void => {
+test("bash exposes description and snippet", (): void => {
 	const bash = bashTool();
 	expect(bash.description).toBe("Run one shell command or short pipeline in the foreground.");
 	expect(bash.promptSnippet).toBe("Run one shell command or short pipeline in the foreground.");
-	expect(bash.promptGuidelines).toEqual([
+	expect(bash.promptGuidelines).not.toContain(
 		"Remote `target` is an authorized SSH host and always runs in the foreground.",
-	]);
+	);
 });
 
 test("task-control tools keep usage guidance in descriptions without changing system rules", (): void => {
@@ -210,7 +205,7 @@ test("task-control tools keep usage guidance in descriptions without changing sy
 				tools.push(tool);
 			},
 		} as unknown as ExtensionAPI,
-		createFffRuntimeState(),
+		createToolsRuntimeState(),
 	);
 	expect(toolFor(tools, "bg_bash_get").promptGuidelines).toBeUndefined();
 	expect(toolFor(tools, "bg_bash_stop").promptGuidelines).toBeUndefined();
@@ -366,103 +361,4 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 		.filter((line) => !line.includes("─"));
 	if (tail === undefined) throw new Error("Expected tailed bash body");
 	expect(tail[0]).toContain("… (77 earlier lines, ctrl+o to expand)");
-});
-
-test("bash rejects missing runtime on SSH targets", async (): Promise<void> => {
-	const bash = bashTool();
-	const context = { cwd: process.cwd() } as unknown as ExtensionToolContext;
-	await expect(
-		bash.execute(
-			"bash-remote-missing-runtime",
-			{ command: "true", target: "dcu-cluster" },
-			undefined,
-			undefined,
-			context,
-		),
-	).rejects.toThrow("Target runtime is unavailable.");
-});
-
-test("bash executes authorized SSH targets from remote home", async (): Promise<void> => {
-	const directory = await mkdtemp(join(tmpdir(), "hepi-bash-remote-"));
-	const bin = join(directory, "bin");
-	await mkdir(bin);
-	await writeFile(
-		join(bin, "ssh"),
-		[
-			"#!/bin/sh",
-			'last=""',
-			'for arg in "$@"; do last=$arg; done',
-			'if [ "$last" = "uname -s" ]; then echo Linux; exit 0; fi',
-			'eval "$last"',
-			"",
-		].join("\n"),
-		"utf8",
-	);
-	await chmod(join(bin, "ssh"), 0o755);
-	await writeFile(join(directory, "ssh-config"), "Host dcu-cluster\n  HostName example.test\n", "utf8");
-	const previousPath = process.env.PATH;
-	process.env.PATH = `${bin}:${previousPath ?? ""}`;
-	try {
-		const runtime = await TargetRuntime.create(
-			{
-				home: directory,
-				sshConfigPath: join(directory, "ssh-config"),
-			},
-			["dcu-cluster"],
-		);
-		try {
-			const tools: ToolDefinition[] = [];
-			const state: FffRuntimeState = {
-				getSettings: () => DEFAULT_BASH_SETTINGS,
-				getTasks: () => undefined,
-				getBashJobs: () => undefined,
-				getTargetRuntime: () => runtime,
-			};
-			registerBashTool(
-				{
-					registerTool(tool: ToolDefinition): void {
-						tools.push(tool);
-					},
-					on(): void {},
-				} as unknown as ExtensionAPI,
-				state,
-			);
-			const bash = toolFor(tools, "bash");
-			const result = await bash.execute(
-				"bash-remote-ok",
-				{ command: "printf remote-ok", target: "dcu-cluster" },
-				undefined,
-				undefined,
-				{
-					cwd: process.cwd(),
-					sessionManager: { getLeafId: () => null },
-				} as unknown as ExtensionToolContext,
-			);
-			expect(result.content).toEqual([{ type: "text", text: "remote-ok" }]);
-			expect(result.details).toMatchObject({
-				exitCode: 0,
-				target: "dcu-cluster",
-				outcome: "ok",
-			});
-			const denied = await bash.execute(
-				"bash-remote-denied",
-				{ command: "true", target: "nope" },
-				undefined,
-				undefined,
-				{
-					cwd: process.cwd(),
-					sessionManager: { getLeafId: () => null },
-				} as unknown as ExtensionToolContext,
-			);
-			expect(denied.content[0]).toMatchObject({
-				type: "text",
-				text: "Unknown or unauthorized SSH target: nope",
-			});
-		} finally {
-			await runtime.close();
-		}
-	} finally {
-		process.env.PATH = previousPath;
-		await rm(directory, { recursive: true, force: true });
-	}
 });

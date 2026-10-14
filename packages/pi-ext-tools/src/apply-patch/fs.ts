@@ -7,15 +7,11 @@ import {
 	readFile,
 	realpath,
 	rename,
-	rm,
 	stat,
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, win32 } from "node:path";
-import { shellQuote } from "@hheei/pi-ext-core";
-import { TargetError, type TargetRuntime } from "../targets.js";
+import { dirname, isAbsolute, win32 } from "node:path";
 import { resolvePatchPath } from "./paths.js";
 
 export const APPLY_PATCH_MAX_FILE_SIZE = 32 * 1024 * 1024;
@@ -223,164 +219,6 @@ export function createLocalPatchFs(workspaceRoot: string): PatchFs {
 				if (isMissing(error)) return [];
 				throw error;
 			}
-		},
-	};
-}
-
-function parseRemoteMeta(stdout: string): EntryMeta {
-	const line = stdout.trim().split(/\r?\n/u)[0] ?? "missing 0";
-	const [kind, sizeText, modeText] = line.split(" ");
-	const size = Number.parseInt(sizeText ?? "0", 10);
-	const mode = modeText === undefined ? undefined : Number.parseInt(modeText, 8);
-	if (
-		kind !== "missing" &&
-		kind !== "file" &&
-		kind !== "symlink" &&
-		kind !== "directory" &&
-		kind !== "other"
-	)
-		return { kind: "other", size: Number.isFinite(size) ? size : 0 };
-	return {
-		kind,
-		size: Number.isFinite(size) ? size : 0,
-		...(mode === undefined || !Number.isFinite(mode) ? {} : { mode }),
-	};
-}
-
-const META_SCRIPT = (path: string, follow: boolean): string => {
-	const quoted = shellQuote(path);
-	return follow
-		? `p=${quoted}; if [ ! -e "$p" ]; then echo missing 0; elif [ -f "$p" ]; then echo file $(wc -c < "$p") $(stat -c %a "$p" 2>/dev/null || stat -f %OLp "$p"); elif [ -d "$p" ]; then echo directory 0; else echo other 0; fi`
-		: `p=${quoted}; if [ -L "$p" ]; then echo symlink 0 0; elif [ -f "$p" ]; then echo file $(wc -c < "$p") $(stat -c %a "$p" 2>/dev/null || stat -f %OLp "$p"); elif [ -d "$p" ]; then echo directory 0; elif [ -e "$p" ]; then echo other 0; else echo missing 0; fi`;
-};
-
-function posixRenameUnavailable(result: {
-	readonly code: number;
-	readonly timedOut: boolean;
-	readonly stderr: string;
-}): boolean {
-	return (
-		result.code !== 0 &&
-		!result.timedOut &&
-		/unsupported|unknown command|invalid option|posix-rename|remote rename .*?: Failure/iu.test(
-			result.stderr,
-		)
-	);
-}
-
-function sftpFail(
-	phase: PublishPhase,
-	result: { readonly code: number; readonly timedOut: boolean; readonly stderr: string },
-	fallback: string,
-): void {
-	if (result.timedOut) throw new FsTransportError(phase, true, `${fallback}: timed out`);
-	if (result.code !== 0) {
-		const stderr = result.stderr.trim();
-		if (/connection (closed|reset|timed out)|broken pipe|connection lost/iu.test(stderr))
-			throw new FsTransportError(phase, false, stderr || fallback);
-		throw new Error(stderr || fallback);
-	}
-}
-
-export function createSftpPatchFs(runtime: TargetRuntime, alias: string): PatchFs {
-	const capture = async (
-		command: string,
-		signal: AbortSignal | undefined,
-		timeoutMs?: number,
-	): Promise<string> => {
-		const result = await runtime.sshCapture(alias, command, {
-			...(signal === undefined ? {} : { signal }),
-			...(timeoutMs === undefined ? {} : { timeoutMs }),
-		});
-		if (result.timedOut) throw new FsTransportError("write", true, "remote command timed out");
-		if (result.code !== 0)
-			throw new Error(result.stderr.trim() || `remote command failed: ${command}`);
-		return result.stdout;
-	};
-	return {
-		scope: `ssh:${alias}`,
-		async lstat(path, signal) {
-			return parseRemoteMeta(
-				await capture(META_SCRIPT(path, false), signal, SFTP_SMALL_TIMEOUT_MS),
-			);
-		},
-		async statFollow(path, signal) {
-			return parseRemoteMeta(await capture(META_SCRIPT(path, true), signal, SFTP_SMALL_TIMEOUT_MS));
-		},
-		async followLeaf(path, signal) {
-			const quoted = shellQuote(path);
-			const resolved = (
-				await capture(
-					`if [ -L ${quoted} ]; then realpath ${quoted}; else printf '%s' ${quoted}; fi`,
-					signal,
-					SFTP_SMALL_TIMEOUT_MS,
-				)
-			).trim();
-			return resolved === "" ? path : resolved;
-		},
-		async readFollow(path, signal, timeoutMs) {
-			try {
-				return await runtime.read(alias, path, signal, timeoutMs ?? SFTP_SMALL_TIMEOUT_MS);
-			} catch (error) {
-				if (error instanceof TargetError && error.outcome === "timeout")
-					throw new FsTransportError("write", true, error.message);
-				if (error instanceof TargetError && error.outcome === "cancelled")
-					throw new FsTransportError("write", false, error.message);
-				throw error;
-			}
-		},
-		async mkdirp(path, signal) {
-			await capture(`mkdir -p ${shellQuote(path)}`, signal, SFTP_SMALL_TIMEOUT_MS);
-		},
-		async writeAtomic(path, data, mode, signal) {
-			const local = join(tmpdir(), `hepi-apply-patch-put-${randomUUID()}`);
-			try {
-				await writeFile(local, data, mode === undefined ? undefined : { mode });
-				const result = await runtime.sftpPut(alias, local, path, {
-					...(signal === undefined ? {} : { signal }),
-					timeoutMs: sftpTimeoutMs(data.length),
-				});
-				sftpFail("write", result, "SFTP put failed");
-			} finally {
-				await rm(local, { force: true }).catch(() => undefined);
-			}
-		},
-		async renameNew(from, to, signal) {
-			const result = await runtime.sftpRename(alias, from, to, false, {
-				...(signal === undefined ? {} : { signal }),
-				timeoutMs: SFTP_SMALL_TIMEOUT_MS,
-			});
-			sftpFail("replace", result, "SFTP rename failed");
-		},
-		async replace(from, to, signal) {
-			const options = {
-				...(signal === undefined ? {} : { signal }),
-				timeoutMs: SFTP_SMALL_TIMEOUT_MS,
-			};
-			let result = await runtime.sftpRename(alias, from, to, true, options);
-			if (posixRenameUnavailable(result))
-				result = await runtime.sftpRename(alias, from, to, false, options);
-			if (posixRenameUnavailable(result)) throw new Error("atomic_replace_unsupported");
-			sftpFail("replace", result, "SFTP replace failed");
-		},
-		async unlink(path, signal) {
-			const result = await runtime.sftpRm(alias, path, {
-				...(signal === undefined ? {} : { signal }),
-				timeoutMs: SFTP_SMALL_TIMEOUT_MS,
-			});
-			sftpFail("remove", result, "SFTP rm failed");
-		},
-		async list(path, signal) {
-			const result = await runtime.sshCapture(
-				alias,
-				`ls -A ${path === "" || path === "." ? "." : shellQuote(path)} 2>/dev/null || true`,
-				{
-					...(signal === undefined ? {} : { signal }),
-					timeoutMs: SFTP_SMALL_TIMEOUT_MS,
-				},
-			);
-			if (result.timedOut) throw new FsTransportError("write", true, "remote ls timed out");
-			return result.stdout.split(/\r?\n/u).filter(Boolean);
 		},
 	};
 }

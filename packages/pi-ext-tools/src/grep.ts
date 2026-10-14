@@ -122,7 +122,7 @@ export type GrepIncomplete = {
 
 export type GrepToolDetails = {
 	readonly format: "canonical-grep";
-	readonly engine: "fff" | "rg";
+	readonly engine: "rg";
 	readonly events: readonly GrepEvent[];
 	readonly display: readonly GrepDisplayLine[];
 	readonly totalMatched: number;
@@ -136,7 +136,6 @@ export type GrepToolDetails = {
 		readonly truncated: boolean;
 	};
 	readonly recovery: { readonly message: string };
-	readonly fff?: { readonly itemCount: number };
 	readonly timedOut?: boolean;
 	readonly path?: string;
 	readonly persistent?: boolean;

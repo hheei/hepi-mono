@@ -48,7 +48,6 @@ export function startEvalRuntime(state: EvalRuntimeState, runtime: EvalExecutor)
 export function registerEvalLifecycle(
 	pi: ExtensionAPI,
 	state: EvalRuntimeState,
-	enabled: boolean,
 	pythonBin?: string,
 ): void {
 	registerExtensionLifecycle(pi, {
@@ -58,7 +57,7 @@ export function registerEvalLifecycle(
 				"eval-settings",
 				registerSettings(createEvalSettingsProvider(), getRuntimeSettingsRegistry(pi)),
 			);
-			if (!enabled) return;
+			if (!pi.getActiveTools().includes("python_eval")) return;
 			context.resources.add(
 				"eval-runtime",
 				startEvalRuntime(

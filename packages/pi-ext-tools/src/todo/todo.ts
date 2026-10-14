@@ -533,7 +533,7 @@ export function createTodoFeature(pi: ExtensionAPI, options: TodoFeatureOptions 
 			const current = active;
 			if (!current || current.sessionId !== ctx.sessionManager.getSessionId()) {
 				ctx.ui.notify(
-					"Todo tool is disabled in settings. Enable it in /settings to use.",
+					"Todo tool is not active. Add +todo to defaultTools in settings.json to enable.",
 					"warning",
 				);
 				return;

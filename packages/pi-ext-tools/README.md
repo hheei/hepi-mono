@@ -60,21 +60,16 @@ Each Update runs in one short-lived worker thread for all of that file's hunks.
 The worker is memory-only: no staging directory, no native process, no retry pool.
 Cancellation `terminate()`s that worker. Files stay capped at 32 MiB.
 
-SSH Targets still read bytes locally through `createSftpPatchFs()`, compute on
-this host, and Publish through the existing transport. The remote host does not
-need Node or jsdiff.
-
 Old `minSimilarity`, `maxConcurrentWorkers`, and `maxQueueDepth` keys are
 unsupported and must be removed; they are not mapped to `fuzzFactor`.
 
 ## bash
 
 `bash` runs one shell command or short pipeline in the foreground with an invocation timeout
-(default 180s, or 25s for pure search commands). Remote `target` is an authorized SSH host;
-working directory on SSH is the remote home. `blocking`, `async`, and `output` are unsupported.
+(default 180s, or 25s for pure search commands). `blocking`, `async`, and `output` are unsupported.
 
 A multi-line command stays in the persisted tool call and model-visible arguments. The renderer
-shows command input separately from output, with timeout and SSH target facts in its header.
+shows command input separately from output, with timeout facts in its header.
 
 A provider forwards only a tool result's text parts, so a failed call states its reason and elapsed
 time there: a cancellation keeps the partial output and appends `Bash aborted after <duration>`, and
@@ -88,7 +83,7 @@ where `path` is the absolute log file path, on success, or the reason on failure
 It does not accept a caller ID.
 `bg_bash_get({ id, keys? })` queries `status`, `progress`, or `diagnostic` using a comma-separated
 keys string; default is `status,progress`. Unknown keys fail. Progress is bounded runtime context;
-completed output returns through automatic `<task-notice>` delivery. Progress and automatic notices
+completed output returns through automatic `bg-bash-report` delivery. Progress and automatic notices
 provide the same path (`progress.path` in get); read/grep that file for full output.
 `bg_bash_stop({ id })` stops that Bash process tree and returns one confirmation sentence or a failure
 reason. These tools reject agent IDs.

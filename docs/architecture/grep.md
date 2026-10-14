@@ -7,28 +7,20 @@
 `grep` 对模型和 TUI 提供一份以 ripgrep match data 为基准的 Grep Result。统一采用 ripgrep (`rg --json`) 作为单一搜索引擎，消除双引擎分流、fallback 与状态分歧。
 
 ```text
-Pi grep call
-    |
-    +-- local filesystem  -> local rg --json
-    |
-    +-- SSH target alias  -> remote rg --json
-    |
-    v
-canonical Grep Result -> compact formatter -> content + details -> renderer
+Pi grep call -> local rg --json -> canonical Grep Result -> compact formatter -> content + details -> renderer
 ```
 
 Search Engine 统一为 `rg`，记录为内部 `details.engine` provenance，不显示在 TUI 或模型 `content`。
 
 ## Engine 执行
 
-- 非 local 的 authorized SSH target 使用 remote rg（经由 SSH/SFTP 控制通道）。
-- local filesystem 搜索直接执行本地 `rg --json`。
+- 搜索直接执行本地 `rg --json`。
 - `grep` 严格保证单引擎原子性；不存在模糊回退或跨引擎切换。
 - `grep` schema、模型 content 与 details 都不公开 cursor，也不维护外部 cursor store。
 
 ## Public input schema
 
-`grep` 的公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit` 与 `target`；`target` 选择 local 或 authorized SSH host。
+`grep` 的公开参数为 `pattern`、`path`、`glob`、`ignoreCase`、`literal`、`context` 与 `limit`。
 
 ## Canonical Grep Result
 

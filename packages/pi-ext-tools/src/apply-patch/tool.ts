@@ -6,20 +6,18 @@ import type {
 import { defaultExtensionSettingsPaths, errorMessage, textToolResult } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import type { ToolsRuntimeState } from "../session-state.js";
-import { LOCAL_TARGET } from "../targets.js";
 import {
 	type ApplyPatchInWorkspaceResult,
 	type ApplyPatchProgress,
 	type ApplyPatchRejection,
 	applyPatchInWorkspace,
-	createSftpPatchFs,
 	loadApplyPatchPolicy,
 } from "./index.js";
 import { isPatchPathOutsideWorkspace } from "./paths.js";
 
 const MAX_CANDIDATES = 6;
 const APPLY_PATCH_DESCRIPTION =
-	"Apply one Codex V4A patch to the local workspace or an authorized SSH host. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
+	"Apply one Codex V4A patch to the workspace. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
 const APPLY_PATCH_PARAMETER_DESCRIPTION =
 	"One V4A envelope. First line `*** Begin Patch`, last line `*** End Patch`. Multiple files are multiple Add/Update/Delete sections in this same string, not extra apply_patch calls. Extra Begin/End markers are ignored. Paths may be absolute or workspace-relative.";
 const APPLY_PATCH_PROMPT_SNIPPET =
@@ -28,7 +26,7 @@ const APPLY_PATCH_PROMPT_GUIDELINES = [
 	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
 	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
 	"apply_patch: use `@@ text` to locate subsequent hunks and `*** End of File` to match the file end. Pure moves use Update File plus Move to without a content hunk. Ambiguous matches are rejected.",
-	"apply_patch: target is local or an authorized SSH alias. Confirmed path changes are never rolled back.",
+	"apply_patch: confirmed path changes are never rolled back.",
 ];
 const RECOVERY_READ_TARGETS =
 	"Recovery: read every Unconfirmed path before attempting another mutation.";
@@ -44,11 +42,6 @@ const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
-		target: Type.Optional(
-			Type.String({
-				description: "local or an authorized SSH alias. Omit for local.",
-			}),
-		),
 	},
 	{ additionalProperties: false },
 );
@@ -59,7 +52,6 @@ export type ApplyPatchStatus = "success" | "partial" | "failed";
 export interface ApplyPatchToolDetails extends ApplyPatchInWorkspaceResult {
 	readonly status: ApplyPatchStatus;
 	readonly progress?: ApplyPatchProgress;
-	readonly target?: string;
 }
 
 export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchToolDetails {
@@ -77,13 +69,10 @@ export function isApplyPatchToolDetails(value: unknown): value is ApplyPatchTool
 export function parseApplyPatchParameters(params: unknown): ApplyPatchParameters {
 	if (typeof params !== "object" || params === null || Array.isArray(params))
 		throw new Error("apply_patch requires exactly one string parameter: patch");
-	const keys = Object.keys(params).filter((key) => key !== "target");
+	const keys = Object.keys(params);
 	if (keys.length !== 1 || !("patch" in params) || typeof params.patch !== "string")
 		throw new Error("apply_patch requires exactly one string parameter: patch");
-	return {
-		patch: params.patch,
-		...("target" in params && typeof params.target === "string" ? { target: params.target } : {}),
-	};
+	return { patch: params.patch };
 }
 
 function statusFor(result: ApplyPatchInWorkspaceResult): ApplyPatchStatus {
@@ -225,7 +214,7 @@ function externalPathWarning(workspaceRoot: string, result: ApplyPatchInWorkspac
 		: `\nWarning: changed path outside the workspace: ${paths.join(", ")}`;
 }
 
-function progressDetails(progress: ApplyPatchProgress, target?: string): ApplyPatchToolDetails {
+function progressDetails(progress: ApplyPatchProgress): ApplyPatchToolDetails {
 	return {
 		changedPaths: [],
 		addedLines: progress.addedLines,
@@ -240,12 +229,11 @@ function progressDetails(progress: ApplyPatchProgress, target?: string): ApplyPa
 		notApplied: [],
 		status: "success",
 		progress,
-		...(target === undefined ? {} : { target }),
 	};
 }
 
 export function createApplyPatchTool(
-	state?: ToolsRuntimeState,
+	_state?: ToolsRuntimeState,
 ): ToolDefinition<typeof APPLY_PATCH_PARAMETERS, ApplyPatchToolDetails, unknown> {
 	return {
 		name: "apply_patch",
@@ -256,23 +244,12 @@ export function createApplyPatchTool(
 		promptGuidelines: APPLY_PATCH_PROMPT_GUIDELINES,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const { patch, target } = parseApplyPatchParameters(params);
+			const { patch } = parseApplyPatchParameters(params);
 			try {
 				const policy = await loadApplyPatchPolicy({
 					paths: defaultExtensionSettingsPaths(ctx.cwd),
 					...(signal === undefined ? {} : { signal }),
 				});
-				const remote = target !== undefined && target !== LOCAL_TARGET;
-				const runtime = remote ? state?.getTargetRuntime() : undefined;
-				if (remote && runtime === undefined) throw new Error("Target runtime is unavailable.");
-				if (
-					remote &&
-					runtime !== undefined &&
-					target !== undefined &&
-					!runtime.isAllowedHost(target)
-				)
-					throw new Error(`Unknown or unauthorized SSH target: ${target}`);
-				const host = remote ? target : undefined;
 				const result = await applyPatchInWorkspace({
 					workspaceRoot: ctx.cwd,
 					patch,
@@ -281,20 +258,16 @@ export function createApplyPatchTool(
 					onProgress: (progress) =>
 						onUpdate?.({
 							content: [],
-							details: progressDetails(progress, host),
+							details: progressDetails(progress),
 						}),
-					...(remote && runtime !== undefined && target !== undefined
-						? { fs: createSftpPatchFs(runtime, target), lockKey: `ssh:${target}` }
-						: {}),
 				});
-				const warning = remote ? "" : externalPathWarning(ctx.cwd, result);
+				const warning = externalPathWarning(ctx.cwd, result);
 				const status = statusFor(result);
 				const isError = status !== "success";
 				return {
 					...textToolResult(`${formatApplyPatchResult(result)}${warning}`, {
 						...result,
 						status,
-						...(host === undefined ? {} : { target: host }),
 					}),
 					...(isError ? { isError: true } : {}),
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;

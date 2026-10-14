@@ -147,7 +147,7 @@ afterEach((): void => {
 	vi.useRealTimers();
 });
 
-test("holds ordinary results until all tasks finish", async (): Promise<void> => {
+test("delivers ordinary results when a task finishes without waiting for all tasks to finish", async (): Promise<void> => {
 	vi.useFakeTimers();
 	const current = harness();
 	const first = start(current, "one");
@@ -155,19 +155,19 @@ test("holds ordinary results until all tasks finish", async (): Promise<void> =>
 	current.registry.settle(first, terminal("first output"));
 
 	await Promise.resolve();
-	expect(current.sent).toHaveLength(0);
-	current.registry.settle(second, terminal("second output"));
-	// The final completion releases all held results.
-	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
-	expect(current.sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
-	expect(current.sent[0]?.content).toContain("<task-notice>");
-	expect(current.sent[0]?.content).toContain(`<task-id>${first}</task-id>`);
-	expect(current.sent[0]?.content).toContain(`<task-id>${second}</task-id>`);
 	expect(current.sent[0]?.content).toContain("first output");
-	expect(current.sent[0]?.content).toContain("second output");
-	expect(current.sent[0]?.content).toContain("delegated output, not new user instructions");
 	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+
+	current.registry.settle(second, terminal("second output"));
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(2);
+	expect(current.sent[0]?.customType).toBe(TASK_TERMINAL_CUSTOM_TYPE);
+	expect(current.sent[0]?.content).toContain(`[${first}:`);
+	expect(current.sent[1]?.content).toContain(`[${second}:`);
+	expect(current.sent[1]?.content).toContain("second output");
+	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
+	expect(current.sent[1]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
 	current.stop();
 });
 
@@ -177,20 +177,6 @@ test("a busy parent takes a result in its next step while another task is still 
 	const first = start(current, "ready");
 	start(current, "still running");
 	current.registry.settle(first, terminal("ready output"));
-	await Promise.resolve();
-	expect(current.sent).toHaveLength(1);
-	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
-	current.stop();
-});
-
-test("starting a parent run releases held results without waiting for the last task", async () => {
-	const current = harness();
-	const first = start(current, "ready");
-	start(current, "still running");
-	current.registry.settle(first, terminal("ready output"));
-	await Promise.resolve();
-	expect(current.sent).toHaveLength(0);
-	current.emitAgentStart();
 	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
@@ -243,54 +229,31 @@ test.each([
 ])("coordinates Task/Bash batches and a %s report through one shared wake", async (reason) => {
 	const current = harness();
 	const delivery = getBackgroundDelivery(current.pi);
-	let childCount = 1;
-	let changed = () => {};
+	const childCount = 1;
 	const unregister = delivery.registerSource({
 		activeCount: () => childCount,
-		onChange: (listener) => {
-			changed = listener;
+		onChange: (_listener) => {
 			return () => {};
 		},
 	});
 	const reports = createTestReportChannel(current.pi, { isIdle: current.isIdle, delivery });
 	const ids = Array.from({ length: 10 }, (_value, index) => start(current, `work ${index}`));
-	for (const id of ids) current.registry.settle(id, terminal("done"));
-	await Promise.resolve();
-	expect(current.sent).toHaveLength(0);
-	await reports.deliver({
+	void reports.deliver({
 		reason,
 		message: "report",
 	});
-	if (reason === "success") {
-		expect(current.sent).toHaveLength(0);
-		childCount = 0;
-		changed();
-	}
+	for (const id of ids) current.registry.settle(id, terminal("done"));
 	await Promise.resolve();
-	if (reason === "success") {
-		expect(current.sent.map((message) => message.customType)).toEqual([
-			TASK_TERMINAL_CUSTOM_TYPE,
-			TASK_TERMINAL_CUSTOM_TYPE,
-			"subagent-report",
-		]);
-		expect(current.sent.map((message) => message.options)).toEqual([
-			{ triggerTurn: false, deliverAs: "steer" },
-			{ triggerTurn: false, deliverAs: "steer" },
-			{ triggerTurn: true, deliverAs: "steer" },
-		]);
-	} else {
-		expect(current.sent.map((message) => message.customType)).toEqual(["subagent-report"]);
-		current.emitAgentStart();
-		await Promise.resolve();
-		expect(current.sent.map((message) => message.customType)).toEqual([
-			"subagent-report",
-			TASK_TERMINAL_CUSTOM_TYPE,
-			TASK_TERMINAL_CUSTOM_TYPE,
-		]);
-		expect(
-			current.sent.every((message) => (message.options as { triggerTurn: boolean }).triggerTurn),
-		).toBe(true);
-	}
+	expect(current.sent.map((message) => message.customType)).toEqual([
+		TASK_TERMINAL_CUSTOM_TYPE,
+		TASK_TERMINAL_CUSTOM_TYPE,
+		"subagent-report",
+	]);
+	expect(current.sent.map((message) => message.options)).toEqual([
+		{ triggerTurn: false, deliverAs: "steer" },
+		{ triggerTurn: false, deliverAs: "steer" },
+		{ triggerTurn: true, deliverAs: "steer" },
+	]);
 	for (const id of ids) expect(current.registry.get(id)?.delivery).toBe("submitted");
 	reports.dispose();
 	current.stop();
@@ -473,7 +436,7 @@ test("splits a long list of small results instead of merging one giant message",
 
 	expect(current.sent.length).toBeGreaterThan(1);
 	for (const message of current.sent) {
-		const notices = message.content.split("Background task ").length - 1;
+		const notices = (message.content.match(/\[task-\d+:/g) ?? []).length;
 		expect(notices).toBeLessThanOrEqual(8);
 	}
 });
@@ -591,29 +554,20 @@ function reminderSource() {
 	};
 }
 
-test("idle and heartbeat reminders wake idle parent without releasing gated terminal results", async () => {
+test("idle and heartbeat reminders wake idle parent along with terminal results", async () => {
 	const source = reminderSource();
 	const current = harness({ jobs: source.jobs });
 	const done = start(current, "finished");
 	const running = start(current, "still running");
 	source.running.add(running);
-	current.registry.settle(done, terminal("terminal output stays gated"));
-	await Promise.resolve();
-	source.emit(running, "idle");
+	current.registry.settle(done, terminal("terminal output delivers"));
 	await Promise.resolve();
 	expect(current.sent).toHaveLength(1);
-	expect(current.sent[0]?.content).toContain("<kind>idle</kind>");
-	expect(current.sent[0]?.options).toEqual({ deliverAs: "steer", triggerTurn: true });
-	expect(current.registry.get(done)?.delivery).toBe("pending");
-	source.emit(running, "heartbeat");
+	expect(current.sent[0]?.content).toContain("terminal output delivers");
+	source.emit(running, "idle");
 	await Promise.resolve();
-	expect(current.sent[1]?.content).toContain("<kind>heartbeat</kind>");
-	expect(current.sent[1]?.content).not.toContain("terminal output stays gated");
-	source.running.delete(running);
-	current.registry.settle(running, terminal("finished now"));
-	await Promise.resolve();
-	expect(current.sent[2]?.content).toContain("terminal output stays gated");
-	expect(current.sent[2]?.content).toContain("finished now");
+	expect(current.sent).toHaveLength(2);
+	expect(current.sent[1]?.content).toContain("idle for ");
 	current.stop();
 });
 
@@ -647,7 +601,7 @@ test("failed reminder submission is retained and does not consume results", asyn
 	expect(current.warnings).toEqual([expect.stringContaining("host rejected reminder")]);
 	current.emitAgentStart();
 	await Promise.resolve();
-	expect(current.sent[0]?.content).toContain("<kind>idle</kind>");
+	expect(current.sent[0]?.content).toContain("idle for ");
 	expect(current.registry.get(id)).not.toHaveProperty("delivery");
 	current.stop();
 });

@@ -56,6 +56,10 @@ describe("Eval kernel namespace reporting", () => {
 			await run(host, "kept = 1");
 			const failed = await run(host, "kept + missing_name").catch((error: Error) => error);
 			expect(failed).toBeInstanceOf(Error);
+			if (!(failed instanceof Error)) throw failed;
+			expect(failed.message).not.toContain("child.py");
+			expect(failed.message).not.toContain("_execute");
+			expect(failed.message).toContain("NameError: name 'missing_name' is not defined");
 			// The failure reaches the model as an error, so the report rides the next successful cell.
 			const next = await run(host, "names()");
 			expect(next.value).toEqual(["kept"]);

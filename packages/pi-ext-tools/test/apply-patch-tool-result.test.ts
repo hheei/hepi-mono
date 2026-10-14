@@ -55,21 +55,6 @@ describe("apply_patch tool_result contract", () => {
 		expect(handler({ toolName: "read", details: { status: "partial" } })).toBeUndefined();
 	});
 
-	test("marks native SSH mutation recovery outcomes as Pi errors", () => {
-		const handler = toolResultHandler();
-		const details = (outcome: "changed" | "no_change" | "unconfirmed" | "not_applied") => ({
-			__piExtToolsRemoteMutation: { target: "dcu-cluster", path: "/tmp/file.txt", outcome },
-		});
-		expect(handler({ toolName: "edit", details: details("changed") })).toBeUndefined();
-		expect(handler({ toolName: "write", details: details("no_change") })).toBeUndefined();
-		expect(handler({ toolName: "edit", details: details("unconfirmed") })).toEqual({
-			isError: true,
-		});
-		expect(handler({ toolName: "write", details: details("not_applied") })).toEqual({
-			isError: true,
-		});
-	});
-
 	test("forwards parse progress to the tool update callback", async () => {
 		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
 		const updates: { readonly details: { readonly operations: readonly unknown[] } }[] = [];
@@ -219,37 +204,5 @@ describe("apply_patch tool_result contract", () => {
 				rm(outside, { recursive: true, force: true }),
 			]);
 		}
-	});
-
-	test("rejects SSH apply_patch when the target runtime is missing", async () => {
-		await expect(
-			createApplyPatchTool().execute(
-				"call-id",
-				{
-					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
-					target: "devbox",
-				},
-				undefined,
-				undefined,
-				{ cwd: process.cwd() } as never,
-			),
-		).rejects.toThrow("Target runtime is unavailable");
-	});
-
-	test("rejects unauthorized SSH aliases before mutation", async () => {
-		await expect(
-			createApplyPatchTool({
-				getTargetRuntime: () => ({ isAllowedHost: () => false }) as never,
-			} as never).execute(
-				"call-id",
-				{
-					patch: "*** Begin Patch\n*** Add File: first.txt\n+one\n*** End Patch",
-					target: "devbox",
-				},
-				undefined,
-				undefined,
-				{ cwd: process.cwd() } as never,
-			),
-		).rejects.toThrow("Unknown or unauthorized SSH target: devbox");
 	});
 });

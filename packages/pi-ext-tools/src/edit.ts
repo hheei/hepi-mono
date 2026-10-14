@@ -13,18 +13,11 @@ import {
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
-	textToolResult,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
-import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import {
-	editRemoteFile,
-	REMOTE_MUTATION_DETAILS,
-	type RemoteMutationDetails,
-	remoteMutationDetails,
-	remoteMutationFailureText,
-} from "./native-remote.js";
+import { withMutationLock } from "./apply-patch/index.js";
+
 import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
@@ -64,11 +57,6 @@ const EDIT_PARAMETERS = Type.Object(
 				description:
 					"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
 			},
-		),
-		target: Type.Optional(
-			Type.String({
-				description: "local or an authorized SSH alias. Omit for local.",
-			}),
 		),
 	},
 	{ additionalProperties: false },
@@ -186,7 +174,6 @@ function withEditDetails(
 	result: AgentToolResult<unknown>,
 	metrics: EditMetrics | undefined,
 	view: EditView | undefined,
-	remote?: RemoteMutationDetails,
 ): AgentToolResult<unknown> {
 	const details = isRecord(result.details) ? result.details : {};
 	return {
@@ -195,7 +182,6 @@ function withEditDetails(
 			...details,
 			...(metrics === undefined ? {} : { [EDIT_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [EDIT_VIEW_KEY]: view }),
-			...(remote === undefined ? {} : { [REMOTE_MUTATION_DETAILS]: remote }),
 		},
 	};
 }
@@ -308,7 +294,7 @@ export function createEditPresentation(
 
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerEditTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
+export function registerEditTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): ToolDefinition {
 	const baseTool = createExecutionTool(createEditToolDefinition) as ToolDefinition<
 		EditDefinition["parameters"],
 		unknown,
@@ -325,34 +311,7 @@ export function registerEditTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 			createToolPresentationRenderers(pi, "edit", createEditPresentation);
 			const path = filePath(params);
 			const operations = getEditOperations(params);
-			if (params.target !== undefined && params.target !== "local") {
-				const remote = await editRemoteFile(state, params.target, path, operations, signal);
-				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
-					return withEditDetails(
-						{
-							...textToolResult(remoteMutationFailureText("Edit", remote), undefined),
-							isError: true,
-						},
-						undefined,
-						undefined,
-						remote,
-					);
-				const presentation =
-					remote.outcome === "no_change"
-						? undefined
-						: editPresentation(remote.before, path, operations);
-				return withEditDetails(
-					textToolResult(
-						remote.outcome === "no_change"
-							? `No changes made to ${path}.`
-							: `Successfully replaced ${operations.length} block(s) in ${path}.`,
-						undefined,
-					),
-					presentation?.metrics,
-					presentation?.view,
-					remote,
-				);
-			}
+
 			return await withMutationLock(context.cwd, signal, async () => {
 				const resolved = resolvePath(context.cwd, path);
 				const before = path === "" ? "" : readTextIfSmall(resolved);
@@ -372,25 +331,6 @@ export function registerEditTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 				: new Container();
 		},
 		renderResult(result, _options, theme, context) {
-			const remote = remoteMutationDetails(result.details);
-			if (context.isError && remote?.outcome === "unconfirmed")
-				return new Text(
-					theme.fg(
-						MUTATION_TONE.unconfirmed,
-						`${MUTATION_GLYPH.unconfirmed} ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
-					),
-					0,
-					0,
-				);
-			if (context.isError && remote?.outcome === "not_applied")
-				return new Text(
-					theme.fg(
-						MUTATION_TONE.not_applied,
-						`${MUTATION_GLYPH.not_applied} ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`,
-					),
-					0,
-					0,
-				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
 			const presentationRenderers = createToolPresentationRenderers(
 				pi,
