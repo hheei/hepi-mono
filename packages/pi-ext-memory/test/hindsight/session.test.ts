@@ -40,6 +40,7 @@ function beforeStart(
 	const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/hepi-mono" });
 	return {
 		type: "before_agent_start",
+		messageType: "user",
 		prompt,
 		systemPrompt,
 		systemPromptOptions,
@@ -265,6 +266,23 @@ describe("hindsight session prompt injection", () => {
 		const event = beforeStart("hello");
 		await session.beforeAgentStart(event);
 		expect(event.sections).toEqual({});
+	});
+
+	it("handles Pi 1.2.0 custom message events without prompt safely", async () => {
+		const { session } = sessionWith({
+			listPages: vi.fn(async () => ({ pages: [], pagesAvailable: true })),
+		});
+		const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/hepi-mono" });
+		const customEvent = {
+			type: "before_agent_start",
+			messageType: "custom",
+			message: { role: "custom", customType: "subagent-report", content: "test" },
+			systemPrompt: "BASE PROMPT",
+			systemPromptOptions,
+		} as unknown as BeforeAgentStartEvent;
+		await session.beforeAgentStart(customEvent);
+		expect(systemPromptOptions.sections[RECALL_SECTION]).toBeUndefined();
+		expect(systemPromptOptions.sections[PREAMBLE_SECTION]).toBeDefined();
 	});
 
 	it("escapes recalled text so it cannot close the memory container", async () => {

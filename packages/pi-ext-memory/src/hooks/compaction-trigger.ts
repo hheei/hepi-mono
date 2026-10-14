@@ -1,4 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	findCutPoint,
+	type SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { resolveCompactAfterTokens } from "../config.js";
@@ -6,6 +10,7 @@ import type { Runtime } from "../runtime.js";
 import {
 	countSourceEntriesAfterCompaction,
 	type Entry,
+	findLastCompactionIndex,
 	findPersistedSettledTime,
 	foldLedger,
 	latestGateEnabled,
@@ -182,11 +187,36 @@ export function resolveIdleCompactionMinTokens(
 	return 20_000;
 }
 
+/**
+ * Checks whether Pi's native compaction can actually produce a non-empty summary
+ * for the current branch entries and keepRecentTokens threshold.
+ * Returns false if the session is too small to compact or has no messages to summarize.
+ */
+export function canPiCompact(entries: Entry[], keepRecentTokens = 20_000): boolean {
+	if (entries.length === 0) return false;
+	const last = entries[entries.length - 1];
+	if (last?.type === "compaction") return false;
+
+	const prevCompactionIndex = findLastCompactionIndex(entries);
+	const boundaryStart = prevCompactionIndex >= 0 ? prevCompactionIndex + 1 : 0;
+	const boundaryEnd = entries.length;
+	if (boundaryEnd <= boundaryStart) return false;
+
+	const cutPoint = findCutPoint(
+		entries as unknown as SessionEntry[],
+		boundaryStart,
+		boundaryEnd,
+		keepRecentTokens,
+	);
+	const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
+	return historyEnd > boundaryStart || cutPoint.isSplitTurn;
+}
+
 export function hasIdleCompactionWork(entries: Entry[], minTokens = 20_000): boolean {
 	if (countSourceEntriesAfterCompaction(entries) === 0) return false;
-	if (rawTokensSinceLastCompaction(entries) <= minTokens) return false;
 	const folded = foldLedger(entries);
-	return folded.activeObservations.length > 0 || folded.activeReflections.length > 0;
+	if (folded.activeObservations.length === 0 && folded.activeReflections.length === 0) return false;
+	return canPiCompact(entries, minTokens);
 }
 
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
