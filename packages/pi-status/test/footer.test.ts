@@ -232,3 +232,145 @@ describe("CompactFooterComponent", () => {
 		footer.dispose();
 	});
 });
+
+/** No styling, so rows are measured in real terminal cells. */
+const plainTheme = { fg: (_color: string, text: string): string => text } as FooterTheme;
+
+/** Mounts the compact footer over a live extension status map so tests can mutate it between renders. */
+function mountFooter(extensionStatuses: Map<string, string>): CompactFooterComponent {
+	const footerData: ReadonlyFooterDataProvider = {
+		getGitBranch: () => "main",
+		getExtensionStatuses: () => extensionStatuses,
+		onBranchChange: vi.fn(() => () => {}),
+		getAvailableProviderCount: () => 1,
+	};
+
+	const ctx = {
+		model: { id: "gemini-3.8-flash", provider: "gm", contextWindow: 1_000_000 },
+		thinkingLevel: "high",
+		getContextUsage: () => ({ percent: 12.3, contextWindow: 1_000_000, tokens: 123_000 }),
+		sessionManager: {
+			getCwd: () => "/home/user/hepi-mono",
+			getSessionName: () => "Optimize footer",
+		},
+	} as ExtensionContext;
+
+	return new CompactFooterComponent(ctx, { requestRender: vi.fn() }, plainTheme, footerData);
+}
+
+const AGENT_SEGMENT = "🤖 󰪠#21 #22 #23";
+const TODO_SEGMENT = "󰪠 #1 Task title";
+const SEPARATOR = " ‧ ";
+
+describe("CompactFooterComponent line 2 right", () => {
+	test("joins running agents then TODO with a dim separator on wide terminals", () => {
+		const footer = mountFooter(
+			new Map([
+				["pi-subagents", AGENT_SEGMENT],
+				["pi-ext-tools:todo", TODO_SEGMENT],
+			]),
+		);
+
+		const line2 = footer.render(120)[1] ?? "";
+		expect(line2.endsWith(TODO_SEGMENT)).toBe(true);
+		expect(line2).toContain(AGENT_SEGMENT);
+		expect(line2.indexOf(AGENT_SEGMENT)).toBeLessThan(line2.indexOf(SEPARATOR));
+		expect(line2.indexOf(SEPARATOR)).toBeLessThan(line2.indexOf(TODO_SEGMENT));
+
+		footer.dispose();
+	});
+
+	test("drops the separator when only one segment is present", () => {
+		const agentsOnly = mountFooter(new Map([["pi-subagents", AGENT_SEGMENT]]));
+		const agentsLine = agentsOnly.render(120)[1] ?? "";
+		expect(agentsLine).toContain(AGENT_SEGMENT);
+		expect(agentsLine).not.toContain(SEPARATOR);
+		expect(agentsLine).not.toContain(TODO_SEGMENT);
+		agentsOnly.dispose();
+
+		const todoOnly = mountFooter(new Map([["pi-ext-tools:todo", TODO_SEGMENT]]));
+		const todoLine = todoOnly.render(120)[1] ?? "";
+		expect(todoLine).toContain(TODO_SEGMENT);
+		expect(todoLine).not.toContain(SEPARATOR);
+		expect(todoLine).not.toContain(AGENT_SEGMENT);
+		todoOnly.dispose();
+	});
+
+	test("removes the agent segment once the last child stops", () => {
+		const statuses = new Map([
+			["pi-subagents", AGENT_SEGMENT],
+			["pi-ext-tools:todo", TODO_SEGMENT],
+		]);
+		const footer = mountFooter(statuses);
+
+		expect(footer.render(120)[1] ?? "").toContain(AGENT_SEGMENT);
+
+		statuses.delete("pi-subagents");
+		const afterStop = footer.render(120)[1] ?? "";
+		expect(afterStop).not.toContain(AGENT_SEGMENT);
+		expect(afterStop).not.toContain(SEPARATOR);
+		expect(afterStop).toContain(TODO_SEGMENT);
+
+		statuses.clear();
+		const afterClear = footer.render(120)[1] ?? "";
+		expect(afterClear).not.toContain(TODO_SEGMENT);
+		expect(afterClear).not.toContain(AGENT_SEGMENT);
+
+		footer.dispose();
+	});
+
+	test("falls back to an unrelated extension status, never to auto-title or the owned keys", () => {
+		const footer = mountFooter(
+			new Map([
+				["auto-title", "✻ generating title..."],
+				["pi-subagents", "   "],
+				["pi-ext-tools:todo", ""],
+				["pi-ext-addon:other", "󰄴 indexing"],
+			]),
+		);
+
+		const line2 = footer.render(120)[1] ?? "";
+		expect(line2).toContain("󰄴 indexing");
+		expect(line2).not.toContain("generating title...");
+
+		// A live agent or TODO segment wins over the fallback.
+		const owned = mountFooter(
+			new Map([
+				["pi-subagents", AGENT_SEGMENT],
+				["pi-ext-addon:other", "󰄴 indexing"],
+			]),
+		);
+		const ownedLine = owned.render(120)[1] ?? "";
+		expect(ownedLine).toContain(AGENT_SEGMENT);
+		expect(ownedLine).not.toContain("󰄴 indexing");
+
+		footer.dispose();
+		owned.dispose();
+	});
+
+	test("keeps line 2 inside narrow and extremely narrow widths", () => {
+		const statuses = new Map([
+			["pi-subagents", AGENT_SEGMENT],
+			["pi-ext-tools:todo", TODO_SEGMENT],
+		]);
+		const footer = mountFooter(statuses);
+
+		// 70 cols still fits both segments beside the left column
+		const medium = footer.render(70)[1] ?? "";
+		expect(medium).toContain(AGENT_SEGMENT);
+		expect(medium).toContain(TODO_SEGMENT);
+
+		// 50 cols keeps the left column intact and truncates the right column
+		const narrow = footer.render(50)[1] ?? "";
+		expect(visibleWidth(narrow)).toBeLessThanOrEqual(50);
+		expect(narrow).toContain("…");
+		expect(narrow).not.toContain("\n");
+
+		// 30 cols drops the right column and fits the left one
+		const extreme = footer.render(30)[1] ?? "";
+		expect(visibleWidth(extreme)).toBe(30);
+		expect(extreme).not.toContain(AGENT_SEGMENT);
+
+		footer.dispose();
+	});
+});
