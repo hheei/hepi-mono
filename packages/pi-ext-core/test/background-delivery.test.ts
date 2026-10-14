@@ -2,10 +2,10 @@ import { expect, test, vi } from "vitest";
 import { createBackgroundDelivery, getBackgroundDelivery } from "../src/background-delivery.js";
 import type { RuntimeHost } from "../src/runtime-identity.js";
 
-test("holds both channels until every source is done, then requests exactly one turn", async () => {
+test("flushes both channels without waiting for active sources, requesting exactly one turn", async () => {
 	const delivery = createBackgroundDelivery();
-	let tasks = 2;
-	let children = 1;
+	const tasks = 2;
+	const children = 1;
 	let changed = () => {};
 	const removeTasks = delivery.registerSource({
 		activeCount: () => tasks,
@@ -40,13 +40,6 @@ test("holds both channels until every source is done, then requests exactly one 
 	first.request();
 	second.request();
 	await Promise.resolve();
-	tasks = 0;
-	changed();
-	await Promise.resolve();
-	expect(sent).toEqual([]);
-	children = 0;
-	changed();
-	await Promise.resolve();
 	expect(sent).toEqual([false, true]);
 	changed();
 	await Promise.resolve();
@@ -73,7 +66,7 @@ test("a busy parent receives every channel in its next step despite active work"
 	expect(sent).toEqual([true, true]);
 });
 
-test("urgent help bypasses active work without producing two idle wakes", async () => {
+test("urgent and normal requests both flush without producing two idle wakes", async () => {
 	const delivery = createBackgroundDelivery();
 	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
 	const sent: boolean[] = [];
@@ -90,7 +83,7 @@ test("urgent help bypasses active work without producing two idle wakes", async 
 	normal.request();
 	urgent.request(true);
 	await Promise.resolve();
-	expect(sent).toEqual([true]);
+	expect(sent).toEqual([false, true]);
 });
 
 test.each([
@@ -117,17 +110,10 @@ test.each([
 	expect(flush).not.toHaveBeenCalled();
 });
 
-test("counts new work at flush time and suppresses disposed channels", async () => {
+test("suppresses disposed channels", async () => {
 	const delivery = createBackgroundDelivery();
-	let count = 0;
-	delivery.registerSource({ activeCount: () => count, onChange: () => () => {} });
 	const flush = vi.fn();
 	const channel = delivery.registerChannel({ isIdle: () => true, hasPending: () => true, flush });
-	channel.request();
-	count = 1;
-	await Promise.resolve();
-	expect(flush).not.toHaveBeenCalled();
-	count = 0;
 	channel.request();
 	channel.dispose();
 	await Promise.resolve();

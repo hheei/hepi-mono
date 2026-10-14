@@ -23,6 +23,7 @@ export type {
 	ResolvedPiContextUsage,
 } from "./context-usage.js";
 export {
+	estimateEntryTokens,
 	estimatePiPrefixTokens,
 	estimatePiToolDefinitionTokens,
 	estimateTextTokens,
@@ -101,8 +102,13 @@ export { panelScrollbar } from "./panel-scrollbar.js";
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
 export { isSubagentProcess, runCommand, shellQuote } from "./process.js";
-export type { DeferredToolPromptSpec } from "./prompt-section.js";
-export { setPromptSection, setSectionBullet, syncDeferredToolPrompt } from "./prompt-section.js";
+export {
+	OPTIONAL_TOOLS_PREAMBLE,
+	OPTIONAL_TOOLS_SECTION,
+	setOptionalToolBullet,
+	setPromptSection,
+	setSectionBullet,
+} from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
 	BottomRailBorderOptions,

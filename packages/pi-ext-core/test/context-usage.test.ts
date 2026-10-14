@@ -1,9 +1,33 @@
 import { expect, test } from "vitest";
 import {
+	estimateEntryTokens,
 	estimatePiPrefixTokens,
 	estimateTextTokens,
 	resolvePiContextUsage,
 } from "../src/context-usage.js";
+
+test("estimates entry tokens for message, custom_message, and branch_summary", () => {
+	expect(
+		estimateEntryTokens({
+			type: "message",
+			message: { role: "user", content: "hello world" },
+		}),
+	).toBeGreaterThan(0);
+
+	expect(
+		estimateEntryTokens({
+			type: "custom_message",
+			content: "custom text content",
+		}),
+	).toBe(Math.ceil("custom text content".length / 4));
+
+	expect(
+		estimateEntryTokens({
+			type: "branch_summary",
+			summary: "summary text",
+		}),
+	).toBe(Math.ceil("summary text".length / 4));
+});
 
 test("estimates prefix from system prompt and tool schemas", () => {
 	const systemPrompt = "You are pi.\n<available_skills>\nskill\n</available_skills>";

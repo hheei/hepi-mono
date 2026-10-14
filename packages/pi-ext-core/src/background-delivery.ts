@@ -13,10 +13,10 @@ export interface BackgroundDeliveryChannel {
 	hasPending(): boolean;
 	/**
 	 * Busy: steer every message. Idle: only the last message may request a turn.
-	 * urgentOnly leaves ordinary items queued. Preserve pending items on a thrown submission;
+	 * Ordinary items flush without waiting for active sources. Preserve pending items on a thrown submission;
 	 * the coordinator diagnoses it and waits for the next request/change, without a retry loop.
 	 */
-	flush(triggerTurn: boolean, urgentOnly: boolean): void;
+	flush(triggerTurn: boolean, urgentOnly?: boolean): void;
 }
 
 export interface BackgroundDeliveryRegistration {
@@ -41,12 +41,10 @@ export function createBackgroundDelivery(): BackgroundDelivery {
 		scheduled = true;
 		queueMicrotask(() => {
 			scheduled = false;
-			let pending = [...channels].filter((channel) => channel.hasPending());
+			const pending = [...channels].filter((channel) => channel.hasPending());
 			const first = pending[0];
 			if (first === undefined) return;
 			const idle = first.isIdle();
-			const urgentOnly = idle && [...sources].some((source) => source.activeCount() > 0);
-			if (urgentOnly) pending = pending.filter((channel) => urgent.has(channel));
 			for (const [index, channel] of pending.entries()) {
 				// A preceding synchronous send can abort/dispose another consumer.
 				if (!channels.has(channel) || !channel.hasPending()) continue;
@@ -54,7 +52,7 @@ export function createBackgroundDelivery(): BackgroundDelivery {
 					const last = !pending
 						.slice(index + 1)
 						.some((next) => channels.has(next) && next.hasPending());
-					channel.flush(!idle || last, urgentOnly);
+					channel.flush(!idle || last, false);
 					urgent.delete(channel);
 				} catch (error) {
 					if (process.env.DEBUG || process.env.PI_DEBUG) {
