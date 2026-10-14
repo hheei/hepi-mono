@@ -396,15 +396,35 @@ export class BgBashJobRegistry {
 			clearTimeout(job.cleanupTimer);
 			job.cleanupTimer = undefined;
 		}
-		job.logStream?.end();
+		const stream = job.logStream;
 		job.logStream = undefined;
 		job.outputSink.finish();
 		const finalSnapshot = snapshot(job);
-		const waiter = job.waiter;
-		job.waiter = undefined;
-		waiter?.(finalSnapshot);
-		if (!notify) return;
-		job.onTerminal?.(finalSnapshot);
+		const notifyTerminal = (): void => {
+			const waiter = job.waiter;
+			job.waiter = undefined;
+			waiter?.(finalSnapshot);
+			if (!notify) return;
+			job.onTerminal?.(finalSnapshot);
+		};
+		if (stream !== undefined && !stream.writableFinished) {
+			let done = false;
+			const finish = (): void => {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				notifyTerminal();
+			};
+			const timer = setTimeout(finish, 1000);
+			timer.unref();
+			stream.once("finish", finish);
+			stream.once("close", finish);
+			stream.once("error", finish);
+			stream.end();
+		} else {
+			stream?.end();
+			notifyTerminal();
+		}
 	}
 	/** Binds the terminal callback for one job, replacing any previous one. */
 	bindTerminal(id: string, onTerminal: (job: BashJobSnapshot) => void): void {

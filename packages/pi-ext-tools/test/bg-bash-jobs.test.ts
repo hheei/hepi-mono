@@ -315,7 +315,17 @@ test("bg_bash_spawn returns id and log path; get uses the same path key", async 
 	if (waited[0] === undefined || waited[0].status === "not_found")
 		throw new Error("expected a result");
 	expect(waited[0].output).toContain("task-output");
-	expect(readFileSync(spawned.path, "utf8")).toContain("task-output");
+	const fileContent = await eventually(
+		() => {
+			try {
+				return readFileSync(spawned.path, "utf8");
+			} catch {
+				return undefined;
+			}
+		},
+		(content) => content.includes("task-output"),
+	);
+	expect(fileContent).toContain("task-output");
 });
 
 test("reports a background task that cannot start", async (): Promise<void> => {
