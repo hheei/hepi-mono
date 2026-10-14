@@ -6,7 +6,7 @@ import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { MAX_HL_CHARS } from "../src/edit.js";
 import { startTaskControl } from "../src/task-control.js";
-import { activateApplyPatchTool, activatePythonEvalCatalog, registerTools } from "../src/tools.js";
+import { registerTools } from "../src/tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
@@ -16,15 +16,7 @@ const temporaryDirectory = temporaryDirectories("hepi-ext-tools-");
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
 const _renderCallContext = { isError: false, isPartial: true, lastComponent: undefined } as never;
 
-function activatePatch(host: ReturnType<typeof toolHost>, enabled: boolean): void {
-	activateApplyPatchTool(
-		{
-			pi: host.pi,
-			resources: { add: (): void => undefined },
-		} as unknown as ExtensionLifecycleContext,
-		enabled,
-	);
-}
+// Removed activatePatch helper; tools are managed via defaultActive: false and host setActiveTools.
 
 /** A capturing host with the standard tool catalog registered. */
 function registeredTools(): ReturnType<typeof toolHost> {
@@ -68,24 +60,14 @@ describe("pi-ext-tools catalog", () => {
 		tasks.dispose();
 	});
 
-	test("activates apply_patch tool only when explicitly enabled", (): void => {
+	test("registers apply_patch and python_eval with defaultActive: false", (): void => {
 		const host = registeredTools();
-		activatePatch(host, true);
-		expect(host.activeTools()).toContain("apply_patch");
-		activatePatch(host, false);
+		const patch = toolFor(host.tools, "apply_patch");
+		const pythonEval = toolFor(host.tools, "python_eval");
+		expect(patch.defaultActive).toBe(false);
+		expect(pythonEval.defaultActive).toBe(false);
 		expect(host.activeTools()).not.toContain("apply_patch");
-	});
-
-	test("activates python_eval only through its explicit static setting", (): void => {
-		const host = registeredTools();
-		activatePythonEvalCatalog(
-			{
-				pi: host.pi,
-				resources: { add: (): void => undefined },
-			} as unknown as ExtensionLifecycleContext,
-			true,
-		);
-		expect(host.activeTools()).toContain("python_eval");
+		expect(host.activeTools()).not.toContain("python_eval");
 	});
 
 	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
@@ -223,11 +205,12 @@ describe("pi-ext-tools catalog", () => {
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
 	});
 
-	test("toggles apply_patch without modifying other active tools", (): void => {
+	test("activates apply_patch via host setActiveTools without modifying other tools", (): void => {
 		const host = registeredTools();
-		activatePatch(host, true);
+		const initial = host.activeTools();
+		host.pi.setActiveTools([...initial, "apply_patch"]);
 		expect(host.activeTools()).toContain("apply_patch");
-		activatePatch(host, false);
+		host.pi.setActiveTools([...initial]);
 		expect(host.activeTools()).not.toContain("apply_patch");
 	});
 
@@ -238,7 +221,7 @@ describe("pi-ext-tools catalog", () => {
 		expect(applyPatch.parameters).toMatchObject({
 			additionalProperties: false,
 			required: ["patch"],
-			properties: { patch: { type: "string" }, target: { type: "string" } },
+			properties: { patch: { type: "string" } },
 		});
 		const parameters: unknown = applyPatch.parameters;
 		if (
@@ -249,7 +232,7 @@ describe("pi-ext-tools catalog", () => {
 			parameters.properties === null
 		)
 			throw new Error("apply_patch parameters are missing object properties");
-		expect(Object.keys(parameters.properties)).toEqual(["patch", "target"]);
+		expect(Object.keys(parameters.properties)).toEqual(["patch"]);
 		expect("prepareArguments" in applyPatch).toBe(false);
 	});
 

@@ -5,13 +5,11 @@ export {
 export {
 	APPLY_PATCH_MAX_FILE_SIZE,
 	createLocalPatchFs,
-	createSftpPatchFs,
 	FsTransportError,
 	fileTooLarge,
 	gcAgentPatchTemps,
 	type PatchFs,
 	publishPreparedFile,
-	sftpTimeoutMs,
 } from "./fs.js";
 export { MUTATION_GLYPH, MUTATION_TONE } from "./glyph.js";
 export { acquireMutationLock, MutationBusyError, withMutationLock } from "./lock.js";

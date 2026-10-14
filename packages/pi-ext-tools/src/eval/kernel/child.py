@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 MAX_EVAL_FRAME_CHARS = 1_048_576 + 65_536
+_THIS_FILE = os.path.abspath(__file__)
 _STATE_LIST_LIMIT = 12
 _CELL_ID = ""
 _TOOL_SEQ = 0
@@ -367,6 +368,32 @@ def _compile_source(code: str) -> tuple[Any, bool]:
     return compile(tree, "<eval>", "exec"), True
 
 
+def _filter_traceback_exception(te: traceback.TracebackException) -> traceback.TracebackException:
+    te.stack = traceback.StackSummary(
+        [f for f in te.stack if os.path.abspath(f.filename) != _THIS_FILE]
+    )
+    if te.__cause__ is not None:
+        _filter_traceback_exception(te.__cause__)
+    if te.__context__ is not None:
+        _filter_traceback_exception(te.__context__)
+    if hasattr(te, "exceptions") and te.exceptions:
+        for exc in te.exceptions:
+            _filter_traceback_exception(exc)
+    return te
+
+
+def _format_exception(error: BaseException) -> str:
+    try:
+        te = traceback.TracebackException.from_exception(error)
+        _filter_traceback_exception(te)
+        formatted = "".join(te.format())
+        if formatted.strip():
+            return formatted
+    except Exception:
+        pass
+    return traceback.format_exc() or str(error) or type(error).__name__
+
+
 def _execute(cell_id: str, code: str) -> None:
     global _CELL_ID
     _reset_session_cwd()
@@ -410,7 +437,7 @@ def _execute(cell_id: str, code: str) -> None:
         )
     except Exception as error:
         _flush_captured_output()
-        message = traceback.format_exc() or str(error) or type(error).__name__
+        message = _format_exception(error)
         send(
             {
                 "type": "done",

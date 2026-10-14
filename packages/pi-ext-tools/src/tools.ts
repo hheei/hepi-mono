@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { type ExtensionLifecycleContext, setSessionToolsActive } from "@hheei/pi-ext-core";
 import { isApplyPatchToolDetails, registerApplyPatchTool } from "./apply-patch/tool.js";
 import { registerBashTool } from "./bash.js";
 import { registerTaskTools } from "./bg-bash-tools.js";
@@ -9,25 +8,9 @@ import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.
 import { registerPythonEvalTool } from "./eval/tool.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
-import { remoteMutationDetails } from "./native-remote.js";
 import { registerReadTool } from "./read.js";
 import { createToolsRuntimeState, type ToolsRuntimeState } from "./session-state.js";
 import { registerWriteTool } from "./write.js";
-
-export function activateApplyPatchTool(context: ExtensionLifecycleContext, enabled: boolean): void {
-	setSessionToolsActive(context, ["apply_patch"], enabled);
-}
-
-export function activatePythonEvalCatalog(
-	context: ExtensionLifecycleContext,
-	enabled: boolean,
-): void {
-	setSessionToolsActive(context, ["python_eval"], enabled);
-}
-
-export function activateTodoCatalog(context: ExtensionLifecycleContext, enabled: boolean): void {
-	setSessionToolsActive(context, ["todo"], enabled);
-}
 
 /** Statically registers the tool catalog. */
 export function registerTools(
@@ -66,12 +49,7 @@ function nestedResultIsError(
 			(details.unconfirmed?.length ?? 0) > 0 ||
 			(details.notApplied?.length ?? 0) > 0
 		);
-	if (name === "edit" || name === "write") {
-		const mutation = remoteMutationDetails(details);
-		return (
-			mutation !== undefined && mutation.outcome !== "changed" && mutation.outcome !== "no_change"
-		);
-	}
+
 	if (typeof details !== "object" || details === null) return false;
 	const record = details as Record<string, unknown>;
 	if (name === "bash")

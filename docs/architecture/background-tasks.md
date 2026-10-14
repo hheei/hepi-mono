@@ -57,7 +57,7 @@ reminder 携带 task ID、kind（idle/heartbeat）、状态、elapsed、必要�
 
 普通终态结果和 child 报告共享完成门控：父 agent 工作时通过 steer 进入下一模型步骤；空闲时等待全部后台活动结束，再统一唤醒一次。blocked/error 紧急报告与 Bash reminder 可提前唤醒。单轮协调只由最后一个有效通道请求新回合。
 
-Bash 通知以 `<task-notice>` 为顶层标签。结果与提醒均标明它们是委派输出，不是新的用户指令。终态投递保持 `pending → submitted → observed`，host 接收不等于模型已读；同步拒收会恢复 pending 并报告错误，不能静默丢结果或无界重试。reminder 不参与该终态状态机。
+Bash 通知通过 `bg-bash-report` 紧凑消息交付，采用原生 Bash 纯文本格式。终态投递保持 `pending → submitted → observed`，host 接收不等于模型已读；同步拒收会恢复 pending 并报告错误，不能静默丢结果或无界重试。reminder 不参与该终态状态机。
 
 结果受固定输出、字节与条目上限约束：registry 终态输出上限 64 KiB、最近已交付终态 64 条、活动或未确认结果最多 64 条；消息内联输出最多 10,000 字符，批次最多 24,000 UTF-8 字节、8 条。未确认结果受保护，不因保留上限淘汰。日志提供完整输出。
 

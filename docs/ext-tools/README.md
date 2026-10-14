@@ -122,7 +122,7 @@ grammar、body whitespace 与 path size 仍严格校验。本机 path lexical re
 与 `..` 都可用，symlink 也不 `realpath` 追踪。某个 operation 的 path 冲突、source/destination 不合规或 hunk
 mismatch 只拒绝该 operation，其他已确认 path 不 rollback。取消不撤回已 Changed 的 path。现有文件与结果都不得超过 32 MiB。
 
-`apply_patch` 使用同一套 Patch Core 覆盖 local Linux/macOS/Windows 与 Unix-like SSH Target。local 按 workspace、SSH 按 alias 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。SSH Target 仍通过 `createSftpPatchFs()` 在本机读字节、计算，再 Publish；远端不需要 Node 或 jsdiff。
+`apply_patch` 使用 Patch Core 覆盖 local Linux/macOS/Windows。local 按 workspace 持有平台原生 exclusive lock，并与 write/edit 共用；后到的请求排队，取消排队中的请求不会改 workspace。`/reload` 取消 execute，不重连 mutation。
 
 发布前复核源基线，检测到准备期间的外部修改时拒绝覆盖。Move 在目标发布后、删除源前再次复核；源冲突时保留目标与源并报告部分成功。此检查与实际 rename/remove 之间仍有竞态窗口，不是原子 compare-and-swap，也不是对外部 writer 的锁。
 
@@ -170,17 +170,17 @@ renderer 都由本 package 提供。这是为了避免 Pi host 的 `pi-bash-*.lo
 
 失败调用的原因与耗时必须写进 model-visible text，因为 provider 只转发 text part：取消时保留已产生的 partial output 并附一行 `Bash aborted after <duration>`，超时时附一行 `Command timed out after <timeout>s`。命令在启动前就被取消时不报耗时，因为该数字没有信息量。耗时由 ext-core `formatDuration` 统一格式化。
 
-`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`(timeout Ns)`，远端再加 `(host)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
+`bash` 的 frame 把完整命令渲染为 request body：逐行原样显示、按宽度换行、剥离终端控制序列，未展开时保留头部最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`）。header 只保留调用 facts（`(timeout Ns)`），因此折叠帧不再重复命令。未展开的 output body 由 `bash` 自己限制为尾部最多 10 行（与 request 上限一致），header、rails 与 typed footer 不计入。
 
 ### Optional optimizer integration
 
 RTK 重写策略、配置与生命周期现由独立 [`pi-optimizer`](../optimizer/README.md) 所有。`pi-ext-tools` 不再注册 RTK provider 或重写 hook；旧 `pi-ext-tools.rtk` / `rtkPath` 由 optimizer 原子迁移。未安装 optimizer 时 Bash 不自动改写。
 
-Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，SSH Target 与后台任务保持原行为。Bash result 只保留 bounded tail；执行 RTK 包装命令时，输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
+Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，也不依赖本 package。仅本地前台调用参与改写，后台任务保持原行为。Bash result 只保留 bounded tail；执行 RTK 包装命令时，输出已经过 RTK 过滤，不能据此恢复被 RTK 丢弃的原始文本。
 
 ### Extension-owned background Bash
 
-`bash` 只在前台执行，默认超时 180s（纯搜索命令 25s）；远端 SSH 同样只支持前台。后台命令使用 deferred `bg_bash_spawn({ command, timeout? })`，成功返回 JSON `{ id, path }`，path 是完整日志文件的绝对路径，失败只返回原因，不接受调用方 ID。完成结果以 `<task-notice>` 自动返回，不轮询或等待。
+`bash` 只在前台执行，默认超时 180s（纯搜索命令 25s）。后台命令使用 deferred `bg_bash_spawn({ command, timeout? })`，成功返回 JSON `{ id, path }`，path 是完整日志文件的绝对路径，失败只返回原因，不接受调用方 ID。完成结果以 `bg-bash-report` 自动返回，不轮询或等待。
 
 `bg_bash_get({ id, keys? })` 默认返回 `status,progress`，可选 `diagnostic`；keys 是逗号分隔字符串，未知 key 报错。只返回当前运行信息与终态生命周期，不重复终态输出。progress.path 与 spawn 返回的 path 一致，自动通知也提供日志路径，完整日志由 read/grep 读取。`bg_bash_stop({ id })` 只停止本工具族的后台进程，成功只返回一句确认，失败只返回原因，不控制 child agent。没有 list 或等待工具。
 
@@ -196,14 +196,10 @@ Bash 和 child agent 通过 ext-core `TaskRegistry` 共享内部活动登记，�
   renderer、ToolRenderContext state、abort、streaming 与 cleanup；`bash` 保持 Pi host 原始 execute 行为。
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
-- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 接受 `{ "patch": string, "target"?: string }`，由 Patch Core 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告 Changed、Rejected、Unconfirmed 与 NotApplied。
+- `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 接受 `{ "patch": string }`，由 Patch Core 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告 Changed、Rejected、Unconfirmed 与 NotApplied。
 - 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
-
-## Target 路由
-
-`read`、`grep`、`find`、`bash` 的 local、Output 与 SSH target contract、session-bound Output persistence、remote search boundary，以及 SSH whitelist settings 见 [Target 路由](targets.md)。`apply_patch`、`edit` 与 `write` 的 SSH Publish 接入见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md) 与 [ADR-0019](../adr/0019-write-edit-ssh-use-publish.md)。真实 Pi `ToolExecutionComponent` smoke 覆盖见 `test/tool-execution-smoke.test.ts`。
 
 ## 验证与发布
 

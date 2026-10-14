@@ -30,28 +30,17 @@ import {
 } from "./bg-bash-jobs.js";
 import type { ToolsRuntimeState } from "./session-state.js";
 
-import { isTargetError, LOCAL_TARGET, type TargetRuntime } from "./targets.js";
-
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
 const BASH_MAX_BODY_LINES = 10;
 
 const BASH_DESCRIPTION = "Run one shell command or short pipeline in the foreground.";
-const BASH_PROMPT_GUIDELINES = [
-	"Remote `target` is an authorized SSH host and always runs in the foreground.",
-] as const;
 const BASH_TIMEOUT_DESCRIPTION =
 	"Timeout in seconds (optional, default 180s, or 25s for pure search commands like rg/fd/grep/find)";
 const Timeout = Type.Optional(Type.Number({ description: BASH_TIMEOUT_DESCRIPTION }));
-const Target = Type.Optional(
-	Type.String({
-		description: "Execution target: local or an authorized SSH host; ",
-	}),
-);
 const BashInput = Type.Object(
 	{
 		command: Type.String({ minLength: 1 }),
 		timeout: Timeout,
-		target: Target,
 	},
 	{ additionalProperties: false },
 );
@@ -61,7 +50,6 @@ function normalizeBashInput(value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
 	const input = { ...(value as Record<string, unknown>) };
 	if (input.timeout === null) delete input.timeout;
-	if (input.target === null) delete input.target;
 	return input;
 }
 
@@ -135,7 +123,6 @@ function bashFailureText(reason: string, output: string): string {
 function bashAbortedResult(options: {
 	output: string;
 	startedAt?: number;
-	target?: string;
 	truncated?: boolean;
 }): BashToolResult {
 	const elapsed =
@@ -151,7 +138,6 @@ function bashAbortedResult(options: {
 			output: options.output,
 			truncated: options.truncated ?? false,
 			error: "aborted",
-			...(options.target === undefined ? {} : { target: options.target }),
 		}),
 		{
 			output: options.output,
@@ -171,7 +157,6 @@ function bashTimedOutResult(options: {
 	output: string;
 	startedAt: number;
 	timeoutSeconds: number;
-	target?: string;
 	truncated: boolean;
 }): BashToolResult {
 	const text = bashFailureText(
@@ -184,7 +169,7 @@ function bashTimedOutResult(options: {
 			truncated: options.truncated,
 			timedOut: true,
 			exitCode: 124,
-			...(options.target === undefined ? {} : { target: options.target, outcome: "timeout" }),
+			outcome: "timeout",
 		}),
 		{
 			output: options.output,
@@ -419,83 +404,6 @@ async function runForeground(
 	});
 }
 
-function isRemoteBashTarget(target: unknown): target is string {
-	return typeof target === "string" && target !== LOCAL_TARGET;
-}
-
-async function runRemoteBash(
-	target: string,
-	command: string,
-	runtime: TargetRuntime,
-	signal: AbortSignal | undefined,
-	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-	timeoutSeconds: number | undefined,
-	tailBytes: number,
-): Promise<BashToolResult> {
-	const startedAt = performance.now();
-	if (signal?.aborted) return bashAbortedResult({ output: "", target });
-	const effectiveTimeout = timeoutSeconds ?? resolveDefaultBashTimeout(command);
-	const sink = new BashOutputSink(tailBytes);
-	try {
-		const { code, timedOut } = await runtime.exec(target, command, {
-			...(signal === undefined ? {} : { signal }),
-			...(effectiveTimeout <= 0 ? {} : { timeoutMs: effectiveTimeout * 1000 }),
-			onData: outputStreamer(sink, onUpdate),
-		});
-		const output = sink.finish();
-		if (timedOut)
-			return bashTimedOutResult({
-				output: output.output,
-				truncated: output.truncated,
-				startedAt,
-				timeoutSeconds: effectiveTimeout,
-				target,
-			});
-		const exitCode = code ?? 0;
-		const result = textToolResult(output.output, {
-			...output,
-			exitCode,
-			target,
-			outcome: "ok",
-		});
-		return withBashStructuredContent(result, {
-			output: output.output,
-			truncated: output.truncated,
-			exitCode,
-			startedAt,
-		}) as BashToolResult;
-	} catch (error) {
-		const output = sink.finish();
-		if (isTargetError(error)) {
-			if (error.outcome === "cancelled")
-				return bashAbortedResult({
-					output: output.output,
-					startedAt,
-					target,
-					truncated: output.truncated,
-				});
-			const result = textToolResult(bashFailureText(error.message, output.output), {
-				...output,
-				error: error.outcome,
-				outcome: error.outcome,
-				target,
-			});
-			return withBashStructuredContent(result, {
-				output: output.output,
-				truncated: output.truncated,
-				exitCode: 1,
-				startedAt,
-			}) as BashToolResult;
-		}
-		throw error;
-	}
-}
-
-/**
- * Bash keeps Pi's execution definition for its schemas and prompt metadata, but owns its own
- * result body: the model-visible text is already the tail this package decided to keep, and Pi's
- * shell renderers would present the same text a second time.
- */
 export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
 	const {
 		renderCall: _renderCall,
@@ -506,7 +414,6 @@ export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 		...template,
 		description: BASH_DESCRIPTION,
 		promptSnippet: BASH_DESCRIPTION,
-		promptGuidelines: BASH_PROMPT_GUIDELINES,
 		parameters: BashInput,
 		annotations: {
 			openWorldHint: true,
@@ -565,19 +472,7 @@ export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 			const validatedParams = normalizeBashInput(params);
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
 			const settings = state?.getSettings();
-			if (isRemoteBashTarget(validatedParams.target)) {
-				const runtime = state?.getTargetRuntime();
-				if (runtime === undefined) throw new Error("Target runtime is unavailable.");
-				return runRemoteBash(
-					validatedParams.target,
-					validatedParams.command,
-					runtime,
-					signal,
-					onUpdate,
-					validatedParams.timeout,
-					(settings?.bashOutputTailKiB ?? 10) * 1024,
-				);
-			}
+
 			const jobs = state?.getBashJobs();
 			return runForeground(
 				validatedParams.command,
@@ -596,4 +491,4 @@ export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 	return tool;
 }
 
-export { BashInput, isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS, Target, Timeout };
+export { BashInput, isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS, Timeout };

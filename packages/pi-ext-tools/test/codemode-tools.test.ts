@@ -9,7 +9,7 @@ import { createPythonEvalTool, pythonEvalPromptGuidelines } from "../src/eval/to
 import { registerFindTool } from "../src/find.js";
 import { registerGrepTool } from "../src/grep.js";
 import { registerReadTool } from "../src/read.js";
-import { createFffRuntimeState } from "../src/session-state.js";
+import { createToolsRuntimeState } from "../src/session-state.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
@@ -18,7 +18,7 @@ const temporaryDirectory = temporaryDirectories("hepi-codemode-test-");
 describe("tools contract aligned with upstream pi 1.0.0", () => {
 	test("read, grep, find contract aligned with upstream pi and declare readOnly hints", async () => {
 		const host = toolHost();
-		const state = createFffRuntimeState();
+		const state = createToolsRuntimeState();
 		registerReadTool(host.pi, state);
 		registerGrepTool(host.pi, state);
 		registerFindTool(host.pi, state);
@@ -73,7 +73,7 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 
 	test("bash provides upstream-aligned bashOutputSchema and structuredContent", async () => {
 		const host = toolHost();
-		const state = createFffRuntimeState();
+		const state = createToolsRuntimeState();
 		registerBashTool(host.pi, state);
 
 		const bash = toolFor(host.tools, "bash");
@@ -125,7 +125,7 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 
 	test("bash prepareLoadout adapts description when eval tool is active", () => {
 		const host = toolHost();
-		const state = createFffRuntimeState();
+		const state = createToolsRuntimeState();
 		registerBashTool(host.pi, state);
 
 		const bash = toolFor(host.tools, "bash");
@@ -178,7 +178,7 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 
 	test("task tools declare appropriate annotations", () => {
 		const host = toolHost();
-		const state = createFffRuntimeState();
+		const state = createToolsRuntimeState();
 		registerTaskTools(host.pi, state);
 
 		const listTasks = toolFor(host.tools, "bg_bash_get");

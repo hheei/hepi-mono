@@ -15,7 +15,7 @@ import { type BashSettings, DEFAULT_BASH_SETTINGS } from "../src/bash-settings.j
 import { BashJobRegistry, MAX_JOB_OUTPUT } from "../src/bg-bash-jobs.js";
 import { registerBgBashTools, TASK_TOOL_IDS } from "../src/bg-bash-tools.js";
 import piExtToolsExtension from "../src/extension.js";
-import { createFffRuntimeState, type FffRuntimeState } from "../src/session-state.js";
+import { createToolsRuntimeState, type ToolsRuntimeState } from "../src/session-state.js";
 import { startTaskControl } from "../src/task-control.js";
 
 const registerTaskTools = registerBgBashTools;
@@ -56,13 +56,12 @@ function jobRegistry(): BashJobRegistry {
 function runtimeState(
 	tasks: TaskRegistry | undefined,
 	settingsOverrides?: Partial<typeof DEFAULT_BASH_SETTINGS>,
-): FffRuntimeState {
+): ToolsRuntimeState {
 	const jobs = jobRegistry();
 	return {
 		getSettings: () => ({ ...DEFAULT_BASH_SETTINGS, ...(settingsOverrides ?? {}) }),
 		getTasks: () => tasks,
 		getBashJobs: () => jobs,
-		getTargetRuntime: () => undefined,
 	};
 }
 
@@ -323,7 +322,7 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 	const tasks = tracked(new TaskRegistry());
 	const jobs = jobRegistry();
 	jobs.dispose();
-	const state: FffRuntimeState = {
+	const state: ToolsRuntimeState = {
 		...runtimeState(tasks),
 		getBashJobs: () => jobs,
 	};
@@ -344,7 +343,7 @@ test("reports a background task that cannot start", async (): Promise<void> => {
 
 test("background Bash controls reject missing sessions", async () => {
 	const host = toolHost();
-	registerTaskTools(host.pi, createFffRuntimeState());
+	registerTaskTools(host.pi, createToolsRuntimeState());
 	expect(host.tools.map((tool) => tool.name)).toEqual([
 		"bg_bash_spawn",
 		"bg_bash_get",
@@ -653,7 +652,7 @@ function taskControlSession(overrides?: Partial<BashSettings>): {
 	const host = taskControlHost();
 	// The session registry is attached only once `startTaskControl` has created it.
 	let current: TaskRegistry | undefined;
-	const state: FffRuntimeState = {
+	const state: ToolsRuntimeState = {
 		...runtimeState(undefined, overrides),
 		getTasks: () => current,
 	};
@@ -806,46 +805,24 @@ test("cleanly terminalizes when stopped even if descendant holds stdio open", as
 	expect(stopped.status).toBe("stopped");
 });
 
-test("injects background bash into deferred_tools when inactive, and into bg_bash_guidance when active", (): void => {
+test("injects background bash into optional_tools as a stable entry", (): void => {
 	const host = toolHost();
 	piExtToolsExtension(host.pi);
 
-	// Without tool_search or codemode, no deferred bullet is injected
-	const startEventNone = { systemPromptOptions: { sections: {} as Record<string, string> } };
-	host.emit("before_agent_start", startEventNone);
-	expect(startEventNone.systemPromptOptions.sections.deferred_tools).toBeUndefined();
-	expect(startEventNone.systemPromptOptions.sections.bg_bash_guidance).toBeUndefined();
-
-	// With tool_search active, deferred bullet points to tool_search
-	host.pi.setActiveTools([...host.activeTools(), "tool_search"]);
-	const startEventSearch = { systemPromptOptions: { sections: {} as Record<string, string> } };
-	host.emit("before_agent_start", startEventSearch);
-	expect(startEventSearch.systemPromptOptions.sections.deferred_tools).toContain(
-		"- background bash:",
+	const startEvent = { systemPromptOptions: { sections: {} as Record<string, string> } };
+	host.emit("before_agent_start", startEvent);
+	expect(startEvent.systemPromptOptions.sections.optional_tools).toContain(
+		'If not loaded, use tool_search ({ query: "<query>" }) or call via codemode.',
 	);
-	expect(startEventSearch.systemPromptOptions.sections.deferred_tools).toContain("tool_search");
-	expect(startEventSearch.systemPromptOptions.sections.bg_bash_guidance).toBeUndefined();
-
-	// With codemode active without tool_search, deferred bullet points to codemode
-	host.pi.setActiveTools(
-		host
-			.activeTools()
-			.filter((t) => t !== "tool_search")
-			.concat("codemode"),
+	expect(startEvent.systemPromptOptions.sections.optional_tools).toContain(
+		'- background bash (query: "bg_bash"): Run long-running shell commands in background',
 	);
-	const startEventCode = { systemPromptOptions: { sections: {} as Record<string, string> } };
-	host.emit("before_agent_start", startEventCode);
-	expect(startEventCode.systemPromptOptions.sections.deferred_tools).toContain(
-		"- background bash:",
-	);
-	expect(startEventCode.systemPromptOptions.sections.deferred_tools).toContain("codemode");
 
-	// With bg_bash_spawn active, deferred bullet is removed and full guidance injected
+	// Remains stable even when active tools change
 	host.pi.setActiveTools([...host.activeTools(), "bg_bash_spawn"]);
 	const startEventActive = { systemPromptOptions: { sections: {} as Record<string, string> } };
 	host.emit("before_agent_start", startEventActive);
-	expect(startEventActive.systemPromptOptions.sections.deferred_tools).toBeUndefined();
-	expect(startEventActive.systemPromptOptions.sections.bg_bash_guidance).toContain(
-		"Use bg_bash_spawn for commands",
+	expect(startEventActive.systemPromptOptions.sections.optional_tools).toContain(
+		'- background bash (query: "bg_bash"): Run long-running shell commands in background',
 	);
 });

@@ -8,7 +8,7 @@
 
 ### 执行
 
-- local Linux/macOS/Windows 与 Unix-like SSH Target 共用同一套 Patch Core。没有 detached coordinator、request id 重连或 request-level rollback。
+- local Linux/macOS/Windows 使用同一套 Patch Core。没有 detached coordinator、request id 重连或 request-level rollback。
 - 每个 path 独立 Publish：sibling 临时文件 + replace/remove 确认后才是 Changed。已确认 path 不撤回。
 - 同一 `Update File` 的 hunk 依 patch 顺序作用于同一 staging copy。失败 hunk 记为 Rejected，但不阻止后续 hunk 尝试；至少一个 hunk 成功时，以成功 hunk 的 staging 结果只 Publish 一次，并把该 operation 标为 `partial`。没有 hunk 成功时该 path 为 Rejected，原档不动。多个没有 `Move to` 的 `Update File` 按 patch 顺序作用于同一文件。`Update + Move to` 是 dest Publish 与 source delete 两次独立 mutation。
 - live progress 阶段为 `parsed`、`publishing` 与 `done`。model-time preview 与 `parsed` 都不代表已验证或已 Publish。
@@ -16,7 +16,7 @@
 
 ### 验证与并发
 
-- 语法错误、非 POSIX SSH、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace（local）或 SSH alias 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。
+- 语法错误、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。
 - patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
 - `@@ 文本` 是顺序定位锚点，不是注释；后续 hunk 只在锚点限定范围匹配，锚点不存在时不得退回全文搜索。`*** End of File` 将匹配限定在文件末尾。没有内容 hunk 的 `Update File` + `Move to` 是纯移动，保留源文件字节。
@@ -124,7 +124,7 @@ partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，�
 
 模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `󰄰 create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
 
-执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：状态 glyph 使用 Nerd Font 字符 `󰄰` pending、`󰄴` applied、`󰪠` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected（`edit`/`write` 的远端 Unconfirmed/NotApplied 行复用后两者）：`󰄰` 尚未 Publish，`󰄴` 是 exact/whitespace Changed，`󰪠` 是 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`󰾞` 是 fuzzy Changed，`󰅚` 是 Rejected，`󰘥` 是 Unconfirmed，dim `󰍷` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。SSH header 为 `apply_patch (host) N file(s)`，row 为 warning 色 `host:path`。final Patch Outcome 替代 live state，resume 不恢复 `󰄰` rows 或 model-time preview。
+执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：状态 glyph 使用 Nerd Font 字符 `󰄰` pending、`󰄴` applied、`󰪠` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected（`edit`/`write` 的远端 Unconfirmed/NotApplied 行复用后两者）：`󰄰` 尚未 Publish，`󰄴` 是 exact/whitespace Changed，`󰪠` 是 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`󰾞` 是 fuzzy Changed，`󰅚` 是 Rejected，`󰘥` 是 Unconfirmed，dim `󰍷` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。final Patch Outcome 替代 live state，resume 不恢复 `󰄰` rows 或 model-time preview。
 
 未展开的完成结果显示 operation rows；prior Trace collapse 由 shared frame 显示 header、空行、tool-owned footer。footer 是 typed metrics，不解析模型 content：
 
@@ -146,8 +146,8 @@ warning glyph `󰪠` 用于 Changed+Rejected partial；Unconfirmed/NotApplied �
 
 - parser、path 与 matching failure 保留稳定错误分类；parser errors 带 source line（若有）。transport 失败不能被静默重试。
 - 准备、jsdiff worker 与 Publish 服从 `AbortSignal`。取消不撤回已 Changed 的 path。尚未发出 replace/remove 的为 NotApplied；已发出未见 ACK 的为 Unconfirmed。
-- local 无逾时，只靠取消。SFTP 单 path：传输 ≤1 MiB 为 30s，否则 60s；写 temp 逾时为 NotApplied，rename/rm 逾时为 Unconfirmed。
-- mutation lock 串行化 apply_patch、write 与 edit：local 按 workspace，SSH 按本机 alias，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。锁不能阻止外部写入；apply_patch 的源基线复核只提供上述尽力而为的冲突检测。
+- local 无逾时，只靠取消。
+- mutation lock 串行化 apply_patch、write 与 edit：按 local workspace，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。锁不能阻止外部写入；apply_patch 的源基线复核只提供上述尽力而为的冲突检测。
 - `/reload` 取消 execute，不重连进行中的 mutation。
 - 现有文件（含 Delete 与 Move 源）大于 32 MiB 在读完整内容前拒绝；Add/Update 结果也不得超过 32 MiB。
 - details 是 result persistence source；resume 和 global expand 从它渲染 completed outcome，不恢复 pending preview state。

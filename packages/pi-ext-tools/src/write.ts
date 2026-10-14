@@ -14,18 +14,11 @@ import {
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
-	textToolResult,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
-import { MUTATION_GLYPH, MUTATION_TONE, withMutationLock } from "./apply-patch/index.js";
-import {
-	REMOTE_MUTATION_DETAILS,
-	type RemoteMutationDetails,
-	remoteMutationDetails,
-	remoteMutationFailureText,
-	writeRemoteFile,
-} from "./native-remote.js";
+import { withMutationLock } from "./apply-patch/index.js";
+
 import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
@@ -64,11 +57,6 @@ const WRITE_PARAMETERS = Type.Object(
 	{
 		path: Type.String({ description: "Path to the file to write (relative or absolute)" }),
 		content: Type.String({ description: "Content to write to the file" }),
-		target: Type.Optional(
-			Type.String({
-				description: "local or an authorized SSH alias. Omit for local.",
-			}),
-		),
 	},
 	{ additionalProperties: false },
 );
@@ -163,7 +151,6 @@ function withWriteDetails(
 	result: AgentToolResult<unknown>,
 	metrics: { bytes: number; lines: number } | undefined,
 	view: WriteView | undefined,
-	remote?: RemoteMutationDetails,
 	patch?: string,
 ): AgentToolResult<unknown> {
 	const details = isRecord(result.details) ? result.details : {};
@@ -173,7 +160,6 @@ function withWriteDetails(
 			...details,
 			...(metrics === undefined ? {} : { [WRITE_RENDER_DETAILS]: metrics }),
 			...(view === undefined ? {} : { [WRITE_VIEW_KEY]: view }),
-			...(remote === undefined ? {} : { [REMOTE_MUTATION_DETAILS]: remote }),
 			...(patch === undefined ? {} : { patch }),
 		},
 	};
@@ -351,7 +337,7 @@ export function createWritePresentation(
 
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerWriteTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
+export function registerWriteTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): ToolDefinition {
 	const baseTool = createExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
@@ -367,37 +353,7 @@ export function registerWriteTool(pi: ExtensionAPI, state?: ToolsRuntimeState): 
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
 			createToolPresentationRenderers(pi, "write", createWritePresentation);
 			const path = filePath(params);
-			if (params.target !== undefined && params.target !== "local") {
-				const content = typeof params.content === "string" ? params.content : "";
-				const remote = await writeRemoteFile(state, params.target, path, content, signal);
-				if (remote.outcome !== "changed" && remote.outcome !== "no_change")
-					return withWriteDetails(
-						{
-							...textToolResult(remoteMutationFailureText("Write", remote), undefined),
-							isError: true,
-						},
-						undefined,
-						undefined,
-						remote,
-					);
-				const baseline = {
-					exists: remote.existed,
-					...(remote.before === undefined ? {} : { text: new TextDecoder().decode(remote.before) }),
-				};
-				const presentation = writePresentation(path, params, baseline);
-				return withWriteDetails(
-					textToolResult(
-						remote.outcome === "no_change"
-							? `No changes made to ${path}.`
-							: `Successfully wrote ${Buffer.byteLength(content)} bytes to ${path}`,
-						undefined,
-					),
-					presentation.metrics,
-					presentation.view,
-					remote,
-					presentation.patch,
-				);
-			}
+
 			return await withMutationLock(context.cwd, signal, async () => {
 				const resolved = resolvePath(context.cwd, path);
 				const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
@@ -407,7 +363,6 @@ export function registerWriteTool(pi: ExtensionAPI, state?: ToolsRuntimeState): 
 					result,
 					presentation.metrics,
 					presentation.view,
-					undefined,
 					presentation.patch,
 				);
 			});
@@ -423,25 +378,6 @@ export function registerWriteTool(pi: ExtensionAPI, state?: ToolsRuntimeState): 
 				: new Text("", 0, 0);
 		},
 		renderResult(result, _options, theme, context) {
-			const remote = remoteMutationDetails(result.details);
-			if (context.isError && remote?.outcome === "unconfirmed")
-				return new Text(
-					theme.fg(
-						MUTATION_TONE.unconfirmed,
-						`${MUTATION_GLYPH.unconfirmed} ${remote.target}:${remote.path} · ${remote.error ?? "outcome unknown"}`,
-					),
-					0,
-					0,
-				);
-			if (context.isError && remote?.outcome === "not_applied")
-				return new Text(
-					theme.fg(
-						MUTATION_TONE.not_applied,
-						`${MUTATION_GLYPH.not_applied} ${remote.target}:${remote.path} · ${remote.error ?? "not applied"}`,
-					),
-					0,
-					0,
-				);
 			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
 			const presentationRenderers = createToolPresentationRenderers(
 				pi,

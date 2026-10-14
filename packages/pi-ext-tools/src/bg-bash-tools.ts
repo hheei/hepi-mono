@@ -18,24 +18,15 @@ export const BG_BASH_TOOL_NAMES = ["bg_bash_spawn", "bg_bash_get", "bg_bash_stop
 export const BG_BASH_TASK_TOOL_IDS: readonly string[] = ["bg_bash_get", "bg_bash_stop"];
 export const TASK_TOOL_IDS = BG_BASH_TASK_TOOL_IDS;
 
-export const BG_BASH_PROMPT_SECTION = "bg_bash_guidance";
-export const BG_BASH_TOOL_SEARCH_BULLET =
-	'Run long-running shell commands in the background (bg_bash_spawn, bg_bash_get, bg_bash_stop). Use tool_search ({ query: "bg_bash" }) to load.';
-export const BG_BASH_CODEMODE_BULLET =
-	"Run long-running shell commands in the background (bg_bash_spawn, bg_bash_get, bg_bash_stop). Call from codemode scripts via tools.bg_bash_spawn.";
-export const BG_BASH_GUIDANCE = [
-	"Use bg_bash_spawn for commands that run for a long time (tests, builds, dev servers, watchers).",
-	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered via <task-notice> and automatically wakes a follow-up turn.",
-	"After calling bg_bash_spawn, yield the turn or continue other independent work. Do NOT poll bg_bash_get or sleep merely to wait for completion.",
-	"Read or grep the returned path for full output; bg_bash_get progress.path provides the same path.",
-	"Use bg_bash_stop to explicitly terminate any running background bash task by its taskId (e.g. bash-1).",
-].join("\n");
+export const BG_BASH_OPTIONAL_TOOL_KEY = "background bash";
+export const BG_BASH_OPTIONAL_TOOL_BULLET =
+	'background bash (query: "bg_bash"): Run long-running shell commands in background (bg_bash_spawn, bg_bash_get, bg_bash_stop).';
 
 const SPAWN_BASH_DESCRIPTION =
-	"Start a shell command in the background as a task and return JSON { id, path }, where path is the absolute log file path. The terminal result is delivered automatically via <task-notice> when the command finishes. Related background task tools: bg_bash_get, bg_bash_stop.";
+	"Start a shell command in the background as a task and return JSON { id, path }, where path is the absolute log file path. The terminal result is delivered automatically via bg-bash-report when the command finishes. Related background task tools: bg_bash_get, bg_bash_stop.";
 const SPAWN_BASH_PROMPT_GUIDELINES = [
 	"Use bg_bash_spawn for commands that run for a long time (tests, builds, dev servers, watchers).",
-	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered via <task-notice> and automatically wakes a follow-up turn.",
+	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered automatically via bg-bash-report and wakes a follow-up turn.",
 	"After calling bg_bash_spawn, yield the turn or continue other independent work. Do NOT poll or sleep merely to wait for completion.",
 	"Read or grep the returned path for full output; bg_bash_get progress.path provides the same path.",
 ] as const;
@@ -82,11 +73,17 @@ function taskAnchor(context: ExtensionContext): string | undefined {
 	return context.sessionManager?.getLeafId?.() ?? undefined;
 }
 
+const BG_BASH_NAMESPACE = {
+	name: "bg_bash",
+	aliases: ["bg_bash", "background_bash", "bg-bash", "background-bash"],
+	description: "Background Bash commands",
+};
+
 export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState): void {
 	const spawnBashTool: ToolDefinition<typeof BgBashSpawnInput, unknown> = {
 		name: "bg_bash_spawn",
 		...bgBashPresentationRenderers(pi, "bg_bash_spawn"),
-		namespace: { name: "bg_bash", description: "Background Bash commands" },
+		namespace: BG_BASH_NAMESPACE,
 		label: "bg_bash_spawn",
 		description: SPAWN_BASH_DESCRIPTION,
 		promptSnippet: "Start a background shell command; terminal notification wakes a follow-up turn",
@@ -160,7 +157,7 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 		name: "bg_bash_get",
 		...bgBashPresentationRenderers(pi, "bg_bash_get"),
 		label: "Get background Bash",
-		namespace: { name: "bg_bash", description: "Background Bash commands" },
+		namespace: BG_BASH_NAMESPACE,
 		description:
 			"Inspect background Bash runtime status, progress, or diagnostic details. Results return automatically; do not poll for completion. Related tools: bg_bash_spawn, bg_bash_stop.",
 		parameters: BgBashGetParams,
@@ -223,7 +220,7 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 		name: "bg_bash_stop",
 		...bgBashPresentationRenderers(pi, "bg_bash_stop"),
 		label: "Stop background Bash",
-		namespace: { name: "bg_bash", description: "Background Bash commands" },
+		namespace: BG_BASH_NAMESPACE,
 		description:
 			"Stop one background Bash process tree by ID. Terminal result returns automatically. Related tools: bg_bash_spawn, bg_bash_get.",
 		parameters: BgBashIdParams,

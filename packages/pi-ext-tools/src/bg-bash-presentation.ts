@@ -43,13 +43,12 @@ export const bgBashSpawnPresentation: ToolPresentationProvider = (args, result) 
 	const resultText = result === undefined ? undefined : agentResultText(result);
 	const output =
 		details === undefined ? (resultText ?? "") : `id: ${details.id}\npath: ${details.path}`;
+	const purpose = bashJobPurpose(command);
+	const summary = details === undefined ? purpose : `${purpose} · ${details.id}`;
 	return {
-		summary: bashJobPurpose(command),
+		summary,
 		...(command === "" ? {} : { request: command }),
 		...(output === "" ? {} : { output }),
-		...(details === undefined
-			? {}
-			: { collapsedRows: [`id: ${details.id}`, `path: ${details.path}`] }),
 		...(command === "" && resultText === undefined
 			? {}
 			: {
@@ -90,19 +89,21 @@ function getFieldLines(details: Record<string, unknown>): string[] {
 	return lines;
 }
 
-function getCollapsedRows(
-	details: Record<string, unknown> | undefined,
-): readonly string[] | undefined {
+function getCollapsedRow(details: Record<string, unknown> | undefined): string | undefined {
 	if (details === undefined) return undefined;
-	const rows: string[] = [];
+	const parts: string[] = [];
 	const status = stringField(details, "status");
-	if (status !== undefined) rows.push(`status: ${status}`);
+	if (status !== undefined) parts.push(status);
 	const progress = details.progress;
 	if (isRecord(progress)) {
-		const path = stringField(progress, "path");
-		if (path !== undefined) rows.push(`path: ${path}`);
+		const elapsed = progress.elapsedSeconds;
+		if (typeof elapsed === "number") parts.push(`${String(elapsed)}s`);
 	}
-	return rows.length === 0 ? undefined : rows;
+	const diagnostic = stringField(details, "diagnostic");
+	if (diagnostic !== undefined) {
+		parts.push(`diagnostic: ${diagnostic.replace(/\s+/gu, " ").trim()}`);
+	}
+	return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 /**
@@ -118,12 +119,12 @@ export const bgBashGetPresentation: ToolPresentationProvider = (args, result) =>
 	const lines = details === undefined ? [] : getFieldLines(details);
 	const output =
 		lines.length > 0 ? lines.join("\n") : result === undefined ? "" : agentResultText(result);
-	const collapsedRows = getCollapsedRows(details);
+	const collapsedRow = getCollapsedRow(details);
 	const resultText = result === undefined ? undefined : agentResultText(result);
 	return {
 		summary,
 		...(output === "" ? {} : { output }),
-		...(collapsedRows === undefined ? {} : { collapsedRows }),
+		...(collapsedRow === undefined ? {} : { collapsedRows: [collapsedRow] }),
 		...(resultText === undefined ? {} : { copy: { primary: resultText } }),
 	};
 };
@@ -136,7 +137,6 @@ export const bgBashStopPresentation: ToolPresentationProvider = (args, result) =
 	return {
 		summary: id === "" ? "stop task" : id,
 		...(output === "" ? {} : { output }),
-		...(output === "" ? {} : { collapsedRows: [output] }),
 		...(primary === "" ? {} : { copy: { primary } }),
 	};
 };

@@ -5,15 +5,12 @@ import { describe, expect, test } from "vitest";
 import { readEvalSettings } from "../src/eval/settings.js";
 
 describe("Eval settings", () => {
-	test("reads Python enablement and trims pythonBin", async () => {
+	test("reads and trims pythonBin", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "eval-settings-"));
 		const path = join(directory, "ext_settings.json");
-		await writeFile(
-			path,
-			JSON.stringify({ eval: { enabled: true, pythonBin: " /usr/bin/python3 " } }),
-		);
-		expect(readEvalSettings(path)).toEqual({ enabled: true, pythonBin: "/usr/bin/python3" });
+		await writeFile(path, JSON.stringify({ eval: { pythonBin: " /usr/bin/python3 " } }));
+		expect(readEvalSettings(path)).toEqual({ pythonBin: "/usr/bin/python3" });
 		await writeFile(path, JSON.stringify({ eval: { pythonBin: "  " } }));
-		expect(readEvalSettings(path)).toEqual({ enabled: false, pythonBin: undefined });
+		expect(readEvalSettings(path)).toEqual({ pythonBin: undefined });
 	});
 });

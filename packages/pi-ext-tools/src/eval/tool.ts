@@ -91,6 +91,7 @@ export function createPythonEvalTool(
 		parameters: EVAL_PARAMETERS,
 		exposure: "model-only",
 		defaultActive: false,
+		reachesTools: () => ["read", "bash", "edit", "write", "grep", "find", "apply_patch"],
 		annotations: {
 			openWorldHint: true,
 		},

@@ -4,7 +4,7 @@ import { getToolPresentationProvider, textToolResult } from "@hheei/pi-ext-core"
 import { describe, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
 import { registerBgBashTools } from "../src/bg-bash-tools.js";
-import { createFffRuntimeState } from "../src/session-state.js";
+import { createToolsRuntimeState } from "../src/session-state.js";
 import { renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 
 const theme = {
@@ -13,7 +13,7 @@ const theme = {
 } as unknown as Theme;
 function registered() {
 	const host = toolHost();
-	const state = createFffRuntimeState();
+	const state = createToolsRuntimeState();
 	registerBashTool(host.pi, state);
 	registerBgBashTools(host.pi, state);
 	return host.tools;
@@ -36,8 +36,9 @@ describe("background Bash owned rendering", () => {
 		const details = { id: "bash-1", path: "/session/tasks/bash-1.log" };
 		const result = textToolResult(JSON.stringify(details), details);
 		const presentation = getToolPresentationProvider(tool)!(args, result, theme);
+		expect(presentation.summary).toBe("printf '你好' · bash-1");
 		expect(presentation.request).toBe(args.command);
-		expect(presentation.collapsedRows).toEqual(["id: bash-1", "path: /session/tasks/bash-1.log"]);
+		expect(presentation.output).toBe("id: bash-1\npath: /session/tasks/bash-1.log");
 		expect(presentation.copy?.primary).toBe(args.command);
 		expect(presentation.copy?.full).toContain(JSON.stringify(details));
 		const context = renderContextFor({ args, toolCallId: "spawn", cwd: "/repo" });
@@ -68,13 +69,24 @@ describe("background Bash owned rendering", () => {
 		expect(presentation.copy?.primary).toBe("raw model fields");
 	});
 
+	test("get level 0 view formats a concise single-line summary", () => {
+		const tool = toolFor(registered(), "bg_bash_get");
+		const provider = getToolPresentationProvider(tool)!;
+		const result = textToolResult("", {
+			status: "running",
+			progress: { elapsedSeconds: 12 },
+		});
+		const presentation = provider({ id: "bash-1" }, result, theme);
+		expect(presentation.collapsedRows).toEqual(["running · 12s"]);
+	});
+
 	test("stop confirmation and errors remain inspectable without pi-ext-ui", () => {
 		const tool = toolFor(registered(), "bg_bash_stop");
 		const args = { id: "bash-1" };
 		const confirmation = textToolResult("Stopped bash-1.", undefined);
-		expect(getToolPresentationProvider(tool)!(args, confirmation, theme).collapsedRows).toEqual([
+		expect(getToolPresentationProvider(tool)!(args, confirmation, theme).output).toBe(
 			"Stopped bash-1.",
-		]);
+		);
 		const result = { ...textToolResult("Cannot stop task", undefined), isError: true };
 		const context = renderContextFor({ args, toolCallId: "stop", cwd: "/repo" });
 		const output = tool.renderResult!(
