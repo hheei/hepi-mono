@@ -28,7 +28,7 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Sets or removes a keyed bullet point in a named prompt section (e.g. `deferred_tools`).
+ * Sets or removes a keyed bullet point in a named prompt section.
  *
  * Each item in the section is represented as `- ${key}: ${text}` (or `- ${text}` if text already begins with key).
  * If `text` is undefined or blank, the item for `key` is removed.
@@ -48,7 +48,7 @@ export function setSectionBullet(
 	const rawLines = current ? current.split("\n") : [];
 	const escapedKey = escapeRegex(key);
 	const keyRegex = new RegExp(
-		`^[-*]\\s+(?:\\*{1,2}|\\x60)?${escapedKey}(?:\\*{1,2}|\\x60)?(?:\\s*:|\\s*—|\\s*-\\s|\\s*$)`,
+		`^[-*]\\s+(?:\\*{1,2}|\\x60)?${escapedKey}(?:\\*{1,2}|\\x60)?(?:\\s*:|\\s*—|\\s*-\\s|\\s*\\(|\\s*$)`,
 		"i",
 	);
 
@@ -57,7 +57,8 @@ export function setSectionBullet(
 		const trimmed = text.trim();
 		formattedLine = trimmed.startsWith("- ")
 			? trimmed
-			: trimmed.toLowerCase().startsWith(`${key.toLowerCase()}:`)
+			: trimmed.toLowerCase().startsWith(`${key.toLowerCase()}:`) ||
+					trimmed.toLowerCase().startsWith(`${key.toLowerCase()} (`)
 				? `- ${trimmed}`
 				: `- ${key}: ${trimmed}`;
 	}
@@ -73,7 +74,6 @@ export function setSectionBullet(
 					nextLines.push(formattedLine);
 					replaced = true;
 				}
-				// if formattedLine is undefined, we omit the line (delete)
 				continue;
 			}
 		}
@@ -94,44 +94,41 @@ export function setSectionBullet(
 	}
 }
 
-export interface DeferredToolPromptSpec {
-	readonly key: string;
-	readonly active: boolean;
-	readonly guidanceSection: string;
-	readonly guidanceContent?: string | undefined;
-	readonly toolSearchBullet: string;
-	readonly codemodeBullet: string;
-}
+export const OPTIONAL_TOOLS_SECTION = "optional_tools";
+export const OPTIONAL_TOOLS_PREAMBLE =
+	'If not loaded, use tool_search ({ query: "<query>" }) or call via codemode.';
 
 /**
- * Synchronizes a deferred tool's discovery bullets and activation guidance.
- *
- * When `spec.active` is true:
- * - Clears the discovery bullet from `deferred_tools`.
- * - Sets the guidance section with `spec.guidanceContent`.
- *
- * When `spec.active` is false:
- * - Clears the guidance section.
- * - If `tool_search` is active, sets the bullet to `spec.toolSearchBullet`.
- * - Else if `codemode` is active, sets the bullet to `spec.codemodeBullet`.
- * - Otherwise, removes the bullet.
+ * Sets or removes a stable item in the `optional_tools` prompt section.
+ * The section maintains a fixed instruction preamble at top followed by non-duplicative bullets.
  */
-export function syncDeferredToolPrompt(
+export function setOptionalToolBullet(
 	sections: Record<string, string>,
-	activeTools: ReadonlySet<string>,
-	spec: DeferredToolPromptSpec,
+	key: string,
+	bullet: string | undefined,
 ): void {
-	if (spec.active) {
-		setSectionBullet(sections, "deferred_tools", spec.key, undefined);
-		setPromptSection(sections, spec.guidanceSection, spec.guidanceContent);
-	} else {
-		setPromptSection(sections, spec.guidanceSection, undefined);
-		if (activeTools.has("tool_search")) {
-			setSectionBullet(sections, "deferred_tools", spec.key, spec.toolSearchBullet);
-		} else if (activeTools.has("codemode")) {
-			setSectionBullet(sections, "deferred_tools", spec.key, spec.codemodeBullet);
-		} else {
-			setSectionBullet(sections, "deferred_tools", spec.key, undefined);
+	const current = sections[OPTIONAL_TOOLS_SECTION];
+	if (bullet === undefined || bullet.trim() === "") {
+		if (current !== undefined) {
+			setSectionBullet(sections, OPTIONAL_TOOLS_SECTION, key, undefined);
+			const updated = sections[OPTIONAL_TOOLS_SECTION];
+			if (updated !== undefined && updated.trim() === OPTIONAL_TOOLS_PREAMBLE) {
+				delete sections[OPTIONAL_TOOLS_SECTION];
+			}
 		}
+		return;
 	}
+
+	if (current === undefined || current.trim() === "") {
+		const trimmed = bullet.trim();
+		const formatted = trimmed.startsWith("- ") ? trimmed : `- ${trimmed}`;
+		sections[OPTIONAL_TOOLS_SECTION] = `${OPTIONAL_TOOLS_PREAMBLE}\n${formatted}`;
+		return;
+	}
+
+	if (!current.startsWith(OPTIONAL_TOOLS_PREAMBLE)) {
+		sections[OPTIONAL_TOOLS_SECTION] = `${OPTIONAL_TOOLS_PREAMBLE}\n${current}`;
+	}
+
+	setSectionBullet(sections, OPTIONAL_TOOLS_SECTION, key, bullet);
 }
