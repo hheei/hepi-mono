@@ -224,6 +224,13 @@ export function createStateProjector(initialState: SubagentState = "running"): S
 						interrupted = undefined;
 					}
 				}
+			} else if (value.type === "compaction_start") {
+				summary = "compacting...";
+				activeTool = undefined;
+			} else if (value.type === "compaction_end") {
+				if (summary === "compacting...") {
+					summary = undefined;
+				}
 			} else if (value.type === "error") {
 				state = "error";
 				interrupted =

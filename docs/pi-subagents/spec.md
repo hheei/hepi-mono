@@ -10,7 +10,8 @@
 - 查看、发送消息和停止 child（没有 host 时 child 运行在无终端的 headless RPC 模式）；
 - 接收 child 主动发给 parent 的进度、发现、决策请求和阻塞信息；
 - child 的 panel 被关闭或 idle 回收后保留同一 session 与身份，后续 send 用同一 session 拉起新 runtime，不重放中断的 turn；
-- parent reload/restart 后重连仍存活的 child，并清理确认已结束的 runtime。
+- parent reload/restart 后重连仍存活的 child，并清理确认已结束的 runtime；
+- 重新打开这个父会话时，在 `before_agent_start` 之前回到该会话本来的 subagent 账本，而不是等模型去开 panel（§7.7）。
 
 V1 不是 workflow engine、scheduler、任务 DAG 或自制 multi-agent UI。
 
@@ -25,7 +26,7 @@ presentation  = 由 spawn 决定：host panel 里的 native Pi TUI，或无终�
 ```
 
 Pi child session 保存对话。PID、socket、bridge connection、pane ID 和 surface ID 都是可替换的 runtime attachment，不是 child identity。
-liveness 的唯一依据是 bridge 连接（由 parent 进程监听、child 主动拨入），不靠 PID 探测、不靠 session JSONL 轮询。
+bridge 是控制面：指令、事件和「这份 runtime 是否还在应答」。它不是所有权。所有权是 §7.7 的会话租约：`intent` 与 attachment（Herdr tab、cmux surface 或 pid）在副作用之前写入。宿主列表或 pid 用来对账，不扫 session JSONL。
 
 ### 2.2 所有权
 
@@ -79,8 +80,8 @@ agent_spawn
 panel child 的进程由 host 持有，parent 只持有 attachment：
 
 - spawn 时 parent 仍然铸造 runtime identity、bridge token 并构造唯一的 LaunchSpec（`presentation=panel` 时不含 `--mode rpc`、stdio=inherit），再交给 HostAdapter 打开 panel 并运行该 argv；
-- 进程退出观测：bridge 连接（唯一权威）+ `pane process-info`；关闭 panel 只证明 attachment 消失；
-- child 的 runtime 消失（bridge 断开）时 parent 释放该 panel，child 保持身份与 session，后续 `agent_send` 用同一 session 开一个新 panel（不重放中断的 turn）。
+- 写者是否还在只看进程锁，以及本进程自己持有的进程句柄。关闭 panel 只证明 attachment 消失。
+- 写者消失不是终止：child 保持身份与 session，后续 `agent_send` 用同一 session 再起 runtime（不重放中断的 turn）。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，调用方要收掉就 `agent_stop`。
 
 ### 3.3 Recovery
 
@@ -245,7 +246,7 @@ token 不写入 registry：每 runtime 的 bridge token 由 parent 进程生成�
 
 1. socket 绑定：parent 监听 `<runtimeDir>/parent-<parentSessionId>.sock`；第二个 Pi 进程若指向同一 parent session 会绑定失败并明确报错，不静默接管；
 2. registry 记录：child 的 `runtimeIdentity` 是事件与报告的身份依据，身份不匹配的 frame 一律丢弃；
-3. fail closed：无法确认 runtime 死活时不启动第二个 runtime，把可见错误返回给 model——本进程仍持有的 panel/进程句柄，以及重启后从未重连的 panel runtime 记录，都是「尚未确认」的证据，只要它在，send 就不会重新拉起；
+3. 不叠第二个写者：本进程的进程句柄还活着时，send 拒绝再起 runtime，先 stop 这个 child。锁还被持有时输入交给当前写者。锁已空、面板打开未确认、或重启后从未重连，都不是拒绝理由：后续 send 用同一 session 再起一个。
 
 bridge token 按 parent session 分开存放（`<runtimeDir>/tokens-<parentSessionId>.json`，0600）：同一台机器上两个 parent session 共享 runtime 目录，共用一个文件会让后写的一方抹掉对方的凭据，从而让对方的 panel child 在重连时无法通过认证。
 
@@ -315,9 +316,10 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 - running child：明确 `steer` 或遵循 `auto` policy；不得靠屏幕状态猜测。
 - idle child：follow-up/prompt。
 - 没有可用 runtime 时先按冻结的 presentation 拉起同一 session（panel 会开一个新 panel），失败同理返回可见错误。
-- 人工关闭 panel（或该 panel 的 child 进程退出）与 `agent_stop` 都是终止：保存 `intent=stopped` / `state=stopped`，session 文件保留，不自动复活；后续显式 `agent_send` 可以重新激活，但必须先确认旧 runtime 状态，不能启动重复进程。宿主只能确认进程已退出，不能证明是人工关闭还是崩溃，因此已确认的外部 panel 退出统一按终止处理。
+- 写者消失（锁已空，或本进程看见后台进程退出）不是终止：runtime 从账本拿掉；当时在跑则记 `blocked` 并回报一次，intent 保持 active。后续 `agent_send` 用同一 session 再起 runtime。宿主已确认 panel 进程不在时关掉空标签。标签还在不拒绝 send。
+- `agent_stop` 才是终止：先写 stopped intent，再关 panel 或结束进程。
 - 系统 idle 自动回收落 `done`，后续 send 可以恢复同一个 session；不得把自动回收后排队到达的断线事件当成人工终止。
-- runtime ownership 不明时明确拒绝（`safeToRetry=false`）：说明无法确认旧进程已退出、没有启动第二个 runtime，必要时先清理旧 child 再 spawn 新 child。不增加 panel 身份持久化、反查或恢复探测。
+- 本进程的进程句柄还活着时，send 拒绝再起 runtime（`safeToRetry=false`）。调用方先 `agent_stop` 这个 child，再对同一个 id 发送，不要另 spawn。面板打开未确认、或看不到锁文件，都不是拒绝理由。未知的宿主列表仍然不得当成死亡。attachment 身份按 §7.7 持久化。
 - Task child 不接受后续输入，拒绝也标记为不可直接重试。
 - 已接受但未确认持久化的输入被记录为待确认，断线后不静默重放。
 
@@ -326,7 +328,7 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 - 收到最终 `agent_settled`（不是 `agent_end`）且没有待处理输入后 child 落 `idle`；`SUBAGENT_IDLE_TIMEOUT_MS`（60s）到期即回收 runtime（先经 bridge 请求 `shutdown`，再结束进程），state 落 `done`，identity 与 session 保留。
 - 回收只针对 `idle` 的 child：running 的 child 永远不会被自动结束，只有 `agent_stop`（或人自己关掉 panel）结束正在工作的 child。
 - Task child 不参与 idle 回收：它的 parent 在收下结果后立刻清理 runtime。
-- 退出未确认时（进程仍在，或 panel 关不掉/观察不到）记 `failed`、保留 runtime 证据**并保留本进程的句柄**：句柄是「不得再起第二个 runtime」的依据，也是重试 stop 的唯一抓手；此时 send 直接拒绝并要求先 stop，而不是悄悄再拉一个 runtime。
+- 回收时关不掉或观察不到：不改记录，句柄留着。标签是调用方的。进程句柄仍活着时 send 仍拒绝再起 runtime。
 - panel child 的倒计时受聚焦影响：到期时先 `observe()`，panel 仍然聚焦（或聚焦不可判定）就重新计时，只有明确「没人在看」才关闭 panel。观察不清楚时不关闭——panel 只在有判断依据时被关掉。
 - 在检查期间到达的任何 child 信号都会让这一次回收作废并重新计时：这些事件排在回收任务之后处理，只有「入站信号计数」能拦住一个已经在飞行中的判断，否则一个刚开始使用 panel 的人会失去它。
 - 人手动输入（`child_input` 且 `source=interactive`）取消倒计时；parent 自己经 bridge 发的消息（`source=rpc`）不算人的存在。turn 结束后若没有待处理输入会重新计时。
@@ -350,7 +352,7 @@ TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child 
 
 对 adopt 来的 child（本进程既不持有进程也不持有 panel），stop 只能请求 `shutdown` 并等待 bridge 断开（有上限）；等不到就明确报告「需要人手动关闭它的 panel」，不谎报已停止。
 
-child 的 bridge 断开但进程仍活着时，本进程**不自动关闭**它的 panel：那个进程可能在服务人切过去的 session，而自动关掉它没人要求过。这种 panel 的句柄会留着，交给 `agent_stop` 关闭（显式指令不是推断），或者由 child 自己重连后回到正常流程。
+进程锁还被持有时，连接看起来断了也不结束这个 child，也不自动关 panel。锁已经空了才按写者消失入账。panel 标签可以留着；只有宿主确认进程已退出时才丢掉句柄并关掉空标签。调用方要收掉留下的标签，自己 `agent_stop`。
 
 非显然不变式：headless child 跑在 Pi 的 rpc mode 下，`ctx.shutdown()` 只置一个 flag，而 rpc mode 只在处理完一条命令或 `agent_settled` 之后检查它，因此对 idle child 的 `shutdown` 请求不会让进程退出，它只是"这一轮结束后请退出"的礼貌请求。真正的优雅退出是 **SIGTERM**：rpc mode 注册了 SIGTERM handler，会走完整的 dispose（发出 `session_shutdown`、flush 会话、清理 runtime）并以 143（128+15）退出，所以退出码 143 是预期的优雅退出，不是失败；进程是否结束只看存活，不看退出码。进程退出无法确认时返回可见失败并保留证据。exit callback 看到 stopped 后不得触发自动恢复。Stop 幂等；stopped child 永不自动恢复。
 
@@ -360,7 +362,71 @@ Parent lifecycle cleanup（含 `/reload`）只释放本地 bridge server、订�
 新 parent branch 重新监听同一 socket 路径，仍活着的 child 会自行重连并被 adopt（读 entries 与 get_state，不新建 runtime）。
 parent fork/new session 不继承旧 parent 的控制权。
 
-已知限制（有意保留）：adopt 来的 panel child 没有本进程开的 HostAttachment，因此聚焦观察、panel 关闭与 idle 回收都退化，stop 走上面的 bridge 等待路径。要恢复完整能力需要把 attachment 身份持久化并用 host 句柄工厂重建 attachment，V1 不做。
+§7.6 的「reload 后没有 HostAttachment」由 §7.7 取代：attachment 写入租约，重新打开会话时用宿主列表重建句柄。在 SUB-12～SUB-14 落地前，源码仍是旧行为。
+
+
+## 7.7 会话租约
+
+子 agent 状态属于父会话，不属于某一次进程，也不属于模型的一项技能。模块 `ConversationLease` 把 §7 的生命周期收在一个小接口后面。extension 的 `session_start`、`before_agent_start`、spawn/stop 和 child lifecycle 只走这个接口；测试也只走这个接口。Herdr CLI、5 秒 adopt 窗口、内存里的 unresolved 集合和 stdin 句柄都不出现在接口上。
+
+```text
+open(boundary)   session_start。boundary = startup | resume | reload | fork | new
+ready()          before_agent_start 等待本次 open 结束。未完成不得开始这一轮
+commit(edge)     只写 intent 或 attachment。第一次写入有效
+roster()         这个父会话的 child 账本
+```
+
+`cancel` 不是 boundary，也不是 edge：父回合或子回合被中断都不改租约。进程被 kill 没有回调；下次 `open(resume)` 读的是上次 `commit`。
+
+租约字段只有：`childId`、`sessionPath`、`presentation`、`intent: run | stop`、`attachment`（`{ host, tabId }`、`{ host, surfaceId }` 或 `{ pid }`）、`runtimeIdentity`。usage、activeTool、summary、socket、working 只留在内存。同一份 registry JSON，不另建 ledger，不引入 SQLite。
+
+写盘只发生在 `commit`：
+
+| edge | 何时 | 写什么 |
+| --- | --- | --- |
+| `spawn-intent` | 进程启动之前 | `intent=run`，还没有 attachment |
+| `attachment-bound` | 宿主或 pid 交回句柄 | attachment，一次 |
+| `stop-intent` | kill 或关 panel 之前 | `intent=stop` |
+| `runtime-gone` | 宿主或 pid 确认已退出 | 清 attachment |
+| `left-session` | 子进程进入另一个 session | 清 attachment，收回 token。不关 panel |
+
+重新绑定且句柄没变：零次写。回灌出新 tab：每个新 attachment 一次写。
+
+**父进程**
+
+| 事件 | `open` / `commit` |
+| --- | --- |
+| kill / quit | 无调用。panel 是否还在，看下次对账时 Herdr 是否还在。background 随父进程结束。 |
+| resume / startup | `open(resume)` 或 `open(startup)`。tab 或 pid 还在就绑回，不新开。 |
+| reload | `open(reload)`。不杀 child。用租约里的 tab、surface 或 pid 重新包成句柄。bridge 自己重拨。 |
+| cancel | 不调用。下一轮 `ready()` 看到同一份账本。 |
+| fork / new | `open(fork)` 或 `open(new)` 的账本是空的。旧 child 留在旧 session id。不复制 attachment。 |
+
+**子进程**
+
+| 事件 | 结果 |
+| --- | --- |
+| reload | 绑定不变。旧 client 停止拨号，新 client 重拨。不 `commit`。 |
+| resume 同一 session | 不算离开。 |
+| resume 到别的 session，或 fork / new | `commit(left-session)`。panel 留给那个人。 |
+| cancel | 不 `commit`。runtime 仍是它。 |
+| 人关掉这一个 panel，或这个进程自己死了，宿主还活着 | `commit(stop-intent)` 然后确认后 `commit(runtime-gone)`。不自动复活。 |
+| 人用原生 `/resume` 打开该 child session | 账本保持未知，不回灌，不起第二个 writer。 |
+
+**重开 Herdr，再打开这个父会话**
+
+`open` 向宿主要一次列表，`ready()` 在列表有结果之前不返回。
+
+| 列表 | 动作 |
+| --- | --- |
+| 未知（超时、命令失败、Herdr 尚未就绪） | 继续等。绝不新开进程。 |
+| 租约里的 tab 还在 | 绑回原 tab。 |
+| 宿主是新一代，当时 `intent=run` 且仍有 attachment 的 tab 全部不在 | `ready()` 返回前，用同一个 session 把这些 panel 拉回。这是回灌，不是工具调用。已 idle 回收或 `intent=stop` 的只留在 `roster()`，不开 panel。 |
+| 宿主还活着，只有其中一个 tab 不在 | 只终止那一个。其余绑回。 |
+
+background 不参加回灌：它活不过父进程，resume 时 pid 已死就 `runtime-gone`。同一进程里的 reload 如果 pid 仍在，只重绑，不开第二个；stdin 写端属于进程，不随 `session_shutdown` 关掉。
+
+seam 只有一个：`HostDirectory`。生产 adapter 包现有的 Herdr/cmux 列表和开 panel；测试 adapter 在内存里。租约模块拥有上面的矩阵。删掉它之后，extension、child bridge 和工具会各自再解释一遍 reload 和 Herdr。
 
 ## 8. Host 与 UI 合同
 
@@ -420,7 +486,7 @@ V1不包含：
 - 自动worktree管理、cost-based interruption或通用budget engine；
 - custom transcript/TUI/renderer、terminal scraping或token streaming relay；
 - activity sidecar、session JSONL 轮询或基于缺文件的 stall ping；
-- 自动重新打开TUI、自动重放中断任务或未确认消息；
+- 因 idle 回收或 `intent=stop` 自动打开 panel，或自动重放中断任务和未确认消息；宿主重启回灌只拉回当时仍有 attachment 的 panel（§7.7），不是模型工具；
 - 阻止用户直接原生`/resume`同一session；
 - durable event ledger、process history、handoff history或通用cross-extension message bus；
 - 未定义语义的agent字段和兼容旧HEPI/subagent实现的shim。
@@ -432,7 +498,7 @@ V1完成必须满足：
 1. 多个child可并行后台运行，parent可spawn、inspect、send、接收report和stop。
 2. child对话由真实Pi session持久化，首次落盘、损坏、丢失和断线路径不会生成错误的新身份或静默重放。
 3. parent reload/restart 优先 adopt 自行重连的 child；socket 绑定 + registry runtime identity 保证受管理路径不会出现第二个受管 runtime。
-4. Herdr/cmux panel 里运行 child 的原生 Pi TUI；panel close、进程崩溃、idle 回收和 session switch 都符合本规格（身份与 session 保留，不重放中断的 turn）。
+4. Herdr/cmux panel 里运行 child 的原生 Pi TUI；panel close、进程崩溃、idle 回收和 session switch 都符合本规格（身份与 session 保留，不重放中断的 turn）。重新打开父会话时，§7.7 的账本在 `before_agent_start` 前恢复。
 5. 失败、取消、stop与handoff race均在有限deadline内可见结束，不死锁transition queue。
 6. effective model/provider/resources和host选择可观察，无静默routing。
 7. focused tests覆盖[`tickets.md`](tickets.md)各ticket的验收；受影响文件通过Biome、typecheck及对应Vitest。
@@ -465,4 +531,12 @@ Stage 2  传输从 runner 切到 bridge（parent 直接 spawn 后台 child；删
 Stage 3  panel 默认呈现（HostAdapter.open + 聚焦观察 + agent_spawn 默认 panel）✅
 Stage 4  panel 生命周期（stop 关 panel、聚焦暂停 idle 回收、runtime 消失时释放 panel）✅
 Stage 5  文档与 ticket 收口（本文件、README、tickets、architecture、DESIGN）⏳
+```
+
+§7.7 的实施顺序：
+
+```text
+SUB-12  会话租约的 commit，只写 intent 与 attachment
+  -> SUB-13  父边界 open/ready，含重开 Herdr 的回灌
+  -> SUB-14  子边界 commit（leave / cancel / 单 panel 关闭）
 ```

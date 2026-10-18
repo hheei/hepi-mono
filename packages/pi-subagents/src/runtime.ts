@@ -7,8 +7,7 @@
  * registry only records which runtime and endpoint a child was last launched with.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
-import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { errorMessage } from "@hheei/pi-ext-core";
@@ -16,7 +15,9 @@ import { type ChildRuntime, spawnChildRuntime } from "./child-process.js";
 import type { Presentation, SubagentRecord } from "./domain.js";
 import type { HostAdapter, HostAttachment } from "./host-adapter.js";
 import { buildLaunchSpec, type LaunchSpec, withBridgeToken } from "./launch-spec.js";
+import { commitLease } from "./lease.js";
 import type { SubagentRegistry } from "./registry.js";
+import { defaultStatePath, deleteToken, openStateDb, readToken, writeToken } from "./state-db.js";
 
 /** Per-runtime bridge tokens, kept out of the registry because they are credentials. */
 export interface RuntimeTokenStore {
@@ -42,87 +43,47 @@ function runtimeDirectory(): string {
  * The one socket a parent session listens on. A child dials this path, so a parent that restarts
  * re-listens in the same place and a surviving child reconnects instead of being rebuilt.
  */
-export function parentBridgeEndpoint(parentSessionId: string): string {
-	return join(runtimeDirectory(), `parent-${parentSessionId}.sock`);
+export function parentBridgeEndpoint(_parentSessionId: string): string {
+	return defaultStatePath();
+}
+
+/** Tokens live in the same sqlite file as the child ledger. Rows do not clobber each other. */
+export function parentTokenFile(_parentSessionId: string): string {
+	return defaultStatePath();
 }
 
 /**
- * Every parent session keeps its own token file. One shared file is rewritten wholesale by whichever
- * parent saved last, so two parent sessions in the same runtime directory would erase each other's
- * credentials and a child that survived a restart could no longer authorize itself.
- */
-export function parentTokenFile(parentSessionId: string): string {
-	return join(runtimeDirectory(), `tokens-${parentSessionId}.json`);
-}
-
-/**
- * Tokens outlive the parent process: a child that survived (a panel child, or one whose parent was
- * killed) reconnects with the token it was launched with, and a restarted parent must be able to
- * authorize it without holding the old process's memory. The store is a 0600 file in the 0700
- * runtime directory; the registry never sees a token.
+ * Tokens outlive the parent process. A restarted parent reads the same sqlite file and can still
+ * match the token a surviving child was launched with.
  */
 export function createRuntimeTokenStore(options: RuntimeTokenStoreOptions): RuntimeTokenStore {
-	const file = options.file ?? parentTokenFile(options.parentSessionId);
+	const file = options.file ?? defaultStatePath();
 	const diagnose = options.diagnose ?? ((): void => {});
-	const tokens = new Map<string, string>(readStoredTokens(file, diagnose));
-	let writing: Promise<void> = Promise.resolve();
-	const persist = (): void => {
-		const payload = `${JSON.stringify(Object.fromEntries(tokens))}\n`;
-		writing = writing
-			.then(async () => {
-				mkdirSync(runtimeDirectory(), { recursive: true, mode: 0o700 });
-				// Writing in place truncates the file first, and a parent killed inside that window would
-				// leave every surviving child locked out of the bridge. The swap is atomic instead.
-				const temporary = `${file}.${process.pid}.tmp`;
-				await writeFile(temporary, payload, { mode: 0o600 });
-				await rename(temporary, file);
-			})
-			.catch((error: unknown) => {
-				diagnose(`could not persist bridge tokens: ${errorMessage(error)}`);
-			});
-	};
+	let db: ReturnType<typeof openStateDb> | undefined;
+	try {
+		db = openStateDb(file);
+	} catch (error) {
+		diagnose(`could not open the state database: ${errorMessage(error)}`);
+	}
+	const database = db;
 	return {
 		remember(runtimeIdentity, token) {
-			tokens.set(runtimeIdentity, token);
-			persist();
+			if (database === undefined) return;
+			writeToken(database, options.parentSessionId, runtimeIdentity, token);
 		},
 		get(runtimeIdentity) {
-			return tokens.get(runtimeIdentity);
+			if (database === undefined) return undefined;
+			return readToken(database, options.parentSessionId, runtimeIdentity);
 		},
 		forget(runtimeIdentity) {
-			if (tokens.delete(runtimeIdentity)) persist();
+			if (database === undefined) return;
+			deleteToken(database, options.parentSessionId, runtimeIdentity);
 		},
 	};
-}
-
-function readStoredTokens(
-	file: string,
-	diagnose: (message: string) => void,
-): Array<[string, string]> {
-	let raw: string;
-	try {
-		raw = readFileSync(file, "utf8");
-	} catch (error) {
-		const code = (error as { code?: unknown }).code;
-		if (code !== "ENOENT") diagnose(`could not read bridge tokens: ${errorMessage(error)}`);
-		return [];
-	}
-	if (raw.trim() === "") return [];
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw) as unknown;
-	} catch (error) {
-		diagnose(`bridge token file is not valid JSON: ${errorMessage(error)}`);
-		return [];
-	}
-	if (typeof parsed !== "object" || parsed === null) return [];
-	return Object.entries(parsed).filter(
-		(entry): entry is [string, string] => typeof entry[1] === "string",
-	);
 }
 
 export interface LaunchChildOptions {
-	readonly registry: Pick<SubagentRegistry, "update">;
+	readonly registry: Pick<SubagentRegistry, "get" | "update">;
 	readonly record: SubagentRecord;
 	readonly tokens: RuntimeTokenStore;
 	/** Waits for this child's bridge connection; false when it did not connect in time. */
@@ -205,11 +166,15 @@ export async function launchChild(
 		options.diagnose?.(`bridge wait failed: ${errorMessage(error)}`);
 		connected = false;
 	}
-	if (connected) return { handle: runtime };
+	if (connected) {
+		await bindProcess(options.registry, record.subagentId, runtime.pid);
+		return { handle: runtime };
+	}
 	await runtime.terminate();
 	if (runtime.alive) {
 		// The process outlived termination, so it is not gone and the caller keeps the handle: it is
 		// the only thing that can try again.
+		await bindProcess(options.registry, record.subagentId, runtime.pid);
 		return {
 			handle: runtime,
 			failure: `Child ${record.subagentId} never connected to the parent bridge and did not stop (it may still be running)`,
@@ -233,19 +198,12 @@ export interface OpenChildPanelOptions extends LaunchChildOptions {
 }
 
 /**
- * What a launch left behind. A launch that failed can still have started something — a child that
- * never dialed in, or a process that ignores SIGTERM — and then the caller must keep the handle:
- * dropping it would let the next send start a second runtime for a session the first one may still
- * own. `failure` is what the caller reports.
+ * What a launch left behind. `failure` is what the caller reports. A handle is kept when the host
+ * still has a tab, so stop can close it. It does not by itself forbid another send.
  */
 export interface LaunchOutcome<T> {
 	readonly handle?: T;
 	readonly failure?: string;
-	/**
-	 * Set when something may still own the child's session and this process cannot observe it, so
-	 * the caller refuses to start a second runtime until an explicit stop.
-	 */
-	readonly unconfirmed?: boolean;
 }
 
 /**
@@ -267,8 +225,7 @@ export async function openChildPanel(
 		// failing to report it. The token is kept so a child that does come up can still be adopted,
 		// and the caller is told the runtime is unconfirmed instead of that nothing was started.
 		return {
-			unconfirmed: true,
-			failure: `Child ${record.subagentId} could not be opened in a ${options.host.kind} panel (${errorMessage(error)}); a panel may have been created, so stop the child before sending again`,
+			failure: `Child ${record.subagentId} could not be opened in a ${options.host.kind} panel (${errorMessage(error)}); a panel may have been created, so close it if it is still there`,
 		};
 	}
 	let connected: boolean;
@@ -278,14 +235,27 @@ export async function openChildPanel(
 		options.diagnose?.(`bridge wait failed: ${errorMessage(error)}`);
 		connected = false;
 	}
-	if (connected) return { handle: attachment };
-	// The child never dialed in, so the panel is closed again — and only a host that confirms it is
-	// gone counts. While it may still run, the caller keeps the handle and the token: the handle is
-	// what stops a second runtime from being started for the same session, and the token is what lets
-	// a child that does come up be adopted instead of lingering as a process nobody owns.
+	if (connected) {
+		await bindPanel(
+			options.registry,
+			record.subagentId,
+			options.host.kind,
+			attachment.identity.attachmentId,
+		);
+		return { handle: attachment };
+	}
+	// The child never dialed in, so the panel is closed again. A host that cannot confirm it is gone
+	// keeps the handle, so stop can try the close again, and the token, so a child that does come up
+	// can still be adopted. The handle does not block a later send.
 	const cleanup = await attachment.cleanup();
 	const observed = await attachment.observe();
 	if (!(observed.known && !observed.alive)) {
+		await bindPanel(
+			options.registry,
+			record.subagentId,
+			options.host.kind,
+			attachment.identity.attachmentId,
+		);
 		return {
 			handle: attachment,
 			failure: `Child ${record.subagentId} never connected to the parent bridge and its panel could not be closed (${
@@ -316,4 +286,28 @@ export async function prepareRuntimeDirectory(
 		diagnose?.(`could not restrict the runtime directory: ${errorMessage(error)}`);
 	});
 	return directory;
+}
+
+async function bindProcess(
+	registry: Pick<SubagentRegistry, "get" | "update">,
+	id: string,
+	pid: number | undefined,
+): Promise<void> {
+	if (pid === undefined) return;
+	await commitLease(registry, id, {
+		type: "attachment-bound",
+		attachment: { kind: "process", pid },
+	});
+}
+
+async function bindPanel(
+	registry: Pick<SubagentRegistry, "get" | "update">,
+	id: string,
+	host: "herdr" | "cmux",
+	attachmentId: string,
+): Promise<void> {
+	await commitLease(registry, id, {
+		type: "attachment-bound",
+		attachment: { kind: "panel", host, id: attachmentId },
+	});
 }

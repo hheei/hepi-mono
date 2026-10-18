@@ -579,6 +579,126 @@ SUB-09 Detach/switch/interrupt
 SUB-10 UX/docs/release gate
 ```
 
+
+---
+
+## SUB-12：会话租约只记录 intent 与 attachment
+
+**目标**：把一个父会话的 subagent 所有权收成 `ConversationLease`。磁盘只留崩溃后必须接着做的决定。
+
+**模块**：`ConversationLease`。调用方和测试只使用 `commit(edge)` 与 `roster()`。`open` / `ready` 属于 SUB-13，本 ticket 不实现。
+
+**范围**
+
+- 租约写在现有的按 `parentSessionId` 隔离的 registry JSON 里。不新建 ledger，不引入 SQLite。
+- `commit` 只接受 `spawn-intent`、`attachment-bound`、`stop-intent`、`runtime-gone`、`left-session`。第一次写入有效；旧 revision 不能覆盖新 attachment。
+- spawn 在进程启动前写 `intent=run`。宿主或 pid 交回句柄时写一次 attachment（Herdr tab、cmux surface 或 pid）。
+- stop 在 kill 之前写 `intent=stop`，确认退出后再清 attachment。
+- usage、activeTool、summary、working、socket 不再写入 registry。投影留在内存。
+- background 的 stdin 写端留在进程内，`session_shutdown` 不关闭它。pid 写入租约。
+
+**不在本 ticket**
+
+- 不对账，不回灌，不改 `before_agent_start`。
+- 不把 lease 抽到 ext-core。只有这一处调用方。
+- 不改 child branch 的 leave/cancel 接线（SUB-14）。
+
+**验收**
+
+- 经过接口：连续的 usage/tool 事件零次 registry 写；spawn 两次写，stop 两次写。
+- stale revision 盖不住新的 tab id。fork 不会在本 ticket 出现；本 ticket 只保证记录按 `parentSessionId` 隔离。
+- registry 损坏、未知版本、parent mismatch 仍然 fail closed。
+- `session_shutdown` 之后，测试里的 background pid 仍可被观察到，stdin 写端没有被关掉。
+
+**验证**：lease commit/roster focused Vitest；registry 写次数测试；package Biome；package typecheck。
+
+**依赖**：已落地的 registry 与 HostAdapter。
+
+状态：`[x]`
+
+---
+
+## SUB-13：父边界对账，并在 turn 前回到会话状态
+
+**目标**：重新打开父会话时，`before_agent_start` 之前账本已经对完。模型看到的是原来的 child，不是一个会去开 panel 的工具。
+
+**模块**：同一个 `ConversationLease`。本 ticket 补上 `open(boundary)` 和 `ready()`。
+
+**seam**：`HostDirectory`。生产 adapter 包现有 Herdr/cmux 的列表和开 panel；测试用内存 adapter。接口上没有 CLI 参数。
+
+**范围**
+
+- `session_start` 调用 `open`。`before_agent_start` 调用 `ready()`，未完成就等到完成。
+- `startup` / `resume` / `reload`：列表里还在的 tab、surface 或活着的 pid 只重绑，不开第二个，这次重绑不写盘。
+- `fork` / `new`：`roster()` 为空，不复制旧 attachment。
+- cancel 不调用 lease。
+- 列表未知：`ready()` 继续等，不新开进程。
+- 宿主是新一代，且 `intent=run` 仍带 attachment 的 panel 全部不在：`ready()` 返回前用同一 session 回灌这些 panel。每个新 tab 写一次。idle 回收或 `intent=stop` 的不开。
+- 宿主还活着、只有一个 tab 不在：只 `commit(stop-intent)` 那一个。
+- background 不回灌。resume 时 pid 已死则 `commit(runtime-gone)`。同一进程 reload 且 pid 仍在则只重绑。
+- 人用原生 `/resume` 占住 child session 时保持未知，不回灌。
+
+**不在本 ticket**
+
+- 不改 child branch 对 reload、fork、cancel 的上报（SUB-14）。回灌不得把 SUB-14 会写成 `left-session` 的 child 拉起；本 ticket 的测试用 `commit(left-session)` 直接放入这个前提。
+- 不自动重放中断的 turn 或未确认输入。
+- 不把 `ready()` 暴露成模型工具。
+
+**验收**
+
+- 测试只通过 `open`、`ready`、`roster` 和内存 `HostDirectory`。
+- reload：原 tab 还在，panel 数不变，registry 写次数为 0。
+- fork：新会话 roster 为空，旧会话 attachment 还在。
+- cancel：账本字节不变。
+- Herdr 新一代：两个当时开着的 panel 在 `ready()` 前回来，一个已 stop 的不回来。
+- 列表未知时 `ready()` 不返回成功，且 `open` 次数不增加。
+- 单 tab 消失：只有该 child 变成 `intent=stop`。
+- 原生占用的 child session 不被回灌。
+
+**验证**：lease parent-boundary focused Vitest（内存 HostDirectory）；package Biome；package typecheck。
+
+**依赖**：SUB-12。
+
+状态：`[x]`
+
+---
+
+## SUB-14：子边界把 leave、cancel 和单 panel 关闭交给租约
+
+**目标**：子进程的 reload、resume、fork、cancel、kill 只改变 §7.7 允许改变的那些事实。
+
+**模块**：同一个 `ConversationLease`。child branch 和 parent 收到 lifecycle 之后只 `commit`，不自己改 registry。
+
+**范围**
+
+- child reload：销毁旧 bridge client，新 client 重拨。不 `commit`。父进程的 attachment 还在。
+- resume 同一 session：不 `commit`。
+- resume 到别的 session、fork 或 new：`commit(left-session)`。不关 panel，收回 token。
+- child cancel：不 `commit`。
+- 宿主仍活着时，这一个 panel 被关或这个进程退出：`commit(stop-intent)`，确认后 `commit(runtime-gone)`。不自动复活。
+- parent 在 `left-session` 之后的 `open` 不得回灌这个 child，也不得把输入送进新 session。
+
+**不在本 ticket**
+
+- 不新增模型工具。
+- 不拦截人直接原生 `/resume` 同一 child session。该情况保持未知。
+- 不把 nudge、投递或 usage 重新写回 registry。
+
+**验收**
+
+- child reload 后仍是同一个 attachment，registry 写次数为 0，bridge 只有一个 client。
+- child fork 之后父 roster 不再持有 attachment，原 panel 没被关闭，token 不能再通过 handshake。
+- child cancel 后 intent 仍是 `run`，attachment 还在。
+- 关掉一个 tab、宿主和其他 tab 仍在：只有该 child 停止。
+- 上述路径之后调用 SUB-13 的 `ready()`，不会为 `left-session` 或 `intent=stop` 的 child 开新 panel。
+
+**验证**：child-boundary focused Vitest；一条 parent `ready()` 交叉测试；package Biome；package typecheck。
+
+**依赖**：SUB-12、SUB-13。
+
+状态：`[x]`
+
+
 ## 里程碑
 
 ### M1：后台RPC闭环（SUB-01～SUB-05）
@@ -592,6 +712,10 @@ SUB-10 UX/docs/release gate
 ### M2：持久runtime恢复（SUB-06）
 
 parent reload/restart可重连存活runner；确认死亡后可安全replacement，不自动续跑中断任务。
+
+### M5：会话租约（SUB-12～SUB-14）
+
+所有权回到父会话。`before_agent_start` 前对完账。规格在 [`spec.md`](spec.md) §7.7。不在这三项落地前把 attachment 持久化塞进别的 ticket。
 
 ### M3：原生TUI handoff（SUB-07～SUB-09）
 

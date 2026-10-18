@@ -8,9 +8,9 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
-import { ChildBridgeClient, type ChildBridgeRequest } from "./bridge-client.js";
 import type { ChildIdentity } from "./domain.js";
-import { BridgeError, type ChildInputSource } from "./protocol.js";
+import { attachChildMailbox } from "./mailbox.js";
+import { BridgeError, CHILD_INPUT_EVENT, type ChildInputSource } from "./protocol.js";
 import { FORWARDED_PI_EVENT_TYPES, shouldForwardPiEvent } from "./rpc-events.js";
 import { assistantUpdatePhase } from "./state.js";
 
@@ -65,11 +65,12 @@ export function promptMessage(payload: unknown): string {
  * Answers a parent request with this child's Pi state. Idleness is the child's own answer: the
  * parent never infers it from how long ago it last heard something.
  */
-export function childState(ctx: ExtensionContext): Record<string, unknown> {
+export function childState(ctx: ExtensionContext, isCompacting = false): Record<string, unknown> {
 	const path = ctx.sessionManager.getSessionFile();
 	return {
 		idle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
+		...(isCompacting ? { compacting: true } : {}),
 		sessionId: ctx.sessionManager.getSessionId(),
 		...(path ? { path } : {}),
 	};
@@ -203,6 +204,13 @@ export function sanitizeEventForBridge(event: unknown): unknown {
 			...(message === undefined ? {} : { message, messages: [message] }),
 		};
 	}
+	if (event.type === "compaction_start" || event.type === "compaction_end") {
+		return {
+			type: event.type,
+			...(typeof event.reason === "string" ? { reason: event.reason } : {}),
+			...(typeof event.aborted === "boolean" ? { aborted: event.aborted } : {}),
+		};
+	}
 	return event;
 }
 
@@ -213,6 +221,24 @@ export function sanitizeEventForBridge(event: unknown): unknown {
 export function registerChildControl(pi: ExtensionAPI, options: ChildControlOptions): ChildControl {
 	const isActive = options.isActive ?? (() => true);
 	let ctx: ExtensionContext | undefined;
+	let isCompacting = false;
+	const pendingCompactionDeliveries: Array<{
+		message: string;
+		deliverAs: "steer" | "followUp" | undefined;
+	}> = [];
+
+	const flushCompactionQueue = (): void => {
+		if (pendingCompactionDeliveries.length === 0) return;
+		const queued = pendingCompactionDeliveries.splice(0);
+		for (const item of queued) {
+			if (item.deliverAs !== undefined) {
+				pi.sendUserMessage(item.message, { deliverAs: item.deliverAs });
+			} else {
+				pi.sendUserMessage(item.message);
+			}
+		}
+	};
+
 	const requireContext = (): ExtensionContext => {
 		if (ctx === undefined) {
 			throw new BridgeError("session_not_ready", "This child has no active Pi session yet");
@@ -230,11 +256,18 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		if (path === undefined) {
 			throw new BridgeError("session_not_ready", "This child has no session file path");
 		}
+		if (isCompacting) {
+			pendingCompactionDeliveries.push({ message, deliverAs });
+			return { accepted: true, path, queuedForCompaction: true };
+		}
 		if (deliverAs !== undefined) pi.sendUserMessage(message, { deliverAs });
 		else pi.sendUserMessage(message);
 		return { accepted: true, path };
 	};
-	const handleRequest = async (request: ChildBridgeRequest): Promise<unknown> => {
+	const handleRequest = async (request: {
+		readonly operation: string;
+		readonly payload: unknown;
+	}): Promise<unknown> => {
 		if (!isActive()) {
 			// The process serves another session now, so it is not this child's runtime: answering
 			// would drive a session the parent never launched.
@@ -251,7 +284,7 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 			case "follow_up":
 				return deliverPrompt(request.payload, "followUp");
 			case "get_state":
-				return childState(requireContext());
+				return childState(requireContext(), isCompacting);
 			case "get_entries": {
 				const sm = requireContext().sessionManager;
 				const branch = typeof sm.getBranch === "function" ? sm.getBranch() : undefined;
@@ -274,7 +307,6 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 	const dispose: Array<() => void> = [];
 	let currentPhase: string | undefined;
 	/** The compact event carrying the current phase, resent when the parent reconnects. */
-	let lastPhaseEvent: unknown;
 	const phaseResetEvents: readonly string[] = [
 		"agent_start",
 		"agent_end",
@@ -283,17 +315,15 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		"agent_settled",
 		"tool_execution_start",
 		"tool_execution_end",
+		"compaction_start",
+		"compaction_end",
 	];
-	const client = new ChildBridgeClient({
-		endpoint: options.endpoint,
-		identity: options.identity,
+	const client = attachChildMailbox({
+		filePath: options.endpoint,
+		parentSessionId: options.identity.parentSessionId,
+		subagentId: options.identity.subagentId,
 		handleRequest,
 		...(options.diagnose === undefined ? {} : { diagnose: options.diagnose }),
-		onConnect: () => {
-			// A reconnected parent knows nothing of the phase this child reached while the socket was
-			// down, so the current compact phase is resent before new deltas arrive.
-			if (lastPhaseEvent !== undefined) client.sendEvent(lastPhaseEvent);
-		},
 	});
 
 	// `pi.on` is declared as literal-name overloads, so a loop over the forwarded event types cannot
@@ -305,18 +335,16 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 	for (const type of FORWARDED_PI_EVENT_TYPES) {
 		dispose.push(
 			onPiEvent(type, (event) => {
-				if (!isActive()) return;
+				if (!isActive() || !client.connected) return;
 				if (!shouldForwardPiEvent(event)) return;
 				const compact = sanitizeEventForBridge(event);
 
 				if (isRecord(event)) {
 					if (typeof event.type === "string" && phaseResetEvents.includes(event.type)) {
 						currentPhase = undefined;
-						lastPhaseEvent = undefined;
 					} else if (event.type === "message_update") {
 						const phase = assistantPhaseKey(event);
 						if (phase !== undefined) {
-							lastPhaseEvent = compact;
 							// While the parent is listening, repetitive deltas in the same phase are dropped to
 							// prevent socket floods. A disconnected parent suppresses nothing: the phase is
 							// resent from `onConnect` instead, so a dropped delta cannot hide it.
@@ -332,9 +360,17 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 	}
 	dispose.push(
 		pi.on("input", (event) => {
-			if (!isActive()) return;
+			if (!isActive() || !client.connected) return;
 			const source = childInputSource(event);
-			if (source !== undefined) client.sendChildInput(source);
+			if (source !== undefined) {
+				client.sendEvent({
+					type: CHILD_INPUT_EVENT,
+					parentSessionId: options.identity.parentSessionId,
+					childId: options.identity.subagentId,
+					runtimeIdentity: options.identity.runtimeIdentity,
+					source,
+				});
+			}
 		}),
 	);
 	dispose.push(
@@ -343,8 +379,25 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		}),
 	);
 	dispose.push(
+		onPiEvent("compaction_start", () => {
+			isCompacting = true;
+		}),
+	);
+	dispose.push(
+		onPiEvent("compaction_end", () => {
+			isCompacting = false;
+			queueMicrotask(() => {
+				if (!isCompacting) {
+					flushCompactionQueue();
+				}
+			});
+		}),
+	);
+	dispose.push(
 		pi.on("session_shutdown", () => {
 			ctx = undefined;
+			isCompacting = false;
+			pendingCompactionDeliveries.length = 0;
 		}),
 	);
 	let started = false;
@@ -355,7 +408,7 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 			started = true;
 			client.start();
 		},
-		report: (operation, payload, signal) => client.sendReport(operation, payload, signal),
+		report: (operation, payload, signal) => client.report(operation, payload, signal),
 		sendEvent: (event) => client.sendEvent(event),
 		dispose: () => {
 			for (const off of dispose) {

@@ -349,19 +349,23 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.manager.activeCount).toBe(0);
 	});
 
-	test("does not permit retry after an unconfirmed panel startup", async () => {
+	test("an unconfirmed panel startup does not freeze the child", async () => {
 		const test1 = await harness({ host: true });
 		test1.openPanel.mockImplementation(async () => ({
-			unconfirmed: true,
 			failure: "host timeout",
 		}));
 		expect(await test1.manager.spawn({ agent: "worker", task: "work" })).toMatchObject({
 			childId: "sa_child1",
 			state: "error",
-			safeToRetry: false,
+			safeToRetry: true,
+			sideEffects: ["registry record persisted", "no runtime remains"],
 		});
 		expect(test1.manager.activeCount).toBe(0);
-		expect(await test1.manager.send("sa_child1", "continue")).toMatchObject({ safeToRetry: false });
+		// No writer is visible, so a send tries the same session again instead of refusing.
+		await expect(test1.manager.send("sa_child1", "continue")).resolves.toMatchObject({
+			safeToRetry: true,
+		});
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 	});
 
 	test("discards an automatic report if a new turn starts during transcript inspection", async () => {
@@ -632,7 +636,7 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.bridge.requests.some((request) => request.operation === "shutdown")).toBe(true);
 	});
 
-	test("keeps an unconfirmed idle runtime and refuses to start a second one", async () => {
+	test("a failed idle close does not freeze the session", async () => {
 		const test1 = await harness({ idleTimeoutMs: 10, host: true });
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
@@ -645,13 +649,15 @@ describe("SubagentManager over the bridge", () => {
 		// The panel refuses to close and still reports the child running: the exit is unconfirmed.
 		attachment.refuseToClose = true;
 
-		await vi.waitFor(async () => {
-			expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "error" });
+		await vi.waitFor(() => {
+			expect(attachment.cleanups).toBeGreaterThan(0);
 		});
-		// The handle is kept, so the next send cannot start a second runtime for the same session.
+		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "done" });
+		// The close did not land. The leftover tab is the caller's, and the record is not marked failed.
+		// A send starts another runtime instead of freezing the session.
 		const sent = await test1.manager.send(spawned.child.id, "keep going");
-		expect(sent).toMatchObject({ reason: expect.stringContaining("not confirmed gone") });
-		expect(test1.openPanel).toHaveBeenCalledTimes(1);
+		expect(sent).toMatchObject({ id: spawned.child.id, state: "running" });
+		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 	});
 
 	test("settles a background child whose process exits after its bridge dropped", async () => {
@@ -670,7 +676,7 @@ describe("SubagentManager over the bridge", () => {
 		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "running" });
 		// The handle is still held, so nothing may start a second runtime for this session yet.
 		expect(await test1.manager.send(spawned.child.id, "already?")).toMatchObject({
-			reason: expect.stringContaining("not confirmed gone"),
+			reason: expect.stringContaining("still running"),
 		});
 		expect(test1.launch).toHaveBeenCalledTimes(1);
 
@@ -686,6 +692,29 @@ describe("SubagentManager over the bridge", () => {
 		// The handle goes with the process, so a later send starts a fresh runtime.
 		expect(test1.runtimes.size).toBe(1);
 		await expect(test1.manager.send(spawned.child.id, "again")).resolves.toMatchObject({
+			id: spawned.child.id,
+		});
+		expect(test1.launch).toHaveBeenCalledTimes(2);
+	});
+
+	test("settles a background child whose process exits while the bridge still looks connected", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const runtime = test1.runtimes.get(spawned.child.id);
+		if (runtime === undefined) throw new Error("no runtime was started");
+		expect(test1.bridge.isConnected(spawned.child.id)).toBe(true);
+
+		runtime.alive = false;
+		runtime.exit(0);
+		await vi.waitFor(async () => {
+			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
+				state: "blocked",
+				freshness: "last_known",
+			});
+		});
+		expect(test1.bridge.isConnected(spawned.child.id)).toBe(false);
+		expect(await test1.manager.send(spawned.child.id, "again")).toMatchObject({
 			id: spawned.child.id,
 		});
 		expect(test1.launch).toHaveBeenCalledTimes(2);
@@ -836,9 +865,8 @@ describe("SubagentManager over the bridge", () => {
 		await vi.waitFor(() => {
 			expect(test1.reports.map((report) => report.reason)).toEqual(["user_interrupt"]);
 		});
-		expect((await test1.registry.get("sa_int"))?.interrupted).toBe(
-			"Task is unfinished and waiting for user intent.",
-		);
+		expect((await test1.registry.get("sa_int"))?.intent).toBe("active");
+		expect((await test1.registry.get("sa_int"))?.interrupted).toBeUndefined();
 	});
 
 	test("ignores lifecycle notices that name another runtime", async () => {
@@ -890,7 +918,7 @@ describe("SubagentManager over the bridge", () => {
 		).rejects.toMatchObject({ code: "stale_report" });
 	});
 
-	test("refuses to resume a panel child whose runtime never reconnected after a restart", async () => {
+	test("resumes a panel child whose runtime never reconnected after a restart", async () => {
 		const test1 = await harness({ host: true });
 		const record = await test1.addChild("sa_leftover", {
 			state: "running",
@@ -898,18 +926,17 @@ describe("SubagentManager over the bridge", () => {
 			runtime: { runtimeIdentity: "runtime-before-restart", endpoint: "/tmp/parent.sock" },
 		});
 
-		// A panel child is held by the host, so it outlives the parent. Its bridge did not come back,
-		// and nothing here can observe whether that process is still running.
+		// The bridge did not come back, so the ledger drops the writer. A send starts the same session.
 		await expect(test1.manager.recover()).resolves.toMatchObject({ recovered: [] });
+		expect((await test1.registry.get(record.subagentId))?.runtime).toBeUndefined();
 		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringContaining("exit cannot be confirmed"),
-			safeToRetry: false,
+			id: record.subagentId,
+			state: "running",
 		});
 		expect(test1.launch).not.toHaveBeenCalled();
-		expect(test1.openPanel).not.toHaveBeenCalled();
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
 
-		// The runtime shows itself: the doubt is gone and the child takes input again.
+		// A later connect is the same runtime taking input, not a second recovery.
 		test1.bridge.connect(record.subagentId);
 		await test1.bridge.settle();
 		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
@@ -982,9 +1009,7 @@ describe("SubagentManager over the bridge", () => {
 			expect(await test1.manager.get(record.subagentId)).toMatchObject({ state: "done" });
 		});
 
-		// A tool event carries no state of its own, so it must not write the older projection back.
-		// The record is written back asynchronously, so wait for that write instead of for a state
-		// that was already there before the event.
+		// A tool event carries no durable fact, so it must not touch the registry or revive "running".
 		const originalUpdate = test1.registry.update.bind(test1.registry);
 		const writes: Array<Promise<unknown>> = [];
 		vi.spyOn(test1.registry, "update").mockImplementation((id, revision, updater) => {
@@ -997,10 +1022,8 @@ describe("SubagentManager over the bridge", () => {
 			toolCallId: "t1",
 			toolName: "bash",
 		});
-		await vi.waitFor(() => {
-			expect(writes.length).toBeGreaterThan(0);
-		});
-		await Promise.all(writes);
+		await test1.bridge.settle();
+		expect(writes).toEqual([]);
 		expect(await test1.manager.get(record.subagentId)).toMatchObject({ state: "done" });
 	});
 
@@ -1141,17 +1164,14 @@ describe("SubagentManager over the bridge", () => {
 		});
 		// The evidence stays behind: a panel the parent could not close may still run the child.
 		expect((await test1.registry.get(spawned.child.id))?.runtime).toBeDefined();
-		const requestsBeforeReconnect = test1.bridge.requests.length;
 		test1.bridge.disconnect(spawned.child.id);
 		test1.bridge.connect(spawned.child.id);
-		// send drains the queued connection transitions before answering, so this checks the state
-		// after reconnection handling rather than the stopped value that already existed.
+		// The writer came back, so send delivers to it instead of starting another panel.
 		await expect(test1.manager.send(spawned.child.id, "continue")).resolves.toMatchObject({
-			safeToRetry: false,
-			reason: expect.stringContaining("not confirmed gone"),
+			id: spawned.child.id,
+			state: "running",
 		});
-		expect(await test1.manager.get(spawned.child.id)).toMatchObject({ state: "error" });
-		expect(test1.bridge.requests).toHaveLength(requestsBeforeReconnect);
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
 	});
 
 	test("treats an unobservable panel as unconfirmed rather than closed", async () => {
@@ -1375,7 +1395,7 @@ describe("SubagentManager over the bridge", () => {
 		test1.bridge.disconnect(spawned.child.id);
 		await vi.waitFor(async () => {
 			expect(await test1.manager.get(spawned.child.id)).toMatchObject({
-				state: "error",
+				state: "blocked",
 				freshness: "last_known",
 			});
 		});
@@ -1434,7 +1454,7 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.openPanel).toHaveBeenCalledTimes(2);
 	});
 
-	test("an adopted panel losing its bridge refuses send without guessing that it exited", async () => {
+	test("an adopted panel losing its bridge can be sent to again", async () => {
 		const test1 = await harness({ host: true });
 		const record = await test1.addChild("sa_adopted_closed", {
 			state: "running",
@@ -1444,13 +1464,14 @@ describe("SubagentManager over the bridge", () => {
 		test1.bridge.connect(record.subagentId);
 		await test1.manager.recover();
 		test1.bridge.disconnect(record.subagentId);
-		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
-			operation: "send",
-			reason: expect.stringContaining("exit cannot be confirmed"),
-			safeToRetry: false,
+		await vi.waitFor(async () => {
+			expect((await test1.registry.get(record.subagentId))?.runtime).toBeUndefined();
 		});
-		expect(test1.openPanel).not.toHaveBeenCalled();
-		expect((await test1.registry.get(record.subagentId))?.runtime).toBeDefined();
+		await expect(test1.manager.send(record.subagentId, "continue")).resolves.toMatchObject({
+			id: record.subagentId,
+			state: "running",
+		});
+		expect(test1.openPanel).toHaveBeenCalledTimes(1);
 	});
 
 	test("keeps a panel standing when its child's bridge drops but the process lives", async () => {

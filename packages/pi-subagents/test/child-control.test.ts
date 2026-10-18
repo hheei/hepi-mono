@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ChildBridgeServer } from "../src/bridge-server.js";
 import {
 	type ChildControl,
 	childInputSource,
@@ -11,6 +10,7 @@ import {
 	sanitizeEventForBridge,
 } from "../src/child-control.js";
 import type { ChildIdentity } from "../src/domain.js";
+import { createMailboxTransport, type MailboxTransport } from "../src/mailbox.js";
 import { isChildInputPayload } from "../src/protocol.js";
 import { FORWARDED_PI_EVENT_TYPES } from "../src/rpc-events.js";
 
@@ -30,7 +30,7 @@ interface FakeContext {
 }
 
 interface Parent {
-	readonly server: ChildBridgeServer;
+	readonly server: MailboxTransport;
 	readonly events: unknown[];
 	readonly requests: Array<{ operation: string; payload: unknown }>;
 }
@@ -96,13 +96,12 @@ async function startParent(): Promise<Parent> {
 	cleanup.push(async () => {
 		await rm(dir, { recursive: true, force: true });
 	});
-	const endpoint = join(dir, "parent.sock");
+	const endpoint = join(dir, "state.sqlite");
 	const events: unknown[] = [];
 	const requests: Parent["requests"] = [];
-	const server = new ChildBridgeServer({
-		endpoint,
+	const server = createMailboxTransport({
+		filePath: endpoint,
 		parentSessionId: "parent-1",
-		authorize: (frame) => (frame.role === "child" ? undefined : "expected the child role"),
 		handleRequest: async (request) => {
 			requests.push({ operation: request.operation, payload: request.payload });
 			return { ok: true };
@@ -110,9 +109,8 @@ async function startParent(): Promise<Parent> {
 		diagnose: () => {},
 	});
 	server.onEvent((_childId, event) => events.push(event));
-	await server.listen();
 	cleanup.push(async () => {
-		await server.close();
+		server.close();
 	});
 	return { server, events, requests };
 }
@@ -537,7 +535,7 @@ describe("registerChildControl", () => {
 		expect(settled.messages[0]?.content[0]?.text.length).toBeLessThan(300);
 	});
 
-	test("resends the current phase after the bridge reconnects", async () => {
+	test("a parent disconnect does not release a lock the child still holds", async () => {
 		const parent = await startParent();
 		const { pi } = await startChild(parent);
 		const thinkingDelta = {
@@ -551,29 +549,19 @@ describe("registerChildControl", () => {
 			expect(parent.events).toHaveLength(1);
 		});
 
-		// The parent goes away and comes back; it must learn the phase it missed.
 		parent.server.disconnect("agent-1");
-		await vi.waitFor(
-			() => {
-				expect(parent.server.isConnected("agent-1")).toBe(true);
-			},
-			{ timeout: 5_000 },
-		);
-		await vi.waitFor(
-			() => {
-				expect(parent.events).toHaveLength(2);
-			},
-			{ timeout: 5_000 },
-		);
-		expect(
-			(parent.events[1] as { assistantMessageEvent: { type: string } }).assistantMessageEvent.type,
-		).toBe("thinking_delta");
-
-		// A repeated delta in the same phase is still dropped while the parent is listening.
-		pi.emit("message_update", thinkingDelta, {});
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(parent.events).toHaveLength(2);
-	}, 10_000);
+		pi.emit("input", { type: "input", text: "still here", source: "interactive" }, {});
+		await vi.waitFor(() => {
+			expect(parent.events).toContainEqual({
+				type: "child_input",
+				parentSessionId: "parent-1",
+				childId: "agent-1",
+				runtimeIdentity: "runtime-1",
+				source: "interactive",
+			});
+		});
+		expect(parent.server.isConnected("agent-1")).toBe(true);
+	});
 
 	test("get_entries prefers active branch entries over all raw tree entries", async () => {
 		const parent = await startParent();
@@ -606,5 +594,40 @@ describe("registerChildControl", () => {
 		await expect(parent.server.request("agent-1", "get_entries")).resolves.toEqual({
 			entries: activeBranchEntries,
 		});
+	});
+
+	test("queues prompts received while compacting and flushes them on compaction_end", async () => {
+		const parent = await startParent();
+		const { pi, context } = await startChild(parent);
+
+		pi.emit("compaction_start", { type: "compaction_start", reason: "threshold" }, context.context);
+
+		const stateWhileCompacting = (await parent.server.request("agent-1", "get_state")) as {
+			compacting?: boolean;
+		};
+		expect(stateWhileCompacting.compacting).toBe(true);
+
+		const sendResult = await parent.server.request("agent-1", "steer", {
+			message: "steer while compacting",
+		});
+		expect(sendResult).toEqual({
+			accepted: true,
+			path: "/tmp/child-session.jsonl",
+			queuedForCompaction: true,
+		});
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+
+		pi.emit("compaction_end", { type: "compaction_end", reason: "threshold" }, context.context);
+
+		await vi.waitFor(() => {
+			expect(pi.sendUserMessage).toHaveBeenCalledWith("steer while compacting", {
+				deliverAs: "steer",
+			});
+		});
+
+		const stateAfterCompacting = (await parent.server.request("agent-1", "get_state")) as {
+			compacting?: boolean;
+		};
+		expect(stateAfterCompacting.compacting).toBeUndefined();
 	});
 });

@@ -180,9 +180,21 @@ export interface ResolvedAgentPolicy {
  * The runtime attachment a child was last launched with. It is evidence, never a liveness proof:
  * whether that process is still serving this child is answered by the bridge connection.
  */
+export type PanelHost = "herdr" | "cmux";
+
+/**
+ * The surface that owns a child runtime. A panel id is a host tab or surface. A process id is a
+ * background child. Neither one is liveness by itself: the host list or a pid check says whether
+ * it is still there.
+ */
+export type RuntimeAttachment =
+	| { readonly kind: "panel"; readonly host: PanelHost; readonly id: string }
+	| { readonly kind: "process"; readonly pid: number };
+
 export interface RuntimeMetadata {
 	readonly runtimeIdentity: string;
 	readonly endpoint: string;
+	readonly attachment?: RuntimeAttachment;
 }
 
 export interface UsageSummary {

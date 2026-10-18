@@ -1,5 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
@@ -68,10 +67,8 @@ function record(id: string, cwd: string): SubagentRecord {
 describe("parent bridge endpoint", () => {
 	test("is a stable path per parent session in a private runtime directory", () => {
 		const endpoint = parentBridgeEndpoint(PARENT_SESSION_ID);
-		expect(endpoint.startsWith(tmpdir())).toBe(true);
-		expect(endpoint).toContain(`pi-subagents-${process.getuid?.() ?? "user"}`);
-		expect(endpoint.endsWith(`parent-${PARENT_SESSION_ID}.sock`)).toBe(true);
-		expect(parentBridgeEndpoint("another")).not.toBe(endpoint);
+		expect(endpoint.endsWith("state.sqlite")).toBe(true);
+		expect(parentBridgeEndpoint("another")).toBe(endpoint);
 	});
 
 	test("creates the runtime directory", async () => {
@@ -83,41 +80,33 @@ describe("parent bridge endpoint", () => {
 });
 
 describe("bridge token store", () => {
-	test("keeps each parent session's tokens in its own file", () => {
-		const first = parentTokenFile("parent-a");
-		const second = parentTokenFile("parent-b");
-
-		// Two parent sessions share the runtime directory; one shared file would be rewritten
-		// wholesale by whichever parent saved last, locking the other's children out of the bridge.
-		expect(first).not.toBe(second);
-		expect(first).toContain("parent-a");
-		expect(second).toContain("parent-b");
+	test("keeps every parent session's tokens in the one state file", () => {
+		expect(parentTokenFile("parent-a")).toBe(parentTokenFile("parent-b"));
+		expect(parentTokenFile("parent-a").endsWith("state.sqlite")).toBe(true);
 	});
 
 	test("keeps tokens in memory and on disk so a restarted parent can authorize a child", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const file = join(directory, "tokens.json");
+			const file = join(directory, "state.sqlite");
 			const first = createRuntimeTokenStore({ parentSessionId: "parent-a", file });
 			first.remember("runtime-1", "token-1");
 			expect(first.get("runtime-1")).toBe("token-1");
-			await vi.waitFor(async () => {
-				expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ "runtime-1": "token-1" });
-			});
+			const other = createRuntimeTokenStore({ parentSessionId: "parent-b", file });
+			other.remember("runtime-1", "token-b");
+			expect(other.get("runtime-1")).toBe("token-b");
+			expect(first.get("runtime-1")).toBe("token-1");
 
-			// A new process reading the same file authorizes the same child.
 			const second = createRuntimeTokenStore({ parentSessionId: "parent-a", file });
 			expect(second.get("runtime-1")).toBe("token-1");
 			second.forget("runtime-1");
 			expect(second.get("runtime-1")).toBeUndefined();
-			await vi.waitFor(async () => {
-				expect(JSON.parse(await readFile(file, "utf8"))).toEqual({});
-			});
+			expect(other.get("runtime-1")).toBe("token-b");
 		});
 	});
 
-	test("reports a token file it cannot read instead of failing the session", async () => {
+	test("reports a state file it cannot open instead of failing the session", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const file = join(directory, "tokens.json");
+			const file = join(directory, "state.sqlite");
 			await writeFile(file, "{not json");
 			const diagnoses: string[] = [];
 			const store = createRuntimeTokenStore({
@@ -126,8 +115,7 @@ describe("bridge token store", () => {
 				diagnose: (message) => diagnoses.push(message),
 			});
 			expect(store.get("runtime-1")).toBeUndefined();
-			expect(diagnoses[0]).toContain("not valid JSON");
-			await rm(file);
+			expect(diagnoses[0]).toContain("could not open the state database");
 		});
 	});
 });
@@ -342,7 +330,7 @@ describe("opening a child in a host panel", () => {
 			expect(opened.handle?.identity.attachmentId).toBe("wG:tH");
 			expect(cleanups()).toBe(1);
 			// The token stays too: a child that does come up is adopted instead of becoming a process
-			// nobody owns, and the handle is what keeps a second runtime from being started.
+			// nobody owns. The handle lets stop close the tab; it does not block a later send.
 			const current = await registry.get("sa_panel");
 			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
 		});
@@ -354,8 +342,8 @@ describe("opening a child in a host panel", () => {
 			const { host } = fakeHost({ failOpen: "herdr tab create failed" });
 
 			// Opening is not atomic: the host can create the panel and then fail to report it, so the
-			// launch is reported as unconfirmed and the credential is kept — a child that does come up
-			// is adopted instead of becoming a process nobody can reach.
+			// credential is kept — a child that does come up is adopted instead of becoming a process
+			// nobody can reach. The failure does not freeze later sends.
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
@@ -364,8 +352,8 @@ describe("opening a child in a host panel", () => {
 				waitForBridge: async () => true,
 			});
 
-			expect(opened.unconfirmed).toBe(true);
 			expect(opened.failure).toMatch(/could not be opened in a herdr panel/);
+			expect(opened.failure).toMatch(/close it if it is still there/);
 			const current = await registry.get("sa_panel");
 			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
 		});
