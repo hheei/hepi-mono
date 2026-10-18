@@ -109,6 +109,7 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 			resources.add("observational-memory-runtime", () => {
 				runtime.endSession(generation);
 			});
+			runtime.onSessionIdleReady?.(extension);
 
 			provideService(context, MEMORY_COMPACTOR_SERVICE_KEY, {
 				createCompactionDraft(firstKeptEntryId) {

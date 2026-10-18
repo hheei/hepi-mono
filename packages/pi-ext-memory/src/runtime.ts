@@ -1,5 +1,5 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "@hheei/pi-ext-core";
 import { type Config, DEFAULTS, loadConfig } from "./config.js";
 import { debugLog } from "./debug-log.js";
@@ -174,6 +174,12 @@ export class Runtime {
 	pendingCompactionTimer?: ReturnType<typeof setTimeout> | undefined;
 	pendingIdleNoticeTimer?: ReturnType<typeof setTimeout> | undefined;
 	idleNoticeEmitted = false;
+	/** Unix seconds. Idle duration counts from here after the user aborts compaction. */
+	idleClockResetSec?: number | undefined;
+	/** When true, session_start skips the idle check. The lifecycle start calls `onSessionIdleReady` after config and generation are current. */
+	deferSessionIdleCheck = true;
+	modelSwitchCompaction?: { fromKey: string } | undefined;
+	onSessionIdleReady?: ((ctx: ExtensionContext) => void) | undefined;
 	private lifecycleAbortCleanup: (() => void) | undefined;
 	/** provider -> epoch ms of the last availability re-check (see `recheckProviderCredential`). */
 	availabilityRecheckedAt = new Map<string, number>();
@@ -190,6 +196,10 @@ export class Runtime {
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
+		this.clearPendingIdleNoticeTimer();
+		this.clearModelSwitchCompaction();
+		this.idleNoticeEmitted = false;
+		this.idleClockResetSec = undefined;
 		this.sessionGeneration += 1;
 		this.config = { ...DEFAULTS };
 		this.configLoaded = false;
@@ -219,7 +229,9 @@ export class Runtime {
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
 		this.clearPendingIdleNoticeTimer();
+		this.clearModelSwitchCompaction();
 		this.idleNoticeEmitted = false;
+		this.idleClockResetSec = undefined;
 		this.lifecycleSignal = undefined;
 		this.sessionGeneration += 1;
 		this.consolidationInFlight = false;
@@ -262,6 +274,10 @@ export class Runtime {
 			clearTimeout(this.pendingIdleNoticeTimer);
 			this.pendingIdleNoticeTimer = undefined;
 		}
+	}
+
+	clearModelSwitchCompaction(): void {
+		this.modelSwitchCompaction = undefined;
 	}
 
 	/** Count one worker model call, whether or not the provider reports a cost. */

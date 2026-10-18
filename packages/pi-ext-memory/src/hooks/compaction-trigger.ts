@@ -11,7 +11,6 @@ import {
 	countSourceEntriesAfterCompaction,
 	type Entry,
 	findLastCompactionIndex,
-	findPersistedSettledTime,
 	foldLedger,
 	latestGateEnabled,
 	rawTokensSinceLastCompaction,
@@ -46,6 +45,28 @@ export function hasPersistedIdleNotice(entries: Entry[]): boolean {
 		}
 	}
 	return false;
+}
+
+/** Latest completed assistant or compaction time. Aborted, errored, and tool-use turns do not freeze the clock. */
+export function idleSettledSec(entries: Entry[], nowSec: number): number | undefined {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry) continue;
+		const completedAssistant =
+			entry.type === "message" &&
+			isRecord(entry.message) &&
+			entry.message.role === "assistant" &&
+			entry.message.stopReason !== "toolUse" &&
+			entry.message.stopReason !== "aborted" &&
+			entry.message.stopReason !== "error";
+		if (!completedAssistant && entry.type !== "compaction") continue;
+		if (typeof entry.timestamp !== "string" || entry.timestamp.length === 0) continue;
+		const parsed = Date.parse(entry.timestamp);
+		if (Number.isNaN(parsed) || parsed <= 0) continue;
+		const timestampSec = Math.floor(parsed / 1000);
+		if (timestampSec > 0 && timestampSec <= nowSec) return timestampSec;
+	}
+	return undefined;
 }
 
 export function formatIdleDuration(seconds: number): string {
@@ -90,7 +111,7 @@ async function runIdleCompaction(
 	runtime: Runtime,
 	sessionGeneration: number,
 	lifecycleSignal: AbortSignal | undefined,
-	minTokens = 20_000,
+	minTokens: number,
 ): Promise<void> {
 	if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 	if (runtime.compactInFlight) return;
@@ -106,7 +127,7 @@ async function runIdleCompaction(
 	}
 
 	try {
-		if (!ctx.isIdle()) return;
+		// The host marks the run active before before_agent_start, so isIdle() is already false here.
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
 		if (!latestGateEnabled(entries)) return;
@@ -172,27 +193,23 @@ async function runIdleCompaction(
 	}
 }
 
-export function resolveIdleCompactionMinTokens(
-	config: { readonly idleCompactionMinTokens?: number | undefined },
-	pi?: ExtensionAPI,
-): number {
-	if (typeof config.idleCompactionMinTokens === "number" && config.idleCompactionMinTokens > 0) {
-		return config.idleCompactionMinTokens;
+/** Pi's default keepRecentTokens. Shorter sessions are not worth compacting, and Pi will not cut them. */
+export const IDLE_COMPACTION_MIN_TOKENS = 20_000;
+
+/** Floor for every idle path. Follows Pi when its keep-recent window is larger than 20_000. */
+export function resolveIdleCompactionMinTokens(pi?: ExtensionAPI): number {
+	const keep = pi?.getSettings?.()?.compaction?.keepRecentTokens;
+	if (typeof keep === "number" && Number.isFinite(keep) && keep > IDLE_COMPACTION_MIN_TOKENS) {
+		return Math.floor(keep);
 	}
-	const settings = pi?.getSettings?.();
-	const keepRecentTokens = settings?.compaction?.keepRecentTokens;
-	if (typeof keepRecentTokens === "number" && keepRecentTokens > 0) {
-		return keepRecentTokens;
-	}
-	return 20_000;
+	return IDLE_COMPACTION_MIN_TOKENS;
 }
 
-/**
- * Checks whether Pi's native compaction can actually produce a non-empty summary
- * for the current branch entries and keepRecentTokens threshold.
- * Returns false if the session is too small to compact or has no messages to summarize.
- */
-export function canPiCompact(entries: Entry[], keepRecentTokens = 20_000): boolean {
+/** True when Pi's cut would leave history to summarize above `keepRecentTokens`. */
+export function canPiCompact(
+	entries: Entry[],
+	keepRecentTokens = IDLE_COMPACTION_MIN_TOKENS,
+): boolean {
 	if (entries.length === 0) return false;
 	const last = entries[entries.length - 1];
 	if (last?.type === "compaction") return false;
@@ -212,7 +229,10 @@ export function canPiCompact(entries: Entry[], keepRecentTokens = 20_000): boole
 	return historyEnd > boundaryStart || cutPoint.isSplitTurn;
 }
 
-export function hasIdleCompactionWork(entries: Entry[], minTokens = 20_000): boolean {
+export function hasIdleCompactionWork(
+	entries: Entry[],
+	minTokens = IDLE_COMPACTION_MIN_TOKENS,
+): boolean {
 	if (countSourceEntriesAfterCompaction(entries) === 0) return false;
 	const folded = foldLedger(entries);
 	if (folded.activeObservations.length === 0 && folded.activeReflections.length === 0) return false;
@@ -229,7 +249,42 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		});
 	}
 
-	const evaluateAndScheduleIdleNotice = (ctx: IdleCompactionContext) => {
+	const MODEL_SWITCH_STATUS_KEY = "om-model-switch";
+
+	const dismissModelSwitch = (ctx: {
+		ui: { setStatus(key: string, text: string | undefined): void };
+	}) => {
+		runtime.clearModelSwitchCompaction();
+		try {
+			ctx.ui.setStatus(MODEL_SWITCH_STATUS_KEY, undefined);
+		} catch {
+			// Status is a live hint. Losing it must not block compaction.
+		}
+	};
+
+	const appendCompactionNotice = (text: string) => {
+		runtime.idleNoticeEmitted = true;
+		try {
+			pi.appendEntry(OM_IDLE_NOTICE, { text });
+		} catch {
+			// Ignore if appendEntry fails (unpersisted or detached session).
+		}
+	};
+
+	const effectiveSettledSec = (entries: Entry[], nowSec: number): number | undefined => {
+		const persisted = idleSettledSec(entries, nowSec);
+		const reset = runtime.idleClockResetSec;
+		if (reset !== undefined && persisted !== undefined && persisted >= reset) {
+			runtime.idleClockResetSec = undefined;
+			return persisted;
+		}
+		return reset ?? persisted;
+	};
+
+	const idleNoticeBlocks = (entries: Entry[]): boolean =>
+		runtime.idleClockResetSec === undefined && hasPersistedIdleNotice(entries);
+
+	const evaluateAndScheduleIdleNotice = async (ctx: IdleCompactionContext) => {
 		runtime.clearPendingIdleNoticeTimer();
 		if (runtime.config.idleCompactionTtlSeconds === undefined || runtime.config.passive) return;
 		if (runtime.compactInFlight) return;
@@ -240,72 +295,140 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries || !latestGateEnabled(entries)) return;
-		const minTokens = resolveIdleCompactionMinTokens(runtime.config, pi);
-		if (!hasIdleCompactionWork(entries, minTokens)) return;
-		if (hasPersistedIdleNotice(entries)) {
-			runtime.idleNoticeEmitted = true;
-			return;
-		}
+		const minTokens = resolveIdleCompactionMinTokens(pi);
+		const hasWork = hasIdleCompactionWork(entries, minTokens);
+		if (!hasWork && !idleNoticeBlocks(entries)) return;
 
 		const nowSec = Math.floor(Date.now() / 1000);
-		const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
+		const persistedSettledSec = effectiveSettledSec(entries, nowSec);
 		if (persistedSettledSec === undefined) return;
 
 		const elapsedSec = nowSec - persistedSettledSec;
 		const ttlSec = runtime.config.idleCompactionTtlSeconds;
 
+		if (idleNoticeBlocks(entries)) {
+			runtime.idleNoticeEmitted = true;
+			return;
+		}
+
 		const emitNotice = (seconds: number) => {
 			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
-			if (runtime.idleNoticeEmitted) return;
+			if (runtime.idleNoticeEmitted || idleNoticeBlocks(entries)) {
+				runtime.idleNoticeEmitted = true;
+				return;
+			}
 			const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 			if (!currentEntries || !latestGateEnabled(currentEntries)) return;
-			if (hasPersistedIdleNotice(currentEntries)) {
+			if (idleNoticeBlocks(currentEntries)) {
 				runtime.idleNoticeEmitted = true;
 				return;
 			}
 			if (!hasIdleCompactionWork(currentEntries, minTokens)) return;
-
-			runtime.idleNoticeEmitted = true;
-			const timeStr = formatIdleDuration(seconds);
-			const noticeText = `The conversation has idled for ${timeStr}. Next turn will compact context.`;
-
-			try {
-				pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
-			} catch {}
+			appendCompactionNotice(
+				`The conversation has idled for ${formatIdleDuration(seconds)}. Next turn will compact context.`,
+			);
 		};
 
-		if (elapsedSec >= ttlSec) {
-			// Already idle for >= ttlSec (e.g. resumed or forked after expiration): emit directly once
-			emitNotice(elapsedSec);
-		} else {
-			// Schedule one-off notification timer for the exact remaining time until ttlSec
-			const remainingSec = ttlSec - elapsedSec;
+		if (!hasWork) return;
+
+		const armIdleTimer = (delayMs: number) => {
 			runtime.pendingIdleNoticeTimer = setTimeout(
 				() => {
 					runtime.pendingIdleNoticeTimer = undefined;
-					if (!ctx.isIdle()) return;
+					if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+					if (!ctx.isIdle()) {
+						armIdleTimer(1000);
+						return;
+					}
 					const currentNowSec = Math.floor(Date.now() / 1000);
 					const currentEntries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
-					const currentSettledSec = currentEntries
-						? findPersistedSettledTime(currentEntries, currentNowSec)
-						: undefined;
-					const currentElapsedSec =
-						currentSettledSec !== undefined ? currentNowSec - currentSettledSec : ttlSec;
-					if (currentElapsedSec < ttlSec) return;
+					if (!currentEntries || !latestGateEnabled(currentEntries)) return;
+					const currentSettledSec = effectiveSettledSec(currentEntries, currentNowSec);
+					if (currentSettledSec === undefined) return;
+					const currentElapsedSec = currentNowSec - currentSettledSec;
+					if (currentElapsedSec < ttlSec) {
+						armIdleTimer((ttlSec - currentElapsedSec) * 1000);
+						return;
+					}
 					emitNotice(currentElapsedSec);
 				},
-				Math.max(0, remainingSec * 1000),
+				Math.max(0, delayMs),
 			);
+		};
+
+		if (elapsedSec >= ttlSec) {
+			emitNotice(elapsedSec);
+		} else {
+			armIdleTimer((ttlSec - elapsedSec) * 1000);
 		}
 	};
 
-	// On session start, resume, fork, or tree branch switch, evaluate whether
-	// the session has idled and schedule the exact remaining idle duration timer.
+	runtime.onSessionIdleReady = (ctx) => {
+		void evaluateAndScheduleIdleNotice(ctx);
+	};
+
+	// Evaluation runs after Runtime.startSession so the generation and loaded config
+	// match this session. Otherwise a resume timer is armed on the previous generation.
 	pi.on("session_start", async (_event, ctx) => {
-		evaluateAndScheduleIdleNotice(ctx);
+		if (runtime.deferSessionIdleCheck) return;
+		await evaluateAndScheduleIdleNotice(ctx);
 	});
 	pi.on("session_tree", async (_event, ctx) => {
-		evaluateAndScheduleIdleNotice(ctx);
+		await evaluateAndScheduleIdleNotice(ctx);
+	});
+	// Abort runs while compactInFlight is still set, so rearm on the next turn of the event loop.
+	pi.on("session_compact_failed", (event, ctx) => {
+		if (!event.aborted || runtime.config.passive) return;
+		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
+		// Only an idle compaction the user aborted restarts the idle clock.
+		// Other aborts just rearm whatever countdown is still due.
+		if (runtime.idleCompactInFlight) {
+			runtime.idleClockResetSec = Math.floor(Date.now() / 1000);
+			runtime.idleNoticeEmitted = false;
+		}
+		const sessionGeneration = runtime.sessionGeneration;
+		const lifecycleSignal = runtime.lifecycleSignal;
+		setTimeout(() => {
+			if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+			void evaluateAndScheduleIdleNotice(ctx);
+		}, 0);
+	});
+
+	pi.on("model_select", (event, ctx) => {
+		if (event.source === "restore" || runtime.config.passive) return;
+		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
+		const sessionGeneration = runtime.sessionGeneration;
+		const lifecycleSignal = runtime.lifecycleSignal;
+		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+		if (runtime.compactInFlight) return;
+
+		const nextKey = `${event.model.provider}/${event.model.id}`;
+		const previous = event.previousModel;
+		if (!previous) return;
+		const previousKey = `${previous.provider}/${previous.id}`;
+		if (nextKey === previousKey) return;
+
+		const fromKey = runtime.modelSwitchCompaction?.fromKey ?? previousKey;
+		if (runtime.modelSwitchCompaction && nextKey === fromKey) {
+			dismissModelSwitch(ctx);
+			return;
+		}
+		// Arm only while idle. Compaction waits for the next turn.
+		if (!runtime.modelSwitchCompaction && !ctx.isIdle()) return;
+
+		const entries = ctx.sessionManager.getBranch() as Entry[];
+		const minTokens = resolveIdleCompactionMinTokens(pi);
+		if (!latestGateEnabled(entries) || !hasIdleCompactionWork(entries, minTokens)) {
+			dismissModelSwitch(ctx);
+			return;
+		}
+
+		runtime.modelSwitchCompaction = { fromKey };
+		try {
+			ctx.ui.setStatus(MODEL_SWITCH_STATUS_KEY, "Switched model. Next turn will compact context.");
+		} catch {
+			// Status is a live hint. Losing it must not block compaction.
+		}
 	});
 
 	// When a turn starts, clear any pending idle notice timer.
@@ -314,7 +437,6 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		runtime.clearPendingIdleNoticeTimer();
 
 		if (runtime.config.passive === true) return;
-		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
 		if (runtime.compactInFlight) return;
 
 		const sessionGeneration = runtime.sessionGeneration;
@@ -324,29 +446,37 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
 		if (!latestGateEnabled(entries)) return;
+		const minTokens = resolveIdleCompactionMinTokens(pi);
+		if (runtime.modelSwitchCompaction) {
+			dismissModelSwitch(ctx);
+			if (hasIdleCompactionWork(entries, minTokens)) {
+				if (!hasPersistedIdleNotice(entries)) {
+					appendCompactionNotice("Switched model. Compacting context.");
+				}
+				await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal, minTokens);
+				runtime.idleNoticeEmitted = false;
+				return;
+			}
+		}
+
+		if (runtime.config.idleCompactionTtlSeconds === undefined) return;
 
 		const nowSec = Math.floor(Date.now() / 1000);
-		const persistedSettledSec = findPersistedSettledTime(entries, nowSec);
+		const persistedSettledSec = effectiveSettledSec(entries, nowSec);
 		if (persistedSettledSec === undefined) return;
 
 		const elapsedSec = nowSec - persistedSettledSec;
 		const ttlSec = runtime.config.idleCompactionTtlSeconds;
 
 		if (elapsedSec < ttlSec) return;
-		const minTokens = resolveIdleCompactionMinTokens(runtime.config, pi);
 		if (!hasIdleCompactionWork(entries, minTokens)) return;
 
 		// If the idle notice was not emitted earlier (e.g. cold resume in non-interactive CLI), emit it once
 		if (!hasPersistedIdleNotice(entries) && !runtime.idleNoticeEmitted) {
-			runtime.idleNoticeEmitted = true;
 			const timeStr = formatIdleDuration(elapsedSec);
-			const noticeText = `The conversation has idled for ${timeStr}. Compacting context before the next turn.`;
-
-			try {
-				pi.appendEntry(OM_IDLE_NOTICE, { text: noticeText });
-			} catch {
-				// Ignore if appendEntry fails (e.g. unpersisted or detached session)
-			}
+			appendCompactionNotice(
+				`The conversation has idled for ${timeStr}. Compacting context before the next turn.`,
+			);
 		}
 
 		await runIdleCompaction(ctx, runtime, sessionGeneration, lifecycleSignal, minTokens);
@@ -379,7 +509,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
 
-		evaluateAndScheduleIdleNotice(ctx);
+		void evaluateAndScheduleIdleNotice(ctx);
 
 		if (progress >= threshold) {
 			// Immediate compaction path
