@@ -93,7 +93,7 @@ function getSpawnDescription(agents: readonly DiscoveredAgent[]): string {
 	].join("\n");
 }
 const SEND_DESCRIPTION =
-	"Send input, steer, or follow-up instructions to an existing subagent (e.g. 'agent-1'), resuming its session when it is idle, blocked, done, or errored. Results are returned automatically when the task finishes; do not poll agent_get. Related subagent tools: agent_spawn, agent_get, agent_stop.";
+	"Send input, steer, or follow-up instructions to an existing subagent (e.g. 'agent-1'), resuming its session when it is idle, blocked, done, or errored. A child whose runtime has ended is resumed the same way: send to that id, do not spawn a replacement. Stop it first only when send reports the previous process is still running. Results are returned automatically when the task finishes; do not poll agent_get. Related subagent tools: agent_spawn, agent_get, agent_stop.";
 const GET_DESCRIPTION =
 	"Inspect one subagent's status, progress, or diagnostic details by id (e.g. 'agent-1'). Use keys to choose fields; defaults to 'status,progress'. Results are returned automatically; use this for inspection, not completion polling. Related subagent tools: agent_spawn, agent_send, agent_stop.";
 const STOP_DESCRIPTION =

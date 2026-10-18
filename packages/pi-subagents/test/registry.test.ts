@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
 import { assembleChildPrompt } from "../src/launch-spec.js";
@@ -75,10 +75,7 @@ test("creates, reads, and lists records in a dedicated file", async (): Promise<
 		expect(store.parentSessionId).toBe(PARENT_SESSION_ID);
 		expect((await store.get("sa_aaaa"))?.sessionId).toBe("sa_aaaa-session");
 		expect((await store.list()).map((item) => item.subagentId)).toEqual(["sa_aaaa"]);
-		expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
-			version: 1,
-			parentSessionId: PARENT_SESSION_ID,
-		});
+		expect(store.path).toBe(path);
 	});
 });
 
@@ -151,37 +148,20 @@ test("rejects stale revisions, duplicate ids, unknown children, and mismatched r
 	});
 });
 
-test("fails closed on corrupt JSON, unsupported versions, and foreign parent sessions", async (): Promise<void> => {
+test("fails closed on a corrupt child row and hides other parents in the same file", async (): Promise<void> => {
 	await withTempDir("pi-subagents-registry-", async (directory) => {
-		const path = join(directory, "registry.json");
+		const path = join(directory, "state.sqlite");
 		const store = registry(path);
-		await writeFile(path, "{not json", "utf8");
-		await expect(store.list()).rejects.toThrow(/Invalid JSON/u);
-
-		await writeFile(
-			path,
-			JSON.stringify({ version: 2, parentSessionId: PARENT_SESSION_ID }),
-			"utf8",
-		);
-		const versionError = await store.list().then(
-			() => undefined,
-			(thrown: unknown) => thrown,
-		);
-		expect((versionError as SubagentRegistryError).code).toBe("unsupported_version");
-
-		await writeFile(path, JSON.stringify({ version: 1, parentSessionId: "someone-else" }), "utf8");
-		const parentError = await store.list().then(
-			() => undefined,
-			(thrown: unknown) => thrown,
-		);
-		expect((parentError as SubagentRegistryError).code).toBe("parent_mismatch");
-
-		await writeFile(
-			path,
-			JSON.stringify({ version: 1, parentSessionId: PARENT_SESSION_ID }),
-			"utf8",
-		);
-		await expect(store.list()).rejects.toThrow(/records must be an object/u);
+		const db = new DatabaseSync(path);
+		db.prepare(
+			"INSERT INTO children (parent_session_id, subagent_id, revision, record) VALUES (?, ?, ?, ?)",
+		).run(PARENT_SESSION_ID, "sa_bad", 1, "{not json");
+		await expect(store.list()).rejects.toThrow();
+		db.prepare("DELETE FROM children WHERE subagent_id = ?").run("sa_bad");
+		db.prepare(
+			"INSERT INTO children (parent_session_id, subagent_id, revision, record) VALUES (?, ?, ?, ?)",
+		).run("someone-else", "sa_other", 1, "{}");
+		expect(await store.list()).toEqual([]);
 	});
 });
 
@@ -262,26 +242,23 @@ test("rejects an invalid parent session id before touching the filesystem", asyn
 	});
 });
 
-test("drops foreign root keys while keeping every record", async (): Promise<void> => {
+test("keeps another parent's rows when this parent updates its own", async (): Promise<void> => {
 	await withTempDir("pi-subagents-registry-", async (directory) => {
-		const path = join(directory, "registry.json");
+		const path = join(directory, "state.sqlite");
 		const store = registry(path);
 		await store.create(record("sa_aaaa", join(directory, "work")));
 		await store.create(record("sa_bbbb", join(directory, "work")));
-		const stray = JSON.parse(await readFile(path, "utf8"));
-		await writeFile(path, JSON.stringify({ ...stray, legacySection: { enabled: true } }), "utf8");
-
+		const other = createSubagentRegistry({
+			parentSessionId: "01J7-other",
+			filePath: path,
+			now: () => new Date(1_000),
+		});
+		await other.create(
+			record("sa_cccc", join(directory, "work"), { parentSessionId: "01J7-other" }),
+		);
 		await store.update("sa_aaaa", 1, (current) => ({ ...current, state: "running" }));
-
-		const written = JSON.parse(await readFile(path, "utf8"));
-		expect(Object.keys(written).sort()).toEqual([
-			"parentSessionId",
-			"records",
-			"updatedAt",
-			"version",
-		]);
-		expect(Object.keys(written.records).sort()).toEqual(["sa_aaaa", "sa_bbbb"]);
-		expect(written.updatedAt).toBe(new Date(1_000).toISOString());
+		expect((await store.list()).map((item) => item.subagentId)).toEqual(["sa_aaaa", "sa_bbbb"]);
+		expect((await other.list()).map((item) => item.subagentId)).toEqual(["sa_cccc"]);
 	});
 });
 

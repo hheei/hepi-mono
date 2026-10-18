@@ -16,6 +16,8 @@ export const FORWARDED_PI_EVENT_TYPES = [
 	"auto_retry_end",
 	"message_update",
 	"agent_settled",
+	"compaction_start",
+	"compaction_end",
 ] as const;
 
 export function shouldForwardPiEvent(event: unknown): boolean {

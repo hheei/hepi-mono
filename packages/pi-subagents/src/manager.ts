@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { errorMessage, isRecord, type TaskRegistry } from "@hheei/pi-ext-core";
-import type { ChildRuntime } from "./child-process.js";
+import { attachRetainedChild, type ChildRuntime } from "./child-process.js";
 import type {
 	EffectiveLaunchConfig,
 	OperationError,
 	Presentation,
 	PublicSubagent,
+	RuntimeAttachment,
 	SendMode,
 	SpawnSubagentInput,
 	SubagentRecord,
@@ -14,6 +15,8 @@ import type {
 import { isOperationError } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
+import type { HostDirectory, LeaseReady } from "./lease.js";
+import { commitLease, createConversationLease } from "./lease.js";
 import {
 	BridgeError,
 	type BridgeOperation,
@@ -54,8 +57,8 @@ export const SUBAGENT_SETTLED_CLOSE_TIMEOUT_MS = 15_000;
 /** How long stop waits for an adopted child's bridge to go away before calling the exit unconfirmed. */
 export const SUBAGENT_EXIT_WAIT_MS = 2_000;
 
-const STOPPED_SEND_REASON =
-	"Child is stopped; a stopped child never resumes — spawn a new child if this work is still needed";
+const RUNTIME_ENDED_RESUME =
+	"The child runtime ended while a turn was in flight; the session is unchanged and a send resumes it";
 
 function diagnose(message: string): void {
 	if (process.env.DEBUG || process.env.PI_SUBAGENTS_DEBUG) {
@@ -99,7 +102,7 @@ export interface ChildBridgeTransport {
 
 export interface ManagerDependencies {
 	readonly parentSessionId: string;
-	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update">;
+	readonly registry: Pick<SubagentRegistry, "get" | "list" | "update" | "path">;
 	readonly resolve: (input: SpawnSubagentInput) => Promise<EffectiveLaunchConfig>;
 	readonly bootstrap: (input: {
 		readonly parentSessionId: string;
@@ -118,6 +121,13 @@ export interface ManagerDependencies {
 	readonly presentation?: PresentationDeps;
 	/** Waits for an already-running runtime to reconnect; false when it does not. */
 	readonly connect: (record: SubagentRecord) => Promise<boolean>;
+	/**
+	 * Host listing used to restore this session's panels before the next turn. Absent in tests that
+	 * still exercise the bridge-only recover path.
+	 */
+	readonly directory?: HostDirectory & {
+		rebind?(attachment: RuntimeAttachment): HostAttachment | undefined;
+	};
 	readonly deadlineMs?: number;
 	readonly settledCloseTimeoutMs?: number;
 	readonly idleTimeoutMs?: number;
@@ -275,6 +285,7 @@ export class SubagentManager {
 	readonly #deps: ManagerDependencies;
 	readonly #chains = new Map<string, Promise<unknown>>();
 	readonly #processes = new Map<string, ChildRuntime>();
+	#ready: Promise<LeaseReady> | undefined;
 	/** Panels this process opened. A panel child's process is held by the host, not by us. */
 	readonly #attachments = new Map<string, HostAttachment>();
 	/**
@@ -282,13 +293,6 @@ export class SubagentManager {
 	 * process is not this child's runtime any more, so it is neither live nor ours to close.
 	 */
 	readonly #leftSessions = new Set<string>();
-	/**
-	 * Children whose runtime this process never saw: a panel child outlives a parent restart, so a
-	 * record that still names a runtime after recovery did not reconnect may be running right now.
-	 * Nothing here can observe it and one session never gets two writers, so the next send refuses
-	 * until an explicit stop clears the record.
-	 */
-	readonly #unresolvedRuntimes = new Set<string>();
 	/** Bumped by every inbound bridge signal, so a reclaim in flight can tell the child moved. */
 	readonly #activity = new Map<string, number>();
 	readonly #projectors = new Map<string, StateProjector>();
@@ -381,7 +385,6 @@ export class SubagentManager {
 		this.#processes.clear();
 		this.#attachments.clear();
 		this.#leftSessions.clear();
-		this.#unresolvedRuntimes.clear();
 		this.#activity.clear();
 		this.#projectors.clear();
 		this.#paths.clear();
@@ -404,9 +407,6 @@ export class SubagentManager {
 			}
 			const launch = await openPanel(record);
 			if (launch.handle !== undefined) this.#attachments.set(record.subagentId, launch.handle);
-			// A panel that could not be opened may still exist and still own the child's session, and
-			// nothing here can observe it: the child stays unavailable until an explicit stop.
-			if (launch.unconfirmed === true) this.#unresolvedRuntimes.add(record.subagentId);
 			if (launch.failure !== undefined) throw new Error(launch.failure);
 			return;
 		}
@@ -436,67 +436,35 @@ export class SubagentManager {
 	 */
 	async #runtimeEnded(id: string): Promise<void> {
 		const runtime = this.#processes.get(id);
-		// A process that is still running is not an ended runtime: the bridge may be reconnecting.
+		// A live process is not over. The lock is the connection: an exit this process already
+		// saw is recorded here even when the claim has not dropped yet. A later release is the
+		// same end, and only the transition that leaves `running` schedules a report.
 		if (runtime?.alive === true) return;
-		if (runtime !== undefined) this.#processes.delete(id);
-		if (this.#deps.bridge.isConnected(id)) return;
+		const sawExit = runtime !== undefined;
+		if (sawExit) {
+			this.#processes.delete(id);
+			if (this.#deps.bridge.isConnected(id)) this.#deps.bridge.disconnect(id);
+		}
+		if (!sawExit && this.#deps.bridge.isConnected(id)) return;
 		this.#working.delete(id);
-		await this.#releasePanel(id);
+		await this.#dropDeadPanel(id);
 		this.#clearSettledPanelClose(id);
 		this.#projectors.delete(id);
-		const record = await this.#update(id, (current) => {
-			if (current.intent === "stopped") return current;
-			if (current.state !== "running") return current;
-			return {
-				...current,
-				state: "blocked",
-				interrupted:
-					current.presentation === "panel"
-						? "The child bridge disconnected; its panel process exit is not confirmed"
-						: "The child runtime ended while a turn was in flight; the session is unchanged and a send resumes it",
-			};
-		});
-		if (record.interrupted !== undefined && record.intent !== "stopped") {
-			this.#scheduleAutoReport(id, record);
-		}
-		if (
-			record.presentation === "panel" &&
-			record.intent === "active" &&
-			record.state !== "done" &&
-			record.runtime !== undefined &&
-			!this.#attachments.has(id)
-		) {
-			// An adopted child has no host handle: losing its bridge cannot prove its exit.
-			this.#unresolvedRuntimes.add(id);
-		}
+		await this.#recordWriterGone(id);
 	}
 
-	/** True when a runtime for this child was started here and may still own its session. */
+	/** True while a writer this process can see is still there: a held lock, or a process handle. A panel tab is not a writer. */
 	#runtimeStarted(id: string): boolean {
-		return this.#isLive(id) || this.#processes.has(id) || this.#attachments.has(id);
+		return this.#isLive(id) || this.#processes.has(id);
 	}
 
 	/**
-	 * Says why this child cannot take input while a runtime may still own its session: one this
-	 * process holds, one a host panel may still be running, or one the record names that never
-	 * reconnected after a parent restart. Only an explicit stop clears that doubt.
+	 * A new runtime may not start while a writer this process can see is still there. A connected
+	 * bridge is that writer, so input goes to it instead of through here. A leftover tab is not a writer.
 	 */
-	async #runtimeDoubt(id: string): Promise<string | undefined> {
-		if (this.#attachments.has(id)) {
-			// A panel the host confirms is gone stops holding this child — the handle it left behind is
-			// also what a retried stop would act on, so it is released here before refusing.
-			await this.#releasePanel(id).catch(() => undefined);
-		}
-		if (this.#runtimeStarted(id)) {
-			return "This child's previous runtime is not confirmed gone (its process or panel may still be running); stop the child to end it, then spawn a new one for this work";
-		}
-		if (this.#attachments.has(id)) {
-			if ((await this.#deps.registry.get(id))?.intent === "stopped") {
-				return STOPPED_SEND_REASON;
-			}
-		}
-		if (this.#unresolvedRuntimes.has(id)) {
-			return "This child's panel runtime is disconnected and its exit cannot be confirmed; no replacement was started. Close any remaining panel, stop the child, then spawn a new child for this work";
+	#runtimeDoubt(id: string): string | undefined {
+		if (this.#processes.get(id)?.alive === true) {
+			return "This child's process is still running; stop it, then send to this same child";
 		}
 		return undefined;
 	}
@@ -509,45 +477,14 @@ export class SubagentManager {
 	}
 
 	/**
-	 * Releases a panel whose child has gone away, without being asked to. Only a panel the host
-	 * confirms is no longer running its child is closed: a live process behind a missing bridge may
-	 * be serving the session the human switched to, and nobody asked for that panel to be ended. A
-	 * panel that stays keeps its handle, so an explicit stop can still close it.
+	 * Forgets a panel the host already says is gone, and closes that leftover tab. A tab the host
+	 * still reports, or cannot see, stays in hand so stop can close it. It does not block a send.
 	 */
-	async #releasePanel(id: string): Promise<void> {
+	async #dropDeadPanel(id: string): Promise<void> {
 		const attachment = this.#attachments.get(id);
 		if (attachment === undefined) return;
 		const observed = await attachment.observe();
 		if (!(observed.known && !observed.alive)) return;
-		let retired: string | undefined;
-		const record = await this.#update(id, (current) => {
-			if (current.intent === "stopped") return current;
-			retired = current.runtime?.runtimeIdentity;
-			const { runtime: _runtime, ...withoutRuntime } = current;
-			if (current.state === "done" || current.state === "blocked") {
-				return {
-					...withoutRuntime,
-					state: current.state,
-				};
-			}
-			return {
-				...withoutRuntime,
-				intent: "stopped",
-				state: "error",
-				interrupted:
-					"The host reports that the child process exited while running; the cause is unknown. Spawn a new child for more work",
-			};
-		});
-		if (retired !== undefined) this.#deps.tokens?.forget(retired);
-		const projector = this.#projectors.get(id);
-		if (record.state === "done" && projector !== undefined) {
-			projector.syncState("done");
-		}
-		if (record.intent === "stopped") {
-			this.#clearSettledPanelClose(id);
-			this.#projectors.delete(id);
-			this.#unresolvedRuntimes.delete(id);
-		}
 		this.#attachments.delete(id);
 		try {
 			const cleanup = await attachment.cleanup();
@@ -561,6 +498,27 @@ export class SubagentManager {
 				`could not close the leftover ${attachment.identity.host} panel of child ${id}: ${errorMessage(error)}`,
 			);
 		}
+	}
+
+	/**
+	 * The ledger stops naming a writer that is gone. A child that was running becomes blocked, once,
+	 * and the next send starts it again from the same session. Callers that still have a tab close it
+	 * themselves.
+	 */
+	async #recordWriterGone(id: string): Promise<void> {
+		let retired: string | undefined;
+		let ended = false;
+		const next = await this.#update(id, (current) => {
+			if (current.intent === "stopped") return current;
+			if (current.runtime === undefined && current.state !== "running") return current;
+			retired = current.runtime?.runtimeIdentity;
+			const { runtime: _runtime, ...rest } = current;
+			if (current.state !== "running") return rest;
+			ended = true;
+			return { ...rest, state: "blocked", interrupted: RUNTIME_ENDED_RESUME };
+		});
+		if (retired !== undefined) this.#deps.tokens?.forget(retired);
+		if (ended) this.#scheduleAutoReport(id, next);
 	}
 
 	/** Waits for a child's bridge connection to end; false when it is still connected after the wait. */
@@ -665,7 +623,8 @@ export class SubagentManager {
 			if (attachment !== undefined) {
 				const observed = await attachment.observe();
 				if (observed.known && !observed.alive) {
-					await this.#releasePanel(id);
+					await this.#dropDeadPanel(id);
+					await this.#recordWriterGone(id);
 					return;
 				}
 				if ((this.#activity.get(id) ?? 0) !== activity) {
@@ -697,23 +656,13 @@ export class SubagentManager {
 			if (exited) {
 				if (runtime !== undefined) this.#processes.delete(id);
 				if (attachment !== undefined) this.#attachments.delete(id);
-				this.#unresolvedRuntimes.delete(id);
 				await this.#update(id, (current) => {
 					if (current.intent === "stopped") return current;
 					const { runtime: _runtime, ...withoutRuntime } = current;
 					return withoutRuntime;
 				});
-			} else {
-				await this.#update(id, (current) => {
-					if (current.intent === "stopped") return current;
-					return {
-						...current,
-						state: "error",
-						interrupted:
-							"The child panel is not confirmed gone: the child process may still be running",
-					};
-				});
 			}
+			// The tab is still there, or the host could not say. Leave it. The caller closes it.
 		});
 	}
 
@@ -962,8 +911,6 @@ export class SubagentManager {
 						await this.#settleUnrecovered(record);
 						return undefined;
 					}
-					// The runtime this record names answered, so the doubt about it is gone.
-					this.#unresolvedRuntimes.delete(record.subagentId);
 					await this.#adopt(record.subagentId);
 					return { childId: record.subagentId };
 				} catch (error) {
@@ -987,29 +934,16 @@ export class SubagentManager {
 	}
 
 	/**
-	 * A record that names a runtime which did not reconnect. A background child is held by its
-	 * parent's stdin pipe, so it died with the parent and that evidence is stale; a panel child is
-	 * held by the host and may still be running, so nothing here may start a second runtime for the
-	 * same session until the user stops it.
+	 * A record that names a runtime which did not reconnect. A background child died with this
+	 * process, because its stdin pipe did. A panel child is the same fact as any other missing
+	 * writer: the ledger drops it, and a later send starts the session again.
 	 */
 	async #settleUnrecovered(record: SubagentRecord): Promise<void> {
 		this.#working.delete(record.subagentId);
 		this.#projectors.delete(record.subagentId);
 		const retired = record.runtime;
 		if (record.presentation === "panel") {
-			if (retired !== undefined) {
-				this.#unresolvedRuntimes.add(record.subagentId);
-			}
-			await this.#update(record.subagentId, (current) => {
-				if (current.intent === "stopped") return current;
-				if (current.state !== "running") return current;
-				return {
-					...current,
-					state: "blocked",
-					interrupted:
-						"The child panel runtime did not reconnect; its process exit is not confirmed",
-				};
-			});
+			await this.#recordWriterGone(record.subagentId);
 			return;
 		}
 		if (retired === undefined) {
@@ -1082,12 +1016,15 @@ export class SubagentManager {
 						: (({ unacknowledgedInput: _input, ...rest }) => rest)(current);
 				const hasError = snapshot.state === "error";
 				const { interrupted: _interrupted, ...withoutInterrupted } = base;
+				const {
+					latestSummary: _summary,
+					activeTool: _tool,
+					usage: _usage,
+					...withoutVolatile
+				} = withoutInterrupted;
 				return {
-					...withoutInterrupted,
+					...withoutVolatile,
 					state: hasError ? "error" : idle ? "done" : "running",
-					...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
-					usage: snapshot.usage,
-					...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
 				};
 			},
 			workVersion,
@@ -1231,12 +1168,7 @@ export class SubagentManager {
 			const failedId = childId;
 			const reason = errorMessage(error);
 			const failed = await this.#mutate(failedId, async () => {
-				const record = await this.#deps.registry.get(failedId);
-				const uncertain =
-					this.#runtimeStarted(failedId) ||
-					this.#unresolvedRuntimes.has(failedId) ||
-					record?.runtime !== undefined;
-				if (uncertain) this.#unresolvedRuntimes.add(failedId);
+				const uncertain = this.#runtimeStarted(failedId);
 				if (!this.#isLive(failedId)) this.#working.delete(failedId);
 				await this.#update(failedId, (current) => ({
 					...current,
@@ -1272,22 +1204,13 @@ export class SubagentManager {
 		return this.#mutate(id, async () => {
 			const record = await this.#deps.registry.get(id);
 			if (record === undefined) return failure("send", "Unknown child", id);
-			if (record.intent === "stopped") {
-				const doubt = await this.#runtimeDoubt(id);
-				if (doubt !== undefined) {
-					return failure("send", doubt, id, record.state, ["runtime metadata retained"], false);
-				}
-			}
-
 			let isResumed = false;
 			// Deliverability is the bridge connection, minus a process that left the delegated session:
 			// input goes to a session, and this process no longer serves this child's session. What is
 			// left to decide is whether a runtime of ours may still own it.
 			if (this.#leftSessions.has(id) || !this.#deps.bridge.isConnected(id)) {
-				const doubt = await this.#runtimeDoubt(id);
+				const doubt = this.#runtimeDoubt(id);
 				if (doubt !== undefined) {
-					// A runtime is still unaccounted for: it may not answer, but it may also still own the
-					// delegated session, and one session never gets two writers.
 					return failure("send", doubt, id, record.state, ["runtime metadata retained"], false);
 				}
 				let placement: {
@@ -1420,24 +1343,18 @@ export class SubagentManager {
 		const record = await this.#deps.registry.get(id);
 		if (record === undefined) return failure("get", "Unknown child", id);
 		const live = this.#isLive(id);
-		const projector = this.#projectors.get(id);
-		if (projector !== undefined) {
-			const snap = projector.snapshot();
-			const mergedRecord: SubagentRecord = {
-				...record,
-				...(snap.activeTool !== undefined ? { activeTool: snap.activeTool } : {}),
-				...(snap.summary !== undefined ? { latestSummary: snap.summary } : {}),
-				...(snap.interrupted !== undefined ? { interrupted: snap.interrupted } : {}),
-				usage: snap.usage ?? record.usage,
-			};
-			return publicChild(mergedRecord, live, this.#paths.get(id));
-		}
-		return publicChild(record, live, this.#paths.get(id));
+		return publicChild(this.#withSnapshot(record), live, this.#paths.get(id));
 	}
 
 	public async list(): Promise<readonly PublicSubagent[]> {
 		const records = await this.#deps.registry.list();
-		return records.map((record) => publicChild(record, this.#isLive(record.subagentId)));
+		return records.map((record) =>
+			publicChild(
+				this.#withSnapshot(record),
+				this.#isLive(record.subagentId),
+				this.#paths.get(record.subagentId),
+			),
+		);
 	}
 
 	/** Child startup and runs count until Pi settles, including post-agent_end continuation. */
@@ -1538,9 +1455,6 @@ export class SubagentManager {
 					}
 				}
 				this.#projectors.delete(id);
-				// An explicit stop is the one thing that clears the doubt about a runtime this process
-				// never saw, so a later send may start a fresh one.
-				this.#unresolvedRuntimes.delete(id);
 				this.#activity.delete(id);
 				const runtimeIdentity = stopped.runtime?.runtimeIdentity;
 				const current = await this.#deps.registry.get(id);
@@ -1731,8 +1645,6 @@ export class SubagentManager {
 				// A process that left the delegated session is not this child: adopting it would rewrite
 				// the child's transcript from the session the human switched to.
 				if (this.#leftSessions.has(childId)) return;
-				// The runtime this record names is answering, so the doubt about it is gone.
-				this.#unresolvedRuntimes.delete(childId);
 				if (!this.#projectors.has(childId)) {
 					this.#projectors.set(childId, createStateProjector(record.state));
 				}
@@ -1774,11 +1686,7 @@ export class SubagentManager {
 					value.message === undefined || value.message === ""
 						? "Task is unfinished and waiting for user intent."
 						: value.message;
-				const updated = await this.#update(id, (current) => ({
-					...current,
-					interrupted: message,
-				}));
-				await this.contactParent(id, "user_interrupt", message, updated);
+				await this.contactParent(id, "user_interrupt", message, record);
 				return;
 			}
 			if (value.kind === "left_session") {
@@ -1792,19 +1700,10 @@ export class SubagentManager {
 				this.#projectors.delete(id);
 				this.#attachments.delete(id);
 				this.#leftSessions.add(id);
-				this.#unresolvedRuntimes.delete(id);
 				// The socket is not this child's channel any more either: leaving it up would let a
 				// relaunch mistake the old connection for the new runtime.
 				this.#deps.bridge.disconnect(id);
-				await this.#update(id, (current) => {
-					const { runtime: _runtime, ...withoutRuntime } = current;
-					return {
-						...withoutRuntime,
-						state: "done",
-						interrupted:
-							"The child left its session; the surface is no longer controlled by the parent",
-					};
-				});
+				await commitLease(this.#deps.registry, id, { type: "left-session" });
 				if (retired !== undefined) this.#deps.tokens?.forget(retired);
 				return;
 			}
@@ -1842,25 +1741,33 @@ export class SubagentManager {
 		const current = await this.#deps.registry.get(id);
 		if (current === undefined || current.intent === "stopped") return;
 		const snapshot = projector.snapshot();
-		await this.#update(
-			id,
-			(entry) => {
-				const { interrupted: _prevInterrupted, activeTool: _prevActiveTool, ...cleanEntry } = entry;
-				const base =
-					confirmedInput === undefined
-						? cleanEntry
-						: (({ unacknowledgedInput: _input, ...rest }) => rest)(cleanEntry);
-				return {
-					...base,
-					state: snapshot.state,
-					...(snapshot.summary === undefined ? {} : { latestSummary: snapshot.summary }),
-					...(snapshot.activeTool === undefined ? {} : { activeTool: snapshot.activeTool }),
-					usage: snapshot.usage,
-					...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
-				};
-			},
-			workVersion,
-		);
+		const durable = durableProjection(current, snapshot, confirmedInput !== undefined);
+		if (durable !== undefined) {
+			await this.#update(
+				id,
+				(entry) => {
+					const {
+						interrupted: _prevInterrupted,
+						activeTool: _prevActiveTool,
+						latestSummary: _prevSummary,
+						usage: _prevUsage,
+						...cleanEntry
+					} = entry;
+					const base =
+						confirmedInput === undefined
+							? cleanEntry
+							: (({ unacknowledgedInput: _input, ...rest }) => rest)(cleanEntry);
+					return {
+						...base,
+						state: snapshot.state,
+						...(snapshot.interrupted === undefined ? {} : { interrupted: snapshot.interrupted }),
+					};
+				},
+				workVersion,
+			);
+		} else {
+			this.#notify();
+		}
 		if (snapshot.state === "done" || snapshot.state === "blocked" || snapshot.state === "error") {
 			this.#scheduleSettledPanelClose(id);
 		} else {
@@ -1872,6 +1779,78 @@ export class SubagentManager {
 			const latestRecord = (await this.#deps.registry.get(id)) ?? current;
 			this.#scheduleAutoReport(id, latestRecord);
 		}
+	}
+
+	public holdAttachment(id: string, attachment: HostAttachment): void {
+		this.#attachments.set(id, attachment);
+	}
+
+	/** Starts restoration. `before_agent_start` waits on `ready` so the turn sees the same ledger. */
+	public reconcile(): Promise<LeaseReady> {
+		if (this.#ready !== undefined) return this.#ready;
+		const ready = this.#reconcile();
+		this.#ready = ready;
+		return ready;
+	}
+
+	public ready(): Promise<LeaseReady> {
+		return this.reconcile();
+	}
+
+	async #reconcile(): Promise<LeaseReady> {
+		const directory = this.#deps.directory;
+		if (directory === undefined) {
+			const recovery = await this.recover();
+			return {
+				ok: true,
+				rebound: recovery.recovered,
+				rehydrated: [],
+				stopped: [],
+				released: [],
+			};
+		}
+		const lease = createConversationLease({
+			registry: this.#deps.registry,
+			hosts: directory,
+			processes: { alive: processAlive },
+		});
+		const result = await lease.ready();
+		if (!result.ok) return result;
+		for (const id of result.rebound) {
+			const record = await this.#deps.registry.get(id);
+			const attachment = record?.runtime?.attachment;
+			if (attachment?.kind === "panel") {
+				const handle = directory.rebind?.(attachment);
+				if (handle !== undefined) this.#attachments.set(id, handle);
+			} else if (attachment?.kind === "process") {
+				const runtime = attachRetainedChild(attachment.pid);
+				if (runtime !== undefined) this.#watchRuntime(id, runtime);
+			}
+		}
+		for (const id of result.released) {
+			await this.#noteReleasedRuntime(id);
+		}
+		return result;
+	}
+
+	/** A writer the lease already dropped. Same ledger line as a watched exit. */
+	async #noteReleasedRuntime(id: string): Promise<void> {
+		const record = await this.#deps.registry.get(id);
+		if (record === undefined) return;
+		await this.#recordWriterGone(id);
+	}
+
+	#withSnapshot(record: SubagentRecord): SubagentRecord {
+		const projector = this.#projectors.get(record.subagentId);
+		if (projector === undefined) return record;
+		const snap = projector.snapshot();
+		return {
+			...record,
+			...(snap.activeTool !== undefined ? { activeTool: snap.activeTool } : {}),
+			...(snap.summary !== undefined ? { latestSummary: snap.summary } : {}),
+			...(snap.interrupted !== undefined ? { interrupted: snap.interrupted } : {}),
+			usage: snap.usage ?? record.usage,
+		};
 	}
 
 	/** Runs an update inside the per-child chain used by the mutating operations. */
@@ -1908,5 +1887,24 @@ export class SubagentManager {
 			})
 			.catch(() => undefined);
 		return next;
+	}
+}
+
+function durableProjection(
+	record: SubagentRecord,
+	snapshot: { readonly state: SubagentState; readonly interrupted?: string },
+	inputConfirmed: boolean,
+): true | undefined {
+	if (inputConfirmed) return true;
+	if (snapshot.state !== record.state) return true;
+	return undefined;
+}
+
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
 	}
 }

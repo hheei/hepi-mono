@@ -1,13 +1,15 @@
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { isRecord, readJsonSettingsRoot, updateJsonSettingsRoot } from "@hheei/pi-ext-core";
+import { isRecord } from "@hheei/pi-ext-core";
 import type {
 	EffectiveLaunchConfig,
 	McpSelection,
+	PanelHost,
 	PiInvocation,
 	ResolvedAgentIdentity,
 	ResolvedModel,
 	ResolvedThinking,
+	RuntimeAttachment,
 	RuntimeMetadata,
 	Selection,
 	SubagentRecord,
@@ -22,8 +24,15 @@ import {
 	isSubagentState,
 	isThinkingLevel,
 	normalizeSubagentState,
-	REGISTRY_VERSION,
 } from "./domain.js";
+import {
+	insertChild,
+	listChildRecords,
+	openStateDb,
+	readChild,
+	replaceChild,
+	withWrite,
+} from "./state-db.js";
 
 export type RegistryErrorCode =
 	| "invalid_parent_session"
@@ -80,17 +89,6 @@ export interface CreateSubagentRegistryOptions {
 	readonly filePath?: string;
 	readonly now?: () => Date;
 }
-
-export function defaultRegistryPath(parentSessionId: string): string {
-	return join(getAgentDir(), "pi-subagents", "registry", `${parentSessionId}.json`);
-}
-
-const ROOT_FIELDS: Record<string, true> = {
-	version: true,
-	parentSessionId: true,
-	updatedAt: true,
-	records: true,
-};
 
 const RECORD_FIELDS: Record<string, true> = {
 	subagentId: true,
@@ -150,7 +148,12 @@ const INVOCATION_FIELDS: Record<string, true> = { command: true, args: true };
 const MODEL_FIELDS: Record<string, true> = { provider: true, id: true, source: true };
 const THINKING_FIELDS: Record<string, true> = { level: true, source: true };
 const SELECTION_FIELDS: Record<string, true> = { discovery: true, paths: true };
-const RUNTIME_FIELDS: Record<string, true> = { runtimeIdentity: true, endpoint: true };
+const RUNTIME_FIELDS: Record<string, true> = {
+	runtimeIdentity: true,
+	endpoint: true,
+	attachment: true,
+};
+const ATTACHMENT_FIELDS: Record<string, true> = { kind: true, host: true, id: true, pid: true };
 
 const USAGE_FIELDS: Record<string, true> = {
 	inputTokens: true,
@@ -316,7 +319,41 @@ function parseRuntime(value: unknown, path: string): RuntimeMetadata {
 	expectKeys(raw, RUNTIME_FIELDS, "runtime", path);
 	const runtimeIdentity = expectString(raw.runtimeIdentity, "runtime.runtimeIdentity", path);
 	const endpoint = expectString(raw.endpoint, "runtime.endpoint", path);
-	return Object.freeze({ runtimeIdentity, endpoint });
+	const attachment =
+		raw.attachment === undefined ? undefined : parseAttachment(raw.attachment, path);
+	return Object.freeze({
+		runtimeIdentity,
+		endpoint,
+		...(attachment === undefined ? {} : { attachment }),
+	});
+}
+
+function parseAttachment(value: unknown, path: string): RuntimeAttachment {
+	const raw = expectObject(value, "runtime.attachment", path);
+	expectKeys(raw, ATTACHMENT_FIELDS, "runtime.attachment", path);
+	if (raw.kind === "panel") {
+		if (raw.pid !== undefined) throw invalid(path, "runtime.attachment panel must not carry a pid");
+		const host = raw.host;
+		if (!isPanelHost(host)) throw invalid(path, "runtime.attachment.host is invalid");
+		const id = expectString(raw.id, "runtime.attachment.id", path);
+		if (id === "") throw invalid(path, "runtime.attachment.id must not be empty");
+		return Object.freeze({ kind: "panel", host, id });
+	}
+	if (raw.kind === "process") {
+		if (raw.host !== undefined || raw.id !== undefined) {
+			throw invalid(path, "runtime.attachment process must not carry a panel id");
+		}
+		const pid = raw.pid;
+		if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+			throw invalid(path, "runtime.attachment.pid must be a positive integer");
+		}
+		return Object.freeze({ kind: "process", pid });
+	}
+	throw invalid(path, "runtime.attachment.kind is invalid");
+}
+
+function isPanelHost(value: unknown): value is PanelHost {
+	return value === "herdr" || value === "cmux";
 }
 
 function parseMcpSelection(value: unknown, path: string): McpSelection {
@@ -478,48 +515,8 @@ export function parseSubagentRecord(
 	});
 }
 
-function parseRoot(
-	raw: Record<string, unknown>,
-	path: string,
-	parentSessionId: string,
-): Map<string, SubagentRecord> {
-	if (Object.keys(raw).length === 0) return new Map();
-	const version = raw.version;
-	if (version === undefined) throw corrupt(path, "missing version");
-	if (version !== REGISTRY_VERSION) {
-		throw new SubagentRegistryError(
-			"unsupported_version",
-			`Unsupported registry version ${String(version)} in ${path}; expected ${REGISTRY_VERSION}`,
-		);
-	}
-	if (raw.parentSessionId !== parentSessionId) {
-		throw new SubagentRegistryError(
-			"parent_mismatch",
-			`Registry ${path} belongs to parent session ${String(raw.parentSessionId)}, not ${parentSessionId}`,
-		);
-	}
-	const records = raw.records;
-	if (!isRecord(records)) throw corrupt(path, "records must be an object");
-	const parsed = new Map<string, SubagentRecord>();
-	for (const [id, value] of Object.entries(records)) {
-		parsed.set(id, parseSubagentRecord(value, id, parentSessionId, path));
-	}
-	return parsed;
-}
-
-function writeRoot(
-	root: Record<string, unknown>,
-	parentSessionId: string,
-	records: Map<string, SubagentRecord>,
-	now: Date,
-): void {
-	for (const key of Object.keys(root)) {
-		if (ROOT_FIELDS[key] !== true) delete root[key];
-	}
-	root.version = REGISTRY_VERSION;
-	root.parentSessionId = parentSessionId;
-	root.updatedAt = now.toISOString();
-	root.records = Object.fromEntries(records);
+export function defaultRegistryPath(_parentSessionId: string): string {
+	return join(getAgentDir(), "pi-subagents", "state.sqlite");
 }
 
 export function createSubagentRegistry(options: CreateSubagentRegistryOptions): SubagentRegistry {
@@ -532,18 +529,28 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 	}
 	const path = options.filePath ?? defaultRegistryPath(parentSessionId);
 	const now = options.now ?? ((): Date => new Date());
+	const db = openStateDb(path);
 
-	const readRecords = async (signal?: AbortSignal): Promise<Map<string, SubagentRecord>> =>
-		parseRoot(await readJsonSettingsRoot(path, signal), path, parentSessionId);
+	const load = (id: string): SubagentRecord | undefined => {
+		const row = readChild(db, parentSessionId, id);
+		if (row === undefined) return undefined;
+		return parseSubagentRecord(JSON.parse(row.record) as unknown, id, parentSessionId, path);
+	};
 
-	const store: SubagentRegistry = {
+	return {
 		path,
 		parentSessionId,
-		async get(id, signal) {
-			return (await readRecords(signal)).get(id);
+		async get(id) {
+			return load(id);
 		},
-		async list(signal) {
-			const records = [...(await readRecords(signal)).values()];
+		async list() {
+			const records = listChildRecords(db, parentSessionId).map((record) => {
+				const parsed = JSON.parse(record) as unknown;
+				if (!isRecord(parsed) || typeof parsed.subagentId !== "string") {
+					throw corrupt(path, "child record is missing subagentId");
+				}
+				return parseSubagentRecord(parsed, parsed.subagentId, parentSessionId, path);
+			});
 			records.sort((left, right) =>
 				left.createdAt === right.createdAt
 					? left.subagentId.localeCompare(right.subagentId)
@@ -551,75 +558,75 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			);
 			return records;
 		},
-		async create(record, signal) {
-			let stored: SubagentRecord | undefined;
-			await updateJsonSettingsRoot(
-				path,
-				(root) => {
-					const records = parseRoot(root, path, parentSessionId);
-					const candidate = parseSubagentRecord(record, record.subagentId, parentSessionId, path);
-					if (records.has(candidate.subagentId)) {
-						throw new SubagentRegistryError(
-							"duplicate_child",
-							`Child ${candidate.subagentId} already exists in ${path}`,
-						);
-					}
-					records.set(candidate.subagentId, candidate);
-					writeRoot(root, parentSessionId, records, now());
-					stored = candidate;
-				},
-				signal,
+		async create(record) {
+			const candidate = parseSubagentRecord(record, record.subagentId, parentSessionId, path);
+			const inserted = withWrite(db, () =>
+				insertChild(
+					db,
+					parentSessionId,
+					candidate.subagentId,
+					candidate.revision,
+					JSON.stringify(candidate),
+				),
 			);
-			if (stored === undefined) throw corrupt(path, "create did not persist a record");
-			return stored;
+			if (!inserted) {
+				throw new SubagentRegistryError(
+					"duplicate_child",
+					`Child ${candidate.subagentId} already exists in ${path}`,
+				);
+			}
+			return candidate;
 		},
-		async update(id, expectedRevision, updater, expectedRuntimeIdentity, signal) {
-			let stored: SubagentRecord | undefined;
-			await updateJsonSettingsRoot(
-				path,
-				(root) => {
-					const records = parseRoot(root, path, parentSessionId);
-					const current = records.get(id);
-					if (current === undefined) {
-						throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
-					}
-					if (expectedRevision !== undefined && current.revision !== expectedRevision) {
-						throw new SubagentRegistryError(
-							"stale_revision",
-							`Child ${id} is at revision ${current.revision}, not ${expectedRevision}`,
-						);
-					}
-					if (
-						expectedRuntimeIdentity !== undefined &&
-						current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
-					) {
-						throw new SubagentRegistryError(
-							"runtime_mismatch",
-							`Child ${id} runtime is ${current.runtime?.runtimeIdentity ?? "none"}, not ${expectedRuntimeIdentity}`,
-						);
-					}
-					const next = parseSubagentRecord(
-						{
-							...updater(current),
-							subagentId: current.subagentId,
-							parentSessionId: current.parentSessionId,
-							createdAt: current.createdAt,
-							revision: current.revision + 1,
-							updatedAt: now().toISOString(),
-						},
-						id,
-						parentSessionId,
-						path,
+		async update(id, expectedRevision, updater, expectedRuntimeIdentity) {
+			return withWrite(db, () => {
+				const current = load(id);
+				if (current === undefined) {
+					throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
+				}
+				if (expectedRevision !== undefined && current.revision !== expectedRevision) {
+					throw new SubagentRegistryError(
+						"stale_revision",
+						`Child ${id} is at revision ${current.revision}, not ${expectedRevision}`,
 					);
-					records.set(id, next);
-					writeRoot(root, parentSessionId, records, now());
-					stored = next;
-				},
-				signal,
-			);
-			if (stored === undefined) throw corrupt(path, `update of ${id} did not persist a record`);
-			return stored;
+				}
+				if (
+					expectedRuntimeIdentity !== undefined &&
+					current.runtime?.runtimeIdentity !== expectedRuntimeIdentity
+				) {
+					throw new SubagentRegistryError(
+						"runtime_mismatch",
+						`Child ${id} runtime is ${current.runtime?.runtimeIdentity ?? "none"}, not ${expectedRuntimeIdentity}`,
+					);
+				}
+				const next = parseSubagentRecord(
+					{
+						...updater(current),
+						subagentId: current.subagentId,
+						parentSessionId: current.parentSessionId,
+						createdAt: current.createdAt,
+						revision: current.revision + 1,
+						updatedAt: now().toISOString(),
+					},
+					id,
+					parentSessionId,
+					path,
+				);
+				const replaced = replaceChild(
+					db,
+					parentSessionId,
+					id,
+					current.revision,
+					next.revision,
+					JSON.stringify(next),
+				);
+				if (!replaced) {
+					throw new SubagentRegistryError(
+						"stale_revision",
+						`Child ${id} changed while it was being updated`,
+					);
+				}
+				return next;
+			});
 		},
 	};
-	return store;
 }
