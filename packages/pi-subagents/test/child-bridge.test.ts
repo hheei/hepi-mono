@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
-import { ChildBridgeServer } from "../src/bridge-server.js";
 import {
 	childSessionTitle,
 	registerChildBridge,
@@ -13,6 +12,7 @@ import {
 } from "../src/child-bridge.js";
 import type { ChildIdentity } from "../src/domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, CHILD_TITLE_ENV_KEY } from "../src/domain.js";
+import { createMailboxTransport } from "../src/mailbox.js";
 
 describe("child bridge session policy", () => {
 	test("reload and same-session resume stay bound", () => {
@@ -270,15 +270,13 @@ describe("child session title", () => {
 describe("child bridge session switch", () => {
 	test("stops dialing the parent after its session is replaced", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-subagents-child-bridge-"));
-		const endpoint = join(dir, "parent.sock");
-		const server = new ChildBridgeServer({
-			endpoint,
+		const endpoint = join(dir, "state.sqlite");
+		const server = createMailboxTransport({
+			filePath: endpoint,
 			parentSessionId: "parent-1",
-			authorize: () => undefined,
 			handleRequest: async () => ({ ok: true }),
 			diagnose: () => {},
 		});
-		await server.listen();
 		try {
 			const identity: ChildIdentity = {
 				parentSessionId: "parent-1",
@@ -340,7 +338,7 @@ describe("child bridge session switch", () => {
 			await new Promise((resolve) => setTimeout(resolve, 700));
 			expect(server.isConnected("agent-1")).toBe(false);
 		} finally {
-			await server.close();
+			server.close();
 			await rm(dir, { recursive: true, force: true });
 		}
 	});

@@ -1,5 +1,7 @@
+import { statSync } from "node:fs";
 import { errorMessage, runCommand, shellQuote } from "@hheei/pi-ext-core";
 import type { LaunchSpec } from "./launch-spec.js";
+import type { HostList } from "./lease.js";
 
 export type HostKind = "herdr" | "cmux";
 
@@ -427,6 +429,149 @@ export function herdrPanelFocused(
 	const workspace = herdrListEntry(workspaceList, "workspaces", "workspace_id", workspaceId);
 	const workspaceFocused = workspace?.focused;
 	return typeof workspaceFocused === "boolean" ? workspaceFocused : undefined;
+}
+
+export async function listHerdrAttachments(
+	runner: HostCommandRunner,
+	timeoutMs: number,
+): Promise<HostList> {
+	const status = await runner.run("herdr", ["status", "server"], { timeoutMs });
+	if (status.timedOut || status.exitCode !== 0) return { known: false };
+	const socket = statusField(status.stdout, "socket");
+	if (socket === undefined) return { known: false };
+	let generation: string;
+	try {
+		const stat = statSync(socket);
+		generation = `${stat.dev}:${stat.ino}`;
+	} catch {
+		return { known: false };
+	}
+	const tabs = await runner.run("herdr", ["tab", "list"], { timeoutMs });
+	if (tabs.timedOut || tabs.exitCode !== 0) return { known: false };
+	const present = herdrTabIds(tabs.stdout);
+	if (present === undefined) return { known: false };
+	return { known: true, generation, present };
+}
+
+export function herdrTabIds(output: string): ReadonlySet<string> | undefined {
+	const entries = herdrCollection(output, "tabs");
+	if (entries === undefined) return undefined;
+	const ids = new Set<string>();
+	for (const entry of entries) {
+		if (typeof entry !== "object" || entry === null) continue;
+		const id = (entry as Record<string, unknown>).tab_id;
+		if (typeof id === "string" && id !== "") ids.add(id);
+	}
+	return ids;
+}
+
+export async function listCmuxAttachments(
+	runner: HostCommandRunner,
+	timeoutMs: number,
+): Promise<HostList> {
+	const panels = await runner.run("cmux", ["--json", "list-panels"], { timeoutMs });
+	if (panels.timedOut || panels.exitCode !== 0) return { known: false };
+	const present = cmuxSurfaceIds(panels.stdout);
+	if (present === undefined) return { known: false };
+	return { known: true, generation: "cmux", present };
+}
+
+export function cmuxSurfaceIds(output: string): ReadonlySet<string> | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(output) as unknown;
+	} catch {
+		return undefined;
+	}
+	const panels = findNamedObject(parsed, "result")?.panels ?? findNamedObject(parsed, "panels");
+	const list = Array.isArray(panels) ? panels : Array.isArray(parsed) ? parsed : undefined;
+	if (list === undefined) return undefined;
+	const ids = new Set<string>();
+	for (const entry of list) {
+		if (typeof entry === "string" && entry !== "") ids.add(entry);
+		else if (typeof entry === "object" && entry !== null) {
+			const id = (entry as Record<string, unknown>).surface_id;
+			if (typeof id === "string" && id !== "") ids.add(id);
+		}
+	}
+	return ids;
+}
+
+export function rebindHerdrTab(options: {
+	readonly runner?: HostCommandRunner;
+	readonly tabId: string;
+	readonly ownerId: string;
+	readonly timeoutMs?: number;
+	readonly ownsAttachment: (identity: HostAttachmentIdentity) => boolean;
+}): HostAttachment {
+	const runner = options.runner ?? systemHostCommandRunner;
+	const timeoutMs = options.timeoutMs ?? 10_000;
+	return hostAttachment({
+		identity: { host: "herdr", attachmentId: options.tabId, createdBy: options.ownerId },
+		launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
+		noun: "tab",
+		reportsFocus: true,
+		observe: async () => {
+			const tabs = await runner.run("herdr", ["tab", "list"], { timeoutMs });
+			if (tabs.timedOut || tabs.exitCode !== 0) return { process: tabs };
+			const ids = herdrTabIds(tabs.stdout);
+			if (ids === undefined) return { process: tabs };
+			return { process: tabs, alive: ids.has(options.tabId) };
+		},
+		close: () => runner.run("herdr", ["tab", "close", options.tabId], { timeoutMs }),
+		ownsAttachment: options.ownsAttachment,
+	});
+}
+
+export function rebindCmuxSurface(options: {
+	readonly runner?: HostCommandRunner;
+	readonly surfaceId: string;
+	readonly ownerId: string;
+	readonly timeoutMs?: number;
+	readonly ownsAttachment: (identity: HostAttachmentIdentity) => boolean;
+}): HostAttachment {
+	const runner = options.runner ?? systemHostCommandRunner;
+	const timeoutMs = options.timeoutMs ?? 10_000;
+	return hostAttachment({
+		identity: { host: "cmux", attachmentId: options.surfaceId, createdBy: options.ownerId },
+		launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
+		noun: "surface",
+		reportsFocus: false,
+		observe: async () => {
+			const process = await runner.run("cmux", ["--json", "list-panels"], { timeoutMs });
+			if (process.timedOut || process.exitCode !== 0) return { process };
+			const ids = cmuxSurfaceIds(process.stdout);
+			if (ids === undefined) return { process };
+			return { process, alive: ids.has(options.surfaceId) };
+		},
+		close: () =>
+			runner.run("cmux", ["--json", "close-surface", "--surface", options.surfaceId], {
+				timeoutMs,
+			}),
+		ownsAttachment: options.ownsAttachment,
+	});
+}
+
+function herdrCollection(output: string, collection: string): readonly unknown[] | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(output) as unknown;
+	} catch {
+		return undefined;
+	}
+	const list = findNamedObject(parsed, "result")?.[collection];
+	return Array.isArray(list) ? list : undefined;
+}
+
+function statusField(output: string, name: string): string | undefined {
+	for (const line of output.split("\n")) {
+		const separator = line.indexOf(":");
+		if (separator < 0) continue;
+		if (line.slice(0, separator).trim() !== name) continue;
+		const value = line.slice(separator + 1).trim();
+		if (value !== "") return value;
+	}
+	return undefined;
 }
 
 function herdrListEntry(

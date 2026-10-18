@@ -38,6 +38,7 @@ function hasExited(child: ChildProcess): boolean {
  * would send it an EOF and end a child that only its parent's exit is supposed to end.
  */
 const retained = new Set<ChildProcess>();
+const retainedRuntimes = new Map<number, ChildRuntime>();
 
 /**
  * Starts a detached-from-the-terminal child Pi. The caller keeps the handle: this package has no
@@ -63,21 +64,14 @@ export function spawnChildRuntime(options: ChildProcessOptions): ChildRuntime {
 			resolve(code);
 		});
 	});
-	if (child.pid === undefined) {
+	const pid = child.pid;
+	if (pid === undefined) {
 		child.kill("SIGKILL");
 		throw new Error(`Child process ${options.command} did not start`);
 	}
 	retained.add(child);
-	// stdout is the child's Pi protocol stream and stderr its diagnostics; neither is a control
-	// channel, so they are drained to keep the pipes from filling and reported only as diagnostics.
-	child.stdout.on("data", () => {});
-	child.stderr.on("data", (chunk: Buffer) => {
-		const text = chunk.toString("utf8").trim();
-		if (text !== "") diagnose(text);
-	});
-	child.stdin.on("error", () => {});
-	return {
-		pid: child.pid,
+	const runtime: ChildRuntime = {
+		pid,
 		get alive(): boolean {
 			return !hasExited(child);
 		},
@@ -93,6 +87,25 @@ export function spawnChildRuntime(options: ChildProcessOptions): ChildRuntime {
 			}
 		},
 	};
+	retainedRuntimes.set(pid, runtime);
+	void exited.then(() => {
+		retainedRuntimes.delete(pid);
+	});
+	// stdout is the child's Pi protocol stream and stderr its diagnostics; neither is a control
+	// channel, so they are drained to keep the pipes from filling and reported only as diagnostics.
+	child.stdout.on("data", () => {});
+	child.stderr.on("data", (chunk: Buffer) => {
+		const text = chunk.toString("utf8").trim();
+		if (text !== "") diagnose(text);
+	});
+	child.stdin.on("error", () => {});
+	return runtime;
+}
+
+/** The process-scoped stdin leash for a background child that survived an extension reload. */
+export function attachRetainedChild(pid: number): ChildRuntime | undefined {
+	const runtime = retainedRuntimes.get(pid);
+	return runtime?.alive === true ? runtime : undefined;
 }
 
 /** True when `work` settled within the window; the child process outlives this wait either way. */

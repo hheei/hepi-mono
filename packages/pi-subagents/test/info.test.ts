@@ -1,5 +1,6 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { type MessageViewSpec, messageViewPoint, registerExtensionHook } from "@hheei/pi-ext-core";
 import { expect, test, vi } from "vitest";
 import { appendSubagentInfo, registerSubagentInfo, renderSubagentInfo } from "../src/info.js";
 
@@ -68,4 +69,40 @@ test("renders stored info entries safely at narrow and wide widths", () => {
 		}
 	}
 	expect(renderSubagentInfo({ ...data, status: "invalid" }, false, theme)).toBeUndefined();
+});
+
+test("uses the optional message view and keeps an empty report collapsed", async () => {
+	const registerEntryRenderer = vi.fn<ExtensionAPI["registerEntryRenderer"]>();
+	const pi = { registerEntryRenderer };
+	registerSubagentInfo(pi);
+	const specs: MessageViewSpec[] = [];
+	const hook = registerExtensionHook(pi as unknown as ExtensionAPI, messageViewPoint, (value) => {
+		specs.push(value);
+		return { render: () => ["view"], invalidate() {} };
+	});
+	const renderer = registerEntryRenderer.mock.calls[0]![1];
+	const entry = {
+		type: "custom" as const,
+		id: "entry-1",
+		parentId: null,
+		timestamp: "2026-10-13T00:00:00.000Z",
+		customType: "subagent-info",
+		data: { id: "agent-21", agent: "worker", status: "done", message: "Complete report" },
+	};
+	expect(
+		renderer(entry, { expanded: true }, theme as Theme)
+			?.render(40)
+			.join("\n"),
+	).toBe("view");
+	expect(specs[0]?.header).toEqual({
+		kind: "agents",
+		summary: "󰄴 #21 worker · done",
+		tone: "success",
+	});
+	expect(specs[0]?.body).toBe("Complete report");
+	const empty = { ...entry, id: "entry-2", data: { ...entry.data, message: "  " } };
+	renderer(empty, { expanded: false }, theme as Theme);
+	expect(specs[1]?.body).toBeUndefined();
+	expect(specs[1]?.header.tone).toBe("success");
+	await hook.dispose();
 });

@@ -9,18 +9,23 @@ import {
 	waitForService,
 } from "@hheei/pi-ext-core";
 import { discoverAgents, type SkillCatalogEntry } from "./agent-resolver.js";
-import { ChildBridgeServer } from "./bridge-server.js";
 import { registerChildBridge } from "./child-bridge.js";
 import { registerParentCommands } from "./commands.js";
-import type { ChildIdentity } from "./domain.js";
+import type { ChildIdentity, RuntimeAttachment, SubagentRecord } from "./domain.js";
 import { BRIDGE_ENVIRONMENT_KEYS, isThinkingLevel } from "./domain.js";
 import {
 	createCmuxHostAdapter,
 	createHerdrHostAdapter,
 	type HostAttachmentIdentity,
+	listCmuxAttachments,
+	listHerdrAttachments,
+	rebindCmuxSurface,
+	rebindHerdrTab,
 	selectHostAdapter,
+	systemHostCommandRunner,
 } from "./host-adapter.js";
 import { appendSubagentInfo, displaySubagentText, registerSubagentInfo } from "./info.js";
+import { createMailboxTransport } from "./mailbox.js";
 import { type ParentChannel, type ParentChannelReport, SubagentManager } from "./manager.js";
 import { transformSubagentsMarkdown } from "./markdown.js";
 import { createSubagentRegistry } from "./registry.js";
@@ -28,7 +33,6 @@ import {
 	createRuntimeTokenStore,
 	launchChild,
 	openChildPanel,
-	parentBridgeEndpoint,
 	prepareRuntimeDirectory,
 } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
@@ -207,36 +211,16 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			});
 			runtime.resources.add("parent-channel", () => channel.dispose());
 			let manager!: SubagentManager;
-			// The parent listens; every child dials this socket, so the bridge connection is both the
-			// control plane and the only honest answer to "is this child still running?".
-			const server = new ChildBridgeServer({
-				endpoint: parentBridgeEndpoint(parentSessionId),
+			// One sqlite file is the ledger and the mailbox. Presence is not liveness.
+			const mailbox = createMailboxTransport({
+				filePath: registry.path,
 				parentSessionId,
-				authorize: async (frame) => {
-					const expected = tokens.get(frame.runtimeIdentity);
-					if (expected === undefined) {
-						return `no bridge token is recorded for runtime ${frame.runtimeIdentity}`;
-					}
-					if (expected !== frame.token) return "bridge token mismatch";
-					// The token says which runtime is calling; the registry says which child that runtime
-					// belongs to. Without this check a child could name another child's id and take over
-					// its control channel, so a hello that does not match its record is refused.
-					const record = await registry.get(frame.subagentId).catch(() => undefined);
-					if (record === undefined) return `no recorded child ${frame.subagentId}`;
-					if (record.runtime?.runtimeIdentity !== frame.runtimeIdentity) {
-						return `runtime ${frame.runtimeIdentity} is not the recorded runtime of child ${frame.subagentId}`;
-					}
-					return undefined;
-				},
 				handleRequest: (request) =>
 					manager.handleChildRequest(request.childId, request.operation, request.payload),
 				diagnose,
 			});
 			await prepareRuntimeDirectory(diagnose);
-			await server.listen();
-			// Closing is awaited: the endpoint is unlinked after the server is closed, so a reload that
-			// started the next server first could have this close unlink the new socket path.
-			runtime.resources.add("subagent-bridge", () => server.close());
+			runtime.resources.add("subagent-bridge", () => mailbox.close());
 			// A definition names skills the way Pi lists them, so the parent's loaded skill set is
 			// the only name → path catalog; Pi hands it over before every prompt of this session.
 			let skillCatalog: readonly SkillCatalogEntry[] = [];
@@ -277,14 +261,14 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				bootstrap(input) {
 					return persistSubagentIntent({ registry, ...input });
 				},
-				bridge: server,
+				bridge: mailbox,
 				launch(record) {
 					return launchChild({
 						registry,
 						record,
 						tokens,
 						waitForBridge: (childId, signal) =>
-							server.waitForConnection(childId, {
+							mailbox.waitUntilSeen(childId, {
 								timeoutMs: START_WINDOW_MS,
 								...(signal === undefined ? {} : { signal }),
 							}),
@@ -303,7 +287,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 										tokens,
 										host: hostSelection.adapter,
 										waitForBridge: (childId, signal) =>
-											server.waitForConnection(childId, {
+											mailbox.waitUntilSeen(childId, {
 												timeoutMs: START_WINDOW_MS,
 												...(signal === undefined ? {} : { signal }),
 											}),
@@ -316,11 +300,50 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				// Adoption is a wait, never a spawn: a child that survived this parent reconnects on
 				// its own, and one that did not stays recorded until a send starts it again.
 				connect(record) {
-					return server.waitForConnection(record.subagentId, {
+					return mailbox.waitUntilSeen(record.subagentId, {
 						timeoutMs: ADOPT_WINDOW_MS,
 						signal: runtime.signal,
 					});
 				},
+				...(hostSelection.available
+					? {
+							directory: {
+								host: hostSelection.selectedHost,
+								list: () =>
+									hostSelection.selectedHost === "herdr"
+										? listHerdrAttachments(systemHostCommandRunner, 10_000)
+										: listCmuxAttachments(systemHostCommandRunner, 10_000),
+								open: async (record: SubagentRecord) => {
+									const launch = await openChildPanel({
+										registry,
+										record,
+										tokens,
+										host: hostSelection.adapter,
+										waitForBridge: (childId: string, signal?: AbortSignal) =>
+											mailbox.waitUntilSeen(childId, {
+												timeoutMs: START_WINDOW_MS,
+												...(signal === undefined ? {} : { signal }),
+											}),
+										signal: runtime.signal,
+										diagnose,
+									});
+									if (launch.handle !== undefined) {
+										manager.holdAttachment(record.subagentId, launch.handle);
+									}
+									if (launch.handle === undefined || launch.failure !== undefined) {
+										return { failure: launch.failure ?? "panel did not open" };
+									}
+									return { id: launch.handle.identity.attachmentId };
+								},
+								rebind: (attachment: RuntimeAttachment) => {
+									if (attachment.kind !== "panel") return undefined;
+									return attachment.host === "herdr"
+										? rebindHerdrTab({ tabId: attachment.id, ownerId, ownsAttachment })
+										: rebindCmuxSurface({ surfaceId: attachment.id, ownerId, ownsAttachment });
+								},
+							},
+						}
+					: {}),
 			});
 			const unregisterWork = delivery.registerSource({
 				activeCount: () => manager.activeCount,
@@ -330,23 +353,22 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			// Recovery must never take the extension down with it: a registry this version cannot
 			// read (for example records written by an older release) is reported in the session and
 			// the user is told how to reset it.
-			const recovery = await manager.recover().catch((error: unknown) => ({
-				recovered: [],
-				failures: [
-					{
-						childId: "registry",
-						reason: `${errorMessage(error)}. Delete the stale records (or the whole registry file) to reset this parent session's subagent state.`,
-					},
-				],
-			}));
-			if (recovery.failures.length > 0) {
+			const recovery = await manager.reconcile().catch((error: unknown) => {
 				context.ui.notify(
-					`Subagent recovery failed:\n${recovery.failures
-						.map((failure) => `- ${failure.childId}: ${failure.reason}`)
-						.join("\n")}`,
+					`Subagent recovery failed: ${errorMessage(error)}. Delete the stale records (or the whole registry file) to reset this parent session's subagent state.`,
 					"error",
 				);
+				return undefined;
+			});
+			if (recovery?.ok === false) {
+				context.ui.notify(
+					"Subagent panels could not be listed, so none were reopened. No second runtime was started.",
+					"warning",
+				);
 			}
+			pi.on("before_agent_start", async () => {
+				await manager.ready();
+			});
 			registerParentTools(pi, manager, await discoverAgents(context.cwd));
 			if (typeof pi.registerMarkdownTransformer === "function") {
 				pi.registerMarkdownTransformer(transformSubagentsMarkdown);
