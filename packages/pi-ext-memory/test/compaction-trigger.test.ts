@@ -26,6 +26,7 @@ function captureHandler(
 		compactAfterTokensRatio?: number;
 		idleCompactionTtlSeconds?: number | undefined;
 		idleCompactionMinTokens?: number | undefined;
+		keepRecentTokens?: number;
 		passive?: boolean;
 		compactInFlight?: boolean;
 	} = {},
@@ -39,6 +40,10 @@ function captureHandler(
 		}),
 		appendEntry: vi.fn(),
 		registerEntryRenderer: vi.fn(),
+		getSettings: () =>
+			args.keepRecentTokens === undefined
+				? {}
+				: { compaction: { keepRecentTokens: args.keepRecentTokens } },
 	};
 	const runtime = new Runtime();
 	runtime.config = {
@@ -53,6 +58,7 @@ function captureHandler(
 		runtime.config.idleCompactionMinTokens = args.idleCompactionMinTokens;
 	}
 	runtime.configLoaded = true;
+	runtime.deferSessionIdleCheck = false;
 	runtime.ensureConfig = vi.fn();
 	runtime.compactInFlight = args.compactInFlight ?? false;
 	registerCompactionTrigger(pi as unknown as ExtensionAPI, runtime);
@@ -567,11 +573,7 @@ describe("V3 compaction trigger", () => {
 			coversUpToId: "raw-1",
 		});
 
-		const makeIdleBranch = (
-			nowSec: number,
-			elapsedSec = 0,
-			text = "some text for token estimation",
-		) => [
+		const makeIdleBranch = (nowSec: number, elapsedSec = 0, text = "x".repeat(90_000)) => [
 			rawMessage("user-0", "initial prompt", {
 				timestamp: new Date((nowSec - elapsedSec) * 1000).toISOString(),
 			}),
@@ -585,25 +587,19 @@ describe("V3 compaction trigger", () => {
 			validObsEntry,
 		];
 
-		it("formats idle duration correctly", () => {
-			expect(formatIdleDuration(0)).toBe("0s");
-			expect(formatIdleDuration(45)).toBe("45s");
-			expect(formatIdleDuration(60)).toBe("1m");
-			expect(formatIdleDuration(95)).toBe("1m 35s");
-			expect(formatIdleDuration(1800)).toBe("30m");
-			expect(formatIdleDuration(3600)).toBe("1h");
-			expect(formatIdleDuration(3665)).toBe("1h 1m");
-			expect(formatIdleDuration(7200)).toBe("2h");
-			expect(formatIdleDuration(86400)).toBe("1d");
-			expect(formatIdleDuration(90000)).toBe("1d 1h");
-		});
-
-		it("evaluates canPiCompact correctly based on Pi native compaction lower bound", () => {
-			expect(canPiCompact([])).toBe(false);
-			expect(canPiCompact([rawMessage("raw-1", "hello")])).toBe(false);
-			const short = [rawMessage("user-1", "hi"), rawMessage("asst-1", "hello")];
-			expect(canPiCompact(short, 20_000)).toBe(false);
-			expect(canPiCompact(short, 1)).toBe(true);
+		it.each([
+			[0, "0s"],
+			[45, "45s"],
+			[60, "1m"],
+			[95, "1m 35s"],
+			[1800, "30m"],
+			[3600, "1h"],
+			[3665, "1h 1m"],
+			[7200, "2h"],
+			[86400, "1d"],
+			[90000, "1d 1h"],
+		] as const)("formats %s idle seconds as %s", (seconds, label) => {
+			expect(formatIdleDuration(seconds)).toBe(label);
 		});
 
 		it("notifies user directly once idle timeout expires without running compaction", async () => {
@@ -737,21 +733,21 @@ describe("V3 compaction trigger", () => {
 			);
 		});
 
-		it("emits notice immediately on resume or fork when already past idle TTL", async () => {
+		it("notifies on resume or fork when already past idle TTL and waits for the next message", async () => {
 			const { handlers, pi } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			// Settled 120s ago (already > 60s TTL)
 			const branch = makeIdleBranch(nowSec, 120);
-			const ctx = fakeCtx([branch]);
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
 
 			const sessionStart = handlers.get("session_start");
 			await sessionStart?.({ reason: "fork" }, ctx);
 
-			// Immediately emitted on start/fork without waiting
 			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
 			expect(pi.appendEntry).toHaveBeenCalledWith(
 				OM_IDLE_NOTICE,
@@ -761,6 +757,7 @@ describe("V3 compaction trigger", () => {
 					),
 				}),
 			);
+			expect(ctx.compact).not.toHaveBeenCalled();
 		});
 
 		it("does not duplicate notice on resume if notice was already persisted in branch", async () => {
@@ -781,13 +778,129 @@ describe("V3 compaction trigger", () => {
 					timestamp: new Date((nowSec - 60) * 1000).toISOString(),
 				},
 			];
-			const ctx = fakeCtx([branch]);
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
 
 			const sessionStart = handlers.get("session_start");
 			await sessionStart?.({ reason: "resume" }, ctx);
 
-			// Notice already persisted: zero new appendEntry calls
+			// Notice already persisted: resume does not append, notify, or compact.
 			expect(pi.appendEntry).not.toHaveBeenCalled();
+			expect(ctx.compact).not.toHaveBeenCalled();
+			expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+				expect.stringMatching(/Compacting context/),
+				"info",
+			);
+		});
+
+		it("waits for the next turn after an idle model switch", async () => {
+			const { handlers, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 0);
+			const setStatus = vi.fn();
+			const ctx = fakeCtx([branch], {
+				ui: { notify: vi.fn(), setStatus },
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
+			await handlers.get("model_select")?.(
+				{
+					type: "model_select",
+					source: "set",
+					model: { provider: "b", id: "b" },
+					previousModel: { provider: "a", id: "a" },
+				},
+				ctx,
+			);
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(setStatus).toHaveBeenCalledWith(
+				"om-model-switch",
+				"Switched model. Next turn will compact context.",
+			);
+			expect(ctx.compact).not.toHaveBeenCalled();
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+
+			await handlers.get("before_agent_start")?.({ type: "before_agent_start" }, ctx);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({ text: "Switched model. Compacting context." }),
+			);
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
+			expect(setStatus).toHaveBeenCalledWith("om-model-switch", undefined);
+		});
+
+		it("does not arm model-switch compaction while a turn is running", async () => {
+			const { handlers } = captureHandler({
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 0);
+			const setStatus = vi.fn();
+			const ctx = fakeCtx([branch], {
+				ui: { notify: vi.fn(), setStatus },
+				isIdle: vi.fn(() => false),
+			});
+			await handlers.get("model_select")?.(
+				{
+					type: "model_select",
+					source: "set",
+					model: { provider: "b", id: "b" },
+					previousModel: { provider: "a", id: "a" },
+				},
+				ctx,
+			);
+			expect(setStatus).not.toHaveBeenCalled();
+		});
+
+		it("cancels a pending model-switch compaction when switching back", async () => {
+			const { handlers, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 0);
+			const setStatus = vi.fn();
+			const ctx = fakeCtx([branch], {
+				ui: { notify: vi.fn(), setStatus },
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
+			const modelSelect = handlers.get("model_select");
+			const base = { type: "model_select", source: "cycle" as const };
+			await modelSelect?.(
+				{ ...base, model: { provider: "b", id: "b" }, previousModel: { provider: "a", id: "a" } },
+				ctx,
+			);
+			await modelSelect?.(
+				{ ...base, model: { provider: "a", id: "a" }, previousModel: { provider: "b", id: "b" } },
+				ctx,
+			);
+			await handlers.get("before_agent_start")?.({ type: "before_agent_start" }, ctx);
+			expect(setStatus).toHaveBeenLastCalledWith("om-model-switch", undefined);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+			expect(ctx.compact).not.toHaveBeenCalled();
+		});
+
+		it("ignores model restore", async () => {
+			const { handlers } = captureHandler({
+				idleCompactionTtlSeconds: 60,
+				idleCompactionMinTokens: 1,
+			});
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 0);
+			const setStatus = vi.fn();
+			const ctx = fakeCtx([branch], { ui: { notify: vi.fn(), setStatus } });
+			await handlers.get("model_select")?.(
+				{
+					type: "model_select",
+					source: "restore",
+					model: { provider: "b", id: "b" },
+					previousModel: { provider: "a", id: "a" },
+				},
+				ctx,
+			);
+			expect(setStatus).not.toHaveBeenCalled();
 		});
 
 		it("skips compaction in before_agent_start if idle threshold has not been exceeded", async () => {
@@ -824,7 +937,7 @@ describe("V3 compaction trigger", () => {
 			expect(runtime.compactInFlight).toBe(false);
 		});
 
-		it("skips idle compaction for short conversations below compaction cap", async () => {
+		it("does not compact a short conversation on the next message", async () => {
 			const { handlers, runtime } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
@@ -838,9 +951,45 @@ describe("V3 compaction trigger", () => {
 			const beforeAgentStart = handlers.get("before_agent_start");
 			await beforeAgentStart?.({}, ctx);
 
-			// Below default keepRecentTokens (20_000), compaction must not be called
 			expect(ctx.compact).not.toHaveBeenCalled();
 			expect(runtime.compactInFlight).toBe(false);
+		});
+
+		it("follows Pi keepRecentTokens when it is above 20_000", async () => {
+			const nowSec = Math.floor(Date.now() / 1000);
+			const { handlers } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+				keepRecentTokens: 40_000,
+			});
+			const below = fakeCtx([makeIdleBranch(nowSec, 120)], {
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
+			await handlers.get("before_agent_start")?.({}, below);
+			expect(below.compact).not.toHaveBeenCalled();
+
+			const above = fakeCtx([makeIdleBranch(nowSec, 120, "x".repeat(200_000))], {
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
+			await handlers.get("before_agent_start")?.({}, above);
+			expect(above.compact).toHaveBeenCalledTimes(1);
+		});
+
+		it("does not arm model-switch compaction when idle TTL is disabled", async () => {
+			const { handlers } = captureHandler({ idleCompactionTtlSeconds: undefined });
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 0);
+			const setStatus = vi.fn();
+			const ctx = fakeCtx([branch], { ui: { notify: vi.fn(), setStatus } });
+			await handlers.get("model_select")?.(
+				{
+					type: "model_select",
+					source: "set",
+					model: { provider: "b", id: "b" },
+					previousModel: { provider: "a", id: "a" },
+				},
+				ctx,
+			);
+			expect(setStatus).not.toHaveBeenCalled();
 		});
 
 		it("silently handles Nothing to compact without notifying UI error", async () => {
@@ -850,7 +999,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = makeIdleBranch(nowSec, 120, "some text");
+			const branch = makeIdleBranch(nowSec, 120);
 			const ctx = fakeCtx([branch], {
 				compact: vi.fn((opts) =>
 					opts?.onError?.({ message: "Compaction failed: Nothing to compact (session too small)" }),
@@ -952,7 +1101,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branchBefore = makeIdleBranch(nowSec, 120, "hello");
+			const branchBefore = makeIdleBranch(nowSec, 120);
 			const branchAfter = [...branchBefore, rawMessage("raw-2", "world")];
 			const ctx = fakeCtx([branchBefore, branchAfter], {
 				compact: vi.fn((opts) => opts?.onComplete?.()),
@@ -986,7 +1135,7 @@ describe("V3 compaction trigger", () => {
 				idleCompactionMinTokens: 1,
 			});
 			const nowSec = Math.floor(Date.now() / 1000);
-			const branch = makeIdleBranch(nowSec, 120, "hello");
+			const branch = makeIdleBranch(nowSec, 120);
 			let capturedCallbacks: {
 				onComplete?: () => void;
 				onError?: (err: { message: string }) => void;
@@ -1017,84 +1166,147 @@ describe("V3 compaction trigger", () => {
 			expect(runtime.idleCompactInFlight).toBe(true);
 		});
 
-		it("does not start idle compaction countdown when content is below Pi's native compaction lower bound", async () => {
-			const { handler, runtime, pi } = captureHandler({
+		it("rearms the idle timer after compaction is cancelled", async () => {
+			const { handlers, runtime, pi } = captureHandler({
 				compactAfterTokens: 100_000,
 				idleCompactionTtlSeconds: 60,
-				// idleCompactionMinTokens unset -> defaults to Pi's keepRecentTokens (20,000)
+				idleCompactionMinTokens: 1,
 			});
-			const nowSec = Math.floor(Date.now() / 1000);
-			// Short session (~10 tokens) below 20,000 lower bound
-			const branch = makeIdleBranch(nowSec);
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 120);
 			const ctx = fakeCtx([branch]);
+			runtime.compactInFlight = true;
+			runtime.idleCompactInFlight = true;
+			await handlers.get("session_compact_failed")?.(
+				{
+					type: "session_compact_failed",
+					reason: "manual",
+					aborted: true,
+					willRetry: false,
+					fromExtension: false,
+				},
+				ctx,
+			);
+			runtime.compactInFlight = false;
+			runtime.idleCompactInFlight = false;
+			await vi.advanceTimersByTimeAsync(0);
 
-			handler(agentSettled(), ctx);
-
-			// Countdown timer must NOT be armed
-			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
-			await vi.advanceTimersByTimeAsync(60_000);
-			expect(pi.appendEntry).not.toHaveBeenCalled();
-		});
-
-		it("does not start idle compaction countdown after compaction until new content exceeds Pi's lower bound", async () => {
-			const { handler, runtime, pi } = captureHandler({
-				compactAfterTokens: 100_000,
-				idleCompactionTtlSeconds: 60,
-			});
-			const nowSec = Math.floor(Date.now() / 1000);
-			// Session had a previous compaction; only a few small messages arrived afterwards
-			const branch = [
-				rawMessage("user-old", "x".repeat(40_000)), // 10k tokens
-				rawMessage("asst-old", "y".repeat(40_000)), // 10k tokens
-				compactionEntry("cmp-1", { firstKeptEntryId: "user-old" }),
-				rawMessage("user-new", "short question"),
-				rawMessage("asst-new", "short answer", {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "short answer" }],
-					},
-					timestamp: new Date(nowSec * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
-			const ctx = fakeCtx([branch]);
-
-			handler(agentSettled(), ctx);
-
-			// Countdown timer must NOT be armed because new content is below Pi's compaction lower bound
-			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
-			await vi.advanceTimersByTimeAsync(60_000);
-			expect(pi.appendEntry).not.toHaveBeenCalled();
-		});
-
-		it("starts idle compaction countdown when content exceeds Pi's native compaction lower bound", async () => {
-			const { handler, runtime, pi } = captureHandler({
-				compactAfterTokens: 100_000,
-				idleCompactionTtlSeconds: 60,
-			});
-			const nowSec = Math.floor(Date.now() / 1000);
-			// Large session (> 20,000 tokens)
-			const branch = [
-				rawMessage("user-1", "x".repeat(40_000)), // 10k tokens
-				rawMessage("asst-1", "y".repeat(40_000)), // 10k tokens
-				rawMessage("user-2", "z".repeat(40_000)), // 10k tokens
-				rawMessage("asst-2", "w".repeat(40_000), {
-					message: {
-						role: "assistant",
-						content: [{ type: "text", text: "w".repeat(40_000) }],
-					},
-					timestamp: new Date(nowSec * 1000).toISOString(),
-				}),
-				validObsEntry,
-			];
-			const ctx = fakeCtx([branch]);
-
-			handler(agentSettled(), ctx);
-
-			// Countdown timer MUST be armed because content exceeds Pi's lower bound
 			expect(runtime.pendingIdleNoticeTimer).toBeDefined();
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+			await handlers.get("before_agent_start")?.({}, ctx);
+			expect(ctx.compact).not.toHaveBeenCalled();
+			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
+
+			const settled = handlers.get("agent_settled");
+			await settled?.({ type: "agent_settled" }, ctx);
+			expect(runtime.pendingIdleNoticeTimer).toBeDefined();
+			await vi.advanceTimersByTimeAsync(59_000);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(/Next turn will compact context/),
+				}),
+			);
+		});
+
+		it("does not start the idle countdown below 20_000 tokens", async () => {
+			const { handler, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = makeIdleBranch(nowSec, 0, "short");
+			const ctx = fakeCtx([branch]);
+
+			handler(agentSettled(), ctx);
+
+			expect(runtime.pendingIdleNoticeTimer).toBeUndefined();
 			await vi.advanceTimersByTimeAsync(60_000);
-			expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+		});
+
+		it("canPiCompact matches the 20_000 floor and a higher keep window", () => {
+			const short = [rawMessage("user-1", "hi"), rawMessage("asst-1", "hello")];
+			expect(canPiCompact(short)).toBe(false);
+			const mid = [
+				rawMessage("user-1", "x".repeat(90_000)),
+				rawMessage("asst-1", "y".repeat(90_000), {
+					message: { role: "assistant", content: [{ type: "text", text: "y".repeat(90_000) }] },
+				}),
+			];
+			expect(canPiCompact(mid)).toBe(true);
+			expect(canPiCompact(mid, 80_000)).toBe(false);
+		});
+
+		it("keeps the idle clock after an aborted turn", async () => {
+			const { handlers, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+			});
+			const nowSec = Math.floor(Date.now() / 1000);
+			const branch = [
+				...makeIdleBranch(nowSec, 40),
+				rawMessage("user-abort", "stop", {
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+				rawMessage("asst-abort", "partial", {
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "partial" }],
+						stopReason: "aborted",
+					},
+					timestamp: new Date(nowSec * 1000).toISOString(),
+				}),
+			];
+			const ctx = fakeCtx([branch]);
+
+			await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+
+			expect(runtime.pendingIdleNoticeTimer).toBeDefined();
+			await vi.advanceTimersByTimeAsync(19_000);
+			expect(pi.appendEntry).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(/Next turn will compact context/),
+				}),
+			);
+		});
+
+		it("does not restart the idle clock when a non-idle compaction is cancelled", async () => {
+			const { handlers, runtime, pi } = captureHandler({
+				compactAfterTokens: 100_000,
+				idleCompactionTtlSeconds: 60,
+			});
+			const branch = makeIdleBranch(Math.floor(Date.now() / 1000), 120);
+			const ctx = fakeCtx([branch], {
+				compact: vi.fn((opts: { onComplete?: () => void }) => opts?.onComplete?.()),
+			});
+			runtime.compactInFlight = true;
+			await handlers.get("session_compact_failed")?.(
+				{
+					type: "session_compact_failed",
+					reason: "threshold",
+					aborted: true,
+					willRetry: false,
+					fromExtension: false,
+				},
+				ctx,
+			);
+			runtime.compactInFlight = false;
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(runtime.idleClockResetSec).toBeUndefined();
+			expect(pi.appendEntry).toHaveBeenCalledWith(
+				OM_IDLE_NOTICE,
+				expect.objectContaining({
+					text: expect.stringMatching(/Next turn will compact context/),
+				}),
+			);
+			await handlers.get("before_agent_start")?.({}, ctx);
+			expect(ctx.compact).toHaveBeenCalledTimes(1);
 		});
 	});
 });

@@ -124,7 +124,9 @@ Default: `idleCompactionTtl = "1800s"` (30 minutes).
 
 Most LLM providers have a Prompt Cache TTL of ~5 minutes. When a user is actively chatting, preserving a longer dialogue history continuously hits the cache. When a user steps away for an extended period (idle for >= 1800 seconds / 30 minutes), the server-side cache has expired (cold cache).
 
-`idleCompactionTtl` acts as a local idle heuristic: when the session is idle for at least this duration, the extension shows a notice. On the next message, `before_agent_start` waits for compaction to finish before requesting the model. Neither the notice nor idle compaction has a token threshold. The removed `idleCompactionMinTokens` setting is ignored in existing configuration files.
+`idleCompactionTtl` acts as a local idle heuristic: when the session is idle for at least this duration, the extension shows a notice. Compaction waits for the next message. `before_agent_start` runs it before the model request. Loading a session (`startup`, `resume`, or `fork`) and changing branch (`session_tree`) use that same rule: they only arm the countdown, or show `Next turn will compact context.` when the idle time has already elapsed. A notice already recorded for this idle period stays as it is. The next message still compacts. Idle compaction also requires at least 20,000 tokens of history Pi can cut, or Pi's `compaction.keepRecentTokens` when that setting is higher. Below that, Pi refuses `compact`, and the session is not worth compacting, so no notice or countdown is armed. `idleCompactionMinTokens` in old config files is ignored.
+
+Switching models while idle (`model_select` from `set` or `cycle`, not `restore`) uses the same preconditions, including an enabled TTL, but does not wait for the idle duration. The footer shows `Switched model. Next turn will compact context.` Compaction runs at the start of the next turn, not in the background. Switching back to the model that was active before that switch clears the footer notice and cancels compaction. A switch during an active turn does not arm this path.
 
 ### Preconditions for idle compaction
 Idle compaction triggers only when all of the following conditions are met:
@@ -133,7 +135,7 @@ Idle compaction triggers only when all of the following conditions are met:
 3. There are new source messages strictly after the latest compaction boundary (ledger-derived deduplication).
 4. The memory projection (`foldLedger`) contains valid observations or reflections. If empty, idle compaction is skipped to prevent falling back to a slow, costly native LLM summarizer.
 
-If the user submits a new prompt before the idle timer fires, the timer is immediately cancelled to preserve active cache.
+If the user submits a new prompt before the idle timer fires, the timer is cancelled. The next `agent_settled` starts it again. An aborted or errored turn does not freeze the clock; the countdown continues from the previous completed assistant or compaction. Aborting the idle compaction itself restarts that countdown from the cancel time, so the next message does not compact again immediately. Aborting any other compaction leaves the idle clock alone and rearms whatever countdown is still due. If the timer fires while the agent is busy, or a later compaction moves the settle time back under the TTL, the countdown is rescheduled instead of dropped.
 
 ## `observationsPoolMaxTokens`
 
