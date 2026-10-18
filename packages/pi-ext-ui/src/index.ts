@@ -8,6 +8,14 @@ export {
 	diffStats,
 } from "./diff-view.js";
 export {
+	createMessageView,
+	type MessageRows,
+	type MessageTone,
+	MessageView,
+	type MessageViewHeader,
+	type MessageViewSpec,
+} from "./message-view.js";
+export {
 	extractChildToolCopyText,
 	NestedCallsView,
 	type NestedCallsViewProps,
