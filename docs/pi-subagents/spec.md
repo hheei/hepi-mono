@@ -372,23 +372,24 @@ parent fork/new session 不继承旧 parent 的控制权。
 ```text
 open(boundary)   session_start。boundary = startup | resume | reload | fork | new
 ready()          before_agent_start 等待本次 open 结束。未完成不得开始这一轮
-commit(edge)     只写 intent 或 attachment。第一次写入有效
+commit(edge)     只写 intent、runtime，或把它拿掉。第一次写入有效
 roster()         这个父会话的 child 账本
 ```
 
 `cancel` 不是 boundary，也不是 edge：父回合或子回合被中断都不改租约。进程被 kill 没有回调；下次 `open(resume)` 读的是上次 `commit`。
 
-租约字段只有：`childId`、`sessionPath`、`presentation`、`intent: run | stop`、`attachment`（`{ host, tabId }`、`{ host, surfaceId }` 或 `{ pid }`）、`runtimeIdentity`。usage、activeTool、summary、socket、working 只留在内存。同一份 registry JSON，不另建 ledger，不引入 SQLite。
+租约落在 `state.sqlite` 的 child 行：`childId`、`sessionPath`、`presentation`、`intent: active | stopped`、runtime（identity、endpoint、attachment）和 state。usage、activeTool、summary、working 只留在内存。写者是否还在只看进程锁。
 
 写盘只发生在 `commit`：
 
 | edge | 何时 | 写什么 |
 | --- | --- | --- |
-| `spawn-intent` | 进程启动之前 | `intent=run`，还没有 attachment |
+| `spawn-intent` | 进程启动之前 | `intent=active`，还没有 runtime |
+| `runtime-bound` | 启动证据先落账 | runtimeIdentity 与 endpoint，替换旧 runtime |
 | `attachment-bound` | 宿主或 pid 交回句柄 | attachment，一次 |
-| `stop-intent` | kill 或关 panel 之前 | `intent=stop` |
-| `runtime-gone` | 宿主或 pid 确认已退出 | 清 attachment |
-| `left-session` | 子进程进入另一个 session | 清 attachment，收回 token。不关 panel |
+| `stop-intent` | kill 或关 panel 之前 | `intent=stopped` |
+| `runtime-gone` | 写者没了，或启动确认没连上 | 清 runtime。`drop` 把 running 记成 blocked；`finished` 记 done；`clear` 只删除 |
+| `left-session` | 子进程进入另一个 session | 清 runtime，收回 token。不关 panel |
 
 重新绑定且句柄没变：零次写。回灌出新 tab：每个新 attachment 一次写。
 

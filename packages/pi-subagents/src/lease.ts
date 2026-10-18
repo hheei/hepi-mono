@@ -5,15 +5,25 @@ import { type SubagentRegistry, SubagentRegistryError } from "./registry.js";
 import { openStateDb, readMeta, writeMeta } from "./state-db.js";
 
 /**
- * Durable ownership of one parent session's children. Callers learn four operations. The parent
+ * Durable ownership of one parent session's children. Callers learn three operations. The parent
  * and child lifecycle matrices stay behind them.
  *
- * `commit` writes intent or attachment and nothing else. `roster` is this session's ledger.
+ * `commit` is the only write: intent, a runtime, or its removal. `roster` is this session's ledger.
  * `ready` is the barrier before a model turn: it rebinds surfaces that are still there and
  * reopens only the panels a new host generation took down. Cancel is not an operation.
  */
+export const RUNTIME_ENDED_RESUME =
+	"The child runtime ended while a turn was in flight; the session is unchanged and a send resumes it";
+
+export const PARENT_EXIT_NOTE =
+	"The child runtime ended with the parent process; a later send starts it again from the same session";
+
+/** How a removed runtime is recorded. `clear` only drops it. `drop` is a gone writer. */
+export type RuntimeGoneOutcome = "clear" | "drop" | "parent-exit" | "finished";
+
 export const LEASE_EDGES = [
 	"spawn-intent",
+	"runtime-bound",
 	"attachment-bound",
 	"stop-intent",
 	"runtime-gone",
@@ -22,12 +32,13 @@ export const LEASE_EDGES = [
 
 export type LeaseEdge =
 	| { readonly type: "spawn-intent" }
+	| { readonly type: "runtime-bound"; readonly runtimeIdentity: string; readonly endpoint: string }
 	| {
 			readonly type: "attachment-bound";
 			readonly attachment: NonNullable<NonNullable<SubagentRecord["runtime"]>["attachment"]>;
 	  }
 	| { readonly type: "stop-intent" }
-	| { readonly type: "runtime-gone" }
+	| { readonly type: "runtime-gone"; readonly outcome?: RuntimeGoneOutcome }
 	| { readonly type: "left-session" };
 
 export type HostList =
@@ -70,8 +81,9 @@ export function createConversationLease(options: {
 	readonly registry: RegistryStore;
 	readonly hosts: HostDirectory;
 	readonly processes: ProcessDirectory;
+	readonly forgetRuntime?: (runtimeIdentity: string) => void;
 }): ConversationLease {
-	const { registry, hosts, processes } = options;
+	const { registry, hosts, processes, forgetRuntime } = options;
 	return {
 		commit(id, edge, expectedRevision) {
 			return commitLease(registry, id, edge, expectedRevision);
@@ -80,7 +92,7 @@ export function createConversationLease(options: {
 			return registry.list();
 		},
 		ready() {
-			return reconcile(registry, hosts, processes);
+			return reconcile(registry, hosts, processes, forgetRuntime);
 		},
 	};
 }
@@ -90,6 +102,7 @@ export async function commitLease(
 	id: string,
 	edge: LeaseEdge,
 	expectedRevision?: number,
+	expectedRuntimeIdentity?: string,
 ): Promise<SubagentRecord> {
 	const current = await registry.get(id);
 	if (current === undefined) {
@@ -97,7 +110,12 @@ export async function commitLease(
 	}
 	const next = applyLeaseEdge(current, edge);
 	if (next === undefined) return current;
-	return registry.update(id, expectedRevision ?? current.revision, () => next);
+	return registry.update(
+		id,
+		expectedRevision ?? current.revision,
+		() => next,
+		expectedRuntimeIdentity,
+	);
 }
 
 /** `undefined` means the edge changes nothing, so the caller must not write. */
@@ -118,11 +136,23 @@ export function applyLeaseEdge(
 				runtime: { ...record.runtime, attachment: edge.attachment },
 			};
 		}
+		case "runtime-bound": {
+			if (
+				record.runtime?.runtimeIdentity === edge.runtimeIdentity &&
+				record.runtime.endpoint === edge.endpoint &&
+				record.runtime.attachment === undefined
+			) {
+				return undefined;
+			}
+			return {
+				...record,
+				runtime: { runtimeIdentity: edge.runtimeIdentity, endpoint: edge.endpoint },
+			};
+		}
 		case "stop-intent":
 			return record.intent === "stopped" ? undefined : { ...record, intent: "stopped" };
 		case "runtime-gone":
-			if (record.runtime === undefined) return undefined;
-			return omitRuntime(record);
+			return applyRuntimeGone(record, edge.outcome ?? "clear");
 		case "left-session":
 			if (record.runtime === undefined && record.state === "done") return undefined;
 			return {
@@ -138,10 +168,46 @@ export function applyLeaseEdge(
 	}
 }
 
+function applyRuntimeGone(
+	record: SubagentRecord,
+	outcome: RuntimeGoneOutcome,
+): SubagentRecord | undefined {
+	if (outcome === "clear") {
+		if (record.runtime === undefined) return undefined;
+		return omitRuntime(record);
+	}
+	if (outcome === "drop") {
+		if (record.intent === "stopped") {
+			if (record.runtime === undefined) return undefined;
+			return omitRuntime(record);
+		}
+		if (record.runtime === undefined && record.state !== "running") return undefined;
+		const rest = omitRuntime(record);
+		if (record.state !== "running") return rest;
+		return { ...rest, state: "blocked", interrupted: RUNTIME_ENDED_RESUME };
+	}
+	if (outcome === "parent-exit") {
+		if (record.runtime === undefined) {
+			if (record.intent === "stopped" || record.state !== "running") return undefined;
+			return { ...record, state: "done", interrupted: PARENT_EXIT_NOTE };
+		}
+		const rest = omitRuntime(record);
+		return {
+			...rest,
+			...(record.state === "running" ? { state: "done" as const } : {}),
+			interrupted: PARENT_EXIT_NOTE,
+		};
+	}
+	if (record.runtime === undefined && record.state === "done") return undefined;
+	const rest = record.runtime === undefined ? record : omitRuntime(record);
+	return { ...rest, state: "done" };
+}
+
 async function reconcile(
 	registry: RegistryStore,
 	hosts: HostDirectory,
 	processes: ProcessDirectory,
+	forgetRuntime?: (runtimeIdentity: string) => void,
 ): Promise<LeaseReady> {
 	const list = await hosts.list();
 	if (!list.known) return { ok: false, reason: "unknown" };
@@ -158,7 +224,12 @@ async function reconcile(
 			continue;
 		}
 		if (held) continue;
-		await commitLease(registry, record.subagentId, { type: "runtime-gone" });
+		await releaseRuntime(
+			registry,
+			record,
+			{ type: "runtime-gone", outcome: "drop" },
+			forgetRuntime,
+		);
 		released.add(record.subagentId);
 	}
 	const records = all.filter((record) => !released.has(record.subagentId));
@@ -202,7 +273,7 @@ async function reconcile(
 				await commitLease(registry, item.record.subagentId, { type: "stop-intent" });
 				stopped.push(item.record.subagentId);
 			}
-			await commitLease(registry, item.record.subagentId, { type: "runtime-gone" });
+			await releaseRuntime(registry, item.record, { type: "runtime-gone" }, forgetRuntime);
 		}
 	}
 	for (const record of records) {
@@ -212,7 +283,12 @@ async function reconcile(
 			rebound.push(record.subagentId);
 			continue;
 		}
-		await commitLease(registry, record.subagentId, { type: "runtime-gone" });
+		await releaseRuntime(
+			registry,
+			record,
+			{ type: "runtime-gone", outcome: "drop" },
+			forgetRuntime,
+		);
 		released.add(record.subagentId);
 	}
 	if (!held && parentSessionId !== undefined && stored !== list.generation)
@@ -223,6 +299,17 @@ async function reconcile(
 function panelId(record: SubagentRecord): string | undefined {
 	const attachment = record.runtime?.attachment;
 	return attachment?.kind === "panel" ? attachment.id : undefined;
+}
+
+async function releaseRuntime(
+	registry: RegistryStore,
+	record: SubagentRecord,
+	edge: LeaseEdge,
+	forgetRuntime?: (runtimeIdentity: string) => void,
+): Promise<void> {
+	const identity = record.runtime?.runtimeIdentity;
+	const next = await commitLease(registry, record.subagentId, edge);
+	if (identity !== undefined && next.runtime === undefined) forgetRuntime?.(identity);
 }
 
 function omitRuntime(record: SubagentRecord): SubagentRecord {
