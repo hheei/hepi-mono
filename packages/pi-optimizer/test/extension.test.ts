@@ -2,7 +2,12 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getRuntimeSettingsRegistry } from "@hheei/pi-ext-core";
+import {
+	getRuntimeSettingsRegistry,
+	type MessageViewSpec,
+	messageViewPoint,
+	registerExtensionHook,
+} from "@hheei/pi-ext-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import piOptimizerExtension from "../src/extension.js";
 import { createOptimizerInfo } from "../src/info.js";
@@ -149,6 +154,38 @@ describe("optimizer info entries", () => {
 		expect(collapsed).not.toContain("originalCommand");
 		expect(expanded).toContain("originalCommand");
 		expect(warning).toContain("warning");
+	});
+
+	test("uses the optional message view for details and warnings", async () => {
+		const host = fakePi();
+		createOptimizerInfo(host.pi);
+		const theme = {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+		} as never;
+		let spec: MessageViewSpec | undefined;
+		const hook = registerExtensionHook(host.pi, messageViewPoint, (value) => {
+			spec = value;
+			return { render: () => ["view"], invalidate() {} };
+		});
+		const renderer = host.renderers.get("optimizer-info");
+		if (renderer === undefined) throw new Error("optimizer entry renderer missing");
+		const entry = {
+			data: {
+				summary: "RTK query failed",
+				details: { reason: "timeout" },
+				warning: true,
+			},
+		} as Parameters<Renderer>[0];
+		expect(renderer(entry, { expanded: true }, theme)?.render(40).join("\n")).toBe("view");
+		expect(spec?.header).toEqual({
+			kind: "optimizer",
+			summary: "RTK query failed",
+			tone: "warning",
+		});
+		expect(spec?.body).toContain("timeout");
+		expect(spec?.preview).toBeUndefined();
+		expect(spec?.stateHolder).toBe(entry);
+		await hook.dispose();
 	});
 });
 

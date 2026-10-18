@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { type MessageViewSpec, messageViewPoint, registerExtensionHook } from "@hheei/pi-ext-core";
 import { expect, test } from "vitest";
 import { createMemoryInfo, type MemoryInfoDetails, renderMemoryInfo } from "../src/info.js";
 
@@ -21,6 +22,7 @@ function host(): {
 	readonly info: ReturnType<typeof createMemoryInfo>;
 	readonly entries: Array<{ readonly type: string; readonly data: unknown }>;
 	readonly renderer: Renderer;
+	readonly pi: ExtensionAPI;
 } {
 	const entries: Array<{ readonly type: string; readonly data: unknown }> = [];
 	let renderer: Renderer | undefined;
@@ -32,7 +34,7 @@ function host(): {
 	} as unknown as ExtensionAPI;
 	const info = createMemoryInfo(pi);
 	if (renderer === undefined) throw new Error("memory entry renderer missing");
-	return { info, entries, renderer };
+	return { info, entries, renderer, pi };
 }
 
 function entry(data: unknown): Entry {
@@ -185,4 +187,29 @@ test("keeps every row inside the terminal width", () => {
 		for (const row of component?.render(width) ?? [])
 			expect(visibleWidth(row)).toBeLessThanOrEqual(width);
 	}
+});
+
+test("uses the optional message view when one is published", async () => {
+	const { renderer, pi } = host();
+	let spec: MessageViewSpec | undefined;
+	const hook = registerExtensionHook(pi, messageViewPoint, (value) => {
+		spec = value;
+		return { render: () => ["view"], invalidate() {} };
+	});
+	const stored = entry({
+		summary: "recalled 2 pages",
+		details: { ...injected, truncated: true },
+	});
+	expect(renderer(stored, { expanded: false }, theme)?.render(40).join("\n")).toBe("view");
+	expect(spec?.header).toEqual({ kind: "memory", summary: "recalled 2 pages" });
+	expect(spec?.forcedExpanded).toBe(false);
+	expect(spec?.stateHolder).toBe(stored);
+	const preview = Array.isArray(spec?.preview) ? spec.preview.join("\n") : "";
+	expect(preview).toContain("<text>Conventions</text>");
+	expect(preview).toContain("character budget");
+	expect(preview).not.toContain("kp-1");
+	const body = Array.isArray(spec?.body) ? spec.body.join("\n") : "";
+	expect(body).toContain("<dim>kp-1</dim>");
+	expect(body).toContain("Paths resolve through the publish layer.");
+	await hook.dispose();
 });

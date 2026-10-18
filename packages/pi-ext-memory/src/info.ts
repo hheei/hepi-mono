@@ -1,7 +1,12 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { isRecord } from "@hheei/pi-ext-core";
+import {
+	isRecord,
+	type MessageRows,
+	type MessageViewHeader,
+	readMessageView,
+} from "@hheei/pi-ext-core";
 
 /** One recalled knowledge page, as the recall injected it into the prompt. */
 export interface MemoryInfoPage {
@@ -80,10 +85,52 @@ export function renderMemoryInfo(
  * Native entries render in the transcript as they happen, survive resume, and never enter the
  * model's context, so injected memory stays inspectable without being paid for again.
  */
+function memoryMessage(
+	data: unknown,
+	theme: Theme,
+):
+	| {
+			readonly header: MessageViewHeader;
+			readonly preview?: MessageRows;
+			readonly body?: MessageRows;
+	  }
+	| undefined {
+	if (!isRecord(data) || typeof data.summary !== "string") return undefined;
+	const header: MessageViewHeader = { kind: "memory", summary: displayText(data.summary) };
+	const details = data.details;
+	if (!isRecord(details)) {
+		return Array.isArray(details) ? { header, body: JSON.stringify(details, null, 2) } : { header };
+	}
+	const preview: string[] = [];
+	const body: string[] = [];
+	for (const page of (Array.isArray(details.pages) ? details.pages : []).map(pageOf)) {
+		if (page === undefined) continue;
+		const title = `${theme.fg("success", "󰄴")} ${theme.fg("text", displayText(page.page))}`;
+		preview.push(title);
+		body.push(title, `  ${theme.fg("dim", page.pageId)}`);
+		const snippet = displayText(page.snippet).trim();
+		if (snippet === "") continue;
+		for (const line of snippet.split("\n")) body.push(`  ${theme.fg("muted", line)}`);
+	}
+	if (details.truncated === true) preview.push(theme.fg("warning", `󰀪 ${TRUNCATION_ROW}`));
+	return {
+		header,
+		...(preview.length > 0 ? { preview } : {}),
+		...(body.length > 0 ? { body } : {}),
+	};
+}
+
 export function createMemoryInfo(
 	pi: Pick<ExtensionAPI, "appendEntry" | "registerEntryRenderer">,
 ): MemoryInfo {
 	pi.registerEntryRenderer("memory-info", (entry, options, theme) => {
+		const create = readMessageView(pi);
+		if (create) {
+			const message = memoryMessage(entry.data, theme);
+			return message === undefined
+				? undefined
+				: create({ ...message, theme, stateHolder: entry, forcedExpanded: options.expanded });
+		}
 		const text = renderMemoryInfo(entry.data, options.expanded, theme);
 		return text === undefined ? undefined : new Text(text, 1, 0);
 	});
