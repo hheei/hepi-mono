@@ -16,7 +16,12 @@ import { isOperationError } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
 import type { HostDirectory, LeaseReady } from "./lease.js";
-import { commitLease, createConversationLease } from "./lease.js";
+import {
+	commitLease,
+	createConversationLease,
+	RUNTIME_ENDED_RESUME,
+	type RuntimeGoneOutcome,
+} from "./lease.js";
 import {
 	BridgeError,
 	type BridgeOperation,
@@ -56,9 +61,6 @@ export const SUBAGENT_SETTLED_CLOSE_TIMEOUT_MS = 15_000;
 
 /** How long stop waits for an adopted child's bridge to go away before calling the exit unconfirmed. */
 export const SUBAGENT_EXIT_WAIT_MS = 2_000;
-
-const RUNTIME_ENDED_RESUME =
-	"The child runtime ended while a turn was in flight; the session is unchanged and a send resumes it";
 
 function diagnose(message: string): void {
 	if (process.env.DEBUG || process.env.PI_SUBAGENTS_DEBUG) {
@@ -506,19 +508,28 @@ export class SubagentManager {
 	 * themselves.
 	 */
 	async #recordWriterGone(id: string): Promise<void> {
-		let retired: string | undefined;
-		let ended = false;
-		const next = await this.#update(id, (current) => {
-			if (current.intent === "stopped") return current;
-			if (current.runtime === undefined && current.state !== "running") return current;
-			retired = current.runtime?.runtimeIdentity;
-			const { runtime: _runtime, ...rest } = current;
-			if (current.state !== "running") return rest;
-			ended = true;
-			return { ...rest, state: "blocked", interrupted: RUNTIME_ENDED_RESUME };
-		});
-		if (retired !== undefined) this.#deps.tokens?.forget(retired);
-		if (ended) this.#scheduleAutoReport(id, next);
+		await this.#releaseRuntime(id, "drop");
+	}
+
+	/** Runtime leaves the ledger only through a lease edge. */
+	async #releaseRuntime(
+		id: string,
+		outcome: RuntimeGoneOutcome,
+	): Promise<SubagentRecord | undefined> {
+		const current = await this.#deps.registry.get(id);
+		if (current === undefined) return undefined;
+		const identity = current.runtime?.runtimeIdentity;
+		const next = await commitLease(this.#deps.registry, id, { type: "runtime-gone", outcome });
+		if (identity !== undefined && next.runtime === undefined) this.#deps.tokens?.forget(identity);
+		if (
+			outcome === "drop" &&
+			current.state === "running" &&
+			current.intent !== "stopped" &&
+			next.state === "blocked"
+		) {
+			this.#scheduleAutoReport(id, next);
+		}
+		return next;
 	}
 
 	/** Waits for a child's bridge connection to end; false when it is still connected after the wait. */
@@ -656,11 +667,7 @@ export class SubagentManager {
 			if (exited) {
 				if (runtime !== undefined) this.#processes.delete(id);
 				if (attachment !== undefined) this.#attachments.delete(id);
-				await this.#update(id, (current) => {
-					if (current.intent === "stopped") return current;
-					const { runtime: _runtime, ...withoutRuntime } = current;
-					return withoutRuntime;
-				});
+				await this.#releaseRuntime(id, "drop");
 			}
 			// The tab is still there, or the host could not say. Leave it. The caller closes it.
 		});
@@ -941,34 +948,11 @@ export class SubagentManager {
 	async #settleUnrecovered(record: SubagentRecord): Promise<void> {
 		this.#working.delete(record.subagentId);
 		this.#projectors.delete(record.subagentId);
-		const retired = record.runtime;
 		if (record.presentation === "panel") {
 			await this.#recordWriterGone(record.subagentId);
 			return;
 		}
-		if (retired === undefined) {
-			await this.#update(record.subagentId, (current) => {
-				if (current.intent === "stopped") return current;
-				if (current.state !== "running") return current;
-				return {
-					...current,
-					state: "done",
-					interrupted:
-						"The child runtime ended with the parent process; a later send starts it again from the same session",
-				};
-			});
-			return;
-		}
-		await this.#update(record.subagentId, (current) => {
-			const { runtime: _runtime, ...rest } = current;
-			return {
-				...rest,
-				...(current.state === "running" ? { state: "done" as const } : {}),
-				interrupted:
-					"The child runtime ended with the parent process; a later send starts it again from the same session",
-			};
-		});
-		this.#deps.tokens?.forget(retired.runtimeIdentity);
+		await this.#releaseRuntime(record.subagentId, "parent-exit");
 	}
 
 	/** Reads a connected child's real state and puts the record back in step with it. */
@@ -1381,10 +1365,7 @@ export class SubagentManager {
 			let stopped: SubagentRecord;
 			try {
 				// The intent is written before anything is ended, so an interrupted stop is still a stop.
-				stopped = await this.#update(id, (current) => ({
-					...current,
-					intent: "stopped",
-				}));
+				stopped = await commitLease(this.#deps.registry, id, { type: "stop-intent" });
 			} catch (error) {
 				this.#stopping.delete(id);
 				return failure("stop", errorMessage(error), id, record.state, [], true);
@@ -1456,17 +1437,8 @@ export class SubagentManager {
 				}
 				this.#projectors.delete(id);
 				this.#activity.delete(id);
-				const runtimeIdentity = stopped.runtime?.runtimeIdentity;
-				const current = await this.#deps.registry.get(id);
-				if (current !== undefined) {
-					stopped = await this.#deps.registry.update(id, current.revision, (value) => {
-						const { runtime: _runtime, ...withoutRuntime } = value;
-						return {
-							...withoutRuntime,
-							state: "done",
-						};
-					});
-				}
+				const finished = await this.#releaseRuntime(id, "finished");
+				if (finished !== undefined) stopped = finished;
 				if (this.#taskRegistry !== undefined) {
 					this.#taskRegistry.settle(id, {
 						status: "cancelled",
@@ -1474,7 +1446,6 @@ export class SubagentManager {
 						truncated: false,
 					});
 				}
-				if (runtimeIdentity !== undefined) this.#deps.tokens?.forget(runtimeIdentity);
 				return publicChild(stopped, false);
 			} catch (error) {
 				return failure(
@@ -1813,6 +1784,9 @@ export class SubagentManager {
 			registry: this.#deps.registry,
 			hosts: directory,
 			processes: { alive: processAlive },
+			forgetRuntime: (runtimeIdentity) => {
+				this.#deps.tokens?.forget(runtimeIdentity);
+			},
 		});
 		const result = await lease.ready();
 		if (!result.ok) return result;
@@ -1836,8 +1810,8 @@ export class SubagentManager {
 	/** A writer the lease already dropped. Same ledger line as a watched exit. */
 	async #noteReleasedRuntime(id: string): Promise<void> {
 		const record = await this.#deps.registry.get(id);
-		if (record === undefined) return;
-		await this.#recordWriterGone(id);
+		if (record?.state !== "blocked" || record.interrupted !== RUNTIME_ENDED_RESUME) return;
+		this.#scheduleAutoReport(id, record);
 	}
 
 	#withSnapshot(record: SubagentRecord): SubagentRecord {

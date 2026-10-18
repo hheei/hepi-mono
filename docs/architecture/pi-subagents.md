@@ -32,7 +32,7 @@ trust cannot interrupt startup. The presentation is frozen in the registry as `p
 Native `/resume` of the same session outside the managed path is not intercepted.
 
 系统确认成功的 idle 回收保留可恢复身份：后续 `agent_send` 使用同一 session。写者消失（进程锁已空，或本进程看见自己的后台进程退出）记 `blocked` 并回报一次，不改成 stopped intent；后续 `agent_send` 用同一 session 再起 runtime，调用方不要为此另 spawn。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agent_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
-`agent_stop` 仍先写 stopped intent。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §7.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
+`agent_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §7.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
 已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。

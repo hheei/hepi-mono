@@ -130,14 +130,15 @@ function planChildRuntime(
 
 /** Evidence first: the record names the runtime that was asked for even if starting it fails. */
 async function recordRuntimeEvidence(
-	registry: Pick<SubagentRegistry, "update">,
+	registry: Pick<SubagentRegistry, "get" | "update">,
 	record: SubagentRecord,
 	plan: ChildRuntimePlan,
 ): Promise<void> {
-	await registry.update(record.subagentId, undefined, (current) => ({
-		...current,
-		runtime: { runtimeIdentity: plan.runtimeIdentity, endpoint: plan.endpoint },
-	}));
+	await commitLease(registry, record.subagentId, {
+		type: "runtime-bound",
+		runtimeIdentity: plan.runtimeIdentity,
+		endpoint: plan.endpoint,
+	});
 }
 
 /**
@@ -181,13 +182,11 @@ export async function launchChild(
 		};
 	}
 	options.tokens.forget(plan.runtimeIdentity);
-	await options.registry.update(
+	await commitLease(
+		options.registry,
 		record.subagentId,
+		{ type: "runtime-gone", outcome: "clear" },
 		undefined,
-		(current) => {
-			const { runtime: _runtime, ...rest } = current;
-			return rest;
-		},
 		plan.runtimeIdentity,
 	);
 	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
@@ -264,13 +263,11 @@ export async function openChildPanel(
 		};
 	}
 	options.tokens.forget(plan.runtimeIdentity);
-	await options.registry.update(
+	await commitLease(
+		options.registry,
 		record.subagentId,
+		{ type: "runtime-gone", outcome: "clear" },
 		undefined,
-		(current) => {
-			const { runtime: _runtime, ...rest } = current;
-			return rest;
-		},
 		plan.runtimeIdentity,
 	);
 	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };

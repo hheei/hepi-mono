@@ -140,6 +140,7 @@ test("commit writes intent and attachment once, and a stale revision cannot repl
 test("cancel is not a lease edge, and left-session clears the attachment without a second write", async () => {
 	expect(LEASE_EDGES).toEqual([
 		"spawn-intent",
+		"runtime-bound",
 		"attachment-bound",
 		"stop-intent",
 		"runtime-gone",
@@ -389,7 +390,10 @@ test("a free process lock drops the runtime even when its panel tab is still pre
 		const released = await lease.ready();
 		expect(released).toMatchObject({ ok: true, rebound: [], released: ["sa_lock"] });
 		expect((await registry.get("sa_lock"))?.runtime).toBeUndefined();
-		expect((await registry.get("sa_lock"))?.state).toBe("running");
+		expect(await registry.get("sa_lock")).toMatchObject({
+			state: "blocked",
+			interrupted: expect.stringContaining("a send resumes it"),
+		});
 	});
 });
 
@@ -445,5 +449,49 @@ test("a runtime released while this process was away is blocked and reported onc
 			expect(reports.map((report) => report.reason)).toEqual(["blocked"]);
 		});
 		expect(reports).toHaveLength(1);
+	});
+});
+
+test("runtime edges are the only way a runtime is written or removed", async () => {
+	await withTempDir("pi-subagents-lease-edges-", async (directoryPath) => {
+		const registry = store(join(directoryPath, "registry.json"));
+		const cwd = join(directoryPath, "work");
+		await registry.create(record("sa_edge", cwd, { runtime: undefined, state: "running" }));
+		const bound = await commitLease(registry, "sa_edge", {
+			type: "runtime-bound",
+			runtimeIdentity: "rt-edge",
+			endpoint: "/tmp/bridge.sock",
+		});
+		expect(bound.runtime).toEqual({ runtimeIdentity: "rt-edge", endpoint: "/tmp/bridge.sock" });
+		const again = await commitLease(registry, "sa_edge", {
+			type: "runtime-bound",
+			runtimeIdentity: "rt-edge",
+			endpoint: "/tmp/bridge.sock",
+		});
+		expect(again.revision).toBe(bound.revision);
+		const dropped = await commitLease(registry, "sa_edge", {
+			type: "runtime-gone",
+			outcome: "drop",
+		});
+		expect(dropped.runtime).toBeUndefined();
+		expect(dropped.state).toBe("blocked");
+		const repeat = await commitLease(registry, "sa_edge", {
+			type: "runtime-gone",
+			outcome: "drop",
+		});
+		expect(repeat.revision).toBe(dropped.revision);
+		await registry.update("sa_edge", repeat.revision, (current) => ({
+			...current,
+			state: "running",
+			runtime: { runtimeIdentity: "rt-2", endpoint: "/tmp/bridge.sock" },
+		}));
+		await commitLease(registry, "sa_edge", { type: "stop-intent" });
+		const finished = await commitLease(registry, "sa_edge", {
+			type: "runtime-gone",
+			outcome: "finished",
+		});
+		expect(finished.intent).toBe("stopped");
+		expect(finished.state).toBe("done");
+		expect(finished.runtime).toBeUndefined();
 	});
 });
