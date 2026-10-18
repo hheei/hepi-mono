@@ -189,4 +189,14 @@ describe("state projection", () => {
 		expect(projector.snapshot().state).toBe("done");
 		expect(projector.snapshot().interrupted).toBeUndefined();
 	});
+
+	test("reflects compacting in summary during compaction and clears on completion", () => {
+		const projector = createStateProjector("done");
+		projector.applyEvent({ type: "compaction_start", reason: "threshold" });
+		expect(projector.snapshot().summary).toBe("compacting...");
+		expect(projector.snapshot().activeTool).toBeUndefined();
+
+		projector.applyEvent({ type: "compaction_end", reason: "threshold" });
+		expect(projector.snapshot().summary).toBeUndefined();
+	});
 });

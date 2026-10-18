@@ -437,27 +437,14 @@ test("does not start a child when the registry write fails", async (): Promise<v
 		await writeAgent(cwd);
 		const bridge = join(directory, "bridge.js");
 		await writeFile(bridge, "", "utf8");
-		const registryPath = join(directory, "registry.json");
-		const registry = createSubagentRegistry({
-			parentSessionId: PARENT_SESSION_ID,
-			filePath: registryPath,
-		});
+		const registryPath = join(directory, "state.sqlite");
 		await writeFile(registryPath, "{not json", "utf8");
-		const config = await resolveSubagentLaunch({
-			input: { task: "Work", agent: "worker" },
-			cwd,
-			parent: PARENT,
-			modelRegistry: MODEL_REGISTRY,
-			bridgeExtensionPath: bridge,
-		});
-		await expect(
-			persistSubagentIntent({
-				registry,
+		expect(() =>
+			createSubagentRegistry({
 				parentSessionId: PARENT_SESSION_ID,
-				task: "Work",
-				launchConfig: config,
+				filePath: registryPath,
 			}),
-		).rejects.toThrow(/Invalid JSON/u);
+		).toThrow();
 		expect(await readFile(registryPath, "utf8")).toBe("{not json");
 	});
 });
