@@ -10,11 +10,13 @@ import {
 import { observation, reflection } from "./fixtures/session.js";
 
 describe("V3 dropper reflection coverage helpers", () => {
-	it("maps support counts to deterministic coverage tiers", () => {
-		expect(reflectionCoverageTierForCount(0)).toBe("none");
-		expect(reflectionCoverageTierForCount(1)).toBe("partial");
-		expect(reflectionCoverageTierForCount(2)).toBe("strong");
-		expect(reflectionCoverageTierForCount(10)).toBe("strong");
+	it.each([
+		[0, "none"],
+		[1, "partial"],
+		[2, "strong"],
+		[10, "strong"],
+	] as const)("maps support count %s to %s", (count, tier) => {
+		expect(reflectionCoverageTierForCount(count)).toBe(tier);
 	});
 
 	it("computes none, partial, and strong coverage from reflection support ids", () => {

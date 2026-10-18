@@ -2,11 +2,13 @@ import { describe, expect, test } from "vitest";
 import { abortError, errorMessage, throwIfAborted } from "../src/index.js";
 
 describe("errorMessage", () => {
-	test("reads the message of an Error and stringifies other values", () => {
-		expect(errorMessage(new Error("boom"))).toBe("boom");
-		expect(errorMessage("boom")).toBe("boom");
-		expect(errorMessage(42)).toBe("42");
-		expect(errorMessage(undefined)).toBe("undefined");
+	test.each([
+		[new Error("boom"), "boom"],
+		["boom", "boom"],
+		[42, "42"],
+		[undefined, "undefined"],
+	] as const)("stringifies %s", (value, expected) => {
+		expect(errorMessage(value)).toBe(expected);
 	});
 });
 

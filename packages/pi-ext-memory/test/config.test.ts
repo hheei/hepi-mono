@@ -210,10 +210,12 @@ describe("V3 config", () => {
 		expect(await loadConfig(cwd, {})).toEqual(DEFAULTS);
 	});
 
-	it("parses passive env override", () => {
-		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_PASSIVE: "on" })).toEqual({ passive: true });
-		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_PASSIVE: "0" })).toEqual({ passive: false });
-		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_PASSIVE: "maybe" })).toEqual({});
+	it.each([
+		["on", { passive: true }],
+		["0", { passive: false }],
+		["maybe", {}],
+	] as const)("parses PI_OBSERVATIONAL_MEMORY_PASSIVE=%s", (value, expected) => {
+		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_PASSIVE: value })).toEqual(expected);
 	});
 
 	describe("compactAfterTokens ratio mode", () => {
@@ -231,150 +233,147 @@ describe("V3 config", () => {
 			});
 		});
 
-		it("rejects invalid mode values and falls back to default calibrated", async () => {
+		it.each([
+			["mode auto", { compactAfterTokensMode: "auto" }, { compactAfterTokensMode: "calibrated" }],
+			["ratio 0", { compactAfterTokensRatio: 0 }, { compactAfterTokensRatio: 0.68 }],
+			["ratio 1", { compactAfterTokensRatio: 1 }, { compactAfterTokensRatio: 0.68 }],
+			["ratio 1.5", { compactAfterTokensRatio: 1.5 }, { compactAfterTokensRatio: 0.68 }],
+			["ratio -0.2", { compactAfterTokensRatio: -0.2 }, { compactAfterTokensRatio: 0.68 }],
+			["non-numeric ratio", { compactAfterTokensRatio: "0.5" }, { compactAfterTokensRatio: 0.68 }],
+		] as const)("rejects %s and keeps the calibrated default", async (_label, patch, expected) => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensMode: "auto",
-				},
+				"pi-ext-memory": patch,
 			});
-
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensMode: "calibrated" });
-		});
-
-		it("rejects ratio outside (0, 1) and falls back to default", async () => {
-			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensRatio: 0,
-				},
-			});
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
-
-			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensRatio: 1,
-				},
-			});
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
-
-			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensRatio: 1.5,
-				},
-			});
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
-
-			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensRatio: -0.2,
-				},
-			});
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
-		});
-
-		it("rejects non-numeric ratio and falls back to default", async () => {
-			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					compactAfterTokensRatio: "0.5",
-				},
-			});
-			expect(await loadConfig(cwd, {})).toMatchObject({ compactAfterTokensRatio: 0.68 });
+			expect(await loadConfig(cwd, {})).toMatchObject(expected);
 		});
 	});
 
 	describe("resolveCompactAfterTokens", () => {
-		it("returns the calibrated value in calibrated mode", () => {
+		it.each([
+			{
+				label: "calibrated mode returns compactAfterTokens for any window",
+				mode: "calibrated",
+				ratio: 0.68,
+				tokens: 81_000,
+				window: 1_000_000,
+				expected: 81_000,
+			},
+			{
+				label: "calibrated mode ignores a missing window",
+				mode: "calibrated",
+				ratio: 0.68,
+				tokens: 81_000,
+				window: undefined,
+				expected: 81_000,
+			},
+			{
+				label: "calibrated mode ignores a zero window",
+				mode: "calibrated",
+				ratio: 0.68,
+				tokens: 81_000,
+				window: 0,
+				expected: 81_000,
+			},
+			{
+				label: "ratio mode scales a 1_000_000 window by 0.5",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: 1_000_000,
+				expected: 500_000,
+			},
+			{
+				label: "ratio mode scales a 200_000 window by 0.5",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: 200_000,
+				expected: 100_000,
+			},
+			{
+				label: "ratio mode floors a fractional result to at least 1",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: 3,
+				expected: 1,
+			},
+			{
+				label: "ratio mode floors a 1-token window to 1",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: 1,
+				expected: 1,
+			},
+			{
+				label: "ratio mode falls back when the window is missing",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: undefined,
+				expected: 81_000,
+			},
+			{
+				label: "ratio mode falls back when the window is 0",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: 0,
+				expected: 81_000,
+			},
+			{
+				label: "ratio mode falls back when the window is negative",
+				mode: "ratio",
+				ratio: 0.5,
+				tokens: 81_000,
+				window: -1,
+				expected: 81_000,
+			},
+		] as const)("$label", ({ mode, ratio, tokens, window, expected }) => {
 			const config: Config = {
 				...DEFAULTS,
-				compactAfterTokensMode: "calibrated",
-				compactAfterTokens: 81000,
+				compactAfterTokensMode: mode,
+				compactAfterTokensRatio: ratio,
+				compactAfterTokens: tokens,
 			};
-			expect(resolveCompactAfterTokens(config, 1_000_000)).toBe(81000);
-		});
-
-		it("returns calibrated value regardless of context window in calibrated mode", () => {
-			const config: Config = {
-				...DEFAULTS,
-				compactAfterTokensMode: "calibrated",
-				compactAfterTokens: 81000,
-			};
-			expect(resolveCompactAfterTokens(config, undefined)).toBe(81000);
-			expect(resolveCompactAfterTokens(config, 0)).toBe(81000);
-		});
-
-		it("scales by context window in ratio mode", () => {
-			const config: Config = {
-				...DEFAULTS,
-				compactAfterTokensMode: "ratio",
-				compactAfterTokensRatio: 0.5,
-				compactAfterTokens: 81000,
-			};
-			expect(resolveCompactAfterTokens(config, 1_000_000)).toBe(500_000);
-			expect(resolveCompactAfterTokens(config, 200_000)).toBe(100_000);
-		});
-
-		it("floors fractional results to an integer >= 1", () => {
-			const config: Config = {
-				...DEFAULTS,
-				compactAfterTokensMode: "ratio",
-				compactAfterTokensRatio: 0.5,
-				compactAfterTokens: 81000,
-			};
-			expect(resolveCompactAfterTokens(config, 3)).toBe(1);
-			expect(resolveCompactAfterTokens(config, 1)).toBe(1);
-		});
-
-		it("falls back to calibrated value when context window is unavailable in ratio mode", () => {
-			const config: Config = {
-				...DEFAULTS,
-				compactAfterTokensMode: "ratio",
-				compactAfterTokensRatio: 0.5,
-				compactAfterTokens: 81000,
-			};
-			expect(resolveCompactAfterTokens(config, undefined)).toBe(81000);
-			expect(resolveCompactAfterTokens(config, 0)).toBe(81000);
-			expect(resolveCompactAfterTokens(config, -1)).toBe(81000);
+			expect(resolveCompactAfterTokens(config, window)).toBe(expected);
 		});
 	});
 
 	describe("parseDurationToSeconds", () => {
-		it("parses valid unit duration strings", () => {
-			expect(parseDurationToSeconds("30m")).toBe(30 * 60);
-			expect(parseDurationToSeconds("5m")).toBe(5 * 60);
-			expect(parseDurationToSeconds("1h")).toBe(60 * 60);
-			expect(parseDurationToSeconds("1.5h")).toBe(90 * 60);
-			expect(parseDurationToSeconds("300s")).toBe(300);
-			expect(parseDurationToSeconds("2d")).toBe(2 * 24 * 60 * 60);
+		const fallback = DEFAULTS.idleCompactionTtlSeconds;
+
+		it.each([
+			["30m", 30 * 60],
+			["5m", 5 * 60],
+			["1h", 60 * 60],
+			["1.5h", 90 * 60],
+			["300s", 300],
+			["2d", 2 * 24 * 60 * 60],
+			["60", 60],
+			[120, 120],
+			["1800", 1800],
+			[1800, 1800],
+		] as const)("parses %j as %s seconds", (value, seconds) => {
+			expect(parseDurationToSeconds(value)).toBe(seconds);
 		});
 
-		it("parses numeric strings and numbers as seconds", () => {
-			expect(parseDurationToSeconds("60")).toBe(60);
-			expect(parseDurationToSeconds(120)).toBe(120);
-			expect(parseDurationToSeconds("1800")).toBe(1800);
-			expect(parseDurationToSeconds(1800)).toBe(1800);
-			expect(parseDurationToSeconds(0.5)).toBe(DEFAULTS.idleCompactionTtlSeconds);
+		it.each([false, 0, "", "never", "NEVER"] as const)("disables on %j", (value) => {
+			expect(parseDurationToSeconds(value)).toBeUndefined();
 		});
 
-		it("disables on explicit disable values", () => {
-			expect(parseDurationToSeconds(false)).toBeUndefined();
-			expect(parseDurationToSeconds(0)).toBeUndefined();
-			expect(parseDurationToSeconds("")).toBeUndefined();
-			expect(parseDurationToSeconds("never")).toBeUndefined();
-			expect(parseDurationToSeconds("NEVER")).toBeUndefined();
-		});
-
-		it("falls back to fallbackSeconds on unrecognized formats or negative numbers", () => {
-			expect(parseDurationToSeconds("invalid")).toBe(DEFAULTS.idleCompactionTtlSeconds);
-			expect(parseDurationToSeconds(-100)).toBe(DEFAULTS.idleCompactionTtlSeconds);
-			expect(parseDurationToSeconds("foo5m")).toBe(DEFAULTS.idleCompactionTtlSeconds);
-			expect(parseDurationToSeconds(true)).toBe(DEFAULTS.idleCompactionTtlSeconds);
-		});
-
-		it("falls back to fallbackSeconds when duration exceeds Node setTimeout limit MAX_TIMEOUT_SECONDS", () => {
-			expect(parseDurationToSeconds(MAX_TIMEOUT_SECONDS + 1)).toBe(
-				DEFAULTS.idleCompactionTtlSeconds,
-			);
-			expect(parseDurationToSeconds("9999999999999")).toBe(DEFAULTS.idleCompactionTtlSeconds);
-			expect(parseDurationToSeconds("3000d")).toBe(DEFAULTS.idleCompactionTtlSeconds);
+		it.each([
+			0.5,
+			"invalid",
+			-100,
+			"foo5m",
+			true,
+			MAX_TIMEOUT_SECONDS + 1,
+			"9999999999999",
+			"3000d",
+		] as const)("falls back for %j", (value) => {
+			expect(parseDurationToSeconds(value)).toBe(fallback);
 		});
 	});
 
@@ -391,14 +390,14 @@ describe("V3 config", () => {
 			expect(config.idleCompactionMinTokens).toBe(50_000);
 		});
 
-		it("disables idle compaction when configured with never or false", async () => {
+		it.each([
+			"never",
+			false,
+		] as const)("disables idle compaction when idleCompactionTtl is %j", async (idleCompactionTtl) => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {
-				"pi-ext-memory": {
-					idleCompactionTtl: "never",
-				},
+				"pi-ext-memory": { idleCompactionTtl },
 			});
-			const config = await loadConfig(cwd, {});
-			expect(config.idleCompactionTtlSeconds).toBeUndefined();
+			expect((await loadConfig(cwd, {})).idleCompactionTtlSeconds).toBeUndefined();
 		});
 	});
 });
