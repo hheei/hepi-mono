@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getGlobalState } from "./global-state.js";
-import { runtimeIdentity } from "./runtime-identity.js";
+import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
 
 declare const extensionPointKeyType: unique symbol;
 
@@ -84,6 +84,23 @@ export function openExtensionPoint<Hook>(
  * Registers a hook and returns its cleanup handle immediately. If an owner is
  * already open, `ready` represents that hook's initial onAdd delivery.
  */
+/**
+ * Active hooks in registration order. Does not open an owner.
+ * The returned array is a copy; disposing a hook drops it from the next read.
+ */
+export function readExtensionHooks<Hook>(
+	_pi: RuntimeHost,
+	_key: ExtensionPointKey<Hook>,
+): readonly Hook[] {
+	const registrations = getExtensionPointRegistry(_pi).hooks.get(_key.id);
+	if (registrations === undefined) return [];
+	const hooks: Hook[] = [];
+	for (const registration of registrations) {
+		if (registration.active) hooks.push(registration.value as Hook);
+	}
+	return hooks;
+}
+
 export function registerExtensionHook<Hook>(
 	_pi: ExtensionAPI,
 	_key: ExtensionPointKey<Hook>,
@@ -134,7 +151,7 @@ interface ExtensionPointRegistry {
 	readonly hooks: Map<string, HookRegistration[]>;
 }
 
-function getExtensionPointRegistry(pi: ExtensionAPI): ExtensionPointRegistry {
+function getExtensionPointRegistry(pi: RuntimeHost): ExtensionPointRegistry {
 	const registries = getGlobalState(
 		"extension-points",
 		(): WeakMap<object, ExtensionPointRegistry> => new WeakMap(),

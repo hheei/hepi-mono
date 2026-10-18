@@ -58,6 +58,7 @@ export type {
 export {
 	createExtensionPointKey,
 	openExtensionPoint,
+	readExtensionHooks,
 	registerExtensionHook,
 } from "./extension-point.js";
 export type {
@@ -75,6 +76,14 @@ export {
 } from "./json-settings.js";
 export type { ExtensionLifecycleContext, ExtensionLifecycleOptions } from "./lifecycle.js";
 export { registerExtensionLifecycle } from "./lifecycle.js";
+export type {
+	MessageRows,
+	MessageTone,
+	MessageViewFactory,
+	MessageViewHeader,
+	MessageViewSpec,
+} from "./message-view-point.js";
+export { messageViewPoint, readMessageView } from "./message-view-point.js";
 export type {
 	CreateModelSelectionFieldOptions,
 	ModelSelectionCandidate,

@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
 	createExtensionPointKey,
 	openExtensionPoint,
+	readExtensionHooks,
 	registerExtensionHook,
 } from "../src/index.js";
 import { createFakePiHost } from "./fixtures.js";
@@ -133,4 +134,19 @@ test("rejects a duplicate owner", () => {
 			onRemove: () => undefined,
 		}),
 	).toThrow();
+});
+
+test("reads active hooks without an owner", async () => {
+	const host = createFakePiHost();
+	expect(readExtensionHooks(host.pi, formatter)).toEqual([]);
+	const first = registerExtensionHook(host.pi, formatter, { name: "first" });
+	const second = registerExtensionHook(host.pi, formatter, { name: "second" });
+	expect(readExtensionHooks(host.pi, formatter).map((hook) => hook.name)).toEqual([
+		"first",
+		"second",
+	]);
+	await first.dispose();
+	expect(readExtensionHooks(host.pi, formatter).map((hook) => hook.name)).toEqual(["second"]);
+	await second.dispose();
+	expect(readExtensionHooks(host.pi, formatter)).toEqual([]);
 });
