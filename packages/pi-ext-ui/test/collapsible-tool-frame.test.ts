@@ -281,6 +281,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			registerToolRenderer(resolver: ToolRendererResolver) {
 				captured = resolver;
 			},
+			on() {},
 		} as unknown as ExtensionAPI;
 
 		if (options === undefined) {

@@ -21,64 +21,46 @@ import { textCustomMessage } from "./fixtures/session.js";
 const OAUTH_ACCESS_TOKEN = "pi-oauth-access-token";
 const OAUTH_TOKEN = `Bearer ${OAUTH_ACCESS_TOKEN}`;
 
-type RecordedRequest = { headers: Record<string, string | undefined>; body: any };
-
-function sse(events: Array<[string, unknown]>): string {
-	return events
-		.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-		.join("");
-}
+type RecordedRequest = { headers: Record<string, string | undefined>; body: unknown };
 
 function toolUseStream(toolInput: unknown): string {
-	return sse([
-		[
-			"message_start",
+	const chunk1 = `data: ${JSON.stringify({
+		id: "chatcmpl-e2e",
+		object: "chat.completion.chunk",
+		choices: [
 			{
-				type: "message_start",
-				message: {
-					id: "msg_e2e",
-					type: "message",
+				index: 0,
+				delta: {
 					role: "assistant",
-					model: "om-e2e",
-					content: [],
-					stop_reason: null,
-					stop_sequence: null,
-					usage: { input_tokens: 12, output_tokens: 0 },
+					tool_calls: [
+						{
+							index: 0,
+							id: "call_e2e",
+							type: "function",
+							function: {
+								name: "record_observations",
+								arguments: JSON.stringify(toolInput),
+							},
+						},
+					],
 				},
+				finish_reason: null,
 			},
 		],
-		[
-			"content_block_start",
+	})}\n\n`;
+	const chunk2 = `data: ${JSON.stringify({
+		id: "chatcmpl-e2e",
+		object: "chat.completion.chunk",
+		choices: [
 			{
-				type: "content_block_start",
 				index: 0,
-				content_block: {
-					type: "tool_use",
-					id: "toolu_e2e",
-					name: "record_observations",
-					input: {},
-				},
+				delta: {},
+				finish_reason: "tool_calls",
 			},
 		],
-		[
-			"content_block_delta",
-			{
-				type: "content_block_delta",
-				index: 0,
-				delta: { type: "input_json_delta", partial_json: JSON.stringify(toolInput) },
-			},
-		],
-		["content_block_stop", { type: "content_block_stop", index: 0 }],
-		[
-			"message_delta",
-			{
-				type: "message_delta",
-				delta: { stop_reason: "tool_use", stop_sequence: null },
-				usage: { output_tokens: 30 },
-			},
-		],
-		["message_stop", { type: "message_stop" }],
-	]);
+		usage: { prompt_tokens: 12, completion_tokens: 30 },
+	})}\n\ndata: [DONE]\n\n`;
+	return chunk1 + chunk2;
 }
 
 async function startMockAnthropic(
@@ -159,7 +141,7 @@ describe("OAuth provider end-to-end consolidation", () => {
 		const model = {
 			id: "om-e2e",
 			name: "OAuth E2E",
-			api: "anthropic-messages",
+			api: "openai-completions",
 			provider: "kimi-coding",
 			baseUrl,
 			reasoning: false,
