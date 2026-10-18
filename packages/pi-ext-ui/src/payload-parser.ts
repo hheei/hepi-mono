@@ -1,4 +1,4 @@
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, formatReadLineRange } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { previewV4aOperations } from "./apply-patch-preview.js";
 import { applyPatchFacts } from "./apply-patch-view.js";
@@ -377,12 +377,7 @@ export function fileToolPresentation(
 	if (toolName === "read") {
 		if (path === "") return undefined;
 		const parsed = parseCallArgs(args);
-		let range = "";
-		if (typeof parsed?.offset === "number" || typeof parsed?.limit === "number") {
-			const start = typeof parsed.offset === "number" ? parsed.offset : 1;
-			const end = typeof parsed.limit === "number" ? start + parsed.limit - 1 : "";
-			range = `:${String(start)}${end ? `-${String(end)}` : ""}`;
-		}
+		const range = formatReadLineRange(parsed?.offset, parsed?.limit);
 		return { summary: `${path}${range}`, status: isError ? "error" : "ok" };
 	}
 	if (toolName === WRITE_TOOL_NAME) {
