@@ -7,9 +7,11 @@ import {
 } from "../src/find-query.js";
 
 describe("find query utilities", () => {
-	test("recognizes malformed regular expressions", (): void => {
-		expect(isValidRegexPattern("catch (error")).toBe(false);
-		expect(isValidRegexPattern("catch \\(error\\)")).toBe(true);
+	test.each([
+		["catch (error", false],
+		["catch \\(error\\)", true],
+	] as const)("treats regex %j as valid=%s", (pattern, valid) => {
+		expect(isValidRegexPattern(pattern)).toBe(valid);
 	});
 
 	test("removes excluded paths from native find output", (): void => {
@@ -24,8 +26,10 @@ describe("find query utilities", () => {
 		);
 	});
 
-	test("creates glob pattern from search words", (): void => {
-		expect(nativeFallbackPattern("hello world")).toBe("*hello*world*");
-		expect(nativeFallbackPattern("")).toBe("*");
+	test.each([
+		["hello world", "*hello*world*"],
+		["", "*"],
+	] as const)("builds %j into glob %s", (words, pattern) => {
+		expect(nativeFallbackPattern(words)).toBe(pattern);
 	});
 });
