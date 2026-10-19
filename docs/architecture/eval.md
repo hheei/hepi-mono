@@ -30,7 +30,7 @@ session shutdown → dispose kernel
 
 kernel 子进程不继承 `*_API_KEY`、`*_TOKEN`、`*_SECRET`；保留 `PYTHONPATH` 与 `LD_LIBRARY_PATH`。每个 cell 重设 cwd，session cwd 放在 `sys.path[0]`。POSIX 上 host 消失后 kernel 退出。Python fd 1 与 NDJSON 协议分离，背景线程持续 drain；结束前使用随机 drain token 屏障，确保 token 前的字节先送完再发送 done。跨 cell 到达的无归属输出在下次 cell 开始前交付，不混入新 cell。
 
-NDJSON 单行约 1 MiB 上限，越界导致 kernel 失败。未捕获错误带有限 traceback。最后一个表达式为 None 时不产生 final-result row；print、赋值等不会额外显示 null。保留的内部 JavaScript kernel 仅供兼容性 smoke，不注册模型工具。
+NDJSON 单行约 1 MiB 上限，越界导致 kernel 失败。未捕获错误带有限 traceback。最后一个表达式为 None 时不产生 final-result row；print、赋值等不会额外显示 null。
 
 ## 嵌套工具
 
@@ -42,7 +42,7 @@ bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失�
 
 ## 输出、持久化与展示
 
-历史 details format 保持 `pi-ext-tools-python-eval`。details 保存最多 200 行，每行文本最多 4,000 字符，超出用省略行表示；错误和省略信息保留。模型 content 由 transcript 拼成，最多 12,000 字符，超出追加 truncation 提示。onUpdate 推送运行过程，不持久化 Python 内存或重跑历史源码。
+details format 为 `pi-ext-tools-python-eval`。details 保存最多 200 行，每行文本最多 4,000 字符，超出用省略行表示；错误和省略信息保留。模型 content 由 transcript 拼成，最多 12,000 字符，超出追加 truncation 提示。onUpdate 推送运行过程，不持久化 Python 内存或重跑历史源码。
 
 文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、参数、结果文本、执行时间与错误，供 UI 按原协议解释。
 

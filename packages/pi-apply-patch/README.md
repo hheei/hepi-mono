@@ -6,4 +6,4 @@ Owns V4A parsing, pure JavaScript jsdiff worker matching, per-path publishing, p
 
 No file tools, Bash, Python or UI extension is required. Optional UI rendering comes through ext-core; native tool text remains available without it. Worker code is included in `dist`.
 
-See [architecture](../../docs/architecture/apply-patch.md) and [migration](../../docs/ext-tools/README.md).
+See [architecture](../../docs/architecture/apply-patch.md) and [tool packages](../../docs/ext-tools/README.md).

@@ -56,8 +56,7 @@ Changes apply on reload or in a new session.
 ## Details
 
 Results carry `format: "pi-ext-tools-python-eval"` and bounded rows (200 rows, 4,000 characters per
-row, 12,000 characters of model-visible transcript). The format name stays as it is so historical
-sessions keep rendering.
+row, 12,000 characters of model-visible transcript).
 
 ## Rendering
 
@@ -67,9 +66,3 @@ transcript sections (muted namespace report, `display:`/`result:` prefixes, one 
 call), collapsed nested rows, and copy text. `registerPythonEvalTool` publishes it through
 ext-core's optional renderer point, so an installed UI package draws the frame and this package's
 native renderer shows the plain transcript when none is installed. No UI package is a dependency.
-
-## Migration
-
-`@hheei/pi-python-eval` replaces the Python eval half of `@hheei/pi-ext-tools`. Add this package
-explicitly to keep `python_eval`; the combined extension no longer registers it. The `eval` settings
-group, tool schema, details format, and kernel protocol are unchanged.
