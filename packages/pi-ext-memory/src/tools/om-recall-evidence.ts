@@ -1,9 +1,9 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
-import { textToolResult } from "@hheei/pi-ext-core";
+import { defineTool, type ExtensionAPI, type ToolRenderers } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import { createOptionalToolRenderers, isRecord, textToolResult } from "@hheei/pi-ext-core";
 import {
 	formatRecallTimestamp,
 	renderRecallSourceEntries,
@@ -612,8 +612,9 @@ function formatRecallResultForTui(
 	return lines.join("\n").trimEnd();
 }
 
+/** The id comes from model output, so its escapes never reach the terminal. */
 export function formatRecallCallForTui(id: string | undefined): string {
-	return `om_recall_evidence ${id ?? "..."}`;
+	return `om_recall_evidence ${stripTerminalSequences(id ?? "...")}`;
 }
 
 export function formatRecallRenderedResultForTui(
@@ -622,10 +623,30 @@ export function formatRecallRenderedResultForTui(
 ): string {
 	const body = formatRecallResultForTui(result, expanded);
 	const header = result.details ? formatRecallHeaderForTui(result.details) : undefined;
-	if (header && body) return `\n${header}\n\n${body}`;
-	if (header) return `\n${header}`;
-	return body ? `\n${body}` : "";
+	const rendered =
+		header && body ? `\n${header}\n\n${body}` : header ? `\n${header}` : body ? `\n${body}` : "";
+	// Source content is recalled user/assistant text: it is rendered, never re-interpreted.
+	return stripTerminalSequences(rendered);
 }
+
+/** Native renderers: readable rows without pi-ext-ui, and the base a loaded UI decorates. */
+const recallNativeRenderers: ToolRenderers = {
+	renderCall(args) {
+		// Streaming arguments are untrusted until the id arrives, so the header reads it narrowly.
+		const id = isRecord(args) && typeof args.id === "string" ? args.id : undefined;
+		return new Text(formatRecallCallForTui(id), 0, 0);
+	},
+	renderResult(result, options) {
+		return new Text(
+			formatRecallRenderedResultForTui(
+				result as AgentToolResult<RecallEvidenceToolDetails>,
+				options.expanded,
+			),
+			0,
+			0,
+		);
+	},
+};
 
 export const omRecallEvidenceTool = defineTool({
 	name: OM_RECALL_EVIDENCE_TOOL_NAME,
@@ -655,19 +676,7 @@ export const omRecallEvidenceTool = defineTool({
 		readOnlyHint: true,
 		idempotentHint: true,
 	},
-	renderCall(args) {
-		return new Text(formatRecallCallForTui(args.id), 0, 0);
-	},
-	renderResult(result, options) {
-		return new Text(
-			formatRecallRenderedResultForTui(
-				result as AgentToolResult<RecallEvidenceToolDetails>,
-				options.expanded,
-			),
-			0,
-			0,
-		);
-	},
+	...recallNativeRenderers,
 	async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 		const memoryId = params.id;
 		if (!MEMORY_ID_PATTERN.test(memoryId)) {
@@ -695,7 +704,10 @@ export type RecallObservationToolStatus = RecallEvidenceToolStatus;
 export const recallObservationTool = omRecallEvidenceTool;
 
 export function registerRecallEvidenceTool(pi: ExtensionAPI): void {
-	pi.registerTool(omRecallEvidenceTool);
+	pi.registerTool({
+		...omRecallEvidenceTool,
+		...createOptionalToolRenderers(pi, OM_RECALL_EVIDENCE_TOOL_NAME, recallNativeRenderers),
+	});
 }
 
 export const registerRecallTool = registerRecallEvidenceTool;

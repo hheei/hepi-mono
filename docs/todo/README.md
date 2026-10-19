@@ -2,7 +2,7 @@
 
 ## 目标
 
-`@hheei/pi-ext-tools` 拥有 Todo：任务 tool、`/todo` command、任务状态、提醒与 Footer
+`@hheei/pi-todo` 拥有 Todo：任务 tool、`/todo` command、任务状态、提醒与 Footer
 状态行。它复用 `@hheei/pi-ext-core` 的 session lifecycle 与 prompt 段落能力；工具注册走 Pi 原生
 `pi.registerTool`，展示框架由 `@hheei/pi-ext-ui` 提供。
 

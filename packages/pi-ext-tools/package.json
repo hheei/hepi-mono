@@ -1,7 +1,7 @@
 {
 	"name": "@hheei/pi-ext-tools",
 	"version": "0.3.0",
-	"description": "Canonical Pi replacements for core coding tools.",
+	"description": "Pi file tools and foreground Bash: read, grep, find, edit, write and bash.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -12,8 +12,7 @@
 		"dist",
 		"README.md",
 		"LICENSE",
-		"THIRD_PARTY_NOTICES.md",
-		"UPSTREAM.md"
+		"THIRD_PARTY_NOTICES.md"
 	],
 	"pi": {
 		"extensions": [
@@ -21,7 +20,7 @@
 		]
 	},
 	"scripts": {
-		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"import { cpSync } from 'node:fs'; cpSync('src/eval/kernel/child.py', 'dist/eval/kernel/child.py')\"",
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
 		"prepack": "pnpm run build"
 	},
 	"keywords": [
@@ -42,7 +41,6 @@
 	},
 	"dependencies": {
 		"@hheei/pi-ext-core": "workspace:^",
-		"acorn": "^8.18.0",
 		"diff": "^9.0.0"
 	},
 	"peerDependencies": {

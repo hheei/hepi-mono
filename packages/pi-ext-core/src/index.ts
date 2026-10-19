@@ -1,3 +1,4 @@
+export { acquireMutationLock, withMutationLock } from "./mutation-lock.js";
 /**
  * Side-effect-free coordination contracts for independently installed Pi extensions.
  * Concrete packages own commands, state, policy, and rendering; core only owns
@@ -99,6 +100,8 @@ export {
 	modelSelectionOptions,
 	thinkingGlyph,
 } from "./model-selection.js";
+export type { BashOutputResult } from "./output-tail.js";
+export { BashOutputSink, DEFAULT_VISIBLE_TAIL_BYTES } from "./output-tail.js";
 export type {
 	ExtensionPageRegistration,
 	ExtensionPageView,
@@ -136,6 +139,12 @@ export {
 	wrapEditorBottomRail,
 } from "./response-status.js";
 export { fitRow } from "./row-fit.js";
+export {
+	extractShellCommands,
+	isSearchOnlyCommand,
+	SEARCH_BASH_TIMEOUT_SECONDS,
+	SEARCH_TIMEOUT_MS,
+} from "./search-command.js";
 export type {
 	MemoryCompactorService,
 	ServiceKey,
@@ -170,19 +179,29 @@ export {
 	getRuntimeSettingsRegistry,
 	registerSettings,
 } from "./settings.js";
+export { defaultShellPath } from "./shell.js";
 export { escapeXml } from "./text.js";
 export type {
 	BaseToolPresentation,
 	DiffToolPresentation,
 	TextToolPresentation,
 	ToolPresentation,
+	ToolPresentationContext,
 	ToolPresentationProvider,
+	ToolPresentationSection,
+	ToolPresentationStatus,
 } from "./tool-presentation.js";
 export {
 	createToolPresentationRenderers,
 	getRegisteredToolPresentationProvider,
 	getToolPresentationProvider,
 } from "./tool-presentation.js";
+export type { ToolRendererFactory } from "./tool-renderer-point.js";
+export {
+	createOptionalToolRenderers,
+	hasOptionalToolRenderers,
+	toolRendererPoint,
+} from "./tool-renderer-point.js";
 export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
 
 export type {

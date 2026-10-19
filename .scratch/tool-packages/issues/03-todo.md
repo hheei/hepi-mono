@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 工具、命令、提醒、设置和生命周期由新包拥有。
-- [ ] 保留状态 key、customType、defaultActive 及 session tree 行为。
-- [ ] 迁移现有 Todo 测试并验证独立入口。
+- [x] 工具、命令、提醒、设置和生命周期由新包拥有。
+- [x] 保留状态 key、customType、defaultActive 及 session tree 行为。
+- [x] 迁移现有 Todo 测试并验证独立入口。

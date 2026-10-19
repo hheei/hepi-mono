@@ -4,9 +4,8 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { agentResultText, isRecord } from "@hheei/pi-ext-core";
+import { agentResultText, createOptionalToolRenderers, isRecord } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import { createToolsRuntimeState, type ToolsRuntimeState } from "./session-state.js";
 
 const READ_METRICS_KEY = "__piExtToolsRead";
 const READ_CONTINUATION =
@@ -66,13 +65,12 @@ function withReadMetrics<T>(result: AgentToolResult<T>): AgentToolResult<T> {
 }
 
 /** Registers read while recreating execution for the call cwd. */
-export function registerReadTool(
-	pi: ExtensionAPI,
-	_state: ToolsRuntimeState = createToolsRuntimeState(),
-): ToolDefinition {
+export function registerReadTool(pi: ExtensionAPI): ToolDefinition {
 	const template = createReadToolDefinition(process.cwd());
 	const tool: typeof template = {
 		...template,
+		// Pi renderer registries erase schema generics; execution remains typed below.
+		...createOptionalToolRenderers(pi, "read", template as ToolDefinition),
 		parameters: readSchema as unknown as typeof template.parameters,
 		annotations: {
 			readOnlyHint: true,

@@ -413,24 +413,19 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 
 	test("a container tool keeps its call row visible until a result exists", () => {
 		const resolve = setupResolver();
-		for (const [toolName, expected] of [
-			["python_eval", "◐ python_eval"],
-			["codemode", "codemode"],
-		] as const) {
-			const renderers = resolve(toolName, () => undefined)!;
-			const running = createMockContext({
-				state: {},
-				args: toolName === "codemode" ? { code: "const a = 1;" } : { code: "print(1)" },
-				isPartial: true,
-				argsComplete: true,
-				executionStarted: true,
-			});
-			// Execution started and no result yet: the call row is the only thing on screen, so
-			// hiding it here would leave the whole tool block blank.
-			const lines = renderers.renderCall!(running.args, plainTheme, running).render(80);
-			expect(lines).toHaveLength(1);
-			expect(lines[0]).toContain(expected);
-		}
+		const renderers = resolve("codemode", () => undefined)!;
+		const running = createMockContext({
+			state: {},
+			args: { code: "const a = 1;" },
+			isPartial: true,
+			argsComplete: true,
+			executionStarted: true,
+		});
+		// Execution started and no result yet: the call row is the only thing on screen, so
+		// hiding it here would leave the whole tool block blank.
+		const lines = renderers.renderCall!(running.args, plainTheme, running).render(80);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("codemode");
 	});
 
 	test("codemode keeps one header: no spinner while running, and the call row leaves once a result exists", () => {
@@ -559,102 +554,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const lines = resultView.render(80).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
 		expect(lines.join("\n")).toContain("▎ ✓ read /home/chlo/x/renderer.ts · 1ms");
 		expect(lines.join("\n")).toContain("▎ ✓ write b.ts · 2ms");
-	});
-
-	test("python_eval renders call facts, nested tool rows, and cell failure rules", () => {
-		const resolve = setupResolver();
-		const renderers = resolve("python_eval", () => undefined)!;
-		const state = {};
-		const ctx = createMockContext({
-			state,
-			args: {
-				code: 'res = await tools.read({ path: "a.ts" }); text(res)',
-				reset: true,
-				timeout_ms: 30000,
-			},
-			durationMs: 200,
-		});
-
-		const success = renderers.renderResult!(
-			{
-				content: [{ type: "text", text: "hello\nresult: 42" }],
-				details: {
-					format: "pi-ext-tools-python-eval",
-					rows: [
-						{ kind: "text", text: "hello" },
-						{
-							kind: "tool",
-							trace: { name: "read", args: { path: "a.ts" }, text: "body", durationMs: 5 },
-						},
-						{ kind: "result", text: "42" },
-					],
-				},
-			},
-			{ expanded: false, isPartial: false },
-			plainTheme,
-			ctx,
-		) as ToolView;
-
-		const level0 = success.render(80);
-		expect(level0[0]).toContain("▸ python_eval (reset) · (timeout 30s) · 1 call · 200ms");
-		expect(level0[0]).not.toContain("✓");
-		expect(level0.join("\n")).toContain("✓ read a.ts");
-
-		success.toggle(false);
-		const level1 = success.render(80);
-		expect(level1.join("\n")).toContain("res = await tools.read");
-		expect(level1.join("\n")).toContain("hello");
-		expect(level1.join("\n")).toContain("result: 42");
-
-		const cellFailed = renderers.renderResult!(
-			{
-				content: [{ type: "text", text: "error: boom" }],
-				details: {
-					format: "pi-ext-tools-python-eval",
-					rows: [{ kind: "text", text: "error: boom" }],
-					error: "boom",
-				},
-				isError: true,
-			},
-			{ expanded: false, isPartial: false },
-			plainTheme,
-			createMockContext({ state: {}, args: { code: "1/0" }, isError: true, durationMs: 10 }),
-		) as ToolView;
-		expect(cellFailed.render(80)[0]).toContain("✗ python_eval");
-
-		const toolFailed = renderers.renderResult!(
-			{
-				content: [{ type: "text", text: "error: read: boom" }],
-				details: {
-					format: "pi-ext-tools-python-eval",
-					rows: [
-						{
-							kind: "tool",
-							trace: {
-								name: "edit",
-								args: { path: "a.ts" },
-								text: "",
-								durationMs: 3,
-								error: "boom",
-							},
-						},
-					],
-					error: "read: boom",
-				},
-				isError: true,
-			},
-			{ expanded: false, isPartial: false },
-			plainTheme,
-			createMockContext({
-				state: {},
-				args: { code: "await tools.edit" },
-				isError: true,
-				durationMs: 30,
-			}),
-		) as ToolView;
-		const toolFailedLines = toolFailed.render(80);
-		expect(toolFailedLines[0]).not.toContain("✗ python_eval");
-		expect(toolFailedLines.join("\n")).toContain("✗ edit a.ts");
 	});
 
 	test("formatTurnFlow produces clean linear [User] / [Tools] / [Assistant] text without forced markdown", () => {
@@ -1612,35 +1511,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(view.handleMouse(createMouseClick(5, 0, { width: 80 }))).toBeUndefined();
 		expect(view.foldLevel).toBe(1);
 		expect(invalidate).not.toHaveBeenCalled();
-	});
-
-	test("python_eval fallback row keeps a multi-line argument on one row", () => {
-		const resolve = setupResolver();
-		const renderers = resolve("python_eval", () => undefined)!;
-		// `args` arrives as a raw string when argument validation failed, so the row has no inline
-		// presentation to lean on and must normalize the text itself.
-		const details = {
-			format: "pi-ext-tools-python-eval",
-			rows: [
-				{
-					kind: "tool",
-					trace: { name: "cmd", args: "l1\nl2\nl3", text: "", durationMs: 5, error: "bad" },
-				},
-			],
-		};
-		const ctx = createMockContext({ args: { code: "x" } });
-		const view = renderers.renderResult!(
-			{ content: [{ type: "text", text: "" }], details } as never,
-			{ expanded: false, isPartial: false },
-			plainTheme,
-			ctx,
-		);
-
-		const rows = view.render(190);
-		expect(rows.some((row) => row.includes("cmd l1 l2 l3"))).toBe(true);
-		for (const row of rows) {
-			expect(row).not.toMatch(/[\r\n]/);
-		}
 	});
 
 	test("A normalized header stays one row and keeps the copy icon in its slot at any width", () => {

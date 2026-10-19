@@ -10,7 +10,11 @@
 
 | 软件包 | 用途 |
 | --- | --- |
-| [`pi-ext-tools`](../../packages/pi-ext-tools/README.md) | Pi 编码与执行工具替换、Todo 与统一搜索 |
+| [`pi-ext-tools`](../../packages/pi-ext-tools/README.md) | 文件读取、搜索、edit/write 与前台 Bash |
+| [`pi-bg-bash`](../../packages/pi-bg-bash/README.md) | 后台 Bash、账本与通知 |
+| [`pi-apply-patch`](../../packages/pi-apply-patch/README.md) | V4A apply_patch |
+| [`pi-python-eval`](../../packages/pi-python-eval/README.md) | 持久 Python kernel |
+| [`pi-todo`](../../packages/pi-todo/README.md) | 会话任务、提醒与 footer |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` 统一扩展配置界面 |
 | [`pi-loadout`](../../packages/pi-loadout/README.md) | `/ext-loadout` 原生资源装配界面（Skills, Extensions, Prompts, Themes, Packages） |
 | [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 扩展集合（`$skill-name` 自动补全、Auto Title 自动会话标题等 opt-in 功能） |

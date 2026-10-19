@@ -3,12 +3,11 @@ import {
 	type ExtensionAPI,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { textToolResult } from "@hheei/pi-ext-core";
+import { createOptionalToolRenderers, SEARCH_TIMEOUT_MS, textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { filterNativeFindText, nativeFallbackPattern } from "./find-query.js";
 import { renderFindResult } from "./search-renderer.js";
-import { FIND_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
-import type { ToolsRuntimeState } from "./session-state.js";
+import { FIND_TIMEOUT_RECOVERY } from "./search-timeout.js";
 
 const FIND_DESCRIPTION =
 	"Fuzzy path and glob search. Matches the whole repo-relative path, frecency-ranked and git-aware. Default limit 30.";
@@ -57,7 +56,6 @@ async function executeFind(
 	signal: AbortSignal,
 	onUpdate: undefined,
 	context: { cwd: string },
-	_state: ToolsRuntimeState,
 ) {
 	if (signal.aborted) throw new Error("Operation aborted");
 	const result = await createFindToolDefinition(context.cwd).execute(
@@ -77,7 +75,7 @@ async function executeFind(
 	};
 }
 
-export function registerFindTool(pi: ExtensionAPI, state: ToolsRuntimeState): ToolDefinition {
+export function registerFindTool(pi: ExtensionAPI): ToolDefinition {
 	const tool = {
 		name: "find",
 		label: "find",
@@ -89,7 +87,9 @@ export function registerFindTool(pi: ExtensionAPI, state: ToolsRuntimeState): To
 			readOnlyHint: true,
 			idempotentHint: true,
 		},
-		renderResult: renderFindResult,
+		...createOptionalToolRenderers(pi, "find", {
+			renderResult: renderFindResult,
+		}),
 		async execute(
 			id: string,
 			params: FindParams,
@@ -100,7 +100,7 @@ export function registerFindTool(pi: ExtensionAPI, state: ToolsRuntimeState): To
 			const timeout = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
 			const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
 			try {
-				return await executeFind(id, params, combined, onUpdate, context, state);
+				return await executeFind(id, params, combined, onUpdate, context);
 			} catch (error) {
 				if (timeout.aborted && signal?.aborted !== true) {
 					return textToolResult(FIND_TIMEOUT_RECOVERY, {

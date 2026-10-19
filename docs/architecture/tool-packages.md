@@ -1,6 +1,6 @@
 # 工具扩展拆包规格
 
-状态：用户已批准五包边界；在独立 worktree 实施。
+状态：五包边界已在独立 worktree 实现；完整检查、构建、真实子进程集成与包产物验证通过，尚未合并或发布。
 
 ## Problem Statement
 
@@ -8,14 +8,14 @@
 
 ## Solution
 
-保留 pi-ext-tools 为基础文件工具扩展，新增 pi-bash、pi-apply-patch、pi-python-eval 和 pi-todo。每包独立安装、恰有一个 extension 入口、拥有自身状态和生命周期。具体 extension 之间无直接依赖；可选 UI 仍通过 ext-core 接入。Pi host 负责工具执行，ext-core 只新增共享写入锁原语。
+保留 pi-ext-tools 为基础文件工具与前台 Bash 扩展，新增 pi-bg-bash、pi-apply-patch、pi-python-eval 和 pi-todo。每包独立安装、恰有一个 extension 入口、拥有自身状态和生命周期。具体 extension 之间无直接依赖；可选 UI 仍通过 ext-core 接入。Pi host 负责工具执行，ext-core 提供共享写入锁和可选展示契约。
 
 ## User Stories
 
-1. 作为用户，我希望只安装文件工具，以便获得 read、grep、find、edit 和 write。
-2. 作为用户，我希望独立安装 Bash，以便统一使用前台和后台命令。
+1. 作为用户，我希望只安装基础工具，以便获得 read、grep、find、edit、write 和前台 bash。
+2. 作为用户，我希望独立安装后台 Bash，以便管理长任务而不依赖前台工具包。
 3. 作为用户，我希望独立安装 apply_patch，以便选择补丁编辑能力。
-4. 作为用户，我希望独立安装 Python eval，以便进行持久化进程内计算。
+4. 作为用户，我希望独立安装 Python eval，以便进行持久化会话内计算。
 5. 作为用户，我希望独立安装 Todo，以便管理当前会话任务。
 6. 作为用户，我希望组合安装后没有重复工具，以便确定每项能力的 owner。
 7. 作为用户，我希望工具名称和参数保持一致，以便继续使用现有 loadout 与 subagent 配置。
@@ -38,15 +38,16 @@
 
 ## Implementation Decisions
 
-- pi-ext-tools 拥有 read、grep、find、edit、write；pi-bash 拥有 bash 与 bg_bash_spawn/get/stop；pi-apply-patch 拥有补丁解析、匹配、Worker、发布和工具结果；pi-python-eval 拥有 Python kernel、协议和嵌套调用转换；pi-todo 拥有任务、命令、提醒和状态展示。
+- pi-ext-tools 拥有 read、grep、find、edit、write、bash；pi-bg-bash 拥有 bg_bash_spawn/get/stop；pi-apply-patch 拥有补丁解析、匹配、Worker、发布和工具结果；pi-python-eval 拥有 Python kernel、协议和嵌套调用转换；pi-todo 拥有任务、命令、提醒和状态展示。
 - 每个包独立注册设置和 lifecycle。删除旧综合入口对已拆功能的注册，不保留自动安装或转发入口。旧安装需按迁移说明显式增加所需新包。
 - Python bridge 仅依赖 Pi host 的 ExtensionToolContext.executeTool，保留当前七种允许嵌套的工具及 active 检查，删除直接调用 ToolDefinition 的 fallback 和重复参数验证；host 返回的执行结果决定错误状态。缺少工具或权限拒绝均传播为工具失败，保留 trace、structuredContent 和取消。
-- 文件工具不再接受未使用的 Bash runtime state。Bash runtime 归 pi-bash，不进入 ext-core。
+- 文件工具不再接受未使用的 Bash runtime state。Bash runtime 归 pi-bg-bash，不进入 ext-core。
 - ext-core 提供 acquireMutationLock 和 withMutationLock，保留现有 key、哈希、socket/pipe 路径协议、等待者取消和 finally 释放。edit、write、apply_patch 使用同一实现；锁仅协调相同 key 的合作调用，不保证任意 shell 写入互斥。导入不创建锁或后台工作。
 - 保留工具名、参数、defaultActive 和 exposure。保持 Python details format、edit/write view key、patch details、Todo 状态 key 与 customType、bg-bash-report。保留 Bash 账本、日志、ID、anchor 和分支收据。
-- 设置仍使用 ext_settings.json 及原 bash、eval、applyPatch、todo group；provider ID 和 origin 更新为新 owner，无需新增旧 ID alias。
-- Bash 前台与后台共用一套进程管理；清理、取消、输出边界、账本验证和错误传播不变。恢复不接管旧 PID、不发信号、不重跑；未知终态继续 unknown。
+- 设置仍使用 ext_settings.json 及原 bash、eval、applyPatch group；Todo 没有独立设置 provider；provider ID 和 origin 更新为新 owner，无需新增旧 ID alias。
+- 前台 Bash 通过 Pi host 的本地执行能力管理当前调用，清理和取消由其进程树管理负责；后台 Bash 独立拥有 BashJobRegistry、账本与通知。前台不依赖后台包，不创建后台记录；输出边界、错误传播和超时保持。恢复不接管旧 PID、不发信号、不重跑；未知终态继续 unknown。
 - Todo 的分支恢复和提醒仍归 Todo；Python kernel 在 session 结束时清理，变量不跨 session 恢复。
+- 工具包拥有展示语义、参数摘要、结果解析、状态和内容行；ToolPresentation 描述内容、section、复制文本和状态，pi-ext-ui 仅拥有通用框架、折叠、布局和复制交互，不按具体工具名分派。每个工具 definition 在所属 package 通过 ext-core 的 createOptionalToolRenderers 注册可选 UI 与原生回退。pi-ext-ui 在 session 内提供 ToolRendererFactory，render 时懒读取，不依赖加载顺序；全局 resolver 跳过已经由 package 接线的 definition，避免双重框架。所有具体工具包括 subagents 与 memory 都采用同一契约，内置/外部工具继续由 UI 全局 resolver 接入。
 - 每个新包携带所需许可证、声明和运行资产，更新 build、pi-dev、artifact 校验与受影响验证识别。具体 extension 不依赖 pi-ext-ui。
 
 ## Testing Decisions

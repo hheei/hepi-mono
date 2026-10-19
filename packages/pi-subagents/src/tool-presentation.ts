@@ -1,16 +1,29 @@
 import type { AgentToolResult, ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import {
 	agentResultText,
+	createOptionalToolRenderers,
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
+	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
 
 /**
- * Owned presentations for the four parent-facing subagent tools. The native renderers keep the
- * model-visible text and raw errors when pi-ext-ui is absent; a loaded pi-ext-ui wraps the same
- * presentation through the ext-core provider registry, so both paths share one semantic source.
+ * Owned presentations for every subagent tool. Each definition ships its own native renderers, so a
+ * session without pi-ext-ui still shows the tool title, full request, model-visible text and raw
+ * errors; when the UI is loaded it decorates those same native renderers through ext-core's
+ * optional-renderer point and reads the same ToolPresentation, so both paths share one semantic
+ * source. This package never depends on pi-ext-ui.
  */
+
+/** Native presentation renderers, then the optional UI frame over them. */
+function ownedRenderers(
+	pi: ExtensionAPI,
+	name: string,
+	present: ToolPresentationProvider,
+): ToolRenderers {
+	return createOptionalToolRenderers(pi, name, createToolPresentationRenderers(pi, name, present));
+}
 
 export interface AgentSpawnDetails {
 	readonly id: string;
@@ -180,6 +193,29 @@ function stopPresentation(
 	};
 }
 
+function contactPresentation(
+	args: unknown,
+	result: AgentToolResult<unknown> | undefined,
+): ToolPresentation {
+	const record = isRecord(args) ? args : undefined;
+	const reason = stringField(record, "reason") ?? "blocked";
+	const message = stringField(record, "message");
+	const confirmation = result === undefined ? undefined : agentResultText(result);
+	const copy =
+		message === undefined
+			? undefined
+			: {
+					primary: message,
+					...(confirmation === undefined ? {} : { full: `${message}\n${confirmation}` }),
+				};
+	return {
+		summary: reason,
+		...(message === undefined ? {} : { request: message }),
+		...(confirmation === undefined ? {} : { output: confirmation }),
+		...(copy === undefined ? {} : { copy }),
+	};
+}
+
 /** One renderer set per tool, named exactly after its tool so nested calls resolve too. */
 export function parentToolRenderers(pi: ExtensionAPI): {
 	readonly spawn: ToolRenderers;
@@ -188,9 +224,14 @@ export function parentToolRenderers(pi: ExtensionAPI): {
 	readonly stop: ToolRenderers;
 } {
 	return {
-		spawn: createToolPresentationRenderers(pi, "agent_spawn", spawnPresentation),
-		send: createToolPresentationRenderers(pi, "agent_send", sendPresentation),
-		get: createToolPresentationRenderers(pi, "agent_get", getPresentation),
-		stop: createToolPresentationRenderers(pi, "agent_stop", stopPresentation),
+		spawn: ownedRenderers(pi, "agent_spawn", spawnPresentation),
+		send: ownedRenderers(pi, "agent_send", sendPresentation),
+		get: ownedRenderers(pi, "agent_get", getPresentation),
+		stop: ownedRenderers(pi, "agent_stop", stopPresentation),
 	};
+}
+
+/** The child's blocker report names the reason in the header and keeps the full message readable. */
+export function contactParentRenderers(pi: ExtensionAPI): ToolRenderers {
+	return ownedRenderers(pi, "contact_parent", contactPresentation);
 }

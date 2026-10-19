@@ -4,14 +4,28 @@ import type {
 	Theme,
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { getGlobalState } from "./global-state.js";
 import { runtimeIdentity } from "./runtime-identity.js";
+import { getOptionalToolNativeRenderers } from "./tool-renderer-point.js";
 import { agentResultText } from "./tool-result.js";
+
+export type ToolPresentationStatus = "none" | "streaming" | "running" | "ok" | "warn" | "error";
+
+export interface ToolPresentationSection {
+	readonly railToken: "accent" | "muted" | "dim" | "success" | "error";
+	readonly content: string | readonly string[] | Component;
+}
+
+export type ToolPresentationContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
 /** Content belongs to the tool; optional consumers own its interactive frame. */
 export interface BaseToolPresentation {
 	readonly summary: string;
+	readonly status?: ToolPresentationStatus;
+	readonly sections?: readonly ToolPresentationSection[];
+	/** Container/patch results replace their streaming call header as soon as available. */
+	readonly replaceCallOnPartial?: boolean;
 	readonly request?: string;
 	readonly output?: string;
 	readonly collapsedRows?: readonly string[];
@@ -35,6 +49,7 @@ export type ToolPresentationProvider = (
 	args: unknown,
 	result: AgentToolResult<unknown> | undefined,
 	theme: Theme,
+	context: ToolPresentationContext,
 ) => ToolPresentation;
 
 type RenderCall = NonNullable<ToolRenderers["renderCall"]>;
@@ -63,8 +78,8 @@ export function createToolPresentationRenderers(
 	title: string,
 	present: ToolPresentationProvider,
 ): ToolRenderers {
-	const renderCall: RenderCall = (args, theme) => {
-		const presentation = present(args, undefined, theme);
+	const renderCall: RenderCall = (args, theme, context) => {
+		const presentation = present(args, undefined, theme, context);
 		const header = `${theme.fg("toolTitle", theme.bold(title))} ${stripTerminalSequences(presentation.summary)}`;
 		const request = presentation.request;
 		return new Text(request ? `${header}\n${stripTerminalSequences(request)}` : header, 0, 0);
@@ -74,7 +89,7 @@ export function createToolPresentationRenderers(
 	return {
 		renderCall,
 		renderResult(result, _options, theme, context) {
-			const presentation = present(context.args, result, theme);
+			const presentation = present(context.args, result, theme, context);
 			const isError = context.isError || result.isError === true;
 			let output: string;
 			if (isError) {
@@ -96,7 +111,11 @@ export function createToolPresentationRenderers(
 export function getToolPresentationProvider(
 	renderers: ToolRenderers | undefined,
 ): ToolPresentationProvider | undefined {
-	return renderers?.renderCall === undefined ? undefined : providers().get(renderers.renderCall);
+	if (renderers?.renderCall === undefined) return undefined;
+	const native = getOptionalToolNativeRenderers(renderers);
+	return native === undefined
+		? providers().get(renderers.renderCall)
+		: getToolPresentationProvider(native);
 }
 
 /** Nested calls have no host-mounted renderer; resolve their owner in this Pi runtime. */
