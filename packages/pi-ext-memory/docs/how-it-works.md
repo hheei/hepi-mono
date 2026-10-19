@@ -100,7 +100,7 @@ type Observation = {
   content: string;
   timestamp: string;
   relevance: "low" | "medium" | "high" | "critical";
-  kind?: "user" | "decision" | "fact" | "progress";
+  kind: "user" | "decision" | "fact" | "progress";
   sourceEntryIds: string[];
   tokenCount: number;
 }
@@ -108,7 +108,7 @@ type Observation = {
 
 `timestamp` is not written by the observer: it is derived from the source entries the observation cites — the earliest of them, in local time to the minute — so a line is placed in conversation time rather than in "when the observer happened to run". A cited entry with no usable time is skipped, and if nothing usable is left the chunk's own last source entry stands in, then the recording moment.
 
-`kind` is what the observation *is*: `progress` for work that was performed, verified or finished, `fact` for code, documentation or environment facts, `decision` for a choice, invariant or plan with its rationale, and `user` for something the user asserted or corrected. It is optional on the record (entries written before the field read as `fact`) and it is the first thing memory removal looks at: progress narration leaves active memory before facts, and both before user assertions and decisions. `relevance` is the second axis and means durability — how hard the fact would be to re-derive — not how interesting the line was.
+`kind` is what the observation *is*: `progress` for work that was performed, verified or finished, `fact` for code, documentation or environment facts, `decision` for a choice, invariant or plan with its rationale, and `user` for something the user asserted or corrected. It is required; an entry without a kind is not an observation. It is the first thing memory removal looks at: progress narration leaves active memory before facts, and both before user assertions and decisions. `relevance` is the second axis and means durability — how hard the fact would be to re-derive — not how interesting the line was.
 
 The builder rejects empty observation arrays, so no empty progress entries are written.
 

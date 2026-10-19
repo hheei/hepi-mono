@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
 import { registerBashTool } from "../src/bash.js";
-import { registerBgBashTools as registerTaskTools } from "../src/bg-bash-tools.js";
+import { registerBgBashTools } from "../src/bg-bash-tools.js";
 import { createEvalRuntimeState } from "../src/eval/lifecycle.js";
 import { createPythonEvalTool, pythonEvalPromptGuidelines } from "../src/eval/tool.js";
 import { registerFindTool } from "../src/find.js";
@@ -176,10 +176,10 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 		expect(changesWithoutEval?.descriptions?.bash).toBeUndefined();
 	});
 
-	test("task tools declare appropriate annotations", () => {
+	test("background Bash tools declare appropriate annotations", () => {
 		const host = toolHost();
 		const state = createToolsRuntimeState();
-		registerTaskTools(host.pi, state);
+		registerBgBashTools(host.pi, state);
 
 		const listTasks = toolFor(host.tools, "bg_bash_get");
 		const stopTasks = toolFor(host.tools, "bg_bash_stop");

@@ -1,6 +1,6 @@
 # @hheei/pi-ext-core
 
-`@hheei/pi-ext-core` 为独立的 `pi-<name>` 扩展提供轻量、强类型且无副作用的会话生命周期、跨扩展服务协作、后台任务状态机、完成门控、TUI 视图路由与公共基础设施原语。
+`@hheei/pi-ext-core` 为独立的 `pi-<name>` 扩展提供轻量、强类型且无副作用的会话生命周期、跨扩展服务协作、后台交付协调、TUI 视图路由与公共基础设施原语。
 
 本包**不是** Pi extension（不声明 `pi.extensions` 入口）；导入本包没有全局副作用。只有扩展显式调用注册 API 后，core 才会创建对应运行时状态或挂载宿主监听。
 
@@ -36,31 +36,18 @@
 | `getService(pi, key)` | 函数 | 同步获取当前已注册的服务实例（未提供时返回 `undefined`） |
 | `waitForService(pi, key, options?)` | 函数 | 异步等待服务就绪，支持传入 `AbortSignal`，配合非阻塞 continuation 避免死锁 |
 | `MEMORY_COMPACTOR_SERVICE_KEY` | 常量 | 预置内存压缩服务 Key（例如 `pi-ext-addon` 在 409 恢复时调用 `pi-ext-memory` 的即时压缩） |
-| `TASK_REGISTRY_SERVICE_KEY` | 常量 | 预置后台任务注册表 Key |
 
-### 3. 统一后台任务状态机 (TaskRegistry)
+### 3. 后台交付协调 (BackgroundDelivery)
 
-集中管理后台 Bash 命令任务与 Subagent 会话任务的并发控制、状态机与结算。
-
-| API | 类型 | 核心契约与说明 |
-| --- | --- | --- |
-| `TaskRegistry` | 类 | 任务注册中心，提供 ID 生成、入队排队、并发控制、取消与终态沉降（`settle`） |
-| `isTerminalTaskStatus(status)` | 函数 | 判断状态是否为终态（`completed`, `failed`, `cancelled`, `stopped`） |
-| `TASK_REGISTRY_SERVICE_KEY` | 常量 | 共享注册表服务 Key，支持多扩展跨包获取单一实例 |
-| 异常与限制常量 | 常量 / 类 | `TaskCapacityError`, `TaskQueueFullError`, `DEFAULT_TASK_CONCURRENCY` 等 |
-
-### 4. 后台交付与完成门控 (BackgroundDelivery)
-
-为后台任务与异步报告提供与父会话忙闲状态协调的单次唤醒门控。
+BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付通道。结果及时交付，不等待其他执行结束；父会话忙时使用 steer，空闲时同一 microtask 批次只由最后一个有效通道请求新回合。producer 保留 pending 内容和交付确认。
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `createBackgroundDelivery(pi)` | 函数 | 为当前运行时创建后台交付协调器 |
-| `getBackgroundDelivery(pi)` | 函数 | 获取当前会话共享的 `BackgroundDelivery` 实例 |
-| `BackgroundWorkSource` | 接口 | 活动任务计数抽象（只要有任务活跃，父会话空闲时不提前唤醒） |
-| `BackgroundDeliveryChannel` | 接口 | 交付通道（支持紧急报告如 `blocked` 立即唤醒，普通报告等待全部完成后统一唤醒） |
+| `createBackgroundDelivery()` | 函数 | 创建独立后台交付协调器 |
+| `getBackgroundDelivery(pi)` | 函数 | 获取当前 runtime 共享的交付协调器 |
+| `BackgroundDeliveryChannel` | 接口 | `isIdle`、`hasPending`、`flush(triggerTurn)`；注册返回 `request()` 与 `dispose()` |
 
-### 5. 扩展点与动态钩子 (Extension Points)
+### 4. 扩展点与动态钩子 (Extension Points)
 
 支持 1:N 的松耦合事件与能力挂载机制。
 
@@ -70,15 +57,7 @@
 | `registerExtensionHook(context, key, hook)` | 函数 | 向指定扩展点注册动态钩子，生命周期结束自动解绑 |
 | `openExtensionPoint(pi, key, options?)` | 函数 | 开放扩展点并执行挂载的钩子集，支持动态订阅与取消信号 |
 
-### 6. 会话工具管理 (Session Tools)
-
-管理非原生工具在会话生命周期内的按需激活与安全退出。
-
-| API | 类型 | 核心契约与说明 |
-| --- | --- | --- |
-| `setSessionToolsActive(context, names, active)` | 函数 | 批量变更当前会话工具的激活集合，并在退出时自动清理 |
-
-### 7. TUI 视图路由与自定义界面 (Page Router & Surfaces)
+### 5. TUI 视图路由与自定义界面 (Page Router & Surfaces)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -87,7 +66,7 @@
 | `openTuiSurface(ctx, options)` | 函数 | 打开全屏独立 TUI Surface，支持排队、焦点管理与安全退出 |
 | `TuiSurfaceQueueFullError` | 错误类 | 排队超出最大并发上限时抛出 |
 
-### 8. 挂件与编辑器底栏状态 (Widgets & Editor Status)
+### 6. 挂件与编辑器底栏状态 (Widgets & Editor Status)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -98,7 +77,7 @@
 | `setPreTurnWorkingStatus(options)` | 函数 | 设置回合前即时工作状态 |
 | `BRAILLE_SPINNER_FRAMES` | 常量 | 标准点阵微旋转动画帧序列 |
 
-### 9. JSON 配置持久化与存储 (JSON Settings Transport)
+### 7. JSON 配置持久化与存储 (JSON Settings Transport)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -110,7 +89,7 @@
 | `createJsonSettingsStorage(options)` | 函数 | 创建轻量强类型配置存储适配器 |
 | `registerSettings(pi, provider)` / `getRuntimeSettingsRegistry` | 函数 | 注册扩展配置 Provider 与查询全局配置表 |
 
-### 10. 模型选择与思考深度 (Model Selection & Thinking)
+### 8. 模型选择与思考深度 (Model Selection & Thinking)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -120,7 +99,7 @@
 | `clampThinkingLevel(level)` | 函数 | 规范收敛思考级别（off, minimal, low, medium, high, max） |
 | `thinkingGlyph(level)` | 函数 | 获取对应思考级别的专用 ASCII/Unicode 指示符号 |
 
-### 11. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
+### 9. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -129,27 +108,26 @@
 | `estimatePiToolDefinitionTokens(tools)` | 函数 | 估算工具定义结构占用的 token 数量 |
 | `estimateTextTokens(text)` | 函数 | 快速估算文本 token 数量（缺省为 chars/4） |
 
-### 12. 进程内子代理协调器 (Subagent Coordinator)
+### 10. 进程内子代理协调器（已移除）
+
+`startSubagent` 及 completion、task、conversation 契约已删除。一次性补全由调用方使用 `@earendil-works/pi-ai` 的 `completeSimple`。可重连 child 属于 `@hheei/pi-subagents`。
+
+### 11. 工具展示契约与提示段落 (Tool Presentation & Prompt Sections)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `startSubagent(spec)` | 函数 | 启动进程内轻量子代理（支持 `completion`, `task`, `conversation` 模式） |
-| `lookupSubagent(pi, id)` | 函数 | 查询当前会话中活跃的子代理句柄 |
-| `redeliverTask(pi, options)` | 函数 | 重新交付尚未确认的子代理任务结果 |
-| `configureSubagentCoordinator(pi, options)` | 函数 | 配置会话级并发上限与配额预算 |
-| `ensureSubagentCoordinator(pi)` | 函数 | 初始化或获取会话级子代理协调器 |
+| `ToolPresentation` / `TextToolPresentation` / `DiffToolPresentation` | 类型 | 工具拥有的纯数据展示契约：`summary`、`request`、`output`、`collapsedRows`、`copy` 与 diff 字段；不含 ANSI、Component 或闭包 |
+| `ToolPresentationProvider` | 类型 | `(args, result, theme) => ToolPresentation`，工具用它描述自己的内容语义 |
+| `createToolPresentationRenderers(pi, title, provider)` | 函数 | 生成 Pi 原生 `ToolRenderers`；未加载 `pi-ext-ui` 时它自己就是可用的 Text 渲染 |
+| `getToolPresentationProvider(renderers)` | 函数 | 从一组 `ToolRenderers` 解析已登记的 provider |
+| `getRegisteredToolPresentationProvider(pi, name)` | 函数 | 按工具名解析 provider（含嵌套 codemode 调用）；只持有 WeakRef，不保留 tool definition |
+| `setOptionalToolBullet(sections, key, bullet)` | 函数 | 维护结构化 system prompt 的 `optional_tools` 段落条目与固定 preamble，供 deferred 工具族介绍自己 |
+| `setSectionBullet` / `setPromptSection` | 函数 | 通用的结构化 prompt 段落条目写入与删除 |
 
-### 13. 工具 TUI 交互与渲染 (Tool TUI)
+具体工具的注册与激活由 Pi 原生 `pi.registerTool`（`exposure`、`defaultActive`）与 `getActiveTools` / `setActiveTools` 拥有；
+工具渲染框架由 `@hheei/pi-ext-ui` 的 ToolView 拥有。core 不提供 managed tool、loadout resource 或 ToolTui 层。
 
-| API | 类型 | 核心契约与说明 |
-| --- | --- | --- |
-| `createToolTui()` | 函数 | 创建统一工具 TUI 渲染实例，支持本地工具 `frame()` 包装与宿主 MCP `renderers()` 接入 |
-| `getToolTui(pi)` | 函数 | 获取会话共享的工具 TUI 实例 |
-| `registerToolTuiTrace(pi)` | 函数 | 注册工具输出追踪条目与宿主工具生命周期监听（支持 MCP 工具时长与终态追踪） |
-| `isTuiScrolledUp(tui)` | 函数 | 判定 TUI 是否正处于向上翻页滚动状态，防止自动输出刷屏 |
-| `ToolRendererDefinition` | 接口 | 纯渲染器工具定义接口（`name`, `label?`, `renderCall?`, `renderResult?`） |
-
-### 14. 响应遥测与底栏边框 (Response Telemetry & Editor Rail)
+### 12. 响应遥测与底栏边框 (Response Telemetry & Editor Rail)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
@@ -158,7 +136,7 @@
 | `renderBottomRailBorder(options)` | 函数 | 在编辑器底栏渲染对齐的边框线与状态信息 |
 | `wrapEditorBottomRail(editor, renderRail)` | 函数 | 装饰编辑器底栏渲染逻辑，嵌入自定义状态条 |
 
-### 15. 通用辅助函数 (Utilities)
+### 13. 通用辅助函数 (Utilities)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |

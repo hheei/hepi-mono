@@ -1,34 +1,32 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
-import {
-	type ExtensionAPI,
-	type ExtensionContext,
-	getAgentDir,
-	type ToolDefinition,
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage, isTerminalTaskStatus, textToolResult } from "@hheei/pi-ext-core";
+import { errorMessage, textToolResult } from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
+import { isTerminalBashStatus } from "./bash-jobs.js";
+import { bashExecutionDirectory } from "./bash-ledger.js";
 import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
 import { bgBashPresentationRenderers } from "./bg-bash-presentation.js";
 import type { ToolsRuntimeState } from "./session-state.js";
-
-export const BG_BASH_TOOL_NAMES = ["bg_bash_spawn", "bg_bash_get", "bg_bash_stop"] as const;
-export const BG_BASH_TASK_TOOL_IDS: readonly string[] = ["bg_bash_get", "bg_bash_stop"];
-export const TASK_TOOL_IDS = BG_BASH_TASK_TOOL_IDS;
 
 export const BG_BASH_OPTIONAL_TOOL_KEY = "background bash";
 export const BG_BASH_OPTIONAL_TOOL_BULLET =
 	'background bash (query: "bg_bash"): Run long-running shell commands in background (bg_bash_spawn, bg_bash_get, bg_bash_stop).';
 
 const SPAWN_BASH_DESCRIPTION =
-	"Start a shell command in the background as a task and return JSON { id, path }, where path is the absolute log file path. The terminal result is delivered automatically via bg-bash-report when the command finishes. Related background task tools: bg_bash_get, bg_bash_stop.";
+	"Start a shell command in the background and return JSON { id, path }, where path is the absolute log file path. The terminal result is delivered automatically via bg-bash-report when the command finishes. Related background Bash tools: bg_bash_get, bg_bash_stop.";
 const SPAWN_BASH_PROMPT_GUIDELINES = [
 	"Use bg_bash_spawn for commands that run for a long time (tests, builds, dev servers, watchers).",
 	"bg_bash_spawn returns JSON { id, path }, where path is the absolute log file path. Terminal completion is delivered automatically via bg-bash-report and wakes a follow-up turn.",
 	"After calling bg_bash_spawn, yield the turn or continue other independent work. Do NOT poll or sleep merely to wait for completion.",
 	"Read or grep the returned path for full output; bg_bash_get progress.path provides the same path.",
+	"After reload/resume, only execution records are restored. An unknown outcome may have side effects; inspect evidence before deciding whether to start a new command. Commands are never automatically resumed or rerun.",
 ] as const;
 
 export const BgBashSpawnInput = Type.Object(
@@ -43,14 +41,13 @@ export const BgBashSpawnInput = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-export const SpawnBashInput = BgBashSpawnInput;
 export type BgBashSpawnParams = Static<typeof BgBashSpawnInput>;
 
 export const BgBashIdParams = Type.Object(
 	{
 		id: Type.String({
 			minLength: 1,
-			description: "Background Bash task ID returned by bg_bash_spawn.",
+			description: "Background Bash job ID returned by bg_bash_spawn.",
 		}),
 	},
 	{ additionalProperties: false },
@@ -69,7 +66,7 @@ export const BgBashGetParams = Type.Object(
 	{ additionalProperties: false },
 );
 
-function taskAnchor(context: ExtensionContext): string | undefined {
+function branchAnchor(context: ExtensionContext): string | undefined {
 	return context.sessionManager?.getLeafId?.() ?? undefined;
 }
 
@@ -78,6 +75,10 @@ const BG_BASH_NAMESPACE = {
 	aliases: ["bg_bash", "background_bash", "bg-bash", "background-bash"],
 	description: "Background Bash commands",
 };
+
+const MAX_PROGRESS_COMMAND_CHARS = 200;
+const MAX_PROGRESS_OUTPUT_CHARS = 10_000;
+const MAX_DIAGNOSTIC_CHARS = 2_000;
 
 export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState): void {
 	const spawnBashTool: ToolDefinition<typeof BgBashSpawnInput, unknown> = {
@@ -102,40 +103,37 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 			_onUpdate: AgentToolUpdateCallback<unknown> | undefined,
 			context: ExtensionContext,
 		) {
-			const validatedParams = params;
-			if (!Value.Check(BgBashSpawnInput, validatedParams))
+			// The schema rejects a caller-chosen id: the registry assigns it, so a log file is never reused.
+			if (!Value.Check(BgBashSpawnInput, params))
 				throw new Error("Invalid bg_bash_spawn parameters");
 			const settings = state?.getSettings();
-			const tasks = state?.getTasks();
 			const jobs = state?.getBashJobs();
-			if (settings === undefined || tasks === undefined || jobs === undefined) {
+			if (settings === undefined || jobs === undefined)
 				return {
 					...textToolResult("Background Bash unavailable outside active session", undefined),
 					isError: true,
 				};
-			}
-			const anchor = taskAnchor(context);
-			const sessionId = context.sessionManager?.getSessionId?.() ?? "session";
-			const sessionFile = context.sessionManager?.getSessionFile?.();
-			const baseDir = sessionFile ? dirname(sessionFile) : join(getAgentDir(), "sessions");
-			const logDir = join(baseDir, "tasks", sessionId);
+			const anchor = branchAnchor(context);
+			const logDir = bashExecutionDirectory(context);
 			try {
 				mkdirSync(logDir, { recursive: true });
-				const { task } = jobs.startAsTask(tasks, {
-					command: validatedParams.command,
+				const job = jobs.start({
+					command: params.command,
 					cwd: context.cwd,
 					shellPath: settings.shellPath,
-					resolveLogPath: (taskId: string) => join(logDir, `${taskId}.log`),
+					background: true,
+					resolveLogPath: (id: string) => join(logDir, `${id}.log`),
 					...(anchor === undefined ? {} : { anchor }),
-					...(validatedParams.timeout === undefined
-						? isSearchOnlyCommand(validatedParams.command)
+					...(params.timeout === undefined
+						? isSearchOnlyCommand(params.command)
 							? { timeoutMs: SEARCH_BASH_TIMEOUT_SECONDS * 1000 }
 							: {}
-						: { timeoutMs: Math.max(0, validatedParams.timeout * 1000) }),
+						: { timeoutMs: Math.max(0, params.timeout * 1000) }),
 				});
-				const id = task.id;
-				const path = join(logDir, `${id}.log`);
-				return textToolResult(JSON.stringify({ id, path }), { id, path });
+				// The log path is reported even when writing it failed, so the job can point at the
+				// intended file; the recorded diagnostic tells the user why it may be empty.
+				const path = job.logPath ?? join(logDir, `${job.id}.log`);
+				return textToolResult(JSON.stringify({ id: job.id, path }), { id: job.id, path });
 			} catch (error) {
 				const msg = `Unable to start background job: ${errorMessage(error)}`;
 				return { ...textToolResult(msg, undefined), isError: true };
@@ -144,13 +142,12 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 	};
 	pi.registerTool(spawnBashTool);
 
-	const getTask = (id: string) => {
-		const tasks = state.getTasks();
-		if (tasks === undefined) throw new Error("No active background Bash session");
-		const task = tasks.get(id);
-		if (task === undefined || task.type !== "bash")
-			throw new Error(`Background Bash task ${id} not found`);
-		return { tasks, task };
+	const jobOf = (id: string) => {
+		const jobs = state.getBashJobs();
+		if (jobs === undefined) throw new Error("No active background Bash session");
+		const job = jobs.get(id);
+		if (job === undefined) throw new Error(`Background Bash task ${id} not found`);
+		return job;
 	};
 
 	const get: ToolDefinition<typeof BgBashGetParams> = {
@@ -180,37 +177,28 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 					);
 			}
 			if (keys.length === 0) keys.push("status", "progress");
-			const { task } = getTask(params.id);
-			const job = state.getBashJobs()?.get(params.id);
-			const path = job?.logPath;
+			const job = jobOf(params.id);
 			const view: Record<string, unknown> = {};
-			if (keys.includes("status")) view.status = task.status;
+			if (keys.includes("status")) view.status = job.status;
 			if (keys.includes("progress")) {
 				view.progress = {
-					command: job?.command.slice(0, 200) ?? task.purpose,
-					...(job === undefined
+					command: job.command.slice(0, MAX_PROGRESS_COMMAND_CHARS),
+					cwd: job.cwd,
+					...(job.status === "unknown"
 						? {}
-						: {
-								cwd: job.cwd,
-								elapsedSeconds: Math.round(((job.endedAt ?? Date.now()) - job.startedAt) / 1000),
-							}),
-					...(path === undefined ? {} : { path }),
-					...(!isTerminalTaskStatus(task.status) && job?.status === "running"
+						: { elapsedSeconds: Math.round(((job.endedAt ?? Date.now()) - job.startedAt) / 1000) }),
+					...(job.logPath === undefined ? {} : { path: job.logPath }),
+					...(!isTerminalBashStatus(job.status)
 						? {
-								output: job.output.slice(-10_000),
-								truncated: job.truncated || job.output.length > 10_000,
+								output: job.output.slice(-MAX_PROGRESS_OUTPUT_CHARS),
+								truncated: job.truncated || job.output.length > MAX_PROGRESS_OUTPUT_CHARS,
 							}
 						: {}),
 				};
 			}
-			if (keys.includes("diagnostic")) {
-				const diagnostic = job?.timedOut
-					? "Command timed out"
-					: (job?.diagnostic ??
-						(job?.status === "failed" && job.exitCode !== null
-							? `Command exited with code ${job.exitCode}`
-							: undefined));
-				if (diagnostic !== undefined) view.diagnostic = diagnostic.slice(0, 2000);
+			if (keys.includes("diagnostic") || job.status === "unknown") {
+				const diagnostic = job.diagnostic ?? diagnosticFor(job);
+				if (diagnostic !== undefined) view.diagnostic = diagnostic.slice(0, MAX_DIAGNOSTIC_CHARS);
 			}
 			return textToolResult(JSON.stringify(view), view);
 		},
@@ -222,22 +210,41 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 		label: "Stop background Bash",
 		namespace: BG_BASH_NAMESPACE,
 		description:
-			"Stop one background Bash process tree by ID. Terminal result returns automatically. Related tools: bg_bash_spawn, bg_bash_get.",
+			"Stop one background Bash process tree by ID and wait for the process to exit. Terminal result returns automatically. Related tools: bg_bash_spawn, bg_bash_stop.",
 		parameters: BgBashIdParams,
 		exposure: "deferred",
 		defaultActive: false,
 		annotations: { destructiveHint: true },
-		async execute(_id, params) {
-			const { tasks } = getTask(params.id);
-			const outcomes = tasks.stop([params.id]);
-			if (outcomes.some((outcome) => outcome.status === "stop_failed"))
-				throw new Error("Unable to stop background Bash task.");
-			return textToolResult(
-				outcomes.some((outcome) => outcome.status === "already_terminal")
-					? "Task already finished."
-					: "Stop requested.",
-				undefined,
-			);
+		async execute(_id, params, signal) {
+			const jobs = state.getBashJobs();
+			if (jobs === undefined) throw new Error("No active background Bash session");
+			const current = jobs.get(params.id);
+			if (current === undefined) throw new Error(`Background Bash task ${params.id} not found`);
+			if (current.status === "unknown")
+				return {
+					...textToolResult(
+						`Job ${params.id} has an unknown outcome. No process was adopted or signalled. Inspect its log and side effects before deciding next action.`,
+						undefined,
+					),
+					isError: true,
+				};
+			if (isTerminalBashStatus(current.status))
+				return textToolResult(`Job ${params.id} already finished.`, undefined);
+			// Cancellation is a request; the confirmation reports the status the process actually reached.
+			jobs.stop(params.id);
+			// An interrupted call gives up waiting for the exit, but the registry keeps its stop request
+			// and its sweep, so the tree the caller left behind is still cleaned up.
+			const stopped = await jobs.waitFor(params.id, signal);
+			if (stopped === undefined) throw new Error(`Stop of ${params.id} was interrupted.`);
+			if (stopped.status === "unknown")
+				return {
+					...textToolResult(
+						`Unable to confirm stop of ${stopped.id}. ${stopped.diagnostic ?? "Process cleanup could not be confirmed; side effects may remain."}`,
+						undefined,
+					),
+					isError: true,
+				};
+			return textToolResult(`Stopped ${stopped.id}.`, undefined);
 		},
 	};
 
@@ -245,4 +252,14 @@ export function registerBgBashTools(pi: ExtensionAPI, state: ToolsRuntimeState):
 	pi.registerTool(stop);
 }
 
-export const registerTaskTools = registerBgBashTools;
+/** The reason a finished job did not succeed, when the process itself reported no error text. */
+function diagnosticFor(job: {
+	readonly timedOut: boolean;
+	readonly status: string;
+	readonly exitCode: number | null;
+}): string | undefined {
+	if (job.timedOut) return "Command timed out";
+	if (job.status === "failed" && job.exitCode !== null)
+		return `Command exited with code ${String(job.exitCode)}`;
+	return undefined;
+}

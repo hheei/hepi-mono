@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { ThinkingLevel } from "../src/domain.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import {
@@ -41,6 +41,16 @@ let agentDir = "";
 beforeAll(async () => {
 	agentDir = await mkdtemp(join(tmpdir(), "pi-subagents-agent-"));
 	process.env.PI_CODING_AGENT_DIR = agentDir;
+});
+
+// The allowlists asserted below are the ones the definitions declare; a host exporting
+// `PI_CODEMODE_MODE=only` would append `codemode` to every one of them before any file is read.
+beforeEach(() => {
+	vi.stubEnv("PI_CODEMODE_MODE", undefined);
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
 });
 
 afterAll(async () => {

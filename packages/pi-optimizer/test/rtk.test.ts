@@ -1,6 +1,7 @@
+import { watch } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type {
 	ExecResult,
 	ExtensionAPI,
@@ -58,40 +59,71 @@ function versionedExec(rewrite: ExecResult | (() => Promise<ExecResult>)) {
 	});
 }
 
-/** Lets pending work settle: the version probe and the cache file read both need event-loop turns. */
-async function flush(): Promise<void> {
-	for (let index = 0; index < 6; index += 1)
-		await new Promise((done) => {
-			setTimeout(done, 0);
-		});
-}
-
-/** Saving runs in the background, so wait for the file instead of assuming it is already there. */
 type StoredCache = { version: string; rewrites: Record<string, string | null> };
 
 /**
- * The cache is written incrementally, so a first successful parse can still be a partial file:
- * callers that care about the content pass a predicate and the wait keeps going until it holds.
+ * Waits for the background save to reach a cache the caller accepts. Saving runs in the background
+ * and rewrites the file atomically, so this watches the directory for the rename instead of polling,
+ * and only re-reads when the file actually changed. The deadline is a failure guard, not a wait.
  */
 async function waitForCache(
 	path: string,
 	isReady: (stored: StoredCache) => boolean = () => true,
 ): Promise<StoredCache> {
-	for (let attempt = 0; attempt < 500; attempt += 1) {
+	const read = async (): Promise<StoredCache | undefined> => {
 		try {
 			const parsed = JSON.parse(await readFile(path, "utf8")) as { version?: unknown };
-			if (typeof parsed.version === "string") {
-				const stored = parsed as StoredCache;
-				if (isReady(stored)) return stored;
-			}
+			if (typeof parsed.version !== "string") return undefined;
+			const stored = parsed as StoredCache;
+			return isReady(stored) ? stored : undefined;
 		} catch {
-			// Not written yet.
+			return undefined;
 		}
-		await new Promise((done) => {
-			setTimeout(done, 10);
+	};
+	const immediate = await read();
+	if (immediate !== undefined) return immediate;
+	const name = basename(path);
+	return await new Promise<StoredCache>((resolve, reject) => {
+		const watcher = watch(dirname(path));
+		const deadline = setTimeout(() => {
+			watcher.close();
+			reject(new Error(`Cache was never written to ${path}`));
+		}, 5_000);
+		deadline.unref?.();
+		const settle = (stored: StoredCache | undefined): void => {
+			if (stored === undefined) return;
+			clearTimeout(deadline);
+			watcher.close();
+			resolve(stored);
+		};
+		watcher.on("change", (_event, changed) => {
+			if (changed !== null && String(changed) !== name) return;
+			void read().then(settle);
 		});
-	}
-	throw new Error(`Cache was never written to ${path}`);
+		watcher.on("error", (error) => {
+			clearTimeout(deadline);
+			watcher.close();
+			reject(error);
+		});
+		// The save may land between the first read and the watch, so close that window once.
+		void read().then(settle);
+	});
+}
+
+/**
+ * Reports each rewrite query as it reaches `exec`, so a test can act on the in-flight query instead
+ * of waiting a guessed number of event-loop turns. Register with `next()` before starting the
+ * rewrite, and `signal()` from the fake exec when the query actually begins.
+ */
+function queryGate(): { next: () => Promise<void>; signal: () => void } {
+	const waiters: (() => void)[] = [];
+	return {
+		next: () =>
+			new Promise<void>((resolve) => {
+				waiters.push(resolve);
+			}),
+		signal: () => waiters.shift()?.(),
+	};
 }
 
 function context(signal?: AbortSignal): ExtensionContext {
@@ -260,24 +292,28 @@ test("uses safe overlays after no-match but never overlays complex shell syntax"
 test("reset aborts queries while reset and caller cancellation discard late results", async () => {
 	let resolve: ((value: ExecResult) => void) | undefined;
 	const signals: AbortSignal[] = [];
+	const queries = queryGate();
 	const exec: ExtensionAPI["exec"] = async (_command, args, options) => {
 		if (options?.signal) signals.push(options.signal);
 		if (args[0] === "--version") return VERSION_OUTPUT;
+		queries.signal();
 		return new Promise<ExecResult>((done) => {
 			resolve = done;
 		});
 	};
 	const { runtime, info } = harness(exec);
 	const resetEvent = bash("git status");
+	const resetQuery = queries.next();
 	const pending = runtime.rewrite(resetEvent, context(), enabled);
-	await flush();
+	await resetQuery;
 	runtime.reset();
 	expect(signals.at(-1)?.aborted).toBe(true);
 	resolve?.(result(0, "rtk git status"));
 	await pending;
+	const cancelledQuery = queries.next();
 	const controller = new AbortController();
 	const cancelled = runtime.rewrite(bash("git diff"), context(controller.signal), enabled);
-	await flush();
+	await cancelledQuery;
 	controller.abort();
 	expect(signals.at(-1)?.aborted).toBe(true);
 	resolve?.(result(0, "rtk git diff"));
@@ -314,8 +350,9 @@ test("a different reported rtk version discards the stored decisions", async () 
 	const firstExec = versionedExec(result(3, "rtk git status"));
 	const first = harness(firstExec);
 	await first.runtime.rewrite(bash("git status"), context(), enabled);
+	// Wait for the persisted decisions, so the second session really reads a stored version.
+	await waitForCache(first.cachePath);
 	first.runtime.reset();
-	await flush();
 
 	const secondExec = vi.fn(
 		async (_command: string, args: string[]): Promise<ExecResult> =>
@@ -341,8 +378,7 @@ test("an unknown rtk version keeps rewrites in memory and writes nothing", async
 	expect(rewriteCalls(exec)).toBe(1);
 	expect(second.input.command).toBe("rtk git status");
 	runtime.reset();
-	await flush();
-	// An unknown version persists nothing, so the cache file must be absent after the reset.
+	// An unknown version queues no save at all, so the cache file must never appear.
 	await expect(readFile(cachePath, "utf8")).rejects.toThrow();
 });
 

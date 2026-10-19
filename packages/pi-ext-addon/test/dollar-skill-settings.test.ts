@@ -38,14 +38,14 @@ describe("dollar skill settings", () => {
 		});
 	});
 
-	test("reads legacy pi-dollar-skill section if modern dollar-skill section is absent", async () => {
+	test("ignores the retired pi-dollar-skill section", async () => {
 		const cwd = await mkdtemp(join(tmpdir(), "pi-dollar-skill-legacy-"));
 		const settingsPath = join(cwd, "ext_settings.json");
 		await writeFile(
 			settingsPath,
 			JSON.stringify({ "pi-dollar-skill": { enabled: true, maxSuggestions: 15 } }),
 		);
-		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: true, maxSuggestions: 15 });
+		expect(await loadDollarSkillConfig(cwd)).toEqual({ enabled: false, maxSuggestions: 50 });
 	});
 
 	test("uses unique temporary files for concurrent saves", async () => {

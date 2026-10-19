@@ -271,7 +271,7 @@ describe("apply_patch render", () => {
 });
 
 describe("applyPatchFacts", () => {
-	test("rebuilds operation rows from legacy applied/rejected lists", () => {
+	test("does not rebuild operation rows from retired applied and rejected lists", () => {
 		const facts = applyPatchFacts({
 			status: "failed",
 			changedPaths: [],
@@ -293,7 +293,8 @@ describe("applyPatchFacts", () => {
 			unconfirmed: [],
 			notApplied: [],
 		});
-		expect(facts?.operations.map((operation) => operation.status)).toEqual(["applied", "rejected"]);
+		expect(facts?.operations).toEqual([]);
+		expect(facts?.rejected.map((rejection) => rejection.paths)).toEqual([["bad.ts"]]);
 	});
 
 	test("formats unconfirmed rows with the warning glyph", () => {

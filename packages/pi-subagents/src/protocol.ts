@@ -18,6 +18,7 @@ export const BRIDGE_OPERATIONS = [
 	"abort",
 	"get_state",
 	"get_entries",
+	"session_facts",
 	"shutdown",
 	"contact_parent",
 	"task_result",

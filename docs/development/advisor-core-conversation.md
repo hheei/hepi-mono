@@ -1,5 +1,7 @@
 # Advisor Core Conversation 实施计划
 
+状态：未实施，且目标 API 已删除。ext-core 不再提供 `conversation` handle。不要按本文迁移。
+
 ## 目标
 
 将 Advisor 的 child execution 从 feature-owned `Agent` lifecycle 迁至 `@hheei/pi-ext-core` 的

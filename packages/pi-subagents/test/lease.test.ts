@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
 import { assembleChildPrompt } from "../src/launch-spec.js";
 import {
@@ -15,6 +15,7 @@ import type { ParentChannelReport } from "../src/manager.js";
 import { SubagentManager } from "../src/manager.js";
 import { holdProcessLock, processLockPath } from "../src/process-lock.js";
 import { createSubagentRegistry, SubagentRegistryError } from "../src/registry.js";
+import { until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
 const PARENT = "01J7-parent";
@@ -47,10 +48,13 @@ function launchConfig(subagentId: string, cwd: string): EffectiveLaunchConfig {
 function record(
 	subagentId: string,
 	cwd: string,
-	overrides: Partial<SubagentRecord> = {},
+	overrides: Partial<Omit<SubagentRecord, "runtime">> & {
+		readonly runtime?: SubagentRecord["runtime"] | undefined;
+	} = {},
 ): SubagentRecord {
 	const timestamp = new Date(0).toISOString();
-	return {
+	const { runtime, ...rest } = overrides;
+	const base = {
 		subagentId,
 		parentSessionId: PARENT,
 		revision: 1,
@@ -59,17 +63,21 @@ function record(
 		sessionId: `${subagentId}-session`,
 		cwd,
 		initialTask: "Do the work.",
-		intent: "active",
-		state: "running",
-		presentation: "panel",
-		persistence: "never_flushed",
+		intent: "active" as const,
+		state: "running" as const,
+		presentation: "panel" as const,
+		persistence: "never_flushed" as const,
 		launchConfig: launchConfig(subagentId, cwd),
-		runtime: {
+		...rest,
+	};
+	if ("runtime" in overrides && runtime === undefined) return base;
+	return {
+		...base,
+		runtime: runtime ?? {
 			runtimeIdentity: `rt-${subagentId}`,
 			endpoint: "/tmp/bridge.sock",
 			attachment: { kind: "panel", host: "herdr", id: `tab-${subagentId}` },
 		},
-		...overrides,
 	};
 }
 
@@ -234,7 +242,7 @@ test("a new host generation reopens panels that were still attached, and not sto
 			processes: { alive: () => false },
 		}).ready();
 		expect(ready.ok).toBe(true);
-		expect(hosts.opens.toSorted()).toEqual(["sa_idle", "sa_run"]);
+		expect([...hosts.opens].sort()).toEqual(["sa_idle", "sa_run"]);
 		expect((await registry.get("sa_run"))?.runtime?.attachment).toEqual({
 			kind: "panel",
 			host: "herdr",
@@ -385,7 +393,11 @@ test("a free process lock drops the runtime even when its panel tab is still pre
 		});
 		const heldReady = await lease.ready();
 		expect(heldReady).toMatchObject({ ok: true, rebound: ["sa_lock"] });
-		expect((await registry.get("sa_lock"))?.runtime?.attachment?.id).toBe("tab-sa_lock");
+		expect((await registry.get("sa_lock"))?.runtime?.attachment).toEqual({
+			kind: "panel",
+			host: "herdr",
+			id: "tab-sa_lock",
+		});
 		held.release();
 		const released = await lease.ready();
 		expect(released).toMatchObject({ ok: true, rebound: [], released: ["sa_lock"] });
@@ -398,58 +410,68 @@ test("a free process lock drops the runtime even when its panel tab is still pre
 });
 
 test("a runtime released while this process was away is blocked and reported once", async () => {
-	await withTempDir("pi-subagents-lease-", async (directoryPath) => {
-		const path = join(directoryPath, "registry.json");
-		const registry = store(path);
-		const cwd = join(directoryPath, "work");
-		await registry.create(record("sa_away", cwd));
-		const lockPath = processLockPath(path, PARENT, "sa_away");
-		if (lockPath === undefined) throw new Error("lock path");
-		holdProcessLock(lockPath).release();
-		const reports: ParentChannelReport[] = [];
-		const manager = new SubagentManager({
-			parentSessionId: PARENT,
-			registry,
-			bridge: {
-				isConnected: () => false,
-				disconnect() {},
-				request: async () => undefined,
-				onEvent: () => () => {},
-				onConnectionChange: () => () => {},
-			},
-			resolve: async () => {
-				throw new Error("unused");
-			},
-			bootstrap: async () => {
-				throw new Error("unused");
-			},
-			launch: async () => {
-				throw new Error("unused");
-			},
-			connect: async () => false,
-			directory: directory({
-				known: true,
-				generation: "gen-1",
-				present: new Set(["tab-sa_away"]),
-			}),
-			channel: {
-				async deliver(report) {
-					reports.push(report);
+	useFakeClock();
+	try {
+		await withTempDir("pi-subagents-lease-", async (directoryPath) => {
+			const path = join(directoryPath, "registry.json");
+			const registry = store(path);
+			const cwd = join(directoryPath, "work");
+			await registry.create(record("sa_away", cwd));
+			const lockPath = processLockPath(path, PARENT, "sa_away");
+			if (lockPath === undefined) throw new Error("lock path");
+			holdProcessLock(lockPath).release();
+			const reports: ParentChannelReport[] = [];
+			let markDelivered: () => void = () => {};
+			const delivered = new Promise<void>((resolve) => {
+				markDelivered = resolve;
+			});
+			const manager = new SubagentManager({
+				parentSessionId: PARENT,
+				registry,
+				bridge: {
+					isConnected: () => false,
+					disconnect() {},
+					request: async () => undefined,
+					onEvent: () => () => {},
+					onConnectionChange: () => () => {},
 				},
-			},
-		});
-		const ready = await manager.reconcile();
-		expect(ready).toMatchObject({ ok: true, released: ["sa_away"], rebound: [] });
-		expect((await registry.get("sa_away"))?.runtime).toBeUndefined();
-		expect(await registry.get("sa_away")).toMatchObject({
-			state: "blocked",
-			interrupted: expect.stringContaining("a send resumes it"),
-		});
-		await vi.waitFor(() => {
+				resolve: async () => {
+					throw new Error("unused");
+				},
+				bootstrap: async () => {
+					throw new Error("unused");
+				},
+				launch: async () => {
+					throw new Error("unused");
+				},
+				connect: async () => false,
+				directory: directory({
+					known: true,
+					generation: "gen-1",
+					present: new Set(["tab-sa_away"]),
+				}),
+				channel: {
+					async deliver(report) {
+						reports.push(report);
+						markDelivered();
+					},
+				},
+			});
+			const ready = await manager.reconcile();
+			expect(ready).toMatchObject({ ok: true, released: ["sa_away"], rebound: [] });
+			expect((await registry.get("sa_away"))?.runtime).toBeUndefined();
+			expect(await registry.get("sa_away")).toMatchObject({
+				state: "blocked",
+				interrupted: expect.stringContaining("a send resumes it"),
+			});
+			// The report batches on the manager's own clock; the delivery itself is the event.
+			await until(delivered);
 			expect(reports.map((report) => report.reason)).toEqual(["blocked"]);
+			expect(reports).toHaveLength(1);
 		});
-		expect(reports).toHaveLength(1);
-	});
+	} finally {
+		useRealClock();
+	}
 });
 
 test("runtime edges are the only way a runtime is written or removed", async () => {

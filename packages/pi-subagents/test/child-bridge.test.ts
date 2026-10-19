@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import {
 	childSessionTitle,
 	registerChildBridge,
@@ -13,6 +13,7 @@ import {
 import type { ChildIdentity } from "../src/domain.js";
 import { CHILD_AGENT_ENV_KEY, CHILD_SESSION_ENV_KEY, CHILD_TITLE_ENV_KEY } from "../src/domain.js";
 import { createMailboxTransport } from "../src/mailbox.js";
+import { advanceFakeTime, until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
 
 describe("child bridge session policy", () => {
 	test("reload and same-session resume stay bound", () => {
@@ -269,80 +270,86 @@ describe("child session title", () => {
 });
 describe("child bridge session switch", () => {
 	test("stops dialing the parent after its session is replaced", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "pi-subagents-child-bridge-"));
-		const endpoint = join(dir, "state.sqlite");
-		const server = createMailboxTransport({
-			filePath: endpoint,
-			parentSessionId: "parent-1",
-			handleRequest: async () => ({ ok: true }),
-			diagnose: () => {},
-		});
+		useFakeClock();
 		try {
-			const identity: ChildIdentity = {
-				parentSessionId: "parent-1",
-				subagentId: "agent-1",
-				runtimeIdentity: "runtime-1",
-				endpoint,
-				token: "token-1",
-			};
-			const handlers = new Map<string, Array<(event: unknown, context: unknown) => void>>();
-			const pi = new Proxy(
-				{},
-				{
-					get: (_target, property) => {
-						if (property === "on") {
-							return (type: string, handler: (event: unknown, context: unknown) => void) => {
-								const list = handlers.get(type) ?? [];
-								list.push(handler);
-								handlers.set(type, list);
-								return () => {};
-							};
-						}
-						if (property === "getAllTools") return () => [];
-						return () => {};
-					},
-				},
-			) as unknown as ExtensionAPI;
-			// A headless-shaped context keeps the identity widget out of this test; the session switch
-			// itself does not depend on how the child is presented.
-			const context = (sessionId: string): ExtensionContext =>
-				({
-					mode: "rpc",
-					isIdle: () => true,
-					hasPendingMessages: () => false,
-					abort: () => {},
-					shutdown: () => {},
-					sessionManager: {
-						getSessionId: () => sessionId,
-						getSessionFile: () => undefined,
-						getEntries: () => [],
-					},
-				}) as unknown as ExtensionContext;
-			registerChildBridge(pi, identity, { diagnose: () => {} });
-			const emit = (type: string, event: unknown, ctx: ExtensionContext): void => {
-				for (const handler of [...(handlers.get(type) ?? [])]) handler(event, ctx);
-			};
-
-			emit("session_start", { type: "session_start", reason: "startup" }, context("session-a"));
-			await vi.waitFor(() => {
-				expect(server.isConnected("agent-1")).toBe(true);
-			});
-
-			// The human resumed another session in this TUI, so this process left the delegated one.
-			emit("session_start", { type: "session_start", reason: "resume" }, context("session-b"));
-			await vi.waitFor(() => {
-				expect(server.isConnected("agent-1")).toBe(false);
-			});
-			// The bridge must stay closed: reconnecting would let a parent adopt the session the human
-			// is now using.
-			await new Promise((resolve) => setTimeout(resolve, 700));
-			expect(server.isConnected("agent-1")).toBe(false);
+			await runSessionSwitch();
 		} finally {
-			server.close();
-			await rm(dir, { recursive: true, force: true });
+			useRealClock();
 		}
 	});
 });
+
+async function runSessionSwitch(): Promise<void> {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-child-bridge-"));
+	const endpoint = join(dir, "state.sqlite");
+	const server = createMailboxTransport({
+		filePath: endpoint,
+		parentSessionId: "parent-1",
+		handleRequest: async () => ({ ok: true }),
+		diagnose: () => {},
+	});
+	try {
+		const identity: ChildIdentity = {
+			parentSessionId: "parent-1",
+			subagentId: "agent-1",
+			runtimeIdentity: "runtime-1",
+			endpoint,
+			token: "token-1",
+		};
+		const handlers = new Map<string, Array<(event: unknown, context: unknown) => void>>();
+		const pi = new Proxy(
+			{},
+			{
+				get: (_target, property) => {
+					if (property === "on") {
+						return (type: string, handler: (event: unknown, context: unknown) => void) => {
+							const list = handlers.get(type) ?? [];
+							list.push(handler);
+							handlers.set(type, list);
+							return () => {};
+						};
+					}
+					if (property === "getAllTools") return () => [];
+					return () => {};
+				},
+			},
+		) as unknown as ExtensionAPI;
+		// A headless-shaped context keeps the identity widget out of this test; the session switch
+		// itself does not depend on how the child is presented.
+		const context = (sessionId: string): ExtensionContext =>
+			({
+				mode: "rpc",
+				isIdle: () => true,
+				hasPendingMessages: () => false,
+				abort: () => {},
+				shutdown: () => {},
+				sessionManager: {
+					getSessionId: () => sessionId,
+					getSessionFile: () => undefined,
+					getEntries: () => [],
+				},
+			}) as unknown as ExtensionContext;
+		registerChildBridge(pi, identity, { diagnose: () => {} });
+		const emit = (type: string, event: unknown, ctx: ExtensionContext): void => {
+			for (const handler of [...(handlers.get(type) ?? [])]) handler(event, ctx);
+		};
+
+		emit("session_start", { type: "session_start", reason: "startup" }, context("session-a"));
+		await until(server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
+
+		// The human resumed another session in this TUI, so this process left the delegated one.
+		emit("session_start", { type: "session_start", reason: "resume" }, context("session-b"));
+		// Leaving disposes the client, so the lock is gone at once; the parent polls it, not the clock.
+		expect(server.isConnected("agent-1")).toBe(false);
+		// The bridge must stay closed: reconnecting would let a parent adopt the session the human
+		// is now using. No timer may bring it back, however long the process keeps running.
+		await advanceFakeTime(5_000);
+		expect(server.isConnected("agent-1")).toBe(false);
+	} finally {
+		server.close();
+		await rm(dir, { recursive: true, force: true });
+	}
+}
 
 describe("child bridge mcp tool call gating", () => {
 	test("gates MCP tools based on environment exclusions and whitelists", () => {

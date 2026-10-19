@@ -6,7 +6,7 @@
 
 1. **Dollar Skill References (`dollar-skill`)**：
    * `$skill-name` 自動補全、輸入展開為 skill 檔案路徑與原子編輯器移動/刪除。
-   * 預設關閉（opt-in），配置項位於 `dollar-skill`（相容舊 `pi-dollar-skill`）。
+   * 預設關閉（opt-in），配置項位於 `dollar-skill`。
 2. **Auto Session Title (`auto-title`)**：
    * 在首個穩定對話輪次後自動生成簡潔會話標題，亦可手動透過 `/auto-title` 觸發。
    * 預設關閉（opt-in），配置項位於 `auto-title`。

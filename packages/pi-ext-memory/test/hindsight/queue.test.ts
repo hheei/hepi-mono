@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	HindsightRetainQueue,
 	MAX_PENDING_BATCHES,
@@ -11,15 +11,6 @@ function turn(text: string): HindsightTurn {
 	return { role: "user", text };
 }
 
-/** Waits until `predicate` holds, so tests observe queue state without fixed sleeps. */
-async function waitFor(predicate: () => boolean, label: string): Promise<void> {
-	for (let attempt = 0; attempt < 500; attempt += 1) {
-		if (predicate()) return;
-		await new Promise((resolve) => setTimeout(resolve, 1));
-	}
-	throw new Error(`timed out waiting for ${label}`);
-}
-
 function deferred(): { promise: Promise<void>; resolve: () => void } {
 	let resolvePromise: () => void = () => {};
 	const promise = new Promise<void>((resolve) => {
@@ -28,8 +19,15 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve: resolvePromise };
 }
 
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+	vi.clearAllTimers();
+	vi.useRealTimers();
+});
+
 describe("hindsight retain queue", () => {
 	it("retains batches in enqueue order, one at a time", async () => {
+		const blocked = deferred();
 		const started: string[] = [];
 		let concurrent = 0;
 		let maxConcurrent = 0;
@@ -38,7 +36,7 @@ describe("hindsight retain queue", () => {
 				concurrent += 1;
 				maxConcurrent = Math.max(maxConcurrent, concurrent);
 				started.push(turns.map((item) => item.text).join(","));
-				await new Promise((resolve) => setTimeout(resolve, 2));
+				await blocked.promise;
 				concurrent -= 1;
 				return { operationId: "op", documentId: "doc", turns: turns.length };
 			}),
@@ -47,7 +45,8 @@ describe("hindsight retain queue", () => {
 
 		expect(queue.enqueue("s1", [turn("first")])).toBe(true);
 		expect(queue.enqueue("s1", [turn("second")])).toBe(true);
-		await waitFor(() => started.length === 2, "both retains");
+		expect(started).toEqual(["first"]);
+		blocked.resolve();
 		await queue.drain();
 		expect(started).toEqual(["first", "second"]);
 		expect(maxConcurrent).toBe(1);
@@ -58,13 +57,15 @@ describe("hindsight retain queue", () => {
 		const queue = new HindsightRetainQueue(gateway);
 		const turns = [turn("same")];
 		expect(queue.enqueue("s1", turns)).toBe(true);
-		await waitFor(() => queue.status().retainedTurns === 1, "first batch to be retained");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(queue.status().retainedTurns).toBe(1);
 
 		// A retried agent_end handing back identical content is not new memory. The queue
 		// is still live here, so this is the duplicate guard and not a closed queue.
 		expect(queue.enqueue("s1", turns)).toBe(false);
 		expect(queue.enqueue("s1", [turn("different")])).toBe(true);
-		await waitFor(() => gateway.retainTurns.mock.calls.length === 2, "second distinct batch");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(gateway.retainTurns).toHaveBeenCalledTimes(2);
 		expect(queue.status().retainedTurns).toBe(2);
 	});
 
@@ -87,15 +88,14 @@ describe("hindsight retain queue", () => {
 		});
 		const queue = new HindsightRetainQueue(gateway);
 		queue.enqueue("s1", [turn("first")]);
-		await waitFor(
-			() => queue.status().lastError === "connection refused",
-			"failure to be recorded",
-		);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(queue.status().lastError).toBe("connection refused");
 		expect(queue.status().retainedTurns).toBe(0);
 
 		// The queue stays usable: the next batch still goes out and clears the error.
 		queue.enqueue("s1", [turn("second")]);
-		await waitFor(() => queue.status().retainedTurns === 1, "second batch to be retained");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(queue.status().retainedTurns).toBe(1);
 		expect(gateway.retainTurns).toHaveBeenCalledTimes(2);
 		expect(queue.status().lastError).toBeUndefined();
 		await queue.drain();
@@ -155,8 +155,12 @@ describe("hindsight retain queue", () => {
 		});
 		const queue = new HindsightRetainQueue(gateway);
 		queue.enqueue("s1", [turn("hangs")]);
-		await waitFor(() => queue.status().inFlight, "retain to start");
-		expect(await queue.drain(5)).toBe(false);
+		expect(queue.status().inFlight).toBe(true);
+		const drained = queue.drain(5);
+		await vi.advanceTimersByTimeAsync(4);
+		expect(observed.aborted).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(await drained).toBe(false);
 		expect(observed.aborted).toBe(true);
 		// Once closed, later turns are ignored rather than revived.
 		expect(queue.enqueue("s1", [turn("after teardown")])).toBe(false);

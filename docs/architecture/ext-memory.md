@@ -8,7 +8,7 @@
 
 ## 空闲压缩契约
 
-`idleCompactionTtl` 到期后只显示提示并记录 `om:idle-notice`；下一次发送消息时在 `before_agent_start` 中等待压缩完成，再请求模型。空闲提示和压缩均不设 token 门槛，移除 `idleCompactionMinTokens` 配置，旧配置字段按未知字段忽略。
+`idleCompactionTtl` 到期后只显示提示并记录 `om:idle-notice`。下一次用户消息在 `input` 里等待压缩完成，再进入 `before_agent_start` 和模型请求。此时 run 还没标成 active，`ctx.compact()` 不会和 host 的 `abort()` / `waitForIdle()` 互相等待。`before_agent_start` 只取消空闲提示计时器，不压缩。正在进行的 turn 上的 steer / follow-up 不是 idle，不压缩。空闲提示和压缩均不设 token 门槛，移除 `idleCompactionMinTokens` 配置，旧配置字段按未知字段忽略。
 
 空闲倒计时与压缩触发必须满足 Pi 原生的压缩下限（`canPiCompact`）：
 - 会话或最近一次压缩后的新增内容必须跨过 Pi 原生切分下限（基于 `findCutPoint` 能够切出非空待摘要消息），内容不足（`session too small`）时不开启空闲倒计时，也不在空闲到期后触发压缩；
@@ -182,6 +182,6 @@ Hindsight 工具由 Pi host 通过 session-scoped MCP 注册、发现与执行�
 
 memory 只负责 bank 解析、自动 recall、transcript 写回与本地诊断。使用单 bank endpoint；保留已有显式 bank，不自动迁移数据。共享 bank 只保证连接范围，不保证仓库隔离，SDK 自动写回仍可附带 repo tags。
 
-Pi host 拥有连接、取消、重连、权限管线与完整结果；ext-core 经 renderer resolver 提供共享 ToolTui。session 清理撤销 extension 注册，不撤销文件配置。子 agent 的 child bridge 阻止保留名称 mcp__hindsight__ 下的调用，包括嵌套与未来新增工具。
+Pi host 拥有连接、取消、重连、权限管线与完整结果；memory 自己注册 MCP 与本地 recall 的 renderer，ext-core 只提供纯 `ToolPresentation` 契约。session 清理撤销 extension 注册，不撤销文件配置。子 agent 的 child bridge 阻止保留名称 mcp__hindsight__ 下的调用，包括嵌套与未来新增工具。
 
 具体配置、清理、缓存和 UI 不变量见 [Hindsight 原生 MCP 集成](hindsight-mcp.md)。

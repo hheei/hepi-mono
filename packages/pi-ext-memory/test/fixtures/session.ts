@@ -18,7 +18,7 @@ export type TestObservation = {
 	content: string;
 	timestamp: string;
 	relevance: "low" | "medium" | "high" | "critical";
-	kind?: "user" | "decision" | "fact" | "progress";
+	kind: "user" | "decision" | "fact" | "progress";
 	sourceEntryIds: string[];
 	tokenCount: number;
 };
@@ -146,6 +146,7 @@ export function observation(id: string, overrides: Partial<TestObservation> = {}
 		content: `Observation ${id}`,
 		timestamp: DEFAULT_TIMESTAMP,
 		relevance: "medium",
+		kind: "fact",
 		sourceEntryIds: ["raw-1"],
 		tokenCount: 10,
 		...overrides,

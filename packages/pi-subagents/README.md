@@ -28,16 +28,16 @@ assigned by Pi; its first write may still be pending. `agent_get` exposes the sa
 sentence. Failures return only their reason. Operation results omit session IDs, presentation, and
 state snapshots; use `agent_get` for runtime inspection.
 
-Subagent execution tasks register with ext-core's `TaskRegistry` when pi-ext-tools provides it, alongside background Bash jobs. Child reports arrive automatically; do not poll status to detect completion. Bash uses separate `bg_bash_*` tools. Deferred subagent tools are loaded via `tool_search`; activation supplies `subagent_guidance`. Both get tools return the same `status`, `progress`, and optional `diagnostic` envelope. Diagnostics describe blockers, failed turns, or uncertain runtime state.
+SubagentManager and its SQLite ledger own child conversation state, runtime leases, recovery, and reports. No pi-ext-tools task service is required. Only delivery batching is shared through ext-core BackgroundDelivery. Child reports arrive automatically; do not poll status to detect completion. Bash uses separate `bg_bash_*` tools. Deferred subagent tools are loaded via `tool_search`; `before_agent_start` writes the `subagents` bullet into the structured prompt's `optional_tools` section. Both get tools return the same `status`, `progress`, and optional `diagnostic` envelope. Diagnostics describe blockers, failed turns, or uncertain runtime state.
 
 ## Child execution and reporting
 
-Subagents communicate with the parent over a dedicated Unix domain socket bridge:
+Subagents communicate with the parent through the `commands` table in `state.sqlite`, with each child holding a SQLite process lock that proves its writer is alive:
 
 - **Completion by Direct Output**: Subagents do **not** need to call any reporting tool upon successful completion. The subagent simply outputs its final answer as normal assistant text.
-- **Settlement Debounce**: When a subagent finishes a turn and remains idle for 5 seconds (to prevent false idles), the harness automatically captures the trailing assistant text and delivers it to the parent conversation dialog as a completed `subagent-report`.
+- **Settlement Batching**: When a subagent settles, the harness captures the trailing assistant text and delivers it to the parent conversation as a `subagent-report`. Reports flush within 500ms when no other child is working, and are batched for up to 10 seconds while another child is still running.
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
-- **Automatic Retry**: If a subagent encounters a transient error, the harness allows one automatic retry before marking the task failed or delivering a blocked notification.
+- **Automatic Retry**: Pi's own auto-retry is observed, not invented: reports are suppressed while a retry is in flight, and a retry that succeeds clears the previous error instead of reporting it.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
 ## Compact status and reports
 

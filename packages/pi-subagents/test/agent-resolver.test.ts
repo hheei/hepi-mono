@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { discoverAgents, resolveAgent } from "../src/agent-resolver.js";
 import {
 	builtinAgents,
@@ -16,6 +16,19 @@ const PARENT = {
 	model: { provider: "anthropic", id: "claude-sonnet-4" },
 	thinking: "medium" as ThinkingLevel,
 };
+
+/**
+ * `PI_CODEMODE_MODE=only` short-circuits detection before any file is read, so a host that runs the
+ * suite with it exported would make every allowlist below look like it gained `codemode`. These
+ * tests state the switch they depend on: off unless the test itself turns it on.
+ */
+beforeEach(() => {
+	vi.stubEnv("PI_CODEMODE_MODE", undefined);
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
 
 /** Only the exact provider/id pairs listed here resolve; everything else is unknown. */
 const MODEL_REGISTRY = {

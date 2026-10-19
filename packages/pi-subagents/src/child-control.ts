@@ -12,7 +12,7 @@ import type { ChildIdentity } from "./domain.js";
 import { attachChildMailbox } from "./mailbox.js";
 import { BridgeError, CHILD_INPUT_EVENT, type ChildInputSource } from "./protocol.js";
 import { FORWARDED_PI_EVENT_TYPES, shouldForwardPiEvent } from "./rpc-events.js";
-import { assistantUpdatePhase } from "./state.js";
+import { assistantUpdatePhase, transcriptFacts } from "./state.js";
 
 const CHILD_INPUT_SOURCES: readonly string[] = ["interactive", "extension", "rpc"];
 
@@ -264,6 +264,28 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		else pi.sendUserMessage(message);
 		return { accepted: true, path };
 	};
+	const currentEntries = (): readonly unknown[] => {
+		const sm = requireContext().sessionManager;
+		const branch = typeof sm.getBranch === "function" ? sm.getBranch() : undefined;
+		return Array.isArray(branch) && branch.length > 0 ? branch : sm.getEntries();
+	};
+	let cachedFacts:
+		| { readonly key: string; readonly facts: ReturnType<typeof transcriptFacts> }
+		| undefined;
+	const sessionFacts = (expected: string | undefined) => {
+		const sm = requireContext().sessionManager;
+		const leaf = typeof sm.getLeafId === "function" ? sm.getLeafId() : undefined;
+		// Append-only: a new message, compaction, or branch moves the leaf. The same leaf is the
+		// same transcript, so turn_end and agent_end do not each copy and walk it.
+		if (typeof leaf === "string" && leaf.length > 0) {
+			const key = `${leaf}:${expected ?? ""}`;
+			if (cachedFacts?.key === key) return cachedFacts.facts;
+			const facts = transcriptFacts(currentEntries(), expected);
+			cachedFacts = { key, facts };
+			return facts;
+		}
+		return transcriptFacts(currentEntries(), expected);
+	};
 	const handleRequest = async (request: {
 		readonly operation: string;
 		readonly payload: unknown;
@@ -286,10 +308,11 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 			case "get_state":
 				return childState(requireContext(), isCompacting);
 			case "get_entries": {
-				const sm = requireContext().sessionManager;
-				const branch = typeof sm.getBranch === "function" ? sm.getBranch() : undefined;
-				const entries = Array.isArray(branch) && branch.length > 0 ? branch : sm.getEntries();
-				return { entries };
+				return { entries: currentEntries() };
+			}
+			case "session_facts": {
+				const expected = isRecord(request.payload) ? request.payload.expectedInput : undefined;
+				return sessionFacts(typeof expected === "string" ? expected : undefined);
 			}
 			case "abort":
 				requireContext().abort();

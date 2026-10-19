@@ -18,8 +18,11 @@ This directory records high-level information for users and developers. Detailed
 ## Architecture
 
 - [Extension reference architecture](architecture/extension-reference.md): target package layout, public API, lifecycle, concurrency, and test boundaries.
+- [Background task contracts](architecture/background-tasks.md): `bg_bash_*` / `agent_*` ownership, deferred discovery, and BackgroundDelivery batching.
+- [Bash execution recovery](architecture/bash-execution-recovery.md): session ledger, read-only recovery to `unknown`, branch receipts, and fork isolation.
+- [Test runtime](architecture/testing.md): default vs integration entry points and deterministic vs bounded readiness coordination.
 - [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
-- [Subagent execution architecture](architecture/subagents.md): completion, task, conversation, delivery, and concurrency boundaries.
+- [Removed in-process subagent coordinator](architecture/subagents.md): why `startSubagent` is gone, and where one-shot completion and child sessions live now.
 - [Subagent extension architecture](architecture/pi-subagents.md): independent reconnectable subagent child sessions and host workspace targeting.
 - [Observational memory architecture](architecture/ext-memory.md): tiered observations, reflections, and instant compaction.
 - [Unified grep architecture](architecture/grep.md): canonical ripgrep match contract, compact rendering, and Output recovery.

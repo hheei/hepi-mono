@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	authenticatedModelSelectionOptions,
-	ensureSubagentCoordinator,
 	errorMessage,
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
@@ -132,7 +131,6 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			runtime.resources.add("dollar-skill", () => dollarSkill.dispose(sessionId));
 
 			// 2. Auto title (opt-in)
-			ensureSubagentCoordinator(runtime);
 			const modelOptions = authenticatedModelSelectionOptions(runtime.extension.modelRegistry);
 			let autoTitleSettingsState: SettingsState = {
 				[AUTO_TITLE_GROUP]: { [AUTO_TITLE_FIELD]: false, [AUTO_TITLE_MODEL_FIELD]: "" },
@@ -150,7 +148,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 				if (selected === undefined) return;
 				if (autoTitleCoordinator === undefined) {
 					autoTitleCoordinator = createAutoTitleCoordinator(
-						{ pi, ctx: runtime.extension, lifecycle: runtime },
+						{ pi, ctx: runtime.extension },
 						selected,
 					);
 				} else autoTitleCoordinator.setModel(selected);
@@ -215,7 +213,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
 					if (selected !== undefined) {
 						autoTitleCoordinator = createAutoTitleCoordinator(
-							{ pi, ctx: runtime.extension, lifecycle: runtime },
+							{ pi, ctx: runtime.extension },
 							selected,
 						);
 					}

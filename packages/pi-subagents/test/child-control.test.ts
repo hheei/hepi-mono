@@ -1,8 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	type ChildControl,
 	childInputSource,
@@ -13,6 +12,9 @@ import type { ChildIdentity } from "../src/domain.js";
 import { createMailboxTransport, type MailboxTransport } from "../src/mailbox.js";
 import { isChildInputPayload } from "../src/protocol.js";
 import { FORWARDED_PI_EVENT_TYPES } from "../src/rpc-events.js";
+import { openStateDb } from "../src/state-db.js";
+import { advanceFakeTime, turn, until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
+import { createTemporaryDirectory } from "./helpers/tmp-dir.js";
 
 type AnyHandler = (event: unknown, context: unknown) => unknown;
 
@@ -33,12 +35,22 @@ interface Parent {
 	readonly server: MailboxTransport;
 	readonly events: unknown[];
 	readonly requests: Array<{ operation: string; payload: unknown }>;
+	/** Resolves once the parent has received `count` bridge events, bound to their delivery. */
+	eventsArrived(count: number): Promise<void>;
 }
 
 const cleanup: Array<() => Promise<void>> = [];
 
+beforeEach(() => {
+	useFakeClock();
+});
+
 afterEach(async () => {
-	for (const step of cleanup.splice(0)) await step();
+	try {
+		for (const step of cleanup.splice(0).reverse()) await step();
+	} finally {
+		useRealClock();
+	}
 });
 
 function fakePi(): FakePi {
@@ -92,13 +104,14 @@ function fakeContext(
 }
 
 async function startParent(): Promise<Parent> {
-	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-child-control-"));
+	const dir = await createTemporaryDirectory("pi-subagents-child-control-");
 	cleanup.push(async () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 	const endpoint = join(dir, "state.sqlite");
 	const events: unknown[] = [];
 	const requests: Parent["requests"] = [];
+	const eventWaiters: Array<{ count: number; resolve: () => void }> = [];
 	const server = createMailboxTransport({
 		filePath: endpoint,
 		parentSessionId: "parent-1",
@@ -108,11 +121,41 @@ async function startParent(): Promise<Parent> {
 		},
 		diagnose: () => {},
 	});
-	server.onEvent((_childId, event) => events.push(event));
+	server.onEvent((_childId, event) => {
+		events.push(event);
+		for (const waiter of [...eventWaiters]) {
+			if (events.length < waiter.count) continue;
+			eventWaiters.splice(eventWaiters.indexOf(waiter), 1);
+			waiter.resolve();
+		}
+	});
 	cleanup.push(async () => {
 		server.close();
 	});
-	return { server, events, requests };
+	return {
+		server,
+		events,
+		requests,
+		eventsArrived(count) {
+			if (events.length >= count) return Promise.resolve();
+			return new Promise((resolve) => {
+				eventWaiters.push({ count, resolve });
+			});
+		},
+	};
+}
+
+/**
+ * A parent request, settled by advancing the fake clock: the mailbox answers it through its poll
+ * interval, so the exchange itself is the bound and there is nothing to wait for afterwards.
+ */
+function request(
+	parent: Parent,
+	childId: string,
+	operation: string,
+	payload?: unknown,
+): Promise<unknown> {
+	return until(parent.server.request(childId, operation, payload));
 }
 
 function identityFor(endpoint: string): ChildIdentity {
@@ -148,9 +191,7 @@ async function startChild(
 	});
 	pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
 	control.start(context.context);
-	await vi.waitFor(() => {
-		expect(parent.server.isConnected("agent-1")).toBe(true);
-	});
+	await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
 	return { pi, control, endpoint, context };
 }
 
@@ -169,11 +210,9 @@ describe("registerChildControl", () => {
 		});
 		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
 		control.start(context.context);
-		await vi.waitFor(() => {
-			expect(parent.server.isConnected("agent-1")).toBe(true);
-		});
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
 
-		await expect(parent.server.request("agent-1", "get_state")).resolves.toEqual({
+		await expect(request(parent, "agent-1", "get_state")).resolves.toEqual({
 			idle: false,
 			pendingMessages: true,
 			sessionId: "child-session",
@@ -186,14 +225,15 @@ describe("registerChildControl", () => {
 		const { pi } = await startChild(parent);
 
 		await expect(
-			parent.server.request("agent-1", "prompt", { message: "start the task" }),
+			request(parent, "agent-1", "prompt", { message: "start the task" }),
 		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
-		await expect(
-			parent.server.request("agent-1", "steer", { message: "go faster" }),
-		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
-		await expect(
-			parent.server.request("agent-1", "follow_up", { message: "continue" }),
-		).resolves.toEqual({ accepted: true, path: "/tmp/child-session.jsonl" });
+		await expect(request(parent, "agent-1", "steer", { message: "go faster" })).resolves.toEqual({
+			accepted: true,
+			path: "/tmp/child-session.jsonl",
+		});
+		await expect(request(parent, "agent-1", "follow_up", { message: "continue" })).resolves.toEqual(
+			{ accepted: true, path: "/tmp/child-session.jsonl" },
+		);
 
 		expect(pi.sendUserMessage.mock.calls).toEqual([
 			["start the task"],
@@ -211,7 +251,7 @@ describe("registerChildControl", () => {
 			fakeContext({ path: null }).context,
 		);
 		await expect(
-			parent.server.request("agent-1", "prompt", { message: "start the task" }),
+			request(parent, "agent-1", "prompt", { message: "start the task" }),
 		).rejects.toThrow("This child has no session file path");
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
@@ -220,9 +260,9 @@ describe("registerChildControl", () => {
 		const parent = await startParent();
 		await startChild(parent);
 
-		await expect(
-			parent.server.request("agent-1", "prompt", { message: "   " }),
-		).rejects.toMatchObject({ code: "invalid_payload" });
+		await expect(request(parent, "agent-1", "prompt", { message: "   " })).rejects.toMatchObject({
+			code: "invalid_payload",
+		});
 	});
 
 	test("refuses everything before a Pi session exists", async () => {
@@ -239,14 +279,12 @@ describe("registerChildControl", () => {
 		// The bridge can be up before Pi hands this process a session; a request must still fail
 		// visibly instead of being answered from a context that does not exist yet.
 		control.start();
-		await vi.waitFor(() => {
-			expect(parent.server.isConnected("agent-1")).toBe(true);
-		});
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
 
-		await expect(parent.server.request("agent-1", "get_state")).rejects.toMatchObject({
+		await expect(request(parent, "agent-1", "get_state")).rejects.toMatchObject({
 			code: "session_not_ready",
 		});
-		await expect(parent.server.request("agent-1", "abort")).rejects.toMatchObject({
+		await expect(request(parent, "agent-1", "abort")).rejects.toMatchObject({
 			code: "session_not_ready",
 		});
 	});
@@ -255,8 +293,8 @@ describe("registerChildControl", () => {
 		const parent = await startParent();
 		const { context } = await startChild(parent);
 
-		await expect(parent.server.request("agent-1", "abort")).resolves.toEqual({ accepted: true });
-		await expect(parent.server.request("agent-1", "shutdown")).resolves.toEqual({ accepted: true });
+		await expect(request(parent, "agent-1", "abort")).resolves.toEqual({ accepted: true });
+		await expect(request(parent, "agent-1", "shutdown")).resolves.toEqual({ accepted: true });
 		expect(context.abort).toHaveBeenCalledTimes(1);
 		expect(context.shutdown).toHaveBeenCalledTimes(1);
 	});
@@ -265,7 +303,7 @@ describe("registerChildControl", () => {
 		const parent = await startParent();
 		await startChild(parent);
 
-		await expect(parent.server.request("agent-1", "close_writer")).rejects.toMatchObject({
+		await expect(request(parent, "agent-1", "close_writer")).rejects.toMatchObject({
 			code: "unsupported_operation",
 		});
 	});
@@ -285,11 +323,9 @@ describe("registerChildControl", () => {
 		});
 		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
 		control.start(context.context);
-		await vi.waitFor(() => {
-			expect(parent.server.isConnected("agent-1")).toBe(true);
-		});
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
 
-		await expect(parent.server.request("agent-1", "get_entries")).resolves.toEqual({ entries });
+		await expect(request(parent, "agent-1", "get_entries")).resolves.toEqual({ entries });
 	});
 
 	test("forwards exactly the allowed Pi events", async () => {
@@ -299,9 +335,7 @@ describe("registerChildControl", () => {
 		for (const type of FORWARDED_PI_EVENT_TYPES) {
 			pi.emit(type, { type }, {});
 		}
-		await vi.waitFor(() => {
-			expect(parent.events).toHaveLength(FORWARDED_PI_EVENT_TYPES.length);
-		});
+		await until(parent.eventsArrived(FORWARDED_PI_EVENT_TYPES.length));
 		expect(parent.events).toEqual(FORWARDED_PI_EVENT_TYPES.map((type) => ({ type })));
 		expect(pi.registered()).toContain("input");
 		expect(pi.registered()).not.toContain("session_info_changed");
@@ -313,9 +347,7 @@ describe("registerChildControl", () => {
 
 		pi.emit("input", { type: "input", text: "hello", source: "interactive" }, {});
 		pi.emit("input", { type: "input", text: "?", source: "telepathy" }, {});
-		await vi.waitFor(() => {
-			expect(parent.events).toHaveLength(1);
-		});
+		await until(parent.eventsArrived(1));
 		expect(parent.events[0]).toEqual({
 			type: "child_input",
 			parentSessionId: "parent-1",
@@ -333,7 +365,8 @@ describe("registerChildControl", () => {
 
 		pi.emit("agent_start", { type: "agent_start" }, context.context);
 		pi.emit("input", { type: "input", text: "hello", source: "interactive" }, context.context);
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		// The child serves another session, so nothing may reach the parent however long it runs.
+		await advanceFakeTime(5_000);
 		expect(parent.events).toEqual([]);
 	});
 
@@ -343,27 +376,26 @@ describe("registerChildControl", () => {
 
 		control.dispose();
 		pi.emit("agent_start", { type: "agent_start" }, context.context);
-		await vi.waitFor(() => {
-			expect(parent.server.isConnected("agent-1")).toBe(false);
-		});
+		await turn();
+		expect(parent.server.isConnected("agent-1")).toBe(false);
 		expect(parent.events).toEqual([]);
 	});
 	test("refuses control requests once the process serves another session", async () => {
 		const parent = await startParent();
 		let active = true;
 		const started = await startChild(parent, { isActive: () => active });
-		await expect(parent.server.request("agent-1", "get_state")).resolves.toMatchObject({
+		await expect(request(parent, "agent-1", "get_state")).resolves.toMatchObject({
 			sessionId: "child-session",
 		});
 
 		// The human switched this TUI to a session the parent never launched, so the process is no
 		// longer this child's runtime: driving it would act on that other session.
 		active = false;
-		await expect(parent.server.request("agent-1", "get_state")).rejects.toMatchObject({
+		await expect(request(parent, "agent-1", "get_state")).rejects.toMatchObject({
 			code: "inactive_session",
 		});
 		await expect(
-			parent.server.request("agent-1", "prompt", { message: "keep going" }),
+			request(parent, "agent-1", "prompt", { message: "keep going" }),
 		).rejects.toMatchObject({ code: "inactive_session" });
 		expect(started.pi.sendUserMessage).not.toHaveBeenCalled();
 	});
@@ -374,7 +406,7 @@ describe("registerChildControl", () => {
 		// The bridge stays up while Pi switches sessions, but there is nowhere for a message to land.
 		started.pi.emit("session_shutdown", { type: "session_shutdown", reason: "new" }, undefined);
 		await expect(
-			parent.server.request("agent-1", "prompt", { message: "start now" }),
+			request(parent, "agent-1", "prompt", { message: "start now" }),
 		).rejects.toMatchObject({ code: "session_not_ready" });
 		expect(started.pi.sendUserMessage).not.toHaveBeenCalled();
 	});
@@ -464,9 +496,7 @@ describe("registerChildControl", () => {
 			{},
 		);
 
-		await vi.waitFor(() => {
-			expect(parent.events).toHaveLength(2);
-		});
+		await until(parent.eventsArrived(2));
 		expect(
 			(parent.events[0] as { assistantMessageEvent: { type: string } }).assistantMessageEvent.type,
 		).toBe("thinking_delta");
@@ -545,20 +575,17 @@ describe("registerChildControl", () => {
 		};
 
 		pi.emit("message_update", thinkingDelta, {});
-		await vi.waitFor(() => {
-			expect(parent.events).toHaveLength(1);
-		});
+		await until(parent.eventsArrived(1));
 
 		parent.server.disconnect("agent-1");
 		pi.emit("input", { type: "input", text: "still here", source: "interactive" }, {});
-		await vi.waitFor(() => {
-			expect(parent.events).toContainEqual({
-				type: "child_input",
-				parentSessionId: "parent-1",
-				childId: "agent-1",
-				runtimeIdentity: "runtime-1",
-				source: "interactive",
-			});
+		await until(parent.eventsArrived(2));
+		expect(parent.events.at(-1)).toEqual({
+			type: "child_input",
+			parentSessionId: "parent-1",
+			childId: "agent-1",
+			runtimeIdentity: "runtime-1",
+			source: "interactive",
 		});
 		expect(parent.server.isConnected("agent-1")).toBe(true);
 	});
@@ -587,13 +614,114 @@ describe("registerChildControl", () => {
 		});
 		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
 		control.start(context.context);
-		await vi.waitFor(() => {
-			expect(parent.server.isConnected("agent-1")).toBe(true);
-		});
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
 
-		await expect(parent.server.request("agent-1", "get_entries")).resolves.toEqual({
+		await expect(request(parent, "agent-1", "get_entries")).resolves.toEqual({
 			entries: activeBranchEntries,
 		});
+	});
+
+	test("session_facts returns the projection and the mailbox drops the command", async () => {
+		const parent = await startParent();
+		const entries = [
+			{ type: "message", message: { role: "user", content: "keep going" } },
+			{
+				type: "message",
+				id: "a",
+				message: {
+					role: "assistant",
+					stopReason: "stop",
+					content: [{ type: "text", text: "done" }],
+					usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cost: { total: 0.25 } },
+				},
+			},
+		];
+		const pi = fakePi();
+		const context = fakeContext({ entries });
+		const control = registerChildControl(pi.api, {
+			endpoint: parent.server.endpoint,
+			identity: identityFor(parent.server.endpoint),
+			diagnose: () => {},
+		});
+		cleanup.push(async () => {
+			control.dispose();
+		});
+		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
+		control.start(context.context);
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
+
+		await expect(
+			request(parent, "agent-1", "session_facts", { expectedInput: "keep going" }),
+		).resolves.toMatchObject({
+			containsInput: true,
+			summary: "done",
+			usage: { inputTokens: 1, outputTokens: 2, turns: 1, costUsd: 0.25 },
+		});
+		pi.emit("turn_end", { type: "turn_end" }, {});
+		await until(parent.eventsArrived(1));
+		expect(parent.events).toContainEqual({ type: "turn_end" });
+		const db = openStateDb(parent.server.endpoint);
+		const row = db.prepare("SELECT count(*) AS n FROM commands").get() as { n: number };
+		expect(row.n).toBe(0);
+	});
+
+	test("session_facts reuses the transcript while the session leaf stays the same", async () => {
+		const parent = await startParent();
+		const entries = [
+			{
+				type: "message",
+				id: "a",
+				message: {
+					role: "assistant",
+					stopReason: "stop",
+					content: [{ type: "text", text: "done" }],
+					usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+				},
+			},
+		];
+		let reads = 0;
+		let leaf = "leaf-1";
+		const pi = fakePi();
+		const context = fakeContext({ entries });
+		const sessionManager = context.context.sessionManager as {
+			getEntries: () => unknown[];
+			getLeafId: () => string;
+		};
+		sessionManager.getLeafId = () => leaf;
+		sessionManager.getEntries = () => {
+			reads += 1;
+			return entries;
+		};
+		const control = registerChildControl(pi.api, {
+			endpoint: parent.server.endpoint,
+			identity: identityFor(parent.server.endpoint),
+			diagnose: () => {},
+		});
+		cleanup.push(async () => {
+			control.dispose();
+		});
+		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
+		control.start(context.context);
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
+
+		await request(parent, "agent-1", "session_facts");
+		await request(parent, "agent-1", "session_facts");
+		expect(reads).toBe(1);
+		leaf = "leaf-2";
+		entries.push({
+			type: "message",
+			id: "b",
+			message: {
+				role: "assistant",
+				stopReason: "stop",
+				content: [{ type: "text", text: "again" }],
+				usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+			},
+		});
+		await expect(request(parent, "agent-1", "session_facts")).resolves.toMatchObject({
+			summary: "again",
+		});
+		expect(reads).toBe(2);
 	});
 
 	test("queues prompts received while compacting and flushes them on compaction_end", async () => {
@@ -602,12 +730,12 @@ describe("registerChildControl", () => {
 
 		pi.emit("compaction_start", { type: "compaction_start", reason: "threshold" }, context.context);
 
-		const stateWhileCompacting = (await parent.server.request("agent-1", "get_state")) as {
+		const stateWhileCompacting = (await request(parent, "agent-1", "get_state")) as {
 			compacting?: boolean;
 		};
 		expect(stateWhileCompacting.compacting).toBe(true);
 
-		const sendResult = await parent.server.request("agent-1", "steer", {
+		const sendResult = await request(parent, "agent-1", "steer", {
 			message: "steer while compacting",
 		});
 		expect(sendResult).toEqual({
@@ -619,13 +747,13 @@ describe("registerChildControl", () => {
 
 		pi.emit("compaction_end", { type: "compaction_end", reason: "threshold" }, context.context);
 
-		await vi.waitFor(() => {
-			expect(pi.sendUserMessage).toHaveBeenCalledWith("steer while compacting", {
-				deliverAs: "steer",
-			});
+		// The flush is queued as a microtask after compaction ends; the next event-loop turn sees it.
+		await turn();
+		expect(pi.sendUserMessage).toHaveBeenCalledWith("steer while compacting", {
+			deliverAs: "steer",
 		});
 
-		const stateAfterCompacting = (await parent.server.request("agent-1", "get_state")) as {
+		const stateAfterCompacting = (await request(parent, "agent-1", "get_state")) as {
 			compacting?: boolean;
 		};
 		expect(stateAfterCompacting.compacting).toBeUndefined();

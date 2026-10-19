@@ -5,7 +5,7 @@ import {
 	isRecord,
 	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
-import { bashJobPurpose } from "./bg-bash-jobs.js";
+import { bashJobPurpose } from "./bash-jobs.js";
 
 /** Successful `bg_bash_spawn` details; the same id/path the model receives as JSON. */
 export interface BashSpawnDetails {

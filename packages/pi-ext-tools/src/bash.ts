@@ -21,13 +21,9 @@ import {
 
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
+import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
 import { BashOutputSink } from "./bash-output.js";
 import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
-import {
-	type BgBashJobRegistry,
-	type BgBashJobSnapshot,
-	defaultShellPath,
-} from "./bg-bash-jobs.js";
 import type { ToolsRuntimeState } from "./session-state.js";
 
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
@@ -260,7 +256,7 @@ async function runForeground(
 	shellPath: string,
 	timeoutSeconds: number | undefined,
 	tailBytes: number,
-	jobs?: BgBashJobRegistry | undefined,
+	jobs?: BashJobRegistry | undefined,
 ): Promise<BashToolResult> {
 	const startedAt = performance.now();
 	const effectiveTimeout = timeoutSeconds ?? resolveDefaultBashTimeout(command);
@@ -316,7 +312,7 @@ async function runForeground(
 	const onData = (data: Buffer): void => {
 		if (streaming) update(data);
 	};
-	let job: BgBashJobSnapshot;
+	let job: BashJobSnapshot;
 	try {
 		job = jobs.start({
 			command,
@@ -341,13 +337,17 @@ async function runForeground(
 
 	return new Promise<BashToolResult>((resolve) => {
 		let settled = false;
+		// The wait itself is cancelled with the call, so an aborted foreground command never
+		// leaves a waiter behind on a record only this call was reading.
+		const watcher = new AbortController();
 
 		const cleanup = (): void => {
 			streaming = false;
 			signal?.removeEventListener("abort", onAbort);
+			watcher.abort();
 		};
 
-		const finishForeground = (jobSnapshot: BgBashJobSnapshot): void => {
+		const finishForeground = (jobSnapshot: BashJobSnapshot): void => {
 			if (settled) return;
 			settled = true;
 			cleanup();
@@ -398,7 +398,7 @@ async function runForeground(
 		};
 
 		signal?.addEventListener("abort", onAbort, { once: true });
-		jobs.waitFor(job.id).then((finalSnapshot) => {
+		void jobs.waitFor(job.id, watcher.signal).then((finalSnapshot) => {
 			if (finalSnapshot) finishForeground(finalSnapshot);
 		});
 	});

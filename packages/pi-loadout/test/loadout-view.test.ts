@@ -1,7 +1,6 @@
 import { SettingsManager, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import { replayTui, viewFrame } from "../../pi-debug/src/tui-replay.js";
 import { LoadoutManager } from "../src/loadout-manager.js";
 import { LIST_HEADER_ROWS, LoadoutView, PANEL_ROWS, VISIBLE_ROWS } from "../src/loadout-view.js";
 import type { LoadoutItem, LoadoutScope } from "../src/types.js";
@@ -226,19 +225,15 @@ describe("LoadoutView", () => {
 		expect(view.selectedItem?.globalEnabled).toBe(false);
 	});
 
-	it("replays to a stable frame in both layouts", async () => {
+	it("renders a stable frame in both layouts", () => {
 		const { view } = createTestView([
 			item({ id: "a", name: "alpha" }),
 			item({ id: "b", name: "beta" }),
 		]);
 		for (const columns of [60, 100]) {
-			const replay = await replayTui({
-				columns,
-				rows: PANEL_ROWS,
-				create: () => ({ render: (renderWidth: number) => view.render(renderWidth) }),
-				actions: [],
-			});
-			expect(viewFrame(replay.last)).toHaveLength(PANEL_ROWS);
+			const frame = view.render(columns);
+			expect(frame).toHaveLength(PANEL_ROWS);
+			expect(view.render(columns)).toEqual(frame);
 		}
 	});
 });

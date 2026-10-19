@@ -1,9 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { createJsonSettingsStorage } from "@hheei/pi-ext-core";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	AUTO_TITLE_GROUP,
 	AUTO_TITLE_MODEL_FIELD,
@@ -19,6 +18,12 @@ import {
 const context = (cwd: string) => ({ sessionId: "s", cwd });
 const LONG_SESSION_CONTEXT = "x".repeat(501);
 const titleResponse = (title: string): string => JSON.stringify({ title });
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+	vi.clearAllTimers();
+	vi.useRealTimers();
+});
 
 describe("Pi Auto Title", () => {
 	test("parses exact provider/model and preserves global settings", async () => {
@@ -259,7 +264,7 @@ describe("Pi Auto Title", () => {
 		expect(created).toBe(1);
 		expect(appended).toBe(0);
 		releasePrompt?.();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		expect(appended).toBe(1);
 		coordinator.dispose();
 		const reloaded = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", () => {
@@ -324,7 +329,7 @@ describe("Pi Auto Title", () => {
 			},
 		);
 		coordinator.agentSettled();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 
 		expect(created).toBe(1);
 		expect(generatedPrompt).toContain(`Primary user request:\n${userText}`);
@@ -379,7 +384,7 @@ describe("Pi Auto Title", () => {
 		expect(statuses).toEqual([]);
 		idle = true;
 		coordinator.agentSettled();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		expect(applied).toBe("My Session");
 		expect(statuses.some((entry) => entry.text?.includes("generating title..."))).toBe(true);
 		expect(statuses.at(-1)).toEqual({ key: "auto-title", text: undefined });
@@ -418,14 +423,14 @@ describe("Pi Auto Title", () => {
 
 		const first = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
 		first.trigger();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		first.dispose();
 		expect(created).toBe(1);
 		expect(entries).toEqual([]);
 
 		const second = createAutoTitleCoordinator({ pi, ctx } as never, "provider/model", createAgent);
 		second.trigger();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		expect(created).toBe(2);
 		second.dispose();
 	});
@@ -462,11 +467,11 @@ describe("Pi Auto Title", () => {
 		});
 
 		coordinator.trigger();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		expect(created).toBe(1);
 		expect(result).toBeUndefined();
 		coordinator.agentSettled();
-		await sleep(0);
+		await vi.advanceTimersByTimeAsync(0);
 		expect(created).toBe(2);
 		expect(result).toBe("Retry title");
 		coordinator.dispose();
@@ -520,16 +525,7 @@ describe("Pi Auto Title", () => {
 					getApiKeyAndHeaders: async () => ({ ok: true }),
 				},
 			},
-			lifecycle: {
-				extension: {
-					modelRegistry: {
-						getApiKeyAndHeaders: async () => ({ ok: true }),
-					},
-				},
-				signal: new AbortController().signal,
-			},
 		};
-		// Mock startSubagent via core coordinator or check adapter run
 		const adapter = createCoreAutoTitleAgent(fakeRuntime as never, "openai/o3-mini");
 		expect(adapter).toBeDefined();
 	});

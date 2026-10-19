@@ -12,8 +12,7 @@ Ownership:
   `reportsFocus` capability). Not identity, and never a second Pi argv builder: the parent builds the
   LaunchSpec, the host only runs it and reports what it observes.
 
-This package does **not** use ext-core `startSubagent`. That contract cancels children
-when the parent shuts down, which cannot provide surviving, reconnectable runtimes.
+ext-core no longer has an in-process subagent coordinator. This package owns child identity and lifecycle.
 
 Control is one sqlite file (`state.sqlite`): child rows are the ledger, command rows are the mailbox.
 Parent and child both open it. A dropped poll is not a dead child. Each child holds an exclusive lock
@@ -36,7 +35,7 @@ Native `/resume` of the same session outside the managed path is not intercepted
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
 已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。
-新 runtime 的 bridge 启动窗口为 20 秒，旧 runtime 的恢复窗口仍为 5 秒；启动包含宿主命令和清理，
+新 runtime 的启动窗口为 20 秒，旧 runtime 的重连识别窗口为 5 秒；启动包含宿主命令和清理，
 manager 的默认启动 deadline 为 60 秒。
 自动汇报读取 transcript 后必须重新核对工作版本、入站活动和当前状态；过期汇报不能覆盖新 turn 或触发回收。
 宿主确认进程退出不能说明是人工关闭，诊断不得将退出原因归到用户。
@@ -47,7 +46,7 @@ manager 的默认启动 deadline 为 60 秒。
 
 移除父会话的多行 Widget、elapsed 刷新和终态保留计时器。状态投影从 manager 读取，过期异步读取不能覆盖新快照；session 切换、reload 或 shutdown 移除状态并取消订阅。子会话自己的身份展示不受影响，完整管理仍通过 `/subagents`。
 
-已确认的报告由原有 ParentChannel 交付后追加一个 `subagent-info` 原生 custom entry：折叠时只显示 glyph、编号、agent 名称和 done/error/blocked 状态，展开时显示完整报告。entry 支持 resume 和 Headless `entry_appended`，不进入模型上下文。对应的模型消息 `subagent-report` 使用 `display: false`，避免可见报告重复；原有后台完成门控、错误等待、自动重试取消和去重继续由 manager 与 ext-core BackgroundDelivery 拥有。加载时不重新生成历史终态 entry。交互渲染剥离终端控制序列与 C0/C1 字符（保留换行、将 tab 转为空格），持久化和模型仍保留完整原文。info 写入失败时使用原生 error 提示说明原因；已经提交的模型报告不重发。
+已确认的报告由原有 ParentChannel 交付后追加一个 `subagent-info` 原生 custom entry：折叠时只显示 glyph、编号、agent 名称和 done/error/blocked 状态，展开时显示完整报告。entry 支持 resume 和 Headless `entry_appended`，不进入模型上下文。对应的模型消息 `subagent-report` 使用 `display: false`，避免可见报告重复；错误等待、自动重试取消和去重继续由 manager 拥有，跨 producer 的单次唤醒由 ext-core BackgroundDelivery 协调。加载时不重新生成历史终态 entry。交互渲染剥离终端控制序列与 C0/C1 字符（保留换行、将 tab 转为空格），持久化和模型仍保留完整原文。info 写入失败时使用原生 error 提示说明原因；已经提交的模型报告不重发。
 
 ## 子代理工具说明与动态启用
 
@@ -55,17 +54,17 @@ manager 的默认启动 deadline 为 60 秒。
 
 `agent_get({ id, keys? })` 默认返回 `status,progress`，按需选择 `diagnostic`；keys 是逗号分隔字符串，未知 key 报错。查询只提供当前可观察状态和进展，不复述初始任务参数或历史最终回答，不跨族查询 Bash。`agent_spawn` 不接受调用方 ID，已有 child 只能通过 `agent_send` 继续。工具族没有 list 或等待入口。
 
-未激活时在 `deferred_tools` 中介绍 subagents；激活后使用 `subagent_guidance`。动态声明与 provider 的 prompt 重建仍由 Pi host 负责。
+工具声明 `exposure: "deferred"` 与 `defaultActive: false`；`before_agent_start` 用 ext-core `setOptionalToolBullet` 往结构化 system prompt 的 `optional_tools` 段落写入 key 为 `subagents` 的条目，段落自带 `tool_search` preamble。动态声明与 provider 的 prompt 重建仍由 Pi host 负责。
 
-## Unified background tasks
+## 后台交付协调
 
-子 Agent 的生命周期由 `SubagentManager` 通过 `bindTaskRegistry` 统一接入 ext-core 的 `TaskRegistry`，与后台 Bash 共享内部活动登记和交付协调，模型工具按 ownership 分族（契约见 [`background-tasks.md`](background-tasks.md)）。
+`SubagentManager` 与 SQLite ledger 独占 child conversation、runtime lease、恢复和报告。子代理可独立安装，不等待 Bash 或通用任务服务，不向第二套任务状态机镜像状态。模型工具按 ownership 分族（契约见 [`background-tasks.md`](background-tasks.md)）。
 
-- 子 Agent 在 `agent_spawn` 时向 `TaskRegistry` 登记任务；任务完成、沉降并汇报后标记为 `completed`，发生不可恢复错误或主动报告 blocked 时标记为 `failed`。
-- 子 Agent 报告与后台 Bash 结果共用 ext-core 完成门控。parent 忙时以 `steer` 进入下一模型步骤；空闲时普通消息等所有后台工作结束再统一唤醒一次，只有最后一条消息设置 `triggerTurn: true`。
-- `blocked` 报告不等待完成门控，立即唤醒空闲 parent。
+- child conversation ID 可跨多轮执行复用，状态保留 `running`、`done`、`blocked`、`error` 等自身语义。
+- 子代理报告与后台 Bash 结果只共享 ext-core BackgroundDelivery。parent 忙时以 `steer` 进入下一模型步骤；空闲时同一 microtask 批次只由最后一个有效通道请求新回合，不等待其他 child 或 Bash。
+- `blocked` 报告仍立即请求交付，交付协调不管理紧急原因或报告内容。
 - 自动交付保留已确认的终态：失败为 `error`，可继续的中断或阻塞为 `blocked`，成功为 `done`；不能把失败统一改写为阻塞。重试成功的最终 assistant 消息清除旧错误，交付前在 child mutation 锁内读取最新状态。
-- `pi-subagents` 的 `error` 在最终确认后等待 10 秒自动报告，只发送本次错误，不拼接历史回答；作为紧急报告绕过其他后台任务的等待，并请求主 agent 新回合。等待期间用户继续输入、parent 发送新消息或自动重试会取消旧错误报告；自动重试期间不报告暂时错误，成功与中断自动报告保持 5 秒等待。
+- 自动报告按批次发出：没有其他 child 正在工作时 500ms 内发出，有 child 仍在工作时最多等 10 秒把同批报告合并。批次延迟对 success、blocked 与 error 相同，只发送本次结果，不拼接历史回答。等待期间用户继续输入、parent 发送新消息或自动重试会取消旧报告；自动重试期间不报告暂时错误。
 - `agent_send` 接受已有 child 的各种状态，包括 `error` 和已停止的 child。写者还在就把输入交给它；写者已经没了就用同一 session 再起 runtime，调用方不要另 spawn。显式发送会重新激活 stopped intent。只有本进程的进程句柄还活着时才拒绝再起 runtime，并要求先 `agent_stop` 这个 child。失败不保证上游错误会恢复。
 - 内置定义（`scout`/`worker`/`reviewer`）是最后发现层，不写入用户 home，也不会被自动派发。其中 `scout` 默认禁用（需用户显式配置模型），`worker` 与 `reviewer` 继承父模型。
 - `skills` 是白名单：`all`（缺省）/ `none` / 名单；名单条目可以是 skill 名字，按 parent 已加载的 skill 列表解析成绝对路径，未知名字只 warning 并丢弃。

@@ -115,6 +115,8 @@ async function runIdleCompaction(
 ): Promise<void> {
 	if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
 	if (runtime.compactInFlight) return;
+	// compact() aborts the active run and waits until that run is idle.
+	if (!ctx.isIdle()) return;
 
 	// Wait for any in-flight consolidation (observer/reflector/dropper) to finish writing ledger
 	if (runtime.consolidationInFlight && runtime.consolidationPromise) {
@@ -124,10 +126,10 @@ async function runIdleCompaction(
 			// Ignore consolidation errors; threshold revalidation below will decide
 		}
 		if (!isActiveSession(runtime, sessionGeneration, lifecycleSignal)) return;
+		if (!ctx.isIdle()) return;
 	}
 
 	try {
-		// The host marks the run active before before_agent_start, so isIdle() is already false here.
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
 		if (!latestGateEnabled(entries)) return;
@@ -431,9 +433,12 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		}
 	});
 
-	// When a turn starts, clear any pending idle notice timer.
-	// Compaction itself runs only on this new message turn, avoiding background mutation while idle.
-	pi.on("before_agent_start", async (_event, ctx) => {
+	// prompt() emits input before _startRun marks the run active. compact() can finish
+	// while the session is still idle, and this same prompt then sees the new branch.
+	// before_agent_start is already inside that run, so compact() would abort it and wait
+	// for it to become idle. Steer and follow-up input are not idle and do not compact.
+	pi.on("input", async (_event, ctx) => {
+		if (!ctx.isIdle()) return;
 		runtime.clearPendingIdleNoticeTimer();
 
 		if (runtime.config.passive === true) return;
@@ -483,10 +488,16 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		runtime.idleNoticeEmitted = false;
 	});
 
+	// Custom messages that start a turn skip input. Drop the notice timer, but do not
+	// compact: the run is already active.
+	pi.on("before_agent_start", () => {
+		runtime.clearPendingIdleNoticeTimer();
+	});
+
 	// Pi emits agent_settled only after retries, automatic compaction, and queued
 	// continuation have finished, so retry policy stays owned by Pi.
-	// Only token-threshold compaction runs here; idle compaction is strictly deferred
-	// to before_agent_start on the subsequent user/message turn.
+	// Only token-threshold compaction runs here. Idle compaction waits for the next
+	// user message's input event, while that message's run is still idle.
 	pi.on("agent_settled", async (_event, ctx) => {
 		const sessionGeneration = runtime.sessionGeneration;
 		const lifecycleSignal = runtime.lifecycleSignal;

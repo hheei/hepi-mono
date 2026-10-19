@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { errorMessage, isRecord, type TaskRegistry } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { attachRetainedChild, type ChildRuntime } from "./child-process.js";
 import type {
 	EffectiveLaunchConfig,
@@ -49,7 +49,13 @@ async function readSessionJsonlEntries(filePath: string): Promise<readonly unkno
 	return entries;
 }
 
-import { createStateProjector, type StateProjector } from "./state.js";
+import {
+	createStateProjector,
+	parseTranscriptFacts,
+	type StateProjector,
+	type TranscriptFacts,
+	transcriptFacts,
+} from "./state.js";
 
 /**
  * How long an idle child keeps its runtime. A background child holds a whole Pi process and its
@@ -80,7 +86,6 @@ export interface ParentChannelReport {
 
 export interface ParentChannel {
 	deliver(report: ParentChannelReport): Promise<void>;
-	dismiss?(childId: string): void;
 }
 
 /**
@@ -239,23 +244,6 @@ function withDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
 	});
 }
 
-function sessionContainsUserInput(entries: readonly unknown[], expected: string): boolean {
-	return entries.some((entry) => {
-		const value = isRecord(entry) ? entry : undefined;
-		const message = isRecord(value?.message) ? value.message : undefined;
-		if (message?.role !== "user") return false;
-		if (typeof message.content === "string") return message.content === expected;
-		if (!Array.isArray(message.content)) return false;
-		const text = message.content
-			.map((part) => {
-				const content = isRecord(part) ? part : undefined;
-				return content?.type === "text" && typeof content.text === "string" ? content.text : "";
-			})
-			.join("");
-		return text === expected;
-	});
-}
-
 /**
  * Extracts the trailing text of the most recent assistant message in session entries.
  * Used to automatically capture a subagent's final output without requiring a tool call.
@@ -313,18 +301,7 @@ export class SubagentManager {
 	>();
 	readonly #stopping = new Set<string>();
 	readonly #listeners = new Set<() => void>();
-	readonly #childEventListeners = new Set<(childId: string, event: unknown) => void>();
 	readonly #unsubscribe: Array<() => void> = [];
-	#taskRegistry: TaskRegistry | undefined;
-
-	public bindTaskRegistry(registry: TaskRegistry): () => void {
-		this.#taskRegistry = registry;
-		return () => {
-			if (this.#taskRegistry === registry) {
-				this.#taskRegistry = undefined;
-			}
-		};
-	}
 
 	public constructor(deps: ManagerDependencies) {
 		this.#deps = deps;
@@ -338,17 +315,6 @@ export class SubagentManager {
 				this.handleConnectionChange(childId, connected),
 			),
 		);
-	}
-
-	/**
-	 * Observes the raw bridge events of every child. A Task producer needs the child's
-	 * `task_result` and settle events without also owning the bridge connection.
-	 */
-	public onChildEvent(listener: (childId: string, event: unknown) => void): () => void {
-		this.#childEventListeners.add(listener);
-		return () => {
-			this.#childEventListeners.delete(listener);
-		};
 	}
 
 	/** Presentation-only: status and similar projections re-read list() after this. */
@@ -471,10 +437,14 @@ export class SubagentManager {
 		return undefined;
 	}
 
-	/** Counts an inbound bridge signal, whether or not its handling is queued behind another task. */
-	#bumpActivity(id: string): void {
+	/**
+	 * Counts an inbound signal before its handler is queued, so a decision already in flight can see
+	 * it. invalidateReport is only for a new turn: compaction, a late update, or the bridge dropping
+	 * are not the child starting over, and treating them as such dropped the reply.
+	 */
+	#bumpActivity(id: string, invalidateReport = true): void {
 		this.#activity.set(id, (this.#activity.get(id) ?? 0) + 1);
-		this.#clearAutoReport(id);
+		if (invalidateReport) this.#clearAutoReport(id);
 		this.#clearSettledPanelClose(id);
 	}
 
@@ -504,11 +474,38 @@ export class SubagentManager {
 
 	/**
 	 * The ledger stops naming a writer that is gone. A child that was running becomes blocked, once,
-	 * and the next send starts it again from the same session. Callers that still have a tab close it
-	 * themselves.
+	 * unless its session already ends in a completed reply: that reply is delivered instead. The next
+	 * send starts the same session again. Callers that still have a tab close it themselves.
 	 */
 	async #recordWriterGone(id: string): Promise<void> {
+		const current = await this.#deps.registry.get(id);
+		if (
+			current !== undefined &&
+			current.state === "running" &&
+			current.intent !== "stopped" &&
+			(await this.#finishedReply(id, current.unacknowledgedInput))
+		) {
+			const released = await this.#releaseRuntime(id, "finished");
+			if (released === undefined) return;
+			const next = await this.#update(id, (entry) => {
+				const { interrupted: _interrupted, ...rest } = entry;
+				return { ...rest, state: "done" };
+			});
+			this.#scheduleAutoReport(id, next);
+			return;
+		}
 		await this.#releaseRuntime(id, "drop");
+	}
+
+	/**
+	 * True when the session file ends on a completed assistant reply and any send still being
+	 * confirmed is already in that file. An unflushed prompt is not a finished turn.
+	 */
+	async #finishedReply(id: string, expectedInput: string | undefined): Promise<boolean> {
+		const entries = await this.#diskEntries(id);
+		if (entries === undefined || !persistedReplyFinished(entries)) return false;
+		if (expectedInput === undefined) return true;
+		return transcriptFacts(entries, expectedInput).containsInput;
 	}
 
 	/** Runtime leaves the ledger only through a lease edge. */
@@ -680,19 +677,33 @@ export class SubagentManager {
 		const activity = this.#activity.get(id) ?? 0;
 		const workVersion = this.#workVersions.get(id) ?? 0;
 
-		const entries = await this.#entries(id);
-		const text = entries !== undefined ? extractLastAssistantText(entries) : undefined;
+		const facts = await this.#facts(id);
+		const text = facts?.summary;
 		await this.#mutate(id, async () => {
 			const current = await this.#deps.registry.get(id);
+			const activityMoved = (this.#activity.get(id) ?? 0) !== activity;
+			const versionMoved = (this.#workVersions.get(id) ?? 0) !== workVersion;
 			if (
 				current === undefined ||
 				current.intent === "stopped" ||
 				current.state === "running" ||
 				this.#working.has(id) ||
-				(this.#activity.get(id) ?? 0) !== activity ||
-				(this.#workVersions.get(id) ?? 0) !== workVersion
-			)
+				activityMoved ||
+				versionMoved
+			) {
+				// Still settled: the signal was bookkeeping, not a new turn. Dropping the reply here left
+				// the parent silent until the process died and the ledger was still running.
+				if (
+					current !== undefined &&
+					current.intent !== "stopped" &&
+					current.state !== "running" &&
+					!this.#working.has(id) &&
+					(activityMoved || versionMoved)
+				) {
+					this.#scheduleAutoReport(id, current);
+				}
 				return;
+			}
 
 			const isError = current.state === "error" || record.state === "error";
 			const isBlocked =
@@ -715,13 +726,6 @@ export class SubagentManager {
 						state: "done",
 					};
 				});
-				if (this.#taskRegistry !== undefined) {
-					this.#taskRegistry.settle(id, {
-						status: "completed",
-						output: "",
-						truncated: false,
-					});
-				}
 				return;
 			}
 
@@ -754,7 +758,6 @@ export class SubagentManager {
 			}
 
 			const reason = isError ? "error" : isBlocked ? "blocked" : "success";
-			const taskStatus = failed ? "failed" : "completed";
 
 			const projector = this.#projectors.get(id);
 			const updatedRecord = !failed
@@ -776,14 +779,6 @@ export class SubagentManager {
 			}
 			this.#scheduleSettledPanelClose(id);
 
-			if (this.#taskRegistry !== undefined) {
-				this.#taskRegistry.settle(id, {
-					status: taskStatus,
-					output: message,
-					truncated: false,
-				});
-			}
-
 			let deliveryOk = true;
 			if (this.#deps.channel !== undefined) {
 				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
@@ -797,7 +792,7 @@ export class SubagentManager {
 		});
 	}
 
-	/** Reads a child's session entries; exposed for Task completion inspection. */
+	/** Reads a child's session entries; used by transcript inspection fallbacks. */
 	public async getEntries(id: string): Promise<readonly unknown[] | undefined> {
 		return this.#entries(id);
 	}
@@ -856,6 +851,40 @@ export class SubagentManager {
 		return { sessionPath: record.sessionPath, persistence: record.persistence };
 	}
 
+	/** The session file, when the bridge cannot answer. A missing file is not an empty transcript. */
+	async #diskEntries(id: string): Promise<readonly unknown[] | undefined> {
+		const record = await this.#deps.registry.get(id).catch(() => undefined);
+		if (record === undefined) return undefined;
+		const sessionPath =
+			record.sessionPath ??
+			(await findSessionFile(record.launchConfig.sessionDir, record.sessionId));
+		if (sessionPath === undefined) return undefined;
+		try {
+			const diskEntries = await readSessionJsonlEntries(sessionPath);
+			return diskEntries.length > 0 ? diskEntries : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Usage, the last assistant text, and whether one input landed. The child computes this
+	 * from the session it already has; the transcript is not copied into the mailbox.
+	 */
+	async #facts(id: string, expectedInput?: string): Promise<TranscriptFacts | undefined> {
+		if (this.#deps.bridge.isConnected(id)) {
+			const response = await this.#request(
+				id,
+				"session_facts",
+				expectedInput === undefined ? undefined : { expectedInput },
+			).catch(() => undefined);
+			const facts = parseTranscriptFacts(response);
+			if (facts !== undefined) return facts;
+		}
+		const entries = await this.#diskEntries(id);
+		return entries === undefined ? undefined : transcriptFacts(entries, expectedInput);
+	}
+
 	/** Reads a child's session entries over the bridge, falling back to disk when disconnected. */
 	async #entries(id: string): Promise<readonly unknown[] | undefined> {
 		if (this.#deps.bridge.isConnected(id)) {
@@ -864,21 +893,7 @@ export class SubagentManager {
 				return response.entries;
 			}
 		}
-		const record = await this.#deps.registry.get(id).catch(() => undefined);
-		if (record !== undefined) {
-			const sessionPath =
-				record.sessionPath ??
-				(await findSessionFile(record.launchConfig.sessionDir, record.sessionId));
-			if (sessionPath !== undefined) {
-				try {
-					const diskEntries = await readSessionJsonlEntries(sessionPath);
-					if (diskEntries.length > 0) return diskEntries;
-				} catch {
-					// return undefined below
-				}
-			}
-		}
-		return undefined;
+		return this.#diskEntries(id);
 	}
 
 	#request(id: string, operation: BridgeOperation, payload?: unknown): Promise<unknown> {
@@ -961,8 +976,8 @@ export class SubagentManager {
 		const projector = this.#projectors.get(id);
 		const record = await this.#deps.registry.get(id);
 		if (projector === undefined || record === undefined) return;
-		const entries = await this.#entries(id);
-		if (entries !== undefined) projector.rebuild(entries);
+		const facts = await this.#facts(id, record.unacknowledgedInput);
+		if (facts !== undefined) projector.applyTranscriptFacts(facts);
 		const state = await this.#request(id, "get_state");
 		if (
 			!isRecord(state) ||
@@ -985,9 +1000,7 @@ export class SubagentManager {
 		if (projector.snapshot().state !== "error") projector.syncState(idle ? "done" : "running");
 		const snapshot = projector.snapshot();
 		const confirmedInput =
-			entries !== undefined &&
-			record.unacknowledgedInput !== undefined &&
-			sessionContainsUserInput(entries, record.unacknowledgedInput)
+			facts?.containsInput && record.unacknowledgedInput !== undefined
 				? record.unacknowledgedInput
 				: undefined;
 		await this.#update(
@@ -1112,32 +1125,6 @@ export class SubagentManager {
 				const { latestSummary: _latestSummary, ...rest } = current;
 				return { ...rest, state: "running" };
 			});
-			if (this.#taskRegistry !== undefined) {
-				try {
-					this.#taskRegistry.create({
-						id: record.subagentId,
-						type: "agent",
-						purpose: `${input.agent}: ${input.task}`,
-						inlineResult: true,
-						begin: () => ({
-							stop: () => {
-								void this.stop(record.subagentId);
-							},
-							describe: () => ({
-								output: `Subagent ${record.subagentId} (${input.agent}) is running`,
-								truncated: false,
-							}),
-							consume: () => {
-								this.#deps.channel?.dismiss?.(record.subagentId);
-							},
-						}),
-					});
-				} catch (regError) {
-					diagnose(
-						`failed to register background task for subagent ${record.subagentId}: ${errorMessage(regError)}`,
-					);
-				}
-			}
 			return {
 				child: publicChild(
 					(await this.#deps.registry.get(record.subagentId)) ?? record,
@@ -1225,32 +1212,6 @@ export class SubagentManager {
 				try {
 					await withDeadline(this.#start(resumedRecord), this.#deps.deadlineMs ?? 60_000);
 					isResumed = true;
-					if (this.#taskRegistry !== undefined) {
-						try {
-							this.#taskRegistry.create({
-								id: resumedRecord.subagentId,
-								type: "agent",
-								purpose: `${resumedRecord.launchConfig.agent}: resumed task`,
-								inlineResult: true,
-								begin: () => ({
-									stop: () => {
-										void this.stop(resumedRecord.subagentId);
-									},
-									describe: () => ({
-										output: `Subagent ${resumedRecord.subagentId} (${resumedRecord.launchConfig.agent}) is running`,
-										truncated: false,
-									}),
-									consume: () => {
-										this.#deps.channel?.dismiss?.(resumedRecord.subagentId);
-									},
-								}),
-							});
-						} catch (regError) {
-							diagnose(
-								`failed to renew background task for subagent ${resumedRecord.subagentId}: ${errorMessage(regError)}`,
-							);
-						}
-					}
 				} catch (error) {
 					const reason = errorMessage(error);
 					// A launch that failed may still have started a process that owns the session, so the
@@ -1339,11 +1300,6 @@ export class SubagentManager {
 				this.#paths.get(record.subagentId),
 			),
 		);
-	}
-
-	/** Child startup and runs count until Pi settles, including post-agent_end continuation. */
-	public get activeCount(): number {
-		return this.#working.size;
 	}
 
 	public stop(id: string): Promise<OperationError | PublicSubagent> {
@@ -1439,13 +1395,6 @@ export class SubagentManager {
 				this.#activity.delete(id);
 				const finished = await this.#releaseRuntime(id, "finished");
 				if (finished !== undefined) stopped = finished;
-				if (this.#taskRegistry !== undefined) {
-					this.#taskRegistry.settle(id, {
-						status: "cancelled",
-						output: `Subagent ${id} was stopped`,
-						truncated: false,
-					});
-				}
 				return publicChild(stopped, false);
 			} catch (error) {
 				return failure(
@@ -1492,13 +1441,6 @@ export class SubagentManager {
 					state: "blocked",
 					interrupted: message,
 				}));
-				if (this.#taskRegistry !== undefined) {
-					this.#taskRegistry.settle(id, {
-						status: "failed",
-						output: message,
-						truncated: false,
-					});
-				}
 				this.#scheduleSettledPanelClose(id);
 			} else if (reason === "error") {
 				const projector = this.#projectors.get(id);
@@ -1510,13 +1452,6 @@ export class SubagentManager {
 					state: "error",
 					interrupted: message,
 				}));
-				if (this.#taskRegistry !== undefined) {
-					this.#taskRegistry.settle(id, {
-						status: "failed",
-						output: message,
-						truncated: false,
-					});
-				}
 				this.#scheduleSettledPanelClose(id);
 			}
 			return { delivered: true };
@@ -1525,11 +1460,7 @@ export class SubagentManager {
 		}
 	}
 
-	/**
-	 * Handles a request a child sent to its parent. The two child-initiated operations are the
-	 * child's report channel and its Task result, and both are answered here so the child learns
-	 * whether the parent accepted them.
-	 */
+	/** Answers a request a child sent to its parent, so the child learns whether the parent accepted it. */
 	public async handleChildRequest(
 		childId: string,
 		operation: string,
@@ -1596,8 +1527,9 @@ export class SubagentManager {
 			this.#notify();
 		}
 		// Counted before the per-child queue: an event that arrives while a reclaim is running is
-		// queued behind it and could otherwise not cancel a decision already in flight.
-		this.#bumpActivity(childId);
+		// queued behind it and could otherwise not cancel a decision already in flight. Only a new
+		// turn cancels a reply that is already waiting.
+		this.#bumpActivity(childId, isRecord(event) && resumesChildWork(event.type));
 		const workVersion = this.#workVersions.get(childId) ?? 0;
 		void this.#mutate(childId, () => this.#observe(childId, event, workVersion)).catch(
 			(error: unknown) => {
@@ -1607,7 +1539,7 @@ export class SubagentManager {
 	}
 
 	public handleConnectionChange(childId: string, connected: boolean): void {
-		this.#bumpActivity(childId);
+		this.#bumpActivity(childId, false);
 		void this.#mutate(childId, async () => {
 			const record = await this.#deps.registry.get(childId);
 			if (record === undefined) return;
@@ -1628,18 +1560,7 @@ export class SubagentManager {
 		});
 	}
 
-	#dispatch(childId: string, event: unknown): void {
-		for (const listener of this.#childEventListeners) {
-			try {
-				listener(childId, event);
-			} catch (error: unknown) {
-				diagnose(`child event listener failed for ${childId}: ${errorMessage(error)}`);
-			}
-		}
-	}
-
 	async #observe(id: string, event: unknown, workVersion: number): Promise<void> {
-		this.#dispatch(id, event);
 		const value = isRecord(event) ? event : undefined;
 		if (value === undefined) return;
 		if (value.type === "child_lifecycle" && isChildLifecyclePayload(value)) {
@@ -1698,13 +1619,10 @@ export class SubagentManager {
 		if (value.type === "turn_end" || value.type === "agent_end") {
 			// A finished turn is exactly when the session file has the message, so this is where
 			// unacknowledged input becomes part of the child's conversation.
-			const entries = await this.#entries(id);
-			if (entries !== undefined) {
-				projector.rebuild(entries);
-				if (
-					record.unacknowledgedInput !== undefined &&
-					sessionContainsUserInput(entries, record.unacknowledgedInput)
-				) {
+			const facts = await this.#facts(id, record.unacknowledgedInput);
+			if (facts !== undefined) {
+				projector.applyTranscriptFacts(facts);
+				if (record.unacknowledgedInput !== undefined && facts.containsInput) {
 					confirmedInput = record.unacknowledgedInput;
 				}
 			}
@@ -1872,6 +1790,33 @@ function durableProjection(
 	if (inputConfirmed) return true;
 	if (snapshot.state !== record.state) return true;
 	return undefined;
+}
+
+function resumesChildWork(type: unknown): boolean {
+	return (
+		type === "agent_start" ||
+		type === "turn_start" ||
+		type === "auto_retry_start" ||
+		type === "auto_retry"
+	);
+}
+
+/** The last conversational message is an assistant reply that already finished. */
+function persistedReplyFinished(entries: readonly unknown[]): boolean {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index];
+		if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message)) continue;
+		const message = entry.message;
+		if (message.role === "user") return false;
+		if (message.role !== "assistant") continue;
+		return (
+			message.stopReason !== "error" &&
+			message.stopReason !== "aborted" &&
+			message.stopReason !== "pending" &&
+			message.stopReason !== "deferred"
+		);
+	}
+	return false;
 }
 
 function processAlive(pid: number): boolean {

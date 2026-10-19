@@ -1,5 +1,7 @@
 # Core Subagent Execution Contract
 
+状态：已撤销。`startSubagent` 与 completion/task/conversation 契约已从 ext-core 删除。一次性补全直接调用 `completeSimple`；可重连 child 只属于 `pi-subagents`。下文是当时的决定，不是当前契约。
+
 `@hheei/pi-ext-core` 将立即拥有 root-session-scoped subagent execution contract。这是已批准的
 consumer exception：独立 extension 需要启动 child execution，但不能 import concrete `pi-subagents`。
 最初的 direct consumer 是已移除的 `@hheei/pi-mctx`。`pi-subagents` 将迁移为

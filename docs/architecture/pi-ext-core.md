@@ -3,9 +3,11 @@
 ## 状态
 
 已全面实现：`@hheei/pi-ext-core` 提供基础会话生命周期、Service Registry、ExtensionPoint、
-TaskRegistry 任务状态机、BackgroundDelivery 完成门控、JSON settings 传输、受控工具（Managed Tool）与
-Loadout 资源注册、全屏 Custom Surface 与 Extension Page Router、挂件（Widgets）与编辑器状态合成器、
-模型与思考深度选择器、上下文用量估算器、统一工具 TUI 渲染抽象、响应性能遥测底栏，以及无副作用的跨包通用工具函数集。
+BackgroundDelivery 后台交付协调、JSON settings 传输、工具展示数据契约（`ToolPresentation`）与
+optional-tools 提示段落、全屏 Custom Surface 与 Extension Page Router、挂件（Widgets）与编辑器状态合成器、
+模型与思考深度选择器、上下文用量估算器、响应性能遥测底栏，以及无副作用的跨包通用工具函数集。
+具体工具的注册、激活与装配由 Pi 原生 `pi.registerTool`（`exposure` / `defaultActive`）与各 tool owner 的 `getActiveTools` / `setActiveTools` 拥有；
+工具渲染框架由 `@hheei/pi-ext-ui` 的 ToolView 拥有。
 
 维护者与 consumers 的开发约定见 [pi-ext-core 开发约定](../development/pi-ext-core.md)。
 
@@ -20,7 +22,7 @@ Loadout 资源注册、全屏 Custom Surface 与 Extension Page Router、挂件�
 - Pi global/project settings JSON 的无 policy 文件 transport；
 - 取消、revision 和 async ownership 所需的通用基础能力。
 
-core 本身不是 Pi extension：没有 `pi.extensions`、命令、tool、renderer、timer 或
+core 本身不是 Pi extension：没有 `pi.extensions`、命令、tool 注册、renderer 注册、timer 或
 listener。导入 package 没有副作用。只有 extension 显式调用注册 API 后，core 才创建
 对应 runtime state 或订阅 Pi lifecycle。因此未安装或未使用子包时，core 不影响 Pi
 runtime 的性能或界面。
@@ -38,14 +40,13 @@ runtime 的性能或界面。
 数量不是硬门槛。提案必须限定使用范围，不能把某个 extension 的 policy、业务 state、schema 或 UI
 下沉到 core。
 
-已批准六个限定例外：ext-core 公开 managed tool 与 Loadout resource registration contract、提供 global Extension page router 与
-feature-neutral TUI host、拥有 root-session-scoped subagent execution contract、提供 JSON settings file
-transport 与 provider registry，并提供 slash command 的 subcommand 参数补全匹配 helper。[TUI 宿主架构](tui.md)、
-[ADR 0004](../adr/0004-core-subagent-execution.md) 与
-[ADR 0007](../adr/0007-core-json-settings-substrate.md) 分别限制 UI host、subagent execution 和 settings
-transport；[Loadout 架构](loadout.md)限制 registration 与 policy 的边界。ext-core 不接管 Loadout policy、tool
-activation policy（tool 的 active 集合归各 tool owner）、page content、Settings policy、feature-owned
-schema/content、agent/config/delivery policy 或 clipboard policy。
+已批准的限定例外：ext-core 提供 global Extension page router 与 feature-neutral TUI host、JSON settings file
+transport 与 provider registry、纯 `ToolPresentation` 展示契约与 optional-tools prompt 段落，以及 slash command
+的 subcommand 参数补全匹配 helper。[TUI 宿主架构](tui.md) 与
+[ADR 0007](../adr/0007-core-json-settings-substrate.md) 分别限制 UI host 和 settings transport。进程内 subagent
+coordinator 已删除；managed tool 与 Loadout resource registration 已删除，工具注册与激活归 Pi host 与各 tool
+owner（[Loadout 架构](loadout.md) 记录了这次退役）。ext-core 不接管 tool activation policy、page content、Settings policy、
+feature-owned schema/content、agent/config/delivery policy 或 clipboard policy。
 
 ## Pi 集成边界
 
@@ -61,9 +62,9 @@ listener 留在进程中；stable feature key 只用于公开 contract 的身份
 
 根入口 `@hheei/pi-ext-core` 只导出实际 consumer 需要的类型与函数，不允许 deep
 import。已实现 v1 包含 lifecycle、Service、ExtensionPoint、cleanup、JSON settings/provider registry、
-managed tool 与 Loadout resource registration、custom surface runtime、Extension page router API、Subagent execution contract、Pi context usage 解析
-与 subcommand 参数补全匹配。Subagent execution contract 的边界见
-[Subagent 执行架构](subagents.md)，Loadout 细节见 [Loadout 架构](loadout.md)。
+custom surface runtime、Extension page router API、Pi context usage 解析、`ToolPresentation` 展示契约与 optional-tools
+prompt 段落，以及 subcommand 参数补全匹配。Loadout 细节见 [Loadout 架构](loadout.md)。进程内 subagent coordinator
+已删除，见 [Subagent 执行架构](subagents.md)。
 
 ### Subcommand 参数补全
 
@@ -320,7 +321,7 @@ singleton。
 
 ## 完整公开 API 目录
 
-`@hheei/pi-ext-core` 根入口为所有公开能力的单一收敛点。所有 API 按以下 15 个功能域正交组织：
+`@hheei/pi-ext-core` 根入口为所有公开能力的单一收敛点。所有 API 按以下功能域正交组织：
 
 ### 1. 生命周期与错误处理 (Lifecycle & Errors)
 - `registerExtensionLifecycle(pi, options)`: 注册以 package name 为稳定 key 的扩展生命周期，提供幂等清理与 `context.signal`。
@@ -335,37 +336,32 @@ singleton。
 - `getService(pi, key)`: 同步读取当前可用服务实例。
 - `waitForService(pi, key, options?)`: 异步等待服务就绪（支持非阻塞 continuation 与超时/中止）。
 - `MEMORY_COMPACTOR_SERVICE_KEY`: 预置会话即时内存压缩服务 Key。
-- `TASK_REGISTRY_SERVICE_KEY`: 预置后台任务注册表 Key。
 
-### 3. 后台任务状态机 (TaskRegistry)
-- `TaskRegistry`: 统一管理后台 Bash 任务与子 Agent 任务的生命周期、并发排队与终态结算。
-- `isTerminalTaskStatus(status)`: 终态校验判定。
-- 常量与异常: `TaskCapacityError`, `TaskQueueFullError`, `TaskRegistryClosedError`, `DEFAULT_TASK_CONCURRENCY`。
+### 3. 后台交付协调 (BackgroundDelivery)
+- `createBackgroundDelivery()` / `getBackgroundDelivery(pi)`：协调 producer 拥有的交付通道，不拥有执行状态或内容。
+- `BackgroundDeliveryChannel`：提供 `isIdle`、`hasPending`、`flush(triggerTurn)`；注册返回 `request()` 与 `dispose()`。
+- 每个 microtask 批次中，busy parent 的消息通过 steer 进入下一步，idle parent 只由最后一个有效通道请求新回合。不等待其他执行结束，重入时检查通道是否仍有效。
+- BashJobs 与 SubagentManager 各自管理执行，不通过任务服务、通用队列或状态镜像耦合。
 
-### 4. 完成门控与后台交付 (BackgroundDelivery)
-- `createBackgroundDelivery(pi)` / `getBackgroundDelivery(pi)`: 统一后台结果投递协调器。
-- `BackgroundWorkSource` / `BackgroundDeliveryChannel`: 工作源活动计数与按通道交付抽象（区分普通结果门控与 blocked 紧急立即唤醒）。
-
-### 5. 扩展点与动态钩子 (Extension Points)
+### 4. 扩展点与动态钩子 (Extension Points)
 - `createExtensionPointKey(id)`: 声明扩展点 Key。
 - `registerExtensionHook(context, key, hook)`: 注册 1:N 动态钩子。
 - `openExtensionPoint(pi, key, options?)`: 开放并消费挂载的钩子集。
 
-### 6. 工具托管与装配策略 (Managed Tools & Loadout)
-- `registerManagedTool(pi, registration)`: 注册受控工具。
-- `redeclareManagedTool(pi, name, exposure)`: 动态更新受控工具可见性（visible/hidden）。
-- `setManagedToolsActive(pi, names)`: 批量变更受控工具激活集合。
-- `isManagedTool(tool)`: 托管工具类型判定。
-- `registerLoadoutResource(pi, resource)`: 登记技能与自定义资源元数据。
-- `observeLoadoutInventory(pi, observer)`: 监听装配清单变化。
+### 5. 工具展示与提示段落 (Tool Presentation & Prompt Sections)
+- `ToolPresentation` / `TextToolPresentation` / `DiffToolPresentation`: 工具拥有的纯数据展示契约（`summary`、`request`、`output`、`collapsedRows`、`copy`、diff 字段）。它不含 ANSI、Component 或闭包。
+- `createToolPresentationRenderers(pi, title, provider)`: 生成 Pi 原生 `ToolRenderers`，把 provider 与 `renderCall` 用 WeakMap 关联；未加载 `pi-ext-ui` 时这条路径自己就是可用的 Text 渲染。
+- `getToolPresentationProvider(renderers)` / `getRegisteredToolPresentationProvider(pi, name)`: 解析已登记的 provider（含嵌套 codemode 调用），只持有 WeakRef，不保留 tool definition。
+- `setOptionalToolBullet(sections, key, bullet)` / `setSectionBullet` / `setPromptSection`: 维护结构化 system prompt 的 `optional_tools` 段落与固定 preamble，供 deferred 工具族介绍自己。
+- 工具注册、激活与 inventory 属于 Pi host 与各 tool owner：`pi.registerTool({ exposure: "deferred", defaultActive: false })` 是唯一注册入口，`getActiveTools` / `setActiveTools` 是唯一的 active 集合，ext-core 不再提供 managed tool 或 loadout resource 注册层。
 
-### 7. TUI 视图路由与自定义界面 (Page Router & Surfaces)
+### 6. TUI 视图路由与自定义界面 (Page Router & Surfaces)
 - `openExtensionPageRouter(ctx, options)`: 打开设置多页面路由宿主。
 - `registerExtensionPage(registration)`: 注册设置子页面。
 - `openTuiSurface(ctx, options)`: 打开全屏独立 TUI Surface。
 - `TuiSurfaceQueueFullError`: 并发排队异常。
 
-### 8. 挂件与编辑器底栏状态 (Widgets & Editor Status)
+### 7. 挂件与编辑器底栏状态 (Widgets & Editor Status)
 - `registerWidget(pi, placement, widget)`: 在编辑器上下方挂载展示组件。
 - `suspendWidgets(pi)`: 临时挂起所有活动挂件。
 - `EditorWorkingStatusIndicator`: 点阵微旋转动画状态指示器。
@@ -373,7 +369,7 @@ singleton。
 - `setPreTurnWorkingStatus(options)`: 设定回合前即时状态。
 - `BRAILLE_SPINNER_FRAMES`: 标准点阵动画帧。
 
-### 9. 配置持久化与存储 (JSON Settings Transport)
+### 8. 配置持久化与存储 (JSON Settings Transport)
 - `readJsonSettingsRoot(path)` / `updateJsonSettingsRoot(path, updater)`: JSON 配置根对象原子读写。
 - `readJsonSettingsSection(path, sectionKey)`: 单 section 读取。
 - `readMergedJsonSettingsSection(paths, sectionKey)`: 全局与项目两层合并读取与来源标注。
@@ -381,38 +377,30 @@ singleton。
 - `createJsonSettingsStorage(options)`: 强类型配置存储适配器。
 - `registerSettings(pi, provider)` / `getRuntimeSettingsRegistry`: 配置注册与查询。
 
-### 10. 模型选择与思考深度 (Model Selection & Thinking)
+### 9. 模型选择与思考深度 (Model Selection & Thinking)
 - `modelSelectionOptions(models)`: 生成下拉选择列表。
 - `authenticatedModelSelectionOptions(models, authRegistry)`: 过滤具备鉴权的模型。
 - `createModelSelectionField(options)`: 创建交互式模型选择字段。
 - `clampThinkingLevel(level)`: 收敛思考级别。
 - `thinkingGlyph(level)`: 获取级别指示符号。
 
-### 11. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
+### 10. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
 - `resolvePiContextUsage(reading, options)`: 规范化上下文压力读数。
 - `estimatePiPrefixTokens(systemPrompt, tools)`: 估算前缀 token。
 - `estimatePiToolDefinitionTokens(tools)`: 估算工具定义 token。
 - `estimateTextTokens(text)`: 纯文本字符 token 估算。
 
-### 12. 进程内子代理协调器 (Subagent Coordinator)
-- `startSubagent(spec)`: 启动进程内轻量子代理（completion/task/conversation）。
-- `lookupSubagent(pi, id)`: 句柄查询。
-- `redeliverTask(pi, options)`: 未确认结果重新交付。
-- `configureSubagentCoordinator(pi, options)`: 配置全局配额与并发。
-- `ensureSubagentCoordinator(pi)`: 初始化或读取协调器。
+### 11. 进程内子代理协调器（已移除）
 
-### 13. 工具 TUI 交互与渲染 (Tool TUI)
-- `createToolTui()` / `getToolTui(pi)`: 统一工具渲染实例，提供 `frame(tool, presentation?)` 包装本地工具执行，以及 `renderers(tool, presentation?)` 接入宿主 MCP / renderer-only 工具并返回 `ToolRenderers`。
-- `registerToolTuiTrace(pi)`: 注册输出追踪条目与宿主工具生命周期监听（订阅 `agent_start`、`session_start`、`session_shutdown`、`tool_execution_*` 与 `tool_result`，驱动已登记 MCP 工具的耗时记录与终态追踪）。
-- `isTuiScrolledUp(tui)`: TUI 向上滚动状态判定。
+`startSubagent`、`lookupSubagent`、`redeliverTask`、`configureSubagentCoordinator`、`ensureSubagentCoordinator` 已删除。一次性补全由调用方使用 `completeSimple`。可重连 child 属于 `pi-subagents`。
 
-### 14. 响应遥测与编辑器底轨 (Response Telemetry & Editor Rail)
+### 12. 响应遥测与编辑器底轨 (Response Telemetry & Editor Rail)
 - `createResponseStatusFeature(pi, options)`: 模型性能遥测组件。
 - `formatTelemetryStatus(metrics)`: 遥测文本格式化。
 - `renderBottomRailBorder(options)`: 底栏边框对齐渲染。
 - `wrapEditorBottomRail(editor, renderRail)`: 编辑器底栏渲染装饰器。
 
-### 15. 通用辅助工具 (Utilities)
+### 13. 通用辅助工具 (Utilities)
 - `runCommand(command, args, options?)`: 一次性安全进程执行。
 - `shellQuote(str)`: POSIX shell 转义。
 - `isSubagentProcess(env?)`: 子进程环境探针。
@@ -421,7 +409,6 @@ singleton。
 - `fitRow(text, width)`: ANSI 彩色单行文本等宽截断或填充。
 - `isRecord(value)`: 非空 Plain Object 严格守卫。
 - `escapeXml(str)`: XML 字符转义。
-- `isSkillEnabled(pi, name)` 等: 技能激活状态存取。
 - `textToolResult(text, isError?)` / `agentResultText(result)` / `formatDuration(ms)`: 工具结果与耗时格式化。
 
 ## 包和测试布局
@@ -442,9 +429,10 @@ packages/pi-ext-core/
     index.ts
     json-settings.ts
     lifecycle.ts
-    loadout.ts
+    message-view-point.ts
     model-selection.ts
     page-router.ts
+    panel-scrollbar.ts
     paths.ts
     process.ts
     prompt-section.ts
@@ -454,17 +442,14 @@ packages/pi-ext-core/
     runtime-identity.ts
     service.ts
     settings.ts
-    skill-state.ts
-    subagents.ts
-    tasks.ts
     text.ts
+    tool-presentation.ts
     tool-result.ts
-    tool-tui.ts
     widgets.ts
 ```
 
-已实现 API 先建立公开类型与函数签名，再写 focused tests，最后实现。下一阶段 Loadout tests 的
-具体范围由 [Loadout 架构](loadout.md) 定义；不为尚未存在的 UI 或 settings behavior 预建测试。
+已实现 API 先建立公开类型与函数签名，再写 focused tests，最后实现。不为尚未存在的 UI 或 settings
+behavior 预建测试。
 
 ## 已确认决策
 

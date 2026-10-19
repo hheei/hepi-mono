@@ -1,10 +1,10 @@
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	type CompletionSubagentHandle,
 	clampThinkingLevel,
 	createJsonSettingsStorage,
 	createModelSelectionField,
-	type ExtensionLifecycleContext,
 	errorMessage,
 	type ModelSelectionCandidate,
 	type ModelSelectionOption,
@@ -14,7 +14,6 @@ import {
 	type SettingsContext,
 	type SettingsProvider,
 	type SettingsStorage,
-	startSubagent,
 } from "@hheei/pi-ext-core";
 
 export const AUTO_TITLE_GROUP = "auto-title";
@@ -184,11 +183,10 @@ export function createAutoTitleSettingsProvider(
 	};
 }
 
-/** Pi host handles supplied by the extension entry; the coordinator never owns them. */
+/** Pi host handles supplied by the extension entry. */
 export interface AutoTitleRuntime {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
-	readonly lifecycle?: ExtensionLifecycleContext;
 }
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 
@@ -297,6 +295,13 @@ export type AutoTitleAgentFactory = (
 	modelRef: string,
 ) => AutoTitleAgentAdapter;
 
+function assistantText(message: AssistantMessage): string {
+	return message.content
+		.flatMap((part) => (part.type === "text" ? [part.text] : []))
+		.join("")
+		.trim();
+}
+
 export function createCoreAutoTitleAgent(
 	runtime: AutoTitleRuntime,
 	modelRef: string,
@@ -305,25 +310,39 @@ export function createCoreAutoTitleAgent(
 	const model = runtime.ctx.modelRegistry.find(provider, modelId);
 	if (!model || !runtime.ctx.modelRegistry.hasConfiguredAuth(model))
 		throw new Error(`Unavailable title model: ${modelRef}`);
-	let handle: CompletionSubagentHandle | undefined;
+	let controller: AbortController | undefined;
 	return {
 		run: async (prompt) => {
-			if (runtime.lifecycle === undefined)
-				throw new Error("Auto-title completion lifecycle unavailable");
+			controller = new AbortController();
 			const thinkingLevel = clampThinkingLevel(model, "off");
-			handle = startSubagent(runtime.lifecycle, {
-				mode: "completion",
+			const auth = await runtime.ctx.modelRegistry.getApiKeyAndHeaders(model);
+			if (!auth.ok) throw new Error(auth.error);
+			const message = await completeSimple(
 				model,
-				prompt,
-				systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
-				thinkingLevel,
-			});
-			const result = await handle.result;
-			if (result.status !== "completed")
-				throw new Error(result.status === "failed" ? result.failure.message : result.status);
-			return result.output;
+				{
+					systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
+					messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+					tools: [],
+				},
+				{
+					signal: controller.signal,
+					...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
+					...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
+					...(auth.headers === undefined ? {} : { headers: auth.headers }),
+					...(auth.env === undefined ? {} : { env: auth.env }),
+				},
+			);
+			if (controller.signal.aborted) throw new Error("cancelled");
+			const output = assistantText(message);
+			if (message.stopReason === "stop" && output) return output;
+			throw new Error(
+				message.errorMessage?.trim() ||
+					(message.stopReason === "stop"
+						? "Completion produced no final text"
+						: `Completion stopped with ${message.stopReason}`),
+			);
 		},
-		abort: () => handle?.cancel(),
+		abort: () => controller?.abort(),
 	};
 }
 

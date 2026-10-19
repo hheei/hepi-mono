@@ -42,14 +42,13 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 - 根入口是唯一 public import surface；consumer 不得 deep import `src/` 模块。
 - core 不导入 concrete extension，也不承载 feature-specific business state、event bus 或 RPC。
   已批准的受限例外由 [ADR 0001](../adr/0001-core-extension-page-shell.md)、
-  [Loadout 架构](../architecture/loadout.md)、
-  [ADR 0004](../adr/0004-core-subagent-execution.md) 与
   [ADR 0007](../adr/0007-core-json-settings-substrate.md) 明确限定：分别是 Extension page router、
-  Loadout registration、root-session-scoped subagent execution 与 extension JSON settings transport。
+  extension JSON settings transport，以及纯 `ToolPresentation` 展示契约与 optional-tools prompt 段落。
+  进程内 subagent coordinator 已删除；managed tool 与 Loadout resource registration 已删除。
   它们不得扩张为 page content、Loadout policy、feature schema/state、Settings UI、agent/config/UI/delivery
   policy、clipboard policy、Pi private API facade 或 schema-driven framework。
-  共享后台交付的受限协调原语见 [后台任务契约](../architecture/background-tasks.md)：只汇总
-  consumer 提供的活动计数、协调父会话忙/闲边界与单次唤醒，不拥有消息内容、队列、紧急原因、
+  共享后台交付的受限协调原语见 [后台任务契约](../architecture/background-tasks.md)：只协调
+  consumer 提供的交付通道、父会话忙/闲边界与单次唤醒，不拥有消息内容、队列、紧急原因、
   分支规则、交付确认或生产者执行。
 - extension 将 core 作为 direct production dependency，并 externalize bundle；runtime state
   必须以 `pi.events` 为 identity，通过稳定 `Symbol.for` slot 跨重复 core module instance 共享。
@@ -67,9 +66,10 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 
 - **生命周期与清理**：必须使用 `registerExtensionLifecycle`；所有异步任务、timer、订阅必须使用 `context.resources.add` 注册逆序清理，所有支持取消的操作必须透传 `context.signal`。
 - **跨扩展能力共享**：单一独占能力使用 `provideService` / `getService`（或异步 `waitForService`）；多对一挂载与观察使用 `registerExtensionHook` / `openExtensionPoint`。
-- **后台任务与统一管理**：凡产生后台等待或异步执行的任务（例如后台命令、子 Agent 会话），必须通过 `TaskRegistry` 统一接入（分配任务 ID、维护状态、协调活动计数与终态交付）。
+- **后台执行状态**：由具体 extension 的执行模块拥有 ID、状态、取消、容量与恢复；BashJobs 管命令，SubagentManager 管 child conversation，不建立通用 TaskRegistry 或相互镜像。
 - **异步结果向主会话投递**：使用 `createBackgroundDelivery` / `getBackgroundDelivery`，禁止扩展内部直接启动定时器轮询主会话忙闲。
-- **工具与元数据注册**：非原生工具统一使用 `registerManagedTool`；技能与外部资源元数据统一接入 `registerLoadoutResource`。
+- **工具注册与装配**：工具一律使用 Pi 原生 `pi.registerTool`；需要按需发现的工具声明 `exposure: "deferred"` 与 `defaultActive: false`，激活与 inventory 策略由 `pi-loadout` 拥有。deferred 工具族的介绍文字用 `setOptionalToolBullet` 写入结构化 prompt 的 `optional_tools` 段落。
+- **工具展示**：内容语义用 `createToolPresentationRenderers` 提供 `ToolPresentation`；加载 `@hheei/pi-ext-ui` 时由 ToolView 负责折叠与交互，未加载时同一函数给出 Pi 原生 Text 渲染。
 - **全屏或弹出式 UI**：使用 `openTuiSurface` 或 `openExtensionPageRouter`，不得在扩展内自行监听原始键盘事件打断 Pi 渲染循环。
 - **编辑器附着组件**：使用 `registerWidget` 挂载上下组件，配合 `EditorWorkingStatusIndicator` 展示转轮动画。
 - **持久化配置**：必须使用 `readJsonSettingsSection` / `readMergedJsonSettingsSection` / `updateJsonSettingsRoot`，配置统一落盘至 `ext_settings.json`，严禁写入 Pi 原生 `settings.json`。
@@ -120,59 +120,25 @@ consumer 数量不是硬门槛：一个有实际中间层价值、可由其他 e
 先于第二个 consumer 提升。单一 feature 的专属优化、预测复用、业务 policy 或 content model 仍保留在
 该 feature package；不以“未来可能共享”为理由扩大 core。
 
-已批准 ADR 的范围外仍适用上述价值与中性边界。Loadout contract、Extension page router、Subagent
-execution contract 与 JSON settings transport 不能借此继续抽取 generic policy、
-content model、worker framework 或 shared dependency。
+已批准 ADR 的范围外仍适用上述价值与中性边界。Extension page router、JSON settings transport 与
+`ToolPresentation` 契约不能借此继续抽取 generic policy、content model、worker framework 或 shared dependency。
+不要把已删除的 subagent coordinator、managed tool registration 或 Loadout resource registration 加回来。
 
-## Loadout Contributor
+## Tool Contributor
 
-所有 HEPI-owned non-native executable tool 必须在 extension composition root 使用 core 的 managed
-Loadout registration，禁止直接调用 Pi tool registration API。非-tool resource 使用 lifecycle-bound
-Loadout resource registration；agent contributor 使用 `agent:<name>`，不得伪装为 Pi tool。
-`pi-settings` 是强烈推荐 companion；
-缺席时 core fallback 仅保留 Pi 默认 activation，不提供 inventory、conflict 或 persisted policy。
+所有 HEPI-owned non-native executable tool 在 extension composition root 直接调用 `pi.registerTool`。需要按需发现的
+工具声明 `exposure: "deferred"` 与 `defaultActive: false`，用 `setOptionalToolBullet` 把自己的条目写进结构化 prompt
+的 `optional_tools` 段落。active 集合由 Pi host 的 `getActiveTools` / `setActiveTools` 决定，extension 不自行维护
+第二份 activation policy。展示语义用 `createToolPresentationRenderers` 提供 `ToolPresentation`；加载 `pi-ext-ui` 时
+由 ToolView 渲染，未加载时同一函数给出 Pi 原生 Text 渲染。
 
-所有 Loadout resource registration 与 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是
-programmer error。每个 resource/page 的 priority、conflict、ownership、cancellation、cleanup 与 lazy cost 必须在
-紧邻 TypeScript 注释中说明。完整 Loadout contract 见 [Loadout 架构](../architecture/loadout.md)。
+所有 page registration 的 ID 必须稳定且 runtime 内唯一；重复 ID 是 programmer error。每个 page 的 ownership、
+cancellation、cleanup 与 lazy cost 必须在紧邻 TypeScript 注释中说明。完整 Loadout contract 见
+[Loadout 架构](../architecture/loadout.md)。
 
-## Subagent Consumer
+## 子代理
 
-subagent execution 只经 core public contract 启动。consumer 负责在调用前解析 agent/model/prompt/tool
-policy，为每个 task 提供 finite soft `maxTurns` 与幂等 terminal delivery sink；不得把 `pi.events` 当作 core
-RPC 或直接管理 child `AgentSession`。core 在 cap 发一次 wrap-up steer，固定五个 grace turns 后才 hard
-abort；consumer 不得另加隐式 timeout/grace。sink 必须接受 abort 后不写旧 parent state；conversation
-subscriber 必须声明 event kinds、接受 fixed-cap snapshot coalescing，且在其 lifecycle signal abort 后不得
-保留 handle reference。
-
-subagent consumer 也必须在每次 parent session start 配置 root active-turn cap。core 只接受一项 live
-lifecycle configuration，且 runtime 校验值为 positive integer；另一 owner 是 collision error。不得把 cap
-放进单 task spec、凭 load order 覆盖，或在 core 内加入 hidden default。
-
-core 不提供 main-agent wait 或 result-polling surface。具体 contributor 保留 parent delivery adapter：
-default queue、human/host explicit steer 与 all-terminal Task delivery group 都是 contributor policy，不能
-下沉到 core execution contract。model-facing `agent` tool 只提供 conversation queue input，不能暴露 steer。
-所有 delivery 必须以 operation ID、任务目的、terminal/partial state 和「先评估相关性再报告」包裹 child output；
-不能直接注入 raw delayed result。
-
-conversation consumer 必须在 create 时指定 finite soft `maxTurnsPerReply`，并在 send 时明确区分
-parent-to-child `inputMode` 与 child-to-parent reply consumption。wait 只能观察本次 message sequence；
-wait signal abort 后，adapter 必须 queue-deliver eventual reply，不得静默丢弃或取消 conversation。
-create 同时提供 initial message 与同一 reply contract，不能启动没有 owner 的 initial prompt。
-
-需要长会话 context control 的 consumer 只能调用 conversation handle 的 `compact()` 与 `usage()`；不得保留或
-读取 raw `AgentSession`。`compact()` 仅在 handle idle 时可调用，consumer 负责决定 threshold；`usage()` 是
-core-normalized readonly snapshot，不能作为 provider billing source。为这些能力新增测试时必须覆盖 running/
-queued/terminal rejection、abort、usage 缺失字段归零和 parent shutdown 后不再发布 snapshot。
-
-host/human steer 只打断 active child，随后优先于 queue；queue 和 steer 各自 FIFO，steer 不得隐式删除已接受
-queue。sink 的同步 throw 与 rejected Promise 都必须由 core 捕捉、记录 `deliveryFailed` 并消化，不能成为
-host-level unhandled rejection。subscriber implementation 必须固定 memory cap：terminal event 挤掉最旧的
-coalescible snapshot，慢 callback 不得阻塞 child。
-
-所有 execution adapter 的注释必须说明 parent session ownership、mode、shared-cap admission、
-cancellation、delivery/retry policy、event backpressure 与 retention cost。完整 contract 见
-[Subagent 执行架构](../architecture/subagents.md)。
+ext-core 不再提供进程内 subagent coordinator。一次性模型补全留在调用方，直接使用 `completeSimple`。可重连 child session 只属于 `pi-subagents`，不要在 core 重建 completion、task 或 conversation handle。后台命令归 pi-ext-tools 的 BashJobs 所有，结果送回主会话仍用 `BackgroundDelivery`。见 [Subagent 执行架构](../architecture/subagents.md)。
 
 ## 变更清单
 

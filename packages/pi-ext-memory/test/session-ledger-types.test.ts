@@ -22,7 +22,6 @@ import {
 	OM_OBSERVATIONS_RECORDED,
 	OM_REFLECTIONS_DROPPED,
 	OM_REFLECTIONS_RECORDED,
-	observationKind,
 } from "../src/session-ledger/index.js";
 import {
 	memoryDetails,
@@ -52,21 +51,14 @@ describe("session-ledger V3 type guards and builders", () => {
 		expect(isObservation({ ...observation("dddddddddddd"), tokenCount: undefined })).toBe(false);
 	});
 
-	it("keeps the recorded kind, defaults unknown and legacy observations to fact", () => {
+	it("requires a recorded observation kind", () => {
 		expect(isObservation(observation("aaaaaaaaaaaa", { kind: "progress" }))).toBe(true);
+		expect(isObservation(observation("bbbbbbbbbbbb", { kind: "decision" }))).toBe(true);
 		expect(isObservationKind("progress")).toBe(true);
 		expect(isObservationKind("narration")).toBe(false);
-
-		// Entries written before the field existed, and entries whose kind was
-		// corrupted on disk, both read as the conservative default.
-		expect(observationKind(observation("bbbbbbbbbbbb", { kind: "decision" }))).toBe("decision");
-		expect(observationKind(observation("cccccccccccc"))).toBe("fact");
-		expect(
-			observationKind({
-				...observation("dddddddddddd"),
-				kind: "narration" as never,
-			}),
-		).toBe("fact");
+		const { kind: _kind, ...withoutKind } = observation("cccccccccccc");
+		expect(isObservation(withoutKind)).toBe(false);
+		expect(isObservation({ ...observation("dddddddddddd"), kind: "narration" })).toBe(false);
 	});
 
 	it("accepts valid V3 reflection records", () => {
