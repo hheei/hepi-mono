@@ -10,7 +10,11 @@ import type { DiscoveredAgent } from "./agent-resolver.js";
 import { type ChildIdentity, isOperationError, type PublicSubagent } from "./domain.js";
 
 import type { SubagentManager } from "./manager.js";
-import { type AgentSpawnDetails, parentToolRenderers } from "./tool-presentation.js";
+import {
+	type AgentSpawnDetails,
+	contactParentRenderers,
+	parentToolRenderers,
+} from "./tool-presentation.js";
 
 const spawnSchema = Type.Object(
 	{
@@ -307,6 +311,7 @@ export function registerChildTools(
 				undefined,
 			);
 		},
+		...contactParentRenderers(pi),
 	};
 	pi.registerTool(tool);
 }

@@ -1,14 +1,9 @@
-import type {
-	ExtensionAPI,
-	ExtensionToolContext,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
-import { registerBgBashTools } from "../src/bg-bash-tools.js";
-import { createToolsRuntimeState } from "../src/session-state.js";
+import { DEFAULT_BASH_SETTINGS } from "../src/bash-settings.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { roleTheme } from "./fixtures/theme.js";
 
@@ -45,9 +40,9 @@ function bashContext(
 }
 
 /** Registers bash on a capturing host and returns it, optionally framed by a ToolTui. */
-function bashTool(): ToolDefinition {
+function bashTool(getSettings?: () => typeof DEFAULT_BASH_SETTINGS): ToolDefinition {
 	const host = toolHost();
-	registerBashTool(host.pi, undefined);
+	registerBashTool(host.pi, getSettings === undefined ? undefined : { getSettings });
 	return toolFor(host.tools, "bash");
 }
 
@@ -201,24 +196,6 @@ test("bash exposes description and snippet", (): void => {
 	);
 });
 
-test("background Bash tools keep usage guidance in descriptions without changing system rules", (): void => {
-	const tools: ToolDefinition[] = [];
-	registerBgBashTools(
-		{
-			registerTool(tool: ToolDefinition): void {
-				tools.push(tool);
-			},
-		} as unknown as ExtensionAPI,
-		createToolsRuntimeState(),
-	);
-	expect(toolFor(tools, "bg_bash_get").promptGuidelines).toBeUndefined();
-	expect(toolFor(tools, "bg_bash_stop").promptGuidelines).toBeUndefined();
-	expect(toolFor(tools, "bg_bash_get").description).toContain("Inspect background Bash runtime");
-	expect(toolFor(tools, "bg_bash_stop").description).toContain(
-		"Stop one background Bash process tree",
-	);
-});
-
 test("bash removes renderer padding around short newline-terminated output", (): void => {
 	const bash = bashTool();
 	const theme = roleTheme;
@@ -365,4 +342,22 @@ test("bash omitted-line count uses logical lines, not wraps or the tail window",
 		.filter((line) => !line.includes("─"));
 	if (tail === undefined) throw new Error("Expected tailed bash body");
 	expect(tail[0]).toContain("… (77 earlier lines, ctrl+o to expand)");
+});
+
+test("bash reads its live settings for output tail and shell path", async (): Promise<void> => {
+	// The foreground tool owns the `bash` settings group, so a change applies to the next call
+	// instead of needing a session restart.
+	const bash = bashTool(() => ({ ...DEFAULT_BASH_SETTINGS, bashOutputTailKiB: 1 }));
+	const result = await bash.execute(
+		"bash-settings-applied",
+		{ command: "printf '0123456789abcdef'" },
+		undefined,
+		undefined,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
+	);
+	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+	expect(text.endsWith("0123456789abcdef")).toBe(true);
 });

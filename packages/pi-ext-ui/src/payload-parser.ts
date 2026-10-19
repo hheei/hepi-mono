@@ -1,17 +1,10 @@
 import { type AgentToolResult, formatReadLineRange } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { previewV4aOperations } from "./apply-patch-preview.js";
-import { applyPatchFacts } from "./apply-patch-view.js";
 import { type DiffLine, type DiffSource, diffStats } from "./diff-view.js";
 import type { ToolStatusKind } from "./tool-view.js";
 
-export const APPLY_PATCH_TOOL_NAME = "apply_patch";
-export const PYTHON_EVAL_TOOL_NAME = "python_eval";
-export const PYTHON_EVAL_DETAILS_FORMAT = "pi-ext-tools-python-eval";
 export const EDIT_TOOL_NAME = "edit";
 export const WRITE_TOOL_NAME = "write";
-export const EDIT_VIEW_KEY = "__piExtToolsEditView";
-export const WRITE_VIEW_KEY = "__piExtToolsWriteView";
 export const CODEMODE_OPTIONS_PREFIX = "// @options:";
 export const CODEMODE_SCRIPT_HEADER =
 	/^Script (?:completed|failed)\r?\nWall time ([\d.]+) seconds\r?\nOutput:\r?\n/;
@@ -282,85 +275,6 @@ export function toolPath(args: unknown): string {
 	return typeof val === "string" ? val.trim() : "";
 }
 
-export function editPath(args: unknown): string {
-	return toolPath(args);
-}
-
-export function numericField(value: unknown, key: string): number | undefined {
-	return isRecord(value) && typeof value[key] === "number" ? value[key] : undefined;
-}
-
-export type WritePresentation =
-	| {
-			readonly kind: "diff";
-			readonly source: DiffSource;
-			readonly added: number;
-			readonly removed: number;
-	  }
-	| { readonly kind: "content"; readonly label: string; readonly content: string }
-	| { readonly kind: "noChange" };
-
-export function writeStoredDiff(lines: readonly unknown[]): DiffSource | undefined {
-	const hunks: DiffLine[][] = [];
-	let hunk: DiffLine[] = [];
-	const finish = (): void => {
-		if (hunk.length > 0) hunks.push(hunk);
-		hunk = [];
-	};
-	for (const entry of lines) {
-		if (!isRecord(entry)) return undefined;
-		if (entry.type === "sep") {
-			finish();
-			continue;
-		}
-		if (entry.type !== "add" && entry.type !== "del" && entry.type !== "ctx") return undefined;
-		if (typeof entry.content !== "string") return undefined;
-		const line = entry.type === "del" ? entry.oldNum : entry.newNum;
-		if (typeof line !== "number") return undefined;
-		hunk.push({ kind: entry.type, line, text: entry.content });
-	}
-	finish();
-	return hunks.length === 0
-		? undefined
-		: { kind: "hunks", hunks: hunks.map((lines) => ({ lines })) };
-}
-
-/** Uses only the baseline and content already stored by the write tool. */
-export function writePresentation(args: unknown, details: unknown): WritePresentation | undefined {
-	const view = isRecord(details) ? details[WRITE_VIEW_KEY] : undefined;
-	if (!isRecord(view)) return undefined;
-	if (view.kind === "noChange") return { kind: "noChange" };
-	if (view.kind === "diff") {
-		const stored = Array.isArray(view.lines) ? writeStoredDiff(view.lines) : undefined;
-		if (stored === undefined) return undefined;
-		const source = stored;
-		const stats = diffStats(source);
-		return stats === undefined
-			? undefined
-			: {
-					kind: "diff",
-					source,
-					added: numericField(view, "added") ?? stats.added,
-					removed: numericField(view, "removed") ?? stats.removed,
-				};
-	}
-	if (view.kind !== "new" && view.kind !== "replace") return undefined;
-	const content =
-		typeof view.content === "string"
-			? view.content
-			: isRecord(args) && typeof args.content === "string"
-				? args.content
-				: undefined;
-	if (content === undefined) return undefined;
-	const lines = numericField(view, "lines") ?? content.split("\n").length;
-	return {
-		kind: "content",
-		label:
-			view.kind === "new" ? `new file (${String(lines)} lines)` : `wrote (${String(lines)} lines)`,
-		content,
-	};
-}
-
 /** Compact nested-row result: a one-line summary plus the status it reports. */
 export interface InlinePresentation {
 	readonly summary: string;
@@ -370,7 +284,7 @@ export interface InlinePresentation {
 export function fileToolPresentation(
 	toolName: string,
 	args: unknown,
-	details: unknown,
+	_details: unknown,
 	isError: boolean,
 ): InlinePresentation | undefined {
 	const path = toolPath(args);
@@ -381,20 +295,7 @@ export function fileToolPresentation(
 		return { summary: `${path}${range}`, status: isError ? "error" : "ok" };
 	}
 	if (toolName === WRITE_TOOL_NAME) {
-		const presentation = isError ? undefined : writePresentation(args, details);
-		const delta =
-			presentation?.kind === "diff"
-				? ` (+${String(presentation.added)} -${String(presentation.removed)})`
-				: presentation?.kind === "content"
-					? ` (${presentation.label})`
-					: presentation?.kind === "noChange"
-						? " (no changes)"
-						: "";
-		if (path === "" && delta === "") return undefined;
-		return {
-			summary: `${path}${delta}`.trim(),
-			status: isError ? "error" : presentation?.kind === "noChange" ? "none" : "ok",
-		};
+		return path === "" ? undefined : { summary: path, status: isError ? "error" : "ok" };
 	}
 	return undefined;
 }
@@ -408,7 +309,7 @@ export function editDiffSource(details: unknown): DiffSource | undefined {
 	if (typeof details.diff === "string" && details.diff.trim() !== "") {
 		return displayDiffSource(details.diff);
 	}
-	return editViewSource(details[EDIT_VIEW_KEY]);
+	return undefined;
 }
 
 export function displayDiffSource(diff: string): DiffSource | undefined {
@@ -435,142 +336,6 @@ export function displayDiffSource(diff: string): DiffSource | undefined {
 	if (current.length === 0) return undefined;
 	hunks.push(current);
 	return { kind: "hunks", hunks: hunks.map((lines) => ({ lines })) };
-}
-
-export function editViewSource(view: unknown): DiffSource | undefined {
-	const hunks = editViewHunks(view);
-	return hunks.length === 0 ? undefined : { kind: "hunks", hunks };
-}
-
-export function editViewHunks(view: unknown): readonly { readonly lines: readonly DiffLine[] }[] {
-	if (!isRecord(view)) return [];
-	const ops =
-		view.kind === "single" && isRecord(view.op)
-			? [view.op]
-			: view.kind === "multi" && Array.isArray(view.ops)
-				? view.ops.filter(isRecord)
-				: [];
-	return ops.flatMap((op) => hunksForEditOp(op));
-}
-
-export function hunksForEditOp(
-	op: Record<string, unknown>,
-): readonly { readonly lines: readonly DiffLine[] }[] {
-	if (typeof op.oldContent !== "string" || typeof op.newContent !== "string") return [];
-	const startLine = typeof op.startLine === "number" && op.startLine > 0 ? op.startLine : 1;
-	return lineHunks(
-		op.oldContent.replace(/\r\n/g, "\n"),
-		op.newContent.replace(/\r\n/g, "\n"),
-		startLine,
-	);
-}
-
-export function splitFragment(text: string): readonly string[] {
-	if (text === "") return [];
-	const lines = text.split("\n");
-	if (lines.at(-1) === "") lines.pop();
-	return lines;
-}
-
-/** Line LCS of one stored before/after fragment. No file context is invented. */
-export function lineHunks(
-	before: string,
-	after: string,
-	startLine: number,
-): readonly { readonly lines: readonly DiffLine[] }[] {
-	const oldLines = splitFragment(before);
-	const newLines = splitFragment(after);
-	const oldCount = oldLines.length;
-	const newCount = newLines.length;
-	const lengths: number[][] = Array.from({ length: oldCount + 1 }, () =>
-		Array<number>(newCount + 1).fill(0),
-	);
-	for (let oldIndex = oldCount - 1; oldIndex >= 0; oldIndex -= 1) {
-		const row = lengths[oldIndex];
-		const next = lengths[oldIndex + 1];
-		if (row === undefined || next === undefined) continue;
-		for (let newIndex = newCount - 1; newIndex >= 0; newIndex -= 1) {
-			row[newIndex] =
-				oldLines[oldIndex] === newLines[newIndex]
-					? (next[newIndex + 1] ?? 0) + 1
-					: Math.max(next[newIndex] ?? 0, row[newIndex + 1] ?? 0);
-		}
-	}
-
-	const lines: DiffLine[] = [];
-	let oldIndex = 0;
-	let newIndex = 0;
-	let oldLine = startLine;
-	let newLine = startLine;
-	while (oldIndex < oldCount || newIndex < newCount) {
-		const row = lengths[oldIndex];
-		const next = lengths[oldIndex + 1];
-		if (oldIndex < oldCount && newIndex < newCount && oldLines[oldIndex] === newLines[newIndex]) {
-			lines.push({ kind: "ctx", line: newLine, text: oldLines[oldIndex] ?? "" });
-			oldIndex += 1;
-			newIndex += 1;
-			oldLine += 1;
-			newLine += 1;
-		} else if (
-			newIndex < newCount &&
-			(oldIndex === oldCount || (row?.[newIndex + 1] ?? 0) > (next?.[newIndex] ?? 0))
-		) {
-			lines.push({ kind: "add", line: newLine, text: newLines[newIndex] ?? "" });
-			newIndex += 1;
-			newLine += 1;
-		} else {
-			lines.push({ kind: "del", line: oldLine, text: oldLines[oldIndex] ?? "" });
-			oldIndex += 1;
-			oldLine += 1;
-		}
-	}
-	const changed = lines.some((line) => line.kind !== "ctx");
-	return changed ? [{ lines }] : [];
-}
-
-export function patchTextForCopy(details: unknown): string | undefined {
-	if (isRecord(details) && typeof details.patch === "string") return details.patch;
-	const hunks = editViewHunks(isRecord(details) ? details[EDIT_VIEW_KEY] : undefined);
-	if (hunks.length === 0) return undefined;
-	return (
-		hunks
-			.map((hunk) => {
-				let oldStart = 0;
-				let newStart = 0;
-				let oldCount = 0;
-				let newCount = 0;
-				const body = hunk.lines.map((line) => {
-					if (line.kind !== "add") {
-						oldCount += 1;
-						if (oldStart === 0) oldStart = line.line;
-					}
-					if (line.kind !== "del") {
-						newCount += 1;
-						if (newStart === 0) newStart = line.line;
-					}
-					const sign = line.kind === "add" ? "+" : line.kind === "del" ? "-" : " ";
-					return sign + line.text;
-				});
-				if (body.length === 0) return "";
-				const header =
-					"@@ -" +
-					String(oldStart || 1) +
-					"," +
-					String(oldCount) +
-					" +" +
-					String(newStart || 1) +
-					"," +
-					String(newCount) +
-					" @@";
-				return [header, ...body].join("\n");
-			})
-			.filter((hunk) => hunk !== "")
-			.join("\n") || undefined
-	);
-}
-
-export function patchSummary(files: number, added: number, removed: number): string {
-	return `modify ${files}${files === 1 ? " file" : " files"} (+${added} -${removed})`;
 }
 
 /**
@@ -623,29 +388,6 @@ export function inlinePresentation(
 	if (fileTool !== undefined) return fileTool;
 
 	const parsed = parseCallArgs(args);
-	if (toolName === APPLY_PATCH_TOOL_NAME) {
-		const facts = applyPatchFacts(details);
-		if (facts !== undefined) {
-			return {
-				summary: patchSummary(
-					new Set(facts.changedPaths).size,
-					facts.addedLines,
-					facts.removedLines,
-				),
-				status: isError ? "error" : "ok",
-			};
-		}
-		if (parsed === undefined || typeof parsed.patch !== "string") return undefined;
-		const operations = previewV4aOperations(parsed.patch, true, undefined);
-		return {
-			summary: patchSummary(
-				new Set(operations.map((operation) => operation.path)).size,
-				operations.reduce((sum, operation) => sum + operation.addedLines, 0),
-				operations.reduce((sum, operation) => sum + operation.removedLines, 0),
-			),
-			status: isError ? "error" : "ok",
-		};
-	}
 	if (parsed === undefined) return undefined;
 
 	if (toolName === EDIT_TOOL_NAME) {
@@ -668,60 +410,5 @@ export function inlinePresentation(
 	return {
 		summary: baseSummary,
 		status: isError ? "error" : "ok",
-	};
-}
-
-/**
- * One row of the eval cell transcript: printed text, display value, nested call, the final
- * value, or the kernel's namespace report.
- */
-export type EvalRow =
-	| { readonly kind: "text"; readonly text: string }
-	| { readonly kind: "display"; readonly text: string }
-	| {
-			readonly kind: "tool";
-			readonly name: string;
-			readonly args: unknown;
-			readonly durationMs: number | undefined;
-			readonly error: string | undefined;
-	  }
-	| { readonly kind: "result"; readonly text: string }
-	| { readonly kind: "state"; readonly text: string };
-
-export interface EvalFacts {
-	readonly rows: readonly EvalRow[];
-	readonly error: string | undefined;
-}
-
-/** Reads only the persisted `pi-ext-tools-eval` details; other shapes degrade to plain output. */
-export function pythonEvalFacts(details: unknown): EvalFacts | undefined {
-	if (!isRecord(details) || details.format !== PYTHON_EVAL_DETAILS_FORMAT) return undefined;
-	const rawRows = Array.isArray(details.rows) ? details.rows : [];
-	const rows: EvalRow[] = [];
-	for (const entry of rawRows) {
-		if (!isRecord(entry)) continue;
-		if (entry.kind === "text" && typeof entry.text === "string") {
-			rows.push({ kind: "text", text: entry.text });
-		} else if (entry.kind === "display" && typeof entry.text === "string") {
-			rows.push({ kind: "display", text: entry.text });
-		} else if (entry.kind === "result" && typeof entry.text === "string") {
-			rows.push({ kind: "result", text: entry.text });
-		} else if (entry.kind === "state" && typeof entry.text === "string") {
-			rows.push({ kind: "state", text: entry.text });
-		} else if (entry.kind === "tool" && isRecord(entry.trace)) {
-			const trace = entry.trace;
-			if (typeof trace.name !== "string") continue;
-			rows.push({
-				kind: "tool",
-				name: trace.name,
-				args: trace.args,
-				durationMs: typeof trace.durationMs === "number" ? trace.durationMs : undefined,
-				error: typeof trace.error === "string" ? trace.error : undefined,
-			});
-		}
-	}
-	return {
-		rows,
-		error: typeof details.error === "string" ? details.error : undefined,
 	};
 }

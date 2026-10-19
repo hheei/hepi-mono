@@ -31,10 +31,7 @@ describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 					registered.push(tool);
 				},
 			} as unknown as ExtensionAPI;
-			const state = {
-				getSettings: () => ({ grepEnhancement: false }),
-			} as never;
-			registerGrepTool(pi, state);
+			registerGrepTool(pi);
 			const grep = registered[0];
 			if (grep === undefined) throw new Error("grep did not register");
 			const ui = { requestRender: (): void => undefined } as unknown as TUI;

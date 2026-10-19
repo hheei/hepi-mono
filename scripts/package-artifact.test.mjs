@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { packValidatedPackage, validatePackedDependencies } from "./package-artifact.mjs";
+import { runPackedArtifactSmoke } from "./package-artifact-smoke.mjs";
 
 test("accepts resolved workspace dependencies and host peers", () => {
 	validatePackedDependencies({
@@ -57,6 +58,80 @@ test("rejects versioned typebox peers", () => {
 			}),
 		/peer range/,
 	);
+});
+
+/** Minimal publishable workspace; the runtime asset list is keyed by real package name. */
+function createArtifactWorkspace(directory, name, files) {
+	const path = join(directory, "packages", "fixture");
+	mkdirSync(path, { recursive: true });
+	mkdirSync(join(path, "node_modules"));
+	writeFileSync(
+		join(path, "package.json"),
+		JSON.stringify({ name, version: "0.1.0", type: "module", main: "dist/index.js" }),
+	);
+	writeFileSync(join(path, "LICENSE"), "Permission is hereby granted\n");
+	for (const [file, content] of Object.entries(files)) {
+		mkdirSync(dirname(join(path, file)), { recursive: true });
+		writeFileSync(join(path, file), content);
+	}
+	return { name, version: "0.1.0", path };
+}
+
+function createFixtureRepo(directory) {
+	writeFileSync(join(directory, "package.json"), JSON.stringify({ private: true }));
+	writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - 'packages/*'\n");
+}
+
+test("rejects a tarball that does not ship the declared runtime asset", () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-package-artifact-asset-"));
+	try {
+		createFixtureRepo(directory);
+		const workspace = createArtifactWorkspace(directory, "@hheei/pi-python-eval", {
+			"dist/index.js": "export {};\n",
+			"dist/kernel/host.js": "export class EvalKernelHost {}\n",
+		});
+		assert.throws(
+			() => packValidatedPackage(workspace, directory),
+			/runtime asset: dist\/kernel\/child\.py/,
+		);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("rejects a packed worker that ships but never answers IPC", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-package-artifact-worker-"));
+	try {
+		createFixtureRepo(directory);
+		const workspace = createArtifactWorkspace(directory, "@hheei/pi-apply-patch", {
+			"dist/index.js": "export {};\n",
+			"dist/apply-patch/parser.js":
+				'export function parseV4aPatch() { return { operations: [{ kind: "update", path: "value.txt", hunks: [] }] }; }\n',
+			// Starts the shipped worker the way the real entry point does; an inert worker never replies.
+			"dist/apply-patch/jsdiff.js": [
+				'import { Worker } from "node:worker_threads";',
+				"export async function runJsDiffUpdate() {",
+				'\tconst worker = new Worker(new URL("./jsdiff-worker.js", import.meta.url));',
+				"\tconst message = await new Promise((resolve) => {",
+				'\t\tworker.once("message", resolve);',
+				'\t\tworker.once("exit", () => resolve(undefined));',
+				"\t});",
+				"\tawait worker.terminate();",
+				'\tif (message === undefined) throw new Error("jsdiff worker returned no result");',
+				"\treturn message;",
+				"}",
+				"",
+			].join("\n"),
+			"dist/apply-patch/jsdiff-worker.js": "// shipped, but never posts a result\n",
+		});
+		const tarball = packValidatedPackage(workspace, directory);
+		await assert.rejects(
+			runPackedArtifactSmoke(workspace, tarball, directory),
+			/jsdiff worker returned no result/,
+		);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("pnpm tarballs resolve workspace ranges and install with npm outside the workspace", () => {

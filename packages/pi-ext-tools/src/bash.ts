@@ -13,18 +13,17 @@ import {
 import { type Component, stripTerminalSequences, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
-	errorMessage,
+	BashOutputSink,
+	createOptionalToolRenderers,
 	formatDuration,
 	isRecord,
+	isSearchOnlyCommand,
+	SEARCH_BASH_TIMEOUT_SECONDS,
 	textToolResult,
 } from "@hheei/pi-ext-core";
-
 import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
-import { type BashJobRegistry, type BashJobSnapshot, defaultShellPath } from "./bash-jobs.js";
-import { BashOutputSink } from "./bash-output.js";
-import { isSearchOnlyCommand, SEARCH_BASH_TIMEOUT_SECONDS } from "./bash-search.js";
-import type { ToolsRuntimeState } from "./session-state.js";
+import { type BashSettings, DEFAULT_BASH_SETTINGS } from "./bash-settings.js";
 
 /** Unexpanded output rows. Matches the request cap so a command and its output weigh the same. */
 const BASH_MAX_BODY_LINES = 10;
@@ -253,163 +252,89 @@ async function runForeground(
 	context: ExtensionContext,
 	signal: AbortSignal | undefined,
 	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-	shellPath: string,
+	settings: BashSettings,
 	timeoutSeconds: number | undefined,
-	tailBytes: number,
-	jobs?: BashJobRegistry | undefined,
 ): Promise<BashToolResult> {
 	const startedAt = performance.now();
 	const effectiveTimeout = timeoutSeconds ?? resolveDefaultBashTimeout(command);
 	if (signal?.aborted) return Promise.resolve(bashAbortedResult({ output: "" }));
-	const sink = new BashOutputSink(tailBytes);
+	const sink = new BashOutputSink(settings.bashOutputTailKiB * 1024);
 	const update = outputStreamer(sink, onUpdate);
 
-	if (jobs === undefined) {
-		let exitCode: number | null;
-		let timedOut = false;
-		try {
-			exitCode = (
-				await createLocalBashOperations({ shellPath }).exec(command, context.cwd, {
+	let exitCode: number | null;
+	let timedOut = false;
+	try {
+		// Pi's local backend owns the process, its cancellation and its timeout teardown, so the
+		// foreground path keeps no job registry and no record to release.
+		exitCode = (
+			await createLocalBashOperations({ shellPath: settings.shellPath }).exec(
+				command,
+				context.cwd,
+				{
 					onData: update,
 					...(signal === undefined ? {} : { signal }),
 					timeout: effectiveTimeout,
-				})
-			).exitCode;
-		} catch (error) {
-			if (signal?.aborted)
-				return bashAbortedResult({
-					output: sink.finish().output,
-					startedAt,
-					truncated: sink.finish().truncated,
-				});
-			if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
-			timedOut = true;
-			exitCode = null;
-		}
-		const output = sink.finish();
-		if (timedOut)
-			return bashTimedOutResult({
-				output: output.output,
-				truncated: output.truncated,
+				},
+			)
+		).exitCode;
+	} catch (error) {
+		if (signal?.aborted) {
+			const aborted = sink.finish();
+			return bashAbortedResult({
+				output: aborted.output,
 				startedAt,
-				timeoutSeconds: effectiveTimeout,
+				truncated: aborted.truncated,
 			});
-		const finalExitCode = exitCode ?? 0;
-		const result = textToolResult(output.output, {
+		}
+		if (!(error instanceof Error) || !error.message.startsWith("timeout:")) throw error;
+		timedOut = true;
+		exitCode = null;
+	}
+	const output = sink.finish();
+	if (timedOut)
+		return bashTimedOutResult({
+			output: output.output,
+			truncated: output.truncated,
+			startedAt,
+			timeoutSeconds: effectiveTimeout,
+		});
+	// A null exit means the shell died without reporting one. That is not success: the outcome
+	// stays unconfirmed, and the call reports failure so the model inspects the side effects.
+	if (exitCode === null) {
+		const reason = "Command terminated without an exit code";
+		const result = textToolResult(bashFailureText(reason, output.output), {
 			...output,
-			...(timedOut ? { timedOut: true } : {}),
-			exitCode: finalExitCode,
+			exitCode: null,
+			error: "unconfirmed",
+			isError: true,
 		});
 		return withBashStructuredContent(result, {
 			output: output.output,
-			truncated: output.truncated,
-			exitCode: finalExitCode,
-			startedAt,
-		}) as BashToolResult;
-	}
-
-	let streaming = true;
-	const onData = (data: Buffer): void => {
-		if (streaming) update(data);
-	};
-	let job: BashJobSnapshot;
-	try {
-		job = jobs.start({
-			command,
-			cwd: context.cwd,
-			shellPath,
-			timeoutMs: Math.max(0, effectiveTimeout * 1000),
-			onData,
-		});
-	} catch (error) {
-		const output = sink.finish();
-		const result = textToolResult(`Unable to start bash job: ${errorMessage(error)}`, {
-			...output,
-			error: "start_failed",
-		});
-		return withBashStructuredContent(result, {
-			output: output.output || errorMessage(error),
 			truncated: output.truncated,
 			exitCode: 1,
 			startedAt,
 		}) as BashToolResult;
 	}
-
-	return new Promise<BashToolResult>((resolve) => {
-		let settled = false;
-		// The wait itself is cancelled with the call, so an aborted foreground command never
-		// leaves a waiter behind on a record only this call was reading.
-		const watcher = new AbortController();
-
-		const cleanup = (): void => {
-			streaming = false;
-			signal?.removeEventListener("abort", onAbort);
-			watcher.abort();
-		};
-
-		const finishForeground = (jobSnapshot: BashJobSnapshot): void => {
-			if (settled) return;
-			settled = true;
-			cleanup();
-			const output = sink.finish();
-			const timedOut = jobSnapshot.timedOut;
-			if (timedOut) {
-				resolve(
-					bashTimedOutResult({
-						output: output.output,
-						truncated: output.truncated,
-						startedAt,
-						timeoutSeconds: effectiveTimeout,
-					}),
-				);
-				return;
-			}
-			const isFailed = jobSnapshot.status === "failed";
-			const exitCode = jobSnapshot.exitCode ?? (isFailed ? 127 : 0);
-			const isError = isFailed || exitCode !== 0;
-			const result = textToolResult(output.output, {
-				...output,
-				exitCode,
-				...(isError ? { isError: true } : {}),
-			});
-			resolve(
-				withBashStructuredContent(result, {
-					output: output.output,
-					truncated: output.truncated,
-					exitCode,
-					startedAt,
-				}) as BashToolResult,
-			);
-		};
-
-		const onAbort = (): void => {
-			if (settled) return;
-			settled = true;
-			cleanup();
-			jobs.stop(job.id);
-			const output = sink.finish();
-			resolve(
-				bashAbortedResult({
-					output: output.output,
-					startedAt,
-					truncated: output.truncated,
-				}),
-			);
-		};
-
-		signal?.addEventListener("abort", onAbort, { once: true });
-		void jobs.waitFor(job.id, watcher.signal).then((finalSnapshot) => {
-			if (finalSnapshot) finishForeground(finalSnapshot);
-		});
+	const result = textToolResult(output.output, {
+		...output,
+		exitCode,
+		...(exitCode === 0 ? {} : { isError: true }),
 	});
+	return withBashStructuredContent(result, {
+		output: output.output,
+		truncated: output.truncated,
+		exitCode,
+		startedAt,
+	}) as BashToolResult;
 }
 
-export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): ToolDefinition {
-	const {
-		renderCall: _renderCall,
-		renderResult: _renderResult,
-		...template
-	} = createBashToolDefinition(process.cwd());
+export interface BashToolOptions {
+	/** Live settings read per call, so a settings change applies to the next command. */
+	readonly getSettings?: () => BashSettings;
+}
+
+export function registerBashTool(pi: ExtensionAPI, options?: BashToolOptions): ToolDefinition {
+	const template = createBashToolDefinition(process.cwd());
 	const tool = {
 		...template,
 		description: BASH_DESCRIPTION,
@@ -446,22 +371,25 @@ export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 			}
 			return {};
 		},
-		renderResult(
-			result: AgentToolResult<unknown>,
-			options: { readonly expanded: boolean; readonly isPartial: boolean },
-			theme: Theme,
-			context: { readonly durationMs?: number | undefined },
-		) {
-			const output = agentResultText(result);
-			return new BashOutputBody(
-				output,
-				theme,
-				options.expanded,
-				outputTotalLines(result, output),
-				result.isError === true,
-				context.durationMs,
-			);
-		},
+		...createOptionalToolRenderers(pi, "bash", {
+			renderCall: template.renderCall as NonNullable<ToolDefinition["renderCall"]>,
+			renderResult(
+				result: AgentToolResult<unknown>,
+				renderOptions: { readonly expanded: boolean; readonly isPartial: boolean },
+				theme: Theme,
+				context: { readonly durationMs?: number | undefined },
+			) {
+				const output = agentResultText(result);
+				return new BashOutputBody(
+					output,
+					theme,
+					renderOptions.expanded,
+					outputTotalLines(result, output),
+					result.isError === true,
+					context.durationMs,
+				);
+			},
+		}),
 		async execute(
 			_id: string,
 			params: Input,
@@ -471,18 +399,13 @@ export function registerBashTool(pi: ExtensionAPI, state?: ToolsRuntimeState): T
 		) {
 			const validatedParams = normalizeBashInput(params);
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
-			const settings = state?.getSettings();
-
-			const jobs = state?.getBashJobs();
 			return runForeground(
 				validatedParams.command,
 				context,
 				signal,
 				onUpdate,
-				settings?.shellPath ?? defaultShellPath(),
+				options?.getSettings?.() ?? DEFAULT_BASH_SETTINGS,
 				validatedParams.timeout,
-				(settings?.bashOutputTailKiB ?? 10) * 1024,
-				jobs,
 			);
 		},
 	} as unknown as ToolDefinition<typeof BashInput, unknown, unknown>;

@@ -1,6 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
+/**
+ * Runtime assets a package must ship next to its entry points. These are not import
+ * specifiers, so manifest entries alone cannot prove they travel with the tarball;
+ * each owner package lists the exact packed paths its runtime spawns.
+ */
+export const RUNTIME_ARTIFACTS = {
+	"@hheei/pi-python-eval": ["dist/kernel/child.py", "dist/kernel/host.js"],
+	"@hheei/pi-apply-patch": ["dist/apply-patch/jsdiff-worker.js", "dist/apply-patch/jsdiff.js"],
+};
+
 /** Pack with pnpm so workspace ranges are resolved, then inspect the actual npm artifact. */
 export function packValidatedPackage(workspace, destination) {
 	const output = execFileSync(
@@ -29,6 +39,11 @@ export function packValidatedPackage(workspace, destination) {
 	for (const entry of manifestEntries(manifest)) {
 		if (!packedFiles.has(entry)) {
 			throw new Error(`${workspace.name} package entry is missing from its tarball: ${entry}`);
+		}
+	}
+	for (const asset of RUNTIME_ARTIFACTS[workspace.name] ?? []) {
+		if (!packedFiles.has(asset)) {
+			throw new Error(`${workspace.name} tarball is missing its runtime asset: ${asset}`);
 		}
 	}
 	if (!packedFiles.has("LICENSE")) {

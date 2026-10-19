@@ -7,18 +7,16 @@ import {
 	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
+	createOptionalToolRenderers,
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
+	withMutationLock,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
-import { withMutationLock } from "./apply-patch/index.js";
-
-import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
 
@@ -294,7 +292,7 @@ export function createEditPresentation(
 
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerEditTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): ToolDefinition {
+export function registerEditTool(pi: ExtensionAPI): ToolDefinition {
 	const baseTool = createExecutionTool(createEditToolDefinition) as ToolDefinition<
 		EditDefinition["parameters"],
 		unknown,
@@ -303,12 +301,16 @@ export function registerEditTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): 
 	const tool: ToolDefinition<typeof EDIT_PARAMETERS, unknown, EditState> = {
 		...baseTool,
 		parameters: EDIT_PARAMETERS,
+		...createOptionalToolRenderers(
+			pi,
+			"edit",
+			createToolPresentationRenderers(pi, "edit", createEditPresentation),
+		),
 		annotations: {
 			destructiveHint: true,
 			idempotentHint: false,
 		},
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
-			createToolPresentationRenderers(pi, "edit", createEditPresentation);
 			const path = filePath(params);
 			const operations = getEditOperations(params);
 
@@ -319,27 +321,6 @@ export function registerEditTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): 
 				const presentation = editPresentation(before, path, operations);
 				return withEditDetails(result, presentation.metrics, presentation.view);
 			});
-		},
-		renderCall(args, theme, renderContext) {
-			const presentationRenderers = createToolPresentationRenderers(
-				pi,
-				"edit",
-				createEditPresentation,
-			);
-			return presentationRenderers.renderCall
-				? presentationRenderers.renderCall(args, theme, renderContext)
-				: new Container();
-		},
-		renderResult(result, _options, theme, context) {
-			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const presentationRenderers = createToolPresentationRenderers(
-				pi,
-				"edit",
-				createEditPresentation,
-			);
-			return presentationRenderers.renderResult
-				? presentationRenderers.renderResult(result, _options, theme, context)
-				: new Container();
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

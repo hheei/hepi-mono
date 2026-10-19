@@ -4,9 +4,9 @@
 
 **Blocked by:** 01: 共享写入锁与文件工具去耦
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 新包拥有解析、匹配、Worker、发布、设置和错误 hooks。
-- [ ] 保留参数、details、默认激活和设置 group。
-- [ ] Worker 在源码与构建产物中可启动，保留文件安全与取消测试。
-- [ ] 不依赖 pi-ext-tools 或 pi-ext-ui。
+- [x] 新包拥有解析、匹配、Worker、发布、设置和错误 hooks。
+- [x] 保留参数、details、默认激活和设置 group。
+- [x] Worker 在源码与构建产物中可启动，保留文件安全与取消测试。
+- [x] 不依赖 pi-ext-tools 或 pi-ext-ui。

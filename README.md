@@ -16,7 +16,11 @@ Node/pnpm monorepo for HEPI [Pi Coding Agent](https://github.com/earendil-works/
 |---|---|---|---|
 | **[@hheei/pi-ext-core](./packages/pi-ext-core)** | **核心基建**<br>无副作用共享基础库 | 生命周期管理、`ServiceRegistry`、`BackgroundDelivery`、TUI Widget & Surface 调度 | [README](./packages/pi-ext-core/README.md) |
 | **[@hheei/pi-settings](./packages/pi-settings)** | **设置宿主**<br>统一设置与 Loadout 策略 | 统一配置界面 `/ext-settings`、多页面设置路由、Tool/Skill/Agent 激活策略（全局 vs 本地） | [README](./packages/pi-settings/README.md) |
-| **[@hheei/pi-ext-tools](./packages/pi-ext-tools)** | **执行工具箱**<br>标准与高级开发工具 | `read`, `write`, `edit`, `bash`, `apply_patch` (严格 V4A), `python_eval` (Python 内核), `bg_bash_spawn`, `bg_bash_get`, `bg_bash_stop` | [README](./packages/pi-ext-tools/README.md) |
+| **[@hheei/pi-ext-tools](./packages/pi-ext-tools)** | 文件工具 | `read`, `grep`, `find`, `edit`, `write`, `bash` | [README](./packages/pi-ext-tools/README.md) |
+| **[@hheei/pi-bg-bash](./packages/pi-bg-bash)** | 后台 Shell 执行 | `bg_bash_spawn`, `bg_bash_get`, `bg_bash_stop` | [README](./packages/pi-bg-bash/README.md) |
+| **[@hheei/pi-apply-patch](./packages/pi-apply-patch)** | V4A 补丁与逐 path 发布 | `apply_patch` | [README](./packages/pi-apply-patch/README.md) |
+| **[@hheei/pi-python-eval](./packages/pi-python-eval)** | 持久 Python kernel | `python_eval` | [README](./packages/pi-python-eval/README.md) |
+| **[@hheei/pi-todo](./packages/pi-todo)** | 会话任务、提醒与 footer | `todo`, `/todo` | [README](./packages/pi-todo/README.md) |
 | **[@hheei/pi-subagents](./packages/pi-subagents)** | **多 Agent 编排**<br>独立子 Agent 会话管理 | `agent_spawn`, `agent_send`, `agent_get`, `agent_stop`、Herdr 工作区亲和调度、沉降后自动批量汇报、Hindsight 隔离 | [README](./packages/pi-subagents/README.md) |
 | **[@hheei/pi-ext-memory](./packages/pi-ext-memory)** | **会话记忆**<br>分层观测式长效记忆 | 渐进式 Observations & Reflections 提炼、瞬时 Compaction 摘要渲染、证据溯源（`recall`）、活跃记忆修剪 | [README](./packages/pi-ext-memory/README.md) |
 | **[@hheei/pi-ext-addon](./packages/pi-ext-addon)** | **增强与守卫**<br>宿主实用工具与韧性保障 | `$skill` 补全、`/auto-title` 自动标题、批处理规则注入、Gemini 批处理守卫、GPT 409 异常自动恢复 | [README](./packages/pi-ext-addon/README.md) |

@@ -1,6 +1,6 @@
 # Apply Patch 结果架构
 
-> 状态：已实现。本文定义 `pi-ext-tools` 的 Codex V4A `apply_patch` 结果、模型信息和 TUI 合约；当前运行时边界见 [ext-tools README](../ext-tools/README.md)，术语以仓库根目录 [CONTEXT.md](../../CONTEXT.md) 为准。逐 path Publish 见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)。
+> 状态：已实现。本文定义 `pi-apply-patch` 的 Codex V4A `apply_patch` 结果、模型信息和 TUI 合约；当前运行时边界见 [ext-tools README](../ext-tools/README.md)，术语以仓库根目录 [CONTEXT.md](../../CONTEXT.md) 为准。逐 path Publish 见 [ADR-0018](../adr/0018-apply-patch-per-path-publish.md)。
 
 ## Contract
 
@@ -44,7 +44,7 @@ V4A patch
 
 ## Ownership
 
-`pi-ext-tools` 拥有 V4A parse、内部单 hunk unified-diff 编译、jsdiff worker 匹配、local path resolution / external-write warning、Publish、mutation lock、`fuzzFactor` admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
+`pi-apply-patch` 拥有 V4A parse、内部单 hunk unified-diff 编译、jsdiff worker 匹配、local path resolution / external-write warning、Publish、共享 mutation lock 的调用、`fuzzFactor` admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
 
 ext-core 不拥有 patch policy 或结果；它只提供已有的 shared lifecycle primitives。没有自有 N-API bridge 或 vendored mpatch。
 

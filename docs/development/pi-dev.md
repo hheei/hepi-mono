@@ -26,7 +26,11 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | --- | --- | --- |
 | `pi-ext-addon` | `packages/pi-ext-addon/dist/extension.js` | 增量构建 TypeScript |
 | `pi-ext-memory` | `packages/pi-ext-memory/dist/extension.js` | 增量构建 TypeScript |
-| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 增量构建 TypeScript |
+| `pi-ext-tools` | `packages/pi-ext-tools/dist/extension.js` | 文件工具与前台 Bash |
+| `pi-bg-bash` | `packages/pi-bg-bash/dist/extension.js` | 后台 Bash |
+| `pi-apply-patch` | `packages/pi-apply-patch/dist/extension.js` | 补丁 Worker |
+| `pi-python-eval` | `packages/pi-python-eval/dist/extension.js` | 编译并复制 Python kernel |
+| `pi-todo` | `packages/pi-todo/dist/extension.js` | Todo 生命周期 |
 | `pi-ext-ui` | `packages/pi-ext-ui/dist/extension.js` | 增量构建 TypeScript |
 | `pi-optimizer` | `packages/pi-optimizer/dist/extension.js` | 增量构建 TypeScript |
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
@@ -37,8 +41,7 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | `tool-search`（内置） | `builtin:tool-search` | 无需构建；同上，且它默认 inactive，需由 `defaultTools` 激活 |
 | `mcp`（内置） | `builtin:mcp` | 无需构建；消费配置文件及 extension 的原生 MCP server 注册 |
 
-`codemode` 由 `pi-ext-tools` 注册，复用 Pi host 的 codemode 工厂并读取 host 设置；重复加载
-`builtin:codemode` 会产生工具冲突警告。`tool-search` 用 `builtin:` 路径显式加载。
+`codemode`、`tool-search` 用 `builtin:` 路径显式加载，由 Pi host 提供；文件工具包不注册它们。
 pi-dev 会话同样受 `defaultTools`（例如 `["+codemode", "+tool_search"]`）和 `codemode.mode`
 设置控制。`tool-search` 注册为 inactive，仅加载它并不会激活它。
 

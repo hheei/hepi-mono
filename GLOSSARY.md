@@ -13,5 +13,5 @@ This document records canonical domain terms and module concepts in `hepi-mono` 
 - **ToolPresentation**: The decoupled presentation seam in `@hheei/pi-ext-core` allowing tool producers to emit structured text or diff presentations (`DiffToolPresentation`, `TextToolPresentation`) consumed by `@hheei/pi-ext-ui` frames without leaking private details payloads.
 - **ToolView**: The core presentation module in `@hheei/pi-ext-ui` providing collapsible frames, rail formatting, header rendering, and terminal row atomicity.
 - **NestedCallsView**: The hierarchical execution component in `@hheei/pi-ext-ui` displaying child tool executions inside container tools (`codemode`, `python_eval`, `apply_patch`).
-- **BashJobs**: The execution module in `@hheei/pi-ext-tools` owning Bash processes, IDs, complete logs, cancellation, reminders, bounded retention, and result delivery state.
+- **BashJobs**: The execution module in `@hheei/pi-bg-bash` owning Bash processes, IDs, complete logs, cancellation, reminders, bounded retention, and result delivery state.
 - **BackgroundDelivery**: The runtime coordination module in `@hheei/pi-ext-core` batching producer-owned delivery channels into busy-parent steers or one idle-parent wake per microtask batch.

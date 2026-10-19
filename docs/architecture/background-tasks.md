@@ -6,7 +6,7 @@
 
 | 工具族 | 工具 | ownership |
 | --- | --- | --- |
-| 后台 Bash | `bg_bash_spawn`、`bg_bash_get`、`bg_bash_stop` | pi-ext-tools |
+| 后台 Bash | `bg_bash_spawn`、`bg_bash_get`、`bg_bash_stop` | pi-bg-bash |
 | 子代理 | `agent_spawn`、`agent_send`、`agent_get`、`agent_stop` | pi-subagents |
 
 `bash` 只执行前台命令；后台命令通过 `bg_bash_spawn` 启动，不绑定已返回的 tool call 的取消信号。两个 spawn 工具均由系统分配 ID，不接受调用方指定 ID。`agent_send` 显式使用已有 ID，保留 child session 上下文；idle、blocked、done、error 或 stopped child 的恢复仍须确认旧 runtime 状态，不能启动重复进程。
@@ -37,7 +37,7 @@ spawn 展示命令或 agent 名及任务，结果展示分配的 ID 和可检查
 
 ext-core 不提供通用任务注册表、任务服务、排队器或子代理状态镜像。Bash execution 和 child conversation 的寿命、恢复语义不同，分别由实际执行者维护唯一状态。
 
-- pi-ext-tools 的 BashJobs 模块拥有进程、ID、日志、输出尾部、停止、timeout、reminder、容量和 Bash 结果交付状态。工具直接查询同一执行记录；不再经过通用 task binding。
+- pi-bg-bash 的 BashJobs 模块拥有进程、ID、日志、输出尾部、停止、timeout、reminder、容量和 Bash 结果交付状态。工具直接查询同一执行记录；不再经过通用 task binding。
 - pi-subagents 的 SubagentManager 与现有 SQLite ledger 继续拥有 child conversation、runtime lease、恢复与报告。不等待 task service；child conversation 的 ID 可跨多次执行使用，不映射为一次性 Bash task。
 - ext-core BackgroundDelivery 只协调交付通道的 microtask 批次：工作中的父 session 收到 steer；空闲 session 同批只由最后一个有效通道请求新回合。删除未参与决策的 active source、urgent flag 和通用任务调度。producer 显式请求交付，并保留自己的 pending 内容。
 - Pi host 继续拥有 session JSONL、消息接收及 message_end 生命周期。host 接收不等于模型已读。

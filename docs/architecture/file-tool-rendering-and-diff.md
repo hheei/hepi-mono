@@ -14,8 +14,8 @@
 - `packages/pi-ext-ui/src/renderer.ts`：已有 Pi renderer resolver，但 NestedCallRecord 未保留 child id，也没有原始 args／result。
 - Pi 1.0.2 `dist/extensions/codemode/execute.js`：子调用记录包含 id、name、截断后的 args 字符串、status、durationMs 和 error；不保存子工具 result.details。运行中临时 id 为 `<parent>/?`，完成后才写入真实 id。
 - Pi 官方 `docs/extensions.md`：ctx.executeTool 发出带 parentToolCallId 的原生事件；嵌套结果不独立写入 transcript；持久化 nestedCalls 是有容量限制的调用记录，明确不保存结果。
-- `packages/pi-ext-tools/src/apply-patch/outcome.ts`：结果区分 pending、applied、partial、fuzzy、rejected、unconfirmed、not_applied；包含 operationIndex、hunk outcomes 和 snapshots。
-- `packages/pi-ext-tools/src/apply-patch-tool.ts`：已有 success／partial／failed 聚合规则；confirmed changes 不回滚。
+- `packages/pi-apply-patch/src/apply-patch/outcome.ts`：结果区分 pending、applied、partial、fuzzy、rejected、unconfirmed、not_applied；包含 operationIndex、hunk outcomes 和 snapshots。
+- `packages/pi-apply-patch/src/apply-patch-tool.ts`：已有 success／partial／failed 聚合规则；confirmed changes 不回滚。
 - 原生 edit 返回局部 diff／patch／firstChangedLine；原生 write 没有旧文件基线 details。两者均不能保证渲染器得到完整修改前后文件。
 
 ## 3. Ownership 与数据流

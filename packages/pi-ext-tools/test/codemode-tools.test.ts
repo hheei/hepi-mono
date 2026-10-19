@@ -2,26 +2,20 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test } from "vitest";
-import { registerBashTool } from "../src/bash.js";
-import { registerBgBashTools } from "../src/bg-bash-tools.js";
-import { createEvalRuntimeState } from "../src/eval/lifecycle.js";
-import { createPythonEvalTool, pythonEvalPromptGuidelines } from "../src/eval/tool.js";
 import { registerFindTool } from "../src/find.js";
 import { registerGrepTool } from "../src/grep.js";
 import { registerReadTool } from "../src/read.js";
-import { createToolsRuntimeState } from "../src/session-state.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-codemode-test-");
+const temporaryDirectory = temporaryDirectories("hepi-ext-tools-codemode-test-");
 
-describe("tools contract aligned with upstream pi 1.0.0", () => {
+describe("file tools contract aligned with upstream pi 1.0.0", () => {
 	test("read, grep, find contract aligned with upstream pi and declare readOnly hints", async () => {
 		const host = toolHost();
-		const state = createToolsRuntimeState();
-		registerReadTool(host.pi, state);
-		registerGrepTool(host.pi, state);
-		registerFindTool(host.pi, state);
+		registerReadTool(host.pi);
+		registerGrepTool(host.pi);
+		registerFindTool(host.pi);
 
 		const read = toolFor(host.tools, "read");
 		const grep = toolFor(host.tools, "grep");
@@ -69,152 +63,5 @@ describe("tools contract aligned with upstream pi 1.0.0", () => {
 			type: "text",
 			text: expect.stringContaining("sample.txt"),
 		});
-	});
-
-	test("bash provides upstream-aligned bashOutputSchema and structuredContent", async () => {
-		const host = toolHost();
-		const state = createToolsRuntimeState();
-		registerBashTool(host.pi, state);
-
-		const bash = toolFor(host.tools, "bash");
-		expect(bash.outputSchema).toBeDefined();
-		expect(bash.outputSchema).toMatchObject({
-			type: "object",
-			properties: {
-				output: { type: "string" },
-				truncated: { type: "boolean" },
-				exit_code: { type: "number" },
-				wall_time_seconds: { type: "number" },
-			},
-		});
-
-		const dir = await temporaryDirectory();
-		const successResult = await bash.execute(
-			"bash-1",
-			{ command: "echo 'hello from codemode bash'" },
-			undefined,
-			undefined,
-			{ cwd: dir } as unknown as ExtensionToolContext,
-		);
-
-		expect(successResult.structuredContent).toBeDefined();
-		const structured = successResult.structuredContent as {
-			output: string;
-			truncated: boolean;
-			exit_code: number;
-			wall_time_seconds: number;
-		};
-		expect(structured.exit_code).toBe(0);
-		expect(structured.output).toContain("hello from codemode bash");
-		expect(structured.truncated).toBe(false);
-		expect(structured.wall_time_seconds).toBeGreaterThanOrEqual(0);
-		expect(successResult.isError).toBeFalsy();
-
-		const failResult = await bash.execute("bash-2", { command: "exit 42" }, undefined, undefined, {
-			cwd: dir,
-		} as unknown as ExtensionToolContext);
-
-		expect(failResult.structuredContent).toBeDefined();
-		const failStructured = failResult.structuredContent as {
-			exit_code: number;
-			wall_time_seconds: number;
-		};
-		expect(failStructured.exit_code).toBe(42);
-		expect(failResult.isError).toBe(true);
-	});
-
-	test("bash prepareLoadout adapts description when eval tool is active", () => {
-		const host = toolHost();
-		const state = createToolsRuntimeState();
-		registerBashTool(host.pi, state);
-
-		const bash = toolFor(host.tools, "bash");
-		expect(bash.prepareLoadout).toBeDefined();
-
-		const loadoutWithEval = {
-			declared: [{ name: "bash" }, { name: "python_eval" }],
-			callable: [{ name: "bash" }, { name: "python_eval" }],
-			registered: [{ name: "bash" }, { name: "python_eval" }],
-			getExposure: () => "direct" as const,
-			getNamespace: () => undefined,
-		};
-		const changesWithEval = bash.prepareLoadout?.(loadoutWithEval as never);
-		expect(changesWithEval?.descriptions?.bash).toContain("Prefer python_eval over python -c");
-
-		const loadoutWithBoth = {
-			declared: [{ name: "bash" }, { name: "python_eval" }, { name: "codemode" }],
-			callable: [{ name: "bash" }, { name: "python_eval" }, { name: "codemode" }],
-			registered: [{ name: "bash" }, { name: "python_eval" }, { name: "codemode" }],
-			getExposure: () => "direct" as const,
-			getNamespace: () => undefined,
-		};
-		const changesWithBoth = bash.prepareLoadout?.(loadoutWithBoth as never);
-		expect(changesWithBoth?.descriptions?.bash).toContain(
-			"Prefer python_eval for persistent Python computation, and codemode for tool orchestration or filtering.",
-		);
-
-		const loadoutWithCodemodeOnly = {
-			declared: [{ name: "bash" }, { name: "codemode" }],
-			callable: [{ name: "bash" }, { name: "codemode" }],
-			registered: [{ name: "bash" }, { name: "codemode" }],
-			getExposure: () => "direct" as const,
-			getNamespace: () => undefined,
-		};
-		const changesWithCodemodeOnly = bash.prepareLoadout?.(loadoutWithCodemodeOnly as never);
-		expect(changesWithCodemodeOnly?.descriptions?.bash).toContain(
-			"Prefer codemode over complex shell loops or pipeline filtering.",
-		);
-
-		const loadoutWithoutEval = {
-			declared: [{ name: "bash" }],
-			callable: [{ name: "bash" }],
-			registered: [{ name: "bash" }],
-			getExposure: () => "direct" as const,
-			getNamespace: () => undefined,
-		};
-		const changesWithoutEval = bash.prepareLoadout?.(loadoutWithoutEval as never);
-		expect(changesWithoutEval?.descriptions?.bash).toBeUndefined();
-	});
-
-	test("background Bash tools declare appropriate annotations", () => {
-		const host = toolHost();
-		const state = createToolsRuntimeState();
-		registerBgBashTools(host.pi, state);
-
-		const listTasks = toolFor(host.tools, "bg_bash_get");
-		const stopTasks = toolFor(host.tools, "bg_bash_stop");
-
-		expect(listTasks.annotations).toEqual({ readOnlyHint: true, idempotentHint: true });
-		expect(stopTasks.annotations).toEqual({ destructiveHint: true });
-	});
-
-	test("python_eval prompt guidelines describe nested tool return types aligned with codemode", () => {
-		const guidelines = pythonEvalPromptGuidelines();
-		expect(
-			guidelines.some((line) =>
-				line.includes("nested tools return text strings, or structured dicts"),
-			),
-		).toBe(true);
-		expect(
-			guidelines.some((line) =>
-				line.includes("Call nested tools as `tools.name(...)` with kwargs or a dict."),
-			),
-		).toBe(true);
-	});
-
-	test("python_eval tool declares exposure: model-only so it survives codemode.mode = only", () => {
-		const evalTool = createPythonEvalTool(createEvalRuntimeState(), {} as never);
-		expect(evalTool.exposure).toBe("model-only");
-
-		// Simulate upstream codemode prepareCodemodeLoadout behavior under mode === "only"
-		const isDirect = (tool: { exposure?: string }) => tool.exposure === "direct";
-		const directTool = { name: "read", exposure: "direct" as const };
-		const tools = [directTool, evalTool];
-
-		// Upstream only hides tools whose exposure is "direct"
-		const hiddenDeclarations = tools.filter((tool) => isDirect(tool)).map((tool) => tool.name);
-
-		expect(hiddenDeclarations).toContain("read");
-		expect(hiddenDeclarations).not.toContain("python_eval");
 	});
 });

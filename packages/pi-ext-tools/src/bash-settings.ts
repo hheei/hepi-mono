@@ -1,15 +1,15 @@
 import {
 	createJsonSettingsStorage,
+	defaultShellPath,
 	type SettingsContext,
 	type SettingsProvider,
 	type SettingsState,
 } from "@hheei/pi-ext-core";
-import { defaultShellPath } from "./bash-jobs.js";
 
 const BASH_GROUP = "bash";
 const BASH_SETTINGS_DESCRIPTIONS = {
-	shellPath: "Select system shell used by extension-owned asynchronous Bash jobs.",
-	outputTail: "Visible Bash output retained in each result tail.",
+	shellPath: "Shell that runs the bash tool and background Bash jobs.",
+	outputTail: "Visible output retained in each Bash result and job record.",
 } as const;
 
 export interface BashSettingsProviderOptions {
@@ -77,7 +77,7 @@ export function createBashSettingsProvider(
 		id: "pi-ext-tools.bash",
 		title: "Bash",
 		origin: "@hheei/pi-ext-tools",
-		description: "Configure extension-owned Bash behavior.",
+		description: "Configure the Bash tool and background Bash jobs.",
 		groups: [
 			{
 				id: BASH_GROUP,

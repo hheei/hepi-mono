@@ -13,17 +13,11 @@ import {
 	agentResultText,
 	getRegisteredToolPresentationProvider,
 	getToolPresentationProvider,
+	hasOptionalToolRenderers,
+	type ToolPresentation,
 	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
-import { applyPatchGlyph } from "./apply-patch-glyph.js";
-import { previewV4aOperations, type V4aPreviewCursor } from "./apply-patch-preview.js";
-import {
-	type ApplyPatchRejectionView,
-	type ApplyPatchSnapshotView,
-	applyPatchFacts,
-	formatApplyPatchOperationRow,
-} from "./apply-patch-view.js";
-import { type DiffLine, DiffView, diffStats } from "./diff-view.js";
+import { DiffView } from "./diff-view.js";
 import { NestedCallsView } from "./nested-calls-view.js";
 import {
 	type FoldLevel,
@@ -43,14 +37,12 @@ import {
 
 export type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
-/** Tools with a pi-ext-ui-owned renderer. Other tools stay on Pi's renderer. */
-export const SPECIALIZED_TOOL_RENDERERS = [
-	"edit",
-	"write",
-	"apply_patch",
-	"python_eval",
-	"codemode",
-] as const;
+/**
+ * Upstream tools whose call and result views pi-ext-ui still frames itself. Concrete tool packages
+ * own their own presentation through ext-core's optional renderer point, so their names never
+ * appear here.
+ */
+export const SPECIALIZED_TOOL_RENDERERS = ["codemode"] as const;
 
 export type SpecializedToolRendererName = (typeof SPECIALIZED_TOOL_RENDERERS)[number];
 
@@ -60,12 +52,7 @@ export const WEB_ACCESS_TOOLS = ["web_search", "web_fetch", "web_open"] as const
 export type WebAccessToolName = (typeof WEB_ACCESS_TOOLS)[number];
 
 import {
-	APPLY_PATCH_TOOL_NAME,
 	callStatsParts,
-	EDIT_TOOL_NAME,
-	type EvalRow,
-	editDiffSource,
-	editPath,
 	estimateStreamingTokens,
 	extractHeavyInputCommand,
 	extractNestedCalls,
@@ -73,19 +60,11 @@ import {
 	extractSummaryArg,
 	formatCostUsd,
 	formatDurationMs,
-	formatTimeoutFact,
 	inlinePresentation,
 	isRecord,
-	lineHunks,
 	type NestedCallRecord,
-	PYTHON_EVAL_TOOL_NAME,
-	patchSummary,
-	patchTextForCopy,
-	pythonEvalFacts,
 	resolveContainerStatus,
 	toolPath,
-	WRITE_TOOL_NAME,
-	writePresentation,
 } from "./payload-parser.js";
 
 export {
@@ -94,8 +73,6 @@ export {
 	type NestedCallRecord,
 } from "./payload-parser.js";
 
-const APPLY_PATCH_PREVIEW_STATE_KEY = "__piExtUiApplyPatchPreview";
-const PYTHON_EVAL_TOOL_TITLE = "python_eval";
 const SPECIALIZED_TOOL_SET: ReadonlySet<string> = new Set(SPECIALIZED_TOOL_RENDERERS);
 const WEB_ACCESS_TOOL_SET: ReadonlySet<string> = new Set(WEB_ACCESS_TOOLS);
 const CALL_VIEW_STATE_KEY = "__piExtUiCallView";
@@ -110,7 +87,6 @@ export interface CollapsibleToolRendererOptions {
 
 function detectCodeLanguage(toolName: string): string | undefined {
 	if (toolName === "bash") return "bash";
-	if (toolName === "python_eval") return "python";
 	if (toolName === "codemode") return "javascript";
 	return undefined;
 }
@@ -167,18 +143,16 @@ function rememberCallView(context: ToolRenderContext, view: ToolView): void {
 }
 
 /**
- * A result view takes over from the call view. A container tool yields on any result,
- * because its own row would duplicate the nested rows and output it now carries; every
- * other tool keeps its call row until the final result.
+ * A result view takes over from the call view. A container tool yields on any result, because its
+ * own row would duplicate the nested rows and output it now carries; every other tool keeps its
+ * call row until the final result. A provider states that for its own tool, so no name is involved.
  */
-function hideCallView(context: ToolRenderContext, toolName: string, isPartial: boolean): void {
-	if (
-		toolName !== "codemode" &&
-		toolName !== PYTHON_EVAL_TOOL_NAME &&
-		toolName !== APPLY_PATCH_TOOL_NAME &&
-		isPartial
-	)
-		return;
+function hideCallView(
+	context: ToolRenderContext,
+	replaceCallOnPartial: boolean,
+	isPartial: boolean,
+): void {
+	if (!replaceCallOnPartial && isPartial) return;
 	const view = isRecord(context.state) ? context.state[CALL_VIEW_STATE_KEY] : undefined;
 	if (view instanceof ToolView) view.hide();
 }
@@ -209,449 +183,6 @@ function formatNestedCallRow(call: NestedCallRecord, theme: Theme): string {
 	);
 }
 
-function renderEditResult(params: {
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly result: AgentToolResult<unknown>;
-	readonly renderOptions: ToolRenderResultOptions;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView {
-	const { theme, context, result, renderOptions, defaultLevel, options } = params;
-	const path = editPath(context.args);
-	const isError = context.isError || result.isError;
-	const source = isError ? undefined : editDiffSource(result.details);
-	const stats = source === undefined ? undefined : diffStats(source);
-	const summaryParts = [
-		stats === undefined ? path : `${path} (+${String(stats.added)} -${String(stats.removed)})`,
-	];
-	const durText = formatDurationMs(context.durationMs);
-	if (durText !== "") summaryParts.push(durText);
-	const summary = summaryParts.join(" · ");
-	const output = stripTerminalSequences(extractResultText(EDIT_TOOL_NAME, result).outputText);
-	const patch = patchTextForCopy(result.details);
-	// A successful edit hides the top-level check mark; the diff body carries the change.
-	const status: ToolStatusKind = isError
-		? "error"
-		: renderOptions.isPartial
-			? "running"
-			: source !== undefined
-				? "none"
-				: "ok";
-	const sections: RailSection[] =
-		source === undefined
-			? output === ""
-				? []
-				: [{ railToken: isError ? "error" : "dim", content: output }]
-			: [{ railToken: "dim", content: new DiffView({ theme, source }) }];
-	const copy: ToolViewCopySpec | undefined =
-		patch !== undefined ? { primary: patch } : output !== "" ? { primary: output } : undefined;
-
-	return new ToolView({
-		theme,
-		header: { title: EDIT_TOOL_NAME, status, summary },
-		sections,
-		copy,
-		outputPad: context.outputPad,
-		stateHolder: context.state,
-		defaultLevel,
-		globalExpanded: renderOptions.expanded,
-		invalidate: () => context.invalidate(),
-		copyToClipboard: options?.copyToClipboard,
-	});
-}
-
-function renderWriteResult(params: {
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly result: AgentToolResult<unknown>;
-	readonly renderOptions: ToolRenderResultOptions;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView {
-	const { theme, context, result, renderOptions, defaultLevel, options } = params;
-	const path = toolPath(context.args);
-	const isError = context.isError || result.isError;
-	const presentation = isError ? undefined : writePresentation(context.args, result.details);
-	const output = stripTerminalSequences(extractResultText(WRITE_TOOL_NAME, result).outputText);
-	const baseSummary =
-		presentation?.kind === "diff"
-			? `${path} (+${String(presentation.added)} -${String(presentation.removed)})`
-			: presentation?.kind === "content"
-				? `${path} (${presentation.label})`
-				: presentation?.kind === "noChange"
-					? `${path} (no changes)`
-					: path;
-	const durText = formatDurationMs(context.durationMs);
-	const summaryParts = [baseSummary];
-	if (durText !== "") summaryParts.push(durText);
-	const summary = summaryParts.join(" · ");
-	const sections: RailSection[] =
-		presentation?.kind === "diff"
-			? [{ railToken: "dim", content: new DiffView({ theme, source: presentation.source }) }]
-			: presentation?.kind === "content"
-				? [{ railToken: "dim", content: presentation.content }]
-				: output === ""
-					? []
-					: [{ railToken: isError ? "error" : "dim", content: output }];
-	const copyText =
-		presentation?.kind === "content"
-			? presentation.content
-			: presentation?.kind === "diff"
-				? undefined
-				: output;
-	return new ToolView({
-		theme,
-		header: {
-			title: WRITE_TOOL_NAME,
-			status: isError
-				? "error"
-				: renderOptions.isPartial
-					? "running"
-					: presentation?.kind === "diff"
-						? "none"
-						: presentation?.kind === "noChange"
-							? "none"
-							: "ok",
-			summary,
-		},
-		sections,
-		copy: copyText !== undefined && copyText !== "" ? { primary: copyText } : undefined,
-		outputPad: context.outputPad,
-		stateHolder: context.state,
-		defaultLevel,
-		globalExpanded: renderOptions.expanded,
-		invalidate: () => context.invalidate(),
-		copyToClipboard: options?.copyToClipboard,
-	});
-}
-
-/** A nested file-tool row keeps its tool name; other tools degrade to name plus bounded args. */
-function formatEvalToolRow(row: Extract<EvalRow, { kind: "tool" }>, theme: Theme): string {
-	const isError = row.error !== undefined;
-	const inline = inlinePresentation(row.name, row.args, undefined, isError);
-	const summary =
-		typeof row.args === "string" && row.args.trim() !== ""
-			? stripTerminalSequences(row.args.trim())
-			: "";
-	const truncated = summary.length > 72 ? `${summary.slice(0, 69)}…` : summary;
-	return formatToolHeaderText(
-		{
-			status: isError ? "error" : "ok",
-			title: row.name,
-			summary: [inline?.summary ?? truncated, formatDurationMs(row.durationMs)]
-				.filter(Boolean)
-				.join(" · "),
-		},
-		theme,
-	);
-}
-
-function renderPythonEvalResult(params: {
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly result: AgentToolResult<unknown>;
-	readonly renderOptions: ToolRenderResultOptions;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView {
-	const { theme, context, result, renderOptions, defaultLevel, options } = params;
-	const facts = pythonEvalFacts(result.details);
-	const isError = (context.isError ?? false) || (result.isError ?? false);
-	const toolRows =
-		facts?.rows.filter((row): row is Extract<EvalRow, { kind: "tool" }> => row.kind === "tool") ??
-		[];
-	const anyToolError = toolRows.some((row) => row.error !== undefined);
-	const failed = isError || facts?.error !== undefined || anyToolError;
-
-	const status = resolveContainerStatus({
-		isError,
-		isPartial: renderOptions.isPartial === true,
-		hasChildren: toolRows.length > 0,
-		selfFailed: failed && !anyToolError,
-	});
-
-	const parts: string[] = [];
-	if (isRecord(context.args)) {
-		if (context.args.reset === true) parts.push("(reset)");
-		if (typeof context.args.timeout_ms === "number")
-			parts.push(formatTimeoutFact(context.args.timeout_ms));
-	}
-	if (facts !== undefined) {
-		if (toolRows.length > 0) {
-			const failCount = toolRows.filter((row) => row.error !== undefined).length;
-			parts.push(...callStatsParts(toolRows.length, failCount));
-		} else if (facts.rows.length > 0) {
-			parts.push(`${String(facts.rows.length)} ${facts.rows.length === 1 ? "row" : "rows"}`);
-		}
-	}
-	const durText = formatDurationMs(context.durationMs);
-	if (durText !== "") parts.push(durText);
-	const summary = parts.join(" · ");
-
-	const collapsedRows =
-		toolRows.length > 0 ? toolRows.map((row) => formatEvalToolRow(row, theme)) : undefined;
-
-	const code = extractHeavyInputCommand(PYTHON_EVAL_TOOL_NAME, context.args);
-	const inputSection = createInputCodeSection(PYTHON_EVAL_TOOL_NAME, context.args, theme);
-	const sections: RailSection[] = inputSection !== undefined ? [inputSection] : [];
-
-	if (facts !== undefined) {
-		const outputRows: string[] = [];
-		for (const row of facts.rows) {
-			if (row.kind === "tool") {
-				outputRows.push(formatEvalToolRow(row, theme));
-			} else if (row.kind === "state") {
-				// The namespace report is metadata about the cell, not its output, so it stays muted.
-				outputRows.push(theme.fg("muted", row.text));
-			} else if (row.kind === "display" || row.kind === "result") {
-				const prefix = theme.fg("dim", `${row.kind}:`);
-				const lines = row.text.replace(/\r/g, "").split("\n");
-				for (let i = 0; i < lines.length; i++) {
-					const lineText = theme.fg("dim", lines[i] ?? "");
-					outputRows.push(i === 0 ? `${prefix} ${lineText}` : `  ${lineText}`);
-				}
-			} else if (row.text !== "") {
-				const lines = row.text.replace(/\r/g, "").split("\n");
-				outputRows.push(...lines.map((l) => (isError ? theme.fg("error", l) : theme.fg("dim", l))));
-			}
-		}
-		if (outputRows.length > 0) {
-			sections.push({
-				railToken: isError ? "error" : "success",
-				content: outputRows,
-			});
-		}
-	} else {
-		const output = stripTerminalSequences(
-			extractResultText(PYTHON_EVAL_TOOL_NAME, result).outputText,
-		);
-		if (output !== "") {
-			const rawLines = output.split("\n");
-			const outputLines = isError
-				? rawLines.map((l) => theme.fg("error", l))
-				: rawLines.map((l) => theme.fg("dim", l));
-			sections.push({ railToken: isError ? "error" : "success", content: outputLines });
-		}
-	}
-
-	const output = stripTerminalSequences(
-		extractResultText(PYTHON_EVAL_TOOL_NAME, result).outputText,
-	);
-	const copy: ToolViewCopySpec | undefined =
-		code !== undefined && code !== ""
-			? { primary: code, full: output !== "" ? `${code}\n---\n${output}` : code }
-			: output !== ""
-				? { primary: output }
-				: undefined;
-
-	return new ToolView({
-		theme,
-		header: {
-			title: PYTHON_EVAL_TOOL_TITLE,
-			status,
-			summary,
-		},
-		collapsedRows,
-		sections,
-		copy,
-		outputPad: context.outputPad,
-		stateHolder: context.state,
-		defaultLevel,
-		globalExpanded: renderOptions.expanded,
-		invalidate: () => context.invalidate(),
-		copyToClipboard: options?.copyToClipboard,
-	});
-}
-
-/**
- * Streaming call view: operation headers recognized from the patch prefix
- * preview as pending rows. `󰄰` only marks a recognized header — it promises
- * neither validation nor application.
- */
-function renderApplyPatchCallView(params: {
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView {
-	const { theme, context, defaultLevel, options } = params;
-	const patch =
-		isRecord(context.args) && typeof context.args.patch === "string" ? context.args.patch : "";
-	const host =
-		isRecord(context.args) &&
-		typeof context.args.target === "string" &&
-		context.args.target !== "local"
-			? context.args.target
-			: undefined;
-
-	// The preview cursor lives in the shared render state so each streamed update
-	// only processes new lines; an absent state degrades to a one-shot preview.
-	const state = isRecord(context.state) ? context.state : undefined;
-	const cursor = state?.[APPLY_PATCH_PREVIEW_STATE_KEY];
-	const stored =
-		typeof cursor === "object" && cursor !== null ? (cursor as V4aPreviewCursor) : undefined;
-	const operations = previewV4aOperations(patch, context.argsComplete === true, stored);
-	if (state !== undefined && stored !== undefined) {
-		state[APPLY_PATCH_PREVIEW_STATE_KEY] = stored;
-	}
-
-	const files = new Set(operations.map((operation) => operation.path)).size;
-	const summary =
-		files > 0
-			? patchSummary(
-					files,
-					operations.reduce((sum, operation) => sum + operation.addedLines, 0),
-					operations.reduce((sum, operation) => sum + operation.removedLines, 0),
-				)
-			: "";
-	const rows = operations.map((operation) =>
-		formatApplyPatchOperationRow(
-			{
-				operationIndex: 0,
-				kind: operation.kind,
-				path: operation.path,
-				addedLines: operation.addedLines,
-				removedLines: operation.removedLines,
-				status: "pending",
-				appliedHunks: undefined,
-				totalHunks: undefined,
-				partialReason: undefined,
-			},
-			theme,
-			host,
-		),
-	);
-	return new ToolView({
-		theme,
-		header: {
-			title: APPLY_PATCH_TOOL_NAME,
-			status: context.isError ? "error" : "none",
-			summary,
-		},
-		collapsedRows: rows,
-		sections: [{ railToken: "dim", content: rows }],
-		copy: patch !== "" ? { primary: patch } : undefined,
-		outputPad: context.outputPad,
-		stateHolder: context.state,
-		defaultLevel,
-		globalExpanded: context.expanded,
-		invalidate: () => context.invalidate(),
-		copyToClipboard: options?.copyToClipboard,
-	});
-}
-
-function renderApplyPatchResultView(params: {
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly result: AgentToolResult<unknown>;
-	readonly renderOptions: ToolRenderResultOptions;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView {
-	const { theme, context, result, renderOptions, defaultLevel, options } = params;
-	const facts = applyPatchFacts(result.details);
-	const isError = context.isError || result.isError;
-	const host = facts?.target;
-
-	// The aggregated status is the executor's fact; success hides the top glyph.
-	const status: ToolStatusKind =
-		facts === undefined
-			? isError
-				? "error"
-				: renderOptions.isPartial
-					? "running"
-					: "ok"
-			: facts.status === "failed"
-				? "error"
-				: facts.status === "partial"
-					? "warn"
-					: "none";
-
-	const output = stripTerminalSequences(
-		extractResultText(APPLY_PATCH_TOOL_NAME, result).outputText,
-	);
-	const parts: string[] = [];
-	if (facts !== undefined) {
-		parts.push(
-			patchSummary(new Set(facts.changedPaths).size, facts.addedLines, facts.removedLines),
-		);
-	}
-	const durText = formatDurationMs(context.durationMs);
-	if (durText !== "") parts.push(durText);
-	const summary = parts.join(" · ");
-
-	const rows =
-		facts === undefined
-			? []
-			: facts.operations.map((operation) => formatApplyPatchOperationRow(operation, theme, host));
-
-	const sections: RailSection[] = rows.length > 0 ? [{ railToken: "dim", content: rows }] : [];
-	if (facts === undefined && output !== "") {
-		sections.push({ railToken: isError ? "error" : "dim", content: output });
-	} else if (facts !== undefined) {
-		for (const snapshot of facts.snapshots) {
-			const hunks = snapshotHunks(snapshot);
-			if (hunks !== undefined && hunks.length > 0) {
-				sections.push({
-					railToken: "dim",
-					content: new DiffView({ theme, source: { kind: "hunks", hunks } }),
-				});
-			}
-		}
-		const diagnosis = (
-			entries: readonly ApplyPatchRejectionView[],
-			glyphStatus: string,
-		): string[] =>
-			entries.flatMap((entry) => [
-				`${applyPatchGlyph(glyphStatus, theme)} ${entry.paths[0] ?? "<unknown>"} · ${entry.error}`,
-				...entry.diagnostics.map(
-					(diagnostic) =>
-						`${applyPatchGlyph(glyphStatus, theme)} ${entry.paths[0] ?? "<unknown>"} · ${diagnostic.text}`,
-				),
-			]);
-		const failureRows = [
-			...diagnosis(facts.rejected, "rejected"),
-			...diagnosis(facts.unconfirmed, "unconfirmed"),
-			...diagnosis(facts.notApplied, "not_applied"),
-		];
-		if (failureRows.length > 0) {
-			sections.push({ railToken: "error", content: failureRows });
-		}
-	}
-
-	const patch =
-		isRecord(context.args) && typeof context.args.patch === "string" ? context.args.patch : "";
-	const copy: ToolViewCopySpec | undefined =
-		patch !== ""
-			? { primary: patch, full: output !== "" ? `${patch}\n---\n${output}` : patch }
-			: output !== ""
-				? { primary: output }
-				: undefined;
-
-	return new ToolView({
-		theme,
-		header: { title: APPLY_PATCH_TOOL_NAME, status, summary },
-		collapsedRows: rows.length > 0 ? rows : undefined,
-		sections,
-		copy,
-		outputPad: context.outputPad,
-		stateHolder: context.state,
-		defaultLevel,
-		globalExpanded: renderOptions.expanded,
-		invalidate: () => context.invalidate(),
-		copyToClipboard: options?.copyToClipboard,
-	});
-}
-
-/** Hunks of one stored before/after snapshot; no file context is invented. */
-function snapshotHunks(
-	snapshot: ApplyPatchSnapshotView,
-): readonly { readonly lines: readonly DiffLine[] }[] | undefined {
-	if (snapshot.before.length === 0 && snapshot.after.length === 0) return undefined;
-	return lineHunks(snapshot.before.join("\n"), snapshot.after.join("\n"), snapshot.startLine);
-}
-
 function shouldInterceptTool(
 	toolName: string,
 	options: CollapsibleToolRendererOptions | undefined,
@@ -667,23 +198,6 @@ function shouldInterceptTool(
 		return toolList.includes(toolName);
 	}
 	return SPECIALIZED_TOOL_SET.has(toolName) || WEB_ACCESS_TOOL_SET.has(toolName);
-}
-
-function renderSpecializedResult(params: {
-	readonly toolName: string;
-	readonly theme: Theme;
-	readonly context: ToolRenderContext;
-	readonly result: AgentToolResult<unknown>;
-	readonly renderOptions: ToolRenderResultOptions;
-	readonly defaultLevel: FoldLevel;
-	readonly options: CollapsibleToolRendererOptions | undefined;
-}): ToolView | undefined {
-	const { toolName } = params;
-	if (toolName === EDIT_TOOL_NAME) return renderEditResult(params);
-	if (toolName === WRITE_TOOL_NAME) return renderWriteResult(params);
-	if (toolName === PYTHON_EVAL_TOOL_NAME) return renderPythonEvalResult(params);
-	if (toolName === APPLY_PATCH_TOOL_NAME) return renderApplyPatchResultView(params);
-	return undefined;
 }
 
 function renderGenericResult(params: {
@@ -802,7 +316,7 @@ function renderGenericResult(params: {
 								if (provider !== undefined) {
 									return renderOwnedPresentation({
 										toolName: childName,
-										provider,
+										presentation: provider(childCtx.args, childResult, childTheme, childCtx),
 										result: childResult,
 										theme: childTheme,
 										context: childCtx,
@@ -810,16 +324,6 @@ function renderGenericResult(params: {
 										options,
 									});
 								}
-								const specialized = renderSpecializedResult({
-									toolName: childName,
-									theme: childTheme,
-									context: childCtx,
-									result: childResult,
-									renderOptions: childOptions,
-									defaultLevel: childOptions.expanded ? 2 : 1,
-									options,
-								});
-								if (specialized !== undefined) return specialized;
 
 								return renderGenericResult({
 									toolName: childName,
@@ -961,39 +465,49 @@ function renderGenericResult(params: {
 	});
 }
 
+/**
+ * The generic frame around one owner's presentation. The caller already resolved it, so a frame
+ * pass never asks the tool to rebuild its rows.
+ */
 function renderOwnedPresentation(params: {
 	readonly toolName: string;
-	readonly provider: ToolPresentationProvider;
+	readonly presentation: ToolPresentation;
 	readonly result?: AgentToolResult<unknown>;
 	readonly theme: Theme;
 	readonly context: ToolRenderContext;
 	readonly defaultLevel: FoldLevel;
 	readonly options: CollapsibleToolRendererOptions | undefined;
 }): ToolView {
-	const { toolName, provider, result, theme, context, defaultLevel, options } = params;
-	const presentation = provider(context.args, result, theme);
+	const { toolName, presentation, result, theme, context, defaultLevel, options } = params;
 	const isError = context.isError || result?.isError === true;
 	const pending = result === undefined || context.isPartial;
 	const isDiff = !isError && !pending && presentation.kind === "diff";
-	const status: ToolStatusKind = isError
-		? "error"
-		: pending
-			? context.argsComplete
-				? "running"
-				: "streaming"
-			: isDiff
-				? "none"
-				: "ok";
+	// The tool owns its status: a container says "none" for a child's failure and a partial patch
+	// says "warn" even though the host marks the result failed. Only a provider without an opinion
+	// falls back to the frame's own reading of the execution.
+	const status: ToolStatusKind =
+		presentation.status ??
+		(isError
+			? "error"
+			: pending
+				? context.argsComplete
+					? "running"
+					: "streaming"
+				: isDiff
+					? "none"
+					: "ok");
 	const railToken: RailColorToken = isError ? "error" : pending ? "accent" : "success";
 	const output =
 		isError && result !== undefined
 			? agentResultText(result)
 			: (presentation.output ?? (result === undefined ? "" : agentResultText(result)));
-	const sections: RailSection[] = [];
-	if (presentation.request) {
+	const sections: RailSection[] = [...(presentation.sections ?? [])];
+	if (presentation.sections === undefined && presentation.request) {
 		sections.push({ railToken: "muted", content: stripTerminalSequences(presentation.request) });
 	}
-	if (isDiff) {
+	if (presentation.sections !== undefined) {
+		// Tool owns domain rows; this factory owns the frame and interaction only.
+	} else if (isDiff) {
 		if (presentation.diff.trim() !== "") {
 			sections.push({
 				railToken: "dim",
@@ -1029,13 +543,15 @@ function renderOwnedPresentation(params: {
 		theme,
 		header: { title: toolName, status, summary },
 		railToken,
+		// The tool owns the folded rows and their tones; the frame only sanitizes them for the host.
 		collapsedRows:
-			isError && output !== ""
+			presentation.collapsedRows ??
+			(isError && output !== ""
 				? output
 						.split("\n")
 						.slice(0, 1)
 						.map((line) => theme.fg("error", stripTerminalSequences(line)))
-				: presentation.collapsedRows?.map(stripTerminalSequences),
+				: undefined),
 		sections,
 		copy,
 		outputPad: context.outputPad,
@@ -1061,6 +577,7 @@ function createRendererResolver(
 
 	return (toolName: string, next: () => ToolRenderers | undefined): ToolRenderers | undefined => {
 		const upstream = next();
+		if (hasOptionalToolRenderers(upstream)) return upstream;
 		const provider = getToolPresentationProvider(upstream) ?? resolvePresentation?.(toolName);
 		if (provider === undefined && !shouldInterceptTool(toolName, options)) {
 			return upstream;
@@ -1073,47 +590,18 @@ function createRendererResolver(
 			renderShell: "self",
 			renderCall(args, theme, context) {
 				if (provider !== undefined) {
+					const callContext = { ...context, args };
 					const view = renderOwnedPresentation({
 						toolName,
-						provider,
+						presentation: provider(args, undefined, theme, callContext),
 						theme,
-						context: { ...context, args },
+						context: callContext,
 						defaultLevel,
 						options,
 					});
 					rememberCallView(context, view);
 					return view;
 				}
-				if (toolName === APPLY_PATCH_TOOL_NAME) {
-					const view = renderApplyPatchCallView({
-						theme,
-						context: { ...context, args },
-						defaultLevel,
-						options,
-					});
-					rememberCallView(context, view);
-					return view;
-				}
-				if (toolName === EDIT_TOOL_NAME) {
-					const path = editPath(args);
-					const view = new ToolView({
-						theme,
-						header: {
-							title: EDIT_TOOL_NAME,
-							status: context.isError ? "error" : "running",
-							summary: path,
-						},
-						outputPad: context.outputPad,
-						stateHolder: context.state,
-						defaultLevel,
-						globalExpanded: context.expanded,
-						invalidate: () => context.invalidate(),
-						copyToClipboard: options?.copyToClipboard,
-					});
-					rememberCallView(context, view);
-					return view;
-				}
-
 				const isStreamingArgs = context.isPartial && !context.argsComplete;
 				const status: ToolStatusKind = context.isError
 					? "error"
@@ -1180,33 +668,32 @@ function createRendererResolver(
 				return view;
 			},
 			renderResult(result, renderOptions, theme, context) {
-				hideCallView(context, toolName, renderOptions.isPartial);
-				if (provider !== undefined) {
+				const resultContext = {
+					...context,
+					expanded: renderOptions.expanded,
+					isPartial: renderOptions.isPartial,
+				};
+				const presentation =
+					provider === undefined
+						? undefined
+						: provider(resultContext.args, result, theme, resultContext);
+				// Without an owner, a container frame is the only name-based decision left, and it
+				// belongs to upstream codemode.
+				const replacesCallOnPartial =
+					presentation?.replaceCallOnPartial === true ||
+					(presentation === undefined && SPECIALIZED_TOOL_SET.has(toolName));
+				hideCallView(context, replacesCallOnPartial, renderOptions.isPartial);
+				if (presentation !== undefined) {
 					return renderOwnedPresentation({
 						toolName,
-						provider,
+						presentation,
 						result,
 						theme,
-						context: {
-							...context,
-							expanded: renderOptions.expanded,
-							isPartial: renderOptions.isPartial,
-						},
+						context: resultContext,
 						defaultLevel,
 						options,
 					});
 				}
-
-				const specialized = renderSpecializedResult({
-					toolName,
-					theme,
-					context,
-					result,
-					renderOptions,
-					defaultLevel,
-					options,
-				});
-				if (specialized !== undefined) return specialized;
 
 				return renderGenericResult({
 					toolName,
@@ -1223,6 +710,17 @@ function createRendererResolver(
 			},
 		};
 	};
+}
+
+/** UI factory consumed by package-owned direct renderers, independently of host resolver precedence. */
+export function createOptionalToolRendererFactory(
+	pi: ExtensionAPI,
+	options?: CollapsibleToolRendererOptions,
+): import("@hheei/pi-ext-core").ToolRendererFactory {
+	return (name, native) =>
+		createRendererResolver({ ...options, tools: [name] }, (toolName) =>
+			getRegisteredToolPresentationProvider(pi, toolName),
+		)(name, () => native) ?? native;
 }
 
 export function registerCollapsibleToolRenderer(

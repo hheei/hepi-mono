@@ -8,18 +8,16 @@ import {
 	type Theme,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
+	createOptionalToolRenderers,
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
+	withMutationLock,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
-import { withMutationLock } from "./apply-patch/index.js";
-
-import type { ToolsRuntimeState } from "./session-state.js";
 
 export const MAX_HL_CHARS = 256 * 1024;
 export const MAX_RENDER_LINES = 1000;
@@ -337,7 +335,7 @@ export function createWritePresentation(
 
 type TypeBoxSchema = import("typebox").TSchema;
 
-export function registerWriteTool(pi: ExtensionAPI, _state?: ToolsRuntimeState): ToolDefinition {
+export function registerWriteTool(pi: ExtensionAPI): ToolDefinition {
 	const baseTool = createExecutionTool(createWriteToolDefinition) as ToolDefinition<
 		WriteDefinition["parameters"],
 		unknown,
@@ -346,12 +344,16 @@ export function registerWriteTool(pi: ExtensionAPI, _state?: ToolsRuntimeState):
 	const tool: ToolDefinition<typeof WRITE_PARAMETERS, unknown, WriteState> = {
 		...baseTool,
 		parameters: WRITE_PARAMETERS,
+		...createOptionalToolRenderers(
+			pi,
+			"write",
+			createToolPresentationRenderers(pi, "write", createWritePresentation),
+		),
 		annotations: {
 			destructiveHint: true,
 			idempotentHint: true,
 		},
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
-			createToolPresentationRenderers(pi, "write", createWritePresentation);
 			const path = filePath(params);
 
 			return await withMutationLock(context.cwd, signal, async () => {
@@ -366,27 +368,6 @@ export function registerWriteTool(pi: ExtensionAPI, _state?: ToolsRuntimeState):
 					presentation.patch,
 				);
 			});
-		},
-		renderCall(args, theme, renderContext) {
-			const presentationRenderers = createToolPresentationRenderers(
-				pi,
-				"write",
-				createWritePresentation,
-			);
-			return presentationRenderers.renderCall
-				? presentationRenderers.renderCall(args, theme, renderContext)
-				: new Text("", 0, 0);
-		},
-		renderResult(result, _options, theme, context) {
-			if (context.isError) return new Text(agentResultText(result) || "Error", 0, 0);
-			const presentationRenderers = createToolPresentationRenderers(
-				pi,
-				"write",
-				createWritePresentation,
-			);
-			return presentationRenderers.renderResult
-				? presentationRenderers.renderResult(result, _options, theme, context)
-				: new Text("", 0, 0);
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

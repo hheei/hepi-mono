@@ -10,7 +10,7 @@ Shell 命令默认不是 rerun-safe，文件修改、网络请求等副作用无
 
 ## Ownership 与控制流
 
-pi-ext-tools 的 BashJobRegistry 继续拥有当前进程、timeout、清理、输出和执行记录。内部 BashExecutionLedger 保存后台执行快照；调用方不操作 PID 或修补状态。BackgroundDelivery 只协调父会话唤醒；Pi host 的 session JSONL 证明报告已记录，不能证明模型已读。
+pi-bg-bash 的 BashJobRegistry 继续拥有当前进程、timeout、清理、输出和执行记录。内部 BashExecutionLedger 保存后台执行快照；调用方不操作 PID 或修补状态。BackgroundDelivery 只协调父会话唤醒；Pi host 的 session JSONL 证明报告已记录，不能证明模型已读。
 
 ```text
 bg_bash_spawn → durable intent → shell / log → durable result

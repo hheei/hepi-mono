@@ -1,10 +1,18 @@
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { errorMessage, runCommand, textToolResult, throwIfAborted } from "@hheei/pi-ext-core";
+import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import {
+	createOptionalToolRenderers,
+	errorMessage,
+	isRecord,
+	runCommand,
+	SEARCH_TIMEOUT_MS,
+	textToolResult,
+	throwIfAborted,
+} from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { renderGrepResult } from "./search-renderer.js";
-import { GREP_TIMEOUT_RECOVERY, SEARCH_TIMEOUT_MS } from "./search-timeout.js";
-import type { ToolsRuntimeState } from "./session-state.js";
+import { GREP_TIMEOUT_RECOVERY } from "./search-timeout.js";
 
 function accessDeniedDiagnostics(stderr: string): readonly string[] | undefined {
 	const diagnostics = stderr
@@ -576,7 +584,7 @@ async function runRg(
 	};
 }
 
-export function registerGrepTool(pi: ExtensionAPI, _state: ToolsRuntimeState): ToolDefinition {
+export function registerGrepTool(pi: ExtensionAPI): ToolDefinition {
 	const tool = {
 		name: "grep",
 		label: "grep",
@@ -588,7 +596,16 @@ export function registerGrepTool(pi: ExtensionAPI, _state: ToolsRuntimeState): T
 			readOnlyHint: true,
 			idempotentHint: true,
 		},
-		renderResult: renderGrepResult,
+		...createOptionalToolRenderers(pi, "grep", {
+			renderCall(args, theme) {
+				return new Text(
+					`${theme.fg("toolTitle", "grep")} ${isRecord(args) && typeof args.pattern === "string" ? stripTerminalSequences(args.pattern) : ""}`,
+					0,
+					0,
+				);
+			},
+			renderResult: renderGrepResult,
+		}),
 		async execute(
 			_toolCallId: string,
 			params: GrepParams,

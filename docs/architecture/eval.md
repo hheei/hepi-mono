@@ -1,115 +1,53 @@
-# Eval 架构
+# Python Eval 架构
 
-> 状态：已同意 kernel/exposition 边界；模型可见 Exposition 固定为 Python kernel。术语以 [CONTEXT.md](../../CONTEXT.md) 为准。
+状态：已实现 `python_eval`；包边界见[工具拆包规格](tool-packages.md)。
 
-## 目标与边界
+## 目标与 ownership
 
-`pi-ext-tools` 拥有 Eval。它让用户显式启用后，在当前 Pi session 里执行 trusted local Python。Bun host 的 JavaScript/TypeScript kernel 只保留给内部兼容性 smoke，不在模型工具目录中暴露。`@hheei/pi-ext-core` 不拥有语言 runtime、subprocess 或 Nested Tool 政策。
+`pi-python-eval` 独立拥有 Python kernel、NDJSON 协议、cell 状态、嵌套工具策略与输出转换。`python_eval` 默认 inactive、exposure 为 `model-only`；显式启用后执行可信本地 Python，不提供 sandbox。`codemode` 属于 Pi host，与 Python package 独立。ext-core 不拥有语言 runtime、子进程或嵌套工具政策。
 
-Eval 分成两层，避免以后做 Code Mode 时再换 runtime：
+具体 extension 之间没有依赖。Python 不保存其他 extension 的 ToolDefinition，不建立第二套工具 registry；嵌套调用全部经过当前 `ExtensionToolContext.executeTool`。Pi host 负责 schema 校验、hooks、权限和实际执行，Python bridge 负责固定允许列表、active 检查、trace 与脚本返回值。
 
-1. **Eval Kernel**：可杀的 per-language 子进程，持久 scope，按注入表做 Nested Tool invoke。
-2. **Eval Exposition**：决定模型看得到哪些 provider schema。
+## 请求与生命周期
 
-v1 是 Sibling Exposition：`eval` 与 read/grep/find/bash/Edit Mode 并列。之后的 Code Mode Exposition 共用同一 Kernel，只改模型可见工具、prompt 注入，以及可选的 `wait`；不引入 Rust V8、Jupyter 或第二套 JS/Py 执行器。
+请求为 `{ code: string, reset?: boolean, timeout_ms?: number }`。`code` 非空，最多 1 MiB；`reset` 在执行前丢掉 kernel 与 scope。`timeout_ms` 是整个 cell 的墙钟硬截止，正整数 1..2147483647，省略则没有 deadline；嵌套工具耗时计入。始终使用当前 session cwd，不接受 language、cwd、后台执行或 wait 参数。
 
-Eval 不是 sandbox。Kernel 隔离是为了可杀与语言后端，不是安全承诺。
+每个 session 一个 Eval runtime，最多一个 Python kernel 和一个活动 cell。并发执行立即 busy，不排队或共享 cell。变量仅活在 kernel 内存；session 结束、reload、resume 时清理，不恢复语言内存。取消同时 abort 嵌套调用，并向 Python 发 SIGINT；约 5 秒后仍不退出则 SIGKILL 并丢弃 scope。软取消保留能继续工作的 kernel。
 
-## 公开契约（Sibling v1）
+配置保留 `ext_settings.json` 的 `eval` group 与 `pythonBin`。空值使用 PATH 的 `python3` 或 `python`，要求 Python 3.9+；无效路径在首次执行时报错。provider ID 和 origin 使用新包 owner，不增加旧 ID alias。
 
-Sibling v1 的 public request：
-
-```ts
-{ code: string, reset?: boolean, timeout_ms?: number }
-```
-
-模型可见 Eval 固定使用 Python kernel。`code` 非空且最多 1 MiB。`reset: true` 在跑之前丢掉 Python kernel 与 scope。`timeout_ms` 与 codemode 的同名 option 同名同义：可选正整数毫秒（1..2147483647），schema 文案为 `Hard deadline for the whole cell, in milliseconds. Unset by default.`；省略则没有 deadline，`0` 或越界由 schema 拒绝。它是整个 cell 的墙钟硬截止，nested tool 调用同样计入，不因等待 nested tool 而暂停。没有 `language`、`title`、`target`、`cwd`、yield 或模型路由参数。始终使用当前 session cwd。v1 不注册 `wait`。`title` 暂不做。
-
-模型可见 Python kernel 使用 CPython 3.9+ 与持久 namespace，共用 NDJSON 协议。Bun host 的内部 JavaScript/TypeScript kernel 保留给兼容性 smoke，不由模型请求。每次 execute 带 `cell_id`；v1 阻塞到 cell 结束。取消先中断 cell：Python `SIGINT`，内部 JavaScript 在 await 边界 cancel。cell 停下则保留对应 kernel 与 scope；约 5 秒后仍不停则 SIGKILL，丢掉对应 scope。session dispose 仍杀掉全部 kernel。
-
-Python：模型可见的唯一语言；同一 Nested Tool / print / display / cwd 语义；无 notebook、ipykernel 或隐式 pip。
-JavaScript/TypeScript：仅限 Bun host 内部兼容性 smoke；支持 top-level `await`；无 TypeScript、static/dynamic import、`require`。
-
-Kernel 子进程不继承 `*_API_KEY` / `*_TOKEN` / `*_SECRET`。Python 把 session cwd 放进 `sys.path[0]`。Python fd 1 与 NDJSON 分离，子进程 stdout 进 Transcript 而不是协议。未捕获错误带 capped traceback。
-
-fd 1 的排空用 drain token 屏障而不是轮询启发式：cell 结束前往私有 write fd 写一个随机 token，背景 drain 线程读到它才把此前的字节全部送完，`done` 之后才发。因此 C 扩展、子进程或 `os.write` 的迟到字节不会被误判成「已排空」，也不会串到下一个 cell 的 row 里。
-
-每个 cell 开始时把 cwd 设回 session cwd。JavaScript 把 `process.stdout` / `process.stderr` 的 write 转进 Transcript。soft-cancel 清除该 JS kernel 上尚未触发的 timer。POSIX 上 kernel 在 host 消失后退出。`PYTHONPATH` 与 `LD_LIBRARY_PATH` 会传给 kernel。
-
-NDJSON 单行超过约 1 MiB 时该语言 kernel 失败。details 最多保留 200 行、每行文本最多 4,000 字符；超出该行数的部分只由一行 `… N more output row(s) omitted` 记录。model-visible `content` 由这些行拼成，封顶 12,000 字符（超出时追加一行 `Eval transcript truncated in tool result.`），不再另存一份 Output 缓冲；失败行与省略提示各占一行、不参与行数上限，因此长输出之后的异常不会被截掉。执行过程通过 `onUpdate` 推送 rows。Python fd 1 由背景线程 drain，避免子进程写满 pipe。
-
-`pi-ext-tools.eval.enabled` 默认 `false`。construction 注册 canonical definition 与 renderer；`session_start` 仅在设置启用时把 `eval` 放进 active catalog 与 Loadout。设置变化只在 reload 或新 session 生效。
-
-`pi-ext-tools.eval.codeMode` 默认 `false`。它是 Code Mode 的独立、静态 opt-in，永不从模型名、provider 或一次 Eval 请求推断。当前只持久化并展示该 activation；Code Mode Exposition 尚未实现，因而启用它不会暗中改变 Sibling Eval 的 catalog、模型 schema 或执行语义。
-
-`pi-ext-tools.eval.pythonBin` 指定 Python kernel 的 interpreter。空值使用 PATH 上的 `python3` 或 `python`。必须是 Python 3.9+；无效路径在第一次 Eval 时失败。同样只在 reload 或新 session 生效。
-
-## Kernel 协议
-
-每个 extension instance 一个 Eval Runtime，拥有每种语言最多一个 Eval Kernel、一把 Eval Lease。并发 `eval` 立即 busy，不排队、不取消、不共享 cell。reload、resume、session cleanup dispose kernel；不恢复语言内存。
+## Kernel 与数据流
 
 ```text
-eval request
-  -> acquire Eval Lease
-  -> kernel.execute({ cell_id, language, code, nested catalog })
-       -> print / console ------------> Eval Transcript
-       -> display(value) -------------> Eval Display Value
-       -> tool.<name>(args) ----------> injected catalog -> canonical execute
-       -> last expression ------------> Eval Final Value
-  -> cell completes | Eval Cancellation terminates cell
-  -> bounded details + optional Output
-  -> release Eval Lease
+python_eval → session runtime → Python kernel
+                                ├─ print/display/final value → transcript
+                                └─ tools.<name>(args) → bridge → Pi host executeTool
+cell done/cancel → bounded persisted details → release active cell
+session shutdown → dispose kernel
 ```
 
-每次执行都有 `cell_id`。v1 `eval` 阻塞到 cell 结束或被 terminate。协议允许以后的 `wait`/`terminate` 挂到同一 id；v1 不 yield。取消会 abort Nested Tool，并先中断 cell；必要时杀掉 Kernel。没有默认 timeout。
+每次执行带独立 cell_id，阻塞到 cell 完成或被终止。Python 持久 namespace 跨 cell 保留；`names()` 返回顶层名字排序列表。每个 cell（包括失败或取消）回报当前名字总数、新增绑定、重复 import，作为模型判断 scope 的证据。非显式 reset 引起的 kernel 更换，会在下一次执行报告 earlier names are gone。
 
-Kernel 在每次 `done` 里回报该 cell 的 namespace：当前顶层名字总数，本 cell 首次绑定的名字，以及本次重复 import 的名字。host 把它作为一行 state 放进 Transcript，因为模型唯一能观测「名字还在」的证据就是这个回报；没有它，模型只能靠 import 声明行事，于是会反复 import。cell 失败或被取消时同样回报，所以 `NameError` 之后模型仍知道 kernel 里剩什么。`names()` 是只读查询，返回当前顶层名字的排序列表。
+kernel 子进程不继承 `*_API_KEY`、`*_TOKEN`、`*_SECRET`；保留 `PYTHONPATH` 与 `LD_LIBRARY_PATH`。每个 cell 重设 cwd，session cwd 放在 `sys.path[0]`。POSIX 上 host 消失后 kernel 退出。Python fd 1 与 NDJSON 协议分离，背景线程持续 drain；结束前使用随机 drain token 屏障，确保 token 前的字节先送完再发送 done。跨 cell 到达的无归属输出在下次 cell 开始前交付，不混入新 cell。
 
-Host 还回报两类它自己观测到的事实。cell 之间到达的无归属输出（detached task、thread、raw fd write）在**下一个 cell 开始之前**作为一行 text 发出，因此它不会被误读成那个 cell 自己的输出，也不会被丢弃。上一个 cell 用的 kernel 已经不是当前 kernel 时（SIGKILL 重生、ready 超时、协议越界），加一行 `kernel restarted — earlier names are gone`；这个判断在 cell 运行前记录 kernel，所以 cell 中途把 kernel 弄死也只在下一个 cell 报一次。`reset: true` 是显式请求，不报 restart。
+NDJSON 单行约 1 MiB 上限，越界导致 kernel 失败。未捕获错误带有限 traceback。最后一个表达式为 None 时不产生 final-result row；print、赋值等不会额外显示 null。保留的内部 JavaScript kernel 仅供兼容性 smoke，不注册模型工具。
 
-`last expression` 只有在值不是 `None` 时才成为 Eval Final Value：kernel 在 `done` 消息里省略 `value`，host 把缺失视为"没有结果"。这与 Python 自身 displayhook 抑制 `None` 的行为一致，因此 `print(...)`、纯赋值、`list.append(...)` 这类 cell 不会多渲染一行 `null`；显式写成最后一个表达式的 `None` 同样不显示。
+## 嵌套工具
 
-Detached Eval Work 在 cell 结束或 Kernel shutdown 后不属于 Transcript。
+允许列表固定为 `read`、`grep`、`find`、前台 `bash`、`edit`、`write`、`apply_patch`。每次调用检查工具是否 active；未安装、inactive、参数错误、权限拒绝和取消都失败。禁止递归 python_eval、后台 Bash、子代理控制或任意第三方 extension 工具。Bash 只使用前台 schema，异步参数交给 host 拒绝。
 
-内部 JavaScript 与模型可见 Python 共用 host 协议。模型只能请求 Python；Bun host 的 JavaScript/TypeScript 仅由兼容性 smoke 使用。Nested invoke 的运输可以不同（JS IPC，Python 同步 loopback），语义必须相同：同一张注入表、同一 `EvalToolError`、同一 cancellation。
+bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失败 trace。Python catch 后 cell 可成功；未捕获则外层 isError，之前输出仍保留。host 提供的 structuredContent 优先作为脚本返回值，其次文本，再其次非文本 details。无直接 ToolDefinition.execute fallback，也不重复生产 schema 校验。
 
-## Nested Catalog Policy
+脚本通过 `tools.name(...)`（kwargs 或 dict）调用，`print`、`console`、`display` 和最后表达式形成顺序 transcript。取消信号透传 host；host 保持父子 tool-call 关系和 hooks。
 
-Kernel 不读 Pi registry。每次 execute 由当前 Exposition 注入 invoke 表。
+## 输出、持久化与展示
 
-Sibling v1 注入 admitted 集：`read`、`grep`、`find`、foreground `bash`，以及当前 Edit Mode 的 `edit`/`write` 或 `apply_patch`。排除 `eval`、`wait`、task-control 工具与其它 extension tool。Nested Bash 拒绝 `blocking: false`：一个 cell 无法读取后台结果，因此嵌套调用缺省或显式 `blocking: true` 保证在 cell 内结束。
+历史 details format 保持 `pi-ext-tools-python-eval`。details 保存最多 200 行，每行文本最多 4,000 字符，超出用省略行表示；错误和省略信息保留。模型 content 由 transcript 拼成，最多 12,000 字符，超出追加 truncation 提示。onUpdate 推送运行过程，不持久化 Python 内存或重跑历史源码。
 
-以后的 Code Mode 可以注入更宽的表，仍必须排除 `eval` 与 `wait`，且仍走 `pi-ext-tools` 的 explicit invoker，不能扫任意 registry。
+文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、参数、结果文本、执行时间与错误，供 UI 按原协议解释。
 
-Pi 没有公开按 name 执行已注册 tool 的 API。每个 invoker 接收同一 `ExtensionContext`、AbortSignal 与 update callback，返回 normalized `AgentToolResult`。
+`pi-ext-ui` 可选消费持久化 rows，并提供容器折叠、嵌套工具展示、源码复制和窄宽布局。未安装 UI 时原生文本结果仍完整可用。公共 UI 行为见 [DESIGN.md](../../DESIGN.md)。
 
-bridge validation、permission、normalized failure 或 execute failure 抛出 serializable `EvalToolError`。source catch 后 outer Eval 成功并保留 failure trace；未捕获则 outer `isError: true`，仍保留此前 transcript。
+## 验证边界
 
-Eval Script API：`tool.<name>()`、`console`/`print`、`display()`、只读 `cwd()`。不提供 OMP prelude aliases。
-
-## Result、持久化与 TUI
-
-Final Value 是最后 expression 的 awaited 值；`undefined` 不产生 final-result row。model-visible `content` 是有序 Transcript。`details` 只保存 capped structured rows 与失败信息，不复制 Eval Source 或 raw nested details。
-
-rows 是 line-oriented 的：kernel 分块送来的 `onText` 按 newline 断行，一个 printed line 一行；结尾 newline 只结束当前行而不额外产生空行，尚未收到 newline 的同一行在后续 chunk 里改写该行（不会变成两行），空行仍是独立一行，行内剥离 cell 自身打印的终端控制序列。`display` 与 `result` 行各自带 dim `display:` / `result:` label，二者与 printed line 一样进入 model-visible Transcript。
-
-渲染由 pi-ext-ui 的 ToolView 负责（工具定义本身不声明 renderer）：collapsed header 为 `eval py (reset) · (timeout Ns) · N calls/rows · duration`，容器规则下顶层不画 ✓/◐；Level 0 的 collapsed rows 显示每个 nested tool 调用的 `<tool> <path> (+N -M)` 摘要行（复用 file-tool presentation，`trace.args` 是完整对象），Level 1/2 按 execution 顺序展开全部 rows（text 行原样、`display:`/`result:` 带 dim label、tool 行同 collapsed 摘要格式）。✗ 只在 cell 自身失败（`details.error` 存在且无 nested 调用分担失败）时出现；nested tool 失败时 ✗ 保留在该子行。copy primary 是 `args.code`，full 是 code + 输出。resume 只读 persisted Eval Result Detail（`format: "pi-ext-tools-eval"`），不重跑 code 或读取 workspace。
-
-## 已批准、未实现的 Code Mode Exposition
-
-在同一 Kernel 上增加：
-
-- `pi-ext-tools.eval.codeMode` 显式激活；它复用 public tool 名称 `eval`，把 file/shell 移出 provider schema；
-- prompt 注入 Nested Tool usage；
-- `eval` 新增显式 `blocking?: boolean`。`blocking: false` 的后台 job 完成后以模型可见结果排入一次后续 turn；它不取消用户新消息，并且每个 job 只触发一次 continuation；
-- Nested Catalog 继续排除 `eval`、`wait` 与其它未明确许可的 extension tool。扩展 catalog 仍需独立的明确契约。
-
-不做：第二套 V8/Jupyter runtime、TOML custom tools、用模型名自动打开、`title` 参数。
-
-## 验证
-
-- settings、static registration、Loadout、reload/resume lifecycle；
-- kernel execute/busy/cancel/dispose、cell_id、跨 cell persistent scope；
-- JS 与 Python 的 Nested Catalog Policy、caught/uncaught Eval Tool Error；
-- 不 yield 的 v1 `eval`、无 wait 工具；
-- bounded details、Output recovery、ToolExecutionComponent smoke。
+测试覆盖独立注册、原生 executeTool dispatch、允许列表与 active、host 错误与 structuredContent、取消、session 清理、busy、persistent scope、namespace、协议上限、输出 drain 和历史 UI 结果。fixture 提供 host dispatch；不通过生产定义 registry 补回已删除的 fallback。

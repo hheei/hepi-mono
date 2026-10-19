@@ -121,6 +121,7 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 | `createToolPresentationRenderers(pi, title, provider)` | 函数 | 生成 Pi 原生 `ToolRenderers`；未加载 `pi-ext-ui` 时它自己就是可用的 Text 渲染 |
 | `getToolPresentationProvider(renderers)` | 函数 | 从一组 `ToolRenderers` 解析已登记的 provider |
 | `getRegisteredToolPresentationProvider(pi, name)` | 函数 | 按工具名解析 provider（含嵌套 codemode 调用）；只持有 WeakRef，不保留 tool definition |
+| `createOptionalToolRenderers(pi, name, native)` | 函数 | 工具包在 definition 上接线 optional UI；render 时读取 session 内的 `toolRendererPoint`，无 UI 使用原生 renderer；UI 全局 resolver 用 `hasOptionalToolRenderers` 避免二次包装 |
 | `setOptionalToolBullet(sections, key, bullet)` | 函数 | 维护结构化 system prompt 的 `optional_tools` 段落条目与固定 preamble，供 deferred 工具族介绍自己 |
 | `setSectionBullet` / `setPromptSection` | 函数 | 通用的结构化 prompt 段落条目写入与删除 |
 
@@ -141,6 +142,7 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
 | `runCommand(command, args, options?)` | 函数 | 一次性安全执行外部命令（支持超时、输出上限与取消信号） |
+| `acquireMutationLock(key, signal?)` / `withMutationLock(key, signal, run)` | 函数 | 相同 key 的跨进程文件写入互斥；保留原 socket/pipe 协议，等待者可取消，运行结束在 finally 中释放；不阻止外部 writer |
 | `shellQuote(str)` | 函数 | POSIX shell 参数安全转义 |
 | `isSubagentProcess(env?)` | 函数 | 检测当前进程是否运行在子 Agent 环境中 |
 | `expandHome(filepath, env?)` | 函数 | 展开路径中的 `~` 符号 |

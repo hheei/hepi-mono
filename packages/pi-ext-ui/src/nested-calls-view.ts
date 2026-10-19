@@ -14,7 +14,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { ToolPresentationProvider } from "@hheei/pi-ext-core";
+import type { ToolPresentationContext, ToolPresentationProvider } from "@hheei/pi-ext-core";
 import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } from "./renderer.js";
 import {
 	type Collapsible,
@@ -46,35 +46,16 @@ export function extractChildToolCopyText(
 		return args.content;
 	}
 
-	if (toolName === "apply_patch" && isRecord(args) && typeof args.patch === "string") {
-		return args.patch;
-	}
-
 	const heavyCommand =
 		toolName === "bash" && isRecord(args) && typeof args.command === "string"
 			? args.command
-			: (toolName === "python_eval" || toolName === "codemode") &&
-					isRecord(args) &&
-					typeof args.code === "string"
+			: toolName === "codemode" && isRecord(args) && typeof args.code === "string"
 				? args.code
 				: undefined;
 	if (heavyCommand !== undefined && heavyCommand.trim() !== "") {
 		if (full !== true) return heavyCommand;
 		const output = resultText(result);
 		return output === undefined ? heavyCommand : `${heavyCommand}\n---\n${output}`;
-	}
-
-	if (toolName === "edit" && result && isRecord(result.details)) {
-		const editView = (result.details as Record<string, unknown>).__piExtToolsEditView;
-		if (isRecord(editView) && Array.isArray(editView.ops)) {
-			const opsText = editView.ops
-				.map((op: unknown) =>
-					isRecord(op) && typeof op.newContent === "string" ? op.newContent : "",
-				)
-				.filter(Boolean)
-				.join("\n---\n");
-			if (opsText) return opsText;
-		}
 	}
 
 	if (result && Array.isArray(result.content)) {
@@ -243,6 +224,27 @@ export class NestedCallsView implements Component, Collapsible {
 		}
 	}
 
+	/**
+	 * The render context of one nested call. A nested call has no host-mounted component, so its
+	 * context is the parent's with the child's own args, id, duration and failure state.
+	 */
+	#callContext(call: CapturedToolCall | NestedCallRecord): ToolPresentationContext {
+		const { context } = this.#props;
+		const toolCallId =
+			"toolCallId" in call && typeof call.toolCallId === "string"
+				? call.toolCallId
+				: context.toolCallId;
+		return {
+			...context,
+			args: "args" in call ? (call as { args?: unknown }).args : undefined,
+			toolCallId,
+			durationMs: call.durationMs,
+			isError: Boolean(call.isError || ("status" in call && call.status === "error")),
+			isPartial: false,
+			argsComplete: true,
+		};
+	}
+
 	#triggerCopy(callIndex: number, full: boolean): void {
 		const call = this.#props.calls[callIndex];
 		if (!call) return;
@@ -251,6 +253,7 @@ export class NestedCallsView implements Component, Collapsible {
 			"args" in call ? call.args : undefined,
 			"result" in call ? call.result : undefined,
 			this.#props.theme,
+			this.#callContext(call),
 		);
 		const text = stripTerminalSequences(
 			(full ? presentation?.copy?.full : presentation?.copy?.primary) ??
@@ -331,7 +334,12 @@ export class NestedCallsView implements Component, Collapsible {
 			const argText =
 				typeof rawArgs === "string" ? rawArgs : typeof rawSummary === "string" ? rawSummary : "";
 			const provider = this.#props.resolvePresentation?.(toolName);
-			const presentation = provider?.(rawArgs, "result" in call ? call.result : undefined, theme);
+			const presentation = provider?.(
+				rawArgs,
+				"result" in call ? call.result : undefined,
+				theme,
+				this.#callContext(call),
+			);
 			// The child row is the child's own header minus the fold pin, so it carries the same token
 			// assignment as the row the same call would draw at top level.
 			const childSummary = stripTerminalSequences(
@@ -395,7 +403,7 @@ export class NestedCallsView implements Component, Collapsible {
 		width: number,
 		expansionLevel: FoldLevel = 1,
 	): string[] {
-		const { theme, context, resolveChildRenderer } = this.#props;
+		const { theme, resolveChildRenderer } = this.#props;
 		const toolName = "toolName" in call ? call.toolName : (call as { name: string }).name;
 		const result = "result" in call ? (call as CapturedToolCall).result : undefined;
 		const args = "args" in call ? (call as { args?: unknown }).args : undefined;
@@ -405,11 +413,7 @@ export class NestedCallsView implements Component, Collapsible {
 			if (renderer?.renderResult) {
 				try {
 					const childContext: ToolRenderContext = {
-						...context,
-						toolCallId: "toolCallId" in call ? (call.toolCallId as string) : context.toolCallId,
-						args,
-						durationMs: call.durationMs,
-						isError: Boolean(call.isError || ("status" in call && call.status === "error")),
+						...this.#callContext(call),
 						state: undefined,
 					};
 					const comp = renderer.renderResult(

@@ -28,47 +28,14 @@ describe("pi-ext-tools catalog", () => {
 	test("registers every canonical editing definition before catalog activation", (): void => {
 		const host = registeredTools();
 		const names = host.tools.map((tool) => tool.name);
-		expect(names).toEqual([
-			"read",
-			"grep",
-			"find",
-			"edit",
-			"write",
-			"bash",
-			"bg_bash_spawn",
-			"bg_bash_get",
-			"bg_bash_stop",
-			"apply_patch",
-			"python_eval",
-		]);
-		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
-	});
-
-	test("background Bash tools stay in the catalog without dynamic flapping", (): void => {
-		const host = registeredTools();
-		const catalog = host.tools.map((tool) => tool.name);
-		host.pi.setActiveTools([...catalog]);
-		expect(host.activeTools()).toEqual(catalog);
-		expect(host.activeTools()).toEqual(
-			expect.arrayContaining(["read", "bash", "bg_bash_spawn", "bg_bash_get", "bg_bash_stop"]),
-		);
-	});
-
-	test("registers apply_patch and python_eval with defaultActive: false", (): void => {
-		const host = registeredTools();
-		const patch = toolFor(host.tools, "apply_patch");
-		const pythonEval = toolFor(host.tools, "python_eval");
-		expect(patch.defaultActive).toBe(false);
-		expect(pythonEval.defaultActive).toBe(false);
-		expect(host.activeTools()).not.toContain("apply_patch");
-		expect(host.activeTools()).not.toContain("python_eval");
+		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash"]);
 	});
 
 	test.each([
-		["bash"],
-		["bash", "edit", "write"],
-		["bash", "apply_patch"],
-	])("leaves streamed shell commands alone with active tools %j", (...activeTools) => {
+		["grep"],
+		["edit", "write"],
+		["grep", "find"],
+	] as const)("leaves streamed tool call deltas alone with active tools %j", (...activeTools) => {
 		const host = toolHost(activeTools);
 		const sendMessage = vi.fn();
 		const abort = vi.fn();
@@ -80,7 +47,7 @@ describe("pi-ext-tools catalog", () => {
 					type: "toolcall_delta",
 					contentIndex: 0,
 					partial: {
-						content: [{ type: "toolCall", name: "bash", arguments: { command: "apply_patch " } }],
+						content: [{ type: "toolCall", name: "grep", arguments: { pattern: "apply_patch " } }],
 					},
 				},
 			},
@@ -89,6 +56,18 @@ describe("pi-ext-tools catalog", () => {
 		host.emit("agent_settled", {}, {});
 		expect(abort).not.toHaveBeenCalled();
 		expect(sendMessage).not.toHaveBeenCalled();
+	});
+
+	test("registers foreground bash only, without background, patch, python eval or todo", (): void => {
+		const host = registeredTools();
+		const names = host.tools.map((tool) => tool.name);
+		expect(names).toContain("bash");
+		expect(names).not.toContain("bg_bash_spawn");
+		expect(names).not.toContain("bg_bash_get");
+		expect(names).not.toContain("bg_bash_stop");
+		expect(names).not.toContain("apply_patch");
+		expect(names).not.toContain("python_eval");
+		expect(names).not.toContain("todo");
 	});
 
 	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
@@ -224,37 +203,6 @@ describe("pi-ext-tools catalog", () => {
 		};
 		expect(schema.properties?.pattern?.description).toContain("after JSON decoding");
 		expect(properties(find)).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
-	});
-
-	test("activates apply_patch via host setActiveTools without modifying other tools", (): void => {
-		const host = registeredTools();
-		const initial = host.activeTools();
-		host.pi.setActiveTools([...initial, "apply_patch"]);
-		expect(host.activeTools()).toContain("apply_patch");
-		host.pi.setActiveTools([...initial]);
-		expect(host.activeTools()).not.toContain("apply_patch");
-	});
-
-	test("registers apply_patch as strict V4A patch transport", (): void => {
-		const host = registeredTools();
-		const applyPatch = toolFor(host.tools, "apply_patch");
-
-		expect(applyPatch.parameters).toMatchObject({
-			additionalProperties: false,
-			required: ["patch"],
-			properties: { patch: { type: "string" } },
-		});
-		const parameters: unknown = applyPatch.parameters;
-		if (
-			typeof parameters !== "object" ||
-			parameters === null ||
-			!("properties" in parameters) ||
-			typeof parameters.properties !== "object" ||
-			parameters.properties === null
-		)
-			throw new Error("apply_patch parameters are missing object properties");
-		expect(Object.keys(parameters.properties)).toEqual(["patch"]);
-		expect("prepareArguments" in applyPatch).toBe(false);
 	});
 
 	test("renders canonical grep details and existing find results", (): void => {
@@ -509,90 +457,6 @@ describe("pi-ext-tools catalog", () => {
 		expect(result.details).toMatchObject({
 			__piExtToolsRead: { characters: 10, lines: 2 },
 		});
-	});
-
-	test("executes apply_patch through its strict V4A transport", async (): Promise<void> => {
-		const cwd = await temporaryDirectory();
-		const host = registeredTools();
-		const applyPatch = toolFor(host.tools, "apply_patch");
-
-		const result = await applyPatch.execute(
-			"apply-patch-1",
-			{ patch: "*** Begin Patch\n*** Add File: created.txt\n+created\n*** End Patch" },
-			undefined,
-			undefined,
-			{ cwd } as unknown as ExtensionToolContext,
-		);
-		expect(result.content).toContainEqual({
-			type: "text",
-			text: "Applied patch: 1 operations in 1 files.\nChanged:\n- created.txt: add",
-		});
-		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
-	});
-
-	test("reports rejected operation count rather than rejection group count", async (): Promise<void> => {
-		const cwd = await temporaryDirectory();
-		const host = registeredTools();
-		const applyPatch = toolFor(host.tools, "apply_patch");
-
-		const result = await applyPatch.execute(
-			"apply-patch-conflict",
-			{
-				patch:
-					"*** Begin Patch\n" +
-					"*** Add File: created.txt\n+created\n" +
-					"*** Add File: first.txt\n+first\n" +
-					"*** Add File: first.txt\n+second\n" +
-					"*** End Patch",
-			},
-			undefined,
-			undefined,
-			{ cwd } as unknown as ExtensionToolContext,
-		);
-		expect(result.content).toContainEqual({
-			type: "text",
-			text: "Patch partially applied.\nChanged:\n- created.txt: add\nRejected:\n- operation 2, operation 3, first.txt: path touched more than once: first.txt",
-		});
-		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
-		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
-	});
-
-	test("publishes successful hunks when another hunk fails", async (): Promise<void> => {
-		const cwd = await temporaryDirectory();
-		await writeFile(join(cwd, "value.txt"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
-		const host = registeredTools();
-		const applyPatch = toolFor(host.tools, "apply_patch");
-
-		const result = await applyPatch.execute(
-			"apply-patch-partial-hunks",
-			{
-				patch:
-					"*** Begin Patch\n" +
-					"*** Update File: value.txt\n" +
-					"@@\n-one\n+ONE\n" +
-					"@@\n-missing\n+MISS\n" +
-					"@@\n-five\n+FIVE\n" +
-					"*** End Patch",
-			},
-			undefined,
-			undefined,
-			{ cwd } as unknown as ExtensionToolContext,
-		);
-
-		expect(result.details).toMatchObject({
-			status: "partial",
-			operations: [{ status: "partial", appliedHunks: 2, totalHunks: 3 }],
-		});
-		expect(result.content).toContainEqual({
-			type: "text",
-			text:
-				"Patch partially applied.\n" +
-				"Changed:\n" +
-				"- value.txt: update (2/3 hunks applied)\n" +
-				"Rejected:\n" +
-				"- operation 1, value.txt, hunk 2: context not found",
-		});
-		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
 	});
 
 	test("keeps custom write/edit views when the existing file exceeds the highlight budget", async (): Promise<void> => {
