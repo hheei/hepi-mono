@@ -47,10 +47,3 @@ package reads the same values at session start:
 | --- | --- | --- |
 | `shellPath` | `$SHELL` | Shell that runs background commands. |
 | `outputTailKiB` | `10` | Output tail retained per job record. |
-
-## Migration
-
-`@hheei/pi-bg-bash` replaces the background half of `@hheei/pi-ext-tools`. Add this package
-explicitly to keep `bg_bash_spawn`, `bg_bash_get` and `bg_bash_stop`; the combined extension no
-longer registers them. Tool names, ledger and log paths, the `bash` settings keys and the
-`bg-bash-report` delivery channel are unchanged.

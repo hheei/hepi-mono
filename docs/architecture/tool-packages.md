@@ -4,7 +4,7 @@
 
 ## Problem Statement
 
-当前 pi-ext-tools 同时安装文件工具、Bash、补丁引擎、Python kernel 和 Todo。用户无法按需求选择这些能力，维护时不同进程、设置和持久化责任也汇集在同一入口。拆分应保留现有工具行为和历史会话，使 pi-dev 主工作目录不受开发过程影响。
+当前 pi-ext-tools 同时安装文件工具、Bash、补丁引擎、Python kernel 和 Todo。用户无法按需求选择这些能力，维护时不同进程、设置和持久化责任也汇集在同一入口。拆分应按实际 ownership 划分职责，使 pi-dev 主工作目录不受开发过程影响。
 
 ## Solution
 
@@ -20,8 +20,8 @@
 6. 作为用户，我希望组合安装后没有重复工具，以便确定每项能力的 owner。
 7. 作为用户，我希望工具名称和参数保持一致，以便继续使用现有 loadout 与 subagent 配置。
 8. 作为用户，我希望可选工具保持原默认启用策略，以便按需启用。
-9. 作为用户，我希望旧设置仍能读取，以便无需重新配置。
-10. 作为用户，我希望旧会话结果仍能折叠展示，以便阅读历史 diff 和 Python 输出。
+9. 作为用户，我希望设置归各自工具包管理，以便职责清楚。
+10. 作为用户，我希望结果携带展示数据，以便阅读 diff 和 Python 输出。
 11. 作为用户，我希望没有 UI 扩展时仍能看到结果，以便独立安装工具包。
 12. 作为用户，我希望 Python 通过 Pi host 调用工具，以便验证、权限和 hooks 一致生效。
 13. 作为用户，我希望 Python 无法调用未安装或未获准的工具，以便能力范围明确。
@@ -39,7 +39,7 @@
 ## Implementation Decisions
 
 - pi-ext-tools 拥有 read、grep、find、edit、write、bash；pi-bg-bash 拥有 bg_bash_spawn/get/stop；pi-apply-patch 拥有补丁解析、匹配、Worker、发布和工具结果；pi-python-eval 拥有 Python kernel、协议和嵌套调用转换；pi-todo 拥有任务、命令、提醒和状态展示。
-- 每个包独立注册设置和 lifecycle。删除旧综合入口对已拆功能的注册，不保留自动安装或转发入口。旧安装需按迁移说明显式增加所需新包。
+- 每个包独立注册设置和 lifecycle。删除旧综合入口对已拆功能的注册，不保留自动安装或转发入口。各包只注册自身功能。
 - Python bridge 仅依赖 Pi host 的 ExtensionToolContext.executeTool，保留当前七种允许嵌套的工具及 active 检查，删除直接调用 ToolDefinition 的 fallback 和重复参数验证；host 返回的执行结果决定错误状态。缺少工具或权限拒绝均传播为工具失败，保留 trace、structuredContent 和取消。
 - 文件工具不再接受未使用的 Bash runtime state。Bash runtime 归 pi-bg-bash，不进入 ext-core。
 - ext-core 提供 acquireMutationLock 和 withMutationLock，保留现有 key、哈希、socket/pipe 路径协议、等待者取消和 finally 释放。edit、write、apply_patch 使用同一实现；锁仅协调相同 key 的合作调用，不保证任意 shell 写入互斥。导入不创建锁或后台工作。
@@ -56,7 +56,7 @@
 - Python 测试提供原生 executeTool 的 host fixture，验证参数与错误由 host 处理、active/允许列表、trace、structuredContent 和取消，不重新模拟生产工具 registry。
 - 三个写入调用方共用锁的测试覆盖持锁等待和取消，保持已有补丁算法、路径、文件发布测试。
 - 保留 Bash 账本/分支交付/进程清理和真实子进程集成测试，保留 Todo 分支恢复与 footer 测试。使用现有 fake timers 和事件协调。
-- UI payload 历史兼容、窄宽布局已有测试继续生效；产物测试验证新入口、Python 资产和 Worker 启动。
+- UI payload、窄宽布局已有测试继续生效；产物测试验证新入口、Python 资产和 Worker 启动。
 - 因涉及共享导出、依赖与发布包边界，完成全仓 check、integration 和 package artifact 门禁，并更新 Graphify AST。禁止在主 worktree 安装、构建或启动 pi-dev。
 
 ## Out of Scope

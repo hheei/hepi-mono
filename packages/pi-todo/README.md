@@ -30,8 +30,7 @@ the agent.
 
 ## Footer status
 
-The footer status key is `pi-ext-tools:todo`, unchanged from earlier releases, so existing
-status consumers keep working. A recently completed task wins for 15s when later work is
+The footer status key is `pi-ext-tools:todo`. A recently completed task wins for 15s when later work is
 queued and 3 minutes otherwise, then the `in_progress` task, then the first pending task,
 then a recently blocked task for 15s. No visible task clears the status entirely.
 
@@ -41,10 +40,3 @@ Session state restores from the current branch: the newest `todo` tool result sn
 the `pi-ext-tools:todo:state` custom entry written by `/todo clear` and `/todo cancel`.
 Both forms are validated before use. Session tree navigation restores the branch state and
 refreshes the footer.
-
-## Migration
-
-`@hheei/pi-todo` replaces the Todo half of `@hheei/pi-ext-tools`. Add this package
-explicitly to keep `todo` and `/todo`; the combined extension no longer registers them.
-The tool name, parameters, `defaultActive` policy, `pi-ext-tools:todo` status key,
-`pi-ext-tools:todo:*` custom entry types, and session tree behavior are unchanged.

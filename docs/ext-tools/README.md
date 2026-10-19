@@ -2,9 +2,9 @@
 
 `@hheei/pi-ext-tools` 仅注册 `read`、`grep`、`find`、`edit`、`write`、`bash`。每个名称恰有一份 definition；调用时使用 tool context 的 cwd，不使用 extension 构造时的 cwd。工具执行、参数校验和 hooks 由 Pi host 协调。
 
-## 安装与迁移
+## 工具包
 
-原综合包拆成五个独立 extension，每包只有一个入口。升级旧安装后，按需显式增加新包；没有自动安装或转发层。
+每个工具包独立安装，只有一个 extension 入口。
 
 | 包 | 职责 |
 | --- | --- |
@@ -24,7 +24,7 @@ pi install npm:@hheei/pi-todo
 
 各包只依赖共享基础库和自身运行依赖，具体 extension 之间无直接依赖。工具名、参数、defaultActive 和 exposure 保持原样；Loadout 按工具名工作。`apply_patch`、`python_eval`、后台 Bash 与 Todo 仍按原策略 opt-in。`codemode` 属于 Pi host。
 
-`ext_settings.json` 的 `bash`、`applyPatch`、`eval`、`todo` 分组不改名，provider ID 与 origin 使用新 owner。保留 Bash 的账本和日志路径、`bg-bash-report`，保留 Todo 的 customType 与 `pi-ext-tools:todo` status key，保留 Python details format 和 edit/write view key。旧安装不需要迁移历史数据。
+设置位于 `ext_settings.json` 的 `bash`、`applyPatch`、`eval` 分组；Todo 没有独立设置 provider。provider ID 与 origin 归各自工具包所有。
 
 ## 文件写入与取消
 
