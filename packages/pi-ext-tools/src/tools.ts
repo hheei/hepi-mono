@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { isApplyPatchToolDetails, registerApplyPatchTool } from "./apply-patch/tool.js";
 import { registerBashTool } from "./bash.js";
-import { registerTaskTools } from "./bg-bash-tools.js";
+import { registerBgBashTools } from "./bg-bash-tools.js";
 import { registerEditTool } from "./edit.js";
 import { type EvalNestedToolName, EvalToolBridge } from "./eval/bridge.js";
 import { createEvalRuntimeState, type EvalRuntimeState } from "./eval/lifecycle.js";
@@ -25,7 +25,7 @@ export function registerTools(
 	nested.set("edit", registerEditTool(pi, state));
 	nested.set("write", registerWriteTool(pi, state));
 	nested.set("bash", registerBashTool(pi, state));
-	registerTaskTools(pi, state);
+	registerBgBashTools(pi, state);
 	nested.set("apply_patch", registerApplyPatchTool(pi, state));
 	return registerPythonEvalTool(
 		pi,

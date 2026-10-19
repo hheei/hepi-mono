@@ -19,11 +19,10 @@ In addition to canonical filesystem and execution tools, `pi-ext-tools` provides
 
 ## Background results
 
-Task/Bash notifications and subagent reports share completion-gated delivery. While the parent
-is working, results enter its next model step. While it is idle, ordinary results wait for all
-background work to finish and wake one shared turn. Subagent decision requests and blockers
-wake an idle parent immediately. Bash idle notices (once after 180s without stdout/stderr) and
-1800s heartbeats use the same BackgroundDelivery channel while ordinary terminal results remain gated.
+Bash notifications and subagent reports enter the next model step while the parent is working.
+An idle parent wakes once per microtask batch, without waiting for unrelated background work.
+Bash idle notices (once after 180s without stdout/stderr) and 1800s heartbeats use the same
+BackgroundDelivery channel.
 
 ## apply_patch
 
@@ -88,35 +87,37 @@ provide the same path (`progress.path` in get); read/grep that file for full out
 `bg_bash_stop({ id })` stops that Bash process tree and returns one confirmation sentence or a failure
 reason. These tools reject agent IDs.
 
+Background execution records persist in `tasks/<sessionId>/bash.sqlite` beside the logs. Reload and
+session shutdown still stop owned processes. Resume restores records and missing reports only; it
+never adopts an old PID, resumes execution, or reruns a command. Missing reliable terminal evidence
+becomes `unknown`, with a warning that side effects may remain and logs may be incomplete. The agent
+must inspect evidence before deciding its next action. `bg_bash_stop` cannot stop an unknown historical
+execution. Reports are reconciled against the current raw session branch, including compacted
+ancestors. Forks use their own execution ledger. Legacy logs without ledger records remain untouched.
+
 All three tools use deferred exposure and can be discovered with `tool_search` query `bg_bash`.
 There are no list or wait tools. BashJobRegistry owns a single idle notice after 180s without
 stdout/stderr and periodic 1800s heartbeats, with timers cleared on stop, terminal state, or disposal.
-PTY work is deferred. Subagents use their separate `agent_*` tools and share TaskRegistry coordination.
+PTY work is deferred. Subagents use their separate `agent_*` tools and own execution state. Only delivery batching is shared through ext-core BackgroundDelivery.
 
 ## Tool Output
 
-`grep`, `read`, `write`, `edit`, `find`, `ls`, `bash`, and `eval` declare `longOutput: true`, so
-the shared `ToolTui` frame may collapse them after completion. The `Tool Output`
-settings group (`toolTui.collapseMode`) selects when:
+Tool rendering has two layers: `@hheei/pi-ext-core` owns the pure `ToolPresentation` data contract
+(`summary`, `request`, `output`, `collapsedRows`, `copy`, diff fields), and `@hheei/pi-ext-ui` owns
+the ToolView frame. `createToolPresentationRenderers(pi, name, provider)` always produces usable Pi
+native `ToolRenderers`; when `pi-ext-ui` is loaded, its resolver finds the same provider and wraps the
+presentation in ToolView.
 
-| Mode | Behavior |
+ToolView has three fold levels, remembered per tool call in the renderer state:
+
+| Level | Behavior |
 | --- | --- |
-| `auto` (default) | Collapse 15 seconds after completion; prior-Trace collapse still applies. |
-| `on` | Collapse on the first completed frame; a long tool's partial output is not streamed. |
-| `pertrace` | Keep only the existing prior-Trace rule. |
-| `off` | Never collapse a frame automatically. |
+| 0 (default) | Header plus `collapsedRows`; a tool without them shows a header and one dim summary row. |
+| 1 | Header plus every rail section (request, body, diagnostics). |
+| 2 | Same as 1, forced open by Pi's global expand (Ctrl+O). |
 
-Every automatic collapse — the 15-second `auto` timer, the `on` first completed frame, and the
-prior-Trace collapse at the next `agent_start` — waits while the user is scrolled up (not
-following the end) and happens as soon as they return to the end, because collapsing shrinks the
-transcript and would otherwise pull the viewport away from what the user is reading. That
-protection exists only in fullscreen, whose viewport Pi owns and can read; regular mode cannot
-detect a reader, so nothing there preserves a reading position and it is never faked with a
-`pi-tui` patch or a monkey-patched `ScrollView`.
-
-Saving the setting applies it immediately; reload or a new session re-reads the
-stored value. A pending timer never crosses `agent_start`, a session reset, or
-shutdown. Collapsing changes only the visible frame, never the model-visible
-result, and Ctrl+O still expands everything.
+A click toggles 0 and 1; Ctrl+click goes straight to 2. There is no automatic collapse timer and no
+`collapseMode` setting: collapse timing is the user's interaction plus Pi's global expand. Collapsing
+changes only the visible frame, never the model-visible result or persisted details.
 
 patch/bash runtime.

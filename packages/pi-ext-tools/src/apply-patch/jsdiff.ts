@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { isRecord } from "@hheei/pi-ext-core";
-import type { JsDiffWorkerData } from "./jsdiff-worker.js";
+import type { JsDiffUpdateInput } from "./jsdiff-matching.js";
 import type { PreparedPatchUpdate, RejectedPatchHunk } from "./outcome.js";
 import { compileV4aUpdateToUnifiedDiff } from "./parser.js";
 
@@ -159,7 +159,7 @@ export async function runJsDiffUpdate(
 			rejected: Object.freeze([]),
 			snapshots: Object.freeze([]),
 		};
-	const workerData: JsDiffWorkerData = {
+	const workerData: JsDiffUpdateInput = {
 		before: options.before,
 		hunks: options.operation.hunks.map((hunk) => ({
 			unifiedDiff: compileV4aUpdateToUnifiedDiff({

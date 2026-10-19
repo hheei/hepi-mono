@@ -56,6 +56,8 @@ V4A compiler 生成内部 unified diff 时没有真实旧行号。路径只来�
 
 每个 Update 的全部 hunk 在一个短生命周期 worker thread 中顺序作用于内存 copy。worker 不写 staging 目录、不启动 native process。取消 `terminate()` 该 worker。文件上限仍为 32 MiB。
 
+匹配计算集中在 package 内部的同步模块 `jsdiff-matching.ts`：输入为源字节、逐 hunk 的 V4A 与内部 unified diff、`fuzzFactor` 和 snapshot path，输出为 `PreparedPatchUpdate`。它不拥有线程、文件 I/O 或取消信号；生产环境只由 worker 调用，匹配测试可直接调用。worker 入口只负责执行与结果/错误回传；`jsdiff.ts` 继续拥有启动、取消、退出清理与跨线程结果验证。匹配规则使用内存表驱动测试，线程传输、错误和取消保留真实 Worker 测试，文件发布、锁与恢复由 executor 测试覆盖。
+
 worker 只从 `@hheei/pi-ext-core/errors` 取共享的 error helper：导入 ext-core 桶入口会让每个 worker 先把整套 ext-core 模块图载入新线程（实测每次 operation 约 220ms，一个多文件 patch 每个文件各付一次）。新增 worker 依赖时保持这条边界，不要在 worker 内引用桶入口。
 
 ```ts
@@ -102,7 +104,9 @@ type PatchOutcome = {
 
 ## 模型内容
 
-模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。解析失败的错误会包含原始 V4A source line，并说明 parsed preview 没有被验证或 applied。cancel 与 Unconfirmed 必须给出下一步：Unconfirmed 先 read 那些 path；cancel 后已 Changed 保留，Unconfirmed 先 read，只重试 Rejected/NotApplied；parse failure 修复指定 source line 后重新提交完整 envelope。
+工具定义只保留必要语法和一次批量提交要求。停用的 `apply_patch` 不注入额外 prompt，不拦截流式 shell 命令，不中止或唤醒回合；可用工具由 Pi host 的 active catalog 决定。
+
+模型只接收 deterministic text `content`，不接收 `details` 或 TUI render tree。结果只报告执行事实与诊断，不追加 `Next:`、Recovery 或重试指令。解析失败保留原始原因与 V4A source 行号，parsed preview 不代表验证或 applied；异常保留原始原因，不通过关键词分类追加提示。
 
 成功结果列出真实 changed paths。若一个已确认的 local change 以 lexical path 落在 workspace 外，末尾附加一条 warning：
 
@@ -118,7 +122,7 @@ Fuzzy-applied:
 Warning: changed path outside the workspace: /tmp/config.ts
 ```
 
-partial 结果必须先区分 Changed / Rejected / Unconfirmed / NotApplied，再给出最窄的下一步。`context_not_found` 的 recovery 是读目标 path 后只重试 rejected hunk。模型内容每个 ambiguity 最多显示 6 个 candidates，并标示总数；完整 facts 仍在 details。
+partial 结果明确区分 Changed / Rejected / Unconfirmed / NotApplied。`context_not_found` 只报告路径、operation、hunk 与匹配失败原因；ambiguity 报告路径、operation、hunk、最多 6 个候选起始行号和候选总数，完整候选仍保存在 details。模型依据这些事实自行选择 read、search 或其他后续操作。Unconfirmed 仍表示写入结果未知，不得当作未写入；取消也不回滚已确认的 Changed。
 
 ## TUI
 
@@ -138,7 +142,7 @@ warning glyph `󰪠` 用于 Changed+Rejected partial；Unconfirmed/NotApplied �
 
 - applied operation 使用 outcome-time `snapshots` 和 pix split/unified renderer 显示 changed hunks；不会因后续操作改变历史 diff。
 - fuzzy hunk 显示 path 与 line range，不显示 score。
-- rejected / unconfirmed / not-applied 显示 path、diagnostic 与 recovery；不嵌入源代码。`read` 是 Unconfirmed 的显式下一步。
+- rejected / unconfirmed / not-applied 显示 path 与 diagnostic，不追加恢复指令或嵌入源代码。
 
 颜色只作补充。path、operation/hunk 标识、match kind 与 diagnostics 必须在无颜色时可区分。
 

@@ -16,29 +16,14 @@ import {
 import { isPatchPathOutsideWorkspace } from "./paths.js";
 
 const MAX_CANDIDATES = 6;
-const APPLY_PATCH_DESCRIPTION =
-	"Apply one Codex V4A patch to the workspace. Put every file change in that single patch. Existing and resulting files are capped at 32 MiB. Confirmed path changes are never rolled back.";
+const APPLY_PATCH_DESCRIPTION = "Apply a V4A patch to files (32 MiB per file).";
 const APPLY_PATCH_PARAMETER_DESCRIPTION =
-	"One V4A envelope. First line `*** Begin Patch`, last line `*** End Patch`. Multiple files are multiple Add/Update/Delete sections in this same string, not extra apply_patch calls. Extra Begin/End markers are ignored. Paths may be absolute or workspace-relative.";
-const APPLY_PATCH_PROMPT_SNIPPET =
-	"One V4A patch per call. Multiple files are sections in the same patch, not multiple apply_patch calls.";
+	"One unfenced *** Begin Patch / *** End Patch envelope with Add/Update/Delete File sections. Paths may be absolute or workspace-relative.";
+const APPLY_PATCH_PROMPT_SNIPPET = "Apply related file changes in one V4A patch.";
 const APPLY_PATCH_PROMPT_GUIDELINES = [
-	"apply_patch: put all related file changes in one patch. Each file is an Add File, Update File, or Delete File section. Do not call apply_patch once per file.",
-	"apply_patch: start with `*** Begin Patch` and end with `*** End Patch`. Extra copies of those markers are ignored. Do not wrap the patch in markdown fences.",
-	"apply_patch: use `@@ text` to locate subsequent hunks and `*** End of File` to match the file end. Pure moves use Update File plus Move to without a content hunk. Ambiguous matches are rejected.",
-	"apply_patch: confirmed path changes are never rolled back.",
+	"apply_patch: use @@ text anchors or *** End of File; pure moves use *** Move to: without a hunk.",
+	"apply_patch: confirmed changes persist after failure or cancellation.",
 ];
-const RECOVERY_READ_TARGETS =
-	"Recovery: read every Unconfirmed path before attempting another mutation.";
-const RECOVERY_BUSY =
-	"Recovery: wait for the active apply_patch request to finish, then retry this unchanged patch.";
-const RECOVERY_CANCELLED =
-	"Recovery: confirmed paths stay changed; read Unconfirmed paths; retry only Rejected or NotApplied operations.";
-const RECOVERY_INVALID_PATCH =
-	"Recovery: correct the V4A syntax and submit a complete patch; parsed preview rows were not applied.";
-const DO_NOT_RETRY_APPLIED_HUNKS = "Do not retry applied hunks.";
-const DO_NOT_RETRY_APPLIED_OPERATIONS = "Do not retry applied operations.";
-
 export const APPLY_PATCH_PARAMETERS = Type.Object(
 	{
 		patch: Type.String({ description: APPLY_PATCH_PARAMETER_DESCRIPTION }),
@@ -110,52 +95,6 @@ function rejectionLines(rejection: ApplyPatchRejection): readonly string[] {
 	});
 }
 
-function recoveryLines(result: ApplyPatchInWorkspaceResult): readonly string[] {
-	const lines: string[] = [];
-	if (result.unconfirmed.length > 0) {
-		const paths = [...new Set(result.unconfirmed.flatMap((entry) => entry.paths))];
-		lines.push(`Recovery: read ${paths.join(", ")} before another mutation of those paths.`);
-	}
-	if (result.rejected.length > 0) {
-		const paths = [...new Set(result.rejected.flatMap((rejection) => rejection.paths))];
-		const operations = [
-			...new Set(result.rejected.flatMap((rejection) => rejection.operationIndices)),
-		];
-		const scope = operations.map(operationText).join(", ");
-		const hasHunkDiagnostics = result.rejected.some(
-			(rejection) => rejection.diagnostics.length > 0,
-		);
-		lines.push(
-			hasHunkDiagnostics
-				? `Recovery: read ${paths.join(", ")}, then retry only rejected hunks from ${scope}.`
-				: `Recovery: read ${paths.join(", ")}, then retry only ${scope}.`,
-		);
-	}
-	if (result.notApplied.length > 0) {
-		const operations = [...new Set(result.notApplied.flatMap((entry) => entry.operationIndices))];
-		lines.push(`Recovery: retry only ${operations.map(operationText).join(", ")}.`);
-	}
-	if (
-		result.applied.length > 0 &&
-		(result.rejected.length > 0 || result.unconfirmed.length > 0 || result.notApplied.length > 0)
-	)
-		lines.push(
-			result.rejected.some((rejection) => rejection.diagnostics.length > 0)
-				? DO_NOT_RETRY_APPLIED_HUNKS
-				: DO_NOT_RETRY_APPLIED_OPERATIONS,
-		);
-	return lines;
-}
-
-export function failureRecovery(message: string): string | undefined {
-	if (message.includes("workspace state indeterminate") || message.includes("outcome is unknown"))
-		return RECOVERY_READ_TARGETS;
-	if (message.includes("already running")) return RECOVERY_BUSY;
-	if (message.includes("cancelled")) return RECOVERY_CANCELLED;
-	if (message.includes("No operations were validated or applied")) return RECOVERY_INVALID_PATCH;
-	return undefined;
-}
-
 export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): string {
 	const status = statusFor(result);
 	const rejectedHunksByOperation = new Map<number, number>();
@@ -199,7 +138,6 @@ export function formatApplyPatchResult(result: ApplyPatchInWorkspaceResult): str
 		...(result.notApplied.length === 0
 			? []
 			: ["NotApplied:", ...result.notApplied.flatMap(rejectionLines)]),
-		...recoveryLines(result),
 	].join("\n");
 }
 
@@ -273,10 +211,7 @@ export function createApplyPatchTool(
 				} satisfies AgentToolResult<ApplyPatchToolDetails>;
 			} catch (error) {
 				const message = errorMessage(error);
-				const recovery = failureRecovery(message);
-				throw new Error(
-					`apply_patch failed: ${message}${recovery === undefined ? "" : `\n${recovery}`}`,
-				);
+				throw new Error(`apply_patch failed: ${message}`);
 			}
 		},
 	};

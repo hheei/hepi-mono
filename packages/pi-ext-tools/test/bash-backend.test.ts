@@ -7,7 +7,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
-import { registerBgBashTools as registerTaskTools } from "../src/bg-bash-tools.js";
+import { registerBgBashTools } from "../src/bg-bash-tools.js";
 import { createToolsRuntimeState } from "../src/session-state.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { roleTheme } from "./fixtures/theme.js";
@@ -154,12 +154,16 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 test("bash reports the elapsed time and keeps partial output when cancelled", async (): Promise<void> => {
 	const bash = bashTool();
 	const controller = new AbortController();
-	setTimeout(() => controller.abort(), 120);
+	const command = "printf partial; sleep 5";
+	// The stop comes from the first streamed chunk, matching what the host does when a user
+	// cancels a command that is already producing output.
 	const result = await bash.execute(
 		"bash-aborted-running",
-		{ command: "printf partial; sleep 5" },
+		{ command },
 		controller.signal,
-		() => undefined,
+		() => {
+			controller.abort();
+		},
 		{
 			cwd: process.cwd(),
 			sessionManager: { getLeafId: () => null },
@@ -197,9 +201,9 @@ test("bash exposes description and snippet", (): void => {
 	);
 });
 
-test("task-control tools keep usage guidance in descriptions without changing system rules", (): void => {
+test("background Bash tools keep usage guidance in descriptions without changing system rules", (): void => {
 	const tools: ToolDefinition[] = [];
-	registerTaskTools(
+	registerBgBashTools(
 		{
 			registerTool(tool: ToolDefinition): void {
 				tools.push(tool);

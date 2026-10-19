@@ -6,7 +6,6 @@ import { debugLog } from "../../debug-log.js";
 import {
 	OBSERVATION_KIND_DROP_RANK,
 	type Observation,
-	observationKind,
 	type Reflection,
 	reflectionToSummaryLine,
 } from "../../session-ledger/index.js";
@@ -145,8 +144,8 @@ export function selectDropCandidates(
 			// Kind first: process narration is the cheapest thing to lose, and it is
 			// the one judgement the model does not have to make.
 			const kindDelta =
-				OBSERVATION_KIND_DROP_RANK[observationKind(a.observation)] -
-				OBSERVATION_KIND_DROP_RANK[observationKind(b.observation)];
+				OBSERVATION_KIND_DROP_RANK[a.observation.kind] -
+				OBSERVATION_KIND_DROP_RANK[b.observation.kind];
 			const coverageDelta =
 				REFLECTION_COVERAGE_DROP_RANK[coverageTierForObservation(a.observation, coverageById)] -
 				REFLECTION_COVERAGE_DROP_RANK[coverageTierForObservation(b.observation, coverageById)];

@@ -5,7 +5,6 @@ import {
 	registerSettings,
 	setOptionalToolBullet,
 } from "@hheei/pi-ext-core";
-import { registerApplyPatchGuard } from "./apply-patch/guard.js";
 import {
 	createApplyPatchSettingsProvider,
 	readApplyPatchSettings,
@@ -75,6 +74,5 @@ export default function piExtToolsExtension(pi: ExtensionAPI): void {
 		}
 		return;
 	});
-	registerApplyPatchGuard(pi);
 	registerToolsLifecycle(pi, state);
 }

@@ -9,7 +9,6 @@ import {
 } from "./model.js";
 
 const GROUP = "dollar-skill";
-const LEGACY_GROUP = "pi-dollar-skill";
 export const DOLLAR_SKILL_SETTINGS_GROUP = GROUP;
 function normalizeMaxSuggestions(value: unknown): number {
 	if (typeof value !== "number" || !Number.isInteger(value))
@@ -44,7 +43,7 @@ export async function loadDollarSkillConfig(
 	settingsDirectory = getAgentDir(),
 ): Promise<DollarSkillConfig> {
 	const root = await readRoot(dollarSkillSettingsPath(settingsDirectory));
-	const group = root[GROUP] ?? root[LEGACY_GROUP];
+	const group = root[GROUP];
 	return normalizeDollarSkillConfig(group);
 }
 

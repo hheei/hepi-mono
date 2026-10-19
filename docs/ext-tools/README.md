@@ -13,38 +13,34 @@ Pi upstream tool 的同名 replacement 由一个 Canonical tool owner 静态注�
 只看见该名称的一份 definition。
 
 ```text
-Pi upstream factory -> pi-ext-tools tool module -> one managed registration -> Pi-visible tool
+Pi upstream factory -> pi-ext-tools tool module -> one pi.registerTool definition -> Pi-visible tool
 ```
 
 每个 tool module 自己决定如何复用 upstream factory、如何产生 body 语义内容，以及如何处理特定 feature
-policy。`pi-ext-core` 的共享 `ToolTui` 统一组装 status header、跨 extension Trace collapse、body rails 与 typed footer；
-`pi-ext-tools` 只提供 concrete tool 的 summary、body、footer 与 warning policy。
+policy。工具展示分两层：`pi-ext-core` 的纯 `ToolPresentation` 契约描述内容语义，`@hheei/pi-ext-ui` 的 ToolView
+提供折叠、导轨与复制交互。`pi-ext-tools` 只提供 concrete tool 的 summary、body、footer 与 warning policy。
 
-## Tool TUI module
-
-`ToolTui` 是 `pi-ext-core` 的共享 renderer primitive，不从任一 concrete package entry export。每个 Pi host
-以 runtime identity 持有一个 instance；`registerToolTuiTrace(pi)` 幂等安装可见的 `agent_start` handler，
-每个 catalog 或 Todo registration 则显式以 `getToolTui(pi).frame(tool, presentation)` 包装 definition。它不注册
-tool、不选择 active tool、不改写 schema、execute、model-visible content 或 typed details。
+## 工具展示分层
 
 ```text
-agent_start ------------------------> registerToolTuiTrace() -> shared ToolTui.beginTrace()
-tool definition + presentation -----> getToolTui(pi).frame()
-                                         |
-Pi renderer slots (internal) -----------+
-                                         v
-header -> opening rail -> one body -> closing rail -> optional footer
+tool definition + ToolPresentation provider --> createToolPresentationRenderers(pi, name, provider)
+                                                        |
+                                        Pi renderCall / renderResult（原生 Text，无 pi-ext-ui 也可用）
+                                                        |
+                                        pi-ext-ui resolver 命中 provider --> ToolView
 ```
 
-Pi host 仍拥有 `renderCall` / `renderResult` lifecycle slots、global expand 与 renderer invocation；这两个 slot
-只是 `ToolTui` implementation 的 host adapter，不是两个可见 body。result 尚未出现时，call slot 可承载唯一 body；
-result 出现后，call slot 只保留 header，result slot 接管同一个 body 位置。`ToolTui` 拥有 session-scoped Trace、
-completion persistence、resume restoration、current/historical collapse、header status、rails 与 footer placement。
-具体 tool 拥有 body renderer、header summary、typed footer text 与 warning 判定，但不得自行加入 outer rails 或
-footer placement。两个 concrete extension consumer 共同使用同一 host-scoped Trace，因此 Todo 与 coding tools 的
-历史 blocks 会按同一 `agent_start` 收合。
+`ToolPresentation` 是纯数据：`summary`、`request`、`output`、`collapsedRows`、`copy` 与 diff 字段，不含 ANSI、
+Component 或闭包。`createToolPresentationRenderers` 把 provider 与生成的 `renderCall` 用 WeakMap 关联，并按工具名
+保留 WeakRef，让 `pi-ext-ui` 与嵌套 codemode 调用都能找到同一个 provider；索引不强持有 renderer 或 provider，
+跟随可达性回收，没有 session 状态、订阅、持久化或加载顺序要求。
 
-Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
+未加载 `pi-ext-ui` 时，同一函数生成的就是可用的 Pi 原生 Text 渲染：header 是 bold 工具名加 summary，结果按
+`toolOutput` 或 `error` 上色。加载 `pi-ext-ui` 后，resolver 用同一个 presentation 组装 ToolView，并负责折叠与复制。
+具体 tool 拥有 body renderer、header summary、typed footer text 与 warning 判定，但不得自行加入 outer rails 或
+footer placement。Todo 与 coding tools 共用同一个 ToolView 实现，因此折叠与复制行为一致。
+
+Result layout 由 ToolView 依 body 实际 render 后的行数决定：
 
 ```text
 有 body + footer: opening rail -> body -> closing rail -> footer
@@ -53,37 +49,39 @@ Result layout 由 `ToolTui` 依 body 实际 render 后的行数决定：
 无 body、无 footer: empty
 ```
 
-未展開的 body 默认最多 20 行（保留尾部，并加一行 dim `… (N earlier lines, ctrl+o to expand)`）。工具可通过 `maxBodyLines` 覆写；展开后不截断。Header、rails 与 typed footer 不计在此限额内。Header 默认按宽度换行；工具可用 `headerLine: "truncate"` 声明 header 永不超过一行（超过宽度的部分以 dim `…` 截断，`suffix` 会预留宽度保持可见），适合 body 无法还原 header 文本的工具。成对 rails 一律用 `muted`，不区分 success / warning / error。这个规则保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。body component cache 由 `ToolTui` 从 Pi 的 outer `lastComponent` 解包后交回原 renderer，tool 不需理解 frame component。
+Level 1 的 section 由 ToolView 按 `maxLines` 截断（默认 9 行）并追加一行 dim `… (N more lines)`；Level 2 全量渲染，
+没有上限。需要展示输出尾部的工具（bash、grep、read）自己在交出 body 前截断尾部，不依赖 ToolView。
+`collapsedRows` 在 Level 0 直接显示，不做人为截断。成对 rails 用 `muted`，不区分 success / warning / error。这个规则
+保留真实空白 output line；只有 renderer 实际返回零行时省略 body 的两条 rails。ToolView 以 `stateHolder` 记住每个
+工具调用的折叠层级，不写回 session entry。
 
 ## Request body
 
-声明 `request` 的工具在 call 槽常驻渲染一段 request body（工具输入：命令、代码、task 文本），从参数流式期一直保留到结果之后；它取代工具自己的 `renderCall` 预览。request 行按宽度换行而不截断，未展开时保留**头部**最多 10 行（其后一行 dim `… (N later lines, ctrl+o to expand)`），并剥离终端控制序列、保证不超过终端宽度；result body 相反，保留尾部。声明 `request` 的 frame 会让 result body 省略自己的 opening rail，两段之间只有一条 rail；折叠帧仍只有 header + summary 两行。`suffix` 声明 `bash` 形态的 header 调用事实（例如 ` (reset) (timeout 30s)`，dim 色附在 summary 之后），声明后 header 用 `label summary (facts)` 而不是 `label · summary`。
+提供 `request` 的工具在 call 阶段显示工具输入（命令、代码、task 文本），从参数流式期一直保留到结果之后；
+它取代工具自己的 `renderCall` 预览。request 行按宽度换行而不截断，未展开时保留**头部**最多 10 行（其后一行 dim
+`… (N later lines, ctrl+o to expand)`），并剥离终端控制序列、保证不超过终端宽度；result body 相反，保留尾部。
+提供 `request` 的 presentation 让 result body 省略自己的 opening rail，两段之间只有一条 rail；折叠帧仍只有
+header + summary 两行。
 
-## Tool Output 自动折叠
+## 折叠层级
 
-`grep`、`read`、`write`、`edit`、`find`、`ls`、`bash`、`eval` 在 `frame()` 中声明 `longOutput: true`。Tool Output 设置组
-（`toolTui.collapseMode`，选项 `auto` / `on` / `pertrace` / `off`）决定这些工具完成后外框何时收合：
+ToolView 使用三级折叠，状态保存在该 tool call 的 `stateHolder` 上，不写回 session entry：
 
-| 模式 | 行为 |
+| 层级 | 行为 |
 | --- | --- |
-| `auto`（默认） | 完成后 15 秒收合为 header + footer，并保留既有 prior Trace 规则 |
-| `on` | 完成后的第一次 render 即收合，且不向 host 转发长工具的 partial output |
-| `pertrace` | 只保留既有 prior Trace 规则，不启动定时器 |
-| `off` | 停用所有外框自动收合 |
+| 0（默认） | 只显示 header 与 `collapsedRows`；没有 collapsed rows 的工具显示 header 与一行 dim summary |
+| 1 | 显示 header 与全部 rail sections（request、body、diagnostics） |
+| 2 | 与 1 相同，并由 Pi 的 global expand（Ctrl+O）强制打开 |
 
-任何自动收合——`auto` 的 15 秒定时器、`on` 的首次 render、以及下一次 `agent_start` 的 prior Trace 收合——在用户上翻阅读（不在末尾）时都会延后，回到末尾后立即执行：收合会缩短 transcript，否则会把视口从用户正在读的位置拽到底部，延后期间该 frame 保持展开。这一保护只在 fullscreen 生效，因为只有那里的视口属于 Pi、可被读取（`isFollowingOutput`）；regular 模式的 transcript 是终端自己的 scrollback，Pi 既读不到也移不动，因此该模式**不支持**阅读位置保护，也不允许用 patch 或绕路（打 `pi-tui` patch、monkey-patch `ScrollView`、访问私有成员）伪造。
+点击在 0 与 1 之间切换，Ctrl+点击直接到 2；Ctrl+O 打开全部工具且优先于记住的层级。没有自动收合定时器，
+也没有 `toolTui.collapseMode` 之类的设置：折叠时机完全由用户交互和 Pi 的 global expand 决定。折叠只影响可见
+外框，不改变模型可见的 `content` 或持久化 details。
 
-保存设置会立即应用到当前 session；重新载入会重新读取保存值。15 秒定时器不会跨过 `agent_start`、session
-reset 或 shutdown。折叠只影响可见外框，不改变模型可见的 `content`、持久化 details 或 Ctrl+O 展开。
-
-header 文本由 `summary`（label 之后、`summarySeparator` 分隔）与 `suffix`（dim，追加在后的调用 facts，
-声明后 header 变为 `label (host) summary facts` 形式）组成；`summary` 返回空字符串表示只有 label 与 facts，
-工具输入本身是 request body 时（如 `bash`）使用该形式。
+header 文本由 `summary` 与可选调用 facts 组成；`summary` 为空表示只有工具名与 facts，工具输入本身是 request
+body 时（如 `bash`）使用该形式。
 
 折叠后的 frame 在任意宽度下都是两行：一行 header 与一行 summary，两者都超宽时以 dim `…` 截断而不换行。
-未折叠的 header 由工具自己决定：默认按宽度换行，声明 `headerLine: "truncate"` 时保持一行；footer summary
-行使用与 header 相同的规则（未折叠时默认换行、声明后截断，折叠后一律截断），因为 Pi renderer 对超过终端
-宽度的行会直接报错。footer 只使用 typed details，它不解析模型可见的 `content`。
+footer 只使用 typed details，它不解析模型可见的 `content`。
 
 ## v1 Catalog
 
@@ -186,9 +184,9 @@ Optimizer 使用 Pi host 的 `tool_call` 参数变更契约，不接管 Bash，�
 
 `BashJobRegistry` 拥有进程与 timer：连续 180 秒无 stdout/stderr 时发一次 idle notice，每 1800 秒发 heartbeat；onData 重置尚未发出的 idle timer，无轮询。仅后台 Bash 使用提醒，stop、terminal 和 dispose 全部取消 timer。停止会清理整棵进程树：POSIX 使用进程组，Windows 使用 taskkill。
 
-Bash 和 child agent 通过 ext-core `TaskRegistry` 共享内部活动登记，通过 `BackgroundDelivery` 协调交付。普通结果在 parent 忙时 steer 进入下一模型步骤，空闲时等待全部后台活动结束统一唤醒；提醒可以提前唤醒，但不能携带被门控的普通结果，也不消费结果或修改终态交付状态。通知有固定输出、字节和条目上限；进程日志保留完整输出。终态使用 pending/submitted/observed 确认，失败恢复 pending 并报告。
+BashJobs 独占执行状态、ID、日志、停止和结果交付记录；child agent 由 SubagentManager 独占管理。两者只通过 ext-core BackgroundDelivery 协调交付：parent 忙时 steer 进入下一模型步骤，空闲时同一 microtask 批次只唤醒一次，不等待其他后台执行完成。提醒不消费终态结果。通知有固定输出、字节和条目上限；日志保留完整输出。终态交付使用 pending/submitted/recorded 确认（表示已追加 session，不表示模型已读），失败恢复 pending 并报告。Bash 停止请求进入 stopping，实际退出后才交付终态；前台记录完成即释放，后台未确认结果受保护，已确认结果有界保留。ID 含随机 runtime 标识，reload 后不会复用日志路径。后台 Bash 在本 session 日志目录保存 SQLite 执行账本；reload/resume 只恢复记录和当前分支缺少的报告，不接管旧 PID、恢复运行或自动重跑。缺少可靠终态报告 unknown，说明副作用与日志可能不完整，由 agent 判断下一步。fork 使用独立账本。
 
-工具默认 deferred，激活后保持可用，不随任务开始或结束反复变动。未激活时通过 deferred_tools 介绍，激活后通过 bg_bash_guidance 说明自动交付与日志检查。完整生命周期和容量约束见 [后台任务契约](../architecture/background-tasks.md)。
+三个工具声明 `exposure: "deferred"` 与 `defaultActive: false`，加载后保持可用，不随任务开始或结束反复变动。`before_agent_start` 时用 ext-core `setOptionalToolBullet` 往结构化 system prompt 的 `optional_tools` 段落写入一条 key 为 `background bash` 的条目；段落自带 `tool_search` preamble。自动交付与日志检查的说明放在工具 description 与 prompt guidelines 里。完整生命周期和容量约束见 [后台任务契约](../architecture/background-tasks.md)。
 
 ## Tool Ownership
 
@@ -197,11 +195,11 @@ Bash 和 child agent 通过 ext-core `TaskRegistry` 共享内部活动登记，�
 - 每个 module 可以调用对应 upstream `create...Tool()`；这用于复用运行行为，不表示必须复用 upstream renderer。
 - `read`、`grep`、`find`、`edit`、`write`、`bash` 都保留 upstream-compatible 参数、execute 与 renderer 语义。
 - `apply_patch` 是 `pi-ext-tools` owner 的 Canonical V4A-only tool；public JSON transport 接受 `{ "patch": string }`，由 Patch Core 执行。其 call renderer 从 partial 或完整 V4A patch text 生成 model-time streaming preview；它是纯计算，不读取 workspace 或修改 patch，也不得把 recognized rows 标成 validated 或 applied。`execute()` 只在完整参数后启动；执行结果同时报告 Changed、Rejected、Unconfirmed 与 NotApplied。
-- 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或 managed-register competing definition。它们不能
+- 其他 extension 不得为 catalog 名称直接 `pi.registerTool()` 或注册竞争 definition。它们不能
   import `pi-ext-tools`；跨包协作若确有需求，另行定义 narrow core capability。
 
 
 ## 验证与发布
 
-- 每个 catalog tool：upstream schema/execute compatibility、managed registration singleton、abort、streaming（如适用）
+- 每个 catalog tool：upstream schema/execute compatibility、registration singleton、abort、streaming（如适用）
   和 Loadout activation tests。

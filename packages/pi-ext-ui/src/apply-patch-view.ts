@@ -162,42 +162,7 @@ export function applyPatchFacts(details: unknown): ApplyPatchFacts | undefined {
 				.map(operationView)
 				.filter((operation): operation is ApplyPatchOperationView => operation !== undefined)
 		: [];
-	// Older results carry applied/rejected lists instead of operations; the operation
-	// rows are rebuilt from them without hunk counts.
-	const applied = Array.isArray(details.applied) ? details.applied.filter(isRecord) : [];
 	const rejected = rejectionList(details.rejected);
-	if (operations.length === 0) {
-		for (const operation of applied) {
-			const path =
-				typeof operation.paths === "object" &&
-				operation.paths !== null &&
-				Array.isArray(operation.paths) &&
-				typeof operation.paths[0] === "string"
-					? operation.paths[0]
-					: undefined;
-			if (path === undefined) continue;
-			const view = operationView({
-				operationIndex: operation.operationIndex,
-				kind: operation.kind,
-				path,
-				addedLines: 0,
-				removedLines: 0,
-				status: "applied",
-			});
-			if (view !== undefined) operations.push(view);
-		}
-		for (const [index, rejection] of rejected.entries()) {
-			const view = operationView({
-				operationIndex: index,
-				kind: "update",
-				path: rejection.paths[0] ?? "<unknown>",
-				addedLines: 0,
-				removedLines: 0,
-				status: "rejected",
-			});
-			if (view !== undefined) operations.push(view);
-		}
-	}
 	const snapshots = Array.isArray(details.applied)
 		? details.applied.filter(isRecord).flatMap((operation) =>
 				Array.isArray(operation.snapshots)

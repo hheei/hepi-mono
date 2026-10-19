@@ -10,11 +10,11 @@
 
 - Pi host：连接、发现、工具注册、exposure、调用、取消、重连、完整输出保存与 /mcp 状态。
 - pi-ext-memory：显式启用、bank 解析、session 生命周期、自动 recall、transcript 写回、cache 失效与 /om 本地诊断。SDK 仅用于自动策略，不再用于模型工具包装。
-- ext-core：共享 ToolTui 展示。拆开 execute 包装与 renderer，保留本地工具路径，经 registerToolRenderer 接入 MCP 与历史调用。
+- ext-core：提供纯 `ToolPresentation` 数据契约（`createToolPresentationRenderers`）。它拆开 execute 包装与 renderer，保留本地工具路径，不解释 MCP 字段。
 
 数据流：memory 解析 bank → 注册单 bank endpoint → Pi host 发现与执行 → ext-core 展示。
 
-ext-core 的公共展示契约为 `ToolTui.renderers({ name, label?, renderCall?, renderResult? }, presentation?)`，返回 Pi 的 `ToolRenderers`。不要求 schema、execute 或字符串 overload。既有 `frame()` 使用相同渲染实现，但保留原来的 execute ownership；仅 renderer-only 登记的工具名称由 host 工具事件驱动 trace 与时长持久化，不改变无关工具结果。展示层可识别业务错误，但模型与 codemode 的错误状态由 memory 的 tool_result 归一化。
+ext-core 的公共展示契约为 `ToolPresentation`：工具提供 `summary`、`request`、`output`、`collapsedRows`、`copy`，由 `createToolPresentationRenderers(pi, name, provider)` 生成 Pi 的 `ToolRenderers`。不要求 schema、execute 或字符串 overload，也不改变 execute ownership。memory 的 MCP renderer 直接 `pi.registerToolRenderer`，展示层可识别业务错误，但模型与 codemode 的错误状态由 memory 的 tool_result 归一化。
 
 ## 边界与不变量
 

@@ -76,10 +76,10 @@ describe("visible memory selection", () => {
 		const progress = observation("aaaaaaaaaaaa", { content: line(), kind: "progress" });
 		const fact = observation("bbbbbbbbbbbb", { content: line(), kind: "fact" });
 		const decision = observation("cccccccccccc", { content: line(), kind: "decision" });
-		const legacy = observation("dddddddddddd", { content: line() }); // no kind: reads as a fact
+		const secondFact = observation("dddddddddddd", { content: line(), kind: "fact" });
 
 		const visible = selectVisibleMemory(
-			{ observations: [progress, legacy, fact, decision], reflections: [] },
+			{ observations: [progress, secondFact, fact, decision], reflections: [] },
 			{
 				// Sized on three lines, so the kind order decides which three survive and
 				// the progress narration is the one trimmed out.

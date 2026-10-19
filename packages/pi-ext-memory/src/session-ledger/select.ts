@@ -10,13 +10,7 @@ import {
 	reflectionToSummaryLine,
 	summaryOverheadTokens,
 } from "./render-summary.js";
-import {
-	type Observation,
-	type ObservationKind,
-	observationKind,
-	type Reflection,
-	type Relevance,
-} from "./types.js";
+import type { Observation, ObservationKind, Reflection, Relevance } from "./types.js";
 
 /**
  * Bounds rendered memory to a token budget.
@@ -113,8 +107,7 @@ function observationKeepOrder(observations: Observation[], reflections: Reflecti
 		.sort(
 			(a, b) =>
 				COVERAGE_KEEP_RANK[a.coverage] - COVERAGE_KEEP_RANK[b.coverage] ||
-				KIND_KEEP_RANK[observationKind(a.observation)] -
-					KIND_KEEP_RANK[observationKind(b.observation)] ||
+				KIND_KEEP_RANK[a.observation.kind] - KIND_KEEP_RANK[b.observation.kind] ||
 				RELEVANCE_KEEP_RANK[a.observation.relevance] -
 					RELEVANCE_KEEP_RANK[b.observation.relevance] ||
 				timestampRank(b.observation.timestamp) - timestampRank(a.observation.timestamp) ||

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type ExtensionLifecycleContext,
@@ -5,29 +6,27 @@ import {
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
-	type TaskRegistry,
 } from "@hheei/pi-ext-core";
+import { startBashDelivery } from "./bash-delivery.js";
+import { BashJobRegistry } from "./bash-jobs.js";
+import { BashExecutionLedger, bashExecutionDirectory } from "./bash-ledger.js";
 import {
 	type BashSettings,
 	createBashSettingsProvider,
 	DEFAULT_BASH_SETTINGS,
 	loadBashSettings,
 } from "./bash-settings.js";
-import { BgBashJobRegistry } from "./bg-bash-jobs.js";
-import { startTaskControl } from "./task-control.js";
 
 /** Live session view consumed by statically registered tools and commands. */
 export interface ToolsRuntimeState {
 	getSettings(): BashSettings;
 	getBashSettings?(): BashSettings;
-	getTasks(): TaskRegistry | undefined;
-	getBashJobs(): BgBashJobRegistry | undefined;
+	getBashJobs(): BashJobRegistry | undefined;
 }
 
 interface MutableToolsRuntimeState {
 	settings: BashSettings;
-	tasks: TaskRegistry | undefined;
-	jobs: BgBashJobRegistry | undefined;
+	jobs: BashJobRegistry | undefined;
 }
 
 const runtimeStates = new WeakMap<ToolsRuntimeState, MutableToolsRuntimeState>();
@@ -37,14 +36,9 @@ export function createToolsRuntimeState(): ToolsRuntimeState {
 		getSettings: (): BashSettings => runtimeStates.get(state)?.settings ?? DEFAULT_BASH_SETTINGS,
 		getBashSettings: (): BashSettings =>
 			runtimeStates.get(state)?.settings ?? DEFAULT_BASH_SETTINGS,
-		getTasks: (): TaskRegistry | undefined => runtimeStates.get(state)?.tasks,
-		getBashJobs: (): BgBashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
+		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
 	};
-	runtimeStates.set(state, {
-		settings: DEFAULT_BASH_SETTINGS,
-		tasks: undefined,
-		jobs: undefined,
-	});
+	runtimeStates.set(state, { settings: DEFAULT_BASH_SETTINGS, jobs: undefined });
 	return state;
 }
 
@@ -60,7 +54,7 @@ export function registerToolsLifecycle(
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-tools",
 		start: async (context) => {
-			await startToolsLifecycle(pi, context, state, mutable, bashProvider);
+			await startToolsLifecycle(pi, context, mutable, bashProvider);
 		},
 	});
 }
@@ -68,7 +62,6 @@ export function registerToolsLifecycle(
 async function startToolsLifecycle(
 	pi: ExtensionAPI,
 	context: ExtensionLifecycleContext,
-	_publicState: ToolsRuntimeState,
 	state: MutableToolsRuntimeState,
 	bashProvider: ReturnType<typeof createBashSettingsProvider>,
 ): Promise<void> {
@@ -92,14 +85,35 @@ async function startToolsLifecycle(
 		);
 	}
 	state.settings = settings;
-	const jobs = new BgBashJobRegistry(settings.bashOutputTailKiB * 1024);
+	const ledger = new BashExecutionLedger(
+		join(bashExecutionDirectory(context.extension), "bash.sqlite"),
+	);
+	let jobs: BashJobRegistry;
+	try {
+		jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024, {
+			ledger,
+			onError: (message) => context.extension.ui.notify(message, "warning"),
+		});
+	} catch (error) {
+		ledger.close();
+		throw error;
+	}
 	state.jobs = jobs;
-	const tasks = startTaskControl(context, jobs);
-	state.tasks = tasks;
-	context.resources.add("bash-jobs", () => {
-		tasks.dispose();
-		if (state.tasks === tasks) state.tasks = undefined;
-		jobs.dispose();
-		if (state.jobs === jobs) state.jobs = undefined;
+	let stopDelivery = (): void => {};
+	context.resources.add("bash-jobs", async () => {
+		stopDelivery();
+		try {
+			await jobs.dispose();
+		} finally {
+			ledger.close();
+			if (state.jobs === jobs) state.jobs = undefined;
+		}
+	});
+	stopDelivery = startBashDelivery({
+		pi,
+		jobs,
+		session: context.extension,
+		signal: context.signal,
+		notify: (message, level) => context.extension.ui.notify(message, level),
 	});
 }

@@ -22,13 +22,10 @@ export type Relevance = (typeof RELEVANCE_VALUES)[number];
 /**
  * What an observation is, which is what decides how easily it can leave active
  * memory: process narration is disposable, durable decisions are not. Recorded
- * by the observer; absent on entries written before this field existed, which
- * read as "fact".
+ * by the observer. An entry without a kind is not an observation.
  */
 export const OBSERVATION_KINDS = ["user", "decision", "fact", "progress"] as const;
 export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
-
-export const DEFAULT_OBSERVATION_KIND: ObservationKind = "fact";
 
 /**
  * Removal order for kinds: lowest first. Progress lines narrate work that the
@@ -63,7 +60,7 @@ export type Observation = {
 	content: string;
 	timestamp: string;
 	relevance: Relevance;
-	kind?: ObservationKind | undefined;
+	kind: ObservationKind;
 	sourceEntryIds: string[];
 	tokenCount: number;
 };
@@ -144,13 +141,6 @@ export function isObservationKind(value: unknown): value is ObservationKind {
 	return typeof value === "string" && (OBSERVATION_KINDS as readonly string[]).includes(value);
 }
 
-/** The recorded kind, or `fact` for an entry that predates the field. */
-export function observationKind(observation: Observation): ObservationKind {
-	return observation.kind !== undefined && isObservationKind(observation.kind)
-		? observation.kind
-		: DEFAULT_OBSERVATION_KIND;
-}
-
 export function isMemoryId(value: unknown): value is string {
 	return typeof value === "string" && MEMORY_ID_PATTERN.test(value);
 }
@@ -166,6 +156,7 @@ export function isObservation(value: unknown): value is Observation {
 		isNonEmptyString(value.content) &&
 		isNonEmptyString(value.timestamp) &&
 		isRelevance(value.relevance) &&
+		isObservationKind(value.kind) &&
 		isNonEmptyStringArray(value.sourceEntryIds) &&
 		isTokenCount(value.tokenCount)
 	);

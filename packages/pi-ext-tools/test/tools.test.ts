@@ -2,10 +2,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionToolContext, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import type { ExtensionLifecycleContext } from "@hheei/pi-ext-core";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { MAX_HL_CHARS } from "../src/edit.js";
-import { startTaskControl } from "../src/task-control.js";
+import piExtToolsExtension from "../src/extension.js";
 import { registerTools } from "../src/tools.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
@@ -45,19 +44,14 @@ describe("pi-ext-tools catalog", () => {
 		expect(names.filter((name) => name === "apply_patch")).toHaveLength(1);
 	});
 
-	test("task-control tools remain stable without dynamic flapping", (): void => {
+	test("background Bash tools stay in the catalog without dynamic flapping", (): void => {
 		const host = registeredTools();
 		const catalog = host.tools.map((tool) => tool.name);
 		host.pi.setActiveTools([...catalog]);
-		const tasks = startTaskControl({
-			pi: host.pi,
-			resources: { add: (): void => undefined },
-		} as unknown as ExtensionLifecycleContext);
 		expect(host.activeTools()).toEqual(catalog);
 		expect(host.activeTools()).toEqual(
 			expect.arrayContaining(["read", "bash", "bg_bash_spawn", "bg_bash_get", "bg_bash_stop"]),
 		);
-		tasks.dispose();
 	});
 
 	test("registers apply_patch and python_eval with defaultActive: false", (): void => {
@@ -68,6 +62,33 @@ describe("pi-ext-tools catalog", () => {
 		expect(pythonEval.defaultActive).toBe(false);
 		expect(host.activeTools()).not.toContain("apply_patch");
 		expect(host.activeTools()).not.toContain("python_eval");
+	});
+
+	test.each([
+		["bash"],
+		["bash", "edit", "write"],
+		["bash", "apply_patch"],
+	])("leaves streamed shell commands alone with active tools %j", (...activeTools) => {
+		const host = toolHost(activeTools);
+		const sendMessage = vi.fn();
+		const abort = vi.fn();
+		piExtToolsExtension({ ...host.pi, sendMessage });
+		host.emit(
+			"message_update",
+			{
+				assistantMessageEvent: {
+					type: "toolcall_delta",
+					contentIndex: 0,
+					partial: {
+						content: [{ type: "toolCall", name: "bash", arguments: { command: "apply_patch " } }],
+					},
+				},
+			},
+			{ abort },
+		);
+		host.emit("agent_settled", {}, {});
+		expect(abort).not.toHaveBeenCalled();
+		expect(sendMessage).not.toHaveBeenCalled();
 	});
 
 	test("keeps narrow grep rows to one cell-width-safe line", (): void => {
@@ -530,7 +551,7 @@ describe("pi-ext-tools catalog", () => {
 		);
 		expect(result.content).toContainEqual({
 			type: "text",
-			text: "Patch partially applied.\nChanged:\n- created.txt: add\nRejected:\n- operation 2, operation 3, first.txt: path touched more than once: first.txt\nRecovery: read first.txt, then retry only operation 2, operation 3.\nDo not retry applied operations.",
+			text: "Patch partially applied.\nChanged:\n- created.txt: add\nRejected:\n- operation 2, operation 3, first.txt: path touched more than once: first.txt",
 		});
 		expect(await readFile(join(cwd, "created.txt"), "utf8")).toBe("created\n");
 		await expect(readFile(join(cwd, "first.txt"), "utf8")).rejects.toThrow();
@@ -569,9 +590,7 @@ describe("pi-ext-tools catalog", () => {
 				"Changed:\n" +
 				"- value.txt: update (2/3 hunks applied)\n" +
 				"Rejected:\n" +
-				"- operation 1, value.txt, hunk 2: context not found\n" +
-				"Recovery: read value.txt, then retry only rejected hunks from operation 1.\n" +
-				"Do not retry applied hunks.",
+				"- operation 1, value.txt, hunk 2: context not found",
 		});
 		expect(await readFile(join(cwd, "value.txt"), "utf8")).toBe("ONE\ntwo\nthree\nfour\nFIVE\n");
 	});

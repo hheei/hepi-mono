@@ -205,16 +205,9 @@ function report(childId: string, message: string) {
 	};
 }
 
-test("dismiss removes only the targeted child report while leaving others to flush", async () => {
+test("a flush delivers every held report in one message", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	const active = 3;
-	delivery.registerSource({
-		activeCount: () => active,
-		onChange: (_listener) => {
-			return () => {};
-		},
-	});
 	const channel = createParentChannel(parent.pi as never, {
 		ui: parent.ui,
 		isIdle: () => true,
@@ -225,16 +218,15 @@ test("dismiss removes only the targeted child report while leaving others to flu
 	void channel.deliver(report("child-2", "report 2"));
 	void channel.deliver(report("child-3", "report 3"));
 
-	// consuming the task result dismisses child-2
-	channel.dismiss("child-2");
-
 	await Promise.resolve();
 
 	expect(parent.sent).toHaveLength(1);
 	const details = parent.sent[0]?.message.details as
 		| { reports: Array<{ childId: string }> }
 		| undefined;
-	expect(details?.reports.map((r) => r.childId)).toEqual(["child-1", "child-3"]);
+	expect(details?.reports.map((r) => r.childId)).toEqual(["child-1", "child-2", "child-3"]);
+	expect(String(parent.sent[0]?.message.content)).toContain("report 2");
+	channel.dispose();
 });
 
 test("a completed child report reaches the next parent activity without a timer", async () => {
@@ -291,16 +283,9 @@ test("an info entry failure is visible and does not resend the model report", as
 	expect(parent.sent[0]?.message.content).toContain("complete report");
 });
 
-test("reports deliver without waiting for other registered work to finish", async () => {
+test("reports deliver without waiting for other background work", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	const count = 2;
-	const unregister = delivery.registerSource({
-		activeCount: () => count,
-		onChange: (_listener) => {
-			return () => {};
-		},
-	});
 	const channel = createParentChannel(parent.pi as never, {
 		ui: parent.ui,
 		isIdle: () => true,
@@ -311,7 +296,6 @@ test("reports deliver without waiting for other registered work to finish", asyn
 	expect(String(parent.sent[0]?.message.content)).toContain("first");
 	expect(parent.sent[0]?.options).toEqual({ triggerTurn: true, deliverAs: "steer" });
 	channel.dispose();
-	unregister();
 });
 
 test("a report that arrives while the parent is busy is not held", async () => {
@@ -334,7 +318,6 @@ test("a report that arrives while the parent is busy is not held", async () => {
 test.each(["blocked", "error"])("a %s report delivers and wakes the parent", async (reason) => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
 	const idle = true;
 	const channel = createParentChannel(parent.pi as never, {
 		ui: parent.ui,
@@ -368,7 +351,6 @@ test("a cancelled lifecycle cannot wake the parent from a queued check", async (
 test("teardown appends what is still held without waking the parent", async () => {
 	const parent = fakeParent();
 	const delivery = createBackgroundDelivery();
-	delivery.registerSource({ activeCount: () => 1, onChange: () => () => {} });
 	const channel = createParentChannel(parent.pi as never, {
 		ui: parent.ui,
 		isIdle: () => true,

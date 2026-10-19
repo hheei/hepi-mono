@@ -141,8 +141,8 @@ area. Test only the behavior changed by the current work:
 - storage or external data: test validation and failure cases;
 - lifecycle or capability contracts: test cleanup, absent collaborators,
   cancellation, duplicate registration, and stale async results as applicable;
-- UI: test only changed narrow and wide layouts, and validate in Pi or
-  `tui-replay` when visible behavior changes.
+- UI: test only changed narrow and wide layouts, and validate in Pi when visible
+  behavior changes.
 
 Use an integration test when the risk crosses a package or Pi lifecycle boundary.
 Shared-interface, dependency, and cross-package changes require root typechecking

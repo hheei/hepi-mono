@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { createApplyPatchTool, failureRecovery } from "../src/apply-patch-tool.js";
+import type { ApplyPatchInWorkspaceResult } from "../src/apply-patch/outcome.js";
+import { createApplyPatchTool, formatApplyPatchResult } from "../src/apply-patch-tool.js";
 import piExtToolsExtension from "../src/extension.js";
 
 type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
@@ -28,15 +29,117 @@ function toolResultHandler(): ToolResultHandler {
 }
 
 describe("apply_patch tool_result contract", () => {
-	test("provides targeted recovery for request failures", () => {
-		expect(failureRecovery("workspace outcome is unknown after disconnect")).toContain(
-			"Unconfirmed",
-		);
-		expect(failureRecovery("apply_patch is already running for /tmp/ws")).toContain("wait");
-		expect(failureRecovery("cancelled after first publish")).toContain("confirmed paths stay");
+	test.each([
+		{
+			name: "ambiguous context",
+			result: {
+				rejected: [
+					{
+						operationIndices: [0],
+						paths: ["value.txt"],
+						error: "ambiguous",
+						diagnostics: [{ kind: "ambiguous_exact", hunkIndex: 1, candidateStartLines: [1, 3] }],
+					},
+				],
+			},
+			text: "Patch was not applied.\nRejected:\n- operation 1, value.txt, hunk 1: exact context is ambiguous at lines 1, 3 (2 candidates)",
+		},
+		{
+			name: "bounded candidate lines with total count",
+			result: {
+				rejected: [
+					{
+						operationIndices: [0],
+						paths: ["value.txt"],
+						error: "ambiguous",
+						diagnostics: [
+							{
+								kind: "ambiguous_exact",
+								hunkIndex: 2,
+								candidateStartLines: [10, 20, 30, 40, 50, 60, 70, 80],
+							},
+						],
+					},
+				],
+			},
+			text: "Patch was not applied.\nRejected:\n- operation 1, value.txt, hunk 2: exact context is ambiguous at lines 10, 20, 30, 40, 50, 60 (8 candidates)",
+		},
+		{
+			name: "unconfirmed write followed by skipped operations",
+			result: {
+				unconfirmed: [
+					{
+						operationIndices: [0],
+						paths: ["uncertain.txt"],
+						error: "connection lost",
+						diagnostics: [],
+					},
+				],
+				notApplied: [
+					{ operationIndices: [1], paths: ["later.txt"], error: "NotApplied", diagnostics: [] },
+				],
+			},
+			text: "Patch was not applied.\nUnconfirmed:\n- operation 1, uncertain.txt: connection lost\nNotApplied:\n- operation 2, later.txt: NotApplied",
+		},
+		{
+			name: "move destination published but source removal rejected",
+			result: {
+				changedPaths: ["destination.txt"],
+				applied: [
+					{
+						operationIndex: 0,
+						kind: "update",
+						paths: ["destination.txt"],
+						outcomes: [],
+						snapshots: [],
+					},
+				],
+				rejected: [
+					{
+						operationIndices: [0],
+						paths: ["source.txt"],
+						error: "source changed",
+						diagnostics: [],
+					},
+				],
+			},
+			text: "Patch partially applied.\nChanged:\n- destination.txt: update\nRejected:\n- operation 1, source.txt: source changed",
+		},
+	] satisfies {
+		name: string;
+		result: Partial<ApplyPatchInWorkspaceResult>;
+		text: string;
+	}[])("reports only outcome facts: $name", ({ result, text }) => {
 		expect(
-			failureRecovery("Invalid V4A patch at line 4. No operations were validated or applied."),
-		).toContain("correct the V4A syntax");
+			formatApplyPatchResult({
+				changedPaths: [],
+				addedLines: 0,
+				removedLines: 0,
+				operations: [],
+				operationCount: 0,
+				exactUpdateCount: 0,
+				fuzzyUpdateCount: 0,
+				applied: [],
+				rejected: [],
+				unconfirmed: [],
+				notApplied: [],
+				...result,
+			}),
+		).toBe(text);
+	});
+
+	test("reports malformed source without recovery instructions", async () => {
+		await expect(
+			createApplyPatchTool().execute(
+				"invalid-patch",
+				{ patch: "*** Begin Patch\n*** Add File: value.txt\naborted\n*** End Patch" },
+				undefined,
+				undefined,
+				{ cwd: process.cwd() } as never,
+			),
+		).rejects.toThrow(
+			/^apply_patch failed: Invalid V4A patch: Add content lines must begin with \+ at line 3$/,
+		);
 	});
 
 	test("marks failed and unknown outcomes as Pi errors, not Changed+Rejected partial", () => {
@@ -109,9 +212,7 @@ describe("apply_patch tool_result contract", () => {
 					text:
 						"Patch partially applied.\n" +
 						"Changed:\n- value.txt: update (2/3 hunks applied)\n" +
-						"Rejected:\n- operation 1, value.txt, hunk 2: context not found\n" +
-						"Recovery: read value.txt, then retry only rejected hunks from operation 1.\n" +
-						"Do not retry applied hunks.",
+						"Rejected:\n- operation 1, value.txt, hunk 2: context not found",
 				},
 			]);
 			expect(result.details).toMatchObject({

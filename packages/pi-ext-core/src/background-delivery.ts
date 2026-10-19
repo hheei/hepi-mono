@@ -2,39 +2,34 @@ import { errorMessage } from "./errors.js";
 import { getGlobalState } from "./global-state.js";
 import { type RuntimeHost, runtimeIdentity } from "./runtime-identity.js";
 
-export interface BackgroundWorkSource {
-	activeCount(): number;
-	/** Notify when work finishes; counts are read live, including queued work. */
-	onChange(listener: () => void): () => void;
-}
-
+/**
+ * One producer's path into the parent session. The channel owns its pending content and its
+ * branch/abort checks; the coordinator only decides when to ask it to flush.
+ *
+ * A busy parent receives every message in its next step. An idle parent is woken at most once
+ * per microtask batch, by the last channel that is still valid, so unrelated background work
+ * cannot each start a new turn. A thrown submission must leave the channel's pending content
+ * intact: the coordinator reports it and waits for the next request or change.
+ */
 export interface BackgroundDeliveryChannel {
 	isIdle(): boolean;
 	hasPending(): boolean;
-	/**
-	 * Busy: steer every message. Idle: only the last message may request a turn.
-	 * Ordinary items flush without waiting for active sources. Preserve pending items on a thrown submission;
-	 * the coordinator diagnoses it and waits for the next request/change, without a retry loop.
-	 */
-	flush(triggerTurn: boolean, urgentOnly?: boolean): void;
+	flush(triggerTurn: boolean): void;
 }
 
 export interface BackgroundDeliveryRegistration {
-	/** Urgent requests bypass the idle completion gate, not the single-wake rule. */
-	request(urgent?: boolean): void;
+	/** Schedules a flush for the current batch. A disposed registration does nothing. */
+	request(): void;
 	dispose(): void;
 }
 
-/** Session-runtime coordination only; sources and channels retain their own state. */
+/** Session-runtime coordination only; channels retain their own state. */
 export interface BackgroundDelivery {
-	registerSource(source: BackgroundWorkSource): () => void;
 	registerChannel(channel: BackgroundDeliveryChannel): BackgroundDeliveryRegistration;
 }
 
 export function createBackgroundDelivery(): BackgroundDelivery {
-	const sources = new Set<BackgroundWorkSource>();
 	const channels = new Set<BackgroundDeliveryChannel>();
-	const urgent = new Set<BackgroundDeliveryChannel>();
 	let scheduled = false;
 	const schedule = (): void => {
 		if (scheduled) return;
@@ -52,8 +47,7 @@ export function createBackgroundDelivery(): BackgroundDelivery {
 					const last = !pending
 						.slice(index + 1)
 						.some((next) => channels.has(next) && next.hasPending());
-					channel.flush(!idle || last, false);
-					urgent.delete(channel);
+					channel.flush(!idle || last);
 				} catch (error) {
 					if (process.env.DEBUG || process.env.PI_DEBUG) {
 						console.error(`background delivery failed: ${errorMessage(error)}`);
@@ -63,26 +57,15 @@ export function createBackgroundDelivery(): BackgroundDelivery {
 		});
 	};
 	return {
-		registerSource(source) {
-			sources.add(source);
-			const unsubscribe = source.onChange(schedule);
-			return () => {
-				unsubscribe();
-				sources.delete(source);
-				schedule();
-			};
-		},
 		registerChannel(channel) {
 			channels.add(channel);
 			return {
-				request(isUrgent = false) {
+				request() {
 					if (!channels.has(channel)) return;
-					if (isUrgent) urgent.add(channel);
 					schedule();
 				},
 				dispose() {
 					channels.delete(channel);
-					urgent.delete(channel);
 				},
 			};
 		},

@@ -17,14 +17,14 @@ Loadout 机制最初在 HEPI 早期设计，旨在提供一个全局与项目级
 - **技能（Skills）、扩展（Extensions）、包（Packages）、提示词模板（Prompts）、主题（Themes）**：
   统一由 Pi 原生的 `~/.pi/agent/settings.json`（全局）与 `<cwd>/.pi/settings.json`（项目）管理，并通过终端命令 `pi config`（或手动编辑对应数组）进行交互式启用/禁用。
 - **工具（Tools）**：
-  由工具所有方通过 `@hheei/pi-ext-core` 提供的 `setSessionToolsActive` 或动态能力包按需控制。
+  由工具所有方直接调用 Pi 的 `getActiveTools` / `setActiveTools` 按需控制。
 
 ### 2.2 包与接口清理
 
 1. **`@hheei/pi-ext-core`**：
    - 移除已无生产消费者的 `LoadoutResourceMetadata`、`LoadoutResourceDetail`、`LoadoutInventoryObserver`、`registerLoadoutResource`、`observeLoadoutInventory`。
    - 移除仅用于影子技能状态发布的 `skill-state.ts`（`setDisabledSkillKeys`、`clearDisabledSkillKeys`、`getDisabledSkillKeys`、`isSkillEnabled`）。
-   - 将会话级工具激活辅助函数提取为专有的 `setSessionToolsActive`（`src/session-tools.ts`），职责单一明确。
+   - `setSessionToolsActive` 已删除。没有任何生产调用方，工具激活留在 Pi 的 `setActiveTools`。
 2. **`@hheei/pi-settings`**：
    - 彻底删除 `src/loadout/` 引擎、模型与页面实现。
    - 移除 `/ext-settings` 对 `loadout` 页面的注册，专注于承载已注册扩展设置的 `SettingsPage`（`DualPaneListView` 两栏配置面板）。

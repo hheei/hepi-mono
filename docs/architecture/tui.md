@@ -64,4 +64,4 @@ feature-neutral 的组合中间层时才定义其 policy；不能因预测复用
 
 每个公开 TUI API 的 TypeScript 注释必须说明 owner、consumer、缺席 fallback、cleanup、cancellation 和并发语义。runtime state 以 `pi.events` identity 作用域化，跨重复 core module instance 共享；它不得长期保留 ExtensionContext 或 component。
 
-focused tests 必须覆盖 FIFO、每 host queue capacity、abort before/after dequeue、session shutdown、factory failure、exactly-once close、theme invalidation、router page key override、lazy view retry 与 dynamic page removal。可见改动还必须在 Pi 或 `tui-replay` 验证窄和宽终端；测试不能代替真实 render 验证。
+focused tests 必须覆盖 FIFO、每 host queue capacity、abort before/after dequeue、session shutdown、factory failure、exactly-once close、theme invalidation、router page key override、lazy view retry 与 dynamic page removal。可见改动还必须在 Pi 验证窄和宽终端；测试不能代替真实 render 验证。

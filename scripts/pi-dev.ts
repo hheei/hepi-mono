@@ -11,7 +11,6 @@ const buildCacheDir = path.join(root, ".pi-dev");
 // Extensions built and loaded automatically by pi-dev.
 // Explicitly excluded from autoloading:
 // - pi-ext-core: shared library, not a standalone extension entry
-// - pi-debug: manual inspection tooling
 const builtPackageNames = [
 	"pi-ext-addon",
 	"pi-ext-memory",

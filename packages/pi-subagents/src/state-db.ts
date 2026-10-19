@@ -233,6 +233,31 @@ export function enqueueCommand(
 	);
 }
 
+export function hasPendingCommand(
+	db: DatabaseSync,
+	parentSessionId: string,
+	direction: "to_child" | "to_parent",
+	subagentId?: string,
+): boolean {
+	const row =
+		subagentId === undefined
+			? (db
+					.prepare(
+						`SELECT 1 AS hit FROM commands
+						 WHERE parent_session_id = ? AND direction = ? AND status = 'pending'
+						 LIMIT 1`,
+					)
+					.get(parentSessionId, direction) as { hit: number } | undefined)
+			: (db
+					.prepare(
+						`SELECT 1 AS hit FROM commands
+						 WHERE parent_session_id = ? AND subagent_id = ? AND direction = ? AND status = 'pending'
+						 LIMIT 1`,
+					)
+					.get(parentSessionId, subagentId, direction) as { hit: number } | undefined);
+	return row !== undefined;
+}
+
 export function claimCommand(
 	db: DatabaseSync,
 	parentSessionId: string,
@@ -278,6 +303,10 @@ export function requeueAbandonedParentCommands(db: DatabaseSync, parentSessionId
 		`UPDATE commands SET status = 'pending'
 		 WHERE parent_session_id = ? AND direction = 'to_parent' AND status = 'working'`,
 	).run(parentSessionId);
+}
+
+export function deleteCommand(db: DatabaseSync, id: string): void {
+	db.prepare("DELETE FROM commands WHERE id = ?").run(id);
 }
 
 export function readCommand(db: DatabaseSync, id: string): StoredCommand | undefined {

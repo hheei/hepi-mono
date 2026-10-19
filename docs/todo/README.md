@@ -3,19 +3,18 @@
 ## 目标
 
 `@hheei/pi-ext-tools` 拥有 Todo：任务 tool、`/todo` command、任务状态、提醒与 Footer
-状态行。它复用 `@hheei/pi-ext-core` 的 session lifecycle、Loadout registration 与 ToolTui。
+状态行。它复用 `@hheei/pi-ext-core` 的 session lifecycle 与 prompt 段落能力；工具注册走 Pi 原生
+`pi.registerTool`，展示框架由 `@hheei/pi-ext-ui` 提供。
 
 ## 边界
 
 - `pi-ext-tools` 拥有 `todo` tool definition 与 `/todo` command；task model、调度、cancel、
   提醒和 Footer 状态展示都由该 package 持有；
-- core 在 extension initialization 代为向 Pi 注册 `todo` executable tool，并发布同名 Loadout
-  inventory item。metadata 固定为 owner `@hheei/pi-ext-tools`、group `Tasks`、priority `100`、无
-  conflict、default active。没有 `pi-settings` 时，core 保留 Pi 默认 activation；安装
-  `pi-settings` 后才由其 policy 决定是否启用；
-- core 提供 session lifecycle cleanup 与共享 `ToolTui` renderer transport。Todo 直接使用 Pi 原生
-  `ctx.ui.setStatus` 维护左侧单行状态，不再在 editor 上方挂载 widget；
-- Todo 以 core 的 host-scoped `ToolTui` 包装自己的 definition，因此与 coding tools 使用同一 Trace collapse。
+- `pi-ext-tools` 自己调用 `pi.registerTool` 注册 `todo`，并声明 `defaultActive: false`：只有
+  `pi.getActiveTools()` 已包含 `todo` 时，`startToolsLifecycle` 才启动 Todo runtime。是否启用由 Pi host 的
+  active tool 集合决定，ext-core 不代为注册；
+- Todo 直接使用 Pi 原生 `ctx.ui.setStatus` 维护左侧单行状态，不在 editor 上方挂载 widget；
+- Todo 用 `pi-ext-ui` 的 ToolView 渲染自己的 definition，与 coding tools 使用同一折叠与复制交互。
   header、body、typed footer 的 task 语义仍属于 Todo：header 列出本次 task id，mutation 只显示本次
   operation outcome，`list` 显示 state rows，footer 只显示 `active #X · N pending · duration`；
 - Todo 不是独立 extension，也没有 adapter、重复 command/tool 或第二个 runtime。
@@ -54,8 +53,8 @@ Footer 状态项的 key 为 `pi-ext-tools:todo`，使 runtime ownership 与 pack
 
 Todo 的关键注释必须说明实际约束，而不是复述类型或语句：
 
-- managed tool registration 必须记录 `pi-ext-tools` owner、Loadout default、无 policy host 时的 fallback，以及
-  为什么 registration 只能在 extension initialization 发生；
+- tool registration 必须记录 `pi-ext-tools` owner、`defaultActive: false` 的语义，以及为什么注册在
+  extension construction 发生、而 Todo runtime 只在 `todo` 已 active 时启动；
 - tool batch 必须说明先在候选 state 上验证、成功后才提交，避免任何 invalid operation 部分写入；
 - Pi event handler 必须说明它只读取当前 session runtime，并在 lifecycle disposal 后成为 no-op，避免
   Pi 无 unregister API 在 `/reload` 后调用 stale closure；
@@ -66,5 +65,5 @@ Todo 的关键注释必须说明实际约束，而不是复述类型或语句：
 
 ## 验证
 
-迁移必须保留 model、integration 与 footer-status focused tests，并在实际 Pi 或 `tui-replay` 验证窄宽和宽
+迁移必须保留 model、integration 与 footer-status focused tests，并在实际 Pi 验证窄宽和宽
 终端。`pi-ext-tools` 的 `prepack` 构建必须包含 Todo implementation。

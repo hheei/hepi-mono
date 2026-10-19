@@ -42,6 +42,7 @@ function observation(
 		content: `Observation ${overrides.id}`,
 		timestamp: "2026-05-19 00:00",
 		relevance: "high",
+		kind: "fact",
 		tokenCount: 4,
 		...overrides,
 	};

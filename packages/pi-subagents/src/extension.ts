@@ -4,9 +4,6 @@ import {
 	errorMessage,
 	getBackgroundDelivery,
 	registerExtensionLifecycle,
-	TASK_REGISTRY_SERVICE_KEY,
-	type TaskRegistry,
-	waitForService,
 } from "@hheei/pi-ext-core";
 import { discoverAgents, type SkillCatalogEntry } from "./agent-resolver.js";
 import { registerChildBridge } from "./child-bridge.js";
@@ -54,7 +51,6 @@ function diagnose(message: string): void {
 
 /** Parent channel plus the teardown its owner must call. */
 export interface ParentChannelHandle extends ParentChannel {
-	dismiss(childId: string): void;
 	/** Unregisters delivery and appends anything still held without waking the parent. */
 	dispose(): void;
 }
@@ -82,9 +78,9 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
 /**
  * How child reports reach the parent conversation.
  *
- * Busy parents receive a steer into the next model step. Idle parents wait until all registered
- * background work finishes; decision requests and blockers bypass that wait. The shared gate
- * coordinates this channel with Task/Bash results so only one message requests a new idle turn.
+ * Busy parents receive a steer into the next model step. Idle parents get one new turn per
+ * microtask batch; the shared coordinator makes this channel and the Bash one agree on which
+ * message requests it.
  */
 export function createParentChannel(
 	pi: Pick<ExtensionAPI, "sendMessage" | "on" | "appendEntry">,
@@ -98,13 +94,10 @@ export function createParentChannel(
 	const held: ParentChannelReport[] = [];
 	let disposed = false;
 
-	const flush = (triggerTurn: boolean, urgentOnly = false): void => {
+	const flush = (triggerTurn: boolean): void => {
 		if (held.length === 0) return;
-		const reports = urgentOnly
-			? held.filter((report) => report.reason === "blocked" || report.reason === "error")
-			: [...held];
-		if (reports.length === 0) return;
-		for (const report of reports) held.splice(held.indexOf(report), 1);
+		const reports = [...held];
+		held.length = 0;
 		try {
 			pi.sendMessage(
 				{
@@ -146,11 +139,7 @@ export function createParentChannel(
 		async deliver(report: ParentChannelReport): Promise<void> {
 			if (disposed) throw new Error("Parent report channel is disposed");
 			held.push(report);
-			registration.request(report.reason === "blocked" || report.reason === "error");
-		},
-		dismiss(childId: string): void {
-			const index = held.findIndex((report) => report.childId === childId);
-			if (index !== -1) held.splice(index, 1);
+			registration.request();
 		},
 		dispose(): void {
 			disposed = true;
@@ -345,11 +334,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						}
 					: {}),
 			});
-			const unregisterWork = delivery.registerSource({
-				activeCount: () => manager.activeCount,
-				onChange: (listener) => manager.onChange(listener),
-			});
-			runtime.resources.add("subagent-background-work", unregisterWork);
 			// Recovery must never take the extension down with it: a registry this version cannot
 			// read (for example records written by an older release) is reported in the session and
 			// the user is told how to reset it.
@@ -380,15 +364,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			});
 			runtime.resources.add("interactive-tool-activation", () => activation.dispose());
 			registerParentCommands(pi, manager);
-			void waitForService(pi, TASK_REGISTRY_SERVICE_KEY, { signal: runtime.signal })
-				.then((taskRegistry: TaskRegistry) => {
-					if (runtime.signal.aborted) return;
-					const unbind = manager.bindTaskRegistry(taskRegistry);
-					runtime.resources.add("subagent-task-registry", unbind);
-				})
-				.catch((error: unknown) => {
-					diagnose(`Task registry service unavailable for subagents: ${errorMessage(error)}`);
-				});
 			const status = createSubagentStatus(context.ui, runtime.signal);
 			let refreshVersion = 0;
 			const refreshStatus = (): void => {

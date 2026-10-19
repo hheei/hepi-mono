@@ -4,7 +4,7 @@ import {
 	type SettingsProvider,
 	type SettingsState,
 } from "@hheei/pi-ext-core";
-import { defaultShellPath } from "./bg-bash-jobs.js";
+import { defaultShellPath } from "./bash-jobs.js";
 
 const BASH_GROUP = "bash";
 const BASH_SETTINGS_DESCRIPTIONS = {

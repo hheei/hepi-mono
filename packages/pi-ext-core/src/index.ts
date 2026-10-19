@@ -9,7 +9,6 @@ export type {
 	BackgroundDelivery,
 	BackgroundDeliveryChannel,
 	BackgroundDeliveryRegistration,
-	BackgroundWorkSource,
 } from "./background-delivery.js";
 export { createBackgroundDelivery, getBackgroundDelivery } from "./background-delivery.js";
 export type { SubcommandCompletions } from "./command-completions.js";
@@ -149,7 +148,6 @@ export {
 	provideService,
 	waitForService,
 } from "./service.js";
-export { setSessionToolsActive } from "./session-tools.js";
 export type {
 	JsonSettingsStorageOptions,
 	SettingChange,
@@ -172,87 +170,6 @@ export {
 	getRuntimeSettingsRegistry,
 	registerSettings,
 } from "./settings.js";
-export type {
-	CompletionFailure,
-	CompletionSubagentHandle,
-	CompletionSubagentResult,
-	CompletionSubagentSpec,
-	ConfigureSubagentCoordinatorOptions,
-	ConversationDeliveryAcknowledgement,
-	ConversationInputMode,
-	ConversationMessageSequence,
-	ConversationReplyConsumption,
-	ConversationReplyDeliverySink,
-	ConversationReplyResult,
-	ConversationSendOptions,
-	ConversationSubagentHandle,
-	ConversationSubagentSpec,
-	ConversationTerminalResult,
-	ConversationUsage,
-	ExternalTaskExecutionContext,
-	ExternalTaskTerminalResult,
-	QueuedInputDisposition,
-	ResolvedChildSessionFactory,
-	ResolvedExternalTaskExecution,
-	ResolvedTaskExecution,
-	SubagentEvent,
-	SubagentEventKind,
-	SubagentEventSubscription,
-	SubagentHandle,
-	SubagentId,
-	SubagentMode,
-	SubagentSpec,
-	SubagentStatus,
-	SubagentTerminalEvent,
-	SubagentTerminalResult,
-	SubagentTextEvent,
-	SubagentToolEvent,
-	SubagentTranscriptEntry,
-	SubagentTranscriptSnapshot,
-	SubagentTurnEvent,
-	SubscribeSubagentEventsOptions,
-	TaskSubagentHandle,
-	TaskSubagentSpec,
-	TaskTerminalDeliverySink,
-	TaskTerminalResult,
-} from "./subagents.js";
-export {
-	configureSubagentCoordinator,
-	DEFAULT_SUBAGENT_COORDINATOR_BUDGET,
-	ensureSubagentCoordinator,
-	lookupSubagent,
-	MAX_SUBAGENT_TRANSCRIPT_CHARS,
-	redeliverTask,
-	startSubagent,
-} from "./subagents.js";
-export type {
-	TaskBinding,
-	TaskDeliveryState,
-	TaskProgress,
-	TaskRegistryOptions,
-	TaskRequest,
-	TaskSnapshot,
-	TaskStatus,
-	TaskStopOutcome,
-	TaskTerminal,
-	TaskTerminalEvent,
-	TaskTerminalStatus,
-	TaskWaitOutcome,
-	TaskWaitOutcomeSettled,
-} from "./tasks.js";
-export {
-	DEFAULT_MAX_PENDING_DELIVERIES,
-	DEFAULT_MAX_RETAINED_TERMINAL,
-	DEFAULT_MAX_TASK_QUEUE,
-	DEFAULT_TASK_CONCURRENCY,
-	isTerminalTaskStatus,
-	MAX_TASK_RESULT_CHARS,
-	TASK_REGISTRY_SERVICE_KEY,
-	TaskCapacityError,
-	TaskQueueFullError,
-	TaskRegistry,
-	TaskRegistryClosedError,
-} from "./tasks.js";
 export { escapeXml } from "./text.js";
 export type {
 	BaseToolPresentation,

@@ -12,8 +12,10 @@ import { BridgeError } from "./protocol.js";
 import {
 	claimCommand,
 	claimParentCommands,
+	deleteCommand,
 	enqueueCommand,
 	finishCommand,
+	hasPendingCommand,
 	openStateDb,
 	readCommand,
 	requeueAbandonedParentCommands,
@@ -123,7 +125,17 @@ export function createMailboxTransport(options: {
 		polling = true;
 		try {
 			noticeLocks();
+			// Empty is the common tick. A read sees it; claiming would take a write lock and fsync.
+			if (!hasPendingCommand(db, options.parentSessionId, "to_parent")) return;
 			const claimed = withWrite(db, () => claimParentCommands(db, options.parentSessionId));
+			const eventIds: string[] = [];
+			const dropEvents = (): void => {
+				if (eventIds.length === 0) return;
+				const ids = eventIds.splice(0);
+				withWrite(db, () => {
+					for (const id of ids) deleteCommand(db, id);
+				});
+			};
 			for (const command of claimed) {
 				if (!seen.has(command.subagentId) && lockHeld(command.subagentId) === true) {
 					seen.add(command.subagentId);
@@ -143,9 +155,10 @@ export function createMailboxTransport(options: {
 							options.diagnose?.(`event listener failed: ${errorMessage(error)}`);
 						}
 					}
-					finishCommand(db, command.id, { status: "done", result: "{}" });
+					eventIds.push(command.id);
 					continue;
 				}
+				dropEvents();
 				try {
 					const payload = JSON.parse(command.payload) as unknown;
 					const result = await options.handleRequest({
@@ -163,6 +176,7 @@ export function createMailboxTransport(options: {
 					});
 				}
 			}
+			dropEvents();
 		} finally {
 			polling = false;
 		}
@@ -277,6 +291,9 @@ export function attachChildMailbox(options: {
 		working = true;
 		const current = db;
 		try {
+			if (!hasPendingCommand(current, options.parentSessionId, "to_child", options.subagentId)) {
+				return;
+			}
 			const command = withWrite(current, () =>
 				claimCommand(current, options.parentSessionId, options.subagentId, "to_child"),
 			);
@@ -389,18 +406,29 @@ function waitForCommand(
 		const timer = setInterval(() => {
 			if (signal?.aborted) {
 				clearInterval(timer);
+				withWrite(db, () => {
+					deleteCommand(db, id);
+				});
 				reject(new BridgeError("aborted", "The mailbox request was cancelled"));
 				return;
 			}
 			const command = readCommand(db, id);
 			if (command === undefined) return;
-			if (command.status === "done") {
+			if (
+				command.status === "done" ||
+				command.status === "failed" ||
+				Date.now() - started >= timeoutMs
+			) {
 				clearInterval(timer);
+				withWrite(db, () => {
+					deleteCommand(db, command.id);
+				});
+			}
+			if (command.status === "done") {
 				resolve(command.result === null ? null : (JSON.parse(command.result) as unknown));
 				return;
 			}
 			if (command.status === "failed") {
-				clearInterval(timer);
 				reject(
 					new BridgeError(
 						command.errorCode ?? "request_failed",
@@ -410,7 +438,6 @@ function waitForCommand(
 				return;
 			}
 			if (Date.now() - started >= timeoutMs) {
-				clearInterval(timer);
 				reject(new BridgeError("timeout", `No answer for ${id} after ${timeoutMs}ms`));
 			}
 		}, pollMs);

@@ -279,17 +279,25 @@ describe("Eval tool details contract", () => {
 	test("reports how long a cancelled cell ran", async (): Promise<void> => {
 		const { pi, tools } = framedHost();
 		const controller = new AbortController();
+		let cellRunning!: () => void;
+		const running = new Promise<void>((resolve) => {
+			cellRunning = resolve;
+		});
 		const runtime = {
 			runWithHooks: async (
 				_code: string,
 				_hooks: unknown,
 				signal: AbortSignal,
-			): Promise<undefined> =>
-				await new Promise((_resolve, reject) => {
+			): Promise<undefined> => {
+				// The cell announces it started before it blocks, so the cancellation the test sends
+				// lands on a cell that is really running instead of on a guessed delay.
+				cellRunning();
+				return await new Promise((_resolve, reject) => {
 					signal.addEventListener("abort", () => reject(new Error("Eval was aborted.")), {
 						once: true,
 					});
-				}),
+				});
+			},
 		};
 		registerPythonEvalTool(
 			pi,
@@ -304,7 +312,7 @@ describe("Eval tool details contract", () => {
 			undefined,
 			{ cwd: process.cwd(), sessionManager: { getLeafId: () => null } } as never,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		await running;
 		controller.abort();
 		const result = await pending;
 		// Details never reach the model, so the elapsed time has to be in the failure text.

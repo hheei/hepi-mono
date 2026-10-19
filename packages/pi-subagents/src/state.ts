@@ -7,9 +7,18 @@ export interface StateSnapshot {
 	readonly activeTool?: string;
 	readonly usage: UsageSummary;
 }
+export interface TranscriptFacts {
+	readonly usage: UsageSummary;
+	readonly summary?: string;
+	readonly stopReason?: string;
+	readonly interrupted?: string;
+	readonly containsInput: boolean;
+}
+
 export interface StateProjector {
 	applyEvent(event: unknown): StateSnapshot;
 	rebuild(entries: readonly unknown[]): StateSnapshot;
+	applyTranscriptFacts(facts: TranscriptFacts): StateSnapshot;
 	/**
 	 * Puts the projected state back in step with a state the child itself reported. Without it a
 	 * transcript that still ends in a tool result keeps projecting "running" over a child that has
@@ -114,6 +123,98 @@ export function aggregateUsage(entries: readonly unknown[]): UsageSummary {
 	}
 	return total;
 }
+
+function userText(message: Record<string, unknown>): string | undefined {
+	if (typeof message.content === "string") return message.content;
+	if (!Array.isArray(message.content)) return undefined;
+	return message.content
+		.map((part) => {
+			const content = record(part);
+			return content?.type === "text" && typeof content.text === "string" ? content.text : "";
+		})
+		.join("");
+}
+
+function lastCompletedAssistant(entries: readonly unknown[]): Record<string, unknown> | undefined {
+	let last: Record<string, unknown> | undefined;
+	for (const entry of entries) {
+		const item = assistant(entry);
+		if (item === undefined || !completed(item.message)) continue;
+		last = item.message;
+	}
+	return last;
+}
+
+/** What the parent projects from a session. The transcript itself never crosses the bridge. */
+export function transcriptFacts(
+	entries: readonly unknown[],
+	expectedInput?: string,
+): TranscriptFacts {
+	const last = lastCompletedAssistant(entries);
+	const summary = summarizeCurrentBranch(entries);
+	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : undefined;
+	const interrupted = last === undefined ? undefined : diagnostic(last);
+	const containsInput =
+		expectedInput !== undefined &&
+		entries.some((entry) => {
+			const value = record(entry);
+			const message = record(value?.message);
+			return message?.role === "user" && userText(message) === expectedInput;
+		});
+	return {
+		usage: aggregateUsage(entries),
+		...(summary === undefined ? {} : { summary }),
+		...(stopReason === undefined ? {} : { stopReason }),
+		...(interrupted === undefined ? {} : { interrupted }),
+		containsInput,
+	};
+}
+
+function usageNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** A mailbox answer is untrusted. Anything that is not these fields is not facts. */
+export function parseTranscriptFacts(value: unknown): TranscriptFacts | undefined {
+	if (!isRecord(value) || typeof value.containsInput !== "boolean" || !isRecord(value.usage)) {
+		return undefined;
+	}
+	const usage = value.usage;
+	const inputTokens = usageNumber(usage.inputTokens);
+	const outputTokens = usageNumber(usage.outputTokens);
+	const cacheReadTokens = usageNumber(usage.cacheReadTokens);
+	const cacheWriteTokens = usageNumber(usage.cacheWriteTokens);
+	const turns = usageNumber(usage.turns);
+	const costUsd = usage.costUsd === null ? null : usageNumber(usage.costUsd);
+	if (
+		inputTokens === undefined ||
+		outputTokens === undefined ||
+		cacheReadTokens === undefined ||
+		cacheWriteTokens === undefined ||
+		turns === undefined ||
+		costUsd === undefined
+	) {
+		return undefined;
+	}
+	const summary = typeof value.summary === "string" ? value.summary : undefined;
+	const stopReason = typeof value.stopReason === "string" ? value.stopReason : undefined;
+	const interrupted = typeof value.interrupted === "string" ? value.interrupted : undefined;
+	return {
+		usage: {
+			inputTokens,
+			outputTokens,
+			cacheReadTokens,
+			cacheWriteTokens,
+			costUsd,
+			turns,
+		},
+		...(summary === undefined ? {} : { summary }),
+		...(stopReason === undefined ? {} : { stopReason }),
+		...(interrupted === undefined ? {} : { interrupted }),
+		containsInput: value.containsInput,
+	};
+}
+
 /** The phase a streaming assistant update is in: what the parent shows as the child's activity. */
 export type AssistantPhaseKind = "thinking" | "generating" | "toolcall";
 
@@ -168,6 +269,15 @@ export function createStateProjector(initialState: SubagentState = "running"): S
 		...(activeTool === undefined ? {} : { activeTool }),
 		usage,
 	});
+	const applyFacts = (facts: TranscriptFacts): StateSnapshot => {
+		activeTool = undefined;
+		summary = facts.summary;
+		usage = facts.usage;
+		interrupted = facts.interrupted;
+		if (facts.stopReason === "error") state = "error";
+		else if (facts.stopReason !== undefined && state === "error") state = "done";
+		return snapshot();
+	};
 	return {
 		applyEvent(event) {
 			const value = record(event);
@@ -239,23 +349,10 @@ export function createStateProjector(initialState: SubagentState = "running"): S
 			return snapshot();
 		},
 		rebuild(entries) {
-			activeTool = undefined;
-			summary = summarizeCurrentBranch(entries);
-			usage = aggregateUsage(entries);
-			let lastAssistant: Record<string, unknown> | undefined;
-			for (const entry of entries) {
-				const item = assistant(entry);
-				if (item === undefined || !completed(item.message)) continue;
-				lastAssistant = item.message;
-			}
-			if (lastAssistant !== undefined) {
-				interrupted = diagnostic(lastAssistant);
-				if (lastAssistant.stopReason === "error") state = "error";
-				else if (state === "error") state = "done";
-			} else {
-				interrupted = undefined;
-			}
-			return snapshot();
+			return applyFacts(transcriptFacts(entries));
+		},
+		applyTranscriptFacts(facts) {
+			return applyFacts(facts);
 		},
 		syncState(next) {
 			state = next;
