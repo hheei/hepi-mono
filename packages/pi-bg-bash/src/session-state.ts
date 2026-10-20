@@ -5,6 +5,7 @@ import { startBashDelivery } from "./bash-delivery.js";
 import { BashJobRegistry } from "./bash-jobs.js";
 import { BashExecutionLedger, bashExecutionDirectory } from "./bash-ledger.js";
 import { type BashSettings, DEFAULT_BASH_SETTINGS, readBashSettings } from "./bash-settings.js";
+import { createBashStatus } from "./status.js";
 
 /** Live session view consumed by the statically registered background Bash tools. */
 export interface BackgroundBashRuntimeState {
@@ -68,8 +69,13 @@ function startLifecycle(
 	}
 	state.jobs = jobs;
 	let stopDelivery = (): void => {};
+	const status = createBashStatus(context.extension.ui, context.signal);
+	const refreshStatus = (): void => {
+		status.refresh(jobs);
+	};
 	context.resources.add("bash-jobs", async () => {
 		stopDelivery();
+		status.dispose();
 		try {
 			await jobs.dispose();
 		} finally {
@@ -77,6 +83,10 @@ function startLifecycle(
 			if (state.jobs === jobs) state.jobs = undefined;
 		}
 	});
+	const unsubscribeTerminal = jobs.onTerminal(refreshStatus);
+	context.resources.add("bash-status", unsubscribeTerminal);
+	context.resources.add("bash-status-tools", pi.on("tool_result", refreshStatus));
+	refreshStatus();
 	stopDelivery = startBashDelivery({
 		pi,
 		jobs,
