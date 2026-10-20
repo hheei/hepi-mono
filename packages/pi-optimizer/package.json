@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-optimizer",
-	"version": "0.2.4",
+	"version": "0.3.0",
 	"description": "Input conversion, prompt modes, and opt-in RTK command optimization for Pi.",
 	"type": "module",
 	"main": "dist/index.js",
