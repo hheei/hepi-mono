@@ -37,6 +37,7 @@ Native `/resume` of the same session outside the managed path is not intercepted
 已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。
 新 runtime 的启动窗口为 20 秒，旧 runtime 的重连识别窗口为 5 秒；启动包含宿主命令和清理，
 manager 的默认启动 deadline 为 60 秒。
+使用 `pi-dev` 时，child 复用父启动器已经构建的扩展；构建归普通开发启动所有，child 的启动和恢复不触发构建，也不写构建缓存，避免把编译耗时误判为 bridge 连接失败。
 自动汇报读取 transcript 后必须重新核对工作版本、入站活动和当前状态；过期汇报不能覆盖新 turn 或触发回收。
 宿主确认进程退出不能说明是人工关闭，诊断不得将退出原因归到用户。
 

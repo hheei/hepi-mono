@@ -38,12 +38,11 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
 | `pi-web-access` | `npm:pi-web-access` | 外部包（无需本地构建） |
 | `codemode`（内置） | `builtin:codemode` | 无需构建；由 `pi-ext-ui` 通过 `registerToolRenderer` 提供折叠与元工具看板渲染 |
-| `tool-search`（内置） | `builtin:tool-search` | 无需构建；同上，且它默认 inactive，需由 `defaultTools` 激活 |
 | `mcp`（内置） | `builtin:mcp` | 无需构建；消费配置文件及 extension 的原生 MCP server 注册 |
 
-`codemode`、`tool-search` 用 `builtin:` 路径显式加载，由 Pi host 提供；文件工具包不注册它们。
+`codemode` 用 `builtin:` 路径显式加载，由 Pi host 提供。`tool_search` 由 `pi-ext-tools` 提供；常规 Pi 未加载该包时仍可使用内建实现。
 pi-dev 会话同样受 `defaultTools`（例如 `["+codemode", "+tool_search"]`）和 `codemode.mode`
-设置控制。`tool-search` 注册为 inactive，仅加载它并不会激活它。
+设置控制。`tool_search` 注册为 inactive，仅加载 `pi-ext-tools` 并不会激活它。
 
 两者配合的方式：`codemode.mode: "only"` 把 `direct` 工具从模型声明中隐藏，只留 codemode 描述里的
 目录；`deferred` 工具既不进声明也不进那个目录，靠 `tool_search` 按查询加载，或由 codemode 脚本通过
@@ -58,12 +57,13 @@ pi-dev 会话同样受 `defaultTools`（例如 `["+codemode", "+tool_search"]`�
 - TypeScript 保存输入指纹，写入 `.pi-dev/build.json`。
 - 首次运行、输入变化或所检查的构建产物缺失时触发构建；未变化时跳过。
 - 构建失败时不启动 Pi。
+- subagent 经同一启动器启动时（已有 `PI_SUBAGENTS_CHILD_ID`），复用父会话已构建的产物，不检查源码指纹、不构建、不更新缓存。派发和恢复 child 都不重建扩展，避免超过 20 秒 bridge 启动窗口，以及并发 child 重建时互相删除 `dist`。源码修改由下一次普通 `pi-dev` 启动构建。
 
 ## 运行与认证边界
 
 - 这不是隔离配置环境：沿用 `~/.pi/agent`，不复制或链接认证、模型文件，也不创建独立 profile。
-- 启动参数包含 `--no-extensions`，默认扩展发现和内置扩展被禁用；`builtin:tool-search` 与
-  `builtin:mcp` 由启动器显式重新启用。
+- 启动参数包含 `--no-extensions`，默认扩展发现和内置扩展被禁用；`builtin:codemode` 与
+  `builtin:mcp` 由启动器显式重新启用。`tool_search` 由加载的 `pi-ext-tools` 注册。
 - 默认传入 `--approve`，本次运行信任当前项目并加载项目资源；不写入持久化信任决定。
   显式传入 `--no-approve` 可覆盖默认值，忽略项目本地资源。
 - 技能、prompt、theme 和项目配置仍由 Pi 默认路径与传入参数决定。
