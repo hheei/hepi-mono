@@ -4,6 +4,7 @@ import { registerEditTool } from "./edit.js";
 import { registerFindTool } from "./find.js";
 import { registerGrepTool } from "./grep.js";
 import { registerReadTool } from "./read.js";
+import { createToolSearchToolDefinition } from "./tool-search.js";
 import { registerWriteTool } from "./write.js";
 
 /** Registers the file and foreground Bash tool catalog; live settings stay caller-owned. */
@@ -14,4 +15,5 @@ export function registerTools(pi: ExtensionAPI, bashOptions?: BashToolOptions): 
 	registerEditTool(pi);
 	registerWriteTool(pi);
 	registerBashTool(pi, bashOptions);
+	pi.registerTool(createToolSearchToolDefinition(pi));
 }

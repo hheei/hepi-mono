@@ -1,7 +1,7 @@
 {
 	"name": "@hheei/pi-ext-tools",
-	"version": "0.3.0",
-	"description": "Pi file tools and foreground Bash: read, grep, find, edit, write and bash.",
+	"version": "0.4.0",
+	"description": "Pi file tools, foreground Bash, and package-owned tool search.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",

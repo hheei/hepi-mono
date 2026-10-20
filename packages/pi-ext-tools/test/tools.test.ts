@@ -28,7 +28,9 @@ describe("pi-ext-tools catalog", () => {
 	test("registers every canonical editing definition before catalog activation", (): void => {
 		const host = registeredTools();
 		const names = host.tools.map((tool) => tool.name);
-		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash"]);
+		expect(names).toEqual(["read", "grep", "find", "edit", "write", "bash", "tool_search"]);
+		expect(toolFor(host.tools, "tool_search").exposure).toBe("model-only");
+		expect(toolFor(host.tools, "tool_search").defaultActive).toBe(false);
 	});
 
 	test.each([

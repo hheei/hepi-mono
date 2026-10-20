@@ -15,7 +15,7 @@ import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
 const temporaryDirectory = temporaryDirectories("hepi-tool-packages-");
 const packages = [
-	["files", filesExtension, ["read", "grep", "find", "edit", "write", "bash"]],
+	["files", filesExtension, ["read", "grep", "find", "edit", "write", "bash", "tool_search"]],
 	["background bash", bashExtension, ["bg_bash_spawn", "bg_bash_get", "bg_bash_stop"]],
 	["patch", patchExtension, ["apply_patch"]],
 	["python", pythonExtension, ["python_eval"]],
@@ -36,8 +36,8 @@ describe("independent tool extensions", () => {
 		const host = toolHost();
 		for (const [, extension] of reverse ? [...packages].reverse() : packages) extension(host.pi);
 		const names = host.tools.map((tool) => tool.name);
-		expect(new Set(names).size).toBe(12);
-		expect(names).toHaveLength(12);
+		expect(new Set(names).size).toBe(13);
+		expect(names).toHaveLength(13);
 		for (const name of [
 			"apply_patch",
 			"python_eval",
