@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { errorMessage } from "@hheei/pi-ext-core";
 import { EvalToolError } from "../bridge.js";
+import type { EvalExecutionFactsStore } from "../facts.js";
 import type { EvalRunResult, EvalRuntimeHooks } from "../runtime.js";
 import {
 	type ChildToHostMessage,
@@ -28,6 +29,7 @@ type EvalCellOutcome = {
 type KernelSlot = {
 	readonly language: EvalLanguage;
 	child: ChildProcessWithoutNullStreams;
+	generation: string;
 	buffer: string;
 	ready: Promise<void>;
 };
@@ -38,6 +40,8 @@ export class EvalKernelHost {
 	readonly #slots = new Map<EvalLanguage, KernelSlot>();
 	/** The kernel that ran the last completed cell; a different one means the scope was lost. */
 	#lastKernel: KernelSlot | undefined;
+	readonly #facts: EvalExecutionFactsStore | undefined;
+	#reportedRecovery = false;
 	/** Output that arrived with no active cell; the next cell reports it rather than dropping it. */
 	#background = "";
 	#backgroundTruncated = false;
@@ -59,11 +63,16 @@ export class EvalKernelHost {
 
 	constructor(
 		cwd: string,
-		options: { readonly pythonBin?: string; readonly interruptMs?: number } = {},
+		options: {
+			readonly pythonBin?: string;
+			readonly interruptMs?: number;
+			readonly facts?: EvalExecutionFactsStore;
+		} = {},
 	) {
 		this.#cwd = cwd;
 		this.#pythonBin = options.pythonBin?.trim() || undefined;
 		this.#interruptMs = options.interruptMs ?? INTERRUPT_ESCALATION_MS;
+		this.#facts = options.facts;
 	}
 
 	async runWithHooks(
@@ -77,63 +86,92 @@ export class EvalKernelHost {
 		if (this.#execute !== undefined) throw new Error("Eval is already running in this session.");
 		if (reset) this.#dropKernel("python");
 		const previous = this.#lastKernel;
+		const previousFacts = this.#facts?.previous();
 		// Only the kernel that ran the previous cell can still hold its names. A reset is an
 		// explicit request, so it reports nothing; any other change of process is a loss.
-		const restarted = !reset && previous !== undefined && this.#slots.get("python") !== previous;
+		const restarted =
+			!reset &&
+			((previous !== undefined && this.#slots.get("python") !== previous) ||
+				(previous === undefined && previousFacts?.generation !== undefined));
 		await this.#ensureChild("python");
 		// Recorded before the cell runs: a kernel that dies mid-cell is still the one the next
 		// cell has to compare against, so the loss is reported once rather than never.
 		this.#lastKernel = this.#slots.get("python");
+		const slot = this.#lastKernel;
+		if (slot === undefined) throw new Error("python eval kernel is not running.");
 		// Delivered before the cell runs, because these bytes were written before it.
 		this.#flushBackground(hooks);
 		const cellId = crypto.randomUUID();
-		return await new Promise<EvalCellOutcome>((resolve, reject) => {
-			const fail = (error: Error): void => {
-				signal?.removeEventListener("abort", onAbort);
-				if (this.#execute?.cellId === cellId) {
-					clearTimeout(this.#execute.escalate);
-					this.#execute = undefined;
-				}
-				reject(error);
-			};
-			const onAbort = (): void => {
-				if (this.#execute?.cellId === cellId) {
-					this.#execute.abortError = abortReason(signal);
-				}
-				this.#interrupt("python");
-			};
-			this.#execute = {
-				language: "python",
-				cellId,
-				hooks,
-				resolve: (value) => {
+		this.#facts?.start(cellId, slot.generation);
+		const recovery = !reset && !this.#reportedRecovery ? previousFacts?.recovery : undefined;
+		this.#reportedRecovery = true;
+		let run: EvalCellOutcome;
+		try {
+			run = await new Promise<EvalCellOutcome>((resolve, reject) => {
+				const fail = (error: Error): void => {
 					signal?.removeEventListener("abort", onAbort);
 					if (this.#execute?.cellId === cellId) {
 						clearTimeout(this.#execute.escalate);
-						const { aborted, abortError } = this.#execute;
 						this.#execute = undefined;
-						if (aborted) {
-							reject(abortError ?? new Error("Eval was aborted."));
-							return;
-						}
 					}
-					resolve(value);
-				},
-				reject: fail,
-				aborted: false,
-				state: undefined,
-			};
-			if (signal?.aborted) {
-				fail(abortReason(signal));
-				return;
-			}
-			signal?.addEventListener("abort", onAbort, { once: true });
-			try {
-				this.#send("python", { type: "execute", cellId, code });
-			} catch (error) {
-				fail(error instanceof Error ? error : new Error(String(error)));
-			}
-		}).then((result) => ({ ...result, restarted }));
+					reject(error);
+				};
+				const onAbort = (): void => {
+					if (this.#execute?.cellId === cellId) {
+						this.#execute.abortError = abortReason(signal);
+					}
+					this.#interrupt("python");
+				};
+				this.#execute = {
+					language: "python",
+					cellId,
+					hooks,
+					resolve: (value) => {
+						signal?.removeEventListener("abort", onAbort);
+						if (this.#execute?.cellId === cellId) {
+							clearTimeout(this.#execute.escalate);
+							const { aborted, abortError } = this.#execute;
+							this.#execute = undefined;
+							if (aborted) {
+								reject(abortError ?? new Error("Eval was aborted."));
+								return;
+							}
+						}
+						resolve(value);
+					},
+					reject: fail,
+					aborted: false,
+					state: undefined,
+				};
+				if (signal?.aborted) {
+					fail(abortReason(signal));
+					return;
+				}
+				signal?.addEventListener("abort", onAbort, { once: true });
+				try {
+					this.#send("python", { type: "execute", cellId, code });
+				} catch (error) {
+					fail(error instanceof Error ? error : new Error(String(error)));
+				}
+			});
+		} catch (error) {
+			this.#facts?.end({
+				cellId,
+				generation: slot.generation,
+				outcome:
+					signal?.aborted === true ? (isTimeout(signal) ? "timed_out" : "cancelled") : "failed",
+				names: error instanceof EvalCellError ? error.state?.names : undefined,
+				diagnostic: errorMessage(error),
+			});
+			throw error;
+		}
+		this.#facts?.end({
+			cellId,
+			generation: slot.generation,
+			outcome: "completed",
+			names: run.state?.names,
+		});
+		return { ...run, restarted, ...(recovery === undefined ? {} : { recovered: recovery }) };
 	}
 
 	dispose(): void {
@@ -160,7 +198,13 @@ export class EvalKernelHost {
 			settleReady = resolve;
 			failReady = reject;
 		});
-		const slot: KernelSlot = { language, child, buffer: "", ready };
+		const slot: KernelSlot = {
+			language,
+			child,
+			generation: crypto.randomUUID(),
+			buffer: "",
+			ready,
+		};
 		this.#slots.set(language, slot);
 		const timer = setTimeout(() => {
 			failReady(new Error(`${language} eval kernel did not become ready.`));
@@ -426,4 +470,8 @@ function abortReason(signal?: AbortSignal): Error {
 	const reason = signal?.reason;
 	if (reason instanceof Error && reason.message.includes("timed out")) return reason;
 	return new Error("Eval was aborted.");
+}
+
+function isTimeout(signal: AbortSignal): boolean {
+	return signal.reason instanceof Error && signal.reason.message.includes("timed out");
 }

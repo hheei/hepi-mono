@@ -45,8 +45,11 @@ describe("pi-python-eval extension", () => {
 			),
 		).toBe(true);
 		expect(
-			guidelines.some((line) =>
-				line.includes("Call nested tools as `tools.name(...)` with kwargs or a dict."),
+			guidelines.some(
+				(line) =>
+					line.includes("Nested tools are synchronous: `result = tools.name(...)`") &&
+					line.includes("kwargs or a dict") &&
+					line.includes("do not use await"),
 			),
 		).toBe(true);
 	});
