@@ -25,23 +25,24 @@ async function shellPid(directory: string): Promise<number> {
 			throw error;
 		}
 	};
-	// The watcher is armed before the first read, so a file published in between is not missed.
+	// watch() is lazy: next() must arm it before the first read.
 	const controller = new AbortController();
 	const timeout = AbortSignal.timeout(15_000);
 	timeout.addEventListener("abort", () => controller.abort(), { once: true });
 	const watcher = watch(directory, { signal: controller.signal });
+	let change = watcher.next();
 	try {
-		const published = await read();
-		if (published !== undefined) return published;
-		for await (const event of watcher) {
-			if (event.filename !== "shell.pid") continue;
+		for (;;) {
 			const pid = await read();
 			if (pid !== undefined) return pid;
+			if ((await change).done) break;
+			change = watcher.next();
 		}
 	} catch (error) {
 		if (!(error instanceof Error) || error.name !== "AbortError") throw error;
 	} finally {
 		controller.abort();
+		await change.catch(() => {});
 	}
 	throw new Error("Controller did not start its shell");
 }
