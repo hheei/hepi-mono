@@ -1,5 +1,5 @@
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { EvalToolBridge } from "../src/bridge.js";
 import { EvalCellError } from "../src/kernel/protocol.js";
 import type { EvalRuntimeState } from "../src/lifecycle.js";
@@ -317,6 +317,33 @@ describe("Eval tool details contract", () => {
 		expect((result.content[0] as { text: string }).text).toMatch(
 			/^error: Eval was aborted after \d+(\.\d+)?(ms|s)\.$/,
 		);
+	});
+
+	test("defaults to a 180 second deadline when timeout_ms is omitted", async () => {
+		vi.useFakeTimers();
+		try {
+			let settled = false;
+			const pending = execute({
+				runWithHooks: async (_code: string, _hooks: unknown, signal: AbortSignal) =>
+					await new Promise((_resolve, reject) => {
+						signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+					}),
+			}).then((outcome) => {
+				settled = true;
+				return outcome;
+			});
+			await vi.advanceTimersByTimeAsync(179_999);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			const { result } = await pending;
+			expect(result.isError).toBe(true);
+			expect(result.content).toEqual([
+				{ type: "text", text: "error: Execution timed out after 180000 ms" },
+			]);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("holds the whole cell to the deadline while a nested tool call is in flight", async (): Promise<void> => {

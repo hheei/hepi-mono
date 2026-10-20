@@ -17,4 +17,6 @@ export interface EvalRunResult {
 	readonly state: EvalKernelState | undefined;
 	/** The kernel is not the one the previous cell used, so its names are gone. */
 	readonly restarted: boolean;
+	/** A prior cell had no terminal fact when this runtime was recreated. */
+	readonly recovered?: string;
 }

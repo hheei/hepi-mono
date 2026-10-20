@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { EvalKernelHost } from "../src/kernel/host.js";
-import type { EvalRunResult } from "../src/runtime.js";
+import type { EvalRunResult, EvalRuntimeHooks } from "../src/runtime.js";
 
 /**
  * Drives the real kernel through the host so the protocol, the drain barrier, and the
@@ -78,6 +78,48 @@ function listen(
 }
 
 describe("Eval kernel namespace reporting", () => {
+	test.each([
+		["await tools.apply_patch({'patch': patch})", "without await"],
+		["if", "Fix and re-run the entire cell"],
+	])("does not execute any part of a cell with a compile error: %s", async (invalid, guidance) => {
+		const host = new EvalKernelHost(process.cwd());
+		const calls: { name: string; args: unknown }[] = [];
+		const hooks: EvalRuntimeHooks = {
+			cwd: process.cwd(),
+			onText() {},
+			onDisplay() {},
+			onBackground() {},
+			async callTool(name, args) {
+				calls.push({ name, args });
+				return "applied";
+			},
+		};
+		const setup = "patch = 'test patch'\ntools.read(path='before.txt')\n";
+		try {
+			await run(host, "kept = 1");
+			const failed = host.runWithHooks(setup + invalid, hooks);
+			await expect(failed).rejects.toThrow("SyntaxError");
+			await expect(failed).rejects.toThrow("Cell did not run");
+			await expect(failed).rejects.toThrow(guidance);
+			expect(calls).toEqual([]);
+			const unchanged = await run(host, "names()");
+			expect(unchanged.value).toEqual(["kept"]);
+			expect(unchanged.restarted).toBe(false);
+			const retry = await host.runWithHooks(
+				`${setup}result = tools.apply_patch({'patch': patch})\nresult`,
+				hooks,
+			);
+			expect(retry.value).toBe("applied");
+			expect(retry.state?.added).toEqual(["patch", "result"]);
+			expect(calls).toEqual([
+				{ name: "read", args: { path: "before.txt" } },
+				{ name: "apply_patch", args: { patch: "test patch" } },
+			]);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	test("reports names a cell added and imports it repeated", async () => {
 		const host = new EvalKernelHost(process.cwd());
 		try {

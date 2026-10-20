@@ -4,6 +4,7 @@ import {
 	registerExtensionLifecycle,
 	registerSettings,
 } from "@hheei/pi-ext-core";
+import { createEvalExecutionFacts } from "./facts.js";
 import { EvalKernelHost } from "./kernel/host.js";
 import type { EvalRunResult, EvalRuntimeHooks } from "./runtime.js";
 import { createEvalSettingsProvider } from "./settings.js";
@@ -62,7 +63,10 @@ export function registerEvalLifecycle(
 				"eval-runtime",
 				startEvalRuntime(
 					state,
-					new EvalKernelHost(context.extension.cwd, pythonBin === undefined ? {} : { pythonBin }),
+					new EvalKernelHost(context.extension.cwd, {
+						...(pythonBin === undefined ? {} : { pythonBin }),
+						facts: createEvalExecutionFacts(context.pi, context.extension.sessionManager),
+					}),
 				),
 			);
 		},

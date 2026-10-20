@@ -13,8 +13,8 @@ dependency, not a separately loaded Pi extension.
 
 - `code` is non-empty trusted source, at most 1 MiB. This is not a sandbox.
 - `reset: true` discards the kernel and its scope before the cell runs.
-- `timeout_ms` is a hard wall-clock deadline for the whole cell, unset by default. Nested tool calls
-  count toward it.
+- `timeout_ms` is a hard wall-clock deadline for the whole cell, defaulting to 180000 ms (180 seconds).
+  Set it explicitly to override the default. Nested tool calls count toward it.
 - `exposure: "model-only"`, `defaultActive: false`: enable it with `--tools` or `defaultTools`.
 
 Each cell reports its namespace, so names that survived are visible instead of assumed. `print`
@@ -31,6 +31,12 @@ no fallback dispatch, so a missing tool or a blocked call surfaces as a tool fai
 
 Nested calls return the tool's text, or its `structuredContent` when it declares one (for example
 `bash`). Each call is recorded as a trace row with its arguments, text, duration, and error.
+
+Tool calls are synchronous Python: `result = tools.apply_patch({"patch": patch})`. Do not use
+`await`; top-level `await` is unsupported. A compile-time `SyntaxError` prevents the entire cell
+from running, so earlier assignments in that cell do not create names. Fix and re-run the whole
+cell, including those assignments. Runtime errors can leave earlier assignments intact; check the
+reported namespace before retrying.
 
 ## Kernel lifecycle
 

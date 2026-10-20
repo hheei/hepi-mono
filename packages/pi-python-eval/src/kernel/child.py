@@ -354,18 +354,24 @@ class _ToolProxy:
 
 
 def _compile_source(code: str) -> tuple[Any, bool]:
-    tree = ast.parse(code, filename="<eval>")
-    if not tree.body:
-        return compile(tree, "<eval>", "exec"), False
-    last = tree.body[-1]
-    if not isinstance(last, ast.Expr):
-        return compile(tree, "<eval>", "exec"), False
-    tree.body[-1] = ast.Assign(
-        targets=[ast.Name(id="__eval_final__", ctx=ast.Store())],
-        value=last.value,
-    )
-    ast.fix_missing_locations(tree)
-    return compile(tree, "<eval>", "exec"), True
+    try:
+        tree = ast.parse(code, filename="<eval>")
+        if not tree.body:
+            return compile(tree, "<eval>", "exec"), False
+        last = tree.body[-1]
+        if not isinstance(last, ast.Expr):
+            return compile(tree, "<eval>", "exec"), False
+        tree.body[-1] = ast.Assign(
+            targets=[ast.Name(id="__eval_final__", ctx=ast.Store())],
+            value=last.value,
+        )
+        ast.fix_missing_locations(tree)
+        return compile(tree, "<eval>", "exec"), True
+    except SyntaxError as error:
+        error.msg += "\nCell did not run; no assignments or tool calls in this cell took effect. Fix and re-run the entire cell."
+        if "'await' outside function" in error.msg:
+            error.msg += "\nNested tools are synchronous: use result = tools.name(...) without await."
+        raise
 
 
 def _filter_traceback_exception(te: traceback.TracebackException) -> traceback.TracebackException:

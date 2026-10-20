@@ -21,17 +21,18 @@ import {
 } from "./presentation.js";
 
 const MAX_CODE_BYTES = 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 180_000;
 /** Largest delay `setTimeout` supports, which bounds `timeout_ms` exactly like codemode's option. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const EVAL_DESCRIPTION =
-	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. Every cell reports its namespace, so bindings stay visible across calls. This is not a sandbox. Do not write any comments in the code.";
+	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. Nested tools.name(...) calls are synchronous; do not await them. Every cell reports its namespace, so bindings stay visible across calls. This is not a sandbox. Do not write any comments in the code.";
 const EVAL_CODE_DESCRIPTION =
 	"Non-empty trusted source, at most 1 MiB. Do not write any comments in the code.";
 const EVAL_TIMEOUT_DESCRIPTION =
-	"Hard deadline for the whole cell, in milliseconds. Unset by default.";
+	"Hard deadline for the whole cell, in milliseconds. Defaults to 180000 (180 seconds).";
 export const PYTHON_EVAL_PROMPT_SNIPPET =
 	"Persistent Python kernel. One cell per call; names survive across cells until a cell reports the kernel restarted.";
 
@@ -41,12 +42,13 @@ export function pythonEvalPromptGuidelines(): string[] {
 		"python_eval: use bash for one-shot shell, grep/find for search, and edit/write for file changes. Do not run JS/Python via bash -e/-c.",
 		"python_eval: import, define, and load once, then keep using those names in later cells. Each cell reports the names it added and any import it repeated, so state is visible instead of assumed.",
 		"python_eval: re-run setup only when a cell reports the kernel restarted, or after reset: true.",
-		"python_eval: use Python. Call nested tools as `tools.name(...)` with kwargs or a dict.",
+		"python_eval: use Python. Nested tools are synchronous: `result = tools.name(...)` with kwargs or a dict; do not use await. Top-level await is unsupported.",
 		"python_eval: nested tools are read, grep, find, foreground bash, edit, write, and apply_patch. No python_eval, wait, or other extension tools. Nested bash rejects async.",
 		"python_eval: nested tools return text strings, or structured dicts for tools declaring schemas (e.g. bash).",
 		"python_eval: print/console go to the transcript. display() keeps JSON-safe values. The last expression is the result; undefined/None is omitted.",
 		"python_eval: names() lists the current top-level names when you need to check what a kernel still holds.",
-		"python_eval: reset: true wipes the Python kernel and scope. timeout_ms is a hard deadline for the whole cell, unset by default; nested tool calls count toward it. On error, fix and re-run only the failing cell.",
+		"python_eval: reset: true wipes the Python kernel and scope. timeout_ms is a hard deadline for the whole cell, defaulting to 180000 (180 seconds); nested tool calls count toward it. On error, fix and re-run only the failing cell.",
+		"python_eval: a compile-time SyntaxError prevents the entire cell from running, including assignments before the error. Fix and re-run the whole cell; use the reported namespace to check what survived runtime errors.",
 		"python_eval: do not write any comments in the code. Write only executable code.",
 	];
 }
@@ -67,6 +69,7 @@ export const EVAL_PARAMETERS = Type.Object(
 			Type.Integer({
 				minimum: 1,
 				maximum: MAX_TIMEOUT_MS,
+				default: DEFAULT_TIMEOUT_MS,
 				description: EVAL_TIMEOUT_DESCRIPTION,
 			}),
 		),
@@ -102,13 +105,13 @@ export function createPythonEvalTool(
 			if (runtime === undefined)
 				throw new Error("Python_eval runtime is unavailable outside an active session.");
 			if (activeRuns.has(state)) throw new Error("Python_eval is already running in this session.");
-			const deadline = startEvalDeadline(params.timeout_ms);
+			const deadline = new EvalDeadline(params.timeout_ms ?? DEFAULT_TIMEOUT_MS);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
 			let omittedRows = 0;
 			const startedAt = performance.now();
 			let failure: string | undefined;
-			const runSignal = mergeAbortSignals(signal, deadline?.signal);
+			const runSignal = mergeAbortSignals(signal, deadline.signal);
 			const publish = (): void => {
 				onUpdate?.(
 					textToolResult(transcript(rows), {
@@ -203,6 +206,9 @@ export function createPythonEvalTool(
 						text: "kernel restarted — earlier names are gone",
 					});
 				}
+				if (run.recovered !== undefined) {
+					append({ kind: "state", text: run.recovered });
+				}
 				if (run.state !== undefined) {
 					append({ kind: "state", text: formatState(run.state) });
 				}
@@ -215,7 +221,7 @@ export function createPythonEvalTool(
 				// record of how long the cell ran. The deadline already names its own budget.
 				const reason = errorMessage(error);
 				const elapsed =
-					runSignal?.aborted === true && deadline?.signal.aborted !== true
+					runSignal?.aborted === true && deadline.signal.aborted !== true
 						? formatDuration(performance.now() - startedAt)
 						: undefined;
 				failure = elapsed === undefined ? reason : `${reason.replace(/\.$/, "")} after ${elapsed}.`;
@@ -228,7 +234,7 @@ export function createPythonEvalTool(
 				if (state !== undefined) append({ kind: "state", text: formatState(state) });
 			} finally {
 				activeRuns.delete(state);
-				deadline?.dispose();
+				deadline.dispose();
 			}
 			if (omittedRows > 0) {
 				// The hint takes a row of its own rather than displacing one: the row it would push out is the
@@ -385,11 +391,6 @@ function mergeAbortSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal
 	if (left === undefined) return right;
 	if (right === undefined) return left;
 	return AbortSignal.any([left, right]);
-}
-
-function startEvalDeadline(timeoutMs: number | undefined): EvalDeadline | undefined {
-	if (timeoutMs === undefined) return undefined;
-	return new EvalDeadline(timeoutMs);
 }
 
 /**

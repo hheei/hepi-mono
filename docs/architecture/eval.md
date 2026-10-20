@@ -10,7 +10,7 @@
 
 ## 请求与生命周期
 
-请求为 `{ code: string, reset?: boolean, timeout_ms?: number }`。`code` 非空，最多 1 MiB；`reset` 在执行前丢掉 kernel 与 scope。`timeout_ms` 是整个 cell 的墙钟硬截止，正整数 1..2147483647，省略则没有 deadline；嵌套工具耗时计入。始终使用当前 session cwd，不接受 language、cwd、后台执行或 wait 参数。
+请求为 `{ code: string, reset?: boolean, timeout_ms?: number }`。`code` 非空，最多 1 MiB；`reset` 在执行前丢掉 kernel 与 scope。`timeout_ms` 是整个 cell 的墙钟硬截止，正整数 1..2147483647，默认 180000 毫秒（180 秒），可显式覆盖；嵌套工具耗时计入。始终使用当前 session cwd，不接受 language、cwd、后台执行或 wait 参数。
 
 每个 session 一个 Eval runtime，最多一个 Python kernel 和一个活动 cell。并发执行立即 busy，不排队或共享 cell。变量仅活在 kernel 内存；session 结束、reload、resume 时清理，不恢复语言内存。取消同时 abort 嵌套调用，并向 Python 发 SIGINT；约 5 秒后仍不退出则 SIGKILL 并丢弃 scope。软取消保留能继续工作的 kernel。
 
@@ -40,9 +40,13 @@ bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失�
 
 脚本通过 `tools.name(...)`（kwargs 或 dict）调用，`print`、`console`、`display` 和最后表达式形成顺序 transcript。取消信号透传 host；host 保持父子 tool-call 关系和 hooks。
 
+嵌套工具调用同步阻塞并直接返回结果，写作 `result = tools.apply_patch({"patch": patch})`，不使用 `await`。kernel 不支持顶层 `await`。整个 cell 先编译后执行；编译期 `SyntaxError` 表示该 cell 内的赋值和工具调用均未发生，错误提示要求修正后重跑完整 cell。运行期异常可能保留此前已经执行的赋值与副作用，以 namespace 和工具 trace 为准。
+
 ## 输出、持久化与展示
 
 details format 为 `pi-ext-tools-python-eval`。details 保存最多 200 行，每行文本最多 4,000 字符，超出用省略行表示；错误和省略信息保留。模型 content 由 transcript 拼成，最多 12,000 字符，超出追加 truncation 提示。onUpdate 推送运行过程，不持久化 Python 内存或重跑历史源码。
+
+执行事实账本使用 pi-python-eval:execution custom entries 写入当前 session branch。每个 cell 在发送前记录 generation 与 start，结束后记录 completed、failed、cancelled 或 timed_out 终态及名字数量；记录不进入模型上下文。runtime 重建时只读当前 branch，若发现上一条 start 没有终态则报告 unknown outcome；generation 变化则报告 earlier names are gone。账本不恢复 Python namespace、不重放源码、不接管旧 kernel；写入失败不改变 cell 执行结果。
 
 文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、参数、结果文本、执行时间与错误，供 UI 按原协议解释。
 
