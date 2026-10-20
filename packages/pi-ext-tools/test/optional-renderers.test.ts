@@ -291,6 +291,7 @@ describe("package-owned tool renderers", () => {
 			"edit",
 			"write",
 			"bash",
+			"tool_search",
 		]);
 		const background = toolHost();
 		bgBashExtension(background.pi);
