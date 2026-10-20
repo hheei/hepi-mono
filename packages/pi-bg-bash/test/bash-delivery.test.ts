@@ -10,6 +10,7 @@ import {
 } from "../src/bash-delivery.js";
 import { BASH_IDLE_NOTICE_MS, BashJobRegistry } from "../src/bash-jobs.js";
 import { BashExecutionLedger } from "../src/bash-ledger.js";
+import { toolHost } from "./fixtures/harness.js";
 import { ledgerTemporaryDirectory } from "./fixtures/ledger-directory.js";
 import { emitExit, type MockChild, mockChild } from "./fixtures/mock-child.js";
 
@@ -19,6 +20,7 @@ vi.mock("node:child_process", () => ({ spawn: mocked.spawn }));
 interface SentMessage {
 	readonly customType: string;
 	readonly content: string;
+	readonly display: unknown;
 	readonly details: unknown;
 	readonly options: unknown;
 }
@@ -39,6 +41,7 @@ function harness(
 	} = {},
 ) {
 	const sent: SentMessage[] = [];
+	const appendEntry = vi.fn<ExtensionAPI["appendEntry"]>();
 	const warnings: string[] = [];
 	const handlers = new Map<string, Set<(payload: unknown) => void>>();
 	let failure: Error | undefined;
@@ -71,6 +74,7 @@ function harness(
 	};
 	const host = {
 		events: {},
+		appendEntry,
 		sendMessage(message: unknown, sendOptions: unknown): void {
 			if (failure !== undefined) {
 				const rejected = failure;
@@ -86,6 +90,7 @@ function harness(
 			sent.push({
 				customType: message.customType,
 				content: message.content,
+				display: message.display,
 				details: message.details,
 				options: sendOptions,
 			});
@@ -100,7 +105,7 @@ function harness(
 			};
 		},
 	};
-	const pi = host as ExtensionAPI;
+	const pi = Object.assign(toolHost().pi, host);
 	const session = {
 		isIdle: () => idle,
 		sessionManager: { getBranch: () => branch.map((id) => ({ id, ...entries.get(id) })) },
@@ -155,6 +160,7 @@ function harness(
 		pi,
 		jobs,
 		sent,
+		appendEntry,
 		warnings,
 		stop,
 		start,
@@ -294,9 +300,18 @@ test.each([
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]).toMatchObject({
 		customType: BASH_TERMINAL_CUSTOM_TYPE,
+		display: false,
 		content: expect.stringContaining("ready output"),
 		options: { deliverAs: "steer", triggerTurn: true },
 	});
+	expect(current.appendEntry).toHaveBeenCalledWith(
+		"bg-bash-info",
+		expect.objectContaining({
+			id: ready.job.id,
+			kind: "terminal",
+			message: expect.stringContaining("ready output"),
+		}),
+	);
 	expect(current.jobs.pendingDeliveries().map((event) => event.id)).not.toContain(ready.job.id);
 	current.emit("agent_settled", {});
 	await Promise.resolve();
@@ -329,6 +344,21 @@ test("host message lifecycle confirms delivery, including synchronous observatio
 	const next = current.start("second");
 	await current.finish(next);
 	expect(observed).toHaveBeenCalledTimes(2);
+});
+
+test("UI failure does not requeue an accepted model report", async () => {
+	const current = harness();
+	current.appendEntry.mockImplementationOnce(() => {
+		throw new Error("UI append failed");
+	});
+	const ready = current.start();
+	await current.finish(ready);
+	expect(current.sent).toHaveLength(1);
+	expect(current.jobs.pendingDeliveries()).toEqual([]);
+	expect(current.warnings).toEqual([expect.stringContaining("UI append failed")]);
+	current.emit("agent_settled", {});
+	await Promise.resolve();
+	expect(current.sent).toHaveLength(1);
 });
 
 test("synchronous refusal keeps result pending and later lifecycle retries without duplicate notification", async () => {
@@ -397,11 +427,22 @@ test("a batch can deliver current output and announce output held on another bra
 	const current = harness({ branch: ["origin"] });
 	const here = current.start("here", "origin");
 	const elsewhere = current.start("elsewhere", "other");
-	await Promise.all([current.finish(here, "visible"), current.finish(elsewhere, "held")]);
+	await Promise.all([
+		current.finish(here, "visible"),
+		current.finish(elsewhere, "other-branch secret"),
+	]);
 	expect(current.sent).toHaveLength(1);
 	expect(current.sent[0]?.content).toContain("visible");
-	expect(current.sent[0]?.content).not.toContain("held");
+	expect(current.sent[0]?.content).not.toContain("other-branch secret");
 	expect(current.warnings).toEqual([expect.stringContaining("another branch")]);
+	expect(current.appendEntry).toHaveBeenCalledWith(
+		"bg-bash-info",
+		expect.objectContaining({
+			id: elsewhere.job.id,
+			kind: "held",
+			message: expect.not.stringContaining("other-branch secret"),
+		}),
+	);
 });
 
 test.each(["dispose", "abort"])("%s suppresses queued Bash delivery", async (action) => {
@@ -513,6 +554,11 @@ test("reminder respects branch, retries rejection and never consumes terminal de
 	current.emit("agent_start", {});
 	await Promise.resolve();
 	expect(current.sent[0]?.content).toContain("idle for");
+	expect(current.sent[0]?.display).toBe(false);
+	expect(current.appendEntry).toHaveBeenCalledWith(
+		"bg-bash-info",
+		expect.objectContaining({ id: running.job.id, kind: "idle" }),
+	);
 	expect(current.jobs.pendingDeliveries()).toEqual([]);
 	await current.finish(running, "finished later");
 	expect(current.sent).toHaveLength(2);

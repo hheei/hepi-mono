@@ -63,6 +63,7 @@ export function toolHost(activeTools: readonly string[] = ["read", "bash", "edit
 				tools.push(tool);
 			},
 			registerCommand: (): void => undefined,
+			registerEntryRenderer: (): void => undefined,
 			getActiveTools: (): readonly string[] => active,
 			setActiveTools: (names: string[]): void => {
 				active = names;

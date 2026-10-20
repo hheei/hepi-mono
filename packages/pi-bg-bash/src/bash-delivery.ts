@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { errorMessage, getBackgroundDelivery, isRecord } from "@hheei/pi-ext-core";
 import type { BashJobRegistry, BashJobReminder, BashTerminalEvent } from "./bash-jobs.js";
+import { appendBashInfo } from "./info.js";
 
 /** Custom message type used for one Bash notification per batch. */
 export const BASH_TERMINAL_CUSTOM_TYPE = "bg-bash-report";
@@ -93,12 +94,20 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 					{
 						customType: BASH_TERMINAL_CUSTOM_TYPE,
 						content: reminderText(event),
-						display: true,
+						display: false,
 						details: { kind: event.kind, jobId: event.job.id },
 					},
 					{ deliverAs: "steer", triggerTurn: wake },
 				);
 				if (reminders.get(event.job.id) === event) reminders.delete(event.job.id);
+				try {
+					appendBashInfo(pi, event, reminderText(event));
+				} catch (error) {
+					notify(
+						`Background Bash reminder UI entry failed for ${event.job.id}: ${errorMessage(error)}`,
+						"warning",
+					);
+				}
 			} catch (error) {
 				notify(
 					`Background Bash reminder delivery failed for ${event.job.id}: ${errorMessage(error)}`,
@@ -136,6 +145,21 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 			`${waiting.length === 1 ? "A Bash result is" : `${waiting.length} Bash results are`} waiting on another branch: ${names}. Return to that branch to receive notification.`,
 			"info",
 		);
+		for (const event of waiting) {
+			try {
+				appendBashInfo(
+					pi,
+					event,
+					"Result waiting on another branch. Return to its original branch to receive output.",
+					"held",
+				);
+			} catch (error) {
+				notify(
+					`Background Bash held-result UI entry failed for ${event.id}: ${errorMessage(error)}`,
+					"warning",
+				);
+			}
+		}
 	};
 
 	const submit = (events: readonly BashTerminalEvent[], triggerTurn: boolean): void => {
@@ -150,7 +174,7 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 				{
 					customType: BASH_TERMINAL_CUSTOM_TYPE,
 					content,
-					display: true,
+					display: false,
 					details: {
 						batch,
 						jobs: events.map((event) => ({
@@ -165,6 +189,16 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 				},
 				{ deliverAs: "steer", triggerTurn },
 			);
+			for (const event of events) {
+				try {
+					appendBashInfo(pi, event, notificationText(event));
+				} catch (error) {
+					notify(
+						`Background Bash UI entry failed for ${event.id}: ${errorMessage(error)}`,
+						"warning",
+					);
+				}
+			}
 		} catch (error) {
 			jobs.requeue(batch);
 			for (const id of ids) {

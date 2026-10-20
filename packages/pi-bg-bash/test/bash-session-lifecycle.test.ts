@@ -17,6 +17,7 @@ interface Lifecycle {
 	readonly tools: ReturnType<typeof toolHost>["tools"];
 	readonly start: () => Promise<void>;
 	readonly shutdown: () => Promise<void>;
+	readonly fire: (type: string) => Promise<void>;
 	readonly warnings: string[];
 	readonly context: ExtensionToolContext;
 	readonly directory: string;
@@ -45,7 +46,7 @@ function lifecycle(): Lifecycle {
 	const context = {
 		sessionManager: manager,
 		isIdle: () => true,
-		ui: { notify: (message: string) => void warnings.push(message) },
+		ui: { notify: (message: string) => void warnings.push(message), setStatus: vi.fn() },
 		cwd: process.cwd(),
 	} as unknown as ExtensionToolContext;
 	const pi = {
@@ -54,6 +55,7 @@ function lifecycle(): Lifecycle {
 		getActiveTools: host.activeTools,
 		setActiveTools: host.pi.setActiveTools,
 		sendMessage: () => undefined,
+		appendEntry: (type: string, data: unknown) => manager.appendCustomEntry(type, data),
 		on(type: string, handler: (event: unknown, context: unknown) => Promise<void> | void) {
 			handlers.set(type, handler);
 			return () => {
@@ -69,6 +71,7 @@ function lifecycle(): Lifecycle {
 	};
 	const current: Lifecycle = {
 		tools: host.tools,
+		fire,
 		start: () => fire("session_start"),
 		shutdown: () => fire("session_shutdown"),
 		warnings,
@@ -111,9 +114,16 @@ test("a session start owns one Bash registry and teardown releases it", async ()
 		current.context,
 	);
 	expect(started).not.toMatchObject({ isError: true });
+	const { id } = started.details as { id: string };
+	await current.fire("tool_result");
+	expect(current.context.ui.setStatus).toHaveBeenLastCalledWith(
+		"pi-bg-bash",
+		expect.stringContaining(id),
+	);
 
 	// Teardown stops the owned process and waits for its exit before the session is gone.
 	await current.shutdown();
+	expect(current.context.ui.setStatus).toHaveBeenLastCalledWith("pi-bg-bash", undefined);
 	// A second shutdown and a second start stay harmless.
 	await current.shutdown();
 	await current.start();

@@ -515,6 +515,10 @@ export class BashJobRegistry {
 		});
 	}
 
+	list(): readonly BashJobSnapshot[] {
+		return [...this.#jobs.values()].filter((job) => job.background).map(snapshot);
+	}
+
 	/** Notifies that a record was released, so delivery should re-check what is ready. */
 	onTerminal(listener: () => void): () => void {
 		this.#terminalListeners.add(listener);
