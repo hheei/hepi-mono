@@ -27,14 +27,9 @@ const builtPackageNames = [
 	"pi-subagents",
 ] as const;
 // Extension sources loaded explicitly next to the local packages: an external package that is not
-// built here, and the built-in extensions that `--no-extensions` below would otherwise disable even
-// though pi-dev sessions read the `defaultTools`, `codemode`, and deferred-tool settings.
-const explicitExtensionSources = [
-	"npm:pi-web-access",
-	"builtin:codemode",
-	"builtin:tool-search",
-	"builtin:mcp",
-] as const;
+// built here, and the built-ins that `--no-extensions` below would otherwise disable.
+// tool_search is provided by pi-ext-tools; codemode and mcp remain Pi built-ins.
+const explicitExtensionSources = ["npm:pi-web-access", "builtin:codemode", "builtin:mcp"] as const;
 const builtPackageDirs = builtPackageNames
 	.map((name) => path.join(packageRoot, name))
 	.filter(existsSync);
@@ -116,7 +111,8 @@ function runWorkspaceScript(directory: string, script: string): void {
 mkdirSync(buildCacheDir, { recursive: true });
 const buildStatePath = path.join(buildCacheDir, "build.json");
 const buildDirectories = [...requiredBuildDirectories, ...builtPackageDirs];
-const typescriptFingerprint = buildFingerprint(buildDirectories);
+const isSubagent = process.env.PI_SUBAGENTS_CHILD_ID !== undefined;
+const typescriptFingerprint = isSubagent ? undefined : buildFingerprint(buildDirectories);
 let cachedTypeScriptFingerprint: string | undefined;
 try {
 	const cached: unknown = JSON.parse(readFileSync(buildStatePath, "utf8"));
@@ -133,8 +129,9 @@ try {
 }
 
 const needsTypeScriptBuild =
-	cachedTypeScriptFingerprint !== typescriptFingerprint ||
-	buildDirectories.some((directory) => !existsSync(path.join(directory, "dist")));
+	!isSubagent &&
+	(cachedTypeScriptFingerprint !== typescriptFingerprint ||
+		buildDirectories.some((directory) => !existsSync(path.join(directory, "dist"))));
 
 if (needsTypeScriptBuild) {
 	for (const directory of buildDirectories) runWorkspaceScript(directory, "build");
