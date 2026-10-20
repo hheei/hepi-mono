@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { packValidatedPackage } from "./package-artifact.mjs";
+import { packValidatedPackage, validatePackedDependencies } from "./package-artifact.mjs";
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run") || process.env.DRY_RUN === "true";
@@ -53,14 +53,19 @@ for (const pkg of publicPackages) {
 	console.log(`========================================`);
 
 	const packageSpec = `${pkg.name}@${pkg.version}`;
-	const lookup = spawnSync("npm", ["view", packageSpec, "version", "--json"], {
+	const lookup = spawnSync("npm", ["view", packageSpec, "--json"], {
 		cwd: repoRoot,
 		encoding: "utf8",
 	});
 	const lookupText = `${lookup.stdout ?? ""}\n${lookup.stderr ?? ""}`;
 	let isAlreadyPublished = false;
 	if (lookup.status === 0) {
-		isAlreadyPublished = JSON.parse(lookup.stdout.trim()) === pkg.version;
+		const manifest = JSON.parse(lookup.stdout);
+		if (manifest.name !== pkg.name || manifest.version !== pkg.version) {
+			throw new Error(`npm returned a mismatched manifest for ${packageSpec}`);
+		}
+		validatePackedDependencies(manifest);
+		isAlreadyPublished = true;
 	} else if (!lookupText.includes("E404")) {
 		throw new Error(`Unable to check ${packageSpec} on npm:\n${lookupText.trim()}`);
 	}
