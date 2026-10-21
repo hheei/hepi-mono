@@ -1,6 +1,5 @@
 import { chmod, lstat, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { acquireMutationLock } from "@hheei/pi-ext-core";
 import { describe, expect, test } from "vitest";
 import { applyPatchInWorkspace } from "../src/apply-patch/executor.js";
 import { APPLY_PATCH_MAX_FILE_SIZE } from "../src/apply-patch/fs.js";
@@ -41,8 +40,6 @@ describe("apply-patch executor", () => {
 		controller.abort(new Error("cancelled preparation"));
 		await expect(pending).rejects.toThrow("cancelled preparation");
 		expect(await readFile(join(root, "value.txt"), "utf8")).toContain("unique-old");
-		const release = await acquireMutationLock(root);
-		await release();
 		const retry = await applyPatchInWorkspace({
 			workspaceRoot: root,
 			policy: DEFAULT_APPLY_PATCH_POLICY,
