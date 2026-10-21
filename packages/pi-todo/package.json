@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-todo",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Todo task tracking tool with /todo commands, reminders, and a footer status line.",
 	"type": "module",
 	"main": "dist/index.js",
