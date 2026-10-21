@@ -463,7 +463,11 @@ export class NestedCallsView implements Component, Collapsible {
 				} else {
 					lines = text.split("\n");
 				}
-				if (expansionLevel === 2 || lines.length <= 20) {
+				if (expansionLevel === 2) {
+					if (lines.length <= 500) return lines;
+					return [...lines.slice(0, 500), `... (${lines.length - 500} more lines)`];
+				}
+				if (lines.length <= 20) {
 					return lines;
 				}
 				return [...lines.slice(0, 20), `... (${lines.length - 20} more lines)`];

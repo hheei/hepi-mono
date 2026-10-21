@@ -135,32 +135,55 @@ export function extractSummaryArg(toolName: string, args: unknown): string {
 	}
 	const parsed = parseCallArgs(args);
 	if (!parsed) return "";
-	for (const key of [
-		"command",
-		"query",
-		"queries",
-		"url",
-		"urls",
-		"source",
-		"claim",
-		"id",
-		"search_id",
-		"topic",
-		"path",
-		"file_path",
-		"pattern",
-		"agent",
-	]) {
-		const val = parsed[key];
-		if (typeof val === "string" && val.trim() !== "") {
-			return stripTerminalSequences(val.trim());
+
+	const firstLine = (val: unknown): string => {
+		if (typeof val !== "string" || val.trim() === "") return "";
+		const clean = stripTerminalSequences(val.trim());
+		return clean.split("\n")[0]?.trim() ?? clean;
+	};
+
+	switch (toolName) {
+		case "bash":
+		case "bg_bash_spawn":
+			return firstLine(parsed.command);
+		case "read":
+		case "edit":
+		case "write": {
+			const path =
+				typeof parsed.path === "string"
+					? parsed.path.trim()
+					: typeof parsed.file_path === "string"
+						? parsed.file_path.trim()
+						: "";
+			return stripTerminalSequences(path);
 		}
-		if (Array.isArray(val) && val.length > 0 && typeof val[0] === "string") {
-			const first = stripTerminalSequences(val[0].trim());
-			return val.length > 1 ? `${first} (+${String(val.length - 1)})` : first;
+		case "grep":
+		case "find": {
+			const pattern = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
+			const path = typeof parsed.path === "string" ? parsed.path.trim() : "";
+			if (!pattern) return path ? stripTerminalSequences(path) : "";
+			const target = path && path !== "." ? ` ${path}` : "";
+			return `${pattern}${target}`;
 		}
+		case "python_eval":
+			return firstLine(parsed.code);
+		case "bg_bash_get":
+		case "bg_bash_stop":
+		case "agent_send":
+		case "agent_get":
+		case "agent_stop":
+			return typeof parsed.id === "string" ? parsed.id.trim() : "";
+		case "agent_spawn": {
+			const agent = typeof parsed.agent === "string" ? parsed.agent.trim() : "";
+			const task = firstLine(parsed.task);
+			if (agent && task) return `${agent}: ${task}`;
+			return agent || task;
+		}
+		case "tool_search":
+			return typeof parsed.query === "string" ? parsed.query.trim() : "";
+		default:
+			return "";
 	}
-	return "";
 }
 
 export function extractHeavyInputCommand(toolName: string, args: unknown): string | undefined {

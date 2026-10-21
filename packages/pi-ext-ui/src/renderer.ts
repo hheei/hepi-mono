@@ -12,6 +12,7 @@ import { type Component, stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
 	agentResultText,
 	getRegisteredToolPresentationProvider,
+	getRegisteredToolRenderers,
 	getToolPresentationProvider,
 	hasOptionalToolRenderers,
 	type ToolPresentation,
@@ -46,14 +47,10 @@ export const SPECIALIZED_TOOL_RENDERERS = ["codemode"] as const;
 
 export type SpecializedToolRendererName = (typeof SPECIALIZED_TOOL_RENDERERS)[number];
 
-/** Web-access tools use the shared folding shell while retaining their native body renderer. */
-export const WEB_ACCESS_TOOLS = ["web_search", "web_fetch", "web_open"] as const;
-
-export type WebAccessToolName = (typeof WEB_ACCESS_TOOLS)[number];
-
 import {
 	callStatsParts,
 	estimateStreamingTokens,
+	extractCodemodeHeaderFacts,
 	extractHeavyInputCommand,
 	extractNestedCalls,
 	extractResultText,
@@ -64,7 +61,6 @@ import {
 	isRecord,
 	type NestedCallRecord,
 	resolveContainerStatus,
-	toolPath,
 } from "./payload-parser.js";
 
 export {
@@ -74,7 +70,6 @@ export {
 } from "./payload-parser.js";
 
 const SPECIALIZED_TOOL_SET: ReadonlySet<string> = new Set(SPECIALIZED_TOOL_RENDERERS);
-const WEB_ACCESS_TOOL_SET: ReadonlySet<string> = new Set(WEB_ACCESS_TOOLS);
 const CALL_VIEW_STATE_KEY = "__piExtUiCallView";
 
 export interface CollapsibleToolRendererOptions {
@@ -88,6 +83,7 @@ export interface CollapsibleToolRendererOptions {
 function detectCodeLanguage(toolName: string): string | undefined {
 	if (toolName === "bash") return "bash";
 	if (toolName === "codemode") return "javascript";
+	if (toolName === "python_eval") return "python";
 	return undefined;
 }
 
@@ -115,6 +111,47 @@ function createInputCodeSection(
 	}
 
 	return { railToken, content: lines };
+}
+
+function resolveToolCallSummary(params: {
+	toolName: string;
+	args: unknown;
+	originalRenderCall: ToolRenderers["renderCall"] | undefined;
+	theme: Theme;
+	context: ToolRenderContext;
+}): string {
+	const { toolName, args, originalRenderCall, theme, context } = params;
+	if (toolName === "codemode") {
+		return extractCodemodeHeaderFacts(args);
+	}
+	// Tier 1: Host Native RenderCall Delegation
+	if (originalRenderCall !== undefined) {
+		try {
+			const upstreamLines = originalRenderCall(args, theme, context).render(120);
+			const firstNonEmpty = upstreamLines
+				.map((line) => stripTerminalSequences(line).trim())
+				.find((line) => line !== "");
+			if (firstNonEmpty !== undefined) {
+				if (firstNonEmpty.startsWith("$ ")) {
+					return firstNonEmpty.slice(2).trim();
+				}
+				if (firstNonEmpty === toolName) {
+					return "";
+				}
+				if (
+					firstNonEmpty.startsWith(toolName) &&
+					/^[\s(:=/[]/.test(firstNonEmpty.slice(toolName.length))
+				) {
+					return firstNonEmpty.slice(toolName.length).trim();
+				}
+				return firstNonEmpty;
+			}
+		} catch {
+			// Upstream threw, fall through to fallback
+		}
+	}
+	// Tier 2: Contractual Fallback for built-in tools
+	return extractSummaryArg(toolName, args);
 }
 
 function formatArgsPreview(args: unknown): string {
@@ -183,6 +220,15 @@ function formatNestedCallRow(call: NestedCallRecord, theme: Theme): string {
 	);
 }
 
+export function isMcpTool(toolName: string): boolean {
+	return (
+		toolName.startsWith("mcp__") ||
+		toolName === "read_mcp_resource" ||
+		toolName === "list_mcp_resources" ||
+		toolName === "list_mcp_resource_templates"
+	);
+}
+
 function shouldInterceptTool(
 	toolName: string,
 	options: CollapsibleToolRendererOptions | undefined,
@@ -197,7 +243,7 @@ function shouldInterceptTool(
 	if (toolList !== undefined) {
 		return toolList.includes(toolName);
 	}
-	return SPECIALIZED_TOOL_SET.has(toolName) || WEB_ACCESS_TOOL_SET.has(toolName);
+	return SPECIALIZED_TOOL_SET.has(toolName) || isMcpTool(toolName);
 }
 
 function renderGenericResult(params: {
@@ -222,6 +268,7 @@ function renderGenericResult(params: {
 	readonly resolvePresentation?:
 		| ((toolName: string) => ToolPresentationProvider | undefined)
 		| undefined;
+	readonly resolveNativeRenderer?: ((toolName: string) => ToolRenderers | undefined) | undefined;
 }): ToolView {
 	const {
 		toolName,
@@ -233,6 +280,7 @@ function renderGenericResult(params: {
 		originalRenderCall,
 		originalRenderResult,
 		resolvePresentation,
+		resolveNativeRenderer,
 		options,
 	} = params;
 
@@ -271,17 +319,14 @@ function renderGenericResult(params: {
 						: "ok";
 
 	const summaryParts: string[] = [];
-	const argSummary = extractSummaryArg(toolName, context.args);
-	if (argSummary !== "") {
-		summaryParts.push(argSummary);
-	} else if (originalRenderCall !== undefined && toolName !== "codemode") {
-		const upstreamLines = originalRenderCall(context.args, theme, context).render(120);
-		const firstLine = stripTerminalSequences(upstreamLines[0] ?? "").trim();
-		const stripped = firstLine.startsWith(toolName)
-			? firstLine.slice(toolName.length).trim()
-			: firstLine;
-		if (stripped !== "") summaryParts.push(stripped);
-	}
+	const argSummary = resolveToolCallSummary({
+		toolName,
+		args: context.args,
+		originalRenderCall,
+		theme,
+		context,
+	});
+	if (argSummary !== "") summaryParts.push(argSummary);
 
 	if (isMetaTool && childCalls.length > 0) {
 		const failCount = childCalls.filter((c) =>
@@ -321,9 +366,13 @@ function renderGenericResult(params: {
 										theme: childTheme,
 										context: childCtx,
 										defaultLevel: childOptions.expanded ? 2 : 1,
+										resolvePresentation,
+										resolveNativeRenderer,
 										options,
 									});
 								}
+
+								const registered = resolveNativeRenderer?.(childName);
 
 								return renderGenericResult({
 									toolName: childName,
@@ -332,9 +381,10 @@ function renderGenericResult(params: {
 									result: childResult,
 									renderOptions: childOptions,
 									defaultLevel: childOptions.expanded ? 2 : 1,
-									originalRenderCall: undefined,
-									originalRenderResult: undefined,
+									originalRenderCall: registered?.renderCall,
+									originalRenderResult: registered?.renderResult,
 									resolvePresentation,
+									resolveNativeRenderer,
 									options,
 								});
 							},
@@ -362,7 +412,15 @@ function renderGenericResult(params: {
 
 	// Upper room (input code) uses neutral/muted rail; lower room (output) uses toolRailToken (success/error)
 	const inputSection = createInputCodeSection(toolName, context.args, theme, "muted");
-	const sections: RailSection[] = inputSection !== undefined ? [inputSection] : [];
+	const sections: RailSection[] = [];
+	if (inputSection !== undefined) {
+		sections.push(inputSection);
+	} else {
+		const preview = formatArgsPreview(context.args);
+		if (preview !== "" && preview !== "{}") {
+			sections.push({ railToken: "muted", content: preview });
+		}
+	}
 
 	if (toolName === "codemode") {
 		// Nested tool calls belong only to collapsedRows (Level 0), hidden when expanded
@@ -398,30 +456,13 @@ function renderGenericResult(params: {
 		sections.push({
 			railToken: toolRailToken,
 			content: lazyUpstreamComponent,
-			maxLines: effectiveExpanded ? Number.POSITIVE_INFINITY : 9,
+			maxLines: effectiveExpanded ? Number.POSITIVE_INFINITY : undefined,
 		});
 	} else if (rawOutput !== "") {
 		const rawLines = rawOutput.split("\n");
-		let outputLines: string[];
-		if (isError) {
-			outputLines = rawLines.map((line) => theme.fg("error", line));
-		} else if (toolName === "read" || toolPath(context.args) !== "") {
-			const filePath = toolPath(context.args);
-			const lang = filePath !== "" ? getLanguageFromPath(filePath) : undefined;
-			if (lang !== undefined) {
-				try {
-					outputLines = highlightCode(rawOutput, lang);
-				} catch {
-					outputLines = rawLines;
-				}
-			} else {
-				outputLines = rawLines;
-			}
-		} else if (toolName === "bash") {
-			outputLines = rawLines.map((line) => theme.fg("dim", line));
-		} else {
-			outputLines = rawLines;
-		}
+		const outputLines = isError
+			? rawLines.map((line) => theme.fg("error", line))
+			: rawLines.map((line) => theme.fg("dim", line));
 		sections.push({
 			railToken: toolRailToken,
 			content: outputLines,
@@ -476,9 +517,23 @@ function renderOwnedPresentation(params: {
 	readonly theme: Theme;
 	readonly context: ToolRenderContext;
 	readonly defaultLevel: FoldLevel;
+	readonly resolvePresentation?:
+		| ((toolName: string) => ToolPresentationProvider | undefined)
+		| undefined;
+	readonly resolveNativeRenderer?: ((toolName: string) => ToolRenderers | undefined) | undefined;
 	readonly options: CollapsibleToolRendererOptions | undefined;
 }): ToolView {
-	const { toolName, presentation, result, theme, context, defaultLevel, options } = params;
+	const {
+		toolName,
+		presentation,
+		result,
+		theme,
+		context,
+		defaultLevel,
+		resolvePresentation,
+		resolveNativeRenderer,
+		options,
+	} = params;
 	const isError = context.isError || result?.isError === true;
 	const pending = result === undefined || context.isPartial;
 	const isDiff = !isError && !pending && presentation.kind === "diff";
@@ -518,10 +573,33 @@ function renderOwnedPresentation(params: {
 			});
 		}
 	} else if (output !== "") {
-		const lines = stripTerminalSequences(output).split("\n");
+		const rawLines = stripTerminalSequences(output).split("\n");
+		let styledLines: string[];
+		if (isError) {
+			styledLines = rawLines.map((line) => theme.fg("error", line));
+		} else if (toolName === "read") {
+			const rawPath =
+				isRecord(context.args) && typeof context.args.path === "string"
+					? context.args.path
+					: isRecord(context.args) && typeof context.args.file_path === "string"
+						? context.args.file_path
+						: "";
+			const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+			if (lang !== undefined) {
+				try {
+					styledLines = highlightCode(output.replace(/\t/g, "  "), lang);
+				} catch {
+					styledLines = rawLines.map((line) => theme.fg("toolOutput", line));
+				}
+			} else {
+				styledLines = rawLines.map((line) => theme.fg("toolOutput", line));
+			}
+		} else {
+			styledLines = rawLines.map((line) => theme.fg("toolOutput", line));
+		}
 		sections.push({
 			railToken,
-			content: isError ? lines.map((line) => theme.fg("error", line)) : lines,
+			content: styledLines,
 		});
 	}
 	const duration = result === undefined ? "" : formatDurationMs(context.durationMs);
@@ -544,14 +622,69 @@ function renderOwnedPresentation(params: {
 		header: { title: toolName, status, summary },
 		railToken,
 		// The tool owns the folded rows and their tones; the frame only sanitizes them for the host.
-		collapsedRows:
-			presentation.collapsedRows ??
-			(isError && output !== ""
+		collapsedRows: (() => {
+			if (presentation.collapsedRows !== undefined) {
+				return presentation.collapsedRows;
+			}
+			const captured =
+				result !== undefined
+					? (getCapturedNestedCalls(context.toolCallId) ??
+						(isRecord(result.details) && Array.isArray(result.details.__piExtUiCapturedCalls)
+							? (result.details.__piExtUiCapturedCalls as CapturedToolCall[])
+							: undefined))
+					: undefined;
+			const nestedCalls = extractNestedCalls(result);
+			const childCalls = captured ?? nestedCalls;
+			if (childCalls.length > 0) {
+				return new NestedCallsView({
+					calls: childCalls,
+					theme,
+					context,
+					resolveChildRenderer: (childName: string) => ({
+						renderResult: (childResult, childOptions, childTheme, childCtx) => {
+							const childProvider = resolvePresentation?.(childName);
+							if (childProvider !== undefined) {
+								return renderOwnedPresentation({
+									toolName: childName,
+									presentation: childProvider(childCtx.args, childResult, childTheme, childCtx),
+									result: childResult,
+									theme: childTheme,
+									context: childCtx,
+									defaultLevel: childOptions.expanded ? 2 : 1,
+									resolvePresentation,
+									resolveNativeRenderer,
+									options,
+								});
+							}
+							const registered = resolveNativeRenderer?.(childName);
+							return renderGenericResult({
+								toolName: childName,
+								theme: childTheme,
+								context: childCtx,
+								result: childResult,
+								renderOptions: childOptions,
+								defaultLevel: childOptions.expanded ? 2 : 1,
+								originalRenderCall: registered?.renderCall,
+								originalRenderResult: registered?.renderResult,
+								resolvePresentation,
+								resolveNativeRenderer,
+								options,
+							});
+						},
+					}),
+					copyToClipboard: options?.copyToClipboard,
+					stateHolder: context.state,
+					resolvePresentation,
+					invalidate: () => context.invalidate(),
+				});
+			}
+			return isError && output !== ""
 				? output
 						.split("\n")
 						.slice(0, 1)
 						.map((line) => theme.fg("error", stripTerminalSequences(line)))
-				: undefined),
+				: undefined;
+		})(),
 		sections,
 		copy,
 		outputPad: context.outputPad,
@@ -572,6 +705,7 @@ export function createCollapsibleToolRendererResolver(
 function createRendererResolver(
 	options?: CollapsibleToolRendererOptions,
 	resolvePresentation?: (toolName: string) => ToolPresentationProvider | undefined,
+	resolveNativeRenderer?: (toolName: string) => ToolRenderers | undefined,
 ): ToolRendererResolver {
 	const defaultLevel: FoldLevel = options?.defaultCollapsed === false ? 1 : 0;
 
@@ -583,8 +717,9 @@ function createRendererResolver(
 			return upstream;
 		}
 
-		const originalRenderCall = upstream?.renderCall;
-		const originalRenderResult = upstream?.renderResult;
+		const registeredNative = resolveNativeRenderer?.(toolName);
+		const originalRenderCall = upstream?.renderCall ?? registeredNative?.renderCall;
+		const originalRenderResult = upstream?.renderResult ?? registeredNative?.renderResult;
 
 		return {
 			renderShell: "self",
@@ -597,6 +732,8 @@ function createRendererResolver(
 						theme,
 						context: callContext,
 						defaultLevel,
+						resolvePresentation,
+						resolveNativeRenderer,
 						options,
 					});
 					rememberCallView(context, view);
@@ -616,14 +753,13 @@ function createRendererResolver(
 					const tokens = estimateStreamingTokens(args);
 					summary = tokens > 0 ? `· ${String(tokens)} tokens` : "";
 				} else {
-					summary = extractSummaryArg(toolName, args);
-					if (summary === "" && originalRenderCall !== undefined && toolName !== "codemode") {
-						const upstreamLines = originalRenderCall(args, theme, context).render(120);
-						const firstLine = stripTerminalSequences(upstreamLines[0] ?? "").trim();
-						summary = firstLine.startsWith(toolName)
-							? firstLine.slice(toolName.length).trim()
-							: firstLine;
-					}
+					summary = resolveToolCallSummary({
+						toolName,
+						args,
+						originalRenderCall,
+						theme,
+						context,
+					});
 				}
 
 				const heavyCmd = extractHeavyInputCommand(toolName, args);
@@ -691,6 +827,7 @@ function createRendererResolver(
 						theme,
 						context: resultContext,
 						defaultLevel,
+						resolvePresentation,
 						options,
 					});
 				}
@@ -705,6 +842,7 @@ function createRendererResolver(
 					originalRenderCall,
 					originalRenderResult,
 					resolvePresentation,
+					resolveNativeRenderer,
 					options,
 				});
 			},
@@ -718,37 +856,37 @@ export function createOptionalToolRendererFactory(
 	options?: CollapsibleToolRendererOptions,
 ): import("@hheei/pi-ext-core").ToolRendererFactory {
 	return (name, native) =>
-		createRendererResolver({ ...options, tools: [name] }, (toolName) =>
-			getRegisteredToolPresentationProvider(pi, toolName),
+		createRendererResolver(
+			{ ...options, tools: [name] },
+			(toolName) => getRegisteredToolPresentationProvider(pi, toolName),
+			(toolName) => getRegisteredToolRenderers(pi, toolName),
 		)(name, () => native) ?? native;
 }
 
 export function registerCollapsibleToolRenderer(
 	pi: ExtensionAPI,
 	options?: CollapsibleToolRendererOptions,
-): void {
+): () => void {
+	const disposers: (() => void)[] = [];
 	if (typeof (pi as { on?: unknown }).on === "function") {
-		pi.on("tool_execution_start", (event) => {
+		const unbindStart = pi.on("tool_execution_start", (event) => {
 			recordToolExecutionStart(event);
 		});
-		pi.on("tool_execution_end", (event) => {
+		if (typeof unbindStart === "function") disposers.push(unbindStart);
+
+		const unbindEnd = pi.on("tool_execution_end", (event) => {
 			recordToolExecutionEnd(event);
 		});
-		pi.on("tool_result", (event) => {
-			const captured = getCapturedNestedCalls(event.toolCallId);
-			if (captured && captured.length > 0) {
-				const currentDetails = isRecord(event.details) ? event.details : {};
-				return {
-					details: {
-						...currentDetails,
-						__piExtUiCapturedCalls: captured,
-					},
-				};
-			}
-			return undefined;
-		});
+		if (typeof unbindEnd === "function") disposers.push(unbindEnd);
 	}
 	pi.registerToolRenderer(
-		createRendererResolver(options, (name) => getRegisteredToolPresentationProvider(pi, name)),
+		createRendererResolver(
+			options,
+			(name) => getRegisteredToolPresentationProvider(pi, name),
+			(name) => getRegisteredToolRenderers(pi, name),
+		),
 	);
+	return () => {
+		for (const dispose of disposers) dispose();
+	};
 }
