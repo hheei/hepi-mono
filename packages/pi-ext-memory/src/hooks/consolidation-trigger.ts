@@ -17,6 +17,7 @@ import {
 	buildReflectionsRecordedData,
 	type Entry,
 	earlierCoverageMarkerId,
+	type FoldedLedger,
 	foldLedger,
 	fullProjection,
 	isSourceEntry,
@@ -327,8 +328,23 @@ type FoldCounts = {
 	superseded: number;
 };
 
-function foldCounts(entries: Entry[]): FoldCounts {
-	const folded = foldLedger(entries);
+function foldWithRuntimeSnapshot(runtime: Runtime | undefined, entries: Entry[]): FoldedLedger {
+	if (typeof runtime?.foldWithSnapshot === "function") {
+		return runtime.foldWithSnapshot(entries);
+	}
+	const folded = foldLedger(
+		entries,
+		runtime?.ledgerSnapshot ? { base: runtime.ledgerSnapshot } : {},
+	);
+	const lastEntry = entries[entries.length - 1];
+	if (runtime && lastEntry) {
+		runtime.ledgerSnapshot = { snapshot: folded, fromEntryId: lastEntry.id };
+	}
+	return folded;
+}
+
+function foldCounts(entries: Entry[], runtime?: Runtime): FoldCounts {
+	const folded = runtime ? foldWithRuntimeSnapshot(runtime, entries) : foldLedger(entries);
 	return {
 		observations: folded.observations.length,
 		reflections: folded.reflections.length,
@@ -355,7 +371,7 @@ function notifyRunSummary(
 
 	let after: FoldCounts;
 	try {
-		after = foldCounts(ctx.sessionManager.getBranch() as Entry[]);
+		after = foldCounts(ctx.sessionManager.getBranch() as Entry[], runtime);
 	} catch {
 		return;
 	}
@@ -381,7 +397,7 @@ export async function runConsolidationPipeline(
 	ctx: ConsolidationCtx,
 ): Promise<void> {
 	if (isStale(runtime, ctx)) return;
-	const before = foldCounts(ctx.sessionManager.getBranch() as Entry[]);
+	const before = foldCounts(ctx.sessionManager.getBranch() as Entry[], runtime);
 	const runCost: RunCost = { usd: 0 };
 
 	const aborted = await runPipelineStages(pi, runtime, ctx, runCost);
@@ -728,7 +744,7 @@ async function runReflectorStage(
 	const resolved = await resolveModel("reflector");
 	if (!resolved) return { outcome: "abort", sameRunReflections: [] };
 
-	const folded = foldLedger(entries);
+	const folded = foldWithRuntimeSnapshot(runtime, entries);
 	const memory = visibleMemory(runtime.config, ctx.model?.contextWindow, {
 		observations: folded.activeObservations,
 		reflections: folded.activeReflections,
@@ -820,7 +836,7 @@ async function runDropperStage(
 	const observationCoverageId = latestCoverageMarkerId(entries, OM_OBSERVATIONS_RECORDED);
 	if (!observationCoverageId) return "continue";
 
-	const folded = foldLedger(entries);
+	const folded = foldWithRuntimeSnapshot(runtime, entries);
 	const metrics = observationPoolMetrics(
 		folded.activeObservations,
 		runtime.config.observationsPoolTargetTokens,
@@ -936,7 +952,7 @@ async function runEnforcerStage(
 	if (ctx.signal?.aborted) return "abort";
 
 	const entries = ctx.sessionManager.getBranch() as Entry[];
-	const folded = foldLedger(entries);
+	const folded = foldWithRuntimeSnapshot(runtime, entries);
 	const budget = resolveMemoryBudget({
 		config: runtime.config,
 		contextWindow: ctx.model?.contextWindow,

@@ -1,3 +1,4 @@
+import type { SystemMessage } from "@earendil-works/pi-ai";
 import { isRecord } from "@hheei/pi-ext-core";
 
 export const OM_OBSERVATIONS_RECORDED = "om.observations.recorded";
@@ -53,6 +54,8 @@ export type Entry = {
 	data?: unknown;
 	details?: unknown;
 	firstKeptEntryId?: string | undefined;
+	checkpointEntryId?: string | undefined;
+	systemMessage?: SystemMessage | undefined;
 };
 
 export type Observation = {

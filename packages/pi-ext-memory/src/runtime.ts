@@ -3,6 +3,8 @@ import type { ExtensionContext, ModelRegistry } from "@earendil-works/pi-coding-
 import { errorMessage } from "@hheei/pi-ext-core";
 import { type Config, DEFAULTS, loadConfig } from "./config.js";
 import { debugLog } from "./debug-log.js";
+import { type FoldedLedger, foldLedger } from "./session-ledger/fold.js";
+import type { Entry } from "./session-ledger/types.js";
 
 export type ResolveResult =
 	| {
@@ -191,6 +193,25 @@ export class Runtime {
 				tokensAtEmpty: number;
 		  }
 		| undefined;
+	ledgerSnapshot?:
+		| {
+				snapshot: FoldedLedger;
+				fromEntryId: string;
+		  }
+		| undefined;
+
+	foldWithSnapshot(entries: Entry[]): FoldedLedger {
+		const folded = foldLedger(entries, this.ledgerSnapshot ? { base: this.ledgerSnapshot } : {});
+		const lastEntry = entries[entries.length - 1];
+		if (lastEntry) {
+			this.ledgerSnapshot = { snapshot: folded, fromEntryId: lastEntry.id };
+		}
+		return folded;
+	}
+
+	invalidateSnapshot(): void {
+		this.ledgerSnapshot = undefined;
+	}
 
 	async startSession(cwd: string, signal: AbortSignal): Promise<number> {
 		this.lifecycleAbortCleanup?.();
@@ -218,6 +239,7 @@ export class Runtime {
 		this.lastEnforcerError = undefined;
 		this.availabilityRecheckedAt.clear();
 		this.observerEmptyBackoff = undefined;
+		this.ledgerSnapshot = undefined;
 		this.lifecycleSignal = signal;
 		await this.ensureConfig(cwd, signal);
 		return this.sessionGeneration;
@@ -225,6 +247,7 @@ export class Runtime {
 
 	endSession(generation: number): void {
 		if (!this.isSessionCurrent(generation)) return;
+		this.ledgerSnapshot = undefined;
 		this.lifecycleAbortCleanup?.();
 		this.lifecycleAbortCleanup = undefined;
 		this.clearPendingCompactionTimer();
