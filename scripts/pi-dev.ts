@@ -25,11 +25,12 @@ const builtPackageNames = [
 	"pi-settings",
 	"pi-status",
 	"pi-subagents",
+	"pi-web-access",
 ] as const;
 // Extension sources loaded explicitly next to the local packages: an external package that is not
 // built here, and the built-ins that `--no-extensions` below would otherwise disable.
 // tool_search is provided by pi-ext-tools; codemode and mcp remain Pi built-ins.
-const explicitExtensionSources = ["npm:pi-web-access", "builtin:codemode", "builtin:mcp"] as const;
+const explicitExtensionSources = ["builtin:codemode", "builtin:mcp"] as const;
 const builtPackageDirs = builtPackageNames
 	.map((name) => path.join(packageRoot, name))
 	.filter(existsSync);

@@ -3,6 +3,8 @@
 	"include": ["packages/pi-*/**/*.ts", "test/**/*.ts"],
 	"exclude": ["**/node_modules/**", "**/dist/**", "**/.pi/**"],
 	"compilerOptions": {
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"allowImportingTsExtensions": true,
 		"paths": {
 			"@hheei/pi-ext-core": ["./packages/pi-ext-core/src/index.ts"],
 			"@hheei/pi-ext-core/errors": ["./packages/pi-ext-core/src/errors.ts"]
