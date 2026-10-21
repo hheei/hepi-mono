@@ -190,7 +190,11 @@ describe("launching a child runtime", () => {
 describe("opening a child in a host panel", () => {
 	/** A host that records what it was asked to open and counts the panels it was asked to close. */
 	function fakeHost(
-		behavior: { readonly failOpen?: string; readonly refuseClose?: boolean } = {},
+		behavior: {
+			readonly failOpen?: string;
+			readonly refuseClose?: boolean;
+			readonly earlyExit?: string;
+		} = {},
 	): {
 		readonly host: HostAdapter;
 		readonly specs: LaunchSpec[];
@@ -220,6 +224,15 @@ describe("opening a child in a host panel", () => {
 						launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
 						reportsFocus: true,
 						async observe() {
+							if (behavior.earlyExit !== undefined) {
+								return {
+									identity,
+									alive: false,
+									known: true,
+									focused: false,
+									detail: behavior.earlyExit,
+								};
+							}
 							return { identity, alive, known: true, focused: false, detail: "" };
 						},
 						async cleanup() {
@@ -274,7 +287,7 @@ describe("opening a child in a host panel", () => {
 			const attachment = opened.handle;
 			if (attachment === undefined) throw new Error("no panel was opened");
 			expect(attachment.identity.attachmentId).toBe("wG:tH");
-			expect(waitForBridge).toHaveBeenCalledWith("sa_panel", undefined);
+			expect(waitForBridge).toHaveBeenCalledWith("sa_panel", expect.any(AbortSignal));
 
 			const spec = specs[0];
 			expect(spec?.presentation).toBe("panel");
