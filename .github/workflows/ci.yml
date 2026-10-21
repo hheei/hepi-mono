@@ -11,10 +11,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.4.1
       - name: Install system dependencies (ripgrep & fd)
@@ -23,7 +23,7 @@ jobs:
           if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
             sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.19.0
           cache: pnpm
