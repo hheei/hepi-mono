@@ -35,7 +35,6 @@ export default function piSettingsExtension(pi: ExtensionAPI): void {
 		await openExtensionPageRouter(pi, context, {
 			hostId: "@hheei/pi-settings",
 			signal: session.signal,
-			maxPending: 1,
 			...(initialPageId === undefined ? {} : { initialPageId }),
 			overlay: true,
 			overlayOptions: {

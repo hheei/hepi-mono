@@ -2,7 +2,12 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, visibleWidth } from "@earendil-works/pi-tui";
-import { fitRow, formatCompactNumber, type ThemeLike } from "@hheei/pi-ext-core";
+import {
+	fitRow,
+	formatCompactNumber,
+	type ResponseStatusFeature,
+	type ThemeLike,
+} from "@hheei/pi-ext-core";
 
 /** Pi native status keys owned by other extensions. */
 const AUTO_TITLE_STATUS_KEY = "auto-title";
@@ -189,18 +194,25 @@ export class CompactFooterComponent implements Component {
 	readonly #extension: ExtensionContext;
 	readonly #footerData: ReadonlyFooterDataProvider;
 	readonly #theme: FooterTheme;
+	readonly #statusFeature?: ResponseStatusFeature | undefined;
 	readonly #unsubscribeBranch?: () => void;
+	readonly #unsubscribeStatus?: (() => void) | undefined;
 
 	constructor(
 		extension: ExtensionContext,
 		tui: { requestRender(): void },
 		theme: FooterTheme,
 		footerData: ReadonlyFooterDataProvider,
+		statusFeature?: ResponseStatusFeature,
 	) {
 		this.#extension = extension;
 		this.#footerData = footerData;
 		this.#theme = theme;
+		this.#statusFeature = statusFeature;
 		this.#unsubscribeBranch = footerData.onBranchChange(() => {
+			tui.requestRender();
+		});
+		this.#unsubscribeStatus = statusFeature?.onUpdate(() => {
 			tui.requestRender();
 		});
 	}
@@ -209,6 +221,7 @@ export class CompactFooterComponent implements Component {
 
 	dispose(): void {
 		this.#unsubscribeBranch?.();
+		this.#unsubscribeStatus?.();
 	}
 
 	render(width: number): string[] {
@@ -241,7 +254,10 @@ export class CompactFooterComponent implements Component {
 			this.#extension.model?.contextWindow,
 			this.#theme,
 		);
-		const line2Left = `${modelPart} ${this.#theme.fg("dim", "·")} ${contextPart}`;
+		const telemetry = this.#statusFeature?.getStatus(this.#theme);
+		const line2Left = telemetry
+			? `${modelPart} ${this.#theme.fg("dim", "·")} ${contextPart} ${this.#theme.fg("dim", "·")} ${telemetry}`
+			: `${modelPart} ${this.#theme.fg("dim", "·")} ${contextPart}`;
 
 		// Line 2 right: running child agents then TODO, joined by a dim separator. A missing
 		// segment drops the separator with it. Any other extension status is only a fallback,
