@@ -108,6 +108,18 @@ TypeScript 的目标是让设计更清楚，不是把每个值都包成类型、
 - 每个 `packages/pi-<name>/` workspace 负责一个独立功能或内聚的功能族，并且只能有一个 `pi.extensions` 条目。
 - 具体 extension **应该**使用 `@hheei/pi-ext-core` 的共享基础能力。具体 extension **可以**直接依赖另一个具体 extension，但必须明确它是集成/附加功能，且依赖关系反映真实的安装和运行时 ownership；必须记录该依赖是必需还是可选，明确生命周期和回退行为，并避免依赖循环。除此之外，可选的跨 extension 协作应优先使用 ext-core 提供的运行时能力。
 - `@hheei/pi-ext-core` 是无副作用的基础 package，**绝不能**导入具体 extension。
+- 工具链已解耦为独立专注的 packages：
+  - `@hheei/pi-ext-tools`（核心内置工具：read, bash, edit, write）
+  - `@hheei/pi-bg-bash`（后台 bash 任务生命周期与交付）
+  - `@hheei/pi-apply-patch`（V4A 补丁执行器与 worker diff）
+  - `@hheei/pi-python-eval`（Python 交互内核与事实账本）
+  - `@hheei/pi-todo`（待办事项状态管理）
+  - `@hheei/pi-web-access`（Web 搜索与多源内容抓取）
+  各工具独立拥有状态与生命周期，UI 展示通过 `@hheei/pi-ext-core` 的 presentation 扩展点解耦接入，禁止重新引入单体化依赖。
+- 已废弃基础设施禁止重新引入：
+  - 任务与通知：统一使用 ext-core 的 `BackgroundDelivery` 通道，禁止重新引入集中式 `TaskRegistry`。
+  - 设置持久化：采用直接原子写盘与最后写入胜出（last-write-wins），禁止重新引入 `proper-lockfile` 或全局文件锁。
+  - 编辑状态：UI 工作状态由原生 UI 驱动，禁止重新引入 `mutationLock` 或 `editor-working-status`。
 - 除非持久化明确属于契约，否则运行时状态应限定在 session 内，清理操作必须幂等。
 - 避免在 `packages/` 下 vendoring 外部仓库；如果无法避免，只 vendor 最小必要范围，并记录上游 URL 和 revision。
 - 事件是通知，不是共享状态或 RPC。
@@ -158,13 +170,15 @@ TypeScript 的目标是让设计更清楚，不是把每个值都包成类型、
 
 ## 发布
 
+本项目已接入 npm Trusted Publisher (OIDC) 与 GitHub Actions 自动化发布：
+
 ```bash
-pnpm run publish:dry-run                  # 预演
-pnpm run publish:packages                 # 本地发布
-git tag vX.Y.Z && git push origin vX.Y.Z  # 触发 CI 自动发布（tag 仅作发布标记）
+pnpm run publish:dry-run                  # 本地打包校验与预演
+git tag vX.Y.Z && git push origin vX.Y.Z  # 推送 tag 触发 GitHub Actions Release 工作流自动发布
+# 或在 GitHub 仓库 Actions 页面手动运行 Release 工作流 (workflow_dispatch)
 ```
 
-各 `packages/pi-<name>/package.json` 自带 `version`，彼此独立；root 的 `version` 只是私有 root package 自身的版本。发布时只会上传 npm 中尚不存在的 package 版本，未改动的 package 保持原版本并被跳过。tag 不需要等于任何 package 版本，它只触发 `release.yml`。`publish:packages` / `publish:dry-run` 会先 build，再校验产物。发布仍属于高风险且不可逆的操作，必须遵守下面的发布安全规则并取得明确授权。
+各 `packages/pi-<name>/package.json` 自带 `version`，彼此独立；root 的 `version` 只是私有 root package 自身的版本。发布时只会上传 npm 中尚不存在的 package 版本，未改动的 package 保持原版本并被跳过。tag 不需要等于任何 package 版本，它只触发 `release.yml`。因 npm 2FA 与 OIDC 限制，本地直发（如 `npm publish`）会被拒绝，必须通过 GitHub Actions 流程完成发布。发布仍属于高风险且不可逆的操作，必须遵守下面的发布安全规则并取得明确授权。
 
 ## 发布安全
 
