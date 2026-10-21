@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
 	copyToClipboard as copyToSystemClipboard,
 	type Theme,
@@ -76,6 +77,8 @@ const FOLD_LEVEL_STATE_KEY = "__piExtUiFoldLevel";
 const COPIED_UNTIL_STATE_KEY = "__piExtUiCopiedUntil";
 const COPY_FEEDBACK_TIMER_KEY = "__piExtUiCopyTimer";
 const DEFAULT_MAX_SECTION_LINES = 9;
+export const MAX_LEVEL2_SECTION_LINES = 500;
+export const MAX_LEVEL2_BYTES = 64 * 1024;
 const DEFAULT_COPY_FEEDBACK_MS = 1200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -191,18 +194,96 @@ export function toContentRows(text: string): readonly string[] {
  * component returns rows it already laid out, so only its breaks are removed and its indentation is
  * preserved.
  */
+interface ResolvedRowsResult {
+	readonly rows: readonly string[];
+	readonly isByteTruncated: boolean;
+	readonly totalBytes: number;
+}
+
+function truncateUtf8(str: string, maxBytes: number): string {
+	const buf = Buffer.from(str, "utf8");
+	if (buf.length <= maxBytes) return str;
+	let end = maxBytes;
+	while (end > 0) {
+		const b = buf[end];
+		if (b !== undefined && (b & 0xc0) === 0x80) {
+			end--;
+		} else {
+			break;
+		}
+	}
+	if (end > 0) {
+		const lead = buf[end - 1];
+		if (lead !== undefined) {
+			let seqLen = 1;
+			if ((lead & 0xe0) === 0xc0) seqLen = 2;
+			else if ((lead & 0xf0) === 0xe0) seqLen = 3;
+			else if ((lead & 0xf8) === 0xf0) seqLen = 4;
+			if (seqLen > 1 && end - 1 + seqLen > maxBytes) {
+				end = end - 1;
+			}
+		}
+	}
+	return buf.subarray(0, end).toString("utf8");
+}
+
 function resolveRows(
 	source: string | readonly string[] | Component,
 	width: number,
 	normalize: (text: string) => readonly string[],
-): readonly string[] {
+): ResolvedRowsResult {
 	if (typeof source === "string") {
-		return source === "" ? [] : normalize(source);
+		if (source === "") return { rows: [], isByteTruncated: false, totalBytes: 0 };
+		const totalBytes = Buffer.byteLength(source, "utf8");
+		const isByteTruncated = totalBytes > MAX_LEVEL2_BYTES;
+		const bounded = isByteTruncated ? truncateUtf8(source, MAX_LEVEL2_BYTES) : source;
+		return { rows: normalize(bounded), isByteTruncated, totalBytes };
 	}
 	if (Array.isArray(source)) {
-		return source.flatMap((item) => (typeof item === "string" ? normalize(item) : []));
+		const totalBytes = source.reduce(
+			(acc, item) => (typeof item === "string" ? acc + Buffer.byteLength(item, "utf8") : acc),
+			0,
+		);
+		const isByteTruncated = totalBytes > MAX_LEVEL2_BYTES;
+		const rows: string[] = [];
+		let currentBytes = 0;
+		for (const item of source) {
+			if (typeof item !== "string") continue;
+			if (currentBytes >= MAX_LEVEL2_BYTES) continue;
+			const itemBytes = Buffer.byteLength(item, "utf8");
+			if (currentBytes + itemBytes > MAX_LEVEL2_BYTES) {
+				const remaining = MAX_LEVEL2_BYTES - currentBytes;
+				if (remaining > 0) {
+					for (const row of normalize(truncateUtf8(item, remaining))) rows.push(row);
+				}
+				currentBytes = MAX_LEVEL2_BYTES;
+			} else {
+				currentBytes += itemBytes;
+				for (const row of normalize(item)) rows.push(row);
+			}
+		}
+		return { rows, isByteTruncated, totalBytes };
 	}
-	return (source as Component).render(width).flatMap((row) => toContentRows(row));
+	const rendered = (source as Component).render(width);
+	const totalBytes = rendered.reduce((acc, row) => acc + Buffer.byteLength(row, "utf8"), 0);
+	const isByteTruncated = totalBytes > MAX_LEVEL2_BYTES;
+	const rows: string[] = [];
+	let currentBytes = 0;
+	for (const row of rendered) {
+		if (currentBytes >= MAX_LEVEL2_BYTES) continue;
+		const rowBytes = Buffer.byteLength(row, "utf8");
+		if (currentBytes + rowBytes > MAX_LEVEL2_BYTES) {
+			const remaining = MAX_LEVEL2_BYTES - currentBytes;
+			if (remaining > 0) {
+				for (const norm of toContentRows(truncateUtf8(row, remaining))) rows.push(norm);
+			}
+			currentBytes = MAX_LEVEL2_BYTES;
+		} else {
+			currentBytes += rowBytes;
+			for (const norm of toContentRows(row)) rows.push(norm);
+		}
+	}
+	return { rows, isByteTruncated, totalBytes };
 }
 
 export class ToolView implements Component {
@@ -397,7 +478,7 @@ export class ToolView implements Component {
 			if (collapsedRows !== undefined) {
 				const railColor: RailColorToken = this.#spec.header.status === "error" ? "error" : "dim";
 				const rail = noRail ? "" : `${theme.fg(railColor, "▎")} `;
-				const rows = resolveRows(collapsedRows, innerWidth, (row) => [toSingleRow(row)]);
+				const { rows } = resolveRows(collapsedRows, innerWidth, (row) => [toSingleRow(row)]);
 				for (const row of rows) {
 					output.push(truncate(rail + row, safeWidth));
 				}
@@ -411,9 +492,13 @@ export class ToolView implements Component {
 
 		for (const section of sections) {
 			const rail = noRail ? "" : `${theme.fg(section.railToken, "▎")} `;
-			const rawLines = resolveRows(section.content, innerWidth, toContentRows);
+			const {
+				rows: rawLines,
+				isByteTruncated,
+				totalBytes,
+			} = resolveRows(section.content, innerWidth, toContentRows);
 			const cap =
-				level === 1 ? (section.maxLines ?? DEFAULT_MAX_SECTION_LINES) : Number.POSITIVE_INFINITY;
+				level === 1 ? (section.maxLines ?? DEFAULT_MAX_SECTION_LINES) : MAX_LEVEL2_SECTION_LINES;
 			const visibleLines =
 				Number.isFinite(cap) && rawLines.length > cap ? rawLines.slice(0, cap) : rawLines;
 			const omittedCount = rawLines.length - visibleLines.length;
@@ -421,8 +506,13 @@ export class ToolView implements Component {
 			for (const line of visibleLines) {
 				output.push(truncate(rail + line, safeWidth));
 			}
-			if (omittedCount > 0) {
-				const hint = theme.fg("dim", `… (${String(omittedCount)} more lines)`);
+			if (omittedCount > 0 || isByteTruncated) {
+				const hint = isByteTruncated
+					? theme.fg(
+							"dim",
+							`… [Output truncated: showing 64KB of ${Math.round(totalBytes / 1024)}KB]`,
+						)
+					: theme.fg("dim", `… (${String(omittedCount)} more lines)`);
 				output.push(truncate(rail + hint, safeWidth));
 			}
 		}

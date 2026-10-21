@@ -5,12 +5,12 @@ import type {
 	ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
+import { createToolPresentationRenderers } from "@hheei/pi-ext-core";
 import { describe, expect, test, vi } from "vitest";
 import extension from "../src/extension.js";
 import {
 	type Collapsible,
 	clearCapturedNestedCalls,
-	formatTurnFlow,
 	isCollapsible,
 	recordToolExecutionEnd,
 	recordToolExecutionStart,
@@ -19,7 +19,6 @@ import {
 	type ToolRenderContext,
 	ToolView,
 	transitionFoldLevel,
-	WEB_ACCESS_TOOLS,
 } from "../src/index.js";
 import { NESTED_CALLS_EXPANDED_KEY, NestedCallsView } from "../src/nested-calls-view.js";
 
@@ -297,9 +296,9 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 
 	test("Streaming planning phase shows ▸ ⋯ tool_name · XX tokens and constant 1-line height", () => {
 		const resolve = setupResolver();
-		const renderers = resolve("web_search", () => undefined)!;
+		const renderers = resolve("codemode", () => undefined)!;
 		const ctx = createMockContext({
-			args: { query: "1234567890123456" },
+			args: { code: "1234567890123456" },
 			isPartial: true,
 			argsComplete: false,
 			executionStarted: false,
@@ -308,7 +307,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx);
 		const lines = callView.render(80);
 		expect(lines.length).toBe(1);
-		expect(lines[0]).toContain("▸ ⋯ web_search · ");
+		expect(lines[0]).toContain("▸ codemode · ");
 		expect(lines[0]).toContain("tokens");
 	});
 
@@ -342,7 +341,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		};
 		expect(resolve("bash", () => otherUpstream)).toBe(otherUpstream);
 
-		for (const toolName of [...SPECIALIZED_TOOL_RENDERERS, ...WEB_ACCESS_TOOLS]) {
+		for (const toolName of SPECIALIZED_TOOL_RENDERERS) {
 			const renderers = resolve(toolName, () => undefined);
 			expect(renderers?.renderShell).toBe("self");
 		}
@@ -554,34 +553,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const lines = resultView.render(80).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
 		expect(lines.join("\n")).toContain("▎ ✓ read x/renderer.ts · 1ms");
 		expect(lines.join("\n")).toContain("▎ ✓ write b.ts · 2ms");
-	});
-
-	test("formatTurnFlow produces clean linear [User] / [Tools] / [Assistant] text without forced markdown", () => {
-		const flow = formatTurnFlow({
-			userPrompt: "Check the build",
-			toolCalls: [
-				{ toolName: "bash", commandOrArgs: "$ pnpm build", summary: "Exit 0 · 1.2s" },
-				{ toolName: "codemode", summary: "4 calls · 2.1s" },
-			],
-			assistantReply: "All packages built cleanly.",
-		});
-
-		expect(flow).toBe(
-			[
-				"[User]",
-				"Check the build",
-				"",
-				"[Tools]",
-				"bash $ pnpm build",
-				"Exit 0 · 1.2s",
-				"",
-				"codemode",
-				"4 calls · 2.1s",
-				"",
-				"[Assistant]",
-				"All packages built cleanly.",
-			].join("\n"),
-		);
 	});
 
 	test("expands tab characters to two spaces in rendered view while preserving copy text", async () => {
@@ -1543,5 +1514,241 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(visibleWidth(header)).toBe(40);
 		expect(header).toContain("bash a b");
 		expect(header.trimEnd().endsWith("󰆏")).toBe(true);
+	});
+
+	test("safely truncates massive 5MB multi-line output to 64KB hard limit in Level 2", () => {
+		const fiveMbString = `${"x".repeat(100)}\n`;
+		const hugeContent = fiveMbString.repeat(50000); // 50,000 lines, ~5MB
+
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "ok", summary: "cat massive.log" },
+			sections: [{ railToken: "dim", content: hugeContent }],
+			defaultLevel: 2,
+		});
+
+		const rows = view.render(80);
+		expect(rows.length).toBeLessThanOrEqual(502);
+		expect(rows[0]).toContain("bash cat massive.log");
+		expect(rows[rows.length - 1]).toMatch(/Output truncated: showing 64KB of/);
+	});
+
+	test("intercepts and frames MCP tools with ToolView generic fallback", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("mcp__hindsight__recall", () => ({
+			renderCall: (args, _t, _c) => new Text(`upstream call ${JSON.stringify(args)}`, 0, 0),
+			renderResult: (res, _o, _t, _c) => {
+				const part = res.content[0];
+				return new Text(`upstream result: ${part && "text" in part ? part.text : ""}`, 0, 0);
+			},
+		}))!;
+		expect(renderers).toBeDefined();
+
+		const ctx = createMockContext({
+			args: { query: "architectural decisions", budget: "high" },
+			durationMs: 85,
+		});
+
+		// 1. Call view
+		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
+		const callRows = callView.render(80);
+		expect(callRows[0]).toMatch(/^[▸▾] /);
+		expect(callRows[0]).toContain("mcp__hindsight__recall");
+		expect(callRows[0]).toContain("architectural decisions");
+
+		// 2. Result view Level 0
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Found 3 memory records regarding architecture" }],
+				details: { memoriesCount: 3 },
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		const level0 = resultView.render(120);
+		expect(level0[0]).toContain("▸ ✓ mcp__hindsight__recall");
+		expect(level0[0]).toContain("architectural decisions");
+		expect(level0[0]).toContain("85ms");
+
+		// 3. Level 1 toggle (preview upstream component)
+		resultView.handleMouse(createMouseClick(2, 0, { width: 80 }));
+		const level1 = resultView.render(80);
+		expect(level1[0]).toContain("▾ ✓ mcp__hindsight__recall");
+		expect(level1.join("\n")).toContain("upstream result: Found 3 memory records");
+	});
+
+	test("preserves raw arg preview for MCP tools without parameter guessing", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("mcp__serena__serena_repl", () => undefined)!;
+		expect(renderers).toBeDefined();
+
+		const ctx = createMockContext({
+			args: { code: "s.fs.read_file('src/index.ts', 0, 10)" },
+		});
+		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
+		callView.setFoldLevel(1);
+		const rows = callView.render(80);
+		expect(rows[0]).toContain("mcp__serena__serena_repl");
+		expect(rows[0]).not.toContain("s.fs.read_file");
+		expect(rows.join("\n")).toContain("s.fs.read_file");
+	});
+
+	test("frames resource MCP tools without guessing URI as summary", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("read_mcp_resource", () => undefined)!;
+		expect(renderers).toBeDefined();
+
+		const ctx = createMockContext({
+			args: { server: "sqlite", uri: "sqlite://data.db/tables" },
+		});
+		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
+		const rows = callView.render(80);
+		expect(rows[0]).toContain("read_mcp_resource");
+
+		// Regular unowned tools without match/options do NOT intercept
+		expect(resolve("custom_random_tool", () => undefined)).toBeUndefined();
+	});
+
+	test("preserves raw arguments in completed generic result Level 1", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("mcp__server__operation", () => ({
+			renderCall: (args) => new Text(`call ${JSON.stringify(args)}`, 0, 0),
+			renderResult: (_res) => new Text("operation output", 0, 0),
+		}))!;
+		expect(renderers).toBeDefined();
+
+		const ctx = createMockContext({
+			args: { code: 404, query: "search terms", page_id: "p-1" },
+		});
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "operation output" }],
+				details: undefined,
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// Level 1: must show raw arguments preview AND output
+		resultView.setFoldLevel(1);
+		const rows = resultView.render(100);
+		const full = rows.join("\n");
+		expect(full).toContain('"code": 404');
+		expect(full).toContain('"query": "search terms"');
+		expect(full).toContain("operation output");
+	});
+
+	test("preserves provider-owned collapsedRows over details.calls", () => {
+		const customRow = "★ Custom Outcome Row";
+		let captured: ToolRendererResolver | undefined;
+		const pi = {
+			registerToolRenderer(resolver: ToolRendererResolver) {
+				captured = resolver;
+			},
+			on() {},
+		} as unknown as ExtensionAPI;
+		registerCollapsibleToolRenderer(pi);
+		const native = createToolPresentationRenderers(pi, "custom_provider_tool", () => ({
+			summary: "done",
+			output: "ok",
+			collapsedRows: [customRow],
+		}));
+		const renderers = captured!("custom_provider_tool", () => native)!;
+
+		const ctx = createMockContext();
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "ok" }],
+				details: {
+					calls: [{ toolName: "nested_child", args: { q: 1 } }],
+				},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// Level 0: provider-owned row must NOT be replaced by nested calls
+		const level0 = resultView.render(80);
+		expect(level0.join("\n")).toContain(customRow);
+	});
+
+	test("bounds array section content to 64KB cumulative budget in ToolView", () => {
+		const oneKbString = "x".repeat(1024);
+		const hundredKbArray = Array.from({ length: 100 }, () => oneKbString);
+
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "big_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: hundredKbArray }],
+			defaultLevel: 2,
+		});
+
+		const rows = view.render(80);
+		const fullText = rows.join("\n");
+		expect(fullText).toContain("[Output truncated: showing 64KB of 100KB]");
+	});
+
+	test("prefix stripping checks tool name boundary in resolveToolCallSummary", () => {
+		const resolve = setupResolver();
+		// Host renderCall outputs tool name concatenated with more chars (no word boundary)
+		const renderers = resolve("mcp__foo", () => ({
+			renderCall: () => new Text("mcp__foobar payload text", 0, 0),
+			renderResult: () => new Text("ok", 0, 0),
+		}))!;
+		expect(renderers).toBeDefined();
+
+		const ctx = createMockContext();
+		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
+		const rows = callView.render(80);
+		// Must NOT strip "bar payload text"; keeps exact full line because "foobar" has no boundary
+		expect(rows[0]).toContain("mcp__foobar payload text");
+	});
+
+	test("bounds Unicode string content to 64KB UTF-8 byte budget (not UTF-16 code units)", () => {
+		// "你" is 3 UTF-8 bytes. 30,000 chars = 90,000 bytes.
+		// In UTF-16, length is 30,000 (which would mistakenly pass a 64*1024 string.length check).
+		const unicodeString = "你".repeat(30_000);
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "unicode_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: unicodeString }],
+			defaultLevel: 2,
+		});
+		const rows = view.render(80);
+		const fullText = rows.join("\n");
+		expect(fullText).toContain("[Output truncated: showing 64KB of 88KB]");
+	});
+
+	test("bounds Component content to 64KB budget, preserving prefix and calculating total bytes", () => {
+		const mockComponent = {
+			render: () => Array.from({ length: 100 }, () => "c".repeat(1024)),
+			invalidate: () => {},
+		};
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "comp_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: mockComponent }],
+			defaultLevel: 2,
+		});
+		const rows = view.render(80);
+		const fullText = rows.join("\n");
+		expect(fullText).toContain("[Output truncated: showing 64KB of 100KB]");
+	});
+
+	test("bounds Unicode string array to 64KB UTF-8 byte budget", () => {
+		const unicodeArray = ["你".repeat(30_000)];
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "unicode_array_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: unicodeArray }],
+			defaultLevel: 2,
+		});
+		const rows = view.render(80);
+		const fullText = rows.join("\n");
+		expect(fullText).toContain("[Output truncated: showing 64KB of 88KB]");
 	});
 });

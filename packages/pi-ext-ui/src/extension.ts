@@ -7,12 +7,16 @@ import {
 } from "@hheei/pi-ext-core";
 import { createMessageView } from "./message-view.js";
 import { createOptionalToolRendererFactory, registerCollapsibleToolRenderer } from "./renderer.js";
+import { clearCapturedNestedCalls } from "./tracker.js";
 
 export default function (pi: ExtensionAPI): void {
 	registerCollapsibleToolRenderer(pi);
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-ui",
 		start(context) {
+			context.resources.add("tracker-cleanup", () => {
+				clearCapturedNestedCalls();
+			});
 			const toolRenderers = registerExtensionHook(
 				pi,
 				toolRendererPoint,
