@@ -15,5 +15,5 @@ export function registerTools(pi: ExtensionAPI, bashOptions?: BashToolOptions): 
 	registerEditTool(pi);
 	registerWriteTool(pi);
 	registerBashTool(pi, bashOptions);
-	pi.registerTool(createToolSearchToolDefinition(pi));
+	pi.registerTool(createToolSearchToolDefinition(pi, pi));
 }

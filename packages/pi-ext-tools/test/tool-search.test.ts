@@ -1,7 +1,8 @@
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
-import { createToolSearchToolDefinition } from "../src/tool-search.js";
+import { createToolSearchToolDefinition, toolSearchPresentation } from "../src/tool-search.js";
 
 function toolInfo(
 	name: string,
@@ -136,5 +137,77 @@ describe("tool_search", () => {
 			"limit must be a positive integer",
 		);
 		expect(host.updates).toEqual([]);
+	});
+
+	describe("toolSearchPresentation", () => {
+		const theme = {} as Theme;
+		const ctx = {} as never;
+
+		test("calling phase shows query in summary", () => {
+			const presentation = toolSearchPresentation({ query: "agent" }, undefined, theme, ctx);
+			expect(presentation.summary).toBe('"agent"');
+		});
+
+		test("error result sets error status and surfaces output", () => {
+			const result = textToolResult("query must not be empty", undefined);
+			result.isError = true;
+			const presentation = toolSearchPresentation({ query: "agent" }, result, theme, ctx);
+			expect(presentation.status).toBe("error");
+			expect(presentation.summary).toBe('"agent"');
+			expect(presentation.output).toBe("query must not be empty");
+		});
+
+		test("loaded tools set ok status with count and collapsed row", () => {
+			const result = textToolResult("Loaded for next call:\n- agent_spawn: spawn", {
+				loaded: ["agent_spawn", "agent_send"],
+				alreadyAvailable: [],
+			});
+			const presentation = toolSearchPresentation({ query: "agent" }, result, theme, ctx);
+			expect(presentation.status).toBe("ok");
+			expect(presentation.summary).toBe('"agent" · loaded 2');
+			expect(presentation.collapsedRows).toEqual(["loaded: agent_spawn, agent_send"]);
+		});
+
+		test("mixed loaded and available tools format summary correctly", () => {
+			const result = textToolResult("Loaded for next call:\n- agent_spawn: spawn", {
+				loaded: ["agent_spawn"],
+				alreadyAvailable: ["agent_send"],
+			});
+			const presentation = toolSearchPresentation({ query: "agent" }, result, theme, ctx);
+			expect(presentation.status).toBe("ok");
+			expect(presentation.summary).toBe('"agent" · loaded 1, available 1');
+			expect(presentation.collapsedRows).toEqual(["loaded: agent_spawn"]);
+		});
+
+		test("available only matches show available count", () => {
+			const result = textToolResult("loaded: agent_spawn, agent_send", {
+				loaded: [],
+				alreadyAvailable: ["agent_spawn", "agent_send"],
+			});
+			const presentation = toolSearchPresentation({ query: "agent" }, result, theme, ctx);
+			expect(presentation.status).toBe("ok");
+			expect(presentation.summary).toBe('"agent" · available 2');
+			expect(presentation.collapsedRows).toEqual(["available: agent_spawn, agent_send"]);
+		});
+
+		test("no matches sets status none", () => {
+			const result = textToolResult("No matching tools found.", {
+				loaded: [],
+				alreadyAvailable: [],
+			});
+			const presentation = toolSearchPresentation({ query: "unknown" }, result, theme, ctx);
+			expect(presentation.status).toBe("none");
+			expect(presentation.summary).toBe('"unknown" · no matches');
+		});
+
+		test("attaches renderers when ExtensionAPI host is provided", () => {
+			const pi = {
+				registerTool: () => undefined,
+			} as unknown as ExtensionAPI;
+			const tool = createToolSearchToolDefinition(pi, pi);
+			expect(tool.renderShell).toBe("self");
+			expect(tool.renderCall).toBeTypeOf("function");
+			expect(tool.renderResult).toBeTypeOf("function");
+		});
 	});
 });

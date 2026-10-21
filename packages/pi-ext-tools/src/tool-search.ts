@@ -1,4 +1,11 @@
 import type { ExtensionAPI, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
+import {
+	agentResultText,
+	createOptionalToolRenderers,
+	createToolPresentationRenderers,
+	isRecord,
+	type ToolPresentationProvider,
+} from "@hheei/pi-ext-core";
 import { type Static, Type } from "typebox";
 
 const DEFAULT_LIMIT = 8;
@@ -139,11 +146,83 @@ function searchAndLoad(
 	return { loaded, alreadyAvailable };
 }
 
+function isExtensionApi(candidate: ToolAccess): candidate is ExtensionAPI {
+	return typeof (candidate as Partial<ExtensionAPI>).registerTool === "function";
+}
+
+export const toolSearchPresentation: ToolPresentationProvider = (args, result) => {
+	const query = isRecord(args) && typeof args.query === "string" ? args.query.trim() : "";
+	if (result === undefined) {
+		return {
+			kind: "text",
+			summary: query !== "" ? `"${query}"` : "search tools",
+		};
+	}
+	const isError = result.isError === true;
+	const text = agentResultText(result);
+	if (isError) {
+		return {
+			kind: "text",
+			status: "error",
+			summary: query !== "" ? `"${query}"` : "search tools",
+			output: text,
+		};
+	}
+	const details = isRecord(result.details) ? result.details : undefined;
+	const loaded = Array.isArray(details?.loaded)
+		? details.loaded.filter((s): s is string => typeof s === "string")
+		: [];
+	const available = Array.isArray(details?.alreadyAvailable)
+		? details.alreadyAvailable.filter((s): s is string => typeof s === "string")
+		: [];
+
+	let countText: string;
+	let status: "ok" | "none" = "none";
+	if (loaded.length > 0) {
+		countText = `loaded ${loaded.length}${available.length > 0 ? `, available ${available.length}` : ""}`;
+		status = "ok";
+	} else if (available.length > 0) {
+		countText = `available ${available.length}`;
+		status = "ok";
+	} else {
+		countText = "no matches";
+		status = "none";
+	}
+
+	const summary = query !== "" ? `"${query}" · ${countText}` : countText;
+	const collapsedRows =
+		loaded.length > 0
+			? [`loaded: ${loaded.join(", ")}`]
+			: available.length > 0
+				? [`available: ${available.join(", ")}`]
+				: undefined;
+
+	return {
+		kind: "text",
+		status,
+		summary,
+		...(text !== "" ? { output: text } : {}),
+		...(collapsedRows !== undefined ? { collapsedRows } : {}),
+		...(text !== "" ? { copy: { primary: text } } : {}),
+	};
+};
+
 export function createToolSearchToolDefinition(
 	tools: ToolAccess,
+	pi?: ExtensionAPI,
 ): ToolDefinition<typeof toolSearchSchema, { loaded: string[]; alreadyAvailable: string[] }> {
+	const host = pi ?? (isExtensionApi(tools) ? tools : undefined);
+	const renderers =
+		host !== undefined
+			? createOptionalToolRenderers(
+					host,
+					"tool_search",
+					createToolPresentationRenderers(host, "tool_search", toolSearchPresentation),
+				)
+			: {};
 	return {
 		name: "tool_search",
+		...renderers,
 		label: "tool_search",
 		description:
 			"Search tool names and descriptions for the current task. Matching tools are loaded for the next model call; already available tools are reported as such. This tool does not return parameter schemas.",
