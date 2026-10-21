@@ -54,98 +54,29 @@ function getBaseName(word: string): string {
 	return base.toLowerCase();
 }
 
-function parseXargsTarget(words: readonly string[], startIdx: number): string | undefined {
-	let idx = startIdx;
-	while (idx < words.length) {
-		const w = words[idx];
-		if (w === undefined) break;
-		if (XARGS_OPTS_WITH_ARG.has(w)) {
-			idx += 2;
-			continue;
-		}
-		if (w.startsWith("-")) {
-			idx += 1;
-			continue;
-		}
-		return getBaseName(w);
-	}
-	return undefined;
-}
-
+/**
+ * Splits a shell pipeline/command string into tokenized command arrays,
+ * preserving quoted strings and splitting on operators (; | & && ||).
+ */
 export function extractShellCommands(cmd: string): string[][] {
-	const n = cmd.length;
+	const tokenRegex = /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[^\s;'"`|&]+|[;&|]+)/g;
 	const commands: string[][] = [];
-	let currentCmdWords: string[] = [];
-	let currentWord: string[] = [];
-	let inSingle = false;
-	let inDouble = false;
-	let escaped = false;
-	let i = 0;
-
-	while (i < n) {
-		const c = cmd[i];
-		if (c === undefined) break;
-		if (escaped) {
-			currentWord.push(c);
-			escaped = false;
-			i += 1;
-			continue;
-		}
-		if (c === "\\" && !inSingle) {
-			escaped = true;
-			i += 1;
-			continue;
-		}
-		if (c === "'" && !inDouble) {
-			inSingle = !inSingle;
-			currentWord.push(c);
-			i += 1;
-			continue;
-		}
-		if (c === '"' && !inSingle) {
-			inDouble = !inDouble;
-			currentWord.push(c);
-			i += 1;
-			continue;
-		}
-
-		if (!inSingle && !inDouble) {
-			if (c === ";" || c === "\n" || c === "|" || c === "&") {
-				if (currentWord.length > 0) {
-					currentCmdWords.push(currentWord.join(""));
-					currentWord = [];
-				}
-				if (currentCmdWords.length > 0) {
-					commands.push(currentCmdWords);
-					currentCmdWords = [];
-				}
-				if ((c === "|" || c === "&") && i + 1 < n && cmd[i + 1] === c) {
-					i += 1;
-				}
-				i += 1;
-				continue;
+	let current: string[] = [];
+	let match: RegExpExecArray | null = tokenRegex.exec(cmd);
+	while (match !== null) {
+		const token = match[1];
+		if (token === undefined) break;
+		if (/^[;&|]+$/.test(token)) {
+			if (current.length > 0) {
+				commands.push(current);
+				current = [];
 			}
-			if (/\s/.test(c)) {
-				if (currentWord.length > 0) {
-					currentCmdWords.push(currentWord.join(""));
-					currentWord = [];
-				}
-				i += 1;
-				continue;
-			}
+		} else {
+			current.push(token);
 		}
-
-		currentWord.push(c);
-		i += 1;
+		match = tokenRegex.exec(cmd);
 	}
-
-	if (currentWord.length > 0) {
-		currentCmdWords.push(currentWord.join(""));
-	}
-	if (currentCmdWords.length > 0) {
-		commands.push(currentCmdWords);
-	}
-
+	if (current.length > 0) commands.push(current);
 	return commands;
 }
 
@@ -168,7 +99,6 @@ export function isSearchOnlyCommand(commandStr: string): boolean {
 		while (idx < words.length) {
 			const w = words[idx];
 			if (w === undefined) break;
-			// Skip env assignments like FOO=bar
 			if (w.includes("=") && !w.startsWith("-") && !w.startsWith("/")) {
 				idx += 1;
 				continue;
@@ -186,7 +116,21 @@ export function isSearchOnlyCommand(commandStr: string): boolean {
 		if (cmdName === undefined) return false;
 
 		if (cmdName === "xargs") {
-			const subName = parseXargsTarget(words, idx);
+			let subName: string | undefined;
+			while (idx < words.length) {
+				const w = words[idx];
+				if (w === undefined) break;
+				if (XARGS_OPTS_WITH_ARG.has(w)) {
+					idx += 2;
+					continue;
+				}
+				if (w.startsWith("-")) {
+					idx += 1;
+					continue;
+				}
+				subName = getBaseName(w);
+				break;
+			}
 			if (subName === undefined) return false;
 			if (SEARCH_BINARIES.has(subName)) {
 				hasSearch = true;

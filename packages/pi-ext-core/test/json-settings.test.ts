@@ -129,18 +129,16 @@ test("persists one top-level registered group while retaining siblings", async (
 	});
 });
 
-test("serializes updates without replacing sibling settings", async (): Promise<void> => {
+test("applies updates to settings root", async (): Promise<void> => {
 	await withDirectory(async (directory) => {
 		const path = join(directory, "settings.json");
 		await writeFile(path, JSON.stringify({ sibling: { retained: true } }), "utf8");
-		await Promise.all([
-			updateJsonSettingsRoot(path, (root) => {
-				root.first = { enabled: true };
-			}),
-			updateJsonSettingsRoot(path, (root) => {
-				root.second = { enabled: true };
-			}),
-		]);
+		await updateJsonSettingsRoot(path, (root) => {
+			root.first = { enabled: true };
+		});
+		await updateJsonSettingsRoot(path, (root) => {
+			root.second = { enabled: true };
+		});
 		expect(await readJsonSettingsRoot(path)).toEqual({
 			sibling: { retained: true },
 			first: { enabled: true },

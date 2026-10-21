@@ -5,6 +5,7 @@ import {
 	type ExtensionPageRegistration,
 	openExtensionPageRouter,
 	registerExtensionPage,
+	TuiSurfaceBusyError,
 } from "../src/index.js";
 
 /** The overlay options Pi hands to `ui.custom`'s second argument. */
@@ -120,7 +121,6 @@ test("lets the active page consume Left and only then falls back to tab routing"
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "test-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 	});
 	await settle();
 	const component = mounted();
@@ -160,7 +160,6 @@ test("lets a page close the host after its own asynchronous work", async () => {
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "test-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 	});
 	await settle();
 	if (mounted() === undefined || requestClose === undefined) throw new Error("Expected page view");
@@ -209,7 +208,6 @@ test("acquires host resources only while the custom surface is open", async () =
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "test-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		onSurfaceOpen: () => {
 			opens++;
 			return () =>
@@ -307,7 +305,6 @@ test("keeps a queued router gated until late view cleanup and release finish", a
 	const first = openExtensionPageRouter(pi, command, {
 		hostId: "queued-router",
 		signal: new AbortController().signal,
-		maxPending: 1,
 		onSurfaceOpen: () => {
 			firstOpens++;
 			return () =>
@@ -317,15 +314,16 @@ test("keeps a queued router gated until late view cleanup and release finish", a
 				});
 		},
 	});
-	const second = openExtensionPageRouter(pi, command, {
-		hostId: "queued-router",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		onSurfaceOpen: () => {
-			secondOpens++;
-			return undefined;
-		},
-	});
+	await expect(
+		openExtensionPageRouter(pi, command, {
+			hostId: "queued-router",
+			signal: new AbortController().signal,
+			onSurfaceOpen: () => {
+				secondOpens++;
+				return undefined;
+			},
+		}),
+	).rejects.toBeInstanceOf(TuiSurfaceBusyError);
 
 	expect(customCalls).toBe(1);
 	expect(firstOpens).toBe(1);
@@ -349,6 +347,15 @@ test("keeps a queued router gated until late view cleanup and release finish", a
 	finishRelease();
 	await first;
 	await settle();
+
+	const second = openExtensionPageRouter(pi, command, {
+		hostId: "queued-router",
+		signal: new AbortController().signal,
+		onSurfaceOpen: () => {
+			secondOpens++;
+			return undefined;
+		},
+	});
 	expect(customCalls).toBe(2);
 	expect(secondOpens).toBe(1);
 	expect(createCalls).toBe(2);
@@ -384,7 +391,6 @@ test("treats an aborting page creator as normal surface cleanup", async () => {
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "aborting-page-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		onSurfaceOpen: () => () => {
 			releases++;
 		},
@@ -416,7 +422,6 @@ test("awaits a removed page view cleanup before releasing surface resources", as
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "removed-page-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		onSurfaceOpen: () => () => {
 			releases++;
 		},
@@ -465,7 +470,6 @@ test("awaits cleanup and preserves both failures when an opened surface rejects"
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "rejecting-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		onSurfaceOpen: () => () => {
 			releaseCalls++;
 		},
@@ -535,7 +539,6 @@ test("forwards overlay options and delegates page editors through the hidden ove
 	const opening = openExtensionPageRouter(pi, command, {
 		hostId: "overlay-router",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		overlay: true,
 		overlayOptions,
 	});

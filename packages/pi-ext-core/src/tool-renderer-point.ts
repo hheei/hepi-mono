@@ -2,6 +2,7 @@ import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agen
 import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { createExtensionPointKey, readExtensionHooks } from "./extension-point.js";
 import { getGlobalState } from "./global-state.js";
+import { runtimeIdentity } from "./runtime-identity.js";
 import { agentResultText } from "./tool-result.js";
 
 /** Optional UI decorates native tool renderers; tool packages retain their fallback. */
@@ -13,6 +14,34 @@ export const toolRendererPoint = createExtensionPointKey<ToolRendererFactory>(
 
 function ownedRenderCalls(): WeakMap<NonNullable<ToolRenderers["renderCall"]>, ToolRenderers> {
 	return getGlobalState("optional-tool-render-calls", () => new WeakMap());
+}
+
+function namedNativeRenderers(pi: ExtensionAPI): Map<string, WeakRef<ToolRenderers>> {
+	const runtimes = getGlobalState(
+		"named-native-tool-renderers",
+		() => new WeakMap<object, Map<string, WeakRef<ToolRenderers>>>(),
+	);
+	const identity = runtimeIdentity(pi);
+	let current = runtimes.get(identity);
+	if (current === undefined) {
+		current = new Map();
+		runtimes.set(identity, current);
+	}
+	return current;
+}
+
+/** Resolves native-style renderers registered via createOptionalToolRenderers. */
+export function getRegisteredToolRenderers(
+	pi: ExtensionAPI,
+	name: string,
+): ToolRenderers | undefined {
+	const ref = namedNativeRenderers(pi).get(name);
+	const target = ref?.deref();
+	if (target === undefined) {
+		namedNativeRenderers(pi).delete(name);
+		return undefined;
+	}
+	return target;
 }
 
 /** Internal unwrapping preserves tool presentation metadata on the definition. */
@@ -42,6 +71,7 @@ export function createOptionalToolRenderers(
 		return render?.(args, theme, context) ?? new Text(theme.fg("toolTitle", name), 0, 0);
 	};
 	ownedRenderCalls().set(renderCall, native);
+	namedNativeRenderers(pi).set(name, new WeakRef(native));
 	return {
 		renderShell: "self",
 		renderCall,

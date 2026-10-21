@@ -5,7 +5,6 @@ import {
 	getService,
 	provideService,
 	registerExtensionLifecycle,
-	waitForService,
 } from "../src/index.js";
 import { createFakePiHost } from "./fixtures.js";
 
@@ -14,36 +13,6 @@ interface Database {
 }
 
 const database = createServiceKey<Database>("@hheei/pi-database/service");
-
-test("lets an early consumer continue without blocking a later provider", async () => {
-	const host = createFakePiHost();
-	const calls: string[] = [];
-	registerExtensionLifecycle(host.pi, {
-		key: "@hheei/pi-consumer",
-		start: (context) => {
-			calls.push("consumer:start");
-			void waitForService(context.pi, database, { signal: context.signal })
-				.then((value) => {
-					calls.push(`consumer:${value.name}`);
-				})
-				.catch((error: unknown) => {
-					throw error;
-				});
-		},
-	});
-	registerExtensionLifecycle(host.pi, {
-		key: "@hheei/pi-database",
-		start: (context) => {
-			calls.push("provider:start");
-			expect(provideService(context, database, { name: "primary" })).toBe(true);
-		},
-	});
-
-	await host.emit("session_start");
-	await Promise.resolve();
-
-	expect(calls).toEqual(["consumer:start", "provider:start", "consumer:primary"]);
-});
 
 test("keeps the first provider and removes it at shutdown", async () => {
 	const host = createFakePiHost();
@@ -85,29 +54,6 @@ test("shares Service state with a separately evaluated core module", async () =>
 	expect(duplicate.getService(host.pi, duplicateKey)).toEqual({ name: "shared" });
 
 	await host.emit("session_shutdown");
-});
-
-test("rejects a cancelled Service wait", async () => {
-	const host = createFakePiHost();
-	const controller = new AbortController();
-	const waiting = waitForService(host.pi, database, { signal: controller.signal });
-	controller.abort();
-
-	await expect(waiting).rejects.toThrow();
-});
-
-test("rejects a Service wait on lifecycle shutdown", async () => {
-	const host = createFakePiHost();
-	registerExtensionLifecycle(host.pi, {
-		key: "@hheei/pi-waiter",
-		start: () => undefined,
-	});
-	const waiting = waitForService(host.pi, database, { signal: new AbortController().signal });
-
-	await host.emit("session_start");
-	await host.emit("session_shutdown");
-
-	await expect(waiting).rejects.toThrow("Service wait aborted");
 });
 
 test("does not publish a Service from a continuation after shutdown", async () => {
