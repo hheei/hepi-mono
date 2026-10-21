@@ -13,6 +13,7 @@ import {
 	type TuiMouseEventResult,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { ToolPresentationContext, ToolPresentationProvider } from "@hheei/pi-ext-core";
 import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } from "./renderer.js";
@@ -374,15 +375,20 @@ export class NestedCallsView implements Component, Collapsible {
 			};
 
 			if (isExpanded) {
-				const bodyLines = this.#renderChildBody(call, Math.max(1, width - 2), expansionLevel);
+				const childWidth = Math.max(1, width - 2);
+				const bodyLines = this.#renderChildBody(call, childWidth, expansionLevel);
 				for (const rawLine of bodyLines) {
 					for (const bodyLine of toContentRows(rawLine)) {
-						const bodyLineIdx = lines.length;
-						lines.push(truncate(`  ${bodyLine}`, width));
-						this.#lineMapping[bodyLineIdx] = {
-							callIndex: i,
-							isHeader: false,
-						};
+						const wrapped = wrapTextWithAnsi(bodyLine, childWidth);
+						const chunks = wrapped.length > 0 ? wrapped : [""];
+						for (const chunk of chunks) {
+							const bodyLineIdx = lines.length;
+							lines.push(truncate(`  ${chunk}`, width));
+							this.#lineMapping[bodyLineIdx] = {
+								callIndex: i,
+								isHeader: false,
+							};
+						}
 					}
 				}
 			}

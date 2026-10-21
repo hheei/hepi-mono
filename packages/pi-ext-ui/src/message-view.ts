@@ -3,6 +3,7 @@ import {
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
 	truncateToWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { MessageRows, MessageViewSpec } from "@hheei/pi-ext-core";
 import { toContentRows, toSingleRow } from "./tool-view.js";
@@ -52,7 +53,14 @@ function layRows(source: MessageRows | undefined, width: number): readonly strin
 	const raw = isComponent(source)
 		? source.render(inner).flatMap((line) => toContentRows(line))
 		: (typeof source === "string" ? [source] : source).flatMap((line) => toContentRows(line));
-	return raw.map((line) => truncate(`  ${line}`, width));
+	const rows: string[] = [];
+	for (const line of raw) {
+		const wrapped = wrapTextWithAnsi(line, inner);
+		for (const chunk of wrapped.length > 0 ? wrapped : [""]) {
+			rows.push(truncate(`  ${chunk}`, width));
+		}
+	}
+	return rows;
 }
 
 function invalidateRows(source: MessageRows | undefined): void {
