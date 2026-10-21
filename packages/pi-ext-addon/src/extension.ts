@@ -191,7 +191,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 				if (values[AUTO_TITLE_FIELD] === true) {
 					const configured = values[AUTO_TITLE_MODEL_FIELD];
 					const model = typeof configured === "string" && configured ? configured : undefined;
-					if (model !== undefined) await autoTitleProvider.onLoad?.(state ?? {}, context);
+					if (model !== undefined) parseModelRef(model);
 					const selected = model ?? modelOptions.find((option) => option.value !== "")?.value;
 					ensureAutoTitleCoordinator(selected);
 				}
