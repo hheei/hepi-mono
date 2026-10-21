@@ -153,15 +153,6 @@ export function createAutoTitleSettingsProvider(
 			},
 		],
 		storage: backingStorage,
-		onLoad: async (state, ctx) => {
-			const values = state[AUTO_TITLE_GROUP] ?? {};
-			const model = values[AUTO_TITLE_MODEL_FIELD];
-			if (values[AUTO_TITLE_FIELD] !== true) return;
-			if (typeof model === "string" && model) {
-				parseModelRef(model);
-				await options.validate?.(model, ctx);
-			}
-		},
 		onChange: async (change, ctx) => {
 			if (change.fieldId !== AUTO_TITLE_FIELD && change.fieldId !== AUTO_TITLE_MODEL_FIELD) return;
 			const values = change.state[AUTO_TITLE_GROUP] ?? {};

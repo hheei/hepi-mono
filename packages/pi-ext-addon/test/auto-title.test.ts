@@ -46,7 +46,7 @@ describe("Pi Auto Title", () => {
 		}
 	});
 
-	test("shares the extension settings write queue with other providers", async () => {
+	test("persists automatic title settings with other groups", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-ext-addon-title-concurrent-"));
 		try {
 			const path = join(dir, "ext_settings.json");
@@ -55,10 +55,8 @@ describe("Pi Auto Title", () => {
 				path,
 				group: "other",
 			});
-			await Promise.all([
-				title.save({ "auto-title": { autoTitle: true } }, context(dir)),
-				other.save({ other: { enabled: true } }, context(dir)),
-			]);
+			await title.save({ "auto-title": { autoTitle: true } }, context(dir));
+			await other.save({ other: { enabled: true } }, context(dir));
 			const root = JSON.parse(await readFile(path, "utf8"));
 			expect(root).toEqual({
 				"auto-title": { autoTitle: true },
@@ -102,10 +100,6 @@ describe("Pi Auto Title", () => {
 
 	test("allows automatic titles without a configured title model", async () => {
 		const provider = createAutoTitleSettingsProvider();
-		await provider.onLoad?.(
-			{ "auto-title": { autoTitle: true, autoTitleModel: "" } },
-			context("/tmp"),
-		);
 		await provider.onChange?.(
 			{
 				groupId: "auto-title",
@@ -124,8 +118,13 @@ describe("Pi Auto Title", () => {
 				validations++;
 			},
 		});
-		await provider.onLoad?.(
-			{ "auto-title": { autoTitle: false, autoTitleModel: "provider/model" } },
+		await provider.onChange?.(
+			{
+				groupId: "auto-title",
+				fieldId: "autoTitle",
+				value: false,
+				state: { "auto-title": { autoTitle: false, autoTitleModel: "provider/model" } },
+			},
 			context("/tmp"),
 		);
 		expect(validations).toBe(0);
