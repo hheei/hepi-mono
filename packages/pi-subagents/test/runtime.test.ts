@@ -194,6 +194,8 @@ describe("opening a child in a host panel", () => {
 			readonly failOpen?: string;
 			readonly refuseClose?: boolean;
 			readonly earlyExit?: string;
+			readonly containerGone?: string;
+			readonly initialPending?: boolean;
 		} = {},
 	): {
 		readonly host: HostAdapter;
@@ -219,12 +221,27 @@ describe("opening a child in a host panel", () => {
 					specs.push(spec);
 					if (behavior.failOpen !== undefined) throw new Error(behavior.failOpen);
 					let alive = true;
+					let observeCall = 0;
 					return {
 						identity,
 						launch: { stdout: "", stderr: "", exitCode: 0, timedOut: false },
 						reportsFocus: true,
 						async observe() {
+							observeCall += 1;
+							if (behavior.containerGone !== undefined) {
+								return {
+									identity,
+									alive: false,
+									known: true,
+									containerGone: true,
+									focused: false,
+									detail: behavior.containerGone,
+								};
+							}
 							if (behavior.earlyExit !== undefined) {
+								if (observeCall === 1) {
+									return { identity, alive: true, known: true, focused: false, detail: "" };
+								}
 								return {
 									identity,
 									alive: false,
@@ -232,6 +249,9 @@ describe("opening a child in a host panel", () => {
 									focused: false,
 									detail: behavior.earlyExit,
 								};
+							}
+							if (behavior.initialPending && observeCall === 1) {
+								return { identity, alive: false, known: true, focused: false, detail: "" };
 							}
 							return { identity, alive, known: true, focused: false, detail: "" };
 						},
@@ -369,6 +389,69 @@ describe("opening a child in a host panel", () => {
 			expect(opened.failure).toMatch(/close it if it is still there/);
 			const current = await registry.get("sa_panel");
 			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
+		});
+	});
+
+	test("does not abort when panel initially reports alive: false while shell is starting", async () => {
+		await withTempDir("pi-subagents-runtime-", async (directory) => {
+			const { registry, tokens, stored } = await panelSetup(directory);
+			const { host } = fakeHost({ initialPending: true });
+
+			const opened = await openChildPanel({
+				registry,
+				record: stored,
+				tokens,
+				host,
+				waitForBridge: async (_id, signal) => {
+					// Wait past one probe tick to ensure probe saw alive: false without aborting
+					await new Promise((resolve) => setTimeout(resolve, 350));
+					return !signal?.aborted;
+				},
+			});
+			expect(opened.failure).toBeUndefined();
+			expect(opened.handle).toBeDefined();
+		});
+	});
+
+	test("aborts early when child process is observed running and then exits before bridge connects", async () => {
+		await withTempDir("pi-subagents-runtime-", async (directory) => {
+			const { registry, tokens, stored } = await panelSetup(directory);
+			const { host, cleanups } = fakeHost({ earlyExit: "crash on startup" });
+
+			const opened = await openChildPanel({
+				registry,
+				record: stored,
+				tokens,
+				host,
+				waitForBridge: async (_id, signal) => {
+					return new Promise((resolve) => {
+						signal?.addEventListener("abort", () => resolve(false), { once: true });
+					});
+				},
+			});
+			expect(opened.failure).toContain("never connected to the parent bridge (crash on startup)");
+			expect(cleanups()).toBe(1);
+		});
+	});
+
+	test("aborts early when host container is gone before bridge connects", async () => {
+		await withTempDir("pi-subagents-runtime-", async (directory) => {
+			const { registry, tokens, stored } = await panelSetup(directory);
+			const { host, cleanups } = fakeHost({ containerGone: "pane_not_found" });
+
+			const opened = await openChildPanel({
+				registry,
+				record: stored,
+				tokens,
+				host,
+				waitForBridge: async (_id, signal) => {
+					return new Promise((resolve) => {
+						signal?.addEventListener("abort", () => resolve(false), { once: true });
+					});
+				},
+			});
+			expect(opened.failure).toContain("never connected to the parent bridge (pane_not_found)");
+			expect(cleanups()).toBe(1);
 		});
 	});
 });

@@ -218,11 +218,20 @@ export async function openChildPanel(
 		? AbortSignal.any([options.signal, earlyExitAbort.signal])
 		: earlyExitAbort.signal;
 
+	let childAppeared = false;
 	let earlyExitObserved: HostObservation | undefined;
 	const probeInterval = setInterval(async () => {
 		try {
 			const obs = await attachment.observe();
-			if (obs.known && !obs.alive) {
+			if (!obs.known) return;
+			if (obs.containerGone) {
+				earlyExitObserved = obs;
+				earlyExitAbort.abort();
+				return;
+			}
+			if (obs.alive) {
+				childAppeared = true;
+			} else if (childAppeared) {
 				earlyExitObserved = obs;
 				earlyExitAbort.abort();
 			}
