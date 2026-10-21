@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-settings",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "Settings surface host for Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
