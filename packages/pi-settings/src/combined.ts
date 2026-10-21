@@ -88,17 +88,6 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 				for (const provider of providers)
 					await provider.storage.save(providerState(state, provider), context);
 			},
-			async validate(state: SettingsState, context: SettingsContext): Promise<void> {
-				for (const provider of providers)
-					await provider.storage.validate?.(providerState(state, provider), context);
-			},
-			async close(context: SettingsContext): Promise<void> {
-				for (const provider of providers) await provider.storage.close?.(context);
-			},
-		},
-		onLoad: async (state, context): Promise<void> => {
-			for (const provider of providers)
-				await provider.onLoad?.(providerState(state, provider), context);
 		},
 		onChange: async (change: SettingChange, context: SettingsContext): Promise<void> => {
 			const mapping = owners.get(change.groupId);
@@ -107,10 +96,6 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 				{ ...change, state: providerState(change.state, mapping.provider) },
 				context,
 			);
-		},
-		onClose: async (state, context): Promise<void> => {
-			for (const provider of providers)
-				await provider.onClose?.(providerState(state, provider), context);
 		},
 	};
 }

@@ -27,9 +27,6 @@ function provider(id: string, calls: string[], groupId = id): SettingsProvider {
 			save: (state) => {
 				calls.push(`${id}:save:${String(state[groupId]?.enabled)}`);
 			},
-			validate: (state) => {
-				calls.push(`${id}:validate:${String(state[groupId]?.enabled)}`);
-			},
 		},
 		onChange: (change) => {
 			calls.push(`${id}:change:${change.groupId}:${change.fieldId}`);
@@ -48,19 +45,12 @@ describe("combined Settings provider", () => {
 		const state = await combined.storage.load(context);
 		expect(state).toEqual({ alpha: { enabled: true }, beta: { enabled: true } });
 		const next = { alpha: { enabled: false }, beta: { enabled: true } };
-		await combined.storage.validate?.(next, context);
 		await combined.onChange?.(
 			{ groupId: "alpha", fieldId: "enabled", value: false, state: next, previousValue: true },
 			context,
 		);
 		await combined.storage.save(next, context);
-		expect(calls).toEqual([
-			"alpha:validate:false",
-			"beta:validate:true",
-			"alpha:change:alpha:enabled",
-			"alpha:save:false",
-			"beta:save:true",
-		]);
+		expect(calls).toEqual(["alpha:change:alpha:enabled", "alpha:save:false", "beta:save:true"]);
 	});
 
 	test("rejects a repeated registered group ID", () => {

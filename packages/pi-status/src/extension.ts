@@ -14,7 +14,8 @@ export default function piStatusExtension(pi: ExtensionAPI): void {
 
 			if (extension.mode === "tui") {
 				extension.ui.setFooter(
-					(tui, theme, footerData) => new CompactFooterComponent(extension, tui, theme, footerData),
+					(tui, theme, footerData) =>
+						new CompactFooterComponent(extension, tui, theme, footerData, status),
 				);
 				resources.add("footer", () => {
 					extension.ui.setFooter(undefined);

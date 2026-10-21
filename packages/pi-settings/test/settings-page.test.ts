@@ -1,5 +1,5 @@
 import type { ExtensionPageViewContext, SettingsProvider, SettingsState } from "@hheei/pi-ext-core";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { createSettingsPage } from "../src/settings-page.js";
 
 function context(): {
@@ -236,11 +236,10 @@ describe("Settings provider page", () => {
 		expect(saved).toEqual([{ general: { mode: "auto", thinking: "high" } }]);
 	});
 
-	test("marquees only an overflowing selected label and clears it on disposal", async () => {
-		vi.useFakeTimers();
+	test("truncates an overflowing selected label with ellipsis", async () => {
 		const provider: SettingsProvider = {
-			id: "marquee",
-			title: "Marquee",
+			id: "long-label",
+			title: "Long Label",
 			groups: [
 				{
 					id: "general",
@@ -248,11 +247,10 @@ describe("Settings provider page", () => {
 					fields: [
 						{
 							id: "long",
-							label: "A deliberately long Settings label that needs the legacy horizontal marquee",
+							label: "A deliberately long Settings label that needs clean horizontal truncation",
 							type: "boolean",
 							defaultValue: true,
-							description:
-								"Controls the long label marquee fixture for the Settings page renderer.",
+							description: "Controls the long label fixture for the Settings page renderer.",
 							parse: (value) => value === "true",
 						},
 					],
@@ -260,17 +258,10 @@ describe("Settings provider page", () => {
 			],
 			storage: { load: () => undefined, save: () => undefined },
 		};
-		try {
-			const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
-			const initial = page.component.render(48).join("\n");
-			// The marquee pauses 750ms before its first 125ms frame, then advances one column per frame.
-			vi.advanceTimersByTime(750 + 125);
-			const advanced = page.component.render(48).join("\n");
-			expect(advanced).not.toBe(initial);
-			await page.close();
-		} finally {
-			vi.useRealTimers();
-		}
+		const page = await createSettingsPage({ list: () => [provider] } as never, context().value);
+		const rendered = page.component.render(48).join("\n");
+		expect(rendered).toContain("…");
+		await page.close();
 	});
 
 	test("adds, reorders, and deletes list items, then persists them", async () => {

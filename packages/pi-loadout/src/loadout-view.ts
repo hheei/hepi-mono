@@ -8,7 +8,15 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { fitRow, panelScrollbar } from "@hheei/pi-ext-core";
+import {
+	calculateScrollTop,
+	fitRow,
+	PANEL_ROWS,
+	pad,
+	panelScrollbar,
+	STACKED_LIST_ROWS,
+	WIDE_COLUMNS,
+} from "@hheei/pi-ext-core";
 import {
 	CATEGORY_GLYPH,
 	CATEGORY_LABEL,
@@ -25,7 +33,8 @@ import type { LoadoutItem, LoadoutScope, ResourceCategory } from "./types.js";
  * viewport, a hint row, and a bottom rail. The count is fixed so a long description or a deep
  * scroll cannot resize the overlay under the cursor.
  */
-export const PANEL_ROWS = 20;
+export { PANEL_ROWS } from "@hheei/pi-ext-core";
+
 const TOP_RAIL_ROWS = 1;
 const BOTTOM_RAIL_ROWS = 1;
 const HEADER_ROWS = 2;
@@ -33,8 +42,6 @@ const HEADER_ROWS = 2;
 export const LIST_HEADER_ROWS = TOP_RAIL_ROWS + HEADER_ROWS;
 export const LIST_HINT_ROWS = 1;
 export const VISIBLE_ROWS = PANEL_ROWS - LIST_HEADER_ROWS - LIST_HINT_ROWS - BOTTOM_RAIL_ROWS;
-const STACKED_LIST_ROWS = 7;
-const WIDE_COLUMNS = 76;
 const LABEL_COLUMN = 10;
 const SURFACE_GLYPH = CATEGORY_GLYPH.tools;
 
@@ -58,10 +65,6 @@ export interface LoadoutViewOptions {
 	readonly requestRender: () => void;
 	readonly onClose: () => void;
 	readonly initialScope?: LoadoutScope;
-}
-
-function pad(text: string, width: number): string {
-	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 
 /** Places `left` and `right` at the two ends of one row. */
@@ -307,12 +310,7 @@ export class LoadoutView implements Component {
 		const index = entries.findIndex(
 			(entry) => entry.kind === "item" && entry.item.id === selectedId,
 		);
-		const maxTop = Math.max(0, entries.length - rows);
-		if (index < 0) {
-			this.scrollTop = Math.min(this.scrollTop, maxTop);
-			return;
-		}
-		this.scrollTop = Math.min(maxTop, Math.max(0, index - Math.floor(rows / 2)));
+		this.scrollTop = calculateScrollTop(index, entries.length, rows);
 	}
 
 	#renderHeader(

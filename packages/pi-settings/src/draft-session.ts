@@ -128,12 +128,9 @@ export async function createSettingsDraftSession(
 ): Promise<SettingsDraftSession> {
 	const initial = mergeDefaults(provider, await provider.storage.load(context));
 	context.signal?.throwIfAborted();
-	await provider.onLoad?.(cloneState(initial), context);
-	context.signal?.throwIfAborted();
 
 	let committed = cloneState(initial);
 	let draft = cloneState(initial);
-	let closed = false;
 
 	const session: SettingsDraftSession = {
 		provider,
@@ -210,7 +207,6 @@ export async function createSettingsDraftSession(
 						if (validation !== undefined) return validation;
 					}
 				}
-				await provider.storage.validate?.(cloneState(draft), context);
 				return undefined;
 			} catch (cause: unknown) {
 				return cause instanceof Error ? cause.message : String(cause);
@@ -240,22 +236,7 @@ export async function createSettingsDraftSession(
 		rollback(): void {
 			draft = cloneState(committed);
 		},
-		async close(): Promise<void> {
-			if (closed) return;
-			closed = true;
-			const failures: unknown[] = [];
-			try {
-				await provider.onClose?.(cloneState(draft), context);
-			} catch (cause: unknown) {
-				failures.push(cause);
-			}
-			try {
-				await provider.storage.close?.(context);
-			} catch (cause: unknown) {
-				failures.push(cause);
-			}
-			if (failures.length > 0) throw new AggregateError(failures, "Settings cleanup failed");
-		},
+		async close(): Promise<void> {},
 		getDraftState(): SettingsState {
 			return cloneState(draft);
 		},

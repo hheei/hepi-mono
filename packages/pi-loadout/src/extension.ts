@@ -44,7 +44,6 @@ export default function piLoadoutExtension(pi: ExtensionAPI): void {
 		await openTuiSurface(pi, context, {
 			hostId: "@hheei/pi-loadout",
 			signal: session.signal,
-			maxPending: 1,
 			overlay: true,
 			overlayOptions: {
 				width: "100%",
