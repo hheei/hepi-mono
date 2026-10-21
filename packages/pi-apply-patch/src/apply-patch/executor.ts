@@ -1,4 +1,4 @@
-import { acquireMutationLock, errorMessage } from "@hheei/pi-ext-core";
+import { errorMessage } from "@hheei/pi-ext-core";
 import {
 	APPLY_PATCH_MAX_FILE_SIZE,
 	createLocalPatchFs,
@@ -416,158 +416,149 @@ export async function applyPatchInWorkspace(
 		setStatus(index, "not_applied");
 		notApplied.push(rejection(index, operationTouchedPaths(operation), "NotApplied"));
 	};
-	const release = await acquireMutationLock(options.lockKey ?? fs.scope, options.signal);
-	try {
-		await gcAgentPatchTemps(
-			fs,
-			patch.operations.flatMap((operation) =>
-				operationTouchedPaths(operation).map((path) => {
-					const separator = path.lastIndexOf("/");
-					return separator < 0 ? "." : path.slice(0, separator);
-				}),
-			),
-			options.signal,
-		);
-		emit("parsed");
-		for (const [index, operation] of patch.operations.entries()) {
-			if (rejectedIndices.has(index)) continue;
-			if (halt !== undefined) {
-				markNotApplied(index, operation);
-				continue;
-			}
-			if (options.signal?.aborted) {
-				if (applied.length === 0 && unconfirmed.length === 0)
-					throw options.signal.reason ?? new Error("aborted");
-				halt = "not_applied";
-				markNotApplied(index, operation);
-				continue;
-			}
-			try {
-				if (operation.kind === "add") {
-					const outcome = await applyAdd(fs, index, operation, options.signal);
-					applied.push(outcome);
-					setStatus(index, "applied", outcome);
-				} else if (operation.kind === "delete") {
-					const deleted = await applyDelete(fs, index, operation, options.signal);
-					applied.push(deleted.outcome);
-					const current = progressOperations[index];
-					if (current !== undefined) {
-						progressOperations[index] = Object.freeze({
-							...current,
-							...plannedDelta(operation, deleted.before),
-							status: "applied" as const,
-						});
-					}
-				} else {
-					const published = await applyUpdate(fs, index, operation, options.policy, options.signal);
-					if (published.mode === "exact") exactUpdateCount += 1;
-					if (published.mode === "fuzzy") fuzzyUpdateCount += 1;
-					applied.push(published.outcome);
-					const partialReason =
-						published.rejectedHunks.length === 0
-							? undefined
-							: published.rejectedHunks[0]?.kind === "context_not_found"
-								? "context not found"
-								: "exact context is ambiguous";
-					if (published.rejectedHunks.length > 0)
-						rejected.push(
-							rejection(
-								index,
-								operationTouchedPaths(operation),
-								"One or more update hunks failed",
-								published.rejectedHunks,
-							),
-						);
-					if (published.sourceError !== undefined) {
-						if (published.sourceUnknown === true) {
-							unconfirmed.push(rejection(index, [operation.path], published.sourceError));
-							setStatus(
-								index,
-								"unconfirmed",
-								published.outcome,
-								operation,
-								undefined,
-								published.prepared,
-							);
-							halt = "unconfirmed";
-						} else {
-							rejected.push(rejection(index, [operation.path], published.sourceError));
-							setStatus(
-								index,
-								"partial",
-								published.outcome,
-								operation,
-								partialReason ?? String(published.sourceError),
-								published.prepared,
-							);
-						}
-					} else {
+	await gcAgentPatchTemps(
+		fs,
+		patch.operations.flatMap((operation) =>
+			operationTouchedPaths(operation).map((path) => {
+				const separator = path.lastIndexOf("/");
+				return separator < 0 ? "." : path.slice(0, separator);
+			}),
+		),
+		options.signal,
+	);
+	emit("parsed");
+	for (const [index, operation] of patch.operations.entries()) {
+		if (rejectedIndices.has(index)) continue;
+		if (halt !== undefined) {
+			markNotApplied(index, operation);
+			continue;
+		}
+		if (options.signal?.aborted) {
+			if (applied.length === 0 && unconfirmed.length === 0)
+				throw options.signal.reason ?? new Error("aborted");
+			halt = "not_applied";
+			markNotApplied(index, operation);
+			continue;
+		}
+		try {
+			if (operation.kind === "add") {
+				const outcome = await applyAdd(fs, index, operation, options.signal);
+				applied.push(outcome);
+				setStatus(index, "applied", outcome);
+			} else if (operation.kind === "delete") {
+				const deleted = await applyDelete(fs, index, operation, options.signal);
+				applied.push(deleted.outcome);
+				const current = progressOperations[index];
+				if (current !== undefined) {
+					progressOperations[index] = Object.freeze({
+						...current,
+						...plannedDelta(operation, deleted.before),
+						status: "applied" as const,
+					});
+				}
+			} else {
+				const published = await applyUpdate(fs, index, operation, options.policy, options.signal);
+				if (published.mode === "exact") exactUpdateCount += 1;
+				if (published.mode === "fuzzy") fuzzyUpdateCount += 1;
+				applied.push(published.outcome);
+				const partialReason =
+					published.rejectedHunks.length === 0
+						? undefined
+						: published.rejectedHunks[0]?.kind === "context_not_found"
+							? "context not found"
+							: "exact context is ambiguous";
+				if (published.rejectedHunks.length > 0)
+					rejected.push(
+						rejection(
+							index,
+							operationTouchedPaths(operation),
+							"One or more update hunks failed",
+							published.rejectedHunks,
+						),
+					);
+				if (published.sourceError !== undefined) {
+					if (published.sourceUnknown === true) {
+						unconfirmed.push(rejection(index, [operation.path], published.sourceError));
 						setStatus(
 							index,
-							partialReason === undefined
-								? published.mode === "fuzzy"
-									? "fuzzy"
-									: "applied"
-								: "partial",
+							"unconfirmed",
 							published.outcome,
 							operation,
-							partialReason,
+							undefined,
+							published.prepared,
+						);
+						halt = "unconfirmed";
+					} else {
+						rejected.push(rejection(index, [operation.path], published.sourceError));
+						setStatus(
+							index,
+							"partial",
+							published.outcome,
+							operation,
+							partialReason ?? String(published.sourceError),
 							published.prepared,
 						);
 					}
-				}
-			} catch (error) {
-				if (options.signal?.aborted && applied.length === 0 && unconfirmed.length === 0)
-					throw options.signal.reason ?? error;
-				if (error instanceof FsTransportError) {
-					const bucket = error.phase === "write" ? notApplied : unconfirmed;
-					const status = error.phase === "write" ? "not_applied" : "unconfirmed";
-					bucket.push(rejection(index, operationTouchedPaths(operation), error));
-					setStatus(index, status);
-					halt = status;
-				} else if (error instanceof PatchUpdateError) {
-					rejected.push(
-						rejection(index, operationTouchedPaths(operation), error, error.diagnostics),
-					);
-					rejectedIndices.add(index);
-					setStatus(index, "rejected");
-				} else if (options.signal?.aborted) {
-					notApplied.push(rejection(index, operationTouchedPaths(operation), error));
-					setStatus(index, "not_applied");
-					halt = "not_applied";
 				} else {
-					rejected.push(rejection(index, operationTouchedPaths(operation), error));
-					rejectedIndices.add(index);
-					setStatus(index, "rejected");
+					setStatus(
+						index,
+						partialReason === undefined
+							? published.mode === "fuzzy"
+								? "fuzzy"
+								: "applied"
+							: "partial",
+						published.outcome,
+						operation,
+						partialReason,
+						published.prepared,
+					);
 				}
 			}
-			emit("publishing");
-			await new Promise<void>((resolve) => setImmediate(resolve));
-		}
-		if (halt !== undefined) {
-			for (const [index, operation] of patch.operations.entries()) {
-				if (progressOperations[index]?.status !== "pending") continue;
-				markNotApplied(index, operation);
+		} catch (error) {
+			if (options.signal?.aborted && applied.length === 0 && unconfirmed.length === 0)
+				throw options.signal.reason ?? error;
+			if (error instanceof FsTransportError) {
+				const bucket = error.phase === "write" ? notApplied : unconfirmed;
+				const status = error.phase === "write" ? "not_applied" : "unconfirmed";
+				bucket.push(rejection(index, operationTouchedPaths(operation), error));
+				setStatus(index, status);
+				halt = status;
+			} else if (error instanceof PatchUpdateError) {
+				rejected.push(rejection(index, operationTouchedPaths(operation), error, error.diagnostics));
+				rejectedIndices.add(index);
+				setStatus(index, "rejected");
+			} else if (options.signal?.aborted) {
+				notApplied.push(rejection(index, operationTouchedPaths(operation), error));
+				setStatus(index, "not_applied");
+				halt = "not_applied";
+			} else {
+				rejected.push(rejection(index, operationTouchedPaths(operation), error));
+				rejectedIndices.add(index);
+				setStatus(index, "rejected");
 			}
 		}
-		emit("done");
-		const totals = progressTotals(progressOperations);
-		return Object.freeze({
-			changedPaths: Object.freeze([
-				...new Set(applied.flatMap((operation) => [...operation.paths])),
-			]),
-			addedLines: totals.addedLines,
-			removedLines: totals.removedLines,
-			operations: Object.freeze([...progressOperations]),
-			operationCount: patch.operations.length,
-			exactUpdateCount,
-			fuzzyUpdateCount,
-			applied: Object.freeze(applied),
-			rejected: Object.freeze(rejected),
-			unconfirmed: Object.freeze(unconfirmed),
-			notApplied: Object.freeze(notApplied),
-		});
-	} finally {
-		await release();
+		emit("publishing");
+		await new Promise<void>((resolve) => setImmediate(resolve));
 	}
+	if (halt !== undefined) {
+		for (const [index, operation] of patch.operations.entries()) {
+			if (progressOperations[index]?.status !== "pending") continue;
+			markNotApplied(index, operation);
+		}
+	}
+	emit("done");
+	const totals = progressTotals(progressOperations);
+	return Object.freeze({
+		changedPaths: Object.freeze([...new Set(applied.flatMap((operation) => [...operation.paths]))]),
+		addedLines: totals.addedLines,
+		removedLines: totals.removedLines,
+		operations: Object.freeze([...progressOperations]),
+		operationCount: patch.operations.length,
+		exactUpdateCount,
+		fuzzyUpdateCount,
+		applied: Object.freeze(applied),
+		rejected: Object.freeze(rejected),
+		unconfirmed: Object.freeze(unconfirmed),
+		notApplied: Object.freeze(notApplied),
+	});
 }
