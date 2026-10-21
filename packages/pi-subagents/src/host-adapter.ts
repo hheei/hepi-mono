@@ -49,6 +49,8 @@ export interface HostObservation {
 	readonly identity: HostAttachmentIdentity;
 	readonly alive: boolean;
 	readonly known: boolean;
+	/** True when the underlying host container (tab, pane, or surface) no longer exists. */
+	readonly containerGone?: boolean;
 	/**
 	 * Whether a human is looking at this panel. Absent when the host cannot say, which includes
 	 * both hosts without the capability and a lookup that failed just now; the caller must treat
@@ -239,10 +241,13 @@ export function createHerdrHostAdapter(options: HostAdapterOptions): HostAdapter
 						herdrListingSucceeded(tabs) && herdrListingSucceeded(workspaces)
 							? herdrPanelFocused(tabs.stdout, workspaces.stdout, target.tabId)
 							: undefined;
+					const code = herdrErrorCode(process.stderr) ?? herdrErrorCode(process.stdout);
+					const containerGone = code === "pane_not_found" || code === "tab_not_found";
 					const alive = herdrPaneAlive(process);
 					return {
 						process,
 						...(alive === undefined ? {} : { alive }),
+						...(containerGone ? { containerGone: true } : {}),
 						...(listed === undefined ? {} : { focused: listed }),
 					};
 				},
@@ -291,7 +296,12 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 				observe: async () => {
 					const process = await runner.run("cmux", ["--json", "list-panels"], { timeoutMs });
 					if (process.timedOut || process.exitCode !== 0) return { process };
-					return { process, alive: containsString(process.stdout, attachmentId) };
+					const alive = containsString(process.stdout, attachmentId);
+					return {
+						process,
+						alive,
+						...(!alive ? { containerGone: true } : {}),
+					};
 				},
 				close: () =>
 					runner.run("cmux", ["--json", "close-surface", "--surface", attachmentId], {
@@ -312,6 +322,7 @@ interface HostAttachmentOptions {
 	readonly observe: () => Promise<{
 		readonly process: HostCommandResult;
 		readonly alive?: boolean;
+		readonly containerGone?: boolean;
 		readonly focused?: boolean;
 	}>;
 	readonly close: () => Promise<HostCommandResult>;
@@ -328,6 +339,7 @@ function hostAttachment(options: HostAttachmentOptions): HostAttachment {
 			// the caller drop the panel and the runtime evidence, so it is only ever said on purpose.
 			alive: result.alive === true,
 			known: result.alive !== undefined,
+			...(result.containerGone ? { containerGone: true } : {}),
 			...(focused === undefined ? {} : { focused }),
 			detail: result.process.stderr || result.process.stdout,
 		};
