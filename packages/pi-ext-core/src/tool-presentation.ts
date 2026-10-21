@@ -125,9 +125,9 @@ export function getRegisteredToolPresentationProvider(
 ): ToolPresentationProvider | undefined {
 	const renderers = namedRenderers(pi);
 	const renderCall = renderers.get(title)?.deref();
-	if (renderCall === undefined) {
-		renderers.delete(title);
-		return undefined;
+	if (renderCall !== undefined) {
+		return providers().get(renderCall);
 	}
-	return providers().get(renderCall);
+	renderers.delete(title);
+	return undefined;
 }

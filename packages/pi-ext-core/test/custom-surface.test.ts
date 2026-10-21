@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { OverlayHandle, OverlayOptions } from "@earendil-works/pi-tui";
 import { expect, test } from "vitest";
-import { openTuiSurface, type TuiSurfaceContext, TuiSurfaceQueueFullError } from "../src/index.js";
+import { openTuiSurface, TuiSurfaceBusyError, type TuiSurfaceContext } from "../src/index.js";
 
 type ActiveSurface = {
 	readonly close: (
@@ -43,40 +43,43 @@ function fixture(): {
 	return { pi, command, active, customCalls: () => calls };
 }
 
-test("opens queued custom surfaces in FIFO order", async () => {
+test("rejects with TuiSurfaceBusyError when another surface is already active", async () => {
 	const h = fixture();
 	const firstController = new AbortController();
 	const secondController = new AbortController();
 	let firstClose: ((value: string) => void) | undefined;
-	let secondClose: ((value: string) => void) | undefined;
 	const first = openTuiSurface(h.pi, h.command, {
 		hostId: "test",
 		signal: firstController.signal,
-		maxPending: 1,
 		create: ({ close }) => {
 			firstClose = close;
 			return { render: () => [], invalidate: () => undefined };
 		},
 	});
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: secondController.signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
+
+	await expect(
+		openTuiSurface(h.pi, h.command, {
+			hostId: "test",
+			signal: secondController.signal,
+			create: () => ({ render: () => [], invalidate: () => undefined }),
+		}),
+	).rejects.toBeInstanceOf(TuiSurfaceBusyError);
 
 	expect(h.customCalls()).toBe(1);
 	if (firstClose === undefined) throw new Error("Expected first surface to open");
 	firstClose("first");
 	await expect(first).resolves.toEqual({ status: "closed", value: "first" });
-	await Promise.resolve();
-	expect(h.customCalls()).toBe(2);
-	if (secondClose === undefined) throw new Error("Expected second surface to open");
-	secondClose("second");
+
+	const second = openTuiSurface(h.pi, h.command, {
+		hostId: "test",
+		signal: secondController.signal,
+		create: ({ close }) => {
+			close("second");
+			return { render: () => [], invalidate: () => undefined };
+		},
+	});
 	await expect(second).resolves.toEqual({ status: "closed", value: "second" });
+	expect(h.customCalls()).toBe(2);
 });
 
 test("runs beforeRelease once after successful host settlement", async () => {
@@ -86,7 +89,6 @@ test("runs beforeRelease once after successful host settlement", async () => {
 	const opening = openTuiSurface(h.pi, h.command, {
 		hostId: "successful-release",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		beforeRelease: () => {
 			releases++;
 		},
@@ -109,7 +111,6 @@ test("runs beforeRelease once and preserves a host failure", async () => {
 	const opening = openTuiSurface(h.pi, h.command, {
 		hostId: "failed-host-release",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		beforeRelease: () => {
 			releases++;
 		},
@@ -130,7 +131,6 @@ test("runs beforeRelease once and reports its failure after host success", async
 	const opening = openTuiSurface(h.pi, h.command, {
 		hostId: "failed-release",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		beforeRelease: () => {
 			releases++;
 			throw releaseFailure;
@@ -155,7 +155,6 @@ test("runs beforeRelease once and aggregates host and release failures", async (
 	const opening = openTuiSurface(h.pi, h.command, {
 		hostId: "dual-failure-release",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		beforeRelease: () => {
 			releases++;
 			throw releaseFailure;
@@ -176,168 +175,29 @@ test("runs beforeRelease once and aggregates host and release failures", async (
 	expect(releases).toBe(1);
 });
 
-test("removes an aborted queued surface before its factory runs", async () => {
-	const h = fixture();
-	const firstController = new AbortController();
-	const secondController = new AbortController();
-	let firstClose: ((value: string) => void) | undefined;
-	const first = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: firstController.signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			firstClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-	let invoked = false;
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: secondController.signal,
-		maxPending: 1,
-		create: () => {
-			invoked = true;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-	secondController.abort();
-	await expect(second).rejects.toMatchObject({ name: "AbortError" });
-	if (firstClose === undefined) throw new Error("Expected first surface to open");
-	firstClose("done");
-	await first;
-	await Promise.resolve();
-	expect(invoked).toBe(false);
-});
-
-test("rejects when the caller-declared pending capacity is full", async () => {
-	const h = fixture();
-	const firstController = new AbortController();
-	const secondController = new AbortController();
-	const thirdController = new AbortController();
-	const first = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: firstController.signal,
-		maxPending: 1,
-		create: () => ({ render: () => [], invalidate: () => undefined }),
-	});
-	void openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: secondController.signal,
-		maxPending: 1,
-		create: () => ({ render: () => [], invalidate: () => undefined }),
-	});
-	await expect(
-		openTuiSurface(h.pi, h.command, {
-			hostId: "test",
-			signal: thirdController.signal,
-			maxPending: 1,
-			create: () => ({ render: () => [], invalidate: () => undefined }),
-		}),
-	).rejects.toBeInstanceOf(TuiSurfaceQueueFullError);
-	firstController.abort();
-	await expect(first).resolves.toEqual({ status: "aborted" });
-});
-
-test("applies pending capacity per stable host ID", async () => {
-	const h = fixture();
-	let firstClose: ((value: string) => void) | undefined;
-	let secondClose: ((value: string) => void) | undefined;
-	let thirdClose: ((value: string) => void) | undefined;
-	const first = openTuiSurface(h.pi, h.command, {
-		hostId: "host-a",
-		signal: new AbortController().signal,
-		maxPending: 0,
-		create: ({ close }) => {
-			firstClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "host-b",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-	const third = openTuiSurface(h.pi, h.command, {
-		hostId: "host-c",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			thirdClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-
-	if (firstClose === undefined) throw new Error("Expected first surface to open");
-	firstClose("first");
-	await first;
-	await Promise.resolve();
-	if (secondClose === undefined) throw new Error("Expected second surface to open");
-	secondClose("second");
-	await second;
-	await Promise.resolve();
-	if (thirdClose === undefined) throw new Error("Expected third surface to open");
-	thirdClose("third");
-	await third;
-});
-
-test("aborts an active surface and opens the next request", async () => {
+test("allows opening a new surface after active surface aborts or factory fails", async () => {
 	const h = fixture();
 	const controller = new AbortController();
-	let secondClose: ((value: string) => void) | undefined;
 	const first = openTuiSurface(h.pi, h.command, {
 		hostId: "test",
 		signal: controller.signal,
-		maxPending: 1,
 		create: () => ({ render: () => [], invalidate: () => undefined }),
 	});
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
-
 	controller.abort();
 	await expect(first).resolves.toEqual({ status: "aborted" });
-	await Promise.resolve();
-	if (secondClose === undefined) throw new Error("Expected second surface to open");
-	secondClose("second");
-	await second;
-});
 
-test("advances the queue when the active factory fails", async () => {
-	const h = fixture();
 	let secondClose: ((value: string) => void) | undefined;
-	const first = openTuiSurface(h.pi, h.command, {
-		hostId: "test",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: () => {
-			throw new Error("factory failed");
-		},
-	});
 	const second = openTuiSurface(h.pi, h.command, {
 		hostId: "test",
 		signal: new AbortController().signal,
-		maxPending: 1,
 		create: ({ close }) => {
 			secondClose = close;
 			return { render: () => [], invalidate: () => undefined };
 		},
 	});
-
-	await expect(first).rejects.toThrow("factory failed");
-	await Promise.resolve();
 	if (secondClose === undefined) throw new Error("Expected second surface to open");
 	secondClose("second");
-	await second;
+	await expect(second).resolves.toEqual({ status: "closed", value: "second" });
 });
 
 interface TestCustomOptions {
@@ -425,7 +285,6 @@ function openOverlayFixture(
 	return openTuiSurface(h.pi, h.command, {
 		hostId: "overlay-test",
 		signal: controller.signal,
-		maxPending: 0,
 		overlay: true,
 		...(onHandle === undefined ? {} : { onHandle }),
 		create: (context) => {
@@ -461,7 +320,6 @@ test("rejects hidden operations for non-overlays and before overlay mount", asyn
 	const nonOverlayOpening = openTuiSurface(nonOverlay.pi, nonOverlay.command, {
 		hostId: "plain-test",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		create: (context) => {
 			nonOverlay.capture(context);
 			return { render: () => [], invalidate: () => undefined };
@@ -478,7 +336,6 @@ test("rejects hidden operations for non-overlays and before overlay mount", asyn
 	const beforeMountOpening = openTuiSurface(beforeMount.pi, beforeMount.command, {
 		hostId: "before-mount-test",
 		signal: new AbortController().signal,
-		maxPending: 0,
 		overlay: true,
 		create: (context) => {
 			beforeMount.capture(context);
@@ -524,16 +381,6 @@ test("does not restore an overlay after its surface is aborted", async () => {
 		() => (openingSettled = true),
 		() => (openingSettled = true),
 	);
-	let secondClose: ((value: string) => void) | undefined;
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "queued-test",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
 	let release: (() => void) | undefined;
 	const operation = h.context().withHiddenOverlay(
 		() =>
@@ -544,17 +391,12 @@ test("does not restore an overlay after its surface is aborted", async () => {
 	controller.abort();
 	await Promise.resolve();
 	expect(openingSettled).toBe(false);
-	expect(secondClose).toBeUndefined();
 	expect(events).toEqual(["hide"]);
 	if (release === undefined) throw new Error("Expected pending operation");
 	release();
 	await expect(operation).rejects.toMatchObject({ name: "AbortError" });
 	expect(events).toEqual(["hide"]);
 	await expect(opening).resolves.toEqual({ status: "aborted" });
-	await Promise.resolve();
-	if (secondClose === undefined) throw new Error("Expected queued surface to open after release");
-	secondClose("second");
-	await second;
 });
 
 test("does not restore an overlay after its surface closes", async () => {
@@ -566,16 +408,6 @@ test("does not restore an overlay after its surface closes", async () => {
 		() => (openingSettled = true),
 		() => (openingSettled = true),
 	);
-	let secondClose: ((value: string) => void) | undefined;
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "queued-test",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
 	let release: (() => void) | undefined;
 	const operation = h.context().withHiddenOverlay(
 		() =>
@@ -586,17 +418,12 @@ test("does not restore an overlay after its surface closes", async () => {
 	h.context().close("done");
 	await Promise.resolve();
 	expect(openingSettled).toBe(false);
-	expect(secondClose).toBeUndefined();
 	expect(events).toEqual(["hide"]);
 	if (release === undefined) throw new Error("Expected pending operation");
 	release();
 	await expect(operation).rejects.toMatchObject({ name: "AbortError" });
 	expect(events).toEqual(["hide"]);
 	await expect(opening).resolves.toEqual({ status: "closed", value: "done" });
-	await Promise.resolve();
-	if (secondClose === undefined) throw new Error("Expected queued surface to open after release");
-	secondClose("second");
-	await second;
 });
 
 test("keeps the surface lease after host rejection until a hidden operation completes", async () => {
@@ -608,16 +435,6 @@ test("keeps the surface lease after host rejection until a hidden operation comp
 		() => (openingSettled = true),
 		() => (openingSettled = true),
 	);
-	let secondClose: ((value: string) => void) | undefined;
-	const second = openTuiSurface(h.pi, h.command, {
-		hostId: "queued-test",
-		signal: new AbortController().signal,
-		maxPending: 1,
-		create: ({ close }) => {
-			secondClose = close;
-			return { render: () => [], invalidate: () => undefined };
-		},
-	});
 	let release: (() => void) | undefined;
 	const operation = h.context().withHiddenOverlay(
 		() =>
@@ -629,17 +446,12 @@ test("keeps the surface lease after host rejection until a hidden operation comp
 	h.reject(new Error("host failed"));
 	await Promise.resolve();
 	expect(openingSettled).toBe(false);
-	expect(secondClose).toBeUndefined();
 	expect(events).toEqual(["hide"]);
 	if (release === undefined) throw new Error("Expected pending operation");
 	release();
 	await expect(operation).rejects.toMatchObject({ name: "AbortError" });
 	await expect(opening).rejects.toThrow("host failed");
 	expect(events).toEqual(["hide"]);
-	await Promise.resolve();
-	if (secondClose === undefined) throw new Error("Expected queued surface to open after release");
-	secondClose("second");
-	await second;
 });
 
 test("does not wedge hidden operation tracking when hiding fails", async () => {

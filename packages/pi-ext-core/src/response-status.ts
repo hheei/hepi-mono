@@ -1,21 +1,13 @@
-import {
-	CustomEditor,
-	type ExtensionAPI,
-	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { type EditorComponent, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatDuration } from "./tool-result.js";
 
 export interface ResponseStatusFeature {
 	start(context: ExtensionContext): void;
 	dispose(sessionId: string): void;
+	getMetrics(): TelemetryMetrics | undefined;
+	getStatus(theme: ThemeLike | ColorFn): string | undefined;
+	onUpdate(listener: () => void): () => void;
 }
-
-import {
-	type CustomEditorLike,
-	registerActiveEditor,
-	unregisterActiveEditor,
-} from "./editor-working-status.js";
 
 export interface TelemetryMetrics {
 	readonly input: number;
@@ -67,21 +59,19 @@ export function formatDurationColor(durationMs: number | null, theme: ThemeLike)
 
 /**
  * Formats full telemetry string:
- * ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s
- * When a ColorFn is provided, styles the entire status following the bottom rail's thinking border color.
+ * - When ThemeLike is provided:
+ *   [tokens (dim)] [duration (semantic)] [rate (dim)]
+ * - When ColorFn is provided:
+ *   entire formatted string wrapped in ColorFn
  */
 export function formatTelemetryStatus(
 	metrics: TelemetryMetrics,
 	color: ThemeLike | ColorFn,
 ): string {
-	const tokens = [
-		`↑${formatCompactNumber(metrics.input)}`,
-		`↓${formatCompactNumber(metrics.output)}`,
-		`⇲${formatCompactNumber(metrics.cacheRead)}`,
-	].join(" ");
-	const durationStr = formatDuration(metrics.durationMs ?? undefined) ?? "?";
+	const tokens = `↑${formatCompactNumber(metrics.input)} ↓${formatCompactNumber(metrics.output)} ⇲${formatCompactNumber(metrics.cacheRead)}`;
 	const rateStr = `󰓅${formatRate(metrics.tokensPerSecond)}/s`;
-	const fullText = `${tokens} 󰔛${durationStr} ${rateStr}`;
+	const durationPlain = `󰔛${formatDuration(metrics.durationMs ?? undefined) ?? "?"}`;
+	const fullText = `${tokens} ${durationPlain} ${rateStr}`;
 
 	if (typeof color === "function") {
 		return color(fullText);
@@ -91,111 +81,25 @@ export function formatTelemetryStatus(
 	return `${color.fg("dim", tokens)} ${duration} ${rate}`;
 }
 
-export interface BottomRailBorderOptions {
-	readonly width: number;
-	readonly hiddenLineCount: number;
-	readonly statusText: string | undefined;
-	readonly borderColor: (text: string) => string;
-	readonly fallback: (width: number, hiddenLineCount: number) => string;
-}
-
-/**
- * Renders the bottom rail border matching native CustomEditor.renderTopBorder layout:
- * ── ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s ───────────────────
- * When scrolling below:
- * ── ↑5.3K ↓924 ⇲62.5K 󰔛9.7s 󰓅95.1/s ─── ↓ 3 more ────────
- */
-export function renderBottomRailBorder(options: BottomRailBorderOptions): string {
-	const { width, hiddenLineCount, statusText, borderColor, fallback } = options;
-	if (statusText === undefined || statusText.length === 0 || width <= 0) {
-		return fallback(width, hiddenLineCount);
-	}
-	const statusWidth = visibleWidth(statusText);
-	if (statusWidth === 0) {
-		return fallback(width, hiddenLineCount);
-	}
-
-	const overflowLabel = hiddenLineCount > 0 ? ` ↓ ${hiddenLineCount} more ` : undefined;
-	const overflowLabelWidth = overflowLabel === undefined ? 0 : visibleWidth(overflowLabel);
-	const leftBlockWidth = 3 + statusWidth + 1;
-
-	if (overflowLabel !== undefined && width >= leftBlockWidth + overflowLabelWidth + 2) {
-		const centerStart = Math.floor((width - overflowLabelWidth) / 2);
-		const overflowStart = Math.max(centerStart, leftBlockWidth + 1);
-		const middleFill = "─".repeat(overflowStart - leftBlockWidth);
-		const rightFill = "─".repeat(Math.max(0, width - overflowStart - overflowLabelWidth));
-		return (
-			borderColor("── ") + statusText + borderColor(` ${middleFill}${overflowLabel}${rightFill}`)
-		);
-	}
-
-	if (width >= statusWidth + 5) {
-		const remaining = Math.max(0, width - statusWidth - 4);
-		return borderColor("── ") + statusText + borderColor(` ${"─".repeat(remaining)}`);
-	}
-
-	const truncated = truncateToWidth(statusText, Math.max(0, width - 4), "");
-	const truncatedWidth = visibleWidth(truncated);
-	const prefixWidth = Math.min(3, Math.max(0, width - truncatedWidth));
-	const suffixWidth = Math.max(0, width - prefixWidth - truncatedWidth);
-	return borderColor("─".repeat(prefixWidth)) + truncated + borderColor("─".repeat(suffixWidth));
-}
-
-export function wrapEditorBottomRail(
-	editor: EditorComponent,
-	getStatus: (borderColor: (text: string) => string) => string | undefined,
-): EditorComponent {
-	const target = editor as unknown as {
-		renderBottomBorder?: (width: number, hiddenLineCount: number) => string;
-		borderColor?: (text: string) => string;
-	};
-	if (typeof target.renderBottomBorder !== "function") return editor;
-
-	if (typeof target.borderColor !== "function") {
-		target.borderColor = (text: string) => text;
-	}
-
-	const originalRenderBottomBorder = target.renderBottomBorder.bind(editor);
-	target.renderBottomBorder = (width: number, hiddenLineCount: number): string => {
-		const borderColor = target.borderColor?.bind(target) ?? ((text: string) => text);
-		const status = getStatus(borderColor);
-		return renderBottomRailBorder({
-			width,
-			hiddenLineCount,
-			statusText: status,
-			borderColor,
-			fallback: originalRenderBottomBorder,
-		});
-	};
-	return editor;
-}
-
-type EditorFactory = NonNullable<
-	Parameters<NonNullable<ExtensionContext["ui"]["setEditorComponent"]>>[0]
->;
-
-interface TuiLike {
-	requestRender(): void;
-}
-
 export const TELEMETRY_DISMISS_DELAY_MS = 15_000;
 
 /**
- * Manages completed response telemetry rendered on the editor bottom rail. The last
- * completed response stays visible for the whole agent run that follows it, and is
- * replaced by the next `message_end`; once a run ends, the visible line is dismissed
- * after {@link TELEMETRY_DISMISS_DELAY_MS}.
+ * Manages completed response telemetry.
+ * Captures metrics on message_end and notifies listeners; once a run ends,
+ * the metrics are cleared after TELEMETRY_DISMISS_DELAY_MS.
  */
 export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFeature {
 	let activeSessionId: string | undefined;
-	let activeContext: ExtensionContext | undefined;
 	let turnStartedAtMs: number | undefined;
 	let currentMetrics: TelemetryMetrics | undefined;
-	let previousEditorFactory: EditorFactory | undefined;
-	let installedEditorFactory: EditorFactory | undefined;
-	let activeTui: TuiLike | undefined;
-	let activeEditorInstance: CustomEditorLike | undefined;
 	let dismissTimer: NodeJS.Timeout | undefined;
+	const listeners = new Set<() => void>();
+
+	const notify = (): void => {
+		for (const listener of listeners) {
+			listener();
+		}
+	};
 
 	const clearDismissTimer = (): void => {
 		if (dismissTimer !== undefined) {
@@ -204,15 +108,13 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		}
 	};
 
-	// Scheduling here, not at message_end, keeps the rail populated for the whole run:
-	// a long tool call can no longer dismiss the line mid-request.
 	const scheduleDismiss = (): void => {
 		clearDismissTimer();
 		if (currentMetrics === undefined) return;
 		dismissTimer = setTimeout(() => {
 			dismissTimer = undefined;
 			currentMetrics = undefined;
-			activeTui?.requestRender();
+			notify();
 		}, TELEMETRY_DISMISS_DELAY_MS);
 		dismissTimer.unref?.();
 	};
@@ -238,7 +140,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
 			clearDismissTimer();
 			currentMetrics = undefined;
-			activeTui?.requestRender();
+			notify();
 			return;
 		}
 
@@ -253,7 +155,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			durationMs: totalTimeMs,
 			tokensPerSecond,
 		};
-		activeTui?.requestRender();
+		notify();
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
@@ -266,49 +168,30 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		start(context) {
 			const sessionId = context.sessionManager.getSessionId();
 			if (activeSessionId === sessionId) return;
-			activeSessionId = context.mode === "tui" ? sessionId : undefined;
-			activeContext = context.mode === "tui" ? context : undefined;
+			activeSessionId = sessionId;
 			turnStartedAtMs = undefined;
 			clearDismissTimer();
 			currentMetrics = undefined;
-
-			if (context.mode !== "tui") return;
-
-			previousEditorFactory = context.ui.getEditorComponent();
-			installedEditorFactory = (tui, theme, keybindings) => {
-				activeTui = tui;
-				const baseEditor =
-					previousEditorFactory?.(tui, theme, keybindings) ??
-					new CustomEditor(tui, theme, keybindings, { embedWorkingStatus: true });
-				activeEditorInstance = baseEditor as unknown as CustomEditorLike;
-				registerActiveEditor(activeEditorInstance, tui, theme);
-				return wrapEditorBottomRail(baseEditor, (borderColor) =>
-					currentMetrics ? formatTelemetryStatus(currentMetrics, borderColor) : undefined,
-				);
-			};
-			context.ui.setEditorComponent(installedEditorFactory);
 		},
 		dispose(sessionId) {
 			if (activeSessionId !== sessionId) return;
 			clearDismissTimer();
-			if (
-				activeContext !== undefined &&
-				installedEditorFactory !== undefined &&
-				activeContext.ui.getEditorComponent() === installedEditorFactory
-			) {
-				activeContext.ui.setEditorComponent(previousEditorFactory);
-			}
-			if (activeEditorInstance !== undefined) {
-				unregisterActiveEditor(activeEditorInstance);
-				activeEditorInstance = undefined;
-			}
 			activeSessionId = undefined;
-			activeContext = undefined;
 			turnStartedAtMs = undefined;
 			currentMetrics = undefined;
-			previousEditorFactory = undefined;
-			installedEditorFactory = undefined;
-			activeTui = undefined;
+			listeners.clear();
+		},
+		getMetrics() {
+			return currentMetrics;
+		},
+		getStatus(theme) {
+			return currentMetrics ? formatTelemetryStatus(currentMetrics, theme) : undefined;
+		},
+		onUpdate(listener) {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
 		},
 	};
 }

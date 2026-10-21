@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createDisposerRegistry, type DisposerRegistry } from "./disposer-registry.js";
-import { abortServiceWaiters } from "./service.js";
 
 /**
  * One session-scoped owner view. The signal is aborted before resource cleanup;
@@ -66,7 +65,6 @@ function createLifecycleController(
 		if (current === undefined) return;
 		active = undefined;
 		current.controller.abort();
-		abortServiceWaiters(pi);
 		const failures = await current.resources.cleanup();
 		if (failures.length > 0) {
 			throw new AggregateError(

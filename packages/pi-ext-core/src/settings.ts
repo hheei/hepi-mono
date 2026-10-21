@@ -74,9 +74,7 @@ export interface SettingChange {
  */
 export interface SettingsStorage {
 	load(context: SettingsContext): SettingsState | undefined | Promise<SettingsState | undefined>;
-	validate?(state: SettingsState, context: SettingsContext): void | Promise<void>;
 	save(state: SettingsState, context: SettingsContext): void | Promise<void>;
-	close?(context: SettingsContext): void | Promise<void>;
 }
 
 /** Rendered by a settings-surface owner; core does not render panels. */
@@ -102,9 +100,7 @@ export interface SettingsProvider {
 	readonly groups: readonly SettingGroup[];
 	readonly panels?: readonly SettingsPanel[];
 	readonly storage: SettingsStorage;
-	onLoad?(state: SettingsState, context: SettingsContext): void | Promise<void>;
 	onChange?(change: SettingChange, context: SettingsContext): void | Promise<void>;
-	onClose?(state: SettingsState, context: SettingsContext): void | Promise<void>;
 }
 
 /** Runtime-scoped provider registry; it stores no settings values and renders no UI. */
@@ -119,22 +115,6 @@ export interface SettingsRegistry {
 
 export const SETTING_DESCRIPTION_MIN_LENGTH = 20;
 
-function validateDescriptions(provider: SettingsProvider): void {
-	for (const group of provider.groups) {
-		for (const field of group.fields) {
-			if (field.description.trim().length < SETTING_DESCRIPTION_MIN_LENGTH)
-				throw new Error(
-					`Setting ${provider.id}.${group.id}.${field.id} requires a detailed description of at least ${SETTING_DESCRIPTION_MIN_LENGTH} characters`,
-				);
-			const cycle = field.tabCycle;
-			if (cycle !== undefined && cycle.description.trim().length < SETTING_DESCRIPTION_MIN_LENGTH)
-				throw new Error(
-					`Setting ${provider.id}.${group.id}.${cycle.fieldId} requires a detailed description of at least ${SETTING_DESCRIPTION_MIN_LENGTH} characters`,
-				);
-		}
-	}
-}
-
 interface SettingsGroupClaim {
 	readonly token: symbol;
 }
@@ -145,7 +125,6 @@ class RuntimeSettingsRegistry implements SettingsRegistry {
 	readonly #groupClaims = new Map<string, SettingsGroupClaim>();
 
 	register(provider: SettingsProvider): () => void {
-		validateDescriptions(provider);
 		if (this.#providers.has(provider.id))
 			throw new Error(`Settings provider id collision: ${provider.id}`);
 		this.assertGroupsAvailable(provider.groups.map((group) => group.id));
@@ -153,7 +132,6 @@ class RuntimeSettingsRegistry implements SettingsRegistry {
 	}
 
 	replace(provider: SettingsProvider): () => void {
-		validateDescriptions(provider);
 		const existingToken = this.#tokens.get(provider.id);
 		this.assertGroupsAvailable(
 			provider.groups.map((group) => group.id),
@@ -282,7 +260,8 @@ export function createJsonSettingsStorage(options: JsonSettingsStorageOptions): 
 					const group = root[options.group];
 					if (group !== undefined && !isRecord(group))
 						throw new Error(`Expected ${options.group} to be an object in ${path}`);
-					root[options.group] = { ...(state[options.group] ?? {}) };
+					const existing = isRecord(group) ? group : {};
+					root[options.group] = { ...existing, ...(state[options.group] ?? {}) };
 				},
 				context.signal,
 			);

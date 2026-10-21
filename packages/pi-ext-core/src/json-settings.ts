@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { lock } from "proper-lockfile";
 import { isRecord } from "./record.js";
 
 export interface ExtensionSettingsPaths {
@@ -169,70 +167,25 @@ async function writeJsonSettingsRoot(
 	signal?: AbortSignal,
 ): Promise<void> {
 	signal?.throwIfAborted();
-	const directory = dirname(path);
-	await mkdir(directory, { recursive: true });
+	await mkdir(dirname(path), { recursive: true });
 	signal?.throwIfAborted();
-	const temporaryPath = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
-	try {
-		await writeFile(temporaryPath, `${JSON.stringify(root, null, 2)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
-			signal,
-		});
-		signal?.throwIfAborted();
-		await rename(temporaryPath, path);
-	} catch (error) {
-		await rm(temporaryPath, { force: true }).catch(() => undefined);
-		throw error;
-	}
-}
-
-declare global {
-	var __jsonSettingsWriteQueues: Map<string, Promise<void>> | undefined;
-}
-
-function settingsWriteQueues(): Map<string, Promise<void>> {
-	globalThis.__jsonSettingsWriteQueues ??= new Map();
-	return globalThis.__jsonSettingsWriteQueues;
+	await writeFile(path, `${JSON.stringify(root, null, 2)}\n`, {
+		encoding: "utf8",
+		signal,
+	});
 }
 
 /**
- * Serializes in-process writers and locks across processes before atomically
- * replacing a settings root. Consumers own section/schema merge semantics; the
- * updater must mutate the supplied root synchronously before this function writes it.
+ * Reads, modifies, and writes back a settings root (last-write-win).
+ * Consumers own section/schema merge semantics; the updater mutates the supplied root synchronously.
  */
 export async function updateJsonSettingsRoot(
 	path: string,
 	update: (root: Record<string, unknown>) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const queues = settingsWriteQueues();
-	const previous = queues.get(path) ?? Promise.resolve();
-	const current = previous
-		.catch(() => undefined)
-		.then(async () => {
-			signal?.throwIfAborted();
-			await mkdir(dirname(path), { recursive: true });
-			signal?.throwIfAborted();
-			const release = await lock(path, {
-				realpath: false,
-				retries: { retries: 100, minTimeout: 20, maxTimeout: 20 },
-			});
-			try {
-				// Read-modify-write occurs under the process lock and the per-path queue,
-				// preventing sibling settings providers from losing each other's sections.
-				signal?.throwIfAborted();
-				const root = await readJsonSettingsRoot(path, signal);
-				update(root);
-				await writeJsonSettingsRoot(path, root, signal);
-			} finally {
-				await release();
-			}
-		});
-	queues.set(path, current);
-	try {
-		await current;
-	} finally {
-		if (queues.get(path) === current) queues.delete(path);
-	}
+	signal?.throwIfAborted();
+	const root = await readJsonSettingsRoot(path, signal);
+	update(root);
+	await writeJsonSettingsRoot(path, root, signal);
 }

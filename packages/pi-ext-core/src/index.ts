@@ -1,4 +1,3 @@
-export { acquireMutationLock, withMutationLock } from "./mutation-lock.js";
 /**
  * Side-effect-free coordination contracts for independently installed Pi extensions.
  * Concrete packages own commands, state, policy, and rendering; core only owns
@@ -14,41 +13,17 @@ export type {
 export { createBackgroundDelivery, getBackgroundDelivery } from "./background-delivery.js";
 export type { SubcommandCompletions } from "./command-completions.js";
 export { splitSubcommand, subcommandCompletions } from "./command-completions.js";
-export type {
-	EstimateTextTokens,
-	PiContextUsageReading,
-	PiContextUsageSource,
-	PiPrefixTokens,
-	PiPrefixTool,
-	ResolvedPiContextUsage,
-} from "./context-usage.js";
 export {
 	estimateEntryTokens,
-	estimatePiPrefixTokens,
-	estimatePiToolDefinitionTokens,
 	estimateTextTokens,
-	resolvePiContextUsage,
 } from "./context-usage.js";
 export type {
 	OpenTuiSurfaceOptions,
 	TuiSurfaceContext,
 	TuiSurfaceResult,
 } from "./custom-surface.js";
-export { openTuiSurface, TuiSurfaceQueueFullError } from "./custom-surface.js";
+export { openTuiSurface, TuiSurfaceBusyError } from "./custom-surface.js";
 export type { Cleanup, CleanupFailure, DisposerRegistry } from "./disposer-registry.js";
-export type {
-	CustomEditorLike,
-	EditorWorkingStatusIndicatorLike,
-	PreTurnWorkingStatusOptions,
-	TuiLike,
-} from "./editor-working-status.js";
-export {
-	BRAILLE_SPINNER_FRAMES,
-	EditorWorkingStatusIndicator,
-	registerActiveEditor,
-	setPreTurnWorkingStatus,
-	unregisterActiveEditor,
-} from "./editor-working-status.js";
 export { abortError, errorMessage, throwIfAborted } from "./errors.js";
 export type {
 	ExtensionPointHandle,
@@ -109,6 +84,14 @@ export type {
 	OpenExtensionPageRouterOptions,
 } from "./page-router.js";
 export { openExtensionPageRouter, registerExtensionPage } from "./page-router.js";
+export {
+	calculateScrollTop,
+	LIST_HINT_ROWS,
+	PANEL_ROWS,
+	pad,
+	STACKED_LIST_ROWS,
+	WIDE_COLUMNS,
+} from "./panel-layout.js";
 export { panelScrollbar } from "./panel-scrollbar.js";
 export { expandHome } from "./paths.js";
 export type { CommandOptions, CommandResult } from "./process.js";
@@ -122,7 +105,6 @@ export {
 } from "./prompt-section.js";
 export { isRecord } from "./record.js";
 export type {
-	BottomRailBorderOptions,
 	ColorFn,
 	ResponseStatusFeature,
 	TelemetryMetrics,
@@ -134,9 +116,7 @@ export {
 	formatDurationColor,
 	formatRate,
 	formatTelemetryStatus,
-	renderBottomRailBorder,
 	TELEMETRY_DISMISS_DELAY_MS,
-	wrapEditorBottomRail,
 } from "./response-status.js";
 export { fitRow } from "./row-fit.js";
 export {
@@ -148,14 +128,12 @@ export {
 export type {
 	MemoryCompactorService,
 	ServiceKey,
-	WaitForServiceOptions,
 } from "./service.js";
 export {
 	createServiceKey,
 	getService,
 	MEMORY_COMPACTOR_SERVICE_KEY,
 	provideService,
-	waitForService,
 } from "./service.js";
 export type {
 	JsonSettingsStorageOptions,
@@ -199,11 +177,11 @@ export {
 export type { ToolRendererFactory } from "./tool-renderer-point.js";
 export {
 	createOptionalToolRenderers,
+	getRegisteredToolRenderers,
 	hasOptionalToolRenderers,
 	toolRendererPoint,
 } from "./tool-renderer-point.js";
 export { agentResultText, formatDuration, textToolResult } from "./tool-result.js";
-
 export type {
 	WidgetHandle,
 	WidgetPlacement,

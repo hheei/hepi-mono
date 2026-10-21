@@ -45,8 +45,6 @@ export interface OpenExtensionPageRouterOptions {
 	/** Stable custom-surface host identity used for this command's pending bound. */
 	readonly hostId: string;
 	readonly signal: AbortSignal;
-	/** Explicit FIFO capacity; core does not choose an implicit global limit. */
-	readonly maxPending: number;
 	readonly initialPageId?: string;
 	readonly overlay?: boolean;
 	readonly overlayOptions?: OverlayOptions | (() => OverlayOptions);
@@ -122,7 +120,6 @@ export async function openExtensionPageRouter(
 	await openTuiSurface(pi, command, {
 		hostId: options.hostId,
 		signal: options.signal,
-		maxPending: options.maxPending,
 		...(options.overlay === true ? { overlay: true } : {}),
 		...(options.overlayOptions === undefined ? {} : { overlayOptions: options.overlayOptions }),
 		beforeRelease: () => finalizeSurface?.(),

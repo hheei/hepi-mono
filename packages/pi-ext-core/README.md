@@ -34,7 +34,6 @@
 | `createServiceKey<T>(id)` | 函数 | 创建带泛型约束的稳定服务标识符（基于命名空间字符串） |
 | `provideService(context, key, value)` | 函数 | 在当前运行时注册服务，生命周期结束自动注销；重复注册返回 `false` |
 | `getService(pi, key)` | 函数 | 同步获取当前已注册的服务实例（未提供时返回 `undefined`） |
-| `waitForService(pi, key, options?)` | 函数 | 异步等待服务就绪，支持传入 `AbortSignal`，配合非阻塞 continuation 避免死锁 |
 | `MEMORY_COMPACTOR_SERVICE_KEY` | 常量 | 预置内存压缩服务 Key（例如 `pi-ext-addon` 在 409 恢复时调用 `pi-ext-memory` 的即时压缩） |
 
 ### 3. 后台交付协调 (BackgroundDelivery)
@@ -63,8 +62,8 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 | --- | --- | --- |
 | `openExtensionPageRouter(ctx, options)` | 函数 | 打开全局扩展设置多页面路由界面（由 `pi-settings` 承载） |
 | `registerExtensionPage(registration)` | 函数 | 注册自定义扩展设置页面 |
-| `openTuiSurface(ctx, options)` | 函数 | 打开全屏独立 TUI Surface，支持排队、焦点管理与安全退出 |
-| `TuiSurfaceQueueFullError` | 错误类 | 排队超出最大并发上限时抛出 |
+| `openTuiSurface(ctx, options)` | 函数 | 打开全屏独立 TUI Surface，支持焦点管理与互斥安全退出 |
+| `TuiSurfaceBusyError` | 错误类 | 已有活跃 Surface 时抛出 |
 
 ### 6. 挂件与编辑器底栏状态 (Widgets & Editor Status)
 
@@ -72,10 +71,6 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 | --- | --- | --- |
 | `registerWidget(pi, placement, widget)` | 函数 | 在编辑器上方（above-editor）或下方挂载状态挂件 |
 | `suspendWidgets(pi)` | 函数 | 临时挂起所有活动挂件（在全屏 Surface 打开时避免遮挡） |
-| `EditorWorkingStatusIndicator` | 类 | 编辑器工作状态组件，支持点阵旋转动画与文案展示 |
-| `registerActiveEditor(editor)` / `unregisterActiveEditor` | 函数 | 注册当前活动编辑器实例 |
-| `setPreTurnWorkingStatus(options)` | 函数 | 设置回合前即时工作状态 |
-| `BRAILLE_SPINNER_FRAMES` | 常量 | 标准点阵微旋转动画帧序列 |
 
 ### 7. JSON 配置持久化与存储 (JSON Settings Transport)
 
@@ -103,9 +98,6 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `resolvePiContextUsage(reading, options)` | 函数 | 解析 Pi 原生 context usage，在会话首回合结合前缀估算准确用量 |
-| `estimatePiPrefixTokens(systemPrompt, tools)` | 函数 | 估算系统提示词与工具清单的前缀 token 开销 |
-| `estimatePiToolDefinitionTokens(tools)` | 函数 | 估算工具定义结构占用的 token 数量 |
 | `estimateTextTokens(text)` | 函数 | 快速估算文本 token 数量（缺省为 chars/4） |
 
 ### 10. 进程内子代理协调器（已移除）
@@ -128,21 +120,21 @@ BashJobs 和 SubagentManager 各自拥有执行状态，ext-core 只协调交付
 具体工具的注册与激活由 Pi 原生 `pi.registerTool`（`exposure`、`defaultActive`）与 `getActiveTools` / `setActiveTools` 拥有；
 工具渲染框架由 `@hheei/pi-ext-ui` 的 ToolView 拥有。core 不提供 managed tool、loadout resource 或 ToolTui 层。
 
-### 12. 响应遥测与底栏边框 (Response Telemetry & Editor Rail)
+### 12. 响应遥测与面板佈局 (Response Telemetry & Panel Layout)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
-| `createResponseStatusFeature(pi, options)` | 函数 | 创建模型推理性能（生成速率、耗时、token）遥测展示组件 |
-| `formatTelemetryStatus(metrics)` | 函数 | 格式化遥测性能状态条文本 |
-| `renderBottomRailBorder(options)` | 函数 | 在编辑器底栏渲染对齐的边框线与状态信息 |
-| `wrapEditorBottomRail(editor, renderRail)` | 函数 | 装饰编辑器底栏渲染逻辑，嵌入自定义状态条 |
+| `createResponseStatusFeature(pi)` | 函数 | 追蹤模型推論性能（生成速率、耗時、token）遙測，供底欄狀態顯示，無編輯器劫持 |
+| `formatTelemetryStatus(metrics, theme)` | 函数 | 格式化遙測性能狀態文字 |
+| `calculateScrollTop(selected, total, rows)` | 函数 | 模態與設定清單滾動位置居中計算原語 |
+| `pad(text, width)` | 函数 | 依終端字元顯示列寬進行安全補白 |
+| `PANEL_ROWS` / `STACKED_LIST_ROWS` / `WIDE_COLUMNS` | 常量 | 模態 Surface 穩定幾何標準版面常數 |
 
 ### 13. 通用辅助函数 (Utilities)
 
 | API | 类型 | 核心契约与说明 |
 | --- | --- | --- |
 | `runCommand(command, args, options?)` | 函数 | 一次性安全执行外部命令（支持超时、输出上限与取消信号） |
-| `acquireMutationLock(key, signal?)` / `withMutationLock(key, signal, run)` | 函数 | 相同 key 的跨进程文件写入互斥；保留原 socket/pipe 协议，等待者可取消，运行结束在 finally 中释放；不阻止外部 writer |
 | `shellQuote(str)` | 函数 | POSIX shell 参数安全转义 |
 | `isSubagentProcess(env?)` | 函数 | 检测当前进程是否运行在子 Agent 环境中 |
 | `expandHome(filepath, env?)` | 函数 | 展开路径中的 `~` 符号 |
