@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { errorMessage } from "@hheei/pi-ext-core";
 import { type ChildRuntime, spawnChildRuntime } from "./child-process.js";
 import type { Presentation, SubagentRecord } from "./domain.js";
-import type { HostAdapter, HostAttachment } from "./host-adapter.js";
+import type { HostAdapter, HostAttachment, HostObservation } from "./host-adapter.js";
 import { buildLaunchSpec, type LaunchSpec, withBridgeToken } from "./launch-spec.js";
 import { commitLease } from "./lease.js";
 import type { SubagentRegistry } from "./registry.js";
@@ -173,8 +173,6 @@ export async function launchChild(
 	}
 	await runtime.terminate();
 	if (runtime.alive) {
-		// The process outlived termination, so it is not gone and the caller keeps the handle: it is
-		// the only thing that can try again.
 		await bindProcess(options.registry, record.subagentId, runtime.pid);
 		return {
 			handle: runtime,
@@ -196,20 +194,11 @@ export interface OpenChildPanelOptions extends LaunchChildOptions {
 	readonly host: HostAdapter;
 }
 
-/**
- * What a launch left behind. `failure` is what the caller reports. A handle is kept when the host
- * still has a tab, so stop can close it. It does not by itself forbid another send.
- */
 export interface LaunchOutcome<T> {
 	readonly handle?: T;
 	readonly failure?: string;
 }
 
-/**
- * Opens one child in a host panel and waits for it to connect. The host owns this process, so the
- * parent holds no runtime handle for it; a panel that never yields a bridge is closed again instead
- * of being left as a process nobody can control.
- */
 export async function openChildPanel(
 	options: OpenChildPanelOptions,
 ): Promise<LaunchOutcome<HostAttachment>> {
@@ -220,19 +209,34 @@ export async function openChildPanel(
 	try {
 		attachment = await options.host.open(plan.spec);
 	} catch (error) {
-		// Opening is not atomic: the host may have created the panel and started the process before
-		// failing to report it. The token is kept so a child that does come up can still be adopted,
-		// and the caller is told the runtime is unconfirmed instead of that nothing was started.
 		return {
 			failure: `Child ${record.subagentId} could not be opened in a ${options.host.kind} panel (${errorMessage(error)}); a panel may have been created, so close it if it is still there`,
 		};
 	}
+	const earlyExitAbort = new AbortController();
+	const combinedSignal = options.signal
+		? AbortSignal.any([options.signal, earlyExitAbort.signal])
+		: earlyExitAbort.signal;
+
+	let earlyExitObserved: HostObservation | undefined;
+	const probeInterval = setInterval(async () => {
+		try {
+			const obs = await attachment.observe();
+			if (obs.known && !obs.alive) {
+				earlyExitObserved = obs;
+				earlyExitAbort.abort();
+			}
+		} catch {}
+	}, 200);
+
 	let connected: boolean;
 	try {
-		connected = await options.waitForBridge(record.subagentId, options.signal);
+		connected = await options.waitForBridge(record.subagentId, combinedSignal);
 	} catch (error) {
 		options.diagnose?.(`bridge wait failed: ${errorMessage(error)}`);
 		connected = false;
+	} finally {
+		clearInterval(probeInterval);
 	}
 	if (connected) {
 		await bindPanel(
@@ -243,9 +247,6 @@ export async function openChildPanel(
 		);
 		return { handle: attachment };
 	}
-	// The child never dialed in, so the panel is closed again. A host that cannot confirm it is gone
-	// keeps the handle, so stop can try the close again, and the token, so a child that does come up
-	// can still be adopted. The handle does not block a later send.
 	const cleanup = await attachment.cleanup();
 	const observed = await attachment.observe();
 	if (!(observed.known && !observed.alive)) {
@@ -270,10 +271,10 @@ export async function openChildPanel(
 		undefined,
 		plan.runtimeIdentity,
 	);
-	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
+	const detail = earlyExitObserved?.detail ? ` (${earlyExitObserved.detail.trim()})` : "";
+	return { failure: `Child ${record.subagentId} never connected to the parent bridge${detail}` };
 }
 
-/** Creates the runtime directory if needed; the socket itself is 0600 in a 0700 directory. */
 export async function prepareRuntimeDirectory(
 	diagnose?: (message: string) => void,
 ): Promise<string> {
