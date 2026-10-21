@@ -106,6 +106,7 @@ const catalog: readonly { readonly name: string; readonly args: unknown }[] = [
 	{ name: "edit", args: { path: "a.ts", edits: [{ oldText: "alpha", newText: "beta" }] } },
 	{ name: "write", args: { path: "b.ts", content: "gamma" } },
 	{ name: "bash", args: { command: "echo hi" } },
+	{ name: "tool_search", args: { query: "agent" } },
 	{ name: "bg_bash_spawn", args: { command: "sleep 1" } },
 	{ name: "bg_bash_get", args: { id: "bash-1" } },
 	{ name: "bg_bash_stop", args: { id: "bash-1" } },
@@ -262,6 +263,16 @@ const frames: readonly {
 		resultText: "state: 0 names",
 	},
 	{
+		name: "tool_search",
+		args: { query: "agent" },
+		result: textToolResult("Loaded for next call:\n- agent_spawn: spawn", {
+			loaded: ["agent_spawn"],
+			alreadyAvailable: [],
+		}),
+		callText: "agent",
+		resultText: "agent_spawn",
+	},
+	{
 		name: "todo",
 		args: { operations: [{ action: "create", subject: "task one" }] },
 		result: textToolResult("created #1", {
@@ -323,6 +334,7 @@ describe("package-owned tool renderers", () => {
 		expect(schemaOf("read")).toEqual(["path", "offset", "limit"]);
 		expect(schemaOf("find")).toEqual(["pattern", "path", "exclude", "limit", "cursor"]);
 		expect(schemaOf("bash")).toEqual(["command", "timeout"]);
+		expect(schemaOf("tool_search")).toEqual(["query", "limit"]);
 		expect(schemaOf("bg_bash_spawn")).toEqual(["command", "timeout"]);
 		expect(schemaOf("bg_bash_get")).toEqual(["id", "keys"]);
 		expect(schemaOf("bg_bash_stop")).toEqual(["id"]);
