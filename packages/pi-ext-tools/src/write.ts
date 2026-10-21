@@ -14,7 +14,6 @@ import {
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
-	withMutationLock,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
@@ -355,19 +354,11 @@ export function registerWriteTool(pi: ExtensionAPI): ToolDefinition {
 		},
 		async execute(toolCallId, params: WriteArgs, signal, onUpdate, context) {
 			const path = filePath(params);
-
-			return await withMutationLock(context.cwd, signal, async () => {
-				const resolved = resolvePath(context.cwd, path);
-				const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
-				const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
-				const presentation = writePresentation(path, params, baseline);
-				return withWriteDetails(
-					result,
-					presentation.metrics,
-					presentation.view,
-					presentation.patch,
-				);
-			});
+			const resolved = resolvePath(context.cwd, path);
+			const baseline = path === "" ? { exists: false } : readTextIfSmall(resolved);
+			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
+			const presentation = writePresentation(path, params, baseline);
+			return withWriteDetails(result, presentation.metrics, presentation.view, presentation.patch);
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);

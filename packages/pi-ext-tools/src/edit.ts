@@ -13,7 +13,6 @@ import {
 	createToolPresentationRenderers,
 	isRecord,
 	type ToolPresentation,
-	withMutationLock,
 } from "@hheei/pi-ext-core";
 import * as Diff from "diff";
 import { type Static, Type } from "typebox";
@@ -313,14 +312,11 @@ export function registerEditTool(pi: ExtensionAPI): ToolDefinition {
 		async execute(toolCallId, params: EditArgs, signal, onUpdate, context) {
 			const path = filePath(params);
 			const operations = getEditOperations(params);
-
-			return await withMutationLock(context.cwd, signal, async () => {
-				const resolved = resolvePath(context.cwd, path);
-				const before = path === "" ? "" : readTextIfSmall(resolved);
-				const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
-				const presentation = editPresentation(before, path, operations);
-				return withEditDetails(result, presentation.metrics, presentation.view);
-			});
+			const resolved = resolvePath(context.cwd, path);
+			const before = path === "" ? "" : readTextIfSmall(resolved);
+			const result = await baseTool.execute(toolCallId, params, signal, onUpdate, context);
+			const presentation = editPresentation(before, path, operations);
+			return withEditDetails(result, presentation.metrics, presentation.view);
 		},
 	};
 	pi.registerTool(tool as ToolDefinition);
