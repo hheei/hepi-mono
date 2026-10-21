@@ -192,4 +192,94 @@ describe("session-ledger V3 folding", () => {
 		expect(foldLedger(mainBranch).observations.map((obs) => obs.id)).toEqual(["aaaa00000000"]);
 		expect(foldLedger(forkBranch).observations.map((obs) => obs.id)).toEqual(["bbbb00000000"]);
 	});
+
+	it("folds incrementally from a base snapshot", () => {
+		const obs1 = observation("aaaaaaaaaaaa", { sourceEntryIds: ["raw-1"] });
+		const obs2 = observation("bbbbbbbbbbbb", { sourceEntryIds: ["raw-2"] });
+		const ref1 = reflection("eeeeeeeeeeee", ["aaaaaaaaaaaa"]);
+		const entriesPart1 = [
+			textCustomMessage("raw-1", "aaaa"),
+			observationsRecordedEntry("om-aaaaaaaaaaaa", { observations: [obs1], coversUpToId: "raw-1" }),
+		];
+		const baseSnapshot = foldLedger(entriesPart1);
+
+		const allEntries = [
+			...entriesPart1,
+			textCustomMessage("raw-2", "bbbb"),
+			reflectionsRecordedEntry("om-eeeeeeeeeeee", { reflections: [ref1], coversUpToId: "raw-2" }),
+			observationsRecordedEntry("om-bbbbbbbbbbbb", { observations: [obs2], coversUpToId: "raw-2" }),
+		];
+
+		const incrementalFold = foldLedger(allEntries, {
+			base: { snapshot: baseSnapshot, fromEntryId: "om-aaaaaaaaaaaa" },
+		});
+		const fullFold = foldLedger(allEntries);
+
+		expect(incrementalFold.observations.map((o) => o.id)).toEqual(
+			fullFold.observations.map((o) => o.id),
+		);
+		expect(incrementalFold.reflections.map((r) => r.id)).toEqual(
+			fullFold.reflections.map((r) => r.id),
+		);
+		expect(incrementalFold.activeObservations.map((o) => o.id)).toEqual(
+			fullFold.activeObservations.map((o) => o.id),
+		);
+		expect(incrementalFold.activeReflections.map((r) => r.id)).toEqual(
+			fullFold.activeReflections.map((r) => r.id),
+		);
+	});
+
+	it("discards snapshot and folds from scratch when base entry is from a sibling branch", () => {
+		const siblingObs = observation("ssssssssssss", { sourceEntryIds: ["raw-sibling"] });
+		const branchObs = observation("bbbbbbbbbbbb", { sourceEntryIds: ["raw-branch"] });
+
+		const siblingEntries = [
+			textCustomMessage("raw-sibling", "sibling"),
+			observationsRecordedEntry("sibling-ledger", {
+				observations: [siblingObs],
+				coversUpToId: "raw-sibling",
+			}),
+		];
+		const siblingSnapshot = foldLedger(siblingEntries);
+
+		const currentBranch = [
+			textCustomMessage("raw-branch", "branch"),
+			observationsRecordedEntry("branch-ledger", {
+				observations: [branchObs],
+				coversUpToId: "raw-branch",
+			}),
+		];
+
+		// Provide sibling snapshot whose fromEntryId ("sibling-ledger") is NOT in currentBranch
+		const folded = foldLedger(currentBranch, {
+			base: { snapshot: siblingSnapshot, fromEntryId: "sibling-ledger" },
+		});
+
+		// Must NOT contain sibling observations!
+		expect(folded.observations.map((o) => o.id)).toEqual(["bbbbbbbbbbbb"]);
+		expect(folded.observationsById.get("ssssssssssss")).toBeUndefined();
+	});
+
+	it("discards snapshot and folds from scratch when requested upToEntryId is before base entry", () => {
+		const obs1 = observation("aaaaaaaaaaaa", { sourceEntryIds: ["raw-1"] });
+		const obs2 = observation("bbbbbbbbbbbb", { sourceEntryIds: ["raw-2"] });
+
+		const entries = [
+			textCustomMessage("raw-1", "aaaa"),
+			observationsRecordedEntry("om-1", { observations: [obs1], coversUpToId: "raw-1" }),
+			textCustomMessage("raw-2", "bbbb"),
+			observationsRecordedEntry("om-2", { observations: [obs2], coversUpToId: "raw-2" }),
+		];
+		const snapshotAtOm2 = foldLedger(entries);
+
+		// Asking to fold only up to "om-1", which is BEFORE snapshotAtOm2 ("om-2")
+		const folded = foldLedger(entries, {
+			upToEntryId: "om-1",
+			base: { snapshot: snapshotAtOm2, fromEntryId: "om-2" },
+		});
+
+		// Must only contain obs1, not obs2!
+		expect(folded.observations.map((o) => o.id)).toEqual(["aaaaaaaaaaaa"]);
+		expect(folded.observationsById.get("bbbbbbbbbbbb")).toBeUndefined();
+	});
 });

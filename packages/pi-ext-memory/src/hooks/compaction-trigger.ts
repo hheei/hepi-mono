@@ -133,7 +133,7 @@ async function runIdleCompaction(
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries) return;
 		if (!latestGateEnabled(entries)) return;
-		if (!hasIdleCompactionWork(entries, minTokens)) return;
+		if (!hasIdleCompactionWork(entries, minTokens, runtime)) return;
 
 		const hasUI = ctx.hasUI;
 		const ui = ctx.ui;
@@ -234,9 +234,13 @@ export function canPiCompact(
 export function hasIdleCompactionWork(
 	entries: Entry[],
 	minTokens = IDLE_COMPACTION_MIN_TOKENS,
+	runtime?: Runtime,
 ): boolean {
 	if (countSourceEntriesAfterCompaction(entries) === 0) return false;
-	const folded = foldLedger(entries);
+	const folded =
+		typeof runtime?.foldWithSnapshot === "function"
+			? runtime.foldWithSnapshot(entries)
+			: foldLedger(entries, runtime?.ledgerSnapshot ? { base: runtime.ledgerSnapshot } : {});
 	if (folded.activeObservations.length === 0 && folded.activeReflections.length === 0) return false;
 	return canPiCompact(entries, minTokens);
 }
@@ -298,7 +302,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const entries = ctx.sessionManager?.getBranch?.() as Entry[] | undefined;
 		if (!entries || !latestGateEnabled(entries)) return;
 		const minTokens = resolveIdleCompactionMinTokens(pi);
-		const hasWork = hasIdleCompactionWork(entries, minTokens);
+		const hasWork = hasIdleCompactionWork(entries, minTokens, runtime);
 		if (!hasWork && !idleNoticeBlocks(entries)) return;
 
 		const nowSec = Math.floor(Date.now() / 1000);
@@ -325,7 +329,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 				runtime.idleNoticeEmitted = true;
 				return;
 			}
-			if (!hasIdleCompactionWork(currentEntries, minTokens)) return;
+			if (!hasIdleCompactionWork(currentEntries, minTokens, runtime)) return;
 			appendCompactionNotice(
 				`The conversation has idled for ${formatIdleDuration(seconds)}. Next turn will compact context.`,
 			);
@@ -376,6 +380,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		await evaluateAndScheduleIdleNotice(ctx);
 	});
 	pi.on("session_tree", async (_event, ctx) => {
+		runtime.invalidateSnapshot();
 		await evaluateAndScheduleIdleNotice(ctx);
 	});
 	// Abort runs while compactInFlight is still set, so rearm on the next turn of the event loop.
@@ -420,7 +425,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 
 		const entries = ctx.sessionManager.getBranch() as Entry[];
 		const minTokens = resolveIdleCompactionMinTokens(pi);
-		if (!latestGateEnabled(entries) || !hasIdleCompactionWork(entries, minTokens)) {
+		if (!latestGateEnabled(entries) || !hasIdleCompactionWork(entries, minTokens, runtime)) {
 			dismissModelSwitch(ctx);
 			return;
 		}
@@ -454,7 +459,7 @@ export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): v
 		const minTokens = resolveIdleCompactionMinTokens(pi);
 		if (runtime.modelSwitchCompaction) {
 			dismissModelSwitch(ctx);
-			if (hasIdleCompactionWork(entries, minTokens)) {
+			if (hasIdleCompactionWork(entries, minTokens, runtime)) {
 				if (!hasPersistedIdleNotice(entries)) {
 					appendCompactionNotice("Switched model. Compacting context.");
 				}

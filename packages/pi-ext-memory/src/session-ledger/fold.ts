@@ -15,6 +15,13 @@ import {
 export type FoldLedgerOptions = {
 	/** Fold entries from branch root through this entry id, inclusive. Omit to fold through branch tip. */
 	upToEntryId?: string;
+	/** Incremental fold base snapshot from an earlier entry in the same branch. */
+	base?:
+		| {
+				readonly snapshot: FoldedLedger;
+				readonly fromEntryId: string;
+		  }
+		| undefined;
 };
 
 export type FoldedLedger = {
@@ -54,13 +61,34 @@ function isCustomEntry(entry: Entry, customType: string): boolean {
  * retained even when the dropped id is unknown at the time of folding.
  */
 export function foldLedger(entries: Entry[], options: FoldLedgerOptions = {}): FoldedLedger {
-	const observationsById = new Map<string, Observation>();
-	const reflectionsById = new Map<string, Reflection>();
-	const droppedObservationIds = new Set<string>();
-	const droppedReflectionIds = new Set<string>();
 	const endIdx = foldEndIndex(entries, options.upToEntryId);
 
-	for (let i = 0; i <= endIdx; i++) {
+	let validBase: { readonly snapshot: FoldedLedger; readonly fromEntryId: string } | undefined;
+	let startIdx = 0;
+
+	if (options.base) {
+		const baseIdx = entries.findIndex((entry) => entry.id === options.base?.fromEntryId);
+		// Base snapshot entry MUST exist on the current branch AND strictly precede or be at endIdx
+		if (baseIdx !== -1 && baseIdx <= endIdx) {
+			validBase = options.base;
+			startIdx = baseIdx + 1;
+		}
+	}
+
+	const observationsById = validBase
+		? new Map(validBase.snapshot.observationsById)
+		: new Map<string, Observation>();
+	const reflectionsById = validBase
+		? new Map(validBase.snapshot.reflectionsById)
+		: new Map<string, Reflection>();
+	const droppedObservationIds = validBase
+		? new Set(validBase.snapshot.droppedObservationIds)
+		: new Set<string>();
+	const droppedReflectionIds = validBase
+		? new Set(validBase.snapshot.droppedReflectionIds)
+		: new Set<string>();
+
+	for (let i = startIdx; i <= endIdx; i++) {
 		const entry = entries[i];
 		if (!entry) continue;
 

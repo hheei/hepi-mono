@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
 	getRuntimeSettingsRegistry,
 	isRecord,
@@ -7,7 +8,6 @@ import {
 	provideService,
 	registerExtensionLifecycle,
 	registerSettings,
-	setPreTurnWorkingStatus,
 } from "@hheei/pi-ext-core";
 import { registerOmCommand } from "./commands/om.js";
 import { transformHindsightMarkdown } from "./hindsight/markdown.js";
@@ -26,6 +26,10 @@ import { registerCompactionTrigger } from "./hooks/compaction-trigger.js";
 import { registerConsolidationTrigger } from "./hooks/consolidation-trigger.js";
 import { createMemoryInfo } from "./info.js";
 import { Runtime } from "./runtime.js";
+import {
+	hydrateCompactionCheckpoints,
+	installCompactionCheckpointDedup,
+} from "./session-ledger/compaction-checkpoint.js";
 import {
 	countSourceEntriesAfterCompaction,
 	type Entry,
@@ -57,7 +61,6 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (hindsight === undefined || isSubagentProcess()) return;
-		const stopWorkingStatus = setPreTurnWorkingStatus("Recalling");
 		ctx?.ui?.setWorkingMessage?.("Recalling");
 		try {
 			const injected = await hindsight.beforeAgentStart(event);
@@ -67,7 +70,6 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 				truncated: injected.truncated,
 			});
 		} finally {
-			stopWorkingStatus();
 			ctx?.ui?.setWorkingMessage?.(undefined);
 		}
 	});
@@ -105,6 +107,10 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 		key: "@hheei/pi-ext-memory",
 		async start(context) {
 			const { extension, signal, resources } = context;
+			const uninstallCheckpointDedup = installCompactionCheckpointDedup(SessionManager);
+			resources.add("compaction-checkpoint-dedup", uninstallCheckpointDedup);
+			hydrateCompactionCheckpoints(extension.sessionManager);
+
 			const generation = await runtime.startSession(extension.cwd, signal);
 			resources.add("observational-memory-runtime", () => {
 				runtime.endSession(generation);
@@ -117,7 +123,10 @@ export default function observationalMemory(pi: ExtensionAPI): void {
 					if (!latestGateEnabled(branch) || runtime.compactInFlight || runtime.compactHookInFlight)
 						return undefined;
 					if (countSourceEntriesAfterCompaction(branch) === 0) return undefined;
-					const folded = foldLedger(branch);
+					const folded =
+						typeof runtime.foldWithSnapshot === "function"
+							? runtime.foldWithSnapshot(branch)
+							: foldLedger(branch);
 					if (folded.activeObservations.length === 0 && folded.activeReflections.length === 0)
 						return undefined;
 					const summary = renderSummary(folded.activeReflections, folded.activeObservations);

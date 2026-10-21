@@ -1,4 +1,5 @@
 export * from "./budget.js";
+export * from "./compaction-checkpoint.js";
 export * from "./fold.js";
 export * from "./progress.js";
 export * from "./projection.js";
