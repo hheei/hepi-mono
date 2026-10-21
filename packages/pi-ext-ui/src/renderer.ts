@@ -127,7 +127,8 @@ function resolveToolCallSummary(params: {
 	// Tier 1: Host Native RenderCall Delegation
 	if (originalRenderCall !== undefined) {
 		try {
-			const upstreamLines = originalRenderCall(args, theme, context).render(120);
+			const upstreamContext: ToolRenderContext = { ...context, lastComponent: undefined };
+			const upstreamLines = originalRenderCall(args, theme, upstreamContext).render(120);
 			const firstNonEmpty = upstreamLines
 				.map((line) => stripTerminalSequences(line).trim())
 				.find((line) => line !== "");
@@ -447,9 +448,20 @@ function renderGenericResult(params: {
 			...renderOptions,
 			expanded: effectiveExpanded,
 		};
+		let lastUpstreamComponent: Component | undefined;
 		const lazyUpstreamComponent: Component = {
 			render(w: number): string[] {
-				return originalRenderResult(result, effectiveOptions, theme, context).render(w);
+				try {
+					const upstreamContext: ToolRenderContext = {
+						...context,
+						lastComponent: lastUpstreamComponent,
+					};
+					const comp = originalRenderResult(result, effectiveOptions, theme, upstreamContext);
+					lastUpstreamComponent = comp;
+					return comp.render(w);
+				} catch {
+					return rawOutput !== "" ? rawOutput.split("\n") : [];
+				}
 			},
 			invalidate(): void {},
 		};

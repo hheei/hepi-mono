@@ -1787,4 +1787,51 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const fullText = rows.join("\n");
 		expect(fullText).toMatch(/… \(\d+ more lines\)/);
 	});
+	test("isolates lastComponent so upstream renderResult expecting Container.clear does not fail with ToolView", () => {
+		const resolve = setupResolver();
+		let clearCalls = 0;
+		const mockContainer = {
+			clear() {
+				clearCalls += 1;
+			},
+			render: () => ["upstream output"],
+			invalidate: () => {},
+		};
+
+		const renderers = resolve("mcp__test", () => ({
+			renderCall: () => new Text("mcp__test call", 0, 0),
+			renderResult: (_result, _options, _theme, context) => {
+				const comp = (context.lastComponent as typeof mockContainer | undefined) ?? mockContainer;
+				comp.clear();
+				return comp;
+			},
+		}))!;
+
+		const ctx = createMockContext();
+		// Frame 1: creates ToolView
+		const resultView1 = renderers.renderResult!(
+			{ content: [{ type: "text", text: "output" }], details: undefined },
+			{ expanded: true, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+		resultView1.setFoldLevel(1);
+		expect(resultView1.render(80).join("\n")).toContain("upstream output");
+		expect(clearCalls).toBe(1);
+
+		// Frame 2: host passes previous resultView1 as context.lastComponent
+		const ctx2 = createMockContext({
+			lastComponent: resultView1,
+		});
+		const resultView2 = renderers.renderResult!(
+			{ content: [{ type: "text", text: "output" }], details: undefined },
+			{ expanded: true, isPartial: false },
+			plainTheme,
+			ctx2,
+		) as ToolView;
+		resultView2.setFoldLevel(1);
+		expect(() => resultView2.render(80)).not.toThrow();
+		expect(resultView2.render(80).join("\n")).toContain("upstream output");
+		expect(clearCalls).toBe(2);
+	});
 });

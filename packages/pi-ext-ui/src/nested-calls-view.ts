@@ -237,6 +237,7 @@ export class NestedCallsView implements Component, Collapsible {
 				: context.toolCallId;
 		return {
 			...context,
+			lastComponent: undefined,
 			args: "args" in call ? (call as { args?: unknown }).args : undefined,
 			toolCallId,
 			durationMs: call.durationMs,
