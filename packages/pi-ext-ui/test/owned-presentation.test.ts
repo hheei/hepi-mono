@@ -46,8 +46,8 @@ function host(copyToClipboard = vi.fn(async (_text: string) => {})) {
 	} as unknown as ExtensionAPI;
 	return {
 		pi,
-		register() {
-			registerCollapsibleToolRenderer(pi, { copyToClipboard });
+		register(overrides?: import("../src/renderer.js").CollapsibleToolRendererOptions) {
+			registerCollapsibleToolRenderer(pi, { copyToClipboard, ...overrides });
 		},
 		resolve(name: string, native?: ToolRenderers) {
 			if (resolver === undefined) throw new Error("UI not registered");
@@ -110,7 +110,11 @@ describe("optional owner presentation consumer", () => {
 		expect(view.render(80).join("\n")).toContain("Bridge denied");
 		expect(view.render(80).join("\n")).not.toContain("id: work-1");
 		const unrelated: ToolRenderers = { renderCall: () => native.renderCall!({}, theme, context()) };
-		expect(h.resolve("unrelated", unrelated)).toBe(unrelated);
+		expect(h.resolve("unrelated", unrelated).renderShell).toBe("self");
+
+		const optOutHost = host();
+		optOutHost.register({ catchAll: false });
+		expect(optOutHost.resolve("unrelated", unrelated)).toBe(unrelated);
 	});
 
 	test("nested calls use owner summary, full body and copy payload", () => {

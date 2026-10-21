@@ -326,26 +326,27 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(rendered.join("\n")).toContain("const a = 1;");
 	});
 
-	test("leaves ordinary tools to Pi unless explicitly opted in", () => {
-		const resolve = setupResolver();
+	test("leaves ordinary tools to Pi when catchAll is false", () => {
+		const resolve = setupResolver({ catchAll: false });
 		const upstream: ToolRenderers = { renderCall: () => new Text("native", 0, 0) };
 		expect(resolve("grep", () => upstream)).toBe(upstream);
-		const optedIn = setupResolver({ tools: ["grep"] })("grep", () => undefined);
+		const optedIn = setupResolver({ catchAll: false, tools: ["grep"] })("grep", () => undefined);
 		expect(optedIn?.renderShell).toBe("self");
 	});
 
-	test("Keeps ordinary tools native and intercepts specialized tools", () => {
+	test("intercepts all unowned tools by default with generic ToolView fallback", () => {
 		const resolve = setupResolver();
 		const otherUpstream: ToolRenderers = {
 			renderCall: () => new Text("other call", 0, 0),
 		};
-		expect(resolve("bash", () => otherUpstream)).toBe(otherUpstream);
+		expect(resolve("bash", () => otherUpstream)?.renderShell).toBe("self");
 
 		for (const toolName of SPECIALIZED_TOOL_RENDERERS) {
 			const renderers = resolve(toolName, () => undefined);
 			expect(renderers?.renderShell).toBe("self");
 		}
-		expect(resolve("read", () => undefined)).toBeUndefined();
+		expect(resolve("read", () => undefined)?.renderShell).toBe("self");
+		expect(resolve("custom_random_tool", () => undefined)?.renderShell).toBe("self");
 	});
 
 	test("codemode adapter: Level 0 shows nested calls without top ✓, Level 1 shows script & cleaned output", () => {
@@ -1607,8 +1608,12 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const rows = callView.render(80);
 		expect(rows[0]).toContain("read_mcp_resource");
 
-		// Regular unowned tools without match/options do NOT intercept
-		expect(resolve("custom_random_tool", () => undefined)).toBeUndefined();
+		// Regular unowned tools do NOT intercept when catchAll is false
+		expect(
+			setupResolver({ catchAll: false })("custom_random_tool", () => undefined),
+		).toBeUndefined();
+		// But with default catchAll, they are framed
+		expect(resolve("custom_random_tool", () => undefined)?.renderShell).toBe("self");
 	});
 
 	test("preserves raw arguments in completed generic result Level 1", () => {

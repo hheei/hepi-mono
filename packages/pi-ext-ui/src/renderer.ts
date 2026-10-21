@@ -233,9 +233,6 @@ function shouldInterceptTool(
 	toolName: string,
 	options: CollapsibleToolRendererOptions | undefined,
 ): boolean {
-	if (options?.catchAll === true) {
-		return options.match !== undefined ? options.match(toolName) : true;
-	}
 	if (options?.match?.(toolName)) {
 		return true;
 	}
@@ -243,7 +240,10 @@ function shouldInterceptTool(
 	if (toolList !== undefined) {
 		return toolList.includes(toolName);
 	}
-	return SPECIALIZED_TOOL_SET.has(toolName) || isMcpTool(toolName);
+	if (options?.catchAll === false) {
+		return SPECIALIZED_TOOL_SET.has(toolName) || isMcpTool(toolName);
+	}
+	return true;
 }
 
 function renderGenericResult(params: {
