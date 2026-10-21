@@ -1751,4 +1751,35 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const fullText = rows.join("\n");
 		expect(fullText).toContain("[Output truncated: showing 64KB of 88KB]");
 	});
+
+	test("wraps long line content across multiple rows in Level 1 with rail prefix", () => {
+		const longText = "word ".repeat(30).trim();
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "wrap_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: longText }],
+			defaultLevel: 1,
+		});
+		const rows = view.render(40);
+		expect(rows.length).toBeGreaterThan(3);
+		expect(rows[0]).toContain("wrap_tool");
+		for (let i = 1; i < rows.length; i++) {
+			expect(rows[i]).toMatch(/^▎ /);
+			expect(visibleWidth(rows[i] ?? "")).toBeLessThanOrEqual(40);
+		}
+	});
+
+	test("wraps long lines and respects visual line cap with omitted hint in Level 1", () => {
+		const longLines = Array.from({ length: 5 }, (_, i) => `line ${i} ${"data ".repeat(20)}`);
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "capped_wrap_tool", status: "ok" },
+			sections: [{ railToken: "dim", content: longLines, maxLines: 6 }],
+			defaultLevel: 1,
+		});
+		const rows = view.render(40);
+		expect(rows.length).toBeLessThanOrEqual(8);
+		const fullText = rows.join("\n");
+		expect(fullText).toMatch(/… \(\d+ more lines\)/);
+	});
 });

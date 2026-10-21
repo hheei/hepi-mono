@@ -190,9 +190,12 @@ export class DiffView implements Component {
 		const rows: string[] = [];
 		if (!this.#parsed.ok) rows.push(this.#theme.fg("warning", `! ${this.#parsed.diagnostic}`));
 		for (const raw of (this.#rawText ?? "").split(/\r?\n/)) {
-			rows.push(this.#theme.fg("dim", raw));
+			const wrapped = wrapTextWithAnsi(raw, width);
+			for (const line of wrapped.length > 0 ? wrapped : [""]) {
+				rows.push(this.#theme.fg("dim", line));
+			}
 		}
-		return rows.map((row) => truncateToWidth(row, width, "…"));
+		return rows;
 	}
 
 	#renderDiff(width: number, hunks: readonly DiffHunk[]): string[] {

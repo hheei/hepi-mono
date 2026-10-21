@@ -93,4 +93,18 @@ describe("MessageView", () => {
 			"    two",
 		]);
 	});
+
+	test("wraps long preview and body lines across multiple rows", () => {
+		const longLine = "very long line ".repeat(10).trim();
+		const message = view({
+			preview: [longLine],
+			body: [longLine],
+		});
+		message.toggle();
+		const rows = message.render(40);
+		expect(rows.length).toBeGreaterThan(6);
+		for (const row of rows.slice(1)) {
+			expect(row.startsWith("  ")).toBe(true);
+		}
+	});
 });

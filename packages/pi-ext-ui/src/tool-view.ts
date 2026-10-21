@@ -9,6 +9,7 @@ import {
 	type TuiMouseEventResult,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 export type FoldLevel = 0 | 1 | 2;
@@ -499,12 +500,29 @@ export class ToolView implements Component {
 			} = resolveRows(section.content, innerWidth, toContentRows);
 			const cap =
 				level === 1 ? (section.maxLines ?? DEFAULT_MAX_SECTION_LINES) : MAX_LEVEL2_SECTION_LINES;
-			const visibleLines =
-				Number.isFinite(cap) && rawLines.length > cap ? rawLines.slice(0, cap) : rawLines;
-			const omittedCount = rawLines.length - visibleLines.length;
 
-			for (const line of visibleLines) {
-				output.push(truncate(rail + line, safeWidth));
+			const sectionRows: string[] = [];
+			let logicalLinesCount = 0;
+			for (const line of rawLines) {
+				const wrapped = wrapTextWithAnsi(line, innerWidth);
+				const chunks = wrapped.length > 0 ? wrapped : [""];
+				if (Number.isFinite(cap) && sectionRows.length + chunks.length > cap) {
+					const canTake = Math.max(0, cap - sectionRows.length);
+					for (let i = 0; i < canTake; i++) {
+						const chunk = chunks[i];
+						if (chunk !== undefined) {
+							sectionRows.push(chunk);
+						}
+					}
+					break;
+				}
+				sectionRows.push(...chunks);
+				logicalLinesCount++;
+			}
+			const omittedCount = rawLines.length - logicalLinesCount;
+
+			for (const row of sectionRows) {
+				output.push(truncate(rail + row, safeWidth));
 			}
 			if (omittedCount > 0 || isByteTruncated) {
 				const hint = isByteTruncated
