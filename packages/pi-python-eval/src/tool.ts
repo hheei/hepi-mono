@@ -3,6 +3,7 @@ import type { ExtensionAPI, ToolDefinition, ToolRenderers } from "@earendil-work
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
 	createOptionalToolRenderers,
+	createRenderThrottle,
 	createToolPresentationRenderers,
 	errorMessage,
 	formatDuration,
@@ -112,7 +113,10 @@ export function createPythonEvalTool(
 			const startedAt = performance.now();
 			let failure: string | undefined;
 			const runSignal = mergeAbortSignals(signal, deadline.signal);
-			const publish = (): void => {
+			// A cell prints in small pieces, and every piece used to rebuild the whole transcript.
+			// The repaint follows the shared streaming window instead; the result below stays the
+			// only authority for what the finished call reports.
+			const repaint = createRenderThrottle(() => {
 				onUpdate?.(
 					textToolResult(transcript(rows), {
 						format: PYTHON_EVAL_DETAILS_FORMAT,
@@ -120,6 +124,9 @@ export function createPythonEvalTool(
 						durationMs: Math.round(performance.now() - startedAt),
 					}),
 				);
+			});
+			const publish = (): void => {
+				repaint.request();
 			};
 			const append = (row: EvalRow, keep = false): void => {
 				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
@@ -235,6 +242,9 @@ export function createPythonEvalTool(
 			} finally {
 				activeRuns.delete(state);
 				deadline.dispose();
+				// The result below is the only authority for the finished cell, so the window closes
+				// here: a repaint after it is built would rewrite a settled body.
+				repaint.dispose();
 			}
 			if (omittedRows > 0) {
 				// The hint takes a row of its own rather than displacing one: the row it would push out is the

@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionUIContext, Skill } from "@earendil-works/pi-coding-agent";
 import {
 	type BackgroundDelivery,
+	createRenderThrottle,
 	errorMessage,
 	getBackgroundDelivery,
 	registerExtensionLifecycle,
@@ -366,7 +367,10 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			registerParentCommands(pi, manager);
 			const status = createSubagentStatus(context.ui, runtime.signal);
 			let refreshVersion = 0;
-			const refreshStatus = (): void => {
+			// The manager notifies on every lifecycle transition, and each notification costs an async
+			// list plus a full footer rebuild. The footer follows the shared streaming window instead;
+			// the first change still paints immediately and the last state is never dropped.
+			const repaintStatus = createRenderThrottle(() => {
 				if (runtime.signal.aborted) return;
 				const version = ++refreshVersion;
 				void manager
@@ -376,11 +380,13 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						status.refresh(children);
 					})
 					.catch((error: unknown) => diagnose(`Subagent status failed: ${errorMessage(error)}`));
-			};
+			});
+			const refreshStatus = (): void => repaintStatus.request();
 			const unsubscribe = manager.onChange(refreshStatus);
 			refreshStatus();
 			runtime.resources.add("subagent-status", () => {
 				unsubscribe();
+				repaintStatus.dispose();
 				status.dispose();
 			});
 			runtime.resources.add("subagent-manager", () => manager.closeLocalConnections());

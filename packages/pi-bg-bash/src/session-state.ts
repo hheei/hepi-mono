@@ -1,6 +1,10 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type ExtensionLifecycleContext, registerExtensionLifecycle } from "@hheei/pi-ext-core";
+import {
+	createRenderThrottle,
+	type ExtensionLifecycleContext,
+	registerExtensionLifecycle,
+} from "@hheei/pi-ext-core";
 import { startBashDelivery } from "./bash-delivery.js";
 import { BashJobRegistry } from "./bash-jobs.js";
 import { BashExecutionLedger, bashExecutionDirectory } from "./bash-ledger.js";
@@ -70,11 +74,16 @@ function startLifecycle(
 	state.jobs = jobs;
 	let stopDelivery = (): void => {};
 	const status = createBashStatus(context.extension.ui, context.signal);
-	const refreshStatus = (): void => {
+	// Terminal events and tool results both move the footer, and a command that exits while another
+	// is still streaming used to repaint the footer per event. The footer follows the shared
+	// streaming window; the first change still paints immediately and the last state is never lost.
+	const repaintStatus = createRenderThrottle(() => {
 		status.refresh(jobs);
-	};
+	});
+	const refreshStatus = (): void => repaintStatus.request();
 	context.resources.add("bash-jobs", async () => {
 		stopDelivery();
+		repaintStatus.dispose();
 		status.dispose();
 		try {
 			await jobs.dispose();

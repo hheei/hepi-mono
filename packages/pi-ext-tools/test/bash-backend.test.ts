@@ -361,3 +361,27 @@ test("bash reads its live settings for output tail and shell path", async (): Pr
 	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 	expect(text.endsWith("0123456789abcdef")).toBe(true);
 });
+
+test("bash collapses a burst of streamed chunks into few updates", async (): Promise<void> => {
+	const bash = bashTool();
+	let updates = 0;
+	const command = "i=1; while [ $i -le 200 ]; do echo line $i; i=$((i + 1)); done";
+	const result = await bash.execute(
+		"bash-stream-window",
+		{ command },
+		undefined,
+		() => {
+			updates += 1;
+		},
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
+	);
+	// 200 lines used to cost one update per stdout chunk. The streaming window rebuilds the tail
+	// snapshot on the shared 100ms repaint instead, so the count stays far below the line count.
+	expect(updates).toBeGreaterThan(0);
+	expect(updates).toBeLessThan(20);
+	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+	expect(text).toContain("line 200");
+});

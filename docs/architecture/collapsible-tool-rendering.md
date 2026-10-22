@@ -22,7 +22,8 @@ $$\text{Render State} = \text{Outcome} \otimes \text{Visibility} \otimes \text{C
 - **全周期防抖动与流式策略**：
   - **遵循全局折叠**：规划期（模型流式输出参数时）不搞特殊强制展开，严格跟随折叠态；
   - **流式参数紧凑显示**：折叠时格式固定为 `▸ ⋯ web_search · XX tokens`（估算值 `Math.ceil(chars / 4)`）；
-  - **严禁自创私有刷新时间窗口**：完全对齐 Pi 原生渲染层调度（`@earendil-works/pi-tui` 的 `TuiBase.MIN_RENDER_INTERVAL_MS = 16` 物理帧合并）。扩展层仅调用 `context.invalidate()`，交由 Pi 原生 `requestRender()` 合并驱动；
+  - **快路径对齐 Pi 原生调度**：交互与离散状态变更完全对齐 Pi 渲染层（`@earendil-works/pi-tui` 的 `TuiBase.MIN_RENDER_INTERVAL_MS = 16` 物理帧合并）。扩展层仅调用 `context.invalidate()` 或 `requestRender()`，交由 Pi 原生合帧驱动，**禁止**在快路径上自建定时器窗口；
+  - **流式路径使用统一 100ms 重绘窗口**：每个事件都重建整份快照的路径（子进程/内核输出、进度事件、高频状态源）必须使用 `@hheei/pi-ext-core` 的 `createRenderThrottle`，不得各自发明私有节流。窗口只决定「何时重建」，快照内容仍由回调读取当前状态生成；leading 立即绘制、窗口内合并、trailing 保底，执行收尾必须 `dispose()`。详见 [render-throttling.md](./render-throttling.md)；
   - 收缩态在规划期、运行期与结算期**恒定保持 1 行高度**，彻底杜绝视口抖动。
 
 ### 2.2 点击与 Ctrl+点击 三级状态转移矩阵 (Level 0 / 1 / 2)

@@ -137,4 +137,23 @@ describe("python_eval rendering through the host frame", () => {
 			frame.dispose();
 		}
 	});
+	test("collapses a burst of printed chunks into few updates", async (): Promise<void> => {
+		const frame = evalFrame();
+		try {
+			let updates = 0;
+			const result = await frame.execute("for i in range(200):\n    print(f'row {i}')", () => {
+				updates += 1;
+			});
+			// Every printed chunk used to rebuild the whole transcript. The streaming window now
+			// decides when to rebuild, so the update count stays far below the row count.
+			expect(updates).toBeGreaterThan(0);
+			expect(updates).toBeLessThan(30);
+			const component = frame.mount("for i in range(200):\n    print(f'row {i}')");
+			component.setExpanded(true);
+			component.updateResult({ ...result, isError: false });
+			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain("row 199");
+		} finally {
+			frame.dispose();
+		}
+	});
 });

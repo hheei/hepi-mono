@@ -104,6 +104,12 @@ export {
 	setSectionBullet,
 } from "./prompt-section.js";
 export { isRecord } from "./record.js";
+export type { RenderThrottle } from "./render-throttle.js";
+export {
+	createRenderThrottle,
+	HOST_FRAME_INTERVAL_MS,
+	STREAM_REPAINT_INTERVAL_MS,
+} from "./render-throttle.js";
 export type {
 	ColorFn,
 	ResponseStatusFeature,
