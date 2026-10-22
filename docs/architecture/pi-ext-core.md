@@ -142,6 +142,11 @@ core 还承载一批小而稳定的工具函数。它们进入 core 的唯一理
 - `isRecord()`：唯一 plain-object narrowing guard。数组不满足它，避免包内自行实现时出现
   “数组也是 record” 的分歧。
 - `expandHome()`：展开配置中的 `~` / `~/…`；caller 需要绝对路径时自行 resolve。
+- `createRenderThrottle()`：两层渲染窗口的唯一实现。快路径不经过它（交互与离散状态直接调用
+  `requestRender()` / `setStatus()`，交给 Pi 的 16ms 帧合并）；只在「一个事件重建整份快照」的
+  流式路径上使用，窗口为 100ms。它只决定何时重建，不持有快照：回调读取当前状态。leading 立即
+  绘制、窗口内合并、trailing 保底。`dispose()` 幂等且是正确性要求：工具返回的 result 是终态唯一
+  来源，迟到的绘制会改写已结算结果。详见 [render-throttling.md](./render-throttling.md)。
 - `setPromptSection()`：写入或删除 `event.systemPromptOptions.sections` 中的一个具名 section。Pi 按
   section diff 每个 request，所以扩展注入 prompt 时不得把文本拼到 `event.systemPrompt` 上：拼接会让
   Pi 每轮重发整段 prompt，也让注入内容无法被单独替换。section 名为小写标识符（可含数字、`-`、`_`），

@@ -15,6 +15,7 @@ import {
 	agentResultText,
 	BashOutputSink,
 	createOptionalToolRenderers,
+	createRenderThrottle,
 	formatDuration,
 	isRecord,
 	isSearchOnlyCommand,
@@ -178,11 +179,22 @@ function bashTimedOutResult(options: {
 function outputStreamer(
 	sink: BashOutputSink,
 	onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-): (data: Buffer) => void {
-	return (data) => {
-		sink.push(data);
+): { readonly push: (data: Buffer) => void; readonly finish: () => void } {
+	// Every chunk used to rebuild the whole tail snapshot and hand it to the host. Streaming
+	// output arrives far faster than anyone can read it, so the snapshot is rebuilt on the
+	// shared streaming window instead; the first chunk still paints immediately.
+	const repaint = createRenderThrottle(() => {
 		const output = sink.snapshot();
 		onUpdate?.(textToolResult(output.output, output));
+	});
+	return {
+		push: (data: Buffer): void => {
+			sink.push(data);
+			repaint.request();
+		},
+		// The result below is the only authority for the finished call, so the window closes here:
+		// a repaint after it is built would rewrite a settled body.
+		finish: repaint.dispose,
 	};
 }
 
@@ -271,7 +283,7 @@ async function runForeground(
 				command,
 				context.cwd,
 				{
-					onData: update,
+					onData: update.push,
 					...(signal === undefined ? {} : { signal }),
 					timeout: effectiveTimeout,
 				},
@@ -280,6 +292,7 @@ async function runForeground(
 	} catch (error) {
 		if (signal?.aborted) {
 			const aborted = sink.finish();
+			update.finish();
 			return bashAbortedResult({
 				output: aborted.output,
 				startedAt,
@@ -290,6 +303,9 @@ async function runForeground(
 		timedOut = true;
 		exitCode = null;
 	}
+	// The result is the only authority for the finished call, so the streaming window is closed
+	// before it is built: a late repaint would rewrite the settled body.
+	update.finish();
 	const output = sink.finish();
 	if (timedOut)
 		return bashTimedOutResult({

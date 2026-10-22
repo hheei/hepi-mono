@@ -116,9 +116,13 @@ test("a session start owns one Bash registry and teardown releases it", async ()
 	expect(started).not.toMatchObject({ isError: true });
 	const { id } = started.details as { id: string };
 	await current.fire("tool_result");
-	expect(current.context.ui.setStatus).toHaveBeenLastCalledWith(
-		"pi-bg-bash",
-		expect.stringContaining(id),
+	// The footer follows the shared streaming repaint window, so the first change lands immediately
+	// and the settled state arrives on the trailing paint rather than synchronously.
+	await vi.waitFor(() =>
+		expect(current.context.ui.setStatus).toHaveBeenLastCalledWith(
+			"pi-bg-bash",
+			expect.stringContaining(id),
+		),
 	);
 
 	// Teardown stops the owned process and waits for its exit before the session is gone.

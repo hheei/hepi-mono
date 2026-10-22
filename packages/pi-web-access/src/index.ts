@@ -32,7 +32,9 @@ import { createRequire } from "node:module";
 import { platform } from "node:os";
 import { join } from "node:path";
 import {
+	createRenderThrottle,
 	getRuntimeSettingsRegistry,
+	type RenderThrottle,
 	registerExtensionLifecycle,
 	registerSettings,
 } from "@hheei/pi-ext-core";
@@ -543,6 +545,8 @@ function resolveProvider(
 
 let widgetVisible = false;
 let widgetUnsubscribe: (() => void) | null = null;
+let widgetRepaint: RenderThrottle | undefined;
+let widgetRepaintContext: ExtensionContext | undefined;
 const pendingCurates = new Map<string, PendingCurate>();
 const activeCurators = new Map<string, CuratorServerHandle>();
 const glimpseWins = new Map<string, GlimpseWindow>();
@@ -801,6 +805,30 @@ function updateWidget(ctx: ExtensionContext): void {
 	ctx.ui.setWidget("web-activity", lines);
 }
 
+/**
+ * Activity events arrive per request start and per request end, and every one of them rebuilt the
+ * whole widget body. The widget follows the shared streaming window instead: the first event still
+ * paints immediately, and the last state is never dropped.
+ */
+function requestWidgetUpdate(ctx: ExtensionContext): void {
+	if (widgetRepaint === undefined || widgetRepaintContext !== ctx) {
+		widgetRepaint?.dispose();
+		widgetRepaintContext = ctx;
+		const created = createRenderThrottle(() => {
+			if (widgetRepaintContext === undefined) return;
+			updateWidget(widgetRepaintContext);
+		});
+		widgetRepaint = created;
+	}
+	widgetRepaint.request();
+}
+
+function disposeWidgetRepaint(): void {
+	widgetRepaint?.dispose();
+	widgetRepaint = undefined;
+	widgetRepaintContext = undefined;
+}
+
 function formatEntryLine(entry: ActivityEntry, theme: ExtensionTheme): string {
 	const typeStr = entry.type === "api" ? "API" : "GET";
 	const target =
@@ -842,10 +870,11 @@ function refreshUi(ctx: ExtensionContext): void {
 	// Unsubscribe before clear() to avoid callback with stale ctx
 	widgetUnsubscribe?.();
 	widgetUnsubscribe = null;
+	disposeWidgetRepaint();
 	activityMonitor.clear();
 	if (widgetVisible) {
 		// Re-subscribe with new ctx
-		widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
+		widgetUnsubscribe = activityMonitor.onUpdate(() => requestWidgetUpdate(ctx));
 		updateWidget(ctx);
 	}
 }
@@ -1636,11 +1665,12 @@ export default function (pi: ExtensionAPI) {
 		handler: async (ctx) => {
 			widgetVisible = !widgetVisible;
 			if (widgetVisible) {
-				widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
+				widgetUnsubscribe = activityMonitor.onUpdate(() => requestWidgetUpdate(ctx));
 				updateWidget(ctx);
 			} else {
 				widgetUnsubscribe?.();
 				widgetUnsubscribe = null;
+				disposeWidgetRepaint();
 				ctx.ui.setWidget("web-activity", undefined);
 			}
 		},
@@ -1672,6 +1702,7 @@ export default function (pi: ExtensionAPI) {
 		// Unsubscribe before clear() to avoid callback with stale ctx
 		widgetUnsubscribe?.();
 		widgetUnsubscribe = null;
+		disposeWidgetRepaint();
 		activityMonitor.clear();
 		widgetVisible = false;
 	});
