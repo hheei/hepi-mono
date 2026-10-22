@@ -249,3 +249,5 @@ export async function runJsDiffUpdate(
 		}
 	}
 }
+
+export { diagnoseRejectedHunk } from "./jsdiff-matching.js";

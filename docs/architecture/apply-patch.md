@@ -12,6 +12,7 @@
 - 每个 path 独立 Publish：sibling 临时文件 + replace/remove 确认后才是 Changed。已确认 path 不撤回。
 - 同一 `Update File` 的 hunk 依 patch 顺序作用于同一 staging copy。失败 hunk 记为 Rejected，但不阻止后续 hunk 尝试；至少一个 hunk 成功时，以成功 hunk 的 staging 结果只 Publish 一次，并把该 operation 标为 `partial`。没有 hunk 成功时该 path 为 Rejected，原档不动。多个没有 `Move to` 的 `Update File` 按 patch 顺序作用于同一文件。`Update + Move to` 是 dest Publish 与 source delete 两次独立 mutation。
 - live progress 阶段为 `parsed`、`publishing` 与 `done`。model-time preview 与 `parsed` 都不代表已验证或已 Publish。
+- progress 的每一行 `addedLines`/`removedLines` 描述**该 operation 自己的结果**，不是 request 请求的行数：`pending` 行预览即将写入的行，`applied`/`fuzzy`/`partial` 报告真正落盘的行（`partial` 只计成功 hunk），`rejected`/`not_applied` 报告 0，`unconfirmed` 也报告 0 因为没有任何行数被确认（该行仍以 `󰘥` 表示写入结果未知，模型必须先 `read`，不得据此认为未写入）。header 的 `+/-` 是各行 delta 之和，所以它与表格始终一致；`changedPaths` 只来自 confirmed rows，因此模型不会在 Publish 之前读到某个 path 已变更。
 - 完成后的 TUI 只读取实际结果。展开的 diff 是 Publish 当时的稳定 hunk snapshot，不重读可能已变化的 workspace。
 
 ### 验证与并发
@@ -19,6 +20,7 @@
 - 语法错误、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。
 - patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
+- Rejected hunk 的行号描述 **patch 执行完后的文件**，不是拒绝发生那一刻的中间 buffer：同一 operation 内后续 hunk 会插入/删除行，后续 operation 也会 publish 自己的位移。诊断在全部 hunk 与 operation 结束后针对最终内容重新定位，所以 `candidateStartLines` 与 hint 行号都能被模型直接在 `read` 结果里找到。重新定位只在定位本身成功时改写行号；定位失败时保留原诊断，不伪造坐标。
 - `@@ 文本` 是顺序定位锚点，不是注释；后续 hunk 只在锚点限定范围匹配，锚点不存在时不得退回全文搜索。`*** End of File` 将匹配限定在文件末尾。没有内容 hunk 的 `Update File` + `Move to` 是纯移动，保留源文件字节。
 - Update 保留源文件换行风格与末尾换行状态，未修改的混合换行行不应被全局归一化。
 - 发布前重新核对已读取的源基线；确定的外部修改归为 Rejected，不覆盖或删除该内容。Move 目标确认发布后，删除源前仍核对源；此时冲突保留已发布目标并报告源拒绝，不回滚目标。
@@ -160,7 +162,7 @@ warning glyph `󰪠` 用于 Changed+Rejected partial；Unconfirmed/NotApplied �
 
 聚焦测试至少覆盖：
 
-1. V4A 重复 exact context 不能再静默选择最早位置；返回 one-based ambiguity candidates，workspace 不变。
+1. V4A 重复 exact context 不能再静默选择最早位置；返回 one-based ambiguity candidates，workspace 不变；同一 operation 内后续 hunk、以及后续 operation 造成位移后，candidates 仍指向最终文件的实际行。
 2. context-not-found 且 fuzzy disabled、以及 fuzzy first-fit 成功的 typed diagnostics、模型 recovery text 和 `isError`。
 3. 同 operation 的成功 hunk 按顺序 Publish 一次、失败 hunk 保留 diagnostics；零个成功 hunk 时整档不 Publish。
 4. fuzzy applied result 保存 line range，不保存 score；ordinary exact 不扩大模型内容。

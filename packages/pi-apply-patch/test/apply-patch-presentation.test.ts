@@ -71,6 +71,39 @@ describe("apply_patch owned presentation", () => {
 		expect(second.collapsedRows).toEqual(second.sections?.[0]?.content);
 	});
 
+	test("a live frame counts the rows in play and a rejected row carries no delta", () => {
+		const details = {
+			status: "success",
+			changedPaths: [],
+			// The executor sums the rows, so the header total is the same sum the table shows.
+			addedLines: 5,
+			removedLines: 3,
+			operations: [
+				{ kind: "update", path: "a.txt", status: "applied", addedLines: 1, removedLines: 1 },
+				{ kind: "update", path: "b.txt", status: "pending", addedLines: 4, removedLines: 2 },
+				{ kind: "add", path: "taken.txt", status: "rejected", addedLines: 0, removedLines: 0 },
+			],
+			applied: [],
+			rejected: [],
+			unconfirmed: [],
+			notApplied: [],
+		};
+		const ctx = context({ patch: "*** Begin Patch" }, { isPartial: true });
+		const presentation = applyPatchPresentation(
+			ctx.args,
+			textToolResult("", details),
+			plainTheme,
+			ctx,
+		);
+		// The live header counts the paths still in play, not the paths that have already landed.
+		expect(presentation.summary).toBe("modify 2 files (+5 -3)");
+		expect(presentation.status).toBe("running");
+		const live = rows(presentation);
+		expect(live).toContain("󰄴 modify a.txt (+1 -1)");
+		expect(live).toContain("󰄰 modify b.txt (+4 -2)");
+		expect(live).toContain("󰅚 create taken.txt");
+	});
+
 	test("a partial result keeps operation rows, snapshot rows and candidate lines", () => {
 		const details = {
 			status: "partial",

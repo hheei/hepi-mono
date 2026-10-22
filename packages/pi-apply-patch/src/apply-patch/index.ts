@@ -22,6 +22,7 @@ export type {
 	PatchHunkOutcome,
 	PreparedPatchUpdate,
 } from "./outcome.js";
+export { CONFIRMED_STATUSES } from "./outcome.js";
 export {
 	compileV4aUpdateToUnifiedDiff,
 	createV4aPreviewCursor,
