@@ -384,6 +384,72 @@ describe("apply-patch executor", () => {
 		});
 	});
 
+	test("reports a delta only for rows that wrote, and totals only those rows", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "kept.txt", "one\ntwo\n");
+		await save(root, "taken.txt", "already here\n");
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: kept.txt\n@@\n-one\n+ONE\n" +
+				"*** Add File: taken.txt\n+alpha\n+beta\n+gamma\n" +
+				"*** Update File: missing.txt\n@@\n-x\n+y\n+z\n" +
+				"*** End Patch",
+		});
+
+		// A rejected row reports no delta: the request asked for those bytes, but none were written.
+		expect(result.operations).toEqual([
+			expect.objectContaining({
+				path: "kept.txt",
+				status: "applied",
+				addedLines: 1,
+				removedLines: 1,
+			}),
+			expect.objectContaining({
+				path: "taken.txt",
+				status: "rejected",
+				addedLines: 0,
+				removedLines: 0,
+			}),
+			expect.objectContaining({
+				path: "missing.txt",
+				status: "rejected",
+				addedLines: 0,
+				removedLines: 0,
+			}),
+		]);
+		// The totals are the sum of the rows, so the header can never claim bytes no row wrote.
+		expect(result.addedLines).toBe(1);
+		expect(result.removedLines).toBe(1);
+	});
+
+	test("a rejected row contributes no delta to live progress either", async () => {
+		const root = await temporaryDirectory();
+		await save(root, "kept.txt", "one\ntwo\n");
+		await save(root, "taken.txt", "already here\n");
+		const progress: ApplyPatchProgress[] = [];
+
+		await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			onProgress: (update) => progress.push(update),
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: kept.txt\n@@\n-one\n+ONE\n" +
+				"*** Add File: taken.txt\n+duplicate\n" +
+				"*** End Patch",
+		});
+
+		const done = progress.at(-1);
+		expect(done?.operations.map((operation) => operation.status)).toEqual(["applied", "rejected"]);
+		expect(done?.operations[1]).toMatchObject({ addedLines: 0, removedLines: 0 });
+		expect(done?.addedLines).toBe(1);
+		expect(done?.removedLines).toBe(1);
+	});
+
 	test("moves a partially applied update after publishing successful hunks", async () => {
 		const root = await temporaryDirectory();
 		await save(root, "source.txt", "one\ntwo\nthree\n");
@@ -433,6 +499,41 @@ describe("apply-patch executor", () => {
 			},
 		]);
 		expect(await load(root, "value.txt")).toBe("same\nkeep\nsame\nkeep\n");
+	});
+
+	test("renumbers a rejection when a later operation shifts the same file", async () => {
+		const root = await temporaryDirectory();
+		const lines = Array.from({ length: 30 }, (_value, index) => `line ${index + 1}`);
+		lines[9] = "dup";
+		lines[10] = "X";
+		lines[14] = "dup";
+		lines[15] = "X";
+		await save(root, "value.txt", `${lines.join("\n")}\n`);
+
+		const result = await applyPatchInWorkspace({
+			workspaceRoot: root,
+			policy: noFuzzy,
+			patch:
+				"*** Begin Patch\n" +
+				"*** Update File: value.txt\n@@\n dup\n-X\n+changed\n" +
+				"*** Update File: value.txt\n@@\n line 1\n+A\n+B\n+C\n" +
+				"*** End Patch",
+		});
+		// The candidate lines describe the published file, where the three inserted lines above
+		// already pushed both duplicates down.
+		expect(result.rejected).toMatchObject([
+			{
+				paths: ["value.txt"],
+				diagnostics: [{ kind: "ambiguous_exact", hunkIndex: 1, candidateStartLines: [13, 18] }],
+			},
+		]);
+		const published = (await load(root, "value.txt")).split("\n");
+		expect(
+			published.map((text, index) => [index + 1, text]).filter(([, text]) => text === "dup"),
+		).toEqual([
+			[13, "dup"],
+			[18, "dup"],
+		]);
 	});
 
 	test("applies earlier operation when later operation fails", async () => {

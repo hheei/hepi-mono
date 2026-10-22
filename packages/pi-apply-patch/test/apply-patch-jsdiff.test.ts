@@ -141,6 +141,30 @@ describe("apply-patch jsdiff matching", () => {
 		expect(new TextDecoder().decode(result.after)).toBe(before);
 	});
 
+	test("numbers a rejected hunk against the file the operation leaves behind", () => {
+		const lines = Array.from({ length: 20 }, (_value, index) => `line ${index + 1}`);
+		lines[9] = "dup";
+		lines[10] = "X";
+		lines[14] = "dup";
+		lines[15] = "X";
+		// The first hunk is ambiguous; the second adds three lines above it. Candidates taken before
+		// that shift would name lines 10 and 15 of a file the model never sees.
+		const result = prepare(
+			`${lines.join("\n")}\n`,
+			"@@\n dup\n-X\n+changed\n@@\n line 1\n+A\n+B\n+C",
+		);
+		expect(result.rejected).toEqual([
+			{ kind: "ambiguous_exact", hunkIndex: 1, candidateStartLines: [13, 18] },
+		]);
+		const after = new TextDecoder().decode(result.after).split("\n");
+		expect(
+			after.map((text, index) => [index + 1, text]).filter(([, text]) => text === "dup"),
+		).toEqual([
+			[13, "dup"],
+			[18, "dup"],
+		]);
+	});
+
 	test.each([
 		{
 			name: "similar context",

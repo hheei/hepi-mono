@@ -61,6 +61,17 @@ export type ApplyPatchOperationStatus =
 	| "unconfirmed"
 	| "not_applied";
 
+/**
+ * Rows whose delta is a confirmed write. `changedPaths` comes from these rows only, so the model
+ * never reads a path as changed before the Publish that changed it, and the header totals count
+ * these rows plus the pending preview.
+ */
+export const CONFIRMED_STATUSES: ReadonlySet<ApplyPatchOperationStatus> = new Set([
+	"applied",
+	"fuzzy",
+	"partial",
+]);
+
 export type ApplyPatchOperationProgress = {
 	readonly operationIndex: number;
 	readonly kind: "add" | "delete" | "update";
@@ -75,7 +86,6 @@ export type ApplyPatchOperationProgress = {
 
 export interface ApplyPatchProgress {
 	readonly stage: ApplyPatchProgressStage;
-	readonly files: number;
 	readonly addedLines: number;
 	readonly removedLines: number;
 	readonly operations: readonly ApplyPatchOperationProgress[];

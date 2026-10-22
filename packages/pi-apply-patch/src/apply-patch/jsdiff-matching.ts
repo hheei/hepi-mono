@@ -456,6 +456,37 @@ function snapshotFromChange(
 	});
 }
 
+/**
+ * Why one hunk cannot land in `content`, with any line numbers taken from that same content. Hunks
+ * and operations run in order over one growing copy, so a diagnostic computed when the hunk was
+ * tried would name lines that later writes had already moved; resolving it against the final file is
+ * what keeps the numbers readable by the model that has to retry.
+ */
+export function diagnoseRejectedHunk(
+	content: Uint8Array,
+	hunk: V4aUpdateHunk,
+	hunkIndex: number,
+): RejectedPatchHunk {
+	const lines = textLines(content);
+	const constraint = anchorConstraint(lines, hunk);
+	if ("kind" in constraint) return { ...constraint, hunkIndex };
+	const oldTexts = oldSideTexts(hunk);
+	const isEof = constraint.endOfFile === true || hunk.endOfFile === true;
+	const anchored = lines.slice(constraint.prefixLines);
+	const eofLines = isEof ? Math.max(0, anchored.length - oldTexts.length) : 0;
+	const prefixLines = constraint.prefixLines + eofLines;
+	const searchable = lines.slice(prefixLines).map((line) => line.text);
+	const tiered = findTieredStarts(searchable, oldTexts);
+	if (oldTexts.length > 0 && tiered.tier === "ambiguous")
+		return {
+			kind: "ambiguous_exact",
+			hunkIndex,
+			candidateStartLines: tiered.starts.map((start) => start + prefixLines + 1),
+		};
+	const hint = findDiagnosticHint(searchable, oldTexts, prefixLines);
+	return { kind: "context_not_found", hunkIndex, ...(hint === undefined ? {} : { hint }) };
+}
+
 function parseOneHunk(
 	parsePatch: (diff: string) => StructuredPatch[],
 	unifiedDiff: string,
@@ -490,7 +521,7 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 	if (data.before.length > MAX_FILE_SIZE)
 		throw new Error(`file_too_large: ${data.before.length} bytes`);
 	const outcomes: AppliedPatchHunk[] = [];
-	const rejected: RejectedPatchHunk[] = [];
+	const pending: { readonly hunkIndex: number; readonly hunk: V4aUpdateHunk }[] = [];
 	const snapshots: ApplyPatchHunkSnapshot[] = [];
 	let addedLines = 0;
 	let removedLines = 0;
@@ -508,7 +539,7 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 		}
 		const constraint = anchorConstraint(original, hunk);
 		if ("kind" in constraint) {
-			rejected.push({ ...constraint, hunkIndex });
+			pending.push({ hunkIndex, hunk });
 			continue;
 		}
 		const oldTexts = oldSideTexts(hunk);
@@ -529,11 +560,7 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 		);
 		const matchedStarts = tieredMatch.starts.map((start) => start + prefixLines);
 		if (oldLength > 0 && tieredMatch.tier === "ambiguous") {
-			rejected.push({
-				kind: "ambiguous_exact",
-				hunkIndex,
-				candidateStartLines: matchedStarts.map((start) => start + 1),
-			});
+			pending.push({ hunkIndex, hunk });
 			continue;
 		}
 		const sourceView = lfView(original);
@@ -608,21 +635,12 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 			parsed = parseOneHunk(parsePatch, input.unifiedDiff, hunk);
 		}
 		if ("kind" in parsed) {
-			rejected.push({ ...parsed, hunkIndex });
+			pending.push({ hunkIndex, hunk });
 			continue;
 		}
 		const parsedHunk = parsed.hunks[0];
 		if (parsedHunk === undefined) {
-			const hint = findDiagnosticHint(
-				searchable.map((line) => line.text),
-				oldTexts,
-				prefixLines,
-			);
-			rejected.push({
-				kind: "context_not_found",
-				hunkIndex,
-				...(hint !== undefined ? { hint } : {}),
-			});
+			pending.push({ hunkIndex, hunk });
 			continue;
 		}
 		if (oldLength === 0) {
@@ -646,16 +664,7 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 			match = "fuzzy";
 		}
 		if (applied === false) {
-			const hint = findDiagnosticHint(
-				searchable.map((line) => line.text),
-				oldTexts,
-				prefixLines,
-			);
-			rejected.push({
-				kind: "context_not_found",
-				hunkIndex,
-				...(hint !== undefined ? { hint } : {}),
-			});
+			pending.push({ hunkIndex, hunk });
 			continue;
 		}
 		const changes = structuredPatch("before", "after", sourceView, applied, undefined, undefined, {
@@ -721,6 +730,7 @@ export function prepareJsDiffUpdate(data: JsDiffUpdateInput): PreparedPatchUpdat
 		else mode ??= "exact";
 		after = rebuilt;
 	}
+	const rejected = pending.map((item) => diagnoseRejectedHunk(after, item.hunk, item.hunkIndex));
 	return {
 		after,
 		mode,

@@ -9,7 +9,7 @@ import {
 	publishPreparedFile,
 	sftpTimeoutMs,
 } from "./fs.js";
-import { runJsDiffUpdate } from "./jsdiff.js";
+import { diagnoseRejectedHunk, runJsDiffUpdate } from "./jsdiff.js";
 import type {
 	ApplyPatchAppliedOperation,
 	ApplyPatchHunkSnapshot,
@@ -20,6 +20,7 @@ import type {
 	PreparedPatchUpdate,
 	RejectedPatchHunk,
 } from "./outcome.js";
+import { CONFIRMED_STATUSES } from "./outcome.js";
 import {
 	findV4aPatchConflicts,
 	operationTouchedPaths,
@@ -83,26 +84,18 @@ function plannedDelta(
 	return hunkDelta(operation.hunks);
 }
 
+/** Totals sum the rows, so the header can never disagree with the table drawn below it. */
 function progressTotals(operations: readonly ApplyPatchOperationProgress[]): {
-	readonly files: number;
 	readonly addedLines: number;
 	readonly removedLines: number;
 } {
-	const paths = new Set<string>();
 	let addedLines = 0;
 	let removedLines = 0;
 	for (const operation of operations) {
-		paths.add(operation.path);
-		if (
-			operation.status === "applied" ||
-			operation.status === "fuzzy" ||
-			operation.status === "partial"
-		) {
-			addedLines += operation.addedLines;
-			removedLines += operation.removedLines;
-		}
+		addedLines += operation.addedLines;
+		removedLines += operation.removedLines;
 	}
-	return { files: paths.size, addedLines, removedLines };
+	return { addedLines, removedLines };
 }
 
 function splitTextLines(content: Uint8Array): readonly string[] {
@@ -349,6 +342,53 @@ async function applyUpdate(
 	}
 }
 
+/**
+ * A rejection reports lines of the file it left behind. Later operations on the same path publish
+ * their own shifts over those lines, so a diagnostic taken mid-patch can end up naming lines the
+ * model cannot find. Resolving it once more against the published file keeps the numbers usable.
+ * Best effort: an unreadable or vanished file keeps the original diagnostic.
+ */
+async function relocateRejections(
+	fs: PatchFs,
+	patch: V4aPatch,
+	rejected: ApplyPatchRejection[],
+	applied: readonly ApplyPatchAppliedOperation[],
+	signal?: AbortSignal,
+): Promise<void> {
+	for (const [position, entry] of rejected.entries()) {
+		if (entry.diagnostics.length === 0) continue;
+		const lastIndex = Math.max(...entry.operationIndices);
+		const shifted = applied.some(
+			(operation) =>
+				operation.operationIndex > lastIndex &&
+				operation.paths.some((path) => entry.paths.includes(path)),
+		);
+		if (!shifted) continue;
+		const path = entry.paths[0];
+		if (path === undefined) continue;
+		let content: Uint8Array;
+		try {
+			content = await fs.readFollow(path, signal);
+		} catch {
+			continue;
+		}
+		const update = entry.operationIndices
+			.map((index) => patch.operations[index])
+			.find((operation) => operation?.kind === "update");
+		if (update?.kind !== "update") continue;
+		const diagnostics = entry.diagnostics.map((diagnostic) => {
+			const hunk = update.hunks[diagnostic.hunkIndex - 1];
+			if (hunk === undefined) return diagnostic;
+			try {
+				return diagnoseRejectedHunk(content, hunk, diagnostic.hunkIndex);
+			} catch {
+				return diagnostic;
+			}
+		});
+		rejected[position] = Object.freeze({ ...entry, diagnostics: Object.freeze(diagnostics) });
+	}
+}
+
 export async function applyPatchInWorkspace(
 	options: ApplyPatchInWorkspaceOptions,
 ): Promise<ApplyPatchInWorkspaceResult> {
@@ -371,10 +411,34 @@ export async function applyPatchInWorkspace(
 			operationIndex: index,
 			kind: operation.kind,
 			path: operation.kind === "update" ? (operation.moveTo ?? operation.path) : operation.path,
-			...plannedDelta(operation, undefined),
+			// A pending row previews the bytes it is about to write; a row refused before execution
+			// reports none, because it wrote nothing.
+			...(rejectedIndices.has(index)
+				? { addedLines: 0, removedLines: 0 }
+				: plannedDelta(operation, undefined)),
 			status: rejectedIndices.has(index) ? "rejected" : "pending",
 		}),
 	);
+	/**
+	 * The bytes one row reports, which are always this operation's own outcome rather than the
+	 * request that asked for it. A pending row previews what it is about to write and a partial
+	 * update counts only the hunks that landed; a row refused, never sent or never confirmed
+	 * reports nothing, because nothing there is known to have been written.
+	 */
+	const rowDelta = (
+		current: ApplyPatchOperationProgress,
+		status: ApplyPatchOperationProgress["status"],
+		update?: V4aUpdateOperation,
+		prepared?: PreparedPatchUpdate,
+	): { readonly addedLines: number; readonly removedLines: number } => {
+		if (status !== "pending" && !CONFIRMED_STATUSES.has(status))
+			return { addedLines: 0, removedLines: 0 };
+		if (update !== undefined)
+			return update.kind === "update" && prepared !== undefined
+				? { addedLines: prepared.addedLines, removedLines: prepared.removedLines }
+				: plannedDelta(update, undefined);
+		return { addedLines: current.addedLines, removedLines: current.removedLines };
+	};
 	const setStatus = (
 		index: number,
 		status: ApplyPatchOperationProgress["status"],
@@ -387,11 +451,7 @@ export async function applyPatchInWorkspace(
 		if (current === undefined) throw new Error(`Missing patch progress operation: ${index}`);
 		progressOperations[index] = Object.freeze({
 			...current,
-			...(update === undefined
-				? {}
-				: update.kind !== "update" || prepared === undefined
-					? plannedDelta(update, undefined)
-					: { addedLines: prepared.addedLines, removedLines: prepared.removedLines }),
+			...rowDelta(current, status, update, prepared),
 			status,
 			...(status === "partial" && update !== undefined && outcome !== undefined
 				? {
@@ -546,6 +606,7 @@ export async function applyPatchInWorkspace(
 			markNotApplied(index, operation);
 		}
 	}
+	await relocateRejections(fs, patch, rejected, applied, options.signal);
 	emit("done");
 	const totals = progressTotals(progressOperations);
 	return Object.freeze({

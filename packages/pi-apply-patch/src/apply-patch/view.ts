@@ -188,6 +188,19 @@ export function applyPatchGlyph(status: string, theme: Theme): string {
 	return theme.fg(tone, glyph);
 }
 
+/**
+ * Distinct paths a live frame still has in play: a pending row previews the write it is about to
+ * make, and a row that certainly wrote nothing is not counted. The finished result counts
+ * `changedPaths` instead, so a preview never claims a path was changed.
+ */
+export function applyPatchFilesInPlay(operations: readonly ApplyPatchOperationProgress[]): number {
+	return new Set(
+		operations
+			.filter((operation) => operation.status !== "rejected" && operation.status !== "not_applied")
+			.map((operation) => operation.path),
+	).size;
+}
+
 /** The header summary every apply_patch row shares, including nested calls. */
 export function applyPatchSummary(files: number, added: number, removed: number): string {
 	return `modify ${String(files)}${files === 1 ? " file" : " files"} (+${String(added)} -${String(removed)})`;

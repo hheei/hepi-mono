@@ -11,6 +11,7 @@ import {
 import type { ApplyPatchOperationProgress } from "./outcome.js";
 import { createV4aPreviewCursor, previewV4aPatchPrefix, type V4aPreviewCursor } from "./parser.js";
 import {
+	applyPatchFilesInPlay,
 	applyPatchResultFacts,
 	applyPatchSummary,
 	formatApplyPatchOperationRow,
@@ -108,7 +109,9 @@ function resultStatus(
 	if (facts === undefined) return isError ? "error" : isPartial ? "running" : "ok";
 	if (facts.status === "failed") return "error";
 	if (facts.status === "partial") return "warn";
-	return "none";
+	// Live progress carries no verdict of its own, so a streamed success still reads as running
+	// until the result replaces it.
+	return isPartial ? "running" : "none";
 }
 
 /** Result sections: operation rows, one row block per applied snapshot, then the failure rows. */
@@ -165,12 +168,12 @@ export const applyPatchPresentation: ToolPresentationProvider = (args, result, t
 		};
 	}
 	const rows = operationRows(facts.operations, theme);
+	// A live frame has no confirmed paths yet, so its file count comes from the rows it shows.
+	const files = context.isPartial
+		? applyPatchFilesInPlay(facts.operations)
+		: new Set(facts.changedPaths).size;
 	return {
-		summary: applyPatchSummary(
-			new Set(facts.changedPaths).size,
-			facts.addedLines,
-			facts.removedLines,
-		),
+		summary: applyPatchSummary(files, facts.addedLines, facts.removedLines),
 		status: resultStatus(facts, isError, context.isPartial),
 		replaceCallOnPartial: true,
 		...(output === "" ? {} : { output }),

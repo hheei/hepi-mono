@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	createOptionalToolRenderers,
+	createRenderThrottle,
 	createToolPresentationRenderers,
 	defaultExtensionSettingsPaths,
 	errorMessage,
@@ -16,6 +17,7 @@ import {
 	type ApplyPatchProgress,
 	type ApplyPatchRejection,
 	applyPatchInWorkspace,
+	CONFIRMED_STATUSES,
 	loadApplyPatchPolicy,
 } from "./index.js";
 import { isPatchPathOutsideWorkspace } from "./paths.js";
@@ -160,7 +162,10 @@ function externalPathWarning(workspaceRoot: string, result: ApplyPatchInWorkspac
 
 function progressDetails(progress: ApplyPatchProgress): ApplyPatchToolDetails {
 	return {
-		changedPaths: [],
+		// Live details report confirmed writes only, the same rows the header totals count.
+		changedPaths: progress.operations
+			.filter((operation) => CONFIRMED_STATUSES.has(operation.status))
+			.map((operation) => operation.path),
 		addedLines: progress.addedLines,
 		removedLines: progress.removedLines,
 		operations: progress.operations,
@@ -191,6 +196,15 @@ export function createApplyPatchTool(): ToolDefinition<
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const { patch } = parseApplyPatchParameters(params);
+			// One operation per repaint used to rebuild the whole operation table. A patch with many
+			// operations now repaints on the shared streaming window; the returned result stays the
+			// only authority for the finished call.
+			let latestProgress: ApplyPatchProgress | undefined;
+			const repaint = createRenderThrottle(() => {
+				const progress = latestProgress;
+				if (progress === undefined) return;
+				onUpdate?.({ content: [], details: progressDetails(progress) });
+			});
 			try {
 				const policy = await loadApplyPatchPolicy({
 					paths: defaultExtensionSettingsPaths(ctx.cwd),
@@ -201,11 +215,10 @@ export function createApplyPatchTool(): ToolDefinition<
 					patch,
 					policy,
 					...(signal === undefined ? {} : { signal }),
-					onProgress: (progress) =>
-						onUpdate?.({
-							content: [],
-							details: progressDetails(progress),
-						}),
+					onProgress: (progress) => {
+						latestProgress = progress;
+						repaint.request();
+					},
 				});
 				const warning = externalPathWarning(ctx.cwd, result);
 				const status = statusFor(result);
@@ -220,6 +233,10 @@ export function createApplyPatchTool(): ToolDefinition<
 			} catch (error) {
 				const message = errorMessage(error);
 				throw new Error(`apply_patch failed: ${message}`);
+			} finally {
+				// The result below is the only authority for the finished call, so the window closes
+				// here: a repaint after it is built would rewrite a settled body.
+				repaint.dispose();
 			}
 		},
 	};
