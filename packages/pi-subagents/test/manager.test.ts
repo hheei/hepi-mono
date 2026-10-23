@@ -606,16 +606,25 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.reports).toHaveLength(0);
 	});
 
-	test("selects steer, follow_up and prompt from the child's real state", async () => {
+	test("sends the caller's mode instead of guessing one from the child's state", async () => {
 		const test1 = await harness();
 		await test1.addChild("sa_live", { state: "running" });
 		test1.bridge.connect("sa_live");
+		// The default is steer whatever the child is doing: on a running child it lands after the
+		// current turn's tool calls, and on an idle one there is nothing to interrupt. The caller
+		// asks for follow_up only when the message must wait for the run to end.
 		await test1.manager.send("sa_live", "more");
 		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
+
+		await test1.manager.send("sa_live", "afterwards", "follow_up");
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
 
 		await test1.addChild("sa_idle", { state: "done" });
 		test1.bridge.connect("sa_idle");
 		await test1.manager.send("sa_idle", "more");
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
+
+		await test1.manager.send("sa_idle", "more", "follow_up");
 		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
 	});
 
@@ -2006,7 +2015,9 @@ describe("SubagentManager over the bridge", () => {
 		const sent = await test1.manager.send(childId, "Try to continue anyway");
 		expect(sent).toMatchObject({ id: childId, state: "running" });
 		expect(test1.openPanel).toHaveBeenCalledTimes(1);
-		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
+		// The runtime is still connected, so this is not a resume: the default steer is what the
+		// caller asked for, and an errored child has no turn to interrupt anyway.
+		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
 		expect(await test1.registry.get(childId)).toMatchObject({ intent: "active" });
 		expect((await test1.registry.get(childId))?.interrupted).toBeUndefined();
 	});

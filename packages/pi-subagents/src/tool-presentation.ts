@@ -84,7 +84,7 @@ function sendPresentation(
 ): ToolPresentation {
 	const record = isRecord(args) ? args : undefined;
 	const id = stringField(record, "id") ?? "agent";
-	const mode = stringField(record, "mode") ?? "auto";
+	const mode = stringField(record, "mode") ?? "steer";
 	const message = stringField(record, "message");
 	const confirmation = result === undefined ? undefined : agentResultText(result);
 	const copy =

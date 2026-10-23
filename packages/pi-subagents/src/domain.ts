@@ -31,7 +31,16 @@ export function normalizeSubagentState(value: unknown): SubagentState | undefine
  * is created, because it decides who holds the process for the rest of the child's life.
  */
 export type Presentation = "panel" | "background";
-export type SendMode = "steer" | "follow_up" | "auto";
+/**
+ * How `agent_send` hands its message to a child.
+ *
+ * `steer` enters the current assistant turn once its tool calls are in, before the next model
+ * request, so it redirects work already in flight. `follow_up` waits until the child's run has no
+ * tool calls or steering left, then continues as a new turn in the same run. There is no "auto":
+ * the two queues already are the two situations, so the caller picks instead of guessing from the
+ * child's state.
+ */
+export type SendMode = "steer" | "follow_up";
 
 export type VisualSubagentState = SubagentState;
 
