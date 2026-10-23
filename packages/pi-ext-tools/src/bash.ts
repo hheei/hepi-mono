@@ -192,9 +192,13 @@ function outputStreamer(
 			sink.push(data);
 			repaint.request();
 		},
-		// The result below is the only authority for the finished call, so the window closes here:
-		// a repaint after it is built would rewrite a settled body.
-		finish: repaint.dispose,
+		// The last chunk usually lands inside an open window, so the trailing snapshot is delivered
+		// before the window closes. Disposal alone would drop it: the result that follows is the only
+		// authority for the finished call, but the model still has to see the output it reports.
+		finish: (): void => {
+			repaint.flush();
+			repaint.dispose();
+		},
 	};
 }
 
