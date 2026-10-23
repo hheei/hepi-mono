@@ -2,12 +2,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "../src/grep.js";
-import {
-	findCollapsedFooter,
-	grepCollapsedFooter,
-	renderFindResult,
-	renderGrepResult,
-} from "../src/search-renderer.js";
+import { renderFindResult, renderGrepResult } from "../src/search-renderer.js";
 import { plainTheme } from "./fixtures/theme.js";
 
 /** The details these tests need; `GrepToolDetails` also carries a budget report nobody here reads. */
@@ -87,16 +82,6 @@ describe("search-renderer", () => {
 		expect(rendered(result, true)).toContain(source);
 	});
 
-	it("formats the collapsed footer with match counts and timing", () => {
-		const result = grepResult([], {
-			totalMatched: 14,
-			totalFiles: 5,
-			totalLines: 63,
-		});
-
-		expect(grepCollapsedFooter(result, 12)).toBe("14 matches · 5 files · 63 lines · 12ms");
-	});
-
 	it("groups find candidates by directory and summarizes them", () => {
 		const candidates = [
 			{ path: "src/tools/find.ts", matchType: "exact" },
@@ -123,6 +108,5 @@ describe("search-renderer", () => {
 		);
 
 		expect(output).toContain("src/tools/");
-		expect(findCollapsedFooter(result, 4)).toBe("3 fuzzy files · 5 lines · 4ms");
 	});
 });

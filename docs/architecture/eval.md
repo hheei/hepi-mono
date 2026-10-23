@@ -10,7 +10,7 @@
 
 ## 请求与生命周期
 
-请求为 `{ code: string, reset?: boolean, timeout_ms?: number }`。`code` 非空，最多 1 MiB；`reset` 在执行前丢掉 kernel 与 scope。`timeout_ms` 是整个 cell 的墙钟硬截止，正整数 1..2147483647，默认 180000 毫秒（180 秒），可显式覆盖；嵌套工具耗时计入。始终使用当前 session cwd，不接受 language、cwd、后台执行或 wait 参数。
+请求为 `{ code: string, reset?: boolean, timeout_ms?: number }`。`code` 非空，最多 1 MiB；`reset` 在执行前丢掉 kernel 与 scope。`timeout_ms` 是整个 cell 的墙钟硬截止，正整数 1..2147483647，默认 180000 毫秒（180 秒），可显式覆盖；嵌套工具耗时计入。header 不显示 `timeout_ms`：它几乎总是默认值，而 ToolView 已在该行追加执行时长；截止语义由工具描述承担。始终使用当前 session cwd，不接受 language、cwd、后台执行或 wait 参数。
 
 每个 session 一个 Eval runtime，最多一个 Python kernel 和一个活动 cell。并发执行立即 busy，不排队或共享 cell。变量仅活在 kernel 内存；session 结束、reload、resume 时清理，不恢复语言内存。取消同时 abort 嵌套调用，并向 Python 发 SIGINT；约 5 秒后仍不退出则 SIGKILL 并丢弃 scope。软取消保留能继续工作的 kernel。
 

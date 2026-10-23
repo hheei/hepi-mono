@@ -110,10 +110,10 @@ export function createPythonEvalPresentation(
 					selfFailed,
 				});
 
-	const options = [
-		...(parsed?.reset === true ? ["(reset)"] : []),
-		...(typeof parsed?.timeout_ms === "number" ? [formatTimeout(parsed.timeout_ms)] : []),
-	];
+	// The frame appends the duration, so the summary carries only what the cell itself says. The
+	// deadline is not repeated here either: it is the same 180s for nearly every cell, and a row that
+	// always names it costs the width a reader needs for the result.
+	const options = parsed?.reset === true ? ["(reset)"] : [];
 	// Before any result exists the row still has to say what the cell will run.
 	const summary =
 		result === undefined
@@ -124,7 +124,6 @@ export function createPythonEvalPresentation(
 					...(toolRows.length === 0 && facts !== undefined && facts.rows.length > 0
 						? [`${String(facts.rows.length)} ${facts.rows.length === 1 ? "row" : "rows"}`]
 						: []),
-					formatDuration(context.durationMs),
 				]
 					.filter((part): part is string => part !== undefined && part !== "")
 					.join(" · ");
@@ -268,12 +267,6 @@ function callStats(total: number, failures: number): string[] {
 	if (total === 0) return [];
 	if (failures > 0) return [`${String(total - failures)} ok`, `${String(failures)} failed`];
 	return [`${String(total)} ${total === 1 ? "call" : "calls"}`];
-}
-
-function formatTimeout(timeoutMs: number): string {
-	const label =
-		timeoutMs >= 1_000 ? `${String(Math.round(timeoutMs / 1_000))}s` : `${String(timeoutMs)}ms`;
-	return `(timeout ${label})`;
 }
 
 /** One bounded line naming what a cell will run, used by the plain native call row. */
