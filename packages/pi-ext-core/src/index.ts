@@ -165,6 +165,20 @@ export {
 } from "./settings.js";
 export { defaultShellPath } from "./shell.js";
 export { escapeXml } from "./text.js";
+export type { SpilledOutput, ToolOutputLimits } from "./tool-output.js";
+export {
+	budgetMultiplier,
+	CHARS_PER_TOKEN,
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	DEFAULT_MAX_TOKENS,
+	fitsOutputBudget,
+	limitsForCalls,
+	MAX_BUDGET_MULTIPLIER,
+	SPILL_NOTE_PREFIX,
+	truncateWithSpill,
+} from "./tool-output.js";
+export { capToolResult, outputPrefixFor, registerToolOutputCap } from "./tool-output-cap.js";
 export type {
 	BaseToolPresentation,
 	DiffToolPresentation,

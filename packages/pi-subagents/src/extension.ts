@@ -2,9 +2,12 @@ import type { ExtensionAPI, ExtensionUIContext, Skill } from "@earendil-works/pi
 import {
 	type BackgroundDelivery,
 	createRenderThrottle,
+	DEFAULT_MAX_BYTES,
 	errorMessage,
+	fitsOutputBudget,
 	getBackgroundDelivery,
 	registerExtensionLifecycle,
+	truncateWithSpill,
 } from "@hheei/pi-ext-core";
 import { discoverAgents, type SkillCatalogEntry } from "./agent-resolver.js";
 import { registerChildBridge } from "./child-bridge.js";
@@ -139,7 +142,11 @@ export function createParentChannel(
 	return {
 		async deliver(report: ParentChannelReport): Promise<void> {
 			if (disposed) throw new Error("Parent report channel is disposed");
-			held.push(report);
+			// A report that already fits stays on the synchronous path: a batch is flushed in the same
+			// microtask, and awaiting a spill that will not happen would delay every ordinary report.
+			held.push(
+				fitsOutputBudget(report.message, REPORT_LIMITS) ? report : await cappedReport(report),
+			);
 			registration.request();
 		},
 		dispose(): void {
@@ -164,6 +171,18 @@ export function skillCatalogFromLoaded(skills: readonly Skill[]): readonly Skill
 
 function reportText(report: ParentChannelReport): string {
 	return `[Subagent ${report.agent} ${report.childId}: ${report.reason}]\n${report.message}`;
+}
+
+/**
+ * A child's final answer is a result the parent reads, so it obeys the shared budget. It is stored
+ * as plain text rather than pointing back at the child's transcript: a transcript is JSONL that must
+ * be parsed to find the one message, which costs more than the copy.
+ */
+const REPORT_LIMITS = { maxBytes: DEFAULT_MAX_BYTES, maxLines: Number.POSITIVE_INFINITY };
+
+async function cappedReport(report: ParentChannelReport): Promise<ParentChannelReport> {
+	const spilled = await truncateWithSpill(report.message, `sub-${report.childId}`, REPORT_LIMITS);
+	return spilled.truncated ? { ...report, message: spilled.text } : report;
 }
 
 export default function piSubagentsExtension(pi: ExtensionAPI): void {

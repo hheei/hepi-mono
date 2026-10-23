@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { KeyId } from "@earendil-works/pi-tui";
+import { DEFAULT_MAX_BYTES, MAX_BUDGET_MULTIPLIER } from "@hheei/pi-ext-core";
 import pLimit from "p-limit";
 import { type AuthFetchProfile, resolveAuthFetchProfile } from "./auth-fetch.ts";
 import { type FindMode, findContent } from "./content-find.ts";
@@ -308,9 +309,16 @@ function isAbortError(err: unknown): boolean {
 	return (err instanceof Error ? err.message : String(err)).toLowerCase().includes("abort");
 }
 
-const DEFAULT_MAX_INLINE_CONTENT_CHARS = 30_000;
+/** One page is one result, so its default is the shared single-call budget. */
+const DEFAULT_MAX_INLINE_CONTENT_CHARS = DEFAULT_MAX_BYTES;
 const MIN_INLINE_CONTENT_CHARS = 1_000;
-const MAX_INLINE_CONTENT_CHARS = 200_000;
+/**
+ * The shared byte budget with the ceiling the tool-call multiplier may reach, expressed in
+ * characters because this tool pages content by character offset. A page larger than this cannot be
+ * retrieved in one call even by a caller that asks for it, so the bound is the page size, not a
+ * preference.
+ */
+const MAX_INLINE_CONTENT_CHARS = DEFAULT_MAX_BYTES * MAX_BUDGET_MULTIPLIER;
 
 export function getMaxInlineContentChars(config = loadConfig()): number {
 	const value = config.maxInlineContentChars;

@@ -4,6 +4,7 @@ import {
 	getRuntimeSettingsRegistry,
 	registerExtensionLifecycle,
 	registerSettings,
+	registerToolOutputCap,
 } from "@hheei/pi-ext-core";
 import {
 	createBashSettingsProvider,
@@ -17,6 +18,9 @@ import { registerTools } from "./tools.js";
 export default function piExtToolsExtension(pi: ExtensionAPI): void {
 	const bashSettings = { current: DEFAULT_BASH_SETTINGS };
 	registerTools(pi, { getSettings: () => bashSettings.current });
+	// The shared cap runs for every tool this extension registers, including the ones whose own
+	// bounds are Pi's: a single place decides what one result may cost the model.
+	registerToolOutputCap(pi);
 	pi.on("tool_result", (event) => {
 		if (event.toolName === "grep" && grepHasNoSearchablePaths(event.details))
 			return { isError: true };

@@ -1,3 +1,4 @@
+import { readFile, rm } from "node:fs/promises";
 import {
 	type AgentToolResult,
 	initTheme,
@@ -152,6 +153,26 @@ describe("python_eval rendering through the host frame", () => {
 			component.setExpanded(true);
 			component.updateResult({ ...result, isError: false });
 			expect(stripTerminalSequences(component.render(100).join("\n"))).toContain("row 199");
+		} finally {
+			frame.dispose();
+		}
+	});
+	test("keeps an oversized transcript on disk instead of refusing the cell", async (): Promise<void> => {
+		const frame = evalFrame();
+		try {
+			// Many rows, each under the per-row display cap, so the transcript total is what overflows.
+			const code = "for i in range(120):\n    print('z' * 3000)";
+			const result = await frame.execute(code);
+			const text = result.content
+				.flatMap((part) => (part.type === "text" ? [part.text] : []))
+				.join("\n");
+			// The call still succeeds: the model reads a bounded head plus the path to the rest.
+			expect(result.isError).toBeUndefined();
+			expect(text).toContain("Full output:");
+			const path = /Full output: (\S+)\]/.exec(text)?.[1] ?? "";
+			expect(path).toMatch(/\/pi-output\/py-\d+\.txt$/);
+			expect((await readFile(path, "utf8")).length).toBeGreaterThan(text.length);
+			await rm(path, { force: true });
 		} finally {
 			frame.dispose();
 		}
