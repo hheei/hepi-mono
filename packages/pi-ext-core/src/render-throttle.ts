@@ -17,6 +17,12 @@ export const STREAM_REPAINT_INTERVAL_MS = 100;
 export interface RenderThrottle {
 	/** Renders now when no window is open, otherwise records one trailing render. */
 	request(): void;
+	/**
+	 * Renders a pending trailing update now. A caller that is about to publish its final state
+	 * flushes first, so the last streaming snapshot is delivered instead of dropped; the pending
+	 * flag clears, so the timer that would have done it has nothing left to do.
+	 */
+	flush(): void;
 	/** Idempotent: clears the timer and drops the pending render. */
 	dispose(): void;
 }
@@ -45,6 +51,11 @@ export function createRenderThrottle(
 				render();
 			}, intervalMs);
 			timer.unref?.();
+		},
+		flush(): void {
+			if (disposed || !pending) return;
+			pending = false;
+			render();
 		},
 		dispose(): void {
 			if (disposed) return;

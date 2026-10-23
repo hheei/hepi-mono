@@ -59,6 +59,43 @@ describe("render throttle", () => {
 		expect(render).toHaveBeenCalledTimes(1);
 	});
 
+	test("flush delivers the pending render without waiting for the window", () => {
+		const render = vi.fn();
+		const throttle = createRenderThrottle(render);
+		throttle.request();
+		throttle.request();
+		expect(render).toHaveBeenCalledTimes(1);
+		throttle.flush();
+		// The last streaming snapshot must reach the caller even when the window never expires,
+		// because the caller is about to publish its final result and stop repainting.
+		expect(render).toHaveBeenCalledTimes(2);
+		vi.advanceTimersByTime(STREAM_REPAINT_INTERVAL_MS * 2);
+		expect(render).toHaveBeenCalledTimes(2);
+		throttle.dispose();
+	});
+
+	test("flush does nothing without a pending render", () => {
+		const render = vi.fn();
+		const throttle = createRenderThrottle(render);
+		throttle.flush();
+		expect(render).not.toHaveBeenCalled();
+		throttle.request();
+		expect(render).toHaveBeenCalledTimes(1);
+		throttle.flush();
+		expect(render).toHaveBeenCalledTimes(1);
+		throttle.dispose();
+	});
+
+	test("flush after dispose is inert", () => {
+		const render = vi.fn();
+		const throttle = createRenderThrottle(render);
+		throttle.request();
+		throttle.request();
+		throttle.dispose();
+		throttle.flush();
+		expect(render).toHaveBeenCalledTimes(1);
+	});
+
 	test("dispose is idempotent", () => {
 		const throttle = createRenderThrottle(() => undefined);
 		throttle.dispose();

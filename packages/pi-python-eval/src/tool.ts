@@ -243,8 +243,10 @@ export function createPythonEvalTool(
 			} finally {
 				activeRuns.delete(state);
 				deadline.dispose();
-				// The result below is the only authority for the finished cell, so the window closes
-				// here: a repaint after it is built would rewrite a settled body.
+				// The last rows usually land inside an open window, so the trailing snapshot is
+				// delivered before the window closes; the result below is then the only authority for
+				// the finished cell, and a repaint after it would rewrite a settled body.
+				repaint.flush();
 				repaint.dispose();
 			}
 			if (omittedRows > 0) {

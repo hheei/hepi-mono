@@ -234,8 +234,10 @@ export function createApplyPatchTool(): ToolDefinition<
 				const message = errorMessage(error);
 				throw new Error(`apply_patch failed: ${message}`);
 			} finally {
-				// The result below is the only authority for the finished call, so the window closes
-				// here: a repaint after it is built would rewrite a settled body.
+				// The last operation usually lands inside an open window, so the trailing snapshot is
+				// delivered before the window closes; the result below is then the only authority for
+				// the finished call, and a repaint after it would rewrite a settled body.
+				repaint.flush();
 				repaint.dispose();
 			}
 		},

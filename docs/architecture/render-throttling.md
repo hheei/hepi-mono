@@ -27,6 +27,7 @@ export const STREAM_REPAINT_INTERVAL_MS = 100;
 
 export interface RenderThrottle {
   request(): void;
+  flush(): void;
   dispose(): void;
 }
 export function createRenderThrottle(render: () => void, intervalMs?: number): RenderThrottle;
@@ -38,7 +39,10 @@ export function createRenderThrottle(render: () => void, intervalMs?: number): R
   固定延迟。
 - **coalescing**：窗口打开期间的 `request()` 只置 pending 标记，不重建快照。
 - **trailing**：窗口到期时若存在 pending，再执行一次 `render()`，因此**最后一帧不会被丢弃**。
-- `dispose()` 幂等：清除定时器、丢弃 pending、之后的 `request()` 为 no-op。
+- `flush()` 立即执行 pending 的 `render()` 并清掉 pending 标记，不等窗口到期。收尾路径必须
+  **先 `flush()` 再 `dispose()`**：最后一个 chunk 或最后一个 operation 通常落在已打开的窗口内，
+  只 `dispose()` 会把那一帧丢掉，模型就看不到工具随后在 result 里报告的输出。
+- `dispose()` 幂等：清除定时器、丢弃 pending、之后的 `request()` 与 `flush()` 为 no-op。
   定时器调用 `unref()`，不阻止进程退出。
 - `intervalMs` 必须是正安全整数，否则抛错（这是编程错误，不是运行时数据）。
 
@@ -65,8 +69,9 @@ page router 键盘导航、`pi-status` footer、`pi-todo` footer status、`Widge
   `dispose()`，session 级在 `context.resources` 的 cleanup 中 `dispose()`。
 - 不 `dispose()` 的后果不是内存泄漏，而是**完成后仍会有一次迟到的 `render()`**：它会读到
   已完成的快照并再次调用 `onUpdate` / `setStatus`，污染终态。因此清理是正确性要求。
-- 工具返回的 result 是终态的唯一来源；节流器不负责投递最终帧，`dispose()` 丢弃 pending
-  不会丢失信息。
+- 工具返回的 result 是终态的唯一来源，但它不携带 streaming 期间重建过的快照。因此收尾顺序是
+  `flush()` 后 `dispose()`：先让最后一帧流式快照到达调用方，再关闭窗口。只 `dispose()` 会让
+  「最后一个 chunk 落在窗口内」成为丢帧，而窗口是 100ms、chunk 间隔通常更短，这是常态而非边界。
 
 ## 5. 验证
 
