@@ -86,10 +86,10 @@ describe("python_eval rich presentation", () => {
 
 		expect(call({ code: "x = 1\nprint(x)" })).toBe("x = 1");
 		expect(call({ code: "x = 1", reset: true })).toBe("x = 1 · (reset)");
-		expect(call({ code: "x = 1", timeout_ms: 250 })).toBe("x = 1 · (timeout 250ms)");
-		expect(call({ code: "x = 1", reset: true, timeout_ms: 2000 })).toBe(
-			"x = 1 · (reset) · (timeout 2s)",
-		);
+		// The deadline is a per-cell option with one value nearly every time, so it stays out of the
+		// row: the frame already spends width on the duration.
+		expect(call({ code: "x = 1", timeout_ms: 250 })).toBe("x = 1");
+		expect(call({ code: "x = 1", reset: true, timeout_ms: 2000 })).toBe("x = 1 · (reset)");
 		expect(call({ code: "   " })).toBe("(empty)");
 	});
 
@@ -103,7 +103,8 @@ describe("python_eval rich presentation", () => {
 			theme,
 			context(),
 		);
-		expect(stripTerminalSequences(presentation.summary)).toBe("1 ok · 1 failed · 1.5s");
+		// The frame appends the duration, so the summary must not carry a second copy of it.
+		expect(stripTerminalSequences(presentation.summary)).toBe("1 ok · 1 failed");
 		// A container with child rows speaks through them instead of claiming its own status.
 		expect(presentation.status).toBe("none");
 	});
@@ -115,7 +116,7 @@ describe("python_eval rich presentation", () => {
 			theme,
 			context(),
 		);
-		expect(stripTerminalSequences(presentation.summary)).toBe("1 row · 1.5s");
+		expect(stripTerminalSequences(presentation.summary)).toBe("1 row");
 		expect(presentation.status).toBe("ok");
 	});
 

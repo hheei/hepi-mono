@@ -9,11 +9,10 @@ import {
 	Text,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { agentResultText, formatDuration } from "@hheei/pi-ext-core";
+import { agentResultText } from "@hheei/pi-ext-core";
 
 const DEFAULT_MAX_BODY_LINES = 20;
 
-import { counted } from "./counted.js";
 import type { GrepDisplayLine, GrepSubmatch, GrepToolDetails } from "./grep.js";
 
 const DIM = "\x1b[2m";
@@ -225,32 +224,6 @@ class GrepResultComponent implements Component {
 	invalidate(): void {}
 }
 
-export function grepCollapsedFooter(
-	result: AgentToolResult<unknown>,
-	durationMs?: number,
-): string | undefined {
-	const details = grepDetails(result.details);
-	if (details === undefined) return undefined;
-	const events = Reflect.get(details, "events");
-	const fuzzy =
-		Array.isArray(events) &&
-		events.some(
-			(event) =>
-				typeof event === "object" &&
-				event !== null &&
-				Reflect.get(event, "type") === "match" &&
-				Reflect.get(event, "approximate") === true,
-		);
-	return [
-		counted(details.totalMatched, fuzzy ? "fuzzy" : "match", fuzzy ? "fuzzies" : "matches"),
-		counted(details.totalFiles, "file"),
-		counted(details.totalLines, "line"),
-		formatDuration(durationMs),
-	]
-		.filter((part): part is string => part !== undefined)
-		.join(" · ");
-}
-
 function grepLineNumberWidth(lines: readonly GrepDisplayLine[], start: number): number {
 	let width = 0;
 	for (let index = start + 1; index < lines.length; index += 1) {
@@ -381,28 +354,6 @@ export function formatFindModelOutput(details: FindToolDetails): string {
 	return findBodyLines(details)
 		.map((line) => line.text)
 		.join("\n");
-}
-
-function findFooter(details: FindToolDetails, durationMs?: number): string {
-	const fuzzyPath = details.candidates.filter(
-		(candidate) => findGroup(candidate.matchType) === "fuzzy paths",
-	).length;
-	const fuzzyFilename = details.candidates.length - fuzzyPath;
-	const parts = [
-		fuzzyFilename > 0 ? counted(fuzzyFilename, "fuzzy file") : undefined,
-		fuzzyPath > 0 ? counted(fuzzyPath, "fuzzy path") : undefined,
-		counted(findBodyLines(details).length, "line"),
-		formatDuration(durationMs),
-	];
-	return parts.filter((part): part is string => part !== undefined).join(" · ");
-}
-
-export function findCollapsedFooter(
-	result: AgentToolResult<unknown>,
-	durationMs?: number,
-): string | undefined {
-	const details = findDetails(result.details);
-	return details === undefined ? undefined : findFooter(details, durationMs);
 }
 
 export function renderFindResult(
