@@ -38,7 +38,10 @@ const sendSchema = Type.Object({
 	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
 	message: Type.String({ minLength: 1 }),
 	mode: Type.Optional(
-		Type.Union([Type.Literal("steer"), Type.Literal("follow_up"), Type.Literal("auto")]),
+		Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
+			description:
+				"steer (the default) enters the child's current turn once its tool calls are in, before the next model request, so it redirects work already in flight; an idle child just starts a run. follow_up waits until the child has no tool calls or steering left, then continues as a new turn. Use follow_up for work that must not interrupt what the child is doing now.",
+		}),
 	),
 });
 const idSchema = Type.Object({
@@ -97,7 +100,7 @@ function getSpawnDescription(agents: readonly DiscoveredAgent[]): string {
 	].join("\n");
 }
 const SEND_DESCRIPTION =
-	"Send input, steer, or follow-up instructions to an existing subagent (e.g. 'agent-1'), resuming its session when it is idle, blocked, done, or errored. A child whose runtime has ended is resumed the same way: send to that id, do not spawn a replacement. Stop it first only when send reports the previous process is still running. Results are returned automatically when the task finishes; do not poll agent_get. Related subagent tools: agent_spawn, agent_get, agent_stop.";
+	"Send input to an existing subagent (e.g. 'agent-1'), resuming its session when it is idle, blocked, done, or errored. A child whose runtime has ended is resumed the same way: send to that id, do not spawn a replacement. Stop it first only when send reports the previous process is still running. Results are returned automatically when the task finishes; do not poll agent_get. Related subagent tools: agent_spawn, agent_get, agent_stop.";
 const GET_DESCRIPTION =
 	"Inspect one subagent's status, progress, or diagnostic details by id (e.g. 'agent-1'). Use keys to choose fields; defaults to 'status,progress'. Results are returned automatically; use this for inspection, not completion polling. Related subagent tools: agent_spawn, agent_send, agent_stop.";
 const STOP_DESCRIPTION =

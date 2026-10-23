@@ -69,5 +69,10 @@ child 的最终回答是一个父会话要读的结果，因此和所有工具�
 - 自动交付保留已确认的终态：失败为 `error`，可继续的中断或阻塞为 `blocked`，成功为 `done`；不能把失败统一改写为阻塞。重试成功的最终 assistant 消息清除旧错误，交付前在 child mutation 锁内读取最新状态。
 - 自动报告按批次发出：没有其他 child 正在工作时 500ms 内发出，有 child 仍在工作时最多等 10 秒把同批报告合并。批次延迟对 success、blocked 与 error 相同，只发送本次结果，不拼接历史回答。等待期间用户继续输入、parent 发送新消息或自动重试会取消旧报告；自动重试期间不报告暂时错误。
 - `agent_send` 接受已有 child 的各种状态，包括 `error` 和已停止的 child。写者还在就把输入交给它；写者已经没了就用同一 session 再起 runtime，调用方不要另 spawn。显式发送会重新激活 stopped intent。只有本进程的进程句柄还活着时才拒绝再起 runtime，并要求先 `agent_stop` 这个 child。失败不保证上游错误会恢复。
+- `mode` 只有两种，由调用方决定，不按 child 状态推断：
+  - `steer`（缺省）：当前 assistant turn 的工具调用执行完后、下一次模型请求前插入，用来改变正在进行的工作。child 已空闲时没有可插入的回合，直接开新 run。
+  - `follow_up`：等整个 run 已经没有工具调用和 steering 后，才作为同一 run 内的新回合继续。它比 `steer` 晚得多，中间可能还有多轮工具调用。需要不打断当前工作时用它。
+  - 不存在 "auto"：Pi 的 steering 和 follow-up 队列本来就是这两种情形，按 child 状态猜只会替调用方做它没做的决定。
+  - 已结束 runtime 的 child 会被 resume，resume 本身就是开新 run，此时两种 mode 都作为该 run 的 prompt 送达。
 - 内置定义（`scout`/`worker`/`reviewer`）是最后发现层，不写入用户 home，也不会被自动派发。其中 `scout` 默认禁用（需用户显式配置模型），`worker` 与 `reviewer` 继承父模型。
 - `skills` 是白名单：`all`（缺省）/ `none` / 名单；名单条目可以是 skill 名字，按 parent 已加载的 skill 列表解析成绝对路径，未知名字只 warning 并丢弃。

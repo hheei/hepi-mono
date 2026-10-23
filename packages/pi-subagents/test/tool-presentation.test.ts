@@ -151,6 +151,17 @@ describe("agent tool presentation providers", () => {
 		expect(presentation.copy).toEqual({ primary: "keep going", full: "keep going\nMessage sent." });
 	});
 
+	test("send summary names steer when the caller omits the mode", () => {
+		const provider = getToolPresentationProvider(toolNamed("agent_send"))!;
+		const presentation = provider(
+			{ id: "agent-3", message: "keep going" },
+			textToolResult("Message sent.", undefined),
+			plainTheme,
+			plainContext,
+		);
+		expect(presentation.summary).toBe("agent-3 · steer");
+	});
+
 	test("get renders selected fields instead of raw JSON", () => {
 		const provider = getToolPresentationProvider(toolNamed("agent_get"))!;
 		const presentation = provider(

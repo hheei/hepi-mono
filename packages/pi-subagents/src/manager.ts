@@ -1166,7 +1166,7 @@ export class SubagentManager {
 	public send(
 		id: string,
 		rawMessage: string,
-		mode: SendMode = "auto",
+		mode: SendMode = "steer",
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
 		const message = stripHindsightContent(rawMessage);
@@ -1247,15 +1247,10 @@ export class SubagentManager {
 			}
 
 			const state = isResumed ? "running" : record.state;
-			const operation = isResumed
-				? "prompt"
-				: mode === "auto"
-					? state === "running"
-						? "steer"
-						: "follow_up"
-					: mode;
-			if (operation === undefined)
-				return failure("send", "Cannot infer send mode from unknown state", id, state);
+			// A resume already starts a fresh run, so the mode has nothing to decide: the message is
+			// that run's prompt. Otherwise the caller's mode is the request, with no state guessing:
+			// a running child steers at its next model step, an idle one simply starts a run.
+			const operation = isResumed ? "prompt" : mode;
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
 			this.#clearSettledPanelClose(id);
 			const pending = await this.#update(id, (current) => {

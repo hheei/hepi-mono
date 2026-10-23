@@ -106,7 +106,7 @@ panel child 由 host 持有进程，天然跨 parent 存活，因此它的 runti
 
 ```ts
 agent_spawn({ task: string, agent: string, cwd?: string, title?: string })
-agent_send({ id: string, message: string, mode?: "steer" | "follow_up" | "auto" })
+agent_send({ id: string, message: string, mode?: "steer" | "follow_up" })
 agent_get({ id: string, keys?: string })
 agent_stop({ id: string })
 ```
@@ -313,8 +313,8 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 
 ### 7.2 Send
 
-- running child：明确 `steer` 或遵循 `auto` policy；不得靠屏幕状态猜测。
-- idle child：follow-up/prompt。
+- running child：`steer`（缺省）在当前回合的工具调用结束后、下一次模型请求前插入；`follow_up` 等整个 run 没有工具调用和 steering 后再作为新回合继续。
+- idle child：`steer` 没有可插入的回合，直接开新 run；`follow_up` 同样开新 run。不按屏幕状态猜测意图。
 - 没有可用 runtime 时先按冻结的 presentation 拉起同一 session（panel 会开一个新 panel），失败同理返回可见错误。
 - 写者消失（锁已空，或本进程看见后台进程退出）不是终止：runtime 从账本拿掉；当时在跑则记 `blocked` 并回报一次，intent 保持 active。后续 `agent_send` 用同一 session 再起 runtime。宿主已确认 panel 进程不在时关掉空标签。标签还在不拒绝 send。
 - `agent_stop` 才是终止：先写 stopped intent，再关 panel 或结束进程。
