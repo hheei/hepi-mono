@@ -147,6 +147,19 @@ core 还承载一批小而稳定的工具函数。它们进入 core 的唯一理
   流式路径上使用，窗口为 100ms。它只决定何时重建，不持有快照：回调读取当前状态。leading 立即
   绘制、窗口内合并、trailing 保底。`dispose()` 幂等且是正确性要求：工具返回的 result 是终态唯一
   来源，迟到的绘制会改写已结算结果。详见 [render-throttling.md](./render-throttling.md)。
+- `truncateWithSpill()`：工具输出上限的唯一实现。所有工具共用一个预算：
+  `DEFAULT_MAX_TOKENS = 5000`（按 `CHARS_PER_TOKEN = 4` 换算为 20KB）。超限**从不拒绝调用**：
+  保留**头部与尾部**（两端都是模型要行动的依据：头部说明输出是什么，尾部带错误或最终状态），
+  中间换成 `… N lines / MKB omitted …` 标记，完整文本写到 `pi-output/` 下的单个共享目录，
+  路径附在结果里。截断只在字符边界发生，不会切开 UTF-8 序列。
+  `limitsForCalls()` 按本次结果背后的工具调用数放大预算（1 / 1.5 / 2 / 3 倍，
+  `MAX_BUDGET_MULTIPLIER` 封顶）：一次跑了八个嵌套调用的结果本来就有八件东西要给模型看。
+  文件名是短前缀加递增序号（`py-1.txt`），重启后接着编号。
+  `fitsOutputBudget()` 让常见路径保持同步，不为一次不会发生的落盘而 `await`。
+- `registerToolOutputCap()`：每个工具结果都要经过的共享封顶。它让“某个工具忘了自己的上限”
+  不再能淹没 context。已经带 `[Full output:` 标记的结果会被放过：它已按自己能说明的预算
+  截断过（如 python_eval 的多调用倍率），再按单调用宽度切一次会抹掉那份依据。含图片的结果也不动，
+  因为它的文字是说明而非载荷。
 - `setPromptSection()`：写入或删除 `event.systemPromptOptions.sections` 中的一个具名 section。Pi 按
   section diff 每个 request，所以扩展注入 prompt 时不得把文本拼到 `event.systemPrompt` 上：拼接会让
   Pi 每轮重发整段 prompt，也让注入内容无法被单独替换。section 名为小写标识符（可含数字、`-`、`_`），

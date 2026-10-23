@@ -1,19 +1,22 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage, getBackgroundDelivery, isRecord } from "@hheei/pi-ext-core";
+import {
+	DEFAULT_MAX_BYTES,
+	errorMessage,
+	getBackgroundDelivery,
+	isRecord,
+} from "@hheei/pi-ext-core";
 import type { BashJobRegistry, BashJobReminder, BashTerminalEvent } from "./bash-jobs.js";
 import { appendBashInfo } from "./info.js";
 
 /** Custom message type used for one Bash notification per batch. */
 export const BASH_TERMINAL_CUSTOM_TYPE = "bg-bash-report";
-/** Bounded inline output kept per job inside one notification, in characters. */
-export const MAX_BASH_MESSAGE_CHARS = 10_000;
 /**
  * Bounded size of one notification in UTF-8 bytes, because that is what the message costs once it
  * reaches the model. A single entry can carry multi-byte characters, so its inline output is cut to
  * the bytes the message has left after the header and trailer, at a UTF-8 boundary, and the complete
  * output stays reachable through the log path the entry always carries.
  */
-export const MAX_NOTIFICATION_BATCH_BYTES = 24_000;
+export const MAX_NOTIFICATION_BATCH_BYTES = DEFAULT_MAX_BYTES;
 /** Bounded number of results in one notification; a long list of small results is split too. */
 export const MAX_NOTIFICATION_BATCH_ENTRIES = 8;
 /** Two bytes of `\n\n` join each entry to the previous one inside a message. */
@@ -368,7 +371,7 @@ function notificationText(event: BashTerminalEvent): string {
 	const body = event.output.trimEnd();
 	const lines = [header];
 	if (body !== "") {
-		const inline = tailBytes(tailChars(body, MAX_BASH_MESSAGE_CHARS), budget);
+		const inline = tailBytes(body, budget);
 		if (inline === "") lines.push("Output too large to inline");
 		else if (byteSize(inline) < byteSize(body)) lines.push(`${OMITTED_MARKER}\n${inline}`);
 		else lines.push(body);

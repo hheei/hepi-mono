@@ -1,5 +1,6 @@
+import { readFile, rm } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { createBackgroundDelivery } from "@hheei/pi-ext-core";
+import { createBackgroundDelivery, DEFAULT_MAX_BYTES, SPILL_NOTE_PREFIX } from "@hheei/pi-ext-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { DiscoveredAgent } from "../src/agent-resolver.js";
 import piSubagentsExtension, {
@@ -226,6 +227,30 @@ test("a flush delivers every held report in one message", async () => {
 		| undefined;
 	expect(details?.reports.map((r) => r.childId)).toEqual(["child-1", "child-2", "child-3"]);
 	expect(String(parent.sent[0]?.message.content)).toContain("report 2");
+	channel.dispose();
+});
+
+test("an oversized child answer is capped and the rest is left on disk", async () => {
+	const parent = fakeParent();
+	const delivery = createBackgroundDelivery();
+	const channel = createParentChannel(parent.pi as never, {
+		ui: parent.ui,
+		isIdle: () => true,
+		delivery,
+	});
+	const answer = `START\n${"z".repeat(DEFAULT_MAX_BYTES * 3)}\nEND`;
+
+	await channel.deliver(report("child-big", answer));
+	await Promise.resolve();
+	await Promise.resolve();
+
+	const content = String(parent.sent[0]?.message.content ?? "");
+	expect(content).toContain("START");
+	expect(content).toContain("END");
+	expect(content).toContain(SPILL_NOTE_PREFIX);
+	const path = /\[Full output: (\S+)\]/.exec(content)?.[1] ?? "";
+	expect(await readFile(path, "utf8")).toBe(answer);
+	await rm(path, { force: true });
 	channel.dispose();
 });
 

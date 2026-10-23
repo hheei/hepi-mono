@@ -47,6 +47,8 @@ manager 的默认启动 deadline 为 60 秒。
 
 移除父会话的多行 Widget、elapsed 刷新和终态保留计时器。状态投影从 manager 读取，过期异步读取不能覆盖新快照；session 切换、reload 或 shutdown 移除状态并取消订阅。子会话自己的身份展示不受影响，完整管理仍通过 `/subagents`。
 
+child 的最终回答是一个父会话要读的结果，因此和所有工具结果共用同一个上限（ext-core `truncateWithSpill`，默认 5000 tokens / 20KB）。超限时保留头尾并附上 `[Full output: …]` 路径，报告不因过长被拒绝。完整回答另存为纯文本，而不是指向 child 的 transcript：transcript 是 JSONL，要解析才能定位那一条消息，成本高于直接存一份。已经放得下的报告走同步路径，不为一次不会发生的落盘而 `await`，批次仍在同一 microtask 内发出。
+
 已确认的报告由原有 ParentChannel 交付后追加一个 `subagent-info` 原生 custom entry：折叠时只显示 glyph、编号、agent 名称和 done/error/blocked 状态，展开时显示完整报告。entry 支持 resume 和 Headless `entry_appended`，不进入模型上下文。对应的模型消息 `subagent-report` 使用 `display: false`，避免可见报告重复；错误等待、自动重试取消和去重继续由 manager 拥有，跨 producer 的单次唤醒由 ext-core BackgroundDelivery 协调。加载时不重新生成历史终态 entry。交互渲染剥离终端控制序列与 C0/C1 字符（保留换行、将 tab 转为空格），持久化和模型仍保留完整原文。info 写入失败时使用原生 error 提示说明原因；已经提交的模型报告不重发。
 
 ## 子代理工具说明与动态启用

@@ -7,7 +7,9 @@ import {
 	createToolPresentationRenderers,
 	errorMessage,
 	formatDuration,
+	limitsForCalls,
 	textToolResult,
+	truncateWithSpill,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import type { EvalNestedTrace, EvalToolBridge } from "./bridge.js";
@@ -25,7 +27,6 @@ const MAX_CODE_BYTES = 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
 /** Largest delay `setTimeout` supports, which bounds `timeout_ms` exactly like codemode's option. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
-const MAX_INLINE_TRANSCRIPT_CHARS = 12_000;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
 const EVAL_DESCRIPTION =
@@ -118,7 +119,7 @@ export function createPythonEvalTool(
 			// only authority for what the finished call reports.
 			const repaint = createRenderThrottle(() => {
 				onUpdate?.(
-					textToolResult(transcript(rows), {
+					textToolResult(transcriptBody(rows), {
 						format: PYTHON_EVAL_DETAILS_FORMAT,
 						rows,
 						durationMs: Math.round(performance.now() - startedAt),
@@ -260,8 +261,15 @@ export function createPythonEvalTool(
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
 			};
+			// A cell that ran nested tools keeps a share per call, so a script that read eight files is
+			// not cut to the width of one. The full transcript stays on disk either way.
+			const body = await truncateWithSpill(
+				transcriptBody(rows),
+				"py",
+				limitsForCalls(rows.filter((row) => row.kind === "tool").length),
+			);
 			return {
-				...textToolResult(transcript(rows), details),
+				...textToolResult(body.text, details),
 				...(failure !== undefined ? { isError: true } : {}),
 			};
 		},
@@ -312,8 +320,8 @@ function formatState(state: EvalKernelState): string {
 	return parts.join(" · ");
 }
 
-function transcript(rows: readonly EvalRow[]): string {
-	const value = rows
+function transcriptBody(rows: readonly EvalRow[]): string {
+	return rows
 		.map((row) => {
 			switch (row.kind) {
 				case "tool":
@@ -329,9 +337,6 @@ function transcript(rows: readonly EvalRow[]): string {
 			}
 		})
 		.join("\n");
-	return value.length <= MAX_INLINE_TRANSCRIPT_CHARS
-		? value
-		: `${value.slice(0, MAX_INLINE_TRANSCRIPT_CHARS)}\nPython_eval transcript truncated in tool result.`;
 }
 
 function inspectValue(value: unknown): string {
