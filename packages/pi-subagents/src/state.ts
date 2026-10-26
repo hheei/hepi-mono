@@ -13,6 +13,7 @@ export interface TranscriptFacts {
 	readonly stopReason?: string;
 	readonly interrupted?: string;
 	readonly containsInput: boolean;
+	readonly contextTokens?: number;
 }
 
 export interface StateProjector {
@@ -145,6 +146,20 @@ function lastCompletedAssistant(entries: readonly unknown[]): Record<string, unk
 	return last;
 }
 
+function lastAssistantContextTokens(
+	message: Record<string, unknown> | undefined,
+): number | undefined {
+	if (message === undefined) return undefined;
+	const usage = record(message.usage);
+	if (usage === undefined) return undefined;
+	const input = finite(usage.input) ?? 0;
+	const output = finite(usage.output) ?? 0;
+	const cacheRead = finite(usage.cacheRead) ?? 0;
+	const cacheWrite = finite(usage.cacheWrite) ?? 0;
+	const total = input + output + cacheRead + cacheWrite;
+	return total > 0 ? total : undefined;
+}
+
 /** What the parent projects from a session. The transcript itself never crosses the bridge. */
 export function transcriptFacts(
 	entries: readonly unknown[],
@@ -154,6 +169,7 @@ export function transcriptFacts(
 	const summary = summarizeCurrentBranch(entries);
 	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : undefined;
 	const interrupted = last === undefined ? undefined : diagnostic(last);
+	const contextTokens = lastAssistantContextTokens(last);
 	const containsInput =
 		expectedInput !== undefined &&
 		entries.some((entry) => {
@@ -166,6 +182,7 @@ export function transcriptFacts(
 		...(summary === undefined ? {} : { summary }),
 		...(stopReason === undefined ? {} : { stopReason }),
 		...(interrupted === undefined ? {} : { interrupted }),
+		...(contextTokens === undefined ? {} : { contextTokens }),
 		containsInput,
 	};
 }
@@ -199,6 +216,7 @@ export function parseTranscriptFacts(value: unknown): TranscriptFacts | undefine
 	const summary = typeof value.summary === "string" ? value.summary : undefined;
 	const stopReason = typeof value.stopReason === "string" ? value.stopReason : undefined;
 	const interrupted = typeof value.interrupted === "string" ? value.interrupted : undefined;
+	const contextTokens = usageNumber(value.contextTokens);
 	return {
 		usage: {
 			inputTokens,
@@ -211,6 +229,7 @@ export function parseTranscriptFacts(value: unknown): TranscriptFacts | undefine
 		...(summary === undefined ? {} : { summary }),
 		...(stopReason === undefined ? {} : { stopReason }),
 		...(interrupted === undefined ? {} : { interrupted }),
+		...(contextTokens === undefined ? {} : { contextTokens }),
 		containsInput: value.containsInput,
 	};
 }

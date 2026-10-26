@@ -43,7 +43,7 @@ afterAll(async () => {
 	await rm(WORK_ROOT, { recursive: true, force: true });
 });
 
-function assistantEntry(text: string): unknown {
+function assistantEntry(text: string, usage?: Record<string, unknown>): unknown {
 	return {
 		type: "message",
 		id: "assistant-1",
@@ -51,6 +51,7 @@ function assistantEntry(text: string): unknown {
 			role: "assistant",
 			stopReason: "stop",
 			content: [{ type: "text", text }],
+			...(usage !== undefined ? { usage } : {}),
 		},
 	};
 }
@@ -1535,6 +1536,29 @@ describe("SubagentManager over the bridge", () => {
 		});
 		await until(test1.reportsArrived(1));
 		expect(test1.reports[0]).toMatchObject({ reason: "success", message: "The answer." });
+	});
+
+	test("appends compact reminder notice when completed turn exceeds 100k context tokens", async () => {
+		const test1 = await harness();
+		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do heavy work." });
+		if ("reason" in spawned) throw new Error(spawned.reason);
+		const childId = spawned.child.id;
+		test1.bridge.responses.set(`${childId}:session_facts`, async () => {
+			return transcriptFacts([
+				assistantEntry("All heavy work finished.", {
+					input: 95_000,
+					output: 6_000,
+					cacheRead: 10_000,
+				}),
+			]);
+		});
+		await test1.manager.handleEvent(childId, {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await until(test1.reportsArrived(1));
+		expect(test1.reports[0]?.message).toContain("[Context: ~111k tokens.");
+		expect(test1.reports[0]?.message).toContain('send "/compact" via agent_send');
 	});
 
 	test("closing a panel after a finished reply delivers that reply, not blocked", async () => {

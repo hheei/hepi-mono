@@ -245,6 +245,20 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		}
 		return ctx;
 	};
+	const reportCompaction = (reason: "success" | "blocked", message: string): void => {
+		void client
+			.report("contact_parent", {
+				type: "pi_subagent_report",
+				parentSessionId: options.identity.parentSessionId,
+				childId: options.identity.subagentId,
+				runtimeIdentity: options.identity.runtimeIdentity,
+				reason,
+				message,
+			})
+			.catch((err) => {
+				options.diagnose?.(`failed to report compaction ${reason}: ${errorMessage(err)}`);
+			});
+	};
 	const deliverPrompt = (
 		payload: unknown,
 		deliverAs: "steer" | "followUp" | undefined,
@@ -255,6 +269,26 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		const path = requireContext().sessionManager.getSessionFile();
 		if (path === undefined) {
 			throw new BridgeError("session_not_ready", "This child has no session file path");
+		}
+		const trimmed = message.trim();
+		if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
+			if (isCompacting) {
+				return { accepted: true, path, compacting: true };
+			}
+			const customInstructions = trimmed.slice(8).trim() || undefined;
+			requireContext().compact({
+				...(customInstructions ? { customInstructions } : {}),
+				onComplete: (result) => {
+					reportCompaction(
+						"success",
+						`Context compacted (${result.tokensBefore} -> ${result.estimatedTokensAfter} tokens).`,
+					);
+				},
+				onError: (err) => {
+					reportCompaction("blocked", `Compaction failed: ${err.message}`);
+				},
+			});
+			return { accepted: true, path, compacting: true };
 		}
 		if (isCompacting) {
 			pendingCompactionDeliveries.push({ message, deliverAs });

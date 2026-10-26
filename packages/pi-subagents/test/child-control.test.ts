@@ -1,6 +1,10 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	CompactOptions,
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
 	type ChildControl,
@@ -29,12 +33,14 @@ interface FakeContext {
 	readonly context: ExtensionContext;
 	readonly abort: ReturnType<typeof vi.fn>;
 	readonly shutdown: ReturnType<typeof vi.fn>;
+	readonly compact: ReturnType<typeof vi.fn>;
 }
 
 interface Parent {
 	readonly server: MailboxTransport;
 	readonly events: unknown[];
 	readonly requests: Array<{ operation: string; payload: unknown }>;
+	requestsArrived(count: number): Promise<void>;
 	/** Resolves once the parent has received `count` bridge events, bound to their delivery. */
 	eventsArrived(count: number): Promise<void>;
 }
@@ -81,18 +87,27 @@ function fakePi(): FakePi {
 }
 
 function fakeContext(
-	options: { idle?: boolean; pending?: boolean; entries?: unknown[]; path?: string | null } = {},
+	options: {
+		idle?: boolean;
+		pending?: boolean;
+		entries?: unknown[];
+		path?: string | null;
+		compact?: (options?: CompactOptions) => void;
+	} = {},
 ): FakeContext {
 	const abort = vi.fn();
 	const shutdown = vi.fn();
+	const compact = options.compact ? vi.fn(options.compact) : vi.fn();
 	return {
 		abort,
 		shutdown,
+		compact,
 		context: {
 			isIdle: () => options.idle ?? true,
 			hasPendingMessages: () => options.pending ?? false,
 			abort,
 			shutdown,
+			compact,
 			sessionManager: {
 				getSessionId: () => "child-session",
 				getSessionFile: () =>
@@ -101,6 +116,26 @@ function fakeContext(
 			},
 		} as unknown as ExtensionContext,
 	};
+}
+
+interface Waiter {
+	readonly count: number;
+	readonly resolve: () => void;
+}
+
+function notifyWaiters(waiters: Waiter[], currentCount: number): void {
+	for (const waiter of [...waiters]) {
+		if (currentCount < waiter.count) continue;
+		waiters.splice(waiters.indexOf(waiter), 1);
+		waiter.resolve();
+	}
+}
+
+function waitForCount(waiters: Waiter[], currentCount: number, targetCount: number): Promise<void> {
+	if (currentCount >= targetCount) return Promise.resolve();
+	return new Promise((resolve) => {
+		waiters.push({ count: targetCount, resolve });
+	});
 }
 
 async function startParent(): Promise<Parent> {
@@ -112,22 +147,20 @@ async function startParent(): Promise<Parent> {
 	const events: unknown[] = [];
 	const requests: Parent["requests"] = [];
 	const eventWaiters: Array<{ count: number; resolve: () => void }> = [];
+	const requestWaiters: Array<{ count: number; resolve: () => void }> = [];
 	const server = createMailboxTransport({
 		filePath: endpoint,
 		parentSessionId: "parent-1",
 		handleRequest: async (request) => {
 			requests.push({ operation: request.operation, payload: request.payload });
+			notifyWaiters(requestWaiters, requests.length);
 			return { ok: true };
 		},
 		diagnose: () => {},
 	});
 	server.onEvent((_childId, event) => {
 		events.push(event);
-		for (const waiter of [...eventWaiters]) {
-			if (events.length < waiter.count) continue;
-			eventWaiters.splice(eventWaiters.indexOf(waiter), 1);
-			waiter.resolve();
-		}
+		notifyWaiters(eventWaiters, events.length);
 	});
 	cleanup.push(async () => {
 		server.close();
@@ -136,12 +169,8 @@ async function startParent(): Promise<Parent> {
 		server,
 		events,
 		requests,
-		eventsArrived(count) {
-			if (events.length >= count) return Promise.resolve();
-			return new Promise((resolve) => {
-				eventWaiters.push({ count, resolve });
-			});
-		},
+		requestsArrived: (count) => waitForCount(requestWaiters, requests.length, count),
+		eventsArrived: (count) => waitForCount(eventWaiters, events.length, count),
 	};
 }
 
@@ -170,7 +199,7 @@ function identityFor(endpoint: string): ChildIdentity {
 
 async function startChild(
 	parent: Parent,
-	options: { isActive?: () => boolean; api?: FakePi } = {},
+	options: { isActive?: () => boolean; api?: FakePi; context?: FakeContext } = {},
 ): Promise<{
 	pi: FakePi;
 	control: ChildControl;
@@ -179,7 +208,7 @@ async function startChild(
 }> {
 	const endpoint = parent.server.endpoint;
 	const pi = options.api ?? fakePi();
-	const context = fakeContext();
+	const context = options.context ?? fakeContext();
 	const control = registerChildControl(pi.api, {
 		endpoint,
 		identity: identityFor(endpoint),
@@ -240,6 +269,62 @@ describe("registerChildControl", () => {
 			["go faster", { deliverAs: "steer" }],
 			["continue", { deliverAs: "followUp" }],
 		]);
+	});
+
+	test("intercepts /compact and runs context compact instead of sending user message", async () => {
+		const parent = await startParent();
+		const context = fakeContext({
+			compact: (opts?: CompactOptions) => {
+				opts?.onComplete?.({
+					summary: "Compacted summary",
+					firstKeptEntryId: "entry-1",
+					tokensBefore: 120_000,
+					estimatedTokensAfter: 15_000,
+				});
+			},
+		});
+		const { pi } = await startChild(parent, { context });
+
+		await expect(request(parent, "agent-1", "prompt", { message: "/compact" })).resolves.toEqual({
+			accepted: true,
+			path: "/tmp/child-session.jsonl",
+			compacting: true,
+		});
+
+		expect(context.compact).toHaveBeenCalledOnce();
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+
+		await until(parent.requestsArrived(1));
+		expect(parent.requests[0]).toMatchObject({
+			operation: "contact_parent",
+			payload: {
+				type: "pi_subagent_report",
+				reason: "success",
+				message: "Context compacted (120000 -> 15000 tokens).",
+			},
+		});
+	});
+
+	test("ignores duplicate /compact when already compacting and does not queue for LLM", async () => {
+		const parent = await startParent();
+		const context = fakeContext({
+			compact: () => {},
+		});
+		const { pi } = await startChild(parent, { context });
+
+		pi.emit("compaction_start", { type: "compaction_start" }, context.context);
+
+		await expect(request(parent, "agent-1", "prompt", { message: "/compact" })).resolves.toEqual({
+			accepted: true,
+			path: "/tmp/child-session.jsonl",
+			compacting: true,
+		});
+
+		expect(context.compact).not.toHaveBeenCalled();
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+
+		pi.emit("compaction_end", { type: "compaction_end" }, context.context);
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	test("refuses input before delivery when Pi has no session path", async () => {

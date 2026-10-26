@@ -37,6 +37,8 @@ Subagents communicate with the parent through the `commands` table in `state.sql
 - **Completion by Direct Output**: Subagents do **not** need to call any reporting tool upon successful completion. The subagent simply outputs its final answer as normal assistant text.
 - **Settlement Batching**: When a subagent settles, the harness captures the trailing assistant text and delivers it to the parent conversation as a `subagent-report`. Reports flush within 500ms when no other child is working, and are batched for up to 10 seconds while another child is still running.
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
+- **Direct `/compact` Command**: Sending `"/compact"` (or `"/compact [instructions]"`) via `agent_send` intercepts the command on the child side without passing it as prompt text to the LLM. The child executes native context compaction and reports completion status back to the parent via `contact_parent`. Duplicate `/compact` requests while a compaction is already in flight are safely acknowledged and ignored.
+- **Context Trim Hint**: When a subagent completes a task with context usage exceeding 100,000 tokens, its report includes a hint advising the parent to trim memory via `agent_send({ id, message: "/compact" })` if the child session will be retained for future work.
 - **Automatic Retry**: Pi's own auto-retry is observed, not invented: reports are suppressed while a retry is in flight, and a retry that succeeds clears the previous error instead of reporting it.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
 ## Compact status and reports
@@ -50,7 +52,7 @@ Use `/subagents` for complete status and management. `agent_send` can resume a d
 ## Host Integration and Isolation
 
 - **Herdr Workspace Affinity**: When spawning in Herdr, tabs are explicitly created in the parent process's current workspace (`--workspace <WORKSPACE_ID>`), preventing child tabs from jumping to whichever workspace happens to have user focus.
-- **Hindsight Memory Isolation**: `PI_HINDSIGHT_DISABLE=1` is set in the child environment and memory auto-registration/recall/writeback are disabled. The child bridge blocks all `mcp__hindsight__*` calls (including nested codemode calls and future server tools), even if that server is configured in a file. Memory recall prompt blocks are stripped. This boundary applies to the reserved `hindsight` server name, not arbitrary external servers registered under other names.
+- **Memory Isolation**: Both `PI_HINDSIGHT_DISABLE=1` and `PI_OBSERVATIONAL_MEMORY_DISABLE=1` are injected into child processes. Hindsight memory auto-registration, recall, and writeback are disabled, and the child bridge blocks all `mcp__hindsight__*` calls. Background Observational Memory workers (observation, reflection, compaction triggers) are suppressed in passive mode.
 
 ## Agent definitions
 

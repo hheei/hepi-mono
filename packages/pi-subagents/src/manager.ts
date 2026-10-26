@@ -748,6 +748,16 @@ export class SubagentManager {
 				message = text ?? "";
 			}
 
+			const reason = isError ? "error" : isBlocked ? "blocked" : "success";
+			if (
+				reason === "success" &&
+				facts?.contextTokens !== undefined &&
+				facts.contextTokens >= 100_000
+			) {
+				const kTokens = `${Math.round(facts.contextTokens / 1000)}k`;
+				message = `${message}\n\n[Context: ~${kTokens} tokens. If retaining this subagent for future tasks, send "/compact" via agent_send to trim memory.]`;
+			}
+
 			const lastDelivered = this.#lastDeliveredTurn.get(id);
 			if (
 				lastDelivered !== undefined &&
@@ -756,8 +766,6 @@ export class SubagentManager {
 			) {
 				return;
 			}
-
-			const reason = isError ? "error" : isBlocked ? "blocked" : "success";
 
 			const projector = this.#projectors.get(id);
 			const updatedRecord = !failed
@@ -1477,24 +1485,20 @@ export class SubagentManager {
 			const reason = payload.reason ?? "blocked";
 			const delivered = await this.contactParent(childId, reason, payload.message, record);
 			if ("reason" in delivered) throw new BridgeError("delivery_failed", delivered.reason);
-			if (reason === "success") {
+			if (reason === "success" || reason === "blocked") {
+				const terminalState = reason === "success" ? "done" : "blocked";
 				const projector = this.#projectors.get(childId);
 				if (projector !== undefined) {
-					projector.syncState("done");
+					projector.syncState(terminalState);
 				}
-				await this.#update(childId, (current) => ({
-					...current,
-					state: "done",
-				}));
-			} else if (reason === "blocked") {
-				const projector = this.#projectors.get(childId);
-				if (projector !== undefined) {
-					projector.syncState("blocked");
-				}
-				await this.#update(childId, (current) => ({
-					...current,
-					state: "blocked",
-				}));
+				await this.#update(childId, (current) => {
+					const { unacknowledgedInput: _input, ...clean } = current;
+					return {
+						...clean,
+						state: terminalState,
+					};
+				});
+				this.#scheduleSettledPanelClose(childId);
 			} else {
 				const projector = this.#projectors.get(childId);
 				if (projector !== undefined) {

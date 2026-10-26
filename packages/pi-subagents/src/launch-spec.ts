@@ -246,6 +246,7 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		// Empty is the defined "derive the title in the child" case, mirroring the task channel below.
 		[CHILD_TITLE_ENV_KEY]: config.title ?? "",
 		PI_HINDSIGHT_DISABLE: "1",
+		PI_OBSERVATIONAL_MEMORY_DISABLE: "1",
 		...(config.codemodeOnly ? { PI_CODEMODE_MODE: "only" } : {}),
 		...(mcpExcluded && mcpExcluded.length > 0
 			? { PI_SUBAGENT_MCP_EXCLUDE: mcpExcluded.join(",") }

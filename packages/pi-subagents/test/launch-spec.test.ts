@@ -156,6 +156,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		// Stated as empty rather than left out: the child derives its own session title then.
 		PI_SUBAGENTS_TITLE: "",
 		PI_HINDSIGHT_DISABLE: "1",
+		PI_OBSERVATIONAL_MEMORY_DISABLE: "1",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
 	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
@@ -167,6 +168,7 @@ test("carries the bridge environment without a controller token", (): void => {
 		"PI_SUBAGENTS_SESSION_ID",
 		"PI_SUBAGENTS_TITLE",
 		"PI_HINDSIGHT_DISABLE",
+		"PI_OBSERVATIONAL_MEMORY_DISABLE",
 		"PI_SUBAGENTS_TOKEN",
 	]);
 });
