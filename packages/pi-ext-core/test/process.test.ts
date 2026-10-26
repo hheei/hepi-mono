@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { runCommand, shellQuote } from "../src/index.js";
+import { isSubagentProcess, runCommand, shellQuote } from "../src/index.js";
 
 const ECHO = 'process.stdout.write("out");process.stderr.write("err")';
 const READ_STDIN =
@@ -81,5 +81,19 @@ describe("shellQuote", () => {
 	test("wraps a value in single quotes and escapes embedded quotes", () => {
 		expect(shellQuote("plain")).toBe("'plain'");
 		expect(shellQuote("it's")).toBe("'it'\\''s'");
+	});
+});
+
+describe("isSubagentProcess", () => {
+	test("returns true when child ID or memory disable flags are present", () => {
+		expect(isSubagentProcess({ PI_SUBAGENTS_CHILD_ID: "child-1" })).toBe(true);
+		expect(isSubagentProcess({ PI_HINDSIGHT_DISABLE: "1" })).toBe(true);
+		expect(isSubagentProcess({ PI_OBSERVATIONAL_MEMORY_DISABLE: "1" })).toBe(false);
+	});
+
+	test("returns false when no subagent flags are present", () => {
+		expect(isSubagentProcess({})).toBe(false);
+		expect(isSubagentProcess({ PI_HINDSIGHT_DISABLE: "0" })).toBe(false);
+		expect(isSubagentProcess({ PI_OBSERVATIONAL_MEMORY_DISABLE: "0" })).toBe(false);
 	});
 });
