@@ -57,7 +57,7 @@ Project settings override global settings.
 
 The namespace was renamed from `observational-memory` to `pi-ext-memory`. The old key is no longer read, so rename it in both files after upgrading.
 
-`PI_OBSERVATIONAL_MEMORY_PASSIVE` can override only `passive`.
+`PI_OBSERVATIONAL_MEMORY_DISABLE=1` (or `PI_OBSERVATIONAL_MEMORY_PASSIVE=1`) forces `passive: true`, which disables automatic background observation, reflection, and compaction triggers while preserving manual commands (`/om`). Subagent child processes receive this flag automatically.
 
 A typical config:
 

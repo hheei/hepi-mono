@@ -218,6 +218,14 @@ describe("V3 config", () => {
 		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_PASSIVE: value })).toEqual(expected);
 	});
 
+	it.each([
+		["1", { passive: true }],
+		["on", { passive: true }],
+		["0", { passive: false }],
+	] as const)("parses PI_OBSERVATIONAL_MEMORY_DISABLE=%s", (value, expected) => {
+		expect(readEnvConfig({ PI_OBSERVATIONAL_MEMORY_DISABLE: value })).toEqual(expected);
+	});
+
 	describe("compactAfterTokens ratio mode", () => {
 		it("accepts compactAfterTokensMode and compactAfterTokensRatio", async () => {
 			writeJson(join(cwd, ".pi", "ext_settings.json"), {

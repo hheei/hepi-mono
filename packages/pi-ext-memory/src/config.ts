@@ -185,6 +185,7 @@ export function resolveObserverChunkMaxTokens(
 
 const SETTINGS_KEY = "pi-ext-memory";
 const PASSIVE_ENV = "PI_OBSERVATIONAL_MEMORY_PASSIVE";
+const OM_DISABLE_ENV = "PI_OBSERVATIONAL_MEMORY_DISABLE";
 
 function positiveIntegerOrUndefined(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
@@ -330,12 +331,19 @@ function normalizeSettingsConfig(value: Record<string, unknown>): Partial<Config
 	return normalized;
 }
 
+function parseBooleanString(value: string | undefined): boolean | undefined {
+	if (value === undefined) return undefined;
+	const lower = value.trim().toLowerCase();
+	if (["1", "true", "yes", "on"].includes(lower)) return true;
+	if (["0", "false", "no", "off"].includes(lower)) return false;
+	return undefined;
+}
+
 export function readEnvConfig(env: NodeJS.ProcessEnv = process.env): Partial<Config> {
-	const rawPassive = env[PASSIVE_ENV];
-	if (rawPassive === undefined) return {};
-	const passive = rawPassive.trim().toLowerCase();
-	if (["1", "true", "yes", "on"].includes(passive)) return { passive: true };
-	if (["0", "false", "no", "off"].includes(passive)) return { passive: false };
+	const rawDisable = parseBooleanString(env[OM_DISABLE_ENV]);
+	if (rawDisable !== undefined) return { passive: rawDisable };
+	const rawPassive = parseBooleanString(env[PASSIVE_ENV]);
+	if (rawPassive !== undefined) return { passive: rawPassive };
 	return {};
 }
 
