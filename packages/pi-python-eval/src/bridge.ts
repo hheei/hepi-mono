@@ -12,6 +12,10 @@ export const EVAL_NESTED_TOOL_NAMES = [
 ] as const;
 
 export type EvalNestedToolName = (typeof EVAL_NESTED_TOOL_NAMES)[number];
+export type EvalNestedImage = Extract<
+	AgentToolResult<unknown>["content"][number],
+	{ type: "image" }
+>;
 
 export type EvalNestedTrace = {
 	readonly name: EvalNestedToolName;
@@ -53,7 +57,7 @@ export class EvalToolBridge {
 		args: unknown,
 		context: ExtensionToolContext,
 		signal: AbortSignal | undefined,
-		onTrace: (trace: EvalNestedTrace) => void,
+		onTrace: (trace: EvalNestedTrace, images: readonly EvalNestedImage[]) => void,
 	): Promise<unknown> {
 		if (!isNestedToolName(name)) throw new Error(`python_eval cannot call tool: ${name}`);
 		if (!this.#isActive(name))
@@ -65,6 +69,9 @@ export class EvalToolBridge {
 				...(signal === undefined ? {} : { signal }),
 			});
 			const result = outcome.result;
+			const images = result.content.filter(
+				(part): part is EvalNestedImage => part.type === "image",
+			);
 			const trace = traceFor(
 				name,
 				args,
@@ -73,7 +80,7 @@ export class EvalToolBridge {
 				outcome.isError,
 				outcome.toolCall.id,
 			);
-			onTrace(trace);
+			onTrace(trace, images);
 			if (outcome.isError) throw new EvalToolError(trace);
 			return extractToolScriptValue(result, trace.text);
 		} catch (error) {
@@ -87,7 +94,7 @@ export class EvalToolBridge {
 				error: errorMessage(error),
 				toolCallId,
 			};
-			onTrace(trace);
+			onTrace(trace, []);
 			throw new EvalToolError(trace);
 		}
 	}

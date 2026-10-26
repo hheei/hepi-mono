@@ -67,6 +67,59 @@ describe("Eval tool bridge", () => {
 		expect(traces[0]).toMatchObject({ name: "read", toolCallId: "host-read-1", text: "contents" });
 	});
 
+	test("keeps nested image blocks out of the kernel value and forwards them separately", async () => {
+		const image = { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" };
+		const host = nativeHost(async (call) => ({
+			toolCall: { type: "toolCall", id: "host-read-image", name: call.name, arguments: {} },
+			result: { content: [image], details: { path: "fixture.png" } },
+			isError: false,
+		}));
+		let receivedImages: readonly (typeof image)[] = [];
+
+		const value = await new EvalToolBridge().call(
+			"read",
+			{ path: "fixture.png" },
+			host.context,
+			undefined,
+			(_trace, images) => {
+				receivedImages = images;
+			},
+		);
+
+		expect(value).toEqual({ path: "fixture.png" });
+		expect(receivedImages).toEqual([image]);
+	});
+
+	test("returns nested read images as native content blocks on python_eval", async () => {
+		const image = { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" };
+		const host = nativeHost(async (call) => ({
+			toolCall: { type: "toolCall", id: "host-read-image", name: call.name, arguments: {} },
+			result: { content: [image], details: { path: "fixture.png" } },
+			isError: false,
+		}));
+		const state: EvalRuntimeState = {
+			getRuntime: () => ({
+				runWithHooks: async (_code, hooks) => {
+					await hooks.callTool("read", { path: "fixture.png" });
+					return { value: undefined, state: undefined, restarted: false };
+				},
+				dispose() {},
+			}),
+		};
+		const tool = createPythonEvalTool(state, new EvalToolBridge());
+
+		const result = await tool.execute(
+			"python-call",
+			{ code: "read fixture.png" },
+			undefined,
+			() => {},
+			host.context,
+		);
+
+		expect(result.content.at(-1)).toEqual(image);
+		expect(JSON.stringify(result.details)).not.toContain(image.data);
+	});
+
 	test("forwards the cell signal so cancellation reaches the nested call", async () => {
 		const host = nativeHost(hostText("contents"));
 		const controller = new AbortController();

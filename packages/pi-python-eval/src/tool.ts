@@ -12,7 +12,7 @@ import {
 	truncateWithSpill,
 } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
-import type { EvalNestedTrace, EvalToolBridge } from "./bridge.js";
+import type { EvalNestedImage, EvalNestedTrace, EvalToolBridge } from "./bridge.js";
 import type { EvalKernelState } from "./kernel/protocol.js";
 import { evalCellState } from "./kernel/protocol.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
@@ -110,6 +110,7 @@ export function createPythonEvalTool(
 			const deadline = new EvalDeadline(params.timeout_ms ?? DEFAULT_TIMEOUT_MS);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
+			const images: EvalNestedImage[] = [];
 			let omittedRows = 0;
 			const startedAt = performance.now();
 			let failure: string | undefined;
@@ -200,7 +201,8 @@ export function createPythonEvalTool(
 							});
 						},
 						callTool: async (name, args) =>
-							await bridge.call(name, args, context, runSignal, (trace) => {
+							await bridge.call(name, args, context, runSignal, (trace, nestedImages) => {
+								images.push(...nestedImages);
 								append({ kind: "tool", trace: boundedTrace(trace) });
 							}),
 					},
@@ -270,8 +272,10 @@ export function createPythonEvalTool(
 				"py",
 				limitsForCalls(rows.filter((row) => row.kind === "tool").length),
 			);
+			const result = textToolResult(body.text, details);
 			return {
-				...textToolResult(body.text, details),
+				...result,
+				content: [...result.content, ...images],
 				...(failure !== undefined ? { isError: true } : {}),
 			};
 		},

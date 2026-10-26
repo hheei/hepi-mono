@@ -36,7 +36,7 @@ NDJSON 单行约 1 MiB 上限，越界导致 kernel 失败。未捕获错误带�
 
 允许列表固定为 `read`、`grep`、`find`、前台 `bash`、`edit`、`write`、`apply_patch`。每次调用检查工具是否 active；未安装、inactive、参数错误、权限拒绝和取消都失败。禁止递归 python_eval、后台 Bash、子代理控制或任意第三方 extension 工具。Bash 只使用前台 schema，异步参数交给 host 拒绝。
 
-bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失败 trace。Python catch 后 cell 可成功；未捕获则外层 isError，之前输出仍保留。host 提供的 structuredContent 优先作为脚本返回值，其次文本，再其次非文本 details。无直接 ToolDefinition.execute fallback，也不重复生产 schema 校验。
+bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失败 trace。Python catch 后 cell 可成功；未捕获则外层 isError，之前输出仍保留。host 提供的 structuredContent 优先作为脚本返回值，其次文本，再其次非文本 details。嵌套工具返回的图片不穿过 Python NDJSON kernel，也不写入持久化 trace/details；bridge 在父进程将 Pi 原生图片 block 保留到外层「python_eval」的 AgentToolResult.content，让上游模型接收图片。无直接 ToolDefinition.execute fallback，也不重复生产 schema 校验。
 
 脚本通过 `tools.name(...)`（kwargs 或 dict）调用，`print`、`console`、`display` 和最后表达式形成顺序 transcript。取消信号透传 host；host 保持父子 tool-call 关系和 hooks。
 
