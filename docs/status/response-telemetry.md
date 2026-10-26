@@ -2,7 +2,7 @@
 
 ## 目标
 
-`@hheei/pi-status` 在 Pi host 的交互式 session 中显示每个成功 assistant response 的输入 token、输出 token、缓存读取、总耗时与输出速率。
+`@hheei/pi-status` 在 Pi host 的交互式 session 中显示每个成功 assistant response 的输入 token、输出 token、缓存读取、TTFT（首字耗时，包含思考 token）与输出速率。
 
 ## 边界
 
@@ -17,9 +17,9 @@
 - 每个完整的 assistant response（普通回答或包含工具调用的回答）在 `message_end` 更新 usage、总耗时与输出速率，并覆盖上一条。
 - 一次 agent run 结束后 15 秒隐藏当前行；下一个 response 会重新开始显示。
 - 完成指标使用当前 editor border 的颜色，不新增通知或纵向空间。
-- 显示格式为 `↑输入 ↓输出 ⇲缓存读取 󰔛耗时 󰓅速率`：各段之间都只用一个空格，耗时按 TTFT 阈值着色（<5s success、5-15s warning、≥15s error），其余段用 dim。
+- 显示格式为 `↑输入 ↓输出 ⇲缓存读取 󰔛TTFT 󰓅速率`：各段之间都只用一个空格，TTFT 按阈值着色（<5s success、5-15s warning、≥15s error），其余段用 dim。
 - `error` 与 `aborted` assistant response 清空当前状态；session start、shutdown 和 reload 清理状态与 timer。
-- 每次 response 使用该 turn 的开始时间计算总耗时；没有开始时间时显示未知值。
+- 每次 response 使用从请求开始到首个 token（包含思考 token）到达的时间计算 TTFT；若无流式首字事件则回退为总耗时；没有开始时间时显示未知值。
 - 不提供 settings、命令或持久化状态。
 
 ## 生命周期

@@ -94,10 +94,11 @@ describe("response telemetry formatters", () => {
 			output: 924,
 			cacheRead: 62_500,
 			durationMs: 9_700,
+			ttftMs: 1_200,
 			tokensPerSecond: 95.1,
 		};
 		const status = formatTelemetryStatus(metrics, mockTheme);
-		expect(status).toBe("[dim:↑5.3K ↓924 ⇲62.5K] [warning:󰔛9.7s] [dim:󰓅95.1/s]");
+		expect(status).toBe("[dim:↑5.3K ↓924 ⇲62.5K] [success:󰔛1.2s] [dim:󰓅95.1/s]");
 	});
 
 	test("formats full telemetry with ColorFn", () => {
@@ -106,6 +107,7 @@ describe("response telemetry formatters", () => {
 			output: 924,
 			cacheRead: 62_500,
 			durationMs: 9_700,
+			ttftMs: 9_700,
 			tokensPerSecond: 95.1,
 		};
 		const colorFn = (text: string) => `[border:${text}]`;
@@ -131,6 +133,20 @@ describe("response status lifecycle", () => {
 			expect(feature.getStatus(mockTheme)).toBeUndefined();
 			expect(updates).not.toHaveBeenCalled();
 
+			// First token arrives at 2_200 (thinking token, TTFT = 1.2s)
+			vi.setSystemTime(2_200);
+			h.emit("message_update", {
+				message: { role: "assistant" },
+				assistantMessageEvent: { type: "thinking_start" },
+			});
+
+			// Subsequent updates do not overwrite first token timestamp
+			vi.setSystemTime(4_000);
+			h.emit("message_update", {
+				message: { role: "assistant" },
+				assistantMessageEvent: { type: "text_delta" },
+			});
+
 			// message_end: telemetry becomes available
 			vi.setSystemTime(8_100);
 			h.emit("message_end", { message: assistant(654, 213, 83_000) });
@@ -138,7 +154,7 @@ describe("response status lifecycle", () => {
 			expect(updates).toHaveBeenCalledTimes(1);
 			const status = feature.getStatus(mockTheme);
 			expect(status).toContain("↑654 ↓213 ⇲83K");
-			expect(status).toContain("󰔛7.1s");
+			expect(status).toContain("󰔛1.2s");
 			expect(status).toContain("󰓅30.0/s");
 
 			// A new request starts: previous telemetry stays visible while it runs
@@ -203,5 +219,40 @@ describe("response status lifecycle", () => {
 		expect(feature.getStatus(mockTheme)).toBeUndefined();
 
 		feature.dispose("session");
+	});
+
+	test("captures TTFT from text_start when model has no thinking phase", () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const feature = createResponseStatusFeature(h.pi);
+			feature.start(h.ctx);
+
+			vi.setSystemTime(1_000);
+			h.emit("turn_start", { timestamp: 1_000 });
+
+			// "start" event (headers received) should not count as first token
+			vi.setSystemTime(1_200);
+			h.emit("message_update", {
+				message: { role: "assistant" },
+				assistantMessageEvent: { type: "start" },
+			});
+
+			// First content token arrives at 1_800 (TTFT = 800ms)
+			vi.setSystemTime(1_800);
+			h.emit("message_update", {
+				message: { role: "assistant" },
+				assistantMessageEvent: { type: "text_start" },
+			});
+
+			vi.setSystemTime(3_000);
+			h.emit("message_end", { message: assistant(100, 20, 0) });
+
+			const status = feature.getStatus(mockTheme);
+			expect(status).toContain("󰔛800ms");
+			feature.dispose("session");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

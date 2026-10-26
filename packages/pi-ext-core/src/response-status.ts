@@ -14,6 +14,7 @@ export interface TelemetryMetrics {
 	readonly output: number;
 	readonly cacheRead: number;
 	readonly durationMs: number | null;
+	readonly ttftMs: number | null;
 	readonly tokensPerSecond: number | null;
 }
 
@@ -70,13 +71,14 @@ export function formatTelemetryStatus(
 ): string {
 	const tokens = `↑${formatCompactNumber(metrics.input)} ↓${formatCompactNumber(metrics.output)} ⇲${formatCompactNumber(metrics.cacheRead)}`;
 	const rateStr = `󰓅${formatRate(metrics.tokensPerSecond)}/s`;
-	const durationPlain = `󰔛${formatDuration(metrics.durationMs ?? undefined) ?? "?"}`;
+	const ttftMs = metrics.ttftMs ?? metrics.durationMs;
+	const durationPlain = `󰔛${formatDuration(ttftMs ?? undefined) ?? "?"}`;
 	const fullText = `${tokens} ${durationPlain} ${rateStr}`;
 
 	if (typeof color === "function") {
 		return color(fullText);
 	}
-	const duration = formatDurationColor(metrics.durationMs, color);
+	const duration = formatDurationColor(ttftMs, color);
 	const rate = color.fg("dim", rateStr);
 	return `${color.fg("dim", tokens)} ${duration} ${rate}`;
 }
@@ -91,6 +93,7 @@ export const TELEMETRY_DISMISS_DELAY_MS = 15_000;
 export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFeature {
 	let activeSessionId: string | undefined;
 	let turnStartedAtMs: number | undefined;
+	let firstTokenAtMs: number | undefined;
 	let currentMetrics: TelemetryMetrics | undefined;
 	let dismissTimer: NodeJS.Timeout | undefined;
 	const listeners = new Set<() => void>();
@@ -125,17 +128,40 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 	pi.on("agent_start", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
+		firstTokenAtMs = undefined;
 	});
 
 	pi.on("turn_start", (event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = event.timestamp ?? Date.now();
+		firstTokenAtMs = undefined;
+	});
+
+	pi.on("message_start", (event, ctx) => {
+		if (!ownsContext(ctx) || event.message.role !== "assistant") return;
+		if (turnStartedAtMs === undefined) {
+			turnStartedAtMs = Date.now();
+		}
+	});
+
+	pi.on("message_update", (event, ctx) => {
+		if (!ownsContext(ctx) || event.message.role !== "assistant") return;
+		if (
+			firstTokenAtMs === undefined &&
+			event.assistantMessageEvent !== undefined &&
+			event.assistantMessageEvent.type !== "start" &&
+			event.assistantMessageEvent.type !== "error"
+		) {
+			firstTokenAtMs = Date.now();
+		}
 	});
 
 	pi.on("message_end", (event, ctx) => {
 		if (!ownsContext(ctx) || event.message.role !== "assistant") return;
 		const startedAtMs = turnStartedAtMs;
+		const firstAtMs = firstTokenAtMs;
 		turnStartedAtMs = undefined;
+		firstTokenAtMs = undefined;
 
 		if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
 			clearDismissTimer();
@@ -145,6 +171,12 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 		}
 
 		const totalTimeMs = startedAtMs === undefined ? null : Date.now() - startedAtMs;
+		const ttftMs =
+			startedAtMs === undefined
+				? null
+				: firstAtMs !== undefined
+					? Math.max(0, firstAtMs - startedAtMs)
+					: totalTimeMs;
 		const { usage } = event.message;
 		const tokensPerSecond = totalTimeMs === null ? null : usage.output / (totalTimeMs / 1_000);
 
@@ -153,6 +185,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			output: usage.output,
 			cacheRead: usage.cacheRead,
 			durationMs: totalTimeMs,
+			ttftMs,
 			tokensPerSecond,
 		};
 		notify();
@@ -161,6 +194,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 	pi.on("agent_end", (_event, ctx) => {
 		if (!ownsContext(ctx)) return;
 		turnStartedAtMs = undefined;
+		firstTokenAtMs = undefined;
 		scheduleDismiss();
 	});
 
@@ -170,6 +204,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			if (activeSessionId === sessionId) return;
 			activeSessionId = sessionId;
 			turnStartedAtMs = undefined;
+			firstTokenAtMs = undefined;
 			clearDismissTimer();
 			currentMetrics = undefined;
 		},
@@ -178,6 +213,7 @@ export function createResponseStatusFeature(pi: ExtensionAPI): ResponseStatusFea
 			clearDismissTimer();
 			activeSessionId = undefined;
 			turnStartedAtMs = undefined;
+			firstTokenAtMs = undefined;
 			currentMetrics = undefined;
 			listeners.clear();
 		},
