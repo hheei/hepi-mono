@@ -15,7 +15,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import type { ToolPresentationContext, ToolPresentationProvider } from "@hheei/pi-ext-core";
+import type { ToolPresentationProvider } from "@hheei/pi-ext-core";
 import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } from "./renderer.js";
 import {
 	type Collapsible,
@@ -229,7 +229,7 @@ export class NestedCallsView implements Component, Collapsible {
 	 * The render context of one nested call. A nested call has no host-mounted component, so its
 	 * context is the parent's with the child's own args, id, duration and failure state.
 	 */
-	#callContext(call: CapturedToolCall | NestedCallRecord): ToolPresentationContext {
+	#callContext(call: CapturedToolCall | NestedCallRecord): ToolRenderContext {
 		const { context } = this.#props;
 		const toolCallId =
 			"toolCallId" in call && typeof call.toolCallId === "string"

@@ -197,6 +197,26 @@ describe("nested call rows and inline summaries", () => {
 		expect(rows[3]).toContain("▎ ✓ grep x");
 	});
 
+	test.each([
+		{ offset: undefined, limit: undefined, suffix: "" },
+		{ offset: null, limit: null, suffix: "" },
+		{ offset: undefined, limit: 3, suffix: ":1-3" },
+		{ offset: "5", limit: "10", suffix: ":5-14" },
+		{ offset: 5, limit: undefined, suffix: ":5" },
+		{ offset: "", limit: 3, suffix: "" },
+		{ offset: 2, limit: "invalid", suffix: "" },
+		{ offset: Number.POSITIVE_INFINITY, limit: 3, suffix: "" },
+		{ offset: false, limit: 3, suffix: "" },
+	])("read summary preserves ranges on every supported host: $offset / $limit", ({
+		offset,
+		limit,
+		suffix,
+	}) => {
+		expect(
+			inlinePresentation("read", { path: "file.ts", offset, limit }, undefined, false)?.summary,
+		).toBe(`file.ts${suffix}`);
+	});
+
 	test("inlinePresentation formats diverse tools into their folded single-line format", () => {
 		// A summary never repeats the tool name: the row's title already carries it, and printing both
 		// produced rows like "edit edit src/index.ts".

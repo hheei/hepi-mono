@@ -1,4 +1,4 @@
-import { type AgentToolResult, formatReadLineRange } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { type DiffLine, type DiffSource, diffStats } from "./diff-view.js";
 import type { ToolStatusKind } from "./tool-view.js";
@@ -8,6 +8,17 @@ export const WRITE_TOOL_NAME = "write";
 export const CODEMODE_OPTIONS_PREFIX = "// @options:";
 export const CODEMODE_SCRIPT_HEADER =
 	/^Script (?:completed|failed)\r?\nWall time ([\d.]+) seconds\r?\nOutput:\r?\n/;
+
+// Pi <1.3 has no exported read-range formatter. Keep this UI summary independent of that export.
+function readLineNumber(value: unknown): number | undefined {
+	const parsed =
+		typeof value === "number"
+			? value
+			: typeof value === "string" && value.trim() !== ""
+				? Number(value)
+				: Number.NaN;
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 export interface NestedCallRecord {
 	readonly toolName: string;
@@ -314,7 +325,17 @@ export function fileToolPresentation(
 	if (toolName === "read") {
 		if (path === "") return undefined;
 		const parsed = parseCallArgs(args);
-		const range = formatReadLineRange(parsed?.offset, parsed?.limit);
+		const offset = parsed?.offset;
+		const limit = parsed?.limit;
+		const start = offset == null ? 1 : readLineNumber(offset);
+		const count = limit == null ? undefined : readLineNumber(limit);
+		const end = start !== undefined && count !== undefined ? start + count - 1 : undefined;
+		const range =
+			(offset == null && limit == null) ||
+			start === undefined ||
+			(limit != null && count === undefined)
+				? ""
+				: `:${start}${end ? `-${end}` : ""}`;
 		return { summary: `${path}${range}`, status: isError ? "error" : "ok" };
 	}
 	if (toolName === WRITE_TOOL_NAME) {

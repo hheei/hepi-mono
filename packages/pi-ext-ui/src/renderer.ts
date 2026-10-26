@@ -36,7 +36,11 @@ import {
 	recordToolExecutionStart,
 } from "./tracker.js";
 
-export type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
+/** Optional host metadata is absent on early supported Pi versions. */
+export type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2] & {
+	readonly durationMs?: number | undefined;
+	readonly outputPad?: number | undefined;
+};
 
 /**
  * Upstream tools whose call and result views pi-ext-ui still frames itself. Concrete tool packages
@@ -182,15 +186,10 @@ function rememberCallView(context: ToolRenderContext, view: ToolView): void {
 
 /**
  * A result view takes over from the call view. A container tool yields on any result, because its
- * own row would duplicate the nested rows and output it now carries; every other tool keeps its
- * call row until the final result. A provider states that for its own tool, so no name is involved.
+ * own row would duplicate the nested rows and output it now carries. A mounted result view takes
+ * over from its call view, including during partial updates. A provider states container semantics.
  */
-function hideCallView(
-	context: ToolRenderContext,
-	replaceCallOnPartial: boolean,
-	isPartial: boolean,
-): void {
-	if (!replaceCallOnPartial && isPartial) return;
+function hideCallView(context: ToolRenderContext): void {
 	const view = isRecord(context.state) ? context.state[CALL_VIEW_STATE_KEY] : undefined;
 	if (view instanceof ToolView) view.hide();
 }
@@ -735,7 +734,7 @@ function createRendererResolver(
 
 		return {
 			renderShell: "self",
-			renderCall(args, theme, context) {
+			renderCall(args, theme, context: ToolRenderContext) {
 				if (provider !== undefined) {
 					const callContext = { ...context, args };
 					const view = renderOwnedPresentation({
@@ -827,10 +826,7 @@ function createRendererResolver(
 						: provider(resultContext.args, result, theme, resultContext);
 				// Without an owner, a container frame is the only name-based decision left, and it
 				// belongs to upstream codemode.
-				const replacesCallOnPartial =
-					presentation?.replaceCallOnPartial === true ||
-					(presentation === undefined && SPECIALIZED_TOOL_SET.has(toolName));
-				hideCallView(context, replacesCallOnPartial, renderOptions.isPartial);
+				hideCallView(context);
 				if (presentation !== undefined) {
 					return renderOwnedPresentation({
 						toolName,

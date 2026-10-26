@@ -8,6 +8,7 @@ test("publishes the message view for one session", async () => {
 	const handlers = new Map<string, Array<(event: unknown, context: unknown) => Promise<void>>>();
 	const pi = {
 		events: {},
+		registerFlag() {},
 		on(event: string, handler: (event: unknown, context: unknown) => Promise<void>) {
 			const list = handlers.get(event) ?? [];
 			list.push(handler);

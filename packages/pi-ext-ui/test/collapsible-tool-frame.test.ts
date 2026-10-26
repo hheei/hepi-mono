@@ -81,6 +81,29 @@ function createMouseClick(
 }
 
 describe("ToolView Deep Module Interface", () => {
+	test.each([
+		0, 1, 2,
+	] as const)("global expansion overrides level %i without replacing it", (level) => {
+		const spec = {
+			theme: plainTheme,
+			header: { title: "read", status: "ok" as const },
+			sections: [
+				{ railToken: "dim" as const, content: Array.from({ length: 20 }, (_, i) => `line-${i}`) },
+			],
+			stateHolder: {},
+			defaultLevel: level,
+		};
+		const forced = new ToolView({ ...spec, globalExpanded: true });
+		expect(forced.effectiveLevel).toBe(2);
+		expect(forced.foldLevel).toBe(level);
+		expect(forced.render(80).join("\n")).toContain("line-19");
+		expect(new ToolView({ ...spec, globalExpanded: false }).effectiveLevel).toBe(level);
+		forced.toggle();
+		expect(forced.foldLevel).toBe(0);
+		expect(forced.effectiveLevel).toBe(2);
+		expect(new ToolView({ ...spec, globalExpanded: false }).effectiveLevel).toBe(0);
+	});
+
 	test("transitionFoldLevel satisfies the 6-path Click & Ctrl+Click matrix", () => {
 		expect(transitionFoldLevel(0, false)).toBe(1);
 		expect(transitionFoldLevel(0, true)).toBe(2);
@@ -277,6 +300,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	): ToolRendererResolver {
 		let captured: ToolRendererResolver | undefined;
 		const pi = {
+			registerFlag() {},
 			registerToolRenderer(resolver: ToolRendererResolver) {
 				captured = resolver;
 			},

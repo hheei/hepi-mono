@@ -81,6 +81,17 @@ const DEFAULT_MAX_SECTION_LINES = 9;
 export const MAX_LEVEL2_SECTION_LINES = 500;
 export const MAX_LEVEL2_BYTES = 64 * 1024;
 const DEFAULT_COPY_FEEDBACK_MS = 1200;
+let outerRailDepth = 0;
+
+/** Internal transcript composition: original components keep their layout and interactions. */
+export function renderWithoutToolRails(component: Component, width: number): string[] {
+	outerRailDepth++;
+	try {
+		return component.render(width);
+	} finally {
+		outerRailDepth--;
+	}
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -294,11 +305,13 @@ export class ToolView implements Component {
 	#localTimer: ReturnType<typeof setTimeout> | undefined;
 	#lastWidth = 80;
 	#lastHeight = 0;
+	#lastNoRail = false;
 	#cache:
 		| {
 				readonly width: number;
 				readonly level: FoldLevel;
 				readonly copied: boolean;
+				readonly noRail: boolean;
 				readonly lines: string[];
 		  }
 		| undefined;
@@ -343,14 +356,16 @@ export class ToolView implements Component {
 	}
 
 	get effectiveLevel(): FoldLevel {
-		const base = this.foldLevel;
-		if (base === 0) return 0;
-		if (this.#spec.globalExpanded === true) return 2;
-		return base;
+		return this.#spec.globalExpanded === true ? 2 : this.foldLevel;
 	}
 
 	get collapsed(): boolean {
 		return this.foldLevel === 0;
+	}
+
+	/** Current semantic header, without fold/copy controls or body; hidden slots have no summary. */
+	get summary(): string | undefined {
+		return this.#hidden ? undefined : formatToolHeaderText(this.#spec.header, this.#spec.theme);
 	}
 
 	#collapseChildren(): void {
@@ -383,7 +398,7 @@ export class ToolView implements Component {
 	}
 
 	toggle(ctrlKey = false): void {
-		this.setFoldLevel(transitionFoldLevel(this.foldLevel, ctrlKey));
+		this.setFoldLevel(transitionFoldLevel(this.effectiveLevel, ctrlKey));
 	}
 
 	#triggerCopy(shiftKey: boolean): void {
@@ -471,7 +486,7 @@ export class ToolView implements Component {
 		const safeWidth = Math.max(1, width - pad * 2);
 		const level = this.effectiveLevel;
 		const { theme, collapsedRows, sections } = this.#spec;
-		const noRail = options?.noRail ?? this.#spec.noRail ?? false;
+		const noRail = options?.noRail ?? (outerRailDepth > 0 || this.#spec.noRail === true);
 		const innerWidth = noRail ? safeWidth : Math.max(1, safeWidth - 2);
 		const output: string[] = [];
 
@@ -542,10 +557,12 @@ export class ToolView implements Component {
 		if (this.#hidden) return [];
 		const level = this.effectiveLevel;
 		const copied = isCopiedActive(this.#spec.stateHolder, this.#localCopiedUntil);
+		const noRail = outerRailDepth > 0 || this.#spec.noRail === true;
 		if (
 			this.#cache !== undefined &&
 			this.#cache.width === width &&
 			this.#cache.level === level &&
+			this.#cache.noRail === noRail &&
 			this.#cache.copied === copied
 		) {
 			return this.#cache.lines;
@@ -554,6 +571,7 @@ export class ToolView implements Component {
 		const pad = Math.max(0, this.#spec.outputPad ?? 0);
 		const safeWidth = Math.max(1, width - pad * 2);
 		this.#lastWidth = width;
+		this.#lastNoRail = noRail;
 		if (level !== 0) {
 			this.#collapseChildren();
 		}
@@ -572,7 +590,7 @@ export class ToolView implements Component {
 			}
 		}
 		this.#lastHeight = safeLines.length;
-		this.#cache = { width, level, copied, lines: safeLines };
+		this.#cache = { width, level, copied, noRail, lines: safeLines };
 		return safeLines;
 	}
 
@@ -624,7 +642,7 @@ export class ToolView implements Component {
 				const handler = (
 					rows as { handleMouse: (e: TuiMouseEvent) => TuiMouseEventResult | undefined }
 				).handleMouse;
-				const railOffset = this.#spec.noRail ? 0 : 2;
+				const railOffset = this.#lastNoRail ? 0 : 2;
 				const subEvent: TuiMouseEvent = {
 					...event,
 					y: event.y - 1,
