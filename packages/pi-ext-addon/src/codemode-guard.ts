@@ -1,5 +1,10 @@
-import type { ToolResultEvent, ToolResultEventResult } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@hheei/pi-ext-core";
+import type {
+	ExtensionAPI,
+	ToolResultEvent,
+	ToolResultEventResult,
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { isRecord, readMessageView } from "@hheei/pi-ext-core";
 
 export const DEFAULT_CODEMODE_GUARD_THRESHOLD = 4;
 export const CODEMODE_REMINDER_CUSTOM_TYPE = "tool-call-reminder";
@@ -9,6 +14,49 @@ Reminder: You have made 4 consecutive \`codemode\` calls that each executed only
 Agent turns are extremely expensive: please batch and execute multiple tool calls in a single \`codemode\` script (e.g. via Promise.all) instead of calling them one by one.
 Whenever searching or inspecting files, call as many \`read\` and \`grep\` operations in parallel as possible to locate information much faster.
 </system-reminder>`;
+
+export function cleanReminderBody(content: unknown): string {
+	let raw = "";
+	if (typeof content === "string") {
+		raw = content;
+	} else if (Array.isArray(content)) {
+		raw = content
+			.map((c) => (isRecord(c) && typeof c.text === "string" ? c.text : ""))
+			.filter(Boolean)
+			.join("\n");
+	}
+	return raw
+		.replace(/^<system-reminder>\s*/i, "")
+		.replace(/\s*<\/system-reminder>$/i, "")
+		.trim();
+}
+
+export function registerCodemodeGuardMessageRenderer(
+	pi: Pick<ExtensionAPI, "registerMessageRenderer">,
+): void {
+	if (typeof pi.registerMessageRenderer !== "function") return;
+	pi.registerMessageRenderer(CODEMODE_REMINDER_CUSTOM_TYPE, (message, options, theme) => {
+		const body = cleanReminderBody(message.content);
+		const summary = "batch tool calls in codemode";
+		const create = readMessageView(pi);
+		if (create) {
+			return create({
+				theme,
+				header: {
+					kind: "guard",
+					summary,
+					tone: "warning",
+				},
+				body,
+				stateHolder: message,
+				outputPad: options.outputPad,
+				forcedExpanded: options.expanded,
+			});
+		}
+		const heading = `${theme.fg("dim", "guard · ")}${theme.fg("warning", summary)}`;
+		return new Text(options.expanded && body ? `${heading}\n${body}` : heading, 1, 0);
+	});
+}
 
 export function isGeminiModel(model: unknown): boolean {
 	if (!isRecord(model)) return false;

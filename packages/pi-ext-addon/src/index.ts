@@ -38,11 +38,23 @@ export {
 	CODEMODE_REMINDER_CUSTOM_TYPE,
 	type CodemodeGuard,
 	type CodemodeGuardOptions,
+	cleanReminderBody,
 	createCodemodeGuard,
 	DEFAULT_CODEMODE_BATCH_REMINDER,
 	DEFAULT_CODEMODE_GUARD_THRESHOLD,
 	isGeminiModel,
+	registerCodemodeGuardMessageRenderer,
 } from "./codemode-guard.js";
+export {
+	CODEMODE_TOOL_NAME,
+	CODEMODE_WRAPPER_PREFIX,
+	type CodemodeSyntaxDiagnostics,
+	checkCodemodeSyntax,
+	createCodemodeSyntaxGuard,
+	formatCodemodeSyntaxError,
+	parseCodemodeSyntaxDiagnostics,
+	wrapCodemodeSource,
+} from "./codemode-syntax-guard.js";
 export {
 	createDollarSkillAtomicEditor,
 	createDollarSkillAutocompleteProvider,

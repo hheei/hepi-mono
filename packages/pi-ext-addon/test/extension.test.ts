@@ -12,6 +12,7 @@ function fakePi() {
 		Array<(event: unknown, context?: unknown) => void | Promise<void>>
 	>();
 	const commands = new Map<string, unknown>();
+	const messageRenderers = new Map<string, unknown>();
 	const sentMessages: Array<{ msg: unknown; opts: unknown }> = [];
 	const pi = {
 		sendMessage: (msg: unknown, opts: unknown) => {
@@ -34,8 +35,11 @@ function fakePi() {
 		getSessionName: () => undefined,
 		setSessionName: () => undefined,
 		appendEntry: () => undefined,
+		registerMessageRenderer: (type: string, renderer: unknown) => {
+			messageRenderers.set(type, renderer);
+		},
 	} as unknown as ExtensionAPI;
-	return { pi, handlers, commands, sentMessages };
+	return { pi, handlers, commands, sentMessages, messageRenderers };
 }
 
 async function emit(
@@ -163,6 +167,32 @@ describe("pi-ext-addon extension lifecycle", () => {
 		}
 	});
 
+	test("blocks an uncompilable codemode script before it runs", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-ext-addon-syntax-"));
+		try {
+			const { pi, handlers } = fakePi();
+			piExtAddonExtension(pi);
+			const result = await emit(
+				handlers,
+				"tool_call",
+				{ type: "tool_call", toolCallId: "c1", toolName: "codemode", input: { code: "var =;" } },
+				fakeExtension(dir),
+			);
+			expect(result).toMatchObject({ block: true });
+			expect(JSON.stringify(result)).toContain("SyntaxError:");
+
+			const ok = await emit(
+				handlers,
+				"tool_call",
+				{ type: "tool_call", toolCallId: "c2", toolName: "codemode", input: { code: "text(1);" } },
+				fakeExtension(dir),
+			);
+			expect(ok).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	test("a startup session generates its title after the first settled turn", async () => {
 		const harness = autoTitleHarness();
 		try {
@@ -258,5 +288,11 @@ describe("pi-ext-addon extension lifecycle", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	test("registers message renderer for tool-call-reminder", () => {
+		const { pi, messageRenderers } = fakePi();
+		piExtAddonExtension(pi);
+		expect(messageRenderers.has("tool-call-reminder")).toBe(true);
 	});
 });

@@ -17,7 +17,7 @@
 | [`pi-todo`](../../packages/pi-todo/README.md) | 会话任务、提醒与 footer |
 | [`pi-settings`](../../packages/pi-settings/README.md) | `/ext-settings` 统一扩展配置界面 |
 | [`pi-loadout`](../../packages/pi-loadout/README.md) | `/ext-loadout` 原生资源装配界面（Skills, Extensions, Prompts, Themes, Packages） |
-| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 扩展集合（`$skill-name` 自动补全、Auto Title 自动会话标题等 opt-in 功能） |
+| [`pi-ext-addon`](../../packages/pi-ext-addon/README.md) | Pi host 扩展集合（`$skill-name` 自动补全、Auto Title 自动会话标题、codemode 语法预检等 opt-in 功能） |
 | [`pi-optimizer`](../../packages/pi-optimizer/README.md) | 繁转简、Caveman/Ponytail 提示词、可选 RTK 与 `/optimizer` 设置 |
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-subagents`](../../packages/pi-subagents/README.md) | 独立后台与面板 Pi 子代理会话编排，拥有持久化恢复与自动报告 |

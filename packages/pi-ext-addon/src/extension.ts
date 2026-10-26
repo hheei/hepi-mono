@@ -24,7 +24,8 @@ import {
 	DEFAULT_BATCH_TOOL_RULES_CONFIG,
 	normalizeBatchToolRulesConfig,
 } from "./batch-tool-rules.js";
-import { createCodemodeGuard } from "./codemode-guard.js";
+import { createCodemodeGuard, registerCodemodeGuardMessageRenderer } from "./codemode-guard.js";
+import { createCodemodeSyntaxGuard } from "./codemode-syntax-guard.js";
 import {
 	createDollarSkillFeature,
 	createDollarSkillSettingsProvider,
@@ -60,6 +61,8 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 			}
 		},
 	});
+	registerCodemodeGuardMessageRenderer(pi);
+	pi.on("tool_call", createCodemodeSyntaxGuard());
 	const sessionRecoveryGuard = registerSessionRecoveryGuard(pi);
 	registerGeminiThoughtGuard(pi);
 

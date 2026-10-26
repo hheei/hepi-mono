@@ -1,10 +1,13 @@
-import type { ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme, ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import { type MessageViewSpec, messageViewPoint, registerExtensionHook } from "@hheei/pi-ext-core";
 import { describe, expect, it, vi } from "vitest";
 import {
 	CODEMODE_REMINDER_CUSTOM_TYPE,
+	cleanReminderBody,
 	createCodemodeGuard,
 	DEFAULT_CODEMODE_BATCH_REMINDER,
 	isGeminiModel,
+	registerCodemodeGuardMessageRenderer,
 } from "../src/codemode-guard.js";
 
 function makeEvent(options: {
@@ -206,5 +209,88 @@ describe("createCodemodeGuard", () => {
 			},
 			{ deliverAs: "steer" },
 		);
+	});
+});
+
+describe("cleanReminderBody", () => {
+	it("strips system-reminder XML tags from string content", () => {
+		const cleaned = cleanReminderBody(DEFAULT_CODEMODE_BATCH_REMINDER);
+		expect(cleaned).not.toContain("<system-reminder>");
+		expect(cleaned).not.toContain("</system-reminder>");
+		expect(cleaned).toContain("Reminder: You have made 4 consecutive `codemode` calls");
+	});
+
+	it("strips system-reminder XML tags from array content", () => {
+		const content = [
+			{ type: "text", text: "<system-reminder>\nBatch your tools!\n</system-reminder>" },
+		];
+		expect(cleanReminderBody(content)).toBe("Batch your tools!");
+	});
+
+	it("returns raw text when no XML tags are present", () => {
+		expect(cleanReminderBody("Simple reminder text")).toBe("Simple reminder text");
+	});
+});
+
+describe("registerCodemodeGuardMessageRenderer", () => {
+	const theme: Theme = {
+		fg: (_tone: string, text: string) => text,
+		bg: (_tone: string, text: string) => text,
+	} as unknown as Theme;
+
+	it("uses MessageView when pi-ext-ui hook is active", async () => {
+		let renderer: ((msg: unknown, opts: unknown, theme: unknown) => unknown) | undefined;
+		const pi = {
+			registerMessageRenderer: (_type: string, fn: typeof renderer) => {
+				renderer = fn;
+			},
+		} as unknown as ExtensionAPI;
+
+		registerCodemodeGuardMessageRenderer(pi);
+		expect(renderer).toBeDefined();
+
+		const specs: MessageViewSpec[] = [];
+		const unhook = registerExtensionHook(pi, messageViewPoint, (spec) => {
+			specs.push(spec);
+			return { render: () => ["rendered-message-view"], invalidate() {} };
+		});
+
+		try {
+			const message = {
+				customType: CODEMODE_REMINDER_CUSTOM_TYPE,
+				content: DEFAULT_CODEMODE_BATCH_REMINDER,
+			};
+			const comp = renderer!(message, { expanded: true, outputPad: 2 }, theme);
+			expect(comp).toBeDefined();
+			expect(specs).toHaveLength(1);
+			expect(specs[0]?.header).toEqual({
+				kind: "guard",
+				summary: "batch tool calls in codemode",
+				tone: "warning",
+			});
+			expect(specs[0]?.body).not.toContain("<system-reminder>");
+			expect(specs[0]?.stateHolder).toBe(message);
+			expect(specs[0]?.outputPad).toBe(2);
+			expect(specs[0]?.forcedExpanded).toBe(true);
+		} finally {
+			await unhook.dispose();
+		}
+	});
+
+	it("falls back to Text component when pi-ext-ui is absent", () => {
+		let renderer: ((msg: unknown, opts: unknown, theme: unknown) => unknown) | undefined;
+		const pi = {
+			registerMessageRenderer: (_type: string, fn: typeof renderer) => {
+				renderer = fn;
+			},
+		} as unknown as ExtensionAPI;
+
+		registerCodemodeGuardMessageRenderer(pi);
+		const message = { customType: CODEMODE_REMINDER_CUSTOM_TYPE, content: "Direct reminder" };
+		const comp = renderer!(message, { expanded: false, outputPad: 0 }, theme) as {
+			render(w: number): string[];
+		};
+		expect(comp).toBeDefined();
+		expect(comp.render(80)[0]).toContain("guard · batch tool calls in codemode");
 	});
 });
