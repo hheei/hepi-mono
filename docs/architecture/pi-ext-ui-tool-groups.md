@@ -2,7 +2,7 @@
 
 ## 已确认的目标
 
-用户批准集中、受限的运行时 monkey-patch，并要求扩大 patch 面前先确认。功能通过 `--ui-tool-groups` 显式启用，默认关闭。最低支持的 host 版本为 1.0.1；1.0.0 缺少 registerToolRenderer，明确不支持。仅作用于 TUI，不修改工具执行、session、模型上下文、磁盘上的 host 或滚动行为。
+用户批准集中、受限的运行时 monkey-patch，并要求扩大 patch 面前先确认。功能由 ext-core settings 的 `toolGroups.enabled` 控制，默认开启；设为 false 后当前 session 即停用。最低支持的 host 版本为 1.0.1；1.0.0 缺少 registerToolRenderer，明确不支持。仅作用于 TUI，不修改工具执行、session、模型上下文、磁盘上的 host 或滚动行为。
 
 ```text
 ▸ codemode ×2 · grep ×3

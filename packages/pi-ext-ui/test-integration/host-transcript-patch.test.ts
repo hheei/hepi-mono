@@ -174,7 +174,6 @@ export default function(pi) {
 			join(stagedUi, "dist/extension.js"),
 			"--extension",
 			extension,
-			"--ui-tool-groups",
 			"--tui-mode",
 			mode,
 			"--session",
