@@ -8,7 +8,7 @@
 ▸ codemode ×2 · grep ×3
 ▎ ✓ read file.ts
 ▎ thinking…
-▎ notify · indexed
+▎ indexed
 ▎ ◐ grep pattern
 ```
 
@@ -28,6 +28,7 @@ host transcript children
   ↓ 展示投影（保留原始节点）
 纯工具/thinking assistant + 工具 + 独立通知 → 连续活动组
 正文 / user / 未知元件 / 图片或未知工具 renderer → 原行、断组
+凡是用 MessageView 画的转录通知都留在组内，收起时用其原摘要，不计入工具次数。这覆盖 bg-bash、subagent、memory、optimizer 与 codemode guard，不按 customType 名单耦合。没有 MessageView 的未知元件仍断组。通知摘要直接显示内容。
   ↓
 收起：计数 + 每项 summary；展开：原生布局 + 外层导轨
 ```
@@ -36,7 +37,7 @@ host transcript children
 
 ## 展开与交互
 
-展开后使用原生工具、assistant 与通知元件布局及鼠标交互，外加一条组导轨。ToolView 在同步嵌入绘制作用域中省略自己的导轨，避免多重导轨；该模式参与绘制缓存和鼠标偏移，离开作用域立即恢复。工具的折叠、copy、巢状内容和原始状态继续由原元件拥有。组标题点击切换列表，Ctrl+O 强制显示原成员，关闭后恢复组的局部选择。fullscreen 支持鼠标；regular 使用 Ctrl+O。
+展开后使用原生工具、assistant 与通知元件布局及鼠标交互，外加一条组导轨。ToolView 在同步嵌入绘制作用域中省略自己的导轨，避免多重导轨；该模式参与绘制缓存和鼠标偏移，离开作用域立即恢复。工具的折叠、copy、巢状内容和原始状态继续由原元件拥有。组标题点击切换整组。收起时点击某一摘要行只展开该项；收回点该项任意一行的左侧组导轨。摘要行属于组，展开后的内容区属于原元件，组不复制工具的折叠或 copy 热区。Ctrl+O 强制显示原成员，关闭后恢复组的局部选择。fullscreen 支持鼠标；regular 使用 Ctrl+O。
 
 ## 生命周期与回退
 

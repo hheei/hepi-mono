@@ -13,8 +13,9 @@ import {
 	Spacer,
 	stripTerminalSequences,
 	Text,
-	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { fitRow } from "@hheei/pi-ext-core";
+import { MessageView } from "./message-view.js";
 import { renderWithoutToolRails, ToolView, toSingleRow } from "./tool-view.js";
 
 const SEAMS = ["getRegisteredToolDefinition", "showExtensionNotify"] as const;
@@ -110,6 +111,19 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 	return { component, name: toSingleRow(stripTerminalSequences(name)), summary };
 }
 
+function messageView(component: Component): MessageView | undefined {
+	if (component instanceof MessageView) return component;
+	if (!(component instanceof Container)) return undefined;
+	for (const child of component.children) if (child instanceof MessageView) return child;
+	return undefined;
+}
+
+/** Shared transcript notices stay in the group. The frame is the contract, not each custom type. */
+function noticeContinuation(component: Component): Member | undefined {
+	const view = messageView(component);
+	return view === undefined ? undefined : { component, summary: view.activitySummary };
+}
+
 class NotifyView extends Container {
 	readonly #text = new Text("", 1, 0);
 	readonly #context: ExtensionContext;
@@ -128,7 +142,7 @@ class NotifyView extends Container {
 	get summary(): string {
 		return this.#context.ui.theme.fg(
 			this.#type === "info" ? "dim" : this.#type,
-			toSingleRow(`notify · ${this.#content}`),
+			toSingleRow(this.#content),
 		);
 	}
 
@@ -145,50 +159,103 @@ class NotifyView extends Container {
 	}
 }
 
+interface Hit {
+	readonly component: Component;
+	readonly wrapper: Component;
+	readonly native: boolean;
+	readonly height: number;
+}
+
 class ToolGroup extends Container {
 	readonly #header = new Text("", 0, 0);
 	readonly #originals = new Container();
 	readonly #context: ExtensionContext;
+	readonly #redraw: () => void;
 	#members: Member[] = [];
 	#expanded = false;
 	#renderedExpanded = false;
+	#open = new Set<Component>();
+	#hits: Hit[] = [];
 
 	constructor(context: ExtensionContext, redraw: () => void) {
 		super();
 		this.#context = context;
+		this.#redraw = redraw;
 		const heading = new MouseRegion(this.#header, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			this.#expanded = this.#context.ui.getToolsExpanded() ? false : !this.#expanded;
+			if (!this.#expanded) this.#open.clear();
 			redraw();
 			return { handled: true, render: true };
 		});
 		const body: Component = {
-			render: (width) => {
-				const rows = this.#renderedExpanded
-					? renderWithoutToolRails(this.#originals, Math.max(1, width - 2))
-					: this.#members.flatMap((member) =>
-							member.summary === undefined ? [] : [member.summary],
-						);
-				const rail = this.#context.ui.theme.fg("dim", "▎");
-				return rows.map((row) => truncateToWidth(`${rail} ${row}`, Math.max(0, width), "…"));
-			},
-			handleMouse: (event) => {
-				if (!this.#renderedExpanded || event.x < 2) return undefined;
-				return this.#originals.handleMouse({
-					...event,
-					x: event.x - 2,
-					width: Math.max(1, event.width - 2),
-				});
-			},
+			render: (width) => this.#renderBody(width),
+			handleMouse: (event) => this.#hit(event),
 			invalidate() {},
 		};
 		this.children = [new Spacer(1), heading, body];
 	}
 
+	#renderBody(width: number): string[] {
+		const inner = Math.max(1, width - 2);
+		const rail = this.#context.ui.theme.fg("dim", "▎");
+		const lines: string[] = [];
+		const hits: Hit[] = [];
+		this.#members.forEach((member, index) => {
+			const wrapper = this.#originals.children[index];
+			if (wrapper === undefined) return;
+			const native = this.#renderedExpanded || this.#open.has(member.component);
+			const rows = native
+				? renderWithoutToolRails(wrapper, inner)
+				: member.summary === undefined
+					? []
+					: [member.summary];
+			if (rows.length === 0) return;
+			hits.push({ component: member.component, wrapper, native, height: rows.length });
+			for (const row of rows) {
+				lines.push(fitRow(`${rail} ${row}`, Math.max(0, width), "…"));
+			}
+		});
+		this.#hits = hits;
+		return lines;
+	}
+
+	#hit(event: Parameters<NonNullable<Component["handleMouse"]>>[0]) {
+		let y = event.y;
+		for (const hit of this.#hits) {
+			if (y >= hit.height) {
+				y -= hit.height;
+				continue;
+			}
+			if (!hit.native) {
+				if (event.type !== "click" || event.button !== "left") return undefined;
+				this.#open.add(hit.component);
+				this.#redraw();
+				return { handled: true, render: true };
+			}
+			// The rail belongs to the group. Content, including header fold and copy, stays with the member.
+			if (event.x < 2) {
+				if (!this.#renderedExpanded && event.type === "click" && event.button === "left") {
+					this.#open.delete(hit.component);
+					this.#redraw();
+					return { handled: true, render: true };
+				}
+				return undefined;
+			}
+			return hit.wrapper.handleMouse?.({
+				...event,
+				y,
+				height: hit.height,
+				x: event.x - 2,
+				width: Math.max(1, event.width - 2),
+			});
+		}
+		return undefined;
+	}
+
 	update(members: Member[]): void {
 		this.#members = members;
-		this.#originals.children = members.map(({ component, name }): Component => {
-			if (name === undefined) return component;
+		this.#originals.children = members.map(({ component }): Component => {
 			let offset = 0;
 			return {
 				render(width) {
@@ -228,7 +295,7 @@ class ToolGroup extends Container {
 			)
 			.join(theme.fg("dim", " · "));
 		this.#header.setText(
-			truncateToWidth(
+			fitRow(
 				`${theme.fg("dim", this.#renderedExpanded ? "▾" : "▸")} ${heading}`,
 				Math.max(0, width),
 				"…",
@@ -296,6 +363,12 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 			} else if (child instanceof NotifyView) {
 				members.push({ component: child, summary: child.summary });
 				continue;
+			} else {
+				const continuation = noticeContinuation(child);
+				if (continuation !== undefined) {
+					members.push(continuation);
+					continue;
+				}
 			}
 			flush();
 			children.push(child);

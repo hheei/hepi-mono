@@ -152,13 +152,17 @@ export class MessageView implements Component {
 		return { handled: true, render: true };
 	}
 
-	#header(width: number, expanded: boolean): string {
+	/** Single-row label used when this notice sits inside an activity group. */
+	get activitySummary(): string {
 		const { theme, header } = this.#spec;
 		const kind = theme.fg("dim", toSingleRow(header.kind));
 		const summaryRaw = header.summary === undefined ? "" : toSingleRow(header.summary);
 		const summary = summaryRaw === "" ? "" : theme.fg(header.tone ?? "dim", summaryRaw);
-		const label = summary === "" ? kind : `${kind}${theme.fg("dim", " · ")}${summary}`;
-		const pin = this.expandable ? `${theme.fg("dim", expanded ? "▾" : "▸")} ` : "";
-		return truncate(`${pin}${label}`, width);
+		return summary === "" ? kind : `${kind}${theme.fg("dim", " · ")}${summary}`;
+	}
+
+	#header(width: number, expanded: boolean): string {
+		const pin = this.expandable ? `${this.#spec.theme.fg("dim", expanded ? "▾" : "▸")} ` : "";
+		return truncate(`${pin}${this.activitySummary}`, width);
 	}
 }

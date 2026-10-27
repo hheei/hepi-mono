@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
 	Container,
+	Spacer,
 	Text,
 	type TUI,
 	TuiMainScreen,
@@ -18,6 +19,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { installHostToolGroups } from "../src/host-transcript-patch.js";
+import { createMessageView } from "../src/message-view.js";
 import { renderWithoutToolRails, type ToolStatusKind, ToolView } from "../src/tool-view.js";
 
 const theme = {
@@ -262,6 +264,24 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).not.toContain("read ×4");
 	});
 
+	test("a collapsed summary click expands only that member", () => {
+		const f = setup();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
+		const opened = f.chat.render(80);
+		const body = opened.findIndex((line) => line.includes("RESULT a"));
+		expect(body).toBeGreaterThan(2);
+		expect(opened.join("\n")).not.toContain("RESULT b");
+		expect(opened.join("\n")).toContain("▸ read ×2");
+		expect(click(f.chat, body, 80, 0)).toMatchObject({ handled: true });
+		const closed = show(f.chat);
+		expect(closed).not.toContain("RESULT");
+		expect(closed).toContain("▎ ✓ read");
+		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
+		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
+		expect(show(f.chat)).toContain("▸ ✓ read");
+	});
+
 	test("expanded member clicks use original tool geometry", () => {
 		const f = setup();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
@@ -418,14 +438,58 @@ describe("two centralized host seams / original transcript projection", () => {
 		f.notice("second notice\ndetail", "warning");
 		f.chat.children.push(assistant(["a", "b"]), f.row("a"), f.row("b"));
 		expect(show(f.chat)).toContain("read ×2");
-		expect(show(f.chat)).toContain("notify · first notice");
-		expect(show(f.chat)).toContain("notify · Warning: second notice detail");
+		expect(show(f.chat)).toContain("first notice");
+		expect(show(f.chat)).toContain("Warning: second notice detail");
 		expect(show(f.chat)).not.toContain("notify ×");
+		expect(show(f.chat)).not.toContain("notify ·");
 		click(f.chat, 1);
 		expect(show(f.chat)).toContain("▎  detail");
 		f.patch.dispose();
 		f.notice("native after disposal");
 		expect(show(f.chat)).toContain("native after disposal");
+	});
+
+	test("MessageView notices stay inside the activity group and raw entries break it", () => {
+		const f = setup();
+		const report = new Container();
+		Reflect.set(report, "entry", { customType: "bg-bash-info", data: { message: "tail output" } });
+		report.addChild(new Spacer(1));
+		report.addChild(
+			createMessageView({
+				theme,
+				header: {
+					kind: "bg-bash",
+					summary: "✓ job · terminal · completed",
+					tone: "success",
+				},
+				body: "tail output",
+			}),
+		);
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), report, f.row("b")];
+		const collapsed = show(f.chat);
+		expect(collapsed).toContain("read ×2");
+		expect(collapsed).toContain("bg-bash · ✓ job · terminal · completed");
+		expect(collapsed).not.toContain("tail output");
+		click(f.chat, 1);
+		const expanded = show(f.chat);
+		expect(expanded).toContain("read ×2");
+		expect(expanded).toContain("▎ ▸ bg-bash · ✓ job · terminal · completed");
+		const agents = new Container();
+		agents.addChild(
+			createMessageView({
+				theme,
+				header: { kind: "agents", summary: "✓ child scout · done", tone: "success" },
+			}),
+		);
+		const raw = new Container();
+		Reflect.set(raw, "entry", { customType: "foreign-entry" });
+		raw.addChild(new Text("foreign"));
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), agents, f.row("b")];
+		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("agents · ✓ child scout · done");
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), raw, f.row("b")];
+		expect(show(f.chat)).not.toContain("×");
+		expect(show(f.chat)).toContain("foreign");
 	});
 
 	test("history replacement and theme invalidation use current nodes, not model projection", () => {

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRuntimeSettingsRegistry,
 	messageViewPoint,
@@ -12,13 +12,6 @@ import { createMessageView } from "./message-view.js";
 import { createOptionalToolRendererFactory, registerCollapsibleToolRenderer } from "./renderer.js";
 import { activityGroupsEnabled, createToolGroupSettings } from "./settings.js";
 import { clearCapturedNestedCalls } from "./tracker.js";
-
-function sessionId(extension: ExtensionContext): string {
-	const manager: unknown = extension.sessionManager;
-	if (typeof manager !== "object" || manager === null || !("getSessionId" in manager)) return "";
-	const read = manager.getSessionId;
-	return typeof read === "function" ? String(read.call(manager)) : "";
-}
 
 export default function (pi: ExtensionAPI): void {
 	let redrawGroups: (() => void) | undefined;
@@ -70,7 +63,7 @@ export default function (pi: ExtensionAPI): void {
 			context.resources.add("message-view", () => handle.dispose());
 			try {
 				const state = await provider.storage.load({
-					sessionId: sessionId(context.extension),
+					sessionId: context.extension.sessionManager.getSessionId(),
 					signal: context.signal,
 				});
 				if (!context.signal.aborted) apply(activityGroupsEnabled(state));

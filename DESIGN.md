@@ -78,7 +78,7 @@ Rules:
 
 ### Tools
 
-- Pi host >=1.0.1 的 TUI 默认将连续工具轮次显示成 `▸ codemode ×2 · grep ×3`，下方一条外层导轨保留每个工具的一行实时 summary、每个 thinking 轮次的一行标签，以及每次通知的一行摘要。运行中即分组，partial 结果接管 call header 并更新原行，不重复 header 或计数；通知不计数。允许跨纯工具/thinking assistant 轮次，正文、user、未知元件、图片和未知工具 renderer 断组。点击组标题恢复原生元件布局与交互，工具彼此之间不额外插入空白行，原工具内容内空行保留，并保留唯一外层导轨；regular 可用 Ctrl+O。全局展开亦打开原先折叠的工具，收起后恢复局部选择，追加成员保留组状态，历史重建不持久化组状态。两处集中、受限的 host seam 负责工具发现和通知捕捉，不额外 patch thinking。开关是 ext-core settings 的 `toolGroups.enabled`，默认开启，当前 session 生效；结构不匹配时保留原展示。详见 [连续活动组](docs/architecture/pi-ext-ui-tool-groups.md)。
+- 连续工具轮次收成一组：标题是 `▸ codemode ×2 · grep ×3`，下面一条外层导轨，每个工具、thinking 轮次和通知各一行实时 summary。通知不计数，摘要直接显示内容。点标题展开全部原生布局，工具之间不另插空行，只留这一条导轨。收起时点某一摘要行只展开该项，点该项任意一行的组导轨收回。详见 [连续活动组](docs/architecture/pi-ext-ui-tool-groups.md)。
 
 - `pi-ext-tools` renders every registered tool with `renderShell: "self"`: terminal background, no Pi `tool*Bg` box.
 - A tool frame has a header and up to two bodies. A `request` body (the tool's input: command, code, task text) may sit between the header and the result body; a tool whose header already carries the whole call, and a tool whose input becomes the result, keeps one body. Omit a body's paired rails when it has no rendered lines:

@@ -22,7 +22,14 @@ test("publishes the message view for one session", async () => {
 	const start = handlers.get("session_start")?.[0];
 	const stop = handlers.get("session_shutdown")?.[0];
 	if (start === undefined || stop === undefined) throw new Error("lifecycle was not registered");
-	await start({ type: "session_start" }, {});
+	await start(
+		{ type: "session_start" },
+		{
+			mode: "rpc",
+			sessionManager: { getSessionId: () => "test-session" },
+			ui: { notify() {} },
+		},
+	);
 	expect(readMessageView(pi)).toBe(createMessageView);
 	await stop({ type: "session_shutdown" }, {});
 	expect(readMessageView(pi)).toBeUndefined();
