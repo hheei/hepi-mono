@@ -4,7 +4,7 @@ import {
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { errorMessage, isRecord } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord, readMessageView } from "@hheei/pi-ext-core";
 import { resolveCompactAfterTokens } from "../config.js";
 import type { Runtime } from "../runtime.js";
 import {
@@ -247,10 +247,19 @@ export function hasIdleCompactionWork(
 
 export function registerCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
 	if (typeof pi.registerEntryRenderer === "function") {
-		pi.registerEntryRenderer(OM_IDLE_NOTICE, (entry, _options, theme) => {
+		pi.registerEntryRenderer(OM_IDLE_NOTICE, (entry, options, theme) => {
 			const data = entry.data;
 			const text = isRecord(data) && typeof data.text === "string" ? data.text : "";
 			if (!text) return undefined;
+			const create = readMessageView(pi);
+			if (create !== undefined) {
+				return create({
+					theme,
+					header: { kind: "memory", summary: `󰔛 ${text}` },
+					stateHolder: entry,
+					forcedExpanded: options.expanded,
+				});
+			}
 			return new Text(theme.fg("dim", `󰔛 ${text}`), 1, 0);
 		});
 	}
