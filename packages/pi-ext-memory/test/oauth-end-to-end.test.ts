@@ -67,6 +67,13 @@ async function startMockAnthropic(
 	requests: RecordedRequest[],
 ): Promise<{ server: Server; baseUrl: string }> {
 	const server = createServer((req, res) => {
+		// This port is ephemeral and on localhost, so an unrelated client can reach it (a port scanner
+		// shows up here as `GET /` from Go-http-client). Only this test's own call is recorded and
+		// answered, so the auth assertions below judge the provider request and nothing else.
+		if (req.method !== "POST" || req.url !== "/chat/completions") {
+			res.writeHead(404).end();
+			return;
+		}
 		const chunks: Buffer[] = [];
 		req.on("data", (chunk) => chunks.push(chunk));
 		req.on("end", () => {
