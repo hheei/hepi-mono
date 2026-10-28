@@ -273,6 +273,9 @@
 - 已完成的前序证据：`pnpm test`（186 files / 2010 passed，含 Pi 工具契约、MCP stdio、App DOM 与 manager 结算路径）；`pnpm run test:integration`（5 files / 12 passed，真实子进程、锁竞争、CLI 启动与关闭）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 已核对：两端口径一致（同一 `delegationView` 投影经 `agents_get` 与 MCP `get` 输出 id/revision/status/hasOutput 与 `progress.runtimeState`）；默认查询不带正文，`includeOutput` 才返回且受 `truncateWithSpill` 上限；旧格式状态库被 `openStateDb` 改名留档、从空库开始且不迁移；工具名无旧别名。
 - 未完成（阻塞项）：真实 Codex Desktop 的卡片/Dashboard/最终输出/继续/停止/主题/宽度/键盘验收与截图归档；真实模型回合驱动的 Pi 端 smoke；controller 重启与断线在真实 Codex 客户端下的核对。以上需要该实机环境，未用 mock 代替。
+- 实机验收失败原因（commit `TODO`）：Codex 桌面端在升级后仍连着**部署前启动的 controller 进程**（同一 workspace 的 socket 与进程锁仍被旧进程持有），新 MCP server 只探测“socket 能连上”就复用它，于是 `delegate` 跑的是旧代码：无 revision、`status: uncertain`、30s 派发超时，App 也拿不到新契约的 `dashboard`。同一 workspace 的旧账本因此还留在旧库里（`revision 0`、6 个 agent）。
+  - 修复：`CONTROLLER_PROTOCOL` 随调用面变化递增；binding 记录 `pid` 与 `protocol`；MCP 端连上后先问 `protocol`，不匹配就 `SIGTERM` 旧进程并等它退出，再由本 build 启动自己的 controller（`stopPreviousController`）。旧 binding 没有 `pid` 时明确报错要求重开客户端，而不是猜 pid。
+  - 验证：`pnpm exec vitest run packages/pi-subagents/test/controller-lifecycle.test.ts`（7 passed，新增 protocol 探测、旧 controller 被停止、无 pid 时明确报错三个用例）；部署到 macOS 实机后，用真实模型在同一 workspace 走 MCP stdio 调用 `delegate(wait:true)` → `agent-1 (worker) completed · rev 1`，`dashboard` 与两个 App 资源（`ui://hheei/subagents/{task,dashboard}`）均正常返回。
 - 独立评审修复（commit `993d59c9`、`fe2aa369`）：`wait:false` 不再释放他人的等待占用；`contact_parent` 报告先落库再按等待归属决定是否推送；`dispose` 中止本 session 的等待；run boundary 在派发前认领并在 `agent_start` 抢先时仍对齐；结算写库失败改为向可重试的一方报错而不是静默推送；失败/不确定委派持久化 `safeToRetry`/`sideEffects`；Pi 端错误文本带 id 与重试信息，MCP 端读取 `childId`；等待期间通过 `onUpdate` 公布已受理身份；App 历史切换递增 generation；移除无调用方的 `follow_up`/`SendMode` 分支；controller `dispose` 幂等且必释放 role 与锁。新增 5 个回归用例（`manager.test`、`agents-tools.test`）。
 
 ## 完成记录模板

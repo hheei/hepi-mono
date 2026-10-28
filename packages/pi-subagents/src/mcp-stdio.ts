@@ -4,14 +4,15 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { controllerSocketPath } from "./controller.js";
+import { controllerSocketPath, stopPreviousController } from "./controller.js";
+import { CONTROLLER_PROTOCOL, controllerProtocol } from "./controller-ipc.js";
 import { createControllerSocket } from "./controller-socket.js";
 import { createSubagentMcpServer } from "./mcp-server.js";
 
 const workspace = readWorkspace(process.argv.slice(2));
 const controllerSocket = createControllerSocket({
 	locate: () => controllerSocketPath(getAgentDir(), workspace),
-	ready: socketReady,
+	ready: controllerReady,
 	start: () => spawnController(workspace, getAgentDir()),
 });
 
@@ -68,6 +69,17 @@ function spawnController(cwd: string, agentDir: string): Promise<string> {
 function tail(current: string, chunk: string): string {
 	const next = current + chunk;
 	return next.length > 4096 ? next.slice(-4096) : next;
+}
+
+/**
+ * A controller from an earlier build answers on the same socket with a call surface this build does
+ * not speak. It is replaced instead of being used, so an upgrade never keeps running old code.
+ */
+async function controllerReady(socketPath: string): Promise<boolean> {
+	if (!(await socketReady(socketPath))) return false;
+	if ((await controllerProtocol(socketPath)) === CONTROLLER_PROTOCOL) return true;
+	await stopPreviousController(getAgentDir(), workspace);
+	return false;
 }
 
 function socketReady(socketPath: string): Promise<boolean> {

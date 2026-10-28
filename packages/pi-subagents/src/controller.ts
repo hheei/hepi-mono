@@ -8,7 +8,11 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
-import { closeControllerIpc, serveControllerIpc } from "./controller-ipc.js";
+import {
+	closeControllerIpc,
+	CONTROLLER_PROTOCOL,
+	serveControllerIpc,
+} from "./controller-ipc.js";
 import { beginControllerRole, type ControllerRole, endControllerRole } from "./controller-role.js";
 import piSubagentsExtension, { skillCatalogFromLoaded } from "./extension.js";
 import { holdProcessLock, type ProcessLock } from "./process-lock.js";
@@ -43,6 +47,9 @@ interface ControllerBinding {
 	readonly workspace: string;
 	readonly parentSessionId: string;
 	readonly sessionFile: string;
+	/** Absent on bindings written before the build was recorded. */
+	readonly pid?: number;
+	readonly protocol?: number;
 }
 
 export async function startStandaloneController(options: {
@@ -77,7 +84,13 @@ export async function startStandaloneController(options: {
 		if (existing !== undefined && existing.parentSessionId !== parentSessionId) {
 			throw new Error("Standalone controller restored a different parent session");
 		}
-		writeBinding(bindingPath, { workspace, parentSessionId, sessionFile });
+		writeBinding(bindingPath, {
+			workspace,
+			parentSessionId,
+			sessionFile,
+			pid: process.pid,
+			protocol: CONTROLLER_PROTOCOL,
+		});
 		runtime = await createAgentSessionRuntime(
 			async ({ cwd, sessionManager: bound }) => {
 				const services = await createAgentSessionServices({
@@ -195,7 +208,41 @@ function readBinding(path: string): ControllerBinding | undefined {
 		workspace: value.workspace,
 		parentSessionId: value.parentSessionId,
 		sessionFile: value.sessionFile,
+		...(typeof value.pid === "number" ? { pid: value.pid } : {}),
+		...(typeof value.protocol === "number" ? { protocol: value.protocol } : {}),
 	};
+}
+
+/**
+ * A controller left behind by an earlier build keeps this workspace's socket and lock. Its calls are
+ * not this build's to make, so it is stopped here and the caller starts its own.
+ */
+export async function stopPreviousController(agentDir: string, workspace: string): Promise<void> {
+	const resolved = resolve(workspace);
+	const id = workspaceKey(resolved);
+	const binding = readBinding(join(controllerDirectory(resolve(agentDir)), `${id}.json`));
+	const pid = binding?.pid;
+	if (pid === undefined) {
+		throw new Error(
+			`A previous pi-subagents controller owns ${resolved} and does not record its process; quit and reopen the client that started it`,
+		);
+	}
+	process.kill(pid, "SIGTERM");
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		if (!isRunning(pid)) return;
+		await new Promise((done) => setTimeout(done, 50));
+	}
+	throw new Error(`A previous pi-subagents controller for ${resolved} did not stop`);
+}
+
+function isRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return !(isRecord(error) && error.code === "ESRCH");
+	}
 }
 
 function writeBinding(path: string, binding: ControllerBinding): void {

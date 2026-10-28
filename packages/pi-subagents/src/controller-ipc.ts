@@ -9,7 +9,17 @@ import { defaultRegistryPath } from "./registry.js";
 
 const openSockets = new WeakMap<Server, Set<Socket>>();
 
-export type ControllerOp = "delegate" | "receipts" | "get" | "list" | "stop" | "transcript";
+/** Bumped whenever this call surface changes: a client never talks to a controller from another build. */
+export const CONTROLLER_PROTOCOL = 2;
+
+export type ControllerOp =
+	| "protocol"
+	| "delegate"
+	| "receipts"
+	| "get"
+	| "list"
+	| "stop"
+	| "transcript";
 
 export interface ControllerCall {
 	readonly op: ControllerOp;
@@ -101,6 +111,23 @@ export function closeControllerIpc(server: Server): Promise<void> {
 	});
 }
 
+/** The call surface of the controller listening here, or undefined when nothing answers with one. */
+export async function controllerProtocol(socketPath: string): Promise<number | undefined> {
+	try {
+		const reply = await callController(
+			socketPath,
+			{ op: "protocol", input: {} },
+			AbortSignal.timeout(2_000),
+		);
+		const result: unknown = reply.result;
+		if (reply.ok !== true || typeof result !== "object" || result === null) return undefined;
+		const protocol = "protocol" in result ? result.protocol : undefined;
+		return typeof protocol === "number" ? protocol : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function callController(
 	socketPath: string,
 	call: ControllerCall,
@@ -189,6 +216,8 @@ async function dispatch(
 	filePath: string,
 ): Promise<unknown> {
 	switch (call.op) {
+		case "protocol":
+			return { protocol: CONTROLLER_PROTOCOL };
 		case "receipts": {
 			const page = listReceipts(
 				filePath,
@@ -252,7 +281,15 @@ function parseCall(value: unknown): ControllerCall {
 	return { op: record.op, input: record.input };
 }
 
-const OPS: readonly ControllerOp[] = ["delegate", "receipts", "get", "list", "stop", "transcript"];
+const OPS: readonly ControllerOp[] = [
+	"protocol",
+	"delegate",
+	"receipts",
+	"get",
+	"list",
+	"stop",
+	"transcript",
+];
 
 function isOp(value: unknown): value is ControllerOp {
 	return typeof value === "string" && OPS.includes(value as ControllerOp);

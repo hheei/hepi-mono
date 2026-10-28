@@ -1,10 +1,19 @@
+import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, test } from "vitest";
-import { callController, closeControllerIpc, serveControllerIpc } from "../src/controller-ipc.js";
+import { controllerSocketPath, stopPreviousController } from "../src/controller.js";
+import {
+	CONTROLLER_PROTOCOL,
+	callController,
+	closeControllerIpc,
+	controllerProtocol,
+	serveControllerIpc,
+} from "../src/controller-ipc.js";
 import { createControllerSocket } from "../src/controller-socket.js";
 import type { DelegationView } from "../src/delegation.js";
 import { child } from "./helpers/records.js";
@@ -94,6 +103,78 @@ test("a multi-byte frame over 1 MiB is rejected and a status call still fits bes
 	await closeControllerIpc(ipc);
 	await Promise.all(waits);
 	await rm(dir, { recursive: true, force: true });
+});
+
+test("a client learns which call surface the controller speaks", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-protocol-"));
+	const socketPath = join(dir, "protocol.sock");
+	const ipc = await serveControllerIpc({
+		socketPath,
+		parentSessionId: "01a17c90-2f44-76a4-acf8-cfdde8339251",
+		manager: waitingManager(),
+	});
+	try {
+		await expect(callController(socketPath, { op: "protocol", input: {} })).resolves.toEqual({
+			ok: true,
+			result: { protocol: CONTROLLER_PROTOCOL },
+		});
+		await expect(controllerProtocol(socketPath)).resolves.toBe(CONTROLLER_PROTOCOL);
+	} finally {
+		await closeControllerIpc(ipc);
+		await rm(dir, { recursive: true, force: true });
+	}
+	await expect(controllerProtocol(socketPath)).resolves.toBeUndefined();
+});
+
+test("a controller from an earlier build is stopped so this one can take over", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-stale-"));
+	const workspace = join(dir, "workspace");
+	const agentDir = join(dir, "agent");
+	mkdirSync(workspace, { recursive: true });
+	const id = basename(controllerSocketPath(agentDir, workspace), ".sock");
+	mkdirSync(join(agentDir, "subagents", "controllers"), { recursive: true });
+	const stale = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {
+		stdio: "ignore",
+	});
+	try {
+		writeFileSync(
+			join(agentDir, "subagents", "controllers", `${id}.json`),
+			JSON.stringify({
+				workspace,
+				parentSessionId: "01a17c90-2f44-76a4-acf8-cfdde8339251",
+				sessionFile: join(agentDir, "subagents", "sessions", "stale.jsonl"),
+				pid: stale.pid,
+				protocol: CONTROLLER_PROTOCOL - 1,
+			}),
+		);
+		await stopPreviousController(agentDir, workspace);
+		expect(stale.exitCode !== null || stale.signalCode !== null).toBe(true);
+	} finally {
+		stale.kill("SIGKILL");
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("a controller that does not record its process is reported instead of guessed at", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-unrecorded-"));
+	const workspace = join(dir, "workspace");
+	const agentDir = join(dir, "agent");
+	mkdirSync(workspace, { recursive: true });
+	const id = basename(controllerSocketPath(agentDir, workspace), ".sock");
+	mkdirSync(join(agentDir, "subagents", "controllers"), { recursive: true });
+	writeFileSync(
+		join(agentDir, "subagents", "controllers", `${id}.json`),
+		JSON.stringify({
+			workspace,
+			parentSessionId: "01a17c90-2f44-76a4-acf8-cfdde8339251",
+			sessionFile: join(agentDir, "subagents", "sessions", "stale.jsonl"),
+		}),
+	);
+	try {
+		await expect(stopPreviousController(agentDir, workspace)).rejects.toThrow("quit and reopen");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test("a dead controller is started again and a config error is not retried", async () => {

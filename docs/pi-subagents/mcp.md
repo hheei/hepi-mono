@@ -174,6 +174,7 @@ Codex Desktop ── MCP stdio ── Adapter
 
 - **Standalone Controller**：按显式 workspace 独占一个长期运行的 Pi headless parent；持有唯一 manager、model/skills、registry。stdio Adapter 为短生命周期入口，经 Unix socket 连接或按 owner lock 自动启动。
 - **Child 执行**：继续使用原有 `spawn()`、`send(id,task,"steer")`、Pi child bridge、session lease、SQLite mailbox、runtime recovery。
+- **升级**：controller 在同一 workspace 上按 socket 与进程锁共享，因此 MCP 端连上后先用 `protocol` 询问对方的调用面。版本不一致时旧 controller 会被停止，再由当前版本启动自己的实例；binding 未记录 pid 的极旧实例不会猜测 pid，而是要求重开客户端。升级后第一次连接因此可能多花一次 controller 启动时间。
 - **Receipt**：在已有 `state.sqlite` 新增窄表，记录 `parentSessionId`、`delegationId`、`childId`、输入边界、结算状态、文本、用量与时间。
 - **结算路由**：现有 manager 的 `#performAutoReport` 核实回合结束后写 receipt，并通知 MCP waiter；未来人工 Pi attach 继续使用原有 `ParentChannel`。
 - **恢复**：持久 parent Pi session ID 与 workspace 绑定；controller 重启执行 reconcile，MCP 客户端凭 receipt 读取最新状态。
