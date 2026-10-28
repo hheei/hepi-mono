@@ -40,6 +40,7 @@ import {
 	readStoredReceipt,
 	reserveReceipt,
 	settleReceipts,
+	sweepControlReceipts,
 	updateReceipt,
 	waitForReceipt,
 } from "./receipts.js";
@@ -181,7 +182,9 @@ export interface DelegationSubmission {
 	readonly action: "spawn" | "reuse";
 	readonly note?: string;
 	/** Pi work version that may settle this input. Same-turn steers share one version. */
-	readonly workVersion: number;
+	readonly workVersion?: number;
+	/** The compaction this input controls; such an input never opens a turn. */
+	readonly controlId?: string;
 	/** Set when that version already settled before the receipt row was written. */
 	readonly settled?: ReceiptSettlement;
 }
@@ -219,6 +222,20 @@ function acknowledgedPath(response: unknown): string {
 		throw new BridgeError("invalid_state", "Child did not confirm its session path");
 	}
 	return response.path;
+}
+
+/** A compaction request is a control operation, not a turn. */
+function isCompactCommand(task: string): boolean {
+	const trimmed = task.trim();
+	return trimmed === "/compact" || trimmed.startsWith("/compact ");
+}
+
+/** The child names the compaction a request started or joined; without it, nothing can settle it. */
+function acknowledgedControl(response: unknown): string {
+	if (!isRecord(response) || typeof response.controlId !== "string" || response.controlId === "") {
+		throw new BridgeError("invalid_state", "Child did not confirm which compaction it runs");
+	}
+	return response.controlId;
 }
 
 function publicChild(
@@ -319,6 +336,8 @@ export class SubagentManager {
 	readonly #workVersions = new Map<string, number>();
 	/** Highest run boundary reserved for a child that has not reached that turn yet. */
 	readonly #lastClaim = new Map<string, number>();
+	/** The compaction a child's last confirmed input controls, instead of a run boundary. */
+	readonly #lastControl = new Map<string, string>();
 	readonly #recentSettlement = new Map<string, ReceiptSettlement>();
 	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #pendingAutoReports = new Map<string, SubagentRecord>();
@@ -387,6 +406,7 @@ export class SubagentManager {
 		this.#working.clear();
 		this.#workVersions.clear();
 		this.#lastClaim.clear();
+		this.#lastControl.clear();
 		this.#recentSettlement.clear();
 		this.#notify();
 	}
@@ -761,7 +781,6 @@ export class SubagentManager {
 					status: "failed",
 					message: "Subagent finished without a result.",
 					workVersion,
-					control: false,
 				});
 				return;
 			}
@@ -831,7 +850,6 @@ export class SubagentManager {
 				status: isError ? "failed" : isBlocked ? "blocked" : "completed",
 				message,
 				workVersion,
-				control: false,
 			});
 			let deliveryOk = true;
 			if (this.#deps.channel !== undefined) {
@@ -978,10 +996,28 @@ export class SubagentManager {
 		return claimed;
 	}
 
+	/**
+	 * Binds one confirmed input to what can settle it. A compaction is a control operation: it opens
+	 * no turn, so it is bound to the child's operation id rather than to a work version that would
+	 * never arrive.
+	 */
+	#claimDispatch(id: string, task: string, response: unknown): void {
+		if (isCompactCommand(task)) {
+			this.#lastClaim.delete(id);
+			this.#lastControl.set(id, acknowledgedControl(response));
+			return;
+		}
+		this.#lastControl.delete(id);
+		this.#claimRunBoundary(id);
+	}
+
 	#claimedSubmission(id: string): {
-		readonly workVersion: number;
+		readonly workVersion?: number;
+		readonly controlId?: string;
 		readonly settled?: ReceiptSettlement;
 	} {
+		const controlId = this.#lastControl.get(id);
+		if (controlId !== undefined) return { controlId };
 		const workVersion = this.#lastClaim.get(id);
 		if (workVersion === undefined) {
 			throw new Error(`Delegation for ${id} was not bound to a run`);
@@ -1017,6 +1053,17 @@ export class SubagentManager {
 	 * until a later send starts it from its recorded session.
 	 */
 	public async recover(): Promise<RecoveryResult> {
+		// A compaction that was in flight when this process started cannot be confirmed or replayed, so
+		// it ends as uncertain instead of leaving a waiter on a report that may never come.
+		try {
+			sweepControlReceipts(
+				this.#deps.registry.path,
+				this.#deps.parentSessionId,
+				"Compaction was not confirmed before this parent session restarted",
+			);
+		} catch (error) {
+			diagnose(`failed to sweep unconfirmed compactions: ${errorMessage(error)}`);
+		}
 		const records = (await this.#deps.registry.list()).filter(
 			(record) => record.intent === "active" && record.state === "running",
 		);
@@ -1286,9 +1333,9 @@ export class SubagentManager {
 			};
 		}
 		const bound = this.#bindDispatch(filePath, parentSessionId, receipt, submitted);
-		if (!wait || submitted.settled !== undefined) {
+		if (!wait || bound.status !== "accepted") {
 			return delegationView(bound, submitted.child, {
-				includeOutput: submitted.settled !== undefined,
+				includeOutput: bound.status !== "accepted",
 			});
 		}
 		try {
@@ -1317,18 +1364,30 @@ export class SubagentManager {
 		return dispatching;
 	}
 
-	/** Binds the accepted revision to the work version that can settle it. */
+	/** Binds the accepted revision to what can settle it: a control operation, or a work version. */
 	#bindDispatch(
 		filePath: string,
 		parentSessionId: string,
 		receipt: Receipt,
 		submitted: DelegationSubmission,
 	): Receipt {
+		// A settlement that arrived before this binding landed is still that delegation's answer, and
+		// the manager already holds it.
+		const recent = this.#recentSettlement.get(submitted.child.id);
+		const settled =
+			submitted.settled ??
+			(submitted.controlId !== undefined && recent?.controlId === submitted.controlId
+				? recent
+				: undefined);
 		const bound = updateReceipt(filePath, parentSessionId, receipt.delegationId, {
 			from: ["dispatching"],
-			status: submitted.settled === undefined ? "accepted" : submitted.settled.status,
-			runBoundary: submitted.workVersion,
-			...(submitted.settled === undefined ? {} : { resultText: submitted.settled.message }),
+			status: settled === undefined ? "accepted" : settled.status,
+			...(submitted.controlId !== undefined
+				? { controlId: submitted.controlId }
+				: submitted.workVersion === undefined
+					? {}
+					: { runBoundary: submitted.workVersion }),
+			...(settled === undefined ? {} : { resultText: settled.message }),
 		});
 		if (bound !== undefined) return bound;
 		// The turn settled before this binding landed, so the stored row is already past dispatching.
@@ -1376,11 +1435,10 @@ export class SubagentManager {
 			await withDeadline(this.#start(record), this.#deps.deadlineMs ?? 60_000);
 			let path: string;
 			try {
-				path = acknowledgedPath(
-					await this.#request(record.subagentId, "prompt", { message: cleanTask }),
-				);
+				const response = await this.#request(record.subagentId, "prompt", { message: cleanTask });
+				path = acknowledgedPath(response);
 				this.#paths.set(record.subagentId, path);
-				this.#claimRunBoundary(record.subagentId);
+				this.#claimDispatch(record.subagentId, cleanTask, response);
 			} catch (error) {
 				let failureState: SubagentState = "error";
 				try {
@@ -1563,9 +1621,10 @@ export class SubagentManager {
 				};
 			});
 			try {
-				const path = acknowledgedPath(await this.#request(id, operation, { message }));
+				const response = await this.#request(id, operation, { message });
+				const path = acknowledgedPath(response);
 				this.#paths.set(id, path);
-				this.#claimRunBoundary(id);
+				this.#claimDispatch(id, message, response);
 			} catch (error) {
 				return failure(
 					"send",
@@ -1795,8 +1854,9 @@ export class SubagentManager {
 					childId,
 					status: reason === "blocked" ? "blocked" : "completed",
 					message: payload.message,
-					workVersion: this.#workVersions.get(childId) ?? 0,
-					control: payload.control === "compact",
+					...(payload.controlId === undefined
+						? { workVersion: this.#workVersions.get(childId) ?? 0 }
+						: { controlId: payload.controlId }),
 				});
 			}
 			if ("reason" in delivered) throw new BridgeError("delivery_failed", delivered.reason);
@@ -1898,7 +1958,6 @@ export class SubagentManager {
 					status: "blocked",
 					message,
 					workVersion,
-					control: false,
 				});
 				return;
 			}
@@ -1923,7 +1982,6 @@ export class SubagentManager {
 					status: "failed",
 					message: "Child left the delegated session.",
 					workVersion,
-					control: false,
 				});
 				return;
 			}

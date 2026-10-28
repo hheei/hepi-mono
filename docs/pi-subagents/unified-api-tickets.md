@@ -18,7 +18,7 @@
 | --- | --- | --- | --- |
 | AGENTS-01 | 新格式身份与委派 revision | 无 | [x] |
 | AGENTS-02 | 共用 delegate 与模型轮次结算 | 01 | [x] |
-| AGENTS-03 | /compact 控制操作结算 | 02 | [ ] |
+| AGENTS-03 | /compact 控制操作结算 | 02 | [x] |
 | AGENTS-04 | 等待、取消与单次交付 | 02、03 | [ ] |
 | AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [ ] |
 | AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [ ] |
@@ -73,7 +73,7 @@
 
 ## AGENTS-03：/compact 独立控制结算
 
-**Spec**：§4 的 /compact 规则、§7、§8。**状态**：[ ]。**依赖**：AGENTS-02。
+**Spec**：§4 的 /compact 规则、§7、§8。**状态**：[x]。**依赖**：AGENTS-02。
 
 **交付**
 
@@ -223,6 +223,17 @@
 - 验证：同上命令；新增 `manager.test` 用例覆盖身份先于启动、`wait:false` 受理、等待返回该 revision 结果、第二个等待在派发前被拒、同轮多 revision 共享结算、未知 id 不预留。
 - 未验证：真实 child 进程的启动/恢复集成路径在 AGENTS-08 汇合验证。
 
+
++
+### AGENTS-03
+
+- 实现：`delegations.control_id` 取代按任务文本猜测归属。/compact 派发时 child 用一次 compaction 的 operation id 应答（`deliverPrompt` 返回 `controlId`），manager 用该 id 绑定 revision；`#claimDispatch` 对控制操作不再领取 workVersion，因此 compact 不制造幽灵轮次。
+- 重复与连续：child 侧 `compactOperation` 记住进行中的操作，第二个 /compact 直接返回同一 `controlId`，多个 revision 共享一次结算；完成后清空，下一次 compact 使用独立 id。
+- 结算：`settleReceipts` 按 `control_id` 匹配控制操作、按 `run_boundary` 且 `control_id IS NULL` 匹配普通轮次，双方互不串；普通报告不会结算 compact，迟到 compact 报告也不会结算后续轮次。
+- 重启：`sweepControlReceipts` 在 `recover()` 把未确认的 compaction 记为 `uncertain` 并结束等待，不重跑。
+- 边界情况：TUI 自行发起、没有 delegation 归属的 compaction 正在进行时，/compact 明确失败（`compaction_unbound`），不静默挂起。
+- 验证：`pnpm exec vitest run packages/pi-subagents/test`（368 passed，含 compact 结算/共享操作/迟到报告/失败/重启 uncertain 与 child-control 的 `controlId` 用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
+- 未验证：真实 child 进程的 compaction 端到端（需真实模型与长上下文）留待 AGENTS-08 实机。
 
 ## 完成记录模板
 

@@ -285,11 +285,15 @@ describe("registerChildControl", () => {
 		});
 		const { pi } = await startChild(parent, { context });
 
-		await expect(request(parent, "agent-1", "prompt", { message: "/compact" })).resolves.toEqual({
+		const ack = (await request(parent, "agent-1", "prompt", { message: "/compact" })) as {
+			controlId?: string;
+		};
+		expect(ack).toMatchObject({
 			accepted: true,
 			path: "/tmp/child-session.jsonl",
 			compacting: true,
 		});
+		expect(typeof ack.controlId).toBe("string");
 
 		expect(context.compact).toHaveBeenCalledOnce();
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
@@ -301,11 +305,12 @@ describe("registerChildControl", () => {
 				type: "pi_subagent_report",
 				reason: "success",
 				message: "Context compacted (120000 -> 15000 tokens).",
+				controlId: ack.controlId,
 			},
 		});
 	});
 
-	test("ignores duplicate /compact when already compacting and does not queue for LLM", async () => {
+	test("refuses /compact while a compaction started outside a delegation runs", async () => {
 		const parent = await startParent();
 		const context = fakeContext({
 			compact: () => {},
@@ -314,16 +319,33 @@ describe("registerChildControl", () => {
 
 		pi.emit("compaction_start", { type: "compaction_start" }, context.context);
 
-		await expect(request(parent, "agent-1", "prompt", { message: "/compact" })).resolves.toEqual({
-			accepted: true,
-			path: "/tmp/child-session.jsonl",
-			compacting: true,
-		});
+		await expect(request(parent, "agent-1", "prompt", { message: "/compact" })).rejects.toThrow(
+			"compaction started outside a delegation",
+		);
 
 		expect(context.compact).not.toHaveBeenCalled();
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 
 		pi.emit("compaction_end", { type: "compaction_end" }, context.context);
+		expect(pi.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	test("a second /compact joins the running compaction instead of queueing another", async () => {
+		const parent = await startParent();
+		const context = fakeContext({
+			compact: () => {},
+		});
+		const { pi } = await startChild(parent, { context });
+
+		const first = (await request(parent, "agent-1", "prompt", { message: "/compact" })) as {
+			controlId?: string;
+		};
+		const second = (await request(parent, "agent-1", "steer", { message: "/compact" })) as {
+			controlId?: string;
+		};
+
+		expect(context.compact).toHaveBeenCalledOnce();
+		expect(second.controlId).toBe(first.controlId);
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 

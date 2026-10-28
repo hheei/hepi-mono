@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS delegations (
   task TEXT NOT NULL,
   input_checkpoint TEXT,
   run_boundary INTEGER,
+  control_id TEXT,
   status TEXT NOT NULL,
   delivery TEXT NOT NULL,
   result_text TEXT,

@@ -73,7 +73,6 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 			status: "completed",
 			message: "done",
 			workVersion: 2,
-			control: false,
 		});
 		expect(settled.map((receipt) => receipt.delegationId)).toEqual([first.delegationId]);
 		expect(readStoredReceipt(file, parent, other.delegationId)?.status).toBe("accepted");
@@ -94,7 +93,7 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 		updateReceipt(file, parent, compact.delegationId, {
 			from: ["reserved"],
 			status: "accepted",
-			runBoundary: 1,
+			controlId: "compact-1",
 		});
 		expect(
 			settleReceipts(file, parent, {
@@ -102,7 +101,6 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 				status: "completed",
 				message: "ordinary answer",
 				workVersion: 1,
-				control: false,
 			}),
 		).toEqual([]);
 		expect(
@@ -110,10 +108,31 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 				childId: "child-2",
 				status: "completed",
 				message: "Context compacted (10 -> 4 tokens).",
-				workVersion: 1,
-				control: true,
+				controlId: "compact-1",
 			})[0]?.status,
 		).toBe("completed");
+		// A compaction report cannot settle a turn that started after it.
+		const afterCompaction = reserveReceipt(file, {
+			parentSessionId: parent,
+			task: "next turn",
+			childId: "child-2",
+			delivery: "pending",
+		});
+		updateReceipt(file, parent, afterCompaction.delegationId, {
+			from: ["reserved"],
+			status: "accepted",
+			runBoundary: 7,
+		});
+		expect(
+			settleReceipts(file, parent, {
+				childId: "child-2",
+				status: "completed",
+				message: "late compaction",
+				controlId: "compact-2",
+			}),
+		).toEqual([]);
+		expect(readStoredReceipt(file, parent, afterCompaction.delegationId)?.status).toBe("accepted");
+		abandonReceipts(file, parent, "child-2", "cleanup");
 
 		const crashed = reserveReceipt(file, {
 			parentSessionId: parent,
@@ -144,7 +163,6 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 			status: "blocked",
 			message: "need input",
 			workVersion: 4,
-			control: false,
 		});
 		await expect(finished).resolves.toMatchObject({ status: "blocked", resultText: "need input" });
 

@@ -22,6 +22,8 @@ export interface Receipt {
 	readonly task: string;
 	readonly inputCheckpoint?: string;
 	readonly runBoundary?: number;
+	/** The compaction this delegation controls; set instead of a run boundary. */
+	readonly controlId?: string;
 	readonly status: ReceiptStatus;
 	readonly delivery: ReceiptDelivery;
 	readonly resultText?: string;
@@ -33,8 +35,10 @@ export interface ReceiptSettlement {
 	readonly childId: string;
 	readonly status: "completed" | "blocked" | "failed";
 	readonly message: string;
-	readonly workVersion: number;
-	readonly control: boolean;
+	/** The turn that can settle this event; absent for a control operation. */
+	readonly workVersion?: number;
+	/** Set for a control operation's own settlement; such a receipt has no run boundary. */
+	readonly controlId?: string;
 }
 
 const TERMINAL: ReadonlySet<ReceiptStatus> = new Set([
@@ -106,6 +110,7 @@ export function updateReceipt(
 		readonly childId?: string;
 		readonly inputCheckpoint?: string;
 		readonly runBoundary?: number;
+		readonly controlId?: string;
 		readonly resultText?: string;
 	},
 ): Receipt | undefined {
@@ -119,7 +124,8 @@ export function updateReceipt(
 		db.prepare(
 			`UPDATE delegations
 			 SET status = ?, child_id = COALESCE(?, child_id), input_checkpoint = COALESCE(?, input_checkpoint),
-			     delegation_revision = COALESCE(?, delegation_revision), run_boundary = COALESCE(?, run_boundary), result_text = COALESCE(?, result_text), updated_at = ?
+			     delegation_revision = COALESCE(?, delegation_revision), run_boundary = COALESCE(?, run_boundary),
+			     control_id = COALESCE(?, control_id), result_text = COALESCE(?, result_text), updated_at = ?
 			 WHERE parent_session_id = ? AND delegation_id = ? AND status = ?`,
 		).run(
 			patch.status,
@@ -127,6 +133,7 @@ export function updateReceipt(
 			patch.inputCheckpoint ?? null,
 			revision,
 			patch.runBoundary ?? null,
+			patch.controlId ?? null,
 			patch.resultText ?? null,
 			Date.now(),
 			parentSessionId,
@@ -173,35 +180,36 @@ export function settleReceipts(
 ): readonly Receipt[] {
 	const db = openStateDb(filePath);
 	const settled = withWrite(db, () => {
-		const rows = db
-			.prepare(
-				`SELECT delegation_id, task, delivery FROM delegations
-				 WHERE parent_session_id = ? AND child_id = ? AND run_boundary = ?
-				   AND status IN ('accepted', 'running', 'dispatching')`,
-			)
-			.all(parentSessionId, event.childId, event.workVersion) as Array<{
-			delegation_id: string;
-			task: string;
-			delivery: string;
-		}>;
-		const compactTask = (task: string): boolean => {
-			const trimmed = task.trim();
-			return trimmed === "/compact" || trimmed.startsWith("/compact ");
-		};
-		const matched = rows.filter((row) =>
-			event.control ? compactTask(row.task) : !compactTask(row.task),
-		);
+		// A control operation is bound to its own id: a late compaction report cannot settle a turn
+		// that started after it, and a turn's answer cannot be reported as a compaction.
+		const rows = (
+			event.controlId === undefined
+				? db
+						.prepare(
+							`SELECT delegation_id FROM delegations
+							 WHERE parent_session_id = ? AND child_id = ? AND run_boundary = ?
+							   AND control_id IS NULL AND status IN ('accepted', 'running', 'dispatching')`,
+						)
+						.all(parentSessionId, event.childId, event.workVersion ?? 0)
+				: db
+						.prepare(
+							`SELECT delegation_id FROM delegations
+							 WHERE parent_session_id = ? AND child_id = ? AND control_id = ?
+							   AND status IN ('accepted', 'running', 'dispatching')`,
+						)
+						.all(parentSessionId, event.childId, event.controlId)
+		) as Array<{ delegation_id: string }>;
 		const now = Date.now();
 		const stored: Receipt[] = [];
-		for (const row of matched) {
+		for (const row of rows) {
 			db.prepare(
 				`UPDATE delegations
-				 SET status = ?, result_text = ?, run_boundary = ?, updated_at = ?
+				 SET status = ?, result_text = ?, run_boundary = COALESCE(?, run_boundary), updated_at = ?
 				 WHERE parent_session_id = ? AND delegation_id = ? AND status IN ('accepted', 'running', 'dispatching')`,
 			).run(
 				event.status,
 				event.message,
-				event.workVersion,
+				event.controlId === undefined ? (event.workVersion ?? 0) : null,
 				now,
 				parentSessionId,
 				row.delegation_id,
@@ -213,6 +221,41 @@ export function settleReceipts(
 	});
 	for (const receipt of settled) notify(receipt.parentSessionId, receipt.delegationId);
 	return settled;
+}
+
+/**
+ * A control operation that outlived the process that started it can never be confirmed: the child
+ * may have compacted, may still be compacting, or may never have started. It is recorded as
+ * uncertain instead of being replayed, because replaying compaction is not idempotent.
+ */
+export function sweepControlReceipts(
+	filePath: string,
+	parentSessionId: string,
+	message: string,
+): readonly Receipt[] {
+	const db = openStateDb(filePath);
+	const swept = withWrite(db, () => {
+		const rows = db
+			.prepare(
+				`SELECT delegation_id FROM delegations
+				 WHERE parent_session_id = ? AND control_id IS NOT NULL
+				   AND status IN ('accepted', 'running')`,
+			)
+			.all(parentSessionId) as Array<{ delegation_id: string }>;
+		const now = Date.now();
+		const stored: Receipt[] = [];
+		for (const row of rows) {
+			db.prepare(
+				`UPDATE delegations SET status = 'uncertain', result_text = ?, updated_at = ?
+				 WHERE parent_session_id = ? AND delegation_id = ? AND status IN ('accepted', 'running')`,
+			).run(message, now, parentSessionId, row.delegation_id);
+			const receipt = readReceipt(db, parentSessionId, row.delegation_id);
+			if (receipt !== undefined) stored.push(receipt);
+		}
+		return stored;
+	});
+	for (const receipt of swept) notify(receipt.parentSessionId, receipt.delegationId);
+	return swept;
 }
 
 export function listReceipts(
@@ -395,7 +438,7 @@ function readReceipt(
 ): Receipt | undefined {
 	const row = db
 		.prepare(
-			`SELECT delegation_id, child_id, delegation_revision, task, input_checkpoint, run_boundary, status, delivery, result_text, created_at, updated_at
+			`SELECT delegation_id, child_id, delegation_revision, task, input_checkpoint, run_boundary, control_id, status, delivery, result_text, created_at, updated_at
 			 FROM delegations WHERE parent_session_id = ? AND delegation_id = ?`,
 		)
 		.get(parentSessionId, delegationId) as
@@ -406,6 +449,7 @@ function readReceipt(
 				task: string;
 				input_checkpoint: string | null;
 				run_boundary: number | null;
+				control_id: string | null;
 				status: string;
 				delivery: string;
 				result_text: string | null;
@@ -432,6 +476,7 @@ function readReceipt(
 		...(row.delegation_revision === null ? {} : { revision: row.delegation_revision }),
 		...(row.input_checkpoint === null ? {} : { inputCheckpoint: row.input_checkpoint }),
 		...(row.run_boundary === null ? {} : { runBoundary: row.run_boundary }),
+		...(row.control_id === null ? {} : { controlId: row.control_id }),
 		...(row.result_text === null ? {} : { resultText: row.result_text }),
 	};
 }

@@ -6,6 +6,7 @@
  * and a child running headless are controlled identically and no second transport (an RPC writer,
  * a pause handshake) has to be kept in sync with the child's real state.
  */
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import type { ChildIdentity } from "./domain.js";
@@ -245,7 +246,11 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		}
 		return ctx;
 	};
-	const reportCompaction = (reason: "success" | "blocked", message: string): void => {
+	const reportCompaction = (
+		controlId: string,
+		reason: "success" | "blocked",
+		message: string,
+	): void => {
 		void client
 			.report("contact_parent", {
 				type: "pi_subagent_report",
@@ -254,12 +259,17 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 				runtimeIdentity: options.identity.runtimeIdentity,
 				reason,
 				message,
-				control: "compact",
+				controlId,
 			})
 			.catch((err) => {
 				options.diagnose?.(`failed to report compaction ${reason}: ${errorMessage(err)}`);
 			});
 	};
+	/**
+	 * The compaction this child is running for a delegation. A second /compact joins it instead of
+	 * queueing another one, so both delegations settle with the same operation.
+	 */
+	let compactOperation: string | undefined;
 	const deliverPrompt = (
 		payload: unknown,
 		deliverAs: "steer" | "followUp" | undefined,
@@ -273,23 +283,36 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 		}
 		const trimmed = message.trim();
 		if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
-			if (isCompacting) {
-				return { accepted: true, path, compacting: true };
+			// A compaction this child already runs for a delegation is the operation a new request
+			// joins, whatever the event state says yet.
+			if (compactOperation !== undefined) {
+				return { accepted: true, path, compacting: true, controlId: compactOperation };
 			}
+			if (isCompacting) {
+				throw new BridgeError(
+					"compaction_unbound",
+					"A compaction started outside a delegation is already running",
+				);
+			}
+			const controlId = randomUUID();
+			compactOperation = controlId;
 			const customInstructions = trimmed.slice(8).trim() || undefined;
 			requireContext().compact({
 				...(customInstructions ? { customInstructions } : {}),
 				onComplete: (result) => {
+					compactOperation = undefined;
 					reportCompaction(
+						controlId,
 						"success",
 						`Context compacted (${result.tokensBefore} -> ${result.estimatedTokensAfter} tokens).`,
 					);
 				},
 				onError: (err) => {
-					reportCompaction("blocked", `Compaction failed: ${err.message}`);
+					compactOperation = undefined;
+					reportCompaction(controlId, "blocked", `Compaction failed: ${err.message}`);
 				},
 			});
-			return { accepted: true, path, compacting: true };
+			return { accepted: true, path, compacting: true, controlId };
 		}
 		if (isCompacting) {
 			pendingCompactionDeliveries.push({ message, deliverAs });

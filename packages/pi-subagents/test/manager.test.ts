@@ -469,6 +469,36 @@ async function startTurn(harness: Harness, id: string): Promise<void> {
 	await harness.bridge.settle();
 }
 
+/** Answers the parent's next prompt with the compaction this child runs. */
+function acknowledgeCompaction(harness: Harness, id: string, operation: string, controlId: string) {
+	harness.bridge.responses.set(`${id}:${operation}`, async () => ({
+		accepted: true,
+		path: join(harness.cwd, "sessions", `${id}-session.jsonl`),
+		compacting: true,
+		controlId,
+	}));
+}
+
+/** Delivers the report that ends one compaction operation. */
+async function reportCompaction(
+	harness: Harness,
+	id: string,
+	controlId: string,
+	message: string,
+	reason: "success" | "blocked" = "success",
+): Promise<void> {
+	const record = await harness.registry.get(id);
+	await harness.manager.handleChildRequest(id, "contact_parent", {
+		type: "pi_subagent_report",
+		parentSessionId: harness.parentSessionId,
+		childId: id,
+		runtimeIdentity: record?.runtime?.runtimeIdentity,
+		reason,
+		message,
+		controlId,
+	});
+}
+
 describe("SubagentManager over the bridge", () => {
 	test("delegation without an id spawns through the existing launch path", async () => {
 		const current = await harness({ host: true });
@@ -713,6 +743,131 @@ describe("SubagentManager over the bridge", () => {
 
 		expect(listReceipts(STATE_DB_PATH, current.parentSessionId).receipts).toEqual([]);
 		expect(current.launch).not.toHaveBeenCalled();
+	});
+
+	test("a compaction delegation settles through its own operation", async () => {
+		const current = await harness();
+		acknowledgeCompaction(current, "sa_child1", "prompt", "op-1");
+
+		const waiting = current.manager.delegate({ agent: "worker", task: "/compact" });
+		await flush();
+
+		expect(
+			latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_child1"),
+		).toMatchObject({ revision: 1, status: "accepted", controlId: "op-1" });
+		expect(
+			latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_child1")?.runBoundary,
+		).toBeUndefined();
+
+		// A turn's answer is not a compaction result.
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "ordinary answer");
+		expect(latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_child1")?.status).toBe(
+			"accepted",
+		);
+
+		await reportCompaction(current, "sa_child1", "op-1", "Context compacted (10 -> 4 tokens).");
+
+		await expect(waiting).resolves.toMatchObject({
+			revision: 1,
+			status: "completed",
+			hasOutput: true,
+			resultText: "Context compacted (10 -> 4 tokens).",
+		});
+	});
+
+	test("delegations joining one compaction settle with that single report", async () => {
+		const current = await harness();
+		acknowledgeCompaction(current, "sa_child1", "prompt", "op-1");
+		const first = await current.manager.delegate({
+			agent: "worker",
+			task: "/compact",
+			wait: false,
+		});
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		acknowledgeCompaction(current, "sa_child1", "steer", "op-1");
+		const second = await current.manager.delegate({
+			id: "sa_child1",
+			task: "/compact",
+			wait: false,
+		});
+		if ("reason" in second) throw new Error(second.reason);
+		expect([first.revision, second.revision]).toEqual([1, 2]);
+
+		await reportCompaction(current, "sa_child1", "op-1", "Context compacted (10 -> 4 tokens).");
+
+		for (const revision of [1, 2]) {
+			expect(
+				readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", revision),
+			).toMatchObject({ status: "completed", controlId: "op-1" });
+		}
+	});
+
+	test("a later compaction is a separate operation and ignores a late report", async () => {
+		const current = await harness();
+		acknowledgeCompaction(current, "sa_child1", "prompt", "op-1");
+		const first = await current.manager.delegate({
+			agent: "worker",
+			task: "/compact",
+			wait: false,
+		});
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await reportCompaction(current, "sa_child1", "op-1", "first compaction");
+
+		acknowledgeCompaction(current, "sa_child1", "steer", "op-2");
+		const second = await current.manager.delegate({
+			id: "sa_child1",
+			task: "/compact",
+			wait: false,
+		});
+		if ("reason" in second) throw new Error(second.reason);
+
+		await reportCompaction(current, "sa_child1", "op-1", "duplicate report for the old operation");
+		expect(
+			readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", 2),
+		).toMatchObject({ status: "accepted", controlId: "op-2" });
+
+		await reportCompaction(current, "sa_child1", "op-2", "second compaction");
+		expect(
+			readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", 2),
+		).toMatchObject({ status: "completed", resultText: "second compaction" });
+	});
+
+	test("a failed compaction settles its revision as blocked", async () => {
+		const current = await harness();
+		acknowledgeCompaction(current, "sa_child1", "prompt", "op-1");
+		const waiting = current.manager.delegate({ agent: "worker", task: "/compact" });
+		await flush();
+
+		await reportCompaction(
+			current,
+			"sa_child1",
+			"op-1",
+			"Compaction failed: out of room",
+			"blocked",
+		);
+
+		await expect(waiting).resolves.toMatchObject({
+			status: "blocked",
+			hasOutput: true,
+			resultText: "Compaction failed: out of room",
+		});
+	});
+
+	test("an unconfirmed compaction is recorded as uncertain after a restart", async () => {
+		const current = await harness();
+		acknowledgeCompaction(current, "sa_child1", "prompt", "op-1");
+		const waiting = current.manager.delegate({ agent: "worker", task: "/compact" });
+		await flush();
+
+		await current.manager.recover();
+
+		await expect(waiting).resolves.toMatchObject({ status: "uncertain" });
+		expect(
+			readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", 1),
+		).toMatchObject({ status: "uncertain", controlId: "op-1" });
 	});
 
 	test("an unconfirmed panel startup does not freeze the child", async () => {
