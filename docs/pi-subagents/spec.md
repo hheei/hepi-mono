@@ -214,7 +214,7 @@ child bridge environment
 
 ### 5.1 Parent-scoped registry
 
-V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`busy_timeout=5000`，0600），按 `parentSessionId` 隔离。它同时承载 `children`（记录 + revision）、`session_meta`、`commands`（双向命令队列）与 `tokens` 四张表，并用 `revision` 做条件写入、拒绝过期 writer。它不写入 `settings.json`，也不引入 event ledger 或 handoff history。库用 `PRAGMA user_version = 1` 标识当前格式；打开时遇到旧格式库不迁移、不报错，而是改名为 `state.sqlite.<时间戳>.previous`（连同 `-wal`/`-shm`）后从空库开始，因为账本只承载 parent session 的运行时状态，child 自己的 session 文件不受影响。
+V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`busy_timeout=5000`，0600），按 `parentSessionId` 隔离。它同时承载 `children`（记录 + revision）、`session_meta`、`commands`（双向命令队列）与 `tokens` 四张表，并用 `revision` 做条件写入、拒绝过期 writer。它不写入 `settings.json`，也不引入 event ledger 或 handoff history。库用 `PRAGMA user_version = 1` 标识当前格式；打开时遇到旧格式库不迁移、不报错，而是改名为 `state.sqlite.previous`（连同 `-wal`/`-shm`）后从空库开始，因为账本只承载 parent session 的运行时状态，child 自己的 session 文件不受影响。
 
 每个 child 至少保存：
 

@@ -84,7 +84,7 @@ function stateFormat(db: DatabaseSync): "current" | "previous" | "empty" {
 
 /** Keeps the previous ledger under a discoverable name; its WAL sidecars move with it. */
 function setAside(filePath: string): void {
-	const kept = `${filePath}.${Date.now()}.previous`;
+	const kept = `${filePath}.previous`;
 	for (const suffix of ["", "-wal", "-shm"]) {
 		const from = `${filePath}${suffix}`;
 		if (existsSync(from)) renameSync(from, `${kept}${suffix}`);

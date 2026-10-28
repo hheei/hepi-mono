@@ -36,7 +36,7 @@
 - 建立公共输入/结果 schema 和新格式标识；明确条件必填 agent、正整数 revision、未知字段拒绝。
 - 在既有 SQLite/manager ownership 内原子预留 agent identity 与首个委派；同 parent/agent 后续 revision 持久单调分配并有唯一约束。
 - 区分 delegationRevision、registry CAS revision、workVersion；随机内部主键不出现在目标公共结果中。
-- 在任何写入、自动 schema 升级和派发前检测不兼容旧格式：旧库改名留档（`state.sqlite.<时间戳>.previous`），新库从空开始；不迁移、不导入旧数据，也不因旧库存在而拒绝启动。
+- 在任何写入、自动 schema 升级和派发前检测不兼容旧格式：旧库改名留档（`state.sqlite.previous`），新库从空开始；不迁移、不导入旧数据，也不因旧库存在而拒绝启动。
 
 **验收**
 
