@@ -56,7 +56,7 @@ test("legacy initialize lists delegate and a tool call waits for the receipt", a
 				return child({ id, state: "done" });
 			},
 			async getEntries() {
-				return [{ role: "assistant", text: "done" }];
+				return { entries: [{ role: "assistant", text: "done" }] };
 			},
 		},
 	});
@@ -163,10 +163,12 @@ test("task and dashboard resources advertise the MCP Apps bridge", async () => {
 				return child({ id, state: "done" });
 			},
 			async getEntries() {
-				return [
-					{ type: "message", text: "hello" },
-					{ type: "message", text: "world" },
-				];
+				return {
+					entries: [
+						{ type: "message", text: "hello" },
+						{ type: "message", text: "world" },
+					],
+				};
 			},
 		},
 	});

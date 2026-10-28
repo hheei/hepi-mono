@@ -61,6 +61,7 @@ describe("state projection", () => {
 			turn("b", "latest", "stop", 0.3),
 		];
 		expect(summarizeCurrentBranch(entries)).toBe("latest");
+		expect(summarizeCurrentBranch([turn("c", "x".repeat(500), "stop", 0.1)])?.length).toBe(240);
 		expect(aggregateUsage(entries)).toEqual({
 			inputTokens: 4,
 			outputTokens: 6,

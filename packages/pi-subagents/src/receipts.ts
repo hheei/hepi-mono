@@ -373,6 +373,14 @@ export interface ReceiptSummary {
 	readonly hasOutput: boolean;
 }
 
+/** A failed or uncertain receipt stores a reason, not an answer. */
+export function receiptCarriesOutput(
+	status: ReceiptStatus,
+	resultText: string | undefined,
+): boolean {
+	return resultText !== undefined && status !== "failed" && status !== "uncertain";
+}
+
 export function latestReceiptSummaries(
 	filePath: string,
 	parentSessionId: string,
@@ -380,7 +388,8 @@ export function latestReceiptSummaries(
 	const db = openStateDb(filePath);
 	const rows = db
 		.prepare(
-			`SELECT child_id, delegation_id, delegation_revision, status, result_text IS NOT NULL AS has_output
+			`SELECT child_id, delegation_id, delegation_revision, status,
+			        result_text IS NOT NULL AND status NOT IN ('failed', 'uncertain') AS has_output
 			 FROM delegations
 			 WHERE parent_session_id = ? AND child_id IS NOT NULL
 			   AND rowid IN (

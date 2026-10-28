@@ -18,7 +18,10 @@ export interface ControllerManager {
 	get(id: string): Promise<PublicSubagent | OperationError>;
 	list(): Promise<readonly PublicSubagent[]>;
 	stop(id: string): Promise<PublicSubagent | OperationError>;
-	getEntries(id: string): Promise<readonly unknown[] | undefined>;
+	getEntries(
+		id: string,
+		range?: { readonly cursor?: number; readonly limit?: number },
+	): Promise<{ readonly entries: readonly unknown[]; readonly nextCursor?: number } | undefined>;
 }
 
 /** In-process ownership for one standalone controller. Print mode is not this signal. */

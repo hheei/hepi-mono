@@ -8,11 +8,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "@hheei/pi-ext-core";
-import {
-	closeControllerIpc,
-	CONTROLLER_PROTOCOL,
-	serveControllerIpc,
-} from "./controller-ipc.js";
+import { CONTROLLER_PROTOCOL, closeControllerIpc, serveControllerIpc } from "./controller-ipc.js";
 import { beginControllerRole, type ControllerRole, endControllerRole } from "./controller-role.js";
 import piSubagentsExtension, { skillCatalogFromLoaded } from "./extension.js";
 import { holdProcessLock, type ProcessLock } from "./process-lock.js";
@@ -217,16 +213,25 @@ function readBinding(path: string): ControllerBinding | undefined {
  * A controller left behind by an earlier build keeps this workspace's socket and lock. Its calls are
  * not this build's to make, so it is stopped here and the caller starts its own.
  */
-export async function stopPreviousController(agentDir: string, workspace: string): Promise<void> {
+export async function stopPreviousController(
+	agentDir: string,
+	workspace: string,
+	expectedPid?: number,
+): Promise<void> {
 	const resolved = resolve(workspace);
 	const id = workspaceKey(resolved);
-	const binding = readBinding(join(controllerDirectory(resolve(agentDir)), `${id}.json`));
+	const path = join(controllerDirectory(resolve(agentDir)), `${id}.json`);
+	const binding = readBinding(path);
 	const pid = binding?.pid;
+	// The process that failed the probe may already have been replaced. Killing whatever pid is here
+	// now would stop the replacement.
+	if (expectedPid !== undefined && pid !== expectedPid) return;
 	if (pid === undefined) {
 		throw new Error(
 			`A previous pi-subagents controller owns ${resolved} and does not record its process; quit and reopen the client that started it`,
 		);
 	}
+	if (readBinding(path)?.pid !== pid) return;
 	process.kill(pid, "SIGTERM");
 	const deadline = Date.now() + 10_000;
 	while (Date.now() < deadline) {
@@ -234,6 +239,13 @@ export async function stopPreviousController(agentDir: string, workspace: string
 		await new Promise((done) => setTimeout(done, 50));
 	}
 	throw new Error(`A previous pi-subagents controller for ${resolved} did not stop`);
+}
+
+/** Pid recorded for this workspace, when the binding names one. */
+export function recordedControllerPid(agentDir: string, workspace: string): number | undefined {
+	const resolved = resolve(workspace);
+	const id = workspaceKey(resolved);
+	return readBinding(join(controllerDirectory(resolve(agentDir)), `${id}.json`))?.pid;
 }
 
 function isRunning(pid: number): boolean {

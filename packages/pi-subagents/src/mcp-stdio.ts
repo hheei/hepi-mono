@@ -4,7 +4,11 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { controllerSocketPath, stopPreviousController } from "./controller.js";
+import {
+	controllerSocketPath,
+	recordedControllerPid,
+	stopPreviousController,
+} from "./controller.js";
 import { CONTROLLER_PROTOCOL, controllerProtocol } from "./controller-ipc.js";
 import { createControllerSocket } from "./controller-socket.js";
 import { createSubagentMcpServer } from "./mcp-server.js";
@@ -41,15 +45,21 @@ function spawnController(cwd: string, agentDir: string): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let stdout = "";
 		let settled = false;
+		const timer = setTimeout(() => {
+			fail(new Error(stderr.trim() || "Controller did not become ready"));
+		}, 30_000);
 		const succeed = (path: string): void => {
 			if (settled) return;
 			settled = true;
+			clearTimeout(timer);
 			child.stdout?.off("data", onStdout);
 			resolve(path);
 		};
 		const fail = (error: Error): void => {
 			if (settled) return;
 			settled = true;
+			clearTimeout(timer);
+			child.kill("SIGTERM");
 			reject(error);
 		};
 		const onStdout = (chunk: string): void => {
@@ -60,6 +70,9 @@ function spawnController(cwd: string, agentDir: string): Promise<string> {
 		};
 		child.stdout?.setEncoding("utf8");
 		child.stdout?.on("data", onStdout);
+		child.once("error", (error) => {
+			fail(error);
+		});
 		child.once("exit", (code) => {
 			fail(new Error(stderr.trim() || `Controller exited ${code ?? "unknown"}`));
 		});
@@ -77,8 +90,14 @@ function tail(current: string, chunk: string): string {
  */
 async function controllerReady(socketPath: string): Promise<boolean> {
 	if (!(await socketReady(socketPath))) return false;
-	if ((await controllerProtocol(socketPath)) === CONTROLLER_PROTOCOL) return true;
-	await stopPreviousController(getAgentDir(), workspace);
+	const agentDir = getAgentDir();
+	const owner = recordedControllerPid(agentDir, workspace);
+	const probe = await controllerProtocol(socketPath);
+	if (probe.state === "ready" && probe.protocol === CONTROLLER_PROTOCOL) return true;
+	// A timeout or a refused connection is not proof of an old build. Stopping here killed a
+	// controller that had already been replaced, or one that was merely slow.
+	if (probe.state !== "foreign") return false;
+	await stopPreviousController(agentDir, workspace, owner);
 	return false;
 }
 

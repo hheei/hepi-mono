@@ -364,7 +364,20 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 			case "get_state":
 				return childState(requireContext(), isCompacting);
 			case "get_entries": {
-				return { entries: currentEntries() };
+				const payload = isRecord(request.payload) ? request.payload : undefined;
+				const cursor =
+					typeof payload?.cursor === "number" && payload.cursor >= 0
+						? Math.floor(payload.cursor)
+						: 0;
+				const limit =
+					typeof payload?.limit === "number" && payload.limit > 0
+						? Math.min(Math.floor(payload.limit), 100)
+						: 20;
+				const all = currentEntries();
+				const entries = all.slice(cursor, cursor + limit);
+				const nextCursor =
+					cursor + entries.length < all.length ? cursor + entries.length : undefined;
+				return { entries, ...(nextCursor === undefined ? {} : { nextCursor }) };
 			}
 			case "session_facts": {
 				const expected = isRecord(request.payload) ? request.payload.expectedInput : undefined;

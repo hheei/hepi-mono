@@ -1,4 +1,6 @@
+import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { attachRetainedChild, type ChildRuntime } from "./child-process.js";
 import {
@@ -71,6 +73,49 @@ async function readSessionJsonlEntries(filePath: string): Promise<readonly unkno
 		}
 	}
 	return entries;
+}
+
+/** One transcript page, parsed only through the requested window. */
+async function readSessionJsonlPage(
+	filePath: string,
+	cursor: number,
+	limit: number,
+): Promise<{ readonly entries: unknown[]; readonly nextCursor?: number } | undefined> {
+	const entries: unknown[] = [];
+	let index = 0;
+	let past = false;
+	const stream = createReadStream(filePath, { encoding: "utf8" });
+	stream.on("error", () => {
+		// The async iterator rejects with the same error; the listener keeps it from escaping.
+	});
+	const lines = createInterface({ input: stream, crlfDelay: Infinity });
+	try {
+		for await (const line of lines) {
+			const trimmed = line.trim();
+			if (trimmed.length === 0) continue;
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(trimmed);
+			} catch {
+				continue;
+			}
+			if (index >= cursor) {
+				if (entries.length >= limit) {
+					past = true;
+					break;
+				}
+				entries.push(parsed);
+			}
+			index += 1;
+		}
+	} catch {
+		return undefined;
+	} finally {
+		lines.close();
+		stream.destroy();
+	}
+	if (index === 0 && entries.length === 0) return undefined;
+	return { entries, ...(past ? { nextCursor: cursor + entries.length } : {}) };
 }
 
 import {
@@ -355,7 +400,10 @@ export class SubagentManager {
 	 * Waiting delegations of this process, by child. Occupancy lives here and not in the ledger: a
 	 * stored `pending` row is history, and a waiter of a previous process does not exist any more.
 	 */
-	readonly #waiters = new Map<string, { readonly delegationId: string; aborted: boolean }>();
+	readonly #waiters = new Map<
+		string,
+		{ readonly delegationId: string; aborted: boolean; runBoundary?: number }
+	>();
 	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #pendingAutoReports = new Map<string, SubagentRecord>();
 	#autoReportBatchTimer: NodeJS.Timeout | undefined;
@@ -889,8 +937,11 @@ export class SubagentManager {
 	}
 
 	/** Reads a child's session entries; used by transcript inspection fallbacks. */
-	public async getEntries(id: string): Promise<readonly unknown[] | undefined> {
-		return this.#entries(id);
+	public async getEntries(
+		id: string,
+		range?: { readonly cursor?: number; readonly limit?: number },
+	): Promise<{ readonly entries: readonly unknown[]; readonly nextCursor?: number } | undefined> {
+		return this.#entries(id, range?.cursor ?? 0, range?.limit ?? 20);
 	}
 
 	/** A child is live while its bridge connection is up, or while a process we started still runs. */
@@ -982,14 +1033,35 @@ export class SubagentManager {
 	}
 
 	/** Reads a child's session entries over the bridge, falling back to disk when disconnected. */
-	async #entries(id: string): Promise<readonly unknown[] | undefined> {
+	async #entries(
+		id: string,
+		cursor = 0,
+		limit = 20,
+	): Promise<{ readonly entries: readonly unknown[]; readonly nextCursor?: number } | undefined> {
 		if (this.#deps.bridge.isConnected(id)) {
-			const response = await this.#request(id, "get_entries").catch(() => undefined);
-			if (isRecord(response) && Array.isArray(response.entries) && response.entries.length > 0) {
-				return response.entries;
+			const response = await this.#request(id, "get_entries", { cursor, limit }).catch(
+				() => undefined,
+			);
+			if (
+				isRecord(response) &&
+				Array.isArray(response.entries) &&
+				(response.entries.length > 0 || cursor > 0)
+			) {
+				const nextCursor =
+					typeof response.nextCursor === "number" ? response.nextCursor : undefined;
+				return {
+					entries: response.entries,
+					...(nextCursor === undefined ? {} : { nextCursor }),
+				};
 			}
 		}
-		return this.#diskEntries(id);
+		const record = await this.#deps.registry.get(id).catch(() => undefined);
+		if (record === undefined) return undefined;
+		const sessionPath =
+			record.sessionPath ??
+			(await findSessionFile(record.launchConfig.sessionDir, record.sessionId));
+		if (sessionPath === undefined) return undefined;
+		return readSessionJsonlPage(sessionPath, cursor, limit);
 	}
 
 	#request(id: string, operation: BridgeOperation, payload?: unknown): Promise<unknown> {
@@ -1069,11 +1141,19 @@ export class SubagentManager {
 		}
 	}
 
-	/** True when a waiting tool call owns this turn's delivery, so pushing it would deliver twice. */
+	/**
+	 * True when a waiting tool call owns this settlement. A steer into the turn it is waiting on is
+	 * answered by the same settlement, so pushing it would deliver that turn twice; a compaction has
+	 * no boundary of its own and stays a separate result.
+	 */
 	#claimedByWaiter(settled: readonly Receipt[]): boolean {
 		return settled.some((receipt) => {
-			const waiter = this.#waiters.get(receipt.childId ?? "");
-			return waiter !== undefined && !waiter.aborted;
+			const childId = receipt.childId;
+			if (childId === undefined) return false;
+			const waiter = this.#waiters.get(childId);
+			if (waiter === undefined || waiter.aborted) return false;
+			if (waiter.delegationId === receipt.delegationId) return true;
+			return waiter.runBoundary !== undefined && receipt.runBoundary === waiter.runBoundary;
 		});
 	}
 
@@ -1175,6 +1255,15 @@ export class SubagentManager {
 			return;
 		}
 		await this.#releaseRuntime(record.subagentId, "parent-exit");
+		// The interrupted turn will not finish. Leaving it accepted lets the next run reuse its work
+		// boundary and settle the old receipt with the new answer.
+		this.#restoreWorkVersion(record.subagentId);
+		abandonReceipts(
+			this.#deps.registry.path,
+			this.#deps.parentSessionId,
+			record.subagentId,
+			"Delegation was interrupted because the background agent ended with the parent session",
+		);
 	}
 
 	/** Reads a connected child's real state and puts the record back in step with it. */
@@ -1426,8 +1515,11 @@ export class SubagentManager {
 			return agentView(bound, submitted.child, { includeOutput: true });
 		}
 		const waiter = this.#waiters.get(childId);
-		onAccepted?.(await agentView(bound, submitted.child));
+		if (waiter !== undefined && bound.runBoundary !== undefined) {
+			waiter.runBoundary = bound.runBoundary;
+		}
 		try {
+			onAccepted?.(await agentView(bound, submitted.child));
 			const settled = await waitForReceipt(
 				filePath,
 				parentSessionId,
@@ -1443,7 +1535,7 @@ export class SubagentManager {
 				latest === undefined ? submitted.child : publicChild(latest, false),
 				{ includeOutput: true },
 			);
-		} catch {
+		} catch (error) {
 			// The wait ended, not the delegation. A result the tool result can no longer carry goes
 			// back to the automatic path, so the turn is delivered exactly once either way.
 			if (waiter !== undefined) waiter.aborted = true;
@@ -1451,7 +1543,10 @@ export class SubagentManager {
 			if (!this.#disposed.signal.aborted && terminalReceipt(current.status)) {
 				await this.#pushSettled(current);
 			}
-			return delegationView(current, submitted.child);
+			if (signal?.aborted === true || this.#disposed.signal.aborted) {
+				return delegationView(current, submitted.child);
+			}
+			throw error;
 		} finally {
 			if (this.#waiters.get(childId) === waiter) this.#waiters.delete(childId);
 		}
@@ -1682,6 +1777,9 @@ export class SubagentManager {
 				try {
 					await withDeadline(this.#start(resumedRecord), this.#deps.deadlineMs ?? 60_000);
 					isResumed = true;
+					// A new process counts its turns from one again, so this parent adopts the boundary the
+					// ledger already spent before it opens the next one.
+					this.#restoreWorkVersion(id);
 				} catch (error) {
 					const reason = errorMessage(error);
 					// A launch that failed may still have started a process that owns the session, so the
@@ -1725,7 +1823,9 @@ export class SubagentManager {
 			// shares that turn's boundary, a fresh dispatch always opens the next one. The boundary
 			// is claimed before the request goes out, because the child may announce `agent_start`
 			// before this dispatch's own acknowledgement arrives.
-			const joining = this.#working.has(id) && (this.#workVersions.get(id) ?? 0) > 0;
+			// A resume starts a fresh run in a new process, so it never shares the boundary of the
+			// turn the dead one left behind.
+			const joining = !isResumed && this.#working.has(id) && (this.#workVersions.get(id) ?? 0) > 0;
 			const claim = isCompactCommand(message) ? undefined : this.#claimRunBoundary(id, joining);
 			this.#clearSettledPanelClose(id);
 			const pending = await this.#update(id, (current) => {
@@ -2149,13 +2249,15 @@ export class SubagentManager {
 					value.message === undefined || value.message === ""
 						? "Task is unfinished and waiting for user intent."
 						: value.message;
-				await this.contactParent(id, "user_interrupt", message, record);
-				this.#recordSettlement({
+				const settled = this.#recordSettlement({
 					childId: id,
 					status: "blocked",
 					message,
 					workVersion,
 				});
+				if (settled !== undefined && !this.#claimedByWaiter(settled)) {
+					await this.contactParent(id, "user_interrupt", message, record);
+				}
 				return;
 			}
 			if (value.kind === "left_session") {

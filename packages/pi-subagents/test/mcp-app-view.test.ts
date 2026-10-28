@@ -238,6 +238,89 @@ test("dashboard refresh continues after switching children during an in-flight r
 	expect(lastCall(page, "get")?.params?.arguments?.id).toBe("child-2");
 });
 
+test("dashboard does not reread output it already has", async () => {
+	const page = boot("dashboard");
+	page.reply(sentCall(page, "ui/initialize").id, {});
+	const child = {
+		id: "child-1",
+		agent: "worker",
+		runtimeState: "done",
+		revision: 1,
+		status: "completed",
+		hasOutput: true,
+	};
+	page.emit({
+		jsonrpc: "2.0",
+		method: "ui/notifications/tool-result",
+		params: {
+			structuredContent: {
+				total: 1,
+				running: 0,
+				blocked: 0,
+				completed: 1,
+				failed: 0,
+				children: [child],
+			},
+		},
+	});
+	const buttons = page.window.document.querySelectorAll("#list button");
+	buttons[0]?.dispatchEvent(new page.window.Event("click", { bubbles: true }));
+	page.flush(0);
+	await tick();
+	page.reply(lastCall(page, "list")?.id, {
+		structuredContent: {
+			total: 1,
+			running: 0,
+			blocked: 0,
+			completed: 1,
+			failed: 0,
+			children: [child],
+		},
+	});
+	await tick();
+	const first = lastCall(page, "get");
+	expect(first?.params?.arguments).toMatchObject({ id: "child-1", includeOutput: true });
+	const completed = {
+		structuredContent: {
+			id: "child-1",
+			revision: 1,
+			status: "completed",
+			hasOutput: true,
+			resultText: "done",
+		},
+	};
+	page.reply(first?.id, completed);
+	await tick();
+	const dashboard = {
+		structuredContent: {
+			total: 1,
+			running: 0,
+			blocked: 0,
+			completed: 1,
+			failed: 0,
+			children: [child],
+		},
+	};
+	const answered = new Set<number | undefined>([first?.id, lastCall(page, "list")?.id]);
+	const settle = async (): Promise<void> => {
+		for (let step = 0; step < 4; step += 1) {
+			const open = page.sent.filter(isCall).filter((call) => !answered.has(call.id));
+			if (open.length === 0) return;
+			for (const call of open) {
+				answered.add(call.id);
+				page.reply(call.id, call.params?.name === "get" ? completed : dashboard);
+			}
+			await tick();
+		}
+	};
+	// The poll after the body arrived must not ask for it again.
+	page.flush(2000);
+	await settle();
+	const again = lastCall(page, "get");
+	expect(again?.id).not.toBe(first?.id);
+	expect(again?.params?.arguments).toMatchObject({ id: "child-1", includeOutput: false });
+});
+
 test("a transcript response for a previous child never overwrites the selected child", async () => {
 	const page = boot("dashboard");
 	page.reply(sentCall(page, "ui/initialize").id, {});

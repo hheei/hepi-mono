@@ -724,6 +724,31 @@ describe("registerChildControl", () => {
 		});
 	});
 
+	test("get_entries returns one page", async () => {
+		const parent = await startParent();
+		const entries = [0, 1, 2].map((id) => ({ type: "message", id: `entry-${id}` }));
+		const pi = fakePi();
+		const context = fakeContext({ entries });
+		const control = registerChildControl(pi.api, {
+			endpoint: parent.server.endpoint,
+			identity: identityFor(parent.server.endpoint),
+			diagnose: () => {},
+		});
+		cleanup.push(async () => {
+			control.dispose();
+		});
+		pi.emit("session_start", { type: "session_start", reason: "startup" }, context.context);
+		control.start(context.context);
+		await until(parent.server.waitUntilSeen("agent-1", { timeoutMs: 30_000 }));
+
+		await expect(
+			request(parent, "agent-1", "get_entries", { cursor: 1, limit: 1 }),
+		).resolves.toEqual({
+			entries: [entries[1]],
+			nextCursor: 2,
+		});
+	});
+
 	test("session_facts returns the projection and the mailbox drops the command", async () => {
 		const parent = await startParent();
 		const entries = [

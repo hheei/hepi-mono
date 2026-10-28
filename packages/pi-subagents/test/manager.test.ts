@@ -1938,6 +1938,35 @@ describe("SubagentManager over the bridge", () => {
 		expect(await test1.manager.get("sa_alive")).toMatchObject({ state: "done" });
 	});
 
+	test("a dead background child drops its interrupted receipt and does not reuse its work boundary", async () => {
+		const current = await harness();
+		await current.addChild("sa_dead", { state: "running", presentation: "background" });
+		const receipt = reserveReceipt(STATE_DB_PATH, {
+			parentSessionId: current.parentSessionId,
+			task: "keep going",
+			childId: "sa_dead",
+			delivery: "pending",
+		});
+		updateReceipt(STATE_DB_PATH, current.parentSessionId, receipt.delegationId, {
+			from: ["reserved"],
+			status: "accepted",
+			runBoundary: 4,
+		});
+		await current.manager.recover();
+		expect(
+			readStoredReceipt(STATE_DB_PATH, current.parentSessionId, receipt.delegationId),
+		).toMatchObject({
+			status: "failed",
+		});
+		const next = await current.manager.delegate({ id: "sa_dead", task: "again", wait: false });
+		if ("reason" in next) throw new Error(next.reason);
+		expect(latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_dead")).toMatchObject({
+			runBoundary: 5,
+			status: "accepted",
+		});
+		current.manager.closeLocalConnections();
+	});
+
 	test("stops listening to the transport when it is disposed", async () => {
 		const test1 = await harness();
 		await test1.addChild("sa_dispose", { state: "running" });

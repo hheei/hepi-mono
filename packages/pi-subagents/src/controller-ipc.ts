@@ -111,8 +111,17 @@ export function closeControllerIpc(server: Server): Promise<void> {
 	});
 }
 
-/** The call surface of the controller listening here, or undefined when nothing answers with one. */
-export async function controllerProtocol(socketPath: string): Promise<number | undefined> {
+/**
+ * What answered on this socket. `silent` is not a protocol: a slow or dead peer must not be treated
+ * as an older build.
+ */
+export type ControllerProbe =
+	| { readonly state: "ready"; readonly protocol: number }
+	| { readonly state: "foreign" }
+	| { readonly state: "silent" };
+
+/** The call surface of the controller listening here. Only an actual answer can be foreign. */
+export async function controllerProtocol(socketPath: string): Promise<ControllerProbe> {
 	try {
 		const reply = await callController(
 			socketPath,
@@ -120,11 +129,12 @@ export async function controllerProtocol(socketPath: string): Promise<number | u
 			AbortSignal.timeout(2_000),
 		);
 		const result: unknown = reply.result;
-		if (reply.ok !== true || typeof result !== "object" || result === null) return undefined;
+		if (reply.ok !== true || typeof result !== "object" || result === null)
+			return { state: "foreign" };
 		const protocol = "protocol" in result ? result.protocol : undefined;
-		return typeof protocol === "number" ? protocol : undefined;
+		return typeof protocol === "number" ? { state: "ready", protocol } : { state: "foreign" };
 	} catch {
-		return undefined;
+		return { state: "silent" };
 	}
 }
 
@@ -311,14 +321,15 @@ async function transcriptPage(
 	id: string,
 	input: unknown,
 ): Promise<{ id: string; entries: unknown[]; nextCursor?: number }> {
-	const entries = await manager.getEntries(id);
-	if (entries === undefined) throw new Error(`Unknown child ${id}`);
 	const cursor = numberField(input, "cursor");
 	const limit = numberField(input, "limit", 50) || 20;
-	const page = entries.slice(cursor, cursor + limit).map(boundedEntry);
-	return cursor + page.length < entries.length
-		? { id, entries: page, nextCursor: cursor + page.length }
-		: { id, entries: page };
+	const page = await manager.getEntries(id, { cursor, limit });
+	if (page === undefined) throw new Error(`Unknown child ${id}`);
+	return {
+		id,
+		entries: page.entries.map(boundedEntry),
+		...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+	};
 }
 
 function boundedEntry(entry: unknown): unknown {

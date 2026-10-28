@@ -60,6 +60,15 @@ function text(message: Record<string, unknown>): string | undefined {
 		.trim();
 	return value === "" ? undefined : value;
 }
+
+/** Activity lines stay short. The full answer lives on the receipt, not in the dashboard summary. */
+const ACTIVITY_SUMMARY_LIMIT = 240;
+
+function activitySummary(value: string): string {
+	const flat = value.replace(/\s+/g, " ").trim();
+	if (flat.length <= ACTIVITY_SUMMARY_LIMIT) return flat;
+	return `${flat.slice(0, ACTIVITY_SUMMARY_LIMIT - 1)}…`;
+}
 function completed(message: Record<string, unknown>): boolean {
 	return message.stopReason !== "pending" && message.stopReason !== "deferred";
 }
@@ -108,7 +117,7 @@ export function summarizeCurrentBranch(entries: readonly unknown[]): string | un
 		const item = assistant(entry);
 		if (item === undefined || !completed(item.message)) continue;
 		const value = text(item.message);
-		if (value !== undefined) return value;
+		if (value !== undefined) return activitySummary(value);
 	}
 	return undefined;
 }
@@ -213,7 +222,7 @@ export function parseTranscriptFacts(value: unknown): TranscriptFacts | undefine
 	) {
 		return undefined;
 	}
-	const summary = typeof value.summary === "string" ? value.summary : undefined;
+	const summary = typeof value.summary === "string" ? activitySummary(value.summary) : undefined;
 	const stopReason = typeof value.stopReason === "string" ? value.stopReason : undefined;
 	const interrupted = typeof value.interrupted === "string" ? value.interrupted : undefined;
 	const contextTokens = usageNumber(value.contextTokens);
@@ -335,7 +344,8 @@ export function createStateProjector(initialState: SubagentState = "running"): S
 				const messages = Array.isArray(value.messages) ? value.messages : [];
 				const message = record(messages.length > 0 ? messages[messages.length - 1] : value.message);
 				if (message?.role === "assistant") {
-					summary = text(message) ?? summary;
+					const spoken = text(message);
+					summary = spoken === undefined ? summary : activitySummary(spoken);
 					if (value.type === "agent_end" && message.stopReason === "error") {
 						state = "error";
 						interrupted = diagnostic(message);

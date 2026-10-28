@@ -615,7 +615,7 @@ async function pull(gen) {
     paintList(listed.children || [], listed);
   }
   if (childId) {
-    const includeOutput = !panes.Output.hidden;
+    const includeOutput = !panes.Output.hidden && !outputLoaded;
     const request = revision > 0 ? { id: childId, revision, includeOutput } : { id: childId, includeOutput };
     const viewData = await callTool("get", request);
     if (gen !== generation) return 0;

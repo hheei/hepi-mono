@@ -6,7 +6,11 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { expect, test } from "vitest";
-import { controllerSocketPath, stopPreviousController } from "../src/controller.js";
+import {
+	controllerSocketPath,
+	recordedControllerPid,
+	stopPreviousController,
+} from "../src/controller.js";
 import {
 	CONTROLLER_PROTOCOL,
 	callController,
@@ -118,12 +122,15 @@ test("a client learns which call surface the controller speaks", async () => {
 			ok: true,
 			result: { protocol: CONTROLLER_PROTOCOL },
 		});
-		await expect(controllerProtocol(socketPath)).resolves.toBe(CONTROLLER_PROTOCOL);
+		await expect(controllerProtocol(socketPath)).resolves.toEqual({
+			state: "ready",
+			protocol: CONTROLLER_PROTOCOL,
+		});
 	} finally {
 		await closeControllerIpc(ipc);
 		await rm(dir, { recursive: true, force: true });
 	}
-	await expect(controllerProtocol(socketPath)).resolves.toBeUndefined();
+	await expect(controllerProtocol(socketPath)).resolves.toEqual({ state: "silent" });
 });
 
 test("a controller from an earlier build is stopped so this one can take over", async () => {
@@ -175,6 +182,59 @@ test("a controller that does not record its process is reported instead of guess
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("a replacement pid is not the process that gets stopped", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-replaced-"));
+	const workspace = join(dir, "workspace");
+	const agentDir = join(dir, "agent");
+	mkdirSync(workspace, { recursive: true });
+	const id = basename(controllerSocketPath(agentDir, workspace), ".sock");
+	mkdirSync(join(agentDir, "subagents", "controllers"), { recursive: true });
+	const kept = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
+	const gone = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
+	try {
+		writeFileSync(
+			join(agentDir, "subagents", "controllers", `${id}.json`),
+			JSON.stringify({
+				workspace,
+				parentSessionId: "01a17c90-2f44-76a4-acf8-cfdde8339251",
+				sessionFile: join(agentDir, "subagents", "sessions", "kept.jsonl"),
+				pid: kept.pid,
+				protocol: CONTROLLER_PROTOCOL - 1,
+			}),
+		);
+		await stopPreviousController(agentDir, workspace, gone.pid);
+		expect(kept.exitCode).toBeNull();
+		expect(kept.signalCode).toBeNull();
+		expect(recordedControllerPid(agentDir, workspace)).toBe(kept.pid);
+	} finally {
+		kept.kill("SIGKILL");
+		gone.kill("SIGKILL");
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("an answer without this protocol is foreign, and silence is not", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-subagents-foreign-"));
+	const socketPath = join(dir, "foreign.sock");
+	const server = createServer((socket) => {
+		socket.on("data", () => {
+			socket.end('{"ok":false}\n');
+		});
+	});
+	await new Promise<void>((resolve) => {
+		server.listen(socketPath, () => resolve());
+	});
+	try {
+		await expect(controllerProtocol(socketPath)).resolves.toEqual({ state: "foreign" });
+	} finally {
+		await new Promise<void>((resolve, reject) => {
+			server.close((error) => (error === undefined ? resolve() : reject(error)));
+		});
+		await rm(dir, { recursive: true, force: true });
+	}
+	await expect(controllerProtocol(socketPath)).resolves.toEqual({ state: "silent" });
 });
 
 test("a dead controller is started again and a config error is not retried", async () => {
@@ -232,7 +292,7 @@ function waitingManager() {
 			return child({ id, state: "done" });
 		},
 		async getEntries() {
-			return [];
+			return { entries: [] };
 		},
 	};
 }

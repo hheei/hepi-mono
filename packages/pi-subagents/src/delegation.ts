@@ -1,6 +1,6 @@
 import { truncateWithSpill } from "@hheei/pi-ext-core";
 import type { PublicSubagent, SubagentState } from "./domain.js";
-import type { Receipt, ReceiptStatus } from "./receipts.js";
+import { type Receipt, type ReceiptStatus, receiptCarriesOutput } from "./receipts.js";
 
 /** What the agent's runtime is doing now, kept apart from the selected delegation's status. */
 export interface DelegationProgress {
@@ -45,9 +45,9 @@ export function delegationView(
 	if (receipt.childId === undefined || receipt.revision === undefined) {
 		throw new Error(`Delegation ${receipt.delegationId} has no public identity`);
 	}
-	const failed = receipt.status === "failed" || receipt.status === "uncertain";
 	const text = receipt.resultText;
-	const hasOutput = text !== undefined && !failed;
+	const hasOutput = receiptCarriesOutput(receipt.status, text);
+	const failed = text !== undefined && !hasOutput;
 	return {
 		id: receipt.childId,
 		revision: receipt.revision,
@@ -136,7 +136,7 @@ export function historyEntry(receipt: Receipt): DelegationHistoryEntry | undefin
 		revision,
 		status: receipt.status,
 		task: receipt.task,
-		hasOutput: receipt.resultText !== undefined,
+		hasOutput: receiptCarriesOutput(receipt.status, receipt.resultText),
 		createdAt: receipt.createdAt,
 	};
 }
