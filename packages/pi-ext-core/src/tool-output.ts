@@ -1,7 +1,8 @@
-import { mkdir, open, readdir } from "node:fs/promises";
+import { type FileHandle, mkdir, open, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./record.js";
 
 /** Pi's own line bound, re-exported so every package in the workspace names one number. */
 export { DEFAULT_MAX_LINES };
@@ -26,6 +27,9 @@ const OUTPUT_DIR = join(tmpdir(), "pi-output");
 
 /** Output can carry private data, so only the user may read the files. */
 const OUTPUT_FILE_MODE = 0o600;
+
+/** How many sequence numbers one spill may try before another process's file wins. */
+const SPILL_ATTEMPTS = 5;
 
 export interface ToolOutputLimits {
 	readonly maxBytes: number;
@@ -103,17 +107,28 @@ async function nextSequence(): Promise<number> {
 async function spill(text: string, prefix: string): Promise<string | undefined> {
 	try {
 		await mkdir(OUTPUT_DIR, { recursive: true, mode: 0o700 });
-		const sequence = await nextSequence();
-		const path = join(OUTPUT_DIR, `${prefix}-${String(sequence)}.txt`);
-		// `wx` never follows a link someone else placed at the path, and it also refuses to replace a
-		// file a concurrent writer just took.
-		const handle = await open(path, "wx", OUTPUT_FILE_MODE);
-		try {
-			await handle.writeFile(text, "utf8");
-		} finally {
-			await handle.close();
+		let sequence = await nextSequence();
+		// Another Pi process spills into the same directory, so a sequence it took first is retried
+		// instead of losing this text: `wx` never follows a link someone else placed at the path, and
+		// it also refuses to replace a file a concurrent writer just took.
+		for (let attempt = 0; attempt < SPILL_ATTEMPTS; attempt += 1) {
+			const path = join(OUTPUT_DIR, `${prefix}-${String(sequence)}.txt`);
+			let handle: FileHandle;
+			try {
+				handle = await open(path, "wx", OUTPUT_FILE_MODE);
+			} catch (error) {
+				if (!isRecord(error) || error.code !== "EEXIST") throw error;
+				sequence += 1;
+				continue;
+			}
+			try {
+				await handle.writeFile(text, "utf8");
+			} finally {
+				await handle.close();
+			}
+			return path;
 		}
-		return path;
+		return undefined;
 	} catch {
 		// A missing file must not cost the model the text it can still read.
 		return undefined;
