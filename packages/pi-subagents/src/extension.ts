@@ -12,6 +12,7 @@ import {
 import { discoverAgents, type SkillCatalogEntry } from "./agent-resolver.js";
 import { registerChildBridge } from "./child-bridge.js";
 import { registerParentCommands } from "./commands.js";
+import { activeControllerRole } from "./controller-role.js";
 import type { ChildIdentity, RuntimeAttachment, SubagentRecord } from "./domain.js";
 import { BRIDGE_ENVIRONMENT_KEYS, isThinkingLevel } from "./domain.js";
 import {
@@ -29,6 +30,7 @@ import { appendSubagentInfo, displaySubagentText, registerSubagentInfo } from ".
 import { createMailboxTransport } from "./mailbox.js";
 import { type ParentChannel, type ParentChannelReport, SubagentManager } from "./manager.js";
 import { transformSubagentsMarkdown } from "./markdown.js";
+import { sweepUncertainDispatch } from "./receipts.js";
 import { createSubagentRegistry } from "./registry.js";
 import {
 	createRuntimeTokenStore,
@@ -198,6 +200,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const context = runtime.extension;
 			const parentSessionId = context.sessionManager.getSessionId();
 			const registry = createSubagentRegistry({ parentSessionId });
+			sweepUncertainDispatch(registry.path, parentSessionId);
 			const tokens = createRuntimeTokenStore({ parentSessionId, diagnose });
 			// Presentation is chosen once per parent session: herdr first, then cmux, and a parent with
 			// neither runs every child in the background. Successful selection stays silent; only actual
@@ -205,20 +208,38 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const ownerId = parentSessionId;
 			const ownsAttachment = (identity: HostAttachmentIdentity): boolean =>
 				identity.createdBy === ownerId;
-			const hostSelection = await selectHostAdapter({
-				adapters: {
-					herdr: createHerdrHostAdapter({ ownerId, ownsAttachment }),
-					cmux: createCmuxHostAdapter({ ownerId, ownsAttachment }),
-				},
-			});
-			const delivery = getBackgroundDelivery(pi);
-			const channel = createParentChannel(pi, {
-				isIdle: () => context.isIdle(),
-				ui: context.ui,
-				delivery,
-				signal: runtime.signal,
-			});
+			const controller = activeControllerRole();
+			const hostSelection = controller
+				? {
+						available: false as const,
+						selectedHost: null,
+						reason: "standalone controller keeps children in the background",
+					}
+				: await selectHostAdapter({
+						adapters: {
+							herdr: createHerdrHostAdapter({ ownerId, ownsAttachment }),
+							cmux: createCmuxHostAdapter({ ownerId, ownsAttachment }),
+						},
+					});
+			const channel =
+				controller ??
+				createParentChannel(pi, {
+					isIdle: () => context.isIdle(),
+					ui: context.ui,
+					delivery: getBackgroundDelivery(pi),
+					signal: runtime.signal,
+				});
 			runtime.resources.add("parent-channel", () => channel.dispose());
+			if (controller !== undefined) {
+				controller.applied = true;
+				const model = context.model;
+				if (model !== undefined && model.id !== "unknown") {
+					controller.provider = model.provider;
+					controller.modelId = model.id;
+					const key = await context.modelRegistry.getApiKeyForProvider(model.provider);
+					controller.credential = typeof key === "string" && key !== "" ? "present" : "missing";
+				}
+			}
 			let manager!: SubagentManager;
 			// One sqlite file is the ledger and the mailbox. Presence is not liveness.
 			const mailbox = createMailboxTransport({
@@ -232,13 +253,15 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			runtime.resources.add("subagent-bridge", () => mailbox.close());
 			// A definition names skills the way Pi lists them, so the parent's loaded skill set is
 			// the only name → path catalog; Pi hands it over before every prompt of this session.
-			let skillCatalog: readonly SkillCatalogEntry[] = [];
-			const unsubscribeSkillCatalog = pi.on("before_agent_start", (event) => {
-				const skills =
-					(event.systemPromptOptions as { skills?: readonly Skill[] } | undefined)?.skills ?? [];
-				skillCatalog = skillCatalogFromLoaded(skills);
-			});
-			runtime.resources.add("subagent-skill-catalog", unsubscribeSkillCatalog);
+			let skillCatalog: readonly SkillCatalogEntry[] = controller?.skills ?? [];
+			if (controller === undefined) {
+				const unsubscribeSkillCatalog = pi.on("before_agent_start", (event) => {
+					const skills =
+						(event.systemPromptOptions as { skills?: readonly Skill[] } | undefined)?.skills ?? [];
+					skillCatalog = skillCatalogFromLoaded(skills);
+				});
+				runtime.resources.add("subagent-skill-catalog", unsubscribeSkillCatalog);
+			}
 
 			manager = new SubagentManager({
 				parentSessionId,
@@ -354,6 +377,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 						}
 					: {}),
 			});
+			controller?.bindManager(manager);
 			// Recovery must never take the extension down with it: a registry this version cannot
 			// read (for example records written by an older release) is reported in the session and
 			// the user is told how to reset it.

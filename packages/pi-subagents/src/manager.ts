@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { attachRetainedChild, type ChildRuntime } from "./child-process.js";
+import { type DelegationView, delegationView } from "./delegation.js";
 import type {
+	DelegateSubagentInput,
 	EffectiveLaunchConfig,
 	OperationError,
 	Presentation,
@@ -29,6 +31,18 @@ import {
 	isChildLifecyclePayload,
 	isContactReportPayload,
 } from "./protocol.js";
+import {
+	abandonReceipts,
+	maxRunBoundary,
+	type Receipt,
+	type ReceiptDelivery,
+	type ReceiptSettlement,
+	readStoredReceipt,
+	reserveReceipt,
+	settleReceipts,
+	updateReceipt,
+	waitForReceipt,
+} from "./receipts.js";
 import type { SubagentRegistry } from "./registry.js";
 import type { LaunchOutcome, RuntimeTokenStore } from "./runtime.js";
 import { findSessionFile, planSessionPlacement } from "./session-bootstrap.js";
@@ -159,6 +173,17 @@ export interface SpawnResult {
 	readonly path: string;
 	/** Set when the child did not run where it would have by default. */
 	readonly note?: string;
+}
+
+/** Accepted dispatch, not a completed turn. Future MCP Tasks bind a receipt to this submission. */
+export interface DelegationSubmission {
+	readonly child: PublicSubagent;
+	readonly action: "spawn" | "reuse";
+	readonly note?: string;
+	/** Pi work version that may settle this input. Same-turn steers share one version. */
+	readonly workVersion: number;
+	/** Set when that version already settled before the receipt row was written. */
+	readonly settled?: ReceiptSettlement;
 }
 
 export interface RecoveryResult {
@@ -292,6 +317,9 @@ export class SubagentManager {
 	readonly #working = new Set<string>();
 	/** A settled event from an older run cannot clear a newer synchronous start signal. */
 	readonly #workVersions = new Map<string, number>();
+	/** Highest run boundary reserved for a child that has not reached that turn yet. */
+	readonly #lastClaim = new Map<string, number>();
+	readonly #recentSettlement = new Map<string, ReceiptSettlement>();
 	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #pendingAutoReports = new Map<string, SubagentRecord>();
 	#autoReportBatchTimer: NodeJS.Timeout | undefined;
@@ -358,6 +386,8 @@ export class SubagentManager {
 		this.#paths.clear();
 		this.#working.clear();
 		this.#workVersions.clear();
+		this.#lastClaim.clear();
+		this.#recentSettlement.clear();
 		this.#notify();
 	}
 
@@ -726,6 +756,13 @@ export class SubagentManager {
 						state: "done",
 					};
 				});
+				this.#recordSettlement({
+					childId: id,
+					status: "failed",
+					message: "Subagent finished without a result.",
+					workVersion,
+					control: false,
+				});
 				return;
 			}
 
@@ -787,6 +824,15 @@ export class SubagentManager {
 			}
 			this.#scheduleSettledPanelClose(id);
 
+			// The receipt is the durable record of this turn: it is written before delivery is
+			// coordinated, so a delivery failure cannot leave a settled turn looking unfinished.
+			this.#recordSettlement({
+				childId: id,
+				status: isError ? "failed" : isBlocked ? "blocked" : "completed",
+				message,
+				workVersion,
+				control: false,
+			});
 			let deliveryOk = true;
 			if (this.#deps.channel !== undefined) {
 				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
@@ -911,6 +957,50 @@ export class SubagentManager {
 		);
 	}
 
+	/**
+	 * Binds one confirmed input to a Pi work version. A steer into a turn that already started
+	 * (`agent_start` has incremented the version) shares that version. Anything still queued
+	 * reserves the next version, so a later completion cannot answer both.
+	 */
+	#restoreWorkVersion(id: string): void {
+		const stored = maxRunBoundary(this.#deps.registry.path, this.#deps.parentSessionId, id);
+		const current = this.#workVersions.get(id) ?? 0;
+		if (stored > current) this.#workVersions.set(id, stored);
+		const claim = this.#lastClaim.get(id) ?? 0;
+		if (stored > claim) this.#lastClaim.set(id, stored);
+	}
+
+	#claimRunBoundary(id: string): number {
+		const current = this.#workVersions.get(id) ?? 0;
+		const joined = this.#working.has(id) && current > 0;
+		const claimed = joined ? current : Math.max(current, this.#lastClaim.get(id) ?? 0) + 1;
+		this.#lastClaim.set(id, claimed);
+		return claimed;
+	}
+
+	#claimedSubmission(id: string): {
+		readonly workVersion: number;
+		readonly settled?: ReceiptSettlement;
+	} {
+		const workVersion = this.#lastClaim.get(id);
+		if (workVersion === undefined) {
+			throw new Error(`Delegation for ${id} was not bound to a run`);
+		}
+		const recent = this.#recentSettlement.get(id);
+		return recent?.workVersion === workVersion ? { workVersion, settled: recent } : { workVersion };
+	}
+
+	#recordSettlement(event: ReceiptSettlement): void {
+		this.#recentSettlement.set(event.childId, event);
+		// The ledger is the manager's own, so a settlement is durable before any consumer sees it and
+		// no caller has to wire this up for delegated turns to settle.
+		try {
+			settleReceipts(this.#deps.registry.path, this.#deps.parentSessionId, event);
+		} catch (error) {
+			diagnose(`failed to record settlement for ${event.childId}: ${errorMessage(error)}`);
+		}
+	}
+
 	#notify(): void {
 		for (const listener of this.#listeners) {
 			try {
@@ -980,6 +1070,7 @@ export class SubagentManager {
 
 	/** Reads a connected child's real state and puts the record back in step with it. */
 	async #adopt(id: string): Promise<void> {
+		this.#restoreWorkVersion(id);
 		const workVersion = this.#workVersions.get(id) ?? 0;
 		const projector = this.#projectors.get(id);
 		const record = await this.#deps.registry.get(id);
@@ -1070,13 +1161,201 @@ export class SubagentManager {
 		return { presentation: "panel" };
 	}
 
+	/**
+	 * One dispatch path for MCP's new-child and existing-child forms. This only confirms input
+	 * delivery; waiting for the specific turn's final report belongs to the MCP delegation receipt,
+	 * not to spawn/send or the child's durable identity.
+	 */
+	public async submitDelegation(
+		input: DelegateSubagentInput,
+		onTarget?: (childId: string) => void,
+	): Promise<DelegationSubmission | OperationError> {
+		if (stripHindsightContent(input.task).trim() === "") {
+			return failure("delegate", "Task must not be empty", undefined, undefined, [], false);
+		}
+		if (input.id !== undefined) {
+			if (input.id.trim() === "") {
+				return failure("delegate", "Child id must not be empty", undefined, undefined, [], false);
+			}
+			onTarget?.(input.id);
+			// Ignore agent, cwd and title entirely: this child's launch config was frozen at spawn.
+			const child = await this.send(input.id, input.task, "steer");
+			return isOperationError(child)
+				? child
+				: { child, action: "reuse", ...this.#claimedSubmission(child.id) };
+		}
+		if (input.agent === undefined || input.agent.trim() === "") {
+			return failure(
+				"delegate",
+				"Agent is required without an id",
+				undefined,
+				undefined,
+				[],
+				false,
+			);
+		}
+		const spawned = await this.#spawnWith(
+			{
+				task: input.task,
+				agent: input.agent,
+				...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+				...(input.title === undefined ? {} : { title: input.title }),
+			},
+			(config) => onTarget?.(config.subagentId),
+		);
+		if (isOperationError(spawned)) return spawned;
+		return {
+			child: spawned.child,
+			action: "spawn",
+			...this.#claimedSubmission(spawned.child.id),
+			...(spawned.note === undefined ? {} : { note: spawned.note }),
+		};
+	}
+
+	/**
+	 * The acceptance path both consumers share: reserve this delegation's revision, dispatch it into
+	 * the agent session, then either wait for that revision's settlement or return its identity.
+	 * Waiting never holds the per-agent chain, so settlements and later steers still get in.
+	 */
+	public async delegate(
+		input: DelegateSubagentInput & { readonly wait?: boolean },
+		signal?: AbortSignal,
+	): Promise<DelegationView | OperationError> {
+		const wait = input.wait ?? true;
+		const task = stripHindsightContent(input.task).trim();
+		if (task === "") {
+			return failure("delegate", "Task must not be empty", undefined, undefined, [], false);
+		}
+		if (input.id !== undefined && input.id.trim() === "") {
+			return failure("delegate", "Child id must not be empty", undefined, undefined, [], false);
+		}
+		if (input.id === undefined && (input.agent === undefined || input.agent.trim() === "")) {
+			return failure(
+				"delegate",
+				"Agent is required without an id",
+				undefined,
+				undefined,
+				[],
+				false,
+			);
+		}
+		const filePath = this.#deps.registry.path;
+		const parentSessionId = this.#deps.parentSessionId;
+		if (input.id !== undefined && (await this.#deps.registry.get(input.id)) === undefined) {
+			// Nothing is reserved for a target that does not exist: a revision is only ever spent on
+			// work this parent actually accepted.
+			return failure("delegate", "Unknown child", input.id);
+		}
+		const target: { receipt?: Receipt } = {};
+		const delivery: ReceiptDelivery = wait ? "pending" : "detached";
+		let submitted: DelegationSubmission | OperationError;
+		try {
+			submitted = await this.submitDelegation(input, (childId) => {
+				target.receipt = this.#reserveDelegation(
+					filePath,
+					parentSessionId,
+					childId,
+					task,
+					delivery,
+				);
+			});
+		} catch (error) {
+			// A refused reservation happened before any dispatch, so nothing has to be undone.
+			return failure("delegate", errorMessage(error), input.id, undefined, [], true);
+		}
+		const receipt = target.receipt;
+		if (receipt === undefined) {
+			// Without a reserved revision nothing was accepted, so this is the dispatch's own refusal.
+			if (isOperationError(submitted)) return submitted;
+			return failure("delegate", "Delegation was accepted without a reserved revision");
+		}
+		if (isOperationError(submitted)) {
+			const uncertain = submitted.sideEffects.length > 0 && !submitted.safeToRetry;
+			const failed = updateReceipt(filePath, parentSessionId, receipt.delegationId, {
+				from: ["dispatching"],
+				status: uncertain ? "uncertain" : "failed",
+				resultText: submitted.reason,
+			});
+			return {
+				...delegationView(failed ?? receipt),
+				error: {
+					reason: submitted.reason,
+					safeToRetry: submitted.safeToRetry,
+					sideEffects: submitted.sideEffects,
+				},
+			};
+		}
+		const bound = this.#bindDispatch(filePath, parentSessionId, receipt, submitted);
+		if (!wait || submitted.settled !== undefined) {
+			return delegationView(bound, submitted.child, {
+				includeOutput: submitted.settled !== undefined,
+			});
+		}
+		try {
+			const settled = await waitForReceipt(filePath, parentSessionId, receipt.delegationId, signal);
+			return delegationView(settled, submitted.child, { includeOutput: true });
+		} catch {
+			// The wait ended, not the delegation: hand back what is known so the caller keeps the id.
+			const current = readStoredReceipt(filePath, parentSessionId, receipt.delegationId) ?? bound;
+			return delegationView(current, submitted.child);
+		}
+	}
+
+	#reserveDelegation(
+		filePath: string,
+		parentSessionId: string,
+		childId: string,
+		task: string,
+		delivery: ReceiptDelivery,
+	): Receipt {
+		const reserved = reserveReceipt(filePath, { parentSessionId, task, childId, delivery });
+		const dispatching = updateReceipt(filePath, parentSessionId, reserved.delegationId, {
+			from: ["reserved"],
+			status: "dispatching",
+		});
+		if (dispatching === undefined) throw new Error("Delegation was not reserved");
+		return dispatching;
+	}
+
+	/** Binds the accepted revision to the work version that can settle it. */
+	#bindDispatch(
+		filePath: string,
+		parentSessionId: string,
+		receipt: Receipt,
+		submitted: DelegationSubmission,
+	): Receipt {
+		const bound = updateReceipt(filePath, parentSessionId, receipt.delegationId, {
+			from: ["dispatching"],
+			status: submitted.settled === undefined ? "accepted" : submitted.settled.status,
+			runBoundary: submitted.workVersion,
+			...(submitted.settled === undefined ? {} : { resultText: submitted.settled.message }),
+		});
+		if (bound !== undefined) return bound;
+		// The turn settled before this binding landed, so the stored row is already past dispatching.
+		const current = readStoredReceipt(filePath, parentSessionId, receipt.delegationId);
+		if (current === undefined) throw new Error("Delegation acceptance was lost");
+		return current;
+	}
+
 	public async spawn(input: SpawnSubagentInput): Promise<SpawnResult | OperationError> {
+		return this.#spawnWith(input);
+	}
+
+	/**
+	 * The spawn path with one seam: a caller that must own the new identity (a delegation reserves
+	 * its revision) sees it here, after it is minted and before anything is persisted or launched.
+	 */
+	async #spawnWith(
+		input: SpawnSubagentInput,
+		onConfig?: (config: EffectiveLaunchConfig) => void,
+	): Promise<SpawnResult | OperationError> {
 		const cleanTask = stripHindsightContent(input.task).trim();
 		if (cleanTask === "") return failure("spawn", "Task must not be empty");
 
 		let childId: string | undefined;
 		try {
 			const config = await withDeadline(this.#deps.resolve(input), this.#deps.deadlineMs ?? 30_000);
+			onConfig?.(config);
 			const cleanTask = stripHindsightContent(input.task);
 			const placement = this.#placement(input);
 			if ("reason" in placement)
@@ -1101,6 +1380,7 @@ export class SubagentManager {
 					await this.#request(record.subagentId, "prompt", { message: cleanTask }),
 				);
 				this.#paths.set(record.subagentId, path);
+				this.#claimRunBoundary(record.subagentId);
 			} catch (error) {
 				let failureState: SubagentState = "error";
 				try {
@@ -1177,6 +1457,18 @@ export class SubagentManager {
 		mode: SendMode = "steer",
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
+		return this.#sendWithClaim(id, rawMessage, mode, signal).then((result) =>
+			isOperationError(result) ? result : result.child,
+		);
+	}
+
+	/** The same delivery, with the work version this input was bound to. */
+	async #sendWithClaim(
+		id: string,
+		rawMessage: string,
+		mode: SendMode,
+		signal?: AbortSignal,
+	): Promise<OperationError | DelegationSubmission> {
 		const message = stripHindsightContent(rawMessage);
 		this.#bumpActivity(id);
 		this.#clearSettledPanelClose(id);
@@ -1273,6 +1565,7 @@ export class SubagentManager {
 			try {
 				const path = acknowledgedPath(await this.#request(id, operation, { message }));
 				this.#paths.set(id, path);
+				this.#claimRunBoundary(id);
 			} catch (error) {
 				return failure(
 					"send",
@@ -1283,7 +1576,12 @@ export class SubagentManager {
 					false,
 				);
 			}
-			return publicChild((await this.#deps.registry.get(id)) ?? pending, true, this.#paths.get(id));
+			const child = publicChild(
+				(await this.#deps.registry.get(id)) ?? pending,
+				true,
+				this.#paths.get(id),
+			);
+			return { child, action: "reuse", ...this.#claimedSubmission(id) };
 		});
 	}
 
@@ -1398,6 +1696,14 @@ export class SubagentManager {
 				this.#activity.delete(id);
 				const finished = await this.#releaseRuntime(id, "finished");
 				if (finished !== undefined) stopped = finished;
+				// Nothing can settle these any more: a waiter that was waiting on this child must end
+				// with the reason, not hang on a runtime that is gone.
+				abandonReceipts(
+					this.#deps.registry.path,
+					this.#deps.parentSessionId,
+					id,
+					"Child was stopped before the delegation finished",
+				);
 				return publicChild(stopped, false);
 			} catch (error) {
 				return failure(
@@ -1484,6 +1790,15 @@ export class SubagentManager {
 			}
 			const reason = payload.reason ?? "blocked";
 			const delivered = await this.contactParent(childId, reason, payload.message, record);
+			if (!("reason" in delivered) && (reason === "success" || reason === "blocked")) {
+				this.#recordSettlement({
+					childId,
+					status: reason === "blocked" ? "blocked" : "completed",
+					message: payload.message,
+					workVersion: this.#workVersions.get(childId) ?? 0,
+					control: payload.control === "compact",
+				});
+			}
 			if ("reason" in delivered) throw new BridgeError("delivery_failed", delivered.reason);
 			if (reason === "success" || reason === "blocked") {
 				const terminalState = reason === "success" ? "done" : "blocked";
@@ -1578,6 +1893,13 @@ export class SubagentManager {
 						? "Task is unfinished and waiting for user intent."
 						: value.message;
 				await this.contactParent(id, "user_interrupt", message, record);
+				this.#recordSettlement({
+					childId: id,
+					status: "blocked",
+					message,
+					workVersion,
+					control: false,
+				});
 				return;
 			}
 			if (value.kind === "left_session") {
@@ -1596,6 +1918,13 @@ export class SubagentManager {
 				this.#deps.bridge.disconnect(id);
 				await commitLease(this.#deps.registry, id, { type: "left-session" });
 				if (retired !== undefined) this.#deps.tokens?.forget(retired);
+				this.#recordSettlement({
+					childId: id,
+					status: "failed",
+					message: "Child left the delegated session.",
+					workVersion,
+					control: false,
+				});
 				return;
 			}
 			// A child's own quit is a lifecycle notice, not state: the disconnect that follows says

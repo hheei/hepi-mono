@@ -12,6 +12,14 @@ import {
 	SubagentManager,
 } from "../src/manager.js";
 import { BridgeError, type BridgeOperation } from "../src/protocol.js";
+import {
+	latestReceiptForChild,
+	listReceipts,
+	readReceiptRevision,
+	readStoredReceipt,
+	reserveReceipt,
+	updateReceipt,
+} from "../src/receipts.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import type { LaunchOutcome, RuntimeTokenStore } from "../src/runtime.js";
 import { transcriptFacts } from "../src/state.js";
@@ -251,11 +259,12 @@ async function harness(
 		host?: boolean;
 		/** Set when the host cannot report focus, which is how cmux behaves today. */
 		blindHost?: boolean;
+		parentSessionId?: string;
 	} = {},
 ): Promise<Harness> {
 	const cwd = process.cwd();
 	parentSequence += 1;
-	const parentSessionId = `${PARENT_SESSION_ID}-${parentSequence}`;
+	const parentSessionId = options.parentSessionId ?? `${PARENT_SESSION_ID}-${parentSequence}`;
 	const registry = createSubagentRegistry({ parentSessionId, filePath: STATE_DB_PATH });
 	const bridge = new FakeBridge();
 	bridge.fallbackResponse = async (id, operation) => {
@@ -436,7 +445,136 @@ function settledState(harness: Harness, id: string, state: SubagentRecord["state
 	return recordMatches(harness, id, (record) => record.state === state);
 }
 
+/** Lets the dispatch chain reach the bridge without waiting for a timer. */
+async function flush(): Promise<void> {
+	for (let index = 0; index < 4; index += 1) await turn();
+}
+
+/** Delivers the success report that ends a delegated turn, which is what settles its revision. */
+async function reportSuccess(harness: Harness, id: string, message: string): Promise<void> {
+	const record = await harness.registry.get(id);
+	await harness.manager.handleChildRequest(id, "contact_parent", {
+		type: "pi_subagent_report",
+		parentSessionId: harness.parentSessionId,
+		childId: id,
+		runtimeIdentity: record?.runtime?.runtimeIdentity,
+		reason: "success",
+		message,
+	});
+}
+
+/** The child begins the turn the parent just dispatched, which binds it to a work version. */
+async function startTurn(harness: Harness, id: string): Promise<void> {
+	harness.bridge.emit(id, { type: "agent_start" });
+	await harness.bridge.settle();
+}
+
 describe("SubagentManager over the bridge", () => {
+	test("delegation without an id spawns through the existing launch path", async () => {
+		const current = await harness({ host: true });
+		const submitted = await current.manager.submitDelegation({
+			agent: "worker",
+			task: "Implement the feature",
+			cwd: current.cwd,
+			title: "Feature work",
+		});
+		if ("reason" in submitted) throw new Error(submitted.reason);
+		expect(submitted.action).toBe("spawn");
+		expect(submitted.child.id).toBe("sa_child1");
+		expect(submitted.child.presentation).toBe("panel");
+		expect(current.bridge.requests.filter((request) => request.operation === "prompt")).toEqual([
+			{
+				childId: submitted.child.id,
+				operation: "prompt",
+				payload: { message: "Implement the feature" },
+			},
+		]);
+		await current.manager.stop(submitted.child.id);
+	});
+
+	test("delegation with an id silently ignores agent and new-child options", async () => {
+		const current = await harness();
+		const initial = await current.manager.spawn({ agent: "worker", task: "First task" });
+		if ("reason" in initial) throw new Error(initial.reason);
+		const record = await current.registry.get(initial.child.id);
+		if (record === undefined) throw new Error("Spawned child not persisted");
+		const spawn = vi.spyOn(current.manager, "spawn");
+		const send = vi.spyOn(current.manager, "send");
+		const submitted = await current.manager.submitDelegation({
+			id: record.subagentId,
+			agent: "agent-that-does-not-exist",
+			task: "Continue the tests",
+			cwd: "/different/project",
+			title: "Ignored title",
+		});
+		if ("reason" in submitted) throw new Error(submitted.reason);
+		expect(submitted).toMatchObject({
+			action: "reuse",
+			child: { id: record.subagentId, sessionId: record.sessionId, agent: "worker" },
+		});
+		expect(spawn).not.toHaveBeenCalled();
+		expect(current.launch).toHaveBeenCalledTimes(1);
+		expect(send).toHaveBeenCalledWith(record.subagentId, "Continue the tests", "steer");
+		expect(current.bridge.requests.at(-1)).toMatchObject({
+			childId: record.subagentId,
+			operation: "steer",
+			payload: { message: "Continue the tests" },
+		});
+		expect(await current.registry.get(record.subagentId)).toMatchObject({
+			sessionId: record.sessionId,
+			launchConfig: record.launchConfig,
+		});
+		await current.manager.stop(record.subagentId);
+	});
+
+	test("delegation resumes a disconnected child using its original session", async () => {
+		const current = await harness();
+		const record = await current.addChild("sa_resume", { state: "done" });
+		const submitted = await current.manager.submitDelegation({
+			id: record.subagentId,
+			task: "Run the next task",
+		});
+		expect(submitted).toMatchObject({
+			action: "reuse",
+			child: { id: record.subagentId, sessionId: record.sessionId },
+		});
+		expect(current.launch).toHaveBeenCalledTimes(1);
+		expect(current.bridge.requests.at(-1)).toMatchObject({
+			childId: record.subagentId,
+			operation: "prompt",
+			payload: { message: "Run the next task" },
+		});
+		await current.manager.stop(record.subagentId);
+	});
+
+	test("delegation validates only the selected target and preserves native failures", async () => {
+		const current = await harness();
+		expect(await current.manager.submitDelegation({ task: "work" })).toMatchObject({
+			operation: "delegate",
+			reason: "Agent is required without an id",
+			safeToRetry: false,
+		});
+		expect(
+			await current.manager.submitDelegation({
+				id: "",
+				agent: "worker",
+				task: "work",
+			}),
+		).toMatchObject({ operation: "delegate", reason: "Child id must not be empty" });
+		expect(await current.manager.submitDelegation({ agent: "worker", task: "   " })).toMatchObject({
+			operation: "delegate",
+			reason: "Task must not be empty",
+		});
+		expect(
+			await current.manager.submitDelegation({
+				id: "not-found",
+				agent: "worker",
+				task: "continue",
+			}),
+		).toMatchObject({ operation: "send", reason: "Unknown child", childId: "not-found" });
+		expect(current.launch).not.toHaveBeenCalled();
+	});
+
 	test("settles failed startup and reports persisted identity and retry safety", async () => {
 		const test1 = await harness();
 		test1.launch.mockImplementation(async () => ({ failure: "bridge startup failed" }));
@@ -450,6 +588,131 @@ describe("SubagentManager over the bridge", () => {
 			state: "error",
 			interrupted: "bridge startup failed",
 		});
+	});
+
+	test("reserves the agent identity and first revision before the child is launched", async () => {
+		const current = await harness();
+		current.launch.mockImplementation(async () => ({ failure: "bridge startup failed" }));
+
+		const delegated = await current.manager.delegate({
+			agent: "worker",
+			task: "work",
+			wait: false,
+		});
+
+		expect(delegated).toMatchObject({
+			id: "sa_child1",
+			revision: 1,
+			status: "failed",
+			hasOutput: false,
+			error: { reason: "bridge startup failed", safeToRetry: true },
+		});
+		// The identity and its revision were reserved before the launch, so the failure has a record.
+		expect(
+			latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_child1"),
+		).toMatchObject({ revision: 1, status: "failed", resultText: "bridge startup failed" });
+	});
+
+	test("accepts a delegation without waiting and settles its revision", async () => {
+		const current = await harness();
+		const accepted = await current.manager.delegate({
+			agent: "worker",
+			task: "work",
+			wait: false,
+		});
+		if ("reason" in accepted) throw new Error(accepted.reason);
+		expect(accepted).toMatchObject({
+			id: "sa_child1",
+			revision: 1,
+			status: "accepted",
+			hasOutput: false,
+			progress: { runtimeState: "running" },
+		});
+
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "the answer");
+
+		expect(
+			latestReceiptForChild(STATE_DB_PATH, current.parentSessionId, "sa_child1"),
+		).toMatchObject({ revision: 1, status: "completed", resultText: "the answer" });
+	});
+
+	test("waiting returns the result of the revision it waited for", async () => {
+		const current = await harness();
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "the answer");
+
+		await expect(waiting).resolves.toMatchObject({
+			id: "sa_child1",
+			revision: 1,
+			status: "completed",
+			hasOutput: true,
+			resultText: "the answer",
+		});
+	});
+
+	test("a second waiting delegation is refused before it steers", async () => {
+		const current = await harness();
+		const waiting = current.manager.delegate({ agent: "worker", task: "first" });
+		await flush();
+
+		const conflict = await current.manager.delegate({ id: "sa_child1", task: "second" });
+
+		expect(conflict).toMatchObject({
+			operation: "delegate",
+			reason: expect.stringContaining("already has a waiting delegation"),
+			safeToRetry: true,
+		});
+		expect(current.bridge.requests.filter((request) => request.operation === "steer")).toEqual([]);
+
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "first answer");
+		await expect(waiting).resolves.toMatchObject({ revision: 1, status: "completed" });
+	});
+
+	test("steers accepted into one turn keep separate revisions and share its settlement", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({
+			agent: "worker",
+			task: "one",
+			wait: false,
+		});
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		current.bridge.emit("sa_child1", { type: "agent_start" });
+		await current.bridge.settle();
+
+		const second = await current.manager.delegate({ id: "sa_child1", task: "two", wait: false });
+		if ("reason" in second) throw new Error(second.reason);
+		expect([first.revision, second.revision]).toEqual([1, 2]);
+
+		await reportSuccess(current, "sa_child1", "the shared answer");
+
+		for (const revision of [1, 2]) {
+			expect(
+				readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", revision),
+			).toMatchObject({ status: "completed", resultText: "the shared answer" });
+		}
+	});
+
+	test("validates the target before reserving anything", async () => {
+		const current = await harness();
+
+		expect(await current.manager.delegate({ task: "work" })).toMatchObject({
+			reason: "Agent is required without an id",
+		});
+		expect(await current.manager.delegate({ agent: "worker", task: "   " })).toMatchObject({
+			reason: "Task must not be empty",
+		});
+		expect(await current.manager.delegate({ id: "agent-9", task: "work" })).toMatchObject({
+			reason: "Unknown child",
+		});
+
+		expect(listReceipts(STATE_DB_PATH, current.parentSessionId).receipts).toEqual([]);
+		expect(current.launch).not.toHaveBeenCalled();
 	});
 
 	test("an unconfirmed panel startup does not freeze the child", async () => {
@@ -920,6 +1183,54 @@ describe("SubagentManager over the bridge", () => {
 		});
 		expect(await current.manager.get("sa_partial")).toMatchObject({ state: "done" });
 		current.manager.closeLocalConnections();
+	});
+
+	test("restores a receipt work version after the parent manager is replaced", async () => {
+		const first = await harness();
+		await first.addChild("sa_live", {
+			state: "running",
+			runtime: { runtimeIdentity: "runtime-1", endpoint: "/tmp/parent.sock" },
+		});
+		const receipt = reserveReceipt(STATE_DB_PATH, {
+			parentSessionId: first.parentSessionId,
+			task: "keep going",
+			childId: "sa_live",
+			delivery: "pending",
+		});
+		updateReceipt(STATE_DB_PATH, first.parentSessionId, receipt.delegationId, {
+			from: ["reserved"],
+			status: "accepted",
+			runBoundary: 4,
+		});
+		first.manager.closeLocalConnections();
+
+		const second = await harness({
+			parentSessionId: first.parentSessionId,
+		});
+		second.bridge.connected.add("sa_live");
+		second.bridge.responses.set("sa_live:get_state", async () => ({
+			idle: false,
+			pendingMessages: false,
+		}));
+		expect(await second.manager.recover()).toMatchObject({ recovered: ["sa_live"] });
+		await expect(
+			second.manager.handleChildRequest("sa_live", "contact_parent", {
+				type: "pi_subagent_report",
+				parentSessionId: first.parentSessionId,
+				childId: "sa_live",
+				runtimeIdentity: "runtime-1",
+				reason: "success",
+				message: "done after restart",
+			}),
+		).resolves.toEqual({ delivered: true });
+		expect(
+			readStoredReceipt(STATE_DB_PATH, first.parentSessionId, receipt.delegationId),
+		).toMatchObject({
+			status: "completed",
+			resultText: "done after restart",
+			runBoundary: 4,
+		});
+		second.manager.closeLocalConnections();
 	});
 
 	test("reports an unavailable adoption state and converges on a later reconnect", async () => {

@@ -1,0 +1,10 @@
+This package includes a compact CSS shell adapted from AgentDock.
+
+AgentDock mcpapps/app.html
+https://github.com/uvwt/agentdock-protocol/blob/a0ffc5114507a498013dc8a5bbd572114e23bf5d/mcpapps/app.html
+Copyright AgentDock contributors
+Licensed under the Apache License, Version 2.0
+The license text is LICENSES/Apache-2.0.txt.
+
+The adapted lines live in src/mcp/app.html and are marked there.
+The rest of @hheei/pi-subagents is MIT licensed; see LICENSE.

@@ -135,6 +135,7 @@ export const ContactReportPayloadSchema = Type.Object(
 		reason: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("blocked")])),
 		message: nonEmptyString,
 		sessionId: Type.Optional(nonEmptyString),
+		control: Type.Optional(Type.Literal("compact")),
 	},
 	{ additionalProperties: false },
 );

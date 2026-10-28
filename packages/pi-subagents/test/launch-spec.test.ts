@@ -5,7 +5,7 @@ import type {
 	PersistenceState,
 	Presentation,
 } from "../src/domain.js";
-import { CHILD_TITLE_ENV_KEY } from "../src/domain.js";
+import { CHILD_TITLE_ENV_KEY, STANDALONE_CONTROLLER_ENV_KEY } from "../src/domain.js";
 import {
 	assembleChildPrompt,
 	buildLaunchSpec,
@@ -278,9 +278,46 @@ test("resolvePiInvocation prioritizes PI_DEV_BIN when running under pi-dev", ():
 	}
 });
 
+test("resolvePiInvocation does not relaunch the standalone controller as the child Pi", (): void => {
+	const argv = process.argv;
+	const origDev = process.env.PI_DEV;
+	const origDevBin = process.env.PI_DEV_BIN;
+	try {
+		delete process.env.PI_DEV;
+		delete process.env.PI_DEV_BIN;
+		process.argv = [argv[0] ?? process.execPath, "/tmp/controller-main.js", "/work", "/agent"];
+		const inv = resolvePiInvocation();
+		expect(inv.command).toBe(process.execPath);
+		expect(inv.args.join(" ")).not.toContain("controller-main");
+		expect(inv.args[0]).toMatch(/cli\.js$/);
+	} finally {
+		process.argv = argv;
+		if (origDev !== undefined) process.env.PI_DEV = origDev;
+		else delete process.env.PI_DEV;
+		if (origDevBin !== undefined) process.env.PI_DEV_BIN = origDevBin;
+		else delete process.env.PI_DEV_BIN;
+	}
+});
+
 test("buildLaunchSpec emits --no-mcp when mcp is disabled", (): void => {
 	const built = spec(launchConfig({ mcp: { enabled: false } }), "background", "never_flushed");
 	expect(built.argv).toContain("--no-mcp");
+});
+
+test("standalone controller children skip settings extension discovery", (): void => {
+	const previous = process.env[STANDALONE_CONTROLLER_ENV_KEY];
+	process.env[STANDALONE_CONTROLLER_ENV_KEY] = "1";
+	try {
+		const built = spec(
+			launchConfig({ extensions: { discovery: true, paths: [BRIDGE_PATH] } }),
+			"background",
+			"never_flushed",
+		);
+		expect(built.argv).toContain("--no-extensions");
+	} finally {
+		if (previous === undefined) delete process.env[STANDALONE_CONTROLLER_ENV_KEY];
+		else process.env[STANDALONE_CONTROLLER_ENV_KEY] = previous;
+	}
 });
 
 test("buildLaunchSpec configures tool filtering and environment for whitelist and excluded MCP servers", (): void => {

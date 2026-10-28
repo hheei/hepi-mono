@@ -1,6 +1,8 @@
 # pi-subagents V1 Tickets
 
-本 backlog 实现 [`spec.md`](spec.md)。[`PLAN.md`](PLAN.md) 是核心生命周期设计依据；投递话术、interactive 策略与 widget 投影以 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) 为准。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
+下一版 Pi/MCP 统一 API 工作线已独立拆分：[Spec](unified-api-spec.md) / [AGENTS-01～08 Tickets](unified-api-tickets.md)。旧数据迁移明确不做；该工作线状态以独立 tickets 为准，本文件保留既有 V1/MCP R4 任务与验收历史。
+
+本 backlog 实现 [`spec.md`](spec.md)。[`PLAN.md`](PLAN.md) 是核心生命周期设计依据；投递话术、interactive 策略与 widget 投影以 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) 为准。**当前 Codex MCP 工作线见文末 [MCP R4](#mcp-r4codex-desktop-内嵌-ui当前工作线)**，规格为 [`mcp.md`](mcp.md)。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
 
 状态：`[ ]` 未开始，`[~]` 进行中，`[x]` 完成，`[-]` 明确不做。
 
@@ -724,3 +726,174 @@ parent reload/restart可重连存活runner；确认死亡后可安全replacement
 ### M4：可发布V1（SUB-10）
 
 用户操作面、文档、全量验证和release dry-run完成；外部发布仍需用户对具体版本/动作明确批准。
+
+---
+
+## MCP R4：Codex Desktop 内嵌 UI（当前工作线）
+
+**规格**：[`mcp.md`](mcp.md) §2、§4–6。这里延续 R0–R3 已有的 MCP 入口，并将 AgentDock 原生 HTML 的实现模式直接落到 `@hheei/pi-subagents`。上方 SUB-01～SUB-14 是 Pi 原生 V1 的历史 backlog，MCP R4 独立编号。
+
+**已确认的当前基线（2026-10-27）**：
+
+- R0：`src/mcp/delegate.ts` + `SubagentManager.submitDelegation()` 已处理 spawn/reuse；`id` 时原生 steer。
+- R1：Standalone headless controller、workspace owner 与 Pi extension 加载已有测试。
+- R2：`src/receipts.ts` 与 controller receipt API 已有实现与测试。
+- R3：`src/mcp-stdio.ts`、`src/mcp-server.ts`、本地 controller IPC 已接，legacy initialize / stdio 有包内测试。
+- R4：`src/mcp/app.html` 是同一份 compact card。Task 与 Dashboard 用 `{{VIEW}}` 区分，构建时复制到 `dist/mcp/app.html`。刷新不重建输入框；终态停止 receipt 轮询。Codex Desktop 实机验收仍是 MCP-R4-05。
+
+### MCP-R4-00：MCP Apps 资源与基础工具接线
+
+**目标**：保留现有 MCP UI 起点，直接进入视图精修，而非重建协议栈。
+
+**现有实现**
+
+- `subagents_delegate` → `ui://hheei/subagents/task`，`subagents_dashboard` → `ui://hheei/subagents/dashboard`。
+- `src/mcp-server.ts` 注册资源，并将 `get/list/stop/transcript/receipts/catalog` 等 UI 操作映射到现有 controller/manager。
+- `src/mcp/views.ts` 已有 HTML + `ui/initialize`、`tools/call`、2s refresh 的基本路径。
+
+**已验证**：`test/mcp-stdio.test.ts` 的 `tools/list`、`resources/read` MCP JSON-RPC 测试。
+
+**状态**：`[x]`（基础接线；UI 细节归以下 tickets）。
+
+### MCP-R4-01：以 AgentDock 原生 Compact Card 替换当前 views
+
+**目标**：直接移植 AgentDock Task Progress 的视觉与最小 DOM 机制，让子代理卡片默认紧凑、原位展开。
+
+**范围**
+
+- 以 [`agentdock-protocol/mcpapps/app.html`](https://github.com/uvwt/agentdock-protocol/blob/main/mcpapps/app.html)（上游 blob `a0ffc5114507a498013dc8a5bbd572114e23bf5d`）为参照，提取 `:root`/theme CSS、`el()`、`compactShell()`、detail panel、`aria-expanded` 和响应式样式。颜色优先沿用 Codex/host 的语义 token。
+- 将 `src/mcp/views.ts` 中的页面字符串收敛为**一个**可选择 `task` / `dashboard` view 的原生 HTML 模板；保留现有 URI、MIME 和工具 metadata。采用 AgentDock 的 `app.html` 模板注入方式，使用当前 MCP Server SDK 注册 resources。
+- 静态 HTML 随 package `dist` 发布，编译/打包包含 HTML，`resources/read` 在 clean install 下直接返回可运行页面；不新增 React、Vue、额外前端状态库或 HTTP UI 服务。
+- 若直接复制上游 CSS/JS 片段，在文件与发布产物保留源项目、固定版本和 Apache-2.0 归属/许可信息。
+
+**验收**
+
+- 默认仅显示 agent、任务、运行状态、当前活动与紧凑指标；点击后在原地展开，不重新挂载新卡片。
+- 样式复用 AgentDock Compact Card 的间距、字体、轻分割线、浅/深主题与窄屏折叠；保留完整数据供详情读取。
+- Task/Dashboard 两种 `ui://` URI、descriptor 和 `resources/read` 与现有 Codex 调用合同一致。
+
+**验证**：新增 HTML/DOM 组件测试；`test/mcp-stdio.test.ts`（HTML resource 与 metadata）；package build + clean package asset 检查。
+
+**依赖**：MCP-R4-00。
+
+**状态**：`[x]`
+
+### MCP-R4-02：Task Card 数据归属、实时刷新和正确的 DOM 生命周期
+
+**目标**：将 AgentDock Task Progress 的可靠刷新机制接到当前 child/receipt，不再以刷新整个根节点覆盖用户正在编辑的内容。
+
+**范围**
+
+- 沿用 AgentDock `rpcRequest`/`rpcNotify`、`reportSize` + `ResizeObserver`、`initializeBridge`，处理 `ui/notifications/tool-input`、`tool-result`、`host-context-changed`、`ui/resource-teardown`；bridge request 有 timeout 与 pending cleanup。
+- 用工具结果绑定 `childId` **及** `delegationId`；`subagents_get({id})` 更新 runtime 状态，`subagents_receipt({delegationId})` 给出本次委派结算文本。分开呈现 child 的当前运行与 delegation 的最终状态；前一轮结果不会覆盖新一轮 steer。
+- 原样采用上游刷新策略：运行中 2s、blocked 10s、RPC 可重试错误 5s；同一个 view 一次只发一个 refresh。采用 generation 防止切换 child 后旧请求覆盖当前卡片，终态 receipt 停止当前 delegation 轮询。
+- 隐藏时暂停、重新可见时立即刷新、teardown 时清除 timer 和 pending 请求；`ResizeObserver` 按展开/正文高度变化向宿主报告尺寸。
+- 复用稳定 DOM 节点更新可变文本、状态；展开状态、输入焦点、用户已输入的消息、滚动位置与 transcript 不受状态刷新影响。
+
+**验收**
+
+- `wait:false` 首次回执展示任务卡片；从 `accepted/running` 正确过渡到 `completed/blocked/failed/uncertain`，包含最终 `resultText`。
+- 多次发送同样 task、同一 child 多次 steer、并行 child、失败重试和 controller 断线后重新连接均正确归属结果。
+- 每 2 秒状态刷新不会重建正在编辑的输入框；隐藏/teardown 后不会继续发 RPC；终态不重复请求历史结果。
+
+**验证**：参考上游 `task_live.test.mjs` 的刷新/终态单测；浏览器 DOM/bridge mock 测试（切换/中断/焦点）；receipt/manager 当前聚焦测试。
+
+**依赖**：MCP-R4-01、现有 R2/R3。
+
+**状态**：`[x]`
+
+### MCP-R4-03：展开详情与真实 UI 操作
+
+**目标**：在同一 Task Card 内完成查询、继续发送与停止，交互走现有 manager 控制面。
+
+**范围**
+
+- 详情面板按 `Activity / Output / Diagnostics / Transcript` 展示：状态来自 `subagents_get`，最终结果来自 receipt，transcript 调用 `subagents_transcript({id,cursor?,limit?})` 按需分页。
+- 发送消息走 `subagents_delegate({id,task,wait:false})`，始终复用原 child 和原生 `steer`；收到新 `delegationId` 后卡片切换本次回执归属。
+- Stop 走 `subagents_stop({id})`，提供明确操作确认；失败保留输入与诊断，操作中锁定对应按钮以阻止重复写入。
+- 提示 `blocked / failed / interrupted / disconnected / model_unavailable` 的明确恢复动作；长输出折叠显示摘要，展开时可完整读取原始数据。
+
+**验收**
+
+- UI 内发送 steer 不会创建新 child；同样按钮只提交一次；停止后刷新呈现真实 child 状态。
+- 转换标签/刷新状态时已展开的完整 transcript 不丢失，分页 cursor 正确；长正文使用 `textContent` 等安全 DOM API。
+- 错误页面保留 child/delegation ID，用户可复制结果、继续或检查历史。
+
+**验证**：DOM 交互测试、重复点击/错误路径、工具 IPC 现有测试、长输出与分页测试。
+
+**依赖**：MCP-R4-02。
+
+**状态**：`[x]`
+
+### MCP-R4-04：Dashboard 复用同一模板与状态组件
+
+**目标**：以 AgentDock 的紧凑列表样式管理多个 child，所有操作复用 Task Card 的原有 MCP 工具和视觉组件。
+
+**范围**
+
+- 同一个 HTML 模板按 view 切换 task/dashboard；复用 CSS token、状态、用量、refresh、错误显示与详情结构。
+- `subagents_list` 展示总数、running/blocked/done/failed、child 列表、最后活动；选中某 child 查看详情。
+- 新建任务读取 `subagents_catalog` 而非写死 `worker`；派发 `wait:false` 后聚焦新 child；保持列表选择、过滤器与创建输入内容。
+- 仅 Dashboard 在可见时刷新列表；选择切换与连续刷新沿用 generation、取消和终态规则。
+
+**验收**
+
+- 多 child 状态各自准确，列表选择后展示对应 child；回到列表保留过滤与滚动位置。
+- 新建操作采用当前 workspace 的 agent catalog；panel 状态与 Task Card 中的 child 状态一致。
+- 窄屏、空列表、断线、error 与长标题有稳定布局。
+
+**验证**：Dashboard DOM/bridge 测试、列表/选择/筛选/创建状态测试；MCP JSON-RPC resources 回归。
+
+**依赖**：MCP-R4-02、MCP-R4-03。
+
+**状态**：`[x]`
+
+### MCP-R4-05：Codex Desktop UI 验收与发布资源收口
+
+**目标**：以用户真正看到的 Codex Desktop 卡片验收 R4，归档可复现证据。
+
+**范围**
+
+- 用真实 Codex Desktop 调用 `subagents_delegate(wait:false)`、`subagents_dashboard`；依次确认 `tools/list → tools/call → resources/read → ui/initialize → UI 内 tools/call`。
+- 手动检查 Compact/展开切换、活动刷新、最终结果、编辑中保持输入焦点、继续 steer、Stop、transcript、多个 child 的 Dashboard、重新打开历史。
+- 检查浅/深主题、窄/宽窗口、键盘/辅助技术、长任务、blocked/error/断线状态；记录截图与实测版本于 ticket，不把 CI mock 充作 Desktop 实机结果。
+- 运行 MCP package focused tests/build、真实子进程 stdio smoke 与 `npm pack --dry-run`，检查两个 `ui://` resources 的实际 HTML、发布静态文件和上游 Apache-2.0 attribution。
+- 只清理此 R4 范围内的临时 UI 接线和冗余视图代码；保留既有 `SubagentManager`、R2 receipt 与 R3 transport。
+
+**验收**
+
+- 真正的 Codex Desktop 对话内嵌卡片可见、可操作；无 Pi TUI 即可完成新任务 → 实时显示 → 结果 → steer / stop。
+- Dashboard 能同时管理多个 child，前后台/重启后卡片恢复到正确 child/receipt。
+- 代码、HTML 与 npm package 内容可复现，测试与手动 UI 证据记入此 ticket。
+
+**验证**：focused Vitest + package build；实际 Codex Desktop 手动 visual/interaction gate；package asset / license 核查。
+
+**依赖**：MCP-R4-01～04。
+
+**状态**：`[ ]`（自动检查已收口，仍待 Codex Desktop 实机验收）。
+
+**验收前自动检查（2026-10-27）**
+
+- 对照 AgentDock `mcpapps/app.html` 固定 blob `a0ffc5114507a498013dc8a5bbd572114e23bf5d`：保留原生 Compact Card、单一 HTML、主题 token、`ui/initialize`/`tools/call`、稳定 DOM、定时刷新、尺寸通知；不复制 AgentDock 与 Pi 子代理无关的通用工具视图、进度步骤和多语言路由。
+- UI 边界补齐：不同 child 的在途 transcript/steer/stop 回应不会覆盖当前选择；切换 child 清除之前的待发草稿，Transcript 标签打开时自动加载新选择；teardown 后停止轮询、旧回执不再触发刷新；工具输入在初始回执前显示任务；Dashboard 只允许从启用的 agent catalog 创建任务；验证宿主 `message.source` 与自适应主题、长输出、transcript 分页。
+- 自动测试：`pi-subagents/test` 30 个文件，**350 passed、1 skipped**；`test-integration` 3 个文件，**8 passed**；根 TypeScript typecheck、受影响的 Biome 均通过；npm package build 成功。
+- 发包模拟：`npm pack --dry-run --ignore-scripts` 包含 `dist/mcp-stdio.js`、`dist/mcp/app.html`、`NOTICE`、`LICENSES/Apache-2.0.txt`；CLI shebang 和 executable bit 已核对；静态 HTML 保持两种 `ui://` resource 的相同桥接实现。
+- 仍需**真实 Codex Desktop** 的卡片出现、点击/键盘操作、主题与窄屏截图、模型工具循环及断线恢复证据。`get_entries` 无范围参数，Transcript 仍由 bridge 全量读取后在 controller 分页，不属于本轮 R4 的重构范围。以上自动检查不能代替 Desktop 实机验收。
+
+### R4 执行顺序与交付点
+
+```text
+MCP-R4-00 [x] 现有资源/工具接线
+     │
+MCP-R4-01 [x] AgentDock Compact Card / 资源打包
+     │
+MCP-R4-02 [x] 状态/receipt + bridge + 可靠刷新
+     ├──────────────────┐
+MCP-R4-03 [x] 详情/steer/stop    │
+     └──────────────────┤
+MCP-R4-04 [x] Dashboard 复用
+     │
+MCP-R4-05 [ ] Codex Desktop 实机验收（`npm pack --dry-run` 已含 dist/mcp/app.html；Desktop 对话内验收未做）
+```
+
+R4 到 R5 的交接点：Codex Desktop 的 Task Card 与 Dashboard 完整可用。R5 继续增加原生 Elicitation 等交互增强；Codex TUI、MCP Tasks、远端 HTTP 归 R6。

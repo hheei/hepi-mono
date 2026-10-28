@@ -1,5 +1,7 @@
 # pi-subagents V1 规格
 
+下一版公共工具契约见 [统一 Agents API Spec](unified-api-spec.md)，实施状态见 [AGENTS Tickets](unified-api-tickets.md)。该工作线尚未实现；本文的 session/runtime ownership 仍是其基础，旧工具名称不作为下一版兼容要求。
+
 本规格从 [`PLAN.md`](PLAN.md) 提炼 V1 目标合同。`PLAN.md` 保留设计依据与 Pi API 核对记录；实施状态与未完成范围以 [`tickets.md`](tickets.md) 为准，当前已落地行为以 package README、源码和测试为准。
 
 ## 1. 用户目标

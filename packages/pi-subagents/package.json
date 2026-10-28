@@ -11,8 +11,13 @@
 	"files": [
 		"dist",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"NOTICE",
+		"LICENSES"
 	],
+	"bin": {
+		"pi-subagents-mcp": "./dist/mcp-stdio.js"
+	},
 	"pi": {
 		"extensions": [
 			"dist/extension.js"
@@ -20,7 +25,7 @@
 	},
 	"scripts": {
 		"prepack": "pnpm run build",
-		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json"
+		"build": "node -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"import { chmodSync, copyFileSync, mkdirSync } from 'node:fs'; mkdirSync('dist/mcp', { recursive: true }); copyFileSync('src/mcp/app.html', 'dist/mcp/app.html'); chmodSync('dist/mcp-stdio.js', 0o755)\""
 	},
 	"keywords": [
 		"pi",
@@ -39,7 +44,8 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@hheei/pi-ext-core": "workspace:^"
+		"@hheei/pi-ext-core": "workspace:^",
+		"@modelcontextprotocol/server": "2.4.0"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": ">=1.3.0",
@@ -48,6 +54,7 @@
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "1.3.0",
-		"@earendil-works/pi-tui": "1.3.0"
+		"@earendil-works/pi-tui": "1.3.0",
+		"linkedom": "^0.18.14"
 	}
 }

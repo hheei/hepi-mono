@@ -21,11 +21,12 @@ export function processLockPath(
 	return join(dirname(stateFile), "locks", parentSessionId, `${subagentId}.lock`);
 }
 
-export function holdProcessLock(lockPath: string): ProcessLock {
+export function holdProcessLock(lockPath: string, waitMs = 2_000): ProcessLock {
+	if (!Number.isInteger(waitMs) || waitMs < 0) throw new Error("Invalid process lock wait");
 	mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
 	const db = new DatabaseSync(lockPath);
 	chmodSync(lockPath, 0o600);
-	db.exec("PRAGMA busy_timeout = 2000");
+	db.exec(`PRAGMA busy_timeout = ${waitMs}`);
 	db.exec("BEGIN EXCLUSIVE");
 	let released = false;
 	return {

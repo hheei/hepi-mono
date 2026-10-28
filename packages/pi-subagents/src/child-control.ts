@@ -254,6 +254,7 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 				runtimeIdentity: options.identity.runtimeIdentity,
 				reason,
 				message,
+				control: "compact",
 			})
 			.catch((err) => {
 				options.diagnose?.(`failed to report compaction ${reason}: ${errorMessage(err)}`);

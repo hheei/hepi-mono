@@ -24,6 +24,7 @@ This directory records high-level information for users and developers. Detailed
 - [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Removed in-process subagent coordinator](architecture/subagents.md): why `startSubagent` is gone, and where one-shot completion and child sessions live now.
 - [Subagent extension architecture](architecture/pi-subagents.md): independent reconnectable subagent child sessions and host workspace targeting.
+- [Subagent MCP + Codex Desktop UI](pi-subagents/mcp.md): inline MCP Apps task cards, subagent dashboard, delegation receipts, and transport integration.
 - [Observational memory architecture](architecture/ext-memory.md): tiered observations, reflections, and instant compaction.
 - [Unified grep architecture](architecture/grep.md): canonical ripgrep match contract, compact rendering, and Output recovery.
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.

@@ -284,6 +284,20 @@ export interface SpawnSubagentInput {
 	readonly title?: string;
 }
 
+/**
+ * Input for a single delegated turn. An existing child ID always takes precedence over the agent
+ * definition: the child already owns its launch configuration, model, and session history.
+ */
+export interface DelegateSubagentInput {
+	readonly task: string;
+	readonly id?: string;
+	readonly agent?: string;
+	/** Only used when creating a child; ignored when id is supplied. */
+	readonly cwd?: string;
+	/** Only used when creating a child; ignored when id is supplied. */
+	readonly title?: string;
+}
+
 /** True when a manager call returned a structured failure instead of a value. */
 export function isOperationError(value: unknown): value is OperationError {
 	return (
@@ -315,6 +329,13 @@ export const CHILD_TITLE_ENV_KEY = "PI_SUBAGENTS_TITLE" as const;
 
 /** Bound Pi session id for the child branch. Not part of the runner handshake. */
 export const CHILD_SESSION_ENV_KEY = "PI_SUBAGENTS_SESSION_ID" as const;
+
+/**
+ * Set on the standalone controller process. Its children must not discover Pi settings extensions:
+ * another installed copy of this package registers the same bridge tool as the explicit -e entry,
+ * and Pi aborts the child before it connects.
+ */
+export const STANDALONE_CONTROLLER_ENV_KEY = "PI_SUBAGENTS_STANDALONE_CONTROLLER" as const;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 

@@ -43,6 +43,25 @@ CREATE TABLE IF NOT EXISTS tokens (
   token TEXT NOT NULL,
   PRIMARY KEY (parent_session_id, runtime_identity)
 );
+CREATE TABLE IF NOT EXISTS delegations (
+  parent_session_id TEXT NOT NULL,
+  delegation_id TEXT NOT NULL,
+  child_id TEXT,
+  delegation_revision INTEGER,
+  task TEXT NOT NULL,
+  input_checkpoint TEXT,
+  run_boundary INTEGER,
+  status TEXT NOT NULL,
+  delivery TEXT NOT NULL,
+  result_text TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (parent_session_id, delegation_id)
+);
+CREATE INDEX IF NOT EXISTS delegations_child
+  ON delegations (parent_session_id, child_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS delegations_revision
+  ON delegations (parent_session_id, child_id, delegation_revision);
 `;
 
 const connections = new Map<string, DatabaseSync>();
@@ -52,11 +71,37 @@ export function openStateDb(filePath: string): DatabaseSync {
 	if (cached !== undefined) return cached;
 	mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
 	const db = new DatabaseSync(filePath);
-	db.exec("PRAGMA journal_mode = WAL");
-	db.exec("PRAGMA busy_timeout = 5000");
-	db.exec(SCHEMA);
-	db.exec("DROP TABLE IF EXISTS presence");
-	chmodSync(filePath, 0o600);
+	try {
+		db.exec("PRAGMA busy_timeout = 5000");
+		const checkFormat = (): number => {
+			const version = db.prepare("PRAGMA user_version").get()?.user_version;
+			if (version === 1) return 1;
+			const tables = db
+				.prepare(
+					"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+				)
+				.get();
+			if (version !== 0 || tables !== undefined) {
+				throw new Error(
+					`Incompatible pi-subagents state at ${filePath}; select a new state environment`,
+				);
+			}
+			return 0;
+		};
+		if (checkFormat() === 0) {
+			withWrite(db, () => {
+				if (checkFormat() === 0) {
+					db.exec(SCHEMA);
+					db.exec("PRAGMA user_version = 1");
+				}
+			});
+		}
+		db.exec("PRAGMA journal_mode = WAL");
+		chmodSync(filePath, 0o600);
+	} catch (error) {
+		db.close();
+		throw error;
+	}
 	connections.set(filePath, db);
 	return db;
 }

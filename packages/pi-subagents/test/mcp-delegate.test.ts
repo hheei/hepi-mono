@@ -1,0 +1,58 @@
+import { describe, expect, test } from "vitest";
+import { delegateToolMetadata, parseDelegateInput } from "../src/mcp/delegate.js";
+
+describe("subagents_delegate MCP input", () => {
+	test("accepts an agent for a new child", () => {
+		expect(parseDelegateInput({ agent: "worker", task: "Implement feature" })).toEqual({
+			agent: "worker",
+			task: "Implement feature",
+		});
+	});
+
+	test("accepts an existing child id without an agent", () => {
+		expect(parseDelegateInput({ id: "agent-21", task: "Continue tests" })).toEqual({
+			id: "agent-21",
+			task: "Continue tests",
+		});
+	});
+
+	test("allows id and agent together so the manager can silently ignore agent", () => {
+		expect(
+			parseDelegateInput({
+				id: "agent-21",
+				agent: "reviewer",
+				task: "Continue tests",
+			}),
+		).toEqual({ id: "agent-21", agent: "reviewer", task: "Continue tests" });
+		expect(delegateToolMetadata.name).toBe("subagents_delegate");
+	});
+
+	test("supports detached delegations without separate spawn/send tools", () => {
+		expect(parseDelegateInput({ id: "agent-21", task: "Continue tests", wait: false })).toEqual({
+			id: "agent-21",
+			task: "Continue tests",
+			wait: false,
+		});
+		expect(() => parseDelegateInput({ id: "agent-21", task: "Continue", wait: "false" })).toThrow();
+	});
+
+	test("rejects invalid boundary inputs and unexpected fields", () => {
+		expect(() => parseDelegateInput({ id: "agent-21", task: 123 })).toThrow();
+		expect(() => parseDelegateInput({ id: "agent-21", task: "Continue", extra: true })).toThrow();
+		expect(() => parseDelegateInput({ agent: "worker", task: "" })).toThrow();
+		expect(() => parseDelegateInput({ agent: "worker", task: "  " })).toThrow(/Task/);
+		expect(() =>
+			parseDelegateInput({ agent: "worker", task: "<hindsight-recall>context</hindsight-recall>" }),
+		).toThrow(/Task/);
+		expect(() => parseDelegateInput({ task: "Work" })).toThrow(/Agent/);
+		expect(() => parseDelegateInput({ agent: "  ", task: "Work" })).toThrow(/Agent/);
+		expect(() => parseDelegateInput({ id: "  ", agent: "worker", task: "Work" })).toThrow(
+			/Child id/,
+		);
+		expect(parseDelegateInput({ id: "agent-21", agent: "", task: "Work" })).toEqual({
+			id: "agent-21",
+			agent: "",
+			task: "Work",
+		});
+	});
+});

@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -17,6 +16,7 @@ import {
 	CONTACT_PARENT_TOOL_NAME,
 	DEFAULT_PI_TOOLS,
 	isSessionId,
+	STANDALONE_CONTROLLER_ENV_KEY,
 } from "./domain.js";
 
 /**
@@ -110,14 +110,34 @@ export function resolveBridgeExtensionPath(): string {
 
 function resolveBundledPiCli(): string | undefined {
 	try {
-		const requireFromHere = createRequire(import.meta.url);
-		// The CLI ships at dist/cli.js of the installed Pi package.
-		const packageJson = requireFromHere.resolve("@earendil-works/pi-coding-agent/package.json");
-		const cliPath = join(dirname(packageJson), "dist", "cli.js");
-		return existsSync(cliPath) ? cliPath : undefined;
+		// package.json is not an exported subpath, and the bin moved to dist/bundle/cli.js.
+		let dir = dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent")));
+		for (let depth = 0; depth < 4; depth += 1) {
+			const manifestPath = join(dir, "package.json");
+			if (existsSync(manifestPath)) {
+				const cliPath = join(dir, piBin(JSON.parse(readFileSync(manifestPath, "utf8"))));
+				return existsSync(cliPath) ? cliPath : undefined;
+			}
+			const parent = dirname(dir);
+			if (parent === dir) return undefined;
+			dir = parent;
+		}
 	} catch {
 		return undefined;
 	}
+	return undefined;
+}
+
+function piBin(manifest: unknown): string {
+	if (typeof manifest !== "object" || manifest === null || !("bin" in manifest)) {
+		throw new Error("Installed Pi package has no bin");
+	}
+	const bin = manifest.bin;
+	if (typeof bin === "string") return bin;
+	if (typeof bin === "object" && bin !== null && "pi" in bin && typeof bin.pi === "string") {
+		return bin.pi;
+	}
+	throw new Error("Installed Pi package has no pi bin");
 }
 
 /**
@@ -139,7 +159,16 @@ export function resolvePiInvocation(): PiInvocation {
 	const execPath = process.execPath;
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/") ?? false;
-	if (currentScript !== undefined && !isBunVirtualScript && existsSync(currentScript)) {
+	// The standalone controller is itself a node script. Reusing argv[1] would spawn another
+	// controller instead of Pi, so the child never opens the parent bridge.
+	const isControllerEntry =
+		currentScript !== undefined && basename(currentScript).startsWith("controller-main.");
+	if (
+		currentScript !== undefined &&
+		!isBunVirtualScript &&
+		!isControllerEntry &&
+		existsSync(currentScript)
+	) {
 		return { command: execPath, args: [currentScript] };
 	}
 	const execName = basename(execPath).toLowerCase();
@@ -229,7 +258,9 @@ export function buildLaunchSpec(options: BuildLaunchSpecOptions): LaunchSpec {
 		argv.push("--tools", Array.from(new Set(effectiveTools)).join(","));
 	if (excludeTools.length > 0)
 		argv.push("--exclude-tools", Array.from(new Set(excludeTools)).join(","));
-	if (!config.extensions.discovery) argv.push("--no-extensions");
+	if (!config.extensions.discovery || process.env[STANDALONE_CONTROLLER_ENV_KEY] === "1") {
+		argv.push("--no-extensions");
+	}
 	for (const path of config.extensions.paths) argv.push("-e", path);
 	if (!config.skills.discovery) argv.push("--no-skills");
 	for (const path of config.skills.paths) argv.push("--skill", path);

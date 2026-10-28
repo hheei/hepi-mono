@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'">
+<title>{{TITLE}}</title>
+<style>
+/* Compact shell adapted from AgentDock mcpapps/app.html
+   https://github.com/uvwt/agentdock-protocol/blob/a0ffc5114507a498013dc8a5bbd572114e23bf5d/mcpapps/app.html
+   Copyright AgentDock contributors. Licensed Apache-2.0. */
+:root {
+  color-scheme: light dark;
+  font: 13px/1.45 var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+  --ad-text-primary: var(--color-text-primary, #111827);
+  --ad-text-secondary: var(--color-text-secondary, #4b5563);
+  --ad-text-muted: var(--color-text-muted, #9ca3af);
+  --ad-surface: var(--color-background-primary, #ffffff);
+  --ad-surface-hover: var(--color-background-secondary, #f9fafb);
+  --ad-surface-muted: var(--color-background-tertiary, #f3f4f6);
+  --ad-border: var(--color-border-subtle, #e5e7eb);
+  --ad-border-strong: var(--color-border, #d1d5db);
+  --ad-success: #16a34a;
+  --ad-danger: #dc2626;
+  --ad-accent: #2563eb;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ad-text-primary: var(--color-text-primary, #f9fafb);
+  --ad-text-secondary: var(--color-text-secondary, #9ca3af);
+  --ad-text-muted: var(--color-text-muted, #6b7280);
+  --ad-surface: var(--color-background-primary, #111827);
+  --ad-surface-hover: var(--color-background-secondary, #1f2937);
+  --ad-surface-muted: var(--color-background-tertiary, #1e2533);
+  --ad-border: var(--color-border-subtle, #374151);
+  --ad-border-strong: var(--color-border, #4b5563);
+  --ad-success: #22c55e;
+  --ad-danger: #ef4444;
+  --ad-accent: #3b82f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ad-text-primary: var(--color-text-primary, #f9fafb);
+    --ad-text-secondary: var(--color-text-secondary, #9ca3af);
+    --ad-text-muted: var(--color-text-muted, #6b7280);
+    --ad-surface: var(--color-background-primary, #111827);
+    --ad-surface-hover: var(--color-background-secondary, #1f2937);
+    --ad-surface-muted: var(--color-background-tertiary, #1e2533);
+    --ad-border: var(--color-border-subtle, #374151);
+    --ad-border-strong: var(--color-border, #4b5563);
+    --ad-success: #22c55e;
+    --ad-danger: #ef4444;
+    --ad-accent: #3b82f6;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--ad-text-primary);
+}
+#root {
+  background: var(--ad-surface);
+  border: 1px solid var(--ad-border-strong);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.compact-toggle {
+  width: 100%;
+  min-height: 64px;
+  border: 0;
+  padding: 12px 14px;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.compact-toggle:hover {
+  background: var(--ad-surface-hover);
+}
+.compact-toggle.single-line { min-height: 44px; }
+.compact-primary {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+}
+.compact-action {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--ad-surface-muted);
+  color: var(--ad-text-secondary);
+  border: 1px solid var(--ad-border);
+}
+.compact-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.compact-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ad-text-secondary);
+  border-bottom: 1.5px solid var(--ad-text-secondary);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+.expanded .chevron { transform: rotate(225deg); }
+.compact-row { grid-column: 1 / -1; min-width: 0; }
+.compact-summary {
+  color: var(--ad-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.compact-meta-row {
+  color: var(--ad-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.detail-panel {
+  border-top: 1px solid var(--ad-border);
+  padding: 12px 14px 14px;
+  background: var(--ad-surface);
+}
+.detail-panel[hidden] { display: none; }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+  font-size: 11px;
+  color: var(--ad-text-secondary);
+}
+#error:not(:empty) {
+  color: var(--ad-danger);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(220, 38, 38, 0.08);
+}
+pre, .pane-box {
+  margin: 8px 0 10px;
+  min-height: 65px;
+  max-height: 380px;
+  overflow: auto;
+  border: 1px solid var(--ad-border);
+  border-radius: 8px;
+  background: var(--ad-surface-muted);
+  padding: 10px 12px;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ad-text-primary);
+}
+.tabs, .composer, .create, .filter {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.tabs {
+  display: inline-flex;
+  background: var(--ad-surface-muted);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--ad-border);
+  gap: 2px;
+  margin: 10px 0 8px;
+}
+.composer, .create, .filter { margin-top: 8px; }
+button, input, select {
+  font: inherit;
+  color: inherit;
+  background: var(--ad-surface);
+  border: 1px solid var(--ad-border-strong);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--ad-text-primary);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05);
+}
+button {
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-weight: 500;
+}
+button:hover:not(:disabled) {
+  background: var(--ad-surface-hover);
+  border-color: var(--ad-border-strong);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tabs button {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 11px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ad-text-secondary);
+  background: transparent;
+}
+.tabs button:hover {
+  color: var(--ad-text-primary);
+}
+.tabs button[aria-selected="true"] {
+  background: var(--ad-surface);
+  color: var(--ad-text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+#send, #start {
+  background: var(--ad-text-primary);
+  color: var(--ad-surface);
+  border-color: var(--ad-text-primary);
+  font-weight: 600;
+}
+#send:hover:not(:disabled), #start:hover:not(:disabled) {
+  opacity: 0.88;
+}
+#stop {
+  color: var(--ad-danger);
+  border-color: var(--ad-border-strong);
+}
+#stop:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: var(--ad-danger);
+}
+.list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 1px;
+}
+.list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  border: 1px solid var(--ad-border);
+  border-radius: 6px;
+  background: var(--ad-surface);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.list button:hover {
+  background: var(--ad-surface-hover);
+  border-color: var(--ad-border-strong);
+}
+.list button[aria-current="true"] {
+  background: var(--ad-surface-muted);
+  border-color: var(--ad-border-strong);
+  font-weight: 600;
+}
+@media (max-width: 520px) {
+  body { padding: 4px; }
+  .compact-toggle { padding: 9px 10px; }
+  .compact-meta-row { white-space: normal; }
+  .composer, .create, .filter { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<main id="root"></main>
+<script>
+const view = "{{VIEW}}";
+const root = document.querySelector("#root");
+const TERMINAL = new Set(["completed", "failed", "uncertain", "done"]);
+const pending = new Map();
+let rpcID = 0;
+let generation = 0;
+let timer = 0;
+let busy = false;
+let queued = false;
+let childId = "";
+let delegationId = "";
+let terminal = false;
+let status = "";
+let outputExpanded = false;
+let outputText = "";
+let transcriptCursor = 0;
+let stopArmed = false;
+let lastReportedHeight = 0;
+let closed = false;
+let transcriptRequest = null;
+let userSelectedTab = false;
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = String(text);
+  return node;
+};
+
+const toggle = el("button", "compact-toggle");
+toggle.type = "button";
+toggle.setAttribute("aria-expanded", "false");
+const actionNode = el("strong", "compact-action", view === "dashboard" ? "LIST" : "TASK");
+const titleNode = el("span", "compact-title", view === "dashboard" ? "Subagents" : "Subagent");
+titleNode.id = "title";
+const primary = el("span", "compact-primary");
+primary.append(actionNode, titleNode);
+const stateNode = el("span", "", "");
+const end = el("span", "compact-end");
+end.append(stateNode, el("span", "chevron"));
+const taskNode = el("span", "compact-row compact-summary", "");
+taskNode.id = "task";
+const metricNode = el("span", "compact-row compact-meta-row", "");
+toggle.append(primary, end, taskNode, metricNode);
+
+const panel = el("div", "detail-panel");
+panel.hidden = true;
+const filter = el("input");
+filter.id = "filter";
+filter.setAttribute("aria-label", "Filter subagents");
+filter.placeholder = "Filter";
+const list = el("div", "list");
+list.id = "list";
+const agent = el("select");
+agent.id = "agent";
+agent.setAttribute("aria-label", "Agent");
+const newTask = el("input");
+newTask.id = "new-task";
+newTask.setAttribute("aria-label", "New task");
+newTask.placeholder = "New task";
+const start = el("button", "", "Start");
+start.type = "button";
+start.disabled = view === "dashboard";
+const create = el("form", "create");
+create.append(agent, newTask, start);
+const filterRow = el("div", "filter");
+filterRow.append(filter);
+const tabs = el("div", "tabs");
+const panes = {};
+for (const name of ["Activity", "Output", "Diagnostics", "Transcript"]) {
+  const button = el("button", "", name);
+  button.type = "button";
+  button.setAttribute("aria-selected", name === "Activity" ? "true" : "false");
+  const pane = el(name === "Activity" || name === "Diagnostics" ? "div" : "pre", name === "Activity" || name === "Diagnostics" ? "pane-box" : "");
+  pane.id = name.toLowerCase();
+  pane.hidden = name !== "Activity";
+  panes[name] = pane;
+  button.addEventListener("click", () => {
+    userSelectedTab = true;
+    selectTab(name);
+  });
+  tabs.append(button);
+}
+function selectTab(name) {
+  for (const other of tabs.querySelectorAll("button")) other.setAttribute("aria-selected", other.textContent === name ? "true" : "false");
+  for (const [key, node] of Object.entries(panes)) node.hidden = key !== name;
+  if (name === "Transcript" && !panes.Transcript.textContent) void loadTranscript(false);
+  scheduleReportSize();
+}
+const moreOutput = el("button", "", "Show all");
+moreOutput.type = "button";
+moreOutput.hidden = true;
+moreOutput.addEventListener("click", () => { outputExpanded = true; paintOutput(); scheduleReportSize(); });
+const moreTranscript = el("button", "", "More");
+moreTranscript.type = "button";
+moreTranscript.hidden = true;
+moreTranscript.addEventListener("click", () => { void loadTranscript(true); });
+const errorNode = el("div", "meta");
+errorNode.id = "error";
+const hintNode = el("div", "meta");
+hintNode.id = "hint";
+const composer = el("form", "composer");
+const draft = el("input");
+draft.id = "continue";
+draft.setAttribute("aria-label", "Continue this agent");
+draft.placeholder = "Continue this agent...";
+const send = el("button", "", "Send");
+send.id = "send";
+send.type = "button";
+const stop = el("button", "", "Stop");
+stop.type = "button";
+const copy = el("button", "", "Copy");
+copy.type = "button";
+composer.append(draft, send, stop, copy);
+panel.append(filterRow, list, create, tabs, panes.Activity, panes.Output, moreOutput, panes.Diagnostics, panes.Transcript, moreTranscript, hintNode, errorNode, composer);
+root.append(toggle, panel);
+if (view !== "dashboard") { filterRow.hidden = true; list.hidden = true; create.hidden = true; }
+
+toggle.addEventListener("click", () => {
+  const expanded = toggle.getAttribute("aria-expanded") === "true";
+  toggle.setAttribute("aria-expanded", String(!expanded));
+  toggle.classList.toggle("expanded", !expanded);
+  panel.hidden = expanded;
+  scheduleReportSize();
+});
+filter.addEventListener("input", () => paintList(lastChildren));
+create.addEventListener("submit", (event) => { event.preventDefault(); void createChild(); });
+start.addEventListener("click", () => { void createChild(); });
+send.addEventListener("click", (event) => { event.preventDefault(); void steer(); });
+stop.addEventListener("click", () => { void halt(); });
+copy.addEventListener("click", () => { void copyText(); });
+
+let lastChildren = [];
+
+function paintOutput() {
+  const text = outputText || "";
+  panes.Output.textContent = outputExpanded || text.length <= 600 ? text : text.slice(0, 600) + "…";
+  moreOutput.hidden = text.length <= 600;
+}
+
+function paintList(children) {
+  lastChildren = Array.isArray(children) ? children : [];
+  const query = filter.value.trim().toLowerCase();
+  const shown = lastChildren.filter((child) => {
+    const blob = [child.displayName, child.agent, child.id, child.state, child.task].join(" ").toLowerCase();
+    return query === "" || blob.includes(query);
+  });
+  const top = list.scrollTop;
+  list.replaceChildren();
+  for (const child of shown) {
+    const titleText = (child.displayName || (child.id + (child.agent ? " (" + child.agent + ")" : ""))) + " · " + (child.state || "");
+    const button = el("button", "", titleText);
+    button.type = "button";
+    button.setAttribute("aria-current", child.id === childId ? "true" : "false");
+    button.addEventListener("click", () => focusChild(child));
+    list.append(button);
+  }
+  if (!shown.length) list.append(el("div", "meta", lastChildren.length ? "No match" : "No subagents"));
+  list.scrollTop = top;
+  if (view === "dashboard") {
+    const running = lastChildren.filter((child) => child.state === "running").length;
+    const blocked = lastChildren.filter((child) => child.state === "blocked").length;
+    const done = lastChildren.filter((child) => child.state === "done").length;
+    titleNode.textContent = childId ? "Subagents · " + childId : "Subagents";
+    stateNode.textContent = String(lastChildren.length);
+    metricNode.textContent = "running " + running + " · blocked " + blocked + " · done " + done;
+  }
+}
+
+function focusChild(child) {
+  if (!child || child.id === childId) return;
+  generation += 1;
+  childId = child.id;
+  draft.value = "";
+  userSelectedTab = false;
+  delegationId = child.delegationId || "";
+  terminal = TERMINAL.has(child.state || "");
+  outputText = typeof child.resultText === "string" ? child.resultText : "";
+  outputExpanded = false;
+  paintOutput();
+  transcriptCursor = 0;
+  transcriptRequest = null;
+  moreTranscript.disabled = false;
+  panes.Transcript.textContent = "";
+  moreTranscript.hidden = true;
+  stopArmed = false;
+  stop.textContent = "Stop";
+  paintList(lastChildren);
+  applyChild(child);
+  if (outputText && terminal) selectTab("Output");
+  else if (!panes.Transcript.hidden) void loadTranscript(false);
+  if (!panel.hidden) scheduleReportSize();
+  kick(0);
+}
+
+function applyChild(data) {
+  if (!data || typeof data !== "object") return;
+  const id = data.childId || data.id;
+  if (typeof id === "string" && id !== "" && view === "task") childId = id;
+  if (data.displayName || data.agent || data.task) {
+    titleNode.textContent = view === "dashboard" ? (childId ? "Subagents · " + childId : "Subagents") : (data.displayName || data.agent || titleNode.textContent);
+  }
+  if (data.task || data.title) taskNode.textContent = data.task || data.title || "";
+  if (data.state || data.status) {
+    status = data.status || data.state;
+    stateNode.textContent = status + elapsed(data.createdAt);
+  }
+  if (data.delegationId && typeof data.delegationId === "string") delegationId = data.delegationId;
+  if (typeof data.resultText === "string" && data.resultText) {
+    outputText = data.resultText;
+    paintOutput();
+    if (!userSelectedTab && (status === "done" || status === "completed")) selectTab("Output");
+  }
+  if (data.activeTool) panes.Activity.textContent = "● " + data.activeTool + (data.summary ? "\n" + data.summary : "");
+  else if (data.summary) panes.Activity.textContent = data.summary;
+  else if (status === "done" || status === "completed") panes.Activity.textContent = "Agent completed. View Output for final result.";
+  else if (status === "running") panes.Activity.textContent = "Agent is running...";
+  else panes.Activity.textContent = "No active activity.";
+
+  metricNode.textContent = view === "dashboard" ? metricNode.textContent : usageText(data.usage);
+  panes.Diagnostics.textContent = ["child " + (childId || "—"), "delegation " + (delegationId || "—"), data.reason || data.interrupted || ""].filter(Boolean).join("\n");
+  hintNode.textContent = hint(status, data.reason || data.error || "");
+}
+
+function applyReceipt(data) {
+  if (!data || data.delegationId !== delegationId) return;
+  status = data.status || status;
+  stateNode.textContent = status + elapsed(data.createdAt);
+  if (typeof data.resultText === "string") {
+    outputText = data.resultText;
+    paintOutput();
+    if (!userSelectedTab && (status === "done" || status === "completed")) selectTab("Output");
+  }
+  if (typeof data.task === "string" && data.task !== "") taskNode.textContent = data.task;
+  hintNode.textContent = hint(status, data.resultText || "");
+  if (TERMINAL.has(status)) terminal = true;
+}
+
+function hint(value, reason) {
+  if (value === "blocked") return "Answer below to continue this agent.";
+  if (value === "failed" || value === "uncertain" || value === "error") return reason || "Send a steer, or stop and inspect the transcript.";
+  if (String(reason).includes("model_unavailable")) return "The controller has no usable model.";
+  if (value === "disconnected") return "Reconnecting…";
+  return "";
+}
+
+function elapsed(iso) {
+  const start = typeof iso === "number" ? iso : Date.parse(iso || "");
+  if (!Number.isFinite(start)) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  return " · " + String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
+}
+
+function usageText(usage) {
+  if (!usage || typeof usage !== "object") return metricNode.textContent;
+  const turns = usage.turns ? usage.turns + " turns" : "";
+  const tokens = (usage.inputTokens || 0) + (usage.outputTokens || 0);
+  return [turns, tokens ? Math.round(tokens / 10) / 100 + "k tokens" : ""].filter(Boolean).join(" · ");
+}
+
+function structured(result) {
+  return result && result.structuredContent && typeof result.structuredContent === "object" ? result.structuredContent : {};
+}
+
+function textOf(result) {
+  const block = result && Array.isArray(result.content) ? result.content.find((item) => item.type === "text") : undefined;
+  return block ? block.text : "";
+}
+
+async function callTool(name, args) {
+  const result = await rpcRequest("tools/call", { name, arguments: args }, 8000);
+  const data = structured(result);
+  if (result && result.isError && !data.status && !data.id && !data.delegationId && !Array.isArray(data.children) && !Array.isArray(data.agents)) {
+    throw new Error(data.reason || data.error || textOf(result) || "Tool call failed");
+  }
+  return data;
+}
+
+async function pull(gen) {
+  if (view === "dashboard") {
+    const listed = await callTool("subagents_list", {});
+    if (gen !== generation) return 0;
+    paintList(listed.children || []);
+  }
+  if (childId) {
+    const child = await callTool("subagents_get", { id: childId });
+    if (gen !== generation) return 0;
+    applyChild(child);
+  }
+  if (delegationId && !terminal) {
+    const receipt = await callTool("subagents_receipt", { delegationId });
+    if (gen !== generation) return 0;
+    applyReceipt(receipt);
+  }
+  if (view === "task" && terminal) return 0;
+  return status === "blocked" ? 10000 : 2000;
+}
+
+function kick(delay) {
+  if (closed || document.hidden) return;
+  if (busy) { queued = true; return; }
+  if (timer) window.clearTimeout(timer);
+  const gen = generation;
+  timer = window.setTimeout(() => { void run(gen); }, delay);
+}
+
+async function run(gen) {
+  timer = 0;
+  if (closed || gen !== generation || document.hidden) return;
+  busy = true;
+  let next = 2000;
+  try { next = await pull(gen); }
+  catch (error) {
+    if (gen === generation) {
+      status = "disconnected";
+      errorNode.textContent = error instanceof Error ? error.message : String(error);
+      hintNode.textContent = hint(status, errorNode.textContent);
+      next = 5000;
+    }
+  }
+  finally { busy = false; }
+  if (closed) return;
+  if (queued) { queued = false; kick(0); return; }
+  if (gen !== generation) return;
+  if (next > 0 && !document.hidden) kick(next);
+}
+
+async function steer() {
+  const task = draft.value.trim();
+  if (closed || !childId || task === "" || send.disabled) return;
+  const selected = childId;
+  const gen = generation;
+  send.disabled = true;
+  try {
+    const receipt = await callTool("subagents_delegate", { id: selected, task, wait: false });
+    if (closed || gen !== generation || childId !== selected) return;
+    if (receipt.delegationId && receipt.delegationId !== delegationId) {
+      generation += 1;
+      delegationId = receipt.delegationId;
+      terminal = false;
+      outputText = "";
+      paintOutput();
+      applyReceipt(receipt);
+      draft.value = "";
+    }
+    errorNode.textContent = "";
+  } catch (error) {
+    if (!closed && childId === selected && gen === generation) errorNode.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    send.disabled = false;
+    if (!closed && !terminal) kick(0);
+  }
+}
+
+async function halt() {
+  if (closed || !childId || stop.disabled) return;
+  if (!stopArmed) {
+    stopArmed = true;
+    stop.textContent = "Confirm stop";
+    window.setTimeout(() => {
+      if (stopArmed) { stopArmed = false; stop.textContent = "Stop"; }
+    }, 4000);
+    return;
+  }
+  stopArmed = false;
+  stop.textContent = "Stop";
+  stop.disabled = true;
+  try {
+    await callTool("subagents_stop", { id: childId });
+    kick(0);
+  } catch (error) {
+    if (!closed) errorNode.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    stop.disabled = false;
+  }
+}
+
+async function createChild() {
+  const task = newTask.value.trim();
+  if (closed || task === "" || start.disabled) return;
+  start.disabled = true;
+  try {
+    const receipt = await callTool("subagents_delegate", {
+      agent: agent.value || undefined,
+      task,
+      wait: false
+    });
+    newTask.value = "";
+    if (receipt.childId) {
+      childId = receipt.childId;
+      delegationId = receipt.delegationId || "";
+      terminal = false;
+      outputText = "";
+      paintOutput();
+      generation += 1;
+      applyReceipt(receipt);
+    }
+    kick(0);
+  } catch (error) {
+    if (!closed) errorNode.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    start.disabled = false;
+  }
+}
+
+async function loadCatalog() {
+  const catalog = await callTool("subagents_catalog", {});
+  const agents = Array.isArray(catalog.agents) ? catalog.agents : [];
+  const selected = agent.value;
+  agent.replaceChildren();
+  for (const entry of agents) {
+    if (entry && entry.name) {
+      const opt = document.createElement("option");
+      opt.value = entry.name;
+      opt.textContent = entry.name;
+      if (entry.enabled === false) opt.disabled = true;
+      agent.append(opt);
+    }
+  }
+  if (selected && Array.from(agent.options).some((item) => item.value === selected)) agent.value = selected;
+  start.disabled = !agent.options.length;
+}
+
+async function loadTranscript(next) {
+  if (!childId || (next && !transcriptCursor) || transcriptRequest) return;
+  const cursor = next ? transcriptCursor : 0;
+  const request = { cursor, id: childId };
+  transcriptRequest = request;
+  moreTranscript.disabled = true;
+  try {
+    const data = await callTool("subagents_transcript", { id: childId, cursor, limit: 20 });
+    if (closed || transcriptRequest !== request) return;
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const formatted = entries.map((entry) => JSON.stringify(entry)).join("\n");
+    if (!cursor) panes.Transcript.textContent = formatted;
+    else if (formatted) panes.Transcript.textContent += "\n" + formatted;
+    transcriptCursor = typeof data.nextCursor === "number" ? data.nextCursor : 0;
+    moreTranscript.hidden = !transcriptCursor;
+    scheduleReportSize();
+  } catch (error) {
+    if (!closed && transcriptRequest === request) errorNode.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (transcriptRequest === request) { transcriptRequest = null; moreTranscript.disabled = false; }
+  }
+}
+
+async function copyText() {
+  const text = [childId && "child " + childId, delegationId && "delegation " + delegationId, outputText].filter(Boolean).join("\n");
+  if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+  else panes.Diagnostics.textContent = text;
+}
+
+function applyHost(context) {
+  if (!context || typeof context !== "object") return;
+  if (context.theme === "light" || context.theme === "dark") document.documentElement.dataset.theme = context.theme;
+  else if (Object.prototype.hasOwnProperty.call(context, "theme")) delete document.documentElement.dataset.theme;
+  const variables = context.styles && context.styles.variables;
+  if (!variables || typeof variables !== "object") return;
+  for (const [name, value] of Object.entries(variables)) {
+    if (name.startsWith("--") && typeof value === "string") document.documentElement.style.setProperty(name, value);
+  }
+}
+
+function seed(data) {
+  if (closed || !data || typeof data !== "object") return;
+  if (Array.isArray(data.children)) paintList(data.children);
+  const nextChild = data.childId || (typeof data.id === "string" ? data.id : "");
+  const nextDelegation = typeof data.delegationId === "string" ? data.delegationId : "";
+  if (nextChild && nextChild !== childId) { childId = nextChild; generation += 1; }
+  if (nextDelegation && nextDelegation !== delegationId) {
+    delegationId = nextDelegation;
+    terminal = false;
+    outputText = "";
+    generation += 1;
+  }
+  applyChild(data);
+  if (nextDelegation) applyReceipt(data);
+  if (!(view === "task" && terminal)) kick(700);
+}
+
+const rpcNotify = (method, params) => window.parent.postMessage({ jsonrpc: "2.0", method, params: params || {} }, "*");
+function rpcRequest(method, params, timeoutMS) {
+  const id = ++rpcID;
+  return new Promise((resolve, reject) => {
+    const timerID = window.setTimeout(() => {
+      if (!pending.delete(id)) return;
+      reject(new Error("RPC request timed out"));
+    }, timeoutMS || 8000);
+    pending.set(id, {
+      resolve: (value) => { window.clearTimeout(timerID); resolve(value); },
+      reject: (error) => { window.clearTimeout(timerID); reject(error); }
+    });
+    window.parent.postMessage({ jsonrpc: "2.0", id, method, params: params || {} }, "*");
+  });
+}
+
+let rafId = 0;
+function reportSize() {
+  if (closed) return;
+  const rootEl = document.querySelector("#root");
+  const height = Math.ceil(rootEl ? rootEl.getBoundingClientRect().height + 16 : document.body.scrollHeight);
+  if (!height || Math.abs(height - lastReportedHeight) < 2) return;
+  lastReportedHeight = height;
+  rpcNotify("ui/notifications/size-changed", { height });
+}
+
+function scheduleReportSize() {
+  if (closed) return;
+  if (typeof requestAnimationFrame !== "undefined") {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      reportSize();
+    });
+  } else {
+    reportSize();
+  }
+}
+
+function teardown() {
+  if (closed) return;
+  closed = true;
+  if (timer) window.clearTimeout(timer);
+  for (const [id, waiter] of pending.entries()) {
+    pending.delete(id);
+    waiter.reject(new Error("View closed"));
+  }
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window.parent) return;
+  const message = event.data;
+  if (!message || message.jsonrpc !== "2.0") return;
+  if (message.id !== undefined && !message.method) {
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    if (message.error) waiter.reject(new Error(message.error.message || "RPC failed"));
+    else waiter.resolve(message.result);
+    return;
+  }
+  if (closed) return;
+  if (message.method === "ui/notifications/tool-input") {
+    const input = message.params && message.params.arguments;
+    if (view === "task" && input && typeof input.task === "string") {
+      taskNode.textContent = input.task;
+      stateNode.textContent = "starting";
+    }
+    return;
+  }
+  if (message.method === "ui/notifications/host-context-changed") {
+    applyHost(message.params || {});
+    return;
+  }
+  if (message.method === "ui/notifications/tool-result") {
+    const data = message.params && message.params.structuredContent;
+    seed(data);
+    if (view === "dashboard") void loadCatalog().catch((error) => { errorNode.textContent = error instanceof Error ? error.message : String(error); });
+  }
+  if (message.method === "ui/resource-teardown") teardown();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (timer) window.clearTimeout(timer);
+    timer = 0;
+    return;
+  }
+  kick(0);
+});
+
+if (typeof ResizeObserver !== "undefined") new ResizeObserver(scheduleReportSize).observe(document.body);
+async function initializeBridge() {
+  try {
+    const initialized = await rpcRequest("ui/initialize", {
+      protocolVersion: "2026-01-26",
+      appInfo: { name: "pi-subagents-" + view, version: "0.7.0" },
+      appCapabilities: { availableDisplayModes: ["inline"] }
+    }, 8000);
+    if (closed) return;
+    if (initialized && initialized.hostContext) applyHost(initialized.hostContext);
+    rpcNotify("ui/notifications/initialized", {});
+    scheduleReportSize();
+  } catch (_) {
+    if (!closed) errorNode.textContent = "Unable to initialize MCP App.";
+  }
+}
+initializeBridge();
+</script>
+</body>
+</html>
