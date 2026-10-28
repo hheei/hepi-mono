@@ -87,7 +87,7 @@ test("legacy initialize lists delegate and a tool call waits for the receipt", a
 		input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
 		input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`);
 		await waitFor(() => raw.includes('"id":2') || raw.includes('"id": 2'));
-		expect(raw).toContain("subagents_delegate");
+		expect(raw).toContain('"name":"delegate"');
 		expect(raw).not.toContain("model_unavailable");
 
 		const direct = callController(socketPath, {
@@ -214,8 +214,8 @@ test("task and dashboard resources advertise the MCP Apps bridge", async () => {
 		expect(raw).toContain("ui://hheei/subagents/dashboard");
 		expect(raw).toContain("text/html;profile=mcp-app");
 		expect(raw).toContain("ui/initialize");
-		expect(raw).toContain("subagents_get");
-		expect(raw).toContain("subagents_stop");
+		expect(raw).toContain('"name":"get"');
+		expect(raw).toContain('"name":"stop"');
 		const listed = raw
 			.split("\n")
 			.find((line) => line.includes('"id":2') || line.includes('"id": 2'));
@@ -223,12 +223,28 @@ test("task and dashboard resources advertise the MCP Apps bridge", async () => {
 		const tools = JSON.parse(listed ?? "{}") as {
 			result?: { tools?: Array<{ name: string; _meta?: { ui?: { visibility?: string[] } } }> };
 		};
-		const get = tools.result?.tools?.find((tool) => tool.name === "subagents_get");
-		expect(get?._meta?.ui?.visibility).toBeUndefined();
-		const list = tools.result?.tools?.find((tool) => tool.name === "subagents_list");
+		const names = tools.result?.tools?.map((tool) => tool.name) ?? [];
+		expect(names).toEqual(
+			expect.arrayContaining([
+				"delegate",
+				"get",
+				"stop",
+				"dashboard",
+				"list",
+				"transcript",
+				"catalog",
+				"receipts",
+			]),
+		);
+		expect(names.some((name) => name.startsWith("subagents_"))).toBe(false);
+		const get = tools.result?.tools?.find((tool) => tool.name === "get");
+		expect(get?._meta?.ui?.visibility).toEqual(["model", "app"]);
+		const list = tools.result?.tools?.find((tool) => tool.name === "list");
 		expect(list?._meta?.ui?.visibility).toEqual(["app"]);
-		const delegate = tools.result?.tools?.find((tool) => tool.name === "subagents_delegate");
+		const delegate = tools.result?.tools?.find((tool) => tool.name === "delegate");
 		expect(delegate?._meta?.ui).toMatchObject({ resourceUri: "ui://hheei/subagents/task" });
+		const dashboard = tools.result?.tools?.find((tool) => tool.name === "dashboard");
+		expect(dashboard?._meta?.ui).toMatchObject({ resourceUri: "ui://hheei/subagents/dashboard" });
 	} finally {
 		await handle.close();
 		await new Promise<void>((resolve, reject) => {

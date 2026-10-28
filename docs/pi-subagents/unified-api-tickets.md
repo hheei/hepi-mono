@@ -22,7 +22,7 @@
 | AGENTS-04 | 等待、取消与单次交付 | 02、03 | [x] |
 | AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [x] |
 | AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [ ] |
-| AGENTS-07 | MCP 工具与 App 同步切换 | 04、05 | [ ] |
+| AGENTS-07 | MCP 工具与 App 同步切换 | 04、05 | [x] |
 | AGENTS-08 | 跨端集成、恢复与实机验收 | 06、07 | [ ] |
 
 02 完成后，04 需要等待 03；05 与 04 可并行。06 与 07 可并行，08 汇合。编号只表示任务，不是公共 revision。
@@ -157,7 +157,7 @@
 
 ## AGENTS-07：MCP 与 App 原子切换
 
-**Spec**：§2、§3、§5～§8。**状态**：[ ]。**依赖**：AGENTS-04、05。
+**Spec**：§2、§3、§5～§8。**状态**：[x]。**依赖**：AGENTS-04、05。
 
 **交付**
 
@@ -253,6 +253,15 @@
 - 顺带修正：`send` 在标记 running 之前读取“是否已在同一轮内”，否则任何一次新派发都会被当成 join，新 revision 会绑定到已结算的 runBoundary（新增用例 `stop ends open revisions` 暴露）。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，新增 6 个 inspect/dashboard/stop/上限用例）；`pnpm --filter @hheei/pi-subagents exec tsc -p tsconfig.build.json --noEmit`；`./node_modules/.bin/biome check packages/pi-subagents/src packages/pi-subagents/test`。
 - 未验证：MCP/Pi 工具层尚未切换到这些投影（AGENTS-06/07），App 视图在此期间仍按旧字段读取；真实进程停止路径在 AGENTS-08 汇合验证。
+
++### AGENTS-07
+
+- 切换：`mcp-server.ts` 自报 `pi_agents`，模型工具为 `delegate`/`get`/`stop`/`dashboard`（后三者带 `ui.visibility = [model, app]`），App-only 为 `list`/`transcript`/`catalog`/`receipts`；`subagents_*` 与模型侧 receipt 工具全部删除。
+- 身份：`get` 接受 `id` + `revision?` + `includeOutput?`，`delegate` 返回 `id`/`revision`/`status`/`hasOutput`，`receipts` 只返回 `id`/`revision`/`status`/`task`/`hasOutput`/`createdAt`（不含正文），控制器 `receipt` op 与 `requireReceipt` 一并删除。
+- App：`app.html` 改用新工具名与 `progress.runtimeState` + 委派 `status` 双状态；Output 只在 Output 标签可见时用 `includeOutput:true` 拉取，历史 revision 只在 Diagnostics 标签首次打开时用 `receipts` 拉取，刷新不隐式推送正文。停止与新建在 await 之后校验 `generation`，迟到的 stop 回复不会覆盖已切换的 agent。
+- 文档：`docs/pi-subagents/mcp.md` 的交互、descriptor、流程图、工具表、结算与验收段全部改为新契约，并新增升级后重连 `tools/list` 的说明；`docs/pi-subagents/tickets.md` 作为历史 ticket 记录保持原样。
+- 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，`mcp-app-view` 13 个 App DOM 用例与 `mcp-stdio` 的 tools/list 可见性断言全部改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
+- 未验证：Codex Desktop 实机卡片与 Dashboard 的视觉/交互验收（AGENTS-08）；Pi 侧工具仍是旧 `agent_*` 名称，两端口径在 AGENTS-06 后才一致。
 
 ## 完成记录模板
 

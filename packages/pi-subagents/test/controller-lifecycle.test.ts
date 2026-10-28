@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { callController, closeControllerIpc, serveControllerIpc } from "../src/controller-ipc.js";
 import { createControllerSocket } from "../src/controller-socket.js";
+import type { DelegationView } from "../src/delegation.js";
 import { child } from "./helpers/records.js";
 
 test("a closed controller socket rejects instead of hanging", async () => {
@@ -131,13 +132,13 @@ function waitingManager() {
 		async delegate() {
 			return new Promise<never>(() => undefined);
 		},
-		async inspect() {
+		async inspect(): Promise<DelegationView> {
 			return { id: "child-1", revision: 1, status: "accepted", task: "hold", hasOutput: false };
 		},
 		async dashboard() {
 			return { total: 0, running: 0, blocked: 0, completed: 0, failed: 0, children: [] };
 		},
-		async stopAgent(id: string) {
+		async stopAgent(id: string): Promise<DelegationView> {
 			return { id, revision: 1, status: "failed", task: "hold", hasOutput: false };
 		},
 		async get(id: string) {

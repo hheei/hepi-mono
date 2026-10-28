@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { delegateToolMetadata, parseDelegateInput } from "../src/mcp/delegate.js";
 
-describe("subagents_delegate MCP input", () => {
+describe("delegate MCP input", () => {
 	test("accepts an agent for a new child", () => {
 		expect(parseDelegateInput({ agent: "worker", task: "Implement feature" })).toEqual({
 			agent: "worker",
@@ -24,7 +24,7 @@ describe("subagents_delegate MCP input", () => {
 				task: "Continue tests",
 			}),
 		).toEqual({ id: "agent-21", agent: "reviewer", task: "Continue tests" });
-		expect(delegateToolMetadata.name).toBe("subagents_delegate");
+		expect(delegateToolMetadata.name).toBe("delegate");
 	});
 
 	test("supports detached delegations without separate spawn/send tools", () => {

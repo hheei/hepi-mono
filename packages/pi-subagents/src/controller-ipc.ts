@@ -1,22 +1,15 @@
 import { chmodSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import type { ControllerManager } from "./controller-role.js";
-import type { DelegationView } from "./delegation.js";
+import { type DelegationView, historyEntry } from "./delegation.js";
 import type { OperationError } from "./domain.js";
 import { type DelegateMcpInput, parseDelegateInput } from "./mcp/delegate.js";
-import { listReceipts, type Receipt, readStoredReceipt } from "./receipts.js";
+import { listReceipts } from "./receipts.js";
 import { defaultRegistryPath } from "./registry.js";
 
 const openSockets = new WeakMap<Server, Set<Socket>>();
 
-export type ControllerOp =
-	| "delegate"
-	| "receipt"
-	| "receipts"
-	| "get"
-	| "list"
-	| "stop"
-	| "transcript";
+export type ControllerOp = "delegate" | "receipts" | "get" | "list" | "stop" | "transcript";
 
 export interface ControllerCall {
 	readonly op: ControllerOp;
@@ -196,15 +189,21 @@ async function dispatch(
 	filePath: string,
 ): Promise<unknown> {
 	switch (call.op) {
-		case "receipt":
-			return requireReceipt(filePath, parentSessionId, stringField(call.input, "delegationId"));
-		case "receipts":
-			return listReceipts(
+		case "receipts": {
+			const page = listReceipts(
 				filePath,
 				parentSessionId,
 				numberField(call.input, "cursor"),
 				numberField(call.input, "limit", 50) || 20,
 			);
+			return {
+				receipts: page.receipts.flatMap((receipt) => {
+					const entry = historyEntry(receipt);
+					return entry === undefined ? [] : [entry];
+				}),
+				...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+			};
+		}
 		case "get": {
 			const revision = numberField(call.input, "revision");
 			return manager.inspect({
@@ -253,15 +252,7 @@ function parseCall(value: unknown): ControllerCall {
 	return { op: record.op, input: record.input };
 }
 
-const OPS: readonly ControllerOp[] = [
-	"delegate",
-	"receipt",
-	"receipts",
-	"get",
-	"list",
-	"stop",
-	"transcript",
-];
+const OPS: readonly ControllerOp[] = ["delegate", "receipts", "get", "list", "stop", "transcript"];
 
 function isOp(value: unknown): value is ControllerOp {
 	return typeof value === "string" && OPS.includes(value as ControllerOp);
@@ -276,12 +267,6 @@ function parseReply(value: unknown): ControllerReply {
 		...(record.result === undefined ? {} : { result: record.result }),
 		...(typeof record.error === "string" ? { error: record.error } : {}),
 	};
-}
-
-function requireReceipt(filePath: string, parentSessionId: string, delegationId: string): Receipt {
-	const receipt = readStoredReceipt(filePath, parentSessionId, delegationId);
-	if (receipt === undefined) throw new Error(`Unknown delegation ${delegationId}`);
-	return receipt;
 }
 
 async function transcriptPage(

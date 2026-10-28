@@ -42,16 +42,16 @@ export const delegateInputSchema = Type.Object(
 );
 
 export const delegateToolMetadata = {
-	name: "subagents_delegate",
+	name: "delegate",
 	description:
-		"Delegate work to a new or existing Pi subagent. Supply agent to start a new session, or id to continue an existing one. If both are provided, id takes precedence and agent is silently ignored. The final result is returned by the MCP delegation completion layer.",
+		"Delegate work to a new or existing Pi agent. Supply agent to start a new session, or id to continue an existing one; with both, id wins and agent is ignored. Returns the delegation's id, revision, status and hasOutput, and by default waits for the result.",
 	inputSchema: delegateInputSchema,
 } as const;
 
 /** Validate untrusted MCP arguments before submitting them to the manager. */
 export function parseDelegateInput(input: unknown): DelegateMcpInput {
 	if (!Value.Check(delegateInputSchema, input)) {
-		throw new Error("Invalid subagents_delegate parameters");
+		throw new Error("Invalid delegate parameters");
 	}
 	if (stripHindsightContent(input.task) === "") throw new Error("Task must not be empty");
 	if (input.id !== undefined) {

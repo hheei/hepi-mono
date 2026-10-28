@@ -110,3 +110,27 @@ export interface DashboardView {
 	readonly failed: number;
 	readonly children: readonly AgentSummary[];
 }
+
+/** One stored delegation as history shows it: identity, status and task, never the body. */
+export interface DelegationHistoryEntry {
+	readonly id: string;
+	readonly revision: number;
+	readonly status: ReceiptStatus;
+	readonly task: string;
+	readonly hasOutput: boolean;
+	readonly createdAt: number;
+}
+
+export function historyEntry(receipt: Receipt): DelegationHistoryEntry | undefined {
+	const id = receipt.childId;
+	const revision = receipt.revision;
+	if (id === undefined || revision === undefined) return undefined;
+	return {
+		id,
+		revision,
+		status: receipt.status,
+		task: receipt.task,
+		hasOutput: receipt.resultText !== undefined,
+		createdAt: receipt.createdAt,
+	};
+}

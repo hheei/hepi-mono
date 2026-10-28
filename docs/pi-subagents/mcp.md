@@ -1,6 +1,6 @@
 # pi-subagents MCP：Codex Desktop UI 与接入规格
 
-下一版统一工具契约见 [Pi 插件与 MCP 统一 Agents API Spec](unified-api-spec.md)：移除公共 title/mode，统一 delegate 与 id + revision。实施状态见 [Tickets](unified-api-tickets.md)；本文下方保留当前 MCP 实现规格，工具名和身份字段在 AGENTS-06、AGENTS-07 切换时同步更新。
+统一工具契约见 [Pi 插件与 MCP 统一 Agents API Spec](unified-api-spec.md)：无公共 title/mode，统一 delegate 与 id + revision。实施状态见 [Tickets](unified-api-tickets.md)。本文描述当前 MCP 实现：server 名为 `pi_agents`，工具为 `delegate`、`get`、`stop`、`dashboard`，App-only 为 `list`、`transcript`、`catalog`、`receipts`。
 
 状态（2026-10-27）：R0–R4 的卡片、刷新和 Dashboard 已有包内测试。页面是 `src/mcp/app.html`，样式来自 AgentDock `a0ffc511`（Apache-2.0，文件内有归属）。Codex Desktop 实机验收还没做。
 
@@ -10,13 +10,13 @@ Codex Desktop 配置一个 MCP server，便能创建、复用和管理 Pi subage
 
 完整交互：
 
-1. Codex 为需要实时卡片的工作调用 `subagents_delegate({agent:"worker",task:"...",wait:false})`：立即取得 `childId`、`delegationId`，关联内嵌 Task Card。
-2. Task Card 呈现 child 身份、执行状态、当前工具、持续时间和累计用量；运行过程中更新内容。
-3. Child 完成后，卡片通过 `subagents_receipt` 获取最终结果；模型可读取同一 receipt。直接要求模型等待答案时使用 `wait:true`，由原始 MCP 工具调用返回完整结果。
-4. 卡片展开后可以查看历史输出、诊断、Transcript，并向原 child 发送 `steer` 或停止。
-5. `subagents_dashboard` 集中列出多个 child，进入任意 child 的详情。
+1. Codex 为需要实时卡片的工作调用 `delegate({agent:"worker",task:"...",wait:false})`：立即取得 `id` 与 `revision`，关联内嵌 Task Card。
+2. Task Card 呈现 agent 身份、委派状态、runtime 状态、当前工具、持续时间和累计用量；运行过程中更新内容。
+3. 完成后卡片用 `get({id,revision,includeOutput:true})` 读取该次委派的结果；模型同样可显式读取。直接要求模型等待答案时使用 `wait:true`，由原始 MCP 工具调用返回结果。
+4. 卡片展开后可以查看输出、诊断、Transcript 与历史 revision，并向原 agent 发送 `steer` 或停止。
+5. `dashboard` 集中列出多个 agent，进入任意 agent 的详情。
 
-**身份**：`childId` 标识可多轮复用的 Pi session；`delegationId` 标识单次派发与结算回执。卡片观察 child，完成结果按 delegation 归档。
+**身份**：`id` 标识可多轮复用的 Pi session；`revision` 是该 agent 上单调递增的委派序号。runtime 状态（`progress.runtimeState`）描述 agent 此刻在做什么，`status` 描述所选委派的结果，两者分开呈现，历史结果不会被新一轮覆盖。
 
 ## 2. Codex Desktop UI
 
@@ -24,11 +24,11 @@ Codex Desktop 配置一个 MCP server，便能创建、复用和管理 Pi subage
 
 采用 AgentDock 的原生 MCP Apps 实现：单个 HTML 文件 + 内联 CSS/JS，通过标准 JSON-RPC `window.parent.postMessage` 与宿主通信。MCP Server 用已有 `@modelcontextprotocol/server` 注册工具和静态资源：
 
-- **工具描述**：`subagents_delegate` 的 descriptor 声明 `_meta.ui.resourceUri = "ui://hheei/subagents/task"`。
-- **Dashboard**：`subagents_dashboard` 的 descriptor 声明 `_meta.ui.resourceUri = "ui://hheei/subagents/dashboard"`。
+- **工具描述**：`delegate` 的 descriptor 声明 `_meta.ui.resourceUri = "ui://hheei/subagents/task"`。
+- **Dashboard**：`dashboard` 的 descriptor 声明 `_meta.ui.resourceUri = "ui://hheei/subagents/dashboard"`。
 - **资源**：服务器经 `resources/read` 返回 `text/html;profile=mcp-app` HTML；HTML 模板与结果数据分离，可复用、缓存。
-- **结果**：工具的 `content` 给模型提供简明文字，`structuredContent` 提供 `childId`、`delegationId`、状态和用量；结算后由 receipt 返回最终结果。实时卡片使用 `wait:false`，普通等待调用默认 `wait:true`。
-- **交互**：内嵌视图使用 MCP Apps bridge 接收初始 tool result，并通过 `tools/call` 访问当前 MCP server 的 `subagents_get`、`subagents_receipt`、`subagents_transcript`、`subagents_delegate`、`subagents_stop`。
+- **结果**：工具的 `content` 给模型提供简明文字，`structuredContent` 提供 `id`、`revision`、`status`、`hasOutput` 与 `progress`；结果正文只在 `includeOutput:true` 时返回，并受既有输出上限约束。实时卡片使用 `wait:false`，普通等待调用默认 `wait:true`。
+- **交互**：内嵌视图使用 MCP Apps bridge 接收初始 tool result，并通过 `tools/call` 访问 `get`、`list`、`transcript`、`catalog`、`receipts`、`delegate`、`stop`。
 - **资源交付**：发布 package 时把 HTML 模板复制到 `dist/mcp/apps/`；MCP Server 读取该文件并响应资源请求。JavaScript 直接调用 `ui/initialize`、`ui/notifications/initialized`、`tools/call` 等标准 MCP Apps bridge 方法。
 
 Codex 真实读取路径位于 `codex-rs/core/src/mcp_tool_call.rs`：从**tool descriptor** 的 `meta.ui.resourceUri` 生成 `mcp_app_resource_uri`，再进入 App Server 的 `mcpToolCall.mcpAppUi`。首发对每个需要卡片的工具使用 descriptor-level 绑定。
@@ -37,15 +37,15 @@ Codex 真实读取路径位于 `codex-rs/core/src/mcp_tool_call.rs`：从**tool 
 Codex Desktop
    │ tools/list: delegate._meta.ui.resourceUri
    ▼
-subagents_delegate ─────► MCP Adapter ─► Controller ─► SubagentManager
+delegate ──────────────► MCP Adapter ─► Controller ─► SubagentManager
    │                                             │
-   │ tools/call result                           └► SQLite receipt
+   │ tools/call result                           └► SQLite delegation ledger
    ▼
 Task Card (ui://hheei/subagents/task)
    ├─ 初始 tool result / structuredContent
-   ├─ subagents_get / subagents_receipt
-   ├─ subagents_transcript
-   └─ subagents_delegate({id,task,wait:false}) / subagents_stop
+   ├─ get({id,revision?,includeOutput?})
+   ├─ transcript / receipts
+   └─ delegate({id,task,wait:false}) / stop({id})
 ```
 
 ### 2.2 Task Card：默认 Compact，按需展开
@@ -85,7 +85,7 @@ Details ▾ 展开：
 
 组件契约：
 
-- 数据统一来自 `subagents_get`、`subagents_receipt` 和现有 manager 状态投影。`onChange` 提供状态失效信号，Settlement 负责最终结算内容。
+- 数据统一来自 `get`（含 `progress.runtimeState`）和现有 manager 状态投影。`onChange` 提供状态失效信号，Settlement 负责最终结算内容。
 - 卡片可见时定期获取最新状态；带推送的 host 使用通知触发刷新。隐藏时停止刷新。
 - 当前活动来自 `activeTool`、`summary` 和 `usage`；使用文字阶段，任务拥有确定总量时再展示进度比例。
 - 展开保持原地状态，窄屏单列，宽屏可显示详情；支持明暗模式、键盘和辅助技术。
@@ -104,7 +104,7 @@ Details ▾ 展开：
 | `reportSize()` + `ResizeObserver` | 高度变化后发送 `ui/notifications/size-changed` | 原样沿用折叠、正文更新后的尺寸报告 |
 | `rpcRequest()` / `rpcNotify()` + `initializeBridge()` | 使用 JSON-RPC `window.parent.postMessage`；处理 `ui/initialize` / `ui/notifications/initialized` | 将 appInfo 改为 `pi-subagents-task`，`protocolVersion` 使用 `2026-01-26` |
 | `ui/notifications/tool-input` / `ui/notifications/tool-result` | 保存调用输入和 `structuredContent`，驱动首屏 `render()` | 读取 `childId` / `delegationId`，绑定正在展示的任务 |
-| `taskRefreshSchedule()` / `taskRefreshOnce()` / `taskRefreshStop()` | 可见时刷新、终态停刷、断线退避、generation 防旧响应覆盖 | `task_manage({action:"get"})` 替换为 `subagents_get({id})` + `subagents_receipt({delegationId})` |
+| `taskRefreshSchedule()` / `taskRefreshOnce()` / `taskRefreshStop()` | 可见时刷新、终态停刷、断线退避、generation 防旧响应覆盖 | `task_manage({action:"get"})` 替换为 `get({id,revision?})` |
 | `visibilitychange` / `ui/resource-teardown` | 隐藏时暂停、重新显示时恢复、视图销毁时释放 | 原样沿用 |
 | `task_live.test.mjs` | 针对 task 状态、刷新、结束/退避测试 | 同样对提取的 helper 编写独立 Node/Vitest 纯函数测试 |
 
@@ -114,15 +114,15 @@ Details ▾ 展开：
 
 ```text
 AgentDock                         pi-subagents
-task_manage({action:"create"}) → subagents_delegate({agent,task,wait:false})
-task_manage({action:"get",      → subagents_get({id:childId})
+task_manage({action:"create"}) → delegate({agent,task,wait:false})
+task_manage({action:"get",      → get({id:childId})
              task_id})
 task.status                   → child.state + receipt.status
 task.title                    → receipt.task / child.title
 task.current_step.title       → child.activeTool / child.summary
 task.step_count               → child.usage / turns（统计指标）
 task.summary                  → receipt.resultText / child.summary
-                                subagents_receipt({delegationId}) → 最终报告
+                                get({id,revision,includeOutput:true}) → 最终报告
 ```
 
 当前 Pi child 的进度以**状态、活动工具、累计 token/turns** 表达。AgentDock 的 `taskProgress(steps)` 是真实步骤序列的视觉化；当 Pi 提供可核实的步骤列表时接入该节点轨迹，初版显示紧凑文字状态。
@@ -141,7 +141,7 @@ Dashboard 在会话中展示当前 workspace 的 child 总数、运行/阻塞/�
 
 | 源码 | 具体实现 | 本项目对应 |
 | --- | --- | --- |
-| [internal/mcp/server.go](https://github.com/uvwt/agentdock/blob/main/internal/mcp/server.go) | 在 tool descriptor / result 挂载 `_meta.ui.resourceUri`，同时返回文本与结构化结果 | `subagents_delegate` 固定 descriptor → Task Card |
+| [internal/mcp/server.go](https://github.com/uvwt/agentdock/blob/main/internal/mcp/server.go) | 在 tool descriptor / result 挂载 `_meta.ui.resourceUri`，同时返回文本与结构化结果 | `delegate` 固定 descriptor → Task Card |
 | [internal/mcp/apps.go](https://github.com/uvwt/agentdock/blob/main/internal/mcp/apps.go) | 统一登记 `ui://` HTML resource、MIME type、CSP、HTML 内容 | 两个资源：Task Card 与 Dashboard |
 | [internal/app/mcp_apps.go](https://github.com/uvwt/agentdock/blob/main/internal/app/mcp_apps.go) | 工具级、action 级绑定，`full / compact / off` 密度选项 | 首发 Compact + 展开详情，后续增加视图密度设置 |
 | [docs/image-model-context.md](https://github.com/uvwt/agentdock/blob/main/docs/image-model-context.md) | 保留标准 MCP 内容及结构化结果，另外提供交互 UI | 用同一原则展示子代理的状态与最终结果 |
@@ -183,19 +183,20 @@ Codex Desktop ── MCP stdio ── Adapter
 
 ## 4. MCP API
 
-模型入口保持单一 `subagents_delegate`；UI 复用普通工具提供的操作。
+模型入口是 `delegate` / `get` / `stop` / `dashboard`；App-only 工具只供内嵌视图调用。
 
-| 工具 | 参数 | 返回 | UI |
-| --- | --- | --- | --- |
-| **`subagents_delegate`** | `task` 必填，`agent?,id?,cwd?,title?,wait?` | Spawn 或原生 steer；`wait:true`（默认）返回终态结果；UI 运行卡片调用 `wait:false` 立即返回 `childId` 和 `delegationId` | **Task Card** |
-| `subagents_get` | `id` | child 状态、活动、用量、错误 | 卡片刷新 |
-| `subagents_list` | `state?` | child 列表 | Dashboard |
-| `subagents_catalog` | — | agent 目录 | 新建任务 |
-| `subagents_stop` | `id` | 停止 runtime，保留 session | 卡片详情 |
-| `subagents_transcript` | `id,cursor?,limit?` | 有界历史页 | 展开输出 |
-| `subagents_receipt` | `delegationId` | 此次委派状态和最终结果 | 卡片结果 |
-| `subagents_receipts` | `cursor?,limit?` | 近期委派列表 | 历史面板 |
-| **`subagents_dashboard`** | — | 全局快照 | **Dashboard** |
+| 工具 | 可见性 | 参数 | 返回 | UI |
+| --- | --- | --- | --- | --- |
+| **`delegate`** | model + app | `task` 必填，`agent?,id?,cwd?,wait?` | 受理即返回 `id`、`revision`、`status`、`hasOutput`；`wait:true`（默认）返回终态结果 | **Task Card** |
+| `get` | model + app | `id`，`revision?`，`includeOutput?` | 所选委派的 status/任务/输出，以及 `progress.runtimeState` | 卡片刷新与结果 |
+| `stop` | model + app | `id` | 停止 runtime；未结算 revision 记为 failed，已完成结果与会话保留 | 卡片详情 |
+| **`dashboard`** | model + app | — | 统计与每个 agent 的最新委派摘要 | **Dashboard** |
+| `list` | app | — | 同 dashboard | Dashboard 刷新 |
+| `transcript` | app | `id,cursor?,limit?` | 有界历史页 | 展开 Transcript |
+| `receipts` | app | `cursor?,limit?` | 近期委派（id + revision，无正文） | 历史 revision |
+| `catalog` | app | — | agent 目录 | 新建任务 |
+
+**升级后重连**：工具名从 `subagents_*` 改为 `delegate`/`get`/`stop`/`dashboard`，MCP server 自报名称改为 `pi_agents`。客户端缓存的 `tools/list` 不会自动刷新，升级后需重启该 MCP server 条目（Codex Desktop 中重启应用或重新加载 MCP 配置）并确认工具列表已更新；旧名字的调用会得到 unknown tool 错误。
 
 `SubagentManager.submitDelegation()` 已处理三种入口：
 
@@ -207,13 +208,13 @@ Codex Desktop ── MCP stdio ── Adapter
 
 ## 5. 结算、并发与恢复
 
-1. **受理**：提交前保留 `delegationId`，记录 child、工作归属及消息边界。child 的 `accepted/path` ack 登记受理。
+1. **受理**：提交前为 agent 预留 `revision`，记录工作归属及消息边界。child 的 `accepted/path` ack 登记受理。
 2. **最终结果**：由 `agent_settled`、Pi session 和 manager 工作版本确认回合结算。结果包括成功、失败、阻塞、空输出、`/compact` 控制结果，以及终态文本。
-3. **并发**：每个 child 同时保留一个 awaited MCP delegation；`wait:false` steer 只确认注入。多个不同 child 可并行工作。
+3. **并发**：每个 agent 同时只有一个 awaited delegate waiter；`wait:false` steer 只确认注入。多个不同 agent 可并行工作。
 4. **共享运行**：Pi parent 运行中的 child 接收 MCP steer 时，两方消费同一 run 的结果。
-5. **断线恢复**：客户端超时只结束本次等待；controller/child 继续工作。重新连接按 receipt ID 查结果，或列出当前 workspace 近期 receipts。
+5. **断线恢复**：客户端超时只结束本次等待；controller/child 继续工作。重新连接按 `id` + `revision` 读取结果，或用 `receipts` 列出近期委派。
 6. **不确定的副作用**：保留原生 `OperationError` 的 `childId`、`sideEffects`、`safeToRetry`；`uncertain` 状态引导用户核对 child 与 session。
-7. **显式停止**：`subagents_stop` 停止整个 child runtime，保留其会话用于下次 steer。
+7. **显式停止**：`stop` 停止整个 agent runtime，未结算 revision 记为 failed，已完成结果与会话保留用于下次 steer。
 
 ## 6. 分阶段交付
 
@@ -233,7 +234,7 @@ Codex Desktop ── MCP stdio ── Adapter
 
 ### UI 验收
 
-- Codex Desktop 使用 `subagents_delegate(wait:false)` 即时返回回执并在会话内出现 MCP Task Card；对应 `ui://` 资源成功读取和初始化。`wait:true` 独立验证结果直接返回模型。
+- Codex Desktop 使用 `delegate(wait:false)` 即时返回 `id` + `revision` 并在会话内出现 MCP Task Card；对应 `ui://` 资源成功读取和初始化。`wait:true` 独立验证结果直接返回模型。
 - 运行过程中卡片更新 `activeTool`、状态和用量；完成后与 MCP 返回结果相同。
 - 展开/收起不会丢失选中的 child；卡片内可以 steer、stop、查看 transcript。
 - 多 child Dashboard、不同 Codex Client 共享 controller、控制进程重启后恢复结果均可正常使用。

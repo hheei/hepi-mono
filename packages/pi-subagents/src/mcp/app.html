@@ -298,9 +298,10 @@ button:disabled {
 <body>
 <main id="root"></main>
 <script>
+
 const view = "{{VIEW}}";
 const root = document.querySelector("#root");
-const TERMINAL = new Set(["completed", "failed", "uncertain", "done"]);
+const TERMINAL = new Set(["completed", "failed", "uncertain"]);
 const pending = new Map();
 let rpcID = 0;
 let generation = 0;
@@ -308,17 +309,22 @@ let timer = 0;
 let busy = false;
 let queued = false;
 let childId = "";
-let delegationId = "";
+let revision = 0;
 let terminal = false;
 let status = "";
 let outputExpanded = false;
 let outputText = "";
+let outputLoaded = false;
 let transcriptCursor = 0;
 let stopArmed = false;
 let lastReportedHeight = 0;
 let closed = false;
 let transcriptRequest = null;
 let userSelectedTab = false;
+let lastChildren = [];
+let lastStats = { total: 0, running: 0, blocked: 0, completed: 0, failed: 0 };
+let historyRows = [];
+let historyLoaded = false;
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -381,10 +387,15 @@ for (const name of ["Activity", "Output", "Diagnostics", "Transcript"]) {
   });
   tabs.append(button);
 }
+const history = el("div", "list");
+history.id = "history";
+history.hidden = true;
 function selectTab(name) {
   for (const other of tabs.querySelectorAll("button")) other.setAttribute("aria-selected", other.textContent === name ? "true" : "false");
   for (const [key, node] of Object.entries(panes)) node.hidden = key !== name;
   if (name === "Transcript" && !panes.Transcript.textContent) void loadTranscript(false);
+  if (name === "Output" && !outputLoaded) kick(0);
+  if (name === "Diagnostics" && !historyLoaded) void loadHistory();
   scheduleReportSize();
 }
 const moreOutput = el("button", "", "Show all");
@@ -412,7 +423,7 @@ stop.type = "button";
 const copy = el("button", "", "Copy");
 copy.type = "button";
 composer.append(draft, send, stop, copy);
-panel.append(filterRow, list, create, tabs, panes.Activity, panes.Output, moreOutput, panes.Diagnostics, panes.Transcript, moreTranscript, hintNode, errorNode, composer);
+panel.append(filterRow, list, create, tabs, panes.Activity, panes.Output, moreOutput, panes.Diagnostics, history, panes.Transcript, moreTranscript, hintNode, errorNode, composer);
 root.append(toggle, panel);
 if (view !== "dashboard") { filterRow.hidden = true; list.hidden = true; create.hidden = true; }
 
@@ -423,32 +434,36 @@ toggle.addEventListener("click", () => {
   panel.hidden = expanded;
   scheduleReportSize();
 });
-filter.addEventListener("input", () => paintList(lastChildren));
+filter.addEventListener("input", () => paintList(lastChildren, lastStats));
 create.addEventListener("submit", (event) => { event.preventDefault(); void createChild(); });
 start.addEventListener("click", () => { void createChild(); });
 send.addEventListener("click", (event) => { event.preventDefault(); void steer(); });
 stop.addEventListener("click", () => { void halt(); });
 copy.addEventListener("click", () => { void copyText(); });
 
-let lastChildren = [];
-
 function paintOutput() {
+  if (!outputLoaded) {
+    panes.Output.textContent = childId ? "Output loads when this tab is shown." : "No agent selected.";
+    moreOutput.hidden = true;
+    return;
+  }
   const text = outputText || "";
   panes.Output.textContent = outputExpanded || text.length <= 600 ? text : text.slice(0, 600) + "…";
   moreOutput.hidden = text.length <= 600;
 }
 
-function paintList(children) {
-  lastChildren = Array.isArray(children) ? children : [];
+function paintList(children, stats) {
+  lastChildren = Array.isArray(children) ? children : lastChildren;
+  if (stats && typeof stats === "object") lastStats = stats;
   const query = filter.value.trim().toLowerCase();
   const shown = lastChildren.filter((child) => {
-    const blob = [child.displayName, child.agent, child.id, child.state, child.task].join(" ").toLowerCase();
+    const blob = [child.agent, child.id, child.runtimeState, child.status, child.summary].join(" ").toLowerCase();
     return query === "" || blob.includes(query);
   });
   const top = list.scrollTop;
   list.replaceChildren();
   for (const child of shown) {
-    const titleText = (child.displayName || (child.id + (child.agent ? " (" + child.agent + ")" : ""))) + " · " + (child.state || "");
+    const titleText = child.id + (child.agent ? " (" + child.agent + ")" : "") + " · " + (child.runtimeState || "") + (child.status ? " / " + child.status : "");
     const button = el("button", "", titleText);
     button.type = "button";
     button.setAttribute("aria-current", child.id === childId ? "true" : "false");
@@ -458,12 +473,30 @@ function paintList(children) {
   if (!shown.length) list.append(el("div", "meta", lastChildren.length ? "No match" : "No subagents"));
   list.scrollTop = top;
   if (view === "dashboard") {
-    const running = lastChildren.filter((child) => child.state === "running").length;
-    const blocked = lastChildren.filter((child) => child.state === "blocked").length;
-    const done = lastChildren.filter((child) => child.state === "done").length;
     titleNode.textContent = childId ? "Subagents · " + childId : "Subagents";
-    stateNode.textContent = String(lastChildren.length);
-    metricNode.textContent = "running " + running + " · blocked " + blocked + " · done " + done;
+    stateNode.textContent = String(lastStats.total || 0);
+    metricNode.textContent = "running " + (lastStats.running || 0) + " · blocked " + (lastStats.blocked || 0) + " · completed " + (lastStats.completed || 0) + " · failed " + (lastStats.failed || 0);
+  }
+}
+
+function paintHistory() {
+  const rows = historyRows.filter((row) => row.id === childId);
+  history.replaceChildren();
+  history.hidden = rows.length < 2;
+  for (const row of rows) {
+    const label = "rev " + row.revision + " · " + row.status + (row.hasOutput ? " · output" : "");
+    const button = el("button", "", label);
+    button.type = "button";
+    button.setAttribute("aria-current", row.revision === revision ? "true" : "false");
+    button.addEventListener("click", () => {
+      revision = row.revision;
+      terminal = TERMINAL.has(row.status);
+      outputText = "";
+      outputLoaded = false;
+      paintOutput();
+      kick(0);
+    });
+    history.append(button);
   }
 }
 
@@ -473,67 +506,66 @@ function focusChild(child) {
   childId = child.id;
   draft.value = "";
   userSelectedTab = false;
-  delegationId = child.delegationId || "";
-  terminal = TERMINAL.has(child.state || "");
-  outputText = typeof child.resultText === "string" ? child.resultText : "";
+  revision = typeof child.revision === "number" ? child.revision : 0;
+  terminal = TERMINAL.has(child.status || "");
+  outputText = "";
+  outputLoaded = false;
   outputExpanded = false;
   paintOutput();
   transcriptCursor = 0;
   transcriptRequest = null;
+  historyRows = [];
+  historyLoaded = false;
   moreTranscript.disabled = false;
   panes.Transcript.textContent = "";
   moreTranscript.hidden = true;
   stopArmed = false;
   stop.textContent = "Stop";
-  paintList(lastChildren);
-  applyChild(child);
-  if (outputText && terminal) selectTab("Output");
+  paintList(lastChildren, lastStats);
+  applyView({
+    id: child.id,
+    revision: child.revision,
+    status: child.status,
+    agent: child.agent,
+    hasOutput: child.hasOutput,
+    progress: { runtimeState: child.runtimeState, summary: child.summary }
+  });
+  if (terminal) selectTab("Output");
   else if (!panes.Transcript.hidden) void loadTranscript(false);
   if (!panel.hidden) scheduleReportSize();
   kick(0);
 }
 
-function applyChild(data) {
+function applyView(data) {
   if (!data || typeof data !== "object") return;
-  const id = data.childId || data.id;
-  if (typeof id === "string" && id !== "" && view === "task") childId = id;
-  if (data.displayName || data.agent || data.task) {
-    titleNode.textContent = view === "dashboard" ? (childId ? "Subagents · " + childId : "Subagents") : (data.displayName || data.agent || titleNode.textContent);
-  }
-  if (data.task || data.title) taskNode.textContent = data.task || data.title || "";
-  if (data.state || data.status) {
-    status = data.status || data.state;
-    stateNode.textContent = status + elapsed(data.createdAt);
-  }
-  if (data.delegationId && typeof data.delegationId === "string") delegationId = data.delegationId;
-  if (typeof data.resultText === "string" && data.resultText) {
-    outputText = data.resultText;
-    paintOutput();
-    if (!userSelectedTab && (status === "done" || status === "completed")) selectTab("Output");
-  }
-  if (data.activeTool) panes.Activity.textContent = "● " + data.activeTool + (data.summary ? "\n" + data.summary : "");
-  else if (data.summary) panes.Activity.textContent = data.summary;
-  else if (status === "done" || status === "completed") panes.Activity.textContent = "Agent completed. View Output for final result.";
-  else if (status === "running") panes.Activity.textContent = "Agent is running...";
-  else panes.Activity.textContent = "No active activity.";
-
-  metricNode.textContent = view === "dashboard" ? metricNode.textContent : usageText(data.usage);
-  panes.Diagnostics.textContent = ["child " + (childId || "—"), "delegation " + (delegationId || "—"), data.reason || data.interrupted || ""].filter(Boolean).join("\n");
-  hintNode.textContent = hint(status, data.reason || data.error || "");
-}
-
-function applyReceipt(data) {
-  if (!data || data.delegationId !== delegationId) return;
-  status = data.status || status;
-  stateNode.textContent = status + elapsed(data.createdAt);
+  if (typeof data.id === "string" && data.id !== "" && view === "task") childId = data.id;
+  if (typeof data.revision === "number" && data.revision > 0) revision = data.revision;
+  if (typeof data.agent === "string" && data.agent !== "" && view === "task") titleNode.textContent = data.agent;
+  if (typeof data.task === "string" && data.task !== "") taskNode.textContent = data.task;
+  const progress = data.progress && typeof data.progress === "object" ? data.progress : {};
+  const runtime = typeof progress.runtimeState === "string" ? progress.runtimeState : "";
+  const delegationStatus = typeof data.status === "string" ? data.status : "";
+  status = delegationStatus || runtime;
+  terminal = TERMINAL.has(delegationStatus);
+  const ended = [delegationStatus, runtime && runtime !== delegationStatus ? runtime : ""].filter(Boolean).join(" · ");
+  stateNode.textContent = ended + elapsed(data.createdAt);
   if (typeof data.resultText === "string") {
     outputText = data.resultText;
+    outputLoaded = true;
     paintOutput();
-    if (!userSelectedTab && (status === "done" || status === "completed")) selectTab("Output");
   }
-  if (typeof data.task === "string" && data.task !== "") taskNode.textContent = data.task;
-  hintNode.textContent = hint(status, data.resultText || "");
-  if (TERMINAL.has(status)) terminal = true;
+  if (!userSelectedTab && terminal) selectTab("Output");
+  const activeTool = typeof progress.activeTool === "string" ? progress.activeTool : "";
+  const summary = typeof progress.summary === "string" ? progress.summary : "";
+  if (activeTool) panes.Activity.textContent = "● " + activeTool + (summary ? "\n" + summary : "");
+  else if (summary) panes.Activity.textContent = summary;
+  else if (terminal) panes.Activity.textContent = "Agent completed. View Output for the final result.";
+  else if (runtime === "running") panes.Activity.textContent = "Agent is running...";
+  else panes.Activity.textContent = "No active activity.";
+  const reason = data.error && typeof data.error.reason === "string" ? data.error.reason : "";
+  if (view !== "dashboard") metricNode.textContent = usageText(data.usage);
+  panes.Diagnostics.textContent = ["agent " + (childId || "—"), "revision " + (revision || "latest"), reason].filter(Boolean).join("\n");
+  hintNode.textContent = hint(status, reason);
 }
 
 function hint(value, reason) {
@@ -544,8 +576,8 @@ function hint(value, reason) {
   return "";
 }
 
-function elapsed(iso) {
-  const start = typeof iso === "number" ? iso : Date.parse(iso || "");
+function elapsed(at) {
+  const start = typeof at === "number" ? at : Date.parse(at || "");
   if (!Number.isFinite(start)) return "";
   const seconds = Math.max(0, Math.floor((Date.now() - start) / 1000));
   return " · " + String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
@@ -570,27 +602,23 @@ function textOf(result) {
 async function callTool(name, args) {
   const result = await rpcRequest("tools/call", { name, arguments: args }, 8000);
   const data = structured(result);
-  if (result && result.isError && !data.status && !data.id && !data.delegationId && !Array.isArray(data.children) && !Array.isArray(data.agents)) {
-    throw new Error(data.reason || data.error || textOf(result) || "Tool call failed");
-  }
+  const carriesData = data.status || data.id || Array.isArray(data.children) || Array.isArray(data.agents) || Array.isArray(data.entries) || Array.isArray(data.receipts);
+  if (result && result.isError && !carriesData) throw new Error(data.reason || data.error || textOf(result) || "Tool call failed");
   return data;
 }
 
 async function pull(gen) {
   if (view === "dashboard") {
-    const listed = await callTool("subagents_list", {});
+    const listed = await callTool("list", {});
     if (gen !== generation) return 0;
-    paintList(listed.children || []);
+    paintList(listed.children || [], listed);
   }
   if (childId) {
-    const child = await callTool("subagents_get", { id: childId });
+    const includeOutput = !panes.Output.hidden;
+    const request = revision > 0 ? { id: childId, revision, includeOutput } : { id: childId, includeOutput };
+    const viewData = await callTool("get", request);
     if (gen !== generation) return 0;
-    applyChild(child);
-  }
-  if (delegationId && !terminal) {
-    const receipt = await callTool("subagents_receipt", { delegationId });
-    if (gen !== generation) return 0;
-    applyReceipt(receipt);
+    applyView(viewData);
   }
   if (view === "task" && terminal) return 0;
   return status === "blocked" ? 10000 : 2000;
@@ -632,17 +660,19 @@ async function steer() {
   const gen = generation;
   send.disabled = true;
   try {
-    const receipt = await callTool("subagents_delegate", { id: selected, task, wait: false });
+    const accepted = await callTool("delegate", { id: selected, task, wait: false });
     if (closed || gen !== generation || childId !== selected) return;
-    if (receipt.delegationId && receipt.delegationId !== delegationId) {
+    const nextRevision = typeof accepted.revision === "number" ? accepted.revision : 0;
+    if (nextRevision > 0 && nextRevision !== revision) {
       generation += 1;
-      delegationId = receipt.delegationId;
+      revision = nextRevision;
       terminal = false;
       outputText = "";
+      outputLoaded = false;
       paintOutput();
-      applyReceipt(receipt);
-      draft.value = "";
     }
+    applyView(accepted);
+    draft.value = "";
     errorNode.textContent = "";
   } catch (error) {
     if (!closed && childId === selected && gen === generation) errorNode.textContent = error instanceof Error ? error.message : String(error);
@@ -665,8 +695,12 @@ async function halt() {
   stopArmed = false;
   stop.textContent = "Stop";
   stop.disabled = true;
+  const selected = childId;
+  const gen = generation;
   try {
-    await callTool("subagents_stop", { id: childId });
+    const stopped = await callTool("stop", { id: selected });
+    if (closed || gen !== generation || childId !== selected) return;
+    applyView(stopped);
     kick(0);
   } catch (error) {
     if (!closed) errorNode.textContent = error instanceof Error ? error.message : String(error);
@@ -678,22 +712,25 @@ async function halt() {
 async function createChild() {
   const task = newTask.value.trim();
   if (closed || task === "" || start.disabled) return;
+  const gen = generation;
   start.disabled = true;
   try {
-    const receipt = await callTool("subagents_delegate", {
+    const created = await callTool("delegate", {
       agent: agent.value || undefined,
       task,
       wait: false
     });
     newTask.value = "";
-    if (receipt.childId) {
-      childId = receipt.childId;
-      delegationId = receipt.delegationId || "";
+    if (closed) return;
+    if (typeof created.id === "string" && gen === generation) {
+      childId = created.id;
+      revision = typeof created.revision === "number" ? created.revision : 0;
       terminal = false;
       outputText = "";
+      outputLoaded = false;
       paintOutput();
       generation += 1;
-      applyReceipt(receipt);
+      applyView(created);
     }
     kick(0);
   } catch (error) {
@@ -703,8 +740,21 @@ async function createChild() {
   }
 }
 
+async function loadHistory() {
+  historyLoaded = true;
+  try {
+    const page = await callTool("receipts", { limit: 20 });
+    historyRows = Array.isArray(page.receipts) ? page.receipts : [];
+    paintHistory();
+    scheduleReportSize();
+  } catch (error) {
+    historyLoaded = false;
+    if (!closed) errorNode.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function loadCatalog() {
-  const catalog = await callTool("subagents_catalog", {});
+  const catalog = await callTool("catalog", {});
   const agents = Array.isArray(catalog.agents) ? catalog.agents : [];
   const selected = agent.value;
   agent.replaceChildren();
@@ -728,7 +778,7 @@ async function loadTranscript(next) {
   transcriptRequest = request;
   moreTranscript.disabled = true;
   try {
-    const data = await callTool("subagents_transcript", { id: childId, cursor, limit: 20 });
+    const data = await callTool("transcript", { id: childId, cursor, limit: 20 });
     if (closed || transcriptRequest !== request) return;
     const entries = Array.isArray(data.entries) ? data.entries : [];
     const formatted = entries.map((entry) => JSON.stringify(entry)).join("\n");
@@ -745,7 +795,7 @@ async function loadTranscript(next) {
 }
 
 async function copyText() {
-  const text = [childId && "child " + childId, delegationId && "delegation " + delegationId, outputText].filter(Boolean).join("\n");
+  const text = [childId && "agent " + childId, revision && "revision " + revision, outputText].filter(Boolean).join("\n");
   if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
   else panes.Diagnostics.textContent = text;
 }
@@ -763,18 +813,24 @@ function applyHost(context) {
 
 function seed(data) {
   if (closed || !data || typeof data !== "object") return;
-  if (Array.isArray(data.children)) paintList(data.children);
-  const nextChild = data.childId || (typeof data.id === "string" ? data.id : "");
-  const nextDelegation = typeof data.delegationId === "string" ? data.delegationId : "";
-  if (nextChild && nextChild !== childId) { childId = nextChild; generation += 1; }
-  if (nextDelegation && nextDelegation !== delegationId) {
-    delegationId = nextDelegation;
+  if (Array.isArray(data.children)) paintList(data.children, data);
+  const nextChild = typeof data.id === "string" ? data.id : "";
+  const nextRevision = typeof data.revision === "number" ? data.revision : 0;
+  if (nextChild && nextChild !== childId) {
+    childId = nextChild;
+    revision = nextRevision;
     terminal = false;
     outputText = "";
+    outputLoaded = false;
+    generation += 1;
+  } else if (nextRevision > 0 && nextRevision !== revision) {
+    revision = nextRevision;
+    terminal = false;
+    outputText = "";
+    outputLoaded = false;
     generation += 1;
   }
-  applyChild(data);
-  if (nextDelegation) applyReceipt(data);
+  applyView(data);
   if (!(view === "task" && terminal)) kick(700);
 }
 
@@ -874,7 +930,7 @@ async function initializeBridge() {
   try {
     const initialized = await rpcRequest("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "pi-subagents-" + view, version: "0.7.0" },
+      appInfo: { name: "pi-agents-" + view, version: "0.7.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }, 8000);
     if (closed) return;
