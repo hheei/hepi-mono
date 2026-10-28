@@ -70,14 +70,6 @@ export function reserveReceipt(
 	const now = Date.now();
 	const delegationId = createDelegationId();
 	return withWrite(db, () => {
-		if (input.delivery === "pending" && input.childId !== undefined) {
-			const open = openPending(db, input.parentSessionId, input.childId);
-			if (open !== undefined) {
-				throw new Error(
-					`Child ${input.childId} already has a waiting delegation ${open.delegationId}`,
-				);
-			}
-		}
 		const revision =
 			input.childId === undefined ? null : nextRevision(db, input.parentSessionId, input.childId);
 		db.prepare(
@@ -404,22 +396,6 @@ export function waitForReceipt(
 		}
 		wake();
 	});
-}
-
-function openPending(
-	db: DatabaseSync,
-	parentSessionId: string,
-	childId: string,
-): Receipt | undefined {
-	const row = db
-		.prepare(
-			`SELECT delegation_id FROM delegations
-			 WHERE parent_session_id = ? AND child_id = ? AND delivery = 'pending'
-			   AND status IN ('reserved', 'dispatching', 'accepted', 'running')
-			 LIMIT 1`,
-		)
-		.get(parentSessionId, childId) as { delegation_id: string } | undefined;
-	return row === undefined ? undefined : readReceipt(db, parentSessionId, row.delegation_id);
 }
 
 function nextRevision(db: DatabaseSync, parentSessionId: string, childId: string): number {

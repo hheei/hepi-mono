@@ -44,14 +44,37 @@ test("receipts settle one waiting delegation and keep the next copy of the same 
 			childId: "child-1",
 			delivery: "pending",
 		});
-		expect(() =>
-			reserveReceipt(file, {
-				parentSessionId: parent,
-				task: "same task",
-				childId: "child-1",
-				delivery: "pending",
-			}),
-		).toThrow(/already has a waiting delegation/);
+		// A second delegation of the same task is its own revision: waiting occupancy is the manager's
+		// live state, and the stored delivery column is history.
+		const copy = reserveReceipt(file, {
+			parentSessionId: parent,
+			task: "same task",
+			childId: "child-9",
+			delivery: "pending",
+		});
+		expect(copy.revision).toBe(1);
+		abandonReceipts(file, parent, "child-9", "cleanup");
+		const replay = reserveReceipt(file, {
+			parentSessionId: parent,
+			task: "same task",
+			childId: "child-9",
+			delivery: "pending",
+		});
+		// A stopped delegation does not lock the next wait out, and its revision is not reused.
+		expect(replay.revision).toBe(2);
+		abandonReceipts(file, parent, "child-9", "cleanup");
+		const reopened = reserveReceipt(file, {
+			parentSessionId: parent,
+			task: "same task",
+			childId: "child-9",
+			delivery: "pending",
+		});
+		expect(reopened.revision).toBe(3);
+		updateReceipt(file, parent, reopened.delegationId, {
+			from: ["reserved"],
+			status: "accepted",
+			runBoundary: 1,
+		});
 		updateReceipt(file, parent, first.delegationId, {
 			from: ["reserved"],
 			status: "accepted",

@@ -870,6 +870,57 @@ describe("SubagentManager over the bridge", () => {
 		).toMatchObject({ status: "uncertain", controlId: "op-1" });
 	});
 
+	test("a waiting delegation owns its turn's delivery", async () => {
+		const current = await harness();
+		current.bridge.responses.set("sa_child1:get_entries", async () => ({
+			entries: [assistantEntry("the answer")],
+		}));
+
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+		await startTurn(current, "sa_child1");
+		current.bridge.emit("sa_child1", {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		// The turn settles through the automatic path, which runs on its own timer.
+		await expect(until(waiting)).resolves.toMatchObject({
+			status: "completed",
+			hasOutput: true,
+			resultText: "the answer",
+		});
+		// The tool result carried it, so the automatic path must not deliver it again.
+		expect(current.reports).toEqual([]);
+	});
+
+	test("a cancelled wait leaves the turn to automatic delivery", async () => {
+		const current = await harness();
+		current.bridge.responses.set("sa_child1:get_entries", async () => ({
+			entries: [assistantEntry("the answer")],
+		}));
+		const controller = new AbortController();
+
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" }, controller.signal);
+		await flush();
+		controller.abort();
+		await expect(waiting).resolves.toMatchObject({
+			id: "sa_child1",
+			revision: 1,
+			status: "accepted",
+		});
+
+		await startTurn(current, "sa_child1");
+		current.bridge.emit("sa_child1", {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await until(current.reportsArrived(1));
+
+		expect(current.reports.map((report) => report.message)).toContain("the answer");
+		// Cancelling the wait never stops the work it was waiting for.
+		expect(await current.manager.get("sa_child1")).toMatchObject({ state: "done" });
+	});
+
 	test("an unconfirmed panel startup does not freeze the child", async () => {
 		const test1 = await harness({ host: true });
 		test1.openPanel.mockImplementation(async () => ({

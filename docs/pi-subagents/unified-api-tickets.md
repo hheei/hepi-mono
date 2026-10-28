@@ -19,7 +19,7 @@
 | AGENTS-01 | 新格式身份与委派 revision | 无 | [x] |
 | AGENTS-02 | 共用 delegate 与模型轮次结算 | 01 | [x] |
 | AGENTS-03 | /compact 控制操作结算 | 02 | [x] |
-| AGENTS-04 | 等待、取消与单次交付 | 02、03 | [ ] |
+| AGENTS-04 | 等待、取消与单次交付 | 02、03 | [x] |
 | AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [ ] |
 | AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [ ] |
 | AGENTS-07 | MCP 工具与 App 同步切换 | 04、05 | [ ] |
@@ -93,7 +93,7 @@
 
 ## AGENTS-04：等待、取消与交付归属
 
-**Spec**：§6、§7。**状态**：[ ]。**依赖**：AGENTS-02、03。
+**Spec**：§6、§7。**状态**：[x]。**依赖**：AGENTS-02、03。
 
 **交付**
 
@@ -234,6 +234,15 @@
 - 边界情况：TUI 自行发起、没有 delegation 归属的 compaction 正在进行时，/compact 明确失败（`compaction_unbound`），不静默挂起。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（368 passed，含 compact 结算/共享操作/迟到报告/失败/重启 uncertain 与 child-control 的 `controlId` 用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：真实 child 进程的 compaction 端到端（需真实模型与长上下文）留待 AGENTS-08 实机。
+
++
+### AGENTS-04
+
+- 实现：等待占用改为 manager 进程内状态（`#waiters`，按 child），`receipt.delivery` 只作历史；同 agent 第二个 wait:true 在预留前拒绝，wait:false 不受影响，重启后不存在的旧 waiter 不构成占用，旧的 `pending` 记录也不再永久锁死后续等待。
+- 单次交付：waiter 在派发前登记，结算时若该轮由等待中的工具调用拥有，就跳过自动推送（`#claimedByWaiter`）；等待被取消时工具结果已不可用，同一轮交回自动推送（`#pushSettled`），完成与取消不会各交付一次。`#lastDeliveredTurn` 继续保证同一 workVersion 只推一次，同轮多个 revision 不产生多份报告。
+- 释放：`dispose`/`closeLocalConnections` 清空等待占用；`waitForReceipt` 的 abort 监听与 notify 集合在 finally 中移除。
+- 验证：`pnpm exec vitest run packages/pi-subagents/test`（370 passed，新增等待占用拒绝、等待拥有交付、取消后回到自动交付、wait:false 并行、停止后重新等待等用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；package build；`pnpm run typecheck`；改动文件 Biome。
+- 未验证：Pi 工具进度通道上的“早期已受理身份”展示属于 AGENTS-06 的工具层，本项未包含；真实 socket 断线与 controller 重启下的等待归属在 AGENTS-08 汇合验证。
 
 ## 完成记录模板
 

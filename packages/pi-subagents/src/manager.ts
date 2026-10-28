@@ -41,6 +41,7 @@ import {
 	reserveReceipt,
 	settleReceipts,
 	sweepControlReceipts,
+	terminalReceipt,
 	updateReceipt,
 	waitForReceipt,
 } from "./receipts.js";
@@ -339,6 +340,11 @@ export class SubagentManager {
 	/** The compaction a child's last confirmed input controls, instead of a run boundary. */
 	readonly #lastControl = new Map<string, string>();
 	readonly #recentSettlement = new Map<string, ReceiptSettlement>();
+	/**
+	 * Waiting delegations of this process, by child. Occupancy lives here and not in the ledger: a
+	 * stored `pending` row is history, and a waiter of a previous process does not exist any more.
+	 */
+	readonly #waiters = new Map<string, { readonly delegationId: string; aborted: boolean }>();
 	readonly #settledPanelCloseTimers = new Map<string, NodeJS.Timeout>();
 	readonly #pendingAutoReports = new Map<string, SubagentRecord>();
 	#autoReportBatchTimer: NodeJS.Timeout | undefined;
@@ -378,6 +384,7 @@ export class SubagentManager {
 			this.#autoReportBatchTimer = undefined;
 		}
 		this.#pendingAutoReports.clear();
+		this.#waiters.clear();
 		for (const timer of this.#settledPanelCloseTimers.values()) {
 			clearTimeout(timer);
 		}
@@ -397,6 +404,7 @@ export class SubagentManager {
 			this.#autoReportBatchTimer = undefined;
 		}
 		this.#pendingAutoReports.clear();
+		this.#waiters.clear();
 		this.#processes.clear();
 		this.#attachments.clear();
 		this.#leftSessions.clear();
@@ -845,14 +853,14 @@ export class SubagentManager {
 
 			// The receipt is the durable record of this turn: it is written before delivery is
 			// coordinated, so a delivery failure cannot leave a settled turn looking unfinished.
-			this.#recordSettlement({
+			const settled = this.#recordSettlement({
 				childId: id,
 				status: isError ? "failed" : isBlocked ? "blocked" : "completed",
 				message,
 				workVersion,
 			});
 			let deliveryOk = true;
-			if (this.#deps.channel !== undefined) {
+			if (!this.#claimedByWaiter(settled) && this.#deps.channel !== undefined) {
 				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
 				if (isOperationError(contactResult)) {
 					deliveryOk = false;
@@ -1026,15 +1034,46 @@ export class SubagentManager {
 		return recent?.workVersion === workVersion ? { workVersion, settled: recent } : { workVersion };
 	}
 
-	#recordSettlement(event: ReceiptSettlement): void {
+	#recordSettlement(event: ReceiptSettlement): readonly Receipt[] {
 		this.#recentSettlement.set(event.childId, event);
 		// The ledger is the manager's own, so a settlement is durable before any consumer sees it and
 		// no caller has to wire this up for delegated turns to settle.
 		try {
-			settleReceipts(this.#deps.registry.path, this.#deps.parentSessionId, event);
+			return settleReceipts(this.#deps.registry.path, this.#deps.parentSessionId, event);
 		} catch (error) {
 			diagnose(`failed to record settlement for ${event.childId}: ${errorMessage(error)}`);
+			return [];
 		}
+	}
+
+	/** True when a waiting tool call owns this turn's delivery, so pushing it would deliver twice. */
+	#claimedByWaiter(settled: readonly Receipt[]): boolean {
+		return settled.some((receipt) => {
+			const waiter = this.#waiters.get(receipt.childId ?? "");
+			return waiter !== undefined && !waiter.aborted;
+		});
+	}
+
+	/**
+	 * Delivers a settled turn whose waiting tool call went away. The result is already durable, so
+	 * this is the same automatic delivery an unwatched turn gets, not a second copy of it.
+	 */
+	async #pushSettled(receipt: Receipt): Promise<void> {
+		const childId = receipt.childId;
+		if (this.#deps.channel === undefined || childId === undefined) return;
+		const text = receipt.resultText;
+		if (text === undefined) return;
+		const record = await this.#deps.registry.get(childId);
+		if (record === undefined) return;
+		const reason =
+			receipt.status === "completed"
+				? "success"
+				: receipt.status === "blocked"
+					? "blocked"
+					: "error";
+		await this.contactParent(childId, reason, text, record).catch((error: unknown) => {
+			diagnose(`failed to deliver the settled turn of ${childId}: ${errorMessage(error)}`);
+		});
 	}
 
 	#notify(): void {
@@ -1293,6 +1332,15 @@ export class SubagentManager {
 			// work this parent actually accepted.
 			return failure("delegate", "Unknown child", input.id);
 		}
+		const active = input.id === undefined ? undefined : this.#waiters.get(input.id);
+		if (wait && active !== undefined) {
+			// Refused before anything is dispatched: a conflicted wait must not steer first.
+			return failure(
+				"delegate",
+				`Child ${input.id ?? ""} already has a waiting delegation ${active.delegationId}`,
+				input.id,
+			);
+		}
 		const target: { receipt?: Receipt } = {};
 		const delivery: ReceiptDelivery = wait ? "pending" : "detached";
 		let submitted: DelegationSubmission | OperationError;
@@ -1305,6 +1353,14 @@ export class SubagentManager {
 					task,
 					delivery,
 				);
+				// Registered before dispatch, so a settlement that lands during it already knows the
+				// tool result owns this turn and does not push the same answer as well.
+				if (wait) {
+					this.#waiters.set(childId, {
+						delegationId: target.receipt.delegationId,
+						aborted: false,
+					});
+				}
 			});
 		} catch (error) {
 			// A refused reservation happened before any dispatch, so nothing has to be undone.
@@ -1317,6 +1373,7 @@ export class SubagentManager {
 			return failure("delegate", "Delegation was accepted without a reserved revision");
 		}
 		if (isOperationError(submitted)) {
+			if (receipt.childId !== undefined) this.#waiters.delete(receipt.childId);
 			const uncertain = submitted.sideEffects.length > 0 && !submitted.safeToRetry;
 			const failed = updateReceipt(filePath, parentSessionId, receipt.delegationId, {
 				from: ["dispatching"],
@@ -1332,19 +1389,27 @@ export class SubagentManager {
 				},
 			};
 		}
+		const childId = submitted.child.id;
 		const bound = this.#bindDispatch(filePath, parentSessionId, receipt, submitted);
 		if (!wait || bound.status !== "accepted") {
+			this.#waiters.delete(childId);
 			return delegationView(bound, submitted.child, {
 				includeOutput: bound.status !== "accepted",
 			});
 		}
+		const waiter = this.#waiters.get(childId);
 		try {
 			const settled = await waitForReceipt(filePath, parentSessionId, receipt.delegationId, signal);
 			return delegationView(settled, submitted.child, { includeOutput: true });
 		} catch {
-			// The wait ended, not the delegation: hand back what is known so the caller keeps the id.
+			// The wait ended, not the delegation. A result the tool result can no longer carry goes
+			// back to the automatic path, so the turn is delivered exactly once either way.
+			if (waiter !== undefined) waiter.aborted = true;
 			const current = readStoredReceipt(filePath, parentSessionId, receipt.delegationId) ?? bound;
+			if (terminalReceipt(current.status)) await this.#pushSettled(current);
 			return delegationView(current, submitted.child);
+		} finally {
+			this.#waiters.delete(childId);
 		}
 	}
 
