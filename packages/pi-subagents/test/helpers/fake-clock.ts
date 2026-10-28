@@ -1,5 +1,8 @@
 import { vi } from "vitest";
 
+/** The real timer, captured before any test installs a fake clock: real I/O needs real time. */
+const realSetTimeout = setTimeout;
+
 /**
  * Replaces only the clock APIs the mailbox and the manager schedule with, so their poll loops and
  * countdowns are driven by the test instead of the wall clock. `setImmediate` stays real: `turn`
@@ -30,6 +33,7 @@ export function turn(): Promise<void> {
 export async function advanceFakeTime(ms: number): Promise<void> {
 	await vi.advanceTimersByTimeAsync(ms);
 	for (let index = 0; index < 8; index += 1) await turn();
+	await new Promise((resolve) => realSetTimeout(resolve, 2));
 }
 
 /**
@@ -47,6 +51,9 @@ export async function until<T>(work: Promise<T>, stepMs = 1_000, maxTicks = 100)
 		for (let index = 0; index < 8; index += 1) await turn();
 		if (settled) break;
 		await vi.advanceTimersByTimeAsync(stepMs);
+		// A transition may read the session from disk. Fake time never moves that read forward, so
+		// each tick also spends a little wall time instead of spinning through the whole budget.
+		await new Promise((resolve) => realSetTimeout(resolve, 2));
 	}
 	if (!settled) throw new Error(`the awaited exchange did not settle within ${maxTicks} ticks`);
 	return guarded;
