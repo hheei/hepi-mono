@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -69,34 +69,47 @@ CREATE UNIQUE INDEX IF NOT EXISTS delegations_revision
 
 const connections = new Map<string, DatabaseSync>();
 
+/** A ledger that predates the current schema. It is runtime state, so it is set aside, not migrated. */
+function stateFormat(db: DatabaseSync): "current" | "previous" | "empty" {
+	const version = db.prepare("PRAGMA user_version").get()?.user_version;
+	if (version === 1) return "current";
+	if (version !== 0) return "previous";
+	const tables = db
+		.prepare(
+			"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+		)
+		.get();
+	return tables === undefined ? "empty" : "previous";
+}
+
+/** Keeps the previous ledger under a discoverable name; its WAL sidecars move with it. */
+function setAside(filePath: string): void {
+	const kept = `${filePath}.${Date.now()}.previous`;
+	for (const suffix of ["", "-wal", "-shm"]) {
+		const from = `${filePath}${suffix}`;
+		if (existsSync(from)) renameSync(from, `${kept}${suffix}`);
+	}
+}
+
 export function openStateDb(filePath: string): DatabaseSync {
 	const cached = connections.get(filePath);
 	if (cached !== undefined) return cached;
 	mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
-	const db = new DatabaseSync(filePath);
+	let db = new DatabaseSync(filePath);
 	try {
 		db.exec("PRAGMA busy_timeout = 5000");
-		const checkFormat = (): number => {
-			const version = db.prepare("PRAGMA user_version").get()?.user_version;
-			if (version === 1) return 1;
-			const tables = db
-				.prepare(
-					"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
-				)
-				.get();
-			if (version !== 0 || tables !== undefined) {
-				throw new Error(
-					`Incompatible pi-subagents state at ${filePath}; select a new state environment`,
-				);
-			}
-			return 0;
-		};
-		if (checkFormat() === 0) {
+		let format = stateFormat(db);
+		if (format === "previous") {
+			db.close();
+			setAside(filePath);
+			db = new DatabaseSync(filePath);
+			db.exec("PRAGMA busy_timeout = 5000");
+			format = "empty";
+		}
+		if (format === "empty") {
 			withWrite(db, () => {
-				if (checkFormat() === 0) {
-					db.exec(SCHEMA);
-					db.exec("PRAGMA user_version = 1");
-				}
+				db.exec(SCHEMA);
+				db.exec("PRAGMA user_version = 1");
 			});
 		}
 		db.exec("PRAGMA journal_mode = WAL");

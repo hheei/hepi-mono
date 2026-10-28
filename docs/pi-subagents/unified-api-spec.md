@@ -131,7 +131,7 @@ wait:true 工具结果与 Pi 自动推送不能同时交付同一 settlement；�
 2. 并发受理、共享轮次结算、wait 冲突、快速结算与取消竞争，不串 revision、不丢结果、不重复自动推送。
    /compact 另验证 idle、运行中、重复并发、连续两次、失败和 compact 期间 steer；每个已受理 revision 都能收到正确操作结算，或明确失败/取消，不能无限等待。
 3. 默认 get/dashboard 不带完整输出；显式读取历史 revision，区分空结果与不存在记录。
-4. 新格式初始化、旧格式明确拒绝、controller 重启、派发前后 crash、fork ownership、uncertain 恢复，不复用身份或重复执行。
+4. 新格式初始化、旧格式改名留档后从空库开始、controller 重启、派发前后 crash、fork ownership、uncertain 恢复，不复用身份或重复执行。
 5. MCP 原始工具名、App-only visibility、Apps 卡片绑定；Pi deferred tool discovery 与工具描述同步。
 
 本轮只检查 Markdown 和 diff。实现后按仓库策略运行聚焦测试、package build、必要的根 typecheck 及真实 controller/CLI 集成验证。

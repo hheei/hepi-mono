@@ -36,14 +36,14 @@
 - 建立公共输入/结果 schema 和新格式标识；明确条件必填 agent、正整数 revision、未知字段拒绝。
 - 在既有 SQLite/manager ownership 内原子预留 agent identity 与首个委派；同 parent/agent 后续 revision 持久单调分配并有唯一约束。
 - 区分 delegationRevision、registry CAS revision、workVersion；随机内部主键不出现在目标公共结果中。
-- 在任何写入、自动 schema 升级和派发前检测不兼容旧格式，错误显示状态路径；保持旧文件不变。
+- 在任何写入、自动 schema 升级和派发前检测不兼容旧格式：旧库改名留档（`state.sqlite.<时间戳>.previous`），新库从空开始；不迁移、不导入旧数据，也不因旧库存在而拒绝启动。
 
 **验收**
 
 - title/mode、空 task、未知字段与非法 revision 报错；id 优先时忽略 agent/cwd 的语义符合 Spec。
 - 并发分配不重号；分配后失败保留序号，重启不重置；不同 ownership 不串记录。
 - 预留失败不启动 child；启动失败能关联已持久身份，不预测 agent-N。
-- 旧格式拒绝且文件内容不变；不创建隐式替代 ownership。
+- 旧格式改名留档且内容不变，启动照常继续；不创建隐式替代 ownership，不迁移旧数据。
 
 **验证**：schema/receipts/state-db/bootstrap 的受影响 Vitest；改动文件 Biome；package build。持久化路径增加真实初始化/重开测试；涉及公共导出时运行根 typecheck。
 
@@ -186,7 +186,7 @@
 - 新格式环境核对 Pi/MCP 输入、身份、状态和输出一致；执行新建→steer→结算→显式重读→stop/恢复。
 - 覆盖并行 agent、同轮 revision、取消/断线、/compact、controller 重启、fork ownership、派发前后 crash 与 uncertain；核对无任务重放。
 - 真实 Codex Desktop 检查卡片、Dashboard、最终输出、继续/停止、主题/宽度/键盘；归档实测版本与截图。无实机访问时保持本 ticket 未完成并记录缺口。
-- 同步当前文档与本表状态，记录旧格式拒绝、新环境切换和 client 重连要求；发布另走授权/完整发布门禁。
+- 同步当前文档与本表状态，记录旧格式留档后从空库开始、新环境切换和 client 重连要求；发布另走授权/完整发布门禁。
 
 **验收**
 
@@ -209,7 +209,7 @@
 
 ### AGENTS-01
 
-- 实现：新格式状态库以 `PRAGMA user_version = 1` 标识，`delegations` 表新增 `delegation_revision` 与 `(parent_session_id, child_id, delegation_revision)` 唯一索引；`openStateDb` 在任何写入前拒绝旧格式并保留原文件；`reserveReceipt` 在单个 `BEGIN IMMEDIATE` 事务内用 `MAX(revision) + 1` 分配序号，分配后失败不复用序号；`parseDelegateInput` 在 MCP 边界拒绝空 task、空 id、缺 agent 与未知字段（`additionalProperties: false`）。
+- 实现：新格式状态库以 `PRAGMA user_version = 1` 标识，`delegations` 表新增 `delegation_revision` 与 `(parent_session_id, child_id, delegation_revision)` 唯一索引；`openStateDb` 在任何写入前把旧格式库改名留档（`*.previous`）并从空库开始，不迁移；`reserveReceipt` 在单个 `BEGIN IMMEDIATE` 事务内用 `MAX(revision) + 1` 分配序号，分配后失败不复用序号；`parseDelegateInput` 在 MCP 边界拒绝空 task、空 id、缺 agent 与未知字段（`additionalProperties: false`）。
 - 身份预留顺序：新 agent 的 id 在 `resolve` 铸出后立即通过 `spawn` 的 identity seam 预留 revision，随后才写 child record、启动进程；预留失败不启动 child，启动失败仍带 id + revision 与失败原因。
 - 验证：`pnpm --filter @hheei/pi-subagents run build`；`pnpm exec vitest run packages/pi-subagents/test`（362 passed，含 `state-format`、`receipts`、`manager` 新增用例）；`./node_modules/.bin/biome check packages/pi-subagents/src packages/pi-subagents/test`；`pnpm run typecheck`。
 - 未验证：并发多进程同时分配序号（单进程内为同步事务，跨进程依赖 SQLite 写锁与唯一索引，尚无真实双进程用例）。
@@ -271,7 +271,7 @@
 ### AGENTS-08（进行中）
 
 - 已完成的前序证据：`pnpm test`（186 files / 2010 passed，含 Pi 工具契约、MCP stdio、App DOM 与 manager 结算路径）；`pnpm run test:integration`（5 files / 12 passed，真实子进程、锁竞争、CLI 启动与关闭）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
-- 已核对：两端口径一致（同一 `delegationView` 投影经 `agents_get` 与 MCP `get` 输出 id/revision/status/hasOutput 与 `progress.runtimeState`）；默认查询不带正文，`includeOutput` 才返回且受 `truncateWithSpill` 上限；旧格式状态库被 `openStateDb` 拒绝而非迁移；工具名无旧别名。
+- 已核对：两端口径一致（同一 `delegationView` 投影经 `agents_get` 与 MCP `get` 输出 id/revision/status/hasOutput 与 `progress.runtimeState`）；默认查询不带正文，`includeOutput` 才返回且受 `truncateWithSpill` 上限；旧格式状态库被 `openStateDb` 改名留档、从空库开始且不迁移；工具名无旧别名。
 - 未完成（阻塞项）：真实 Codex Desktop 的卡片/Dashboard/最终输出/继续/停止/主题/宽度/键盘验收与截图归档；真实模型回合驱动的 Pi 端 smoke；controller 重启与断线在真实 Codex 客户端下的核对。以上需要该实机环境，未用 mock 代替。
 - 独立评审修复（commit `993d59c9`、`fe2aa369`）：`wait:false` 不再释放他人的等待占用；`contact_parent` 报告先落库再按等待归属决定是否推送；`dispose` 中止本 session 的等待；run boundary 在派发前认领并在 `agent_start` 抢先时仍对齐；结算写库失败改为向可重试的一方报错而不是静默推送；失败/不确定委派持久化 `safeToRetry`/`sideEffects`；Pi 端错误文本带 id 与重试信息，MCP 端读取 `childId`；等待期间通过 `onUpdate` 公布已受理身份；App 历史切换递增 generation；移除无调用方的 `follow_up`/`SendMode` 分支；controller `dispose` 幂等且必释放 role 与锁。新增 5 个回归用例（`manager.test`、`agents-tools.test`）。
 

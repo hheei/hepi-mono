@@ -92,7 +92,7 @@ const contactSchema = Type.Object({
 });
 
 const SUBAGENTS_NAMESPACE = {
-	name: "agent",
+	name: "agents",
 	aliases: ["agent", "agents", "subagent", "subagents"],
 	description: "Agent orchestration and delegation tools",
 } as const;
