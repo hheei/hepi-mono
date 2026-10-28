@@ -2,14 +2,9 @@ import { chmodSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import type { ControllerManager } from "./controller-role.js";
 import type { DelegationView } from "./delegation.js";
-import { isOperationError, type OperationError } from "./domain.js";
+import type { OperationError } from "./domain.js";
 import { type DelegateMcpInput, parseDelegateInput } from "./mcp/delegate.js";
-import {
-	latestReceiptForChild,
-	listReceipts,
-	type Receipt,
-	readStoredReceipt,
-} from "./receipts.js";
+import { listReceipts, type Receipt, readStoredReceipt } from "./receipts.js";
 import { defaultRegistryPath } from "./registry.js";
 
 const openSockets = new WeakMap<Server, Set<Socket>>();
@@ -211,39 +206,17 @@ async function dispatch(
 				numberField(call.input, "limit", 50) || 20,
 			);
 		case "get": {
-			const id = stringField(call.input, "id");
-			const child = await manager.get(id);
-			if (isOperationError(child)) return child;
-			const latest = latestReceiptForChild(filePath, parentSessionId, id);
-			return {
-				...child,
-				...(latest === undefined
-					? {}
-					: {
-							delegationId: latest.delegationId,
-							resultText: latest.resultText,
-							receiptStatus: latest.status,
-						}),
-			};
+			const revision = numberField(call.input, "revision");
+			return manager.inspect({
+				id: stringField(call.input, "id"),
+				...(revision === 0 ? {} : { revision }),
+				includeOutput: booleanField(call.input, "includeOutput"),
+			});
 		}
 		case "list":
-			return {
-				children: (await manager.list()).map((child) => {
-					const latest = latestReceiptForChild(filePath, parentSessionId, child.id);
-					return {
-						...child,
-						...(latest === undefined
-							? {}
-							: {
-									delegationId: latest.delegationId,
-									resultText: latest.resultText,
-									receiptStatus: latest.status,
-								}),
-					};
-				}),
-			};
+			return manager.dashboard();
 		case "stop":
-			return manager.stop(stringField(call.input, "id"));
+			return manager.stopAgent(stringField(call.input, "id"));
 		case "transcript":
 			return transcriptPage(manager, stringField(call.input, "id"), call.input);
 		case "delegate": {
@@ -353,4 +326,8 @@ function numberField(input: unknown, key: string, cap?: number): number {
 	const value = record(input)?.[key];
 	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return 0;
 	return cap === undefined ? value : Math.min(value, cap);
+}
+
+function booleanField(input: unknown, key: string): boolean {
+	return record(input)?.[key] === true;
 }

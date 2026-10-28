@@ -131,6 +131,15 @@ function waitingManager() {
 		async delegate() {
 			return new Promise<never>(() => undefined);
 		},
+		async inspect() {
+			return { id: "child-1", revision: 1, status: "accepted", task: "hold", hasOutput: false };
+		},
+		async dashboard() {
+			return { total: 0, running: 0, blocked: 0, completed: 0, failed: 0, children: [] };
+		},
+		async stopAgent(id: string) {
+			return { id, revision: 1, status: "failed", task: "hold", hasOutput: false };
+		},
 		async get(id: string) {
 			return child({ id });
 		},

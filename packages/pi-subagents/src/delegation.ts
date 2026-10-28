@@ -1,3 +1,4 @@
+import { truncateWithSpill } from "@hheei/pi-ext-core";
 import type { PublicSubagent, SubagentState } from "./domain.js";
 import type { Receipt, ReceiptStatus } from "./receipts.js";
 
@@ -71,4 +72,41 @@ export function delegationView(
 					},
 				}),
 	};
+}
+
+/**
+ * The same projection with the result body when the caller asks for it. An explicit read still
+ * obeys the shared output budget: the model gets the head, the tail, and the path to everything it
+ * did not see, never an unbounded body.
+ */
+export async function agentView(
+	receipt: Receipt,
+	child?: PublicSubagent,
+	options?: { readonly includeOutput?: boolean },
+): Promise<DelegationView> {
+	const view = delegationView(receipt, child);
+	const text = receipt.resultText;
+	if (options?.includeOutput !== true || !view.hasOutput || text === undefined) return view;
+	const bounded = await truncateWithSpill(text, "subagent-output");
+	return { ...view, resultText: bounded.text };
+}
+
+/** One agent's row in a dashboard: its runtime now, and the status of its latest delegation. */
+export interface AgentSummary {
+	readonly id: string;
+	readonly agent?: string;
+	readonly runtimeState: SubagentState;
+	readonly revision: number;
+	readonly status: ReceiptStatus;
+	readonly hasOutput: boolean;
+	readonly summary?: string;
+}
+
+export interface DashboardView {
+	readonly total: number;
+	readonly running: number;
+	readonly blocked: number;
+	readonly completed: number;
+	readonly failed: number;
+	readonly children: readonly AgentSummary[];
 }

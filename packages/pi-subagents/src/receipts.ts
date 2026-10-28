@@ -356,6 +356,51 @@ export function latestReceiptForChild(
 	return readReceipt(db, parentSessionId, row.delegation_id);
 }
 
+/** The latest delegation of every agent, without reading any result body. */
+export interface ReceiptSummary {
+	readonly childId: string;
+	readonly delegationId: string;
+	readonly revision: number;
+	readonly status: ReceiptStatus;
+	readonly hasOutput: boolean;
+}
+
+export function latestReceiptSummaries(
+	filePath: string,
+	parentSessionId: string,
+): ReadonlyMap<string, ReceiptSummary> {
+	const db = openStateDb(filePath);
+	const rows = db
+		.prepare(
+			`SELECT child_id, delegation_id, delegation_revision, status, result_text IS NOT NULL AS has_output
+			 FROM delegations
+			 WHERE parent_session_id = ? AND child_id IS NOT NULL
+			   AND rowid IN (
+			     SELECT MAX(rowid) FROM delegations
+			     WHERE parent_session_id = ? AND child_id IS NOT NULL GROUP BY child_id
+			   )`,
+		)
+		.all(parentSessionId, parentSessionId) as Array<{
+		child_id: string;
+		delegation_id: string;
+		delegation_revision: number | null;
+		status: string;
+		has_output: number;
+	}>;
+	const summaries = new Map<string, ReceiptSummary>();
+	for (const row of rows) {
+		if (!isStatus(row.status) || row.delegation_revision === null) continue;
+		summaries.set(row.child_id, {
+			childId: row.child_id,
+			delegationId: row.delegation_id,
+			revision: row.delegation_revision,
+			status: row.status,
+			hasOutput: row.has_output === 1,
+		});
+	}
+	return summaries;
+}
+
 export function waitForReceipt(
 	filePath: string,
 	parentSessionId: string,

@@ -18,6 +18,7 @@ import {
 	readReceiptRevision,
 	readStoredReceipt,
 	reserveReceipt,
+	settleReceipts,
 	updateReceipt,
 } from "../src/receipts.js";
 import { createSubagentRegistry } from "../src/registry.js";
@@ -466,7 +467,8 @@ async function reportSuccess(harness: Harness, id: string, message: string): Pro
 /** The child begins the turn the parent just dispatched, which binds it to a work version. */
 async function startTurn(harness: Harness, id: string): Promise<void> {
 	harness.bridge.emit(id, { type: "agent_start" });
-	await harness.bridge.settle();
+	// The projection of that start runs on the child's own chain; let it finish before reporting.
+	for (let index = 0; index < 4; index += 1) await harness.bridge.settle();
 }
 
 /** Answers the parent's next prompt with the compaction this child runs. */
@@ -919,6 +921,151 @@ describe("SubagentManager over the bridge", () => {
 		expect(current.reports.map((report) => report.message)).toContain("the answer");
 		// Cancelling the wait never stops the work it was waiting for.
 		expect(await current.manager.get("sa_child1")).toMatchObject({ state: "done" });
+	});
+
+	test("inspect reads the latest revision without its body by default", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "first answer");
+		const second = await current.manager.delegate({
+			id: "sa_child1",
+			task: "two",
+			wait: false,
+		});
+		if ("reason" in second) throw new Error(second.reason);
+
+		const latest = await current.manager.inspect({ id: "sa_child1" });
+		if ("reason" in latest) throw new Error(latest.reason);
+		expect(latest).toMatchObject({
+			id: "sa_child1",
+			revision: 2,
+			status: "accepted",
+			hasOutput: false,
+		});
+		expect(latest).not.toHaveProperty("resultText");
+		expect(latest.progress?.runtimeState).toBeDefined();
+	});
+
+	test("inspect reads one historical revision and reports a missing one", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "first answer");
+
+		await expect(current.manager.inspect({ id: "sa_child1", revision: 1 })).resolves.toMatchObject({
+			revision: 1,
+			status: "completed",
+			hasOutput: true,
+		});
+		await expect(current.manager.inspect({ id: "sa_child1", revision: 9 })).resolves.toMatchObject({
+			operation: "get",
+			reason: "This agent has no delegation revision 9",
+		});
+		await expect(current.manager.inspect({ id: "agent-9" })).resolves.toMatchObject({
+			reason: "Unknown child",
+		});
+	});
+
+	test("an explicit read returns the body and an empty result still counts as output", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "the answer");
+
+		await expect(
+			current.manager.inspect({ id: "sa_child1", includeOutput: true }),
+		).resolves.toMatchObject({ hasOutput: true, resultText: "the answer" });
+
+		const empty = await current.manager.delegate({ id: "sa_child1", task: "two", wait: false });
+		if ("reason" in empty) throw new Error(empty.reason);
+		// An empty answer is a real result: the receipt records it and the projection reports it.
+		settleReceipts(STATE_DB_PATH, current.parentSessionId, {
+			childId: "sa_child1",
+			status: "completed",
+			message: "",
+			workVersion: empty.revision === 2 ? 2 : 1,
+		});
+		await expect(
+			current.manager.inspect({ id: "sa_child1", revision: 2, includeOutput: true }),
+		).resolves.toMatchObject({ hasOutput: true, resultText: "" });
+	});
+
+	test("an oversized result is bounded with a reference to the full text", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		const long = Array.from({ length: 2_000 }, (_, index) => `line ${index} of the answer`).join(
+			"\n",
+		);
+		await reportSuccess(current, "sa_child1", long);
+
+		const view = await current.manager.inspect({ id: "sa_child1", includeOutput: true });
+		if ("reason" in view) throw new Error(view.reason);
+		const text = view.resultText ?? "";
+		expect(text.length).toBeLessThan(long.length);
+		expect(text).toContain("omitted");
+		expect(text).toContain("Full output");
+	});
+
+	test("the dashboard summarises every agent without any result body", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "first answer");
+
+		const dashboard = await current.manager.dashboard();
+		expect(dashboard).toMatchObject({
+			total: 1,
+			running: 0,
+			blocked: 0,
+			completed: 1,
+			failed: 0,
+		});
+		expect(dashboard.children[0]).toMatchObject({
+			id: "sa_child1",
+			revision: 1,
+			status: "completed",
+			hasOutput: true,
+		});
+		expect(dashboard.children[0]).not.toHaveProperty("resultText");
+	});
+
+	test("stop ends open revisions, keeps finished ones, and repeats safely", async () => {
+		const current = await harness();
+		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });
+		if ("reason" in first) throw new Error(first.reason);
+		await flush();
+		await startTurn(current, "sa_child1");
+		await reportSuccess(current, "sa_child1", "first answer");
+		const second = await current.manager.delegate({
+			id: "sa_child1",
+			task: "two",
+			wait: false,
+		});
+		if ("reason" in second) throw new Error(second.reason);
+
+		const stopped = await current.manager.stopAgent("sa_child1");
+		if ("reason" in stopped) throw new Error(stopped.reason);
+		expect(stopped).toMatchObject({ id: "sa_child1", revision: 2, status: "failed" });
+		expect(stopped.progress?.runtimeState).not.toBe("running");
+		// The finished delegation keeps its result; only the open one ends as failed.
+		await expect(
+			current.manager.inspect({ id: "sa_child1", revision: 1, includeOutput: true }),
+		).resolves.toMatchObject({ status: "completed", resultText: "first answer" });
+
+		const again = await current.manager.stopAgent("sa_child1");
+		expect(again).toMatchObject({ revision: 2, status: "failed" });
 	});
 
 	test("an unconfirmed panel startup does not freeze the child", async () => {

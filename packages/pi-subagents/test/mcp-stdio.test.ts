@@ -25,6 +25,27 @@ test("legacy initialize lists delegate and a tool call waits for the receipt", a
 					hasOutput: false,
 				};
 			},
+			async inspect() {
+				return {
+					id: "child-1",
+					revision: 1,
+					status: "accepted",
+					task: "inspect",
+					hasOutput: false,
+				};
+			},
+			async dashboard() {
+				return { total: 1, running: 1, blocked: 0, completed: 0, failed: 0, children: [] };
+			},
+			async stopAgent() {
+				return {
+					id: "child-1",
+					revision: 1,
+					status: "failed",
+					task: "inspect",
+					hasOutput: false,
+				};
+			},
 			async get(id: string) {
 				return child({ id });
 			},
@@ -107,6 +128,27 @@ test("task and dashboard resources advertise the MCP Apps bridge", async () => {
 					id: "child-1",
 					revision: 1,
 					status: "accepted",
+					task: "inspect",
+					hasOutput: false,
+				};
+			},
+			async inspect() {
+				return {
+					id: "child-1",
+					revision: 1,
+					status: "accepted",
+					task: "inspect",
+					hasOutput: false,
+				};
+			},
+			async dashboard() {
+				return { total: 1, running: 1, blocked: 0, completed: 0, failed: 0, children: [] };
+			},
+			async stopAgent() {
+				return {
+					id: "child-1",
+					revision: 1,
+					status: "failed",
 					task: "inspect",
 					hasOutput: false,
 				};

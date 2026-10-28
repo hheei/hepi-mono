@@ -20,7 +20,7 @@
 | AGENTS-02 | 共用 delegate 与模型轮次结算 | 01 | [x] |
 | AGENTS-03 | /compact 控制操作结算 | 02 | [x] |
 | AGENTS-04 | 等待、取消与单次交付 | 02、03 | [x] |
-| AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [ ] |
+| AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [x] |
 | AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [ ] |
 | AGENTS-07 | MCP 工具与 App 同步切换 | 04、05 | [ ] |
 | AGENTS-08 | 跨端集成、恢复与实机验收 | 06、07 | [ ] |
@@ -115,7 +115,7 @@
 
 ## AGENTS-05：共用查询、停止与输出上限
 
-**Spec**：§5、§6、§7。**状态**：[ ]。**依赖**：AGENTS-02、03。
+**Spec**：§5、§6、§7。**状态**：[x]。**依赖**：AGENTS-02、03。
 
 **交付**
 
@@ -243,6 +243,16 @@
 - 释放：`dispose`/`closeLocalConnections` 清空等待占用；`waitForReceipt` 的 abort 监听与 notify 集合在 finally 中移除。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（370 passed，新增等待占用拒绝、等待拥有交付、取消后回到自动交付、wait:false 并行、停止后重新等待等用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；package build；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：Pi 工具进度通道上的“早期已受理身份”展示属于 AGENTS-06 的工具层，本项未包含；真实 socket 断线与 controller 重启下的等待归属在 AGENTS-08 汇合验证。
+
++### AGENTS-05
+
+- 实现：`delegation.agentView` 是唯一带结果的投影，`includeOutput` 为真时用 ext-core 的 `truncateWithSpill` 截断（head/tail + 完整文件路径），`delegate` 的等待结果也走同一函数，因此模型侧不存在无界 body。
+- 查询：`manager.inspect({ id, revision?, includeOutput? })` 缺省取最新委派，按 revision 读历史；缺 revision、缺委派都返回带 operation 的明确错误，不伪造空委派。`hasOutput` 只看结果是否存在，空字符串同样算有输出。
+- dashboard：`latestReceiptSummaries` 用一条 SQL 取每个 agent 的最新委派（`result_text IS NOT NULL` 只投影为布尔），不读结果正文、不扫 session 历史；统计按当前 runtime 状态，条目同时给出最新委派 status。
+- stop：`manager.stopAgent` 复用 `stop`（`abandonReceipts` 把未结算 revision 记为 failed）后返回同一投影；已完成 revision 与其结果保留，重复 stop 幂等。
+- 顺带修正：`send` 在标记 running 之前读取“是否已在同一轮内”，否则任何一次新派发都会被当成 join，新 revision 会绑定到已结算的 runBoundary（新增用例 `stop ends open revisions` 暴露）。
+- 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，新增 6 个 inspect/dashboard/stop/上限用例）；`pnpm --filter @hheei/pi-subagents exec tsc -p tsconfig.build.json --noEmit`；`./node_modules/.bin/biome check packages/pi-subagents/src packages/pi-subagents/test`。
+- 未验证：MCP/Pi 工具层尚未切换到这些投影（AGENTS-06/07），App 视图在此期间仍按旧字段读取；真实进程停止路径在 AGENTS-08 汇合验证。
 
 ## 完成记录模板
 

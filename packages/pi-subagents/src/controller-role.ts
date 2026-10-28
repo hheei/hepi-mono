@@ -1,5 +1,5 @@
 import type { SkillCatalogEntry } from "./agent-resolver.js";
-import type { DelegationView } from "./delegation.js";
+import type { DashboardView, DelegationView } from "./delegation.js";
 import type { DelegateSubagentInput, OperationError, PublicSubagent } from "./domain.js";
 import type { ParentChannel } from "./manager.js";
 
@@ -8,6 +8,13 @@ export interface ControllerManager {
 		input: DelegateSubagentInput & { readonly wait?: boolean },
 		signal?: AbortSignal,
 	): Promise<DelegationView | OperationError>;
+	inspect(input: {
+		readonly id: string;
+		readonly revision?: number;
+		readonly includeOutput?: boolean;
+	}): Promise<DelegationView | OperationError>;
+	dashboard(): Promise<DashboardView>;
+	stopAgent(id: string): Promise<DelegationView | OperationError>;
 	get(id: string): Promise<PublicSubagent | OperationError>;
 	list(): Promise<readonly PublicSubagent[]>;
 	stop(id: string): Promise<PublicSubagent | OperationError>;

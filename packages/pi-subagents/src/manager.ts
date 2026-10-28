@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 import { attachRetainedChild, type ChildRuntime } from "./child-process.js";
-import { type DelegationView, delegationView } from "./delegation.js";
+import {
+	type AgentSummary,
+	agentView,
+	type DashboardView,
+	type DelegationView,
+	delegationView,
+} from "./delegation.js";
 import type {
 	DelegateSubagentInput,
 	EffectiveLaunchConfig,
@@ -33,10 +39,13 @@ import {
 } from "./protocol.js";
 import {
 	abandonReceipts,
+	latestReceiptForChild,
+	latestReceiptSummaries,
 	maxRunBoundary,
 	type Receipt,
 	type ReceiptDelivery,
 	type ReceiptSettlement,
+	readReceiptRevision,
 	readStoredReceipt,
 	reserveReceipt,
 	settleReceipts,
@@ -996,10 +1005,10 @@ export class SubagentManager {
 		if (stored > claim) this.#lastClaim.set(id, stored);
 	}
 
-	#claimRunBoundary(id: string): number {
+	#claimRunBoundary(id: string, joining: boolean): number {
 		const current = this.#workVersions.get(id) ?? 0;
-		const joined = this.#working.has(id) && current > 0;
-		const claimed = joined ? current : Math.max(current, this.#lastClaim.get(id) ?? 0) + 1;
+		const claimed =
+			joining && current > 0 ? current : Math.max(current, this.#lastClaim.get(id) ?? 0) + 1;
 		this.#lastClaim.set(id, claimed);
 		return claimed;
 	}
@@ -1009,14 +1018,14 @@ export class SubagentManager {
 	 * no turn, so it is bound to the child's operation id rather than to a work version that would
 	 * never arrive.
 	 */
-	#claimDispatch(id: string, task: string, response: unknown): void {
+	#claimDispatch(id: string, task: string, response: unknown, joining: boolean): void {
 		if (isCompactCommand(task)) {
 			this.#lastClaim.delete(id);
 			this.#lastControl.set(id, acknowledgedControl(response));
 			return;
 		}
 		this.#lastControl.delete(id);
-		this.#claimRunBoundary(id);
+		this.#claimRunBoundary(id, joining);
 	}
 
 	#claimedSubmission(id: string): {
@@ -1393,14 +1402,14 @@ export class SubagentManager {
 		const bound = this.#bindDispatch(filePath, parentSessionId, receipt, submitted);
 		if (!wait || bound.status !== "accepted") {
 			this.#waiters.delete(childId);
-			return delegationView(bound, submitted.child, {
+			return agentView(bound, submitted.child, {
 				includeOutput: bound.status !== "accepted",
 			});
 		}
 		const waiter = this.#waiters.get(childId);
 		try {
 			const settled = await waitForReceipt(filePath, parentSessionId, receipt.delegationId, signal);
-			return delegationView(settled, submitted.child, { includeOutput: true });
+			return await agentView(settled, submitted.child, { includeOutput: true });
 		} catch {
 			// The wait ended, not the delegation. A result the tool result can no longer carry goes
 			// back to the automatic path, so the turn is delivered exactly once either way.
@@ -1503,7 +1512,7 @@ export class SubagentManager {
 				const response = await this.#request(record.subagentId, "prompt", { message: cleanTask });
 				path = acknowledgedPath(response);
 				this.#paths.set(record.subagentId, path);
-				this.#claimDispatch(record.subagentId, cleanTask, response);
+				this.#claimDispatch(record.subagentId, cleanTask, response, false);
 			} catch (error) {
 				let failureState: SubagentState = "error";
 				try {
@@ -1675,6 +1684,9 @@ export class SubagentManager {
 			// a running child steers at its next model step, an idle one simply starts a run.
 			const operation = isResumed ? "prompt" : mode;
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
+			// Read before this dispatch marks the child running: only a child already inside a turn
+			// shares that turn's boundary, a fresh dispatch always opens the next one.
+			const joining = this.#working.has(id) && (this.#workVersions.get(id) ?? 0) > 0;
 			this.#clearSettledPanelClose(id);
 			const pending = await this.#update(id, (current) => {
 				const { interrupted: _interrupted, ...clean } = current;
@@ -1689,7 +1701,7 @@ export class SubagentManager {
 				const response = await this.#request(id, operation, { message });
 				const path = acknowledgedPath(response);
 				this.#paths.set(id, path);
-				this.#claimDispatch(id, message, response);
+				this.#claimDispatch(id, message, response, joining);
 			} catch (error) {
 				return failure(
 					"send",
@@ -1714,6 +1726,77 @@ export class SubagentManager {
 		if (record === undefined) return failure("get", "Unknown child", id);
 		const live = this.#isLive(id);
 		return publicChild(this.#withSnapshot(record), live, this.#paths.get(id));
+	}
+
+	/**
+	 * One delegation of one agent, by revision: the newest by default. The result body is only read
+	 * when it is asked for, and then only within the shared output budget.
+	 */
+	public async inspect(input: {
+		readonly id: string;
+		readonly revision?: number;
+		readonly includeOutput?: boolean;
+	}): Promise<DelegationView | OperationError> {
+		const record = await this.#deps.registry.get(input.id);
+		if (record === undefined) return failure("get", "Unknown child", input.id);
+		const filePath = this.#deps.registry.path;
+		const receipt =
+			input.revision === undefined
+				? latestReceiptForChild(filePath, this.#deps.parentSessionId, input.id)
+				: readReceiptRevision(filePath, this.#deps.parentSessionId, input.id, input.revision);
+		if (receipt === undefined) {
+			return failure(
+				"get",
+				input.revision === undefined
+					? "This agent has no delegation"
+					: `This agent has no delegation revision ${input.revision}`,
+				input.id,
+				record.state,
+			);
+		}
+		return agentView(
+			receipt,
+			publicChild(this.#withSnapshot(record), this.#isLive(input.id), this.#paths.get(input.id)),
+			{ includeOutput: input.includeOutput === true },
+		);
+	}
+
+	/** Every agent of this parent: runtime state now, latest delegation status, no result bodies. */
+	public async dashboard(): Promise<DashboardView> {
+		const records = await this.#deps.registry.list();
+		const summaries = latestReceiptSummaries(this.#deps.registry.path, this.#deps.parentSessionId);
+		const children: AgentSummary[] = [];
+		for (const record of records) {
+			const summary = summaries.get(record.subagentId);
+			if (summary === undefined) continue;
+			const live = this.#withSnapshot(record);
+			children.push({
+				id: record.subagentId,
+				agent: record.launchConfig.agent.name,
+				runtimeState: live.state,
+				revision: summary.revision,
+				status: summary.status,
+				hasOutput: summary.hasOutput,
+				...(live.latestSummary === undefined ? {} : { summary: live.latestSummary }),
+			});
+		}
+		const count = (state: SubagentState): number =>
+			children.filter((child) => child.runtimeState === state).length;
+		return {
+			total: children.length,
+			running: count("running"),
+			blocked: count("blocked"),
+			completed: count("done"),
+			failed: count("error"),
+			children,
+		};
+	}
+
+	/** Stops the runtime and reports the same projection every other read returns. */
+	public async stopAgent(id: string): Promise<DelegationView | OperationError> {
+		const stopped = await this.stop(id);
+		if (isOperationError(stopped)) return stopped;
+		return this.inspect({ id });
 	}
 
 	public async list(): Promise<readonly PublicSubagent[]> {
