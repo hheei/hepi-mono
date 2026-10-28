@@ -1,6 +1,6 @@
 # Pi 插件与 MCP 统一 Agents API Spec
 
-状态：待实现的目标规格。本文是统一 API 的行为与验收依据；实施状态见 [tickets](unified-api-tickets.md)，架构依据见 [plan](unified-api-plan.md)，审查结论见 [review](unified-api-review.md)。当前 MCP 实现见 [mcp.md](mcp.md)。本轮仅整理文档。
+状态：AGENTS-01～07 已实现；AGENTS-08（真实 Codex Desktop 验收）未完成，缺口见 [tickets](unified-api-tickets.md)。本文是统一 API 的行为与验收依据，架构依据见 [plan](unified-api-plan.md)，审查结论见 [review](unified-api-review.md)，当前 MCP 实现见 [mcp.md](mcp.md)。
 
 ## 1. 目标与范围
 

@@ -179,7 +179,7 @@
 
 ## AGENTS-08：跨端集成、恢复与实机验收
 
-**Spec**：§8 全部验收。**状态**：[ ]。**依赖**：AGENTS-06、07。
+**Spec**：§8 全部验收。**状态**：[ ]。**依赖**：AGENTS-06、07。**缺口**：真实 Codex Desktop 实机验收未执行（无该环境），按本 ticket 要求保持未完成。
 
 **交付**
 
@@ -205,7 +205,6 @@
 
 只有根 Verification policy 的升级条件满足时追加 pnpm test 或 pnpm run check，并说明原因。实机、pack 资产和性能证据单独记录，不以命令退出成功替代观察。
 
-+
 ## 完成记录
 
 ### AGENTS-01
@@ -223,8 +222,6 @@
 - 验证：同上命令；新增 `manager.test` 用例覆盖身份先于启动、`wait:false` 受理、等待返回该 revision 结果、第二个等待在派发前被拒、同轮多 revision 共享结算、未知 id 不预留。
 - 未验证：真实 child 进程的启动/恢复集成路径在 AGENTS-08 汇合验证。
 
-
-+
 ### AGENTS-03
 
 - 实现：`delegations.control_id` 取代按任务文本猜测归属。/compact 派发时 child 用一次 compaction 的 operation id 应答（`deliverPrompt` 返回 `controlId`），manager 用该 id 绑定 revision；`#claimDispatch` 对控制操作不再领取 workVersion，因此 compact 不制造幽灵轮次。
@@ -235,7 +232,6 @@
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（368 passed，含 compact 结算/共享操作/迟到报告/失败/重启 uncertain 与 child-control 的 `controlId` 用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：真实 child 进程的 compaction 端到端（需真实模型与长上下文）留待 AGENTS-08 实机。
 
-+
 ### AGENTS-04
 
 - 实现：等待占用改为 manager 进程内状态（`#waiters`，按 child），`receipt.delivery` 只作历史；同 agent 第二个 wait:true 在预留前拒绝，wait:false 不受影响，重启后不存在的旧 waiter 不构成占用，旧的 `pending` 记录也不再永久锁死后续等待。
@@ -244,7 +240,7 @@
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（370 passed，新增等待占用拒绝、等待拥有交付、取消后回到自动交付、wait:false 并行、停止后重新等待等用例）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；package build；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：Pi 工具进度通道上的“早期已受理身份”展示属于 AGENTS-06 的工具层，本项未包含；真实 socket 断线与 controller 重启下的等待归属在 AGENTS-08 汇合验证。
 
-+### AGENTS-05
+### AGENTS-05
 
 - 实现：`delegation.agentView` 是唯一带结果的投影，`includeOutput` 为真时用 ext-core 的 `truncateWithSpill` 截断（head/tail + 完整文件路径），`delegate` 的等待结果也走同一函数，因此模型侧不存在无界 body。
 - 查询：`manager.inspect({ id, revision?, includeOutput? })` 缺省取最新委派，按 revision 读历史；缺 revision、缺委派都返回带 operation 的明确错误，不伪造空委派。`hasOutput` 只看结果是否存在，空字符串同样算有输出。
@@ -254,7 +250,7 @@
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，新增 6 个 inspect/dashboard/stop/上限用例）；`pnpm --filter @hheei/pi-subagents exec tsc -p tsconfig.build.json --noEmit`；`./node_modules/.bin/biome check packages/pi-subagents/src packages/pi-subagents/test`。
 - 未验证：MCP/Pi 工具层尚未切换到这些投影（AGENTS-06/07），App 视图在此期间仍按旧字段读取；真实进程停止路径在 AGENTS-08 汇合验证。
 
-+### AGENTS-07
+### AGENTS-07
 
 - 切换：`mcp-server.ts` 自报 `pi_agents`，模型工具为 `delegate`/`get`/`stop`/`dashboard`（后三者带 `ui.visibility = [model, app]`），App-only 为 `list`/`transcript`/`catalog`/`receipts`；`subagents_*` 与模型侧 receipt 工具全部删除。
 - 身份：`get` 接受 `id` + `revision?` + `includeOutput?`，`delegate` 返回 `id`/`revision`/`status`/`hasOutput`，`receipts` 只返回 `id`/`revision`/`status`/`task`/`hasOutput`/`createdAt`（不含正文），控制器 `receipt` op 与 `requireReceipt` 一并删除。
@@ -263,7 +259,7 @@
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，`mcp-app-view` 13 个 App DOM 用例与 `mcp-stdio` 的 tools/list 可见性断言全部改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：Codex Desktop 实机卡片与 Dashboard 的视觉/交互验收（AGENTS-08）；Pi 侧工具仍是旧 `agent_*` 名称，两端口径在 AGENTS-06 后才一致。
 
-+### AGENTS-06
+### AGENTS-06
 
 - 注册：`tools.ts` 只注册 `agents_delegate` / `agents_get` / `agents_stop` / `agents_dashboard`，全部走 AGENTS-02～05 的 `manager.delegate` / `inspect` / `stopAgent` / `dashboard`；旧 `agent_spawn`/`agent_send`/`agent_get`/`agent_stop` 与 `keys` 投影、`title`、`mode` 公共参数删除。
 - 发现与提示：`tool-activation` 的 deferred 名单、`optional_tools` 条目、工具描述、可用 agent 目录、`contact_parent` 指导与 `/subagents` 非 TUI 提示同步改为新名字；`title` 输入从 `SpawnSubagentInput`/`DelegateSubagentInput`/launch 解析中删除，child session 标题仍按 `🤖 <agent> · <id>` 推导。
@@ -271,6 +267,12 @@
 - 文档：根 README、`DESIGN.md`、`docs/architecture/pi-subagents.md`、`docs/architecture/background-tasks.md`、`docs/pi-subagents/spec.md` 与 package README 的工具表改为统一契约。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test packages/pi-ext-ui/test`（493 passed，新增 `agents-tools.test.ts` 9 个工具契约用例，`tool-presentation` 17 个呈现用例改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：真实模型驱动的 Pi smoke（headless SDK 初始化用例通过，但没有真实模型回合）；Codex Desktop 实机在 AGENTS-08。
+
+### AGENTS-08（进行中）
+
+- 已完成的前序证据：`pnpm test`（186 files / 2010 passed，含 Pi 工具契约、MCP stdio、App DOM 与 manager 结算路径）；`pnpm run test:integration`（5 files / 12 passed，真实子进程、锁竞争、CLI 启动与关闭）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
+- 已核对：两端口径一致（同一 `delegationView` 投影经 `agents_get` 与 MCP `get` 输出 id/revision/status/hasOutput 与 `progress.runtimeState`）；默认查询不带正文，`includeOutput` 才返回且受 `truncateWithSpill` 上限；旧格式状态库被 `openStateDb` 拒绝而非迁移；工具名无旧别名。
+- 未完成（阻塞项）：真实 Codex Desktop 的卡片/Dashboard/最终输出/继续/停止/主题/宽度/键盘验收与截图归档；真实模型回合驱动的 Pi 端 smoke；controller 重启与断线在真实 Codex 客户端下的核对。以上需要该实机环境，未用 mock 代替。
 
 ## 完成记录模板
 
