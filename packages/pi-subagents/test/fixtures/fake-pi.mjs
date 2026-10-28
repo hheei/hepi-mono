@@ -103,7 +103,6 @@ const handle = (command) => {
 			return;
 		case "prompt":
 		case "steer":
-		case "follow_up":
 			respond(undefined);
 			setTimeout(() => {
 				write({ type: "agent_start" });

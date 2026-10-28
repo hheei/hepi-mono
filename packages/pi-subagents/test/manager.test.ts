@@ -24,6 +24,7 @@ import {
 import { createSubagentRegistry } from "../src/registry.js";
 import type { LaunchOutcome, RuntimeTokenStore } from "../src/runtime.js";
 import { transcriptFacts } from "../src/state.js";
+import { openStateDb } from "../src/state-db.js";
 import { advanceFakeTime, turn, until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
 import { createTemporaryDirectory } from "./helpers/tmp-dir.js";
 
@@ -271,7 +272,7 @@ async function harness(
 	bridge.fallbackResponse = async (id, operation) => {
 		if (operation === "get_entries") return { entries: [] };
 		if (operation === "session_facts") return transcriptFacts([]);
-		if (operation === "prompt" || operation === "steer" || operation === "follow_up") {
+		if (operation === "prompt" || operation === "steer") {
 			return { accepted: true, path: join(cwd, "sessions", `${id}-session.jsonl`) };
 		}
 		if (operation !== "get_state") return undefined;
@@ -544,7 +545,7 @@ describe("SubagentManager over the bridge", () => {
 		});
 		expect(spawn).not.toHaveBeenCalled();
 		expect(current.launch).toHaveBeenCalledTimes(1);
-		expect(send).toHaveBeenCalledWith(record.subagentId, "Continue the tests", "steer");
+		expect(send).toHaveBeenCalledWith(record.subagentId, "Continue the tests");
 		expect(current.bridge.requests.at(-1)).toMatchObject({
 			childId: record.subagentId,
 			operation: "steer",
@@ -921,6 +922,49 @@ describe("SubagentManager over the bridge", () => {
 		expect(await current.manager.get("sa_child1")).toMatchObject({ state: "done" });
 	});
 
+	test("a turn that starts before its dispatch is acknowledged still settles", async () => {
+		const current = await harness();
+		// The child can announce its turn before the parent's own prompt acknowledgement lands.
+		current.bridge.responses.set("sa_child1:prompt", async () => {
+			current.bridge.emit("sa_child1", { type: "agent_start" });
+			await current.bridge.settle();
+			return { accepted: true, path: join(current.cwd, "sessions", "sa_child1-session.jsonl") };
+		});
+
+		const accepted = await current.manager.delegate({
+			agent: "worker",
+			task: "work",
+			wait: false,
+		});
+		expect(accepted).toMatchObject({ id: "sa_child1", revision: 1 });
+		await reportSuccess(current, "sa_child1", "the answer");
+
+		// The receipt must be bound to the turn that actually ran, or it stays open forever.
+		expect(
+			readReceiptRevision(STATE_DB_PATH, current.parentSessionId, "sa_child1", 1),
+		).toMatchObject({ status: "completed", resultText: "the answer" });
+	});
+
+	test("a settlement that cannot be recorded is reported, not delivered", async () => {
+		const current = await harness();
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+		await startTurn(current, "sa_child1");
+		const db = openStateDb(STATE_DB_PATH);
+		db.exec("ALTER TABLE delegations RENAME TO delegations_unavailable");
+		try {
+			await expect(reportSuccess(current, "sa_child1", "the answer")).rejects.toThrow(
+				"Settlement was not recorded",
+			);
+			// Nothing is durable, so nothing may be pushed: the child still holds the report.
+			expect(current.reports).toEqual([]);
+		} finally {
+			db.exec("ALTER TABLE delegations_unavailable RENAME TO delegations");
+		}
+		current.manager.dispose();
+		await expect(waiting).resolves.toMatchObject({ status: "accepted" });
+	});
+
 	test("a detached steer does not release the active wait's delivery claim", async () => {
 		const current = await harness();
 		current.bridge.responses.set("sa_child1:get_entries", async () => ({
@@ -1282,26 +1326,19 @@ describe("SubagentManager over the bridge", () => {
 		expect(test1.reports).toHaveLength(0);
 	});
 
-	test("sends the caller's mode instead of guessing one from the child's state", async () => {
+	test("steers whatever the child is doing instead of guessing a mode", async () => {
 		const test1 = await harness();
 		await test1.addChild("sa_live", { state: "running" });
 		test1.bridge.connect("sa_live");
-		// The default is steer whatever the child is doing: on a running child it lands after the
-		// current turn's tool calls, and on an idle one there is nothing to interrupt. The caller
-		// asks for follow_up only when the message must wait for the run to end.
+		// Steer whatever the child is doing: on a running child it lands after the current turn's
+		// tool calls, and on an idle one there is nothing to interrupt.
 		await test1.manager.send("sa_live", "more");
 		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
-
-		await test1.manager.send("sa_live", "afterwards", "follow_up");
-		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
 
 		await test1.addChild("sa_idle", { state: "done" });
 		test1.bridge.connect("sa_idle");
 		await test1.manager.send("sa_idle", "more");
 		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "steer" });
-
-		await test1.manager.send("sa_idle", "more", "follow_up");
-		expect(test1.bridge.requests.at(-1)).toMatchObject({ operation: "follow_up" });
 	});
 
 	test("resumes a child whose runtime is gone instead of asking a dead socket", async () => {
@@ -1764,9 +1801,7 @@ describe("SubagentManager over the bridge", () => {
 		});
 		expect(
 			test1.bridge.requests.some(
-				(request) =>
-					request.childId === record.subagentId &&
-					(request.operation === "steer" || request.operation === "follow_up"),
+				(request) => request.childId === record.subagentId && request.operation === "steer",
 			),
 		).toBe(true);
 	});

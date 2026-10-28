@@ -15,7 +15,6 @@ import type {
 	Presentation,
 	PublicSubagent,
 	RuntimeAttachment,
-	SendMode,
 	SpawnSubagentInput,
 	SubagentRecord,
 	SubagentState,
@@ -873,6 +872,9 @@ export class SubagentManager {
 				message,
 				workVersion,
 			});
+			// Without a durable settlement there is no record to deliver against: the turn stays
+			// unsettled and undelivered rather than being pushed and then pushed again on a retry.
+			if (settled === undefined) return;
 			let deliveryOk = true;
 			if (!this.#claimedByWaiter(settled) && this.#deps.channel !== undefined) {
 				const contactResult = await this.contactParent(id, reason, message, updatedRecord);
@@ -1011,9 +1013,11 @@ export class SubagentManager {
 	}
 
 	#claimRunBoundary(id: string, joining: boolean): number {
+		// A steer into a turn that already started shares that turn's version. Anything else opens
+		// the next one, which is exactly the version the child's `agent_start` will announce, even
+		// when that announcement wins the race against this dispatch's own acknowledgement.
 		const current = this.#workVersions.get(id) ?? 0;
-		const claimed =
-			joining && current > 0 ? current : Math.max(current, this.#lastClaim.get(id) ?? 0) + 1;
+		const claimed = joining && current > 0 ? current : current + 1;
 		this.#lastClaim.set(id, claimed);
 		return claimed;
 	}
@@ -1023,14 +1027,14 @@ export class SubagentManager {
 	 * no turn, so it is bound to the child's operation id rather than to a work version that would
 	 * never arrive.
 	 */
-	#claimDispatch(id: string, task: string, response: unknown, joining: boolean): void {
-		if (isCompactCommand(task)) {
+	#claimDispatch(id: string, response: unknown, claim: number | undefined): void {
+		if (claim === undefined) {
 			this.#lastClaim.delete(id);
 			this.#lastControl.set(id, acknowledgedControl(response));
 			return;
 		}
 		this.#lastControl.delete(id);
-		this.#claimRunBoundary(id, joining);
+		this.#lastClaim.set(id, claim);
 	}
 
 	#claimedSubmission(id: string): {
@@ -1048,7 +1052,12 @@ export class SubagentManager {
 		return recent?.workVersion === workVersion ? { workVersion, settled: recent } : { workVersion };
 	}
 
-	#recordSettlement(event: ReceiptSettlement): readonly Receipt[] {
+	/**
+	 * Records a settlement in the ledger and returns what it settled. `undefined` means the write
+	 * itself failed: nothing was recorded, so no consumer may treat the turn as delivered and the
+	 * caller that can retry is told about it instead.
+	 */
+	#recordSettlement(event: ReceiptSettlement): readonly Receipt[] | undefined {
 		this.#recentSettlement.set(event.childId, event);
 		// The ledger is the manager's own, so a settlement is durable before any consumer sees it and
 		// no caller has to wire this up for delegated turns to settle.
@@ -1056,7 +1065,7 @@ export class SubagentManager {
 			return settleReceipts(this.#deps.registry.path, this.#deps.parentSessionId, event);
 		} catch (error) {
 			diagnose(`failed to record settlement for ${event.childId}: ${errorMessage(error)}`);
-			return [];
+			return undefined;
 		}
 	}
 
@@ -1279,7 +1288,7 @@ export class SubagentManager {
 			}
 			onTarget?.(input.id);
 			// Ignore agent and cwd entirely: this child's launch config was frozen at spawn.
-			const child = await this.send(input.id, input.task, "steer");
+			const child = await this.send(input.id, input.task);
 			return isOperationError(child)
 				? child
 				: { child, action: "reuse", ...this.#claimedSubmission(child.id) };
@@ -1534,11 +1543,16 @@ export class SubagentManager {
 			this.#notify();
 			await withDeadline(this.#start(record), this.#deps.deadlineMs ?? 60_000);
 			let path: string;
+			// A fresh child's first turn is version 1, claimed before the prompt goes out so a
+			// preceding `agent_start` cannot push the receipt onto a version that never settles.
+			const claim = isCompactCommand(cleanTask)
+				? undefined
+				: this.#claimRunBoundary(record.subagentId, false);
 			try {
 				const response = await this.#request(record.subagentId, "prompt", { message: cleanTask });
 				path = acknowledgedPath(response);
 				this.#paths.set(record.subagentId, path);
-				this.#claimDispatch(record.subagentId, cleanTask, response, false);
+				this.#claimDispatch(record.subagentId, response, claim);
 			} catch (error) {
 				let failureState: SubagentState = "error";
 				try {
@@ -1612,10 +1626,9 @@ export class SubagentManager {
 	public send(
 		id: string,
 		rawMessage: string,
-		mode: SendMode = "steer",
 		signal?: AbortSignal,
 	): Promise<OperationError | PublicSubagent> {
-		return this.#sendWithClaim(id, rawMessage, mode, signal).then((result) =>
+		return this.#sendWithClaim(id, rawMessage, signal).then((result) =>
 			isOperationError(result) ? result : result.child,
 		);
 	}
@@ -1624,7 +1637,6 @@ export class SubagentManager {
 	async #sendWithClaim(
 		id: string,
 		rawMessage: string,
-		mode: SendMode,
 		signal?: AbortSignal,
 	): Promise<OperationError | DelegationSubmission> {
 		const message = stripHindsightContent(rawMessage);
@@ -1705,14 +1717,16 @@ export class SubagentManager {
 			}
 
 			const state = isResumed ? "running" : record.state;
-			// A resume already starts a fresh run, so the mode has nothing to decide: the message is
-			// that run's prompt. Otherwise the caller's mode is the request, with no state guessing:
-			// a running child steers at its next model step, an idle one simply starts a run.
-			const operation = isResumed ? "prompt" : mode;
+			// A resume already starts a fresh run, so the message is that run's prompt. Otherwise the
+			// input steers: a running child takes it at its next model step, an idle one starts a run.
+			const operation = isResumed ? "prompt" : "steer";
 			if (signal?.aborted) return failure("send", "Send was cancelled", id, state);
 			// Read before this dispatch marks the child running: only a child already inside a turn
-			// shares that turn's boundary, a fresh dispatch always opens the next one.
+			// shares that turn's boundary, a fresh dispatch always opens the next one. The boundary
+			// is claimed before the request goes out, because the child may announce `agent_start`
+			// before this dispatch's own acknowledgement arrives.
 			const joining = this.#working.has(id) && (this.#workVersions.get(id) ?? 0) > 0;
+			const claim = isCompactCommand(message) ? undefined : this.#claimRunBoundary(id, joining);
 			this.#clearSettledPanelClose(id);
 			const pending = await this.#update(id, (current) => {
 				const { interrupted: _interrupted, ...clean } = current;
@@ -1727,7 +1741,7 @@ export class SubagentManager {
 				const response = await this.#request(id, operation, { message });
 				const path = acknowledgedPath(response);
 				this.#paths.set(id, path);
-				this.#claimDispatch(id, message, response, joining);
+				this.#claimDispatch(id, response, claim);
 			} catch (error) {
 				return failure(
 					"send",
@@ -2035,6 +2049,10 @@ export class SubagentManager {
 							: { controlId: payload.controlId }),
 					})
 				: [];
+			if (settled === undefined) {
+				// The child still holds the report, so it can retry instead of losing the settlement.
+				throw new BridgeError("delivery_failed", "Settlement was not recorded");
+			}
 			const delivered = this.#claimedByWaiter(settled)
 				? { delivered: true as const }
 				: await this.contactParent(childId, reason, payload.message, record);

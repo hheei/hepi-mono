@@ -249,7 +249,7 @@ describe("registerChildControl", () => {
 		});
 	});
 
-	test("hands prompts, steers and follow-ups to the child's Pi", async () => {
+	test("hands prompts and steers to the child's Pi", async () => {
 		const parent = await startParent();
 		const { pi } = await startChild(parent);
 
@@ -260,14 +260,10 @@ describe("registerChildControl", () => {
 			accepted: true,
 			path: "/tmp/child-session.jsonl",
 		});
-		await expect(request(parent, "agent-1", "follow_up", { message: "continue" })).resolves.toEqual(
-			{ accepted: true, path: "/tmp/child-session.jsonl" },
-		);
 
 		expect(pi.sendUserMessage.mock.calls).toEqual([
 			["start the task"],
 			["go faster", { deliverAs: "steer" }],
-			["continue", { deliverAs: "followUp" }],
 		]);
 	});
 

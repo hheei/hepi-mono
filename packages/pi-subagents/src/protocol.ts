@@ -14,7 +14,6 @@ export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const BRIDGE_OPERATIONS = [
 	"prompt",
 	"steer",
-	"follow_up",
 	"abort",
 	"get_state",
 	"get_entries",

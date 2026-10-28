@@ -361,8 +361,6 @@ export function registerChildControl(pi: ExtensionAPI, options: ChildControlOpti
 				return deliverPrompt(request.payload, undefined);
 			case "steer":
 				return deliverPrompt(request.payload, "steer");
-			case "follow_up":
-				return deliverPrompt(request.payload, "followUp");
 			case "get_state":
 				return childState(requireContext(), isCompacting);
 			case "get_entries": {

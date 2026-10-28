@@ -114,16 +114,25 @@ export async function startStandaloneController(options: {
 		const started = { runtime, role, lock, ipc };
 		role = undefined;
 		runtime = undefined;
+		// Both signals and a second shutdown call reach this: dispose once, and release the role
+		// and lock even when closing the socket or the runtime throws.
+		let disposal: Promise<void> | undefined;
 		return {
 			workspace,
 			parentSessionId,
 			sessionFile,
 			socketPath,
-			async dispose() {
-				await closeControllerIpc(started.ipc);
-				await started.runtime.dispose();
-				endControllerRole(started.role);
-				started.lock.release();
+			dispose() {
+				disposal ??= (async () => {
+					try {
+						await closeControllerIpc(started.ipc);
+						await started.runtime.dispose();
+					} finally {
+						endControllerRole(started.role);
+						started.lock.release();
+					}
+				})();
+				return disposal;
 			},
 		};
 	} catch (error) {
