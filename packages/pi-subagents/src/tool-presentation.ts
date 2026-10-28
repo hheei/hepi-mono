@@ -7,6 +7,7 @@ import {
 	type ToolPresentation,
 	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
+import type { DashboardView, DelegationView } from "./delegation.js";
 
 /**
  * Owned presentations for every subagent tool. Each definition ships its own native renderers, so a
@@ -25,138 +26,69 @@ function ownedRenderers(
 	return createOptionalToolRenderers(pi, name, createToolPresentationRenderers(pi, name, present));
 }
 
-export interface AgentSpawnDetails {
-	readonly id: string;
-	readonly path: string;
-}
-
 function stringField(source: Record<string, unknown> | undefined, key: string): string | undefined {
 	const value = source?.[key];
 	return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-function numberField(source: Record<string, unknown>, key: string): number | undefined {
-	const value = source[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function spawnPresentation(
-	args: unknown,
+function delegationDetails(
 	result: AgentToolResult<unknown> | undefined,
-): ToolPresentation {
-	const record = isRecord(args) ? args : undefined;
-	const agent = stringField(record, "agent") ?? "agent";
-	const title = stringField(record, "title");
-	const task = stringField(record, "task");
-	const details = result !== undefined && isRecord(result.details) ? result.details : undefined;
-	const id = stringField(details, "id");
-	const path = stringField(details, "path");
-	const resultText = result === undefined ? undefined : agentResultText(result);
-	const rows = [
-		...(id === undefined ? [] : [`id: ${id}`]),
-		...(path === undefined ? [] : [`path: ${path}`]),
-	];
-	const summaryParts: string[] = [agent];
-	if (title !== undefined && title.trim() !== "") {
-		summaryParts.push(title.trim());
-	}
-	if (id !== undefined && id.trim() !== "") {
-		summaryParts.push(id.trim());
-	}
-	return {
-		summary: summaryParts.join(" · "),
-		...(task === undefined ? {} : { request: task }),
-		...(task === undefined
-			? {}
-			: {
-					copy: {
-						primary: task,
-						full: resultText === undefined ? task : `${task}\n---\n${resultText}`,
-					},
-				}),
-		...(rows.length === 0 ? {} : { output: rows.join("\n") }),
-	};
+): DelegationView | undefined {
+	const details = result?.details;
+	return isRecord(details) && typeof details.id === "string"
+		? (details as unknown as DelegationView)
+		: undefined;
 }
 
-function sendPresentation(
-	args: unknown,
-	result: AgentToolResult<unknown> | undefined,
-): ToolPresentation {
-	const record = isRecord(args) ? args : undefined;
-	const id = stringField(record, "id") ?? "agent";
-	const mode = stringField(record, "mode") ?? "steer";
-	const message = stringField(record, "message");
-	const confirmation = result === undefined ? undefined : agentResultText(result);
-	const copy =
-		message === undefined
-			? undefined
-			: {
-					primary: message,
-					...(confirmation === undefined ? {} : { full: `${message}\n${confirmation}` }),
-				};
-	return {
-		summary: `${id} · ${mode}`,
-		...(message === undefined ? {} : { request: message }),
-		...(confirmation === undefined ? {} : { output: confirmation }),
-		...(copy === undefined ? {} : { copy }),
-	};
-}
-
-const PROGRESS_TEXT_KEYS = ["agent", "path", "presentation", "freshness", "activeTool"] as const;
-const PROGRESS_NUMBER_KEYS = ["turns", "tokens"] as const;
-
-/** Readable selected fields only; never restates the task or a terminal answer. */
-function detailLines(details: Record<string, unknown>): string[] {
-	const lines: string[] = [];
-	const status = stringField(details, "status");
-	if (status !== undefined) lines.push(`status: ${status}`);
-	const progress = isRecord(details.progress) ? details.progress : undefined;
-	if (progress !== undefined) {
-		for (const key of PROGRESS_TEXT_KEYS) {
-			const value = stringField(progress, key);
-			if (value !== undefined) lines.push(`${key}: ${value}`);
-		}
-		for (const key of PROGRESS_NUMBER_KEYS) {
-			const value = numberField(progress, key);
-			if (value !== undefined) lines.push(`${key}: ${value}`);
-		}
-		const summary = stringField(progress, "summary");
-		if (summary !== undefined) lines.push(`summary: ${summary}`);
+/** Readable delegation state; the result body is copied, never restated as state. */
+function delegationLines(view: DelegationView): string[] {
+	const lines = [`status: ${view.status}`, `revision: ${view.revision}`];
+	if (view.progress !== undefined) {
+		lines.push(`runtime: ${view.progress.runtimeState}`);
+		if (view.progress.activeTool !== undefined)
+			lines.push(`activeTool: ${view.progress.activeTool}`);
+		if (view.progress.summary !== undefined) lines.push(`summary: ${view.progress.summary}`);
 	}
-	const diagnostic = stringField(details, "diagnostic");
-	if (diagnostic !== undefined) lines.push(`diagnostic: ${diagnostic}`);
+	lines.push(`hasOutput: ${String(view.hasOutput)}`);
+	if (view.error !== undefined) lines.push(`error: ${view.error.reason}`);
 	return lines;
 }
 
-function getCollapsedRow(details: Record<string, unknown>): string | undefined {
-	const parts: string[] = [];
-	const status = stringField(details, "status");
-	if (status !== undefined) parts.push(status);
-	const progress = isRecord(details.progress) ? details.progress : undefined;
-	if (progress !== undefined) {
-		const agent = stringField(progress, "agent");
-		if (agent !== undefined) parts.push(agent);
-		const turns = numberField(progress, "turns");
-		if (turns !== undefined) parts.push(`${turns} turn${turns === 1 ? "" : "s"}`);
-		const tokens = numberField(progress, "tokens");
-		if (tokens !== undefined) {
-			const tokStr =
-				tokens >= 1000 ? `${(tokens / 1000).toFixed(1).replace(/\.0$/u, "")}k` : String(tokens);
-			parts.push(`${tokStr} tok`);
-		}
-		const activeTool = stringField(progress, "activeTool");
-		if (activeTool !== undefined) {
-			parts.push(activeTool);
-		} else {
-			const summary = stringField(progress, "summary");
-			if (summary !== undefined) parts.push(summary.replace(/\s+/gu, " ").trim());
-		}
+function delegationRow(view: DelegationView): string {
+	const parts: string[] = [view.status];
+	if (view.agent !== undefined) parts.push(view.agent);
+	if (view.progress !== undefined) {
+		parts.push(view.progress.activeTool ?? view.progress.runtimeState);
 	}
-	const diagnostic = stringField(details, "diagnostic");
-	if (diagnostic !== undefined) {
-		parts.push(`diagnostic: ${diagnostic.replace(/\s+/gu, " ").trim()}`);
+	parts.push(`rev ${view.revision}`);
+	return parts.join(" · ");
+}
+
+function delegatePresentation(
+	args: unknown,
+	result: AgentToolResult<unknown> | undefined,
+): ToolPresentation {
+	const record = isRecord(args) ? args : undefined;
+	const agent = stringField(record, "agent");
+	const id = stringField(record, "id");
+	const task = stringField(record, "task");
+	const view = delegationDetails(result);
+	const resultText = view?.resultText;
+	const summaryParts = [view?.agent ?? agent ?? "agent"];
+	if (view !== undefined) {
+		summaryParts.push(view.id, `rev ${view.revision}`);
+	} else if (id !== undefined) {
+		summaryParts.push(id);
 	}
-	return parts.length > 0 ? parts.join(" · ") : undefined;
+	const output = resultText ?? (view === undefined ? undefined : delegationLines(view).join("\n"));
+	return {
+		summary: summaryParts.join(" · "),
+		...(task === undefined ? {} : { request: task }),
+		...(output === undefined ? {} : { output }),
+		...(task === undefined
+			? {}
+			: { copy: { primary: task, full: output === undefined ? task : `${task}\n---\n${output}` } }),
+	};
 }
 
 function getPresentation(
@@ -165,16 +97,15 @@ function getPresentation(
 ): ToolPresentation {
 	const record = isRecord(args) ? args : undefined;
 	const id = stringField(record, "id") ?? "agent";
-	const keys = stringField(record, "keys") ?? "status, progress";
-	const details = result !== undefined && isRecord(result.details) ? result.details : undefined;
-	const lines = details === undefined ? [] : detailLines(details);
-	const collapsedRow = details === undefined ? undefined : getCollapsedRow(details);
-	const resultText = result === undefined ? undefined : agentResultText(result);
+	const revision = record?.revision;
+	const view = delegationDetails(result);
+	const lines = view === undefined ? [] : delegationLines(view);
+	const resultText = view?.resultText;
 	return {
-		summary: id,
-		request: `keys: ${keys}`,
+		summary: typeof revision === "number" ? `${id} · rev ${revision}` : id,
+		request: record?.includeOutput === true ? "with output" : "without output",
 		...(lines.length === 0 ? {} : { output: lines.join("\n") }),
-		...(collapsedRow === undefined ? {} : { collapsedRows: [collapsedRow] }),
+		...(view === undefined ? {} : { collapsedRows: [delegationRow(view)] }),
 		...(resultText === undefined ? {} : { copy: { primary: resultText } }),
 	};
 }
@@ -185,11 +116,34 @@ function stopPresentation(
 ): ToolPresentation {
 	const record = isRecord(args) ? args : undefined;
 	const id = stringField(record, "id") ?? "agent";
+	const view = delegationDetails(result);
 	const confirmation = result === undefined ? undefined : agentResultText(result);
+	const output = confirmation ?? (view === undefined ? undefined : `status: ${view.status}`);
 	return {
 		summary: id,
-		...(confirmation === undefined ? {} : { output: confirmation }),
-		...(confirmation === undefined ? {} : { copy: { primary: confirmation } }),
+		...(output === undefined ? {} : { output }),
+		...(output === undefined ? {} : { copy: { primary: output } }),
+	};
+}
+
+function dashboardPresentation(
+	_args: unknown,
+	result: AgentToolResult<unknown> | undefined,
+): ToolPresentation {
+	const details = result?.details;
+	const view =
+		isRecord(details) && Array.isArray(details.children)
+			? (details as unknown as DashboardView)
+			: undefined;
+	if (view === undefined) return { summary: "agents" };
+	const rows = view.children.map((child) => {
+		const agent = child.agent === undefined ? "" : ` (${child.agent})`;
+		const summary = child.summary === undefined ? "" : ` — ${child.summary}`;
+		return `- ${child.id}${agent}: ${child.runtimeState} / ${child.status} · rev ${child.revision}${summary}`;
+	});
+	return {
+		summary: `${view.total} agents · running ${view.running} · blocked ${view.blocked} · completed ${view.completed} · failed ${view.failed}`,
+		...(rows.length === 0 ? {} : { output: rows.join("\n") }),
 	};
 }
 
@@ -218,16 +172,16 @@ function contactPresentation(
 
 /** One renderer set per tool, named exactly after its tool so nested calls resolve too. */
 export function parentToolRenderers(pi: ExtensionAPI): {
-	readonly spawn: ToolRenderers;
-	readonly send: ToolRenderers;
+	readonly delegate: ToolRenderers;
 	readonly get: ToolRenderers;
 	readonly stop: ToolRenderers;
+	readonly dashboard: ToolRenderers;
 } {
 	return {
-		spawn: ownedRenderers(pi, "agent_spawn", spawnPresentation),
-		send: ownedRenderers(pi, "agent_send", sendPresentation),
-		get: ownedRenderers(pi, "agent_get", getPresentation),
-		stop: ownedRenderers(pi, "agent_stop", stopPresentation),
+		delegate: ownedRenderers(pi, "agents_delegate", delegatePresentation),
+		get: ownedRenderers(pi, "agents_get", getPresentation),
+		stop: ownedRenderers(pi, "agents_stop", stopPresentation),
+		dashboard: ownedRenderers(pi, "agents_dashboard", dashboardPresentation),
 	};
 }
 

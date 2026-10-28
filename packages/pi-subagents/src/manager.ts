@@ -84,7 +84,7 @@ import {
 
 /**
  * How long an idle child keeps its runtime. A background child holds a whole Pi process and its
- * session lock, so an idle one is reclaimed after this window and a later `agent_send` starts it
+ * session lock, so an idle one is reclaimed after this window and a later `agents_delegate` starts it
  * again from the same session.
  */
 export const SUBAGENT_IDLE_TIMEOUT_MS = 15_000;
@@ -828,7 +828,7 @@ export class SubagentManager {
 				facts.contextTokens >= 100_000
 			) {
 				const kTokens = `${Math.round(facts.contextTokens / 1000)}k`;
-				message = `${message}\n\n[Context: ~${kTokens} tokens. If retaining this subagent for future tasks, send "/compact" via agent_send to trim memory.]`;
+				message = `${message}\n\n[Context: ~${kTokens} tokens. If retaining this subagent for future tasks, send "/compact" via agents_delegate to trim memory.]`;
 			}
 
 			const lastDelivered = this.#lastDeliveredTurn.get(id);
@@ -1273,7 +1273,7 @@ export class SubagentManager {
 				return failure("delegate", "Child id must not be empty", undefined, undefined, [], false);
 			}
 			onTarget?.(input.id);
-			// Ignore agent, cwd and title entirely: this child's launch config was frozen at spawn.
+			// Ignore agent and cwd entirely: this child's launch config was frozen at spawn.
 			const child = await this.send(input.id, input.task, "steer");
 			return isOperationError(child)
 				? child
@@ -1294,7 +1294,6 @@ export class SubagentManager {
 				task: input.task,
 				agent: input.agent,
 				...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-				...(input.title === undefined ? {} : { title: input.title }),
 			},
 			(config) => onTarget?.(config.subagentId),
 		);

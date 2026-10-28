@@ -51,7 +51,7 @@ child 的身份与生命周期由本规格定义（见 §5、§7）。ext-core �
 ### 3.1 后台执行（presentation=background）
 
 ```text
-agent_spawn / Task tool（无 host 时）
+agents_delegate / Task tool（无 host 时）
   -> resolve agent + effective launch config
   -> persist child/session intent（state=starting，presentation=background）
   -> parent spawn 一个 headless child Pi（--mode rpc，stdin 由 parent 持有）
@@ -66,24 +66,24 @@ agent_spawn / Task tool（无 host 时）
 ### 3.2 Panel 呈现与 bridge 控制面
 
 ```text
-agent_spawn
+agents_delegate
   -> presentation 在 spawn 时决定（panel：host tab/surface + LaunchSpec argv；后台：parent 直接 spawn）
   -> child 进程内 MailboxTransport 轮询同一 state.sqlite
   -> parent 只经 bridge 驱动 child（prompt/steer/follow_up/get_state/session_facts/get_entries/abort/shutdown）
   -> child 经同一连接回传 Pi 事件、child_lifecycle、child_input 与 report（contact_parent/task_result）
-  -> agent_stop：先写 stopped 意图，再关闭 panel / 结束进程
+  -> agents_stop：先写 stopped 意图，再关闭 panel / 结束进程
 ```
 
 不再有 attach/detach：没有 writer 交接、没有输入冻结、没有 pause handshake、没有 `close_writer`/`start_rpc`。
 同一个 child session 在整个受管理流程中最多一个受管理 runtime（§6.4）。用户直接用 Pi 原生 `/resume` 或外部进程打开同一 session 不在该保证范围内，也不得被 extension 拦截。
 
-呈现方式在 spawn 时冻结并记录在 registry 的 `presentation` 字段；`agent_spawn` 不暴露该参数，默认在有 host 时用 panel、没有 host 时用后台，并且**在 spawn 结果里明说**用了哪一种以及 fallback 原因（不静默改变执行环境）。Task tool 同样采用这个 host 优先策略；Task 仍由 parent 收口并在提交最终结果后结束，panel 只是 child runtime 的可见呈现，不改变一次性 Task 合同。
+呈现方式在 spawn 时冻结并记录在 registry 的 `presentation` 字段；`agents_delegate` 不暴露该参数，默认在有 host 时用 panel、没有 host 时用后台，并且**在 spawn 结果里明说**用了哪一种以及 fallback 原因（不静默改变执行环境）。Task tool 同样采用这个 host 优先策略；Task 仍由 parent 收口并在提交最终结果后结束，panel 只是 child runtime 的可见呈现，不改变一次性 Task 合同。
 
 panel child 的进程由 host 持有，parent 只持有 attachment：
 
 - spawn 时 parent 仍然铸造 runtime identity、bridge token 并构造唯一的 LaunchSpec（`presentation=panel` 时不含 `--mode rpc`、stdio=inherit），再交给 HostAdapter 打开 panel 并运行该 argv；
 - 写者是否还在只看进程锁，以及本进程自己持有的进程句柄。关闭 panel 只证明 attachment 消失。
-- 写者消失不是终止：child 保持身份与 session，后续 `agent_send` 用同一 session 再起 runtime（不重放中断的 turn）。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，调用方要收掉就 `agent_stop`。
+- 写者消失不是终止：child 保持身份与 session，后续 `agents_delegate` 用同一 session 再起 runtime（不重放中断的 turn）。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，调用方要收掉就 `agents_stop`。
 
 ### 3.3 Recovery
 
@@ -107,10 +107,10 @@ panel child 由 host 持有进程，天然跨 parent 存活，因此它的 runti
 会话模式注册 deferred 工具，通过 `tool_search` 按需加载：
 
 ```ts
-agent_spawn({ task: string, agent: string, cwd?: string, title?: string })
-agent_send({ id: string, message: string, mode?: "steer" | "follow_up" })
-agent_get({ id: string, keys?: string })
-agent_stop({ id: string })
+agents_delegate({ task: string, agent?: string, id?: string, cwd?: string, wait?: boolean })
+agents_get({ id: string, revision?: number, includeOutput?: boolean })
+agents_stop({ id: string })
+agents_dashboard({})
 ```
 
 执行状态各自管理：
@@ -118,15 +118,16 @@ SubagentManager 与 SQLite ledger 独占 child conversation、runtime lease、�
 
 规则：
 
-- 不提供 `agent_spawns`；并行由 Pi parallel tool calls 提供。
-- `agent_spawn` 必须给出明确 agent name；缺名或解析失败在启动前失败。
-- `agent_spawn` 由系统分配 ID，不接受调用方 ID；不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
-- `agent_spawn` 成功返回 JSON `{ id, path }`，path 是 Pi 分配的子 session 文件绝对路径（可能尚未落盘）；`agent_get` 的 progress.path 使用同一字段。`agent_send`、`agent_stop` 成功只返回一句确认，失败只返回原因。不附带 session ID、presentation 或状态快照。
-- `agent_spawn` 的 `title?` 只是 child session 的展示名：省略或纯空白时用 `🤖 <agent> · <subagentId>` 推导。
-- `agent_spawn` / `agent_send` 返回后，模型不得用 `agent_get` 轮询等待 child 完成。Child 沉降后 Harness 自动提取最终输出文本并以 `customType: "subagent-report"` 交付父会话：没有其他 child 在跑时 500ms 内成批发出，有 child 仍在工作时最多等待 10 秒把同批报告合并；卡点则通过 `contact_parent` 立即唤醒父会话。
-- `agent_get` 默认返回 `status,progress`，允许通过逗号分隔的 keys 选择 `diagnostic`；未知 key 报错。只返回当前运行信息，不复述初始任务或最终结果，不提供输出长度参数。
-- `agent_send` 只接受目标 child 和语义输入；发送给已完成（done）的 child 会自动唤醒并恢复其上下文。模型切勿在派发前等待或要求 Worker “冻结代码”。
-- `agent_stop` 是唯一 model-facing 终止操作，先持久化 stopped 意图，再结束 runtime。
+- 不提供批量派发工具；并行由 Pi parallel tool calls 提供。
+- 新建 agent 必须给出明确 agent name；缺名或解析失败在启动前失败。有 `id` 时 `agent` 被忽略。
+- 新 agent 的 ID 由系统分配，不接受调用方指定；不暴露 model、thinking、tools、extensions、skills 或 budget 参数。
+- `agents_delegate` 返回 `{ id, revision, status, task, hasOutput }`：`revision` 是该 agent 上单调递增的委派序号，标识这一次派发。`wait:true`（缺省）等到结算并带结果正文；`wait:false` 受理即返回，结果仍会自动交付。`agents_stop` 成功返回该 agent 的同一投影。
+- 委派没有 `title` 与 `mode` 参数：child session 标题由系统用 `🤖 <agent> · <subagentId>` 推导，接续始终是 steer。
+- `agents_delegate` 返回后，模型不得用 `agents_get` 轮询等待 child 完成。Child 沉降后 Harness 自动提取最终输出文本并以 `customType: "subagent-report"` 交付父会话：没有其他 child 在跑时 500ms 内成批发出，有 child 仍在工作时最多等待 10 秒把同批报告合并；卡点则通过 `contact_parent` 立即唤醒父会话。
+- `agents_get` 缺省读取该 agent 最新的委派，`revision` 选择历史委派，`includeOutput` 为真时才返回结果正文，并沿用 ext-core 的同一输出上限。投影同时给出委派 `status` 与 `progress.runtimeState`，两者分开呈现，历史结果不会被新一轮覆盖。
+- `agents_dashboard` 只返回运行统计和每个 agent 的最新委派摘要，不返回正文。
+- `agents_delegate` 用 `id` 接续时接受目标 child 的任意状态；接续已完成（done）的 child 会自动唤醒并恢复其上下文。模型切勿在派发前等待或要求 Worker “冻结代码”。
+- `agents_stop` 是唯一 model-facing 终止操作：先持久化 stopped 意图，再结束 runtime；未结算的委派记为 failed，已完成的结果与会话保留。
 
 ### 4.2 Child-facing tool
 
@@ -318,23 +319,23 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 - running child：`steer`（缺省）在当前回合的工具调用结束后、下一次模型请求前插入；`follow_up` 等整个 run 没有工具调用和 steering 后再作为新回合继续。
 - idle child：`steer` 没有可插入的回合，直接开新 run；`follow_up` 同样开新 run。不按屏幕状态猜测意图。
 - 没有可用 runtime 时先按冻结的 presentation 拉起同一 session（panel 会开一个新 panel），失败同理返回可见错误。
-- 写者消失（锁已空，或本进程看见后台进程退出）不是终止：runtime 从账本拿掉；当时在跑则记 `blocked` 并回报一次，intent 保持 active。后续 `agent_send` 用同一 session 再起 runtime。宿主已确认 panel 进程不在时关掉空标签。标签还在不拒绝 send。
-- `agent_stop` 才是终止：先写 stopped intent，再关 panel 或结束进程。
+- 写者消失（锁已空，或本进程看见后台进程退出）不是终止：runtime 从账本拿掉；当时在跑则记 `blocked` 并回报一次，intent 保持 active。后续 `agents_delegate` 用同一 session 再起 runtime。宿主已确认 panel 进程不在时关掉空标签。标签还在不拒绝 send。
+- `agents_stop` 才是终止：先写 stopped intent，再关 panel 或结束进程。
 - 系统 idle 自动回收落 `done`，后续 send 可以恢复同一个 session；不得把自动回收后排队到达的断线事件当成人工终止。
-- 本进程的进程句柄还活着时，send 拒绝再起 runtime（`safeToRetry=false`）。调用方先 `agent_stop` 这个 child，再对同一个 id 发送，不要另 spawn。面板打开未确认、或看不到锁文件，都不是拒绝理由。未知的宿主列表仍然不得当成死亡。attachment 身份按 §7.7 持久化。
+- 本进程的进程句柄还活着时，send 拒绝再起 runtime（`safeToRetry=false`）。调用方先 `agents_stop` 这个 child，再对同一个 id 发送，不要另 spawn。面板打开未确认、或看不到锁文件，都不是拒绝理由。未知的宿主列表仍然不得当成死亡。attachment 身份按 §7.7 持久化。
 - Task child 不接受后续输入，拒绝也标记为不可直接重试。
 - 已接受但未确认持久化的输入被记录为待确认，断线后不静默重放。
 
 ### 7.3 Idle 回收
 
 - 收到最终 `agent_settled`（不是 `agent_end`）且没有待处理输入后 child 落 `idle`；`SUBAGENT_IDLE_TIMEOUT_MS`（15s）到期即回收 runtime（先经 bridge 请求 `shutdown`，再结束进程），state 落 `done`，identity 与 session 保留。
-- 回收只针对 `idle` 的 child：running 的 child 永远不会被自动结束，只有 `agent_stop`（或人自己关掉 panel）结束正在工作的 child。
+- 回收只针对 `idle` 的 child：running 的 child 永远不会被自动结束，只有 `agents_stop`（或人自己关掉 panel）结束正在工作的 child。
 - Task child 不参与 idle 回收：它的 parent 在收下结果后立刻清理 runtime。
 - 回收时关不掉或观察不到：不改记录，句柄留着。标签是调用方的。进程句柄仍活着时 send 仍拒绝再起 runtime。
 - panel child 的倒计时受聚焦影响：到期时先 `observe()`，panel 仍然聚焦（或聚焦不可判定）就重新计时，只有明确「没人在看」才关闭 panel。观察不清楚时不关闭——panel 只在有判断依据时被关掉。
 - 在检查期间到达的任何 child 信号都会让这一次回收作废并重新计时：这些事件排在回收任务之后处理，只有「入站信号计数」能拦住一个已经在飞行中的判断，否则一个刚开始使用 panel 的人会失去它。
 - 人手动输入（`child_input` 且 `source=interactive`）取消倒计时；parent 自己经 bridge 发的消息（`source=rpc`）不算人的存在。turn 结束后若没有待处理输入会重新计时。
-- 宿主无法报告聚焦时（今天的 cmux）不倒计时：这类 child 只由 `agent_stop` 关闭，`HostAttachment.reportsFocus` 让 manager 不必猜。
+- 宿主无法报告聚焦时（今天的 cmux）不倒计时：这类 child 只由 `agents_stop` 关闭，`HostAttachment.reportsFocus` 让 manager 不必猜。
 - 本进程不持有 runtime 的 child（例如 parent 重启后 adopt 的 panel child）不倒计时：既无法确认退出，也无法判断聚焦，因此不做回收。
 
 ### 7.4 Session switch
@@ -354,7 +355,7 @@ TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child 
 
 对 adopt 来的 child（本进程既不持有进程也不持有 panel），stop 只能请求 `shutdown` 并等待 bridge 断开（有上限）；等不到就明确报告「需要人手动关闭它的 panel」，不谎报已停止。
 
-进程锁还被持有时，连接看起来断了也不结束这个 child，也不自动关 panel。锁已经空了才按写者消失入账。panel 标签可以留着；只有宿主确认进程已退出时才丢掉句柄并关掉空标签。调用方要收掉留下的标签，自己 `agent_stop`。
+进程锁还被持有时，连接看起来断了也不结束这个 child，也不自动关 panel。锁已经空了才按写者消失入账。panel 标签可以留着；只有宿主确认进程已退出时才丢掉句柄并关掉空标签。调用方要收掉留下的标签，自己 `agents_stop`。
 
 非显然不变式：headless child 跑在 Pi 的 rpc mode 下，`ctx.shutdown()` 只置一个 flag，而 rpc mode 只在处理完一条命令或 `agent_settled` 之后检查它，因此对 idle child 的 `shutdown` 请求不会让进程退出，它只是"这一轮结束后请退出"的礼貌请求。真正的优雅退出是 **SIGTERM**：rpc mode 注册了 SIGTERM handler，会走完整的 dispose（发出 `session_shutdown`、flush 会话、清理 runtime）并以 143（128+15）退出，所以退出码 143 是预期的优雅退出，不是失败；进程是否结束只看存活，不看退出码。进程退出无法确认时返回可见失败并保留证据。exit callback 看到 stopped 后不得触发自动恢复。Stop 幂等；stopped child 永不自动恢复。
 
@@ -454,7 +455,7 @@ V1 UI保持最小：
 - tools完整显示结果并可引用collapsed output；
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
-- 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `agent_stop`；attach 及其快捷键已随 §3.2 一并删除；
+- 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `agents_stop`；attach 及其快捷键已随 §3.2 一并删除；
 - parent 用原生 `setStatus("pi-subagents", text)` 投影 `SubagentManager.list()` 中正在运行的 child，仅显示一个 running glyph 和编号，例如 `󰪠#21 #22 #23`。`pi-status` 将其放在第二行右侧、TODO 前；两段以 ` ‧ ` 分隔，缺席段不留分隔符。无额外 Widget、elapsed 计时器或终态保留窗口；过期异步投影不得覆盖最新状态，生命周期结束清除状态并取消订阅。
 - 已确认的 done/error/blocked 报告用一次性 `subagent-info` custom entry 展示，默认只显示结果状态和身份，展开查看完整报告；支持 resume 和 Headless `entry_appended`，不进入模型上下文。模型仍接收原有 `subagent-report`，其重复的可见展示隐藏；保留沉降、重试取消和报告去重。
 - TUI child 不挂身份 widget；身份由 session title（`🤖 <agent> · <id>`）与 child branch 自己的原生 TUI 表达。
@@ -531,7 +532,7 @@ SUB-01至SUB-05形成第一个可运行的RPC闭环。SUB-06完成持久恢复�
 Stage 1  bridge 控制面（parent 侧 server、child 侧 client + 请求分发、协议收窄）✅
 Stage 2  传输从 runner 切到 bridge（parent 直接 spawn 后台 child；删除 runner/connector/rpc-adapter/
          pause-gate、attach/detach、claim、#frozen）✅
-Stage 3  panel 默认呈现（HostAdapter.open + 聚焦观察 + agent_spawn 默认 panel）✅
+Stage 3  panel 默认呈现（HostAdapter.open + 聚焦观察 + agents_delegate 默认 panel）✅
 Stage 4  panel 生命周期（stop 关 panel、聚焦暂停 idle 回收、runtime 消失时释放 panel）✅
 Stage 5  文档与 ticket 收口（本文件、README、tickets、architecture、DESIGN）⏳
 ```

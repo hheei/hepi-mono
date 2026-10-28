@@ -247,17 +247,14 @@ export async function resolveSubagentLaunch(
 	options: ResolveSubagentLaunchOptions,
 ): Promise<EffectiveLaunchConfig> {
 	const task = options.input.task.trim();
-	if (task === "") throw new Error("agent_spawn requires a non-empty task");
+	if (task === "") throw new Error("agents_delegate requires a non-empty task");
 	const name = options.input.agent?.trim();
 	if (name === undefined || name === "") {
 		throw new Error(
-			"agent_spawn requires an explicit agent name; V1 has no built-in default agent",
+			"agents_delegate requires an explicit agent name; V1 has no built-in default agent",
 		);
 	}
 	const cwd = resolve(options.input.cwd?.trim() || options.cwd);
-	const requestedTitle = options.input.title?.trim();
-	// A blank title is the same as no title: the child derives one from its own identity.
-	const title = requestedTitle === "" ? undefined : requestedTitle;
 	const subagentId = options.subagentId ?? createSubagentId(options.existingSubagentIds);
 	const sessionId = options.sessionId ?? randomUUID();
 	const bridgeExtensionPath = options.bridgeExtensionPath ?? resolveBridgeExtensionPath();
@@ -295,7 +292,6 @@ export async function resolveSubagentLaunch(
 		prompt: assembleChildPrompt(instructions),
 		bridgeExtensionPath,
 		...(policy.codemodeOnly ? { codemodeOnly: true } : {}),
-		...(title === undefined ? {} : { title }),
 	});
 }
 

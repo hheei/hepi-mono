@@ -21,7 +21,7 @@
 | AGENTS-03 | /compact 控制操作结算 | 02 | [x] |
 | AGENTS-04 | 等待、取消与单次交付 | 02、03 | [x] |
 | AGENTS-05 | get/dashboard/stop 与有界输出 | 02、03 | [x] |
-| AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [ ] |
+| AGENTS-06 | Pi 工具切换与发现提示 | 04、05 | [x] |
 | AGENTS-07 | MCP 工具与 App 同步切换 | 04、05 | [x] |
 | AGENTS-08 | 跨端集成、恢复与实机验收 | 06、07 | [ ] |
 
@@ -137,7 +137,7 @@
 
 ## AGENTS-06：Pi 工具原子切换
 
-**Spec**：§2、§3、§6、§8。**状态**：[ ]。**依赖**：AGENTS-04、05。
+**Spec**：§2、§3、§6、§8。**状态**：[x]。**依赖**：AGENTS-04、05。
 
 **交付**
 
@@ -262,6 +262,15 @@
 - 文档：`docs/pi-subagents/mcp.md` 的交互、descriptor、流程图、工具表、结算与验收段全部改为新契约，并新增升级后重连 `tools/list` 的说明；`docs/pi-subagents/tickets.md` 作为历史 ticket 记录保持原样。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，`mcp-app-view` 13 个 App DOM 用例与 `mcp-stdio` 的 tools/list 可见性断言全部改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：Codex Desktop 实机卡片与 Dashboard 的视觉/交互验收（AGENTS-08）；Pi 侧工具仍是旧 `agent_*` 名称，两端口径在 AGENTS-06 后才一致。
+
++### AGENTS-06
+
+- 注册：`tools.ts` 只注册 `agents_delegate` / `agents_get` / `agents_stop` / `agents_dashboard`，全部走 AGENTS-02～05 的 `manager.delegate` / `inspect` / `stopAgent` / `dashboard`；旧 `agent_spawn`/`agent_send`/`agent_get`/`agent_stop` 与 `keys` 投影、`title`、`mode` 公共参数删除。
+- 发现与提示：`tool-activation` 的 deferred 名单、`optional_tools` 条目、工具描述、可用 agent 目录、`contact_parent` 指导与 `/subagents` 非 TUI 提示同步改为新名字；`title` 输入从 `SpawnSubagentInput`/`DelegateSubagentInput`/launch 解析中删除，child session 标题仍按 `🤖 <agent> · <id>` 推导。
+- 呈现：`tool-presentation` 改为 delegate/get/stop/dashboard 四个 presentation，读取 `DelegationView`/`DashboardView`；`pi-ext-ui` 的 inline summary 分支同步改名。
+- 文档：根 README、`DESIGN.md`、`docs/architecture/pi-subagents.md`、`docs/architecture/background-tasks.md`、`docs/pi-subagents/spec.md` 与 package README 的工具表改为统一契约。
+- 验证：`pnpm exec vitest run packages/pi-subagents/test packages/pi-ext-ui/test`（493 passed，新增 `agents-tools.test.ts` 9 个工具契约用例，`tool-presentation` 17 个呈现用例改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
+- 未验证：真实模型驱动的 Pi smoke（headless SDK 初始化用例通过，但没有真实模型回合）；Codex Desktop 实机在 AGENTS-08。
 
 ## 完成记录模板
 

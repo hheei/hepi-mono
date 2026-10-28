@@ -291,7 +291,7 @@ export function createCmuxHostAdapter(options: HostAdapterOptions): HostAdapter 
 				noun: "surface",
 				// TODO(cmux-focus): cmux does not report which surface a human is looking at, so
 				// observation cannot answer `focused` and idle reclaim fails open here: a cmux child
-				// is only ever closed by agent_stop.
+				// is only ever closed by agents_stop.
 				reportsFocus: false,
 				observe: async () => {
 					const process = await runner.run("cmux", ["--json", "list-panels"], { timeoutMs });

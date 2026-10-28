@@ -7,55 +7,64 @@ import { textToolResult } from "@hheei/pi-ext-core";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { DiscoveredAgent } from "./agent-resolver.js";
-import { type ChildIdentity, isOperationError, type PublicSubagent } from "./domain.js";
-
+import type { DashboardView, DelegationView } from "./delegation.js";
+import { type ChildIdentity, isOperationError } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
-import {
-	type AgentSpawnDetails,
-	contactParentRenderers,
-	parentToolRenderers,
-} from "./tool-presentation.js";
+import { contactParentRenderers, parentToolRenderers } from "./tool-presentation.js";
 
-const spawnSchema = Type.Object(
+const delegateSchema = Type.Object(
 	{
-		task: Type.String({ minLength: 1 }),
-		agent: Type.String({
+		task: Type.String({
 			minLength: 1,
-			description: "Agent name from <available_agents> in this tool description.",
+			description: "Work to perform in the selected agent session.",
 		}),
-		cwd: Type.Optional(Type.String()),
-		title: Type.Optional(
-			Type.String({
-				maxLength: 60,
+		wait: Type.Optional(
+			Type.Boolean({
 				description:
-					"Short session title for this child, e.g. 'OVITO properties editor'. It becomes the child's Pi session title, prefixed with a robot marker so delegated sessions stay recognizable; omit it — or leave it blank — to derive one from the agent name and child id.",
+					"Wait for the final result (default true). False returns the accepted delegation immediately, and its result is delivered automatically when it finishes.",
+			}),
+		),
+		id: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description:
+					"Existing agent id, e.g. agent-1. Takes precedence over agent and reuses its session.",
+			}),
+		),
+		agent: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "Agent name from <available_agents> for a new agent. Ignored with id.",
+			}),
+		),
+		cwd: Type.Optional(
+			Type.String({ description: "Working directory for a new agent; ignored with id." }),
+		),
+	},
+	{ additionalProperties: false },
+);
+const getSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-1" }),
+		revision: Type.Optional(
+			Type.Integer({
+				minimum: 1,
+				description: "Delegation revision of this agent. Defaults to the newest one.",
+			}),
+		),
+		includeOutput: Type.Optional(
+			Type.Boolean({
+				description:
+					"Return the delegation's result body, bounded by the shared output budget. Defaults to false.",
 			}),
 		),
 	},
 	{ additionalProperties: false },
 );
-const sendSchema = Type.Object({
-	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
-	message: Type.String({ minLength: 1 }),
-	mode: Type.Optional(
-		Type.Union([Type.Literal("steer"), Type.Literal("follow_up")], {
-			description:
-				"steer (the default) enters the child's current turn once its tool calls are in, before the next model request, so it redirects work already in flight; an idle child just starts a run. follow_up waits until the child has no tool calls or steering left, then continues as a new turn. Use follow_up for work that must not interrupt what the child is doing now.",
-		}),
-	),
-});
 const idSchema = Type.Object({
-	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
+	id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-1" }),
 });
-const getSchema = Type.Object({
-	id: Type.String({ minLength: 1, description: "Subagent id, e.g. agent-1" }),
-	keys: Type.Optional(
-		Type.String({
-			description:
-				"Comma-separated fields to return. Defaults to 'status,progress'. Allowed: status, progress, diagnostic.",
-		}),
-	),
-});
+const dashboardSchema = Type.Object({}, { additionalProperties: false });
 const contactSchema = Type.Object({
 	message: Type.String({
 		minLength: 1,
@@ -64,7 +73,7 @@ const contactSchema = Type.Object({
 	reason: Type.Optional(
 		Type.Union([Type.Literal("blocked"), Type.Literal("error")], {
 			description:
-				"Reason: 'blocked' if waiting for input/guidance (can be resumed via agent_send), or 'error' if the turn failed (you may retry via agent_send or create a new child). Defaults to 'blocked'.",
+				"Reason: 'blocked' if waiting for input/guidance (can be resumed via agents_delegate with this id), or 'error' if the turn failed (you may retry or create a new agent). Defaults to 'blocked'.",
 		}),
 	),
 });
@@ -72,7 +81,7 @@ const contactSchema = Type.Object({
 const SUBAGENTS_NAMESPACE = {
 	name: "agent",
 	aliases: ["agent", "agents", "subagent", "subagents"],
-	description: "Subagent orchestration and delegation tools",
+	description: "Agent orchestration and delegation tools",
 } as const;
 
 export function formatAvailableAgents(agents: readonly DiscoveredAgent[]): string {
@@ -90,21 +99,20 @@ export function formatAvailableAgents(agents: readonly DiscoveredAgent[]): strin
 	].join("\n");
 }
 
-function getSpawnDescription(agents: readonly DiscoveredAgent[]): string {
+function getDelegateDescription(agents: readonly DiscoveredAgent[]): string {
 	return [
-		"Spawn an independent background subagent task to work on a goal asynchronously. Choose an agent from <available_agents> below.",
-		"Returns JSON { id, path }, where path is the absolute child session file path; the first write may still be pending.",
-		"Results are returned automatically to this parent session when the task finishes. After spawning, do independent work or end your turn; do not poll agent_get.",
-		"Related subagent tools: agent_send, agent_get, agent_stop.",
+		"Delegate work to a new or existing agent. Supply agent to start a new session, or id to continue an existing one; with both, id wins and agent is ignored.",
+		"Returns { id, revision, status, hasOutput }: revision identifies this delegation of that agent, and a finished delegation carries its result when wait is true. Results are delivered automatically when the task finishes, so do independent work or end your turn instead of polling agents_get.",
+		"Related agent tools: agents_get, agents_stop, agents_dashboard.",
 		formatAvailableAgents(agents),
 	].join("\n");
 }
-const SEND_DESCRIPTION =
-	"Send input to an existing subagent (e.g. 'agent-1'), resuming its session when it is idle, blocked, done, or errored. A child whose runtime has ended is resumed the same way: send to that id, do not spawn a replacement. Stop it first only when send reports the previous process is still running. Results are returned automatically when the task finishes; do not poll agent_get. Related subagent tools: agent_spawn, agent_get, agent_stop.";
 const GET_DESCRIPTION =
-	"Inspect one subagent's status, progress, or diagnostic details by id (e.g. 'agent-1'). Use keys to choose fields; defaults to 'status,progress'. Results are returned automatically; use this for inspection, not completion polling. Related subagent tools: agent_spawn, agent_send, agent_stop.";
+	"Read one agent delegation: the newest by default, or one revision, with its result body when includeOutput is true. Use it for inspection, not completion polling. Related agent tools: agents_delegate, agents_stop, agents_dashboard.";
 const STOP_DESCRIPTION =
-	"Stop a subagent's runtime by id (e.g. 'agent-1'). The child keeps its session, so a later agent_send can resume it. Related subagent tools: agent_spawn, agent_send, agent_get.";
+	"Stop an agent runtime by id (e.g. 'agent-1'). Open delegations end as failed; finished results and the session are kept, so a later agents_delegate with this id resumes it. Related agent tools: agents_delegate, agents_get, agents_dashboard.";
+const DASHBOARD_DESCRIPTION =
+	"List this session's agents with their runtime state and latest delegation. Related agent tools: agents_delegate, agents_get, agents_stop.";
 const CONTACT_DESCRIPTION =
 	"Notify the parent session when you are BLOCKED and cannot continue without parent decision or intervention. Do NOT call this on success or task completion: simply output your final answer directly as normal text in your response, and the harness will automatically capture and report your result to the parent.";
 const CONTACT_SNIPPET =
@@ -112,57 +120,8 @@ const CONTACT_SNIPPET =
 const CONTACT_GUIDELINES = [
 	"Use contact_parent ONLY if you are blocked or urgently require a parent decision midway.",
 	"Do NOT use contact_parent to deliver final findings or report success: output normal text instead.",
-	"After reporting a blocker, wait for a parent agent_send instruction.",
+	"After reporting a blocker, wait for a parent agents_delegate instruction.",
 ] as const;
-
-const GET_KEYS = ["status", "progress", "diagnostic"] as const;
-export type AgentGetKey = (typeof GET_KEYS)[number];
-
-/** Parses the comma-separated `keys` argument; empty means the default view. */
-function parseAgentGetKeys(raw: string | undefined): readonly AgentGetKey[] {
-	if (raw === undefined) return ["status", "progress"];
-	const keys: AgentGetKey[] = [];
-	for (const part of raw.split(",")) {
-		const key = part.trim();
-		if (key === "") continue;
-		if (!(GET_KEYS as readonly string[]).includes(key)) {
-			throw new Error(`Unknown agent_get key "${key}". Allowed keys: ${GET_KEYS.join(", ")}.`);
-		}
-		if (!keys.includes(key as AgentGetKey)) keys.push(key as AgentGetKey);
-	}
-	return keys.length > 0 ? keys : ["status", "progress"];
-}
-
-function childAgentDetails(
-	child: PublicSubagent,
-	keys: readonly AgentGetKey[],
-): Record<string, unknown> {
-	const view: Record<string, unknown> = {};
-	if (keys.includes("status")) view.status = child.state;
-	if (keys.includes("progress")) {
-		view.progress = {
-			agent: child.agent,
-			...(child.path === undefined ? {} : { path: child.path }),
-			presentation: child.presentation,
-			freshness: child.freshness,
-			...(child.activeTool === undefined ? {} : { activeTool: child.activeTool.slice(0, 200) }),
-			...(child.state !== "running" || child.summary === undefined
-				? {}
-				: { summary: child.summary.slice(0, 2000) }),
-			...(child.usage === undefined
-				? {}
-				: { turns: child.usage.turns, tokens: child.usage.inputTokens + child.usage.outputTokens }),
-		};
-	}
-	if (keys.includes("diagnostic")) {
-		const diagnostic =
-			child.interrupted ??
-			(child.state === "blocked" || child.state === "error" ? child.summary : undefined) ??
-			(child.freshness === "last_known" ? "Runtime disconnected; state is last known" : undefined);
-		if (diagnostic !== undefined) view.diagnostic = diagnostic.slice(0, 2000);
-	}
-	return view;
-}
 
 export function registerParentTools(
 	pi: ExtensionAPI,
@@ -170,57 +129,42 @@ export function registerParentTools(
 	agents: readonly DiscoveredAgent[],
 ): void {
 	const renderers = parentToolRenderers(pi);
-	const inspectedTasks = new Set<string>();
-	function inspectionResult<T>(id: string, text: string, details: T): AgentToolResult<T> {
-		const repeated = inspectedTasks.has(id);
-		inspectedTasks.add(id);
+	const inspected = new Set<string>();
+	/** The same inspection twice in a row is polling, and polling never gets the answer faster. */
+	function inspectionResult(
+		id: string,
+		text: string,
+		details: DelegationView,
+	): AgentToolResult<DelegationView> {
+		const repeated = inspected.has(id);
+		inspected.add(id);
 		return textToolResult(
-			repeated ? `${text}\nResults are returned automatically; do not poll agent_get.` : text,
+			repeated ? `${text}\nResults are delivered automatically; do not poll agents_get.` : text,
 			details,
 		);
 	}
-	const spawn: ToolDefinition<typeof spawnSchema> = {
-		name: "agent_spawn",
+	const delegate: ToolDefinition<typeof delegateSchema> = {
+		name: "agents_delegate",
 		namespace: SUBAGENTS_NAMESPACE,
-		label: "Spawn agent",
-		description: getSpawnDescription(agents),
-		parameters: spawnSchema,
-		exposure: "deferred",
-		defaultActive: false,
-		annotations: {
-			openWorldHint: true,
-		},
-		async execute(_id, params) {
-			if (!Value.Check(spawnSchema, params)) throw new Error("Invalid agent_spawn parameters");
-			const spawned = await manager.spawn(params);
-			if (isOperationError(spawned)) throw new Error(spawned.reason);
-			const { id } = spawned.child;
-			const { path } = spawned;
-			const details: AgentSpawnDetails = { id, path };
-			return textToolResult(JSON.stringify(details), details);
-		},
-		...renderers.spawn,
-	};
-	const send: ToolDefinition<typeof sendSchema> = {
-		name: "agent_send",
-		namespace: SUBAGENTS_NAMESPACE,
-		label: "Send to agent",
-		description: SEND_DESCRIPTION,
-		parameters: sendSchema,
+		label: "Delegate to agent",
+		description: getDelegateDescription(agents),
+		parameters: delegateSchema,
 		exposure: "deferred",
 		defaultActive: false,
 		annotations: {
 			openWorldHint: true,
 		},
 		async execute(_id, params, signal) {
-			const sent = await manager.send(params.id, params.message, params.mode, signal);
-			if (isOperationError(sent)) throw new Error(sent.reason);
-			return textToolResult("Message sent.", undefined);
+			if (!Value.Check(delegateSchema, params))
+				throw new Error("Invalid agents_delegate parameters");
+			const view = await manager.delegate(params, signal);
+			if (isOperationError(view)) throw new Error(view.reason);
+			return textToolResult(JSON.stringify(view), view);
 		},
-		...renderers.send,
+		...renderers.delegate,
 	};
 	const get: ToolDefinition<typeof getSchema> = {
-		name: "agent_get",
+		name: "agents_get",
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "Get agent",
 		description: GET_DESCRIPTION,
@@ -232,16 +176,19 @@ export function registerParentTools(
 			idempotentHint: true,
 		},
 		async execute(_id, params) {
-			const keys = parseAgentGetKeys(params.keys);
-			const child = await manager.get(params.id);
-			if (isOperationError(child)) throw new Error(child.reason);
-			const view = childAgentDetails(child, keys);
+			if (!Value.Check(getSchema, params)) throw new Error("Invalid agents_get parameters");
+			const view = await manager.inspect({
+				id: params.id,
+				...(params.revision === undefined ? {} : { revision: params.revision }),
+				includeOutput: params.includeOutput === true,
+			});
+			if (isOperationError(view)) throw new Error(view.reason);
 			return inspectionResult(params.id, JSON.stringify(view), view);
 		},
 		...renderers.get,
 	};
 	const stop: ToolDefinition<typeof idSchema> = {
-		name: "agent_stop",
+		name: "agents_stop",
 		namespace: SUBAGENTS_NAMESPACE,
 		label: "Stop agent",
 		description: STOP_DESCRIPTION,
@@ -252,16 +199,40 @@ export function registerParentTools(
 			destructiveHint: true,
 		},
 		async execute(_id, params) {
-			const stopped = await manager.stop(params.id);
-			if (isOperationError(stopped)) throw new Error(stopped.reason);
-			return textToolResult("Agent stopped.", undefined);
+			const view = await manager.stopAgent(params.id);
+			if (isOperationError(view)) throw new Error(view.reason);
+			return textToolResult(
+				`Agent ${view.id} stopped; revision ${view.revision} is ${view.status}.`,
+				view,
+			);
 		},
 		...renderers.stop,
 	};
-	pi.registerTool(spawn);
-	pi.registerTool(send);
+	const dashboard: ToolDefinition<typeof dashboardSchema> = {
+		name: "agents_dashboard",
+		namespace: SUBAGENTS_NAMESPACE,
+		label: "Agent dashboard",
+		description: DASHBOARD_DESCRIPTION,
+		parameters: dashboardSchema,
+		exposure: "deferred",
+		defaultActive: false,
+		annotations: {
+			readOnlyHint: true,
+			idempotentHint: true,
+		},
+		async execute() {
+			const view: DashboardView = await manager.dashboard();
+			return textToolResult(
+				`${view.total} agents · running ${view.running} · blocked ${view.blocked} · completed ${view.completed} · failed ${view.failed}`,
+				view,
+			);
+		},
+		...renderers.dashboard,
+	};
+	pi.registerTool(delegate);
 	pi.registerTool(get);
 	pi.registerTool(stop);
+	pi.registerTool(dashboard);
 }
 
 /** Sends a child-initiated request over the bridge and resolves with the parent's answer. */

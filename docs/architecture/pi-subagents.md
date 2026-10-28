@@ -23,15 +23,15 @@ local state (timers, projectors, subscriptions); a surviving child keeps writing
 background child is held by its stdin pipe, so it ends with the parent process.
 
 There is no attach or detach: a child is presented where it was spawned and never switches
-afterwards. `agent_spawn` prefers a panel (a new Herdr tab or cmux surface
+afterwards. `agents_delegate` prefers a panel (a new Herdr tab or cmux surface
 running the child's own Pi TUI) targeting the parent's current workspace, and falls back to a headless
 background process when this parent has no host. Panel launches pass Pi's `--approve` flag so project-file
 trust cannot interrupt startup. The presentation is frozen in the registry as `panel` | `background` (see
 [`PLAN-panel-bridge.md`](../pi-subagents/PLAN-panel-bridge.md)).
 Native `/resume` of the same session outside the managed path is not intercepted.
 
-系统确认成功的 idle 回收保留可恢复身份：后续 `agent_send` 使用同一 session。写者消失（进程锁已空，或本进程看见自己的后台进程退出）记 `blocked` 并回报一次，不改成 stopped intent；后续 `agent_send` 用同一 session 再起 runtime，调用方不要为此另 spawn。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agent_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
-`agent_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §7.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
+系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。写者消失（进程锁已空，或本进程看见自己的后台进程退出）记 `blocked` 并回报一次，不改成 stopped intent；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
+`agents_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §7.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
 已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。
@@ -53,9 +53,9 @@ child 的最终回答是一个父会话要读的结果，因此和所有工具�
 
 ## 子代理工具说明与动态启用
 
-父会话通过 `tool_search` 按需加载 `agent_spawn`、`agent_send`、`agent_get`、`agent_stop`；已有协作说明由动态启用逻辑提供。`agent_spawn` 的工具描述直接列出父会话启动时发现的可用 agent 名称和职责，沿用发现优先级并排除 disabled/hidden 定义；没有可用定义时明确显示空列表。工具描述明确说明完成结果自动返回，派发后可继续独立工作或结束当前回合，无需轮询。`agent_send` 与 `agent_get` 同样说明自动返回结果。工具不通过 `promptSnippet` 或 `promptGuidelines` 注入额外内容。子会话仍独立提供 `contact_parent` 的阻塞报告指导。
+父会话通过 `tool_search` 按需加载 `agents_delegate`、`agents_get`、`agents_stop`、`agents_dashboard`；已有协作说明由动态启用逻辑提供。`agents_delegate` 的工具描述直接列出父会话启动时发现的可用 agent 名称和职责，沿用发现优先级并排除 disabled/hidden 定义；没有可用定义时明确显示空列表。工具描述明确说明完成结果自动返回，派发后可继续独立工作或结束当前回合，无需轮询。`agents_get` 与 `agents_stop` 同样说明自动返回结果。工具不通过 `promptSnippet` 或 `promptGuidelines` 注入额外内容。子会话仍独立提供 `contact_parent` 的阻塞报告指导。
 
-`agent_get({ id, keys? })` 默认返回 `status,progress`，按需选择 `diagnostic`；keys 是逗号分隔字符串，未知 key 报错。查询只提供当前可观察状态和进展，不复述初始任务参数或历史最终回答，不跨族查询 Bash。`agent_spawn` 不接受调用方 ID，已有 child 只能通过 `agent_send` 继续。工具族没有 list 或等待入口。
+`agents_get({ id, revision?, includeOutput? })` 缺省读取该 agent 最新的委派，`revision` 指向历史某次委派，`includeOutput` 为真时才返回结果正文并沿用同一输出上限。投影同时给出委派 `status` 与 `progress.runtimeState`，两者分开呈现，历史结果不会被新一轮覆盖；不跨族查询 Bash。`agents_delegate` 不接受调用方指定的 ID，已有 child 只能通过 `id` 接续。`agents_dashboard` 只给运行统计与最新委派摘要。工具族没有等待入口，完成结果自动返回。
 
 工具声明 `exposure: "deferred"` 与 `defaultActive: false`；`before_agent_start` 用 ext-core `setOptionalToolBullet` 往结构化 system prompt 的 `optional_tools` 段落写入 key 为 `subagents` 的条目，段落自带 `tool_search` preamble。动态声明与 provider 的 prompt 重建仍由 Pi host 负责。
 
@@ -68,11 +68,9 @@ child 的最终回答是一个父会话要读的结果，因此和所有工具�
 - `blocked` 报告仍立即请求交付，交付协调不管理紧急原因或报告内容。
 - 自动交付保留已确认的终态：失败为 `error`，可继续的中断或阻塞为 `blocked`，成功为 `done`；不能把失败统一改写为阻塞。重试成功的最终 assistant 消息清除旧错误，交付前在 child mutation 锁内读取最新状态。
 - 自动报告按批次发出：没有其他 child 正在工作时 500ms 内发出，有 child 仍在工作时最多等 10 秒把同批报告合并。批次延迟对 success、blocked 与 error 相同，只发送本次结果，不拼接历史回答。等待期间用户继续输入、parent 发送新消息或自动重试会取消旧报告；自动重试期间不报告暂时错误。
-- `agent_send` 接受已有 child 的各种状态，包括 `error` 和已停止的 child。写者还在就把输入交给它；写者已经没了就用同一 session 再起 runtime，调用方不要另 spawn。显式发送会重新激活 stopped intent。只有本进程的进程句柄还活着时才拒绝再起 runtime，并要求先 `agent_stop` 这个 child。失败不保证上游错误会恢复。
-- `mode` 只有两种，由调用方决定，不按 child 状态推断：
-  - `steer`（缺省）：当前 assistant turn 的工具调用执行完后、下一次模型请求前插入，用来改变正在进行的工作。child 已空闲时没有可插入的回合，直接开新 run。
-  - `follow_up`：等整个 run 已经没有工具调用和 steering 后，才作为同一 run 内的新回合继续。它比 `steer` 晚得多，中间可能还有多轮工具调用。需要不打断当前工作时用它。
-  - 不存在 "auto"：Pi 的 steering 和 follow-up 队列本来就是这两种情形，按 child 状态猜只会替调用方做它没做的决定。
-  - 已结束 runtime 的 child 会被 resume，resume 本身就是开新 run，此时两种 mode 都作为该 run 的 prompt 送达。
+- `agents_delegate` 用 `id` 接续时接受已有 child 的各种状态，包括 `error` 和已停止的 child。写者还在就把输入交给它；写者已经没了就用同一 session 再起 runtime，调用方不要另建 agent。显式接续会重新激活 stopped intent。只有本进程的进程句柄还活着时才拒绝再起 runtime，并要求先 `agents_stop` 这个 child。失败不保证上游错误会恢复。
+- 接续始终是 `steer`：当前 assistant turn 的工具调用执行完后、下一次模型请求前插入，用来改变正在进行的工作；child 已空闲时没有可插入的回合，直接开新 run。模型不再选择 mode，协议层的 `follow_up` 队列能力不对外暴露。
+  - 不存在 "auto"：Pi 的 steering 队列本来就是这种情形，按 child 状态猜只会替调用方做它没做的决定。
+  - 已结束 runtime 的 child 会被 resume，resume 本身就是开新 run，此时接续消息作为该 run 的 prompt 送达。
 - 内置定义（`scout`/`worker`/`reviewer`）是最后发现层，不写入用户 home，也不会被自动派发。其中 `scout` 默认禁用（需用户显式配置模型），`worker` 与 `reviewer` 继承父模型。
 - `skills` 是白名单：`all`（缺省）/ `none` / 名单；名单条目可以是 skill 名字，按 parent 已加载的 skill 列表解析成绝对路径，未知名字只 warning 并丢弃。

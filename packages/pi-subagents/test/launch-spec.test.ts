@@ -221,7 +221,7 @@ test("carries the spawn title, and states its absence as an empty value", (): vo
 test("assembles child prompt with reporting and final output guidance", (): void => {
 	const prompt = assembleChildPrompt("Review the change.");
 	expect(prompt).toContain("Review the change.");
-	expect(prompt).toContain("After blocked, wait for a parent agent_send.");
+	expect(prompt).toContain("After blocked, wait for a parent agents_delegate.");
 	expect(prompt).toContain("output your final answer and findings directly in text");
 });
 

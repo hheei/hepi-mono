@@ -95,7 +95,7 @@ describe("interactive tool activation", () => {
 			'If not loaded, use tool_search ({ query: "<query>" }) or call via codemode.',
 		);
 		expect(startEvent.systemPromptOptions.sections.optional_tools).toContain(
-			'- subagents (query: "agent"): Subagent orchestration and delegation',
+			'- subagents (query: "agent"): Agent orchestration and delegation (agents_delegate, agents_get, agents_stop, agents_dashboard).',
 		);
 
 		activation.dispose();

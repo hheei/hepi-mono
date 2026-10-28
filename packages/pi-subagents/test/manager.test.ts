@@ -508,7 +508,6 @@ describe("SubagentManager over the bridge", () => {
 			agent: "worker",
 			task: "Implement the feature",
 			cwd: current.cwd,
-			title: "Feature work",
 		});
 		if ("reason" in submitted) throw new Error(submitted.reason);
 		expect(submitted.action).toBe("spawn");
@@ -537,7 +536,6 @@ describe("SubagentManager over the bridge", () => {
 			agent: "agent-that-does-not-exist",
 			task: "Continue the tests",
 			cwd: "/different/project",
-			title: "Ignored title",
 		});
 		if ("reason" in submitted) throw new Error(submitted.reason);
 		expect(submitted).toMatchObject({
@@ -2222,7 +2220,7 @@ describe("SubagentManager over the bridge", () => {
 		});
 		await until(test1.reportsArrived(1));
 		expect(test1.reports[0]?.message).toContain("[Context: ~111k tokens.");
-		expect(test1.reports[0]?.message).toContain('send "/compact" via agent_send');
+		expect(test1.reports[0]?.message).toContain('send "/compact" via agents_delegate');
 	});
 
 	test("closing a panel after a finished reply delivers that reply, not blocked", async () => {

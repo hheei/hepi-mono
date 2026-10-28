@@ -253,7 +253,7 @@ describe("nested call rows and inline summaries", () => {
 
 		// Task tools
 		expect(
-			inlinePresentation("agent_spawn", '{"agent":"reviewer"}', undefined, false)?.summary,
+			inlinePresentation("agents_delegate", '{"agent":"reviewer"}', undefined, false)?.summary,
 		).toBe("reviewer");
 		expect(inlinePresentation("bg_bash_get", '{"id":"bash-1"}', undefined, false)?.summary).toBe(
 			"bash-1",

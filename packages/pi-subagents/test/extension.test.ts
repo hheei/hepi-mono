@@ -50,22 +50,22 @@ describe("extension branch", () => {
 		const { pi, tools } = fakePi();
 		registerParentTools(pi, { closeLocalConnections: vi.fn() } as never, []);
 		expect(tools.map((tool) => tool.name)).toEqual([
-			"agent_spawn",
-			"agent_send",
-			"agent_get",
-			"agent_stop",
+			"agents_delegate",
+			"agents_get",
+			"agents_stop",
+			"agents_dashboard",
 		]);
 		for (const tool of tools) {
 			expect(tool.promptSnippet).toBeUndefined();
 			expect(tool.promptGuidelines).toBeUndefined();
 		}
-		expect(tools[0]?.description).toContain("subagent task");
+		expect(tools[0]?.description).toContain("Delegate work to a new or existing agent");
 		expect(tools[0]?.description).toContain("<available_agents>\nNone.\n</available_agents>");
-		expect(tools[0]?.description).toContain("Results are returned automatically");
-		expect(tools[0]?.description).toContain("do not poll agent_get");
-		expect(tools[1]?.description).toContain("resuming its session");
-		expect(tools[1]?.description).toContain("Results are returned automatically");
-		expect(tools[2]?.description).toContain("Results are returned automatically");
+		expect(tools[0]?.description).toContain("Results are delivered automatically");
+		expect(tools[0]?.description).toContain("instead of polling agents_get");
+		expect(tools[1]?.description).toContain("the newest by default");
+		expect(tools[2]?.description).toContain("Open delegations end as failed");
+		expect(tools[3]?.description).toContain("runtime state and latest delegation");
 	});
 
 	test("spawn description lists visible enabled agents with their roles", () => {

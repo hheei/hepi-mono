@@ -15,20 +15,20 @@ children and `/subagents stop [id]` to stop one without conflicting with other e
 
 | Tool | Purpose |
 | --- | --- |
-| `agent_spawn({ task, agent, cwd?, title? })` | Spawn an independent background subagent task. Runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing subagents** via `agent_send` for related/follow-up work to maintain context and maximize prompt cache and memory efficiency. Tool description lists available agent names and roles, excluding disabled or hidden definitions. Deferred by default; discover via `tool_search({ query: "agent" })`. Do not poll for completion; results return automatically. |
-| `agent_send({ id, message, mode? })` | Send input to a specific child. `mode: "steer"` (the default) enters the current turn once its tool calls are in, before the next model request; `mode: "follow_up"` waits until the child has no tool calls or steering left, then continues as a new turn. **Primary tool for assigning follow-up or functionally related tasks** to existing subagents: idle, blocked, done, or errored children resume their existing session automatically with historical context intact. A child whose runtime has ended is resumed the same way; spawn a new child only for new work. Stop first only when send says the previous process is still running. Deferred by default; discover via `tool_search({ query: "agent" })`. |
-| `agent_get({ id, keys? })` | Inspect one subagent by id. `keys` is a comma-separated selection of `status` (default), `progress` (default), and `diagnostic`; unknown keys fail. The view never returns the child's task parameters or terminal result, which arrive automatically as reports. From the second successful inspection of the same child in this parent runtime, the result adds a short reminder that results return automatically and must not be polled. Deferred by default; discover via `tool_search({ query: "agent" })`. |
-| `agent_stop({ id })` | Stop one subagent's runtime by id. The child keeps its session, so a later `agent_send` can resume it. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agents_delegate({ task, agent?, id?, cwd?, wait? })` | Delegate work to a new agent (`agent`) or continue an existing one (`id`, which wins over `agent`). A new child runs in a new Herdr tab (or cmux surface) targeting the parent's workspace when a host is available, and headless in the background otherwise. **Prefer reusing existing agents** via `id` for related/follow-up work to keep context and maximize prompt-cache and memory efficiency. The tool description lists available agent names and roles, excluding disabled or hidden definitions. Deferred by default; discover via `tool_search({ query: "agent" })`. `wait:true` (default) returns the settled delegation, `wait:false` returns it as soon as it is accepted; either way the result arrives automatically, so do not poll. |
+| `agents_get({ id, revision?, includeOutput? })` | Read one delegation of an agent: the newest by default, `revision` for one specific delegation, and the result body only with `includeOutput: true` (bounded by the shared output limit). The view carries the delegation `status` and the runtime `progress.runtimeState` separately, so a new delegation never overwrites a historical result. From the second successful inspection of the same agent in this parent runtime, the result adds a short reminder that results return automatically and must not be polled. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agents_stop({ id })` | Stop one agent's runtime by id. Open delegations end as failed; finished results and the session are kept, so a later `agents_delegate` with this id resumes it. Deferred by default; discover via `tool_search({ query: "agent" })`. |
+| `agents_dashboard({})` | Summarise this session's agents: runtime counts plus each agent's latest delegation status and activity, never result bodies. Deferred by default; discover via `tool_search({ query: "agent" })`. |
 
 ### Unified Task Management
 
-`agent_spawn` returns JSON `{ id, path }` on success. `path` is the absolute child session file path
-assigned by Pi; its first write may still be pending. `agent_get` exposes the same `progress.path`.
-`agent_send` and `agent_stop` return one confirmation
-sentence. Failures return only their reason. Operation results omit session IDs, presentation, and
-state snapshots; use `agent_get` for runtime inspection.
+`agents_delegate` returns `{ id, revision, status, task, hasOutput }`: `revision` identifies that
+delegation of the agent, and a settled delegation carries its result when `wait` is true.
+`agents_stop` returns the same projection for the agent it stopped. Failures return only their
+reason. There is no public `title` or `mode`: the child session title is derived from the agent name
+and id, and continuing an agent always steers.
 
-SubagentManager and its SQLite ledger own child conversation state, runtime leases, recovery, and reports. No pi-ext-tools task service is required. Only delivery batching is shared through ext-core BackgroundDelivery. Child reports arrive automatically; do not poll status to detect completion. Bash uses separate `bg_bash_*` tools. Deferred subagent tools are loaded via `tool_search`; `before_agent_start` writes the `subagents` bullet into the structured prompt's `optional_tools` section. Both get tools return the same `status`, `progress`, and optional `diagnostic` envelope. Diagnostics describe blockers, failed turns, or uncertain runtime state.
+SubagentManager and its SQLite ledger own child conversation state, runtime leases, recovery, and reports. No pi-ext-tools task service is required. Only delivery batching is shared through ext-core BackgroundDelivery. Child reports arrive automatically; do not poll status to detect completion. Bash uses separate `bg_bash_*` tools. Deferred agent tools are loaded via `tool_search`; `before_agent_start` writes the `subagents` bullet into the structured prompt's `optional_tools` section. Diagnostics describe blockers, failed turns, or uncertain runtime state.
 
 ## Child execution and reporting
 
@@ -37,8 +37,8 @@ Subagents communicate with the parent through the `commands` table in `state.sql
 - **Completion by Direct Output**: Subagents do **not** need to call any reporting tool upon successful completion. The subagent simply outputs its final answer as normal assistant text.
 - **Settlement Batching**: When a subagent settles, the harness captures the trailing assistant text and delivers it to the parent conversation as a `subagent-report`. Reports flush within 500ms when no other child is working, and are batched for up to 10 seconds while another child is still running.
 - **Blockers & Decisions**: The child registers `contact_parent({ message, reason? })` strictly for reporting when it is blocked or urgently requires a parent decision midway (`reason` defaults to `'blocked'`). Blocked reports wake the parent immediately.
-- **Direct `/compact` Command**: Sending `"/compact"` (or `"/compact [instructions]"`) via `agent_send` intercepts the command on the child side without passing it as prompt text to the LLM. The child executes native context compaction and reports completion status back to the parent via `contact_parent`. Duplicate `/compact` requests while a compaction is already in flight are safely acknowledged and ignored.
-- **Context Trim Hint**: When a subagent completes a task with context usage exceeding 100,000 tokens, its report includes a hint advising the parent to trim memory via `agent_send({ id, message: "/compact" })` if the child session will be retained for future work.
+- **Direct `/compact` Command**: Sending `"/compact"` (or `"/compact [instructions]"`) via `agents_delegate` intercepts the command on the child side without passing it as prompt text to the LLM. The child executes native context compaction and reports completion status back to the parent via `contact_parent`. Duplicate `/compact` requests while a compaction is already in flight are safely acknowledged and ignored.
+- **Context Trim Hint**: When a subagent completes a task with context usage exceeding 100,000 tokens, its report includes a hint advising the parent to trim memory via `agents_delegate({ id, task: "/compact" })` if the child session will be retained for future work.
 - **Automatic Retry**: Pi's own auto-retry is observed, not invented: reports are suppressed while a retry is in flight, and a retry that succeeds clears the previous error instead of reporting it.
 - **Panel Failure Auto-Close**: When a subagent running in a panel encounters a fatal error or reports a blocker, the manager starts a 15-second countdown after notifying the parent, automatically closing the panel tab to avoid workspace clutter unless new instructions are dispatched.
 ## Compact status and reports
@@ -47,7 +47,7 @@ Running children use the native Pi status line: `🤖 󰪠#21 #22 #23`. With pi-
 
 Confirmed done, error, and blocked reports appear once as `subagent-info` transcript entries. Collapsed entries show the outcome, child ID, and agent name; expand to read the complete report. They survive resume and do not enter model context. The original automatic `subagent-report` still reaches the model, with its duplicate transcript display hidden. Transient errors remain subject to settlement and retry checks before reporting.
 
-Use `/subagents` for complete status and management. `agent_send` can resume a done, blocked, errored, or stopped child with its session context intact; retrying does not guarantee the underlying failure is resolved.
+Use `/subagents` for complete status and management. `agents_delegate` with an existing `id` can resume a done, blocked, errored, or stopped child with its session context intact; retrying does not guarantee the underlying failure is resolved.
 
 ## Host Integration and Isolation
 

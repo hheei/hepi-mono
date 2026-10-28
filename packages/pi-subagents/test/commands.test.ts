@@ -113,7 +113,7 @@ describe("/subagents command", () => {
 		const command = commandSetup([], "rpc");
 		await command.run("list");
 		expect(command.notify).toHaveBeenCalledWith(
-			"Use agent_spawn / agent_send / agent_get / agent_stop in this mode",
+			"Use agents_delegate / agents_get / agents_stop in this mode",
 		);
 	});
 });

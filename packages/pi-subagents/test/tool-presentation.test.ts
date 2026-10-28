@@ -101,110 +101,150 @@ function renderResultText(
 	);
 }
 
+const view = {
+	id: "agent-9",
+	revision: 3,
+	status: "completed" as const,
+	task: "Inspect the deck",
+	hasOutput: true,
+	agent: "scout",
+	resultText: "Deck looks fine",
+	progress: { runtimeState: "done" as const, summary: "finished" },
+};
+
 describe("agent tool presentation providers", () => {
 	test("every tool exposes an owned provider", () => {
-		for (const name of ["agent_spawn", "agent_send", "agent_get", "agent_stop"]) {
+		for (const name of ["agents_delegate", "agents_get", "agents_stop", "agents_dashboard"]) {
 			const renderers: ToolRenderers = toolNamed(name);
 			expect(getToolPresentationProvider(renderers)).toBeTypeOf("function");
 		}
 	});
 
-	test("spawn summary carries agent and title, request the full task", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_spawn"))!;
+	test("delegate summary carries the agent and request the task", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_delegate"))!;
 		const presentation = provider(
-			{ agent: "scout", title: "Deck review", task: "Inspect the deck" },
+			{ agent: "scout", task: "Inspect the deck" },
 			undefined,
 			plainTheme,
 			plainContext,
 		);
-		expect(presentation.summary).toBe("scout · Deck review");
+		expect(presentation.summary).toBe("scout");
 		expect(presentation.request).toBe("Inspect the deck");
 		expect(presentation.output).toBeUndefined();
 	});
 
-	test("spawn result exposes id and path from typed details", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_spawn"))!;
+	test("delegate result names the agent, its id and the revision", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_delegate"))!;
 		const presentation = provider(
-			{ agent: "scout", title: "Deck review", task: "Inspect the deck" },
-			textToolResult('{"id":"agent-3","path":"/tmp/s.jsonl"}', {
-				id: "agent-3",
-				path: "/tmp/s.jsonl",
-			}),
+			{ agent: "scout", task: "Inspect the deck" },
+			textToolResult(JSON.stringify(view), view),
 			plainTheme,
 			plainContext,
 		);
-		expect(presentation.summary).toBe("scout · Deck review · agent-3");
-		expect(presentation.output).toBe("id: agent-3\npath: /tmp/s.jsonl");
+		expect(presentation.summary).toBe("scout · agent-9 · rev 3");
+		expect(presentation.output).toBe("Deck looks fine");
+		expect(presentation.copy).toEqual({
+			primary: "Inspect the deck",
+			full: "Inspect the deck\n---\nDeck looks fine",
+		});
 	});
 
-	test("send summary carries id and mode, copy keeps the raw message", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_send"))!;
+	test("a delegation without output still shows its state instead of a raw body", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_delegate"))!;
 		const presentation = provider(
-			{ id: "agent-3", message: "keep going", mode: "steer" },
-			textToolResult("Message sent.", undefined),
+			{ id: "agent-9", task: "keep going" },
+			textToolResult("{}", { ...view, hasOutput: false, resultText: undefined }),
 			plainTheme,
 			plainContext,
 		);
-		expect(presentation.summary).toBe("agent-3 · steer");
-		expect(presentation.request).toBe("keep going");
-		expect(presentation.output).toBe("Message sent.");
-		expect(presentation.copy).toEqual({ primary: "keep going", full: "keep going\nMessage sent." });
+		expect(presentation.summary).toBe("scout · agent-9 · rev 3");
+		expect(presentation.output).toBe(
+			"status: completed\nrevision: 3\nruntime: done\nsummary: finished\nhasOutput: false",
+		);
 	});
 
-	test("send summary names steer when the caller omits the mode", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_send"))!;
+	test("get renders delegation state instead of raw JSON", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_get"))!;
 		const presentation = provider(
-			{ id: "agent-3", message: "keep going" },
-			textToolResult("Message sent.", undefined),
+			{ id: "agent-9" },
+			textToolResult("", view),
 			plainTheme,
 			plainContext,
 		);
-		expect(presentation.summary).toBe("agent-3 · steer");
-	});
-
-	test("get renders selected fields instead of raw JSON", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_get"))!;
-		const presentation = provider(
-			{ id: "agent-3", keys: "status, diagnostic" },
-			textToolResult("", { status: "blocked", diagnostic: "Parent decision required" }),
-			plainTheme,
-			plainContext,
-		);
-		expect(presentation.summary).toBe("agent-3");
-		expect(presentation.request).toBe("keys: status, diagnostic");
-		expect(presentation.output).toBe("status: blocked\ndiagnostic: Parent decision required");
-		expect(presentation.collapsedRows).toEqual(["blocked · diagnostic: Parent decision required"]);
+		expect(presentation.summary).toBe("agent-9");
+		expect(presentation.request).toBe("without output");
+		expect(presentation.output).toContain("status: completed");
+		expect(presentation.output).toContain("hasOutput: true");
+		expect(presentation.collapsedRows).toEqual(["completed · scout · done · rev 3"]);
 		expect(presentation.output).not.toContain("{");
 	});
 
-	test("get level 0 view formats a concise single-line summary with status and progress", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_get"))!;
+	test("get names the requested revision and whether the body was read", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_get"))!;
 		const presentation = provider(
-			{ id: "agent-3" },
+			{ id: "agent-9", revision: 2, includeOutput: true },
+			textToolResult("", { ...view, revision: 2 }),
+			plainTheme,
+			plainContext,
+		);
+		expect(presentation.summary).toBe("agent-9 · rev 2");
+		expect(presentation.request).toBe("with output");
+		expect(presentation.copy).toEqual({ primary: "Deck looks fine" });
+	});
+
+	test("stop summary carries the id and the confirmation text", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_stop"))!;
+		const presentation = provider(
+			{ id: "agent-9" },
+			textToolResult("Agent agent-9 stopped; revision 3 is failed.", undefined),
+			plainTheme,
+			plainContext,
+		);
+		expect(presentation.summary).toBe("agent-9");
+		expect(presentation.output).toBe("Agent agent-9 stopped; revision 3 is failed.");
+	});
+
+	test("dashboard summarises counts and every agent", () => {
+		const provider = getToolPresentationProvider(toolNamed("agents_dashboard"))!;
+		const presentation = provider(
+			{},
 			textToolResult("", {
-				status: "running",
-				progress: { agent: "scout", turns: 3, tokens: 1540, activeTool: "bash" },
+				total: 2,
+				running: 1,
+				blocked: 0,
+				completed: 1,
+				failed: 0,
+				children: [
+					{
+						id: "agent-9",
+						agent: "scout",
+						runtimeState: "done",
+						revision: 3,
+						status: "completed",
+						hasOutput: true,
+					},
+					{
+						id: "agent-10",
+						agent: "worker",
+						runtimeState: "running",
+						revision: 1,
+						status: "accepted",
+						hasOutput: false,
+						summary: "reading",
+					},
+				],
 			}),
 			plainTheme,
 			plainContext,
 		);
-		expect(presentation.collapsedRows).toEqual(["running · scout · 3 turns · 1.5k tok · bash"]);
-	});
-
-	test("stop summary carries the id and the confirmation text", () => {
-		const provider = getToolPresentationProvider(toolNamed("agent_stop"))!;
-		const presentation = provider(
-			{ id: "agent-3" },
-			textToolResult("Agent stopped.", undefined),
-			plainTheme,
-			plainContext,
+		expect(presentation.summary).toBe("2 agents · running 1 · blocked 0 · completed 1 · failed 0");
+		expect(presentation.output).toBe(
+			"- agent-9 (scout): done / completed · rev 3\n- agent-10 (worker): running / accepted · rev 1 — reading",
 		);
-		expect(presentation.summary).toBe("agent-3");
-		expect(presentation.output).toBe("Agent stopped.");
 	});
 
 	test("unknown args narrow to a bare summary without throwing", () => {
-		for (const name of ["agent_spawn", "agent_send", "agent_get", "agent_stop"]) {
+		for (const name of ["agents_delegate", "agents_get", "agents_stop", "agents_dashboard"]) {
 			const provider = getToolPresentationProvider(toolNamed(name))!;
 			expect(() => provider("nonsense", undefined, plainTheme, plainContext)).not.toThrow();
 			expect(() => provider(undefined, undefined, plainTheme, plainContext)).not.toThrow();
@@ -213,50 +253,42 @@ describe("agent tool presentation providers", () => {
 });
 
 describe("native renderer fallback without pi-ext-ui", () => {
-	test("spawn renderCall keeps the title, summary and full task", () => {
-		const text = renderCallText(toolNamed("agent_spawn"), {
+	test("delegate renderCall keeps the agent, summary and full task", () => {
+		const text = renderCallText(toolNamed("agents_delegate"), {
 			agent: "scout",
-			title: "Deck review",
 			task: "Inspect the deck",
 		});
-		expect(text).toContain("agent_spawn");
-		expect(text).toContain("scout · Deck review");
+		expect(text).toContain("agents_delegate");
+		expect(text).toContain("scout");
 		expect(text).toContain("Inspect the deck");
 	});
 
-	test("spawn renderResult keeps the assigned id and path", () => {
+	test("delegate renderResult keeps the delegation identity and result", () => {
 		const text = renderResultText(
-			toolNamed("agent_spawn"),
-			textToolResult('{"id":"agent-3","path":"/tmp/s.jsonl"}', {
-				id: "agent-3",
-				path: "/tmp/s.jsonl",
-			}),
+			toolNamed("agents_delegate"),
+			textToolResult(JSON.stringify(view), view),
 			{ agent: "scout", task: "Inspect the deck" },
 		);
-		expect(text).toBe("id: agent-3\npath: /tmp/s.jsonl");
+		expect(text).toBe("Deck looks fine");
 	});
 
-	test("send renderResult prints the confirmation and get prints readable fields", () => {
-		const sendText = renderResultText(
-			toolNamed("agent_send"),
-			textToolResult("Message sent.", undefined),
-			{ id: "agent-3", message: "keep going" },
+	test("get renderResult prints readable delegation fields", () => {
+		const text = renderResultText(
+			toolNamed("agents_get"),
+			textToolResult("", { ...view, hasOutput: false, resultText: undefined }),
+			{ id: "agent-9" },
 		);
-		expect(sendText).toBe("Message sent.");
-		const getText = renderResultText(
-			toolNamed("agent_get"),
-			textToolResult("", { status: "running", progress: { agent: "scout", turns: 2 } }),
-			{ id: "agent-3" },
+		expect(text).toBe(
+			"status: completed\nrevision: 3\nruntime: done\nsummary: finished\nhasOutput: false",
 		);
-		expect(getText).toBe("status: running\nagent: scout\nturns: 2");
 	});
 
 	test("errors keep their raw text through the native renderer", () => {
-		const tool = toolNamed("agent_stop");
+		const tool = toolNamed("agents_stop");
 		const result = { content: [{ type: "text" as const, text: "Unknown child" }], isError: true };
 		const text = renderText(
 			tool.renderResult!(result as never, { expanded: false, isPartial: false }, plainTheme, {
-				args: { id: "agent-3" },
+				args: { id: "agent-9" },
 				isError: true,
 			} as never),
 		);
@@ -266,7 +298,7 @@ describe("native renderer fallback without pi-ext-ui", () => {
 
 describe("optional renderer point", () => {
 	test("every tool is self-framed and owned, so a UI resolver never adds a second frame", () => {
-		for (const name of ["agent_spawn", "agent_send", "agent_get", "agent_stop"]) {
+		for (const name of ["agents_delegate", "agents_get", "agents_stop", "agents_dashboard"]) {
 			const tool = toolNamed(name);
 			expect(tool.renderShell).toBe("self");
 			expect(hasOptionalToolRenderers(tool)).toBe(true);
@@ -301,19 +333,19 @@ describe("optional renderer point", () => {
 	test("a loaded UI factory decorates the native renderers and disposing restores them", async () => {
 		const { pi, tools } = createFakePi();
 		registerParentTools(pi, {} as unknown as SubagentManager, []);
-		const tool = tools.find((candidate) => candidate.name === "agent_spawn");
-		if (tool === undefined) throw new Error("agent_spawn was not registered");
+		const tool = tools.find((candidate) => candidate.name === "agents_delegate");
+		if (tool === undefined) throw new Error("agents_delegate was not registered");
 
 		let received: ToolRenderers | undefined;
 		const handle = registerExtensionHook(pi, toolRendererPoint, (name, native) => {
-			if (name !== "agent_spawn") return native;
+			if (name !== "agents_delegate") return native;
 			received = native;
-			return { renderShell: "self", renderCall: () => new Text("rich agent_spawn", 0, 0) };
+			return { renderShell: "self", renderCall: () => new Text("rich agents_delegate", 0, 0) };
 		});
 		await handle.ready;
 
 		expect(renderCallText(tool, { agent: "scout", task: "Inspect the deck" })).toBe(
-			"rich agent_spawn",
+			"rich agents_delegate",
 		);
 		// The factory receives the native renderers, so the typed presentation stays reachable.
 		expect(getToolPresentationProvider(received)).toBeTypeOf("function");
@@ -321,6 +353,6 @@ describe("optional renderer point", () => {
 		await handle.dispose();
 		expect(
 			stripTerminalSequences(renderCallText(tool, { agent: "scout", task: "Inspect the deck" })),
-		).toBe("agent_spawn scout\nInspect the deck");
+		).toBe("agents_delegate scout\nInspect the deck");
 	});
 });

@@ -458,7 +458,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const state = {};
 		const running = createMockContext({
 			state,
-			args: { code: "await tools.agent_get({ id: 'agent-1' });" },
+			args: { code: "await tools.agents_get({ id: 'agent-1' });" },
 			isPartial: true,
 			argsComplete: true,
 			executionStarted: true,
@@ -470,7 +470,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			{
 				content: [{ type: "text", text: "" }],
 				details: {
-					calls: [{ id: "1", name: "agent_get", args: '{"id":"agent-1"}', status: "running" }],
+					calls: [{ id: "1", name: "agents_get", args: '{"id":"agent-1"}', status: "running" }],
 				},
 			},
 			{ expanded: false, isPartial: true },
@@ -482,7 +482,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			expect.stringContaining("codemode 1 call"),
 		]);
 		expect(runningLines.join("\n")).not.toContain("◐ codemode");
-		expect(runningLines.join("\n")).toContain("◐ agent_get");
+		expect(runningLines.join("\n")).toContain("◐ agents_get");
 
 		const failedCall = renderers.renderCall!(running.args, plainTheme, running);
 		const failed = renderers.renderResult!(

@@ -16,10 +16,10 @@ describe("extractSummaryArg", () => {
 		);
 		expect(extractSummaryArg("bg_bash_get", { id: "job-1" })).toBe("job-1");
 		expect(extractSummaryArg("bg_bash_stop", { id: "job-2" })).toBe("job-2");
-		expect(extractSummaryArg("agent_spawn", { agent: "worker", task: "fix issue" })).toBe(
+		expect(extractSummaryArg("agents_delegate", { agent: "worker", task: "fix issue" })).toBe(
 			"worker: fix issue",
 		);
-		expect(extractSummaryArg("agent_send", { id: "agent-1" })).toBe("agent-1");
+		expect(extractSummaryArg("agents_get", { id: "agent-1" })).toBe("agent-1");
 		expect(extractSummaryArg("tool_search", { query: "sqlite" })).toBe("sqlite");
 	});
 

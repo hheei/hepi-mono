@@ -7,9 +7,9 @@
 | 工具族 | 工具 | ownership |
 | --- | --- | --- |
 | 后台 Bash | `bg_bash_spawn`、`bg_bash_get`、`bg_bash_stop` | pi-bg-bash |
-| 子代理 | `agent_spawn`、`agent_send`、`agent_get`、`agent_stop` | pi-subagents |
+| 子代理 | `agents_delegate`、`agents_get`、`agents_stop`、`agents_dashboard` | pi-subagents |
 
-`bash` 只执行前台命令；后台命令通过 `bg_bash_spawn` 启动，不绑定已返回的 tool call 的取消信号。两个 spawn 工具均由系统分配 ID，不接受调用方指定 ID。`agent_send` 显式使用已有 ID，保留 child session 上下文；idle、blocked、done、error 或 stopped child 的恢复仍须确认旧 runtime 状态，不能启动重复进程。
+`bash` 只执行前台命令；后台命令通过 `bg_bash_spawn` 启动，不绑定已返回的 tool call 的取消信号。两个 spawn 工具均由系统分配 ID，不接受调用方指定 ID。`agents_delegate` 用已有 ID 接续时保留 child session 上下文；idle、blocked、done、error 或 stopped child 的恢复仍须确认旧 runtime 状态，不能启动重复进程。
 
 ## 查询契约
 

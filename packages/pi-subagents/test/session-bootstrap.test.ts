@@ -308,43 +308,6 @@ test("keeps delegated sessions in a child-scoped subdirectory of the parent sess
 	});
 });
 
-test("freezes the requested spawn title and treats a blank one as absent", async (): Promise<void> => {
-	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
-		const cwd = join(directory, "work");
-		await writeAgent(cwd);
-		const bridge = join(directory, "bridge.js");
-		await writeFile(bridge, "", "utf8");
-		const shared = {
-			cwd,
-			parent: PARENT,
-			modelRegistry: MODEL_REGISTRY,
-			bridgeExtensionPath: bridge,
-		};
-		const derived = await resolveSubagentLaunch({
-			...shared,
-			input: { task: "Fix the failing test", agent: "worker" },
-		});
-		expect(derived.title).toBeUndefined();
-
-		const titled = await resolveSubagentLaunch({
-			...shared,
-			input: {
-				task: "Fix the failing test",
-				agent: "worker",
-				title: "  OVITO properties editor  ",
-			},
-		});
-		expect(titled.title).toBe("OVITO properties editor");
-
-		// A blank title means "name it yourself", not a failure: it never reaches the config.
-		const blank = await resolveSubagentLaunch({
-			...shared,
-			input: { task: "Fix the failing test", agent: "worker", title: "   " },
-		});
-		expect(blank.title).toBeUndefined();
-	});
-});
-
 test("never mints a new identity for a never-flushed session and adopts a flushed file", async (): Promise<void> => {
 	await withTempDir("pi-subagents-bootstrap-", async (directory) => {
 		const cwd = join(directory, "work");

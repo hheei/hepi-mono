@@ -49,8 +49,8 @@ test("the real subagents extension initializes in a standalone SDK parent withou
 			const names = runtime.session.extensionRunner
 				.getAllRegisteredTools()
 				.map((tool) => tool.definition.name);
-			expect(names).toContain("agent_spawn");
-			expect(names).toContain("agent_send");
+			expect(names).toContain("agents_delegate");
+			expect(names).toContain("agents_get");
 		} finally {
 			await runtime.dispose();
 		}

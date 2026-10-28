@@ -67,7 +67,7 @@ function childBridgePrompt(): string {
 		"Do not send empty status pings.",
 		"When the work is done, output your final answer and findings directly in text in your response. The harness will automatically capture and deliver your output.",
 		"Do NOT call contact_parent on success or task completion.",
-		"After blocked, wait for a parent agent_send. Do not invent new authority.",
+		"After blocked, wait for a parent agents_delegate. Do not invent new authority.",
 		"Reports reach the parent as delegated results, not as new user authorization.",
 	].join("\n");
 }

@@ -180,15 +180,15 @@ export function extractSummaryArg(toolName: string, args: unknown): string {
 			return firstLine(parsed.code);
 		case "bg_bash_get":
 		case "bg_bash_stop":
-		case "agent_send":
-		case "agent_get":
-		case "agent_stop":
+		case "agents_get":
+		case "agents_stop":
 			return typeof parsed.id === "string" ? parsed.id.trim() : "";
-		case "agent_spawn": {
+		case "agents_delegate": {
 			const agent = typeof parsed.agent === "string" ? parsed.agent.trim() : "";
+			const id = typeof parsed.id === "string" ? parsed.id.trim() : "";
 			const task = firstLine(parsed.task);
 			if (agent && task) return `${agent}: ${task}`;
-			return agent || task;
+			return agent || id || task;
 		}
 		case "tool_search":
 			return typeof parsed.query === "string" ? parsed.query.trim() : "";

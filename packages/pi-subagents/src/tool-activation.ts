@@ -4,17 +4,17 @@ import type { SubagentManager } from "./manager.js";
 
 /** Interactive agent tools managed by dynamic activation. */
 export const INTERACTIVE_TOOL_NAMES = [
-	"agent_spawn",
-	"agent_send",
-	"agent_get",
-	"agent_stop",
+	"agents_delegate",
+	"agents_get",
+	"agents_stop",
+	"agents_dashboard",
 ] as const;
 
 export type InteractiveToolName = (typeof INTERACTIVE_TOOL_NAMES)[number];
 
 export const SUBAGENT_OPTIONAL_TOOL_KEY = "subagents";
 export const SUBAGENT_OPTIONAL_TOOL_BULLET =
-	'subagents (query: "agent"): Subagent orchestration and delegation (agent_spawn, agent_send, agent_get, agent_stop).';
+	'subagents (query: "agent"): Agent orchestration and delegation (agents_delegate, agents_get, agents_stop, agents_dashboard).';
 
 export interface RegisterInteractiveToolActivationOptions {
 	readonly pi: ExtensionAPI;

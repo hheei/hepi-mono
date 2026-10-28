@@ -32,7 +32,7 @@ export function normalizeSubagentState(value: unknown): SubagentState | undefine
  */
 export type Presentation = "panel" | "background";
 /**
- * How `agent_send` hands its message to a child.
+ * How a delegation hands its message to a child.
  *
  * `steer` enters the current assistant turn once its tool calls are in, before the next model
  * request, so it redirects work already in flight. `follow_up` waits until the child's run has no
@@ -277,11 +277,9 @@ export interface SpawnSubagentInput {
 	 * Where to run this child. `auto` (the default) means a panel whenever this parent has a
 	 * presentation host, and the background otherwise; the Task tool pins `background` because a
 	 * Task is settled by its parent and never handed to a human. This is not a model-facing
-	 * parameter: `agent_spawn` always spawns with `auto`.
+	 * parameter: `agents_delegate` always spawns with `auto`.
 	 */
 	readonly presentation?: Presentation | "auto";
-	/** Optional child session title; the child branch prefixes it with the subagent marker. */
-	readonly title?: string;
 }
 
 /**
@@ -294,8 +292,6 @@ export interface DelegateSubagentInput {
 	readonly agent?: string;
 	/** Only used when creating a child; ignored when id is supplied. */
 	readonly cwd?: string;
-	/** Only used when creating a child; ignored when id is supplied. */
-	readonly title?: string;
 }
 
 /** True when a manager call returned a structured failure instead of a value. */
