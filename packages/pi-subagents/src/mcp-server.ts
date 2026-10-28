@@ -302,7 +302,7 @@ function toolResult(reply: ControllerReply): ToolPayload {
 			structuredContent: {
 				error: value.reason,
 				operation: value.operation,
-				...(typeof value.id === "string" ? { id: value.id } : {}),
+				...(typeof value.childId === "string" ? { id: value.childId } : {}),
 				...(Array.isArray(value.sideEffects)
 					? { sideEffects: value.sideEffects.filter(isString) }
 					: {}),

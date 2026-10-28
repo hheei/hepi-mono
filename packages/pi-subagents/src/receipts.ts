@@ -27,6 +27,9 @@ export interface Receipt {
 	readonly status: ReceiptStatus;
 	readonly delivery: ReceiptDelivery;
 	readonly resultText?: string;
+	/** Recorded only when a dispatch itself failed; a turn failure leaves both unset. */
+	readonly safeToRetry?: boolean;
+	readonly sideEffects?: readonly string[];
 	readonly createdAt: number;
 	readonly updatedAt: number;
 }
@@ -104,6 +107,8 @@ export function updateReceipt(
 		readonly runBoundary?: number;
 		readonly controlId?: string;
 		readonly resultText?: string;
+		readonly safeToRetry?: boolean;
+		readonly sideEffects?: readonly string[];
 	},
 ): Receipt | undefined {
 	const db = openStateDb(filePath);
@@ -117,7 +122,8 @@ export function updateReceipt(
 			`UPDATE delegations
 			 SET status = ?, child_id = COALESCE(?, child_id), input_checkpoint = COALESCE(?, input_checkpoint),
 			     delegation_revision = COALESCE(?, delegation_revision), run_boundary = COALESCE(?, run_boundary),
-			     control_id = COALESCE(?, control_id), result_text = COALESCE(?, result_text), updated_at = ?
+			     control_id = COALESCE(?, control_id), result_text = COALESCE(?, result_text),
+			     safe_to_retry = COALESCE(?, safe_to_retry), side_effects = COALESCE(?, side_effects), updated_at = ?
 			 WHERE parent_session_id = ? AND delegation_id = ? AND status = ?`,
 		).run(
 			patch.status,
@@ -127,6 +133,8 @@ export function updateReceipt(
 			patch.runBoundary ?? null,
 			patch.controlId ?? null,
 			patch.resultText ?? null,
+			patch.safeToRetry === undefined ? null : patch.safeToRetry ? 1 : 0,
+			patch.sideEffects === undefined ? null : JSON.stringify(patch.sideEffects),
 			Date.now(),
 			parentSessionId,
 			delegationId,
@@ -443,6 +451,17 @@ export function waitForReceipt(
 	});
 }
 
+function parseSideEffects(raw: string): readonly string[] {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		return Array.isArray(parsed)
+			? parsed.filter((item): item is string => typeof item === "string")
+			: [];
+	} catch {
+		return [];
+	}
+}
+
 function nextRevision(db: DatabaseSync, parentSessionId: string, childId: string): number {
 	const row = db
 		.prepare(
@@ -459,7 +478,7 @@ function readReceipt(
 ): Receipt | undefined {
 	const row = db
 		.prepare(
-			`SELECT delegation_id, child_id, delegation_revision, task, input_checkpoint, run_boundary, control_id, status, delivery, result_text, created_at, updated_at
+			`SELECT delegation_id, child_id, delegation_revision, task, input_checkpoint, run_boundary, control_id, status, delivery, result_text, safe_to_retry, side_effects, created_at, updated_at
 			 FROM delegations WHERE parent_session_id = ? AND delegation_id = ?`,
 		)
 		.get(parentSessionId, delegationId) as
@@ -474,6 +493,8 @@ function readReceipt(
 				status: string;
 				delivery: string;
 				result_text: string | null;
+				safe_to_retry: number | null;
+				side_effects: string | null;
 				created_at: number;
 				updated_at: number;
 		  }
@@ -498,6 +519,8 @@ function readReceipt(
 		...(row.input_checkpoint === null ? {} : { inputCheckpoint: row.input_checkpoint }),
 		...(row.run_boundary === null ? {} : { runBoundary: row.run_boundary }),
 		...(row.control_id === null ? {} : { controlId: row.control_id }),
+		...(row.safe_to_retry === null ? {} : { safeToRetry: row.safe_to_retry === 1 }),
+		...(row.side_effects === null ? {} : { sideEffects: parseSideEffects(row.side_effects) }),
 		...(row.result_text === null ? {} : { resultText: row.result_text }),
 	};
 }

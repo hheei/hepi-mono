@@ -157,6 +157,7 @@ describe("agent tools", () => {
 		expect(delegate).toHaveBeenCalledWith(
 			{ agent: "scout", task: "look into it", wait: false },
 			undefined,
+			expect.any(Function),
 		);
 		expect(JSON.parse(accepted.text)).toEqual(view);
 	});

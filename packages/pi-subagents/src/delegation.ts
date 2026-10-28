@@ -58,7 +58,13 @@ export function delegationView(
 			? { resultText: text }
 			: {}),
 		...(failed && text !== undefined
-			? { error: { reason: text, safeToRetry: false, sideEffects: [] } }
+			? {
+					error: {
+						reason: text,
+						safeToRetry: receipt.safeToRetry ?? false,
+						sideEffects: receipt.sideEffects ?? [],
+					},
+				}
 			: {}),
 		...(child === undefined
 			? {}

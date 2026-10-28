@@ -489,6 +489,7 @@ function paintHistory() {
     button.type = "button";
     button.setAttribute("aria-current", row.revision === revision ? "true" : "false");
     button.addEventListener("click", () => {
+      generation += 1;
       revision = row.revision;
       terminal = TERMINAL.has(row.status);
       outputText = "";

@@ -921,6 +921,67 @@ describe("SubagentManager over the bridge", () => {
 		expect(await current.manager.get("sa_child1")).toMatchObject({ state: "done" });
 	});
 
+	test("a detached steer does not release the active wait's delivery claim", async () => {
+		const current = await harness();
+		current.bridge.responses.set("sa_child1:get_entries", async () => ({
+			entries: [assistantEntry("the answer")],
+		}));
+
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+		const steer = await current.manager.delegate({
+			id: "sa_child1",
+			task: "keep going",
+			wait: false,
+		});
+		expect(steer).toMatchObject({ id: "sa_child1", revision: 2, status: "accepted" });
+
+		await startTurn(current, "sa_child1");
+		current.bridge.emit("sa_child1", {
+			type: "agent_settled",
+			message: { role: "assistant", stopReason: "stop" },
+		});
+		await expect(until(waiting)).resolves.toMatchObject({
+			status: "completed",
+			hasOutput: true,
+		});
+		// The waiting tool call still owns this turn: the steer must not hand it back to the push.
+		expect(current.reports).toEqual([]);
+	});
+
+	test("a blocker report during a wait is delivered once", async () => {
+		const current = await harness();
+
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+		await startTurn(current, "sa_child1");
+		const record = await current.registry.get("sa_child1");
+		await current.manager.handleChildRequest("sa_child1", "contact_parent", {
+			type: "pi_subagent_report",
+			parentSessionId: current.parentSessionId,
+			childId: "sa_child1",
+			runtimeIdentity: record?.runtime?.runtimeIdentity,
+			reason: "blocked",
+			message: "need a decision",
+		});
+
+		await expect(until(waiting)).resolves.toMatchObject({
+			status: "blocked",
+			resultText: "need a decision",
+		});
+		expect(current.reports).toEqual([]);
+	});
+
+	test("dispose ends a pending wait instead of leaving it hanging", async () => {
+		const current = await harness();
+		const waiting = current.manager.delegate({ agent: "worker", task: "work" });
+		await flush();
+
+		current.manager.dispose();
+
+		await expect(waiting).resolves.toMatchObject({ id: "sa_child1", status: "accepted" });
+	});
+
 	test("inspect reads the latest revision without its body by default", async () => {
 		const current = await harness();
 		const first = await current.manager.delegate({ agent: "worker", task: "one", wait: false });

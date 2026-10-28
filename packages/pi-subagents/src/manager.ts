@@ -335,6 +335,9 @@ export class SubagentManager {
 	 * process is not this child's runtime any more, so it is neither live nor ours to close.
 	 */
 	readonly #leftSessions = new Set<string>();
+	/** Aborted on dispose, so no wait or delivery survives the session it belongs to. */
+	readonly #disposed = new AbortController();
+
 	/** Bumped by every inbound bridge signal, so a reclaim in flight can tell the child moved. */
 	readonly #activity = new Map<string, number>();
 	readonly #projectors = new Map<string, StateProjector>();
@@ -388,6 +391,8 @@ export class SubagentManager {
 	}
 
 	public dispose(): void {
+		// Ending the session ends its waits: a pending tool call must not outlive the manager.
+		this.#disposed.abort();
 		if (this.#autoReportBatchTimer !== undefined) {
 			clearTimeout(this.#autoReportBatchTimer);
 			this.#autoReportBatchTimer = undefined;
@@ -1314,6 +1319,7 @@ export class SubagentManager {
 	public async delegate(
 		input: DelegateSubagentInput & { readonly wait?: boolean },
 		signal?: AbortSignal,
+		onAccepted?: (view: DelegationView) => void,
 	): Promise<DelegationView | OperationError> {
 		const wait = input.wait ?? true;
 		const task = stripHindsightContent(input.task).trim();
@@ -1381,12 +1387,16 @@ export class SubagentManager {
 			return failure("delegate", "Delegation was accepted without a reserved revision");
 		}
 		if (isOperationError(submitted)) {
-			if (receipt.childId !== undefined) this.#waiters.delete(receipt.childId);
+			// Only this call's own occupancy is released: a wait:false steer never owns one, so
+			// deleting here would let a second waiter take over a delivery that is already claimed.
+			if (wait) this.#waiters.delete(receipt.childId ?? "");
 			const uncertain = submitted.sideEffects.length > 0 && !submitted.safeToRetry;
 			const failed = updateReceipt(filePath, parentSessionId, receipt.delegationId, {
 				from: ["dispatching"],
 				status: uncertain ? "uncertain" : "failed",
 				resultText: submitted.reason,
+				safeToRetry: submitted.safeToRetry,
+				sideEffects: submitted.sideEffects,
 			});
 			return {
 				...delegationView(failed ?? receipt),
@@ -1399,25 +1409,42 @@ export class SubagentManager {
 		}
 		const childId = submitted.child.id;
 		const bound = this.#bindDispatch(filePath, parentSessionId, receipt, submitted);
-		if (!wait || bound.status !== "accepted") {
+		if (!wait) {
+			return agentView(bound, submitted.child, { includeOutput: bound.status !== "accepted" });
+		}
+		if (bound.status !== "accepted") {
 			this.#waiters.delete(childId);
-			return agentView(bound, submitted.child, {
-				includeOutput: bound.status !== "accepted",
-			});
+			return agentView(bound, submitted.child, { includeOutput: true });
 		}
 		const waiter = this.#waiters.get(childId);
+		onAccepted?.(await agentView(bound, submitted.child));
 		try {
-			const settled = await waitForReceipt(filePath, parentSessionId, receipt.delegationId, signal);
-			return await agentView(settled, submitted.child, { includeOutput: true });
+			const settled = await waitForReceipt(
+				filePath,
+				parentSessionId,
+				receipt.delegationId,
+				signal === undefined
+					? this.#disposed.signal
+					: AbortSignal.any([signal, this.#disposed.signal]),
+			);
+			// The runtime moved on while the turn was in flight, so the projection is read fresh.
+			const latest = await this.#deps.registry.get(childId);
+			return await agentView(
+				settled,
+				latest === undefined ? submitted.child : publicChild(latest, false),
+				{ includeOutput: true },
+			);
 		} catch {
 			// The wait ended, not the delegation. A result the tool result can no longer carry goes
 			// back to the automatic path, so the turn is delivered exactly once either way.
 			if (waiter !== undefined) waiter.aborted = true;
 			const current = readStoredReceipt(filePath, parentSessionId, receipt.delegationId) ?? bound;
-			if (terminalReceipt(current.status)) await this.#pushSettled(current);
+			if (!this.#disposed.signal.aborted && terminalReceipt(current.status)) {
+				await this.#pushSettled(current);
+			}
 			return delegationView(current, submitted.child);
 		} finally {
-			this.#waiters.delete(childId);
+			if (this.#waiters.get(childId) === waiter) this.#waiters.delete(childId);
 		}
 	}
 
@@ -1995,17 +2022,22 @@ export class SubagentManager {
 				throw new BridgeError("stale_report", "This report does not belong to the current runtime");
 			}
 			const reason = payload.reason ?? "blocked";
-			const delivered = await this.contactParent(childId, reason, payload.message, record);
-			if (!("reason" in delivered) && (reason === "success" || reason === "blocked")) {
-				this.#recordSettlement({
-					childId,
-					status: reason === "blocked" ? "blocked" : "completed",
-					message: payload.message,
-					...(payload.controlId === undefined
-						? { workVersion: this.#workVersions.get(childId) ?? 0 }
-						: { controlId: payload.controlId }),
-				});
-			}
+			const settles = reason === "success" || reason === "blocked";
+			// The settlement is durable before delivery is coordinated, and a waiting tool call that
+			// already owns this turn's answer suppresses the push, so it is delivered exactly once.
+			const settled = settles
+				? this.#recordSettlement({
+						childId,
+						status: reason === "blocked" ? "blocked" : "completed",
+						message: payload.message,
+						...(payload.controlId === undefined
+							? { workVersion: this.#workVersions.get(childId) ?? 0 }
+							: { controlId: payload.controlId }),
+					})
+				: [];
+			const delivered = this.#claimedByWaiter(settled)
+				? { delivered: true as const }
+				: await this.contactParent(childId, reason, payload.message, record);
 			if ("reason" in delivered) throw new BridgeError("delivery_failed", delivered.reason);
 			if (reason === "success" || reason === "blocked") {
 				const terminalState = reason === "success" ? "done" : "blocked";

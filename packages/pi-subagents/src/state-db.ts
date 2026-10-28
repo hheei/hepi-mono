@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS delegations (
   status TEXT NOT NULL,
   delivery TEXT NOT NULL,
   result_text TEXT,
+  safe_to_retry INTEGER,
+  side_effects TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (parent_session_id, delegation_id)

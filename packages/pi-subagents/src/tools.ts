@@ -8,9 +8,22 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { DiscoveredAgent } from "./agent-resolver.js";
 import type { DashboardView, DelegationView } from "./delegation.js";
-import { type ChildIdentity, isOperationError } from "./domain.js";
+import { type ChildIdentity, isOperationError, type OperationError } from "./domain.js";
 import type { SubagentManager } from "./manager.js";
 import { contactParentRenderers, parentToolRenderers } from "./tool-presentation.js";
+
+/**
+ * A failed operation still tells the caller what it may have already done: the identity it was
+ * about, whether retrying is safe, and which side effects to check.
+ */
+function operationErrorText(error: OperationError): string {
+	const details = [
+		...(error.childId === undefined ? [] : [`id ${error.childId}`]),
+		`safeToRetry ${error.safeToRetry}`,
+		...(error.sideEffects.length === 0 ? [] : [`sideEffects ${error.sideEffects.join(", ")}`]),
+	];
+	return `${error.reason} (${details.join("; ")})`;
+}
 
 const delegateSchema = Type.Object(
 	{
@@ -154,11 +167,13 @@ export function registerParentTools(
 		annotations: {
 			openWorldHint: true,
 		},
-		async execute(_id, params, signal) {
+		async execute(_id, params, signal, onUpdate) {
 			if (!Value.Check(delegateSchema, params))
 				throw new Error("Invalid agents_delegate parameters");
-			const view = await manager.delegate(params, signal);
-			if (isOperationError(view)) throw new Error(view.reason);
+			const view = await manager.delegate(params, signal, (accepted) => {
+				onUpdate?.(textToolResult(JSON.stringify(accepted), accepted));
+			});
+			if (isOperationError(view)) throw new Error(operationErrorText(view));
 			return textToolResult(JSON.stringify(view), view);
 		},
 		...renderers.delegate,
@@ -182,7 +197,7 @@ export function registerParentTools(
 				...(params.revision === undefined ? {} : { revision: params.revision }),
 				includeOutput: params.includeOutput === true,
 			});
-			if (isOperationError(view)) throw new Error(view.reason);
+			if (isOperationError(view)) throw new Error(operationErrorText(view));
 			return inspectionResult(params.id, JSON.stringify(view), view);
 		},
 		...renderers.get,
@@ -200,7 +215,7 @@ export function registerParentTools(
 		},
 		async execute(_id, params) {
 			const view = await manager.stopAgent(params.id);
-			if (isOperationError(view)) throw new Error(view.reason);
+			if (isOperationError(view)) throw new Error(operationErrorText(view));
 			return textToolResult(
 				`Agent ${view.id} stopped; revision ${view.revision} is ${view.status}.`,
 				view,
