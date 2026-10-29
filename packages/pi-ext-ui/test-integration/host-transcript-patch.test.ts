@@ -120,6 +120,8 @@ export default function(pi) {
             chat.render = render;
             prototype.getRegisteredToolDefinition = original;
             void (async () => {
+              await host.session.extensionRunner.emit({ type: "agent_start" });
+              await host.handleEvent({ type: "agent_start" });
               const live = { ...${JSON.stringify(message)}, content: [
                 { type: "thinking", thinking: "Streaming private thinking" },
                 ...["live-a", "live-b"].map(id => ({ type: "toolCall", id, name: "read", arguments: { path: id } })),
@@ -141,8 +143,12 @@ export default function(pi) {
               const expandedText = stripTerminalSequences(expandedRows.join("\n"));
               ctx.ui.setToolsExpanded(false);
               const restored = stripTerminalSequences(render.call(chat, width).join("\n"));
+              await host.handleEvent({ type: "tool_execution_end", toolCallId: "live-b", toolName: "read", result: { content: [{ type: "text", text: "DONE B" }] }, isError: false });
+              await host.session.extensionRunner.emit({ type: "agent_end", messages: [live] });
+              await host.handleEvent({ type: "agent_end", messages: [live] });
+              const settled = stripTerminalSequences(render.call(chat, width).join("\n"));
               writeFileSync(${JSON.stringify(evidence)}, JSON.stringify({
-                text, streaming, running, partial, finished, restored, expandedText,
+                text, streaming, running, partial, finished, restored, settled, expandedText,
                 expanded: expandedRows.length > rows.length,
               }));
               ctx.shutdown();
@@ -205,16 +211,21 @@ export default function(pi) {
 			text: expect.stringContaining("read ×4"),
 			streaming: expect.stringContaining("⋯ read"),
 			running: expect.stringContaining("◐ read"),
-			partial: expect.stringContaining("read ×6"),
-			finished: expect.stringContaining("✓ read live-a"),
+			partial: expect.stringContaining("read ×5"),
+			finished: expect.stringContaining("◐ read"),
 			restored: expect.stringContaining("read ×6"),
+			settled: expect.stringContaining("Requests ×2"),
 			expandedText: expect.stringContaining("second line"),
 		});
 		const resultText = JSON.stringify(observed);
 		expect(observed).toMatchObject({ expandedText: expect.stringContaining("DONE BODY") });
 		expect(resultText).toContain("FIRST NOTICE");
 		expect(resultText).toContain("SECOND NOTICE");
-		expect(resultText).toContain("thinking…");
+		expect(observed).toMatchObject({
+			restored: expect.stringContaining("Requests ×2"),
+			settled: expect.stringContaining("read ×6"),
+			streaming: expect.stringContaining("thinking · 14 tokens"),
+		});
 		expect(resultText).not.toContain("notify ×");
 		if (notice) expect(resultText).toContain("BOUNDARY");
 	} finally {
