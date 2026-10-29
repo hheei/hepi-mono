@@ -259,6 +259,7 @@ footer 是最后一条 rail 下的**单一槽位**：运行态显示当前/最�
 - 完成/被打断 block 的 footer 槽位由 `Requests ×N · IN … · OUT … · CH …` 覆盖运行态的尾行工具状态，header 与 body 不变，k/M 与 CH 口径对齐原生 footer。
 - 原始成员视图、Ctrl+O 强制展开、单分类／单详情互斥、切换模式时收起内部项目。
 - 模块边界：`tool-group-view.ts` 只负责 block 内布局、统计与命中测试，`host-transcript-patch.ts` 只负责 host seam、成员提取与安装/卸载。
+- 每帧都重新解析 transcript（`rebuild()`）而不是缓存投影：host 没有提供「transcript 已变化」的信号——`Container.addChild` 不触发 invalidate，宿主只调 `requestRender()`，而那与宽度变化、我们自己的重绘无法区分。实测 200 个成员（40 组）每帧 0.100 ms，200 × 20 KB thinking 时 0.241 ms，都低于未分组时的 0.133 ms，因此不为缓存引入可能过期的信号；若将来成为瓶颈，正确做法是 host 暴露 transcript revision，而不是按组件 identity 缓存。
 
 已知缺口（后续单独处理）：
 
