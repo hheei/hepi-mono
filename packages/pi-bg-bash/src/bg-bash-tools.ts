@@ -110,6 +110,10 @@ export function registerBgBashTools(pi: ExtensionAPI, state: BackgroundBashRunti
 			// The schema rejects a caller-chosen id: the registry assigns it, so a log file is never reused.
 			if (!Value.Check(BgBashSpawnInput, params))
 				throw new Error("Invalid bg_bash_spawn parameters");
+			const normalizedParams = params.command.includes("\0")
+				? { ...params, command: params.command.replaceAll("\0", "\\0") }
+				: params;
+			params = normalizedParams;
 			const settings = state?.getSettings();
 			const jobs = state?.getBashJobs();
 			if (settings === undefined || jobs === undefined)
