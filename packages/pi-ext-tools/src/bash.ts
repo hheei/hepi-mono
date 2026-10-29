@@ -46,6 +46,9 @@ function normalizeBashInput(value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
 	const input = { ...(value as Record<string, unknown>) };
 	if (input.timeout === null) delete input.timeout;
+	if (typeof input.command === "string" && input.command.includes("\0")) {
+		input.command = input.command.replaceAll("\0", "\\0");
+	}
 	return input;
 }
 

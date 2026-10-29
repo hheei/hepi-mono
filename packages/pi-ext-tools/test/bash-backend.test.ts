@@ -385,3 +385,21 @@ test("bash collapses a burst of streamed chunks into few updates", async (): Pro
 	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 	expect(text).toContain("line 200");
 });
+
+test("bash normalizes embedded null bytes in command to prevent spawn failure", async (): Promise<void> => {
+	const bash = bashTool();
+	const commandWithNull = 'printf "a\0b" | tr "\0" " "';
+	const result = await bash.execute(
+		"bash-null-byte",
+		{ command: commandWithNull },
+		undefined,
+		() => undefined,
+		{
+			cwd: process.cwd(),
+			sessionManager: { getLeafId: () => null },
+		} as unknown as ExtensionToolContext,
+	);
+	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+	expect(result.isError).toBeFalsy();
+	expect(text).toBe("a b");
+});
