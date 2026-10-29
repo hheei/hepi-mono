@@ -50,11 +50,21 @@ export function isCollapsible(value: unknown): value is Collapsible {
 	);
 }
 
+/** One nested call inside a container, reduced to what a row and its detail need. */
+export interface ToolViewChild {
+	readonly title: string;
+	readonly summary?: string | undefined;
+	readonly status?: ToolStatusKind | undefined;
+	readonly durationMs?: number | undefined;
+	readonly detail?: string | undefined;
+}
+
 export interface ToolViewSpec {
 	readonly theme: Theme;
 	readonly header: ToolViewHeaderSpec;
 	readonly collapsedRows?: readonly string[] | Component | (Component & Collapsible) | undefined;
 	readonly sections?: readonly RailSection[] | undefined;
+	readonly children?: readonly ToolViewChild[] | undefined;
 	readonly collapsibleChildren?: readonly Collapsible[] | undefined;
 	readonly copy?: ToolViewCopySpec | undefined;
 	readonly stateHolder?: unknown;
@@ -366,6 +376,11 @@ export class ToolView implements Component {
 	/** Current semantic header, without fold/copy controls or body; hidden slots have no summary. */
 	get summary(): string | undefined {
 		return this.#hidden ? undefined : formatToolHeaderText(this.#spec.header, this.#spec.theme);
+	}
+
+	/** Nested calls this tool reported; a hidden slot reports none. */
+	get children(): readonly ToolViewChild[] | undefined {
+		return this.#hidden ? undefined : this.#spec.children;
 	}
 
 	#collapseChildren(): void {

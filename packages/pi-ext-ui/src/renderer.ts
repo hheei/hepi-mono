@@ -27,6 +27,7 @@ import {
 	type RailSection,
 	type ToolStatusKind,
 	ToolView,
+	type ToolViewChild,
 	type ToolViewCopySpec,
 } from "./tool-view.js";
 import {
@@ -157,6 +158,41 @@ function resolveToolCallSummary(params: {
 	}
 	// Tier 2: Contractual Fallback for built-in tools
 	return extractSummaryArg(toolName, args);
+}
+
+function isCapturedCall(call: CapturedToolCall | NestedCallRecord): call is CapturedToolCall {
+	return "args" in call || "result" in call;
+}
+
+/** Nested facts for a consumer that lists children outside the container's own body. */
+function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[]): ToolViewChild[] {
+	return calls.map((call) => {
+		if (isCapturedCall(call)) {
+			const isError = call.isError === true;
+			const inline = inlinePresentation(call.toolName, call.args, call.result?.details, isError);
+			return {
+				title: call.toolName,
+				...(inline === undefined ? {} : { summary: inline.summary }),
+				status: isError ? "error" : ("ok" as const),
+				...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
+				...(call.result === undefined
+					? {}
+					: { detail: extractResultText(call.toolName, call.result).outputText }),
+			};
+		}
+		return {
+			title: call.toolName,
+			...(call.summary === undefined ? {} : { summary: call.summary }),
+			status:
+				call.isError === true || call.status === "error"
+					? ("error" as const)
+					: call.status === "running"
+						? ("running" as const)
+						: ("ok" as const),
+			...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
+			...(call.error === undefined ? {} : { detail: call.error }),
+		};
+	});
 }
 
 function formatArgsPreview(args: unknown): string {
@@ -397,6 +433,8 @@ function renderGenericResult(params: {
 				})
 			: undefined;
 
+	const children: ToolViewChild[] = nestedChildren(childCalls);
+
 	const collapsedRows =
 		codemodeNestedView !== undefined
 			? codemodeNestedView
@@ -506,6 +544,7 @@ function renderGenericResult(params: {
 		},
 		railToken: toolRailToken,
 		collapsedRows,
+		...(children.length === 0 ? {} : { children }),
 		sections,
 		copy,
 		outputPad: context.outputPad,
@@ -696,6 +735,7 @@ function renderOwnedPresentation(params: {
 						.map((line) => theme.fg("error", stripTerminalSequences(line)))
 				: undefined;
 		})(),
+		...(presentation.children === undefined ? {} : { children: presentation.children }),
 		sections,
 		copy,
 		outputPad: context.outputPad,

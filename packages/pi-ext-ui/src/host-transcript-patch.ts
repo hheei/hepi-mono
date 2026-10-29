@@ -9,14 +9,14 @@ import {
 import {
 	type Component,
 	Container,
-	MouseRegion,
 	Spacer,
 	stripTerminalSequences,
 	Text,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { fitRow } from "@hheei/pi-ext-core";
 import { MessageView } from "./message-view.js";
-import { renderWithoutToolRails, ToolView, toSingleRow } from "./tool-view.js";
+import { type Member, type ToolGroupRun, ToolGroupView, type Usage } from "./tool-group-view.js";
+import { type ToolStatusKind, ToolView, toSingleRow } from "./tool-view.js";
 
 const SEAMS = ["getRegisteredToolDefinition", "showExtensionNotify"] as const;
 type Seam = (typeof SEAMS)[number];
@@ -55,43 +55,65 @@ function readHost(value: unknown): Host {
 	return { chat, ui, requestRender: () => requestRender.call(tui) };
 }
 
+function readUsage(value: unknown): Usage | undefined {
+	if (!record(value)) return undefined;
+	const { input, output, cacheRead, cacheWrite } = value;
+	if (
+		typeof input !== "number" ||
+		typeof output !== "number" ||
+		typeof cacheRead !== "number" ||
+		typeof cacheWrite !== "number"
+	)
+		return undefined;
+	return { input, output, cacheRead, cacheWrite };
+}
+
 function assistantInfo(component: AssistantMessageComponent): {
 	calls: Set<string>;
 	eligible: boolean;
-	thinking: boolean;
+	thinking: string;
+	hidden: boolean;
+	usage: Usage | undefined;
 } {
 	const message: unknown = Reflect.get(component, "lastMessage");
 	if (!record(message) || !Array.isArray(message.content)) {
 		throw new Error("Pi assistant message shape changed");
 	}
+	const hidden: unknown = Reflect.get(component, "hideThinkingBlock");
 	const calls = new Set<string>();
 	let eligible = !["length", "aborted", "error"].includes(String(message.stopReason));
-	let thinking = false;
+	let thinking = "";
 	for (const block of message.content) {
 		if (!record(block)) throw new Error("Pi assistant content shape changed");
 		if (block.type === "toolCall" && typeof block.id === "string") calls.add(block.id);
 		else if (block.type === "thinking" && typeof block.thinking === "string")
-			thinking ||= block.thinking.trim() !== "";
+			thinking += block.thinking;
 		else if (block.type !== "text" || typeof block.text !== "string" || block.text.trim() !== "")
 			eligible = false;
 	}
-	return { calls, eligible, thinking };
-}
-
-interface Member {
-	readonly component: Component;
-	readonly name?: string;
-	readonly summary?: string;
+	return {
+		calls,
+		eligible,
+		thinking,
+		hidden: hidden === true,
+		usage: readUsage(message.usage),
+	};
 }
 
 function toolMember(component: ToolExecutionComponent, calls: Set<string>): Member | undefined {
 	const id: unknown = Reflect.get(component, "toolCallId");
 	const name: unknown = Reflect.get(component, "toolName");
 	const partial: unknown = Reflect.get(component, "isPartial");
+	const complete: unknown = Reflect.get(component, "argsComplete");
 	const result: unknown = Reflect.get(component, "result");
 	const renderer: unknown = Reflect.get(component, "resultRendererComponent");
 	const callRenderer: unknown = Reflect.get(component, "callRendererComponent");
-	if (typeof id !== "string" || typeof name !== "string" || typeof partial !== "boolean") {
+	if (
+		typeof id !== "string" ||
+		typeof name !== "string" ||
+		typeof partial !== "boolean" ||
+		typeof complete !== "boolean"
+	) {
 		throw new Error("Pi tool component shape changed");
 	}
 	if (!calls.has(id) || !(callRenderer instanceof ToolView)) return undefined;
@@ -108,7 +130,22 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 			? (renderer.summary ?? callRenderer.summary)
 			: callRenderer.summary;
 	if (summary === undefined) return undefined;
-	return { component, name: toSingleRow(stripTerminalSequences(name)), summary };
+	const status: ToolStatusKind = !complete
+		? "streaming"
+		: partial
+			? "running"
+			: record(result) && result.isError === true
+				? "error"
+				: "ok";
+	const children = renderer instanceof ToolView ? renderer.children : callRenderer.children;
+	return {
+		kind: "tool",
+		component,
+		title: toSingleRow(stripTerminalSequences(name)),
+		summary,
+		status,
+		...(children === undefined || children.length === 0 ? {} : { children }),
+	};
 }
 
 function messageView(component: Component): MessageView | undefined {
@@ -119,20 +156,27 @@ function messageView(component: Component): MessageView | undefined {
 }
 
 /** Shared transcript notices stay in the group. The frame is the contract, not each custom type. */
-function noticeContinuation(component: Component): Member | undefined {
+function noticeMember(component: Component): Member | undefined {
 	const view = messageView(component);
-	return view === undefined ? undefined : { component, summary: view.activitySummary };
+	if (view === undefined) return undefined;
+	return {
+		kind: "notice",
+		component,
+		title: view.kind,
+		summary: view.activitySummary,
+		detail: (width) => view.detailRows(width),
+	};
 }
 
 class NotifyView extends Container {
 	readonly #text = new Text("", 1, 0);
-	readonly #context: ExtensionContext;
+	readonly #ui: ExtensionUIContext;
 	readonly #message: string;
 	readonly #type: NoticeType;
 
-	constructor(message: string, type: NoticeType, context: ExtensionContext) {
+	constructor(message: string, type: NoticeType, ui: ExtensionUIContext) {
 		super();
-		this.#context = context;
+		this.#ui = ui;
 		this.#message = message;
 		this.#type = type;
 		this.addChild(new Spacer(1));
@@ -140,10 +184,28 @@ class NotifyView extends Container {
 	}
 
 	get summary(): string {
-		return this.#context.ui.theme.fg(
+		return this.#ui.theme.fg(
 			this.#type === "info" ? "dim" : this.#type,
 			toSingleRow(this.#content),
 		);
+	}
+
+	get member(): Member {
+		return {
+			kind: "notice",
+			component: this,
+			title: this.#type,
+			summary: this.summary,
+			detail: (width) => this.#detail(width),
+		};
+	}
+
+	#detail(width: number): string[] {
+		const inner = Math.max(1, width - 2);
+		return this.#content.split("\n").flatMap((line) => {
+			const wrapped = wrapTextWithAnsi(line, inner);
+			return (wrapped.length > 0 ? wrapped : [""]).map((row) => `  ${row}`);
+		});
 	}
 
 	get #content(): string {
@@ -153,156 +215,14 @@ class NotifyView extends Container {
 
 	override render(width: number): string[] {
 		this.#text.setText(
-			this.#context.ui.theme.fg(this.#type === "info" ? "dim" : this.#type, this.#content),
+			this.#ui.theme.fg(this.#type === "info" ? "dim" : this.#type, this.#content),
 		);
 		return super.render(width);
 	}
 }
 
-interface Hit {
-	readonly component: Component;
-	readonly wrapper: Component;
-	readonly native: boolean;
-	readonly height: number;
-}
-
-class ToolGroup extends Container {
-	readonly #header = new Text("", 0, 0);
-	readonly #originals = new Container();
-	readonly #context: ExtensionContext;
-	readonly #redraw: () => void;
-	#members: Member[] = [];
-	#expanded = false;
-	#renderedExpanded = false;
-	#open = new Set<Component>();
-	#hits: Hit[] = [];
-
-	constructor(context: ExtensionContext, redraw: () => void) {
-		super();
-		this.#context = context;
-		this.#redraw = redraw;
-		const heading = new MouseRegion(this.#header, (event) => {
-			if (event.type !== "click" || event.button !== "left") return undefined;
-			this.#expanded = this.#context.ui.getToolsExpanded() ? false : !this.#expanded;
-			if (!this.#expanded) this.#open.clear();
-			redraw();
-			return { handled: true, render: true };
-		});
-		const body: Component = {
-			render: (width) => this.#renderBody(width),
-			handleMouse: (event) => this.#hit(event),
-			invalidate() {},
-		};
-		this.children = [new Spacer(1), heading, body];
-	}
-
-	#renderBody(width: number): string[] {
-		const inner = Math.max(1, width - 2);
-		const rail = this.#context.ui.theme.fg("dim", "▎");
-		const lines: string[] = [];
-		const hits: Hit[] = [];
-		this.#members.forEach((member, index) => {
-			const wrapper = this.#originals.children[index];
-			if (wrapper === undefined) return;
-			const native = this.#renderedExpanded || this.#open.has(member.component);
-			const rows = native
-				? renderWithoutToolRails(wrapper, inner)
-				: member.summary === undefined
-					? []
-					: [member.summary];
-			if (rows.length === 0) return;
-			hits.push({ component: member.component, wrapper, native, height: rows.length });
-			for (const row of rows) {
-				lines.push(fitRow(`${rail} ${row}`, Math.max(0, width), "…"));
-			}
-		});
-		this.#hits = hits;
-		return lines;
-	}
-
-	#hit(event: Parameters<NonNullable<Component["handleMouse"]>>[0]) {
-		let y = event.y;
-		for (const hit of this.#hits) {
-			if (y >= hit.height) {
-				y -= hit.height;
-				continue;
-			}
-			if (!hit.native) {
-				if (event.type !== "click" || event.button !== "left") return undefined;
-				this.#open.add(hit.component);
-				this.#redraw();
-				return { handled: true, render: true };
-			}
-			// The rail belongs to the group. Content, including header fold and copy, stays with the member.
-			if (event.x < 2) {
-				if (!this.#renderedExpanded && event.type === "click" && event.button === "left") {
-					this.#open.delete(hit.component);
-					this.#redraw();
-					return { handled: true, render: true };
-				}
-				return undefined;
-			}
-			return hit.wrapper.handleMouse?.({
-				...event,
-				y,
-				height: hit.height,
-				x: event.x - 2,
-				width: Math.max(1, event.width - 2),
-			});
-		}
-		return undefined;
-	}
-
-	update(members: Member[]): void {
-		this.#members = members;
-		this.#originals.children = members.map(({ component }): Component => {
-			let offset = 0;
-			return {
-				render(width) {
-					const rows = component.render(width);
-					// Pi adds one leading separator per tool; the group supplies its own spacing.
-					offset = rows[0] === "" ? 1 : 0;
-					return rows.slice(offset);
-				},
-				handleMouse(event) {
-					return component.handleMouse?.({
-						...event,
-						y: event.y + offset,
-						height: event.height + offset,
-					});
-				},
-				invalidate() {},
-			};
-		});
-	}
-
-	override invalidate(): void {
-		// Original chatContainer.invalidate invalidates original members exactly once.
-		this.#header.invalidate();
-	}
-
-	override render(width: number): string[] {
-		this.#renderedExpanded = this.#expanded || this.#context.ui.getToolsExpanded();
-		const theme = this.#context.ui.theme;
-		const counts = new Map<string, number>();
-		for (const member of this.#members) {
-			if (member.name !== undefined) counts.set(member.name, (counts.get(member.name) ?? 0) + 1);
-		}
-		const heading = [...counts]
-			.map(
-				([name, count]) =>
-					`${theme.fg("toolTitle", theme.bold(name))} ${theme.fg("dim", `×${count}`)}`,
-			)
-			.join(theme.fg("dim", " · "));
-		this.#header.setText(
-			fitRow(
-				`${theme.fg("dim", this.#renderedExpanded ? "▾" : "▸")} ${heading}`,
-				Math.max(0, width),
-				"…",
-			),
-		);
-		return super.render(width);
-	}
+interface RunBox {
+	current?: ToolGroupRun | undefined;
 }
 
 interface Attachment {
@@ -310,7 +230,7 @@ interface Attachment {
 	notify(message: string, type: NoticeType): boolean;
 }
 
-function attach(host: Host, context: ExtensionContext): Attachment {
+function attach(host: Host, run: RunBox): Attachment {
 	const chat = host.chat;
 	const original = {
 		render: chat.render,
@@ -326,18 +246,25 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 	}
 	if (!Object.isExtensible(chat)) throw new Error("Pi transcript cannot accept instance methods");
 	const projection = new Container();
-	let groups = new Map<Component, ToolGroup>();
+	let groups = new Map<Component, ToolGroupView>();
 	let active = true;
 	const rebuild = () => {
-		const next = new Map<Component, ToolGroup>();
+		const next = new Map<Component, ToolGroupView>();
 		const children: Component[] = [];
+		const blocks: { group: ToolGroupView; members: Member[] }[] = [];
 		let calls = new Set<string>();
 		let members: Member[] = [];
 		const flush = () => {
 			const first = members[0]?.component;
-			if (first !== undefined && members.filter((member) => member.name !== undefined).length > 1) {
-				const group = groups.get(first) ?? new ToolGroup(context, host.requestRender);
-				group.update(members);
+			if (first !== undefined && members.filter((member) => member.kind === "tool").length > 1) {
+				const group =
+					groups.get(first) ??
+					new ToolGroupView(
+						host.ui,
+						host.requestRender,
+						run.current?.endedAt === undefined ? run.current : undefined,
+					);
+				blocks.push({ group, members });
 				next.set(first, group);
 				children.push(group);
 			} else children.push(...members.map((member) => member.component));
@@ -348,9 +275,13 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 				const info = assistantInfo(child);
 				calls = info.calls;
 				if (info.eligible) {
+					const thinking = info.thinking;
 					members.push({
+						kind: "assistant",
 						component: child,
-						...(info.thinking ? { summary: context.ui.theme.fg("thinkingText", "thinking…") } : {}),
+						...(thinking === "" ? {} : { thinkingChars: thinking.length }),
+						...(thinking === "" || info.hidden ? {} : { thinking }),
+						...(info.usage === undefined ? {} : { usage: info.usage }),
 					});
 					continue;
 				}
@@ -361,10 +292,10 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 					continue;
 				}
 			} else if (child instanceof NotifyView) {
-				members.push({ component: child, summary: child.summary });
+				members.push(child.member);
 				continue;
 			} else {
-				const continuation = noticeContinuation(child);
+				const continuation = noticeMember(child);
 				if (continuation !== undefined) {
 					members.push(continuation);
 					continue;
@@ -374,6 +305,10 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 			children.push(child);
 		}
 		flush();
+		const frozen = run.current === undefined || run.current.endedAt !== undefined;
+		for (const [index, block] of blocks.entries()) {
+			block.group.update(block.members, frozen || index !== blocks.length - 1);
+		}
 		groups = next;
 		projection.children = children;
 	};
@@ -386,7 +321,7 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 				active = false;
 				groups.clear();
 				projection.clear();
-				context.ui.notify(
+				host.ui.notify(
 					`Tool grouping disabled: ${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
@@ -409,7 +344,7 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 	return {
 		notify(message, type) {
 			if (!active) return false;
-			chat.addChild(new NotifyView(message, type, context));
+			chat.addChild(new NotifyView(message, type, host.ui));
 			host.requestRender();
 			return true;
 		},
@@ -430,7 +365,7 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 				else Object.defineProperty(chat, key, descriptor);
 			}
 			if (conflict)
-				context.ui.notify(
+				host.ui.notify(
 					"Tool grouping patch changed by another extension; restart Pi to fully unload it.",
 					"warning",
 				);
@@ -440,10 +375,11 @@ function attach(host: Host, context: ExtensionContext): Attachment {
 }
 
 interface Owner {
-	readonly context: ExtensionContext;
+	readonly ui: ExtensionUIContext;
 	readonly hosts: Map<Container, Attachment & { requestRender(): void }>;
 	readonly attach: (host: Host) => Attachment;
 	readonly failed: WeakSet<Container>;
+	readonly run: RunBox;
 }
 
 function connect(owner: Owner, host: Host): void {
@@ -452,7 +388,7 @@ function connect(owner: Owner, host: Host): void {
 		owner.hosts.set(host.chat, { ...owner.attach(host), requestRender: host.requestRender });
 	} catch (error) {
 		owner.failed.add(host.chat);
-		owner.context.ui.notify(
+		owner.ui.notify(
 			`Tool grouping unavailable: ${error instanceof Error ? error.message : String(error)}`,
 			"warning",
 		);
@@ -511,7 +447,7 @@ function patchState(): PatchState {
 		} catch (error) {
 			if (record(instance)) failed.add(instance);
 			for (const owner of owners.values())
-				owner.context.ui.notify(
+				owner.ui.notify(
 					`Tool grouping unavailable: ${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
@@ -551,6 +487,8 @@ function patchState(): PatchState {
 export function installHostToolGroups(context: ExtensionContext): {
 	dispose(): void;
 	requestRender(): void;
+	beginRun(): void;
+	endRun(): void;
 } {
 	const parts = VERSION.split(".").map(Number);
 	const [major = 0, minor = 0, patch = 0] = parts;
@@ -561,7 +499,8 @@ export function installHostToolGroups(context: ExtensionContext): {
 	)
 		throw new Error(`Tool grouping requires Pi >=1.0.1; running ${VERSION}`);
 	const state = patchState();
-	if (state.owners.has(context.ui)) throw new Error("Tool grouping already owns this UI runtime");
+	const ui = context.ui;
+	if (state.owners.has(ui)) throw new Error("Tool grouping already owns this UI runtime");
 	if (state.owners.size === 0) {
 		for (const seam of SEAMS) {
 			if (
@@ -576,13 +515,15 @@ export function installHostToolGroups(context: ExtensionContext): {
 				value: state.wrappers[seam],
 			});
 	}
+	const run: RunBox = {};
 	const owner: Owner = {
-		context,
+		ui,
 		hosts: new Map(),
 		failed: new WeakSet(),
-		attach: (host) => attach(host, context),
+		run,
+		attach: (host) => attach(host, run),
 	};
-	state.owners.set(context.ui, owner);
+	state.owners.set(ui, owner);
 	// Reload rebuilds history before session_start; reconnect already discovered instances.
 	for (const reference of state.hosts) {
 		const instance = reference.deref();
@@ -592,7 +533,7 @@ export function installHostToolGroups(context: ExtensionContext): {
 		}
 		try {
 			const host = readHost(instance);
-			if (host.ui === context.ui) connect(owner, host);
+			if (host.ui === ui) connect(owner, host);
 		} catch {
 			state.hosts.delete(reference);
 		}
@@ -602,10 +543,19 @@ export function installHostToolGroups(context: ExtensionContext): {
 		requestRender() {
 			for (const host of owner.hosts.values()) host.requestRender();
 		},
+		beginRun() {
+			run.current = { startedAt: performance.now() };
+		},
+		endRun() {
+			const current = run.current;
+			if (current !== undefined && current.endedAt === undefined)
+				current.endedAt = performance.now();
+		},
 		dispose() {
 			if (disposed) return;
 			disposed = true;
-			state.owners.delete(context.ui);
+			run.current = undefined;
+			state.owners.delete(ui);
 			for (const host of owner.hosts.values()) host.dispose();
 			owner.hosts.clear();
 			if (state.owners.size !== 0) return;
@@ -616,7 +566,7 @@ export function installHostToolGroups(context: ExtensionContext): {
 				)
 					Object.defineProperty(InteractiveMode.prototype, seam, state.originals[seam]);
 				else
-					context.ui.notify(
+					ui.notify(
 						"Tool grouping seam changed by another extension; restart Pi to fully unload it.",
 						"warning",
 					);

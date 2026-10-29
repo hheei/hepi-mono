@@ -43,6 +43,7 @@ export {
 	type RailSection,
 	type ToolStatusKind,
 	ToolView,
+	type ToolViewChild,
 	type ToolViewCopySpec,
 	type ToolViewHeaderSpec,
 	type ToolViewSpec,

@@ -152,6 +152,24 @@ export class MessageView implements Component {
 		return { handled: true, render: true };
 	}
 
+	/** Provider-declared notice type, used to group notices without reading their text. */
+	get kind(): string {
+		return this.#spec.header.kind;
+	}
+
+	/**
+	 * Detail rows inside an activity group: preview and body below the summary row the group already
+	 * draws, regardless of local fold. Repeating the header there would print the summary twice.
+	 */
+	detailRows(width: number): string[] {
+		const pad = Math.max(0, this.#spec.outputPad ?? 0);
+		const safeWidth = Math.max(1, width - pad * 2);
+		const leftPad = pad > 0 ? " ".repeat(pad) : "";
+		return [...layRows(this.#spec.preview, safeWidth), ...layRows(this.#spec.body, safeWidth)].map(
+			(line) => (leftPad === "" ? line : `${leftPad}${line}`),
+		);
+	}
+
 	/** Single-row label used when this notice sits inside an activity group. */
 	get activitySummary(): string {
 		const { theme, header } = this.#spec;

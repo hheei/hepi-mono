@@ -20,7 +20,12 @@ import {
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { installHostToolGroups } from "../src/host-transcript-patch.js";
 import { createMessageView } from "../src/message-view.js";
-import { renderWithoutToolRails, type ToolStatusKind, ToolView } from "../src/tool-view.js";
+import {
+	renderWithoutToolRails,
+	type ToolStatusKind,
+	ToolView,
+	type ToolViewChild,
+} from "../src/tool-view.js";
 
 const theme = {
 	fg: (_token: string, text: string) => text,
@@ -34,6 +39,7 @@ const originalNoticeSeam = Object.getOwnPropertyDescriptor(InteractiveMode.proto
 
 beforeAll(() => initTheme("dark", false));
 afterEach(() => {
+	vi.restoreAllMocks();
 	for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 	expect(Object.getOwnPropertyDescriptor(InteractiveMode.prototype, seam)).toEqual(originalSeam);
 	expect(Object.getOwnPropertyDescriptor(InteractiveMode.prototype, noticeSeam)).toEqual(
@@ -41,7 +47,11 @@ afterEach(() => {
 	);
 });
 
-function assistant(ids: string[], mixed: boolean | "text" = false): AssistantMessageComponent {
+function assistant(
+	ids: string[],
+	mixed: boolean | "text" = false,
+	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number },
+): AssistantMessageComponent {
 	type Message = Parameters<AssistantMessageComponent["updateContent"]>[0];
 	const message: Message = {
 		role: "assistant",
@@ -57,10 +67,10 @@ function assistant(ids: string[], mixed: boolean | "text" = false): AssistantMes
 		provider: "openai",
 		model: "fixture",
 		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
+			input: usage?.input ?? 0,
+			output: usage?.output ?? 0,
+			cacheRead: usage?.cacheRead ?? 0,
+			cacheWrite: usage?.cacheWrite ?? 0,
 			totalTokens: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
@@ -125,6 +135,7 @@ function setup(connect = true) {
 		status: ToolStatusKind = "ok",
 		callError = false,
 		complete = true,
+		children?: ToolViewChild[],
 	) => {
 		let callView: ToolView | undefined;
 		// Real TUI prototype, with the only service used by ToolExecutionComponent replaced.
@@ -157,6 +168,7 @@ function setup(connect = true) {
 							title: name,
 							status: ctx.isError ? "error" : options.isPartial ? "running" : status,
 						},
+						...(children === undefined ? {} : { children }),
 						sections: [{ railToken: "dim", content: `RESULT ${id}` }],
 						copy: { primary: `COPY ${id}` },
 						copyToClipboard,
@@ -167,8 +179,11 @@ function setup(connect = true) {
 			tui,
 			process.cwd(),
 		);
-		if (complete)
+		if (complete) {
+			tool.setArgsComplete();
+			tool.markExecutionStarted();
 			tool.updateResult({ content: [{ type: "text", text: `RESULT ${id}` }], isError: false });
+		}
 		return tool;
 	};
 	return {
@@ -183,6 +198,7 @@ function setup(connect = true) {
 		lookup,
 		notice,
 		row,
+		begin: () => patch.beginRun(),
 		copyToClipboard,
 		setIdle: (value: boolean) => {
 			idle = value;
@@ -215,12 +231,21 @@ function show(chat: Container, width = 80): string {
 	return chat.render(width).join("\n");
 }
 
+function clickRow(chat: Container, needle: string) {
+	const index = chat.render(80).findIndex((row) => row.includes(needle));
+	if (index < 0) throw new Error(`No transcript row matching ${needle}`);
+	return click(chat, index);
+}
+
 describe("two centralized host seams / original transcript projection", () => {
 	test("counts real adjacent tools; preserves children and original methods on disposal", () => {
 		const f = setup();
+		f.begin();
 		const rows = [assistant(["a", "b", "c"]), f.row("a"), f.row("b"), f.row("c", "grep")];
 		f.chat.children = rows;
-		expect(show(f.chat)).toContain("▸ read ×2 · grep ×1");
+		expect(show(f.chat)).toContain("▸ read ×2");
+		expect(show(f.chat)).toContain("3 calls");
+		expect(show(f.chat)).toContain("✓ grep");
 		expect(show(f.chat)).not.toContain("RESULT");
 		expect(f.chat.children).toBe(rows);
 		f.patch.dispose();
@@ -233,6 +258,7 @@ describe("two centralized host seams / original transcript projection", () => {
 
 	test("mouse and global expansion retain local choices and original child hit testing", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		expect(click(f.chat, 1)).toMatchObject({ handled: true });
 		expect(show(f.chat)).toContain("RESULT a");
@@ -249,6 +275,7 @@ describe("two centralized host seams / original transcript projection", () => {
 
 	test("unknown nodes, including empty nodes, break groups", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [
 			assistant(["a", "b", "c", "d"]),
 			f.row("a"),
@@ -257,33 +284,34 @@ describe("two centralized host seams / original transcript projection", () => {
 			f.row("c"),
 			f.row("d"),
 		];
-		expect(show(f.chat).match(/read ×2/g)).toHaveLength(2);
+		expect(show(f.chat).match(/collapse views/g)).toHaveLength(2);
+		expect(show(f.chat).match(/Requests ×1/g)).toHaveLength(1);
 		expect(show(f.chat)).toContain("NOTICE");
 		f.chat.children.splice(3, 1, { render: () => [], invalidate() {} });
-		expect(show(f.chat).match(/read ×2/g)).toHaveLength(2);
-		expect(show(f.chat)).not.toContain("read ×4");
+		expect(show(f.chat).match(/collapse views/g)).toHaveLength(2);
+		expect(show(f.chat)).not.toContain("4 calls");
 	});
 
-	test("a collapsed summary click expands only that member", () => {
+	test("the tools row lists effective calls and the header toggles the raw view", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
-		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
-		const opened = f.chat.render(80);
-		const body = opened.findIndex((line) => line.includes("RESULT a"));
-		expect(body).toBeGreaterThan(2);
-		expect(opened.join("\n")).not.toContain("RESULT b");
-		expect(opened.join("\n")).toContain("▸ read ×2");
-		expect(click(f.chat, body, 80, 0)).toMatchObject({ handled: true });
-		const closed = show(f.chat);
-		expect(closed).not.toContain("RESULT");
-		expect(closed).toContain("▎ ✓ read");
-		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
-		expect(click(f.chat, 2, 80, 4)).toMatchObject({ handled: true });
-		expect(show(f.chat)).toContain("▸ ✓ read");
+		expect(click(f.chat, 3, 80, 4)).toMatchObject({ handled: true });
+		expect(show(f.chat)).toContain("▾ read ×1");
+		expect(show(f.chat)).toContain("✓ read");
+		expect(click(f.chat, 3, 80, 4)).toMatchObject({ handled: true });
+		expect(show(f.chat)).toContain("▸ read ×1");
+		expect(click(f.chat, 1, 80, 4)).toMatchObject({ handled: true });
+		expect(show(f.chat)).toContain("RESULT a");
+		expect(show(f.chat)).toContain("▾ collapse views");
+		expect(click(f.chat, 1, 80, 4)).toMatchObject({ handled: true });
+		expect(show(f.chat)).not.toContain("RESULT");
+		expect(show(f.chat)).toContain("▸ collapse views");
 	});
 
 	test("expanded member clicks use original tool geometry", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		click(f.chat, 1);
 		const header = f.chat.render(80).findIndex((line, index) => index > 1 && line.includes("read"));
@@ -295,9 +323,11 @@ describe("two centralized host seams / original transcript projection", () => {
 
 	test("expanded tools are consecutive while body blank lines remain intact", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		click(f.chat, 1);
-		expect(show(f.chat)).toContain("▎ RESULT a\n▎ ▾ ✓ read");
+		expect(show(f.chat)).toContain("RESULT a");
+		expect(show(f.chat)).toContain("▾ ✓ read");
 		const tool = f.chat.children[1];
 		expect(tool).toBeInstanceOf(ToolExecutionComponent);
 		if (!(tool instanceof ToolExecutionComponent)) throw new Error("Missing fixture tool");
@@ -307,11 +337,12 @@ describe("two centralized host seams / original transcript projection", () => {
 		if (!(view instanceof ToolView)) throw new Error("Missing fixture result view");
 		const render = view.render.bind(view);
 		view.render = (width) => [...render(width), "", "body after blank"];
-		expect(show(f.chat)).toContain("▎ RESULT a\n▎ \n▎ body after blank\n▎ ▾ ✓ read");
+		expect(show(f.chat)).toContain("RESULT a\n\nbody after blank");
 	});
 
 	test("expanded copy actions keep original right-edge geometry and one outer rail", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		click(f.chat, 1);
 		const header = f.chat.render(80).findIndex((line, index) => index > 1 && line.includes("read"));
@@ -328,7 +359,7 @@ describe("two centralized host seams / original transcript projection", () => {
 	test("call renderer fallback remains visible even when result presentation succeeds", () => {
 		const f = setup();
 		f.chat.children = [assistant(["a", "b"]), f.row("a", "read", "ok", true), f.row("b")];
-		expect(show(f.chat)).not.toContain("×2");
+		expect(show(f.chat)).not.toContain("2 calls");
 		expect(show(f.chat)).toContain("RESULT a");
 	});
 
@@ -359,14 +390,15 @@ describe("two centralized host seams / original transcript projection", () => {
 
 	test("thinking rounds merge; prose remains a boundary", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"], true), f.row("a"), f.row("b")];
-		expect(show(f.chat)).toContain("read ×2");
-		expect(show(f.chat)).toContain("thinking…");
+		expect(show(f.chat)).toContain("2 calls");
+		expect(show(f.chat)).toContain("thinking · 2 tokens");
 		expect(show(f.chat)).not.toContain("reason");
 		f.chat.children = [assistant(["a"]), f.row("a"), assistant(["b"], true), f.row("b")];
-		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("2 calls");
 		f.chat.children.splice(2, 0, assistant([], "text"));
-		expect(show(f.chat)).not.toContain("read ×2");
+		expect(show(f.chat)).not.toContain("2 calls");
 		expect(show(f.chat)).toContain("prose boundary");
 	});
 
@@ -377,18 +409,20 @@ describe("two centralized host seams / original transcript projection", () => {
 		"running",
 	] as const)("%s presentation keeps its summary in the group", (status) => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [
 			assistant(["a", "b", "c"]),
 			f.row("a"),
 			f.row("b", "read", status),
 			f.row("c"),
 		];
-		expect(show(f.chat)).toContain("read ×3");
+		expect(show(f.chat)).toContain("3 calls");
 		expect(show(f.chat)).not.toContain("RESULT b");
 	});
 
 	test("partial and failed results update summaries; images and unknown renderers break groups", () => {
 		const f = setup();
+		f.begin();
 		for (const kind of ["partial", "error", "image", "fallback"] as const) {
 			const middle = f.row("b");
 			if (kind === "partial")
@@ -402,55 +436,272 @@ describe("two centralized host seams / original transcript projection", () => {
 				});
 			if (kind === "fallback") Reflect.set(middle, "resultRendererComponent", new Text("native"));
 			f.chat.children = [assistant(["a", "b", "c"]), f.row("a"), middle, f.row("c")];
-			if (kind === "partial" || kind === "error") expect(show(f.chat)).toContain("read ×3");
+			if (kind === "partial" || kind === "error") expect(show(f.chat)).toContain("3 calls");
 			else expect(show(f.chat)).not.toContain("×");
 		}
 	});
 
-	test("groups form during streaming and append members without losing expansion", () => {
+	test("groups form during streaming and keep the tail read-only", () => {
 		const f = setup();
+		f.begin();
 		f.setIdle(false);
 		const live = f.row("b", "read", "ok", false, false);
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), live];
-		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("2 calls");
+		expect(show(f.chat)).toContain("▸ read ×1");
 		expect(show(f.chat)).toContain("⋯ read");
 		live.updateArgs({ path: "new-path" });
-		expect(show(f.chat)).toContain("new-path");
+		expect(show(f.chat)).not.toContain("new-path");
 		live.setArgsComplete();
 		live.markExecutionStarted();
 		expect(show(f.chat)).toContain("◐ read");
 		live.updateResult({ content: [{ type: "text", text: "partial" }], isError: false }, true);
 		expect(show(f.chat)).toContain("◐ read");
 		live.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
-		expect(show(f.chat).match(/▎ ✓ read/g)).toHaveLength(2);
+		expect(show(f.chat)).toContain("✓ read");
+		expect(show(f.chat)).not.toContain("◐ read");
 		click(f.chat, 1);
 		f.chat.children.push(assistant(["c"], true), f.row("c"));
-		expect(show(f.chat)).toContain("read ×3");
+		expect(show(f.chat)).toContain("3 calls");
 		expect(show(f.chat)).toContain("RESULT c");
 		click(f.chat, 1);
 		expect(show(f.chat)).not.toContain("RESULT c");
-		expect(show(f.chat).match(/▎ ✓ read/g)).toHaveLength(3);
+		expect(show(f.chat)).toContain("3 calls");
+		expect(show(f.chat)).toContain("▸ read ×2");
+	});
+
+	test("one run origin spans native boundaries and freezes when the loop ends", () => {
+		const f = setup();
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		f.patch.beginRun();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		now.mockReturnValue(1000);
+		expect(show(f.chat)).toContain("1s");
+		f.chat.children.push(new Text("NOTICE", 0, 0), assistant(["c", "d"]), f.row("c"), f.row("d"));
+		now.mockReturnValue(65_000);
+		click(f.chat, 1);
+		expect(show(f.chat).match(/1m 05s/g)).toHaveLength(2);
+		f.patch.endRun();
+		now.mockReturnValue(600_000);
+		expect(show(f.chat)).toContain("1m 05s");
+		expect(show(f.chat)).toContain("Requests ×1");
+		f.patch.beginRun();
+		f.chat.children.push(new Text("NOTICE", 0, 0), assistant(["e", "f"]), f.row("e"), f.row("f"));
+		now.mockReturnValue(605_000);
+		expect(show(f.chat)).toContain("5s");
+	});
+
+	test("a finished block keeps its frame and gains a request footer", () => {
+		const f = setup();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		const rows = show(f.chat).trim().split("\n");
+		expect(rows[0]).toContain("▸ collapse views · — · 2 calls");
+		expect(rows).toContain("▸ read ×2");
+		expect(rows.filter((row) => row.startsWith("─"))).toHaveLength(2);
+		expect(rows).not.toContain("✓ read");
+		expect(rows.at(-1)).toBe("Requests ×1 · IN 0 · OUT 0 · CH —");
+	});
+
+	test("a collapsed frame is two rails, one summary, and the tail at every width", () => {
+		const f = setup();
+		f.begin();
+		const failed = f.row("b", "read");
+		failed.updateResult({ content: [{ type: "text", text: "boom" }], isError: true });
+		f.chat.children = [assistant(["a", "b"]), f.row("a", "grep"), failed];
+		const rows = f.chat.render(24);
+		expect(rows.filter((row) => row.startsWith("─"))).toHaveLength(2);
+		expect(rows).toContain("✗ read");
+		expect(rows).toContain("▸ grep ×1");
+		for (const width of [8, 24, 80]) {
+			for (const line of f.chat.render(width)) {
+				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				expect(line).not.toMatch(/[\r\n]/);
+			}
+		}
+	});
+
+	test("a container's children replace it in the call count and the flat list", () => {
+		const f = setup();
+		f.begin();
+		const children: ToolViewChild[] = [
+			{ title: "read", summary: "a.ts", status: "ok" },
+			{ title: "grep", summary: "needle", status: "error", detail: "no match\nsecond line" },
+		];
+		f.chat.children = [
+			assistant(["a", "b", "c"]),
+			f.row("a", "grep"),
+			f.row("b", "codemode", "none", false, true, children),
+			f.row("c", "read"),
+		];
+		expect(show(f.chat)).toContain("4 calls");
+		expect(show(f.chat)).toContain("▸ grep ×2 · read ×1");
+		clickRow(f.chat, "▸ grep ×2");
+		expect(show(f.chat)).toContain("▸ ✓ read a.ts");
+		expect(show(f.chat)).toContain("▸ ✗ grep needle");
+		expect(show(f.chat).split("\n")).toContain("");
+		clickRow(f.chat, "✗ grep needle");
+		expect(show(f.chat)).toContain("no match");
+		expect(show(f.chat)).toContain("second line");
+		expect(show(f.chat)).not.toContain("RESULT b");
+	});
+
+	test("an expanded tool keeps its own row geometry inside the tools category", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		clickRow(f.chat, "▸ read ×1");
+		expect(show(f.chat)).toContain("RESULT a");
+		clickRow(f.chat, "RESULT a");
+		expect(show(f.chat)).toContain("RESULT a");
+		clickRow(f.chat, "✓ read");
+		expect(show(f.chat)).not.toContain("RESULT a");
+	});
+
+	test("one category and one item open at a time", () => {
+		const f = setup();
+		f.begin();
+		const notice = new Container();
+		notice.addChild(
+			createMessageView({
+				theme,
+				header: { kind: "memory", summary: "page", tone: "success" },
+				body: "remembered body",
+			}),
+		);
+		f.chat.children = [assistant(["a", "b"], true), f.row("a"), notice, f.row("b")];
+		clickRow(f.chat, "▸ thinking");
+		expect(show(f.chat)).toContain("▾ thinking · 2 tokens");
+		expect(show(f.chat)).toContain("▎ reason");
+		clickRow(f.chat, "▸ thinking · 2 tokens");
+		expect(show(f.chat)).toContain("reason");
+		clickRow(f.chat, "▸ read ×1");
+		expect(show(f.chat)).toContain("▾ read ×1");
+		expect(show(f.chat)).toContain("▸ thinking");
+		expect(show(f.chat)).not.toContain("reason");
+		clickRow(f.chat, "▸ notice · memory ×1");
+		expect(show(f.chat)).toContain("▾ notice · memory ×1");
+		clickRow(f.chat, "▸ memory · page");
+		expect(show(f.chat)).toContain("remembered body");
+	});
+
+	test("categories render notice, then thinking, then tools", () => {
+		const f = setup();
+		f.begin();
+		const notice = new Container();
+		notice.addChild(
+			createMessageView({
+				theme,
+				header: { kind: "memory", summary: "page", tone: "success" },
+				body: "remembered body",
+			}),
+		);
+		f.chat.children = [assistant(["a", "b"], true), f.row("a"), notice, f.row("b")];
+		const rows = show(f.chat).split("\n");
+		const order = ["▸ notice · memory ×1", "▸ thinking · 2 tokens", "▸ read ×1"].map((row) =>
+			rows.findIndex((line) => line.startsWith(row)),
+		);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+		for (const index of order) expect(index).toBeGreaterThanOrEqual(0);
+	});
+
+	test("thinking text stays hidden when the host hides it", () => {
+		const f = setup();
+		f.begin();
+		const message = assistant(["a", "b"], true);
+		Reflect.set(message, "hideThinkingBlock", true);
+		f.chat.children = [message, f.row("a"), f.row("b")];
+		clickRow(f.chat, "▸ thinking");
+		expect(show(f.chat)).toContain("▸ thinking · 2 tokens");
+		clickRow(f.chat, "▸ thinking · 2 tokens");
+		expect(show(f.chat)).not.toContain("reason");
+	});
+
+	test("a finished block reports the native request usage it owns", () => {
+		const f = setup();
+		f.chat.children = [
+			assistant(["a", "b"], false, { input: 999, output: 100, cacheRead: 0, cacheWrite: 0 }),
+			f.row("a"),
+			f.row("b"),
+			assistant(["c", "d"], false, { input: 1000, output: 2000, cacheRead: 9000, cacheWrite: 0 }),
+			f.row("c"),
+			f.row("d"),
+		];
+		expect(show(f.chat)).toContain("Requests ×2 · IN 2.0k · OUT 2.1k · CH 90%");
+	});
+
+	test.each([
+		[999, "999"],
+		[1000, "1.0k"],
+		[9999, "10.0k"],
+		[10_000, "10k"],
+		[999_999, "1000k"],
+		[1_000_000, "1.0M"],
+		[9_999_999, "10.0M"],
+		[10_000_000, "10M"],
+	])("token counts follow the native footer at %i", (input, expected) => {
+		const f = setup();
+		f.chat.children = [
+			assistant(["a", "b"], false, { input, output: 0, cacheRead: 0, cacheWrite: 0 }),
+			f.row("a"),
+			f.row("b"),
+		];
+		expect(show(f.chat)).toContain(`IN ${expected} ·`);
+	});
+
+	test("global expansion shows the raw members and closing it restores the closed frame", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		click(f.chat, 3);
+		expect(show(f.chat)).toContain("▾ read ×1");
+		f.setExpanded(true);
+		expect(show(f.chat)).toContain("RESULT a");
+		expect(show(f.chat)).toContain("▾ collapse views");
+		f.setExpanded(false);
+		expect(show(f.chat)).not.toContain("RESULT");
+		expect(show(f.chat)).toContain("▸ read ×1");
 	});
 
 	test("notifications captured before the first tool keep full text and never count", () => {
 		const f = setup(false);
+		f.begin();
 		f.notice("first notice");
 		f.notice("second notice\ndetail", "warning");
 		f.chat.children.push(assistant(["a", "b"]), f.row("a"), f.row("b"));
-		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("2 calls");
+		expect(show(f.chat)).toContain("▸ notice · info ×1 · warning ×1");
+		expect(show(f.chat)).not.toContain("first notice");
+		clickRow(f.chat, "▸ notice · info ×1");
 		expect(show(f.chat)).toContain("first notice");
 		expect(show(f.chat)).toContain("Warning: second notice detail");
-		expect(show(f.chat)).not.toContain("notify ×");
-		expect(show(f.chat)).not.toContain("notify ·");
-		click(f.chat, 1);
-		expect(show(f.chat)).toContain("▎  detail");
+		clickRow(f.chat, "▸ Warning: second notice");
+		expect(show(f.chat)).toContain(" detail");
 		f.patch.dispose();
 		f.notice("native after disposal");
 		expect(show(f.chat)).toContain("native after disposal");
 	});
 
+	test("notices and tool groups survive stale extension context after session replacement or reload", () => {
+		const f = setup(false);
+		f.begin();
+		f.notice("session notice");
+		f.chat.children.push(assistant(["a", "b"]), f.row("a"), f.row("b"));
+		Object.defineProperty(f.context, "ui", {
+			get() {
+				throw new Error("This extension ctx is stale after session replacement or reload.");
+			},
+		});
+		expect(() => show(f.chat)).not.toThrow();
+		clickRow(f.chat, "▸ notice · info ×1");
+		expect(show(f.chat)).toContain("session notice");
+		expect(show(f.chat)).toContain("2 calls");
+		expect(() => click(f.chat, 1)).not.toThrow();
+		expect(show(f.chat)).toContain("read");
+	});
+
 	test("MessageView notices stay inside the activity group and raw entries break it", () => {
 		const f = setup();
+		f.begin();
 		const report = new Container();
 		Reflect.set(report, "entry", { customType: "bg-bash-info", data: { message: "tail output" } });
 		report.addChild(new Spacer(1));
@@ -467,13 +718,17 @@ describe("two centralized host seams / original transcript projection", () => {
 		);
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), report, f.row("b")];
 		const collapsed = show(f.chat);
-		expect(collapsed).toContain("read ×2");
-		expect(collapsed).toContain("bg-bash · ✓ job · terminal · completed");
+		expect(collapsed).toContain("2 calls");
+		expect(collapsed).toContain("▸ notice · bg-bash ×1");
 		expect(collapsed).not.toContain("tail output");
+		clickRow(f.chat, "▸ notice · bg-bash ×1");
+		expect(show(f.chat)).toContain("bg-bash · ✓ job · terminal · completed");
+		clickRow(f.chat, "▸ bg-bash · ✓ job");
+		expect(show(f.chat)).toContain("tail output");
 		click(f.chat, 1);
 		const expanded = show(f.chat);
-		expect(expanded).toContain("read ×2");
-		expect(expanded).toContain("▎ ▸ bg-bash · ✓ job · terminal · completed");
+		expect(expanded).toContain("2 calls");
+		expect(expanded).toContain("▸ bg-bash · ✓ job · terminal · completed");
 		const agents = new Container();
 		agents.addChild(
 			createMessageView({
@@ -485,7 +740,9 @@ describe("two centralized host seams / original transcript projection", () => {
 		Reflect.set(raw, "entry", { customType: "foreign-entry" });
 		raw.addChild(new Text("foreign"));
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), agents, f.row("b")];
-		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("2 calls");
+		expect(show(f.chat)).toContain("▸ notice · agents ×1");
+		clickRow(f.chat, "▸ notice · agents ×1");
 		expect(show(f.chat)).toContain("agents · ✓ child scout · done");
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), raw, f.row("b")];
 		expect(show(f.chat)).not.toContain("×");
@@ -494,18 +751,21 @@ describe("two centralized host seams / original transcript projection", () => {
 
 	test("history replacement and theme invalidation use current nodes, not model projection", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		click(f.chat, 1);
 		expect(show(f.chat)).toContain("RESULT a");
 		f.chat.clear();
 		f.chat.children = [assistant(["c", "d"]), f.row("c", "grep"), f.row("d", "grep")];
 		f.chat.invalidate();
-		expect(show(f.chat)).toContain("▸ grep ×2");
+		expect(show(f.chat)).toContain("▸ grep ×1");
+		expect(show(f.chat)).toContain("2 calls");
 		expect(show(f.chat)).not.toContain("RESULT");
 	});
 
 	test("narrow names remain width-safe and counts retain namespace identity", () => {
 		const f = setup();
+		f.begin();
 		f.chat.children = [
 			assistant(["a", "b"]),
 			f.row("a", "mcp__one__工具"),
@@ -518,25 +778,28 @@ describe("two centralized host seams / original transcript projection", () => {
 			}
 		}
 		expect(show(f.chat)).toContain("mcp__one__工具 ×1");
-		expect(show(f.chat)).toContain("mcp__two__工具 ×1");
+		expect(show(f.chat)).toContain("✓ mcp__two__工具");
 	});
 
 	test("two owners share one hook and dispose independently; reinstall works", () => {
 		const a = setup();
 		const b = setup();
+		a.begin();
+		b.begin();
 		const wrapper = Object.getOwnPropertyDescriptor(InteractiveMode.prototype, seam)?.value;
 		a.chat.children = [assistant(["a", "b"]), a.row("a"), a.row("b")];
 		b.chat.children = [assistant(["c", "d"]), b.row("c"), b.row("d")];
-		expect(show(a.chat)).toContain("×2");
-		expect(show(b.chat)).toContain("×2");
+		expect(show(a.chat)).toContain("2 calls");
+		expect(show(b.chat)).toContain("2 calls");
 		a.patch.dispose();
 		expect(Object.getOwnPropertyDescriptor(InteractiveMode.prototype, seam)?.value).toBe(wrapper);
-		expect(show(a.chat)).not.toContain("×2");
-		expect(show(b.chat)).toContain("×2");
+		expect(show(a.chat)).not.toContain("2 calls");
+		expect(show(b.chat)).toContain("2 calls");
 		b.patch.dispose();
 		const again = installHostToolGroups(a.context);
 		cleanups.push(again.dispose);
-		expect(show(a.chat)).toContain("×2");
+		again.beginRun();
+		expect(show(a.chat)).toContain("2 calls");
 	});
 
 	test("reload reattaches rebuilt history with the current module generation", async () => {
@@ -562,8 +825,9 @@ describe("two centralized host seams / original transcript projection", () => {
 		f.chat.children = [assistant(["a", "b"]), ...rows];
 		const patch = reinstall(f.context);
 		cleanups.push(patch.dispose);
+		patch.beginRun();
 		// No additional tool lookup: history was already rebuilt before session_start.
-		expect(show(f.chat)).toContain("read ×2");
+		expect(show(f.chat)).toContain("2 calls");
 	});
 
 	test("instance shape mismatch falls back to original transcript and reports once", () => {

@@ -20,7 +20,9 @@ export default function (pi: ExtensionAPI): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-ext-ui",
 		async start(context) {
-			let patch: { dispose(): void; requestRender(): void } | undefined;
+			let patch:
+				| { dispose(): void; requestRender(): void; beginRun(): void; endRun(): void }
+				| undefined;
 			const apply = (enabled: boolean): void => {
 				if (context.extension.mode !== "tui") return;
 				if (!enabled) {
@@ -41,6 +43,18 @@ export default function (pi: ExtensionAPI): void {
 				}
 			};
 			const provider = createToolGroupSettings({ onEnabled: apply });
+			const onAgentStart = pi.on("agent_start", () => {
+				patch?.beginRun();
+				redrawGroups?.();
+			});
+			const onAgentEnd = pi.on("agent_end", () => {
+				patch?.endRun();
+				redrawGroups?.();
+			});
+			context.resources.add("run-clock", () => {
+				onAgentStart();
+				onAgentEnd();
+			});
 			context.resources.add(
 				"tool-group-settings",
 				registerSettings(provider, getRuntimeSettingsRegistry(pi)),
