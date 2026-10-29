@@ -78,7 +78,7 @@ Rules:
 
 ### Tools
 
-- 连续工具轮次收成一组：标题是 `▸ codemode ×2 · grep ×3`，下面一条外层导轨，每个工具、thinking 轮次和通知各一行实时 summary。通知不计数，摘要直接显示内容。点标题展开全部原生布局，工具之间不另插空行，只留这一条导轨。收起时点某一摘要行只展开该项，点该项任意一行的组导轨收回。详见 [连续活动组](docs/architecture/pi-ext-ui-tool-groups.md)。
+- 连续活动组：活动态显示 `collapse views · 回合用时 · 有效 calls`，两条 rails 内为非空分类的小写标签统计，顺序固定 `notice`、`thinking`、`tools`（空分类整行省略，notice 只列类型计数），尾行只显示当前/最后工具的真实状态与名称。容器有子调用时只计有效子调用；聚合中至多打开一个分类和一个详情。展开工具分类按工具自身 Level 0 逐项显示（相邻一项一个空行），thinking 为标签行加首行预览，notice 逐项一行并可展开详情。原生断组不重置回合时间；最后一条 rail 下是单一 footer 槽位，运行态显示当前/最后工具状态，完成/被打断的 block 由 `Requests ×N · IN … · OUT … · CH …` 覆盖该行（不追加 rail、不改 header 与 body），仅统计该 block，IN/OUT/CH 公式与 k/M 格式参照原生 footer。切原始视图前后收起内部项目；Ctrl+O 保留原生检查入口，全文、异常和 copy 不丢失。精确行为、范围与验收见 [连续活动组 Spec](docs/architecture/pi-ext-ui-tool-groups.md)。
 
 - `pi-ext-tools` renders every registered tool with `renderShell: "self"`: terminal background, no Pi `tool*Bg` box.
 - A tool frame has a header and up to two bodies. A `request` body (the tool's input: command, code, task text) may sit between the header and the result body; a tool whose header already carries the whole call, and a tool whose input becomes the result, keeps one body. Omit a body's paired rails when it has no rendered lines:

@@ -22,6 +22,7 @@ This directory records high-level information for users and developers. Detailed
 - [Bash execution recovery](architecture/bash-execution-recovery.md): session ledger, read-only recovery to `unknown`, branch receipts, and fork isolation.
 - [Test runtime](architecture/testing.md): default vs integration entry points and deterministic vs bounded readiness coordination.
 - [Loadout architecture](architecture/loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
+- [连续活动组 Spec](architecture/pi-ext-ui-tool-groups.md)：已实现的三类聚合、只读尾行、跨 block 回合计时及原生 footer 口径请求统计，含实现记录与已知缺口。
 - [Removed in-process subagent coordinator](architecture/subagents.md): why `startSubagent` is gone, and where one-shot completion and child sessions live now.
 - [Subagent extension architecture](architecture/pi-subagents.md): independent reconnectable subagent child sessions and host workspace targeting.
 - [Subagent MCP + Codex Desktop UI](pi-subagents/mcp.md): inline MCP Apps task cards, subagent dashboard, delegation receipts, and transport integration.
