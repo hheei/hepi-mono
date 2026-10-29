@@ -518,6 +518,9 @@ export class ToolGroupView extends Container {
 		const globalExpanded = this.#ui.getToolsExpanded();
 		if (globalExpanded) {
 			// The host's forced expansion owns the frame; closing it returns to a fully closed group.
+			// A raw view the user opened by hand must not outlive it, or closing Ctrl+O would leave the
+			// block expanded with no way back to the aggregate.
+			this.#raw = false;
 			this.#category = undefined;
 			this.#item = undefined;
 		}

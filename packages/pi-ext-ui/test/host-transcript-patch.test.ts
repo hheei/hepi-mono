@@ -527,6 +527,21 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("▸ read ×1");
 	});
 
+	test("closing the host's forced expansion returns to the collapsed aggregate", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		const header = () => show(f.chat).trim().split("\n")[0] ?? "";
+
+		click(f.chat, 1);
+		expect(header()).toContain("▾ collapse views");
+		f.setExpanded(true);
+		expect(header()).toContain("▾ collapse views");
+		f.setExpanded(false);
+		expect(header()).toContain("▸ collapse views");
+		expect(show(f.chat)).toContain("▸ read ×1");
+	});
+
 	test("a collapsed frame is two rails, one summary, and the tail at every width", () => {
 		const f = setup();
 		f.begin();
