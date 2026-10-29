@@ -5,6 +5,7 @@ import {
 	formatDuration,
 	isRecord,
 	type ToolPresentation,
+	type ToolPresentationChild,
 	type ToolPresentationContext,
 	type ToolPresentationSection,
 	type ToolPresentationStatus,
@@ -63,6 +64,22 @@ export function readEvalDetails(details: unknown): EvalFrameDetails | undefined 
 		}
 	}
 	return { rows, error: typeof details.error === "string" ? details.error : undefined };
+}
+
+/** The part of a nested call that reads on its own; the tool name is the row title. */
+function childSummary(args: unknown): string {
+	if (!isRecord(args)) return "";
+	const path =
+		typeof args.path === "string"
+			? args.path
+			: typeof args.file_path === "string"
+				? args.file_path
+				: "";
+	if (path !== "") return path;
+	if (typeof args.command === "string") return args.command.split("\n")[0]?.trim() ?? "";
+	if (typeof args.pattern === "string") return args.pattern;
+	if (typeof args.query === "string") return args.query;
+	return "";
 }
 
 function readTrace(raw: unknown): EvalNestedTrace | undefined {
@@ -137,6 +154,15 @@ export function createPythonEvalPresentation(
 			: [{ railToken: isError ? ("error" as const) : ("success" as const), content: transcript }]),
 	];
 
+	const children: ToolPresentationChild[] = toolRows.map((row) => ({
+		...(row.trace.toolCallId === undefined ? {} : { id: row.trace.toolCallId }),
+		title: row.trace.name,
+		...(childSummary(row.trace.args) === "" ? {} : { summary: childSummary(row.trace.args) }),
+		status: row.trace.error === undefined ? ("ok" as const) : ("error" as const),
+		durationMs: row.trace.durationMs,
+		detail:
+			row.trace.error === undefined ? row.trace.text : `${row.trace.error}\n${row.trace.text}`,
+	}));
 	const output = result === undefined ? "" : stripTerminalSequences(agentResultText(result));
 	return {
 		summary,
@@ -147,7 +173,10 @@ export function createPythonEvalPresentation(
 		sections,
 		...(toolRows.length === 0
 			? {}
-			: { collapsedRows: toolRows.map((row) => formatToolRow(row, theme)) }),
+			: {
+					collapsedRows: toolRows.map((row) => formatToolRow(row, theme)),
+					children,
+				}),
 		...(code === ""
 			? output === ""
 				? {}
