@@ -35,7 +35,11 @@ describe("python eval execution facts", () => {
 		facts.end({ cellId: "cell-1", generation: "generation-1", outcome: "completed", names: 2 });
 
 		const restored = createEvalExecutionFacts(first.pi, first.sessionManager);
-		expect(restored.previous()).toEqual({ generation: "generation-1", recovery: undefined });
+		expect(restored.previous()).toEqual({
+			readable: true,
+			generation: "generation-1",
+			recovery: undefined,
+		});
 		expect(first.entries).toHaveLength(2);
 		expect(first.entries[0]?.customType).toBe(PYTHON_EVAL_FACTS_TYPE);
 	});
@@ -47,12 +51,13 @@ describe("python eval execution facts", () => {
 
 		const restored = createEvalExecutionFacts(first.pi, first.sessionManager);
 		expect(restored.previous()).toEqual({
+			readable: true,
 			generation: "generation-1",
 			recovery: "previous python_eval cell has unknown outcome; side effects may have occurred",
 		});
 	});
 
-	test("does not make append failures fail the cell path", () => {
+	test("a write that failed says so instead of reporting success", () => {
 		const pi = {
 			appendEntry: (): never => {
 				throw new Error("ledger unavailable");
@@ -60,10 +65,88 @@ describe("python eval execution facts", () => {
 		};
 		const facts = createEvalExecutionFacts(pi, { getBranch: () => [] });
 
-		expect(() => facts.start("cell-1", "generation-1")).not.toThrow();
-		expect(() =>
+		// The store reports the failure; what it costs is decided by the caller that knows the cell.
+		expect(facts.start("cell-1", "generation-1")).toEqual({
+			saved: false,
+			reason: "ledger unavailable",
+		});
+		expect(
 			facts.end({ cellId: "cell-1", generation: "generation-1", outcome: "failed", names: 0 }),
-		).not.toThrow();
+		).toEqual({ saved: false, reason: "ledger unavailable" });
+	});
+
+	test("reports unreadable history instead of claiming a clean start", () => {
+		const facts = createEvalExecutionFacts(
+			{ appendEntry: () => undefined },
+			{
+				getBranch: () => {
+					throw new Error("branch unavailable");
+				},
+			},
+		);
+		expect(facts.previous()).toEqual({ readable: false, reason: "branch unavailable" });
+	});
+
+	test("a start fact that cannot be saved stops the cell before it runs", async () => {
+		const facts = createEvalExecutionFacts(
+			{
+				appendEntry: (): never => {
+					throw new Error("ledger unavailable");
+				},
+			},
+			{ getBranch: () => [] },
+		);
+		const host = new EvalKernelHost(process.cwd(), { facts });
+		try {
+			await expect(host.runWithHooks("open('/tmp/never', 'w')", hooks())).rejects.toThrow(
+				/python_eval did not run: the recovery record could not be saved/,
+			);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	test("an end fact that cannot be saved is reported without changing the cell", async () => {
+		const facts = createEvalExecutionFacts(
+			{
+				appendEntry: (_type: string, data: unknown): void => {
+					if ((data as { phase?: string }).phase === "end") throw new Error("ledger unavailable");
+				},
+			},
+			{ getBranch: () => [] },
+		);
+		const host = new EvalKernelHost(process.cwd(), { facts });
+		const notes: string[] = [];
+		try {
+			const result = await host.runWithHooks("1 + 1", {
+				...hooks(),
+				onDiagnostic: (text: string) => notes.push(text),
+			});
+			// The cell did what it did; only the record of it is missing.
+			expect(result.value).toBe(2);
+			expect(notes).toEqual(["recovery record not saved: ledger unavailable"]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	test("tells the next cell when earlier history could not be read", async () => {
+		const facts = createEvalExecutionFacts(
+			{ appendEntry: () => undefined },
+			{
+				getBranch: () => {
+					throw new Error("branch unavailable");
+				},
+			},
+		);
+		const host = new EvalKernelHost(process.cwd(), { facts });
+		try {
+			const result = await host.runWithHooks("1", hooks());
+			expect(result.recovered).toContain("earlier python_eval history could not be read");
+			expect(result.recovered).toContain("branch unavailable");
+		} finally {
+			host.dispose();
+		}
 	});
 
 	test("marks first cell after runtime recreation as restarted", async () => {

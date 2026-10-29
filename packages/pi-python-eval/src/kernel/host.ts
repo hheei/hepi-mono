@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { errorMessage } from "@hheei/pi-ext-core";
 import { EvalToolError } from "../bridge.js";
-import type { EvalExecutionFactsStore } from "../facts.js";
+import type { EvalExecutionFactsStore, EvalFactWrite } from "../facts.js";
 import type { EvalRunResult, EvalRuntimeHooks } from "../runtime.js";
 import {
 	type ChildToHostMessage,
@@ -19,6 +19,15 @@ const READY_TIMEOUT_MS = 10_000;
 const INTERRUPT_ESCALATION_MS = 5_000;
 /** Bound on output that arrived between cells, so a chatty detached task cannot grow without limit. */
 const MAX_BACKGROUND_CHARS = 8_192;
+
+/**
+ * The cell's own outcome stands: a failed end write does not change what the cell did. It does change
+ * what the next runtime can know, so the cell says the record is missing.
+ */
+function reportUnsaved(write: EvalFactWrite | undefined, hooks: EvalRuntimeHooks): void {
+	if (write === undefined || write.saved) return;
+	hooks.onDiagnostic?.(`recovery record not saved: ${write.reason}`);
+}
 
 /** What the kernel reported for one cell, before the host adds what it knows about the process. */
 type EvalCellOutcome = {
@@ -86,13 +95,19 @@ export class EvalKernelHost {
 		if (this.#execute !== undefined) throw new Error("Eval is already running in this session.");
 		if (reset) this.#dropKernel("python");
 		const previous = this.#lastKernel;
-		const previousFacts = this.#facts?.previous();
+		const history = this.#facts?.previous();
+		// A branch that cannot be read is not an empty branch: it may hold an unfinished cell, so the
+		// cell says so instead of claiming the last run ended cleanly.
+		const historyNote =
+			history === undefined || history.readable
+				? history?.recovery
+				: `earlier python_eval history could not be read (${history.reason}); side effects from an earlier cell cannot be ruled out`;
 		// Only the kernel that ran the previous cell can still hold its names. A reset is an
 		// explicit request, so it reports nothing; any other change of process is a loss.
 		const restarted =
 			!reset &&
 			((previous !== undefined && this.#slots.get("python") !== previous) ||
-				(previous === undefined && previousFacts?.generation !== undefined));
+				(previous === undefined && history?.readable === true && history.generation !== undefined));
 		await this.#ensureChild("python");
 		// Recorded before the cell runs: a kernel that dies mid-cell is still the one the next
 		// cell has to compare against, so the loss is reported once rather than never.
@@ -102,8 +117,14 @@ export class EvalKernelHost {
 		// Delivered before the cell runs, because these bytes were written before it.
 		this.#flushBackground(hooks);
 		const cellId = crypto.randomUUID();
-		this.#facts?.start(cellId, slot.generation);
-		const recovery = !reset && !this.#reportedRecovery ? previousFacts?.recovery : undefined;
+		const started = this.#facts?.start(cellId, slot.generation);
+		// A cell whose start never reached the branch would be invisible to the next runtime, so it is
+		// not started at all: the alternative is running code with side effects nothing can report.
+		if (started !== undefined && !started.saved)
+			throw new Error(
+				`python_eval did not run: the recovery record could not be saved (${started.reason}). A cell that leaves no start fact cannot be detected as unfinished after a restart.`,
+			);
+		const recovery = !reset && !this.#reportedRecovery ? historyNote : undefined;
 		this.#reportedRecovery = true;
 		let run: EvalCellOutcome;
 		try {
@@ -155,7 +176,7 @@ export class EvalKernelHost {
 				}
 			});
 		} catch (error) {
-			this.#facts?.end({
+			const ended = this.#facts?.end({
 				cellId,
 				generation: slot.generation,
 				outcome:
@@ -163,14 +184,16 @@ export class EvalKernelHost {
 				names: error instanceof EvalCellError ? error.state?.names : undefined,
 				diagnostic: errorMessage(error),
 			});
+			reportUnsaved(ended, hooks);
 			throw error;
 		}
-		this.#facts?.end({
+		const ended = this.#facts?.end({
 			cellId,
 			generation: slot.generation,
 			outcome: "completed",
 			names: run.state?.names,
 		});
+		reportUnsaved(ended, hooks);
 		return { ...run, restarted, ...(recovery === undefined ? {} : { recovered: recovery }) };
 	}
 

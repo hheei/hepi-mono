@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "@hheei/pi-ext-core";
+import { errorMessage, isRecord } from "@hheei/pi-ext-core";
 
 export const PYTHON_EVAL_FACTS_TYPE = "pi-python-eval:execution";
 
@@ -20,19 +20,33 @@ type EvalExecutionFact =
 			readonly diagnostic?: string;
 	  };
 
+/**
+ * What the branch says about earlier cells. An unreadable branch is an answer of its own: reporting
+ * it as "nothing happened" would claim the opposite of what the ledger exists to know.
+ */
+export type EvalExecutionHistory =
+	| {
+			readonly readable: true;
+			readonly generation: string | undefined;
+			readonly recovery: string | undefined;
+	  }
+	| { readonly readable: false; readonly reason: string };
+
+/** A ledger write happened, or it says why it did not. Callers decide what a missing fact costs. */
+export type EvalFactWrite =
+	| { readonly saved: true }
+	| { readonly saved: false; readonly reason: string };
+
 export interface EvalExecutionFactsStore {
-	readonly previous: () => {
-		readonly generation: string | undefined;
-		readonly recovery: string | undefined;
-	};
-	readonly start: (cellId: string, generation: string) => void;
+	readonly previous: () => EvalExecutionHistory;
+	readonly start: (cellId: string, generation: string) => EvalFactWrite;
 	readonly end: (fact: {
 		readonly cellId: string;
 		readonly generation: string;
 		readonly outcome: Extract<EvalExecutionFact, { readonly phase: "end" }>["outcome"];
 		readonly names: number | undefined;
 		readonly diagnostic?: string;
-	}) => void;
+	}) => EvalFactWrite;
 }
 
 export function createEvalExecutionFacts(
@@ -42,6 +56,7 @@ export function createEvalExecutionFacts(
 	let generation: string | undefined;
 	let recovery: string | undefined;
 	const openCells = new Set<string>();
+	let unreadable: string | undefined;
 	try {
 		for (const entry of sessionManager.getBranch()) {
 			if (entry.type !== "custom" || entry.customType !== PYTHON_EVAL_FACTS_TYPE) continue;
@@ -53,24 +68,34 @@ export function createEvalExecutionFacts(
 		}
 		if (openCells.size > 0)
 			recovery = "previous python_eval cell has unknown outcome; side effects may have occurred";
-	} catch {
-		generation = undefined;
-		recovery = undefined;
+	} catch (error) {
+		unreadable = errorMessage(error);
 	}
-	const append = (fact: EvalExecutionFact): void => {
+	const append = (fact: EvalExecutionFact): EvalFactWrite => {
 		try {
 			pi.appendEntry(PYTHON_EVAL_FACTS_TYPE, fact);
-		} catch {}
+			return { saved: true };
+		} catch (error) {
+			return { saved: false, reason: errorMessage(error) };
+		}
 	};
 	return {
-		previous: () => ({ generation, recovery }),
-		start(cellId, currentGeneration): void {
+		previous: () =>
+			unreadable === undefined
+				? { readable: true, generation, recovery }
+				: { readable: false, reason: unreadable },
+		start(cellId, currentGeneration): EvalFactWrite {
 			generation = currentGeneration;
-			append({ phase: "start", cellId, generation: currentGeneration, startedAt: Date.now() });
+			return append({
+				phase: "start",
+				cellId,
+				generation: currentGeneration,
+				startedAt: Date.now(),
+			});
 		},
-		end(fact): void {
+		end(fact): EvalFactWrite {
 			generation = fact.generation;
-			append({
+			return append({
 				phase: "end",
 				cellId: fact.cellId,
 				generation: fact.generation,

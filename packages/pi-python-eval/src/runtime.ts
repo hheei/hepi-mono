@@ -8,6 +8,11 @@ export interface EvalRuntimeHooks {
 	/** Output the kernel could not attribute to a cell: a detached task, thread, or raw fd write. */
 	onBackground(text: string): void;
 	callTool(name: string, args: unknown): Promise<unknown>;
+	/**
+	 * A cell-level note about the runtime rather than its output, such as a recovery record that could
+	 * not be saved. It reaches the reader without changing the cell's result.
+	 */
+	onDiagnostic?(text: string): void;
 }
 
 /** What one cell produced, plus what the host knows about the kernel that ran it. */

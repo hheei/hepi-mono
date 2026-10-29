@@ -225,6 +225,9 @@ export function createPythonEvalTool(
 							const clean = stripTerminalSequences(text.replace(/\r/g, "").trimEnd());
 							record({ kind: "text", text: boundedText(clean) }, clean);
 						},
+						onDiagnostic: (text) => {
+							record({ kind: "state", text }, text, true);
+						},
 						callTool: async (name, args) =>
 							await bridge.call(name, args, context, runSignal, (trace, nestedImages) => {
 								images.push(...nestedImages);

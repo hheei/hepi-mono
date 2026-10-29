@@ -6,7 +6,13 @@ export {
 	EvalToolError,
 } from "./bridge.js";
 export { default } from "./extension.js";
-export { createEvalExecutionFacts, PYTHON_EVAL_FACTS_TYPE } from "./facts.js";
+export {
+	createEvalExecutionFacts,
+	type EvalExecutionFactsStore,
+	type EvalExecutionHistory,
+	type EvalFactWrite,
+	PYTHON_EVAL_FACTS_TYPE,
+} from "./facts.js";
 export {
 	createEvalRuntimeState,
 	type EvalExecutor,
