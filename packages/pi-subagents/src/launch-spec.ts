@@ -32,7 +32,7 @@ export interface LaunchSpec {
 	readonly cwd: string;
 	readonly presentation: Presentation;
 	readonly stdio: "pipe" | "inherit";
-	/** Bridge variables to add to the child environment, excluding the controller token. */
+	/** Bridge variables to add to the child environment. */
 	readonly env: Readonly<Record<string, string>>;
 	readonly config: EffectiveLaunchConfig;
 }
@@ -74,14 +74,6 @@ function childBridgePrompt(): string {
 
 export function assembleChildPrompt(instructions: string): string {
 	return `${instructions.trim()}\n\n${childBridgePrompt()}`;
-}
-
-/** Adds the per-runtime controller token. Tokens stay out of launch spec snapshots and the registry. */
-export function withBridgeToken(
-	env: Readonly<Record<string, string>>,
-	token: string,
-): Record<string, string> {
-	return { ...env, [BRIDGE_ENVIRONMENT_KEYS.token]: token };
 }
 
 let cachedBridgeExtensionPath: string | undefined;

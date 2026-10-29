@@ -6,7 +6,7 @@
  * so "is this child alive?" is answered by a bridge connection, and the runtime metadata in the
  * registry only records which runtime and endpoint a child was last launched with.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,25 +14,10 @@ import { errorMessage } from "@hheei/pi-ext-core";
 import { type ChildRuntime, spawnChildRuntime } from "./child-process.js";
 import type { Presentation, SubagentRecord } from "./domain.js";
 import type { HostAdapter, HostAttachment, HostObservation } from "./host-adapter.js";
-import { buildLaunchSpec, type LaunchSpec, withBridgeToken } from "./launch-spec.js";
+import { buildLaunchSpec, type LaunchSpec } from "./launch-spec.js";
 import { commitLease } from "./lease.js";
 import type { SubagentRegistry } from "./registry.js";
-import { defaultStatePath, deleteToken, openStateDb, readToken, writeToken } from "./state-db.js";
-
-/** Per-runtime bridge tokens, kept out of the registry because they are credentials. */
-export interface RuntimeTokenStore {
-	remember(runtimeIdentity: string, token: string): void;
-	get(runtimeIdentity: string): string | undefined;
-	forget(runtimeIdentity: string): void;
-}
-
-export interface RuntimeTokenStoreOptions {
-	/** The parent session these tokens belong to. */
-	readonly parentSessionId: string;
-	/** Override for tests. Defaults to this parent's file in the shared runtime directory. */
-	readonly file?: string;
-	readonly diagnose?: (message: string) => void;
-}
+import { defaultStatePath } from "./state-db.js";
 
 function runtimeDirectory(): string {
 	const user = typeof process.getuid === "function" ? process.getuid() : "user";
@@ -40,52 +25,16 @@ function runtimeDirectory(): string {
 }
 
 /**
- * The one socket a parent session listens on. A child dials this path, so a parent that restarts
- * re-listens in the same place and a surviving child reconnects instead of being rebuilt.
+ * The one mailbox a parent session reads. A child polls this path, so a parent that restarts reads
+ * the same file and a surviving child reconnects instead of being rebuilt.
  */
 export function parentBridgeEndpoint(_parentSessionId: string): string {
 	return defaultStatePath();
 }
 
-/** Tokens live in the same sqlite file as the child ledger. Rows do not clobber each other. */
-export function parentTokenFile(_parentSessionId: string): string {
-	return defaultStatePath();
-}
-
-/**
- * Tokens outlive the parent process. A restarted parent reads the same sqlite file and can still
- * match the token a surviving child was launched with.
- */
-export function createRuntimeTokenStore(options: RuntimeTokenStoreOptions): RuntimeTokenStore {
-	const file = options.file ?? defaultStatePath();
-	const diagnose = options.diagnose ?? ((): void => {});
-	let db: ReturnType<typeof openStateDb> | undefined;
-	try {
-		db = openStateDb(file);
-	} catch (error) {
-		diagnose(`could not open the state database: ${errorMessage(error)}`);
-	}
-	const database = db;
-	return {
-		remember(runtimeIdentity, token) {
-			if (database === undefined) return;
-			writeToken(database, options.parentSessionId, runtimeIdentity, token);
-		},
-		get(runtimeIdentity) {
-			if (database === undefined) return undefined;
-			return readToken(database, options.parentSessionId, runtimeIdentity);
-		},
-		forget(runtimeIdentity) {
-			if (database === undefined) return;
-			deleteToken(database, options.parentSessionId, runtimeIdentity);
-		},
-	};
-}
-
 export interface LaunchChildOptions {
 	readonly registry: Pick<SubagentRegistry, "get" | "update">;
 	readonly record: SubagentRecord;
-	readonly tokens: RuntimeTokenStore;
 	/** Waits for this child's bridge connection; false when it did not connect in time. */
 	readonly waitForBridge: (childId: string, signal?: AbortSignal) => Promise<boolean>;
 	readonly signal?: AbortSignal;
@@ -99,18 +48,12 @@ interface ChildRuntimePlan {
 }
 
 /**
- * Mints the runtime identity and its bridge token, remembers the token so the child's very first
- * hello can be authorized, and builds the one LaunchSpec for this presentation. The token travels
- * in the spec's environment, because who starts the child differs: the parent starts a background
- * child and the host starts a panel one.
+ * Mints the runtime identity and builds the one LaunchSpec for this presentation. Who starts the
+ * child differs (this parent for a background child, the host for a panel one), but the spec does
+ * not.
  */
-function planChildRuntime(
-	record: SubagentRecord,
-	tokens: RuntimeTokenStore,
-	presentation: Presentation,
-): ChildRuntimePlan {
+function planChildRuntime(record: SubagentRecord, presentation: Presentation): ChildRuntimePlan {
 	const runtimeIdentity = randomUUID();
-	const token = randomBytes(32).toString("hex");
 	const endpoint = parentBridgeEndpoint(record.parentSessionId);
 	const spec = buildLaunchSpec({
 		config: record.launchConfig,
@@ -124,8 +67,7 @@ function planChildRuntime(
 			endpoint,
 		},
 	});
-	tokens.remember(runtimeIdentity, token);
-	return { runtimeIdentity, endpoint, spec: { ...spec, env: withBridgeToken(spec.env, token) } };
+	return { runtimeIdentity, endpoint, spec };
 }
 
 /** Evidence first: the record names the runtime that was asked for even if starting it fails. */
@@ -143,15 +85,15 @@ async function recordRuntimeEvidence(
 
 /**
  * Starts one headless child Pi and waits for it to connect. Nothing is driven over its stdio: the
- * process gets the parent's socket path and its own runtime token in the environment, and the
- * bridge is the only control channel. A child that never connects is terminated here rather than
- * left running with no way to reach it.
+ * process gets the parent's mailbox path in its environment, and the bridge is the only control
+ * channel. A child that never connects is terminated here rather than left running with no way to
+ * reach it.
  */
 export async function launchChild(
 	options: LaunchChildOptions,
 ): Promise<LaunchOutcome<ChildRuntime>> {
 	const record = options.record;
-	const plan = planChildRuntime(record, options.tokens, "background");
+	const plan = planChildRuntime(record, "background");
 	await recordRuntimeEvidence(options.registry, record, plan);
 	const runtime = spawnChildRuntime({
 		command: plan.spec.command,
@@ -179,7 +121,6 @@ export async function launchChild(
 			failure: `Child ${record.subagentId} never connected to the parent bridge and did not stop (it may still be running)`,
 		};
 	}
-	options.tokens.forget(plan.runtimeIdentity);
 	await commitLease(
 		options.registry,
 		record.subagentId,
@@ -203,7 +144,7 @@ export async function openChildPanel(
 	options: OpenChildPanelOptions,
 ): Promise<LaunchOutcome<HostAttachment>> {
 	const record = options.record;
-	const plan = planChildRuntime(record, options.tokens, "panel");
+	const plan = planChildRuntime(record, "panel");
 	await recordRuntimeEvidence(options.registry, record, plan);
 	let attachment: HostAttachment;
 	try {
@@ -272,7 +213,6 @@ export async function openChildPanel(
 			}); close it manually`,
 		};
 	}
-	options.tokens.forget(plan.runtimeIdentity);
 	await commitLease(
 		options.registry,
 		record.subagentId,

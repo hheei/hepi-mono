@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-/** The one durable file for child records, commands, and tokens. */
+/** The one durable file for child records and the mailbox. */
 export function defaultStatePath(): string {
 	return join(getAgentDir(), "pi-subagents", "state.sqlite");
 }
@@ -37,12 +37,6 @@ CREATE TABLE IF NOT EXISTS commands (
 );
 CREATE INDEX IF NOT EXISTS commands_pending
   ON commands (parent_session_id, subagent_id, direction, status, created_at);
-CREATE TABLE IF NOT EXISTS tokens (
-  parent_session_id TEXT NOT NULL,
-  runtime_identity TEXT NOT NULL,
-  token TEXT NOT NULL,
-  PRIMARY KEY (parent_session_id, runtime_identity)
-);
 CREATE TABLE IF NOT EXISTS delegations (
   parent_session_id TEXT NOT NULL,
   delegation_id TEXT NOT NULL,
@@ -395,39 +389,5 @@ export function finishCommand(
 		outcome.errorCode,
 		outcome.error,
 		id,
-	);
-}
-
-export function readToken(
-	db: DatabaseSync,
-	parentSessionId: string,
-	runtimeIdentity: string,
-): string | undefined {
-	const row = db
-		.prepare("SELECT token FROM tokens WHERE parent_session_id = ? AND runtime_identity = ?")
-		.get(parentSessionId, runtimeIdentity) as { token: string } | undefined;
-	return row?.token;
-}
-
-export function writeToken(
-	db: DatabaseSync,
-	parentSessionId: string,
-	runtimeIdentity: string,
-	token: string,
-): void {
-	db.prepare(
-		`INSERT INTO tokens (parent_session_id, runtime_identity, token) VALUES (?, ?, ?)
-		 ON CONFLICT (parent_session_id, runtime_identity) DO UPDATE SET token = excluded.token`,
-	).run(parentSessionId, runtimeIdentity, token);
-}
-
-export function deleteToken(
-	db: DatabaseSync,
-	parentSessionId: string,
-	runtimeIdentity: string,
-): void {
-	db.prepare("DELETE FROM tokens WHERE parent_session_id = ? AND runtime_identity = ?").run(
-		parentSessionId,
-		runtimeIdentity,
 	);
 }

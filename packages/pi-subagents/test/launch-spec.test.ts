@@ -11,7 +11,6 @@ import {
 	buildLaunchSpec,
 	resolvePiInvocation,
 	stripHindsightContent,
-	withBridgeToken,
 } from "../src/launch-spec.js";
 
 const BRIDGE_PATH = "/opt/pi subagents/dist/extension.js";
@@ -144,7 +143,7 @@ test("builds background and panel processes from one config, differing only in p
 	expect(panel.config).toBe(background.config);
 });
 
-test("carries the bridge environment without a controller token", (): void => {
+test("carries the bridge environment and nothing secret", (): void => {
 	const built = spec(launchConfig(), "background", "never_flushed");
 	expect(built.env).toEqual({
 		PI_SUBAGENTS_PARENT_SESSION_ID: "01J7-parent",
@@ -159,18 +158,6 @@ test("carries the bridge environment without a controller token", (): void => {
 		PI_OBSERVATIONAL_MEMORY_DISABLE: "1",
 	});
 	expect(JSON.stringify(built)).not.toContain("PI_SUBAGENTS_TOKEN");
-	expect(Object.keys(withBridgeToken(built.env, "secret"))).toEqual([
-		"PI_SUBAGENTS_PARENT_SESSION_ID",
-		"PI_SUBAGENTS_CHILD_ID",
-		"PI_SUBAGENTS_RUNTIME_ID",
-		"PI_SUBAGENTS_ENDPOINT",
-		"PI_SUBAGENTS_AGENT",
-		"PI_SUBAGENTS_SESSION_ID",
-		"PI_SUBAGENTS_TITLE",
-		"PI_HINDSIGHT_DISABLE",
-		"PI_OBSERVATIONAL_MEMORY_DISABLE",
-		"PI_SUBAGENTS_TOKEN",
-	]);
 });
 
 test("refuses a session placement that disagrees with the persistence state", (): void => {

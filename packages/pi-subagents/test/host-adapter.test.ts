@@ -17,7 +17,7 @@ const spec: LaunchSpec = {
 	cwd: "/tmp/work dir",
 	presentation: "panel",
 	stdio: "inherit",
-	env: { PI_SUBAGENTS_ENDPOINT: "/tmp/socket path", PI_SUBAGENTS_TOKEN: "secret'quoted" },
+	env: { PI_SUBAGENTS_ENDPOINT: "/tmp/socket path", PI_SUBAGENTS_AGENT: "secret'quoted" },
 	config: { subagentId: "agent-7" } as LaunchSpec["config"],
 };
 
@@ -147,10 +147,10 @@ test("Herdr opens its own labeled tab and runs the LaunchSpec in its root pane",
 		"--env",
 		"PI_SUBAGENTS_ENDPOINT=/tmp/socket path",
 		"--env",
-		"PI_SUBAGENTS_TOKEN=secret'quoted",
+		"PI_SUBAGENTS_AGENT=secret'quoted",
 	]);
 	expect(calls[1]).toEqual(["herdr", "pane", "run", "wG:pD", quotedLaunch]);
-	expect(calls[1]?.[4]).not.toContain("PI_SUBAGENTS_TOKEN");
+	expect(calls[1]?.[4]).not.toContain("PI_SUBAGENTS_AGENT");
 	expect(observed).toMatchObject({
 		alive: true,
 		known: true,

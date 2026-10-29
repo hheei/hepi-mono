@@ -22,7 +22,7 @@ import {
 	updateReceipt,
 } from "../src/receipts.js";
 import { createSubagentRegistry } from "../src/registry.js";
-import type { LaunchOutcome, RuntimeTokenStore } from "../src/runtime.js";
+import type { LaunchOutcome } from "../src/runtime.js";
 import { transcriptFacts } from "../src/state.js";
 import { openStateDb } from "../src/state-db.js";
 import { advanceFakeTime, turn, until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
@@ -146,7 +146,6 @@ interface Harness {
 	readonly runtimes: Map<string, FakeRuntime>;
 	readonly panels: Map<string, FakeAttachment>;
 	readonly connect: ReturnType<typeof vi.fn>;
-	readonly tokens: RuntimeTokenStore;
 	readonly reports: ParentChannelReport[];
 	/** Resolves once this many reports reached the parent channel; the delivery is the event. */
 	reportsArrived(count: number): Promise<void>;
@@ -282,11 +281,6 @@ async function harness(
 			pendingMessages: false,
 		};
 	};
-	const tokens: RuntimeTokenStore = {
-		remember: vi.fn(),
-		get: vi.fn(() => undefined),
-		forget: vi.fn(),
-	};
 	const reports: ParentChannelReport[] = [];
 	const reportWaiters: Array<{ count: number; resolve: () => void }> = [];
 	let sequence = 0;
@@ -360,7 +354,6 @@ async function harness(
 		bridge,
 		launch,
 		connect,
-		tokens,
 		...(options.host === true
 			? { presentation: { reason: "default host herdr is available", openPanel } }
 			: {}),
@@ -401,7 +394,6 @@ async function harness(
 		panels,
 		runtimes,
 		connect,
-		tokens,
 		reports,
 		reportsArrived(count: number): Promise<void> {
 			if (reports.length >= count) return Promise.resolve();
@@ -2092,7 +2084,6 @@ describe("SubagentManager over the bridge", () => {
 		});
 		// The panel now belongs to the session the human switched to.
 		expect(attachment.cleanups).toBe(0);
-		expect(test1.tokens.forget).toHaveBeenCalledWith(record.runtime.runtimeIdentity);
 
 		// A send starts a fresh runtime for the delegated session instead of typing into that session.
 		const sent = await test1.manager.send(spawned.child.id, "keep going");
@@ -2283,7 +2274,6 @@ describe("SubagentManager over the bridge", () => {
 			intent: "active",
 			sessionId: spawned.child.sessionId,
 		});
-		expect(test1.tokens.forget).toHaveBeenCalledWith("runtime-1");
 	});
 
 	test("compaction after settle still delivers the reply", async () => {

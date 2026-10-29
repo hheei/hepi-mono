@@ -127,7 +127,6 @@ describe("extension branch", () => {
 			PI_SUBAGENTS_CHILD_ID: "c",
 			PI_SUBAGENTS_RUNTIME_ID: "r",
 			PI_SUBAGENTS_ENDPOINT: "/x",
-			PI_SUBAGENTS_TOKEN: "t",
 		};
 		try {
 			const { pi, tools, events } = fakePi();

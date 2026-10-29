@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { EffectiveLaunchConfig, SubagentRecord } from "../src/domain.js";
@@ -8,11 +8,9 @@ import type { LaunchSpec } from "../src/launch-spec.js";
 import { assembleChildPrompt } from "../src/launch-spec.js";
 import { createSubagentRegistry } from "../src/registry.js";
 import {
-	createRuntimeTokenStore,
 	launchChild,
 	openChildPanel,
 	parentBridgeEndpoint,
-	parentTokenFile,
 	prepareRuntimeDirectory,
 } from "../src/runtime.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
@@ -79,47 +77,6 @@ describe("parent bridge endpoint", () => {
 	});
 });
 
-describe("bridge token store", () => {
-	test("keeps every parent session's tokens in the one state file", () => {
-		expect(parentTokenFile("parent-a")).toBe(parentTokenFile("parent-b"));
-		expect(parentTokenFile("parent-a").endsWith("state.sqlite")).toBe(true);
-	});
-
-	test("keeps tokens in memory and on disk so a restarted parent can authorize a child", async () => {
-		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const file = join(directory, "state.sqlite");
-			const first = createRuntimeTokenStore({ parentSessionId: "parent-a", file });
-			first.remember("runtime-1", "token-1");
-			expect(first.get("runtime-1")).toBe("token-1");
-			const other = createRuntimeTokenStore({ parentSessionId: "parent-b", file });
-			other.remember("runtime-1", "token-b");
-			expect(other.get("runtime-1")).toBe("token-b");
-			expect(first.get("runtime-1")).toBe("token-1");
-
-			const second = createRuntimeTokenStore({ parentSessionId: "parent-a", file });
-			expect(second.get("runtime-1")).toBe("token-1");
-			second.forget("runtime-1");
-			expect(second.get("runtime-1")).toBeUndefined();
-			expect(other.get("runtime-1")).toBe("token-b");
-		});
-	});
-
-	test("reports a state file it cannot open instead of failing the session", async () => {
-		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const file = join(directory, "state.sqlite");
-			await writeFile(file, "{not json");
-			const diagnoses: string[] = [];
-			const store = createRuntimeTokenStore({
-				parentSessionId: "parent-a",
-				file,
-				diagnose: (message) => diagnoses.push(message),
-			});
-			expect(store.get("runtime-1")).toBeUndefined();
-			expect(diagnoses[0]).toContain("could not open the state database");
-		});
-	});
-});
-
 describe("launching a child runtime", () => {
 	test("spawns a headless child, records its runtime and waits for the bridge", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
@@ -129,14 +86,11 @@ describe("launching a child runtime", () => {
 			});
 			await mkdir(join(directory, "work"), { recursive: true });
 			const stored = await registry.create(record("sa_launch", join(directory, "work")));
-			const file = join(directory, "tokens.json");
-			const tokens = createRuntimeTokenStore({ parentSessionId: "parent-a", file });
 			const waitForBridge = vi.fn(async () => true);
 
 			const launched = await launchChild({
 				registry,
 				record: stored,
-				tokens,
 				waitForBridge,
 			});
 			const runtime = launched.handle;
@@ -148,7 +102,6 @@ describe("launching a child runtime", () => {
 			const current = await registry.get("sa_launch");
 			expect(current?.runtime?.endpoint).toBe(parentBridgeEndpoint(PARENT_SESSION_ID));
 			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
 
 			await runtime.terminate();
 			await expect(runtime.exited).resolves.toBeDefined();
@@ -164,15 +117,10 @@ describe("launching a child runtime", () => {
 			});
 			await mkdir(join(directory, "work"), { recursive: true });
 			const stored = await registry.create(record("sa_silent", join(directory, "work")));
-			const tokens = createRuntimeTokenStore({
-				parentSessionId: "parent-a",
-				file: join(directory, "tokens.json"),
-			});
 
 			const launched = await launchChild({
 				registry,
 				record: stored,
-				tokens,
 				waitForBridge: async () => false,
 			});
 			expect(launched.failure).toMatch(/never connected to the parent bridge/);
@@ -182,7 +130,6 @@ describe("launching a child runtime", () => {
 			const current = await registry.get("sa_silent");
 			// Confirmed cleanup leaves no runtime evidence that could block a safe retry.
 			expect(current?.runtime).toBeUndefined();
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeUndefined();
 		});
 	});
 });
@@ -271,7 +218,6 @@ describe("opening a child in a host panel", () => {
 
 	async function panelSetup(directory: string): Promise<{
 		readonly registry: ReturnType<typeof createSubagentRegistry>;
-		readonly tokens: ReturnType<typeof createRuntimeTokenStore>;
 		readonly stored: SubagentRecord;
 	}> {
 		const registry = createSubagentRegistry({
@@ -280,26 +226,18 @@ describe("opening a child in a host panel", () => {
 		});
 		await mkdir(join(directory, "work"), { recursive: true });
 		const stored = await registry.create(record("sa_panel", join(directory, "work")));
-		return {
-			registry,
-			tokens: createRuntimeTokenStore({
-				parentSessionId: "parent-a",
-				file: join(directory, "tokens.json"),
-			}),
-			stored,
-		};
+		return { registry, stored };
 	}
 
-	test("runs the same Pi argv as a background child, minus --mode, with the token in its env", async () => {
+	test("runs the same Pi argv as a background child, minus --mode", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host, specs } = fakeHost();
 			const waitForBridge = vi.fn(async () => true);
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge,
 			});
@@ -318,21 +256,17 @@ describe("opening a child in a host panel", () => {
 			);
 			const current = await registry.get("sa_panel");
 			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBe(
-				spec?.env[BRIDGE_ENVIRONMENT_KEYS.token],
-			);
 		});
 	});
 
-	test("closes the panel and forgets the token when the child never connects", async () => {
+	test("closes the panel when the child never connects", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host, cleanups } = fakeHost();
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async () => false,
 			});
@@ -343,44 +277,41 @@ describe("opening a child in a host panel", () => {
 			expect(cleanups()).toBe(1);
 			const current = await registry.get("sa_panel");
 			expect(current?.runtime).toBeUndefined();
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeUndefined();
 		});
 	});
 
 	test("hands back a panel it could not close so nothing starts a second runtime", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host, cleanups } = fakeHost({ refuseClose: true });
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async () => false,
 			});
 			expect(opened.failure).toMatch(/could not be closed/);
 			expect(opened.handle?.identity.attachmentId).toBe("wG:tH");
 			expect(cleanups()).toBe(1);
-			// The token stays too: a child that does come up is adopted instead of becoming a process
-			// nobody owns. The handle lets stop close the tab; it does not block a later send.
+			// The runtime evidence stays too: a child that does come up is adopted instead of becoming a
+			// process nobody owns. The handle lets stop close the tab; it does not block a later send.
 			const current = await registry.get("sa_panel");
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
+			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
 		});
 	});
 
-	test("keeps the token and reports an unconfirmed panel when the host cannot open one", async () => {
+	test("keeps the runtime evidence and reports an unconfirmed panel when the host cannot open one", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host } = fakeHost({ failOpen: "herdr tab create failed" });
 
 			// Opening is not atomic: the host can create the panel and then fail to report it, so the
-			// credential is kept — a child that does come up is adopted instead of becoming a process
-			// nobody can reach. The failure does not freeze later sends.
+			// runtime evidence is kept — a child that does come up is adopted instead of becoming a
+			// process nobody can reach. The failure does not freeze later sends.
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async () => true,
 			});
@@ -388,19 +319,18 @@ describe("opening a child in a host panel", () => {
 			expect(opened.failure).toMatch(/could not be opened in a herdr panel/);
 			expect(opened.failure).toMatch(/close it if it is still there/);
 			const current = await registry.get("sa_panel");
-			expect(tokens.get(current?.runtime?.runtimeIdentity ?? "")).toBeTruthy();
+			expect(current?.runtime?.runtimeIdentity).toBeTruthy();
 		});
 	});
 
 	test("does not abort when panel initially reports alive: false while shell is starting", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host } = fakeHost({ initialPending: true });
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async (_id, signal) => {
 					// Wait past one probe tick to ensure probe saw alive: false without aborting
@@ -415,13 +345,12 @@ describe("opening a child in a host panel", () => {
 
 	test("aborts early when child process is observed running and then exits before bridge connects", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host, cleanups } = fakeHost({ earlyExit: "crash on startup" });
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async (_id, signal) => {
 					return new Promise((resolve) => {
@@ -436,13 +365,12 @@ describe("opening a child in a host panel", () => {
 
 	test("aborts early when host container is gone before bridge connects", async () => {
 		await withTempDir("pi-subagents-runtime-", async (directory) => {
-			const { registry, tokens, stored } = await panelSetup(directory);
+			const { registry, stored } = await panelSetup(directory);
 			const { host, cleanups } = fakeHost({ containerGone: "pane_not_found" });
 
 			const opened = await openChildPanel({
 				registry,
 				record: stored,
-				tokens,
 				host,
 				waitForBridge: async (_id, signal) => {
 					return new Promise((resolve) => {

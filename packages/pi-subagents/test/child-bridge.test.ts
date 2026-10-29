@@ -53,7 +53,6 @@ describe("child bridge session policy", () => {
 			PI_SUBAGENTS_CHILD_ID: "c",
 			PI_SUBAGENTS_RUNTIME_ID: "r",
 			PI_SUBAGENTS_ENDPOINT: "/x",
-			PI_SUBAGENTS_TOKEN: "t",
 			[CHILD_SESSION_ENV_KEY]: "session-a",
 		};
 		try {
@@ -80,7 +79,6 @@ describe("child bridge session policy", () => {
 					subagentId: "c",
 					runtimeIdentity: "r",
 					endpoint: "/x",
-					token: "t",
 				},
 				{ diagnose: () => {} },
 			);
@@ -137,7 +135,6 @@ test("stops hinting for the old task after the child leaves its session", () => 
 		PI_SUBAGENTS_CHILD_ID: "c",
 		PI_SUBAGENTS_RUNTIME_ID: "r",
 		PI_SUBAGENTS_ENDPOINT: "/x",
-		PI_SUBAGENTS_TOKEN: "t",
 		[CHILD_SESSION_ENV_KEY]: "session-a",
 	};
 	try {
@@ -167,7 +164,6 @@ test("stops hinting for the old task after the child leaves its session", () => 
 				subagentId: "c",
 				runtimeIdentity: "r",
 				endpoint: "/x",
-				token: "t",
 			},
 			{ diagnose: () => {} },
 		);
@@ -220,7 +216,6 @@ describe("child session title", () => {
 			PI_SUBAGENTS_CHILD_ID: "agent-2",
 			PI_SUBAGENTS_RUNTIME_ID: "r",
 			PI_SUBAGENTS_ENDPOINT: "/x",
-			PI_SUBAGENTS_TOKEN: "t",
 			// The real launch always states the session it was started for, so the bridge starts bound.
 			[CHILD_SESSION_ENV_KEY]: "session-a",
 			[CHILD_AGENT_ENV_KEY]: "worker",
@@ -249,7 +244,6 @@ describe("child session title", () => {
 					subagentId: "agent-2",
 					runtimeIdentity: "r",
 					endpoint: "/x",
-					token: "t",
 				},
 				{ diagnose: () => {} },
 			);
@@ -294,7 +288,6 @@ async function runSessionSwitch(): Promise<void> {
 			subagentId: "agent-1",
 			runtimeIdentity: "runtime-1",
 			endpoint,
-			token: "token-1",
 		};
 		const handlers = new Map<string, Array<(event: unknown, context: unknown) => void>>();
 		const pi = new Proxy(
@@ -391,7 +384,6 @@ describe("child bridge mcp tool call gating", () => {
 					subagentId: "c",
 					runtimeIdentity: "r",
 					endpoint: "/x",
-					token: "t",
 				},
 				{ diagnose: () => {} },
 			);

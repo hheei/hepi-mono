@@ -58,7 +58,6 @@ const identityProperties = {
 	subagentId: nonEmptyString,
 	runtimeIdentity: nonEmptyString,
 	endpoint: nonEmptyString,
-	token: nonEmptyString,
 } as const;
 
 export const HelloFrameSchema = Type.Object(

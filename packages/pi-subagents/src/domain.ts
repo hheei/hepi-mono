@@ -75,13 +75,11 @@ export interface ChildIdentity {
 	readonly subagentId: string;
 	readonly runtimeIdentity: string;
 	readonly endpoint: string;
-	readonly token: string;
 }
 
 /**
- * The non-secret half of {@link ChildIdentity}: what a launch spec may contain and
- * what may be persisted. The controller token is added by the launcher at spawn
- * time and never written to a registry snapshot.
+ * What a launch spec may contain and what may be persisted: the child's identity minus nothing,
+ * because the mailbox is authenticated by the process lock its writer holds, not by a token.
  */
 export interface ChildBridgeEnvironment {
 	readonly parentSessionId: string;
@@ -303,7 +301,6 @@ export const BRIDGE_ENVIRONMENT_KEYS = {
 	childId: "PI_SUBAGENTS_CHILD_ID",
 	runtimeId: "PI_SUBAGENTS_RUNTIME_ID",
 	endpoint: "PI_SUBAGENTS_ENDPOINT",
-	token: "PI_SUBAGENTS_TOKEN",
 } as const;
 
 /** Non-secret agent label for the child TUI identity line. Not part of handshake. */

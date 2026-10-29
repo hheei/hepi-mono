@@ -56,7 +56,7 @@ import {
 	waitForReceipt,
 } from "./receipts.js";
 import type { SubagentRegistry } from "./registry.js";
-import type { LaunchOutcome, RuntimeTokenStore } from "./runtime.js";
+import type { LaunchOutcome } from "./runtime.js";
 import { findSessionFile, planSessionPlacement } from "./session-bootstrap.js";
 
 async function readSessionJsonlEntries(filePath: string): Promise<readonly unknown[]> {
@@ -209,7 +209,6 @@ export interface ManagerDependencies {
 	readonly idleTimeoutMs?: number;
 	readonly failedPanelCloseTimeoutMs?: number;
 	readonly channel?: ParentChannel;
-	readonly tokens?: RuntimeTokenStore;
 }
 
 /**
@@ -634,9 +633,7 @@ export class SubagentManager {
 	): Promise<SubagentRecord | undefined> {
 		const current = await this.#deps.registry.get(id);
 		if (current === undefined) return undefined;
-		const identity = current.runtime?.runtimeIdentity;
 		const next = await commitLease(this.#deps.registry, id, { type: "runtime-gone", outcome });
-		if (identity !== undefined && next.runtime === undefined) this.#deps.tokens?.forget(identity);
 		if (
 			outcome === "drop" &&
 			current.state === "running" &&
@@ -2263,10 +2260,9 @@ export class SubagentManager {
 			if (value.kind === "left_session") {
 				this.#working.delete(id);
 				// The process now serves another session, so it is no longer this child's runtime. Its
-				// credential is revoked and its runtime evidence dropped, so neither a reconnect nor a
-				// later adopt can mistake the new session for this child; the panel belongs to that other
-				// session from now on, which is why it is forgotten here and never closed.
-				const retired = record.runtime?.runtimeIdentity;
+				// runtime evidence is dropped, so neither a reconnect nor a later adopt can mistake the new
+				// session for this child; the panel belongs to that other session from now on, which is why
+				// it is forgotten here and never closed.
 				this.#clearSettledPanelClose(id);
 				this.#projectors.delete(id);
 				this.#attachments.delete(id);
@@ -2275,7 +2271,6 @@ export class SubagentManager {
 				// relaunch mistake the old connection for the new runtime.
 				this.#deps.bridge.disconnect(id);
 				await commitLease(this.#deps.registry, id, { type: "left-session" });
-				if (retired !== undefined) this.#deps.tokens?.forget(retired);
 				this.#recordSettlement({
 					childId: id,
 					status: "failed",
@@ -2387,9 +2382,6 @@ export class SubagentManager {
 			registry: this.#deps.registry,
 			hosts: directory,
 			processes: { alive: processAlive },
-			forgetRuntime: (runtimeIdentity) => {
-				this.#deps.tokens?.forget(runtimeIdentity);
-			},
 		});
 		const result = await lease.ready();
 		if (!result.ok) return result;

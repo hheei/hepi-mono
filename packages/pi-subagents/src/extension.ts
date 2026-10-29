@@ -32,12 +32,7 @@ import { type ParentChannel, type ParentChannelReport, SubagentManager } from ".
 import { transformSubagentsMarkdown } from "./markdown.js";
 import { sweepUncertainDispatch } from "./receipts.js";
 import { createSubagentRegistry } from "./registry.js";
-import {
-	createRuntimeTokenStore,
-	launchChild,
-	openChildPanel,
-	prepareRuntimeDirectory,
-} from "./runtime.js";
+import { launchChild, openChildPanel, prepareRuntimeDirectory } from "./runtime.js";
 import { persistSubagentIntent, resolveSubagentLaunch } from "./session-bootstrap.js";
 import { createSubagentStatus } from "./status.js";
 import { registerInteractiveToolActivation } from "./tool-activation.js";
@@ -77,7 +72,6 @@ function childIdentityFromEnv(env: NodeJS.ProcessEnv): ChildIdentity | undefined
 		subagentId: requiredBridgeValue(env, BRIDGE_ENVIRONMENT_KEYS.childId),
 		runtimeIdentity: requiredBridgeValue(env, BRIDGE_ENVIRONMENT_KEYS.runtimeId),
 		endpoint: requiredBridgeValue(env, BRIDGE_ENVIRONMENT_KEYS.endpoint),
-		token: requiredBridgeValue(env, BRIDGE_ENVIRONMENT_KEYS.token),
 	};
 }
 
@@ -201,7 +195,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 			const parentSessionId = context.sessionManager.getSessionId();
 			const registry = createSubagentRegistry({ parentSessionId });
 			sweepUncertainDispatch(registry.path, parentSessionId);
-			const tokens = createRuntimeTokenStore({ parentSessionId, diagnose });
 			// Presentation is chosen once per parent session: herdr first, then cmux, and a parent with
 			// neither runs every child in the background. Successful selection stays silent; only actual
 			// failures and fallback diagnostics are reported by the launch path.
@@ -267,7 +260,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 				parentSessionId,
 				registry,
 				channel,
-				tokens,
 				async resolve(input) {
 					const model = context.model;
 					if (model === undefined) throw new Error("No parent model is selected");
@@ -298,7 +290,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 					return launchChild({
 						registry,
 						record,
-						tokens,
 						waitForBridge: (childId, signal) =>
 							mailbox.waitUntilSeen(childId, {
 								timeoutMs: START_WINDOW_MS,
@@ -316,7 +307,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 									openChildPanel({
 										registry,
 										record,
-										tokens,
 										host: hostSelection.adapter,
 										waitForBridge: (childId, signal) =>
 											mailbox.waitUntilSeen(childId, {
@@ -349,7 +339,6 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 									const launch = await openChildPanel({
 										registry,
 										record,
-										tokens,
 										host: hostSelection.adapter,
 										waitForBridge: (childId: string, signal?: AbortSignal) =>
 											mailbox.waitUntilSeen(childId, {

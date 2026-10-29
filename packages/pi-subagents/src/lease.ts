@@ -81,9 +81,8 @@ export function createConversationLease(options: {
 	readonly registry: RegistryStore;
 	readonly hosts: HostDirectory;
 	readonly processes: ProcessDirectory;
-	readonly forgetRuntime?: (runtimeIdentity: string) => void;
 }): ConversationLease {
-	const { registry, hosts, processes, forgetRuntime } = options;
+	const { registry, hosts, processes } = options;
 	return {
 		commit(id, edge, expectedRevision) {
 			return commitLease(registry, id, edge, expectedRevision);
@@ -92,7 +91,7 @@ export function createConversationLease(options: {
 			return registry.list();
 		},
 		ready() {
-			return reconcile(registry, hosts, processes, forgetRuntime);
+			return reconcile(registry, hosts, processes);
 		},
 	};
 }
@@ -207,7 +206,6 @@ async function reconcile(
 	registry: RegistryStore,
 	hosts: HostDirectory,
 	processes: ProcessDirectory,
-	forgetRuntime?: (runtimeIdentity: string) => void,
 ): Promise<LeaseReady> {
 	const list = await hosts.list();
 	if (!list.known) return { ok: false, reason: "unknown" };
@@ -224,12 +222,7 @@ async function reconcile(
 			continue;
 		}
 		if (held) continue;
-		await releaseRuntime(
-			registry,
-			record,
-			{ type: "runtime-gone", outcome: "drop" },
-			forgetRuntime,
-		);
+		await releaseRuntime(registry, record, { type: "runtime-gone", outcome: "drop" });
 		released.add(record.subagentId);
 	}
 	const records = all.filter((record) => !released.has(record.subagentId));
@@ -273,7 +266,7 @@ async function reconcile(
 				await commitLease(registry, item.record.subagentId, { type: "stop-intent" });
 				stopped.push(item.record.subagentId);
 			}
-			await releaseRuntime(registry, item.record, { type: "runtime-gone" }, forgetRuntime);
+			await releaseRuntime(registry, item.record, { type: "runtime-gone" });
 		}
 	}
 	for (const record of records) {
@@ -283,12 +276,7 @@ async function reconcile(
 			rebound.push(record.subagentId);
 			continue;
 		}
-		await releaseRuntime(
-			registry,
-			record,
-			{ type: "runtime-gone", outcome: "drop" },
-			forgetRuntime,
-		);
+		await releaseRuntime(registry, record, { type: "runtime-gone", outcome: "drop" });
 		released.add(record.subagentId);
 	}
 	if (!held && parentSessionId !== undefined && stored !== list.generation)
@@ -305,11 +293,8 @@ async function releaseRuntime(
 	registry: RegistryStore,
 	record: SubagentRecord,
 	edge: LeaseEdge,
-	forgetRuntime?: (runtimeIdentity: string) => void,
 ): Promise<void> {
-	const identity = record.runtime?.runtimeIdentity;
-	const next = await commitLease(registry, record.subagentId, edge);
-	if (identity !== undefined && next.runtime === undefined) forgetRuntime?.(identity);
+	await commitLease(registry, record.subagentId, edge);
 }
 
 function omitRuntime(record: SubagentRecord): SubagentRecord {

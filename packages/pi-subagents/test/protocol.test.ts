@@ -22,7 +22,6 @@ const identity: ChildIdentity = {
 	subagentId: "child-1",
 	runtimeIdentity: "runtime-1",
 	endpoint: "/tmp/runner.sock",
-	token: "secret",
 };
 
 const hello = { version: PROTOCOL_VERSION, type: "hello", ...identity };
@@ -35,7 +34,7 @@ describe("bridge protocol frames", () => {
 		const { endpoint: _endpoint, ...withoutEndpoint } = hello;
 		expect(isHelloFrame(withoutEndpoint)).toBe(false);
 		expect(isHelloFrame({ ...hello, version: PROTOCOL_VERSION + 1 })).toBe(false);
-		expect(isHelloFrame({ ...hello, token: "" })).toBe(false);
+		expect(isHelloFrame({ ...hello, endpoint: "" })).toBe(false);
 		expect(isHelloFrame({ ...hello, extra: true })).toBe(false);
 		expect(isHelloFrame("hello")).toBe(false);
 		expect(isHelloFrame(undefined)).toBe(false);
