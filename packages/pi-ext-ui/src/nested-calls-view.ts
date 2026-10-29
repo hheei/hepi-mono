@@ -230,10 +230,9 @@ export class NestedCallsView implements Component, Collapsible {
 	 */
 	#callContext(call: CapturedToolCall | NestedCallRecord): ToolRenderContext {
 		const { context } = this.#props;
-		const toolCallId =
-			"toolCallId" in call && typeof call.toolCallId === "string"
-				? call.toolCallId
-				: context.toolCallId;
+		// A captured call carries its own id. A persisted record has none, so it falls back to the
+		// parent's id — the only identity the host offers, and never a child's guess.
+		const toolCallId = "id" in call ? call.id : context.toolCallId;
 		return {
 			...context,
 			lastComponent: undefined,

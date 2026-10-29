@@ -1374,6 +1374,44 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		}
 	});
 
+	test("each nested child renderer sees its own call id, not the parent's", () => {
+		const providerIds: string[] = [];
+		const childIds: string[] = [];
+		const ncv = new NestedCallsView({
+			calls: [
+				{
+					id: "child-a",
+					toolName: "bash",
+					args: { command: "echo a" },
+					result: { content: [{ type: "text", text: "A" }], details: {} },
+				},
+				{
+					id: "child-b",
+					toolName: "bash",
+					args: { command: "echo b" },
+					result: { content: [{ type: "text", text: "B" }], details: {} },
+				},
+			],
+			theme: plainTheme,
+			context: createMockContext({ toolCallId: "parent-call" }),
+			stateHolder: { [NESTED_CALLS_EXPANDED_KEY]: { 0: 1, 1: 1 } },
+			resolvePresentation: () => (_args, _result, _theme, ctx) => {
+				providerIds.push(ctx.toolCallId);
+				return { summary: "child", copy: { primary: "text" } };
+			},
+			resolveChildRenderer: () => ({
+				renderCall: () => new Text("", 0, 0),
+				renderResult: (_result, _options, _theme, ctx) => {
+					childIds.push(ctx.toolCallId);
+					return new Text("body", 0, 0);
+				},
+			}),
+		});
+		ncv.render(80);
+
+		expect(new Set(providerIds)).toEqual(new Set(["child-a", "child-b"]));
+		expect(childIds).toEqual(["child-a", "child-b"]);
+	});
 
 	test("NestedCallsView retains ANSI escape colors and syntax highlights file reads", () => {
 		const state: Record<string, unknown> = {};
