@@ -6,9 +6,9 @@
 
 本文只保留运行时合同。用户目标、明确不做、完成定义与实施顺序见 [范围与路线](roadmap.md)。
 
-## 2. 核心身份与所有权
+## 1. 核心身份与所有权
 
-### 2.1 身份
+### 1.1 身份
 
 ```text
 logical child = subagent ID + parent session ID + Pi child session
@@ -17,9 +17,9 @@ presentation  = 由 spawn 决定：host panel 里的 native Pi TUI，或无终�
 ```
 
 Pi child session 保存对话。PID、mailbox 连接（SQLite 命令队列 + 进程锁）、pane ID 和 surface ID 都是可替换的 runtime attachment，不是 child identity。
-bridge 是控制面（实现在 `mailbox.ts` 的 SQLite 命令队列与进程锁上）：指令、事件和「这份 runtime 是否还在应答」。它不是所有权。所有权是 §7.7 的会话租约：`intent` 与 attachment（Herdr tab、cmux surface 或 pid）在副作用之前写入。宿主列表或 pid 用来对账，不扫 session JSONL。
+bridge 是控制面（实现在 `mailbox.ts` 的 SQLite 命令队列与进程锁上）：指令、事件和「这份 runtime 是否还在应答」。它不是所有权。所有权是 §6.7 的会话租约：`intent` 与 attachment（Herdr tab、cmux surface 或 pid）在副作用之前写入。宿主列表或 pid 用来对账，不扫 session JSONL。
 
-### 2.2 所有权
+### 1.2 所有权
 
 | 所有者 | 负责 | 不负责 |
 | --- | --- | --- |
@@ -31,13 +31,13 @@ bridge 是控制面（实现在 `mailbox.ts` 的 SQLite 命令队列与进程锁
 | ext-core | parent lifecycle、JSON 原子更新、`ToolPresentation` 契约、可选 surface/widget primitives | durable child supervisor、跨进程 IPC、handoff policy |
 | Herdr/cmux | panel 的 open/observe（含聚焦）与 cleanup | child identity、语义消息、session persistence、拼第二份 Pi argv |
 
-child 的身份与生命周期由本规格定义（见 §5、§7）。ext-core 不再提供可承载 child 的 coordinator。
+child 的身份与生命周期由本规格定义（见 §4、§6）。ext-core 不再提供可承载 child 的 coordinator。
 
 **已删除的所有权**：独立 runner 进程及其 endpoint/claim/handshake 体系、pause gate、attach/detach 状态、`writer_exit` 语义、`controller`/`reporter`/`recovery` 角色划分。
 
-## 3. 目标数据流
+## 2. 目标数据流
 
-### 3.1 后台执行（presentation=background）
+### 2.1 后台执行（presentation=background）
 
 ```text
 agents_delegate / Task tool（无 host 时）
@@ -52,7 +52,7 @@ agents_delegate / Task tool（无 host 时）
 
 多个 `spawn_subagent` tool call 可由 Pi 并行执行；不增加 batch spawn API 或 extension-owned scheduler。
 
-### 3.2 Panel 呈现与 bridge 控制面
+### 2.2 Panel 呈现与 bridge 控制面
 
 ```text
 agents_delegate
@@ -64,7 +64,7 @@ agents_delegate
 ```
 
 不再有 attach/detach：没有 writer 交接、没有输入冻结、没有 pause handshake、没有 `close_writer`/`start_rpc`。
-同一个 child session 在整个受管理流程中最多一个受管理 runtime（§6.4）。用户直接用 Pi 原生 `/resume` 或外部进程打开同一 session 不在该保证范围内，也不得被 extension 拦截。
+同一个 child session 在整个受管理流程中最多一个受管理 runtime（§4.3）。用户直接用 Pi 原生 `/resume` 或外部进程打开同一 session 不在该保证范围内，也不得被 extension 拦截。
 
 呈现方式在 spawn 时冻结并记录在 registry 的 `presentation` 字段；`agents_delegate` 不暴露该参数，默认在有 host 时用 panel、没有 host 时用后台，并且**在 spawn 结果里明说**用了哪一种以及 fallback 原因（不静默改变执行环境）。Task tool 同样采用这个 host 优先策略；Task 仍由 parent 收口并在提交最终结果后结束，panel 只是 child runtime 的可见呈现，不改变一次性 Task 合同。
 
@@ -74,7 +74,7 @@ panel child 的进程由 host 持有，parent 只持有 attachment：
 - 写者是否还在只看进程锁，以及本进程自己持有的进程句柄。关闭 panel 只证明 attachment 消失。
 - 写者消失不是终止：child 保持身份与 session，后续 `agents_delegate` 用同一 session 再起 runtime（不重放中断的 turn）。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，调用方要收掉就 `agents_stop`。
 
-### 3.3 Recovery
+### 2.3 Recovery
 
 ```text
 parent 启动
@@ -89,9 +89,9 @@ parent 启动
 panel child 由 host 持有进程，天然跨 parent 存活，因此它的 runtime 不能因为「没在 adopt 窗口内重连」就当作已死。
 重新打开 session 不等于继续任务：中断的 turn、initial task 或未确认消息不得静默重放。
 
-## 4. 最小公共合同
+## 3. 最小公共合同
 
-### 4.1 Model-facing tools
+### 3.1 Model-facing tools
 
 会话模式注册 deferred 工具，通过 `tool_search` 按需加载：
 
@@ -118,7 +118,7 @@ SubagentManager 与 SQLite ledger 独占 child conversation、runtime lease、�
 - `agents_delegate` 用 `id` 接续时接受目标 child 的任意状态；接续已完成（done）的 child 会自动唤醒并恢复其上下文。模型切勿在派发前等待或要求 Worker “冻结代码”。
 - `agents_stop` 是唯一 model-facing 终止操作：先持久化 stopped 意图，再结束 runtime；未结算的委派记为 failed，已完成的结果与会话保留。
 
-### 4.2 Child-facing tool
+### 3.2 Child-facing tool
 
 child branch 注册：
 
@@ -132,7 +132,7 @@ contact_parent({
 - **正常完成不调工具**：子 Agent 完成任务时直接输出最终回答文本即可。Harness 在 child 沉降后自动提取文本完成汇报，并将 child 状态保留为 `done`。
 - **卡点与决策**：子 Agent 仅在遇到真正阻碍自身无法继续的严重卡点、或必须由父 Agent 决策的关键问题时调用 `contact_parent`。报告立即唤醒父 Agent，并将 child 状态记为 `blocked`。
 
-### 4.3 Agent definitions
+### 3.3 Agent definitions
 
 按下列顺序发现 Markdown agent definitions，较具体 scope 优先，重名行为必须确定且可测试：
 
@@ -182,7 +182,7 @@ contact_parent({
 
 未知字段、未知模型、无效 thinking、冲突的 tool policy、非 boolean 的 `interactive`、被禁用的 `contact_parent`、不存在的本地 path 条目在启动前报错；未知的 skill **名字**只 warning。`exclude_extensions`、`preload_skills`、`max_turns` 和 `max_tokens` 在拥有明确执行语义前不属于 V1 合同。
 
-### 4.4 Effective launch configuration
+### 3.4 Effective launch configuration
 
 agent definition 与 parent 显式默认值只解析一次，形成可观察、非 secret 的 immutable launch spec：
 
@@ -199,9 +199,9 @@ child bridge environment
 
 后台 child、panel child 和 replacement runtime 共用同一 builder；只有 presentation、stdio 和 attachment 不同。默认 model/thinking 的继承必须显示在结果和状态中，不得静默替换 provider/model。API key 等 secret 不写 registry。
 
-## 5. 持久化合同
+## 4. 持久化合同
 
-### 5.1 Parent-scoped registry
+### 4.1 Parent-scoped registry
 
 V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`busy_timeout=5000`，0600），按 `parentSessionId` 隔离。它同时承载 `children`（记录 + revision）、`session_meta`、`commands`（双向命令队列）与 `delegations`（委派 receipt）四张表，并用 `revision` 做条件写入、拒绝过期 writer。它不写入 `settings.json`，也不引入 event ledger 或 handoff history。库用 `PRAGMA user_version = 2` 标识当前格式。打开旧库时**原地升级**：建缺失的表、按需 `ALTER TABLE ADD COLUMN` 补齐已知新增列、建索引，最后写入版本号。文件与 WAL 不换名，因此同一台机器上另一个还在运行的 Pi 进程不会与升级后的账本分叉；升级只做加法，已有的 `children` 与 `delegations` 行全部保留。版本号高于本程序时明确报错并拒绝打开，而不是猜格式或重写别人的账本。
 
@@ -216,7 +216,7 @@ V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`bu
 
 mailbox 没有凭据：「谁在写」由 `locks/<parentSessionId>/<childId>.lock` 上的内核锁回答，「哪个 runtime 在通信」由 `runtimeIdentity` 回答。早期 socket 握手用的 bridge token 已随握手一起移除，`tokens` 表在升级时被删除。
 
-保留策略按数据语义分开，不按时间或进程存活回收：`children` 与 `delegations` 是账本，runtime 消失、child 结束、parent 重启都不删除它们——`agents_delegate({ id })` 要用同一 session 接续，`agents_get({ revision })` 要能读历史委派；它们只按 `parentSessionId` 归属，不设 TTL。`commands` 里只有进度事件是有界快照（见 §6），控制请求与报告保留到其等待者读到结果为止。删除整个 parent session 的账本目前没有自动入口：那是用户的显式动作，不做猜测式清理。
+保留策略按数据语义分开，不按时间或进程存活回收：`children` 与 `delegations` 是账本，runtime 消失、child 结束、parent 重启都不删除它们——`agents_delegate({ id })` 要用同一 session 接续，`agents_get({ revision })` 要能读历史委派；它们只按 `parentSessionId` 归属，不设 TTL。`commands` 里只有进度事件是有界快照（见 §5），控制请求与报告保留到其等待者读到结果为止。删除整个 parent session 的账本目前没有自动入口：那是用户的显式动作，不做猜测式清理。
 
 所有跨进程读取先做 runtime validation。损坏、版本不支持或身份不匹配时明确失败，不返回部分伪状态。
 
@@ -224,7 +224,7 @@ mailbox 没有凭据：「谁在写」由 `locks/<parentSessionId>/<childId>.loc
 
 启动失败同样不丢弃证据：panel 已经打开但 child 没连上时，先尝试关掉它，只有 host 明确确认「panel 已不在」才算干净（清 runtime 证据、交回空句柄）；否则把句柄交回 manager 并保留 runtime 证据——句柄阻止第二个 runtime，证据让稍后真的连上来的 child 能被 adopt，而不是变成没人拥有的进程。后台 child 的 SIGTERM 未能结束进程时同理。
 
-### 5.2 首次 session 落盘
+### 4.2 首次 session 落盘
 
 - 启动 runtime 前先保存原始 session ID、目标路径和 initial task。
 - session 从未落盘且旧 writer 已确认死亡时，用原 session ID 显式创建，不对不存在路径调用会生成随机 ID 的 open 路径。
@@ -234,7 +234,7 @@ mailbox 没有凭据：「谁在写」由 `locks/<parentSessionId>/<childId>.loc
 - child session 写在 parent 默认 session 目录下的 `agents/` 子目录里，并作为显式 `--session-dir` 传给 child：Pi 用非递归 `readdir` 枚举会话，所以 delegated session 不再出现在人的 session 列表里，而 registry 记录的显式目录/路径仍让 recovery 找得到文件。
 - child branch 在首次 bind 的 session 上写入 title `🤖 <title>`；`title` 省略或纯空白时用 `🤖 <agent> · <subagentId>`（agent 名为空则只用 id）。该 marker 让 delegated session 被特意打开时一眼可辨。
 
-### 5.3 单 runtime 规则
+### 4.3 单 runtime 规则
 
 同一个 parent session 同时只有一个受管理 runtime，由三件事共同保证：
 
@@ -246,9 +246,9 @@ mailbox 没有凭据：「谁在写」由 `locks/<parentSessionId>/<childId>.loc
 
 不存在 claim 交接体系：没有 runner 进程可交接，也不做 PID/`/proc` 死亡探测。
 
-## 6. Runtime 与协议合同
+## 5. Runtime 与协议合同
 
-### 6.1 Bridge 控制面
+### 5.1 Bridge 控制面
 
 parent 与每个 child 通过 `state.sqlite` 的 `commands` 表交换消息，每个 child 以自己的进程锁声明存活。父端每 50ms 轮询一次待取命令（空队列只做一次读，不取写锁），一条命令承载一个方向：
 
@@ -276,7 +276,7 @@ child → parent 事件：允许转发的 Pi 事件（`FORWARDED_PI_EVENT_TYPES`
 
 ParentChannel 复用这条连接，不建立第二套 message bus，也不依赖 terminal scraping 或 session JSONL polling。
 
-### 6.2 State 与 presentation
+### 5.2 State 与 presentation
 
 公开 state：
 
@@ -294,13 +294,13 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 
 `presentation` 描述 child 的进程形态：`background` 是无终端的 headless Pi（`--mode rpc`，stdin 由 parent 持有），`panel` 是 host panel 里的 native Pi TUI。它是 spawn 时冻结的事实，不是可切换的显示选项：改变呈现等于换一个 runtime，而 identity 与 session 不变。
 
-### 6.3 Transition serialization
+### 5.3 Transition serialization
 
 同一 child 的 spawn/send/stop/recover/adopt/事件投影由 SubagentManager 的 per-child rejection-safe chain 串行化。成功或失败都释放 queue。所有 late frame 必须按当前 runtime identity 核对后才能修改状态；stop 只等待运行中的 transition，不排在它后面造成死锁。
 
-## 7. 生命周期合同
+## 6. 生命周期合同
 
-### 7.1 Spawn
+### 6.1 Spawn
 
 1. 校验输入、agent definition、model 和最终 resources。
 2. 创建 child ID/session ID，先持久化启动意图和 initial task，并按有无 host 冻结本次呈现。
@@ -308,7 +308,7 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 4. child branch 在 `session_start` 打开 `state.sqlite` 的 mailbox 并持有自己的进程锁，父端据此确认身份。
 5. 只有 child 持有进程锁、收到并接受 prompt 后才报告 running；内部失败记录保留已完成副作用和可确认状态，工具只返回原因。
 
-### 7.2 Send
+### 6.2 Send
 
 - running child：`steer`（缺省）在当前回合的工具调用结束后、下一次模型请求前插入；`follow_up` 等整个 run 没有工具调用和 steering 后再作为新回合继续。
 - idle child：`steer` 没有可插入的回合，直接开新 run；`follow_up` 同样开新 run。不按屏幕状态猜测意图。
@@ -316,11 +316,11 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 - 写者消失（锁已空，或本进程看见后台进程退出）不是终止：runtime 从账本拿掉；当时在跑则记 `blocked` 并回报一次，intent 保持 active。后续 `agents_delegate` 用同一 session 再起 runtime。宿主已确认 panel 进程不在时关掉空标签。标签还在不拒绝 send。
 - `agents_stop` 才是终止：先写 stopped intent，再关 panel 或结束进程。
 - 系统 idle 自动回收落 `done`，后续 send 可以恢复同一个 session；不得把自动回收后排队到达的断线事件当成人工终止。
-- 本进程的进程句柄还活着时，send 拒绝再起 runtime（`safeToRetry=false`）。调用方先 `agents_stop` 这个 child，再对同一个 id 发送，不要另 spawn。面板打开未确认、或看不到锁文件，都不是拒绝理由。未知的宿主列表仍然不得当成死亡。attachment 身份按 §7.7 持久化。
+- 本进程的进程句柄还活着时，send 拒绝再起 runtime（`safeToRetry=false`）。调用方先 `agents_stop` 这个 child，再对同一个 id 发送，不要另 spawn。面板打开未确认、或看不到锁文件，都不是拒绝理由。未知的宿主列表仍然不得当成死亡。attachment 身份按 §6.7 持久化。
 - Task child 不接受后续输入，拒绝也标记为不可直接重试。
 - 已接受但未确认持久化的输入被记录为待确认，断线后不静默重放。
 
-### 7.3 Idle 回收
+### 6.3 Idle 回收
 
 - 收到最终 `agent_settled`（不是 `agent_end`）且没有待处理输入后 child 落 `idle`；`SUBAGENT_IDLE_TIMEOUT_MS`（15s）到期即回收 runtime（先经 bridge 请求 `shutdown`，再结束进程），state 落 `done`，identity 与 session 保留。
 - 回收只针对 `idle` 的 child：running 的 child 永远不会被自动结束，只有 `agents_stop`（或人自己关掉 panel）结束正在工作的 child。
@@ -332,7 +332,7 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 - 宿主无法报告聚焦时（今天的 cmux）不倒计时：这类 child 只由 `agents_stop` 关闭，`HostAttachment.reportsFocus` 让 manager 不必猜。
 - 本进程不持有 runtime 的 child（例如 parent 重启后 adopt 的 panel child）不倒计时：既无法确认退出，也无法判断聚焦，因此不做回收。
 
-### 7.4 Session switch
+### 6.4 Session switch
 
 TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child branch 以 `left_session` 上报：
 
@@ -343,7 +343,7 @@ TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child 
 
 `/resume` 当前同一 session 与 `/reload` 不算 leave。
 
-### 7.5 Stop
+### 6.5 Stop
 
 先在 registry 保存 stopped 意图（`intent=stopped`、`state=stopped`），再经 bridge 请求 `shutdown`，随后按 presentation 收尾：后台 child 结束自己 spawn 的进程（SIGTERM，必要时 SIGKILL）；panel child 关闭该 panel，并再次 `observe()` 确认它真的不在了。确认不成立时返回可见失败并保留 runtime 证据（「关闭命令成功」不算证据，「panel 已消失」才算）。两者都完成后删除 runtime 记录。
 
@@ -353,18 +353,18 @@ TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child 
 
 非显然不变式：headless child 跑在 Pi 的 rpc mode 下，`ctx.shutdown()` 只置一个 flag，而 rpc mode 只在处理完一条命令或 `agent_settled` 之后检查它，因此对 idle child 的 `shutdown` 请求不会让进程退出，它只是"这一轮结束后请退出"的礼貌请求。真正的优雅退出是 **SIGTERM**：rpc mode 注册了 SIGTERM handler，会走完整的 dispose（发出 `session_shutdown`、flush 会话、清理 runtime）并以 143（128+15）退出，所以退出码 143 是预期的优雅退出，不是失败；进程是否结束只看存活，不看退出码。进程退出无法确认时返回可见失败并保留证据。exit callback 看到 stopped 后不得触发自动恢复。Stop 幂等；stopped child 永不自动恢复。
 
-### 7.6 Parent reload/restart
+### 6.6 Parent reload/restart
 
 Parent lifecycle cleanup（含 `/reload`）只释放本地 mailbox transport、订阅、计时器和 UI，不终止仍活的 child 进程：后台 child 由 stdin 管道持有，只随 parent 进程结束；panel child 由 host 持有。
 新 parent branch 打开同一 `state.sqlite`；仍持有进程锁的 child 会被重新识别并 adopt（读 entries 与 get_state，不新建 runtime）。
 parent fork/new session 不继承旧 parent 的控制权。
 
-§7.6 的「reload 后没有 HostAttachment」由 §7.7 取代：attachment 写入租约，重新打开会话时用宿主列表重建句柄。在 SUB-12～SUB-14 落地前，源码仍是旧行为。
+§6.6 的「reload 后没有 HostAttachment」由 §6.7 取代：attachment 写入租约，重新打开会话时用宿主列表重建句柄。在 SUB-12～SUB-14 落地前，源码仍是旧行为。
 
 
-## 7.7 会话租约
+### 6.7 会话租约
 
-子 agent 状态属于父会话，不属于某一次进程，也不属于模型的一项技能。模块 `ConversationLease` 把 §7 的生命周期收在一个小接口后面。extension 的 `session_start`、`before_agent_start`、spawn/stop 和 child lifecycle 只走这个接口；测试也只走这个接口。Herdr CLI、5 秒 adopt 窗口、内存里的 unresolved 集合和 stdin 句柄都不出现在接口上。
+子 agent 状态属于父会话，不属于某一次进程，也不属于模型的一项技能。模块 `ConversationLease` 把 §6 的生命周期收在一个小接口后面。extension 的 `session_start`、`before_agent_start`、spawn/stop 和 child lifecycle 只走这个接口；测试也只走这个接口。Herdr CLI、5 秒 adopt 窗口、内存里的 unresolved 集合和 stdin 句柄都不出现在接口上。
 
 ```text
 open(boundary)   session_start。boundary = startup | resume | reload | fork | new
@@ -426,7 +426,7 @@ background 不参加回灌：它活不过父进程，resume 时 pid 已死就 `r
 
 seam 只有一个：`HostDirectory`。生产 adapter 包现有的 Herdr/cmux 列表和开 panel；测试 adapter 在内存里。租约模块拥有上面的矩阵。删掉它之后，extension、child bridge 和工具会各自再解释一遍 reload 和 Herdr。
 
-## 8. Host 与 UI 合同
+## 7. Host 与 UI 合同
 
 HostAdapter 只负责 capability probe、开 panel（Herdr 新 tab / cmux 新 surface）、观察 panel（含聚焦状态）与 cleanup，返回可观察 attachment。
 
@@ -449,20 +449,20 @@ V1 UI保持最小：
 - tools完整显示结果并可引用collapsed output；
 - `ctx.ui.select`提供child/agent选择；
 - `setStatus`显示紧凑状态；
-- 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `agents_stop`；attach 及其快捷键已随 §3.2 一并删除；
+- 不注册全局快捷键，避免与 Pi host 或其他 extension 争用按键；停止操作使用 `/subagents stop [id]` 或 `agents_stop`；attach 及其快捷键已随 §2.2 一并删除；
 - parent 用原生 `setStatus("pi-subagents", text)` 投影 `SubagentManager.list()` 中正在运行的 child，仅显示一个 running glyph 和编号，例如 `󰪠#21 #22 #23`。`pi-status` 将其放在第二行右侧、TODO 前；两段以 ` ‧ ` 分隔，缺席段不留分隔符。无额外 Widget、elapsed 计时器或终态保留窗口；过期异步投影不得覆盖最新状态，生命周期结束清除状态并取消订阅。
 - 已确认的 done/error/blocked 报告用一次性 `subagent-info` custom entry 展示，默认只显示结果状态和身份，展开查看完整报告；支持 resume 和 Headless `entry_appended`，不进入模型上下文。模型仍接收原有 `subagent-report`，其重复的可见展示隐藏；保留沉降、重试取消和报告去重。
 - TUI child 不挂身份 widget；身份由 session title（`🤖 <agent> · <id>`）与 child branch 自己的原生 TUI 表达。
 
 Native child交互始终使用真实Pi TUI；不实现transcript viewer、RPC event mirror或terminal scraping。
 
-## 9. Usage、summary与结果
+## 8. Usage、summary与结果
 
 Usage从Pi已完成assistant turns/session stats重建并按child累计：input、output、cache read/write、cost和turns。重连不得重复累计，缺失provider数字明确按不可用处理而非猜测。
 
 Latest summary取当前branch最后有效assistant内容，并区分：正常完成、仍在运行、interrupted、failed和stopped。panel与后台 child 使用同一口径。完整结果不得因UI折叠丢失。
 
-## 10. 失败、取消与并发语义
+## 9. 失败、取消与并发语义
 
 所有工具、transition和后台恢复遵循同一合同：
 

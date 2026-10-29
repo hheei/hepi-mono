@@ -19,7 +19,7 @@
 进程：拨号、token 授权、`get_state` 返回 `{idle, pendingMessages, sessionId, sessionPath}`、`get_entries`
 返回会话条目、SIGTERM 后进程退出），确认 child 会话落在 `<项目 session 目录>/agents/`。同一个 smoke 也确认
 了 rpc mode 的 `ctx.shutdown()` 不会结束 idle child（flag 只在命令或 `agent_settled` 后检查），SIGTERM 才是
-优雅退出路径并以 143 退出，见 spec.md §7.5。
+优雅退出路径并以 143 退出，见 spec.md §6.5。
 
 - Stage 3 panel 默认呈现：`src/host-adapter.ts` 的 `attach` → `open`，herdr `tab create` 增加
   `--label <subagentId>`，`observe()` 增加 `focused`（herdr：`tab list` + `workspace list` 两层都
@@ -307,7 +307,7 @@ Stage 6  文档与 ticket 收口（spec.md / tickets.md / README.md / architectu
 - `contact_parent` 不接受 tool 的 AbortSignal：model 侧取消不会中断一次在途报告，
   child 离线时仍会占用有界缓冲直到重连。
 - cmux 不能报告聚焦（`TODO(cmux-focus)`），因此 cmux child 只由 `stop_agent` 关闭。
-- parent 重启后 adopt 的 panel child 没有本进程的 `HostAttachment`，聚焦观察/自动关闭/回收退化；见 spec.md §7.6。
+- parent 重启后 adopt 的 panel child 没有本进程的 `HostAttachment`，聚焦观察/自动关闭/回收退化；见 spec.md §6.6。
 - `src/markdown.ts` 属于另一条进行中的工作（子代理协议里的 markdown → ANSI 转换），本轮不做改动。
 
 ## 11. 明确不做

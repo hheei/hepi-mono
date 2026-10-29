@@ -12,7 +12,7 @@
 - 接收 child 主动发给 parent 的进度、发现、决策请求和阻塞信息；
 - child 的 panel 被关闭或 idle 回收后保留同一 session 与身份，后续 send 用同一 session 拉起新 runtime，不重放中断的 turn；
 - parent reload/restart 后重连仍存活的 child，并清理确认已结束的 runtime；
-- 重新打开这个父会话时，在 `before_agent_start` 之前回到该会话本来的 subagent 账本，而不是等模型去开 panel（§7.7）。
+- 重新打开这个父会话时，在 `before_agent_start` 之前回到该会话本来的 subagent 账本，而不是等模型去开 panel（§6.7）。
 
 V1 不是 workflow engine、scheduler、任务 DAG 或自制 multi-agent UI。
 
@@ -25,7 +25,7 @@ V1不包含：
 - 自动worktree管理、cost-based interruption或通用budget engine；
 - custom transcript/TUI/renderer、terminal scraping或token streaming relay；
 - activity sidecar、session JSONL 轮询或基于缺文件的 stall ping；
-- 因 idle 回收或 `intent=stop` 自动打开 panel，或自动重放中断任务和未确认消息；宿主重启回灌只拉回当时仍有 attachment 的 panel（§7.7），不是模型工具；
+- 因 idle 回收或 `intent=stop` 自动打开 panel，或自动重放中断任务和未确认消息；宿主重启回灌只拉回当时仍有 attachment 的 panel（§6.7），不是模型工具；
 - 阻止用户直接原生`/resume`同一session；
 - durable event ledger、process history、handoff history或通用cross-extension message bus；
 - 未定义语义的agent字段和兼容旧HEPI/subagent实现的shim。
@@ -37,7 +37,7 @@ V1完成必须满足：
 1. 多个child可并行后台运行，parent可spawn、inspect、send、接收report和stop。
 2. child对话由真实Pi session持久化，首次落盘、损坏、丢失和断线路径不会生成错误的新身份或静默重放。
 3. parent reload/restart 优先 adopt 仍持有进程锁的 child；进程锁 + registry runtime identity 保证受管理路径不会出现第二个受管 runtime。
-4. Herdr/cmux panel 里运行 child 的原生 Pi TUI；panel close、进程崩溃、idle 回收和 session switch 都符合本规格（身份与 session 保留，不重放中断的 turn）。重新打开父会话时，§7.7 的账本在 `before_agent_start` 前恢复。
+4. Herdr/cmux panel 里运行 child 的原生 Pi TUI；panel close、进程崩溃、idle 回收和 session switch 都符合本规格（身份与 session 保留，不重放中断的 turn）。重新打开父会话时，§6.7 的账本在 `before_agent_start` 前恢复。
 5. 失败、取消、stop与handoff race均在有限deadline内可见结束，不死锁transition queue。
 6. effective model/provider/resources和host选择可观察，无静默routing。
 7. focused tests覆盖[`tickets.md`](../archive/pi-subagents/tickets.md)各ticket的验收；受影响文件通过Biome、typecheck及对应Vitest。
@@ -72,7 +72,7 @@ Stage 4  panel 生命周期（stop 关 panel、聚焦暂停 idle 回收、runtim
 Stage 5  文档与 ticket 收口（本文件、README、tickets、architecture、DESIGN）⏳
 ```
 
-§7.7 的实施顺序：
+§6.7 的实施顺序：
 
 ```text
 SUB-12  会话租约的 commit，只写 intent 与 attachment

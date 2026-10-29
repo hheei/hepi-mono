@@ -23,6 +23,13 @@ in the header of each archived file.
 - [`pi-subagents/tickets.md`](pi-subagents/tickets.md): the V1 and MCP R4 task backlog with its
   acceptance history. The work is done; current state is described by the spec and the package.
 
+## Reading an archived document
+
+Section numbers in these files point at the documents they were written against. Where such a
+document still exists (for example `pi-subagents/spec.md`), it may have been split or renumbered
+since, so a `§7.5` in an archived plan is not a section of today's spec. Read the current spec's own
+table of contents instead of following an archived cross-reference.
+
 ## Adding to the archive
 
 Move a document here when its subject is gone (a removed feature, a replaced design, a finished
