@@ -8,4 +8,10 @@ export {
 	registerBgBashTools,
 } from "./bg-bash-tools.js";
 export { default } from "./extension.js";
-export { createBashRuntimeState, registerBashLifecycle } from "./session-state.js";
+export {
+	type BackgroundBashRuntimeState,
+	type BashRuntime,
+	type BashRuntimeSlot,
+	createBashRuntime,
+	registerBashLifecycle,
+} from "./session-state.js";

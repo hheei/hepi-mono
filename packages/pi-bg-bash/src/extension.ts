@@ -6,12 +6,12 @@ import {
 	registerBgBashTools,
 } from "./bg-bash-tools.js";
 import { registerBashInfo } from "./info.js";
-import { createBashRuntimeState, registerBashLifecycle } from "./session-state.js";
+import { createBashRuntime, registerBashLifecycle } from "./session-state.js";
 
 /** Registers background Bash tools over one session-owned job registry. */
 export default function piBgBashExtension(pi: ExtensionAPI): void {
-	const state = createBashRuntimeState();
-	registerBgBashTools(pi, state);
+	const runtime = createBashRuntime();
+	registerBgBashTools(pi, runtime.state);
 	registerBashInfo(pi);
 	pi.on("before_agent_start", (event) => {
 		setOptionalToolBullet(
@@ -20,5 +20,5 @@ export default function piBgBashExtension(pi: ExtensionAPI): void {
 			BG_BASH_OPTIONAL_TOOL_BULLET,
 		);
 	});
-	registerBashLifecycle(pi, state);
+	registerBashLifecycle(pi, runtime.slot);
 }

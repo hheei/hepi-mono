@@ -12,31 +12,35 @@ import { type BashSettings, DEFAULT_BASH_SETTINGS, readBashSettings } from "./ba
 import { createBashStatus } from "./status.js";
 
 /**
- * Live session view consumed by the statically registered background Bash tools.
- *
- * The mutable half lives in a module-level WeakMap keyed by this object, so a structurally identical
- * object is not an equivalent: its getters always answer with the defaults, and
- * `registerBashLifecycle()` rejects it. Only `createBashRuntimeState()` produces a usable one.
+ * Live session view consumed by the statically registered background Bash tools. Any object with
+ * this shape is a valid reader: nothing about reading the session depends on who made the reader.
  */
 export interface BackgroundBashRuntimeState {
 	getSettings(): BashSettings;
 	getBashJobs(): BashJobRegistry | undefined;
 }
 
-interface MutableState {
+/** The session lifecycle's half of the slot, and the only writer to it. */
+export interface BashRuntimeSlot {
 	settings: BashSettings;
 	jobs: BashJobRegistry | undefined;
 }
 
-const runtimeStates = new WeakMap<BackgroundBashRuntimeState, MutableState>();
+/** One session's slot: the tools read `state`, the lifecycle writes `slot`. */
+export interface BashRuntime {
+	readonly state: BackgroundBashRuntimeState;
+	readonly slot: BashRuntimeSlot;
+}
 
-export function createBashRuntimeState(): BackgroundBashRuntimeState {
-	const state: BackgroundBashRuntimeState = {
-		getSettings: (): BashSettings => runtimeStates.get(state)?.settings ?? DEFAULT_BASH_SETTINGS,
-		getBashJobs: (): BashJobRegistry | undefined => runtimeStates.get(state)?.jobs,
+export function createBashRuntime(): BashRuntime {
+	const slot: BashRuntimeSlot = { settings: DEFAULT_BASH_SETTINGS, jobs: undefined };
+	return {
+		state: {
+			getSettings: () => slot.settings,
+			getBashJobs: () => slot.jobs,
+		},
+		slot,
 	};
-	runtimeStates.set(state, { settings: DEFAULT_BASH_SETTINGS, jobs: undefined });
-	return state;
 }
 
 /**
@@ -45,14 +49,11 @@ export function createBashRuntimeState(): BackgroundBashRuntimeState {
  * The `bash` settings group belongs to the foreground extension, so this lifecycle only reads
  * that group; no second provider claims the same fields. Static tool registration stays caller-owned.
  */
-export function registerBashLifecycle(pi: ExtensionAPI, state: BackgroundBashRuntimeState): void {
-	const mutable = runtimeStates.get(state);
-	if (mutable === undefined)
-		throw new Error("Bash runtime state must be created by createBashRuntimeState()");
+export function registerBashLifecycle(pi: ExtensionAPI, slot: BashRuntimeSlot): void {
 	registerExtensionLifecycle(pi, {
 		key: "@hheei/pi-bg-bash",
 		start: async (context) => {
-			startLifecycle(pi, context, mutable, readBashSettings());
+			startLifecycle(pi, context, slot, readBashSettings());
 		},
 	});
 }
@@ -60,10 +61,10 @@ export function registerBashLifecycle(pi: ExtensionAPI, state: BackgroundBashRun
 function startLifecycle(
 	pi: ExtensionAPI,
 	context: ExtensionLifecycleContext,
-	state: MutableState,
+	slot: BashRuntimeSlot,
 	settings: BashSettings,
 ): void {
-	state.settings = settings;
+	slot.settings = settings;
 	const ledger = new BashExecutionLedger(
 		join(bashExecutionDirectory(context.extension), "bash.sqlite"),
 	);
@@ -77,7 +78,7 @@ function startLifecycle(
 		ledger.close();
 		throw error;
 	}
-	state.jobs = jobs;
+	slot.jobs = jobs;
 	let stopDelivery = (): void => {};
 	const status = createBashStatus(context.extension.ui, context.signal);
 	// Terminal events and tool results both move the footer, and a command that exits while another
@@ -95,7 +96,7 @@ function startLifecycle(
 			await jobs.dispose();
 		} finally {
 			ledger.close();
-			if (state.jobs === jobs) state.jobs = undefined;
+			if (slot.jobs === jobs) slot.jobs = undefined;
 		}
 	});
 	const unsubscribeTerminal = jobs.onTerminal(refreshStatus);

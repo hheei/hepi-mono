@@ -9,7 +9,7 @@ import { BashJobRegistry } from "../src/bash-jobs.js";
 import { bashExecutionDirectory } from "../src/bash-ledger.js";
 import * as bashSettings from "../src/bash-settings.js";
 import { registerBgBashTools } from "../src/bg-bash-tools.js";
-import { createBashRuntimeState, registerBashLifecycle } from "../src/session-state.js";
+import { createBashRuntime, registerBashLifecycle } from "../src/session-state.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { ledgerTemporaryDirectory } from "./fixtures/ledger-directory.js";
 
@@ -63,9 +63,9 @@ function lifecycle(): Lifecycle {
 			};
 		},
 	} as unknown as ExtensionAPI;
-	const state = createBashRuntimeState();
-	registerBgBashTools(pi, state);
-	registerBashLifecycle(pi, state);
+	const runtime = createBashRuntime();
+	registerBgBashTools(pi, runtime.state);
+	registerBashLifecycle(pi, runtime.slot);
 	const fire = async (type: string): Promise<void> => {
 		await handlers.get(type)?.({}, context);
 	};
@@ -78,8 +78,8 @@ function lifecycle(): Lifecycle {
 		context,
 		directory,
 		manager,
-		jobs: () => state.getBashJobs(),
-		settings: () => state.getSettings(),
+		jobs: () => runtime.state.getBashJobs(),
+		settings: () => runtime.state.getSettings(),
 	};
 	open.push(current);
 	return current;

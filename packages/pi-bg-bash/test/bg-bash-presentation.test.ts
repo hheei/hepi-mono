@@ -4,7 +4,7 @@ import { getToolPresentationProvider, textToolResult } from "@hheei/pi-ext-core"
 import { describe, expect, test } from "vitest";
 
 import { registerBgBashTools } from "../src/bg-bash-tools.js";
-import { createBashRuntimeState } from "../src/session-state.js";
+import { createBashRuntime } from "../src/session-state.js";
 import { renderContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 
 const theme = {
@@ -18,8 +18,8 @@ const presentationContext = renderContextFor({
 });
 function registered() {
 	const host = toolHost();
-	const state = createBashRuntimeState();
-	registerBgBashTools(host.pi, state);
+	const runtime = createBashRuntime();
+	registerBgBashTools(host.pi, runtime.state);
 	return host.tools;
 }
 
