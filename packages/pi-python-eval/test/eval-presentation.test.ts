@@ -205,6 +205,26 @@ describe("python_eval rich presentation", () => {
 		expect(rows).toContain("<error>✗ <toolTitle>bash <dim>ls · 30ms");
 		expect(presentation.collapsedRows).toHaveLength(2);
 	});
+
+	test("a child call reads the same inside the group as in the frame", () => {
+		const presentation = createPythonEvalPresentation(
+			{ code: "tools.read(glob='**/*.ts')" },
+			result([
+				nestedTool("read", { glob: "**/*.ts" }, 12),
+				nestedTool("bash", { command: "ls\npiped" }, 30),
+			]),
+			theme,
+			context(),
+		);
+		const children = presentation.children ?? [];
+		// A glob, a url, or a multi-line command must summarize the same way in both views; only one
+		// rule decides now, so this pins the rule rather than its two copies.
+		expect(children.map((child) => child.summary)).toEqual(["**/*.ts", "ls piped"]);
+		const frameRows = (presentation.collapsedRows ?? []).map((row) => stripTerminalSequences(row));
+		for (const [index, child] of children.entries()) {
+			expect(frameRows[index]).toContain(child.summary ?? "");
+		}
+	});
 });
 
 describe("python_eval persisted details", () => {
