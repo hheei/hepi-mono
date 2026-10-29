@@ -263,9 +263,9 @@ child → parent 事件：允许转发的 Pi 事件（`FORWARDED_PI_EVENT_TYPES`
 - 等待由 deadline 决定，不由行是否存在决定：命令被别的写者删掉、transport 关闭或账本读失败都立即结束等待，不会留下永久 pending；
 - child 排队的事件有上限（`DEFAULT_MAX_BUFFERED_EVENTS`）：父端不再读取时保留最新的事件快照、丢弃更旧的进度帧，控制请求与报告不受此限；
 - 接管 mailbox 的 parent 会删掉上一进程留下的终态命令行（`done`/`failed`），它们的等待者已经随进程消失；
-- 命令队列、事件写入、child 侧 report 缓冲都有固定上限，Pi 事件断线即丢；
+- 没有按条数限制的命令队列，也没有重放缓冲：每一条排队的行都有一个负责删除它的等待者——取走、deadline 到期、signal 取消，或下一次接管时清掉终态行。只有没人读的事件流需要条数上限；
 - timeout、锁消失、无法解析的 payload 会结束相关请求，不留下 pending promise；parent 关闭时未取走的 `to_parent` 命令由下一次 `open` 重新排队；
-- child 只在 parent 不可达时缓冲 report（有界、丢最旧且不丢在途、可见报错），Pi 事件是 advisory，断线即丢；advisory frame 若无法编码（超限或不可序列化）就丢弃并诊断，不因此断开控制通道——一条过大的 tool 结果不该让 child 失去 parent；
+- child 的 report 是单条命令加一次有界等待：parent 不可达时它在 deadline 或取消时可见地失败，不排队重放、不静默丢弃。Pi 事件是 advisory，断线即丢；无法序列化的 advisory frame 被丢弃并诊断，不因此断开控制通道——一条坏掉的事件不该让 child 失去 parent；
 - report 携带调用方（tool call）的 AbortSignal：被取消的 tool call 不会再等 parent 回来，report 会从队列里退出并可见地失败，而不是永久 pending；
 
 - parent 可以把某个 child 从"在线"集合中移除（`disconnect(childId)`），用于「这个进程已经不是这个 child」的情况；

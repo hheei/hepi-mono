@@ -69,7 +69,7 @@ Stage 2  传输从 runner 切到 bridge（parent 直接 spawn 后台 child；删
          pause-gate、attach/detach、claim、#frozen）✅
 Stage 3  panel 默认呈现（HostAdapter.open + 聚焦观察 + agents_delegate 默认 panel）✅
 Stage 4  panel 生命周期（stop 关 panel、聚焦暂停 idle 回收、runtime 消失时释放 panel）✅
-Stage 5  文档与 ticket 收口（本文件、README、tickets、architecture、DESIGN）⏳
+Stage 5  文档与 ticket 收口（spec、README、tickets、architecture、DESIGN）⏳
 ```
 
 §6.7 的实施顺序：
