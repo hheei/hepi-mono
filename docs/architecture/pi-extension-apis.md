@@ -557,23 +557,7 @@ Pi 的事件按生命周期阶段可分为：**启动与资源发现**、**会�
 
 ---
 
-## 五、`SessionManager` 与会话持久化模型
-
-`SessionManager` 将对话会话管理为存储在 JSONL 文件中的**只读追加树（Append-only Tree）**（当前格式版本 `CURRENT_SESSION_VERSION = 3`）。每个条目拥有 `id` 和 `parentId`，通过 `leafId` 指针追踪当前活跃分支末端。
-
-### 1. 会话条目类型 (`SessionEntry`)
-
-除了文件首行的 `SessionHeader`（`type: "session"`）外，树中节点包含以下 11 种 `SessionEntry`：
-- `message`: 标准对话消息（系统更新、用户、助手及工具结果）。
-- `custom_message`: 参与 LLM 上下文的扩展自定义消息。
-- `custom`: 不参与 LLM 上下文的扩展状态持久化节点。
-- `compaction`: 上下文压缩记录点。
-- `branch_summary`: 分支摘要条目。
-- `session_info`: 会话元数据更改条目。
-- 更多详见源码类型定义。
----
-
-## 六、SessionManager 与会话持久化模型
+## 五、SessionManager 与会话持久化模型
 
 Pi 会话持久化为一个完全**仅追加（Append-only）的 JSONL 树结构**文件（当前协议版本 `CURRENT_SESSION_VERSION = 3`）。每个会话的第一行为 `SessionHeader`，后续每一行均继承 `SessionEntryBase`，通过 `id` 与 `parentId: string | null` 构成可任意分支、分叉的对话树。
 
@@ -595,7 +579,7 @@ export interface SessionEntryBase {
 }
 ```
 
-### 6.1 完整 11 种 SessionEntry 类型定义与字段解析
+### 5.1 完整 11 种 SessionEntry 类型定义与字段解析
 
 下表汇总了 Pi 架构中所有 11 种核心会话条目类型：
 
@@ -763,7 +747,7 @@ export interface SessionInfoEntry extends SessionEntryBase {
 
 ---
 
-### 6.2 只读会话管理器 ReadonlySessionManager (扩展安全视图)
+### 5.2 只读会话管理器 ReadonlySessionManager (扩展安全视图)
 
 扩展在普通事件及命令中访问的 `ctx.sessionManager` 遵循 `ReadonlySessionManager` 契约，防止扩展越权破坏会话文件的追加一致性：
 
@@ -808,7 +792,7 @@ export interface ReadonlySessionManager {
 
 ---
 
-### 6.3 宿主会话管理器 SessionManager (写入、分支与静态工厂)
+### 5.3 宿主会话管理器 SessionManager (写入、分支与静态工厂)
 
 在 SDK 宿主环境或通过 `ExtensionCommandContext.newSession({ setup })` 获取的完整 `SessionManager` 实例，提供以下写入与分支控制接口：
 
@@ -859,9 +843,9 @@ SessionManager.listAll(sessionDir?: string, onProgress?: SessionListProgress, si
 
 ---
 
-## 七、ModelRegistry 与 SDK 宿主嵌入入口
+## 六、ModelRegistry 与 SDK 宿主嵌入入口
 
-### 7.1 ModelRegistry 模型统一调度门面
+### 6.1 ModelRegistry 模型统一调度门面
 
 `ctx.modelRegistry` 为扩展和 SDK 宿主提供多模型注册表、认证解析与中立流式请求门面（内部封装了 `ModelRuntime`）：
 
@@ -898,7 +882,7 @@ export interface ModelRegistry {
 
 ---
 
-### 7.2 createAgentSession 与 AgentSession 架构
+### 6.2 createAgentSession 与 AgentSession 架构
 
 在外部 Node.js 或 Bun 应用中嵌入 Pi 的标准入口为 `createAgentSession`：
 

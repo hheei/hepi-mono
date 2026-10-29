@@ -1,6 +1,6 @@
 # 统一 Agents API 实施计划
 
-状态：待实施。规格为 [unified-api-spec.md](unified-api-spec.md)，执行任务与状态以 [unified-api-tickets.md](unified-api-tickets.md) 为准。本文保留架构依据与实施分阶段说明，不作为第二份任务状态表。旧数据迁移、回填和兼容层明确不做。
+状态：AGENTS-01～07 已落地，AGENTS-08（跨端集成、恢复与实机验收）未完成；逐项状态以 [unified-api-tickets.md](unified-api-tickets.md) 为准。本文保留架构依据与实施分阶段说明，不作为第二份任务状态表。旧数据迁移、回填和兼容层明确不做。
 
 ## 1. 现状与需要改变的 seam
 
