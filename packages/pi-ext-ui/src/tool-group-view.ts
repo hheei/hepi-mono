@@ -139,12 +139,19 @@ export class ToolGroupView extends Container {
 		this.#redraw();
 	}
 
+	/**
+	 * The footer names work in progress: the latest top-level call that is still active, or the last
+	 * one started when none is. Arrival order of partial updates must not decide it.
+	 */
 	#tailIndex(): number {
-		let tail = -1;
+		let last = -1;
+		let active = -1;
 		for (const [index, member] of this.#members.entries()) {
-			if (member.kind === "tool") tail = index;
+			if (member.kind !== "tool") continue;
+			last = index;
+			if (member.status === "running" || member.status === "streaming") active = index;
 		}
-		return tail;
+		return active === -1 ? last : active;
 	}
 
 	#historyTools(tailIndex: number): number[] {

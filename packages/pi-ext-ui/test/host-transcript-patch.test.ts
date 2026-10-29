@@ -515,6 +515,18 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).not.toContain("✓ grep");
 	});
 
+	test("the footer names the call still running, not a later one that finished", () => {
+		const f = setup();
+		f.begin();
+		const stillRunning = f.row("a", "grep", "running");
+		// A tool that started and has not produced its final result: the host marks it partial.
+		Reflect.set(stillRunning, "isPartial", true);
+		f.chat.children = [assistant(["a", "b"]), stillRunning, f.row("b", "read", "ok")];
+		const rows = show(f.chat).split("\n");
+		expect(rows.at(-1)).toContain("grep");
+		expect(show(f.chat)).toContain("▸ read ×1");
+	});
+
 	test("a collapsed frame is two rails, one summary, and the tail at every width", () => {
 		const f = setup();
 		f.begin();
