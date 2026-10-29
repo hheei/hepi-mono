@@ -636,6 +636,68 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(view.foldLevel).toBe(1);
 	});
 
+	test("a started child call reports running until its result lands", () => {
+		clearCapturedNestedCalls();
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-live-parent";
+		const parent = () =>
+			createMockContext({
+				toolCallId: parentCallId,
+				args: { code: 'await tools.bash({ command: "sleep 5" });' },
+				isPartial: true,
+			});
+
+		recordToolExecutionStart({
+			toolCallId: "child-live",
+			toolName: "bash",
+			args: { command: "sleep 5" },
+			parentToolCallId: parentCallId,
+		});
+		const running = renderers.renderResult!(
+			{ content: [{ type: "text", text: "" }], details: {} },
+			{ expanded: false, isPartial: true },
+			plainTheme,
+			parent(),
+		) as ToolView;
+		expect(running.children?.map((child) => child.status)).toEqual(["running"]);
+
+		recordToolExecutionEnd({
+			toolCallId: "child-live",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "done" }], details: {} },
+			isError: false,
+			durationMs: 5,
+			parentToolCallId: parentCallId,
+		});
+		const done = renderers.renderResult!(
+			{ content: [{ type: "text", text: "" }], details: {} },
+			{ expanded: false, isPartial: true },
+			plainTheme,
+			parent(),
+		) as ToolView;
+		expect(done.children?.map((child) => child.status)).toEqual(["ok"]);
+	});
+
+	test("a cancelled nested call keeps its warning in the child list", () => {
+		clearCapturedNestedCalls();
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const view = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" }],
+				details: {
+					calls: [{ id: "1", name: "bash", args: '{"command":"sleep 9"}', status: "cancelled" }],
+				},
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			createMockContext({ args: { code: "await tools.bash({ command: 'sleep 9' });" } }),
+		) as ToolView;
+		expect(view.children?.map((child) => child.status)).toEqual(["warn"]);
+		expect(view.render(80).join("\n")).toContain("sleep 9");
+	});
+
 	test("codemode nested calls: individual tool copy and click-to-expand without extra rail", () => {
 		clearCapturedNestedCalls();
 		const copied: string[] = [];

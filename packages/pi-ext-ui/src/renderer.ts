@@ -173,7 +173,13 @@ function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[])
 			return {
 				title: call.toolName,
 				...(inline === undefined ? {} : { summary: inline.summary }),
-				status: isError ? "error" : ("ok" as const),
+				// The tracker records a call when it starts, so a missing result means it is still
+				// running, not that it succeeded.
+				status: isError
+					? ("error" as const)
+					: call.result === undefined
+						? ("running" as const)
+						: ("ok" as const),
 				...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
 				...(call.result === undefined
 					? {}
@@ -183,12 +189,15 @@ function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[])
 		return {
 			title: call.toolName,
 			...(call.summary === undefined ? {} : { summary: call.summary }),
+			// Same precedence as formatNestedCallRow: a cancelled call is a warning, not a success.
 			status:
-				call.isError === true || call.status === "error"
-					? ("error" as const)
-					: call.status === "running"
-						? ("running" as const)
-						: ("ok" as const),
+				call.status === "running"
+					? ("running" as const)
+					: call.isWarning === true
+						? ("warn" as const)
+						: call.isError === true || call.status === "error"
+							? ("error" as const)
+							: ("ok" as const),
 			...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
 			...(call.error === undefined ? {} : { detail: call.error }),
 		};
