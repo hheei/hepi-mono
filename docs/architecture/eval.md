@@ -4,7 +4,7 @@
 
 ## 目标与 ownership
 
-`pi-python-eval` 独立拥有 Python kernel、NDJSON 协议、cell 状态、嵌套工具策略与输出转换。`python_eval` 默认 inactive、exposure 为 `model-only`；显式启用后执行可信本地 Python，不提供 sandbox。`codemode` 属于 Pi host，与 Python package 独立。ext-core 不拥有语言 runtime、子进程或嵌套工具政策。
+`pi-python-eval` 独立拥有 Python kernel、NDJSON 协议、cell 状态、嵌套工具策略、transcript 与输出转换。`python_eval` 默认 inactive、exposure 为 `model-only`；显式启用后执行可信本地 Python，不提供 sandbox。`codemode` 属于 Pi host，与 Python package 独立。ext-core 不拥有语言 runtime、子进程或嵌套工具政策。
 
 具体 extension 之间没有依赖。Python 不保存其他 extension 的 ToolDefinition，不建立第二套工具 registry；嵌套调用全部经过当前 `ExtensionToolContext.executeTool`。Pi host 负责 schema 校验、hooks、权限和实际执行，Python bridge 负责固定允许列表、active 检查、trace 与脚本返回值。
 
@@ -71,7 +71,11 @@ onUpdate 推送运行过程（预览 rows + 当前 calls 计数），不持久�
 
 账本接口不吞失败：`previous()` 区分「历史为空」与「历史不可读」，`start`/`end` 返回 `{ saved } | { saved: false, reason }`，由 `runWithHooks` 一个位置决定策略。读取失败时下一次 cell 报告 earlier history could not be read，不能声称上一次执行干净结束，generation 比较也退回内存事实。start 写入失败时不执行该 cell：没有 start 事实的 cell 在重启后不可见，等于带着副作用运行却无法报告。end 写入失败不改变 cell 结果，但 cell 内出现 `recovery record not saved: …` 状态行（`onDiagnostic`），说明下一次重启可能把它误报成 unknown outcome。
 
-文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。cell 成功、失败或取消都以同一方式结束：先刷新未完成的行，再记录失败行，保证 transcript 顺序与 kernel 产出顺序一致——取消路径不能因为提前抛出就丢掉最后一条未换行输出。嵌套 trace 保留工具名、摘要、结果文本、执行时间与错误，供 UI 按原协议解释。
+`transcript.ts` 的 `CellTranscript` 拥有整份 transcript：完整输出账本、有界预览 rows、嵌套调用事实、截断与行结束规则。`tool.ts` 只提交事件（`text`/`display`/`background`/`tool`/`state`/`result`/`fail`）并在结束时读结果，不决定任何一行何时结束。
+
+行规则集中在一处：print 按换行形成 rows，尚未换行的 chunk 改写当前行；**任何非 print 事件（display、嵌套调用、namespace、final value、失败）在记录自己之前先结束当前未完成的行**。否则 `print("A") → display(1) → print("B\n")` 会让正文是 `A / display: 1 / B`、预览却是 `AB / 1`，两个视图顺序不一致。cell 成功、失败或取消都走同一条收尾：`finish()` 关闭未完成的行并追加省略提示，失败消息作为 `keep` 行先于它——取消路径不能因为提前抛出就丢掉最后一条未换行输出。
+
+print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、摘要、结果文本、执行时间与错误，供 UI 按原协议解释。
 
 `pi-ext-ui` 可选消费持久化 rows，并提供容器折叠、嵌套工具展示、源码复制和窄宽布局。未安装 UI 时原生文本结果仍完整可用。公共 UI 行为见 [DESIGN.md](../../DESIGN.md)。
 
