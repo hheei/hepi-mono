@@ -192,18 +192,17 @@ export function createRtkRuntime(
 			if (!settings.enabled || !isToolCallEventType("bash", event) || context.signal?.aborted)
 				return;
 			const input = event.input as Record<string, unknown>;
-			const rawCommand = input.command;
+			const command = input.command;
 			const target = input.target;
 			if (
-				typeof rawCommand !== "string" ||
+				typeof command !== "string" ||
 				input.async === true ||
 				input.pty === true ||
 				(target !== undefined && target !== "local") ||
-				rawCommand.includes("\0") ||
-				!rawCommand.trim()
+				command.includes("\0") ||
+				!command.trim()
 			)
 				return;
-			const command = rawCommand;
 			const executable = shellExecutable(settings.path);
 			const trimmed = command.trimStart();
 			const environment = trimmed.match(LEADING_ENV_ASSIGNMENT)?.[0] ?? "";
