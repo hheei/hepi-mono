@@ -5,7 +5,9 @@ Source, tests, package READMEs, `docs/architecture/`, and the package specs own 
 today, and a plan never overrides an agreed contract.
 
 Most of these were written before implementation and were not updated afterwards, so treat any status
-line as the author's note at the time of writing rather than as a live tracker. A plan whose subject
+line as the author's note at the time of writing rather than as a live tracker. They also quote the
+tool names in force when they were written (`spawn_subagent`, `send_subagent`, `list_subagents`),
+which have since become `agents_delegate`, `agents_get`, `agents_stop`, and `agents_dashboard`. A plan whose subject
 is gone belongs in [`docs/archive/`](../archive/README.md); a plan that has been implemented keeps
 its value as the rationale for the current shape and stays here.
 
