@@ -108,7 +108,7 @@ Details ▾ 展开：
 | `visibilitychange` / `ui/resource-teardown` | 隐藏时暂停、重新显示时恢复、视图销毁时释放 | 原样沿用 |
 | `task_live.test.mjs` | 针对 task 状态、刷新、结束/退避测试 | 同样对提取的 helper 编写独立 Node/Vitest 纯函数测试 |
 
-**实施入口**：R4 已有 `packages/pi-subagents/src/mcp/views.ts`、Task Card / Dashboard 的 MCP resource 注册和基础测试。按 [MCP R4 tickets](tickets.md) 从此处继续：将上游 `app.html` 的 compact、theme、bridge、task refresh 部分提取为一个支持 `task` / `dashboard` view 的 `packages/pi-subagents/src/mcp/apps/app.html` 模板，替换现有 `views.ts` 的长内联页面。打包时将模板复制到 `dist/mcp/apps/`；adapter 通过 `readFileSync(new URL(..., import.meta.url))` 加载并注册 `resources/read`。这沿用 AgentDock 的单 HTML 模板模式，前端由宿主 webview 执行。
+**实施入口**：R4 已有 `packages/pi-subagents/src/mcp/views.ts`、Task Card / Dashboard 的 MCP resource 注册和基础测试。验收记录见归档的 [MCP R4 tickets](../archive/pi-subagents/tickets.md)；后续改动从此处继续：将上游 `app.html` 的 compact、theme、bridge、task refresh 部分提取为一个支持 `task` / `dashboard` view 的 `packages/pi-subagents/src/mcp/apps/app.html` 模板，替换现有 `views.ts` 的长内联页面。打包时将模板复制到 `dist/mcp/apps/`；adapter 通过 `readFileSync(new URL(..., import.meta.url))` 加载并注册 `resources/read`。这沿用 AgentDock 的单 HTML 模板模式，前端由宿主 webview 执行。
 
 **数据适配**：
 
@@ -229,7 +229,7 @@ Codex Desktop ── MCP stdio ── Adapter
 | R1（实现并测试） | Standalone controller、headless Pi session、workspace ownership、model/skills |
 | R2（实现并测试） | Durable receipt：完成、blocked、空结果、compaction、crash window |
 | R3（bin 已接，Codex CLI 未实测） | Unix socket IPC、`pi-subagents-mcp`、legacy initialize、delegate 等待 receipt |
-| R4（卡片已接，Desktop 未实测） | Compact card、稳定 DOM 刷新、steer/stop/transcript、Dashboard。见 `docs/pi-subagents/tickets.md` MCP-R4-01～04 |
+| R4（卡片已接，Desktop 未实测） | Compact card、稳定 DOM 刷新、steer/stop/transcript、Dashboard。见 `docs/archive/pi-subagents/tickets.md` MCP-R4-01～04 |
 | R5 | Codex Desktop Elicitation、视觉细节、交互验收 |
 | R6（后续） | Codex TUI、MCP Tasks、认证 Streamable HTTP |
 

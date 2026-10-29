@@ -2,7 +2,8 @@
 
 `@hheei/pi-subagents` is the concrete extension for independent, reconnectable Pi
 child sessions. Live contract: [`docs/pi-subagents/spec.md`](../pi-subagents/spec.md).
-Design sources: `PLAN.md` and `PLAN-delivery-presentation.md` in the same folder.
+Design sources, archived under [`docs/archive/pi-subagents/`](../archive/pi-subagents/): `PLAN.md`,
+`PLAN-delivery-presentation.md`, and `PLAN-panel-bridge.md`.
 
 Ownership:
 
@@ -27,7 +28,7 @@ afterwards. `agents_delegate` prefers a panel (a new Herdr tab or cmux surface
 running the child's own Pi TUI) targeting the parent's current workspace, and falls back to a headless
 background process when this parent has no host. Panel launches pass Pi's `--approve` flag so project-file
 trust cannot interrupt startup. The presentation is frozen in the registry as `panel` | `background` (see
-[`PLAN-panel-bridge.md`](../pi-subagents/PLAN-panel-bridge.md)).
+`PLAN-panel-bridge.md`).
 Native `/resume` of the same session outside the managed path is not intercepted.
 
 系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。写者消失（进程锁已空，或本进程看见自己的后台进程退出）记 `blocked` 并回报一次，不改成 stopped intent；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。

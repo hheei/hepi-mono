@@ -1,8 +1,8 @@
 # pi-subagents V1 Tickets
 
-下一版 Pi/MCP 统一 API 工作线已独立拆分：[Spec](unified-api-spec.md) / [AGENTS-01～08 Tickets](unified-api-tickets.md)。旧数据迁移明确不做；该工作线状态以独立 tickets 为准，本文件保留既有 V1/MCP R4 任务与验收历史。
+下一版 Pi/MCP 统一 API 工作线已独立拆分：[Spec](../../pi-subagents/unified-api-spec.md) / [AGENTS-01～08 Tickets](../../pi-subagents/unified-api-tickets.md)。旧数据迁移明确不做；该工作线状态以独立 tickets 为准，本文件保留既有 V1/MCP R4 任务与验收历史。
 
-本 backlog 实现 [`spec.md`](spec.md)。[`PLAN.md`](PLAN.md) 是核心生命周期设计依据；投递话术、interactive 策略与 widget 投影以 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) 为准。**当前 Codex MCP 工作线见文末 [MCP R4](#mcp-r4codex-desktop-内嵌-ui当前工作线)**，规格为 [`mcp.md`](mcp.md)。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
+本 backlog 实现 [`spec.md`](../../pi-subagents/spec.md)。[`PLAN.md`](PLAN.md) 是核心生命周期设计依据；投递话术、interactive 策略与 widget 投影以 [`PLAN-delivery-presentation.md`](PLAN-delivery-presentation.md) 为准。**当前 Codex MCP 工作线见文末 [MCP R4](#mcp-r4codex-desktop-内嵌-ui当前工作线)**，规格为 [`mcp.md`](../../pi-subagents/mcp.md)。每个 ticket 应形成一个可运行、可验证的 cohesive commit；完成后更新本文件状态。禁止把后续 ticket 的抽象、兼容层或占位实现提前加入。
 
 状态：`[ ]` 未开始，`[~]` 进行中，`[x]` 完成，`[-]` 明确不做。
 
@@ -419,7 +419,7 @@ bridge 控制面驱动，呈现方式在 spawn 时决定（当前为后台 headl
 
 状态：idle attach `[x]`；active pause handshake `[x]`
 
-后续修正 `[x]`（当前契约见 [`spec.md`](spec.md) §7.3/§8）：
+后续修正 `[x]`（当前契约见 [`spec.md`](../../pi-subagents/spec.md) §7.3/§8）：
 
 - close_writer 不再对旧 writer 发 RPC `abort`：结束其 stdin 让 Pi 自行 shutdown，被 hold 的回合在进程退出前保持，attach 不再中断正在跑的那一轮。
 - attach 成功后不再把 child 留在 frozen 集合里；TUI 期间的 send 拒绝不再复用 "frozen for attach" 文案，并标记为不可重试。
@@ -458,7 +458,7 @@ bridge 控制面驱动，呈现方式在 spawn 时决定（当前为后台 headl
 **依赖**：SUB-08（已取代）。
 
 状态：detach `[—]`（随 SUB-08 一并删除）；session switch 与 user interrupt `[x]`，现由 `child_lifecycle`
-的 `left_session` / `user_interrupt` 事件承载（契约见 [`spec.md`](spec.md) §7.4）。
+的 `left_session` / `user_interrupt` 事件承载（契约见 [`spec.md`](../../pi-subagents/spec.md) §7.4）。
 
 ---
 
@@ -717,7 +717,7 @@ parent reload/restart可重连存活runner；确认死亡后可安全replacement
 
 ### M5：会话租约（SUB-12～SUB-14）
 
-所有权回到父会话。`before_agent_start` 前对完账。规格在 [`spec.md`](spec.md) §7.7。不在这三项落地前把 attachment 持久化塞进别的 ticket。
+所有权回到父会话。`before_agent_start` 前对完账。规格在 [`spec.md`](../../pi-subagents/spec.md) §7.7。不在这三项落地前把 attachment 持久化塞进别的 ticket。
 
 ### M3：原生TUI handoff（SUB-07～SUB-09）
 
@@ -731,7 +731,7 @@ parent reload/restart可重连存活runner；确认死亡后可安全replacement
 
 ## MCP R4：Codex Desktop 内嵌 UI（当前工作线）
 
-**规格**：[`mcp.md`](mcp.md) §2、§4–6。这里延续 R0–R3 已有的 MCP 入口，并将 AgentDock 原生 HTML 的实现模式直接落到 `@hheei/pi-subagents`。上方 SUB-01～SUB-14 是 Pi 原生 V1 的历史 backlog，MCP R4 独立编号。
+**规格**：[`mcp.md`](../../pi-subagents/mcp.md) §2、§4–6。这里延续 R0–R3 已有的 MCP 入口，并将 AgentDock 原生 HTML 的实现模式直接落到 `@hheei/pi-subagents`。上方 SUB-01～SUB-14 是 Pi 原生 V1 的历史 backlog，MCP R4 独立编号。
 
 **已确认的当前基线（2026-10-27）**：
 

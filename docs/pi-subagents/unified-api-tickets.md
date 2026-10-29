@@ -2,7 +2,7 @@
 
 目标契约：[Spec](unified-api-spec.md)。架构依据：[Plan](unified-api-plan.md)。审查依据：[Review](unified-api-review.md)。本工作线使用 AGENTS- 前缀，与既有 SUB-/MCP-R4- tickets 分开。
 
-状态：所有 ticket 均未开始。拆分不代表运行时已改变，也不授权部署或发布。
+状态：AGENTS-01～07 已实现，AGENTS-08（跨端集成、恢复与实机验收）未完成。拆分不代表发布，部署与发布仍需单独授权。
 
 ## 执行规则
 
@@ -255,7 +255,7 @@
 - 切换：`mcp-server.ts` 自报 `pi_agents`，模型工具为 `delegate`/`get`/`stop`/`dashboard`（后三者带 `ui.visibility = [model, app]`），App-only 为 `list`/`transcript`/`catalog`/`receipts`；`subagents_*` 与模型侧 receipt 工具全部删除。
 - 身份：`get` 接受 `id` + `revision?` + `includeOutput?`，`delegate` 返回 `id`/`revision`/`status`/`hasOutput`，`receipts` 只返回 `id`/`revision`/`status`/`task`/`hasOutput`/`createdAt`（不含正文），控制器 `receipt` op 与 `requireReceipt` 一并删除。
 - App：`app.html` 改用新工具名与 `progress.runtimeState` + 委派 `status` 双状态；Output 只在 Output 标签可见时用 `includeOutput:true` 拉取，历史 revision 只在 Diagnostics 标签首次打开时用 `receipts` 拉取，刷新不隐式推送正文。停止与新建在 await 之后校验 `generation`，迟到的 stop 回复不会覆盖已切换的 agent。
-- 文档：`docs/pi-subagents/mcp.md` 的交互、descriptor、流程图、工具表、结算与验收段全部改为新契约，并新增升级后重连 `tools/list` 的说明；`docs/pi-subagents/tickets.md` 作为历史 ticket 记录保持原样。
+- 文档：`docs/pi-subagents/mcp.md` 的交互、descriptor、流程图、工具表、结算与验收段全部改为新契约，并新增升级后重连 `tools/list` 的说明；`docs/archive/pi-subagents/tickets.md` 作为历史 ticket 记录保持原样。
 - 验证：`pnpm exec vitest run packages/pi-subagents/test`（376 passed，`mcp-app-view` 13 个 App DOM 用例与 `mcp-stdio` 的 tools/list 可见性断言全部改写）；`pnpm exec vitest run -c vitest.integration.config.ts packages/pi-subagents/test-integration`（8 passed）；`pnpm --filter @hheei/pi-subagents run build`；`pnpm run typecheck`；改动文件 Biome。
 - 未验证：Codex Desktop 实机卡片与 Dashboard 的视觉/交互验收（AGENTS-08）；Pi 侧工具仍是旧 `agent_*` 名称，两端口径在 AGENTS-06 后才一致。
 

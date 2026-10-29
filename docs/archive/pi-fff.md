@@ -9,7 +9,7 @@
 ## 结论先行
 
 - FFF 是常驻的 Rust 文件索引和内容搜索 runtime；它不是 `rg` 或 `fd` 的命令行包装。
-- Pi host 原生 `grep` 使用 `rg`，原生 `find` 使用 `fd`；见 [Pi 原生工具概览](pi-native-tools.md)。
+- Pi host 原生 `grep` 使用 `rg`，原生 `find` 使用 `fd`；见 [Pi 原生工具概览](../pi-native-tools.md)。
 - FFF Node SDK `@ff-labs/fff-node@0.10.3` 已暴露每个命中的精确 byte range、行/文件 offset、context 和分页 cursor。
 - 使用 FFF 时，extension 必须自己拥有 finder 生命周期、取消策略、cursor、模型输出格式和 Pi-native fallback。
 - FFF 的原始结构化数据比模型所需文本丰富。保留需要渲染或后续定位的字段到 `details`；只将有界文本写入 `content`。
@@ -174,7 +174,7 @@ Pi host 管理 tool call、session message、TUI shell 与最终结果 middlewar
 | call/result row 生命周期 | Pi host `ToolExecutionComponent` |
 | FFF range highlight | concrete extension renderer |
 
-本仓库的具体工具边界和默认值见 [统一搜索](tools/search.md)。它与第三方 Pix 的 `pix-grep` 不是同一个实现。
+本仓库的具体工具边界和默认值见 [统一搜索](../tools/search.md)。它与第三方 Pix 的 `pix-grep` 不是同一个实现。
 
 ## Pix `pix-grep`：可复用经验与缺口
 

@@ -6,7 +6,7 @@
 
 > **历史文档（2026-10-01）**：本文件不再是当前行为的来源。它的 §5（RPC 为默认）、§16–§21（attach/detach
 > 生命周期）、§42–§44（writer 交接）与 replacement claim 体系已被
-> [`PLAN-panel-bridge.md`](PLAN-panel-bridge.md) 取代；当前合同见 [`spec.md`](spec.md)。
+> [`PLAN-panel-bridge.md`](PLAN-panel-bridge.md) 取代；当前合同见 [`spec.md`](../../pi-subagents/spec.md)。
 
 核心使用方式：
 

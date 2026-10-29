@@ -68,7 +68,7 @@ child 信号作废并重新计时；`contact_parent`/`task_result` 透传 tool �
 本次聚焦 OCR 实际审查 `manager.ts`（测试被 CLI 默认规则排除），发现并修正两处：idle 观察先发现外部退出时必须走终止路径，不能误记成成功自动回收；已停止且退出未确认的 runtime 重连时不能覆盖 stopped 状态。人工关闭、同次 send 检测关闭与这两处边界均有回归测试和有效的撤销验证。
 
 取代关系：本文取代 [`PLAN.md`](PLAN.md) 的 §5「RPC 为默认模式」、§16–§21 的 attach/detach 生命周期、
-§42–§44 的 writer 交接职责，以及 [`spec.md`](spec.md) §7.3/§7.4。`PLAN.md` 保留为历史设计，不再作为当前行为的来源；
+§42–§44 的 writer 交接职责，以及 [`spec.md`](../../pi-subagents/spec.md) §7.3/§7.4。`PLAN.md` 保留为历史设计，不再作为当前行为的来源；
 实现落地时同步更新 `spec.md`、`tickets.md`、`README.md`、`docs/architecture/pi-subagents.md`，必要时更新 `DESIGN.md`。
 与 `PLAN-delivery-presentation.md` 冲突处：该文档「不 fire-and-forget 启动、不 send-keys」等禁令不变，
 但其「agent 默认在 RPC 后台运行、attach 时才进 TUI」的前提由本文取代。
