@@ -40,6 +40,24 @@ Rules:
 - NEVER invent feature-specific accent colors or new tokens when an existing semantic role fits.
 - NEVER communicate selection or status by color alone.
 
+### Semantic color table
+
+Extension surfaces reuse these roles instead of dimming every secondary line:
+
+| 内容 | token / 条件 |
+| --- | --- |
+| 组标题、分类标签 | `text`；当前展开的分类标签用 `accent`，并保留 `▸`/`▾`，不只靠颜色 |
+| 分隔线、分组 rail | `borderMuted`；工具 frame 的 rail 用其自身 `railToken` |
+| 次要耗时、计数、footer 元数据 | `dim` |
+| thinking 预览与正文 | `thinkingText` + italic |
+| notice | `info` 正文用 `text`；`warning`/`error` 用对应状态色，并保留 `Warning: `/`Error: ` 文字前缀 |
+| 工具名 | `toolTitle` + bold |
+| read 路径与行范围 | 路径 `accent`（终端支持时保留 file 链接），行范围 `warning` |
+| bash 命令 | `toolTitle` + bold；`timeout` 与耗时是 `dim` 次要元数据 |
+| 其他工具摘要 | `dim` |
+| 工具输出 | `toolOutput` 或原生语法高亮；错误用 `error` |
+| 状态字形 | `success`/`accent`/`warning`/`error`；streaming 用 `muted` |
+
 ## Layout
 
 - Use terminal-native font and cell dimensions; measure layout by terminal cell width, ignoring ANSI sequences.
@@ -70,15 +88,24 @@ Rules:
 ### Messages
 
 - User messages: one padded `userMessageBg` block with `userMessageText`.
+- Thinking 分类统计显示 `thinking xN · T tokens`；N 为当前分类的非空 thinking 项数，按现有 assistant-message 项粒度计数，流式更新原项不重复增加。展开子项的标签保持不变。
 - Assistant prose: terminal background with whitespace between semantic blocks.
-- Thinking: italic `thinkingText`; collapsed thinking is one concise line.
+- Thinking: italic `thinkingText`. While Pi hides thinking, each item is one row: a content preview of at most 20 graphemes (ellipsis for anything after it) that opens the full text on click; while Pi shows thinking, the aggregate prints the full text flat with no preview row.
 - Extension messages: one `customMessageBg` block using `customMessageLabel` and `customMessageText`.
 - NEVER add avatars, decorative labels, nested cards, or large collapsed placeholders.
 - Preserve partial output before reporting a later error.
 
 ### Tools
 
-- 连续活动组：活动态显示 `collapse views · 回合用时 · 有效 calls`，两条 rails 内为非空分类的小写标签统计，顺序固定 `notice`、`thinking`、`tools`（空分类整行省略，notice 只列类型计数），尾行只显示当前/最后工具的真实状态与名称。容器有子调用时只计有效子调用；聚合中至多打开一个分类和一个详情。展开工具分类按工具自身 Level 0 逐项显示（相邻一项一个空行），thinking 为标签行加首行预览，notice 逐项一行并可展开详情（没有 preview 和 body 的 notice 不画展开箭头）。容器的子调用逐项一行，摘要与耗时和容器内一致，运行中与取消各自保留运行态和警告语义。展开后的详情按缩进后的剩余宽度换行，长行不截断；只有摘要行才用省略号。原生断组不重置回合时间；最后一条 rail 下是单一 footer 槽位，运行态显示当前/最后工具状态，完成/被打断的 block 由 `Requests ×N · IN … · OUT … · CH …` 覆盖该行（不追加 rail、不改 header 与 body），仅统计该 block，IN/OUT/CH 公式与 k/M 格式参照原生 footer。切原始视图前后收起内部项目；Ctrl+O 保留原生检查入口，全文、异常和 copy 不丢失。精确行为、范围与验收见 [连续活动组 Spec](docs/architecture/pi-ext-ui-tool-groups.md)。
+整组展开透明且无组级 rail；notice 保留自身 customMessageBg，工具与 thinking 不填背景，复用原生 Box 不双加 padding。
+
+- **成组门槛：** 同一连续段内 `notice / 2 + thinking / 2 + 顶层 tools >= 2` 即显示 collapse views，不取整。thinking 按分类中的非空 thinking 项计数；空 assistant/toolCall 占位不计。4 notice、4 thinking、2 notice + 1 tool、1 notice + 1 thinking + 1 tool、2 tool 均成组。容器子调用不增加顶层项数；此权重与“工具完成后才计入 calls”独立，未知 renderer/正文等既有断组边界不变。
+
+- **collapse views 外壳：** 收起时整个组是一个原生背景块（header、分类、footer 同一底色），并在 header 下与 footer 上各画一条 `borderMuted` 组级横向 rail 框住内容；整组展开（标题或 Ctrl+O）后外层透明、不再画组级 rail。组底色取 block 最后一个有状态的成员（含组外尾项）：running/streaming → `toolPendingBg`，error → `toolErrorBg`，其余 → `toolSuccessBg`；结算后保持该底色 5 秒，然后回到中性底色 `toolPendingBg`（Pi 主题里唯一的中性背景槽，chroma 3–5%），旧 block 不再抢眼但仍是一块可读的 panel。局部分类展开保留组底色。组外壳复用原生 `Box`（`paddingX=0` 不重复 `outputPad`，`paddingY=1` 让底色在 header 上方与 footer 下方各多一行），同一渲染/鼠标路径；组前空行与相邻块间空行不着色。- **工具自身底色（可选）：** settings 里 `Tool backgrounds` 打开后，工具完全改用 Pi 原生着色：成功 `toolSuccessBg`、失败 `toolErrorBg`、进行中 `toolPendingBg`，上下各加一行同色 padding，并去掉 `▎` 前导导轨；组外壳仍保留自己的 block 底色，工具底色只在工具自己的行内覆盖它，组级 rail、分类行、footer 与计时不变。默认关闭，工具透明。
+- **背景填充必须抗 reset：** 子组件用自己的 `\x1b[0m` 结束每个 span，一行只包一次背景会让第一个 reset 之后的文字失去底色，所以填充要在每个 reset 之后重新开始、补到整行宽度，并恢复该行最内层的底色（工具底色盖住组底色时，reset 之后回到工具底色）。
+工具与 thinking run 都不填自身背景（`ToolView` 透明），notice 仍由 `MessageView` 拥有 `customMessageBg`（见 [12：原生背景块](docs/plans/pi-ext-ui-rendering-tickets/12-native-background-blocks.md)）。
+
+thinking 项每项只有一行：约 20 个 grapheme 的预览（`▎` 导轨），点该行展开换行的全文、再点首行收起，项与项之间不加空行；thinking 可见时直接平铺全文、没有预览行。
 
 - `pi-ext-tools` renders every registered tool with `renderShell: "self"`: terminal background, no Pi `tool*Bg` box.
 - A tool frame has a header and up to two bodies. A `request` body (the tool's input: command, code, task text) may sit between the header and the result body; a tool whose header already carries the whole call, and a tool whose input becomes the result, keeps one body. Omit a body's paired rails when it has no rendered lines:
@@ -99,7 +126,7 @@ Rules:
 - Pi `renderCall` and `renderResult` are host lifecycle slots, not separate visible sections: the call slot owns the header and the request body, the result slot owns the result body and the footer. Both slots stay mounted, so the call slot must not repeat what the result slot shows.
 
 - When the header fully represents a tool call, omit a duplicate body. `grep` and `find` use only the header until their result body exists.
-- `MessageView`（`pi-ext-ui`）画会话 info / notice，不画工具。它没有填充背景、状态 glyph、复制按钮、rail 或三级折叠。header 是 `▸ kind · summary`；没有 body 时不画 pin，点击无效。preview 在折叠和展开时都在，body 只在展开后出现，并缩进两格。只有 header 行响应左键。展开状态按 `stateHolder` 的对象身份记住，不写回 session entry。`forcedExpanded` 对应 host 的 ctrl+o：强制打开，期间的点击只记下收起，ctrl+o 关闭后再生效。它不替代 Pi 自己的 `[compaction]` / `[branch]`，那两个没有渲染钩子。其他 extension 不把 `@hheei/pi-ext-ui` 放进 `dependencies` 或必需 `peerDependencies`，也不要 `openExtensionPoint`。渲染时调用 ext-core 的 `readMessageView(pi)`：有工厂就用，没有就继续自己的 `Text`。`pi-ext-ui` 在 session 启动时 `registerExtensionHook(messageViewPoint, createMessageView)`，session 结束时卸下。info 文本、session 记录和模型上下文不变。`pi-ext-ui` 不依赖具体 extension。memory、optimizer、subagents 的 info 已接上：kind 分别是 `memory`、`optimizer`、`agents`。memory 的 preview 是页面标题和截断行，body 按页重复标题、id 和 snippet。optimizer 没有 preview，details 进 body 的 JSON，warning 只给 summary 上色。agents 的 summary 整段用状态色，报告进 body；没有 body 就不画 pin。
+- `MessageView`（`pi-ext-ui`）画会话 info / notice，不画工具。独立渲染时整块是 `customMessageBg` 背景（Pi 的自定义消息在安装 renderer 后会绕过自己的默认 Box，所以由 view 自己提供同样的块）；组内通过 `previewRows`/`bodyRows` 交给组底色，不叠加第二层。它没有状态 glyph、复制按钮、rail 或三级折叠。header 是 `▸ kind · summary`；没有 body 时不画 pin，点击无效。preview 在折叠和展开时都在，body 只在展开后出现，并缩进两格。只有 header 行响应左键。展开状态按 `stateHolder` 的对象身份记住，不写回 session entry。`forcedExpanded` 对应 host 的 ctrl+o：强制打开，期间的点击只记下收起，ctrl+o 关闭后再生效。它不替代 Pi 自己的 `[compaction]` / `[branch]`，那两个没有渲染钩子。其他 extension 不把 `@hheei/pi-ext-ui` 放进 `dependencies` 或必需 `peerDependencies`，也不要 `openExtensionPoint`。渲染时调用 ext-core 的 `readMessageView(pi)`：有工厂就用，没有就继续自己的 `Text`。`pi-ext-ui` 在 session 启动时 `registerExtensionHook(messageViewPoint, createMessageView)`，session 结束时卸下。info 文本、session 记录和模型上下文不变。`pi-ext-ui` 不依赖具体 extension。memory、optimizer、subagents 的 info 已接上：kind 分别是 `memory`、`optimizer`、`agents`。memory 的 preview 是页面标题和截断行，body 按页重复标题、id 和 snippet。optimizer 没有 preview，details 进 body 的 JSON，warning 只给 summary 上色。agents 的 summary 整段用状态色，报告进 body；没有 body 就不画 pin。
 
 - 工具包拥有展示语义、参数摘要、结果解析、状态和内容行；pi-ext-ui 不按具体工具名分派，仅读取 ToolPresentation 绘制通用框架。每个具体工具在所属 package 的 definition 上提供 optional renderer 与原生回退。ext-core 的 `createOptionalToolRenderers(pi, name, native)` 在每次 render 读取 `toolRendererPoint`，`pi-ext-ui` 只在 session 生命周期内注册渲染工厂；缺少 UI 时调用工具自己的 native renderer。UI 全局 resolver 遇到该 wrapper 直接委派，确保直接调用与嵌套调用都只画一层框架。后加载 UI 可见，shutdown 后不保留旧工厂；工具 schema、执行与历史 details 不改变。
 - 工具展示分两层：`pi-ext-core` 的纯 `ToolPresentation` 契约描述内容语义（`summary`、`request`、`output`、`collapsedRows`、`copy`、diff 字段），`@hheei/pi-ext-ui` 的 ToolView 提供视觉框架。ToolView 拥有三级折叠、body 的 paired rails、footer placement 与 `stateHolder` 上的折叠记忆；concrete extension 继续拥有其 tool 语义、header summary、body、typed footer 与 warning 判定。未加载 `pi-ext-ui` 时，`createToolPresentationRenderers` 生成 Pi 原生 Text 渲染，保留参数与结果。
@@ -116,10 +143,11 @@ Rules:
 - An unexpanded successful text `read` uses the same gutter and highlighting as native `edit`: ` XXX │ ` plus cli-highlight from the file path, ten head lines, a dim line-number-aligned `…` / `┊` omission whose body is `(N hidden lines, ctrl+o to expand)`, then nine tail lines when more than nineteen lines were returned. Expanded text reads keep that renderer for the full returned range. Its full header is `status read path[:range]`. An explicit `limit` shows inclusive `start-end`, while no `limit` shows at most `:start`. TUI rows derive one-based source line numbers from the request only; model-visible content stays Pi-native and unnumbered. The footer is `Unicode-code-point char(s) · returned line(s) · duration`. Count nouns are singular when the number is 1. Every preview row is one cell-width-safe line: it reserves the source-line prefix and a dim trailing `…` before truncating content, and never wraps. Error, partial, and image reads retain Pi native render behavior.
 - All tool UI compaction and truncation markers use dim `…`; model `content` remains unmodified. Their body paths, and bash body text share the terminal default on the current Trace and `dim` on a later Trace. They do not use the theme `text` token. Grep body file headings are relative to the search path and are omitted when that path is a single file. Truncated `…/tail` headings and path-like spans inside highlighted source follow that same tone and stay dim syntax on the match line; match ranges use `success` over full-intensity syntax-colored source.
 - Streaming and completed states SHOULD share a visual grammar while remaining distinguishable.
+- A live tool (streaming args or running) animates one spinner phase from a shared 100ms clock: `· ✢ ✳ ✶ ✻ ✽` in `muted` while args stream, the same phase in `accent` while it executes. Entering execution must not restart the phase, and the repaint ticker exists only while a tool is live.
 - `apply_patch` 的渲染由 `pi-apply-patch` 通过 ext-core presentation provider 拥有（`sections`、`collapsedRows`、`summary`、`status`、`copy`、`replaceCallOnPartial`）；pi-ext-ui 只提供通用 frame，不再按工具名分派。header 为 `apply_patch modify N file(s) (+A -D) · duration`（N=1 用单数 `file`）。执行前按已收到的 patch 预估文件数与总增删行；执行后按去重的 `changedPaths` 和执行方总增删行展示实际修改，拒绝的操作不计入文件数。codemode 子调用折叠摘要沿用同一统计格式。聚合 status 沿用执行方事实：success 顶层无 glyph、partial 为 `!`、failed 为 `✗`。Level 0 collapsed rows 与 Level 1+ sections 都显示 operation rows（七态 Nerd Font glyph：`󰄰` pending、`󰄴` applied、`󰪠` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected；verb 用 `create|modify|delete`），Level 1+ 继续追加每个 applied snapshot 的单列 diff 行（符号 + 绝对行号，来自 executor 记录的 before/after 窗口）与 rejected/unconfirmed/notApplied 诊断行（error rail）。partial 保留 `(appliedHunks/totalHunks hunks applied; reason)`，fuzzy 保留 dim `fuzzy` 标记。模型生成 tool arguments 时，`renderCall` 从 partial `args.patch` 识别已换行的 operation header，显示 `󰄰 create|modify|delete path +A -D` 的 pending rows（`󰄰` 只表示 prefix 已识别，不表示验证或入队；不读取 workspace、不持久化 preview）。copy primary 是请求的 `args.patch`（可整段重试），full 是 patch + 输出；不冒充 git-apply unified patch。details 缺失时退化为纯输出文本。执行语义不变：mutation lock、V4A Publish 顺序、progress 快照交还事件循环、add/delete snapshot 150 行窗口、final Patch Outcome 持久化、`/reload` 取消进行中的 execute。
 - `apply_patch` 的模型结果只报告执行事实与诊断，不附加 `Next:` 或恢复指令。歧义报告候选起始行号与总数，由模型自行选择后续 read/search。
 - `bash` 只在前台执行；后台命令使用 `bg_bash_spawn`，不自动转后台。工具输入代码与结果保持可检查。两个 spawn 成功返回 JSON `{ id, path }`：Bash 的 path 是日志绝对路径，agent 的 path 是 Pi 分配的 session 文件绝对路径（可能尚未落盘）。send、stop 成功只返回一句确认，失败只返回原因，不附带 session ID、presentation 或状态快照。两个 get 的 progress 内路径字段同样命名为 path。`bg_bash_get` 返回状态与有上限的运行信息，`bg_bash_stop` 发出进程树取消请求。
-- The command itself is a request body: one row per command line, wrapping instead of truncating, with terminal escapes stripped and the head kept behind a dim `… (N later lines, ctrl+o to expand)` hint. The header carries only the call facts above, so a wide command appears exactly once, in full, in the request body.
+- The command itself is a request body: one row per command line, wrapping instead of truncating, with terminal escapes stripped and the head kept behind a dim `… (N later lines, ctrl+o to expand)` hint. Copy takes the request bytes as the model sent them (no trim, no escape stripping); only the output half of a `full` copy is stripped. The header carries only the call facts above, so a wide command appears exactly once, in full, in the request body.
 - Unexpanded bash output keeps at most 10 logical lines: a dim `… (N earlier lines, ctrl+o to expand)` hint plus the tail. `N` is total logical lines emitted minus the visible tail, not wrapped display rows and not the current byte-window line count. Each body row is one cell-width-safe logical line with a dim trailing `…`. Header, request body, paired rails, and typed footer stay outside that limit.
 - `todo` 使用 ToolView：header 是 `todo #1 #2 #3`（本次涉及的 task id，无中间点）；mutation body 只显示该次 typed operation outcome，`list` body 按 active、pending、blocked、completed 显示 task rows；footer 只显示 `active #X · N pending · duration`。未展开 Todo body 最多八条 task rows并保留 `… +N more`，展开后显示全部。Todo 取消 `above-editor` widget，改用 Pi 原生 Footer 状态行（`ctx.ui.setStatus` 靠左展示）显示轻量会话状态：Nerd Font 状态 glyph（`󰪠`/`󰄰`/`󰀪`/`󰄴`/`󰅚`）按 status 语义着色，id 用 `accent`；刚完成在有后续进行中任务时显示 15 秒、否则保留展示 3 分钟，阻塞保留展示 15 秒，无内容或超时后清空状态并保持零纵向占位。仲裁优先级见 [docs/todo/README.md](docs/todo/README.md)。
 - `pi-subagents` 在父会话使用原生 `ctx.ui.setStatus("pi-subagents", text)`，不挂 aboveEditor widget、不做 elapsed 刷新、不为终态保留展示窗口。状态投影只读 manager 的当前快照；过期异步读取不能覆盖新快照。child 会话的身份只靠 session title（`🤖 <agent> · <id>`）与 child branch 自己的原生 TUI 表达，不挂身份 widget；离开绑定 session 后 `contact_parent` 停用。
@@ -132,7 +160,7 @@ Rules:
 - `pi-status` 提供 2-line Compact Footer：
   - Line 1: `[path (muted)] [( (dim)][branch (accent)][) (dim)]` 居左；`auto-title` 动态进度或 `[sessionName (muted)]` 靠右。
   - Line 2: `[provider/ (dim)][model (text)][(thinking) ((dim) + (accent) + (dim))] · [N% (muted)][/window (dim)]`（超过 70% 升为 `warning`，超过 90% 升为 `error`）居左；保留原生 Todo 状态组件靠右（Nerd Font glyph 按 status 语义着色、id 用 `accent`、subject 依状态分级，样式完全不改）。
-- opt-in `eval` 的渲染由 pi-ext-ui ToolView 负责（容器规则同 codemode）：header 为 `eval py (reset) · N calls/rows · duration`，`(reset)` 只在本次确实重置 kernel 时出现，`timeout_ms` 不进入 header（它几乎总是同一个默认值，而 duration 已占用这一行的宽度；硬截止仍由工具描述说明），顶层不画 ✓/◐；Level 0 的 collapsed rows 显示每个 nested tool 调用的 `<tool> <path>` 摘要行（file-tool presentation，含 `(+N -M)`），Level 1/2 按 execution 顺序展开全部 rows（printed text 行原样、`display:`/`result:` 带 dim label）。✗ 只在 cell 自身失败时出现；nested tool 失败的 ✗ 保留在子行。copy primary 是 code，full 是 code + 输出。code 在 call phase 以 heavy-input rail section 显示。details 缺失时保留 persisted model-visible text，不重跑 code 或读取 workspace。Eval settings form presents `Enable Eval`, `Enable Code Mode`, and `Python interpreter`; Code Mode remains visibly inactive until its exposition is implemented, and all values apply after reload or a new session.
+- opt-in `eval` 的渲染由 pi-ext-ui ToolView 负责（容器规则同 codemode）：header 为 `eval py (reset) · N calls/rows · duration`，`(reset)` 只在本次确实重置 kernel 时出现，`timeout_ms` 不进入 header（它几乎总是同一个默认值，而 duration 已占用这一行的宽度；硬截止仍由工具描述说明），顶层不画 ✓/◐；Level 0 的 collapsed rows 显示每个 nested tool 调用的 `<tool> <path>` 摘要行（file-tool presentation，含 `(+N -M)`），Level 1/2 按 execution 顺序展开全部 rows（printed text 行原样、`display:`/`result:` 带 dim label）。✗ 只在 cell 自身失败时出现；nested tool 失败的 ✗ 保留在子行。copy primary 是 code 原文（不 trim、不剥离控制序列），full 是 code + 已剥离控制序列的输出。code 在 call phase 以 heavy-input rail section 显示。details 缺失时保留 persisted model-visible text，不重跑 code 或读取 workspace。Eval settings form presents `Enable Eval`, `Enable Code Mode`, and `Python interpreter`; Code Mode remains visibly inactive until its exposition is implemented, and all values apply after reload or a new session.
 - NEVER fabricate counts, metrics, deltas, or success state absent from the underlying result.
 
 - `pi-subagents` 的父会话状态行只列运行中的 child，不显示 elapsed、不为终态保留展示窗口。启动失败必须刷新为错误状态，不能留下持续计时的 `running` 行。
@@ -205,7 +233,7 @@ Design the same interaction model for narrow and wide terminals.
 
 ## Feature Specs
 
-工具行的着色词汇只有一处定义（`@hheei/pi-ext-ui` 的 `formatToolHeaderText`）：`状态字形 + toolTitle(bold(工具名)) + dim(摘要)`，`bash` 的摘要保持终端默认色。容器工具（`codemode`、`eval`、`subagent`）在 Level 0 画子调用看板时，每一行都复用同一个函数，只把折叠针 `▸` 换成父级导轨 `▎`。看板不得自行拼行——自行拼行会让子工具摘要失去 `dim`、工具名失去 `bold`，同一个调用在容器内外呈现不一致。
+工具行的着色词汇只有一处定义（`@hheei/pi-ext-ui` 的 `formatToolHeaderText`）：`状态字形 + toolTitle(bold(工具名)) + 摘要 + 次要元数据`，按上表着色。摘要的语义由拥有该工具的层给出：`read` 传入已着色的 `accent` 路径与 `warning` 行范围，`bash` 的命令按上表 `toolTitle`+bold，其余工具为 `dim`；`meta`（耗时、`timeout`）始终 `dim`，两者以 `dim` 的 ` · ` 分隔。容器工具（`codemode`、`eval`、`subagent`）在 Level 0 画子调用看板时，每一行都复用同一个函数，只把折叠针 `▸` 换成父级导轨 `▎`；看板不得自行拼行——自行拼行会让子工具摘要失去语义、工具名失去 `bold`，同一个调用在容器内外呈现不一致。`pi-python-eval` 不能反向依赖 `pi-ext-ui`，其子调用行在 presentation 内按同一张表着色。
 
 
 [`pi-loadout`](docs/architecture/pi-loadout.md) 的 `/ext-loadout` 是 Pi 原生资源装配面板，拥有 `PANEL_ROWS` 行固定高度：上边线、标题行、搜索行、列表视口、提示行、下边线。它按资源类别分组（`skills`、`extensions`、`prompts`、`themes`、`packages`、`tools`），宽终端（≥76 列）列表与详情并排，窄终端上下堆叠。每一行的状态只用 Nerd Font 字形表达，不依赖颜色：`󰄴` 启用、`󰄰` 停用、`󰐙` 项目显式启用、`󰍷` 项目显式停用；项目作用域下无覆盖时显示继承结果。详情面板按优先级排布（名称、来源、Global、Project、Effective、路径、描述），行数不足时先丢掉空行再截断描述，因此状态事实永远可见。Tab 切换写入作用域，并且标记本身随作用域移动，不以颜色区分。同名资源（例如两个 `research` skill）用来源目录限定，避免两行无法区分。

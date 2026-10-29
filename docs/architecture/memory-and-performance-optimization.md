@@ -27,7 +27,7 @@
      - **Level 1（常规展开）**：关键前瞻信息与首尾截断（<= 20 行或 <= 16KB）；
      - **Level 2（深入检视）**：受硬性保护上限约束（最大 <= 500 行或 <= 64KB）。**绝对禁止在 TUI 内存中排版渲染数十 MB 的完整结果**；超出部分必须以明确的指示行提示用户：`... (truncated, full content: <path>)`。
 4. **UI 捕获纯内存化与生命周期自动回收**：
-   - `ToolExecutionTracker` 只保留活跃会话期间的嵌套调用轻量摘要（<= 16KB 截断预览），完全基于内存 WeakMap / Session Map；
+   - `ToolExecutionTracker` 只保留活跃会话期间的嵌套调用轻量摘要（参数 <= 32KB 才完整保存，超过则只记录 `argsTruncated` 与字节数，不保留被改写的片段），完全基于内存；
    - 彻底废除 `tool_result` 向 JSONL 注入 `__piExtUiCapturedCalls` 的污染行为；
    - 监听器与缓存绑定 `registerExtensionLifecycle`，在 `session_shutdown` 时统一 `clear()` 释放，零磁盘垃圾、零内存残留。
 
@@ -105,7 +105,7 @@
      - 若工具输出超过 64KB，末尾追加显式提示行：`▎ ... [Output truncated: showing 64KB of ${totalSize}. Full output saved at ${filePath || "session log"}]`；
      - **坚决不为 UI 展示自建工件落盘系统**；外部工具自带文件（如 `bash` 输出落到 `full_output_path`），UI 仅渲染受控安全窗口。
 2. **纯内存 Tracker 与生命周期自动清理**：
-   - `ToolExecutionTracker` 仅在内存保存當前活跃的父子調用關聯，參數只保留 16KB 截斷預覽；
+   - `ToolExecutionTracker` 僅在記憶體保存當前活躍的父子調用關聯；參數超過 32KB 時不保存內容，只記錄「未記錄 + 位元組數」事實；
    - 徹底移除 `pi.on("tool_result")` 向 JSONL 注入 `__piExtUiCapturedCalls` 的行為；
    - 綁定 `registerExtensionLifecycle`，在 `session_shutdown` 時自動調用 `clear()` 釋放，絕不在磁碟留下任何暫態碎檔。
 3. **無條件快速退出**：

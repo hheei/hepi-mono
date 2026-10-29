@@ -21,7 +21,7 @@ $$\text{Render State} = \text{Outcome} \otimes \text{Visibility} \otimes \text{C
 - **结果与折叠解耦**：成功（Ok）、告警（Warn）与失败（Error）均可自由收缩或展开。
 - **全周期防抖动与流式策略**：
   - **遵循全局折叠**：规划期（模型流式输出参数时）不搞特殊强制展开，严格跟随折叠态；
-  - **流式参数紧凑显示**：折叠时格式固定为 `▸ ⋯ web_search · XX tokens`（估算值 `Math.ceil(chars / 4)`）；
+  - **流式参数紧凑显示**：折叠时格式固定为 `▸ ✻ web_search · XX tokens`（前缀是动画 spinner，见 §3.3）（估算值 `Math.ceil(chars / 4)`）；
   - **快路径对齐 Pi 原生调度**：交互与离散状态变更完全对齐 Pi 渲染层（`@earendil-works/pi-tui` 的 `TuiBase.MIN_RENDER_INTERVAL_MS = 16` 物理帧合并）。扩展层仅调用 `context.invalidate()` 或 `requestRender()`，交由 Pi 原生合帧驱动，**禁止**在快路径上自建定时器窗口；
   - **流式路径使用统一 100ms 重绘窗口**：每个事件都重建整份快照的路径（子进程/内核输出、进度事件、高频状态源）必须使用 `@hheei/pi-ext-core` 的 `createRenderThrottle`，不得各自发明私有节流。窗口只决定「何时重建」，快照内容仍由回调读取当前状态生成；leading 立即绘制、窗口内合并、trailing 保底，执行收尾必须 `dispose()`。详见 [render-throttling.md](./render-throttling.md)；
   - 收缩态在规划期、运行期与结算期**恒定保持 1 行高度**，彻底杜绝视口抖动。
@@ -58,11 +58,13 @@ $$\text{Render State} = \text{Outcome} \otimes \text{Visibility} \otimes \text{C
 
 | 生命周期阶段 | 状态 | 符号 | Theme Token | 折叠态示例 | 展开态示例 |
 |---|---|---|---|---|---|
-| **规划期 (Streaming)** | 准备中 | `⋯` | `muted` / `dim` | `▸ ⋯ web_search · 45 tokens` | `▾ ⋯ web_search {"query": ...}` |
-| **运行期 (Executing)** | 进行中 | `◐` | `accent` | `▸ ◐ web_search "query" · 1.2s` | `▾ ◐ web_search "query" · 1.2s` |
+| **规划期 (Streaming)** | 准备中 | 动画 spinner `· ✢ ✳ ✶ ✻ ✽` | `muted` | `▸ ✻ web_search · 45 tokens` | `▾ ✻ web_search {"query": ...}` |
+| **运行期 (Executing)** | 进行中 | 同一 spinner（相位不重置） | `accent` | `▸ ✻ web_search "query" · 1.2s` | `▾ ✻ web_search "query" · 1.2s` |
 | **结算期 (Settled)** | 成功 | `✓` | `success` | `▸ ✓ web_search "query" · 340ms` | `▾ ✓ web_search "query" · 340ms` |
 | **结算期 (Settled)** | 告警 | `!` | `warning` | `▸ ! web_search "query" · 1.2s` | `▾ ! web_search "query" · 1.2s` |
 | **结算期 (Settled)** | 失败 | `✗` | `error` | `▸ ✗ web_search "query" · 12.0s` | `▾ ✗ web_search "query" · 12.0s` |
+
+Streaming 与 running 共用同一个 100ms 时钟：帧由 `performance.now()` 直接换算，因此从参数构造切到执行等待时不重置相位，只有颜色从 `muted` 变成 `accent`。重绘由 pi-ext-ui 在存在 live 工具时的 100ms ticker 驱动，最后一个工具结束后立即停表。
 
 ---
 
@@ -73,6 +75,8 @@ Header 右侧末端常驻单图标 `󰆏`（点击后切换为 `✓` 绿光持�
 1. **分室/重输入工具 (Bash, Eval, Codemode)**：
    - **普通单击（Click）**：**默认复制上室（Input 命令/脚本）**，无 `$` 前缀与导轨污染，直接可粘贴运行；
    - **Shift + 单击（Shift+Click）**：**同时复制上下室（命令 + 输出）**。
+   - 复制的请求部分是模型请求的原始字节：不 `trim`、不剥离终端控制序列；只有输出部分在复制时剥离。历史记录只留下摘要、没有 args/result 时，点击复制不写入任何内容并显示 `✗`，展开正文明确 `(request not recorded; summary only)`，不把摘要当请求复制。
+   - 自有 presentation 的 copy payload 由 provider 区分请求与输出；顶层与嵌套 UI 消费层原样交给剪贴板，不再次清洗整段。没有 provider copy 时，通用工具回退才在已知请求/结果边界处理输出。
 2. **基础单室 I/O 工具 (WebSearch, Read 等)**：
    - **普通单击**：复制纯净结果内容；
    - **Shift + 单击**：同时复制调用参数与结果内容。
@@ -203,6 +207,36 @@ export interface ToolViewSpec {
 2. **鼠标热区精确命中（Hit Testing）**：在 Header 单行内自动区分“左侧折叠点击区（Click / Ctrl+Click）”与“右侧末端 `󰆏` 复制图标点击区（Click / Shift+Click）”；
 3. **剪贴板写入与 1.2s 状态自愈**：内部管理 `󰆏 -> ✓` 的定时回退与 `invalidate()` 触发，并在组件销毁或重复点击时幂等清理 timer；
 4. **导轨合成与按行截断**：在 Level 0 时完全跳过 `sections` 的渲染（Lazy Evaluation）；在 Level 1 时对每个 `RailSection` 按 `maxLines` 截断并前置对应颜色的 `▎ `；在 Level 2 时全量输出。
+
+### 6.4 工具语义的单一 owner (Single Owner per Tool Semantics)
+
+同一份工具语义只允许一个 owner，三条渲染路径（顶层行、嵌套行、恢复后的行）都从它取事实：
+
+1. **具体 extension**：通过 ext-core 的 `ToolPresentationProvider` 声明 request、copy、summary、domain status 与 children facts，名字不进入 ext-ui。
+2. **Pi 原生工具**：`read`、`write`、`edit`、`bash`、`grep`、`find`、`codemode`、`python_eval` 以及后台/子代理 helper 没有 provider，由 `packages/pi-ext-ui/src/native-tools.ts` 这一个显式 adapter 统一声明其 summary、request、copy、输出语言与 diff 来源。
+3. **ext-ui**：只负责排版、折叠、鼠标、背景与聚合；`renderer.ts`、`nested-calls-view.ts`、`payload-parser.ts` 不再按工具名推语义。
+
+因此新增原生工具语义时只改 adapter，新增具体 extension 时只声明 provider；不会出现同一工具在不同路径使用不同 summary/copy 规则的情况。
+
+### 6.5 运行时状态归属 (Runtime-owned State)
+
+同一个 process 里可以同时存在多个 Pi runtime，因此 ext-ui 不持有任何模块级可变状态：
+
+1. `packages/pi-ext-ui/src/runtime.ts` 的 `ToolUiRuntime` 由 `default(pi)` 为每个 extension 实例创建一次，持有嵌套调用捕获（`ToolExecutionTracker`）、会话参数索引（`NestedCallArgsIndex`）与工具背景开关。
+2. 渲染器与可选渲染器工厂都以构造参数接收同一个 runtime，事件钩子写它、渲染读它。
+3. `ToolView.background` 是读取函数而非快照，设置切换对 host 已持有的视图立即生效。
+4. `start()` 的 resources 清理只作用于本 runtime；关闭、重启或切换 session 不会清掉另一个 runtime 的捕获。
+
+因此没有 `defaultTracker`、模块级 session source 或全局背景开关，也不需要集中式 registry。
+
+### 6.6 背景归属 (Background Ownership)
+
+背景按结构归属，不靠推导 ANSI 状态：
+
+1. **每个 surface 画自己的行**：`ToolView`、`ToolGroupView`、`MessageView` 各有一个 `Box`，只给自己渲染的行上色；Pi TUI 的 `Box` 负责补宽后调用 `bgFn`。
+2. **`backgroundFill(theme, token)` 只认自己的背景**：遇到 reset（`0`、`49`、空参数或包含它们的复合 SGR）就重新声明本 surface 的背景；遇到样式序列（`1m`、`31m` 等）不动。
+3. **不推断最内层 surface**：内层 surface 自己负责在它的行内重开填充；一旦它结束，该行剩余部分属于正在画它的外层 surface。因此内层背景不会越界延伸到 padding 或后续文字。
+4. 复合 SGR 与标准背景码不需要状态机：本函数只在 reset 后补自己的背景，其他背景码由画它们的 surface 负责。
 
 ---
 
