@@ -67,7 +67,9 @@ details format 为 `pi-ext-tools-python-eval`：
 
 onUpdate 推送运行过程（预览 rows + 当前 calls 计数），不持久化 Python 内存或重跑历史源码。
 
-执行事实账本使用 pi-python-eval:execution custom entries 写入当前 session branch。每个 cell 在发送前记录 generation 与 start，结束后记录 completed、failed、cancelled 或 timed_out 终态及名字数量；记录不进入模型上下文。runtime 重建时只读当前 branch，若发现上一条 start 没有终态则报告 unknown outcome；generation 变化则报告 earlier names are gone。账本不恢复 Python namespace、不重放源码、不接管旧 kernel；写入失败不改变 cell 执行结果。
+执行事实账本使用 pi-python-eval:execution custom entries 写入当前 session branch。每个 cell 在发送前记录 generation 与 start，结束后记录 completed、failed、cancelled 或 timed_out 终态及名字数量；记录不进入模型上下文。runtime 重建时只读当前 branch，若发现上一条 start 没有终态则报告 unknown outcome；generation 变化则报告 earlier names are gone。账本不恢复 Python namespace、不重放源码、不接管旧 kernel。
+
+账本接口不吞失败：`previous()` 区分「历史为空」与「历史不可读」，`start`/`end` 返回 `{ saved } | { saved: false, reason }`，由 `runWithHooks` 一个位置决定策略。读取失败时下一次 cell 报告 earlier history could not be read，不能声称上一次执行干净结束，generation 比较也退回内存事实。start 写入失败时不执行该 cell：没有 start 事实的 cell 在重启后不可见，等于带着副作用运行却无法报告。end 写入失败不改变 cell 结果，但 cell 内出现 `recovery record not saved: …` 状态行（`onDiagnostic`），说明下一次重启可能把它误报成 unknown outcome。
 
 文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、摘要、结果文本、执行时间与错误，供 UI 按原协议解释。
 
