@@ -5,8 +5,6 @@ import {
 	CHILD_INPUT_EVENT,
 	CHILD_LIFECYCLE_EVENT,
 	DEFAULT_MAX_BUFFERED_EVENTS,
-	DEFAULT_MAX_FRAME_BYTES,
-	DEFAULT_MAX_PENDING_REQUESTS,
 	eventFrame,
 	failureResponse,
 	isEventFrame,
@@ -111,9 +109,7 @@ describe("bridge protocol frames", () => {
 		);
 	});
 
-	test("exports bounded defaults for frames, pending requests and buffered events", () => {
-		expect(DEFAULT_MAX_FRAME_BYTES).toBe(1024 * 1024);
-		expect(DEFAULT_MAX_PENDING_REQUESTS).toBeGreaterThan(0);
+	test("exports the buffered-event bound and the event names", () => {
 		expect(DEFAULT_MAX_BUFFERED_EVENTS).toBeGreaterThan(0);
 		expect(CHILD_LIFECYCLE_EVENT).toBe("child_lifecycle");
 		expect(CHILD_INPUT_EVENT).toBe("child_input");

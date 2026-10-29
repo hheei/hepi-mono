@@ -2,8 +2,7 @@ import { type Static, Type } from "typebox";
 import { Value } from "typebox/value";
 import { PROTOCOL_VERSION } from "./domain.js";
 
-export const DEFAULT_MAX_FRAME_BYTES = 1024 * 1024;
-export const DEFAULT_MAX_PENDING_REQUESTS = 128;
+/** How many queued child events a parent that stopped reading keeps before the oldest are dropped. */
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 
 /**
