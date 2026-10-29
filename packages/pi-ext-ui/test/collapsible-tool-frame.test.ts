@@ -20,7 +20,11 @@ import {
 	ToolView,
 	transitionFoldLevel,
 } from "../src/index.js";
-import { NESTED_CALLS_EXPANDED_KEY, NestedCallsView } from "../src/nested-calls-view.js";
+import {
+	NESTED_CALLS_COPIED_KEY,
+	NESTED_CALLS_EXPANDED_KEY,
+	NestedCallsView,
+} from "../src/nested-calls-view.js";
 
 const taggedTheme = {
 	fg: (color: string, text: string) => `[${color}:${text}]`,
@@ -237,7 +241,7 @@ describe("ToolView Deep Module Interface", () => {
 		]);
 	});
 
-	test("Right-edge copy icon: Click copies primary, Shift+Click copies full, feedback expires via the timer", () => {
+	test("Right-edge copy icon: Click copies primary, Shift+Click copies full, feedback expires via the timer", async () => {
 		vi.useFakeTimers();
 		try {
 			const copiedTexts: string[] = [];
@@ -280,6 +284,8 @@ describe("ToolView Deep Module Interface", () => {
 			expect(copyClick).toMatchObject({ handled: true, render: true });
 			expect(view.foldLevel).toBe(0);
 			expect(copiedTexts).toEqual(["pnpm test"]);
+			// The check mark appears only once the clipboard write resolves.
+			await Promise.resolve();
 			expect(view.render(40)[0]!.endsWith("✓ ")).toBe(true);
 
 			vi.advanceTimersByTime(5000);
@@ -288,6 +294,33 @@ describe("ToolView Deep Module Interface", () => {
 
 			view.handleMouse(createMouseClick(38, 0, { width: 40, height: 1, shift: true }));
 			expect(copiedTexts).toEqual(["pnpm test", "pnpm test\n---\nPASS"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test("a rejected clipboard write shows failure instead of the success mark", async () => {
+		vi.useFakeTimers();
+		try {
+			const view = new ToolView({
+				theme: plainTheme,
+				stateHolder: {},
+				copyToClipboard: async () => {
+					throw new Error("Clipboard unavailable");
+				},
+				copyFeedbackDurationMs: 5000,
+				header: { title: "bash", status: "ok", summary: "exit 0" },
+				copy: { primary: "pnpm test" },
+			});
+			view.render(40);
+			view.handleMouse(createMouseClick(38, 0, { width: 40, height: 1 }));
+			await Promise.resolve();
+
+			// The copy slot is the last cell; the row's own status glyph is a check mark of its own.
+			expect(view.render(40)[0]!.endsWith("✗ ")).toBe(true);
+
+			vi.advanceTimersByTime(5000);
+			expect(view.render(40)[0]!.endsWith("󰆏 ")).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -1306,6 +1339,41 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		// 5. Calling dispose is safe and cleans up resources
 		expect(() => ncv.dispose()).not.toThrow();
 	});
+
+	test("collapsing a nested view drops the copy marker instead of leaving it behind", async () => {
+		vi.useFakeTimers();
+		try {
+			const state: Record<string, unknown> = {};
+			const ncv = new NestedCallsView({
+				calls: [
+					{
+						id: "call-1",
+						toolName: "bash",
+						args: { command: "ls -la" },
+						result: { content: [{ type: "text", text: "file.txt" }], details: {} },
+					},
+				],
+				theme: plainTheme,
+				context: createMockContext(),
+				stateHolder: state,
+				copyToClipboard: async () => {},
+			});
+			ncv.render(80);
+			ncv.handleMouse(createMouseClick(78, 0, { width: 80 }));
+			await Promise.resolve();
+			expect(ncv.render(80)[0]!.endsWith("✓ ")).toBe(true);
+
+			ncv.collapseAll();
+			expect(state[NESTED_CALLS_COPIED_KEY]).toBeUndefined();
+			ncv.render(80);
+			ncv.handleMouse(createMouseClick(10, 0, { width: 80 }));
+			// Expanding again must not resurrect a check mark whose timer is already gone.
+			expect(ncv.render(80)[0]!.endsWith("󰆏 ")).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 
 	test("NestedCallsView retains ANSI escape colors and syntax highlights file reads", () => {
 		const state: Record<string, unknown> = {};

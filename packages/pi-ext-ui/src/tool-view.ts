@@ -86,6 +86,7 @@ export function createToolView(spec: ToolViewSpec): ToolView {
 
 const FOLD_LEVEL_STATE_KEY = "__piExtUiFoldLevel";
 const COPIED_UNTIL_STATE_KEY = "__piExtUiCopiedUntil";
+const COPY_FAILED_STATE_KEY = "__piExtUiCopyFailed";
 const COPY_FEEDBACK_TIMER_KEY = "__piExtUiCopyTimer";
 const DEFAULT_MAX_SECTION_LINES = 9;
 export const MAX_LEVEL2_SECTION_LINES = 500;
@@ -134,6 +135,12 @@ function isCopiedActive(stateHolder: unknown, localCopiedUntil: number): boolean
 	if (!isRecord(stateHolder)) return false;
 	const until = stateHolder[COPIED_UNTIL_STATE_KEY];
 	return typeof until === "number" && until > now;
+}
+
+/** A rejected write is feedback of its own; it must not leave the success mark on screen. */
+function isCopyFailed(stateHolder: unknown, localFailed: boolean): boolean {
+	if (localFailed) return true;
+	return isRecord(stateHolder) && stateHolder[COPY_FAILED_STATE_KEY] === true;
 }
 
 export function formatStatusGlyph(status: ToolStatusKind | undefined, theme: Theme): string {
@@ -312,6 +319,7 @@ export class ToolView implements Component {
 	readonly #spec: ToolViewSpec;
 	#localLevel: FoldLevel;
 	#localCopiedUntil = 0;
+	#localCopyFailed = false;
 	#localTimer: ReturnType<typeof setTimeout> | undefined;
 	#lastWidth = 80;
 	#lastHeight = 0;
@@ -338,12 +346,15 @@ export class ToolView implements Component {
 			const until = spec.stateHolder[COPIED_UNTIL_STATE_KEY];
 			if (typeof until === "number" && until > Date.now()) {
 				this.#localCopiedUntil = until;
+				this.#localCopyFailed = spec.stateHolder[COPY_FAILED_STATE_KEY] === true;
 				const remaining = until - Date.now();
 				if (!spec.stateHolder[COPY_FEEDBACK_TIMER_KEY]) {
 					const timer = setTimeout(() => {
 						this.#localCopiedUntil = 0;
+						this.#localCopyFailed = false;
 						if (isRecord(this.#spec.stateHolder)) {
 							this.#spec.stateHolder[COPIED_UNTIL_STATE_KEY] = 0;
+							this.#spec.stateHolder[COPY_FAILED_STATE_KEY] = false;
 							this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = undefined;
 						}
 						this.#localTimer = undefined;
@@ -425,27 +436,40 @@ export class ToolView implements Component {
 				: copySpec.primary;
 		const writeClip = this.#spec.copyToClipboard ?? copyToSystemClipboard;
 		const durationMs = this.#spec.copyFeedbackDurationMs ?? DEFAULT_COPY_FEEDBACK_MS;
+		// Feedback starts when the write settles. Marking it before the promise made a rejected
+		// clipboard write look exactly like a successful copy.
+		void writeClip(payload).then(
+			() => this.#showCopyFeedback(durationMs, false),
+			() => this.#showCopyFeedback(durationMs, true),
+		);
+	}
+
+	/** One feedback window in the copy slot: ✓ when the text reached the clipboard, ✗ when it did not. */
+	#showCopyFeedback(durationMs: number, failed: boolean): void {
 		const until = Date.now() + durationMs;
-		this.#localCopiedUntil = until;
+		this.#localCopiedUntil = failed ? 0 : until;
+		this.#localCopyFailed = failed;
 
 		if (isRecord(this.#spec.stateHolder)) {
 			const prevTimer = this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY];
 			if (prevTimer !== undefined) {
 				clearTimeout(prevTimer as ReturnType<typeof setTimeout>);
 			}
-			this.#spec.stateHolder[COPIED_UNTIL_STATE_KEY] = until;
+			this.#spec.stateHolder[COPIED_UNTIL_STATE_KEY] = this.#localCopiedUntil;
+			this.#spec.stateHolder[COPY_FAILED_STATE_KEY] = failed;
 		}
 		if (this.#localTimer !== undefined) {
 			clearTimeout(this.#localTimer);
 		}
-
-		void writeClip(payload).catch(() => {});
+		this.#cache = undefined;
 		this.#spec.invalidate?.();
 
 		const timer = setTimeout(() => {
 			this.#localCopiedUntil = 0;
+			this.#localCopyFailed = false;
 			if (isRecord(this.#spec.stateHolder)) {
 				this.#spec.stateHolder[COPIED_UNTIL_STATE_KEY] = 0;
+				this.#spec.stateHolder[COPY_FAILED_STATE_KEY] = false;
 				this.#spec.stateHolder[COPY_FEEDBACK_TIMER_KEY] = undefined;
 			}
 			this.#localTimer = undefined;
@@ -470,8 +494,13 @@ export class ToolView implements Component {
 			return truncate(leftContent, safeWidth);
 		}
 
-		const copied = isCopiedActive(this.#spec.stateHolder, this.#localCopiedUntil);
-		const copyIcon = copied ? theme.fg("success", "✓") : theme.fg("dim", "󰆏");
+		const failed = isCopyFailed(this.#spec.stateHolder, this.#localCopyFailed);
+		const copied = !failed && isCopiedActive(this.#spec.stateHolder, this.#localCopiedUntil);
+		const copyIcon = failed
+			? theme.fg("error", "✗")
+			: copied
+				? theme.fg("success", "✓")
+				: theme.fg("dim", "󰆏");
 		// Leave 1 column on the right for Pi's fullscreen scrollbar so the copy icon doesn't collide
 		const rightMargin = 1;
 		const copySlotWidth = 2 + rightMargin;

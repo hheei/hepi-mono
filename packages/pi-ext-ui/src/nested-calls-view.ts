@@ -127,12 +127,14 @@ export class NestedCallsView implements Component, Collapsible {
 	readonly #props: NestedCallsViewProps;
 	readonly #inMemoryLevels = new Map<number, FoldLevel>();
 	#copiedIndex: number | undefined = undefined;
+	#failedIndex: number | undefined = undefined;
 	#copiedTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 	#lineMapping: LineMapEntry[] = [];
 	#renderCache:
 		| {
 				readonly width: number;
 				readonly copiedIndex: number | undefined;
+				readonly failedIndex: number | undefined;
 				readonly levelsKey: string;
 				readonly lines: string[];
 				readonly lineMapping: LineMapEntry[];
@@ -167,14 +169,11 @@ export class NestedCallsView implements Component, Collapsible {
 			) {
 				const remaining = copiedState.until - Date.now();
 				if (remaining > 0) {
-					this.#copiedIndex = copiedState.index;
+					const failed = copiedState.failed === true;
+					this.#copiedIndex = failed ? undefined : copiedState.index;
+					this.#failedIndex = failed ? copiedState.index : undefined;
 					this.#copiedTimer = setTimeout(() => {
-						this.#copiedIndex = undefined;
-						this.#renderCache = undefined;
-						const s = this.#props.stateHolder;
-						if (s !== undefined) {
-							delete s[NESTED_CALLS_COPIED_KEY];
-						}
+						this.#clearCopyFeedback();
 						this.#props.invalidate?.();
 					}, remaining);
 					this.#copiedTimer.unref?.();
@@ -264,11 +263,19 @@ export class NestedCallsView implements Component, Collapsible {
 		if (!text) return;
 
 		const writeClip = this.#props.copyToClipboard ?? copyToSystemClipboard;
-		void writeClip(text).catch(() => {});
-
 		const durationMs = 1500;
+		// Feedback starts when the write settles: a rejected clipboard write is not a copy.
+		void writeClip(text).then(
+			() => this.#showCopyFeedback(callIndex, durationMs, false),
+			() => this.#showCopyFeedback(callIndex, durationMs, true),
+		);
+	}
+
+	/** One feedback window on one row: ✓ when the text reached the clipboard, ✗ when it did not. */
+	#showCopyFeedback(callIndex: number, durationMs: number, failed: boolean): void {
 		const until = Date.now() + durationMs;
-		this.#copiedIndex = callIndex;
+		this.#copiedIndex = failed ? undefined : callIndex;
+		this.#failedIndex = failed ? callIndex : undefined;
 		this.#renderCache = undefined;
 
 		const state = this.#props.stateHolder;
@@ -276,6 +283,7 @@ export class NestedCallsView implements Component, Collapsible {
 			state[NESTED_CALLS_COPIED_KEY] = {
 				index: callIndex,
 				until,
+				...(failed ? { failed: true } : {}),
 			};
 		}
 
@@ -283,17 +291,25 @@ export class NestedCallsView implements Component, Collapsible {
 			clearTimeout(this.#copiedTimer);
 		}
 		this.#copiedTimer = setTimeout(() => {
-			this.#copiedIndex = undefined;
-			this.#renderCache = undefined;
-			const s = this.#props.stateHolder;
-			if (s !== undefined) {
-				delete s[NESTED_CALLS_COPIED_KEY];
-			}
+			this.#clearCopyFeedback();
 			this.#props.invalidate?.();
 		}, durationMs);
 		this.#copiedTimer.unref?.();
 
 		this.#props.invalidate?.();
+	}
+
+	/** Drops the copy marker, its timer, and the shared record it left behind. */
+	#clearCopyFeedback(): void {
+		if (this.#copiedTimer !== undefined) {
+			clearTimeout(this.#copiedTimer);
+			this.#copiedTimer = undefined;
+		}
+		this.#copiedIndex = undefined;
+		this.#failedIndex = undefined;
+		this.#renderCache = undefined;
+		const state = this.#props.stateHolder;
+		if (state !== undefined) delete state[NESTED_CALLS_COPIED_KEY];
 	}
 
 	render(width: number): string[] {
@@ -303,6 +319,7 @@ export class NestedCallsView implements Component, Collapsible {
 			this.#renderCache !== undefined &&
 			this.#renderCache.width === safeWidth &&
 			this.#renderCache.copiedIndex === this.#copiedIndex &&
+			this.#renderCache.failedIndex === this.#failedIndex &&
 			this.#renderCache.levelsKey === levelsKey
 		) {
 			this.#lineMapping = this.#renderCache.lineMapping;
@@ -358,7 +375,12 @@ export class NestedCallsView implements Component, Collapsible {
 			);
 
 			const isCopied = this.#copiedIndex === i;
-			const copyIcon = isCopied ? theme.fg("success", "✓") : theme.fg("dim", "󰆏");
+			const copyIcon =
+				this.#failedIndex === i
+					? theme.fg("error", "✗")
+					: isCopied
+						? theme.fg("success", "✓")
+						: theme.fg("dim", "󰆏");
 			const copySlotWidth = 2 + rightMargin;
 
 			const maxLeft = Math.max(1, width - copySlotWidth);
@@ -398,6 +420,7 @@ export class NestedCallsView implements Component, Collapsible {
 		this.#renderCache = {
 			width: safeWidth,
 			copiedIndex: this.#copiedIndex,
+			failedIndex: this.#failedIndex,
 			levelsKey,
 			lines,
 			lineMapping: this.#lineMapping,
@@ -516,18 +539,14 @@ export class NestedCallsView implements Component, Collapsible {
 	}
 
 	dispose(): void {
-		if (this.#copiedTimer !== undefined) {
-			clearTimeout(this.#copiedTimer);
-			this.#copiedTimer = undefined;
-		}
+		this.#clearCopyFeedback();
 		this.#renderCache = undefined;
 	}
 
 	collapseAll(): void {
-		if (this.#copiedTimer !== undefined) {
-			clearTimeout(this.#copiedTimer);
-			this.#copiedTimer = undefined;
-		}
+		// The marker points at a row that is no longer on screen; leaving it behind would bring a
+		// permanent checkmark back when the same view expands again.
+		this.#clearCopyFeedback();
 		this.#inMemoryLevels.clear();
 		const state = this.#props.stateHolder;
 		if (state !== undefined) {
