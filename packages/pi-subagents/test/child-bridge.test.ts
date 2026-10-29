@@ -411,7 +411,7 @@ describe("child bridge mcp tool call gating", () => {
 			process.env.PI_SUBAGENT_MCP_SERVERS = "allowed-server";
 			registerChildBridge(
 				pi,
-				{ parentSessionId: "p", subagentId: "c", runtimeIdentity: "r", endpoint: "/x", token: "t" },
+				{ parentSessionId: "p", subagentId: "c", runtimeIdentity: "r", endpoint: "/x" },
 				{ diagnose: () => {} },
 			);
 			expect(toolCallHandler!({ toolName: "mcp__private_db__read" })).toMatchObject({

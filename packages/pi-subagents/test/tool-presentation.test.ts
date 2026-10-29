@@ -62,7 +62,6 @@ function registeredChildTools(): { pi: ExtensionAPI; tools: ToolDefinition[] } {
 			subagentId: "agent-1",
 			runtimeIdentity: "runtime",
 			endpoint: "/bridge",
-			token: "token",
 		},
 		{ report: async () => undefined },
 	);

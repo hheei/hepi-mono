@@ -193,7 +193,6 @@ function identityFor(endpoint: string): ChildIdentity {
 		subagentId: "agent-1",
 		runtimeIdentity: "runtime-1",
 		endpoint,
-		token: "token-1",
 	};
 }
 
