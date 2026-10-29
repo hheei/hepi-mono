@@ -110,10 +110,13 @@ export function registerBgBashTools(pi: ExtensionAPI, state: BackgroundBashRunti
 			// The schema rejects a caller-chosen id: the registry assigns it, so a log file is never reused.
 			if (!Value.Check(BgBashSpawnInput, params))
 				throw new Error("Invalid bg_bash_spawn parameters");
-			const normalizedParams = params.command.includes("\0")
-				? { ...params, command: params.command.replaceAll("\0", "\\0") }
-				: params;
-			params = normalizedParams;
+			// A NUL byte cannot survive argv, and rewriting it to `\0` guesses at shell syntax the target
+			// program may not share. Refusing it keeps the caller's own escape intact.
+			if (params.command.includes("\0"))
+				throw new Error(
+					"The command contains a NUL byte (U+0000), which cannot be passed to a shell. Write the " +
+						"escape your target program expects (for example \\0 for printf or tr) instead.",
+				);
 			const settings = state?.getSettings();
 			const jobs = state?.getBashJobs();
 			if (settings === undefined || jobs === undefined)

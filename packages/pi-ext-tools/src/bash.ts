@@ -42,14 +42,25 @@ const BashInput = Type.Object(
 );
 type Input = Static<typeof BashInput>;
 
+/** A `null` timeout means the same as an absent one. Nothing else is repaired here. */
 function normalizeBashInput(value: unknown): unknown {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
 	const input = { ...(value as Record<string, unknown>) };
 	if (input.timeout === null) delete input.timeout;
-	if (typeof input.command === "string" && input.command.includes("\0")) {
-		input.command = input.command.replaceAll("\0", "\\0");
-	}
 	return input;
+}
+
+/**
+ * A NUL byte cannot survive argv, and rewriting it to `\0` guesses at shell syntax the target program
+ * may not share: `printf "%s" a<NUL>b` prints `a0b` after that rewrite, and a command that writes files
+ * would silently act on different arguments. Refusing it keeps the caller's own escape intact.
+ */
+function rejectNulByte(command: string): void {
+	if (!command.includes("\0")) return;
+	throw new Error(
+		"The command contains a NUL byte (U+0000), which cannot be passed to a shell. Write the escape " +
+			"your target program expects (for example \\0 for printf or tr) instead.",
+	);
 }
 
 /** Every bash result carries the model-visible text plus tool-owned details. */
@@ -422,6 +433,7 @@ export function registerBashTool(pi: ExtensionAPI, options?: BashToolOptions): T
 		) {
 			const validatedParams = normalizeBashInput(params);
 			if (!Value.Check(BashInput, validatedParams)) throw new Error("Invalid bash parameters");
+			rejectNulByte(validatedParams.command);
 			return runForeground(
 				validatedParams.command,
 				context,

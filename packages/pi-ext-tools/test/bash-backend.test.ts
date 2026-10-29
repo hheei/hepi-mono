@@ -1,10 +1,10 @@
-import type { ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
 import { expect, test } from "vitest";
 import { BashInput, registerBashTool } from "../src/bash.js";
 import { DEFAULT_BASH_SETTINGS } from "../src/bash-settings.js";
-import { toolFor, toolHost } from "./fixtures/harness.js";
+import { toolContextFor, toolFor, toolHost } from "./fixtures/harness.js";
 import { roleTheme } from "./fixtures/theme.js";
 
 initTheme(undefined, false);
@@ -54,14 +54,7 @@ test("bash executes through Pi host original backend", async (): Promise<void> =
 		{ command: "printf restored-backend" },
 		new AbortController().signal,
 		() => undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: {
-				getSessionId: () => "bash-backend-test",
-				getSessionFile: () => undefined,
-				getLeafId: () => null,
-			},
-		} as unknown as ExtensionToolContext,
+		toolContextFor({ sessionId: "bash-backend-test" }),
 	);
 
 	expect(result.content).toEqual([{ type: "text", text: "restored-backend" }]);
@@ -77,14 +70,7 @@ test("bash never streams Pi host temporary output paths", async (): Promise<void
 		(update): void => {
 			updates.push(update);
 		},
-		{
-			cwd: process.cwd(),
-			sessionManager: {
-				getSessionId: () => "bash-streamed-path-redaction",
-				getSessionFile: () => undefined,
-				getLeafId: () => null,
-			},
-		} as unknown as ExtensionToolContext,
+		toolContextFor({ sessionId: "bash-streamed-path-redaction" }),
 	);
 	expect(updates.length).toBeGreaterThan(0);
 	expect(updates.map((update) => JSON.stringify(update)).join("\n")).not.toContain(
@@ -100,11 +86,7 @@ test("bash rejects unknown fields before any command starts", async (): Promise<
 			{ command: "printf unavailable", unsupported: true },
 			undefined,
 			undefined,
-			{
-				cwd: process.cwd(),
-				mode: "print",
-				sessionManager: { getLeafId: () => null },
-			} as unknown as ExtensionToolContext,
+			toolContextFor({ mode: "print" }),
 		),
 	).rejects.toThrow("Invalid bash parameters");
 });
@@ -116,11 +98,7 @@ test("bash accepts null strict optional fields as omitted", async (): Promise<vo
 		{ command: "printf normalized", timeout: null },
 		undefined,
 		undefined,
-		{
-			cwd: process.cwd(),
-			mode: "print",
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor({ mode: "print" }),
 	);
 	expect(result.content).toEqual([{ type: "text", text: "normalized" }]);
 });
@@ -134,10 +112,7 @@ test("aborted signal skips foreground Bash spawn", async (): Promise<void> => {
 		{ command: "printf spawned" },
 		controller.signal,
 		() => undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor(),
 	);
 	// Nothing ran, so there is no elapsed time to report.
 	expect(result).toMatchObject({
@@ -159,10 +134,7 @@ test("bash reports the elapsed time and keeps partial output when cancelled", as
 		() => {
 			controller.abort();
 		},
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor(),
 	);
 	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 	expect(text).toMatch(/^partial\n\nBash aborted after \d+(\.\d+)?(ms|s)$/);
@@ -176,10 +148,7 @@ test("bash names the expired budget when a command times out", async (): Promise
 		{ command: "printf started; sleep 5", timeout: 0.2 },
 		undefined,
 		() => undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor(),
 	);
 	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 	expect(text).toBe("started\n\nCommand timed out after 0.2s");
@@ -353,10 +322,7 @@ test("bash reads its live settings for output tail and shell path", async (): Pr
 		{ command: "printf '0123456789abcdef'" },
 		undefined,
 		undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor(),
 	);
 	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 	expect(text.endsWith("0123456789abcdef")).toBe(true);
@@ -373,10 +339,7 @@ test("bash collapses a burst of streamed chunks into few updates", async (): Pro
 		() => {
 			updates += 1;
 		},
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
+		toolContextFor(),
 	);
 	// 200 lines used to cost one update per stdout chunk. The streaming window rebuilds the tail
 	// snapshot on the shared 100ms repaint instead, so the count stays far below the line count.
@@ -386,20 +349,17 @@ test("bash collapses a burst of streamed chunks into few updates", async (): Pro
 	expect(text).toContain("line 200");
 });
 
-test("bash normalizes embedded null bytes in command to prevent spawn failure", async (): Promise<void> => {
+test("bash refuses a command carrying a NUL byte instead of rewriting it", async (): Promise<void> => {
 	const bash = bashTool();
-	const commandWithNull = 'printf "a\0b" | tr "\0" " "';
-	const result = await bash.execute(
-		"bash-null-byte",
-		{ command: commandWithNull },
-		undefined,
-		() => undefined,
-		{
-			cwd: process.cwd(),
-			sessionManager: { getLeafId: () => null },
-		} as unknown as ExtensionToolContext,
-	);
-	const text = result.content[0]?.type === "text" ? result.content[0].text : "";
-	expect(result.isError).toBeFalsy();
-	expect(text).toBe("a b");
+	// Rewriting NUL to `\0` only means an escape to programs that parse escapes: `printf "%s" a\0b`
+	// prints `a0b`, and a command that writes files would act on different arguments than it was given.
+	await expect(
+		bash.execute(
+			"bash-null-byte",
+			{ command: 'printf "a\0b"' },
+			undefined,
+			() => undefined,
+			toolContextFor(),
+		),
+	).rejects.toThrow(/NUL byte \(U\+0000\)/u);
 });

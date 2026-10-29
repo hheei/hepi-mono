@@ -1,10 +1,38 @@
 import {
 	type ExtensionAPI,
+	type ExtensionToolContext,
 	initTheme,
 	type ToolDefinition,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
+
+/** The few facts a tool's `execute()` reads from the context Pi builds for it. */
+export interface ToolContextInput {
+	readonly cwd?: string;
+	readonly sessionId?: string;
+	readonly sessionFile?: string;
+	readonly leafId?: string | null;
+	readonly mode?: ExtensionToolContext["mode"];
+}
+
+/**
+ * A tool context for `execute()` calls. Pi derives the real one from a bound session, so the object it
+ * hands a tool has no public constructor; this states the fields a tool reads and leaves the rest
+ * absent, which keeps one cast in one fixture instead of an object literal cast at every call site.
+ */
+export function toolContextFor(options: ToolContextInput = {}): ExtensionToolContext {
+	return {
+		cwd: options.cwd ?? process.cwd(),
+		...(options.mode === undefined ? {} : { mode: options.mode }),
+		sessionManager: {
+			getSessionId: (): string => options.sessionId ?? "session-under-test",
+			getSessionFile: (): string | undefined => options.sessionFile,
+			getLeafId: (): string | null => options.leafId ?? null,
+		},
+		ui: { notify: (): void => undefined },
+	} as unknown as ExtensionToolContext;
+}
 
 /** The render context Pi hands a tool renderer, with every field it passes. */
 export interface RenderContextInput {

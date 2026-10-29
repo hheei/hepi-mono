@@ -107,6 +107,18 @@ function spawned(result: Awaited<ReturnType<typeof spawn>>): { id: string; path:
 	return JSON.parse(agentResultText(result)) as { id: string; path: string };
 }
 
+test("bg_bash_spawn refuses a command carrying a NUL byte instead of rewriting it", async () => {
+	const logDir = tempDir();
+	const { tools } = harness();
+	// Rewriting NUL to `\0` only means an escape to programs that parse escapes, and a background
+	// command writes files: acting on different arguments than the caller gave is worse than failing.
+	await expect(call(tools, "bg_bash_spawn", { command: 'printf "a\0b"' }, logDir)).rejects.toThrow(
+		/NUL byte \(U\+0000\)/u,
+	);
+	// The refusal happens before anything starts, so no child and no log exist.
+	expect(mocked.spawn).not.toHaveBeenCalled();
+});
+
 test("historical unknown outcome exposes diagnostic by default and cannot claim a successful stop", async () => {
 	const directory = tempDir();
 	const ledger = new BashExecutionLedger(join(directory, "bash.sqlite"));
