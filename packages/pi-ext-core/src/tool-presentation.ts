@@ -19,6 +19,20 @@ export interface ToolPresentationSection {
 
 export type ToolPresentationContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
+/**
+ * One nested call a container executed. Facts only: a provider states what ran, and the consumer
+ * decides how to list it, so no consumer has to parse another package's private details.
+ */
+export interface ToolPresentationChild {
+	readonly id?: string;
+	readonly title: string;
+	readonly summary?: string;
+	readonly status?: ToolPresentationStatus;
+	readonly durationMs?: number;
+	/** Plain result text, so a consumer can show the child without re-running its provider. */
+	readonly detail?: string;
+}
+
 /** Content belongs to the tool; optional consumers own its interactive frame. */
 export interface BaseToolPresentation {
 	readonly summary: string;
@@ -29,6 +43,8 @@ export interface BaseToolPresentation {
 	readonly request?: string;
 	readonly output?: string;
 	readonly collapsedRows?: readonly string[];
+	/** Nested calls this container executed, in execution order. */
+	readonly children?: readonly ToolPresentationChild[];
 	readonly copy?: { readonly primary: string; readonly full?: string };
 }
 

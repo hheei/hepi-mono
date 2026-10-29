@@ -184,6 +184,7 @@ export type {
 	DiffToolPresentation,
 	TextToolPresentation,
 	ToolPresentation,
+	ToolPresentationChild,
 	ToolPresentationContext,
 	ToolPresentationProvider,
 	ToolPresentationSection,
