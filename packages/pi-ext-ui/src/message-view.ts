@@ -133,14 +133,7 @@ export class MessageView implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (
-			!this.expandable ||
-			event.type === "wheel" ||
-			event.type !== "click" ||
-			event.button !== "left"
-		) {
-			return undefined;
-		}
+		if (!this.expandable || event.type !== "click" || event.button !== "left") return undefined;
 		const effectiveWidth = event.width > 0 ? event.width : this.#lastWidth;
 		const pad = Math.max(0, this.#spec.outputPad ?? 0);
 		const innerX = event.x - pad;
@@ -177,6 +170,14 @@ export class MessageView implements Component {
 		const summaryRaw = header.summary === undefined ? "" : toSingleRow(header.summary);
 		const summary = summaryRaw === "" ? "" : theme.fg(header.tone ?? "dim", summaryRaw);
 		return summary === "" ? kind : `${kind}${theme.fg("dim", " · ")}${summary}`;
+	}
+
+	/**
+	 * Whether anything would render below the label. `expandable` asks about the body only; a
+	 * preview-only notice still has detail to show, so the group keys its pin on this instead.
+	 */
+	get hasDetail(): boolean {
+		return hasRows(this.#spec.preview) || hasRows(this.#spec.body);
 	}
 
 	#header(width: number, expanded: boolean): string {

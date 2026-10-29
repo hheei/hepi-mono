@@ -164,7 +164,9 @@ function noticeMember(component: Component): Member | undefined {
 		component,
 		title: view.kind,
 		summary: view.activitySummary,
-		detail: (width) => view.detailRows(width),
+		// A notice with no preview and no body has nothing to open; the group draws a pin only when
+		// detail exists, so an unconditional function would give it an arrow onto an empty body.
+		...(view.hasDetail ? { detail: (width: number) => view.detailRows(width) } : {}),
 	};
 }
 

@@ -617,6 +617,33 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).not.toContain("reason");
 	});
 
+	test("a notice with nothing to open gets no pin, a preview-only one does", () => {
+		const f = setup();
+		f.begin();
+		const bare = new Container();
+		bare.addChild(createMessageView({ theme, header: { kind: "memory", summary: "page" } }));
+		const previewOnly = new Container();
+		previewOnly.addChild(
+			createMessageView({
+				theme,
+				header: { kind: "memory", summary: "two" },
+				preview: "preview line",
+			}),
+		);
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), bare, previewOnly, f.row("b")];
+		clickRow(f.chat, "▸ notice · memory ×2");
+
+		const rows = show(f.chat).split("\n");
+		expect(rows.find((row) => row.includes("memory · page"))).not.toContain("▸");
+		expect(rows.find((row) => row.includes("memory · two"))).toContain("▸");
+
+		const before = show(f.chat);
+		clickRow(f.chat, "memory · page");
+		expect(show(f.chat)).toBe(before);
+		clickRow(f.chat, "memory · two");
+		expect(show(f.chat)).toContain("preview line");
+	});
+
 	test("a finished block reports the native request usage it owns", () => {
 		const f = setup();
 		f.chat.children = [
