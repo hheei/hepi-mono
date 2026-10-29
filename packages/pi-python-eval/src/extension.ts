@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { EvalToolBridge } from "./bridge.js";
-import { createEvalRuntimeState, registerEvalLifecycle } from "./lifecycle.js";
+import { createEvalRuntime, registerEvalLifecycle } from "./lifecycle.js";
 import { readEvalSettings } from "./settings.js";
 import { registerPythonEvalTool } from "./tool.js";
 
@@ -12,12 +12,12 @@ import { registerPythonEvalTool } from "./tool.js";
  * packages to be installed to stay loadable.
  */
 export default function pythonEvalExtension(pi: ExtensionAPI): void {
-	const state = createEvalRuntimeState();
+	const runtime = createEvalRuntime();
 	const settings = readEvalSettings();
 	registerPythonEvalTool(
 		pi,
-		state,
+		runtime.state,
 		new EvalToolBridge((name) => pi.getActiveTools().includes(name)),
 	);
-	registerEvalLifecycle(pi, state, settings.pythonBin);
+	registerEvalLifecycle(pi, runtime, settings.pythonBin);
 }

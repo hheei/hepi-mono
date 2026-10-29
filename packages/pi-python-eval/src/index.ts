@@ -14,11 +14,11 @@ export {
 	PYTHON_EVAL_FACTS_TYPE,
 } from "./facts.js";
 export {
-	createEvalRuntimeState,
+	createEvalRuntime,
 	type EvalExecutor,
+	type EvalRuntime,
 	type EvalRuntimeState,
 	registerEvalLifecycle,
-	startEvalRuntime,
 } from "./lifecycle.js";
 export {
 	createPythonEvalPresentation,

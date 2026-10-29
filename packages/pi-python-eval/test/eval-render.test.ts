@@ -9,7 +9,7 @@ import { stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import { EvalToolBridge } from "../src/bridge.js";
 import { EvalKernelHost } from "../src/kernel/host.js";
-import { createEvalRuntimeState, startEvalRuntime } from "../src/lifecycle.js";
+import { createEvalRuntime } from "../src/lifecycle.js";
 import { registerPythonEvalTool } from "../src/tool.js";
 import { framedHost } from "./fixtures/harness.js";
 
@@ -44,9 +44,9 @@ function evalFrame(): {
 	readonly dispose: () => void;
 } {
 	const { pi, tools } = framedHost();
-	const state = createEvalRuntimeState();
-	const stopRuntime = startEvalRuntime(state, new EvalKernelHost(process.cwd()));
-	registerPythonEvalTool(pi, state, new EvalToolBridge());
+	const runtime = createEvalRuntime();
+	const stopRuntime = runtime.start(new EvalKernelHost(process.cwd()));
+	registerPythonEvalTool(pi, runtime.state, new EvalToolBridge());
 	const tool = tools[0] as ToolDefinition;
 	initTheme("dark");
 	return {

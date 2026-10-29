@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import pythonEvalExtension from "../src/extension.js";
-import { createEvalRuntimeState } from "../src/lifecycle.js";
+import { createEvalRuntime } from "../src/lifecycle.js";
 import { createEvalSettingsProvider, readEvalSettings } from "../src/settings.js";
 import { createPythonEvalTool, pythonEvalPromptGuidelines } from "../src/tool.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
@@ -55,7 +55,7 @@ describe("pi-python-eval extension", () => {
 	});
 
 	test("declares exposure: model-only so it survives codemode.mode = only", () => {
-		const evalTool = createPythonEvalTool(createEvalRuntimeState(), {} as never);
+		const evalTool = createPythonEvalTool(createEvalRuntime().state, {} as never);
 		expect(evalTool.exposure).toBe("model-only");
 
 		// Upstream codemode hides only tools whose exposure is "direct" under mode === "only".

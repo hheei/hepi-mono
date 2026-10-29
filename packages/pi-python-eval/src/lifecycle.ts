@@ -20,42 +20,44 @@ export interface EvalExecutor {
 }
 
 /**
- * The session's current runtime, as the statically registered tool reads it.
- *
- * The mutable half lives in a module-level WeakMap keyed by this object, so a structurally identical
- * object is not an equivalent: its getter never sees a runtime, and `startEvalRuntime()` rejects it.
- * Only `createEvalRuntimeState()` produces a usable one.
+ * The session's current runtime, as the statically registered tool reads it. Any object with this
+ * shape is a valid reader: nothing about reading a runtime depends on who made the reader.
  */
 export interface EvalRuntimeState {
 	getRuntime(): EvalExecutor | undefined;
 }
 
-type MutableEvalRuntimeState = { runtime: EvalExecutor | undefined };
-
-const states = new WeakMap<EvalRuntimeState, MutableEvalRuntimeState>();
-
-export function createEvalRuntimeState(): EvalRuntimeState {
-	const state: EvalRuntimeState = { getRuntime: () => states.get(state)?.runtime };
-	states.set(state, { runtime: undefined });
-	return state;
+/**
+ * One session's runtime slot: the lifecycle binds a runtime, the tool reads it through `state`.
+ *
+ * The two halves are separate so the statically registered tool never holds the ability to start or
+ * stop a runtime; binding belongs to the lifecycle that owns the session.
+ */
+export interface EvalRuntime {
+	readonly state: EvalRuntimeState;
+	/** Binds a running runtime, disposing the one it replaces; the returned handle stops it. */
+	readonly start: (runtime: EvalExecutor) => () => void;
 }
 
-export function startEvalRuntime(state: EvalRuntimeState, runtime: EvalExecutor): () => void {
-	const mutable = states.get(state);
-	if (mutable === undefined)
-		throw new Error("Eval runtime state must be created by createEvalRuntimeState().");
-	mutable.runtime?.dispose();
-	mutable.runtime = runtime;
-	return () => {
-		if (mutable.runtime !== runtime) return;
-		runtime.dispose();
-		mutable.runtime = undefined;
+export function createEvalRuntime(): EvalRuntime {
+	let runtime: EvalExecutor | undefined;
+	return {
+		state: { getRuntime: () => runtime },
+		start(next): () => void {
+			runtime?.dispose();
+			runtime = next;
+			return () => {
+				if (runtime !== next) return;
+				next.dispose();
+				runtime = undefined;
+			};
+		},
 	};
 }
 
 export function registerEvalLifecycle(
 	pi: ExtensionAPI,
-	state: EvalRuntimeState,
+	runtime: EvalRuntime,
 	pythonBin?: string,
 ): void {
 	registerExtensionLifecycle(pi, {
@@ -68,8 +70,7 @@ export function registerEvalLifecycle(
 			if (!pi.getActiveTools().includes("python_eval")) return;
 			context.resources.add(
 				"eval-runtime",
-				startEvalRuntime(
-					state,
+				runtime.start(
 					new EvalKernelHost(context.extension.cwd, {
 						...(pythonBin === undefined ? {} : { pythonBin }),
 						facts: createEvalExecutionFacts(context.pi, context.extension.sessionManager),
