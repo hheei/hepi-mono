@@ -44,11 +44,32 @@ bridge 将 host 的错误状态转换为可序列化 EvalToolError 并保留失�
 
 ## 输出、持久化与展示
 
-details format 为 `pi-ext-tools-python-eval`。details 保存最多 200 行，每行文本最多 4,000 字符，超出用省略行表示；错误和省略信息保留。模型 content 由 transcript 拼成，最多 12,000 字符，超出追加 truncation 提示。onUpdate 推送运行过程，不持久化 Python 内存或重跑历史源码。
+执行事件分三条路径，谁也不借用谁的数据结构：
+
+```text
+执行事件（print/display/嵌套调用/namespace/final value/失败）
+  ├─ 完整输出账本：逐行追加，上限 8 MiB，超限记一句 note
+  ├─ 执行事实：calls 总数与失败数、namespace 行、final value、失败原因
+  └─ 有界预览 rows：最多 200 行、每行 4,000 字符，供 onUpdate 与 UI
+```
+
+模型 content 取自完整输出账本，不取自预览：预览会丢掉第 200 行之后的内容、并把长行截断，用它生成的 spill 文件里没有可恢复的东西。账本在内存里按行累积，cell 结束时交给 ext-core 的 `truncateWithSpill`，超出模型预算时把**完整文本**写到 `$TMPDIR/pi-output/`，返回 head+tail 与 `[Full output: 路径]`。账本自身有 8 MiB 上限，超过后停止累积并写明「output stopped at 8MB」——上限存在的理由是这段文本必须在内存里等 cell 结束，而 8 MiB 之后的内容不值得让进程承担。预算是 `limitsForCalls(calls.total)`：一个跑了多个嵌套工具的 cell 按调用数获得更宽的 head+tail。
+
+预览只为展示服务：`rows` 保留 transcript 顺序，供流式 onUpdate 和 TUI 分类详情使用；namespace、final value 和失败行额外占用 4 个保留槽位，普通输出先让位。第 200 行之后被丢掉的普通行计入 `omittedRows`，末尾追加一行省略提示。
+
+details format 为 `pi-ext-tools-python-eval`：
+
+```ts
+{ rows, calls: { total, failed }, durationMs, error? }
+```
+
+`calls` 是事实而不是 rows 的统计：嵌套调用的 row 可能被预览上限丢掉，计数不能跟着丢——它同时决定模型预算与 UI 的 `N calls` 摘要。嵌套 trace 持久化为 `{ name, text（≤4,000 字符）, summary（≤72 字符）, durationMs, error?, toolCallId? }`：行只画摘要，所以保存的是摘要本身，而不是被展示限额改写过形状的参数；完整结果文本在输出账本里。
+
+onUpdate 推送运行过程（预览 rows + 当前 calls 计数），不持久化 Python 内存或重跑历史源码。
 
 执行事实账本使用 pi-python-eval:execution custom entries 写入当前 session branch。每个 cell 在发送前记录 generation 与 start，结束后记录 completed、failed、cancelled 或 timed_out 终态及名字数量；记录不进入模型上下文。runtime 重建时只读当前 branch，若发现上一条 start 没有终态则报告 unknown outcome；generation 变化则报告 earlier names are gone。账本不恢复 Python namespace、不重放源码、不接管旧 kernel；写入失败不改变 cell 执行结果。
 
-文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、参数、结果文本、执行时间与错误，供 UI 按原协议解释。
+文本按换行形成 rows；尚未换行的 chunk 改写当前行。print 行剥离终端控制序列；display/result 行带对应 label。嵌套 trace 保留工具名、摘要、结果文本、执行时间与错误，供 UI 按原协议解释。
 
 `pi-ext-ui` 可选消费持久化 rows，并提供容器折叠、嵌套工具展示、源码复制和窄宽布局。未安装 UI 时原生文本结果仍完整可用。公共 UI 行为见 [DESIGN.md](../../DESIGN.md)。
 
