@@ -54,14 +54,24 @@ export function hostRejection(message: string): HostToolBehavior {
 	};
 }
 
-/** The context handed to the eval tool, plus the calls the host saw. */
-export function nativeHost(behavior: HostToolBehavior): {
+/**
+ * The context handed to the eval tool, plus the calls the host saw. `tools` is the list
+ * `executeTool` resolves against; a test that models an unregistered name leaves it out.
+ */
+export function nativeHost(
+	behavior: HostToolBehavior,
+	options: { readonly tools?: readonly string[] } = {},
+): {
 	readonly context: ExtensionToolContext;
 	readonly calls: HostToolCall[];
 } {
 	const calls: HostToolCall[] = [];
+	const tools = (
+		options.tools ?? ["read", "bash", "grep", "find", "edit", "write", "apply_patch"]
+	).map((name) => ({ name }));
 	return {
 		context: {
+			tools,
 			executeTool: async (name: string, args: unknown, options?: { signal?: AbortSignal }) => {
 				const call = { name, args, signal: options?.signal };
 				calls.push(call);

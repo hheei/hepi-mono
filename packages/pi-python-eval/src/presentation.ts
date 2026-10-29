@@ -30,6 +30,8 @@ export interface EvalTrace {
 	readonly durationMs: number;
 	readonly error?: string;
 	readonly toolCallId?: string;
+	/** Positive resolution fact recorded at the call boundary; absent means unknown. */
+	readonly resolved?: boolean;
 }
 
 /** One row of the cell transcript: printed text, display value, nested call, value, or namespace. */
@@ -47,7 +49,10 @@ export interface EvalToolDetails {
 	/** Nested calls as facts: the preview may drop their rows, this list and its counts stay true. */
 	readonly calls: {
 		readonly total: number;
+		/** Failures among calls that resolved; an unknown call is not a failed execution. */
 		readonly failed: number;
+		/** Calls the host proved it resolved; only these count as tool calls. */
+		readonly resolved: number;
 		readonly items: readonly EvalCall[];
 	};
 	readonly durationMs: number;
@@ -64,6 +69,7 @@ export interface EvalCall {
 	readonly summary: string;
 	readonly durationMs: number;
 	readonly failed: boolean;
+	readonly resolved?: boolean;
 }
 
 export interface EvalFrameDetails {
@@ -71,6 +77,7 @@ export interface EvalFrameDetails {
 	readonly calls: {
 		readonly total: number;
 		readonly failed: number;
+		readonly resolved: number;
 		readonly items: readonly EvalCall[];
 	};
 	readonly error: string | undefined;
@@ -110,12 +117,22 @@ export function readEvalDetails(details: unknown): EvalFrameDetails | undefined 
 /** A detail written before the count became a fact reports what its rows still show. */
 function readCalls(raw: unknown, rows: readonly EvalRow[]): EvalFrameDetails["calls"] {
 	if (isRecord(raw) && typeof raw.total === "number" && typeof raw.failed === "number") {
-		return { total: raw.total, failed: raw.failed, items: readCallItems(raw.items) };
+		const resolved = typeof raw.resolved === "number" ? raw.resolved : 0;
+		return {
+			total: raw.total,
+			// A record written before the fact existed has no proven calls, so no proven failure.
+			failed: typeof raw.resolved === "number" ? raw.failed : 0,
+			resolved,
+			items: readCallItems(raw.items),
+		};
 	}
+	// No count fact: the rows still state the resolution of each call they kept.
 	const calls = rows.filter((row) => row.kind === "tool");
+	const resolved = calls.filter((row) => row.trace.resolved === true);
 	return {
 		total: calls.length,
-		failed: calls.filter((row) => row.trace.error !== undefined).length,
+		failed: resolved.filter((row) => row.trace.error !== undefined).length,
+		resolved: resolved.length,
 		items: calls.map((row) => callFact(row.trace)),
 	};
 }
@@ -128,6 +145,7 @@ export function callFact(trace: EvalTrace): EvalCall {
 		summary: trace.summary,
 		durationMs: trace.durationMs,
 		failed: trace.error !== undefined,
+		...(trace.resolved === true ? { resolved: true } : {}),
 	};
 }
 
@@ -142,6 +160,7 @@ function readCallItems(raw: unknown): EvalCall[] {
 			summary: typeof entry.summary === "string" ? entry.summary : "",
 			durationMs: typeof entry.durationMs === "number" ? entry.durationMs : 0,
 			failed: entry.failed,
+			...(entry.resolved === true ? { resolved: true } : {}),
 			...(typeof entry.id === "string" ? { id: entry.id } : {}),
 		});
 	}
@@ -158,6 +177,7 @@ function readTrace(raw: unknown): EvalTrace | undefined {
 		durationMs: typeof raw.durationMs === "number" ? raw.durationMs : 0,
 		...(typeof raw.error === "string" ? { error: raw.error } : {}),
 		...(typeof raw.toolCallId === "string" ? { toolCallId: raw.toolCallId } : {}),
+		...(raw.resolved === true ? { resolved: true } : {}),
 	};
 }
 
@@ -175,11 +195,13 @@ export function createPythonEvalPresentation(
 	context: ToolPresentationContext,
 ): ToolPresentation {
 	const parsed = isRecord(args) ? args : undefined;
-	const code = typeof parsed?.code === "string" ? parsed.code.trim() : "";
+	// The request is copied as the model sent it; trimming and highlighting belong to the display.
+	const rawCode = typeof parsed?.code === "string" ? parsed.code : "";
+	const code = rawCode.trim();
 	const facts = result === undefined ? undefined : readEvalDetails(result.details);
 	// Calls come from the fact, not from the rows: the preview caps rows, and a cell that printed past
 	// the cap must not report fewer calls than it made, nor list none of them.
-	const calls = facts?.calls ?? { total: 0, failed: 0, items: [] };
+	const calls = facts?.calls ?? { total: 0, failed: 0, resolved: 0, items: [] };
 	const isError = context.isError || result?.isError === true;
 	const selfFailed = (isError || facts?.error !== undefined) && calls.failed === 0;
 
@@ -203,7 +225,11 @@ export function createPythonEvalPresentation(
 			? [firstCodeLine(code) || "(empty)", ...options].join(" · ")
 			: [
 					...options,
-					...callStats(calls.total, calls.failed),
+					...callStats(calls.resolved, calls.failed),
+					// An unresolved call stays visible but is not counted as a tool call.
+					...(calls.total > calls.resolved
+						? [`${String(calls.total - calls.resolved)} unknown`]
+						: []),
 					...(calls.total === 0 && facts !== undefined && facts.rows.length > 0
 						? [`${String(facts.rows.length)} ${facts.rows.length === 1 ? "row" : "rows"}`]
 						: []),
@@ -220,26 +246,13 @@ export function createPythonEvalPresentation(
 			: [{ railToken: isError ? ("error" as const) : ("success" as const), content: transcript }]),
 	];
 
-	// The result text still lives in the preview rows; the call itself does not.
-	const details = new Map<string, string>();
-	for (const row of facts?.rows ?? []) {
-		if (row.kind !== "tool" || row.trace.toolCallId === undefined) continue;
-		details.set(
-			row.trace.toolCallId,
-			row.trace.error === undefined ? row.trace.text : `${row.trace.error}\n${row.trace.text}`,
-		);
-	}
-	const children: ToolPresentationChild[] = calls.items.map((call) => {
-		const detail = call.id === undefined ? undefined : details.get(call.id);
-		return {
-			...(call.id === undefined ? {} : { id: call.id }),
-			title: call.name,
-			...(call.summary === "" ? {} : { summary: call.summary }),
-			status: call.failed ? ("error" as const) : ("ok" as const),
-			durationMs: call.durationMs,
-			...(detail === undefined ? {} : { detail }),
-		};
-	});
+	const children: ToolPresentationChild[] = calls.items.map((call) => ({
+		...(call.id === undefined ? {} : { id: call.id }),
+		title: call.name,
+		...(call.summary === "" ? {} : { summary: call.summary }),
+		status: call.failed ? ("error" as const) : ("ok" as const),
+		durationMs: call.durationMs,
+	}));
 	const output = result === undefined ? "" : stripTerminalSequences(agentResultText(result));
 	return {
 		summary,
@@ -248,18 +261,20 @@ export function createPythonEvalPresentation(
 		replaceCallOnPartial: true,
 		request: code,
 		sections,
-		...(calls.total === 0 ? {} : { childCount: calls.total }),
-		...(calls.items.length === 0
-			? {}
-			: {
-					collapsedRows: calls.items.map((call) => formatToolRow(call, theme)),
-					children,
-				}),
+		// Zero is a real answer: a cell whose calls all stayed unresolved made no proven tool call.
+		...(calls.total === 0 ? {} : { childCount: calls.resolved }),
+		// The frame draws the interactive board from these facts; this package still owns them.
+		...(calls.items.length === 0 ? {} : { children }),
 		...(code === ""
 			? output === ""
 				? {}
 				: { copy: { primary: output } }
-			: { copy: { primary: code, full: output === "" ? code : `${code}\n---\n${output}` } }),
+			: {
+					copy: {
+						primary: rawCode,
+						full: output === "" ? rawCode : `${rawCode}\n---\n${output}`,
+					},
+				}),
 		output,
 	};
 }
@@ -267,7 +282,8 @@ export function createPythonEvalPresentation(
 /** The cell source, highlighted as Python. Empty source yields no section at all. */
 function inputSection(code: string, theme: Theme): ToolPresentationSection | undefined {
 	if (code === "") return undefined;
-	const clean = code.replace(/\r/g, "").replace(/\t/g, "  ");
+	// Display only: the source is model-controlled, while its copy stays byte-exact.
+	const clean = stripTerminalSequences(code).replace(/\r/g, "").replace(/\t/g, "  ");
 	let lines: string[];
 	try {
 		lines = highlightCode(clean, "python");
@@ -326,14 +342,26 @@ function transcriptRows(
 	return rows;
 }
 
-/** One nested call: status glyph, tool name, its argument summary, and its duration. */
+/**
+ * One nested call: status glyph, tool name, its argument summary, and its duration. This package
+ * cannot depend on the UI frame, so it mirrors the shared semantic table: a bash command is the
+ * row's content, a read summary is a path, and everything else is secondary text.
+ */
 function formatToolRow(call: EvalCall, theme: Theme): string {
 	const glyph = call.failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	const title = theme.fg("toolTitle", theme.bold(call.name));
-	const summary = [call.summary, formatDuration(call.durationMs)]
-		.filter((part): part is string => part !== undefined && part !== "")
-		.join(" · ");
-	return `${glyph} ${title}${summary === "" ? "" : ` ${theme.fg("dim", summary)}`}`;
+	const summary =
+		call.summary === ""
+			? ""
+			: call.name === "bash"
+				? ` ${theme.fg("toolTitle", theme.bold(call.summary))}`
+				: ` ${theme.fg(call.name === "read" ? "accent" : "dim", call.summary)}`;
+	const duration = formatDuration(call.durationMs) ?? "";
+	const meta =
+		duration === ""
+			? ""
+			: `${summary === "" ? " " : theme.fg("dim", " · ")}${theme.fg("dim", duration)}`;
+	return `${glyph} ${title}${summary}${meta}`;
 }
 
 /**

@@ -60,6 +60,7 @@ describe("Eval tool details contract", () => {
 				cwd: process.cwd(),
 				sessionManager: { getLeafId: () => "entry-1" },
 				ui: { notify: (): void => undefined },
+				tools: host.context.tools,
 				executeTool: host.context.executeTool,
 			} as never,
 		);
@@ -322,10 +323,17 @@ describe("Eval tool details contract", () => {
 		const { result } = await execute(runtime, new EvalToolBridge(), { host: hostText("file") });
 		const details = result.details as {
 			rows: { kind: string }[];
-			calls: { total: number; failed: number; items: readonly { name: string }[] };
+			calls: {
+				total: number;
+				failed: number;
+				resolved: number;
+				items: readonly { name: string }[];
+			};
 		};
 		expect(details.calls.total).toBe(1);
 		expect(details.calls.failed).toBe(0);
+		// The bridge recorded the resolution fact at the call boundary; the count keeps it.
+		expect(details.calls.resolved).toBe(1);
 		// The call is a fact of its own, so losing its row does not lose the call.
 		expect(details.calls.items).toEqual([
 			expect.objectContaining({ name: "read", summary: "a.txt", failed: false }),
@@ -576,6 +584,7 @@ describe("Eval tool details contract", () => {
 			{
 				cwd: process.cwd(),
 				sessionManager: { getLeafId: () => null },
+				tools: host.context.tools,
 				executeTool: host.context.executeTool,
 			} as never,
 		);

@@ -24,6 +24,12 @@ export type EvalNestedTrace = {
 	readonly durationMs: number;
 	readonly error?: string;
 	readonly toolCallId?: string;
+	/**
+	 * Positive resolution fact: the name was in `executeTool`'s own tool list at the call boundary.
+	 * Absent means unknown, never "did not resolve": the host also refuses invalid arguments and
+	 * blocked calls without saying which.
+	 */
+	readonly resolved?: boolean;
 };
 
 export class EvalToolError extends Error {
@@ -63,6 +69,9 @@ export class EvalToolBridge {
 			throw new Error(`python_eval tool is unavailable in the active catalog: ${name}`);
 		const startedAt = performance.now();
 		const toolCallId = `eval-${crypto.randomUUID()}`;
+		// The exact list `executeTool` resolves against, checked at the call, not against a later
+		// catalog: a hit is a real fact, a miss stays unknown.
+		const resolved = context.tools.some((tool) => tool.name === name);
 		try {
 			const outcome = await context.executeTool(name, args, {
 				...(signal === undefined ? {} : { signal }),
@@ -78,6 +87,7 @@ export class EvalToolBridge {
 				Math.round(performance.now() - startedAt),
 				outcome.isError,
 				outcome.toolCall.id,
+				resolved,
 			);
 			onTrace(trace, images);
 			if (outcome.isError) throw new EvalToolError(trace);
@@ -91,6 +101,7 @@ export class EvalToolBridge {
 				durationMs: Math.round(performance.now() - startedAt),
 				error: errorMessage(error),
 				toolCallId,
+				...(resolved ? { resolved: true } : {}),
 			};
 			onTrace(trace, []);
 			throw new EvalToolError(trace);
@@ -109,6 +120,7 @@ function traceFor(
 	durationMs: number,
 	isError: boolean,
 	toolCallId: string,
+	resolved: boolean,
 ): EvalNestedTrace {
 	return {
 		name,
@@ -116,6 +128,7 @@ function traceFor(
 		text: result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
 		durationMs,
 		toolCallId,
+		...(resolved ? { resolved: true } : {}),
 		...(isError ? { error: agentResultText(result) || "tool failed" } : {}),
 	};
 }

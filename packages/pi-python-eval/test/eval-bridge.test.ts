@@ -45,7 +45,7 @@ const context = {
 const emptyDetails: EvalToolDetails = {
 	format: PYTHON_EVAL_DETAILS_FORMAT,
 	rows: [],
-	calls: { total: 0, failed: 0, items: [] },
+	calls: { total: 0, failed: 0, resolved: 0, items: [] },
 	durationMs: 0,
 };
 
@@ -288,5 +288,29 @@ describe("Eval tool bridge", () => {
 				.join("\n") ?? "",
 		);
 		expect(rendered.split("\n").map((line) => line.trimEnd())).toEqual(["1", "2"]);
+	});
+
+	test("records resolution only when the host's own tool list holds the exact name", async () => {
+		const traces: { resolved?: boolean }[] = [];
+		const onTrace = (trace: { resolved?: boolean }): void => {
+			traces.push(trace);
+		};
+		// The exact name is in the list executeTool resolves against: a real resolution fact.
+		const resolvedHost = nativeHost(hostText("ok"), { tools: ["read"] });
+		await new EvalToolBridge().call("read", {}, resolvedHost.context, undefined, onTrace);
+		expect(traces[0]?.resolved).toBe(true);
+
+		// A name the host does not list is unknown, never a negative fact.
+		const missingHost = nativeHost(hostError("Tool bash not found"), { tools: ["read"] });
+		const failure = await new EvalToolBridge()
+			.call("bash", {}, missingHost.context, undefined, onTrace)
+			.catch((error: unknown) => error);
+		expect(failure).toBeInstanceOf(EvalToolError);
+		expect((failure as EvalToolError).trace.resolved).toBeUndefined();
+
+		// A case variant never reaches the host: the bridge's own list is exact.
+		await expect(
+			new EvalToolBridge().call("Read", {}, missingHost.context, undefined, onTrace),
+		).rejects.toThrow("python_eval cannot call tool: Read");
 	});
 });

@@ -73,6 +73,7 @@ const nestedTool = (name: "read" | "bash", args: unknown, durationMs: number, er
 			text: "",
 			summary: summarizeTraceArgs(args),
 			durationMs,
+			resolved: true,
 			...(error === undefined ? {} : { error }),
 		},
 	}) as const;
@@ -179,6 +180,25 @@ describe("python_eval rich presentation", () => {
 		});
 	});
 
+	test("copies the cell source as the model sent it and strips only its display", () => {
+		const code = "  print(1)  # ZZ_TAIL_07\nprint('\u001b[31mred\u001b[0m')\n";
+		const presentation = createPythonEvalPresentation(
+			{ code },
+			result([{ kind: "text", text: "1" }]),
+			theme,
+			context(),
+		);
+		expect(presentation.copy).toEqual({
+			primary: code,
+			full: `${code}\n---\nplain transcript`,
+		});
+		expect(presentation.copy?.primary).toContain("ZZ_TAIL_07");
+		const rows = sectionRows(presentation.sections).join("\n");
+		expect(rows).toContain("print('red')");
+		expect(rows).toContain("ZZ_TAIL_07");
+		expect(rows).not.toContain("\u001b");
+	});
+
 	test("a cell with no details degrades to the plain text the tool produced", () => {
 		const presentation = createPythonEvalPresentation(
 			{ code: "print(1)" },
@@ -201,9 +221,13 @@ describe("python_eval rich presentation", () => {
 			context(),
 		);
 		const rows = sectionRows(presentation.sections);
-		expect(rows).toContain("<success>✓ <toolTitle>read <dim>a.txt · 12ms");
-		expect(rows).toContain("<error>✗ <toolTitle>bash <dim>ls · 30ms");
-		expect(presentation.collapsedRows).toHaveLength(2);
+		// The row states the same semantics as the shared tool frame: a path is a location, a command
+		// is content, and the duration is secondary.
+		expect(rows).toContain("<success>✓ <toolTitle>read <accent>a.txt<dim> · <dim>12ms");
+		expect(rows).toContain("<error>✗ <toolTitle>bash <toolTitle>ls<dim> · <dim>30ms");
+		// The frame draws the interactive board from the facts; this package no longer ships rows.
+		expect(presentation.collapsedRows).toBeUndefined();
+		expect(presentation.children).toHaveLength(2);
 	});
 
 	test("a child call reads the same inside the group as in the frame", () => {
@@ -220,7 +244,8 @@ describe("python_eval rich presentation", () => {
 		// A glob, a url, or a multi-line command must summarize the same way in both views; only one
 		// rule decides now, so this pins the rule rather than its two copies.
 		expect(children.map((child) => child.summary)).toEqual(["**/*.ts", "ls piped"]);
-		const frameRows = (presentation.collapsedRows ?? []).map((row) => stripTerminalSequences(row));
+		// The row text comes from the same summary, so the board cannot summarize differently.
+		const frameRows = sectionRows(presentation.sections).filter((row) => row.includes("✓"));
 		for (const [index, child] of children.entries()) {
 			expect(frameRows[index]).toContain(child.summary ?? "");
 		}
@@ -233,10 +258,11 @@ describe("python_eval rich presentation", () => {
 			calls: {
 				total: 3,
 				failed: 1,
+				resolved: 3,
 				items: [
-					{ name: "read", summary: "a.txt", durationMs: 12, failed: false },
-					{ name: "read", summary: "b.txt", durationMs: 13, failed: false },
-					{ name: "bash", summary: "ls", durationMs: 14, failed: true },
+					{ name: "read", summary: "a.txt", durationMs: 12, failed: false, resolved: true },
+					{ name: "read", summary: "b.txt", durationMs: 13, failed: false, resolved: true },
+					{ name: "bash", summary: "ls", durationMs: 14, failed: true, resolved: true },
 				],
 			},
 			durationMs: 1500,
@@ -250,9 +276,54 @@ describe("python_eval rich presentation", () => {
 		expect(presentation.childCount).toBe(3);
 		expect(presentation.children?.map((child) => child.title)).toEqual(["read", "read", "bash"]);
 		expect(presentation.children?.[2]?.status).toBe("error");
-		// No row carries the text, so a child has nothing to open — but it is still listed and counted.
-		expect(presentation.children?.[0]?.detail).toBeUndefined();
 		expect(stripTerminalSequences(presentation.summary)).toBe("2 ok · 1 failed");
+	});
+
+	test("counts only calls the host proved it resolved and names the rest as unknown", () => {
+		const details: EvalToolDetails = {
+			format: PYTHON_EVAL_DETAILS_FORMAT,
+			rows: [],
+			calls: {
+				total: 2,
+				failed: 1,
+				resolved: 1,
+				items: [
+					{ name: "bash", summary: "ls", durationMs: 5, failed: true, resolved: true },
+					{ name: "read", summary: "a.txt", durationMs: 6, failed: false },
+				],
+			},
+			durationMs: 10,
+		};
+		const presentation = createPythonEvalPresentation(
+			{ code: "tools.bash()" },
+			{ content: [{ type: "text", text: "plain" }], details },
+			theme,
+			context(),
+		);
+		// A failed call that resolved is a failed call; the unresolved one is not a call at all.
+		expect(stripTerminalSequences(presentation.summary)).toBe("0 ok · 1 failed · 1 unknown");
+		expect(presentation.childCount).toBe(1);
+	});
+
+	test("a legacy record without resolution facts reports no proven calls", () => {
+		const details = {
+			format: PYTHON_EVAL_DETAILS_FORMAT,
+			rows: [],
+			calls: {
+				total: 1,
+				failed: 0,
+				items: [{ name: "read", summary: "a.txt", durationMs: 3, failed: false }],
+			},
+			durationMs: 10,
+		} as unknown as EvalToolDetails;
+		const presentation = createPythonEvalPresentation(
+			{ code: "tools.read()" },
+			{ content: [{ type: "text", text: "plain" }], details },
+			theme,
+			context(),
+		);
+		expect(stripTerminalSequences(presentation.summary)).toBe("1 unknown");
+		expect(presentation.childCount).toBe(0);
 	});
 });
 

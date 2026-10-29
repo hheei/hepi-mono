@@ -39,6 +39,7 @@ export class CellTranscript {
 	#printedRow: { kind: "text"; text: string } | undefined;
 	#omitted = 0;
 	#total = 0;
+	#resolved = 0;
 	#failed = 0;
 
 	constructor(onChange: () => void) {
@@ -49,9 +50,16 @@ export class CellTranscript {
 	get callsFact(): {
 		readonly total: number;
 		readonly failed: number;
+		readonly resolved: number;
 		readonly items: readonly EvalCall[];
 	} {
-		return { total: this.#total, failed: this.#failed, items: this.calls };
+		// `failed` counts failures of calls that resolved: an unknown call is not a failed execution.
+		return {
+			total: this.#total,
+			failed: this.#failed,
+			resolved: this.#resolved,
+			items: this.calls,
+		};
 	}
 
 	/**
@@ -87,7 +95,10 @@ export class CellTranscript {
 
 	tool(trace: EvalNestedTrace): void {
 		this.#total += 1;
-		if (trace.error !== undefined) this.#failed += 1;
+		if (trace.resolved === true) {
+			this.#resolved += 1;
+			if (trace.error !== undefined) this.#failed += 1;
+		}
 		const preview = boundedTrace(trace);
 		if (this.calls.length < MAX_DETAIL_ROWS) this.calls.push(callFact(preview));
 		this.#event({ kind: "tool", trace: preview }, toolLine(trace));
@@ -267,6 +278,7 @@ function boundedTrace(trace: EvalNestedTrace): EvalTrace {
 		durationMs: trace.durationMs,
 		...(trace.error === undefined ? {} : { error: boundedText(trace.error) }),
 		...(trace.toolCallId === undefined ? {} : { toolCallId: trace.toolCallId }),
+		...(trace.resolved === true ? { resolved: true } : {}),
 	};
 }
 
