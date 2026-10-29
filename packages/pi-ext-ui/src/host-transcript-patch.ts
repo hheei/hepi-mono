@@ -253,10 +253,11 @@ function attach(host: Host, run: RunBox): Attachment {
 	const rebuild = () => {
 		const next = new Map<Component, ToolGroupView>();
 		const children: Component[] = [];
-		const blocks: { group: ToolGroupView; members: Member[] }[] = [];
+		const blocks: { group: ToolGroupView; members: Member[]; ended: boolean }[] = [];
 		let calls = new Set<string>();
 		let members: Member[] = [];
-		const flush = () => {
+		/** Closes the pending run. `ended` is false only for the run still open at the transcript tail. */
+		const flush = (ended: boolean) => {
 			const first = members[0]?.component;
 			if (first !== undefined && members.filter((member) => member.kind === "tool").length > 1) {
 				const group =
@@ -266,7 +267,7 @@ function attach(host: Host, run: RunBox): Attachment {
 						host.requestRender,
 						run.current?.endedAt === undefined ? run.current : undefined,
 					);
-				blocks.push({ group, members });
+				blocks.push({ group, members, ended });
 				next.set(first, group);
 				children.push(group);
 			} else children.push(...members.map((member) => member.component));
@@ -303,13 +304,13 @@ function attach(host: Host, run: RunBox): Attachment {
 					continue;
 				}
 			}
-			flush();
+			flush(true);
 			children.push(child);
 		}
-		flush();
+		flush(false);
 		const frozen = run.current === undefined || run.current.endedAt !== undefined;
-		for (const [index, block] of blocks.entries()) {
-			block.group.update(block.members, frozen || index !== blocks.length - 1);
+		for (const block of blocks) {
+			block.group.update(block.members, frozen || block.ended);
 		}
 		groups = next;
 		projection.children = children;

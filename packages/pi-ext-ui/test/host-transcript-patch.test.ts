@@ -503,6 +503,18 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(rows.at(-1)).toBe("Requests ×1 · IN 0 · OUT 0 · CH —");
 	});
 
+	test("a block settles when the transcript moves past it, not only when the run ends", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b", "grep")];
+		expect(show(f.chat)).toContain("✓ grep");
+		expect(show(f.chat)).not.toContain("Requests ×1");
+
+		f.chat.children.push(new Text("prose after the block", 0, 0));
+		expect(show(f.chat)).toContain("Requests ×1");
+		expect(show(f.chat)).not.toContain("✓ grep");
+	});
+
 	test("a collapsed frame is two rails, one summary, and the tail at every width", () => {
 		const f = setup();
 		f.begin();
