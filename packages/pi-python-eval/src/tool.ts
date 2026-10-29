@@ -20,7 +20,9 @@ import {
 	createPythonEvalPresentation,
 	type EvalRow,
 	type EvalToolDetails,
+	type EvalTrace,
 	PYTHON_EVAL_DETAILS_FORMAT,
+	summarizeTraceArgs,
 } from "./presentation.js";
 
 const MAX_CODE_BYTES = 1024 * 1024;
@@ -29,6 +31,14 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_DETAIL_TEXT_CHARS = 4_000;
 const MAX_DETAIL_ROWS = 200;
+/** Slots the namespace, the final value, and the failure keep beyond the preview cap. */
+const KEEP_ROW_RESERVE = 4;
+/**
+ * Ceiling for the cell's complete output. It is held in memory until the cell ends, because the
+ * model body and the spilled file must carry what the bounded preview dropped, so the buffer needs
+ * a limit of its own; a cell past it says so instead of growing without bound.
+ */
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const EVAL_DESCRIPTION =
 	"Run trusted local Python in a persistent session kernel. Use python_eval for multi-step computation that reuses bindings. Nested tools.name(...) calls are synchronous; do not await them. Every cell reports its namespace, so bindings stay visible across calls. This is not a sandbox. Do not write any comments in the code.";
 const EVAL_CODE_DESCRIPTION =
@@ -110,8 +120,11 @@ export function createPythonEvalTool(
 			const deadline = new EvalDeadline(params.timeout_ms ?? DEFAULT_TIMEOUT_MS);
 			activeRuns.add(state);
 			const rows: EvalRow[] = [];
+			const output = new CellOutput();
 			const images: EvalNestedImage[] = [];
 			let omittedRows = 0;
+			let callTotal = 0;
+			let callFailed = 0;
 			const startedAt = performance.now();
 			let failure: string | undefined;
 			const runSignal = mergeAbortSignals(signal, deadline.signal);
@@ -123,6 +136,7 @@ export function createPythonEvalTool(
 					textToolResult(transcriptBody(rows), {
 						format: PYTHON_EVAL_DETAILS_FORMAT,
 						rows,
+						calls: { total: callTotal, failed: callFailed },
 						durationMs: Math.round(performance.now() - startedAt),
 					}),
 				);
@@ -130,22 +144,33 @@ export function createPythonEvalTool(
 			const publish = (): void => {
 				repaint.request();
 			};
+			/**
+			 * The preview is bounded; the cell's output ledger is not, up to its own byte ceiling. A
+			 * `keep` row (namespace, final value, failure) may use the reserved slots past the cap,
+			 * because the rows it would otherwise push out are the ones a reader cannot do without.
+			 */
 			const append = (row: EvalRow, keep = false): void => {
-				if (rows.length < MAX_DETAIL_ROWS) rows.push(row);
+				const limit = keep ? MAX_DETAIL_ROWS + KEEP_ROW_RESERVE : MAX_DETAIL_ROWS;
+				if (rows.length < limit) rows.push(row);
 				else if (keep) {
-					// A row marked `keep` displaces the least important one instead of being dropped.
 					rows.pop();
 					omittedRows += 1;
 					rows.push(row);
 				} else omittedRows += 1;
 				publish();
 			};
+			/** One transcript line: its full text for the output ledger, its bounded row for the preview. */
+			const record = (row: EvalRow, raw: string = rowText(row), keep = false): void => {
+				output.push(raw);
+				append(row, keep);
+			};
 			// The printed line still being written: its row appears as soon as text arrives and is
 			// rewritten in place, so a line the kernel sends in pieces never becomes two rows.
 			let printedLine = "";
 			let printedRow: { kind: "text"; text: string } | undefined;
+			const printedText = (): string => stripTerminalSequences(printedLine.replace(/\r/g, ""));
 			const paintPrintedLine = (): void => {
-				const text = boundedText(stripTerminalSequences(printedLine.replace(/\r/g, "")));
+				const text = boundedText(printedText());
 				if (printedRow === undefined) {
 					printedRow = { kind: "text", text };
 					append(printedRow);
@@ -156,6 +181,8 @@ export function createPythonEvalTool(
 			};
 			const endPrintedLine = (): void => {
 				paintPrintedLine();
+				// The ledger keeps the whole line; the preview row above kept its bounded copy.
+				output.push(printedText());
 				printedLine = "";
 				printedRow = undefined;
 			};
@@ -191,19 +218,19 @@ export function createPythonEvalTool(
 						},
 						onDisplay: (display) => {
 							const text = inspectValue(display);
-							append({ kind: "display", text: boundedText(text) });
+							record({ kind: "display", text: boundedText(text) }, `display: ${text}`);
 						},
 						onBackground: (text) => {
 							flushPrintedLine();
-							append({
-								kind: "text",
-								text: boundedText(stripTerminalSequences(text.replace(/\r/g, "").trimEnd())),
-							});
+							const clean = stripTerminalSequences(text.replace(/\r/g, "").trimEnd());
+							record({ kind: "text", text: boundedText(clean) }, clean);
 						},
 						callTool: async (name, args) =>
 							await bridge.call(name, args, context, runSignal, (trace, nestedImages) => {
 								images.push(...nestedImages);
-								append({ kind: "tool", trace: boundedTrace(trace) });
+								callTotal += 1;
+								if (trace.error !== undefined) callFailed += 1;
+								record({ kind: "tool", trace: boundedTrace(trace) }, toolLine(trace));
 							}),
 					},
 					runSignal,
@@ -211,20 +238,19 @@ export function createPythonEvalTool(
 				);
 				flushPrintedLine();
 				if (run.restarted) {
-					append({
-						kind: "state",
-						text: "kernel restarted — earlier names are gone",
-					});
+					const text = "kernel restarted — earlier names are gone";
+					record({ kind: "state", text }, text, true);
 				}
 				if (run.recovered !== undefined) {
-					append({ kind: "state", text: run.recovered });
+					record({ kind: "state", text: run.recovered }, run.recovered, true);
 				}
 				if (run.state !== undefined) {
-					append({ kind: "state", text: formatState(run.state) });
+					const text = formatState(run.state);
+					record({ kind: "state", text }, text, true);
 				}
 				if (run.value !== undefined) {
 					const text = inspectValue(run.value);
-					append({ kind: "result", text: boundedText(text) });
+					record({ kind: "result", text: boundedText(text) }, `result: ${text}`, true);
 				}
 			} catch (error) {
 				// A user cancellation reaches the model as bare text, so the elapsed time is the only
@@ -237,11 +263,14 @@ export function createPythonEvalTool(
 				failure = elapsed === undefined ? reason : `${reason.replace(/\.$/, "")} after ${elapsed}.`;
 				// The failure is the row the user has to see, so it keeps its slot even when the detail cap
 				// has already been reached.
-				append({ kind: "text", text: `error: ${boundedText(failure)}` }, true);
+				record({ kind: "text", text: `error: ${boundedText(failure)}` }, `error: ${failure}`, true);
 				// A failed cell still reports what the kernel holds, so a NameError does not leave the
 				// model guessing which names survived.
 				const state = evalCellState(error);
-				if (state !== undefined) append({ kind: "state", text: formatState(state) });
+				if (state !== undefined) {
+					const text = formatState(state);
+					record({ kind: "state", text }, text, true);
+				}
 			} finally {
 				activeRuns.delete(state);
 				deadline.dispose();
@@ -262,16 +291,15 @@ export function createPythonEvalTool(
 			const details = {
 				format: PYTHON_EVAL_DETAILS_FORMAT,
 				rows,
+				calls: { total: callTotal, failed: callFailed },
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
 			};
-			// A cell that ran nested tools keeps a share per call, so a script that read eight files is
-			// not cut to the width of one. The full transcript stays on disk either way.
-			const body = await truncateWithSpill(
-				transcriptBody(rows),
-				"py",
-				limitsForCalls(rows.filter((row) => row.kind === "tool").length),
-			);
+			// The model body comes from the output ledger, not from the bounded preview: the preview
+			// drops rows past its cap and cuts long lines, and a spilled file made of that would have
+			// nothing left to recover. A cell that ran nested tools keeps a share per call, so a script
+			// that read eight files is not cut to the width of one.
+			const body = await truncateWithSpill(output.text(), "py", limitsForCalls(callTotal));
 			const result = textToolResult(body.text, details);
 			return {
 				...result,
@@ -326,23 +354,61 @@ function formatState(state: EvalKernelState): string {
 	return parts.join(" · ");
 }
 
+/** One row as a transcript line. The preview and the output ledger share it, so they never drift. */
+function rowText(row: EvalRow): string {
+	switch (row.kind) {
+		case "tool":
+			return toolLine(row.trace);
+		case "display":
+			return `display: ${row.text}`;
+		case "result":
+			return `result: ${row.text}`;
+		default:
+			return row.text;
+	}
+}
+
+function toolLine(trace: {
+	readonly name: string;
+	readonly text: string;
+	readonly error?: string;
+}): string {
+	return `${trace.name}: ${trace.error ?? trace.text}`;
+}
+
 function transcriptBody(rows: readonly EvalRow[]): string {
-	return rows
-		.map((row) => {
-			switch (row.kind) {
-				case "tool":
-					return `${row.trace.name}: ${row.trace.error ?? row.trace.text}`;
-				case "display":
-					return `display: ${row.text}`;
-				case "result":
-					return `result: ${row.text}`;
-				case "state":
-					return row.text;
-				default:
-					return row.text;
-			}
-		})
-		.join("\n");
+	return rows.map(rowText).join("\n");
+}
+
+/**
+ * The cell's complete output, kept apart from the bounded preview the UI draws.
+ *
+ * A cell that prints past the preview cap, or prints a single enormous line, still has to hand the
+ * model a recoverable file. The ledger keeps every line it can within its own ceiling; once that is
+ * reached it stops and says so, so a runaway cell costs a bounded buffer instead of the process.
+ */
+class CellOutput {
+	readonly #lines: string[] = [];
+	#bytes = 0;
+	#overflowed = false;
+
+	push(line: string): void {
+		if (this.#overflowed) return;
+		const size = Buffer.byteLength(line, "utf8") + 1;
+		if (this.#bytes + size > MAX_OUTPUT_BYTES) {
+			this.#overflowed = true;
+			return;
+		}
+		this.#bytes += size;
+		this.#lines.push(line);
+	}
+
+	text(): string {
+		const body = this.#lines.join("\n");
+		if (!this.#overflowed) return body;
+		const limit = `${String(Math.round(MAX_OUTPUT_BYTES / (1024 * 1024)))}MB`;
+		return `${body}\n… output stopped at ${limit}; the rest of this cell was not kept …`;
+	}
 }
 
 function inspectValue(value: unknown): string {
@@ -376,35 +442,25 @@ function typeSummary(value: unknown): string {
 	return `[${typeof value}]`;
 }
 
-function safeText(value: unknown): string {
-	try {
-		const text = JSON.stringify(value);
-		return text === undefined ? String(value) : text;
-	} catch {
-		return Object.prototype.toString.call(value);
-	}
-}
-
 function boundedText(text: string): string {
 	return text.length <= MAX_DETAIL_TEXT_CHARS
 		? text
 		: `${text.slice(0, MAX_DETAIL_TEXT_CHARS)}\n… truncated`;
 }
 
-/** Keeps parsed arguments when they fit, so a nested renderer sees the fields it expects. */
-function boundedArgs(args: unknown): unknown {
-	const serialized = safeText(args);
-	if (serialized.length <= MAX_DETAIL_TEXT_CHARS) return args;
-	return boundedText(serialized);
-}
-
-function boundedTrace(trace: EvalNestedTrace): EvalNestedTrace {
+/**
+ * The nested call as the persisted details keep it: the bounded result text a child row opens, and
+ * the argument summary it shows. The arguments themselves are not persisted — the row never draws
+ * them, and keeping a reshaped copy would let a display limit change their type.
+ */
+function boundedTrace(trace: EvalNestedTrace): EvalTrace {
 	return {
-		...trace,
-		args: boundedArgs(trace.args),
+		name: trace.name,
 		text: boundedText(trace.text),
-		details: undefined,
+		summary: summarizeTraceArgs(trace.args),
+		durationMs: trace.durationMs,
 		...(trace.error === undefined ? {} : { error: boundedText(trace.error) }),
+		...(trace.toolCallId === undefined ? {} : { toolCallId: trace.toolCallId }),
 	};
 }
 

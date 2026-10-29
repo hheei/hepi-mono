@@ -21,7 +21,6 @@ export type EvalNestedTrace = {
 	readonly name: EvalNestedToolName;
 	readonly args: unknown;
 	readonly text: string;
-	readonly details: unknown;
 	readonly durationMs: number;
 	readonly error?: string;
 	readonly toolCallId?: string;
@@ -89,7 +88,6 @@ export class EvalToolBridge {
 				name,
 				args,
 				text: "",
-				details: undefined,
 				durationMs: Math.round(performance.now() - startedAt),
 				error: errorMessage(error),
 				toolCallId,
@@ -116,7 +114,6 @@ function traceFor(
 		name,
 		args,
 		text: result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-		details: result.details,
 		durationMs,
 		toolCallId,
 		...(isError ? { error: agentResultText(result) || "tool failed" } : {}),

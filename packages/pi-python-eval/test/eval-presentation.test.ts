@@ -8,6 +8,7 @@ import {
 	type EvalToolDetails,
 	PYTHON_EVAL_DETAILS_FORMAT,
 	readEvalDetails,
+	summarizeTraceArgs,
 } from "../src/presentation.js";
 
 /** A theme that keeps its tokens visible, so a test can assert which token painted what. */
@@ -69,9 +70,8 @@ const nestedTool = (name: "read" | "bash", args: unknown, durationMs: number, er
 		kind: "tool",
 		trace: {
 			name,
-			args,
 			text: "",
-			details: undefined,
+			summary: summarizeTraceArgs(args),
 			durationMs,
 			...(error === undefined ? {} : { error }),
 		},
@@ -236,17 +236,14 @@ describe("python_eval persisted details", () => {
 			rows: [
 				{ kind: "text", text: "ok" },
 				{ kind: "text", text: 1 },
-				{ kind: "tool", trace: { name: "read", args: { path: "a" }, text: "x", durationMs: 5 } },
+				{ kind: "tool", trace: { name: "read", text: "x", summary: "a", durationMs: 5 } },
 				{ kind: "tool", trace: { name: "read" } },
 			],
 			error: "boom",
 		});
 		expect(facts?.rows).toEqual([
 			{ kind: "text", text: "ok" },
-			{
-				kind: "tool",
-				trace: { name: "read", args: { path: "a" }, text: "x", details: undefined, durationMs: 5 },
-			},
+			{ kind: "tool", trace: { name: "read", text: "x", summary: "a", durationMs: 5 } },
 		]);
 		expect(facts?.error).toBe("boom");
 	});

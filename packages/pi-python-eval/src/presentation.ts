@@ -19,23 +19,40 @@ export const PYTHON_EVAL_TOOL_NAME = "python_eval";
 const MAX_SUMMARY_CHARS = 72;
 const MAX_FIRST_LINE_CHARS = 4_000;
 
+/**
+ * A nested call as the persisted details keep it: what a child row draws, and nothing it would only
+ * carry. The arguments are summarized when the cell ends, so a row never has to reshape them.
+ */
+export interface EvalTrace {
+	readonly name: EvalNestedTrace["name"];
+	readonly text: string;
+	readonly summary: string;
+	readonly durationMs: number;
+	readonly error?: string;
+	readonly toolCallId?: string;
+}
+
 /** One row of the cell transcript: printed text, display value, nested call, value, or namespace. */
 export type EvalRow =
 	| { readonly kind: "text"; text: string }
 	| { readonly kind: "display"; readonly text: string }
-	| { readonly kind: "tool"; readonly trace: EvalNestedTrace }
+	| { readonly kind: "tool"; readonly trace: EvalTrace }
 	| { readonly kind: "result"; readonly text: string }
 	| { readonly kind: "state"; readonly text: string };
 
 export interface EvalToolDetails {
 	readonly format: typeof PYTHON_EVAL_DETAILS_FORMAT;
+	/** The bounded preview the UI draws. */
 	readonly rows: readonly EvalRow[];
+	/** Nested calls as a fact: the preview may drop their rows, the count stays true. */
+	readonly calls: { readonly total: number; readonly failed: number };
 	readonly durationMs: number;
 	readonly error?: string;
 }
 
 export interface EvalFrameDetails {
 	readonly rows: readonly EvalRow[];
+	readonly calls: { readonly total: number; readonly failed: number };
 	readonly error: string | undefined;
 }
 
@@ -63,17 +80,35 @@ export function readEvalDetails(details: unknown): EvalFrameDetails | undefined 
 			if (trace !== undefined) rows.push({ kind: "tool", trace });
 		}
 	}
-	return { rows, error: typeof details.error === "string" ? details.error : undefined };
+	return {
+		rows,
+		calls: readCalls(details.calls, rows),
+		error: typeof details.error === "string" ? details.error : undefined,
+	};
 }
 
-function readTrace(raw: unknown): EvalNestedTrace | undefined {
+/** A detail written before the count became a fact reports what its rows still show. */
+function readCalls(
+	raw: unknown,
+	rows: readonly EvalRow[],
+): { readonly total: number; readonly failed: number } {
+	if (isRecord(raw) && typeof raw.total === "number" && typeof raw.failed === "number") {
+		return { total: raw.total, failed: raw.failed };
+	}
+	const calls = rows.filter((row) => row.kind === "tool");
+	return {
+		total: calls.length,
+		failed: calls.filter((row) => row.trace.error !== undefined).length,
+	};
+}
+
+function readTrace(raw: unknown): EvalTrace | undefined {
 	if (!isRecord(raw) || typeof raw.name !== "string" || typeof raw.text !== "string")
 		return undefined;
 	return {
 		name: raw.name as EvalNestedTrace["name"],
-		args: raw.args,
 		text: raw.text,
-		details: raw.details,
+		summary: typeof raw.summary === "string" ? raw.summary : "",
 		durationMs: typeof raw.durationMs === "number" ? raw.durationMs : 0,
 		...(typeof raw.error === "string" ? { error: raw.error } : {}),
 		...(typeof raw.toolCallId === "string" ? { toolCallId: raw.toolCallId } : {}),
@@ -97,9 +132,11 @@ export function createPythonEvalPresentation(
 	const code = typeof parsed?.code === "string" ? parsed.code.trim() : "";
 	const facts = result === undefined ? undefined : readEvalDetails(result.details);
 	const toolRows = facts?.rows.filter((row) => row.kind === "tool") ?? [];
-	const toolFailures = toolRows.filter((row) => row.trace.error !== undefined).length;
+	// Counts come from the fact, not from the rows: the preview caps rows, and a cell that printed
+	// past the cap must not report fewer calls than it made.
+	const calls = facts?.calls ?? { total: toolRows.length, failed: 0 };
 	const isError = context.isError || result?.isError === true;
-	const selfFailed = (isError || facts?.error !== undefined) && toolFailures === 0;
+	const selfFailed = (isError || facts?.error !== undefined) && calls.failed === 0;
 
 	const status: ToolPresentationStatus | undefined =
 		result === undefined
@@ -107,7 +144,7 @@ export function createPythonEvalPresentation(
 			: resolveContainerStatus({
 					isError,
 					isPartial: context.isPartial,
-					hasChildren: toolRows.length > 0,
+					hasChildren: calls.total > 0,
 					selfFailed,
 				});
 
@@ -121,8 +158,8 @@ export function createPythonEvalPresentation(
 			? [firstCodeLine(code) || "(empty)", ...options].join(" · ")
 			: [
 					...options,
-					...callStats(toolRows.length, toolFailures),
-					...(toolRows.length === 0 && facts !== undefined && facts.rows.length > 0
+					...callStats(calls.total, calls.failed),
+					...(calls.total === 0 && facts !== undefined && facts.rows.length > 0
 						? [`${String(facts.rows.length)} ${facts.rows.length === 1 ? "row" : "rows"}`]
 						: []),
 				]
@@ -139,9 +176,9 @@ export function createPythonEvalPresentation(
 	];
 
 	const children: ToolPresentationChild[] = toolRows.map((row) => {
-		// The same summary the container's own row shows, computed once: a child call must read the
-		// same inside the group as it does in the frame.
-		const summary = nestedSummary(row.trace);
+		// The summary is the stored fact the frame row reads too, so a child call cannot read
+		// differently inside a group than it does in the cell.
+		const { summary } = row.trace;
 		return {
 			...(row.trace.toolCallId === undefined ? {} : { id: row.trace.toolCallId }),
 			title: row.trace.name,
@@ -242,20 +279,18 @@ function formatToolRow(row: Extract<EvalRow, { kind: "tool" }>, theme: Theme): s
 	const failed = row.trace.error !== undefined;
 	const glyph = failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	const title = theme.fg("toolTitle", theme.bold(row.trace.name));
-	const summary = [nestedSummary(row.trace), formatDuration(row.trace.durationMs)]
+	const summary = [row.trace.summary, formatDuration(row.trace.durationMs)]
 		.filter((part): part is string => part !== undefined && part !== "")
 		.join(" · ");
 	return `${glyph} ${title}${summary === "" ? "" : ` ${theme.fg("dim", summary)}`}`;
 }
 
-/** The part of a nested call's arguments that reads as a summary, bounded to one row. */
-function nestedSummary(trace: EvalNestedTrace): string {
-	const raw =
-		typeof trace.args === "string"
-			? trace.args
-			: isRecord(trace.args)
-				? firstArgumentText(trace.args)
-				: "";
+/**
+ * The part of a nested call's arguments that reads as a summary, bounded to one row. Computed once
+ * when the cell ends, so the frame row and the child row in a group cannot summarize differently.
+ */
+export function summarizeTraceArgs(args: unknown): string {
+	const raw = typeof args === "string" ? args : isRecord(args) ? firstArgumentText(args) : "";
 	const clean = stripTerminalSequences(raw.trim().replace(/[\r\n\t]+/g, " "));
 	return clean.length > MAX_SUMMARY_CHARS ? `${clean.slice(0, MAX_SUMMARY_CHARS - 3)}…` : clean;
 }

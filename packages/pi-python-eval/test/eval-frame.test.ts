@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { describe, expect, test, vi } from "vitest";
 import { EvalToolBridge } from "../src/bridge.js";
@@ -274,6 +275,84 @@ describe("Eval tool details contract", () => {
 		expect(rows.at(-1)?.text).toContain("more output row(s) omitted");
 	});
 
+	test("keeps the namespace and the value when ordinary output fills the preview", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<unknown> => {
+				for (let index = 0; index < 205; index += 1) hooks.onText(`row ${index}\n`);
+				return {
+					value: 42,
+					state: {
+						names: 3,
+						addedCount: 1,
+						added: ["total"],
+						redundantCount: 0,
+						redundant: [],
+					},
+					restarted: false,
+				};
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge());
+		const rows = (result.details as { rows: { kind: string; text: string }[] }).rows;
+		const texts = rows.map((row) => row.text);
+		// Which names survived, and what the cell returned, are the two rows a reader cannot lose to
+		// a chatty cell; the printed rows past the cap are the ones that give way.
+		expect(texts).toContain("state: 3 names · +total");
+		expect(texts).toContain("42");
+	});
+
+	test("counts a nested call whose row the preview dropped", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: {
+					onText: (text: string) => void;
+					callTool: (name: string, args: unknown) => Promise<unknown>;
+				},
+			): Promise<unknown> => {
+				for (let index = 0; index < 205; index += 1) hooks.onText(`row ${index}\n`);
+				await hooks.callTool("read", { path: "a.txt" });
+				return { value: undefined, state: undefined, restarted: false };
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(), { host: hostText("file") });
+		const details = result.details as {
+			rows: { kind: string }[];
+			calls: { total: number; failed: number };
+		};
+		expect(details.calls).toEqual({ total: 1, failed: 0 });
+		expect(details.rows.filter((row) => row.kind === "tool")).toHaveLength(0);
+		// The preview dropped the row; the model body still names the call, because it comes from the
+		// output ledger rather than from the bounded rows.
+		expect((result.content[0] as { text: string }).text).toContain("read: file");
+	});
+
+	test("spills the complete output, not the bounded preview", async () => {
+		const long = `HEAD ${"x".repeat(30_000)} TAIL-MARKER`;
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<unknown> => {
+				hooks.onText(`${long}\n`);
+				return { value: undefined, state: undefined, restarted: false };
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge());
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		expect(rows[0]?.text).toContain("… truncated");
+
+		const text = (result.content[0] as { text: string }).text;
+		const path = /\[Full output: (.*)\]/.exec(text)?.[1];
+		expect(path).toBeDefined();
+		const spilled = await readFile(path ?? "", "utf8");
+		// The spilled file has to be able to answer what the preview cut off.
+		expect(spilled).toContain("TAIL-MARKER");
+	});
+
 	test("reports how long a cancelled cell ran", async (): Promise<void> => {
 		const { pi, tools } = framedHost();
 		const controller = new AbortController();
@@ -393,7 +472,7 @@ describe("Eval tool details contract", () => {
 		expect(result.isError).toBe(true);
 	});
 
-	test("bounds a nested call's arguments when they are too large to keep", async () => {
+	test("persists a nested call's summary instead of its arguments", async () => {
 		const runtime = {
 			runWithHooks: async (
 				_code: string,
@@ -404,9 +483,25 @@ describe("Eval tool details contract", () => {
 		const { result } = await execute(runtime, new EvalToolBridge(), {
 			host: hostText("written"),
 		});
-		const trace = (result.details as { rows: { trace: { args: unknown } }[] }).rows[0]?.trace;
-		// A big payload is kept as bounded text instead of being stored twice over in the transcript.
-		expect(typeof trace?.args).toBe("string");
-		expect(String(trace?.args)).toContain("truncated");
+		const trace = (result.details as { rows: { trace: Record<string, unknown> }[] }).rows[0]?.trace;
+		// The row draws a summary, never the arguments: a 4,100 character payload used to be
+		// stringified into the transcript, which changed its type for every reader.
+		expect(trace).not.toHaveProperty("args");
+		expect(trace?.summary).toBe("a.txt");
+	});
+
+	test("bounds the persisted summary of a long argument", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { callTool: (name: string, args: unknown) => Promise<unknown> },
+			): Promise<unknown> => await hooks.callTool("bash", { command: "x".repeat(200) }),
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(), {
+			host: hostText("ran"),
+		});
+		const trace = (result.details as { rows: { trace: { summary: string } }[] }).rows[0]?.trace;
+		expect(trace?.summary.length).toBeLessThanOrEqual(72);
+		expect(trace?.summary.endsWith("…")).toBe(true);
 	});
 });
