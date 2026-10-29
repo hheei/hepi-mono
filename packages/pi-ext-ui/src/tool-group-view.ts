@@ -1,5 +1,12 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { type Component, Container, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Container,
+	MouseRegion,
+	Spacer,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { fitRow } from "@hheei/pi-ext-core";
 import {
 	formatToolHeaderText,
@@ -285,7 +292,7 @@ export class ToolGroupView extends Container {
 				kind: "category",
 				category: "thinking",
 			});
-			if (this.#category === "thinking") this.#renderThinking(thinking, push);
+			if (this.#category === "thinking") this.#renderThinking(thinking, width, push);
 		}
 
 		const counts = new Map<string, number>();
@@ -361,13 +368,17 @@ export class ToolGroupView extends Container {
 					{ kind: "item", member: member.component, child: index },
 				);
 				if (!open || child.detail === undefined) continue;
-				for (const row of child.detail.split("\n")) push(`  ${row}`);
+				for (const row of this.#detailRows(child.detail, width)) push(row);
 			}
 		}
 	}
 
 	/** One thinking block per assistant turn: a label row, one preview row, and the text on demand. */
-	#renderThinking(thinking: readonly Member[], push: (row: string, action?: Action) => void): void {
+	#renderThinking(
+		thinking: readonly Member[],
+		width: number,
+		push: (row: string, action?: Action) => void,
+	): void {
 		const theme = this.#ui.theme;
 		let first = true;
 		for (const member of thinking) {
@@ -382,7 +393,7 @@ export class ToolGroupView extends Container {
 			const text = member.thinking;
 			if (text === undefined) continue;
 			if (open) {
-				for (const row of text.split("\n")) push(`  ${row}`);
+				for (const row of this.#detailRows(text, width)) push(row);
 				continue;
 			}
 			const line = preview(text);
@@ -445,6 +456,18 @@ export class ToolGroupView extends Container {
 			return action.wrapper.handleMouse?.({ ...event, y, height: hit.height });
 		}
 		return undefined;
+	}
+
+	/**
+	 * Expanded detail keeps its text. The user opened it to read it, so a line wider than the frame is
+	 * wrapped to the width the indent leaves instead of being cut with an ellipsis.
+	 */
+	#detailRows(text: string, width: number): string[] {
+		const inner = Math.max(1, width - 2);
+		return text.split("\n").flatMap((line) => {
+			const wrapped = wrapTextWithAnsi(line, inner);
+			return (wrapped.length > 0 ? wrapped : [""]).map((row) => `  ${row}`);
+		});
 	}
 
 	update(members: Member[], settled: boolean): void {

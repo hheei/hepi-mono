@@ -51,6 +51,7 @@ function assistant(
 	ids: string[],
 	mixed: boolean | "text" = false,
 	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number },
+	thinking = "reason",
 ): AssistantMessageComponent {
 	type Message = Parameters<AssistantMessageComponent["updateContent"]>[0];
 	const message: Message = {
@@ -59,7 +60,7 @@ function assistant(
 			...(mixed === "text"
 				? [{ type: "text" as const, text: "prose boundary" }]
 				: mixed
-					? [{ type: "thinking" as const, thinking: "reason" }]
+					? [{ type: "thinking" as const, thinking }]
 					: []),
 			...ids.map((id) => ({ type: "toolCall" as const, id, name: "read", arguments: {} })),
 		],
@@ -909,5 +910,48 @@ describe("two centralized host seams / original transcript projection", () => {
 		).toThrow("render failed");
 		view.invalidate();
 		expect(view.render(40)[1]).toBe("▎ child");
+	});
+
+	/** A line far wider than the frame, with a marker only the last wrapped row can carry. */
+	const longLine = `HEAD ${"x".repeat(80)} TAIL-MARKER`;
+
+	test("expanded thinking wraps a long line instead of cutting its tail", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"], true, undefined, longLine), f.row("a"), f.row("b")];
+		const width = 20;
+		const rows = () => f.chat.render(width);
+		const category = rows().findIndex((row) => row.includes("thinking"));
+		expect(category).toBeGreaterThan(-1);
+		click(f.chat, category, width);
+		const item = rows().findIndex((row, index) => index > category && row.includes("thinking"));
+		expect(item).toBeGreaterThan(category);
+		click(f.chat, item, width);
+
+		const opened = rows();
+		expect(opened.join("\n")).toContain("TAIL-MARKER");
+		for (const row of opened) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+	});
+
+	test("expanded child detail wraps a long line instead of cutting its tail", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [
+			assistant(["a", "b"]),
+			f.row("a", "read", "ok", false, true, [{ title: "grep", status: "ok", detail: longLine }]),
+			f.row("b"),
+		];
+		const width = 20;
+		const rows = () => f.chat.render(width);
+		const category = rows().findIndex((row) => row.includes("grep ×1"));
+		expect(category).toBeGreaterThan(-1);
+		click(f.chat, category, width);
+		const item = rows().findIndex((row, index) => index > category && row.includes("grep"));
+		expect(item).toBeGreaterThan(category);
+		click(f.chat, item, width);
+
+		const opened = rows();
+		expect(opened.join("\n")).toContain("TAIL-MARKER");
+		for (const row of opened) expect(visibleWidth(row)).toBeLessThanOrEqual(width);
 	});
 });
