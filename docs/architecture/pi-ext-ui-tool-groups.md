@@ -134,7 +134,7 @@ footer 是最后一条 rail 下的**单一槽位**：运行态显示当前/最�
 - 流式完整快照替换旧值，不能当 delta 重复累加。provider usage 与思考估算独立，OUT 不再叠加该估算。
 - 尊重 Pi host 的思考可见性，不修改全局偏好、不暴露未提供的文本。
 - Notice 每条真实通知计一次，更新原项不增加次数。MessageView 按 header.kind 精确值分类，未知值原样保留；原生 notify 只按 info/warning/error 区分，来源未知。
-- 两类来源键分域，避免 MessageView 的同名 kind 与原生 notify 碰撞。按首次出现顺序显示统计，窄屏截断后缀。
+- 两类来源键分域，避免 MessageView 的同名 kind 与原生 notify 碰撞。按首次出现顺序显示统计，窄屏截断后缀。展开的详情（thinking 全文与子调用 detail）按缩进后的剩余宽度换行，长行不截断——用户展开就是为了读它。
 - 不读正文或颜色猜类型，不把 tone 当 severity，不读取 stateHolder 私有数据或维护具体 extension 名单。第一版不新增 MessageViewSpec 分类字段，不增加类型过滤或分类子树。
 
 ### D5. 两层详情、原始视图与 copy
