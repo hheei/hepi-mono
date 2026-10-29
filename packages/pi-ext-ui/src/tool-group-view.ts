@@ -53,7 +53,6 @@ interface Hit {
 
 type Action =
 	| { readonly kind: "none" }
-	| { readonly kind: "raw" }
 	| { readonly kind: "category"; readonly category: Category }
 	| { readonly kind: "item"; readonly member: Component; readonly child?: number }
 	| { readonly kind: "member"; readonly wrapper: Component };
@@ -98,7 +97,6 @@ function preview(text: string): string | undefined {
  */
 export class ToolGroupView extends Container {
 	readonly #header = new Text("", 0, 0);
-	readonly #originals = new Container();
 	readonly #ui: ExtensionUIContext;
 	readonly #redraw: () => void;
 	readonly #run: ToolGroupRun | undefined;
@@ -118,7 +116,6 @@ export class ToolGroupView extends Container {
 		const heading = new MouseRegion(this.#header, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			this.#toggleRaw();
-			this.#redraw();
 			return { handled: true, render: true };
 		});
 		const body: Component = {
@@ -149,10 +146,10 @@ export class ToolGroupView extends Container {
 		return tail;
 	}
 
-	#historyTools(): number[] {
+	#historyTools(tailIndex: number): number[] {
 		// The footer slot shows the tail only while the block runs; once it carries the request
 		// totals the tail belongs to the list, or its call would disappear from the block.
-		const tail = this.#settled ? -1 : this.#tailIndex();
+		const tail = this.#settled ? -1 : tailIndex;
 		const indices: number[] = [];
 		for (const [index, member] of this.#members.entries()) {
 			if (member.kind === "tool" && index !== tail) indices.push(index);
@@ -183,7 +180,6 @@ export class ToolGroupView extends Container {
 		readonly output: number;
 		readonly cacheTotal: number;
 		readonly latest: Usage | undefined;
-		readonly known: boolean;
 	} {
 		let requests = 0;
 		let input = 0;
@@ -199,15 +195,15 @@ export class ToolGroupView extends Container {
 			cacheTotal += member.usage.cacheRead + member.usage.cacheWrite;
 			latest = member.usage;
 		}
-		return { requests, input, output, cacheTotal, latest, known: latest !== undefined };
+		return { requests, input, output, cacheTotal, latest };
 	}
 
 	/** The block footer: the whole block's request and token totals, fixed under the body. */
 	#footerRow(): string {
 		const theme = this.#ui.theme;
 		const usage = this.#usage();
-		const input = usage.known ? formatTokens(usage.input) : "—";
-		const output = usage.known ? formatTokens(usage.output) : "—";
+		const input = usage.latest === undefined ? "—" : formatTokens(usage.input);
+		const output = usage.latest === undefined ? "—" : formatTokens(usage.output);
 		const parts = [
 			`Requests ×${usage.requests}`,
 			`IN ${input}`,
@@ -234,14 +230,13 @@ export class ToolGroupView extends Container {
 		const rail = theme.fg("muted", "─".repeat(Math.max(0, width)));
 		const lines: string[] = [rail];
 		const hits: Hit[] = [{ height: 1, action: { kind: "none" } }];
-		this.#members.forEach((_member, index) => {
-			const wrapper = this.#originals.children[index];
-			if (wrapper === undefined) return;
+		for (const member of this.#members) {
+			const wrapper = this.#offsetWrapper(member.component);
 			const rows = renderWithoutToolRails(wrapper, Math.max(1, width));
-			if (rows.length === 0) return;
+			if (rows.length === 0) continue;
 			hits.push({ height: rows.length, action: { kind: "member", wrapper } });
 			for (const row of rows) lines.push(fitRow(row, Math.max(0, width), "…"));
-		});
+		}
 		lines.push(rail);
 		hits.push({ height: 1, action: { kind: "none" } });
 		this.#hits = hits;
@@ -265,7 +260,7 @@ export class ToolGroupView extends Container {
 		};
 		const rail = theme.fg("muted", "─".repeat(Math.max(0, width)));
 		const tailIndex = this.#tailIndex();
-		const tools = this.#historyTools();
+		const tools = this.#historyTools(tailIndex);
 		push(rail);
 
 		const notices = this.#noticeItems();
@@ -350,8 +345,7 @@ export class ToolGroupView extends Container {
 			const member = this.#members[memberIndex];
 			if (member === undefined) continue;
 			if (member.children === undefined) {
-				const wrapper = this.#originals.children[memberIndex];
-				if (wrapper === undefined) continue;
+				const wrapper = this.#offsetWrapper(member.component);
 				separate();
 				// One hit for the whole tool: its own rows carry the header, copy slot, and fold state.
 				pushBlock(renderWithoutToolRails(wrapper, Math.max(1, width)), {
@@ -431,10 +425,6 @@ export class ToolGroupView extends Container {
 			const action = hit.action;
 			if (action.kind === "none") return undefined;
 			if (event.type !== "click" || event.button !== "left") return undefined;
-			if (action.kind === "raw") {
-				this.#toggleRaw();
-				return { handled: true, render: true };
-			}
 			if (action.kind === "category") {
 				const open = this.#category === action.category;
 				this.#category = open ? undefined : action.category;
@@ -459,6 +449,30 @@ export class ToolGroupView extends Container {
 	}
 
 	/**
+	 * The member's own rows without Pi's leading separator. Built only for a member the current frame
+	 * actually draws, so a collapsed category allocates nothing for the rows it hides.
+	 */
+	#offsetWrapper(component: Component): Component {
+		let offset = 0;
+		return {
+			render(width) {
+				const rows = component.render(width);
+				// Pi adds one leading separator per tool; the group supplies its own spacing.
+				offset = rows[0] === "" ? 1 : 0;
+				return rows.slice(offset);
+			},
+			handleMouse(event) {
+				return component.handleMouse?.({
+					...event,
+					y: event.y + offset,
+					height: event.height + offset,
+				});
+			},
+			invalidate() {},
+		};
+	}
+
+	/**
 	 * Expanded detail keeps its text. The user opened it to read it, so a line wider than the frame is
 	 * wrapped to the width the indent leaves instead of being cut with an ellipsis.
 	 */
@@ -479,29 +493,11 @@ export class ToolGroupView extends Container {
 			this.#category = undefined;
 		if (this.#category === "notices" && this.#noticeItems().length === 0)
 			this.#category = undefined;
-		this.#originals.children = members.map(({ component }): Component => {
-			let offset = 0;
-			return {
-				render(width) {
-					const rows = component.render(width);
-					// Pi adds one leading separator per tool; the group supplies its own spacing.
-					offset = rows[0] === "" ? 1 : 0;
-					return rows.slice(offset);
-				},
-				handleMouse(event) {
-					return component.handleMouse?.({
-						...event,
-						y: event.y + offset,
-						height: event.height + offset,
-					});
-				},
-				invalidate() {},
-			};
-		});
 	}
 
 	override invalidate(): void {
-		// Original chatContainer.invalidate invalidates original members exactly once.
+		// Original chatContainer.invalidate invalidates original members exactly once; only the header
+		// text belongs to this view.
 		this.#header.invalidate();
 	}
 
