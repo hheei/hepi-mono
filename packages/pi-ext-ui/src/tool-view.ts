@@ -65,6 +65,8 @@ export interface ToolViewSpec {
 	readonly collapsedRows?: readonly string[] | Component | (Component & Collapsible) | undefined;
 	readonly sections?: readonly RailSection[] | undefined;
 	readonly children?: readonly ToolViewChild[] | undefined;
+	/** Nested calls the tool made, when the list above is only what fits. */
+	readonly childCount?: number | undefined;
 	readonly collapsibleChildren?: readonly Collapsible[] | undefined;
 	readonly copy?: ToolViewCopySpec | undefined;
 	readonly stateHolder?: unknown;
@@ -392,6 +394,11 @@ export class ToolView implements Component {
 	/** Nested calls this tool reported; a hidden slot reports none. */
 	get children(): readonly ToolViewChild[] | undefined {
 		return this.#hidden ? undefined : this.#spec.children;
+	}
+
+	/** How many nested calls the tool made, even when `children` lists only what fits. */
+	get childCount(): number | undefined {
+		return this.#hidden ? undefined : this.#spec.childCount;
 	}
 
 	#collapseChildren(): void {

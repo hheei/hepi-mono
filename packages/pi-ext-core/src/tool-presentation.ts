@@ -45,6 +45,11 @@ export interface BaseToolPresentation {
 	readonly collapsedRows?: readonly string[];
 	/** Nested calls this container executed, in execution order. */
 	readonly children?: readonly ToolPresentationChild[];
+	/**
+	 * How many nested calls the container actually made. `children` is a display list a provider may
+	 * bound; this is the fact a consumer counts, so a bounded list cannot understate the work.
+	 */
+	readonly childCount?: number;
 	readonly copy?: { readonly primary: string; readonly full?: string };
 }
 

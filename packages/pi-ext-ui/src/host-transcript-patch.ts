@@ -138,6 +138,7 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 				? "error"
 				: "ok";
 	const children = renderer instanceof ToolView ? renderer.children : callRenderer.children;
+	const childCount = renderer instanceof ToolView ? renderer.childCount : undefined;
 	return {
 		kind: "tool",
 		component,
@@ -145,6 +146,7 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 		summary,
 		status,
 		...(children === undefined || children.length === 0 ? {} : { children }),
+		...(childCount === undefined ? {} : { childCount }),
 	};
 }
 

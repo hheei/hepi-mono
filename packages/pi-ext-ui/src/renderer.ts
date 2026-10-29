@@ -745,6 +745,7 @@ function renderOwnedPresentation(params: {
 				: undefined;
 		})(),
 		...(presentation.children === undefined ? {} : { children: presentation.children }),
+		...(presentation.childCount === undefined ? {} : { childCount: presentation.childCount }),
 		sections,
 		copy,
 		outputPad: context.outputPad,

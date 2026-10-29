@@ -35,6 +35,8 @@ export interface Member {
 	readonly summary?: string;
 	readonly status?: ToolStatusKind;
 	readonly children?: readonly ToolViewChild[];
+	/** Nested calls the member made, when `children` is only what fits. */
+	readonly childCount?: number;
 	readonly thinking?: string;
 	readonly thinkingChars?: number;
 	readonly usage?: Usage;
@@ -177,7 +179,8 @@ export class ToolGroupView extends Container {
 		let total = 0;
 		for (const member of this.#members) {
 			if (member.kind !== "tool") continue;
-			total += member.children === undefined ? 1 : member.children.length;
+			// The count is a fact the tool reports; a bounded child list must not lower it.
+			total += member.childCount ?? (member.children === undefined ? 1 : member.children.length);
 		}
 		return total;
 	}

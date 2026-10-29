@@ -137,6 +137,7 @@ function setup(connect = true) {
 		callError = false,
 		complete = true,
 		children?: ToolViewChild[],
+		childCount?: number,
 	) => {
 		let callView: ToolView | undefined;
 		// Real TUI prototype, with the only service used by ToolExecutionComponent replaced.
@@ -170,6 +171,7 @@ function setup(connect = true) {
 							status: ctx.isError ? "error" : options.isPartial ? "running" : status,
 						},
 						...(children === undefined ? {} : { children }),
+						...(childCount === undefined ? {} : { childCount }),
 						sections: [{ railToken: "dim", content: `RESULT ${id}` }],
 						copy: { primary: `COPY ${id}` },
 						copyToClipboard,
@@ -681,6 +683,18 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toBe(before);
 		clickRow(f.chat, "memory · two");
 		expect(show(f.chat)).toContain("preview line");
+	});
+
+	test("counts a container's calls from its own count, not from the children it lists", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [
+			assistant(["a", "b"]),
+			f.row("a", "read", "ok", false, true, [{ title: "read", summary: "a.txt" }], 3),
+			f.row("b"),
+		];
+		// Two top-level tools, but the container reports three calls: 3 + 1, not 1 + 1.
+		expect(show(f.chat)).toContain("4 calls");
 	});
 
 	test("a child row in the group shows the duration its container row shows", () => {
