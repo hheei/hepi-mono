@@ -106,9 +106,15 @@ function harness(
 		},
 	};
 	const pi = Object.assign(toolHost().pi, host);
+	let branchReads = 0;
 	const session = {
 		isIdle: () => idle,
-		sessionManager: { getBranch: () => branch.map((id) => ({ id, ...entries.get(id) })) },
+		sessionManager: {
+			getBranch: () => {
+				branchReads += 1;
+				return branch.map((id) => ({ id, ...entries.get(id) }));
+			},
+		},
 	} as ExtensionContext;
 	const jobs = options.jobs ?? new BashJobRegistry(128 * 1024);
 	const stop = startBashDelivery({
@@ -174,6 +180,7 @@ function harness(
 			synchronousObservation = true;
 		},
 		branch: () => branch,
+		branchReads: () => branchReads,
 		setBranch(value: readonly string[]) {
 			branch = value;
 			emit("session_tree", {});
@@ -421,6 +428,26 @@ test("tree retries an unrecorded submission and ignores stale batch acknowledgem
 	await Promise.resolve();
 	expect(current.sent).toHaveLength(2);
 	expect(current.jobs.pendingDeliveries()).toEqual([]);
+});
+
+test("one delivery pass reads the branch a fixed number of times, not once per pending job", async () => {
+	const readsDuringOnePass = async (jobs: number): Promise<number> => {
+		const current = harness({ branch: ["origin"] });
+		const elsewhere = Array.from({ length: jobs }, (_, index) =>
+			current.start(`job-${index}`, "other"),
+		);
+		await Promise.all(elsewhere.map((job) => current.finish(job, "held output")));
+		expect(current.jobs.pendingDeliveries()).toHaveLength(jobs);
+		const before = current.branchReads();
+		current.emit("agent_settled", {});
+		await Promise.resolve();
+		return current.branchReads() - before;
+	};
+
+	// The pass partitions every pending result, so the old shape read the whole branch once per job
+	// and once more for the receipts. Two reads: the scheduled pass and the coordinator's check.
+	expect(await readsDuringOnePass(4)).toBe(2);
+	expect(await readsDuringOnePass(1)).toBe(2);
 });
 
 test("a batch can deliver current output and announce output held on another branch", async () => {

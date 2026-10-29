@@ -74,21 +74,22 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 	const reminders = new Map<string, BashJobReminder>();
 	let disposed = false;
 
-	const readyReminders = (): BashJobReminder[] => {
+	const readyReminders = (branch: BranchView | undefined): BashJobReminder[] => {
 		for (const [id] of reminders) {
 			const job = jobs.get(id);
 			// A job that stopped must not deliver a queued idle notice: its result is what matters now.
 			if (job === undefined || job.status !== "running") reminders.delete(id);
 		}
-		return [...reminders.values()].filter((event) => onCurrentBranch(session, event));
+		return [...reminders.values()].filter((event) => onCurrentBranch(branch, event));
 	};
 
 	const flush = (triggerTurn: boolean): void => {
 		if (disposed) return;
-		const notices = readyReminders();
+		const branch = readBranch(session);
+		const notices = readyReminders(branch);
 		const pending = jobs.pendingDeliveries();
-		const ready = pending.filter((event) => onCurrentBranch(session, event));
-		const waitingElsewhere = pending.filter((event) => !onCurrentBranch(session, event));
+		const ready = pending.filter((event) => onCurrentBranch(branch, event));
+		const waitingElsewhere = pending.filter((event) => !onCurrentBranch(branch, event));
 		for (const [index, event] of notices.entries()) {
 			const wake =
 				triggerTurn && (!session.isIdle() || (ready.length === 0 && index === notices.length - 1));
@@ -226,20 +227,22 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 
 	const channel = getBackgroundDelivery(pi).registerChannel({
 		isIdle: () => session.isIdle(),
-		hasPending: () =>
-			!options.signal?.aborted &&
-			(readyReminders().length > 0 ||
-				jobs.pendingDeliveries().some((event) => onCurrentBranch(session, event))),
+		hasPending: () => {
+			if (options.signal?.aborted) return false;
+			const branch = readBranch(session);
+			return (
+				readyReminders(branch).length > 0 ||
+				jobs.pendingDeliveries().some((event) => onCurrentBranch(branch, event))
+			);
+		},
 		flush,
 	});
-	const reconcile = (branchChanged = false): void => {
-		const receipts = branchReceipts(session);
-		if (receipts !== undefined) jobs.reconcileRecorded(receipts, branchChanged);
-	};
-	const schedule = (): void => {
+	const schedule = (branchChanged: boolean): void => {
 		if (disposed || options.signal?.aborted) return;
-		reconcile();
-		announceHeld(jobs.pendingDeliveries().filter((event) => !onCurrentBranch(session, event)));
+		// One branch read per pass: reconciliation and the held announcement see the same history.
+		const branch = readBranch(session);
+		if (branch !== undefined) jobs.reconcileRecorded(branch.receipts, branchChanged);
+		announceHeld(jobs.pendingDeliveries().filter((event) => !onCurrentBranch(branch, event)));
 		channel.request();
 	};
 	// A reminder is kept even when its branch is not current, so returning to that branch still
@@ -252,17 +255,16 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 		reminders.set(event.job.id, event);
 		channel.request();
 	});
-	const unsubscribe = jobs.onTerminal(schedule);
-	const unobserveStart = pi.on("agent_start", schedule);
-	const unobserveSettled = pi.on("agent_settled", schedule);
+	const unsubscribe = jobs.onTerminal(() => schedule(false));
+	const unobserveStart = pi.on("agent_start", () => schedule(false));
+	const unobserveSettled = pi.on("agent_settled", () => schedule(false));
 	// Results that finished on another branch stay pending; returning to their branch must resume
 	// their delivery instead of waiting for an unrelated job to finish.
 	const unobserveTree = pi.on("session_tree", () => {
 		if (disposed || options.signal?.aborted) return;
-		reconcile(true);
-		schedule();
+		schedule(true);
 	});
-	schedule();
+	schedule(false);
 
 	return () => {
 		disposed = true;
@@ -277,37 +279,47 @@ export function startBashDelivery(options: BashDeliveryOptions): () => void {
 	};
 }
 
-/** Raw branch ancestry retains report receipts even when their content has been compacted. */
-function branchReceipts(session: ExtensionContext): ReadonlySet<string> | undefined {
+/**
+ * One read of the current branch, in the two shapes a delivery pass needs: which entries are still
+ * ancestors of this branch, and which report receipts the branch already records. Raw ancestry
+ * retains receipts even when their content has been compacted.
+ *
+ * Every pass reads the branch again rather than caching it across events: the branch is what the
+ * user is looking at, and it changes without a delivery event.
+ */
+interface BranchView {
+	readonly ancestors: ReadonlySet<string>;
+	readonly receipts: ReadonlySet<string>;
+}
+
+function readBranch(session: ExtensionContext): BranchView | undefined {
 	try {
-		const ids = new Set<string>();
+		const ancestors = new Set<string>();
+		const receipts = new Set<string>();
 		for (const entry of session.sessionManager.getBranch()) {
+			ancestors.add(entry.id);
 			if (entry.type !== "custom_message" || entry.customType !== BASH_TERMINAL_CUSTOM_TYPE)
 				continue;
 			const details: unknown = entry.details;
 			if (!isRecord(details) || !Array.isArray(details.jobs)) continue;
 			for (const job of details.jobs) {
-				if (isRecord(job) && typeof job.jobId === "string") ids.add(job.jobId);
+				if (isRecord(job) && typeof job.jobId === "string") receipts.add(job.jobId);
 			}
 		}
-		return ids;
+		return { ancestors, receipts };
 	} catch {
+		// Without a readable branch nothing is known to be on it: anchored results stay pending.
 		return undefined;
 	}
 }
 
 /** True when the job's starting point is still an ancestor of the current branch. */
 function onCurrentBranch(
-	session: ExtensionContext,
+	branch: BranchView | undefined,
 	event: { readonly anchor?: string | undefined },
 ): boolean {
 	if (event.anchor === undefined) return true;
-	try {
-		return session.sessionManager.getBranch().some((entry) => entry.id === event.anchor);
-	} catch {
-		// Without a readable branch, keep anchored results pending until it is available.
-		return false;
-	}
+	return branch?.ancestors.has(event.anchor) === true;
 }
 
 function reminderText(event: BashJobReminder): string {
