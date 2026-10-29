@@ -125,7 +125,6 @@ export class EvalKernelHost {
 				`python_eval did not run: the recovery record could not be saved (${started.reason}). A cell that leaves no start fact cannot be detected as unfinished after a restart.`,
 			);
 		const recovery = !reset && !this.#reportedRecovery ? historyNote : undefined;
-		this.#reportedRecovery = true;
 		let run: EvalCellOutcome;
 		try {
 			run = await new Promise<EvalCellOutcome>((resolve, reject) => {
@@ -194,6 +193,9 @@ export class EvalKernelHost {
 			names: run.state?.names,
 		});
 		reportUnsaved(ended, hooks);
+		// The warning rides a returned result. A cell that fails or is cancelled never showed it, so the
+		// flag stays false and the next cell reports it instead of losing it for the whole session.
+		if (recovery !== undefined) this.#reportedRecovery = true;
 		return { ...run, restarted, ...(recovery === undefined ? {} : { recovered: recovery }) };
 	}
 

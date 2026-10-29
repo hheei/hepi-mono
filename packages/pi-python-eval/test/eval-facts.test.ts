@@ -149,6 +149,23 @@ describe("python eval execution facts", () => {
 		}
 	});
 
+	test("keeps the recovery warning until a cell actually shows it", async () => {
+		const first = fixture();
+		const firstFacts = createEvalExecutionFacts(first.pi, first.sessionManager);
+		// A cell that started and never ended: the next runtime has to report an unknown outcome.
+		firstFacts.start("cell-1", "generation-1");
+
+		const facts = createEvalExecutionFacts(first.pi, first.sessionManager);
+		const host = new EvalKernelHost(process.cwd(), { facts });
+		try {
+			await expect(host.runWithHooks("raise RuntimeError('boom')", hooks())).rejects.toThrow();
+			const result = await host.runWithHooks("1", hooks());
+			expect(result.recovered).toContain("unknown outcome");
+		} finally {
+			host.dispose();
+		}
+	});
+
 	test("marks first cell after runtime recreation as restarted", async () => {
 		const first = fixture();
 		const firstFacts = createEvalExecutionFacts(first.pi, first.sessionManager);
