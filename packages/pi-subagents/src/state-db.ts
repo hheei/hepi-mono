@@ -1,14 +1,21 @@
-import { chmodSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-/** The one durable file for child records and the mailbox. */
+/** The one durable file for child records, the mailbox, and delegation receipts. */
 export function defaultStatePath(): string {
 	return join(getAgentDir(), "pi-subagents", "state.sqlite");
 }
 
-const SCHEMA = `
+/**
+ * Bumped only when an existing ledger needs work. A ledger written by a newer version is refused
+ * instead of being rewritten: this file is runtime state, but silently discarding another build's
+ * records is worse than failing to start.
+ */
+const SCHEMA_VERSION = 2;
+
+const TABLES = `
 CREATE TABLE IF NOT EXISTS children (
   parent_session_id TEXT NOT NULL,
   subagent_id TEXT NOT NULL,
@@ -35,8 +42,6 @@ CREATE TABLE IF NOT EXISTS commands (
   error TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS commands_pending
-  ON commands (parent_session_id, subagent_id, direction, status, created_at);
 CREATE TABLE IF NOT EXISTS delegations (
   parent_session_id TEXT NOT NULL,
   delegation_id TEXT NOT NULL,
@@ -55,58 +60,71 @@ CREATE TABLE IF NOT EXISTS delegations (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (parent_session_id, delegation_id)
 );
+`;
+
+/**
+ * Indexes are created after the column repair below, because a ledger that predates
+ * `delegation_revision` cannot index it yet.
+ */
+const INDEXES = `
+CREATE INDEX IF NOT EXISTS commands_pending
+  ON commands (parent_session_id, subagent_id, direction, status, created_at);
 CREATE INDEX IF NOT EXISTS delegations_child
   ON delegations (parent_session_id, child_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS delegations_revision
   ON delegations (parent_session_id, child_id, delegation_revision);
 `;
 
+/**
+ * Columns added to a table that already exists. `CREATE TABLE IF NOT EXISTS` leaves an older
+ * table untouched, so an 11-column `delegations` would keep failing the indexes above.
+ */
+const ADDED_COLUMNS: readonly (readonly [table: string, column: string, type: string])[] = [
+	["delegations", "delegation_revision", "INTEGER"],
+	["delegations", "control_id", "TEXT"],
+	["delegations", "safe_to_retry", "INTEGER"],
+	["delegations", "side_effects", "TEXT"],
+];
+
 const connections = new Map<string, DatabaseSync>();
 
-/** A ledger that predates the current schema. It is runtime state, so it is set aside, not migrated. */
-function stateFormat(db: DatabaseSync): "current" | "previous" | "empty" {
-	const version = db.prepare("PRAGMA user_version").get()?.user_version;
-	if (version === 1) return "current";
-	if (version !== 0) return "previous";
-	const tables = db
-		.prepare(
-			"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
-		)
-		.get();
-	return tables === undefined ? "empty" : "previous";
+function schemaVersion(db: DatabaseSync): number {
+	return Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
 }
 
-/** Keeps the previous ledger under a discoverable name; its WAL sidecars move with it. */
-function setAside(filePath: string): void {
-	const kept = `${filePath}.previous`;
-	for (const suffix of ["", "-wal", "-shm"]) {
-		const from = `${filePath}${suffix}`;
-		if (existsSync(from)) renameSync(from, `${kept}${suffix}`);
+/** Brings any older ledger to {@link SCHEMA_VERSION} in place, keeping every row. */
+function migrate(db: DatabaseSync): void {
+	const version = schemaVersion(db);
+	if (version > SCHEMA_VERSION) {
+		throw new Error(
+			`the subagent ledger was written by a newer version (schema ${version}); this version understands schema ${SCHEMA_VERSION}`,
+		);
 	}
+	if (version === SCHEMA_VERSION) return;
+	withWrite(db, () => {
+		if (schemaVersion(db) === SCHEMA_VERSION) return;
+		db.exec(TABLES);
+		for (const [table, column, type] of ADDED_COLUMNS) {
+			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+			if (columns.some((existing) => existing.name === column)) continue;
+			db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+		}
+		// The bridge token had no reader once the mailbox replaced the socket handshake.
+		db.exec("DROP TABLE IF EXISTS tokens");
+		db.exec(INDEXES);
+		db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+	});
 }
 
 export function openStateDb(filePath: string): DatabaseSync {
 	const cached = connections.get(filePath);
 	if (cached !== undefined) return cached;
 	mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
-	let db = new DatabaseSync(filePath);
+	const db = new DatabaseSync(filePath);
 	try {
 		db.exec("PRAGMA busy_timeout = 5000");
-		let format = stateFormat(db);
-		if (format === "previous") {
-			db.close();
-			setAside(filePath);
-			db = new DatabaseSync(filePath);
-			db.exec("PRAGMA busy_timeout = 5000");
-			format = "empty";
-		}
-		if (format === "empty") {
-			withWrite(db, () => {
-				db.exec(SCHEMA);
-				db.exec("PRAGMA user_version = 1");
-			});
-		}
 		db.exec("PRAGMA journal_mode = WAL");
+		migrate(db);
 		chmodSync(filePath, 0o600);
 	} catch (error) {
 		db.close();
