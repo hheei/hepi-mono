@@ -1,4 +1,5 @@
 import {
+	Box,
 	type Component,
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
@@ -6,6 +7,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { MessageRows, MessageViewSpec } from "@hheei/pi-ext-core";
+import { backgroundFill } from "./background.js";
 import { toContentRows, toSingleRow } from "./tool-view.js";
 
 export type {
@@ -76,13 +78,25 @@ export class MessageView implements Component {
 	#localExpanded: boolean;
 	#lastWidth = 80;
 	#lastHeight = 0;
+	/** The final rows the host draws: the background shell's output, not the pre-shell lines. */
 	#cache:
 		| { readonly width: number; readonly expanded: boolean; readonly lines: string[] }
 		| undefined;
+	/** The rows the shell currently fills; replaced on every layout. */
+	#shellRows: string[] = [];
+	/**
+	 * The block background a standalone message owns. Pi's custom-message shell only draws its own
+	 * `customMessageBg` box when no renderer is installed, so this view supplies the same block
+	 * itself. Inside an activity group the rows come from `previewRows`/`bodyRows` and keep the
+	 * group's background instead.
+	 */
+	readonly #shell = new Box(0, 0);
 
 	constructor(spec: MessageViewSpec) {
 		this.#spec = spec;
 		this.#localExpanded = remembered(spec.stateHolder, spec.defaultExpanded === true);
+		this.#shell.addChild({ render: () => this.#shellRows, invalidate() {} });
+		this.#shell.setBgFn(backgroundFill(spec.theme, "customMessageBg"));
 	}
 
 	get expandable(): boolean {
@@ -116,18 +130,21 @@ export class MessageView implements Component {
 		const safeWidth = Math.max(1, width - pad * 2);
 		this.#lastWidth = width;
 		const leftPad = pad > 0 ? " ".repeat(pad) : "";
-		const lines = [
+		this.#shellRows = [
 			this.#header(safeWidth, expanded),
 			...layRows(this.#spec.preview, safeWidth),
 			...(expanded ? layRows(this.#spec.body, safeWidth) : []),
 		].map((line) => (leftPad === "" ? line : `${leftPad}${line}`));
-		this.#lastHeight = lines.length;
+		this.#lastHeight = this.#shellRows.length;
+		// Cache the shell's output: a cached hit must return the same filled, padded rows.
+		const lines = this.#shell.render(width);
 		this.#cache = { width, expanded, lines };
 		return lines;
 	}
 
 	invalidate(): void {
 		this.#cache = undefined;
+		this.#shell.invalidate();
 		invalidateRows(this.#spec.preview);
 		invalidateRows(this.#spec.body);
 	}
@@ -150,17 +167,21 @@ export class MessageView implements Component {
 		return this.#spec.header.kind;
 	}
 
-	/**
-	 * Detail rows inside an activity group: preview and body below the summary row the group already
-	 * draws, regardless of local fold. Repeating the header there would print the summary twice.
-	 */
-	detailRows(width: number): string[] {
+	/** Preview rows inside an activity group: visible content below the summary, folded or not. */
+	previewRows(width: number): string[] {
+		return this.#rows(this.#spec.preview, width);
+	}
+
+	/** Body rows inside an activity group: what opening this notice reveals. */
+	bodyRows(width: number): string[] {
+		return this.#rows(this.#spec.body, width);
+	}
+
+	#rows(source: MessageRows | undefined, width: number): string[] {
 		const pad = Math.max(0, this.#spec.outputPad ?? 0);
 		const safeWidth = Math.max(1, width - pad * 2);
 		const leftPad = pad > 0 ? " ".repeat(pad) : "";
-		return [...layRows(this.#spec.preview, safeWidth), ...layRows(this.#spec.body, safeWidth)].map(
-			(line) => (leftPad === "" ? line : `${leftPad}${line}`),
-		);
+		return layRows(source, safeWidth).map((line) => (leftPad === "" ? line : `${leftPad}${line}`));
 	}
 
 	/** Single-row label used when this notice sits inside an activity group. */
@@ -170,14 +191,6 @@ export class MessageView implements Component {
 		const summaryRaw = header.summary === undefined ? "" : toSingleRow(header.summary);
 		const summary = summaryRaw === "" ? "" : theme.fg(header.tone ?? "dim", summaryRaw);
 		return summary === "" ? kind : `${kind}${theme.fg("dim", " · ")}${summary}`;
-	}
-
-	/**
-	 * Whether anything would render below the label. `expandable` asks about the body only; a
-	 * preview-only notice still has detail to show, so the group keys its pin on this instead.
-	 */
-	get hasDetail(): boolean {
-		return hasRows(this.#spec.preview) || hasRows(this.#spec.body);
 	}
 
 	#header(width: number, expanded: boolean): string {

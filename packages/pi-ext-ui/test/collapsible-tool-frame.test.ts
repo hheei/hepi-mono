@@ -7,28 +7,65 @@ import type {
 import { type Component, Text, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { createToolPresentationRenderers } from "@hheei/pi-ext-core";
 import { describe, expect, test, vi } from "vitest";
+import { backgroundFill } from "../src/background.js";
 import extension from "../src/extension.js";
 import {
 	type Collapsible,
-	clearCapturedNestedCalls,
 	isCollapsible,
-	recordToolExecutionEnd,
-	recordToolExecutionStart,
 	registerCollapsibleToolRenderer,
 	SPECIALIZED_TOOL_RENDERERS,
 	type ToolRenderContext,
 	ToolView,
 	transitionFoldLevel,
 } from "../src/index.js";
+import { ToolUiRuntime } from "../src/runtime.js";
+
+/** The state this test's runtime owns; the extension builds the same one per Pi runtime. */
+const runtime = new ToolUiRuntime();
+
 import {
 	NESTED_CALLS_COPIED_KEY,
 	NESTED_CALLS_EXPANDED_KEY,
 	NestedCallsView,
 } from "../src/nested-calls-view.js";
+import { formatStatusGlyph, TOOL_SPINNER_INTERVAL_MS } from "../src/tool-view.js";
+
+/**
+ * The host emits its `tool_call` hook (the resolution fact) before it runs a nested call, so a test
+ * that models a real execution records both; a test that wants an unresolved call records only the
+ * start, the way the host does for a name it cannot dispatch.
+ */
+function recordNestedStart(event: {
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+	parentToolCallId: string;
+}): void {
+	runtime.tracker.recordStart(event);
+	runtime.tracker.recordResolved({
+		toolCallId: event.toolCallId,
+		parentToolCallId: event.parentToolCallId,
+	});
+}
+
+/** Rows carry the frame's background to the full width; assertions read their content. */
+function rowsOf(lines: readonly string[]): string[] {
+	return lines
+		.filter((line) => !line.includes("[borderMuted:") && !/^─+$/.test(line))
+		.map((line) => line.trimEnd());
+}
 
 const taggedTheme = {
 	fg: (color: string, text: string) => `[${color}:${text}]`,
 	bg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+	italic: (text: string) => text,
+	style: (text: string) => text,
+} as unknown as Theme;
+
+const ansiTheme = {
+	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => `\u001b[48;2;1;2;3m${text}\u001b[49m`,
 	bold: (text: string) => text,
 	italic: (text: string) => text,
 	style: (text: string) => text,
@@ -163,13 +200,13 @@ describe("ToolView Deep Module Interface", () => {
 
 		expect(view.foldLevel).toBe(0);
 		const level0Lines = view.render(80);
-		expect(level0Lines).toEqual(["▸ ✓ web_search query"]);
+		expect(rowsOf(level0Lines)).toEqual(["▸ ✓ web_search query"]);
 
 		view.handleMouse(createMouseClick(2, 0));
 		expect(view.foldLevel).toBe(1);
 		expect(invalidate).toHaveBeenCalledTimes(1);
 		const level1Lines = view.render(80);
-		expect(level1Lines).toEqual([
+		expect(rowsOf(level1Lines)).toEqual([
 			"▾ ✓ web_search query",
 			"▎ line-1",
 			"▎ line-2",
@@ -181,8 +218,8 @@ describe("ToolView Deep Module Interface", () => {
 		expect(view.foldLevel).toBe(2);
 		const level2Lines = view.render(80);
 		expect(level2Lines.length).toBe(21);
-		expect(level2Lines[0]).toBe("▾ ✓ web_search query");
-		expect(level2Lines[20]).toBe("▎ line-20");
+		expect(rowsOf(level2Lines)[0]).toBe("▾ ✓ web_search query");
+		expect(rowsOf(level2Lines)[20]).toBe("▎ line-20");
 
 		view.handleMouse(createMouseClick(2, 0));
 		expect(view.foldLevel).toBe(0);
@@ -226,7 +263,7 @@ describe("ToolView Deep Module Interface", () => {
 		});
 
 		const collapsedRender = view.render(80);
-		expect(collapsedRender).toEqual([
+		expect(rowsOf(collapsedRender)).toEqual([
 			"▸ codemode 4 calls · 2.1s",
 			"▎ ✓ grep · 14 matches (80ms)",
 			"▎ ✗ write · Permission denied (15ms)",
@@ -234,7 +271,7 @@ describe("ToolView Deep Module Interface", () => {
 
 		view.toggle(false);
 		const expandedRender = view.render(80);
-		expect(expandedRender).toEqual([
+		expect(rowsOf(expandedRender)).toEqual([
 			"▾ codemode 4 calls · 2.1s",
 			"▎ $ await Promise.all([...])",
 			"▎ Summary: 1 passed, 1 failed",
@@ -329,7 +366,7 @@ describe("ToolView Deep Module Interface", () => {
 
 describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	function setupResolver(
-		options?: Parameters<typeof registerCollapsibleToolRenderer>[1],
+		options?: Parameters<typeof registerCollapsibleToolRenderer>[2],
 	): ToolRendererResolver {
 		let captured: ToolRendererResolver | undefined;
 		const pi = {
@@ -337,19 +374,75 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			registerToolRenderer(resolver: ToolRendererResolver) {
 				captured = resolver;
 			},
-			on() {},
+			on: () => () => {},
 		} as unknown as ExtensionAPI;
 
-		if (options === undefined) {
-			extension(pi);
-		} else {
-			registerCollapsibleToolRenderer(pi, options);
-		}
+		// The extension installs its own runtime; the test registers again so its captures reach this one.
+		if (options === undefined) extension(pi);
+		registerCollapsibleToolRenderer(pi, runtime, options);
 		if (captured === undefined) {
 			throw new Error("Expected registerToolRenderer to be called");
 		}
 		return captured;
 	}
+
+	test("a native tool surface fills every row and drops the leading rail", () => {
+		const view = new ToolView({
+			theme: ansiTheme,
+			header: { title: "bash", status: "error", summary: "boom" },
+			collapsedRows: ["line"],
+			background: () => true,
+		});
+		const rows = view.render(40);
+		// One padding row above and below, and no ▎ gutter anywhere.
+		expect(rows).toHaveLength(4);
+		for (const row of rows) expect(row.startsWith("\u001b[48;2;")).toBe(true);
+		for (const row of rows) expect(row).not.toContain("▎");
+		for (const row of rows) expect(visibleWidth(row)).toBe(40);
+		// The padding row carries the fill and nothing else.
+		expect(rows[0]?.replace(/\u001b\[[0-9;]*m/g, "").trim()).toBe("");
+	});
+
+	test("a nested reset cannot punch a hole in the fill", () => {
+		const fill = backgroundFill(ansiTheme, "toolSuccessBg");
+		const filled = fill("a\u001b[0mb");
+		expect(filled.match(/\u001b\[48;2;1;2;3m/g)).toHaveLength(2);
+	});
+
+	test("an inner surface that ended is not resurrected by the outer fill", () => {
+		const fill = backgroundFill(ansiTheme, "toolSuccessBg");
+		const outer = "\u001b[48;2;1;2;3m";
+		const inner = "\u001b[48;2;9;9;9m";
+		const filled = fill(`${inner}tool\u001b[0mtail`);
+		// After the inner surface's reset the row belongs to the surface painting it, not to the inner one.
+		expect(filled).toContain(`\u001b[0m${outer}tail`);
+		expect(filled).not.toContain(`\u001b[0m${inner}`);
+	});
+
+	test("a compound reset re-asserts the fill, a style-only sequence does not", () => {
+		const fill = backgroundFill(ansiTheme, "toolSuccessBg");
+		const outer = "\u001b[48;2;1;2;3m";
+		expect(fill("a\u001b[0;31mb")).toContain(`\u001b[0;31m${outer}b`);
+		expect(fill("a\u001b[49mb")).toContain(`\u001b[49m${outer}b`);
+		expect(fill("a\u001b[1mb")).toContain("a\u001b[1mb");
+		expect(fill("a\u001b[mb")).toContain(`\u001b[m${outer}b`);
+	});
+
+	test("live tools animate one shared 100ms phase and only change color", () => {
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		const tagged = {
+			fg: (token: string, text: string) => `[${token}]${text}[/]`,
+			bg: (_token: string, text: string) => text,
+			bold: (text: string) => text,
+			italic: (text: string) => text,
+		} as Theme;
+		// Streaming args and a running execution draw the same frame: the clock never restarts.
+		expect(formatStatusGlyph("streaming", tagged)).toBe("[muted]·[/]");
+		expect(formatStatusGlyph("running", tagged)).toBe("[accent]·[/]");
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * 4);
+		expect(formatStatusGlyph("running", tagged)).toBe("[accent]✻[/]");
+		now.mockRestore();
+	});
 
 	test("Streaming planning phase shows ▸ ⋯ tool_name · XX tokens and constant 1-line height", () => {
 		const resolve = setupResolver();
@@ -431,6 +524,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 					},
 				],
 				details: {
+					__piExtUiResolvedCalls: ["1"],
 					calls: [{ id: "1", name: "read", args: 'path: "a.ts"', status: "ok", durationMs: 18 }],
 				},
 			},
@@ -445,14 +539,12 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(level0[1]).toContain('▎ ✓ read path: "a.ts" · 18ms');
 		expect(level0[1]).toContain("󰆏");
 
-		// Clicking row 1 copy button copies the child tool's output
+		// A persisted record keeps only a summary, so there is no request to copy and none is written.
 		resultView.handleMouse(createMouseClick(78, 1, { width: 80 }));
-		expect(copied.length).toBe(1);
-		expect(copied[0]).toBe('path: "a.ts"');
-
-		// Checkmark icon displays after copy in child row
-		const copiedRender = resultView.render(80);
-		expect(copiedRender[1]).toContain("✓");
+		expect(copied).toEqual([]);
+		const refusedRender = resultView.render(80);
+		expect(refusedRender[1]).not.toContain("󰆏");
+		expect(refusedRender[1]).toContain("✗");
 
 		// Clicking row 1 body toggles child tool expansion (select mechanism)
 		resultView.handleMouse(createMouseClick(10, 1, { width: 80 }));
@@ -503,6 +595,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			{
 				content: [{ type: "text", text: "" }],
 				details: {
+					__piExtUiResolvedCalls: ["1"],
 					calls: [{ id: "1", name: "agents_get", args: '{"id":"agent-1"}', status: "running" }],
 				},
 			},
@@ -514,8 +607,8 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(runningLines.filter((line) => line.includes("codemode"))).toEqual([
 			expect.stringContaining("codemode 1 call"),
 		]);
-		expect(runningLines.join("\n")).not.toContain("◐ codemode");
-		expect(runningLines.join("\n")).toContain("◐ agents_get");
+		expect(runningLines.join("\n")).not.toMatch(/[·✢✳✶✻✽] codemode/);
+		expect(runningLines.join("\n")).toMatch(/[·✢✳✶✻✽] agents_get/);
 
 		const failedCall = renderers.renderCall!(running.args, plainTheme, running);
 		const failed = renderers.renderResult!(
@@ -564,6 +657,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			{
 				content: [{ type: "text", text: "Script completed\nWall time 0.0 seconds\nOutput:\ndone" }],
 				details: {
+					__piExtUiResolvedCalls: ["1"],
 					calls: [{ id: "1", name: "edit", args: 'path: "a.ts"', status: "ok", durationMs: 2 }],
 				},
 			},
@@ -589,7 +683,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 						{
 							id: "1",
 							name: "read",
-							args: '{"path":"x/renderer.ts"}',
+							args: '{"path":"/repo/x/renderer.ts"}',
 							status: "ok",
 							durationMs: 1,
 						},
@@ -608,9 +702,41 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			createMockContext({ state: {} }),
 		) as ToolView;
 
-		const lines = resultView.render(80).map((line) => line.replace(/\u001b\[[0-9;]*m/g, ""));
-		expect(lines.join("\n")).toContain("▎ ✓ read x/renderer.ts · 1ms");
+		// The path keeps the native link, so its OSC 8 wrapper is not part of the text comparison.
+		const lines = resultView
+			.render(80)
+			.map((line) =>
+				line.replace(/\u001b\[[0-9;]*m/g, "").replace(/\u001b\]8;;[^\u001b]*\u001b\\/g, ""),
+			);
+		expect(lines.join("\n")).toContain("▎ ✓ read /repo/x/renderer.ts · 1ms");
 		expect(lines.join("\n")).toContain("▎ ✓ write b.ts · 2ms");
+	});
+
+	test("a nested read row keeps the accent path and warning range of its own row", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("codemode", () => undefined)!;
+		const resultView = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\nok" }],
+				details: {
+					calls: [
+						{
+							id: "1",
+							name: "read",
+							args: '{"path":"/repo/src/a.ts","offset":3,"limit":2}',
+							status: "ok",
+							durationMs: 1,
+						},
+					],
+				},
+			},
+			{ expanded: false, isPartial: false },
+			taggedTheme,
+			createMockContext({ state: {} }),
+		) as ToolView;
+		const board = resultView.render(120)[1] ?? "";
+		expect(board).toContain("[accent:/repo/src/a.ts]");
+		expect(board).toContain("[warning::3-4]");
 	});
 
 	test("expands tab characters to two spaces in rendered view while preserving copy text", async () => {
@@ -670,7 +796,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	});
 
 	test("a started child call reports running until its result lands", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const parentCallId = "call-live-parent";
@@ -681,7 +807,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 				isPartial: true,
 			});
 
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-live",
 			toolName: "bash",
 			args: { command: "sleep 5" },
@@ -695,7 +821,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		) as ToolView;
 		expect(running.children?.map((child) => child.status)).toEqual(["running"]);
 
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-live",
 			toolName: "bash",
 			result: { content: [{ type: "text", text: "done" }], details: {} },
@@ -713,13 +839,14 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	});
 
 	test("a cancelled nested call keeps its warning in the child list", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const view = renderers.renderResult!(
 			{
 				content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" }],
 				details: {
+					__piExtUiResolvedCalls: ["1"],
 					calls: [{ id: "1", name: "bash", args: '{"command":"sleep 9"}', status: "cancelled" }],
 				},
 			},
@@ -731,8 +858,156 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(view.render(80).join("\n")).toContain("sleep 9");
 	});
 
+	test("bash copy keeps the request bytes while the body strips escapes and keeps the tail", () => {
+		const copied: string[] = [];
+		const resolve = setupResolver({
+			copyToClipboard: async (text) => {
+				copied.push(text);
+			},
+		});
+		// Quotes, a glob, a pipe, Unicode, a >120-column line, a tail marker, and a control sequence.
+		const command =
+			"  rg --glob '**/*.ts' 'a|b' src | head -3\n" +
+			`  echo ${"x".repeat(130)} ZZ_TAIL_07 中文 \u001b[31mred\u001b[0m  \n`;
+		const renderers = resolve("bash", () => undefined)!;
+		const ctx = createMockContext({ args: { command } });
+		const view = renderers.renderResult!(
+			{ content: [{ type: "text", text: "done" }], details: undefined },
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// The collapsed header states the first line only; the request body carries the rest.
+		expect(view.render(80).join("\n")).not.toContain("ZZ_TAIL_07");
+		view.handleMouse(createMouseClick(2, 0, { width: 80 }));
+		const body = view.render(80).join("\n");
+		expect(body).toContain("$ rg --glob '**/*.ts' 'a|b' src | head -3");
+		expect(body).toContain("ZZ_TAIL_07 中文 red");
+		expect(body.indexOf("$ rg --glob")).toBeLessThan(body.indexOf("ZZ_TAIL_07"));
+		expect(body).not.toContain("\u001b");
+		for (const row of body.split("\n")) expect(visibleWidth(row)).toBeLessThanOrEqual(80);
+
+		view.handleMouse(createMouseClick(78, 0, { width: 80 }));
+		expect(copied.at(-1)).toBe(command);
+		view.handleMouse(createMouseClick(78, 0, { width: 80, shift: true }));
+		expect(copied.at(-1)).toBe(`${command}\n---\ndone`);
+	});
+
+	test("a clipped body names the real copy path and a cut line says it continues", () => {
+		const resolve = setupResolver();
+		const renderers = resolve("bash", () => undefined)!;
+		const render = (command: string): string => {
+			const view = renderers.renderResult!(
+				{ content: [{ type: "text", text: "done" }], details: undefined },
+				{ expanded: false, isPartial: false },
+				plainTheme,
+				createMockContext({ args: { command } }),
+			) as ToolView;
+			view.setFoldLevel(1);
+			return view.render(80).join("\n");
+		};
+
+		const manyLines = Array.from({ length: 30 }, (_, i) => `  echo ${String(i)}`).join("\n");
+		expect(render(manyLines)).toContain("more lines, shift+click copies all");
+
+		// One long line is cut inside its own wrap: no logical line is hidden, the rest of it is.
+		const oneLine = `  echo ${"y".repeat(1200)}`;
+		const single = render(oneLine);
+		expect(single).toContain("current line continues, shift+click copies all");
+		expect(single).not.toMatch(/more lines/);
+	});
+
+	test("nested bash copy keeps the captured request exact and strips only its result", () => {
+		runtime.clear();
+		const copied: string[] = [];
+		const resolve = setupResolver({
+			copyToClipboard: async (text) => {
+				copied.push(text);
+			},
+		});
+		const renderers = resolve("codemode", () => undefined)!;
+		const parentCallId = "call-live-request";
+		// Longer than the 70-character row summary, so the tail marker exists only in the body.
+		const command = `  echo nested\n  echo ${"a".repeat(70)} ZZ_TAIL_07 \u001b[31mred\u001b[0m \n`;
+		recordNestedStart({
+			toolCallId: "child-1",
+			toolName: "bash",
+			args: { command },
+			parentToolCallId: parentCallId,
+		});
+		runtime.tracker.recordEnd({
+			toolCallId: "child-1",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "out \u001b[32mgreen\u001b[0m" }],
+				details: {},
+			},
+			isError: false,
+			durationMs: 5,
+			parentToolCallId: parentCallId,
+		});
+		const ctx = createMockContext({
+			toolCallId: parentCallId,
+			args: { code: "await tools.bash({ command: 'x' });" },
+		});
+		const view = renderers.renderResult!(
+			{ content: [{ type: "text", text: "" }], details: {} },
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		expect(view.render(80)[1]).not.toContain("ZZ_TAIL_07");
+		view.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const body = view.render(80).join("\n");
+		expect(body).toContain("$ echo nested");
+		expect(body).toContain("ZZ_TAIL_07 red");
+		// The request's own escape is stripped; the tool's colored output keeps its ANSI.
+		expect(body).not.toContain("[31m");
+		expect(body).toContain("\u001b[32mgreen\u001b[0m");
+
+		view.handleMouse(createMouseClick(78, 1, { width: 80 }));
+		expect(copied.at(-1)).toBe(command);
+		view.handleMouse(createMouseClick(78, 1, { width: 80, shift: true }));
+		expect(copied.at(-1)).toBe(`${command}\n---\nout green`);
+	});
+
+	test("a persisted call without arguments refuses to copy its summary and says why", () => {
+		const copied: string[] = [];
+		const resolve = setupResolver({
+			copyToClipboard: async (text) => {
+				copied.push(text);
+			},
+		});
+		const renderers = resolve("codemode", () => undefined)!;
+		const ctx = createMockContext({
+			toolCallId: "call-resumed",
+			args: { code: "await tools.bash({ command: 'ls' });" },
+		});
+		const view = renderers.renderResult!(
+			{
+				content: [{ type: "text", text: "done" }],
+				details: { calls: [{ name: "bash", args: '{"command":"ls"}', status: "ok" }] },
+			},
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			ctx,
+		) as ToolView;
+
+		// The row has to be drawn before its right-edge copy slot has a hit region.
+		expect(view.render(80)[1]).toContain("󰆏");
+		view.handleMouse(createMouseClick(78, 1, { width: 80 }));
+		expect(copied).toEqual([]);
+		const refused = view.render(80);
+		expect(refused[1]).not.toContain("󰆏");
+		expect(refused[1]).toContain("✗");
+		view.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		expect(view.render(80).join("\n")).toContain("(request not recorded; summary only)");
+	});
+
 	test("codemode nested calls: individual tool copy and click-to-expand without extra rail", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const copied: string[] = [];
 		const resolve = setupResolver({
 			copyToClipboard: async (text) => {
@@ -743,13 +1018,13 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const parentCallId = "call-code-parent";
 
 		// Simulate live execution events captured for two child tools
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-1",
 			toolName: "bash",
 			args: { command: "echo hello" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-1",
 			toolName: "bash",
 			result: {
@@ -761,13 +1036,13 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			parentToolCallId: parentCallId,
 		});
 
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-2",
 			toolName: "write",
 			args: { path: "src/new.ts", content: "export const x = 42;" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-2",
 			toolName: "write",
 			result: {
@@ -837,13 +1112,13 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const parentCallId = "call-code-success-test";
 
 		// Child tool failed, but script itself caught it or completed without error (isError: false)
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-err",
 			toolName: "read",
 			args: { path: "nonexistent.ts" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-err",
 			toolName: "read",
 			result: { content: [{ type: "text", text: "file not found" }], details: {} },
@@ -880,7 +1155,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		successView.setFoldLevel(1);
 		const level1 = successView.render(80);
 		expect(level1[1]).toContain("[muted:▎]");
-		expect(level1[level1.length - 1]).toContain("[success:▎]");
+		expect(level1.some((line) => line.includes("[success:▎]"))).toBe(true);
 
 		// 2. Failed codemode (script itself crashed, isError: true)
 		const failedCtx = createMockContext({
@@ -902,22 +1177,22 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		failedView.setFoldLevel(1);
 		const failedLevel1 = failedView.render(80);
 		expect(failedLevel1[1]).toContain("[muted:▎]");
-		expect(failedLevel1[failedLevel1.length - 1]).toContain("[error:▎]");
+		expect(failedLevel1.some((line) => line.includes("[error:▎]"))).toBe(true);
 	});
 
 	test("expanding codemode folds any previously expanded child tools first", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const parentCallId = "call-code-fold-test";
 
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-step1",
 			toolName: "bash",
 			args: { command: "echo step1" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-step1",
 			toolName: "bash",
 			result: {
@@ -1056,6 +1331,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			{
 				content: [{ type: "text", text: "Script completed" }],
 				details: {
+					__piExtUiResolvedCalls: ["1"],
 					calls: [{ id: "1", name: "read", args: '{"path":"a.ts"}', status: "ok" }],
 				},
 			},
@@ -1073,18 +1349,18 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	});
 
 	test("stateHolder persists expanded nested tools across re-render cycles", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const parentCallId = "call-persist-test";
 
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-persist-1",
 			toolName: "read",
 			args: { path: "src/file.ts" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-persist-1",
 			toolName: "read",
 			result: {
@@ -1144,7 +1420,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	});
 
 	test("ctrl+click on child tool fully expands it to Level 2", () => {
-		clearCapturedNestedCalls();
+		runtime.clear();
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const parentCallId = "call-ctrl-test";
@@ -1152,13 +1428,13 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const manyLines = Array.from({ length: 40 }, (_, i) => `output line ${String(i + 1)}`).join(
 			"\n",
 		);
-		recordToolExecutionStart({
+		recordNestedStart({
 			toolCallId: "child-ctrl-1",
 			toolName: "bash",
 			args: { command: "generate-lines" },
 			parentToolCallId: parentCallId,
 		});
-		recordToolExecutionEnd({
+		runtime.tracker.recordEnd({
 			toolCallId: "child-ctrl-1",
 			toolName: "bash",
 			result: {
@@ -1216,12 +1492,12 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			defaultLevel: 1,
 		});
 
-		// 1. Full render includes header row and rails
+		// 1. Full render includes the header row and the section's own rail
 		const full = view.render(80);
 		expect(full[0]).toContain("▾ ✓ bash");
 		expect(full[1]).toContain("▎ hello line 1");
 
-		// 2. renderBody without options renders body with rails, but NO header row
+		// 2. renderBody without options renders the body, but NO header row
 		const bodyWithRail = view.renderBody(80);
 		expect(bodyWithRail).toHaveLength(2);
 		expect(bodyWithRail[0]).not.toContain("bash");
@@ -1526,7 +1802,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(lines).toHaveLength(3);
 
 		// Click on body line (row 1)
-		const bodyClick = view.handleMouse(createMouseClick(10, 1, { width: 80 }));
+		const bodyClick = view.handleMouse(createMouseClick(10, 2, { width: 80 }));
 		expect(bodyClick).toEqual({ handled: true });
 
 		// Click outside vertical bounds (row 10)
@@ -1721,7 +1997,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		});
 
 		const rows = view.render(80);
-		expect(rows.length).toBeLessThanOrEqual(502);
+		expect(rows.length).toBeLessThanOrEqual(504);
 		expect(rows[0]).toContain("bash cat massive.log");
 		expect(rows[rows.length - 1]).toMatch(/Output truncated: showing 64KB of/);
 	});
@@ -1845,9 +2121,9 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			registerToolRenderer(resolver: ToolRendererResolver) {
 				captured = resolver;
 			},
-			on() {},
+			on: () => () => {},
 		} as unknown as ExtensionAPI;
-		registerCollapsibleToolRenderer(pi);
+		registerCollapsibleToolRenderer(pi, runtime);
 		const native = createToolPresentationRenderers(pi, "custom_provider_tool", () => ({
 			summary: "done",
 			output: "ok",
@@ -1889,20 +2165,21 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(fullText).toContain("[Output truncated: showing 64KB of 100KB]");
 	});
 
-	test("prefix stripping checks tool name boundary in resolveToolCallSummary", () => {
+	test("states a tool's own arguments instead of reading the native call row", () => {
 		const resolve = setupResolver();
-		// Host renderCall outputs tool name concatenated with more chars (no word boundary)
 		const renderers = resolve("mcp__foo", () => ({
 			renderCall: () => new Text("mcp__foobar payload text", 0, 0),
 			renderResult: () => new Text("ok", 0, 0),
 		}))!;
 		expect(renderers).toBeDefined();
 
-		const ctx = createMockContext();
+		const ctx = createMockContext({ args: { query: "pi tui collapsible" } });
 		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
 		const rows = callView.render(80);
-		// Must NOT strip "bar payload text"; keeps exact full line because "foobar" has no boundary
-		expect(rows[0]).toContain("mcp__foobar payload text");
+		// No fixed-width render of the native row is parsed back into the header: the row states the
+		// arguments it received, so the native component's own text never leaks in.
+		expect(rows[0]).not.toContain("payload text");
+		expect(rows[0]).toContain('query="pi tui collapsible"');
 	});
 
 	test("bounds Unicode string content to 64KB UTF-8 byte budget (not UTF-16 code units)", () => {
@@ -1960,7 +2237,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const rows = view.render(40);
 		expect(rows.length).toBeGreaterThan(3);
 		expect(rows[0]).toContain("wrap_tool");
-		for (let i = 1; i < rows.length; i++) {
+		for (let i = 2; i < rows.length - 1; i++) {
 			expect(rows[i]).toMatch(/^▎ /);
 			expect(visibleWidth(rows[i] ?? "")).toBeLessThanOrEqual(40);
 		}
@@ -1975,9 +2252,9 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			defaultLevel: 1,
 		});
 		const rows = view.render(40);
-		expect(rows.length).toBeLessThanOrEqual(8);
+		expect(rows.length).toBeLessThanOrEqual(10);
 		const fullText = rows.join("\n");
-		expect(fullText).toMatch(/… \(\d+ more lines\)/);
+		expect(fullText).toMatch(/… \(\d+ more lines/);
 	});
 	test("isolates lastComponent so upstream renderResult expecting Container.clear does not fail with ToolView", () => {
 		const resolve = setupResolver();

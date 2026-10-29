@@ -1,5 +1,4 @@
 import {
-	type AgentToolResult,
 	copyToClipboard as copyToSystemClipboard,
 	getLanguageFromPath,
 	highlightCode,
@@ -16,7 +15,8 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { ToolPresentationProvider } from "@hheei/pi-ext-core";
-import { inlinePresentation, type NestedCallRecord, type ToolRenderContext } from "./renderer.js";
+import { extractChildToolCopyText, inlinePresentation, nativeRequestCopy } from "./native-tools.js";
+import type { NestedCallRecord, ToolRenderContext } from "./renderer.js";
 import {
 	type Collapsible,
 	type FoldLevel,
@@ -35,65 +35,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function extractChildToolCopyText(
-	call: CapturedToolCall | NestedCallRecord,
-	full?: boolean,
-): string {
-	const toolName = "toolName" in call ? call.toolName : (call as { name: string }).name;
-	const result = "result" in call ? (call as CapturedToolCall).result : undefined;
-	const args = "args" in call ? (call as CapturedToolCall).args : undefined;
-
-	if (toolName === "write" && isRecord(args) && typeof args.content === "string") {
-		return args.content;
+/**
+ * A copy keeps the request half byte-exact and strips only what follows it: the result is display
+ * text, while the request is what the model sent and may legitimately contain escapes.
+ */
+function copyText(text: string, request: string | undefined): string {
+	if (request === undefined || request === "" || !text.startsWith(request)) {
+		return stripTerminalSequences(text);
 	}
-
-	const heavyCommand =
-		toolName === "bash" && isRecord(args) && typeof args.command === "string"
-			? args.command
-			: toolName === "codemode" && isRecord(args) && typeof args.code === "string"
-				? args.code
-				: undefined;
-	if (heavyCommand !== undefined && heavyCommand.trim() !== "") {
-		if (full !== true) return heavyCommand;
-		const output = resultText(result);
-		return output === undefined ? heavyCommand : `${heavyCommand}\n---\n${output}`;
-	}
-
-	if (result && Array.isArray(result.content)) {
-		const texts = result.content
-			.filter(
-				(c): c is { type: "text"; text: string } =>
-					isRecord(c) && c.type === "text" && typeof c.text === "string",
-			)
-			.map((c) => c.text);
-		if (texts.length > 0) return texts.join("\n");
-	}
-
-	if (args !== undefined) {
-		if (typeof args === "string") return args;
-		try {
-			return JSON.stringify(args, null, 2);
-		} catch {
-			return String(args);
-		}
-	}
-
-	if ("summary" in call && typeof call.summary === "string") {
-		return call.summary;
-	}
-
-	return "";
-}
-
-function resultText(result: AgentToolResult<unknown> | undefined): string | undefined {
-	if (result === undefined || !Array.isArray(result.content)) return undefined;
-	const texts = result.content
-		.filter(
-			(c): c is { type: "text"; text: string } =>
-				isRecord(c) && c.type === "text" && typeof c.text === "string",
-		)
-		.map((c) => c.text);
-	return texts.length === 0 ? undefined : texts.join("\n");
+	return request + stripTerminalSequences(text.slice(request.length));
 }
 
 function formatDuration(ms: number | undefined): string {
@@ -115,6 +65,13 @@ export interface NestedCallsViewProps {
 	readonly theme: Theme;
 	readonly context: ToolRenderContext;
 	readonly resolveChildRenderer?: ((toolName: string) => ToolRenderers | undefined) | undefined;
+	/**
+	 * The owning layer's themed summary for a child call. A board cannot recover a child's semantic
+	 * tokens from text, so the layer that owns that tool states them here.
+	 */
+	readonly headerSummary?:
+		| ((toolName: string, args: unknown, theme: Theme) => string | undefined)
+		| undefined;
 	readonly copyToClipboard?: ((text: string) => Promise<void>) | undefined;
 	readonly stateHolder?: Record<string, unknown> | undefined;
 	readonly invalidate?: (() => void) | undefined;
@@ -232,7 +189,7 @@ export class NestedCallsView implements Component, Collapsible {
 		const { context } = this.#props;
 		// A captured call carries its own id. A persisted record has none, so it falls back to the
 		// parent's id — the only identity the host offers, and never a child's guess.
-		const toolCallId = "id" in call ? call.id : context.toolCallId;
+		const toolCallId = ("id" in call ? call.id : undefined) ?? context.toolCallId;
 		return {
 			...context,
 			lastComponent: undefined,
@@ -255,14 +212,16 @@ export class NestedCallsView implements Component, Collapsible {
 			this.#props.theme,
 			this.#callContext(call),
 		);
-		const text = stripTerminalSequences(
-			(full ? presentation?.copy?.full : presentation?.copy?.primary) ??
-				extractChildToolCopyText(call, full),
-		);
-		if (!text) return;
+		const chosen = full ? presentation?.copy?.full : presentation?.copy?.primary;
+		const text = chosen ?? copyText(extractChildToolCopyText(call, full), nativeRequestCopy(call));
+		const durationMs = 1500;
+		if (text === "") {
+			// Nothing was recorded to copy. A summary is not the request, so the copy reports failure.
+			this.#showCopyFeedback(callIndex, durationMs, true);
+			return;
+		}
 
 		const writeClip = this.#props.copyToClipboard ?? copyToSystemClipboard;
-		const durationMs = 1500;
 		// Feedback starts when the write settles: a rejected clipboard write is not a copy.
 		void writeClip(text).then(
 			() => this.#showCopyFeedback(callIndex, durationMs, false),
@@ -342,9 +301,10 @@ export class NestedCallsView implements Component, Collapsible {
 
 			const rawSummary = "summary" in call ? call.summary : undefined;
 			const rawArgs = "args" in call ? (call as { args?: unknown }).args : undefined;
+			// A record's summary is the fact its owner stated; the arguments only fill in for a capture.
 			const inline = inlinePresentation(
 				toolName,
-				rawArgs ?? rawSummary,
+				rawSummary ?? rawArgs,
 				"result" in call ? call.result?.details : undefined,
 				isError,
 			);
@@ -360,15 +320,21 @@ export class NestedCallsView implements Component, Collapsible {
 			);
 			// The child row is the child's own header minus the fold pin, so it carries the same token
 			// assignment as the row the same call would draw at top level.
-			const childSummary = stripTerminalSequences(
-				presentation?.summary ?? inline?.summary ?? argText,
-			);
-			const duration = formatDuration(call.durationMs);
+			const ownSummary =
+				presentation?.summary === undefined
+					? this.#props.headerSummary?.(toolName, rawArgs ?? rawSummary, theme)
+					: undefined;
+			const childSummary =
+				ownSummary === undefined || ownSummary === ""
+					? stripTerminalSequences(presentation?.summary ?? inline?.summary ?? argText)
+					: ownSummary;
 			const leftContent = formatToolHeaderText(
 				{
 					status: isRunning ? "running" : isError ? "error" : "ok",
 					title: toolName,
-					summary: [childSummary, duration].filter(Boolean).join(" · "),
+					summary: childSummary,
+					...(ownSummary === undefined || ownSummary === "" ? {} : { summaryStyled: true }),
+					meta: formatDuration(call.durationMs),
 				},
 				theme,
 			);
@@ -440,26 +406,22 @@ export class NestedCallsView implements Component, Collapsible {
 		if (result && resolveChildRenderer) {
 			const renderer = resolveChildRenderer(toolName);
 			if (renderer?.renderResult) {
-				try {
-					const childContext: ToolRenderContext = {
-						...this.#callContext(call),
-						state: undefined,
-					};
-					const comp = renderer.renderResult(
-						result,
-						{ expanded: expansionLevel === 2, isPartial: false },
-						theme,
-						childContext,
-					);
-					if (comp instanceof ToolView) {
-						comp.setFoldLevel(expansionLevel);
-						// Render body cleanly via deep headless interface without outer rail or header row
-						return comp.renderBody(width, { noRail: true });
-					}
-					return comp.render(width);
-				} catch {
-					// Fall through to plain text extraction on renderer failure
+				const childContext: ToolRenderContext = {
+					...this.#callContext(call),
+					state: undefined,
+				};
+				const comp = renderer.renderResult(
+					result,
+					{ expanded: expansionLevel === 2, isPartial: false },
+					theme,
+					childContext,
+				);
+				if (comp instanceof ToolView) {
+					comp.setFoldLevel(expansionLevel);
+					// Render body cleanly via deep headless interface without outer rail or header row
+					return comp.renderBody(width, { noRail: true });
 				}
+				return comp.render(width);
 			}
 		}
 
@@ -507,12 +469,39 @@ export class NestedCallsView implements Component, Collapsible {
 			return call.error.split("\n").map((l) => theme.fg("error", l));
 		}
 
+		if ("argsTruncated" in call && call.argsTruncated === true) {
+			const bytes = "argsBytes" in call && typeof call.argsBytes === "number" ? call.argsBytes : 0;
+			return [
+				theme.fg(
+					"dim",
+					bytes > 0 ? `(request not recorded: ${String(bytes)} bytes)` : "(request not recorded)",
+				),
+			];
+		}
+
+		// The request as the model sent it: the command or source, not a JSON wrapper around it.
+		const request = nativeRequestCopy(call);
+		if (request !== undefined) {
+			return stripTerminalSequences(request)
+				.split("\n")
+				.map((line) => theme.fg("dim", line));
+		}
+
 		if (args !== undefined) {
-			const text = typeof args === "string" ? args : JSON.stringify(args, null, 2);
+			const text =
+				typeof args === "string" ? stripTerminalSequences(args) : JSON.stringify(args, null, 2);
 			return text.split("\n").map((l) => theme.fg("dim", l));
 		}
 
-		return [theme.fg("dim", "(no output)")];
+		// A persisted record keeps a summary, not its request: say so instead of implying an empty call.
+		return [
+			theme.fg(
+				"dim",
+				"summary" in call && typeof call.summary === "string" && call.summary !== ""
+					? "(request not recorded; summary only)"
+					: "(no output)",
+			),
+		];
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {

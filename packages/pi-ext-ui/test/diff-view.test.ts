@@ -15,6 +15,10 @@ import {
 	type ToolRenderContext,
 	type ToolView,
 } from "../src/index.js";
+import { ToolUiRuntime } from "../src/runtime.js";
+
+/** The state this test's runtime owns; the extension builds the same one per Pi runtime. */
+const runtime = new ToolUiRuntime();
 
 const plainTheme = {
 	fg: (_color: string, text: string) => text,
@@ -63,11 +67,12 @@ function createMockContext(overrides?: Partial<ToolRenderContext>): ToolRenderCo
 function setupResolver(copyToClipboard?: (text: string) => Promise<void>): ToolRendererResolver {
 	let captured: ToolRendererResolver | undefined;
 	const pi = {
+		on: () => () => {},
 		registerToolRenderer(resolver: ToolRendererResolver) {
 			captured = resolver;
 		},
 	} as unknown as ExtensionAPI;
-	registerCollapsibleToolRenderer(pi, copyToClipboard ? { copyToClipboard } : undefined);
+	registerCollapsibleToolRenderer(pi, runtime, copyToClipboard ? { copyToClipboard } : undefined);
 	if (captured === undefined) throw new Error("Expected registerToolRenderer to be called");
 	return captured;
 }
@@ -165,6 +170,7 @@ describe("nested call rows and inline summaries", () => {
 			{
 				content: [{ type: "text", text: "Script completed\nWall time 0.2 seconds\nOutput:\nok" }],
 				details: {
+					__piExtUiResolvedCalls: ["1", "2", "3"],
 					calls: [
 						{
 							id: "1",

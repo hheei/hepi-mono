@@ -12,9 +12,14 @@ import {
 	type ToolRenderContext,
 	type ToolView,
 } from "../src/index.js";
+import { ToolUiRuntime } from "../src/runtime.js";
+
+/** The state this test's runtime owns; the extension builds the same one per Pi runtime. */
+const runtime = new ToolUiRuntime();
 
 const theme = {
 	fg: (_token: string, text: string) => text,
+	bg: (_token: string, text: string) => text,
 	bold: (text: string) => text,
 } as unknown as Theme;
 function context(overrides: Partial<ToolRenderContext> = {}): ToolRenderContext {
@@ -40,6 +45,7 @@ function host(copyToClipboard = vi.fn(async (_text: string) => {})) {
 	let resolver: ToolRendererResolver | undefined;
 	const pi = {
 		events: {},
+		on: () => () => {},
 		registerToolRenderer(value: ToolRendererResolver) {
 			resolver = value;
 		},
@@ -47,7 +53,7 @@ function host(copyToClipboard = vi.fn(async (_text: string) => {})) {
 	return {
 		pi,
 		register(overrides?: import("../src/renderer.js").CollapsibleToolRendererOptions) {
-			registerCollapsibleToolRenderer(pi, { copyToClipboard, ...overrides });
+			registerCollapsibleToolRenderer(pi, runtime, { copyToClipboard, ...overrides });
 		},
 		resolve(name: string, native?: ToolRenderers) {
 			if (resolver === undefined) throw new Error("UI not registered");
@@ -92,6 +98,57 @@ describe("optional owner presentation consumer", () => {
 		}
 		result.setFoldLevel(2);
 		expect(result.render(120).join("\n")).toContain("full request");
+	});
+
+	test.each([
+		"top-level",
+		"nested",
+	])("preserves owner copy bytes through the %s UI path", (path) => {
+		const h = host();
+		h.register();
+		const request = "  print('末尾')\n\u001b[31mZZ_TAIL_OWNER\u001b[0m  ";
+		const full = `${request}\n---\nclean output`;
+		const native = createToolPresentationRenderers(h.pi, "custom_owner", () => ({
+			...provider(),
+			request,
+			copy: { primary: request, full },
+		}));
+		const child = {
+			toolCallId: "parent/1",
+			toolName: "custom_owner",
+			args: {},
+			result: textToolResult("model payload", undefined),
+			durationMs: 25,
+			isError: false,
+		};
+		const renderer = path === "nested" ? h.resolve("codemode") : h.resolve("custom_owner", native);
+		const view = renderer.renderResult!(
+			textToolResult(
+				"model payload",
+				path === "nested" ? { __piExtUiCapturedCalls: [child] } : undefined,
+			),
+			{ expanded: false, isPartial: false },
+			theme,
+			context(),
+		) as ToolView;
+		view.render(80);
+		const click = {
+			type: "click",
+			button: "left",
+			x: 77,
+			y: path === "nested" ? 1 : 0,
+			screenX: 77,
+			screenY: 0,
+			width: 80,
+			height: 10,
+			ctrl: false,
+			shift: false,
+			alt: false,
+		} as const;
+		view.handleMouse(click);
+		expect(h.copyToClipboard).toHaveBeenLastCalledWith(request);
+		view.handleMouse({ ...click, shift: true });
+		expect(h.copyToClipboard).toHaveBeenLastCalledWith(full);
 	});
 
 	test("preserves failing content and leaves unrelated native renderers alone", () => {

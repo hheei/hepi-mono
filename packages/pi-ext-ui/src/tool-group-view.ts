@@ -1,21 +1,26 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import {
+	Box,
 	type Component,
 	Container,
 	MouseRegion,
 	Spacer,
 	Text,
+	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { fitRow } from "@hheei/pi-ext-core";
-import { formatDurationMs } from "./payload-parser.js";
+import { backgroundFill } from "./background.js";
 import {
-	formatToolHeaderText,
 	isCollapsible,
-	renderWithoutToolRails,
 	type ToolStatusKind,
 	type ToolViewChild,
+	toContentRows,
+	toSingleRow,
 } from "./tool-view.js";
+
+/** A settled block keeps its surface this long, then drops it so the transcript stays quiet. */
+const SURFACE_HOLD_MS = 5_000;
 
 export interface Usage {
 	readonly input: number;
@@ -24,27 +29,51 @@ export interface Usage {
 	readonly cacheWrite: number;
 }
 
-export type MemberKind = "assistant" | "tool" | "notice";
+export type MemberKind = "thinking" | "tool" | "notice";
 export type Category = "tools" | "thinking" | "notices";
+
+/**
+ * One model request the block owns, in transcript order. A block's requests are not the same set
+ * as its displayed members: the assistant text that ends a loop is native content, but its usage
+ * still belongs to the block whose work it answers.
+ */
+export interface RequestFact {
+	readonly usage?: Usage;
+}
 
 /** One transcript entry a block owns, reduced to the facts the collapsed frame draws. */
 export interface Member {
 	readonly kind: MemberKind;
 	readonly component: Component;
+	/**
+	 * Every original component this member stands for. A thinking member is one continuous run, so
+	 * it can span several assistant messages; the raw view prints them in order.
+	 */
+	readonly parts?: readonly Component[];
 	readonly title?: string;
 	readonly summary?: string;
 	readonly status?: ToolStatusKind;
 	readonly children?: readonly ToolViewChild[];
 	/** Nested calls the member made, when `children` is only what fits. */
 	readonly childCount?: number;
+	/** Full thinking text of the run, kept regardless of the host's hide preference. */
 	readonly thinking?: string;
-	readonly thinkingChars?: number;
-	readonly usage?: Usage;
-	readonly detail?: (width: number) => string[];
+	/** Pi hides thinking by default: show one preview row that opens the full text. */
+	readonly thinkingHidden?: boolean;
+	/**
+	 * A tool enters the block's counts only after its final result arrived. Streaming args, an
+	 * execution start, and partial results are not completed calls; a cancelled or failed call that
+	 * did receive its final result is.
+	 */
+	readonly completed?: boolean;
+	/** Rows this member shows directly under its label: a notice body or a preview. */
+	readonly content?: (width: number) => readonly string[];
+	/** Rows opening this member reveals; its presence is what makes the item expandable. */
+	readonly detail?: (width: number) => readonly string[];
 }
 
-/** One agent loop. Blocks created during the run share its origin; ending it freezes them. */
-export interface ToolGroupRun {
+/** Runtime duration of one continuous activity block. */
+export interface ToolGroupClock {
 	readonly startedAt: number;
 	endedAt?: number;
 }
@@ -57,8 +86,67 @@ interface Hit {
 type Action =
 	| { readonly kind: "none" }
 	| { readonly kind: "category"; readonly category: Category }
-	| { readonly kind: "item"; readonly member: Component; readonly child?: number }
+	| { readonly kind: "item"; readonly member: Component }
 	| { readonly kind: "member"; readonly wrapper: Component };
+
+/** Every original component of a member, in transcript order. */
+export function memberParts(member: Member): readonly Component[] {
+	return member.parts ?? [member.component];
+}
+
+/**
+ * The one visible unit a block keeps outside itself: the transcript's last top-level unit, drawn by
+ * its original component so its own Level 0, copy, and fold state stay intact. It normalizes the
+ * single blank row that separates it from the block and forwards mouse events to the real parts.
+ */
+interface PartOffset {
+	readonly part: Component;
+	readonly top: number;
+	readonly height: number;
+	/** Leading rows the part draws that the wrapper removed. */
+	readonly skip: number;
+}
+
+export class TailUnit implements Component {
+	readonly #parts: readonly Component[];
+	#offsets: PartOffset[] = [];
+
+	constructor(member: Member) {
+		this.#parts = memberParts(member);
+	}
+
+	render(width: number): string[] {
+		const offsets: PartOffset[] = [];
+		const rows: string[] = [];
+		for (const part of this.#parts) {
+			const all = part.render(width);
+			const skip = all[0] === "" ? 1 : 0;
+			const own = all.slice(skip);
+			if (own.length === 0) continue;
+			if (rows.length > 0) rows.push("");
+			offsets.push({ part, top: rows.length, height: own.length, skip });
+			rows.push(...own);
+		}
+		this.#offsets = offsets;
+		return rows.length === 0 || rows[0] === "" ? rows : ["", ...rows];
+	}
+
+	handleMouse(event: Parameters<NonNullable<Component["handleMouse"]>>[0]) {
+		for (const { part, top, height, skip } of this.#offsets) {
+			if (event.y < top || event.y >= top + height) continue;
+			return part.handleMouse?.({
+				...event,
+				y: event.y - top + skip,
+				height: height + skip,
+			});
+		}
+		return undefined;
+	}
+
+	invalidate(): void {
+		for (const part of this.#parts) part.invalidate?.();
+	}
+}
 
 function formatElapsed(milliseconds: number): string {
 	const total = Math.max(0, Math.floor(milliseconds / 1000));
@@ -80,15 +168,35 @@ function formatTokens(count: number): string {
 	return `${String(Math.round(count / 1_000_000))}M`;
 }
 
-function cacheHitRate(latest: Usage | undefined, cacheTotal: number): string {
-	if (latest === undefined || cacheTotal <= 0) return "—";
-	const prompt = latest.input + latest.cacheRead + latest.cacheWrite;
-	if (prompt <= 0) return "—";
-	return `${((latest.cacheRead / prompt) * 100).toFixed(1).replace(/\.0$/, "")}%`;
+/**
+ * The native footer's cache-hit rule: the last request that actually measured a prompt. A zeroed
+ * streaming placeholder is not that request, and a measured prompt with no cache read is 0%, not
+ * unknown — missing data and a real zero must not share one placeholder.
+ */
+function cacheHitRate(latestPrompt: Usage | undefined): string {
+	if (latestPrompt === undefined) return "—";
+	const prompt = latestPrompt.input + latestPrompt.cacheRead + latestPrompt.cacheWrite;
+	return `${((latestPrompt.cacheRead / prompt) * 100).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
-function preview(text: string): string | undefined {
-	return text.split("\n").find((line) => line.trim() !== "");
+const PREVIEW_GRAPHEMES = 20;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * The thinking preview: the first line's leading graphemes, and whether anything follows them. A
+ * grapheme cap keeps emoji and CJK clusters whole; the frame still truncates to the cells it has.
+ */
+function thinkingPreview(text: string): { readonly head: string; readonly more: boolean } {
+	const content = text.trim();
+	const line = toSingleRow(content.split("\n").find((row) => row.trim() !== "") ?? "");
+	let head = "";
+	let count = 0;
+	for (const { segment } of graphemes.segment(line)) {
+		if (count === PREVIEW_GRAPHEMES) break;
+		head += segment;
+		count++;
+	}
+	return { head, more: content !== head };
 }
 
 /**
@@ -102,31 +210,48 @@ export class ToolGroupView extends Container {
 	readonly #header = new Text("", 0, 0);
 	readonly #ui: ExtensionUIContext;
 	readonly #redraw: () => void;
-	readonly #run: ToolGroupRun | undefined;
+	/** The stable clock for this block; restored history stays unknown until live content joins. */
+	#clock: ToolGroupClock | undefined;
+	/** The block's own members, drawn inside the group. */
 	#members: Member[] = [];
-	#settled = false;
+	/** The block's last visible unit, drawn outside the group by its own component. */
+	#tail: Member | undefined;
+	/** Every model request the block owns, in transcript order, including the tail's and native prose. */
+	#requests: readonly RequestFact[] = [];
 	#raw = false;
 	#category: Category | undefined;
-	#item: { readonly member: Component; readonly child?: number } | undefined;
+	#item: Component | undefined;
 	#renderedExpanded = false;
+	#shell: "collapsed" | "raw" = "collapsed";
+	/** When the block last became quiet; the surface hold counts from here. */
+	#settledAt: number | undefined;
+	#holdTimer: ReturnType<typeof setTimeout> | undefined;
 	#hits: Hit[] = [];
+	readonly #heading: Component;
+	readonly #body: Component;
+	// One extra colored row above and below: the block needs breathing room inside its background.
+	readonly #box = new Box(0, 1);
+	readonly #spacer = new Spacer(1);
 
-	constructor(ui: ExtensionUIContext, redraw: () => void, run: ToolGroupRun | undefined) {
+	constructor(ui: ExtensionUIContext, redraw: () => void) {
 		super();
 		this.#ui = ui;
 		this.#redraw = redraw;
-		this.#run = run;
-		const heading = new MouseRegion(this.#header, (event) => {
+		this.#heading = new MouseRegion(this.#header, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			this.#toggleRaw();
 			return { handled: true, render: true };
 		});
-		const body: Component = {
+		this.#body = {
 			render: (width) => this.#renderBody(width),
 			handleMouse: (event) => this.#hit(event),
 			invalidate() {},
 		};
-		this.children = [new Spacer(1), heading, body];
+		// The group background covers the header, categories, and footer. Zero padding keeps the rows
+		// at the width they were laid out for; a tool's own outputPad must not be counted twice.
+		this.#box.addChild(this.#heading);
+		this.#box.addChild(this.#body);
+		this.children = [this.#spacer, this.#box];
 	}
 
 	#toggleRaw(): void {
@@ -141,94 +266,141 @@ export class ToolGroupView extends Container {
 		this.#redraw();
 	}
 
-	/**
-	 * The footer names work in progress: the latest top-level call that is still active, or the last
-	 * one started when none is. Arrival order of partial updates must not decide it.
-	 */
-	#tailIndex(): number {
-		let last = -1;
-		let active = -1;
-		for (const [index, member] of this.#members.entries()) {
-			if (member.kind !== "tool") continue;
-			last = index;
-			if (member.status === "running" || member.status === "streaming") active = index;
-		}
-		return active === -1 ? last : active;
-	}
-
-	#historyTools(tailIndex: number): number[] {
-		// The footer slot shows the tail only while the block runs; once it carries the request
-		// totals the tail belongs to the list, or its call would disappear from the block.
-		const tail = this.#settled ? -1 : tailIndex;
-		const indices: number[] = [];
-		for (const [index, member] of this.#members.entries()) {
-			if (member.kind === "tool" && index !== tail) indices.push(index);
-		}
-		return indices;
-	}
-
 	#thinkingItems(): Member[] {
-		return this.#members.filter((member) => (member.thinkingChars ?? 0) > 0);
+		return this.#members.filter(
+			(member) => member.thinking !== undefined && member.thinking !== "",
+		);
 	}
 
 	#noticeItems(): Member[] {
 		return this.#members.filter((member) => member.kind === "notice");
 	}
 
+	/**
+	 * Completed calls only: a container's final children replace its parent exactly once, and a call
+	 * still streaming args or running has not produced that fact yet.
+	 */
 	#calls(): number {
 		let total = 0;
-		for (const member of this.#members) {
-			if (member.kind !== "tool") continue;
+		// The tail outside the group is still this block's work, so its calls belong to the header.
+		for (const member of this.#block()) {
+			if (member.kind !== "tool" || member.completed !== true) continue;
 			// The count is a fact the tool reports; a bounded child list must not lower it.
 			total += member.childCount ?? (member.children === undefined ? 1 : member.children.length);
 		}
 		return total;
 	}
 
+	/** The group's own members, then the unit it leaves outside. */
+	#block(): Member[] {
+		return this.#tail === undefined ? [...this.#members] : [...this.#members, this.#tail];
+	}
+
+	/** The block's own last fact: the newest member that states a status, tail included. */
+	#lastStatus(): ToolStatusKind | undefined {
+		const block = this.#block();
+		for (let index = block.length - 1; index >= 0; index -= 1) {
+			const status = block[index]?.status;
+			if (status !== undefined) return status;
+		}
+		return undefined;
+	}
+
+	/**
+	 * The surface states the block's last fact, not its worst one, so one old failure cannot tint a
+	 * block forever. A settled block keeps that color for five seconds and then falls back to the
+	 * neutral surface, because a transcript full of settled blocks is a transcript to read, not a wall
+	 * of colored panels.
+	 */
+	#surfaceToken(): "toolErrorBg" | "toolPendingBg" | "toolSuccessBg" {
+		const last = this.#lastStatus();
+		if (last === "running" || last === "streaming") {
+			this.#settledAt = undefined;
+			this.#stopHold();
+			return "toolPendingBg";
+		}
+		const now = performance.now();
+		this.#settledAt ??= now;
+		const held = now - this.#settledAt;
+		if (last === undefined || held >= SURFACE_HOLD_MS) return "toolPendingBg";
+		this.#hold(SURFACE_HOLD_MS - held);
+		return last === "error" ? "toolErrorBg" : "toolSuccessBg";
+	}
+
+	/** One repaint when the hold expires; nothing keeps ticking after that. */
+	#hold(delay: number): void {
+		if (this.#holdTimer !== undefined) return;
+		this.#holdTimer = setTimeout(() => {
+			this.#holdTimer = undefined;
+			this.#redraw();
+		}, delay);
+	}
+
+	#stopHold(): void {
+		if (this.#holdTimer === undefined) return;
+		clearTimeout(this.#holdTimer);
+		this.#holdTimer = undefined;
+	}
+
+	/**
+	 * Release the block's own lifetime. The projection drops a block when it is evicted, when
+	 * grouping is disabled, or when the patch unloads; an idempotent dispose keeps that path honest,
+	 * so a removed block can never ask for a repaint.
+	 */
+	dispose(): void {
+		this.#stopHold();
+	}
+
 	#usage(): {
 		readonly requests: number;
+		/** Whether any assistant reported usage at all; without it IN/OUT stay unknown. */
+		readonly measured: boolean;
 		readonly input: number;
 		readonly output: number;
-		readonly cacheTotal: number;
-		readonly latest: Usage | undefined;
+		/** The last assistant usage that measured a prompt: the only cache-hit fact. */
+		readonly latestPrompt: Usage | undefined;
 	} {
 		let requests = 0;
 		let input = 0;
 		let output = 0;
-		let cacheTotal = 0;
-		let latest: Usage | undefined;
-		for (const member of this.#members) {
-			if (member.kind !== "assistant") continue;
+		let measured = false;
+		let latestPrompt: Usage | undefined;
+		for (const fact of this.#requests) {
 			requests += 1;
-			if (member.usage === undefined) continue;
-			input += member.usage.input;
-			output += member.usage.output;
-			cacheTotal += member.usage.cacheRead + member.usage.cacheWrite;
-			latest = member.usage;
+			const usage = fact.usage;
+			if (usage === undefined) continue;
+			measured = true;
+			input += usage.input;
+			output += usage.output;
+			// A streaming snapshot can arrive with every field zeroed; that is a placeholder, not a
+			// measured prompt, so it must not overwrite the last known cache-hit fact.
+			if (usage.input + usage.cacheRead + usage.cacheWrite > 0) latestPrompt = usage;
 		}
-		return { requests, input, output, cacheTotal, latest };
+		return { requests, measured, input, output, latestPrompt };
 	}
 
 	/** The block footer: the whole block's request and token totals, fixed under the body. */
 	#footerRow(): string {
 		const theme = this.#ui.theme;
 		const usage = this.#usage();
-		const input = usage.latest === undefined ? "—" : formatTokens(usage.input);
-		const output = usage.latest === undefined ? "—" : formatTokens(usage.output);
+		const input = usage.measured ? formatTokens(usage.input) : "—";
+		const output = usage.measured ? formatTokens(usage.output) : "—";
 		const parts = [
-			`Requests ×${usage.requests}`,
+			`requests ×${usage.requests}`,
 			`IN ${input}`,
 			`OUT ${output}`,
-			`CH ${cacheHitRate(usage.latest, usage.cacheTotal)}`,
+			`CH ${cacheHitRate(usage.latestPrompt)}`,
 		];
 		return theme.fg("dim", parts.join(" · "));
 	}
 
 	#categoryRow(category: Category, label: string, detail: string): string {
 		const theme = this.#ui.theme;
-		const pin = `${theme.fg("dim", this.#category === category ? "▾" : "▸")} `;
+		const open = this.#category === category;
+		const pin = `${theme.fg("dim", open ? "▾" : "▸")} `;
 		const tail = detail === "" ? "" : `${theme.fg("dim", " · ")}${theme.fg("dim", detail)}`;
-		return `${pin}${theme.fg("muted", label)}${tail}`;
+		// The open category is the block's focus point; the arrow still carries the state alone.
+		return `${pin}${theme.fg(open ? "accent" : "text", label)}${tail}`;
 	}
 
 	#renderBody(width: number): string[] {
@@ -236,25 +408,31 @@ export class ToolGroupView extends Container {
 		return this.#renderFrame(width);
 	}
 
+	/**
+	 * The whole block expanded: no group shell and no per-member fill, so every block shows only the
+	 * styling its own component draws.
+	 */
 	#renderRaw(width: number): string[] {
-		const theme = this.#ui.theme;
-		const rail = theme.fg("muted", "─".repeat(Math.max(0, width)));
-		const lines: string[] = [rail];
-		const hits: Hit[] = [{ height: 1, action: { kind: "none" } }];
+		const lines: string[] = [];
+		const hits: Hit[] = [];
 		for (const member of this.#members) {
-			const wrapper = this.#offsetWrapper(member.component);
-			const rows = renderWithoutToolRails(wrapper, Math.max(1, width));
-			if (rows.length === 0) continue;
-			hits.push({ height: rows.length, action: { kind: "member", wrapper } });
-			for (const row of rows) lines.push(fitRow(row, Math.max(0, width), "…"));
+			const wrapper = this.#memberWrapper(member);
+			const own = wrapper.render(Math.max(1, width));
+			if (own.length === 0) continue;
+			// One blank row between adjacent semantic blocks; inner blank rows stay where they are.
+			if (lines.length > 0) {
+				lines.push("");
+				hits.push({ height: 1, action: { kind: "none" } });
+			}
+			// The expanded group is transparent: every block keeps only the styling it draws itself.
+			for (const row of own) lines.push(fitRow(row, Math.max(0, width), "…"));
+			hits.push({ height: own.length, action: { kind: "member", wrapper } });
 		}
-		lines.push(rail);
-		hits.push({ height: 1, action: { kind: "none" } });
 		this.#hits = hits;
 		return lines;
 	}
 
-	/** Header, rails, the three categories, and the read-only tail; every row is one terminal row. */
+	/** Header, the three categories, and the statistics footer; every row is one terminal row. */
 	#renderFrame(width: number): string[] {
 		const theme = this.#ui.theme;
 		const lines: string[] = [];
@@ -269,10 +447,11 @@ export class ToolGroupView extends Container {
 			for (const row of rows) lines.push(fitRow(row, Math.max(0, width), "…"));
 			hits.push({ height: rows.length, action });
 		};
-		const rail = theme.fg("muted", "─".repeat(Math.max(0, width)));
-		const tailIndex = this.#tailIndex();
-		const tools = this.#historyTools(tailIndex);
-		push(rail);
+		const tools: number[] = [];
+		for (const [index, member] of this.#members.entries()) {
+			if (member.kind === "tool") tools.push(index);
+		}
+		push(theme.fg("borderMuted", "─".repeat(Math.max(0, width))));
 
 		const notices = this.#noticeItems();
 		if (notices.length > 0) {
@@ -292,19 +471,27 @@ export class ToolGroupView extends Container {
 		const thinking = this.#thinkingItems();
 		if (thinking.length > 0) {
 			const tokens = Math.ceil(
-				thinking.reduce((sum, member) => sum + (member.thinkingChars ?? 0), 0) / 4,
+				thinking.reduce((sum, member) => sum + (member.thinking?.length ?? 0), 0) / 4,
 			);
-			push(this.#categoryRow("thinking", "thinking", `${String(tokens)} tokens`), {
-				kind: "category",
-				category: "thinking",
-			});
+			push(
+				this.#categoryRow("thinking", `thinking x${thinking.length}`, `${String(tokens)} tokens`),
+				{
+					kind: "category",
+					category: "thinking",
+				},
+			);
 			if (this.#category === "thinking") this.#renderThinking(thinking, width, push);
 		}
 
+		// Names and header calls share one eligibility: only completed calls are counted. A tool that
+		// is still streaming or running stays listed and expandable, but adds no number.
 		const counts = new Map<string, number>();
+		let listed = 0;
 		for (const index of tools) {
 			const member = this.#members[index];
 			if (member === undefined) continue;
+			listed += 1;
+			if (member.completed !== true) continue;
 			if (member.children === undefined) {
 				if (member.title !== undefined)
 					counts.set(member.title, (counts.get(member.title) ?? 0) + 1);
@@ -313,105 +500,105 @@ export class ToolGroupView extends Container {
 			for (const child of member.children)
 				counts.set(child.title, (counts.get(child.title) ?? 0) + 1);
 		}
-		if (counts.size > 0) {
+		if (listed > 0) {
 			const names = [...counts]
 				.map(
 					([name, count]) =>
 						`${theme.fg("toolTitle", theme.bold(name))} ${theme.fg("dim", `×${count}`)}`,
 				)
 				.join(theme.fg("dim", " · "));
-			push(this.#categoryRow("tools", names, ""), {
+			push(this.#categoryRow("tools", names === "" ? "tools" : names, ""), {
 				kind: "category",
 				category: "tools",
 			});
-			if (this.#category === "tools") this.#renderTools(theme, tools, width, push, pushBlock);
+			if (this.#category === "tools") this.#renderTools(tools, width, push, pushBlock);
 		}
 
-		push(rail);
-
-		// One footer slot: the running tail while the block is live, the block totals once it settles.
-		const tail = this.#members[tailIndex];
-		if (this.#settled) push(this.#footerRow());
-		else if (tail !== undefined && tail.title !== undefined) {
-			push(formatToolHeaderText({ status: tail.status, title: tail.title }, theme));
-		}
+		// The rails bracket the header, categories, and any opened detail; the footer sits below them.
+		push(theme.fg("borderMuted", "─".repeat(Math.max(0, width))));
+		// The footer is always the block's request and token totals: one row, never a tool status.
+		push(this.#footerRow());
 		this.#hits = hits;
 		return lines;
 	}
 
-	/** Every tool at its own level 0, one blank row between calls. */
+	/**
+	 * Every tool at its own fold level, one blank row between calls. A container is one tool here too:
+	 * its component draws its own board, and `children`/childCount only feed the counts.
+	 */
 	#renderTools(
-		theme: ExtensionUIContext["theme"],
 		tools: readonly number[],
 		width: number,
 		push: (row: string, action?: Action) => void,
 		pushBlock: (rows: readonly string[], action: Action) => void,
 	): void {
 		let first = true;
-		const separate = () => {
-			if (!first) push("");
-			first = false;
-		};
 		for (const memberIndex of tools) {
 			const member = this.#members[memberIndex];
 			if (member === undefined) continue;
-			if (member.children === undefined) {
-				const wrapper = this.#offsetWrapper(member.component);
-				separate();
-				// One hit for the whole tool: its own rows carry the header, copy slot, and fold state.
-				pushBlock(renderWithoutToolRails(wrapper, Math.max(1, width)), {
-					kind: "member",
-					wrapper,
-				});
-				continue;
-			}
-			for (const [index, child] of member.children.entries()) {
-				separate();
-				const open = this.#item?.member === member.component && this.#item.child === index;
-				// The container's own row already reads `summary · duration`; a child listed in the
-				// group must read the same, or the same call looks different in the two views.
-				const summary = [child.summary ?? "", formatDurationMs(child.durationMs)]
-					.filter((part) => part !== "")
-					.join(" · ");
-				push(
-					`${theme.fg("dim", open ? "▾" : "▸")} ${formatToolHeaderText({ status: child.status, title: child.title, summary }, theme)}`,
-					{ kind: "item", member: member.component, child: index },
-				);
-				if (!open || child.detail === undefined) continue;
-				for (const row of this.#detailRows(child.detail, width)) push(row);
-			}
+			const wrapper = this.#offsetWrapper(member.component);
+			const rows = wrapper.render(Math.max(1, width));
+			if (rows.length === 0) continue;
+			if (!first) push("");
+			first = false;
+			// One hit for the whole tool: its own rows carry the header, copy slot, and fold state.
+			pushBlock(rows, { kind: "member", wrapper });
 		}
 	}
 
-	/** One thinking block per assistant turn: a label row, one preview row, and the text on demand. */
+	/**
+	 * Thinking items. While the host hides thinking, an item is one row: its 20-grapheme content
+	 * preview, which opens the full text. While thinking is visible, the full text is already there.
+	 */
 	#renderThinking(
 		thinking: readonly Member[],
 		width: number,
 		push: (row: string, action?: Action) => void,
 	): void {
-		const theme = this.#ui.theme;
-		let first = true;
 		for (const member of thinking) {
-			if (!first) push("");
-			first = false;
-			const open = this.#item?.member === member.component;
-			const tokens = Math.ceil((member.thinkingChars ?? 0) / 4);
-			push(
-				`${theme.fg("dim", open ? "▾" : "▸")} ${theme.fg("muted", "thinking")}${theme.fg("dim", ` · ${String(tokens)} tokens`)}`,
-				{ kind: "item", member: member.component },
-			);
 			const text = member.thinking;
 			if (text === undefined) continue;
-			if (open) {
-				for (const row of this.#detailRows(text, width)) push(row);
+			if (member.thinkingHidden !== true) {
+				for (const row of this.#thinkingRows(text, width)) push(row);
 				continue;
 			}
-			const line = preview(text);
-			if (line !== undefined) push(`${theme.fg("dim", "▎")} ${theme.fg("thinkingText", line)}`);
+			const open = this.#item === member.component;
+			if (!open) {
+				push(this.#thinkingPreviewRow(text, width), { kind: "item", member: member.component });
+				continue;
+			}
+			// The first row is still the item's own hit area, so a click folds it back.
+			for (const [index, row] of this.#thinkingRows(text, width).entries())
+				push(row, index === 0 ? { kind: "item", member: member.component } : { kind: "none" });
 		}
 	}
 
-	/** Notices keep one row each and open their provider-rendered detail in place. */
+	/** One preview row: the grapheme head plus an ellipsis, then cut to the cells the rail leaves. */
+	#thinkingPreviewRow(text: string, width: number): string {
+		const theme = this.#ui.theme;
+		const { head, more } = thinkingPreview(text);
+		const room = Math.max(1, width - 2);
+		const fitted = truncateToWidth(head, more ? Math.max(1, room - 1) : room, "…");
+		const preview = more && fitted === head ? `${head}…` : fitted;
+		return `${theme.fg("dim", "▎")} ${theme.fg("thinkingText", theme.italic(preview))}`;
+	}
+
+	/** Full thinking text: paragraphs keep their separation, every row wraps to the indent's width. */
+	#thinkingRows(text: string, width: number): string[] {
+		const theme = this.#ui.theme;
+		const inner = Math.max(1, width - 2);
+		return toContentRows(text).flatMap((line) => {
+			const wrapped = wrapTextWithAnsi(line, inner);
+			return (wrapped.length > 0 ? wrapped : [""]).map((row) =>
+				row === "" ? "" : `  ${theme.fg("thinkingText", theme.italic(row))}`,
+			);
+		});
+	}
+
+	/**
+	 * Notices print the content their own view lays out: the preview is directly visible, and only a
+	 * real body adds a pin. A plain notify therefore appears once, indented, with no item action.
+	 */
 	#renderNotices(
 		notices: readonly Member[],
 		width: number,
@@ -420,13 +607,16 @@ export class ToolGroupView extends Container {
 		const theme = this.#ui.theme;
 		for (const member of notices) {
 			const detail = member.detail;
-			const open = detail !== undefined && this.#item?.member === member.component;
-			const pin = detail === undefined ? "" : `${theme.fg("dim", open ? "▾" : "▸")} `;
-			push(
-				`${pin}${member.summary ?? member.title ?? ""}`,
-				detail === undefined ? { kind: "none" } : { kind: "item", member: member.component },
-			);
-			if (!open) continue;
+			const open = detail !== undefined && this.#item === member.component;
+			if (member.summary !== undefined) {
+				const pin = detail === undefined ? "" : `${theme.fg("dim", open ? "▾" : "▸")} `;
+				push(
+					`${pin}${member.summary}`,
+					detail === undefined ? { kind: "none" } : { kind: "item", member: member.component },
+				);
+			}
+			if (member.content !== undefined) for (const row of member.content(width)) push(row);
+			if (!open || detail === undefined) continue;
 			for (const row of detail(width)) push(row);
 		}
 	}
@@ -449,13 +639,7 @@ export class ToolGroupView extends Container {
 				return { handled: true, render: true };
 			}
 			if (action.kind === "item") {
-				const same = this.#item?.member === action.member && this.#item.child === action.child;
-				this.#item = same
-					? undefined
-					: {
-							member: action.member,
-							...(action.child === undefined ? {} : { child: action.child }),
-						};
+				this.#item = this.#item === action.member ? undefined : action.member;
 				this.#redraw();
 				return { handled: true, render: true };
 			}
@@ -489,21 +673,60 @@ export class ToolGroupView extends Container {
 	}
 
 	/**
-	 * Expanded detail keeps its text. The user opened it to read it, so a line wider than the frame is
-	 * wrapped to the width the indent leaves instead of being cut with an ellipsis.
+	 * A member's rows for the raw view: every original part in order, without Pi's leading separator
+	 * and with exactly one blank row between parts (a thinking run keeps its paragraph separation).
 	 */
-	#detailRows(text: string, width: number): string[] {
-		const inner = Math.max(1, width - 2);
-		return text.split("\n").flatMap((line) => {
-			const wrapped = wrapTextWithAnsi(line, inner);
-			return (wrapped.length > 0 ? wrapped : [""]).map((row) => `  ${row}`);
-		});
+	#memberWrapper(member: Member): Component {
+		const parts = memberParts(member);
+		let offsets: PartOffset[] = [];
+		return {
+			render: (width) => {
+				const rows: string[] = [];
+				const next: PartOffset[] = [];
+				for (const part of parts) {
+					const all = part.render(width);
+					const skip = all[0] === "" ? 1 : 0;
+					const own = all.slice(skip);
+					if (own.length === 0) continue;
+					if (rows.length > 0) rows.push("");
+					next.push({ part, top: rows.length, height: own.length, skip });
+					rows.push(...own);
+				}
+				offsets = next;
+				return rows;
+			},
+			handleMouse(event) {
+				for (const { part, top, height, skip } of offsets) {
+					if (event.y < top || event.y >= top + height) continue;
+					return part.handleMouse?.({
+						...event,
+						y: event.y - top + skip,
+						height: height + skip,
+					});
+				}
+				return undefined;
+			},
+			invalidate() {},
+		};
 	}
 
-	update(members: Member[], settled: boolean): void {
+	/**
+	 * `clock` belongs to this continuous block. Restored history has none until live content joins it.
+	 *
+	 * `tail` is the block's last visible unit, which the projection draws outside the group; its calls,
+	 * requests, and background state still belong to this block.
+	 */
+	update(
+		members: Member[],
+		tail: Member | undefined,
+		requests: readonly RequestFact[],
+		clock: ToolGroupClock | undefined,
+	): void {
 		this.#members = members;
-		this.#settled = settled;
-		if (this.#item !== undefined && !members.some((m) => m.component === this.#item?.member))
+		this.#tail = tail;
+		this.#requests = requests;
+		if (this.#clock === undefined) this.#clock = clock;
+		if (this.#item !== undefined && !members.some((m) => m.component === this.#item))
 			this.#item = undefined;
 		if (this.#category === "thinking" && this.#thinkingItems().length === 0)
 			this.#category = undefined;
@@ -529,13 +752,15 @@ export class ToolGroupView extends Container {
 		}
 		this.#renderedExpanded = this.#raw || globalExpanded;
 		const theme = this.#ui.theme;
+		this.#syncShell();
+		this.#box.setBgFn(backgroundFill(theme, this.#surfaceToken()));
 		const calls = this.#calls();
 		const elapsed =
-			this.#run === undefined
+			this.#clock === undefined
 				? "—"
-				: formatElapsed((this.#run.endedAt ?? performance.now()) - this.#run.startedAt);
+				: formatElapsed((this.#clock.endedAt ?? performance.now()) - this.#clock.startedAt);
 		const details = [
-			theme.fg("muted", "collapse views"),
+			theme.fg("text", "collapse views"),
 			theme.fg("dim", elapsed),
 			theme.fg("dim", `${calls} ${calls === 1 ? "call" : "calls"}`),
 		].join(theme.fg("dim", " · "));
@@ -547,5 +772,17 @@ export class ToolGroupView extends Container {
 			),
 		);
 		return super.render(width);
+	}
+
+	/**
+	 * The group shell follows the fold state: a background block around the aggregate, or transparent
+	 * rows when the whole block is expanded. Only the shell changes; members keep their components.
+	 */
+	#syncShell(): void {
+		const shell = this.#renderedExpanded ? "raw" : "collapsed";
+		if (this.#shell === shell) return;
+		this.#shell = shell;
+		this.children =
+			shell === "raw" ? [this.#spacer, this.#heading, this.#body] : [this.#spacer, this.#box];
 	}
 }

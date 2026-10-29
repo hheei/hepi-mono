@@ -1,7 +1,6 @@
 import {
 	type AgentToolResult,
 	type ExtensionAPI,
-	getLanguageFromPath,
 	highlightCode,
 	type Theme,
 	type ToolRendererResolver,
@@ -16,10 +15,12 @@ import {
 	getToolPresentationProvider,
 	hasOptionalToolRenderers,
 	type ToolPresentation,
+	type ToolPresentationChild,
 	type ToolPresentationProvider,
 } from "@hheei/pi-ext-core";
 import { DiffView } from "./diff-view.js";
 import { NestedCallsView } from "./nested-calls-view.js";
+import type { ToolUiRuntime } from "./runtime.js";
 import {
 	type FoldLevel,
 	formatToolHeaderText,
@@ -30,12 +31,7 @@ import {
 	type ToolViewChild,
 	type ToolViewCopySpec,
 } from "./tool-view.js";
-import {
-	type CapturedToolCall,
-	getCapturedNestedCalls,
-	recordToolExecutionEnd,
-	recordToolExecutionStart,
-} from "./tracker.js";
+import type { CapturedToolCall } from "./tracker.js";
 
 /** Optional host metadata is absent on early supported Pi versions. */
 export type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2] & {
@@ -53,24 +49,29 @@ export const SPECIALIZED_TOOL_RENDERERS = ["codemode"] as const;
 export type SpecializedToolRendererName = (typeof SPECIALIZED_TOOL_RENDERERS)[number];
 
 import {
+	inlinePresentation,
+	nativeHeaderSummary,
+	nativeHeavyRequest,
+	nativeOutputLanguage,
+	nativeRequestBlock,
+	nativeResultText,
+	nativeTimeoutFact,
+} from "./native-tools.js";
+import {
 	callStatsParts,
 	estimateStreamingTokens,
-	extractCodemodeHeaderFacts,
-	extractHeavyInputCommand,
 	extractNestedCalls,
-	extractResultText,
-	extractSummaryArg,
 	formatCostUsd,
 	formatDurationMs,
-	inlinePresentation,
 	isRecord,
 	type NestedCallRecord,
+	RESOLVED_CALLS_KEY,
 	resolveContainerStatus,
 } from "./payload-parser.js";
 
+export { extractChildToolCopyText, inlinePresentation } from "./native-tools.js";
 export {
 	estimateStreamingTokens,
-	inlinePresentation,
 	type NestedCallRecord,
 } from "./payload-parser.js";
 
@@ -85,31 +86,23 @@ export interface CollapsibleToolRendererOptions {
 	readonly copyToClipboard?: ((text: string) => Promise<void>) | undefined;
 }
 
-function detectCodeLanguage(toolName: string): string | undefined {
-	if (toolName === "bash") return "bash";
-	if (toolName === "codemode") return "javascript";
-	if (toolName === "python_eval") return "python";
-	return undefined;
-}
-
 function createInputCodeSection(
 	toolName: string,
 	args: unknown,
 	theme: Theme,
 	railToken: RailColorToken = "muted",
 ): RailSection | undefined {
-	const raw = extractHeavyInputCommand(toolName, args);
-	if (raw === undefined || raw === "") return undefined;
-	const isShell = toolName === "bash";
-	const clean = raw.replace(/\r/g, "").replace(/\t/g, "  ");
-	const lang = detectCodeLanguage(toolName);
+	const block = nativeRequestBlock(toolName, args);
+	if (block === undefined) return undefined;
+	// Display only: the request is model-controlled input, while its copy stays byte-exact.
+	const clean = stripTerminalSequences(block.text.trim()).replace(/\r/g, "").replace(/\t/g, "  ");
 
 	let lines: string[];
-	if (isShell) {
+	if (block.shell) {
 		lines = clean.split("\n").map((line, i) => (i === 0 ? `$ ${line}` : `  ${line}`));
 	} else {
 		try {
-			lines = highlightCode(clean, lang);
+			lines = highlightCode(clean, block.language);
 		} catch {
 			lines = clean.split("\n").map((line) => theme.fg("mdCode", line));
 		}
@@ -118,53 +111,119 @@ function createInputCodeSection(
 	return { railToken, content: lines };
 }
 
-function resolveToolCallSummary(params: {
-	toolName: string;
-	args: unknown;
-	originalRenderCall: ToolRenderers["renderCall"] | undefined;
-	theme: Theme;
-	context: ToolRenderContext;
-}): string {
-	const { toolName, args, originalRenderCall, theme, context } = params;
-	if (toolName === "codemode") {
-		return extractCodemodeHeaderFacts(args);
+/** One row's header facts: what the tool states about its own call, plus what the frame dims. */
+interface ToolHeaderFacts {
+	readonly summary: string;
+	readonly summaryStyled?: true;
+	readonly meta?: string;
+}
+
+/**
+ * The one-row argument line a native generic tool row shows. It states the arguments as given, so a
+ * tool with no vocabulary of its own keeps the information its native row carried without this
+ * frame rendering and parsing that row.
+ */
+function genericArgsLine(args: unknown): string {
+	if (typeof args === "string") return stripTerminalSequences(args.trim());
+	if (!isRecord(args)) return "";
+	const pairs = Object.entries(args)
+		.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`)
+		.join(" ");
+	return pairs.length > 100 ? `${pairs.slice(0, 97)}...` : pairs;
+}
+
+/**
+ * The header facts of one tool row. The tool's own layer states its summary and whether it absorbs the
+ * secondary facts; a tool with no vocabulary of its own states its arguments as given.
+ */
+function toolHeaderFacts(params: {
+	readonly toolName: string;
+	readonly args: unknown;
+	readonly theme: Theme;
+	readonly cwd: string;
+	readonly facts: readonly string[];
+	/** Whether the tool has a native call row, whose arguments this frame still has to state. */
+	readonly nativeArgsLine?: boolean;
+}): ToolHeaderFacts {
+	const { toolName, args, theme, cwd, facts, nativeArgsLine } = params;
+	const secondary = facts.filter(Boolean);
+	const meta = secondary.join(" · ");
+	const withMeta = (summary: string, styled: boolean): ToolHeaderFacts => ({
+		summary,
+		...(styled ? { summaryStyled: true as const } : {}),
+		...(meta === "" ? {} : { meta }),
+	});
+	const native = nativeHeaderSummary(toolName, args, theme, cwd);
+	if (native !== undefined) {
+		return native.factsInSummary
+			? { summary: [native.summary, ...secondary].filter(Boolean).join(" · ") }
+			: withMeta(native.summary, native.styled);
 	}
-	// Tier 1: Host Native RenderCall Delegation
-	if (originalRenderCall !== undefined) {
-		try {
-			const upstreamContext: ToolRenderContext = { ...context, lastComponent: undefined };
-			const upstreamLines = originalRenderCall(args, theme, upstreamContext).render(120);
-			const firstNonEmpty = upstreamLines
-				.map((line) => stripTerminalSequences(line).trim())
-				.find((line) => line !== "");
-			if (firstNonEmpty !== undefined) {
-				if (firstNonEmpty.startsWith("$ ")) {
-					return firstNonEmpty.slice(2).trim();
-				}
-				if (firstNonEmpty === toolName) {
-					return "";
-				}
-				if (
-					firstNonEmpty.startsWith(toolName) &&
-					/^[\s(:=/[]/.test(firstNonEmpty.slice(toolName.length))
-				) {
-					return firstNonEmpty.slice(toolName.length).trim();
-				}
-				return firstNonEmpty;
-			}
-		} catch {
-			// Upstream threw, fall through to fallback
-		}
-	}
-	// Tier 2: Contractual Fallback for built-in tools
-	return extractSummaryArg(toolName, args);
+	const summary = nativeArgsLine === true ? genericArgsLine(args) : "";
+	return { summary: [summary, ...secondary].filter(Boolean).join(" · ") };
 }
 
 function isCapturedCall(call: CapturedToolCall | NestedCallRecord): call is CapturedToolCall {
 	return "args" in call || "result" in call;
 }
 
-/** Nested facts for a consumer that lists children outside the container's own body. */
+/**
+ * The request a persisted child row can still show. A live capture already carries it; otherwise the
+ * host's saved nested-call record for the same id does, as long as it kept the arguments at all.
+ */
+function withSessionArgs(
+	calls: readonly (CapturedToolCall | NestedCallRecord)[],
+	runtime: ToolUiRuntime,
+): readonly (CapturedToolCall | NestedCallRecord)[] {
+	return calls.map((call) => {
+		if (isCapturedCall(call)) return call;
+		if (call.args !== undefined || call.argsTruncated === true) return call;
+		const fact = runtime.nestedCalls.args(call.id);
+		if (fact === undefined) return call;
+		return {
+			...call,
+			...(fact.args === undefined ? {} : { args: fact.args }),
+			...(fact.truncated
+				? {
+						argsTruncated: true,
+						...(fact.bytes === undefined ? {} : { argsBytes: fact.bytes }),
+					}
+				: {}),
+		};
+	});
+}
+
+/** A call counts only when the host proved it resolved; an absent fact is not a negative one. */
+function callResolved(
+	call: CapturedToolCall | NestedCallRecord,
+	live: ReadonlySet<string> | undefined,
+): boolean {
+	if (call.resolved === true) return true;
+	return call.id !== undefined && live?.has(call.id) === true;
+}
+
+/** The container's own child facts, in the shape the nested board draws and copies. */
+function presentationChildCalls(children: readonly ToolPresentationChild[]): NestedCallRecord[] {
+	return children.map((child) => {
+		const status: NestedCallRecord["status"] =
+			child.status === "running" || child.status === "streaming"
+				? "running"
+				: child.status === "warn"
+					? "cancelled"
+					: child.status === "error"
+						? "error"
+						: "ok";
+		return {
+			toolName: child.title,
+			...(child.id === undefined ? {} : { id: child.id }),
+			...(child.summary === undefined ? {} : { summary: child.summary }),
+			status,
+			...(child.durationMs === undefined ? {} : { durationMs: child.durationMs }),
+		};
+	});
+}
+
+/** Nested call facts for a consumer that counts or aggregates them outside the container's body. */
 function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[]): ToolViewChild[] {
 	return calls.map((call) => {
 		if (isCapturedCall(call)) {
@@ -181,9 +240,6 @@ function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[])
 						? ("running" as const)
 						: ("ok" as const),
 				...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
-				...(call.result === undefined
-					? {}
-					: { detail: extractResultText(call.toolName, call.result).outputText }),
 			};
 		}
 		return {
@@ -199,7 +255,6 @@ function nestedChildren(calls: readonly (CapturedToolCall | NestedCallRecord)[])
 							? ("error" as const)
 							: ("ok" as const),
 			...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
-			...(call.error === undefined ? {} : { detail: call.error }),
 		};
 	});
 }
@@ -239,7 +294,7 @@ function hideCallView(context: ToolRenderContext): void {
 	if (view instanceof ToolView) view.hide();
 }
 
-function formatNestedCallRow(call: NestedCallRecord, theme: Theme): string {
+function formatNestedCallRow(call: NestedCallRecord, theme: Theme, cwd: string): string {
 	const inline = inlinePresentation(call.toolName, call.summary, undefined, call.isError === true);
 	const status: ToolStatusKind =
 		call.status === "running"
@@ -252,14 +307,21 @@ function formatNestedCallRow(call: NestedCallRecord, theme: Theme): string {
 			? ""
 			: stripTerminalSequences(call.summary.trim());
 	const truncatedArgs = cleanArgs.length > 72 ? `${cleanArgs.slice(0, 69)}…` : cleanArgs;
-	const costText = formatCostUsd(call.cost);
+	const header = toolHeaderFacts({
+		toolName: call.toolName,
+		args: call.summary,
+		theme,
+		cwd,
+		facts: [formatDurationMs(call.durationMs), formatCostUsd(call.cost)],
+	});
+	// A record's arguments may be a summary the container already flattened; fall back to it rather
+	// than drop the only text the row has.
 	return formatToolHeaderText(
 		{
 			status,
 			title: call.toolName,
-			summary: [inline?.summary ?? truncatedArgs, formatDurationMs(call.durationMs), costText]
-				.filter(Boolean)
-				.join(" · "),
+			...header,
+			summary: header.summary || (inline?.summary ?? truncatedArgs),
 		},
 		theme,
 	);
@@ -292,15 +354,15 @@ function shouldInterceptTool(
 }
 
 function renderGenericResult(params: {
+	readonly runtime: ToolUiRuntime;
 	readonly toolName: string;
 	readonly theme: Theme;
 	readonly context: ToolRenderContext;
 	readonly result: AgentToolResult<unknown>;
 	readonly renderOptions: ToolRenderResultOptions;
 	readonly defaultLevel: FoldLevel;
-	readonly originalRenderCall?:
-		| ((args: unknown, theme: Theme, context: ToolRenderContext) => Component)
-		| undefined;
+	/** The tool has a native call row, so its arguments still need a one-row statement here. */
+	readonly nativeArgsLine: boolean;
 	readonly originalRenderResult?:
 		| ((
 				result: AgentToolResult<unknown>,
@@ -316,33 +378,37 @@ function renderGenericResult(params: {
 	readonly resolveNativeRenderer?: ((toolName: string) => ToolRenderers | undefined) | undefined;
 }): ToolView {
 	const {
+		runtime,
 		toolName,
 		theme,
 		context,
 		result,
 		renderOptions,
 		defaultLevel,
-		originalRenderCall,
+		nativeArgsLine,
 		originalRenderResult,
 		resolvePresentation,
 		resolveNativeRenderer,
 		options,
 	} = params;
 
-	const heavyCmd = extractHeavyInputCommand(toolName, context.args);
+	const heavyCmd = nativeHeavyRequest(toolName, context.args);
 	const nestedCalls = extractNestedCalls(result);
 	const captured =
 		toolName === "codemode"
-			? (getCapturedNestedCalls(context.toolCallId) ??
+			? (runtime.tracker.getCaptured(context.toolCallId) ??
 				(isRecord(result.details) &&
 				Array.isArray((result.details as Record<string, unknown>).__piExtUiCapturedCalls)
 					? ((result.details as Record<string, unknown>)
 							.__piExtUiCapturedCalls as CapturedToolCall[])
 					: undefined))
 			: undefined;
-	const childCalls = captured ?? nestedCalls;
+	const childCalls = withSessionArgs(captured ?? nestedCalls, runtime);
+	const liveResolved = runtime.tracker.getResolved(context.toolCallId);
+	const resolvedCalls = childCalls.filter((call) => callResolved(call, liveResolved));
+	const unknownCallCount = childCalls.length - resolvedCalls.length;
 	const isMetaTool = toolName === "codemode" || toolName === "subagent" || childCalls.length > 0;
-	const { outputText: rawOutput, wallTimeSeconds } = extractResultText(toolName, result);
+	const { outputText: rawOutput, wallTimeSeconds } = nativeResultText(toolName, result);
 	const isError = (context.isError ?? false) || (result.isError ?? false);
 
 	const status: ToolStatusKind =
@@ -363,35 +429,32 @@ function renderGenericResult(params: {
 						? "running"
 						: "ok";
 
-	const summaryParts: string[] = [];
-	const argSummary = resolveToolCallSummary({
-		toolName,
-		args: context.args,
-		originalRenderCall,
-		theme,
-		context,
-	});
-	if (argSummary !== "") summaryParts.push(argSummary);
-
+	const facts: string[] = [];
 	if (isMetaTool && childCalls.length > 0) {
-		const failCount = childCalls.filter((c) =>
+		// Only a proven resolution is a call; the rest stay visible as unknown instead of counting.
+		const failCount = resolvedCalls.filter((c) =>
 			Boolean(c.isError || ("status" in c && c.status === "error")),
 		).length;
-		summaryParts.push(...callStatsParts(childCalls.length, failCount));
+		facts.push(...callStatsParts(resolvedCalls.length, failCount));
+		if (unknownCallCount > 0) facts.push(`${String(unknownCallCount)} unknown`);
 	}
-
 	if (context.durationMs !== undefined) {
-		summaryParts.push(formatDurationMs(context.durationMs));
+		facts.push(formatDurationMs(context.durationMs));
 	} else if (wallTimeSeconds !== undefined && Number.isFinite(wallTimeSeconds)) {
-		summaryParts.push(formatDurationMs(wallTimeSeconds * 1000));
+		facts.push(formatDurationMs(wallTimeSeconds * 1000));
 	}
-
 	const totalCost = childCalls.reduce((sum, c) => sum + (c.cost ?? 0), 0);
-	if (totalCost > 0) {
-		summaryParts.push(formatCostUsd(totalCost));
-	}
-
-	const summary = summaryParts.join(" · ");
+	if (totalCost > 0) facts.push(formatCostUsd(totalCost));
+	const timeout = nativeTimeoutFact(toolName, context.args);
+	if (timeout !== undefined) facts.unshift(timeout);
+	const header = toolHeaderFacts({
+		toolName,
+		args: context.args,
+		theme,
+		cwd: context.cwd,
+		facts,
+		nativeArgsLine,
+	});
 
 	const codemodeNestedView =
 		toolName === "codemode" && childCalls.length > 0
@@ -399,12 +462,15 @@ function renderGenericResult(params: {
 					calls: childCalls,
 					theme,
 					context,
+					headerSummary: (childName, childArgs, childTheme) =>
+						nativeHeaderSummary(childName, childArgs, childTheme, context.cwd)?.summary,
 					resolveChildRenderer: (childName: string) => {
 						return {
 							renderResult: (childResult, childOptions, childTheme, childCtx) => {
 								const provider = resolvePresentation?.(childName);
 								if (provider !== undefined) {
 									return renderOwnedPresentation({
+										runtime,
 										toolName: childName,
 										presentation: provider(childCtx.args, childResult, childTheme, childCtx),
 										result: childResult,
@@ -420,13 +486,14 @@ function renderGenericResult(params: {
 								const registered = resolveNativeRenderer?.(childName);
 
 								return renderGenericResult({
+									runtime,
 									toolName: childName,
 									theme: childTheme,
 									context: childCtx,
 									result: childResult,
 									renderOptions: childOptions,
 									defaultLevel: childOptions.expanded ? 2 : 1,
-									originalRenderCall: registered?.renderCall,
+									nativeArgsLine: registered?.renderCall !== undefined,
 									originalRenderResult: registered?.renderResult,
 									resolvePresentation,
 									resolveNativeRenderer,
@@ -448,7 +515,7 @@ function renderGenericResult(params: {
 		codemodeNestedView !== undefined
 			? codemodeNestedView
 			: isMetaTool && nestedCalls.length > 0
-				? nestedCalls.map((call) => formatNestedCallRow(call, theme))
+				? nestedCalls.map((call) => formatNestedCallRow(call, theme, context.cwd))
 				: undefined;
 
 	const toolRailToken: RailColorToken = isError
@@ -483,6 +550,7 @@ function renderGenericResult(params: {
 		}
 	} else if (originalRenderResult !== undefined) {
 		const viewProbe = new ToolView({
+			background: () => runtime.backgrounds,
 			theme,
 			header: { title: toolName },
 			stateHolder: context.state,
@@ -497,17 +565,13 @@ function renderGenericResult(params: {
 		let lastUpstreamComponent: Component | undefined;
 		const lazyUpstreamComponent: Component = {
 			render(w: number): string[] {
-				try {
-					const upstreamContext: ToolRenderContext = {
-						...context,
-						lastComponent: lastUpstreamComponent,
-					};
-					const comp = originalRenderResult(result, effectiveOptions, theme, upstreamContext);
-					lastUpstreamComponent = comp;
-					return comp.render(w);
-				} catch {
-					return rawOutput !== "" ? rawOutput.split("\n") : [];
-				}
+				const upstreamContext: ToolRenderContext = {
+					...context,
+					lastComponent: lastUpstreamComponent,
+				};
+				const comp = originalRenderResult(result, effectiveOptions, theme, upstreamContext);
+				lastUpstreamComponent = comp;
+				return comp.render(w);
 			},
 			invalidate(): void {},
 		};
@@ -529,7 +593,7 @@ function renderGenericResult(params: {
 	let copy: ToolViewCopySpec | undefined;
 	if (toolName === "codemode") {
 		copy = undefined;
-	} else if (heavyCmd !== undefined && heavyCmd !== "") {
+	} else if (heavyCmd !== undefined) {
 		const cleanOutput = stripTerminalSequences(rawOutput);
 		copy = {
 			primary: heavyCmd,
@@ -545,15 +609,15 @@ function renderGenericResult(params: {
 	}
 
 	return new ToolView({
+		background: () => runtime.backgrounds,
 		theme,
-		header: {
-			title: toolName,
-			status,
-			summary,
-		},
+		header: { title: toolName, status, ...header },
 		railToken: toolRailToken,
 		collapsedRows,
 		...(children.length === 0 ? {} : { children }),
+		// A container with child facts states its effective count, including zero: a container whose
+		// children all failed to resolve is not one call.
+		...(childCalls.length === 0 ? {} : { childCount: resolvedCalls.length }),
 		sections,
 		copy,
 		outputPad: context.outputPad,
@@ -570,6 +634,7 @@ function renderGenericResult(params: {
  * pass never asks the tool to rebuild its rows.
  */
 function renderOwnedPresentation(params: {
+	readonly runtime: ToolUiRuntime;
 	readonly toolName: string;
 	readonly presentation: ToolPresentation;
 	readonly result?: AgentToolResult<unknown>;
@@ -583,6 +648,7 @@ function renderOwnedPresentation(params: {
 	readonly options: CollapsibleToolRendererOptions | undefined;
 }): ToolView {
 	const {
+		runtime,
 		toolName,
 		presentation,
 		result,
@@ -633,24 +699,14 @@ function renderOwnedPresentation(params: {
 		}
 	} else if (output !== "") {
 		const rawLines = stripTerminalSequences(output).split("\n");
+		const lang = nativeOutputLanguage(toolName, context.args);
 		let styledLines: string[];
 		if (isError) {
 			styledLines = rawLines.map((line) => theme.fg("error", line));
-		} else if (toolName === "read") {
-			const rawPath =
-				isRecord(context.args) && typeof context.args.path === "string"
-					? context.args.path
-					: isRecord(context.args) && typeof context.args.file_path === "string"
-						? context.args.file_path
-						: "";
-			const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
-			if (lang !== undefined) {
-				try {
-					styledLines = highlightCode(output.replace(/\t/g, "  "), lang);
-				} catch {
-					styledLines = rawLines.map((line) => theme.fg("toolOutput", line));
-				}
-			} else {
+		} else if (lang !== undefined) {
+			try {
+				styledLines = highlightCode(output.replace(/\t/g, "  "), lang);
+			} catch {
 				styledLines = rawLines.map((line) => theme.fg("toolOutput", line));
 			}
 		} else {
@@ -662,23 +718,19 @@ function renderOwnedPresentation(params: {
 		});
 	}
 	const duration = result === undefined ? "" : formatDurationMs(context.durationMs);
-	const summary = [stripTerminalSequences(presentation.summary), duration]
-		.filter(Boolean)
-		.join(" · ");
+	// The provider owns the request/output boundary; cleaning its payload here corrupts raw input.
 	const copy =
-		presentation.copy === undefined
-			? isDiff && presentation.diff.trim() !== ""
-				? { primary: presentation.diff }
-				: undefined
-			: {
-					primary: stripTerminalSequences(presentation.copy.primary),
-					...(presentation.copy.full === undefined
-						? {}
-						: { full: stripTerminalSequences(presentation.copy.full) }),
-				};
+		presentation.copy ??
+		(isDiff && presentation.diff.trim() !== "" ? { primary: presentation.diff } : undefined);
 	return new ToolView({
+		background: () => runtime.backgrounds,
 		theme,
-		header: { title: toolName, status, summary },
+		header: {
+			title: toolName,
+			status,
+			summary: stripTerminalSequences(presentation.summary),
+			...(duration === "" ? {} : { meta: duration }),
+		},
 		railToken,
 		// The tool owns the folded rows and their tones; the frame only sanitizes them for the host.
 		collapsedRows: (() => {
@@ -687,23 +739,31 @@ function renderOwnedPresentation(params: {
 			}
 			const captured =
 				result !== undefined
-					? (getCapturedNestedCalls(context.toolCallId) ??
+					? (runtime.tracker.getCaptured(context.toolCallId) ??
 						(isRecord(result.details) && Array.isArray(result.details.__piExtUiCapturedCalls)
 							? (result.details.__piExtUiCapturedCalls as CapturedToolCall[])
 							: undefined))
 					: undefined;
 			const nestedCalls = extractNestedCalls(result);
-			const childCalls = captured ?? nestedCalls;
+			// The owner's own child facts win over parsing another package's details.
+			const ownCalls =
+				presentation.children === undefined
+					? nestedCalls
+					: presentationChildCalls(presentation.children);
+			const childCalls = withSessionArgs(captured ?? ownCalls, runtime);
 			if (childCalls.length > 0) {
 				return new NestedCallsView({
 					calls: childCalls,
 					theme,
 					context,
+					headerSummary: (childName, childArgs, childTheme) =>
+						nativeHeaderSummary(childName, childArgs, childTheme, context.cwd)?.summary,
 					resolveChildRenderer: (childName: string) => ({
 						renderResult: (childResult, childOptions, childTheme, childCtx) => {
 							const childProvider = resolvePresentation?.(childName);
 							if (childProvider !== undefined) {
 								return renderOwnedPresentation({
+									runtime,
 									toolName: childName,
 									presentation: childProvider(childCtx.args, childResult, childTheme, childCtx),
 									result: childResult,
@@ -717,13 +777,14 @@ function renderOwnedPresentation(params: {
 							}
 							const registered = resolveNativeRenderer?.(childName);
 							return renderGenericResult({
+								runtime,
 								toolName: childName,
 								theme: childTheme,
 								context: childCtx,
 								result: childResult,
 								renderOptions: childOptions,
 								defaultLevel: childOptions.expanded ? 2 : 1,
-								originalRenderCall: registered?.renderCall,
+								nativeArgsLine: registered?.renderCall !== undefined,
 								originalRenderResult: registered?.renderResult,
 								resolvePresentation,
 								resolveNativeRenderer,
@@ -758,12 +819,14 @@ function renderOwnedPresentation(params: {
 }
 
 export function createCollapsibleToolRendererResolver(
+	runtime: ToolUiRuntime,
 	options?: CollapsibleToolRendererOptions,
 ): ToolRendererResolver {
-	return createRendererResolver(options);
+	return createRendererResolver(runtime, options);
 }
 
 function createRendererResolver(
+	runtime: ToolUiRuntime,
 	options?: CollapsibleToolRendererOptions,
 	resolvePresentation?: (toolName: string) => ToolPresentationProvider | undefined,
 	resolveNativeRenderer?: (toolName: string) => ToolRenderers | undefined,
@@ -779,7 +842,8 @@ function createRendererResolver(
 		}
 
 		const registeredNative = resolveNativeRenderer?.(toolName);
-		const originalRenderCall = upstream?.renderCall ?? registeredNative?.renderCall;
+		const nativeArgsLine =
+			upstream?.renderCall !== undefined || registeredNative?.renderCall !== undefined;
 		const originalRenderResult = upstream?.renderResult ?? registeredNative?.renderResult;
 
 		return {
@@ -788,6 +852,7 @@ function createRendererResolver(
 				if (provider !== undefined) {
 					const callContext = { ...context, args };
 					const view = renderOwnedPresentation({
+						runtime,
 						toolName,
 						presentation: provider(args, undefined, theme, callContext),
 						theme,
@@ -809,21 +874,12 @@ function createRendererResolver(
 							? "streaming"
 							: "running";
 
-				let summary = "";
-				if (isStreamingArgs) {
-					const tokens = estimateStreamingTokens(args);
-					summary = tokens > 0 ? `· ${String(tokens)} tokens` : "";
-				} else {
-					summary = resolveToolCallSummary({
-						toolName,
-						args,
-						originalRenderCall,
-						theme,
-						context,
-					});
-				}
+				const streamedTokens = isStreamingArgs ? estimateStreamingTokens(args) : 0;
+				const header = isStreamingArgs
+					? { summary: streamedTokens > 0 ? `· ${String(streamedTokens)} tokens` : "" }
+					: toolHeaderFacts({ toolName, args, theme, cwd: context.cwd, facts: [], nativeArgsLine });
 
-				const heavyCmd = extractHeavyInputCommand(toolName, args);
+				const heavyCmd = nativeHeavyRequest(toolName, args);
 				const sections: RailSection[] = [];
 				const inputSection = createInputCodeSection(toolName, args, theme);
 				if (inputSection !== undefined) {
@@ -839,19 +895,16 @@ function createRendererResolver(
 				}
 
 				const copy: ToolViewCopySpec | undefined =
-					heavyCmd !== undefined && heavyCmd !== ""
+					heavyCmd !== undefined
 						? { primary: heavyCmd }
 						: formatArgsPreview(args) !== ""
 							? { primary: formatArgsPreview(args) }
 							: undefined;
 
 				const view = new ToolView({
+					background: () => runtime.backgrounds,
 					theme,
-					header: {
-						title: toolName,
-						status,
-						summary,
-					},
+					header: { title: toolName, status, ...header },
 					sections,
 					copy,
 					outputPad: context.outputPad,
@@ -879,6 +932,7 @@ function createRendererResolver(
 				hideCallView(context);
 				if (presentation !== undefined) {
 					return renderOwnedPresentation({
+						runtime,
 						toolName,
 						presentation,
 						result,
@@ -891,13 +945,14 @@ function createRendererResolver(
 				}
 
 				return renderGenericResult({
+					runtime,
 					toolName,
 					theme,
 					context,
 					result,
 					renderOptions,
 					defaultLevel,
-					originalRenderCall,
+					nativeArgsLine,
 					originalRenderResult,
 					resolvePresentation,
 					resolveNativeRenderer,
@@ -911,34 +966,69 @@ function createRendererResolver(
 /** UI factory consumed by package-owned direct renderers, independently of host resolver precedence. */
 export function createOptionalToolRendererFactory(
 	pi: ExtensionAPI,
+	runtime: ToolUiRuntime,
 	options?: CollapsibleToolRendererOptions,
 ): import("@hheei/pi-ext-core").ToolRendererFactory {
 	return (name, native) =>
 		createRendererResolver(
+			runtime,
 			{ ...options, tools: [name] },
 			(toolName) => getRegisteredToolPresentationProvider(pi, toolName),
 			(toolName) => getRegisteredToolRenderers(pi, toolName),
 		)(name, () => native) ?? native;
 }
 
+/**
+ * Save the resolution facts of one model-issued call on its own tool result. The host emits
+ * `tool_call` only after the tool resolved and its arguments validated, so these ids are proof;
+ * writing them into the details keeps the fact with the call through resume, fork and reload.
+ */
+function withResolvedCallFacts(
+	event: {
+		toolCallId: string;
+		parentToolCallId?: string | undefined;
+		details?: unknown;
+	},
+	runtime: ToolUiRuntime,
+): unknown {
+	if (event.parentToolCallId !== undefined) return undefined;
+	const ids = runtime.tracker.getResolved(event.toolCallId);
+	if (ids === undefined || ids.size === 0) return undefined;
+	if (!isRecord(event.details)) return undefined;
+	return { ...event.details, [RESOLVED_CALLS_KEY]: [...ids] };
+}
+
 export function registerCollapsibleToolRenderer(
 	pi: ExtensionAPI,
+	runtime: ToolUiRuntime,
 	options?: CollapsibleToolRendererOptions,
 ): () => void {
-	const disposers: (() => void)[] = [];
-	if (typeof (pi as { on?: unknown }).on === "function") {
-		const unbindStart = pi.on("tool_execution_start", (event) => {
-			recordToolExecutionStart(event);
-		});
-		if (typeof unbindStart === "function") disposers.push(unbindStart);
-
-		const unbindEnd = pi.on("tool_execution_end", (event) => {
-			recordToolExecutionEnd(event);
-		});
-		if (typeof unbindEnd === "function") disposers.push(unbindEnd);
-	}
+	const disposers: (() => void)[] = [
+		pi.on("tool_execution_start", (event) => {
+			runtime.tracker.recordStart(event);
+		}),
+		pi.on("tool_execution_end", (event) => {
+			runtime.tracker.recordEnd(event);
+		}),
+		pi.on("tool_call", (event) => {
+			runtime.tracker.recordResolved(event);
+		}),
+		pi.on("tool_result", (event) => {
+			const details = withResolvedCallFacts(event, runtime);
+			if (details === undefined) return undefined;
+			// The hook replaces the whole result, so the fields it does not own pass through.
+			return {
+				details,
+				...(event.structuredContent === undefined
+					? {}
+					: { structuredContent: event.structuredContent }),
+				...(event.usage === undefined ? {} : { usage: event.usage }),
+			};
+		}),
+	];
 	pi.registerToolRenderer(
 		createRendererResolver(
+			runtime,
 			options,
 			(name) => getRegisteredToolPresentationProvider(pi, name),
 			(name) => getRegisteredToolRenderers(pi, name),

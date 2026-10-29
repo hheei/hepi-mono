@@ -6,16 +6,17 @@ import {
 	ToolExecutionComponent,
 	VERSION,
 } from "@earendil-works/pi-coding-agent";
-import {
-	type Component,
-	Container,
-	Spacer,
-	stripTerminalSequences,
-	Text,
-	wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { type Component, Container, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { MessageView } from "./message-view.js";
-import { type Member, type ToolGroupRun, ToolGroupView, type Usage } from "./tool-group-view.js";
+import {
+	type Member,
+	memberParts,
+	type RequestFact,
+	TailUnit,
+	type ToolGroupClock,
+	ToolGroupView,
+	type Usage,
+} from "./tool-group-view.js";
 import { type ToolStatusKind, ToolView, toSingleRow } from "./tool-view.js";
 
 const SEAMS = ["getRegisteredToolDefinition", "showExtensionNotify"] as const;
@@ -82,19 +83,21 @@ function assistantInfo(component: AssistantMessageComponent): {
 	const hidden: unknown = Reflect.get(component, "hideThinkingBlock");
 	const calls = new Set<string>();
 	let eligible = !["length", "aborted", "error"].includes(String(message.stopReason));
-	let thinking = "";
+	const thinking: string[] = [];
 	for (const block of message.content) {
 		if (!record(block)) throw new Error("Pi assistant content shape changed");
 		if (block.type === "toolCall" && typeof block.id === "string") calls.add(block.id);
-		else if (block.type === "thinking" && typeof block.thinking === "string")
-			thinking += block.thinking;
-		else if (block.type !== "text" || typeof block.text !== "string" || block.text.trim() !== "")
+		else if (block.type === "thinking" && typeof block.thinking === "string") {
+			// Pi joins a thinking run with blank lines; the same separator keeps paragraphs readable here.
+			const text = block.thinking.trim();
+			if (text !== "") thinking.push(text);
+		} else if (block.type !== "text" || typeof block.text !== "string" || block.text.trim() !== "")
 			eligible = false;
 	}
 	return {
 		calls,
 		eligible,
-		thinking,
+		thinking: thinking.join("\n\n"),
 		hidden: hidden === true,
 		usage: readUsage(message.usage),
 	};
@@ -125,11 +128,9 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 			!(renderer instanceof ToolView))
 	)
 		return undefined;
-	const summary =
-		renderer instanceof ToolView
-			? (renderer.summary ?? callRenderer.summary)
-			: callRenderer.summary;
-	if (summary === undefined) return undefined;
+	// The visible view decides the facts: a hidden call renderer reports no summary of its own.
+	const view = renderer instanceof ToolView ? renderer : callRenderer;
+	if (view.summary === undefined) return undefined;
 	const status: ToolStatusKind = !complete
 		? "streaming"
 		: partial
@@ -137,16 +138,17 @@ function toolMember(component: ToolExecutionComponent, calls: Set<string>): Memb
 			: record(result) && result.isError === true
 				? "error"
 				: "ok";
-	const children = renderer instanceof ToolView ? renderer.children : callRenderer.children;
-	const childCount = renderer instanceof ToolView ? renderer.childCount : undefined;
+	const children = view.children;
 	return {
 		kind: "tool",
 		component,
 		title: toSingleRow(stripTerminalSequences(name)),
-		summary,
 		status,
+		// The host keeps isPartial true until it stores a final result; argsComplete alone is not
+		// completion, and restored history never sets it. The result is the observed end fact.
+		completed: !partial && result !== undefined,
 		...(children === undefined || children.length === 0 ? {} : { children }),
-		...(childCount === undefined ? {} : { childCount }),
+		...(view.childCount === undefined ? {} : { childCount: view.childCount }),
 	};
 }
 
@@ -166,32 +168,27 @@ function noticeMember(component: Component): Member | undefined {
 		component,
 		title: view.kind,
 		summary: view.activitySummary,
-		// A notice with no preview and no body has nothing to open; the group draws a pin only when
-		// detail exists, so an unconditional function would give it an arrow onto an empty body.
-		...(view.hasDetail ? { detail: (width: number) => view.detailRows(width) } : {}),
+		// Preview is visible content; only a real body opens. A preview-only notice therefore never
+		// grows a second expansion level, and the notice lays out both blocks itself.
+		content: (width) => view.previewRows(width),
+		...(view.expandable ? { detail: (width: number) => view.bodyRows(width) } : {}),
 	};
 }
 
-class NotifyView extends Container {
+/**
+ * A captured `ui.notify`. It owns its content: one indented, width-wrapped block with the notice's
+ * semantic color. The group draws these rows once, so a plain notice has no expansion of its own.
+ */
+class NotifyView implements Component {
 	readonly #text = new Text("", 1, 0);
 	readonly #ui: ExtensionUIContext;
 	readonly #message: string;
 	readonly #type: NoticeType;
 
 	constructor(message: string, type: NoticeType, ui: ExtensionUIContext) {
-		super();
 		this.#ui = ui;
 		this.#message = message;
 		this.#type = type;
-		this.addChild(new Spacer(1));
-		this.addChild(this.#text);
-	}
-
-	get summary(): string {
-		return this.#ui.theme.fg(
-			this.#type === "info" ? "dim" : this.#type,
-			toSingleRow(this.#content),
-		);
 	}
 
 	get member(): Member {
@@ -199,17 +196,18 @@ class NotifyView extends Container {
 			kind: "notice",
 			component: this,
 			title: this.#type,
-			summary: this.summary,
-			detail: (width) => this.#detail(width),
+			content: (width) => this.rows(width),
 		};
 	}
 
-	#detail(width: number): string[] {
-		const inner = Math.max(1, width - 2);
-		return this.#content.split("\n").flatMap((line) => {
-			const wrapped = wrapTextWithAnsi(line, inner);
-			return (wrapped.length > 0 ? wrapped : [""]).map((row) => `  ${row}`);
-		});
+	/** The notice body as it appears both in the transcript and inside the activity group. */
+	rows(width: number): string[] {
+		// info is the terminal's own readable text; a warning or error keeps its status token and
+		// its written prefix, so the level never depends on color alone.
+		this.#text.setText(
+			this.#ui.theme.fg(this.#type === "info" ? "text" : this.#type, this.#content),
+		);
+		return this.#text.render(width);
 	}
 
 	get #content(): string {
@@ -217,21 +215,33 @@ class NotifyView extends Container {
 		return `${prefix}${this.#message}`;
 	}
 
-	override render(width: number): string[] {
-		this.#text.setText(
-			this.#ui.theme.fg(this.#type === "info" ? "dim" : this.#type, this.#content),
-		);
-		return super.render(width);
+	render(width: number): string[] {
+		return ["", ...this.rows(width)];
+	}
+
+	invalidate(): void {
+		this.#text.invalidate();
 	}
 }
 
 interface RunBox {
-	current?: ToolGroupRun | undefined;
+	/** Components first observed during a live loop distinguish live blocks from restored history. */
+	current?: { readonly run: { endedAt?: number } } | undefined;
+	/** Presence marks observation; undefined identifies history observed outside a live run. */
+	readonly observed: WeakMap<
+		Component,
+		{ readonly at: number; readonly run: { endedAt?: number } } | undefined
+	>;
+	/** A component keeps the clock of its continuous block across transcript rebuilds. */
+	readonly clocks: WeakMap<Component, ToolGroupClock>;
+	readonly activeClocks: Set<ToolGroupClock>;
 }
 
 interface Attachment {
 	dispose(): void;
 	notify(message: string, type: NoticeType): boolean;
+	/** Claim every transcript component that first appeared during the measured run. */
+	observe(): void;
 }
 
 function attach(host: Host, run: RunBox): Attachment {
@@ -252,42 +262,132 @@ function attach(host: Host, run: RunBox): Attachment {
 	const projection = new Container();
 	let groups = new Map<Component, ToolGroupView>();
 	let active = true;
+	const disposeGroups = (): void => {
+		for (const group of groups.values()) group.dispose();
+		groups.clear();
+	};
+	/**
+	 * Record first observation time for new components during a live loop. Restored history stays
+	 * unknown until live content joins its block.
+	 */
+	const claim = (child: Component): void => {
+		if (run.observed.has(child)) return;
+		const current = run.current;
+		run.observed.set(
+			child,
+			current !== undefined && current.run.endedAt === undefined
+				? { at: performance.now(), run: current.run }
+				: undefined,
+		);
+	};
+	const observe = (): void => {
+		for (const child of chat.children) claim(child);
+	};
+	/** Create or recover one clock for each live continuous block. */
+	const clockOf = (members: readonly Member[], endedAt?: number): ToolGroupClock | undefined => {
+		const parts = members.flatMap(memberParts);
+		let clock: ToolGroupClock | undefined;
+		for (const part of parts) {
+			clock = run.clocks.get(part);
+			if (clock !== undefined) break;
+		}
+		if (clock === undefined) {
+			const origin = parts
+				.map((part) => run.observed.get(part))
+				.find((value) => value !== undefined);
+			if (origin === undefined) return undefined;
+			clock = { startedAt: origin.at };
+			if (origin.run.endedAt !== undefined) clock.endedAt = origin.run.endedAt;
+			else run.activeClocks.add(clock);
+		}
+		if (endedAt !== undefined && clock.endedAt === undefined) {
+			clock.endedAt = endedAt;
+			run.activeClocks.delete(clock);
+		}
+		for (const part of parts) if (run.clocks.get(part) === undefined) run.clocks.set(part, clock);
+		return clock;
+	};
 	const rebuild = () => {
 		const next = new Map<Component, ToolGroupView>();
 		const children: Component[] = [];
-		const blocks: { group: ToolGroupView; members: Member[]; ended: boolean }[] = [];
+		const blocks: {
+			group: ToolGroupView;
+			members: Member[];
+			tail: Member | undefined;
+			requests: readonly RequestFact[];
+			clock: ToolGroupClock | undefined;
+		}[] = [];
 		let calls = new Set<string>();
 		let members: Member[] = [];
-		/** Closes the pending run. `ended` is false only for the run still open at the transcript tail. */
-		const flush = (ended: boolean) => {
+		/** Every request this pending block owns, in transcript order, whether or not it is displayed. */
+		let requests: RequestFact[] = [];
+		/**
+		 * Closes the pending block. `ended` is false only for the block still open at the transcript tail:
+		 * that one keeps its last visible unit outside the group, and its facts still count here.
+		 */
+		const flush = (ended: boolean, boundary?: Component) => {
 			const first = members[0]?.component;
-			if (first !== undefined && members.filter((member) => member.kind === "tool").length > 1) {
-				const group =
-					groups.get(first) ??
-					new ToolGroupView(
-						host.ui,
-						host.requestRender,
-						run.current?.endedAt === undefined ? run.current : undefined,
-					);
-				blocks.push({ group, members, ended });
+			let weight = 0;
+			for (const member of members) {
+				if (member.kind === "tool") weight += 1;
+				else if (
+					member.kind === "notice" ||
+					(member.thinking !== undefined && member.thinking !== "")
+				)
+					weight += 0.5;
+			}
+			if (first !== undefined && weight >= 2) {
+				const group = groups.get(first) ?? new ToolGroupView(host.ui, host.requestRender);
+				const tail = ended ? undefined : members.at(-1);
+				const inside = tail === undefined ? members : members.slice(0, -1);
+				const boundaryTime =
+					ended && boundary !== undefined
+						? (run.observed.get(boundary)?.at ?? performance.now())
+						: undefined;
+				blocks.push({
+					group,
+					members: inside,
+					tail,
+					requests,
+					clock: clockOf(members, boundaryTime),
+				});
 				next.set(first, group);
 				children.push(group);
-			} else children.push(...members.map((member) => member.component));
+				if (tail !== undefined) children.push(new TailUnit(tail));
+			} else children.push(...members.flatMap(memberParts));
 			members = [];
+			requests = [];
 		};
 		for (const child of chat.children) {
+			claim(child);
 			if (child instanceof AssistantMessageComponent) {
 				const info = assistantInfo(child);
 				calls = info.calls;
+				// The request belongs to the block whose work it answers, even when its text is native
+				// content the aggregate never shows.
+				requests.push(info.usage === undefined ? {} : { usage: info.usage });
 				if (info.eligible) {
 					const thinking = info.thinking;
-					members.push({
-						kind: "assistant",
-						component: child,
-						...(thinking === "" ? {} : { thinkingChars: thinking.length }),
-						...(thinking === "" || info.hidden ? {} : { thinking }),
-						...(info.usage === undefined ? {} : { usage: info.usage }),
-					});
+					const previous = members.at(-1);
+					if (thinking !== "" && previous?.kind === "thinking") {
+						// One continuous run: consecutive thinking blocks are one item, paragraphs kept.
+						members[members.length - 1] = {
+							...previous,
+							thinking: `${previous.thinking ?? ""}\n\n${thinking}`,
+							parts: [...memberParts(previous), child],
+							...(previous.thinkingHidden === true || info.hidden ? { thinkingHidden: true } : {}),
+						};
+					} else {
+						members.push({
+							kind: "thinking",
+							component: child,
+							// The host's hide setting is a display preference, not a content filter: the text
+							// stays available to the group's preview and expansion, and is never written back.
+							...(thinking === ""
+								? {}
+								: { thinking, ...(info.hidden ? { thinkingHidden: true } : {}) }),
+						});
+					}
 					continue;
 				}
 			} else if (child instanceof ToolExecutionComponent) {
@@ -306,13 +406,16 @@ function attach(host: Host, run: RunBox): Attachment {
 					continue;
 				}
 			}
-			flush(true);
+			flush(true, child);
 			children.push(child);
 		}
 		flush(false);
-		const frozen = run.current === undefined || run.current.endedAt !== undefined;
 		for (const block of blocks) {
-			block.group.update(block.members, frozen || block.ended);
+			block.group.update(block.members, block.tail, block.requests, block.clock);
+		}
+		// A block the new projection does not reuse is gone: its hold timer must go with it.
+		for (const [key, group] of groups) {
+			if (next.get(key) !== group) group.dispose();
 		}
 		groups = next;
 		projection.children = children;
@@ -324,7 +427,7 @@ function attach(host: Host, run: RunBox): Attachment {
 				rebuild();
 			} catch (error) {
 				active = false;
-				groups.clear();
+				disposeGroups();
 				projection.clear();
 				host.ui.notify(
 					`Tool grouping disabled: ${error instanceof Error ? error.message : String(error)}`,
@@ -353,11 +456,12 @@ function attach(host: Host, run: RunBox): Attachment {
 			host.requestRender();
 			return true;
 		},
+		observe,
 		dispose() {
 			if (disposed) return;
 			disposed = true;
 			active = false;
-			groups.clear();
+			disposeGroups();
 			projection.clear();
 			let conflict = false;
 			for (const key of ["render", "handleMouse", "invalidate"] as const) {
@@ -384,7 +488,6 @@ interface Owner {
 	readonly hosts: Map<Container, Attachment & { requestRender(): void }>;
 	readonly attach: (host: Host) => Attachment;
 	readonly failed: WeakSet<Container>;
-	readonly run: RunBox;
 }
 
 function connect(owner: Owner, host: Host): void {
@@ -520,12 +623,15 @@ export function installHostToolGroups(context: ExtensionContext): {
 				value: state.wrappers[seam],
 			});
 	}
-	const run: RunBox = {};
+	const run: RunBox = {
+		observed: new WeakMap(),
+		clocks: new WeakMap(),
+		activeClocks: new Set(),
+	};
 	const owner: Owner = {
 		ui,
 		hosts: new Map(),
 		failed: new WeakSet(),
-		run,
 		attach: (host) => attach(host, run),
 	};
 	state.owners.set(ui, owner);
@@ -549,17 +655,24 @@ export function installHostToolGroups(context: ExtensionContext): {
 			for (const host of owner.hosts.values()) host.requestRender();
 		},
 		beginRun() {
-			run.current = { startedAt: performance.now() };
+			// History may not have rendered yet. Claim it before opening the new live run.
+			for (const host of owner.hosts.values()) host.observe();
+			run.current = { run: {} };
 		},
 		endRun() {
+			// Mark unseen transcript children before ending the run so later renders treat them as history.
+			for (const host of owner.hosts.values()) host.observe();
+			const endedAt = performance.now();
 			const current = run.current;
-			if (current !== undefined && current.endedAt === undefined)
-				current.endedAt = performance.now();
+			if (current !== undefined && current.run.endedAt === undefined) current.run.endedAt = endedAt;
+			for (const clock of run.activeClocks) clock.endedAt = endedAt;
+			run.activeClocks.clear();
 		},
 		dispose() {
 			if (disposed) return;
 			disposed = true;
 			run.current = undefined;
+			run.activeClocks.clear();
 			state.owners.delete(ui);
 			for (const host of owner.hosts.values()) host.dispose();
 			owner.hosts.clear();

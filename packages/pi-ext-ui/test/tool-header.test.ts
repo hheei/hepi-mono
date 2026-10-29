@@ -1,16 +1,26 @@
 import type { ExtensionAPI, Theme, ToolRendererResolver } from "@earendil-works/pi-coding-agent";
+import {
+	setCapabilityOverrides,
+	stripTerminalSequences,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import { createToolPresentationRenderers, textToolResult } from "@hheei/pi-ext-core";
 import { describe, expect, test, vi } from "vitest";
 import {
 	formatToolHeaderText,
 	registerCollapsibleToolRenderer,
 	type ToolRenderContext,
-	type ToolView,
+	ToolView,
 } from "../src/index.js";
+import { ToolUiRuntime } from "../src/runtime.js";
+
+/** The state this test's runtime owns; the extension builds the same one per Pi runtime. */
+const runtime = new ToolUiRuntime();
 
 /** A theme that spells out every token, so a color that changes shows up as a changed string. */
 const theme = {
 	fg: (token: string, text: string) => `[${token}]${text}[/]`,
+	bg: (_token: string, text: string) => text,
 	bold: (text: string) => `*${text}*`,
 } as unknown as Theme;
 
@@ -38,6 +48,7 @@ function host() {
 	let resolver: ToolRendererResolver | undefined;
 	const pi = {
 		events: {},
+		on: () => () => {},
 		registerToolRenderer(value: ToolRendererResolver) {
 			resolver = value;
 		},
@@ -45,7 +56,7 @@ function host() {
 	return {
 		pi,
 		register() {
-			registerCollapsibleToolRenderer(pi, { copyToClipboard: vi.fn(async () => {}) });
+			registerCollapsibleToolRenderer(pi, runtime, { copyToClipboard: vi.fn(async () => {}) });
 		},
 		resolve(name: string, native?: never) {
 			if (resolver === undefined) throw new Error("no UI registered");
@@ -61,10 +72,27 @@ describe("formatToolHeaderText", () => {
 		);
 	});
 
-	test("leaves bash's summary in the terminal default color", () => {
-		// Bash output is already meaningful on its own; dimming the command would hide it.
+	test("states bash's command as the row's content, the way the native shell row does", () => {
+		// The command is what the row is about; dimming it would bury the only thing it says.
 		expect(formatToolHeaderText({ status: "ok", title: "bash", summary: "pnpm test" }, theme)).toBe(
-			"[success]✓[/] [toolTitle]*bash*[/] pnpm test",
+			"[success]✓[/] [toolTitle]*bash*[/] [toolTitle]*pnpm test*[/]",
+		);
+	});
+
+	test("keeps a summary the tool layer already themed and dims the meta facts after it", () => {
+		expect(
+			formatToolHeaderText(
+				{
+					status: "ok",
+					title: "read",
+					summary: "[accent]src/a.ts[/][warning]:1-40[/]",
+					summaryStyled: true,
+					meta: "1.2s",
+				},
+				theme,
+			),
+		).toBe(
+			"[success]✓[/] [toolTitle]*read*[/] [accent]src/a.ts[/][warning]:1-40[/][dim] · [/][dim]1.2s[/]",
 		);
 	});
 
@@ -131,8 +159,117 @@ describe("a container board row", () => {
 		expect(boardRow).toBeDefined();
 
 		// The only intended difference is the fold pin: a nested row hangs off the parent's rail.
-		const ownHeader = (ownRow ?? "").replace(/^\[dim\][▸▾]\[\/\] /, "");
-		const boardHeader = (boardRow ?? "").replace(/^\[dim\]▎\[\/\] /, "");
+		const ownHeader = stripTerminalSequences(ownRow ?? "")
+			.replace(/^\[dim\][▸▾]\[\/\] /, "")
+			.trimEnd();
+		const boardHeader = stripTerminalSequences(boardRow ?? "").replace(/^\[dim\]▎\[\/\] /, "");
 		expect(boardHeader.slice(0, ownHeader.length)).toBe(ownHeader);
+	});
+});
+
+describe("a tool row's semantic tokens", () => {
+	function readRow(
+		width: number,
+		args: unknown = { path: "/repo/src/a.ts", offset: 10, limit: 5 },
+	) {
+		const h = host();
+		h.register();
+		const view = h.resolve("read").renderResult!(
+			textToolResult("file body", undefined),
+			{ expanded: false, isPartial: false },
+			theme,
+			context({ args }),
+		) as ToolView;
+		const row = view.render(width)[0];
+		if (row === undefined) throw new Error("no header row");
+		return row;
+	}
+
+	test("read states an accent path, its warning line range, and a dim duration", () => {
+		const row = readRow(120);
+		expect(row).toContain("[toolTitle]*read*[/]");
+		expect(row).toContain("[accent]/repo/src/a.ts[/]");
+		expect(row).toContain("[warning]:10-14[/]");
+		expect(row).toContain("[dim]120ms[/]");
+	});
+
+	test("read keeps its path and range on one row at narrow and wide widths", () => {
+		// The tagged theme spells its tokens as visible text, so a 30-cell row is cut inside them;
+		// width safety is what the narrow layout owes, and the tokens are asserted where they fit.
+		for (const width of [30, 80, 120]) {
+			const row = readRow(width);
+			expect(row).not.toMatch(/[\r\n]/);
+			expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+		}
+		expect(readRow(80)).toContain("[toolTitle]*read*[/]");
+		expect(readRow(80)).toContain("[accent]/repo/src/a.ts[/]");
+		expect(readRow(120)).toContain("[warning]:10-14[/]");
+	});
+
+	test("read shows no range when the call reads the whole file", () => {
+		const row = readRow(120, { path: "src/a.ts" });
+		expect(row).toContain("[accent]src/a.ts[/]");
+		expect(row).not.toContain("[warning]");
+	});
+
+	test("bash states the command as content and its timeout and duration as secondary", () => {
+		const h = host();
+		h.register();
+		const view = h.resolve("bash").renderResult!(
+			textToolResult("ok", undefined),
+			{ expanded: false, isPartial: false },
+			theme,
+			context({ args: { command: "pnpm test", timeout: 30 } }),
+		) as ToolView;
+		const row = view.render(120)[0] ?? "";
+		expect(row).toContain("[toolTitle]*bash*[/] [toolTitle]*pnpm test*[/]");
+		expect(row).toContain("[dim](timeout 30s) · 120ms[/]");
+		expect(row).not.toContain("[dim]pnpm test");
+	});
+});
+
+describe("theme-dependent cache", () => {
+	test("repaints a cached header once the host invalidates it", () => {
+		const palette: Record<string, string> = { toolTitle: "cyan" };
+		const mutable = {
+			fg: (token: string, value: string) => `<${palette[token] ?? token}>${value}`,
+			bg: (_token: string, value: string) => value,
+			bold: (value: string) => value,
+			italic: (value: string) => value,
+		} as unknown as Theme;
+		const view = new ToolView({ theme: mutable, header: { title: "read", status: "ok" } });
+		const before = view.render(60)[0];
+		palette.toolTitle = "magenta";
+		// The cache is keyed by width and fold state; Pi invalidates every component on a theme change.
+		expect(view.render(60)[0]).toBe(before);
+		view.invalidate();
+		expect(view.render(60)[0]).toContain("<magenta>read");
+	});
+});
+
+describe("read's path link", () => {
+	function row(): string {
+		const h = host();
+		h.register();
+		const view = h.resolve("read").renderResult!(
+			textToolResult("file body", undefined),
+			{ expanded: false, isPartial: false },
+			theme,
+			context({ args: { path: "/repo/src/a.ts" } }),
+		) as ToolView;
+		return view.render(120)[0] ?? "";
+	}
+
+	test("links the accent path to the file only when the terminal draws OSC 8 links", () => {
+		try {
+			setCapabilityOverrides({ hyperlinks: true });
+			expect(row()).toContain("\u001b]8;;file:///repo/src/a.ts\u001b\\");
+			expect(row()).toContain("[accent]/repo/src/a.ts[/]");
+			setCapabilityOverrides({ hyperlinks: false });
+			expect(row()).not.toContain("]8;;");
+			expect(row()).toContain("[accent]/repo/src/a.ts[/]");
+		} finally {
+			setCapabilityOverrides({});
+		}
 	});
 });

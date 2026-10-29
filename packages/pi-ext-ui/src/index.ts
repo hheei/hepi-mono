@@ -15,8 +15,8 @@ export {
 	type MessageViewHeader,
 	type MessageViewSpec,
 } from "./message-view.js";
+export { extractChildToolCopyText, inlinePresentation } from "./native-tools.js";
 export {
-	extractChildToolCopyText,
 	NestedCallsView,
 	type NestedCallsViewProps,
 } from "./nested-calls-view.js";
@@ -24,7 +24,6 @@ export {
 	type CollapsibleToolRendererOptions,
 	createCollapsibleToolRendererResolver,
 	estimateStreamingTokens,
-	inlinePresentation,
 	isMcpTool,
 	type NestedCallRecord,
 	registerCollapsibleToolRenderer,
@@ -32,6 +31,7 @@ export {
 	type SpecializedToolRendererName,
 	type ToolRenderContext,
 } from "./renderer.js";
+export { ToolUiRuntime } from "./runtime.js";
 export {
 	type Collapsible,
 	createToolView,
@@ -51,8 +51,7 @@ export {
 } from "./tool-view.js";
 export {
 	type CapturedToolCall,
-	clearCapturedNestedCalls,
-	getCapturedNestedCalls,
-	recordToolExecutionEnd,
-	recordToolExecutionStart,
+	type NestedCallArgsFact,
+	NestedCallArgsIndex,
+	ToolExecutionTracker,
 } from "./tracker.js";

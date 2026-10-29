@@ -208,25 +208,40 @@ export default function(pi) {
 		const observed: unknown = JSON.parse(readFileSync(evidence, "utf8"));
 		expect(observed, JSON.stringify(observed)).toMatchObject({
 			expanded: true,
-			text: expect.stringContaining("read ×4"),
-			streaming: expect.stringContaining("⋯ read"),
-			running: expect.stringContaining("◐ read"),
-			partial: expect.stringContaining("read ×5"),
-			finished: expect.stringContaining("◐ read"),
-			restored: expect.stringContaining("read ×6"),
-			settled: expect.stringContaining("Requests ×2"),
+			// Restored history: the last read is the unit outside, so the block lists the other three.
+			text: expect.stringContaining("read ×3"),
+			// The live call is the transcript's last unit and draws its own header.
+			streaming: expect.stringMatching(/[·✢✳✶✻✽] read/),
+			running: expect.stringMatching(/[·✢✳✶✻✽] read/),
+			// A partial result is not a completed call: the count stays at the four finished reads.
+			partial: expect.stringContaining("read ×4"),
+			finished: expect.stringContaining("read ×5"),
+			// live-b is still running, so the restored frame counts five completed calls.
+			restored: expect.stringContaining("read ×5"),
+			// The block holds this run's content, so its frozen duration survives the end.
+			settled: expect.stringMatching(/collapse views · \d+s · 6 calls/),
 			expandedText: expect.stringContaining("second line"),
+		});
+		// The footer closes the block, one colored padding row and one blank separator follow, then the
+		// unit the block keeps outside.
+		expect(observed).toMatchObject({
+			text: expect.stringMatching(/requests ×1 · IN 0 · OUT 0 · CH — *\n *\n\n *▸ ✓ read/),
+			settled: expect.stringMatching(/requests ×2[^\n]*\n *\n\n/),
 		});
 		const resultText = JSON.stringify(observed);
 		expect(observed).toMatchObject({ expandedText: expect.stringContaining("DONE BODY") });
 		expect(resultText).toContain("FIRST NOTICE");
 		expect(resultText).toContain("SECOND NOTICE");
 		expect(observed).toMatchObject({
-			restored: expect.stringContaining("Requests ×2"),
+			restored: expect.stringContaining("requests ×2"),
 			settled: expect.stringContaining("read ×6"),
-			streaming: expect.stringContaining("thinking · 14 tokens"),
+			// A partial result and a still-running call never enter the completed count.
+			partial: expect.not.stringContaining("read ×5"),
+			// Historical and streaming thinking runs are two items, split by the tools between them.
+			streaming: expect.stringContaining("thinking x2 · 14 tokens"),
 		});
 		expect(resultText).not.toContain("notify ×");
+		expect(resultText).not.toContain("collapse views · — · 6 calls");
 		if (notice) expect(resultText).toContain("BOUNDARY");
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

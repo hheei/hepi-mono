@@ -5,7 +5,42 @@ import { createMessageView } from "../src/message-view.js";
 
 const theme = {
 	fg: (token: string, text: string) => `[${token}]${text}[/]`,
+	bg: (_token: string, text: string) => text,
 } as unknown as Theme;
+
+test("a standalone message draws its own custom-message block background", () => {
+	const tokens: string[] = [];
+	const spy = {
+		fg: (_token: string, text: string) => text,
+		bg: (token: string, text: string) => {
+			tokens.push(token);
+			return text;
+		},
+	} as unknown as Theme;
+	const view = createMessageView({ theme: spy, header: { kind: "memory", summary: "page" } });
+	view.render(40);
+	expect(tokens).toContain("customMessageBg");
+});
+
+test("a cache hit returns the filled rows, not the pre-shell lines", () => {
+	const spy = {
+		fg: (_token: string, text: string) => text,
+		bg: (_token: string, text: string) => `\x1b[48;5;236m${text}\x1b[49m`,
+	} as unknown as Theme;
+	const message = createMessageView({
+		theme: spy,
+		header: { kind: "memory", summary: "page" },
+	});
+	const first = message.render(20);
+	const second = message.render(20);
+	expect(second).toEqual(first);
+	expect(second[0]).toContain("\x1b[48;5;236m");
+});
+
+/** The block background fills each row to the terminal width; trailing padding is not content. */
+function rendered(view: ReturnType<typeof createMessageView>, width = 80): string[] {
+	return view.render(width).map((row) => row.trimEnd());
+}
 
 function click(y: number, x = 0): TuiMouseEvent {
 	return {
@@ -37,7 +72,7 @@ describe("MessageView", () => {
 	test("keeps the preview and hides the body until the header is clicked", () => {
 		const invalidate = vi.fn();
 		const message = view({ invalidate });
-		expect(message.render(80)).toEqual([
+		expect(rendered(message)).toEqual([
 			"[dim]▸[/] [dim]memory[/][dim] · [/][dim]2 pages[/]",
 			"  alpha",
 		]);
@@ -45,8 +80,8 @@ describe("MessageView", () => {
 		expect(invalidate).not.toHaveBeenCalled();
 		expect(message.handleMouse(click(0))).toEqual({ handled: true, render: true });
 		expect(invalidate).toHaveBeenCalledTimes(1);
-		expect(message.render(80)[2]).toBe("  snippet");
-		expect(message.render(80)[0]).toContain("▾");
+		expect(rendered(message)[2]).toBe("  snippet");
+		expect(rendered(message)[0]).toContain("▾");
 	});
 
 	test("remembers expansion on the holder, not on the component", () => {
@@ -65,7 +100,7 @@ describe("MessageView", () => {
 			header: { kind: "idle", summary: "2m" },
 		});
 		expect(message.expandable).toBe(false);
-		expect(message.render(40)[0]).toBe("[dim]idle[/][dim] · [/][dim]2m[/]");
+		expect(rendered(message, 40)[0]).toBe("[dim]idle[/][dim] · [/][dim]2m[/]");
 		expect(message.handleMouse(click(0))).toBeUndefined();
 	});
 
@@ -87,7 +122,7 @@ describe("MessageView", () => {
 			outputPad: 2,
 		});
 		message.toggle();
-		expect(message.render(80)).toEqual([
+		expect(rendered(message)).toEqual([
 			"  [dim]▾[/] [dim]agents[/][dim] · [/][error]failed[/]",
 			"    one",
 			"    two",
@@ -101,7 +136,7 @@ describe("MessageView", () => {
 			body: [longLine],
 		});
 		message.toggle();
-		const rows = message.render(40);
+		const rows = rendered(message, 40);
 		expect(rows.length).toBeGreaterThan(6);
 		for (const row of rows.slice(1)) {
 			expect(row.startsWith("  ")).toBe(true);

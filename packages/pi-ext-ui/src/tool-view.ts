@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import {
 	copyToClipboard as copyToSystemClipboard,
 	type Theme,
+	type ThemeBg,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
@@ -11,8 +12,16 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { backgroundFill } from "./background.js";
 
 export type FoldLevel = 0 | 1 | 2;
+
+/** Pi native tool surfaces: a failure outranks work in progress, which outranks a settled tool. */
+function nativeSurface(status: ToolStatusKind | undefined): ThemeBg {
+	if (status === "error") return "toolErrorBg";
+	if (status === "running" || status === "streaming") return "toolPendingBg";
+	return "toolSuccessBg";
+}
 
 export type ToolStatusKind = "streaming" | "running" | "ok" | "warn" | "error" | "none";
 
@@ -27,8 +36,12 @@ export interface RailSection {
 export interface ToolViewHeaderSpec {
 	readonly title: string;
 	readonly status?: ToolStatusKind | undefined;
+	/** The call's own text. Plain unless `summaryStyled` says the tool layer themed it already. */
 	readonly summary?: string | undefined;
-	readonly unstyledSummary?: boolean | undefined;
+	/** The summary already carries its semantic tokens; the frame must not recolor it. */
+	readonly summaryStyled?: boolean | undefined;
+	/** Secondary facts after the summary: duration, timeout. Always dim. */
+	readonly meta?: string | undefined;
 }
 
 export interface ToolViewCopySpec {
@@ -50,13 +63,12 @@ export function isCollapsible(value: unknown): value is Collapsible {
 	);
 }
 
-/** One nested call inside a container, reduced to what a row and its detail need. */
+/** One nested call inside a container, reduced to what a summary row and its count need. */
 export interface ToolViewChild {
 	readonly title: string;
 	readonly summary?: string | undefined;
 	readonly status?: ToolStatusKind | undefined;
 	readonly durationMs?: number | undefined;
-	readonly detail?: string | undefined;
 }
 
 export interface ToolViewSpec {
@@ -79,6 +91,11 @@ export interface ToolViewSpec {
 	readonly copyFeedbackDurationMs?: number | undefined;
 	readonly noRail?: boolean | undefined;
 	readonly railToken?: RailColorToken | undefined;
+	/**
+	 * Pi-native surface: success/error fill plus one padding row, and no leading rail. Read per render,
+	 * so a settings change reaches a view the host already holds.
+	 */
+	readonly background?: (() => boolean) | undefined;
 }
 
 /** Public composition entry point for extensions that need the shared view behavior. */
@@ -94,17 +111,6 @@ const DEFAULT_MAX_SECTION_LINES = 9;
 export const MAX_LEVEL2_SECTION_LINES = 500;
 export const MAX_LEVEL2_BYTES = 64 * 1024;
 const DEFAULT_COPY_FEEDBACK_MS = 1200;
-let outerRailDepth = 0;
-
-/** Internal transcript composition: original components keep their layout and interactions. */
-export function renderWithoutToolRails(component: Component, width: number): string[] {
-	outerRailDepth++;
-	try {
-		return component.render(width);
-	} finally {
-		outerRailDepth--;
-	}
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -145,12 +151,24 @@ function isCopyFailed(stateHolder: unknown, localFailed: boolean): boolean {
 	return isRecord(stateHolder) && stateHolder[COPY_FAILED_STATE_KEY] === true;
 }
 
+export const TOOL_SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"] as const;
+export const TOOL_SPINNER_INTERVAL_MS = 100;
+
+/**
+ * One clock for every live tool, so the phase is shared and never restarts: streaming args and a
+ * running execution draw the same frame and differ only in color.
+ */
+export function toolSpinnerFrame(now = performance.now()): string {
+	const at = Math.floor(now / TOOL_SPINNER_INTERVAL_MS) % TOOL_SPINNER_FRAMES.length;
+	return TOOL_SPINNER_FRAMES[at] ?? "·";
+}
+
 export function formatStatusGlyph(status: ToolStatusKind | undefined, theme: Theme): string {
 	switch (status ?? "ok") {
 		case "streaming":
-			return theme.fg("muted", "⋯");
+			return theme.fg("muted", toolSpinnerFrame());
 		case "running":
-			return theme.fg("accent", "◐");
+			return theme.fg("accent", toolSpinnerFrame());
 		case "ok":
 			return theme.fg("success", "✓");
 		case "warn":
@@ -176,7 +194,8 @@ export function formatToolHeaderText(
 		readonly status?: ToolStatusKind | undefined;
 		readonly title: string;
 		readonly summary?: string | undefined;
-		readonly unstyledSummary?: boolean | undefined;
+		readonly summaryStyled?: boolean | undefined;
+		readonly meta?: string | undefined;
 	},
 	theme: Theme,
 ): string {
@@ -184,10 +203,22 @@ export function formatToolHeaderText(
 	const title = toSingleRow(parts.title);
 	const titlePart = theme.fg("toolTitle", theme.bold(title));
 	const summaryRaw = parts.summary === undefined ? "" : toSingleRow(parts.summary);
-	const isUnstyled = parts.unstyledSummary === true || title === "bash";
+	// A command is the row's content, not its caption: bash states it the way the native shell row
+	// does. A summary the tool layer already themed keeps its own tokens.
 	const summaryPart =
-		summaryRaw === "" ? "" : isUnstyled ? ` ${summaryRaw}` : ` ${theme.fg("dim", summaryRaw)}`;
-	return `${statusPart === "" ? "" : `${statusPart} `}${titlePart}${summaryPart}`;
+		summaryRaw === ""
+			? ""
+			: parts.summaryStyled === true
+				? ` ${summaryRaw}`
+				: title === "bash"
+					? ` ${theme.fg("toolTitle", theme.bold(summaryRaw))}`
+					: ` ${theme.fg("dim", summaryRaw)}`;
+	const metaRaw = parts.meta === undefined ? "" : toSingleRow(parts.meta);
+	const metaPart =
+		metaRaw === ""
+			? ""
+			: `${summaryPart === "" ? " " : theme.fg("dim", " · ")}${theme.fg("dim", metaRaw)}`;
+	return `${statusPart === "" ? "" : `${statusPart} `}${titlePart}${summaryPart}${metaPart}`;
 }
 
 const truncate = (text: string, width: number): string => truncateToWidth(text, width, "…");
@@ -326,12 +357,15 @@ export class ToolView implements Component {
 	#lastWidth = 80;
 	#lastHeight = 0;
 	#lastNoRail = false;
+	/** Rows the native surface adds above the header. */
+	#lastTopPad = 0;
 	#cache:
 		| {
 				readonly width: number;
 				readonly level: FoldLevel;
 				readonly copied: boolean;
 				readonly noRail: boolean;
+				readonly surface: string | undefined;
 				readonly lines: string[];
 		  }
 		| undefined;
@@ -537,7 +571,8 @@ export class ToolView implements Component {
 		const safeWidth = Math.max(1, width - pad * 2);
 		const level = this.effectiveLevel;
 		const { theme, collapsedRows, sections } = this.#spec;
-		const noRail = options?.noRail ?? (outerRailDepth > 0 || this.#spec.noRail === true);
+		const noRail =
+			options?.noRail ?? (this.#spec.noRail === true || this.#spec.background?.() === true);
 		const innerWidth = noRail ? safeWidth : Math.max(1, safeWidth - 2);
 		const output: string[] = [];
 
@@ -558,6 +593,7 @@ export class ToolView implements Component {
 		}
 
 		for (const section of sections) {
+			const sectionOutput: string[] = [];
 			const rail = noRail ? "" : `${theme.fg(section.railToken, "▎")} `;
 			const {
 				rows: rawLines,
@@ -569,6 +605,8 @@ export class ToolView implements Component {
 
 			const sectionRows: string[] = [];
 			let logicalLinesCount = 0;
+			// Wrapped rows the last shown line still has: a single long line is not "1 more line".
+			let cutChunks = 0;
 			for (const line of rawLines) {
 				const wrapped = wrapTextWithAnsi(line, innerWidth);
 				const chunks = wrapped.length > 0 ? wrapped : [""];
@@ -580,25 +618,36 @@ export class ToolView implements Component {
 							sectionRows.push(chunk);
 						}
 					}
+					// Only a line that started showing is "continues"; a fully omitted one is a whole line.
+					cutChunks = canTake > 0 ? chunks.length - canTake : 0;
 					break;
 				}
 				sectionRows.push(...chunks);
 				logicalLinesCount++;
 			}
-			const omittedCount = rawLines.length - logicalLinesCount;
+			// The line that broke the cap is not an omitted whole line: its hidden part is `cutChunks`.
+			const omittedCount = rawLines.length - logicalLinesCount - (cutChunks > 0 ? 1 : 0);
+			// The hint names the real way to the hidden text; without a copy it must not promise one.
+			const copyHint =
+				this.#spec.copy?.full !== undefined && this.#spec.copy.full !== ""
+					? ", shift+click copies all"
+					: "";
 
 			for (const row of sectionRows) {
-				output.push(truncate(rail + row, safeWidth));
+				sectionOutput.push(truncate(rail + row, safeWidth));
 			}
-			if (omittedCount > 0 || isByteTruncated) {
-				const hint = isByteTruncated
-					? theme.fg(
-							"dim",
-							`… [Output truncated: showing 64KB of ${Math.round(totalBytes / 1024)}KB]`,
-						)
-					: theme.fg("dim", `… (${String(omittedCount)} more lines)`);
-				output.push(truncate(rail + hint, safeWidth));
+			if (omittedCount > 0 || cutChunks > 0 || isByteTruncated) {
+				let text: string;
+				if (isByteTruncated) {
+					text = `… [Output truncated: showing 64KB of ${Math.round(totalBytes / 1024)}KB${copyHint}]`;
+				} else if (omittedCount > 0) {
+					text = `… (${String(omittedCount)} more lines${cutChunks > 0 ? ", current line continues" : ""}${copyHint})`;
+				} else {
+					text = `… (current line continues${copyHint})`;
+				}
+				sectionOutput.push(truncate(rail + theme.fg("dim", text), safeWidth));
 			}
+			output.push(...sectionOutput);
 		}
 
 		return output;
@@ -608,12 +657,15 @@ export class ToolView implements Component {
 		if (this.#hidden) return [];
 		const level = this.effectiveLevel;
 		const copied = isCopiedActive(this.#spec.stateHolder, this.#localCopiedUntil);
-		const noRail = outerRailDepth > 0 || this.#spec.noRail === true;
+		const native = this.#spec.background?.() === true;
+		const surface = native ? nativeSurface(this.#spec.header.status) : undefined;
+		const noRail = this.#spec.noRail === true || native;
 		if (
 			this.#cache !== undefined &&
 			this.#cache.width === width &&
 			this.#cache.level === level &&
 			this.#cache.noRail === noRail &&
+			this.#cache.surface === surface &&
 			this.#cache.copied === copied
 		) {
 			return this.#cache.lines;
@@ -640,9 +692,19 @@ export class ToolView implements Component {
 				safeLines.push(leftPad !== "" ? `${leftPad}${rawLine}` : rawLine);
 			}
 		}
-		this.#lastHeight = safeLines.length;
-		this.#cache = { width, level, copied, noRail, lines: safeLines };
-		return safeLines;
+		this.#lastTopPad = surface === undefined ? 0 : 1;
+		const lines =
+			surface === undefined
+				? safeLines
+				: ["", ...safeLines, ""].map((line) =>
+						backgroundFill(
+							this.#spec.theme,
+							surface,
+						)(line + " ".repeat(Math.max(0, width - visibleWidth(line)))),
+					);
+		this.#lastHeight = lines.length;
+		this.#cache = { width, level, copied, noRail, surface, lines };
+		return lines;
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
@@ -666,7 +728,8 @@ export class ToolView implements Component {
 			return undefined;
 		}
 
-		if (event.y === 0) {
+		const row = event.y - this.#lastTopPad;
+		if (row === 0) {
 			if (
 				this.#spec.copy !== undefined &&
 				innerWidth >= 6 &&
@@ -696,7 +759,7 @@ export class ToolView implements Component {
 				const railOffset = this.#lastNoRail ? 0 : 2;
 				const subEvent: TuiMouseEvent = {
 					...event,
-					y: event.y - 1,
+					y: row - 1,
 					x: Math.max(0, innerX - railOffset),
 					width: Math.max(1, innerWidth - railOffset),
 				};
