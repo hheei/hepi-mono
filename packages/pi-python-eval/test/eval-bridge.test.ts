@@ -45,7 +45,7 @@ const context = {
 const emptyDetails: EvalToolDetails = {
 	format: PYTHON_EVAL_DETAILS_FORMAT,
 	rows: [],
-	calls: { total: 0, failed: 0 },
+	calls: { total: 0, failed: 0, items: [] },
 	durationMs: 0,
 };
 

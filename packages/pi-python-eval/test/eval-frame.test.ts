@@ -322,9 +322,14 @@ describe("Eval tool details contract", () => {
 		const { result } = await execute(runtime, new EvalToolBridge(), { host: hostText("file") });
 		const details = result.details as {
 			rows: { kind: string }[];
-			calls: { total: number; failed: number };
+			calls: { total: number; failed: number; items: readonly { name: string }[] };
 		};
-		expect(details.calls).toEqual({ total: 1, failed: 0 });
+		expect(details.calls.total).toBe(1);
+		expect(details.calls.failed).toBe(0);
+		// The call is a fact of its own, so losing its row does not lose the call.
+		expect(details.calls.items).toEqual([
+			expect.objectContaining({ name: "read", summary: "a.txt", failed: false }),
+		]);
 		expect(details.rows.filter((row) => row.kind === "tool")).toHaveLength(0);
 		// The preview dropped the row; the model body still names the call, because it comes from the
 		// output ledger rather than from the bounded rows.

@@ -225,6 +225,35 @@ describe("python_eval rich presentation", () => {
 			expect(frameRows[index]).toContain(child.summary ?? "");
 		}
 	});
+
+	test("lists nested calls the preview no longer holds", () => {
+		const details: EvalToolDetails = {
+			format: PYTHON_EVAL_DETAILS_FORMAT,
+			rows: [{ kind: "text", text: "row 0" }],
+			calls: {
+				total: 3,
+				failed: 1,
+				items: [
+					{ name: "read", summary: "a.txt", durationMs: 12, failed: false },
+					{ name: "read", summary: "b.txt", durationMs: 13, failed: false },
+					{ name: "bash", summary: "ls", durationMs: 14, failed: true },
+				],
+			},
+			durationMs: 1500,
+		};
+		const presentation = createPythonEvalPresentation(
+			{ code: "tools.read()" },
+			{ content: [{ type: "text", text: "plain" }], details },
+			theme,
+			context(),
+		);
+		expect(presentation.childCount).toBe(3);
+		expect(presentation.children?.map((child) => child.title)).toEqual(["read", "read", "bash"]);
+		expect(presentation.children?.[2]?.status).toBe("error");
+		// No row carries the text, so a child has nothing to open — but it is still listed and counted.
+		expect(presentation.children?.[0]?.detail).toBeUndefined();
+		expect(stripTerminalSequences(presentation.summary)).toBe("2 ok · 1 failed");
+	});
 });
 
 describe("python_eval persisted details", () => {

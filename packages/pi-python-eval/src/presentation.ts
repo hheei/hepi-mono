@@ -44,15 +44,35 @@ export interface EvalToolDetails {
 	readonly format: typeof PYTHON_EVAL_DETAILS_FORMAT;
 	/** The bounded preview the UI draws. */
 	readonly rows: readonly EvalRow[];
-	/** Nested calls as a fact: the preview may drop their rows, the count stays true. */
-	readonly calls: { readonly total: number; readonly failed: number };
+	/** Nested calls as facts: the preview may drop their rows, this list and its counts stay true. */
+	readonly calls: {
+		readonly total: number;
+		readonly failed: number;
+		readonly items: readonly EvalCall[];
+	};
 	readonly durationMs: number;
 	readonly error?: string;
 }
 
+/**
+ * One nested call without its result text: enough to list it and count it, small enough to keep for
+ * every call even when the preview that holds the text is bounded.
+ */
+export interface EvalCall {
+	readonly id?: string;
+	readonly name: EvalNestedTrace["name"];
+	readonly summary: string;
+	readonly durationMs: number;
+	readonly failed: boolean;
+}
+
 export interface EvalFrameDetails {
 	readonly rows: readonly EvalRow[];
-	readonly calls: { readonly total: number; readonly failed: number };
+	readonly calls: {
+		readonly total: number;
+		readonly failed: number;
+		readonly items: readonly EvalCall[];
+	};
 	readonly error: string | undefined;
 }
 
@@ -88,18 +108,44 @@ export function readEvalDetails(details: unknown): EvalFrameDetails | undefined 
 }
 
 /** A detail written before the count became a fact reports what its rows still show. */
-function readCalls(
-	raw: unknown,
-	rows: readonly EvalRow[],
-): { readonly total: number; readonly failed: number } {
+function readCalls(raw: unknown, rows: readonly EvalRow[]): EvalFrameDetails["calls"] {
 	if (isRecord(raw) && typeof raw.total === "number" && typeof raw.failed === "number") {
-		return { total: raw.total, failed: raw.failed };
+		return { total: raw.total, failed: raw.failed, items: readCallItems(raw.items) };
 	}
 	const calls = rows.filter((row) => row.kind === "tool");
 	return {
 		total: calls.length,
 		failed: calls.filter((row) => row.trace.error !== undefined).length,
+		items: calls.map((row) => callFact(row.trace)),
 	};
+}
+
+/** The compact fact for one nested call: what a row lists, without the result text. */
+export function callFact(trace: EvalTrace): EvalCall {
+	return {
+		...(trace.toolCallId === undefined ? {} : { id: trace.toolCallId }),
+		name: trace.name,
+		summary: trace.summary,
+		durationMs: trace.durationMs,
+		failed: trace.error !== undefined,
+	};
+}
+
+function readCallItems(raw: unknown): EvalCall[] {
+	if (!Array.isArray(raw)) return [];
+	const items: EvalCall[] = [];
+	for (const entry of raw) {
+		if (!isRecord(entry) || typeof entry.name !== "string" || typeof entry.failed !== "boolean")
+			continue;
+		items.push({
+			name: entry.name as EvalNestedTrace["name"],
+			summary: typeof entry.summary === "string" ? entry.summary : "",
+			durationMs: typeof entry.durationMs === "number" ? entry.durationMs : 0,
+			failed: entry.failed,
+			...(typeof entry.id === "string" ? { id: entry.id } : {}),
+		});
+	}
+	return items;
 }
 
 function readTrace(raw: unknown): EvalTrace | undefined {
@@ -131,10 +177,9 @@ export function createPythonEvalPresentation(
 	const parsed = isRecord(args) ? args : undefined;
 	const code = typeof parsed?.code === "string" ? parsed.code.trim() : "";
 	const facts = result === undefined ? undefined : readEvalDetails(result.details);
-	const toolRows = facts?.rows.filter((row) => row.kind === "tool") ?? [];
-	// Counts come from the fact, not from the rows: the preview caps rows, and a cell that printed
-	// past the cap must not report fewer calls than it made.
-	const calls = facts?.calls ?? { total: toolRows.length, failed: 0 };
+	// Calls come from the fact, not from the rows: the preview caps rows, and a cell that printed past
+	// the cap must not report fewer calls than it made, nor list none of them.
+	const calls = facts?.calls ?? { total: 0, failed: 0, items: [] };
 	const isError = context.isError || result?.isError === true;
 	const selfFailed = (isError || facts?.error !== undefined) && calls.failed === 0;
 
@@ -175,18 +220,24 @@ export function createPythonEvalPresentation(
 			: [{ railToken: isError ? ("error" as const) : ("success" as const), content: transcript }]),
 	];
 
-	const children: ToolPresentationChild[] = toolRows.map((row) => {
-		// The summary is the stored fact the frame row reads too, so a child call cannot read
-		// differently inside a group than it does in the cell.
-		const { summary } = row.trace;
+	// The result text still lives in the preview rows; the call itself does not.
+	const details = new Map<string, string>();
+	for (const row of facts?.rows ?? []) {
+		if (row.kind !== "tool" || row.trace.toolCallId === undefined) continue;
+		details.set(
+			row.trace.toolCallId,
+			row.trace.error === undefined ? row.trace.text : `${row.trace.error}\n${row.trace.text}`,
+		);
+	}
+	const children: ToolPresentationChild[] = calls.items.map((call) => {
+		const detail = call.id === undefined ? undefined : details.get(call.id);
 		return {
-			...(row.trace.toolCallId === undefined ? {} : { id: row.trace.toolCallId }),
-			title: row.trace.name,
-			...(summary === "" ? {} : { summary }),
-			status: row.trace.error === undefined ? ("ok" as const) : ("error" as const),
-			durationMs: row.trace.durationMs,
-			detail:
-				row.trace.error === undefined ? row.trace.text : `${row.trace.error}\n${row.trace.text}`,
+			...(call.id === undefined ? {} : { id: call.id }),
+			title: call.name,
+			...(call.summary === "" ? {} : { summary: call.summary }),
+			status: call.failed ? ("error" as const) : ("ok" as const),
+			durationMs: call.durationMs,
+			...(detail === undefined ? {} : { detail }),
 		};
 	});
 	const output = result === undefined ? "" : stripTerminalSequences(agentResultText(result));
@@ -197,10 +248,11 @@ export function createPythonEvalPresentation(
 		replaceCallOnPartial: true,
 		request: code,
 		sections,
-		...(toolRows.length === 0
+		...(calls.total === 0 ? {} : { childCount: calls.total }),
+		...(calls.items.length === 0
 			? {}
 			: {
-					collapsedRows: toolRows.map((row) => formatToolRow(row, theme)),
+					collapsedRows: calls.items.map((call) => formatToolRow(call, theme)),
 					children,
 				}),
 		...(code === ""
@@ -245,7 +297,7 @@ function transcriptRows(
 	for (const row of facts.rows) {
 		switch (row.kind) {
 			case "tool":
-				rows.push(formatToolRow(row, theme));
+				rows.push(formatToolRow(callFact(row.trace), theme));
 				break;
 			case "state":
 				// The namespace report is metadata about the cell, not its output, so it stays muted.
@@ -275,11 +327,10 @@ function transcriptRows(
 }
 
 /** One nested call: status glyph, tool name, its argument summary, and its duration. */
-function formatToolRow(row: Extract<EvalRow, { kind: "tool" }>, theme: Theme): string {
-	const failed = row.trace.error !== undefined;
-	const glyph = failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-	const title = theme.fg("toolTitle", theme.bold(row.trace.name));
-	const summary = [row.trace.summary, formatDuration(row.trace.durationMs)]
+function formatToolRow(call: EvalCall, theme: Theme): string {
+	const glyph = call.failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	const title = theme.fg("toolTitle", theme.bold(call.name));
+	const summary = [call.summary, formatDuration(call.durationMs)]
 		.filter((part): part is string => part !== undefined && part !== "")
 		.join(" · ");
 	return `${glyph} ${title}${summary === "" ? "" : ` ${theme.fg("dim", summary)}`}`;

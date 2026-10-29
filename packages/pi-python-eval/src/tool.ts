@@ -17,7 +17,9 @@ import type { EvalKernelState } from "./kernel/protocol.js";
 import { evalCellState } from "./kernel/protocol.js";
 import type { EvalRuntimeState } from "./lifecycle.js";
 import {
+	callFact,
 	createPythonEvalPresentation,
+	type EvalCall,
 	type EvalRow,
 	type EvalToolDetails,
 	type EvalTrace,
@@ -122,6 +124,8 @@ export function createPythonEvalTool(
 			const rows: EvalRow[] = [];
 			const output = new CellOutput();
 			const images: EvalNestedImage[] = [];
+			// Nested calls as facts, kept apart from the preview that may drop their rows.
+			const calls: EvalCall[] = [];
 			let omittedRows = 0;
 			let callTotal = 0;
 			let callFailed = 0;
@@ -136,7 +140,7 @@ export function createPythonEvalTool(
 					textToolResult(transcriptBody(rows), {
 						format: PYTHON_EVAL_DETAILS_FORMAT,
 						rows,
-						calls: { total: callTotal, failed: callFailed },
+						calls: { total: callTotal, failed: callFailed, items: calls },
 						durationMs: Math.round(performance.now() - startedAt),
 					}),
 				);
@@ -237,7 +241,9 @@ export function createPythonEvalTool(
 								images.push(...nestedImages);
 								callTotal += 1;
 								if (trace.error !== undefined) callFailed += 1;
-								record({ kind: "tool", trace: boundedTrace(trace) }, toolLine(trace));
+								const preview = boundedTrace(trace);
+								if (calls.length < MAX_DETAIL_ROWS) calls.push(callFact(preview));
+								record({ kind: "tool", trace: preview }, toolLine(trace));
 							}),
 					},
 					runSignal,
@@ -301,7 +307,7 @@ export function createPythonEvalTool(
 			const details = {
 				format: PYTHON_EVAL_DETAILS_FORMAT,
 				rows,
-				calls: { total: callTotal, failed: callFailed },
+				calls: { total: callTotal, failed: callFailed, items: calls },
 				durationMs: Math.round(performance.now() - startedAt),
 				...(failure === undefined ? {} : { error: failure }),
 			};
