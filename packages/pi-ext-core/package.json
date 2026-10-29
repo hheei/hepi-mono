@@ -1,6 +1,6 @@
 {
 	"name": "@hheei/pi-ext-core",
-	"version": "0.6.4",
+	"version": "0.7.0",
 	"description": "Shared lifecycle and coordination primitives for independent Pi extensions.",
 	"type": "module",
 	"main": "dist/index.js",
