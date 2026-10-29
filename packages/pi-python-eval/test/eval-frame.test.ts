@@ -336,6 +336,48 @@ describe("Eval tool details contract", () => {
 		expect((result.content[0] as { text: string }).text).toContain("read: file");
 	});
 
+	test("keeps the preview in the same order as the body when events interleave with a line", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void; onDisplay: (value: unknown) => void },
+			): Promise<unknown> => {
+				hooks.onText("A");
+				hooks.onDisplay(1);
+				hooks.onText("B\n");
+				return { value: undefined, state: undefined, restarted: false };
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge());
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		// The display ends the printed line, so "A" stays its own row instead of becoming "AB" ahead of it.
+		// A row keeps the value; the presentation adds the `display:` label when it draws.
+		expect(rows.map((row) => row.text)).toEqual(["A", "1", "B"]);
+		expect((result.content[0] as { text: string }).text).toBe("A\ndisplay: 1\nB");
+	});
+
+	test("ends the printed line before a nested call row", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: {
+					onText: (text: string) => void;
+					callTool: (name: string, args: unknown) => Promise<unknown>;
+				},
+			): Promise<unknown> => {
+				hooks.onText("before");
+				await hooks.callTool("read", { path: "a.txt" });
+				hooks.onText("after\n");
+				return { value: undefined, state: undefined, restarted: false };
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(), { host: hostText("file") });
+		const rows = (result.details as { rows: { kind: string; text?: string }[] }).rows;
+		expect(rows.map((row) => row.kind)).toEqual(["text", "tool", "text"]);
+		expect(rows[0]?.text).toBe("before");
+		expect(rows[2]?.text).toBe("after");
+	});
+
 	test("meters a line with no newline, so one enormous line cannot outgrow the ledger", async () => {
 		const megabyte = "x".repeat(1_048_576);
 		const runtime = {
