@@ -644,6 +644,20 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("preview line");
 	});
 
+	test("a child row in the group shows the duration its container row shows", () => {
+		const f = setup();
+		f.begin();
+		f.chat.children = [
+			assistant(["a", "b"]),
+			f.row("a", "read", "ok", false, true, [
+				{ title: "grep", summary: "TODO", status: "ok", durationMs: 12 },
+			]),
+			f.row("b"),
+		];
+		clickRow(f.chat, "▸ grep ×1");
+		expect(show(f.chat)).toContain("grep TODO · 12ms");
+	});
+
 	test("a finished block reports the native request usage it owns", () => {
 		const f = setup();
 		f.chat.children = [

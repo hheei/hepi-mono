@@ -8,6 +8,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { fitRow } from "@hheei/pi-ext-core";
+import { formatDurationMs } from "./payload-parser.js";
 import {
 	formatToolHeaderText,
 	isCollapsible,
@@ -357,8 +358,13 @@ export class ToolGroupView extends Container {
 			for (const [index, child] of member.children.entries()) {
 				separate();
 				const open = this.#item?.member === member.component && this.#item.child === index;
+				// The container's own row already reads `summary · duration`; a child listed in the
+				// group must read the same, or the same call looks different in the two views.
+				const summary = [child.summary ?? "", formatDurationMs(child.durationMs)]
+					.filter((part) => part !== "")
+					.join(" · ");
 				push(
-					`${theme.fg("dim", open ? "▾" : "▸")} ${formatToolHeaderText({ status: child.status, title: child.title, summary: child.summary }, theme)}`,
+					`${theme.fg("dim", open ? "▾" : "▸")} ${formatToolHeaderText({ status: child.status, title: child.title, summary }, theme)}`,
 					{ kind: "item", member: member.component, child: index },
 				);
 				if (!open || child.detail === undefined) continue;
