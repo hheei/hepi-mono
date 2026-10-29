@@ -11,7 +11,13 @@ import { BashExecutionLedger, bashExecutionDirectory } from "./bash-ledger.js";
 import { type BashSettings, DEFAULT_BASH_SETTINGS, readBashSettings } from "./bash-settings.js";
 import { createBashStatus } from "./status.js";
 
-/** Live session view consumed by the statically registered background Bash tools. */
+/**
+ * Live session view consumed by the statically registered background Bash tools.
+ *
+ * The mutable half lives in a module-level WeakMap keyed by this object, so a structurally identical
+ * object is not an equivalent: its getters always answer with the defaults, and
+ * `registerBashLifecycle()` rejects it. Only `createBashRuntimeState()` produces a usable one.
+ */
 export interface BackgroundBashRuntimeState {
 	getSettings(): BashSettings;
 	getBashJobs(): BashJobRegistry | undefined;

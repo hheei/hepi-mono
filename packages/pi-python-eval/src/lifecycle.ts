@@ -19,6 +19,13 @@ export interface EvalExecutor {
 	dispose(): void;
 }
 
+/**
+ * The session's current runtime, as the statically registered tool reads it.
+ *
+ * The mutable half lives in a module-level WeakMap keyed by this object, so a structurally identical
+ * object is not an equivalent: its getter never sees a runtime, and `startEvalRuntime()` rejects it.
+ * Only `createEvalRuntimeState()` produces a usable one.
+ */
 export interface EvalRuntimeState {
 	getRuntime(): EvalExecutor | undefined;
 }
