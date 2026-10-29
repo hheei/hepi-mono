@@ -411,3 +411,13 @@ test("the store keeps the newest decisions and drops the oldest", async () => {
 	expect(keys.some((key) => key.endsWith("git status --0"))).toBe(false);
 	expect(keys.some((key) => key.endsWith("git status --256"))).toBe(true);
 });
+
+test("skips rewrite query and leaves command raw when command contains null bytes", async () => {
+	const exec = vi.fn();
+	const { runtime, info } = harness(exec);
+	const event = bash("git status --foo\0bar");
+	await runtime.rewrite(event, context(), enabled);
+	expect(exec).not.toHaveBeenCalled();
+	expect(event.input.command).toBe("git status --foo\0bar");
+	expect(info).not.toHaveBeenCalled();
+});
