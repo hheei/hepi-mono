@@ -14,6 +14,11 @@ import {
 	createCollapsibleToolRendererResolver,
 	createOptionalToolRendererFactory,
 } from "../../pi-ext-ui/src/renderer.js";
+import { ToolUiRuntime } from "../../pi-ext-ui/src/runtime.js";
+
+/** The state this test's runtime owns; the extension builds the same one per Pi runtime. */
+const runtime = new ToolUiRuntime();
+
 import pythonExtension from "../../pi-python-eval/src/extension.js";
 import todoExtension from "../../pi-todo/src/extension.js";
 import filesExtension from "../src/extension.js";
@@ -93,7 +98,7 @@ async function withUi(host: ReturnType<typeof toolHost>): Promise<() => Promise<
 	const hook = registerExtensionHook(
 		host.pi,
 		toolRendererPoint,
-		createOptionalToolRendererFactory(host.pi),
+		createOptionalToolRendererFactory(host.pi, runtime),
 	);
 	await hook.ready;
 	return () => hook.dispose();
@@ -352,7 +357,7 @@ describe("package-owned tool renderers", () => {
 		const host = combinedHost();
 		const dispose = await withUi(host);
 		try {
-			const resolve = createCollapsibleToolRendererResolver();
+			const resolve = createCollapsibleToolRendererResolver(runtime);
 			for (const { name } of catalog) {
 				const tool = toolFor(host.tools, name);
 				expect(resolve(name, () => tool)).toBe(tool);
@@ -539,7 +544,7 @@ describe("package-owned frames through the real UI factory", () => {
 			) as Foldable;
 			call.setFoldLevel?.(2);
 			for (const width of [24, 100]) expectSingleFrame(rows(call, width), width);
-			expect(rows(call, 100)[0]).toContain("⋯");
+			expect(rows(call, 100)[0]).toMatch(/[·✢✳✶✻✽]/);
 		} finally {
 			await dispose();
 		}
@@ -559,7 +564,7 @@ describe("package-owned frames through the real UI factory", () => {
 			outcome.setFoldLevel?.(2);
 			const lines = rows(outcome, 100);
 			expectSingleFrame(lines, 100);
-			expect(lines[0]).toContain("◐");
+			expect(lines[0]).toMatch(/[·✢✳✶✻✽]/);
 			expect(lines.join("\n")).toContain("partial transcript");
 		} finally {
 			await dispose();
