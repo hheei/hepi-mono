@@ -409,3 +409,35 @@ export function finishCommand(
 		id,
 	);
 }
+
+/**
+ * A settled command whose waiter died with its process has no reader left. Only a parent that is
+ * taking over the mailbox may run this: a live waiter deletes its own row when it reads it.
+ */
+export function deleteSettledCommands(db: DatabaseSync, parentSessionId: string): void {
+	db.prepare(
+		`DELETE FROM commands
+		 WHERE parent_session_id = ? AND status IN ('done', 'failed')`,
+	).run(parentSessionId);
+}
+
+/**
+ * Keeps only the newest `keep` queued events for one child. Events are advisory snapshots, so a
+ * parent that stopped reading must not leave an unbounded backlog behind.
+ */
+export function trimEventBacklog(
+	db: DatabaseSync,
+	parentSessionId: string,
+	subagentId: string,
+	keep: number,
+): void {
+	db.prepare(
+		`DELETE FROM commands WHERE id IN (
+		   SELECT id FROM commands
+		   WHERE parent_session_id = ? AND subagent_id = ? AND direction = 'to_parent'
+		     AND operation = 'event' AND status = 'pending'
+		   ORDER BY created_at DESC
+		   LIMIT -1 OFFSET ?
+		 )`,
+	).run(parentSessionId, subagentId, keep);
+}

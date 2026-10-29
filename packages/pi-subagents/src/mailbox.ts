@@ -8,11 +8,12 @@ import {
 	processLockHeld,
 	processLockPath,
 } from "./process-lock.js";
-import { BridgeError } from "./protocol.js";
+import { BridgeError, DEFAULT_MAX_BUFFERED_EVENTS } from "./protocol.js";
 import {
 	claimCommand,
 	claimParentCommands,
 	deleteCommand,
+	deleteSettledCommands,
 	enqueueCommand,
 	finishCommand,
 	hasPendingCommand,
@@ -20,6 +21,7 @@ import {
 	readCommand,
 	requeueAbandonedParentCommands,
 	type StoredCommand,
+	trimEventBacklog,
 	withWrite,
 } from "./state-db.js";
 
@@ -63,6 +65,8 @@ export function createMailboxTransport(options: {
 	const seen = new Set<string>();
 	const eventListeners = new Set<(childId: string, event: unknown) => void>();
 	const connectionListeners = new Set<(childId: string, connected: boolean) => void>();
+	/** One lifetime per transport: closing it settles every request still waiting on a reply. */
+	const lifetime = new AbortController();
 	let closed = false;
 	let polling = false;
 
@@ -184,10 +188,13 @@ export function createMailboxTransport(options: {
 
 	withWrite(db, () => {
 		requeueAbandonedParentCommands(db, options.parentSessionId);
+		deleteSettledCommands(db, options.parentSessionId);
 	});
 
 	const timer = setInterval(() => {
-		void takeParentCommands();
+		void takeParentCommands().catch((error: unknown) => {
+			options.diagnose?.(`could not take parent commands: ${errorMessage(error)}`);
+		});
 	}, pollMs);
 	timer.unref?.();
 
@@ -211,13 +218,12 @@ export function createMailboxTransport(options: {
 				payload: JSON.stringify(payload ?? null),
 				createdAt: Date.now(),
 			});
-			return waitForCommand(
-				db,
-				id,
-				requestOptions?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+			return waitForCommand(db, id, {
+				timeoutMs: requestOptions?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
 				pollMs,
-				requestOptions?.signal,
-			);
+				signal: untilClosed(requestOptions?.signal, lifetime.signal),
+				...(options.diagnose === undefined ? {} : { diagnose: options.diagnose }),
+			});
 		},
 		onEvent(listener) {
 			eventListeners.add(listener);
@@ -250,6 +256,7 @@ export function createMailboxTransport(options: {
 		close() {
 			closed = true;
 			clearInterval(timer);
+			lifetime.abort(new BridgeError("closed", "The mailbox transport was closed"));
 		},
 	};
 }
@@ -276,6 +283,7 @@ export function attachChildMailbox(options: {
 	let db: ReturnType<typeof openStateDb> | undefined;
 	let processLock: ProcessLock | undefined;
 	const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
+	const lifetime = new AbortController();
 	let closed = false;
 	let started = false;
 	let working = false;
@@ -328,10 +336,14 @@ export function attachChildMailbox(options: {
 			}
 			started = true;
 			timer = setInterval(() => {
-				void tick();
+				void tick().catch((error: unknown) => {
+					options.diagnose?.(`could not take a parent command: ${errorMessage(error)}`);
+				});
 			}, pollMs);
 			timer.unref?.();
-			void tick();
+			void tick().catch((error: unknown) => {
+				options.diagnose?.(`could not take a parent command: ${errorMessage(error)}`);
+			});
 		},
 		report(operation, payload, signal) {
 			const current = database();
@@ -345,25 +357,44 @@ export function attachChildMailbox(options: {
 				payload: JSON.stringify(payload ?? null),
 				createdAt: Date.now(),
 			});
-			return waitForCommand(current, id, DEFAULT_REQUEST_TIMEOUT_MS, pollMs, signal);
+			return waitForCommand(current, id, {
+				timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+				pollMs,
+				signal: untilClosed(signal, lifetime.signal),
+				...(options.diagnose === undefined ? {} : { diagnose: options.diagnose }),
+			});
 		},
 		sendEvent(event) {
 			if (db === undefined) return;
 			const current = db;
-			enqueueCommand(current, {
-				id: randomUUID(),
-				parentSessionId: options.parentSessionId,
-				subagentId: options.subagentId,
-				direction: "to_parent",
-				operation: "event",
-				payload: JSON.stringify(event ?? null),
-				createdAt: Date.now(),
-			});
+			try {
+				withWrite(current, () => {
+					enqueueCommand(current, {
+						id: randomUUID(),
+						parentSessionId: options.parentSessionId,
+						subagentId: options.subagentId,
+						direction: "to_parent",
+						operation: "event",
+						payload: JSON.stringify(event ?? null),
+						createdAt: Date.now(),
+					});
+					trimEventBacklog(
+						current,
+						options.parentSessionId,
+						options.subagentId,
+						DEFAULT_MAX_BUFFERED_EVENTS,
+					);
+				});
+			} catch (error) {
+				// An advisory frame is never worth failing a turn over.
+				options.diagnose?.(`could not queue an event: ${errorMessage(error)}`);
+			}
 		},
 		close() {
 			closed = true;
 			started = false;
 			if (timer !== undefined) clearInterval(timer);
+			lifetime.abort(new BridgeError("closed", "The child mailbox was closed"));
 			processLock?.release();
 			processLock = undefined;
 		},
@@ -397,38 +428,64 @@ async function answer(
 function waitForCommand(
 	db: ReturnType<typeof openStateDb>,
 	id: string,
-	timeoutMs: number,
-	pollMs: number,
-	signal?: AbortSignal,
+	options: {
+		readonly timeoutMs: number;
+		readonly pollMs: number;
+		readonly signal?: AbortSignal;
+		readonly diagnose?: (message: string) => void;
+	},
 ): Promise<unknown> {
 	const started = Date.now();
 	return new Promise((resolve, reject) => {
-		const timer = setInterval(() => {
-			if (signal?.aborted) {
-				clearInterval(timer);
+		const drop = (): void => {
+			try {
 				withWrite(db, () => {
 					deleteCommand(db, id);
 				});
-				reject(new BridgeError("aborted", "The mailbox request was cancelled"));
+			} catch (error) {
+				options.diagnose?.(`could not drop command ${id}: ${errorMessage(error)}`);
+			}
+		};
+		const finish = (): void => {
+			clearInterval(timer);
+			options.signal?.removeEventListener("abort", onAbort);
+		};
+		const onAbort = (): void => {
+			finish();
+			drop();
+			reject(abortReason(options.signal));
+		};
+		const timer = setInterval(() => {
+			// The deadline is read before the row, so a row another writer deleted can never leave
+			// this waiter polling forever.
+			const expired = Date.now() - started >= options.timeoutMs;
+			let command: StoredCommand | undefined;
+			try {
+				command = readCommand(db, id);
+			} catch (error) {
+				finish();
+				reject(new BridgeError("state_unavailable", errorMessage(error)));
 				return;
 			}
-			const command = readCommand(db, id);
-			if (command === undefined) return;
-			if (
-				command.status === "done" ||
-				command.status === "failed" ||
-				Date.now() - started >= timeoutMs
-			) {
-				clearInterval(timer);
-				withWrite(db, () => {
-					deleteCommand(db, command.id);
-				});
+			if (command === undefined) {
+				if (!expired) return;
+				finish();
+				reject(new BridgeError("timeout", `No answer for ${id} after ${options.timeoutMs}ms`));
+				return;
 			}
 			if (command.status === "done") {
-				resolve(command.result === null ? null : (JSON.parse(command.result) as unknown));
+				finish();
+				drop();
+				try {
+					resolve(command.result === null ? null : (JSON.parse(command.result) as unknown));
+				} catch (error) {
+					reject(new BridgeError("malformed_result", errorMessage(error)));
+				}
 				return;
 			}
 			if (command.status === "failed") {
+				finish();
+				drop();
 				reject(
 					new BridgeError(
 						command.errorCode ?? "request_failed",
@@ -437,12 +494,30 @@ function waitForCommand(
 				);
 				return;
 			}
-			if (Date.now() - started >= timeoutMs) {
-				reject(new BridgeError("timeout", `No answer for ${id} after ${timeoutMs}ms`));
+			if (expired) {
+				finish();
+				drop();
+				reject(new BridgeError("timeout", `No answer for ${id} after ${options.timeoutMs}ms`));
 			}
-		}, pollMs);
+		}, options.pollMs);
 		timer.unref?.();
+		if (options.signal?.aborted === true) {
+			onAbort();
+			return;
+		}
+		options.signal?.addEventListener("abort", onAbort, { once: true });
 	});
+}
+
+/** A caller's own cancellation and this transport's lifetime both settle a waiting request. */
+function untilClosed(signal: AbortSignal | undefined, lifetime: AbortSignal): AbortSignal {
+	return signal === undefined ? lifetime : AbortSignal.any([signal, lifetime]);
+}
+
+function abortReason(signal: AbortSignal | undefined): BridgeError {
+	const reason: unknown = signal?.reason;
+	if (reason instanceof BridgeError) return reason;
+	return new BridgeError("aborted", "The mailbox request was cancelled");
 }
 
 function delay(ms: number): Promise<void> {
