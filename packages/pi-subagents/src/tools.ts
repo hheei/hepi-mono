@@ -114,7 +114,8 @@ export function formatAvailableAgents(agents: readonly DiscoveredAgent[]): strin
 
 function getDelegateDescription(agents: readonly DiscoveredAgent[]): string {
 	return [
-		"Delegate work to a new or existing agent. Supply agent to start a new session, or id to continue an existing one; with both, id wins and agent is ignored.",
+		"Delegate work to an agent. New: omit id and supply agent. Continue: use an existing id; agent/cwd are ignored. Unknown or blank ids fail.",
+		'Create: agents_delegate({ agent: "worker", task: "..." }). Continue: agents_delegate({ id: "agent-2", task: "..." }).',
 		"Returns { id, revision, status, hasOutput }: revision identifies this delegation of that agent, and a finished delegation carries its result when wait is true. Results are delivered automatically when the task finishes, so do independent work or end your turn instead of polling agents_get.",
 		"Related agent tools: agents_get, agents_stop, agents_dashboard.",
 		formatAvailableAgents(agents),

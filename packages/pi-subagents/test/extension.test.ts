@@ -59,7 +59,7 @@ describe("extension branch", () => {
 			expect(tool.promptSnippet).toBeUndefined();
 			expect(tool.promptGuidelines).toBeUndefined();
 		}
-		expect(tools[0]?.description).toContain("Delegate work to a new or existing agent");
+		expect(tools[0]?.description).toContain("Delegate work to an agent");
 		expect(tools[0]?.description).toContain("<available_agents>\nNone.\n</available_agents>");
 		expect(tools[0]?.description).toContain("Results are delivered automatically");
 		expect(tools[0]?.description).toContain("instead of polling agents_get");

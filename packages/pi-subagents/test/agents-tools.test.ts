@@ -61,6 +61,22 @@ const dashboard: DashboardView = {
 	],
 };
 
+function objectSchema(schema: unknown): {
+	required: readonly string[];
+	properties: Record<string, unknown>;
+} {
+	const record =
+		typeof schema === "object" && schema !== null ? (schema as Record<string, unknown>) : {};
+	const required = Array.isArray(record.required)
+		? record.required.filter((name): name is string => typeof name === "string")
+		: [];
+	const properties =
+		typeof record.properties === "object" && record.properties !== null
+			? (record.properties as Record<string, unknown>)
+			: {};
+	return { required, properties };
+}
+
 function textOf(result: { content: readonly { type: string; text?: string }[] }): string {
 	const [only] = result.content;
 	return only?.type === "text" ? (only.text ?? "") : "";
@@ -160,6 +176,39 @@ describe("agent tools", () => {
 			expect.any(Function),
 		);
 		expect(JSON.parse(accepted.text)).toEqual(view);
+	});
+
+	test("delegate declares only task as required, so creating an agent needs no invented id", () => {
+		const { pi, registeredTools } = createFakePi();
+		registerParentTools(pi, {} as unknown as SubagentManager, []);
+		const delegate = registeredTools.find((tool) => tool.name === "agents_delegate");
+		if (delegate === undefined) throw new Error("agents_delegate was not registered");
+		// The same JSON Schema reaches the model and codemode: both surfaces read `required`.
+		const { required, properties } = objectSchema(delegate.parameters);
+		expect(required).toEqual(["task"]);
+		expect(Object.keys(properties)).toEqual(["task", "wait", "id", "agent", "cwd"]);
+	});
+
+	test("delegate description shows how to create, continue, and avoid guessing an id", () => {
+		const { pi, registeredTools } = createFakePi();
+		registerParentTools(pi, {} as unknown as SubagentManager, [
+			{
+				name: "worker",
+				path: "/agents/worker.md",
+				frontmatter: { description: "Worker" },
+				body: "",
+			},
+		]);
+		const delegate = registeredTools.find((tool) => tool.name === "agents_delegate");
+		if (delegate === undefined) throw new Error("agents_delegate was not registered");
+		const description = delegate.description ?? "";
+		expect(description).toContain("New: omit id and supply agent");
+		expect(description).toContain("Unknown or blank ids fail");
+		expect(description).toContain('Create: agents_delegate({ agent: "worker", task: "..." })');
+		expect(description).toContain('Continue: agents_delegate({ id: "agent-2", task: "..." })');
+		expect(description).toContain("- worker: Worker");
+		// Minimal prompt surface: guidance stays in the tool description, not a rewritten prompt.
+		expect(description.split("\n").length).toBeLessThanOrEqual(7);
 	});
 
 	test("delegate rejects the removed title and mode parameters", async () => {
