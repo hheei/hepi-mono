@@ -35,6 +35,7 @@ describe("Eval tool details contract", () => {
 		options: {
 			readonly updates?: AgentToolResult<unknown>[];
 			readonly host?: HostToolBehavior;
+			readonly signal?: AbortSignal;
 		} = {},
 	): Promise<{ result: AgentToolResult<unknown>; tool: ToolDefinition }> => {
 		const { pi, tools } = framedHost();
@@ -49,7 +50,7 @@ describe("Eval tool details contract", () => {
 		const result = await tool.execute(
 			"eval-call-1",
 			{ code: "1" },
-			undefined,
+			options.signal,
 			updates === undefined
 				? undefined
 				: (update: AgentToolResult<unknown>): void => {
@@ -328,6 +329,73 @@ describe("Eval tool details contract", () => {
 		// The preview dropped the row; the model body still names the call, because it comes from the
 		// output ledger rather than from the bounded rows.
 		expect((result.content[0] as { text: string }).text).toContain("read: file");
+	});
+
+	test("meters a line with no newline, so one enormous line cannot outgrow the ledger", async () => {
+		const megabyte = "x".repeat(1_048_576);
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<unknown> => {
+				// Nine megabytes with no newline anywhere: nothing is committed until the line ends.
+				for (let index = 0; index < 9; index += 1) hooks.onText(megabyte);
+				return { value: undefined, state: undefined, restarted: false };
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge());
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		// The preview row is bounded like any other line.
+		expect(rows[0]?.text.endsWith("… truncated")).toBe(true);
+		const text = (result.content[0] as { text: string }).text;
+		// The head survives and the ceiling says what it dropped, instead of losing the whole line.
+		expect(text.startsWith("xxx")).toBe(true);
+		expect(text).toContain("output stopped at 8MB");
+	});
+
+	test("keeps the unfinished line when the cell fails", async () => {
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+			): Promise<undefined> => {
+				hooks.onText("checkpoint-before-failure");
+				throw new Error("boom");
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge());
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		const texts = rows.map((row) => row.text);
+		// Printed before the failure, so it belongs before the failure row.
+		expect(texts.indexOf("checkpoint-before-failure")).toBeGreaterThan(-1);
+		expect(texts.indexOf("checkpoint-before-failure")).toBeLessThan(
+			texts.findIndex((text) => text.startsWith("error: boom")),
+		);
+		expect((result.content[0] as { text: string }).text).toContain(
+			"checkpoint-before-failure\nerror: boom",
+		);
+	});
+
+	test("keeps the unfinished line when the cell is cancelled", async () => {
+		const controller = new AbortController();
+		const runtime = {
+			runWithHooks: async (
+				_code: string,
+				hooks: { onText: (text: string) => void },
+				signal?: AbortSignal,
+			): Promise<undefined> => {
+				hooks.onText("checkpoint-before-cancel");
+				controller.abort();
+				signal?.throwIfAborted();
+				return undefined;
+			},
+		};
+		const { result } = await execute(runtime, new EvalToolBridge(), {
+			signal: controller.signal,
+		});
+		const rows = (result.details as { rows: { text: string }[] }).rows;
+		expect(rows.map((row) => row.text)).toContain("checkpoint-before-cancel");
+		expect((result.content[0] as { text: string }).text).toContain("checkpoint-before-cancel");
 	});
 
 	test("spills the complete output, not the bounded preview", async () => {

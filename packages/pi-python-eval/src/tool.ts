@@ -161,16 +161,18 @@ export function createPythonEvalTool(
 			};
 			/** One transcript line: its full text for the output ledger, its bounded row for the preview. */
 			const record = (row: EvalRow, raw: string = rowText(row), keep = false): void => {
-				output.push(raw);
+				output.line(raw);
 				append(row, keep);
 			};
 			// The printed line still being written: its row appears as soon as text arrives and is
-			// rewritten in place, so a line the kernel sends in pieces never becomes two rows.
+			// rewritten in place, so a line the kernel sends in pieces never becomes two rows. Only the
+			// preview accumulates a line, and only up to what a row can show: the ledger takes the raw
+			// chunks as they arrive, so one enormous line is metered like any other output.
+			const PRINTED_LINE_CAP = MAX_DETAIL_TEXT_CHARS + 1;
 			let printedLine = "";
 			let printedRow: { kind: "text"; text: string } | undefined;
-			const printedText = (): string => stripTerminalSequences(printedLine.replace(/\r/g, ""));
 			const paintPrintedLine = (): void => {
-				const text = boundedText(printedText());
+				const text = boundedText(stripTerminalSequences(printedLine));
 				if (printedRow === undefined) {
 					printedRow = { kind: "text", text };
 					append(printedRow);
@@ -181,8 +183,6 @@ export function createPythonEvalTool(
 			};
 			const endPrintedLine = (): void => {
 				paintPrintedLine();
-				// The ledger keeps the whole line; the preview row above kept its bounded copy.
-				output.push(printedText());
 				printedLine = "";
 				printedRow = undefined;
 			};
@@ -199,14 +199,18 @@ export function createPythonEvalTool(
 			 * its row, and a captured line keeps no terminal control of its own.
 			 */
 			const appendPrinted = (chunk: string): void => {
-				const lines = chunk.split("\n");
+				const clean = chunk.replace(/\r/g, "");
+				output.write(clean);
+				const lines = clean.split("\n");
 				const tail = lines.pop() ?? "";
 				for (const line of lines) {
-					printedLine += line;
+					printedLine = (printedLine + line).slice(0, PRINTED_LINE_CAP);
 					endPrintedLine();
 				}
-				printedLine += tail;
-				if (tail !== "") paintPrintedLine();
+				if (tail !== "") {
+					printedLine = (printedLine + tail).slice(0, PRINTED_LINE_CAP);
+					paintPrintedLine();
+				}
 			};
 			try {
 				const run = await runtime.runWithHooks(
@@ -256,6 +260,9 @@ export function createPythonEvalTool(
 					record({ kind: "result", text: boundedText(text) }, `result: ${text}`, true);
 				}
 			} catch (error) {
+				// A cell that dies mid-line still printed that line. Flush it before the failure row, so the
+				// transcript keeps the order the kernel produced.
+				flushPrintedLine();
 				// A user cancellation reaches the model as bare text, so the elapsed time is the only
 				// record of how long the cell ran. The deadline already names its own budget.
 				const reason = errorMessage(error);
@@ -387,27 +394,44 @@ function transcriptBody(rows: readonly EvalRow[]): string {
  * The cell's complete output, kept apart from the bounded preview the UI draws.
  *
  * A cell that prints past the preview cap, or prints a single enormous line, still has to hand the
- * model a recoverable file. The ledger keeps every line it can within its own ceiling; once that is
- * reached it stops and says so, so a runaway cell costs a bounded buffer instead of the process.
+ * model a recoverable file. Output is metered as it arrives, not after a line is assembled, so the
+ * buffer cannot grow past its ceiling while waiting for a newline; once the ceiling is reached it
+ * stops and says so, and a runaway cell costs a bounded buffer instead of the process.
  */
 class CellOutput {
 	readonly #lines: string[] = [];
 	#bytes = 0;
 	#overflowed = false;
+	#lineOpen = false;
 
-	push(line: string): void {
-		if (this.#overflowed) return;
-		const size = Buffer.byteLength(line, "utf8") + 1;
+	/** Raw output exactly as it arrived; the caller owns its newlines. */
+	write(text: string): void {
+		if (text === "" || !this.#accept(text)) return;
+		this.#lines.push(text);
+		this.#lineOpen = !text.endsWith("\n");
+	}
+
+	/** One complete transcript line, on a line of its own. */
+	line(text: string): void {
+		if (this.#lineOpen) this.write("\n");
+		this.write(`${text}\n`);
+	}
+
+	#accept(text: string): boolean {
+		if (this.#overflowed) return false;
+		const size = Buffer.byteLength(text, "utf8");
 		if (this.#bytes + size > MAX_OUTPUT_BYTES) {
 			this.#overflowed = true;
-			return;
+			return false;
 		}
 		this.#bytes += size;
-		this.#lines.push(line);
+		return true;
 	}
 
 	text(): string {
-		const body = this.#lines.join("\n");
+		// Cleaned once, here: a terminal sequence split across two chunks is only whole in the joined text.
+		const joined = stripTerminalSequences(this.#lines.join(""));
+		const body = joined.endsWith("\n") ? joined.slice(0, -1) : joined;
 		if (!this.#overflowed) return body;
 		const limit = `${String(Math.round(MAX_OUTPUT_BYTES / (1024 * 1024)))}MB`;
 		return `${body}\n… output stopped at ${limit}; the rest of this cell was not kept …`;
