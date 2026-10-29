@@ -55,7 +55,7 @@ agents_delegate / Task tool（无 host 时）
   -> resolve agent + effective launch config
   -> persist child/session intent（state=starting，presentation=background）
   -> parent spawn 一个 headless child Pi（--mode rpc，stdin 由 parent 持有）
-  -> child 持有自己的进程锁，父端据锁判定"写者还在"（认证 runtime token）
+  -> child 持有自己的进程锁，父端据锁判定"写者还在"
   -> mailbox 就绪后投递 initial task（bridge request: prompt）
   -> state=running
   -> parent tools <-> bridge <-> child branch
@@ -81,7 +81,7 @@ agents_delegate
 
 panel child 的进程由 host 持有，parent 只持有 attachment：
 
-- spawn 时 parent 仍然铸造 runtime identity、bridge token 并构造唯一的 LaunchSpec（`presentation=panel` 时不含 `--mode rpc`、stdio=inherit），再交给 HostAdapter 打开 panel 并运行该 argv；
+- spawn 时 parent 仍然铸造 runtime identity 并构造唯一的 LaunchSpec（`presentation=panel` 时不含 `--mode rpc`、stdio=inherit），再交给 HostAdapter 打开 panel 并运行该 argv；
 - 写者是否还在只看进程锁，以及本进程自己持有的进程句柄。关闭 panel 只证明 attachment 消失。
 - 写者消失不是终止：child 保持身份与 session，后续 `agents_delegate` 用同一 session 再起 runtime（不重放中断的 turn）。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，调用方要收掉就 `agents_stop`。
 
@@ -214,7 +214,7 @@ child bridge environment
 
 ### 5.1 Parent-scoped registry
 
-V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`busy_timeout=5000`，0600），按 `parentSessionId` 隔离。它同时承载 `children`（记录 + revision）、`session_meta`、`commands`（双向命令队列）与 `tokens` 四张表，并用 `revision` 做条件写入、拒绝过期 writer。它不写入 `settings.json`，也不引入 event ledger 或 handoff history。库用 `PRAGMA user_version = 1` 标识当前格式；打开时遇到旧格式库不迁移、不报错，而是改名为 `state.sqlite.previous`（连同 `-wal`/`-shm`）后从空库开始，因为账本只承载 parent session 的运行时状态，child 自己的 session 文件不受影响。
+V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`busy_timeout=5000`，0600），按 `parentSessionId` 隔离。它同时承载 `children`（记录 + revision）、`session_meta`、`commands`（双向命令队列）与 `delegations`（委派 receipt）四张表，并用 `revision` 做条件写入、拒绝过期 writer。它不写入 `settings.json`，也不引入 event ledger 或 handoff history。库用 `PRAGMA user_version = 2` 标识当前格式。打开旧库时**原地升级**：建缺失的表、按需 `ALTER TABLE ADD COLUMN` 补齐已知新增列、建索引，最后写入版本号。文件与 WAL 不换名，因此同一台机器上另一个还在运行的 Pi 进程不会与升级后的账本分叉；升级只做加法，已有的 `children` 与 `delegations` 行全部保留。版本号高于本程序时明确报错并拒绝打开，而不是猜格式或重写别人的账本。
 
 每个 child 至少保存：
 
@@ -225,13 +225,15 @@ V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`bu
 - 最后一次 launch 的 `runtimeIdentity` 与 endpoint（是证据，不是 liveness 证明）；
 - 首次落盘状态与未确认输入。
 
-每 runtime 的 bridge token 由 parent 进程生成，写入 `tokens` 表（主键 `parent_session_id + runtime_identity`），因此 parent 重启后仍能认证重连的 child，且不同 parent session 的凭据不会互相覆盖。runtime 退役时对应 token 被删除。
+mailbox 没有凭据：「谁在写」由 `locks/<parentSessionId>/<childId>.lock` 上的内核锁回答，「哪个 runtime 在通信」由 `runtimeIdentity` 回答。早期 socket 握手用的 bridge token 已随握手一起移除，`tokens` 表在升级时被删除。
+
+保留策略按数据语义分开，不按时间或进程存活回收：`children` 与 `delegations` 是账本，runtime 消失、child 结束、parent 重启都不删除它们——`agents_delegate({ id })` 要用同一 session 接续，`agents_get({ revision })` 要能读历史委派；它们只按 `parentSessionId` 归属，不设 TTL。`commands` 里只有进度事件是有界快照（见 §6），控制请求与报告保留到其等待者读到结果为止。删除整个 parent session 的账本目前没有自动入口：那是用户的显式动作，不做猜测式清理。
 
 所有跨进程读取先做 runtime validation。损坏、版本不支持或身份不匹配时明确失败，不返回部分伪状态。
 
 `presentation` 不做兼容读取：旧版本记录写的 `mode: "rpc" | "tui"` 的字段含义已不同（它描述进程由谁持有），因此解析直接失败并在错误里给出文件路径与「删除该记录」的指引，由用户手动清理，而不是猜测迁移。
 
-启动失败同样不丢弃证据：panel 已经打开但 child 没连上时，先尝试关掉它，只有 host 明确确认「panel 已不在」才算干净（撤销 token、交回空句柄）；否则把句柄交回 manager 并保留 token——句柄阻止第二个 runtime，token 让稍后真的连上来的 child 能被 adopt，而不是变成没人拥有的进程。后台 child 的 SIGTERM 未能结束进程时同理。
+启动失败同样不丢弃证据：panel 已经打开但 child 没连上时，先尝试关掉它，只有 host 明确确认「panel 已不在」才算干净（清 runtime 证据、交回空句柄）；否则把句柄交回 manager 并保留 runtime 证据——句柄阻止第二个 runtime，证据让稍后真的连上来的 child 能被 adopt，而不是变成没人拥有的进程。后台 child 的 SIGTERM 未能结束进程时同理。
 
 ### 5.2 首次 session 落盘
 
@@ -251,7 +253,7 @@ V1 使用一个 SQLite 账本 `<agentDir>/pi-subagents/state.sqlite`（WAL，`bu
 2. registry 记录：child 的 `runtimeIdentity` 是事件与报告的身份依据，身份不匹配的 frame 一律丢弃；
 3. 不叠第二个写者：本进程的进程句柄还活着时，send 拒绝再起 runtime，先 stop 这个 child。锁还被持有时输入交给当前写者。锁已空、面板打开未确认、或重启后从未重连，都不是拒绝理由：后续 send 用同一 session 再起一个。
 
-bridge token 按 parent session 分行存放：同一台机器上两个 parent session 共享同一个 `state.sqlite`，`tokens` 表的主键包含 `parent_session_id`，因此后写的一方不会抹掉对方的凭据。
+同一台机器上两个 parent session 共享同一个 `state.sqlite`：`children`、`commands`、`delegations` 的每行都带 `parent_session_id`，因此后写的一方不会抹掉对方的记录。
 
 不存在 claim 交接体系：没有 runner 进程可交接，也不做 PID/`/proc` 死亡探测。
 
@@ -265,10 +267,13 @@ parent → child 请求：`prompt`、`steer`、`follow_up`、`get_state`、`sess
 child → parent 请求：`contact_parent`、`task_result`（需要 parent 确认，例如重复的 task result 会被拒绝）。
 child → parent 事件：允许转发的 Pi 事件（`FORWARDED_PI_EVENT_TYPES`）、`child_lifecycle`（`left_session | tui_quit | user_interrupt`）、`child_input`（只带来源，不带文本）。
 
-- 每个命令都验证 parentSessionId、subagentId 与 runtime token，并核对 registry 中该 child 记录的 runtime 是否就是这个 runtimeIdentity：token 说明「哪个 runtime 在通信」，registry 说明「该 runtime 属于哪个 child」，两者缺一不可（否则一个 child 可以冒用另一个 child 的 id 顶掉它的控制通道）。child 只有在持有进程锁时才被视为在线，同一 child 永远只有一个写者；
+- 每个命令都验证 parentSessionId、subagentId，并核对 registry 中该 child 记录的 runtime 是否就是这个 runtimeIdentity：命令上的 id 说明「哪个 runtime 在通信」，registry 说明「该 runtime 属于哪个 child」，两者缺一不可（否则一个 child 可以冒用另一个 child 的 id 顶掉它的控制通道）。child 只有在持有进程锁时才被视为在线，同一 child 永远只有一个写者；
 - request/response 由命令行关联：父端写入 `to_child` 命令后按命令 id 轮询结果，child 取走命令时在同一写事务里标记 claim，处理完写回 result 或 error。重发沿用同一个命令 id，因此「重发」不等于「第二条报告」：父端会重放第一次的结果而不重复执行副作用。去重按 **child + runtimeIdentity + 命令 id** 生效（child 换 runtime 后 id 重新计数，只按 child 去重会把新 runtime 的第一份报告答成上一个 runtime 的结果），覆盖重连而不覆盖 parent 重启；命令 id 是 UUID，跨进程也不会撞号；
 - 同一命令 id 的重复 claim 共享同一个结果：后来者读到同一份答案，而不是被判为重复请求——把重发判错会丢掉一份 parent 已经执行过的报告；
 - 两个方向都有界等待：parent 请求 child 有 30 秒 request timeout，child 交给 parent 的 report 也有同样上限——父端不回答时 report 可见失败，而不是永久 pending；
+- 等待由 deadline 决定，不由行是否存在决定：命令被别的写者删掉、transport 关闭或账本读失败都立即结束等待，不会留下永久 pending；
+- child 排队的事件有上限（`DEFAULT_MAX_BUFFERED_EVENTS`）：父端不再读取时保留最新的事件快照、丢弃更旧的进度帧，控制请求与报告不受此限；
+- 接管 mailbox 的 parent 会删掉上一进程留下的终态命令行（`done`/`failed`），它们的等待者已经随进程消失；
 - 命令队列、事件写入、child 侧 report 缓冲都有固定上限，Pi 事件断线即丢；
 - timeout、锁消失、无法解析的 payload 会结束相关请求，不留下 pending promise；parent 关闭时未取走的 `to_parent` 命令由下一次 `open` 重新排队；
 - child 只在 parent 不可达时缓冲 report（有界、丢最旧且不丢在途、可见报错），Pi 事件是 advisory，断线即丢；advisory frame 若无法编码（超限或不可序列化）就丢弃并诊断，不因此断开控制通道——一条过大的 tool 结果不该让 child 失去 parent；
@@ -310,9 +315,9 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 
 1. 校验输入、agent definition、model 和最终 resources。
 2. 创建 child ID/session ID，先持久化启动意图和 initial task，并按有无 host 冻结本次呈现。
-3. 后台：parent spawn headless child Pi 并由 stdin 持有；panel：parent 铸造 runtime identity/token、构造 LaunchSpec，交给 HostAdapter 打开 panel 并运行该 argv。
-4. child branch 在 `session_start` 打开 `state.sqlite` 的 mailbox 并持有自己的进程锁，父端据此确认身份与 token。
-5. 只有 token 认证通过、child 收到并接受 prompt 后才报告 running；内部失败记录保留已完成副作用和可确认状态，工具只返回原因。
+3. 后台：parent spawn headless child Pi 并由 stdin 持有；panel：parent 铸造 runtime identity、构造 LaunchSpec，交给 HostAdapter 打开 panel 并运行该 argv。
+4. child branch 在 `session_start` 打开 `state.sqlite` 的 mailbox 并持有自己的进程锁，父端据此确认身份。
+5. 只有 child 持有进程锁、收到并接受 prompt 后才报告 running；内部失败记录保留已完成副作用和可确认状态，工具只返回原因。
 
 ### 7.2 Send
 
@@ -342,7 +347,7 @@ Handoff/recovery 的细节属于内部 transition，不扩展 public enum。inte
 
 TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child branch 以 `left_session` 上报：
 
-- 该进程不再是这个 child 的 runtime：清 projector、清 idle 计时，状态落 `idle` 并记 interrupted，撤销该 runtime 的 bridge token 并从记录中删除 runtime 证据，因此它既不会在重连时被 adopt，也不会被当成 A 的 runtime；
+- 该进程不再是这个 child 的 runtime：清 projector、清 idle 计时，状态落 `idle` 并记 interrupted，并从记录中删除 runtime 证据，因此它既不会在重连时被 adopt，也不会被当成 A 的 runtime；
 - B 留在原生 TUI，不自动成为 subagent：本进程不再观察、也不再关闭它的 panel（panel 属于 B），后续 stop 不会影响 B，child 侧的 bridge 也会拒绝父端对这条连接的控制请求（`inactive_session`）；
 - parent 同时把这个 child 移出在线集合，child 侧则在离开后**永久关闭自己的 mailbox 并释放进程锁**（不再重连）：即使 parent 当时没收到 `left_session` 或自己重启过，它也不会 adopt 这个进程、更不会去关人正在用的 panel；
 - 后续 send A 会按冻结的 presentation 拉起一个新 runtime，而不是把输入打进 B；输入能否投递取决于 bridge 连接，而不是「进程还活着」。
@@ -351,7 +356,7 @@ TUI child 内 `/new`、`/resume` 或 `/fork` 进入不同 session B 后，child 
 
 ### 7.5 Stop
 
-先在 registry 保存 stopped 意图（`intent=stopped`、`state=stopped`），再经 bridge 请求 `shutdown`，随后按 presentation 收尾：后台 child 结束自己 spawn 的进程（SIGTERM，必要时 SIGKILL）；panel child 关闭该 panel，并再次 `observe()` 确认它真的不在了。确认不成立时返回可见失败并保留 runtime 证据（「关闭命令成功」不算证据，「panel 已消失」才算）。两者都完成后删除 runtime 记录与 token。
+先在 registry 保存 stopped 意图（`intent=stopped`、`state=stopped`），再经 bridge 请求 `shutdown`，随后按 presentation 收尾：后台 child 结束自己 spawn 的进程（SIGTERM，必要时 SIGKILL）；panel child 关闭该 panel，并再次 `observe()` 确认它真的不在了。确认不成立时返回可见失败并保留 runtime 证据（「关闭命令成功」不算证据，「panel 已消失」才算）。两者都完成后删除 runtime 记录。
 
 对 adopt 来的 child（本进程既不持有进程也不持有 panel），stop 只能请求 `shutdown` 并等待 bridge 断开（有上限）；等不到就明确报告「需要人手动关闭它的 panel」，不谎报已停止。
 
@@ -392,7 +397,7 @@ roster()         这个父会话的 child 账本
 | `attachment-bound` | 宿主或 pid 交回句柄 | attachment，一次 |
 | `stop-intent` | kill 或关 panel 之前 | `intent=stopped` |
 | `runtime-gone` | 写者没了，或启动确认没连上 | 清 runtime。`drop` 把 running 记成 blocked；`finished` 记 done；`clear` 只删除 |
-| `left-session` | 子进程进入另一个 session | 清 runtime，收回 token。不关 panel |
+| `left-session` | 子进程进入另一个 session | 清 runtime。不关 panel |
 
 重新绑定且句柄没变：零次写。回灌出新 tab：每个新 attachment 一次写。
 
@@ -440,7 +445,7 @@ HostAdapter 只负责 capability probe、开 panel（Herdr 新 tab / cmux 新 su
 - panel child 的 LaunchSpec 带 `--approve`，因为 parent 已明确选择并提供了项目级 agent、extension 与 skill 配置；native Pi TUI 启动不得停在项目文件信任提示上。
 - cmux：`new-surface --command`；聚焦状态无文档化查询，因此 fail open（不自动回收），代码内以 `TODO(cmux-focus)` 标注。
 - 关闭 panel 只证明 attachment 消失，不证明进程已死；进程证据以进程锁消失（+ 后台 child 的进程句柄）为准。
-- 开 panel 不是原子操作：host 可能已经建好 panel 并跑起进程，只是没能把结果报回来。此时 launch 明确报「未确认」，**保留** runtime token 与 runtime 证据（child 真起来了还能被 adopt），并且不因此允许第二个 runtime。
+- 开 panel 不是原子操作：host 可能已经建好 panel 并跑起进程，只是没能把结果报回来。此时 launch 明确报「未确认」，**保留** runtime 证据（child 真起来了还能被 adopt），并且不因此允许第二个 runtime。
 - `observe().alive` 回答的是「这个 child 的进程是否还在该 panel 里运行」，不是「panel 是否存在」：host 关闭命令失败但 child 已死时 stop 仍算完成，残留的空 tab 由人处理。判断「已关闭」必须 `known === true`：观察超时或查询失败都算未知，未知既不算已关闭，也不触发回收。
 - 不做隐藏 panel、send-keys、readScreen、屏幕抓取。
 

@@ -34,7 +34,7 @@ Native `/resume` of the same session outside the managed path is not intercepted
 `agents_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §7.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
-已确认退出的启动尝试删除 runtime 证据与 token；仍可能存活的 runtime 保留证据，不允许直接重试。
+已确认退出的启动尝试删除 runtime 证据；仍可能存活的 runtime 保留证据，不允许直接重试。
 新 runtime 的启动窗口为 20 秒，旧 runtime 的重连识别窗口为 5 秒；启动包含宿主命令和清理，
 manager 的默认启动 deadline 为 60 秒。
 使用 `pi-dev` 时，child 复用父启动器已经构建的扩展；构建归普通开发启动所有，child 的启动和恢复不触发构建，也不写构建缓存，避免把编译耗时误判为 bridge 连接失败。
