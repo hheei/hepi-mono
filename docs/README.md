@@ -29,7 +29,7 @@ Package and lifecycle boundaries:
 - [pi-ext-core](architecture/pi-ext-core.md): ext-core's proposal, public API, and concurrency rules.
 - [Loadout architecture](architecture/pi-loadout.md): tool registration, activation policy, Settings host, and Extension page router boundaries.
 - [Loadout retirement](architecture/loadout.md): what the native mechanism replaced.
-- [Background task contracts](architecture/background-tasks.md): `bg_bash_*` / `agent_*` ownership, deferred discovery, and BackgroundDelivery batching.
+- [Background task contracts](architecture/background-tasks.md): `bg_bash_*` / `agents_*` ownership, deferred discovery, and BackgroundDelivery batching.
 - [Test runtime](architecture/testing.md): default vs integration entry points and deterministic vs bounded readiness coordination.
 
 Tools and their execution:

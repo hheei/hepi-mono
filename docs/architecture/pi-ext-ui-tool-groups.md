@@ -264,7 +264,7 @@ footer 的 requests 与 ↑/↓/R/W/CH 和 header calls 覆盖同一个事实集
 已落地：
 
 - 活动 block 的 `collapse views · 用时 · N calls` header、非空分类行与固定统计 footer；组外壳是原生 `Box` 背景块，header 下与 footer 上各一条组级横向 rail（ticket 12）。
-- 组外尾项顶部对齐：尾项在自己那一帧里保留已显示过的最大行数，内容变短时只在下方补空行，所以块不会因为尾项缩回而下移；尾项拿到最终结果后释放保留高度，交回真实行数。
+- 高度预留：尾项在自己那一帧里保留已显示过的最大行数（`#reserved`），内容变短时只在下方补空行，所以块不会因为尾项缩回而下移；尾项拿到最终结果后释放保留高度，交回真实行数。组层用 `#tailRows`（由 `noteTailRows` 写入）把尾项实际行数从预留高度里扣掉，因为 block 帧只画帧本身、尾项在它下面单独绘制：预留高度是「帧 + 尾项」，所以补空行补到 `#reserved - #tailRows`。`#quiet()`（block 不再是当前块）和用户自己点击的分类/项目折叠都把 `#reserved` 清零——用户要求的折叠不是抖动，历史 block 也不再需要保持高度。补出来的空行带 `{ kind: "none" }` 命中项，不响应点击。
 - 组外尾项（ticket 04）：只有 transcript 最后一个可见顶层单元留在组外，按原组件 Level 0 显示，组与它之间恰好一个空行；新可见单元到来时旧尾项一次性归组，`agent_end`、resize、主题与纯 usage/状态刷新都不改变归属，并行完成顺序也不重排。尾项是工具、thinking run 或 notice，空 assistant/toolCall 占位不成为尾项。
 - 展开工具分类按工具自身 Level 0 逐项渲染（相邻一项一个空行），容器也由自己的组件绘制，`children`/`childCount` 只参与统计；工具箭头与导轨前的单空格由 `outputPad` 拥有。
 - 展开 thinking 分类为每项一行约 20 个 grapheme 预览（隐藏时）或平铺全文（可见时），点行展开/收起，项间不加空行；notice 的 preview 直接可见，只有 body 可展开，普通 notify 正文只出现一次且无子箭头。
@@ -277,7 +277,8 @@ footer 的 requests 与 ↑/↓/R/W/CH 和 header calls 覆盖同一个事实集
 - thinking run 粒度：连续 thinking block 合成一个成员（`parts` 保留原始组件，`component` 是第一个，身份稳定），段落以空行保留；中间出现工具/正文则分成不同 run。分类计数、预览、全文与成组权重都用 run 粒度。
 - 模块边界：`tool-group-view.ts` 只负责 block 内布局、统计与命中测试，`host-transcript-patch.ts` 只负责 host seam、成员提取与安装/卸载。
 - 语义着色（ticket 06）：词汇与 token 表见 [DESIGN.md](../../DESIGN.md) 的 Semantic color table。工具行由 `formatToolHeaderText` 统一给出 `状态字形 + toolTitle(bold(名称)) + 摘要 + dim(meta)`，摘要语义由拥有该工具的层提供（read 的 accent 路径与 warning 行范围、bash 的 toolTitle+bold 命令），分组不按工具名补色、不合成着色子行；容器看板通过 `NestedCallsView.headerSummary` 复用同一语义。分组 header 与分类标签用 `text`（展开时 `accent`）、rails 用 `borderMuted`、统计仍 `dim`，notice 的 `info` 正文用 `text`。`renderer.ts` 不再 `render(120)` 后去 ANSI 取首行反推原生 call 行。
-- 实时工具的 spinner 占该行的前导槽：live 时显示 200ms 轮换的 `· ✢ ✳ ✶ ✻ ✽`（streaming 用 `muted`、running 用 `accent`），结算后才回到 `▸`/`▾` 折叠 pin，一行不会同时出现两个状态字形。容器（`codemode`、`python_eval`）在生成中和「运行但还没有子调用」时保持 spinner，一旦列出子调用就换回 `▸`。`ToolView` 的缓存键包含当前 spinner 帧，否则 200ms 重绘会命中旧缓存、把动画冻住。
+- 实时工具的 spinner 占该行的前导槽：live 时显示 200ms 轮换的 `· ✢ ✳ ✶ ✻ ✽`（streaming 用 `muted`、running 用 `accent`），结算后才回到 `▸`/`▾` 折叠 pin，一行不会同时出现两个状态字形。容器（`codemode`、`python_eval`）在生成中和「运行但还没有子调用」时保持 spinner，一旦列出子调用就换回 `▸`。`ToolView` 的缓存键包含当前 spinner 帧，否则 200ms 重绘会命中旧缓存、把动画冻住。`NestedCallsView`（容器看板）同理：渲染前先取 `toolSpinnerFrame()`，有 live 子调用就把该帧写进 `#renderCache` 的键，没有 live 行时键里的帧是空串，所以结算后的一帧不会复用带 spinner 的旧行。看板自己拥有下一帧：只要这一帧画了 live 字形就设一个 200ms 自终止定时器（`#requestNextFrame`，`unref()`，已有定时器不重复设），因为 host 没有「仍在运行」事件；所有子调用结算后不再排下一帧，动画随行结束。
+- thinking 的 rail 共享：thinking 没有自己的 surface，所以在所有折叠层级沿用与工具相同的 `▎` 前导槽（`#thinkingPrefix()`：`dim` 的 `▎` 加一个空格），预览行与全文换行行都从这两格开始算宽度。block 填了自己的底色（`Tool backgrounds` 打开或展开块由组补中性底色）时，底色已经界定块边界，rail 让位给两格空格，避免底色里多出一条竖线。同一前缀同时决定截断宽度（`width - 2`），所以切换底色不会让 thinking 行宽度跳变。
 - 每帧都重新解析 transcript（`rebuild()`）而不是缓存投影：host 没有提供「transcript 已变化」的信号——`Container.addChild` 不触发 invalidate，宿主只调 `requestRender()`，而那与宽度变化、我们自己的重绘无法区分。实测 200 个成员（40 组）每帧 0.100 ms，200 × 20 KB thinking 时 0.241 ms，都低于未分组时的 0.133 ms，因此不为缓存引入可能过期的信号；若将来成为瓶颈，正确做法是 host 暴露 transcript revision，而不是按组件 identity 缓存。
 
 已知缺口（后续单独处理）：

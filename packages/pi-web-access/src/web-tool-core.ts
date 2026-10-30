@@ -84,6 +84,10 @@ export interface WebSearchConfig {
 	fetch?: {
 		defaultMode?: unknown;
 		allowedModes?: unknown;
+		/** Provider for `mode: "answer"`; must be configured together with `answerModel`. */
+		answerProvider?: unknown;
+		/** Model id for `mode: "answer"`; must be configured together with `answerProvider`. */
+		answerModel?: unknown;
 	};
 	webSearch?: {
 		enabled?: boolean;

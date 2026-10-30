@@ -121,7 +121,7 @@ export function createWebSearchSettingsProvider(options?: { path?: string }): Se
 						id: "toolExposure",
 						label: "Tool Exposure",
 						type: "enum",
-						defaultValue: "deferred",
+						defaultValue: "direct",
 						description:
 							"Whether web tools are directly active or deferred for tool_search discovery.",
 						options: [
