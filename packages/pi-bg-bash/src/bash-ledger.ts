@@ -193,10 +193,7 @@ function holdExclusiveLock(lockPath: string): DatabaseSync {
 		return db;
 	} catch (error) {
 		db.close();
-		if (isDatabaseLocked(error))
-			throw new Error(`Bash execution ledger is held by another writer: ${lockPath}`, {
-				cause: error,
-			});
+		if (isDatabaseLocked(error)) throw new BashLedgerLockedError(lockPath, error);
 		throw error;
 	}
 }
@@ -213,6 +210,21 @@ function releaseLock(db: DatabaseSync): void {
 /** SQLITE_BUSY: the lock is held, which is a different failure from a broken lock file. */
 function isDatabaseLocked(error: unknown): boolean {
 	return typeof error === "object" && error !== null && "errcode" in error && error.errcode === 5;
+}
+
+/**
+ * Another writer already holds this ledger. One session file can be mounted by two processes, so
+ * this is an expected state rather than a broken file: the caller decides whether it can run on
+ * without records.
+ */
+export class BashLedgerLockedError extends Error {
+	readonly lockPath: string;
+
+	constructor(lockPath: string, cause: unknown) {
+		super(`Bash execution ledger is held by another writer: ${lockPath}`, { cause });
+		this.name = "BashLedgerLockedError";
+		this.lockPath = lockPath;
+	}
 }
 
 function applySchema(db: DatabaseSync): void {

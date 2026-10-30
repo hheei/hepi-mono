@@ -37,12 +37,12 @@ afterEach(async () => {
 });
 
 /** One extension session: the lifecycle handlers Pi would call, over a real settings registry. */
-function lifecycle(): Lifecycle {
+function lifecycle(existing?: SessionManager): Lifecycle {
 	const directory = ledgerTemporaryDirectory("hepi-bash-lifecycle-");
 	const host = toolHost();
 	const handlers = new Map<string, (event: unknown, context: unknown) => Promise<void> | void>();
 	const warnings: string[] = [];
-	const manager = SessionManager.create(process.cwd(), directory);
+	const manager = existing ?? SessionManager.create(process.cwd(), directory);
 	const context = {
 		sessionManager: manager,
 		isIdle: () => true,
@@ -204,6 +204,30 @@ test("real fork preserves history while isolating execution ownership and origin
 		output: "fork-output",
 		exitCode: 0,
 	});
+});
+
+test("a second mount of one session stays unavailable instead of failing the extension", async () => {
+	const owner = lifecycle();
+	owner.manager.appendMessage({
+		role: "user",
+		content: "record this session",
+		timestamp: Date.now(),
+	});
+	await owner.start();
+	const viewer = lifecycle(SessionManager.open(owner.manager.getSessionFile()!));
+	await viewer.start();
+	expect(viewer.jobs()).toBeUndefined();
+	expect(viewer.warnings).toEqual([
+		"Background Bash unavailable: another Pi instance is recording this session. Fork or start a new session to run it here.",
+	]);
+	const spawn = toolFor(viewer.tools, "bg_bash_spawn");
+	expect(
+		await spawn.execute("call", { command: "printf no" }, undefined, undefined, viewer.context),
+	).toMatchObject({ isError: true });
+	// The owner releases the ledger on shutdown, so the same session becomes writable again.
+	await owner.shutdown();
+	await viewer.start();
+	expect(viewer.jobs()).toBeDefined();
 });
 
 test("teardown of an idle session registers and disposes a registry exactly once", async () => {

@@ -7,7 +7,11 @@ import {
 } from "@hheei/pi-ext-core";
 import { startBashDelivery } from "./bash-delivery.js";
 import { BashJobRegistry } from "./bash-jobs.js";
-import { BashExecutionLedger, bashExecutionDirectory } from "./bash-ledger.js";
+import {
+	BashExecutionLedger,
+	BashLedgerLockedError,
+	bashExecutionDirectory,
+} from "./bash-ledger.js";
 import { type BashSettings, DEFAULT_BASH_SETTINGS, readBashSettings } from "./bash-settings.js";
 import { createBashStatus } from "./status.js";
 
@@ -65,9 +69,22 @@ function startLifecycle(
 	settings: BashSettings,
 ): void {
 	slot.settings = settings;
-	const ledger = new BashExecutionLedger(
-		join(bashExecutionDirectory(context.extension), "bash.sqlite"),
-	);
+	let ledger: BashExecutionLedger;
+	try {
+		ledger = new BashExecutionLedger(
+			join(bashExecutionDirectory(context.extension), "bash.sqlite"),
+		);
+	} catch (error) {
+		if (!(error instanceof BashLedgerLockedError)) throw error;
+		// One session file can be mounted twice, and Background Bash is the writer: the second mount
+		// stays a viewer instead of failing the extension. Its tools already report unavailability
+		// when no registry exists, and a fork or a new session gets its own ledger directory.
+		context.extension.ui.notify(
+			"Background Bash unavailable: another Pi instance is recording this session. Fork or start a new session to run it here.",
+			"info",
+		);
+		return;
+	}
 	let jobs: BashJobRegistry;
 	try {
 		jobs = new BashJobRegistry(settings.bashOutputTailKiB * 1024, {
