@@ -433,7 +433,7 @@ describe("tail total-height minimum", () => {
 			expect(first).toHaveLength(5);
 			expect(first.at(-1)).toBe("");
 			tool.setArgsComplete();
-			tool.updateResult({ content: [{ type: "text", text: "done" }] });
+			tool.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
 			const view: unknown = Reflect.get(tool, "resultRendererComponent");
 			if (!(view instanceof ToolView)) throw new Error("Expected the installed tool renderer");
 			view.setFoldLevel(0);
