@@ -354,6 +354,7 @@ export class ToolView implements Component {
 	#localCopiedUntil = 0;
 	#localCopyFailed = false;
 	#localTimer: ReturnType<typeof setTimeout> | undefined;
+	#liveTimer: ReturnType<typeof setTimeout> | undefined;
 	#lastWidth = 80;
 	#lastHeight = 0;
 	#lastNoRail = false;
@@ -526,6 +527,20 @@ export class ToolView implements Component {
 		}
 	}
 
+	/**
+	 * A live glyph needs someone to ask for the next frame, and no host event says "still running".
+	 * The frame that drew one owns that timer: it fires once, the repaint renders again, and a settled
+	 * row simply stops asking.
+	 */
+	#requestNextFrame(): void {
+		if (this.#liveTimer !== undefined) return;
+		this.#liveTimer = setTimeout(() => {
+			this.#liveTimer = undefined;
+			this.#spec.invalidate?.();
+		}, TOOL_SPINNER_INTERVAL_MS);
+		this.#liveTimer.unref?.();
+	}
+
 	#renderHeader(width: number, level: FoldLevel): string {
 		const { theme, header, copy } = this.#spec;
 		const safeWidth = Math.max(1, width);
@@ -669,7 +684,15 @@ export class ToolView implements Component {
 		// The glyph of a live tool changes on its own clock, so a cached frame would freeze it.
 		const status = this.#spec.header.status;
 		const glyph = status === "streaming" || status === "running" ? toolSpinnerFrame() : "";
+		// A live row at level 0 draws the glyph, so this frame owns the next one.
+		if (glyph !== "" && level === 0) this.#requestNextFrame();
+		// A component body draws on a clock of its own: a container's child board animates a live child
+		// while the container itself already shows its fold pin, so a cached frame would freeze the
+		// child's glyph. Only a body of literal rows is fully known here.
+		const bodyOwnsItsClock =
+			this.#spec.collapsedRows !== undefined && !Array.isArray(this.#spec.collapsedRows);
 		if (
+			!bodyOwnsItsClock &&
 			this.#cache !== undefined &&
 			this.#cache.width === width &&
 			this.#cache.level === level &&
@@ -706,7 +729,9 @@ export class ToolView implements Component {
 		const lines =
 			surface === undefined ? safeLines : surfaceBlock(this.#spec.theme, surface, safeLines, width);
 		this.#lastHeight = lines.length;
-		this.#cache = { width, level, copied, noRail, surface, glyph, lines };
+		this.#cache = bodyOwnsItsClock
+			? undefined
+			: { width, level, copied, noRail, surface, glyph, lines };
 		return lines;
 	}
 

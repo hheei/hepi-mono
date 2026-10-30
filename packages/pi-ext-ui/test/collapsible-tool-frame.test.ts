@@ -448,6 +448,100 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		now.mockRestore();
 	});
 
+	test("a container board follows the same clock for a live child and keeps a settled board cached", () => {
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		const live = new NestedCallsView({
+			calls: [{ id: "c1", toolName: "bash", args: { command: "ls" }, status: "running" }] as never,
+			theme: plainTheme,
+			context: { args: {}, toolCallId: "p1", invalidate: () => undefined } as never,
+		});
+		const firstRow = live.render(40)[0] ?? "";
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * 3);
+		expect(live.render(40)[0]).not.toBe(firstRow);
+
+		const settled = new NestedCallsView({
+			calls: [{ id: "c2", toolName: "read", args: { path: "a.ts" }, status: "ok" }] as never,
+			theme: plainTheme,
+			context: { args: {}, toolCallId: "p1", invalidate: () => undefined } as never,
+		});
+		const settledRows = settled.render(40);
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * 4);
+		// Nothing in a settled board animates, so a repaint still hits its cache.
+		expect(settled.render(40)).toBe(settledRows);
+		now.mockRestore();
+	});
+
+	test("a container keeps repainting its child board after its own row returns to the fold pin", () => {
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		const board = new NestedCallsView({
+			calls: [{ id: "c1", toolName: "bash", args: { command: "ls" }, status: "running" }] as never,
+			theme: plainTheme,
+			context: { args: {}, toolCallId: "p1", invalidate: () => undefined } as never,
+		});
+		// The container already lists a child, so its own slot is the settled pin.
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "codemode", status: "none" },
+			collapsedRows: board,
+			stateHolder: {},
+		});
+		const first = view.render(40).join("\n");
+		expect(first).toContain("▸ codemode");
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * 3);
+		expect(view.render(40).join("\n")).not.toBe(first);
+		now.mockRestore();
+	});
+
+	test("a live row asks for the next frame and a settled row stops asking", () => {
+		vi.useFakeTimers();
+		let live = true;
+		const invalidate = vi.fn(() => {
+			// The host repaint renders the row again, which asks for the frame after this one.
+			if (live) view.render(40);
+		});
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "running" },
+			stateHolder: {},
+			invalidate,
+		});
+		view.render(40);
+		expect(invalidate).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(TOOL_SPINNER_INTERVAL_MS * 3);
+		expect(invalidate).toHaveBeenCalledTimes(3);
+		live = false;
+		vi.advanceTimersByTime(TOOL_SPINNER_INTERVAL_MS * 5);
+		expect(invalidate).toHaveBeenCalledTimes(4);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	test("a settled tool never asks for a frame", () => {
+		vi.useFakeTimers();
+		const invalidate = vi.fn();
+		new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "ok" },
+			stateHolder: {},
+			invalidate,
+		}).render(40);
+		vi.advanceTimersByTime(TOOL_SPINNER_INTERVAL_MS * 5);
+		expect(invalidate).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	test("a live child board asks for the next frame even when its own row is settled", () => {
+		vi.useFakeTimers();
+		const invalidate = vi.fn();
+		new NestedCallsView({
+			calls: [{ id: "c1", toolName: "bash", args: { command: "ls" }, status: "running" }] as never,
+			theme: plainTheme,
+			context: { args: {}, toolCallId: "p1" } as never,
+			invalidate,
+		}).render(40);
+		vi.advanceTimersByTime(TOOL_SPINNER_INTERVAL_MS);
+		expect(invalidate).toHaveBeenCalledTimes(1);
+	});
+
 	test("live tools animate one shared 200ms phase and only change color", () => {
 		const now = vi.spyOn(performance, "now").mockReturnValue(0);
 		const tagged = {

@@ -64,7 +64,7 @@ $$\text{Render State} = \text{Outcome} \otimes \text{Visibility} \otimes \text{C
 | **结算期 (Settled)** | 告警 | `!` | `warning` | `▸ ! web_search "query" · 1.2s` | `▾ ! web_search "query" · 1.2s` |
 | **结算期 (Settled)** | 失败 | `✗` | `error` | `▸ ✗ web_search "query" · 12.0s` | `▾ ✗ web_search "query" · 12.0s` |
 
-Streaming 与 running 共用同一个 100ms 时钟：帧由 `performance.now()` 直接换算，因此从参数构造切到执行等待时不重置相位，只有颜色从 `muted` 变成 `accent`。重绘由 pi-ext-ui 在存在 live 工具时的 100ms ticker 驱动，最后一个工具结束后立即停表。
+Streaming 与 running 共用同一个 200ms 时钟（`TOOL_SPINNER_INTERVAL_MS`）：帧由 `performance.now()` 直接换算，因此从参数构造切到执行等待时不重置相位，只有颜色从 `muted` 变成 `accent`。重绘由画出 live 字形的那一帧自己驱动：`ToolView` 与容器看板 `NestedCallsView` 各设一个 200ms 自终止定时器（`unref()`，已有定时器不重复设），结算后不再排下一帧；没有 live 工具时不存在任何计时器，pi-ext-ui 也不再持有全局 ticker。
 
 ---
 
@@ -242,8 +242,8 @@ export interface ToolViewSpec {
 
 ## 7. 实施落地计划 (Implementation Plan)
 
-### Step 1: 深模块核心重构 (`packages/pi-ext-ui/src/collapsible-tool-frame.ts`)
-1. 实现纯数据驱动的 `ToolView` / `CollapsibleToolFrame`：
+### Step 1: 深模块核心重构 (`packages/pi-ext-ui/src/tool-view.ts`)
+1. 实现纯数据驱动的 `ToolView`：
    - 内置 `FoldLevel (0 | 1 | 2)` 状态转移函数（支持普通 Click 与 `event.ctrl` 修饰键）；
    - 实现 Header 左右分区 Hit Testing（左区切换折叠等级，右区 2 列触发 `copy.primary` / `copy.full` 剪贴板写入与 1.2s `✓` 反馈）；
    - 实现 `collapsedRows`（Level 0 专属，供元工具看板使用）与 `sections: RailSection[]`（Level 1/2 专属，支持多段不同颜色的 `▎` 导轨无缝拼接，无横线、无空行）。

@@ -133,7 +133,7 @@ function setup(connect = true, uiTheme: Theme = theme) {
 		handleMouse: chat.handleMouse,
 		invalidate: chat.invalidate,
 	};
-	const patch = installHostToolGroups(context);
+	const patch = installHostToolGroups(context, () => backgrounds);
 	cleanups.push(patch.dispose);
 	if (connect) lookup("fixture");
 	const notice = (message: string, type: "info" | "warning" | "error" = "info") =>
@@ -267,6 +267,220 @@ function clickRowAt(chat: Container, needle: string, occurrence: number) {
 		throw new Error(`No transcript row #${String(occurrence)} matching ${needle}`);
 	return click(chat, index);
 }
+
+describe("tail total-height minimum", () => {
+	test.each([
+		false,
+		true,
+	])("colored tool, thinking and notice tails share four rows (grouped=%s)", (grouped) => {
+		const f = setup();
+		f.begin();
+		const prefix = grouped ? [assistant(["a", "b"]), f.row("a"), f.row("b")] : [];
+		backgrounds = true;
+		try {
+			for (const width of [30, 120]) {
+				const tool = f.row("tail");
+				f.chat.children = [...prefix, tool];
+				const native = tool.render(width);
+				expect(native).toHaveLength(5);
+				expect(f.chat.render(width).slice(-5)).toEqual(native);
+				const thinking = assistant([], true, undefined, "one thought");
+				f.chat.children = [...prefix, thinking];
+				expect(f.chat.render(width).slice(-5)).toEqual([...thinking.render(width), "", "", ""]);
+				f.notice("short notice");
+				const first = f.chat.render(width);
+				expect(first.at(-4)).toContain("short notice");
+				expect(first.slice(-3)).toEqual(["", "", ""]);
+				expect(f.chat.render(width)).toEqual(first);
+				for (let y = first.length - 3; y < first.length; y++) {
+					expect(click(f.chat, y, width)?.handled).not.toBe(true);
+				}
+			}
+		} finally {
+			backgrounds = false;
+		}
+	});
+
+	test.each([false, true])("one-row tails pad outside the surface (grouped=%s)", (grouped) => {
+		const colored = {
+			...theme,
+			bg: (_token: string, text: string) => `\x1b[44m${text}\x1b[49m`,
+		} as Theme;
+		const f = setup(true, colored);
+		f.begin();
+		const prefix = grouped ? [assistant(["a", "b"]), f.row("a"), f.row("b")] : [];
+		const message = new Container();
+		message.addChild(new Spacer(1));
+		message.addChild(createMessageView({ theme: colored, header: { kind: "notice" } }));
+		const thinking = assistant([], true, undefined, "one thought");
+		for (const tail of [message, thinking]) {
+			f.chat.children = [...prefix, tail];
+			const native = tail.render(40);
+			const render = vi.spyOn(tail, "render");
+			const first = f.chat.render(40);
+			expect(render).toHaveBeenCalledTimes(1);
+			const expected = tail === thinking ? [...native, ""] : native;
+			expect(first.slice(-expected.length)).toEqual(expected);
+			expect(f.chat.render(40)).toEqual(first);
+			if (tail === thinking) expect(click(f.chat, first.length - 1, 40)?.handled).not.toBe(true);
+			render.mockRestore();
+		}
+	});
+
+	test.each([
+		false,
+		true,
+	])("tools exclude color padding and never retain tall frames (grouped=%s)", (grouped) => {
+		const f = setup();
+		f.begin();
+		const prefix = grouped ? [assistant(["a", "b"]), f.row("a"), f.row("b")] : [];
+		for (const background of [false, true]) {
+			backgrounds = background;
+			try {
+				for (const count of [1, 2, 4, 1]) {
+					const tool = f.row(
+						"tail",
+						"read",
+						"ok",
+						false,
+						true,
+						undefined,
+						undefined,
+						Array.from({ length: count - 1 }, (_, i) => `row ${i}`),
+					);
+					f.chat.children = [...prefix, assistant(["tail"]), tool];
+					const native = tool.render(40);
+					const expected = count === 1 ? [...native, ""] : native;
+					const first = f.chat.render(40);
+					expect(first.slice(-expected.length)).toEqual(expected);
+					expect(f.chat.render(40)).toEqual(first);
+				}
+			} finally {
+				backgrounds = false;
+			}
+		}
+	});
+
+	test.each([
+		false,
+		true,
+	])("notify replaces thinking without cross-frame feedback (grouped=%s)", (grouped) => {
+		const f = setup();
+		f.begin();
+		f.chat.children = grouped ? [assistant(["a", "b"]), f.row("a"), f.row("b")] : [];
+		f.chat.addChild(assistant([], true, undefined, "one thought"));
+		expect(f.chat.render(40).at(-1)).toBe("");
+		f.notice("short notice");
+		const first = f.chat.render(40);
+		expect(first.at(-1)).toBe("");
+		expect(first.at(-2)).toContain("short notice");
+		expect(f.chat.render(40)).toEqual(first);
+	});
+
+	test("an empty assistant placeholder leaves the preceding visible tail padded", () => {
+		const f = setup();
+		f.notice("visible");
+		f.chat.addChild(assistant(["pending"]));
+		expect(f.chat.render(40).map((row) => row.trimEnd())).toEqual(["", " visible", ""]);
+	});
+
+	test.each([30, 120])("custom notices preserve 1/2/3 content rows at width %i", (width) => {
+		const f = setup();
+		for (const count of [1, 2, 3, 1]) {
+			const message = new Container();
+			message.addChild(new Spacer(1));
+			message.addChild(
+				createMessageView({
+					theme,
+					header: { kind: "notice" },
+					preview: Array.from({ length: count - 1 }, (_, i) => `内容 ${i}`),
+				}),
+			);
+			f.chat.children = [message];
+			const first = f.chat.render(width);
+			const native = message.render(width);
+			expect(first).toEqual(native);
+			expect(f.chat.render(width)).toEqual(first);
+			for (const line of first) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+
+	test.each([
+		30, 120,
+	])("thinking clicks and resize use actual rows, not remembered height (%i)", (width) => {
+		const f = setup();
+		const thinking = assistant([], true, undefined, "long reasoning ".repeat(20));
+		thinking.setHideThinkingBlock(true);
+		f.chat.children = [thinking];
+		const folded = f.chat.render(width);
+		expect(folded).toHaveLength(3);
+		expect(folded.at(-1)).toBe("");
+		expect(click(f.chat, 1, width)?.handled).toBe(true);
+		const expanded = f.chat.render(width);
+		expect(expanded.length).toBeGreaterThan(3);
+		expect(expanded).toEqual(thinking.render(width));
+		expect(click(f.chat, 1, width)?.handled).toBe(true);
+		expect(f.chat.render(width)).toEqual(folded);
+	});
+
+	test("streaming tool completion and background changes refresh decoration even on cached renders", () => {
+		const f = setup();
+		const tool = f.row("tail", "read", "ok", false, false);
+		f.chat.children = [assistant(["tail"]), tool];
+		backgrounds = true;
+		try {
+			const first = f.chat.render(40);
+			expect(first).toHaveLength(5);
+			expect(first.at(-1)).toBe("");
+			tool.setArgsComplete();
+			tool.updateResult({ content: [{ type: "text", text: "done" }] });
+			const view: unknown = Reflect.get(tool, "resultRendererComponent");
+			if (!(view instanceof ToolView)) throw new Error("Expected the installed tool renderer");
+			view.setFoldLevel(0);
+			const completed = f.chat.render(40);
+			expect(completed).toHaveLength(5);
+			expect(completed.at(-1)).toBe("");
+			expect(f.chat.render(40)).toEqual(completed);
+			backgrounds = false;
+			expect(f.chat.render(40)).toHaveLength(3);
+			expect(f.chat.render(40).at(-1)).toBe("");
+		} finally {
+			backgrounds = false;
+		}
+	});
+
+	test("multi-part thinking pads only the complete tail and an empty tail creates no rows", () => {
+		const f = setup();
+		f.chat.children = [assistant([])];
+		expect(f.chat.render(40)).toEqual([]);
+		const one = assistant([], true, undefined, "first thought");
+		const two = assistant([], true, undefined, "second thought");
+		f.chat.children = [one, two];
+		const rows = f.chat.render(40);
+		expect(rows.at(-1)).toContain("second thought");
+		expect(rows.filter((row) => row.includes("first thought"))).toHaveLength(1);
+		expect(rows.filter((row) => row.includes("second thought"))).toHaveLength(1);
+		expect(f.chat.render(40)).toEqual(rows);
+	});
+
+	test("ending a run or fading its surface does not retract a displayed tail's minimum", () => {
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
+		f.notice("tail notice");
+		const first = f.chat.render(40);
+		expect(first.at(-1)).toBe("");
+		f.patch.endRun();
+		now.mockReturnValue(6_000);
+		expect(f.chat.render(40)).toEqual(first);
+		const prose = assistant([], "text");
+		f.chat.addChild(prose);
+		const ended = f.chat.render(40);
+		expect(ended.at(-1)).not.toBe("");
+		expect(ended.slice(-prose.render(40).length)).toEqual(prose.render(40));
+	});
+});
 
 describe("two centralized host seams / original transcript projection", () => {
 	test("counts real adjacent tools; preserves children and original methods on disposal", () => {
@@ -518,7 +732,7 @@ describe("two centralized host seams / original transcript projection", () => {
 			configurable: true,
 			writable: false,
 		});
-		const patch = installHostToolGroups(f.context);
+		const patch = installHostToolGroups(f.context, () => backgrounds);
 		cleanups.push(patch.dispose);
 		f.lookup("fixture");
 		expect(f.chat.render).toBe(f.originals.render);
@@ -1027,15 +1241,16 @@ describe("two centralized host seams / original transcript projection", () => {
 				body: "remembered body",
 			}),
 		);
-		const message = assistant(["a", "b"], true);
+		const message = assistant(["a", "b"], true, undefined, "reason one reason two reason three");
 		Reflect.set(message, "hideThinkingBlock", true);
 		f.chat.children = [message, f.row("a"), notice, f.row("b")];
 		clickRow(f.chat, "▸ thinking");
-		expect(show(f.chat)).toContain("▾ thinking x1 · 2 tokens");
+		expect(show(f.chat)).toContain("▾ thinking x1");
 		// One row per item: the preview itself is the fold target, with no label row above it.
-		expect(show(f.chat)).toContain("▎ reason");
+		expect(show(f.chat)).not.toContain("▎ reason one reason two reason three");
 		clickRow(f.chat, "▎ reason");
-		expect(show(f.chat)).toContain("  reason");
+		// Opening keeps the rail: the body rows line up with the preview's text column.
+		expect(show(f.chat)).toContain("▎ reason one reason two reason three");
 		clickRow(f.chat, "▸ read ×1");
 		expect(show(f.chat)).toContain("▾ read ×1");
 		expect(show(f.chat)).toContain("▸ thinking");
@@ -1044,6 +1259,27 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("▾ notice · memory ×1");
 		clickRow(f.chat, "▸ memory · page");
 		expect(show(f.chat)).toContain("remembered body");
+	});
+
+	test("thinking rows keep the rail while transparent and drop it under a background", () => {
+		const f = setup(true, tokens);
+		f.begin();
+		const message = assistant(["a", "b"], true, undefined, "keep this reasoning");
+		Reflect.set(message, "hideThinkingBlock", true);
+		f.chat.children = [message, f.row("a"), f.row("b")];
+		clickRow(f.chat, "thinking x1");
+		clickRow(f.chat, "keep this reasoning");
+		// Transparent: the preview and the opened body share one rail, so the text column never moves.
+		expect(show(f.chat)).toContain("[dim]▎[/] [thinkingText]keep this reasoning[/]");
+		backgrounds = true;
+		try {
+			const rows = show(f.chat).split("\n");
+			expect(rows.some((row) => row.includes("[thinkingText]keep this reasoning"))).toBe(true);
+			// A filled block is delimited by its own surface, so no row draws a rail.
+			expect(rows.some((row) => row.includes("▎"))).toBe(false);
+		} finally {
+			backgrounds = false;
+		}
 	});
 
 	test("categories render notice, then thinking, then tools", () => {
@@ -1083,9 +1319,9 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(preview).not.toContain("tokens");
 		clickRow(f.chat, "first paragraph");
 		const opened = show(f.chat).split("\n");
-		expect(opened).toContain("  first paragraph with a very long tail beyond twenty graphemes");
-		expect(opened).toContain("  second paragraph stays out of the preview");
-		clickRow(f.chat, "  first paragraph");
+		expect(opened).toContain("▎ first paragraph with a very long tail beyond twenty graphemes");
+		expect(opened).toContain("▎ second paragraph stays out of the preview");
+		clickRow(f.chat, "▎ first paragraph");
 		expect(show(f.chat)).toContain("first paragraph with…");
 		expect(show(f.chat)).not.toContain("second paragraph stays out");
 	});
@@ -1118,14 +1354,13 @@ describe("two centralized host seams / original transcript projection", () => {
 		];
 		clickRow(f.chat, "▸ thinking");
 		const rows = show(f.chat).split("\n");
-		expect(rows).toContain("  para one");
+		expect(rows).toContain("▎ para one");
 		expect(rows).toContain("");
-		expect(rows).toContain("  para two");
-		// Visible thinking is already the full text, so no preview row offers to fold it.
-		expect(rows.some((row) => row.startsWith("▎ "))).toBe(false);
+		expect(rows).toContain("▎ para two");
+		// Visible thinking is already the full text, so no item row offers to fold it.
 		expect(rows.some((row) => row.startsWith("▸ thinking"))).toBe(false);
 		const before = show(f.chat);
-		clickRowAt(f.chat, "  para one", 0);
+		clickRowAt(f.chat, "▎ para one", 0);
 		expect(show(f.chat)).toBe(before);
 	});
 
@@ -1207,7 +1442,7 @@ describe("two centralized host seams / original transcript projection", () => {
 		Reflect.set(message, "hideThinkingBlock", false);
 		f.chat.invalidate();
 		const rows = show(f.chat).split("\n");
-		expect(rows).toContain("  keep this reasoning");
+		expect(rows).toContain("▎ keep this reasoning");
 		expect(rows.some((row) => row.startsWith("▸ thinking"))).toBe(false);
 	});
 
@@ -1597,7 +1832,7 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(a.chat)).not.toContain("2 calls");
 		expect(show(b.chat)).toContain("2 calls");
 		b.patch.dispose();
-		const again = installHostToolGroups(a.context);
+		const again = installHostToolGroups(a.context, () => backgrounds);
 		cleanups.push(again.dispose);
 		again.beginRun();
 		expect(show(a.chat)).toContain("2 calls");
@@ -1624,7 +1859,7 @@ describe("two centralized host seams / original transcript projection", () => {
 			);
 		}
 		f.chat.children = [assistant(["a", "b"]), ...rows];
-		const patch = reinstall(f.context);
+		const patch = reinstall(f.context, () => backgrounds);
 		cleanups.push(patch.dispose);
 		patch.beginRun();
 		// No additional tool lookup: history was already rebuilt before session_start.
@@ -1724,9 +1959,9 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("▸ thinking x1 ·");
 		clickRow(f.chat, "▸ thinking");
 		const rows = show(f.chat).split("\n");
-		expect(rows).toContain("  first paragraph");
+		expect(rows).toContain("▎ first paragraph");
 		expect(rows).toContain("");
-		expect(rows).toContain("  second paragraph");
+		expect(rows).toContain("▎ second paragraph");
 	});
 
 	test("a block that does not group shows no orphan footer", () => {
@@ -1772,6 +2007,39 @@ describe("two centralized host seams / original transcript projection", () => {
 		f.notice("later notice");
 		expect(show(f.chat)).toContain("▾ read ×2");
 		expect(show(f.chat)).toContain("later notice");
+	});
+
+	test("a thinking tail separates from the block with one blank row, like a tool tail", () => {
+		// Pi opens a message zone with an OSC 133 row that paints no cells. Counting that row as
+		// content added a second blank row after the block and made the transcript jump as soon as
+		// the tail changed from a thinking run to a tool.
+		const blankGap = (rows: readonly string[], needle: string): number => {
+			const end = rows.findIndex((row) => row.includes(needle));
+			let start = end - 1;
+			while (start >= 0 && visibleWidth(rows[start] ?? "") === 0) start -= 1;
+			return end - start - 1;
+		};
+		const f = setup(true, tokens);
+		f.begin();
+		f.chat.children = [assistant(["a"], true), f.row("a"), assistant([], true)];
+		const thinkingRows = f.chat.render(80);
+		expect(blankGap(thinkingRows, "reason")).toBe(1);
+		// The zone marker itself stays: terminal integrations need the row, they just get no blank.
+		expect(thinkingRows.some((row) => row.includes("\u001b]133;A"))).toBe(true);
+
+		f.chat.children = [assistant(["a"], true), f.row("a"), f.row("b")];
+		expect(blankGap(f.chat.render(80), "✓ read")).toBe(1);
+	});
+
+	test("a thinking tail answers a click on its own text", () => {
+		// A separator row this unit prepends is a row of the unit, so the part offsets have to move with
+		// it: otherwise the click lands past the component's last row and the tail stops opening.
+		const f = setup();
+		f.begin();
+		f.chat.children = [assistant(["a"], true), f.row("a"), assistant([], true)];
+		const collapsed = show(f.chat);
+		expect(clickRow(f.chat, "reason")).toMatchObject({ handled: true });
+		expect(show(f.chat)).not.toBe(collapsed);
 	});
 
 	test("eight requests add up exactly, and cache writes stay out of ↑", () => {

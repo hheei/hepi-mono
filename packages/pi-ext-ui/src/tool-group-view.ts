@@ -7,6 +7,7 @@ import {
 	Spacer,
 	Text,
 	truncateToWidth,
+	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { fitRow } from "@hheei/pi-ext-core";
@@ -78,11 +79,6 @@ export interface ToolGroupClock {
 	endedAt?: number;
 }
 
-/** A tool that has not received its final result yet: its own rows are still changing height. */
-function isLiveTail(member: Member): boolean {
-	return member.kind === "tool" && member.completed !== true;
-}
-
 interface Hit {
 	readonly height: number;
 	readonly action: Action;
@@ -100,6 +96,15 @@ export function memberParts(member: Member): readonly Component[] {
 }
 
 /**
+ * A row that draws nothing visible. A separator row is not always an empty string: Pi marks the start
+ * of a message zone with an OSC 133 row that paints no cells, and counting it as content would add a
+ * second blank row after the block.
+ */
+function isBlankRow(row: string | undefined): boolean {
+	return row === undefined || visibleWidth(row) === 0;
+}
+
+/**
  * The one visible unit a block keeps outside itself: the transcript's last top-level unit, drawn by
  * its original component so its own Level 0, copy, and fold state stay intact. It normalizes the
  * single blank row that separates it from the block and forwards mouse events to the real parts.
@@ -113,43 +118,46 @@ interface PartOffset {
 }
 
 export class TailUnit implements Component {
-	#parts: readonly Component[];
+	readonly #parts: readonly Component[];
+	readonly #background: () => boolean;
 	#offsets: PartOffset[] = [];
-	/** Rows already shown for a live member: a tool that grows may not shrink back and shift the block. */
-	#reserved = 0;
-	#live: boolean;
 
-	constructor(member: Member) {
+	constructor(member: Member, background: () => boolean) {
 		this.#parts = memberParts(member);
-		this.#live = isLiveTail(member);
-	}
-
-	/** The same tail with a newer fact: the component list can grow, the reserved height must not. */
-	update(member: Member): void {
-		this.#parts = memberParts(member);
-		this.#live = isLiveTail(member);
+		this.#background = background;
 	}
 
 	render(width: number): string[] {
 		const offsets: PartOffset[] = [];
 		const rows: string[] = [];
+		let contentRows = 0;
 		for (const part of this.#parts) {
 			const all = part.render(width);
 			const skip = all[0] === "" ? 1 : 0;
 			const own = all.slice(skip);
 			if (own.length === 0) continue;
-			if (rows.length > 0) rows.push("");
+			if (rows.length > 0) {
+				rows.push("");
+				contentRows++;
+			}
+			// A leading OSC-only separator stays in the output, but is not a content row.
+			contentRows += own.length - (isBlankRow(own[0]) ? 1 : 0);
 			offsets.push({ part, top: rows.length, height: own.length, skip });
 			rows.push(...own);
 		}
-		this.#offsets = offsets;
-		if (rows.length === 0) return rows;
-		const out = rows[0] === "" ? rows : ["", ...rows];
-		// A live tail grows downward from a fixed top: the host keeps the transcript's bottom in view, so
-		// a row count that falls back drags everything above it down. Reserve the tallest frame instead.
-		if (this.#live) this.#reserved = Math.max(this.#reserved, out.length);
-		else this.#reserved = 0;
-		while (out.length < this.#reserved) out.push("");
+		if (rows.length === 0) {
+			this.#offsets = offsets;
+			return rows;
+		}
+		const out = isBlankRow(rows[0]) ? rows : ["", ...rows];
+		// The separator above is a row of this unit too, so every part offset moves down with it.
+		const shift = out.length - rows.length;
+		this.#offsets = offsets.map((offset) => ({ ...offset, top: offset.top + shift }));
+		// Surface padding counts toward the minimum; added rows stay outside surfaces and hit areas.
+		const minimum = this.#background() ? 4 : 2;
+		if (contentRows > 0) {
+			for (let row = contentRows; row < minimum; row++) out.push("");
+		}
 		return out;
 	}
 
@@ -233,6 +241,8 @@ export class ToolGroupView extends Container {
 	readonly #header = new Text("", 0, 0);
 	readonly #ui: ExtensionUIContext;
 	readonly #redraw: () => void;
+	/** Pi-native block backgrounds are opt-in; while they are on, the fill replaces the rails. */
+	readonly #background: () => boolean;
 	/** The stable clock for this block; restored history stays unknown until live content joins. */
 	#clock: ToolGroupClock | undefined;
 	/** The block's own members, drawn inside the group. */
@@ -256,10 +266,11 @@ export class ToolGroupView extends Container {
 	readonly #box = new Box(0, 1);
 	readonly #spacer = new Spacer(1);
 
-	constructor(ui: ExtensionUIContext, redraw: () => void) {
+	constructor(ui: ExtensionUIContext, redraw: () => void, background: () => boolean) {
 		super();
 		this.#ui = ui;
 		this.#redraw = redraw;
+		this.#background = background;
 		this.#heading = new MouseRegion(this.#header, (event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;
 			this.#toggleRaw();
@@ -608,6 +619,14 @@ export class ToolGroupView extends Container {
 		}
 	}
 
+	/**
+	 * The cells a thinking row starts with. Thinking has no surface of its own, so it keeps the same
+	 * rail as a tool at every level; once a block is filled, the fill delimits it and the rail goes.
+	 */
+	#thinkingPrefix(): string {
+		return this.#background() ? "  " : `${this.#ui.theme.fg("dim", "▎")} `;
+	}
+
 	/** One preview row: the grapheme head plus an ellipsis, then cut to the cells the rail leaves. */
 	#thinkingPreviewRow(text: string, width: number): string {
 		const theme = this.#ui.theme;
@@ -615,17 +634,18 @@ export class ToolGroupView extends Container {
 		const room = Math.max(1, width - 2);
 		const fitted = truncateToWidth(head, more ? Math.max(1, room - 1) : room, "…");
 		const preview = more && fitted === head ? `${head}…` : fitted;
-		return `${theme.fg("dim", "▎")} ${theme.fg("thinkingText", theme.italic(preview))}`;
+		return `${this.#thinkingPrefix()}${theme.fg("thinkingText", theme.italic(preview))}`;
 	}
 
 	/** Full thinking text: paragraphs keep their separation, every row wraps to the indent's width. */
 	#thinkingRows(text: string, width: number): string[] {
 		const theme = this.#ui.theme;
+		const prefix = this.#thinkingPrefix();
 		const inner = Math.max(1, width - 2);
 		return toContentRows(text).flatMap((line) => {
 			const wrapped = wrapTextWithAnsi(line, inner);
 			return (wrapped.length > 0 ? wrapped : [""]).map((row) =>
-				row === "" ? "" : `  ${theme.fg("thinkingText", theme.italic(row))}`,
+				row === "" ? "" : `${prefix}${theme.fg("thinkingText", theme.italic(row))}`,
 			);
 		});
 	}

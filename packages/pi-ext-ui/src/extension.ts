@@ -16,7 +16,6 @@ import {
 	createToolGroupSettings,
 	toolBackgroundsEnabled,
 } from "./settings.js";
-import { TOOL_SPINNER_INTERVAL_MS } from "./tool-view.js";
 
 export default function (pi: ExtensionAPI): void {
 	// One runtime per extension instance: two Pi runtimes in one process never share these facts.
@@ -40,7 +39,7 @@ export default function (pi: ExtensionAPI): void {
 				}
 				if (patch !== undefined) return;
 				try {
-					patch = installHostToolGroups(context.extension);
+					patch = installHostToolGroups(context.extension, () => runtime.backgrounds);
 					redrawGroups = patch.requestRender;
 				} catch (error) {
 					context.extension.ui.notify(
@@ -61,44 +60,14 @@ export default function (pi: ExtensionAPI): void {
 				patch?.beginRun();
 				redrawGroups?.();
 			});
-			// A live tool animates its status glyph. The ticker exists only while one is running, and the
-			// frame itself comes from one shared clock, so a phase never restarts on a status change.
-			let liveTools = 0;
-			let ticker: ReturnType<typeof setInterval> | undefined;
-			const stopTicker = (): void => {
-				if (ticker === undefined) return;
-				clearInterval(ticker);
-				ticker = undefined;
-			};
 			const onAgentEnd = pi.on("agent_end", () => {
 				patch?.endRun();
-				// No tool outlives the agent loop, so the animation cannot keep a ticker alive either.
-				liveTools = 0;
-				stopTicker();
 				redrawGroups?.();
 			});
-			const onToolStart = pi.on("tool_execution_start", () => {
-				liveTools += 1;
-				if (ticker !== undefined) return;
-				ticker = setInterval(() => {
-					if (liveTools === 0 || redrawGroups === undefined) {
-						stopTicker();
-						return;
-					}
-					redrawGroups();
-				}, TOOL_SPINNER_INTERVAL_MS);
-			});
-			const onToolEnd = pi.on("tool_execution_end", () => {
-				liveTools = Math.max(0, liveTools - 1);
-				if (liveTools === 0) stopTicker();
-			});
+			// The live glyph clock lives with the rows that draw it, so nothing here ticks.
 			context.resources.add("run-clock", () => {
 				onAgentStart();
 				onAgentEnd();
-				onToolStart();
-				onToolEnd();
-				stopTicker();
-				liveTools = 0;
 			});
 			context.resources.add(
 				"tool-group-settings",

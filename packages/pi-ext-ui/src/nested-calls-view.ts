@@ -21,8 +21,10 @@ import {
 	type Collapsible,
 	type FoldLevel,
 	formatToolHeaderText,
+	TOOL_SPINNER_INTERVAL_MS,
 	ToolView,
 	toContentRows,
+	toolSpinnerFrame,
 	transitionFoldLevel,
 } from "./tool-view.js";
 import type { CapturedToolCall } from "./tracker.js";
@@ -33,6 +35,16 @@ function truncate(text: string, width: number): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A call without a final result is still running: its row carries the live spinner frame. A persisted
+ * record states its own status, so a recovered board never animates a call that already ended.
+ */
+function isLiveCall(call: CapturedToolCall | NestedCallRecord): boolean {
+	return "status" in call
+		? call.status === "running"
+		: (call as CapturedToolCall).result === undefined;
 }
 
 /**
@@ -86,6 +98,7 @@ export class NestedCallsView implements Component, Collapsible {
 	#copiedIndex: number | undefined = undefined;
 	#failedIndex: number | undefined = undefined;
 	#copiedTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+	#liveTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 	#lineMapping: LineMapEntry[] = [];
 	#renderCache:
 		| {
@@ -93,6 +106,8 @@ export class NestedCallsView implements Component, Collapsible {
 				readonly copiedIndex: number | undefined;
 				readonly failedIndex: number | undefined;
 				readonly levelsKey: string;
+				/** Spinner frame the rows were drawn with; a live child glyph invalidates the cache. */
+				readonly frame: string;
 				readonly lines: string[];
 				readonly lineMapping: LineMapEntry[];
 		  }
@@ -270,15 +285,30 @@ export class NestedCallsView implements Component, Collapsible {
 		if (state !== undefined) delete state[NESTED_CALLS_COPIED_KEY];
 	}
 
+	/** A live child row owns the next frame; a settled board asks for none. */
+	#requestNextFrame(): void {
+		if (this.#liveTimer !== undefined) return;
+		this.#liveTimer = setTimeout(() => {
+			this.#liveTimer = undefined;
+			this.#props.invalidate?.();
+		}, TOOL_SPINNER_INTERVAL_MS);
+		this.#liveTimer.unref?.();
+	}
+
 	render(width: number): string[] {
 		const safeWidth = Math.max(1, width);
 		const levelsKey = this.#getLevelsKey();
+		// A live child row draws the shared spinner, so a cached board would freeze that glyph.
+		const frame = this.#props.calls.some(isLiveCall) ? toolSpinnerFrame() : "";
+		// A live child row draws the glyph, so this board owns the next frame for as long as it does.
+		if (frame !== "") this.#requestNextFrame();
 		if (
 			this.#renderCache !== undefined &&
 			this.#renderCache.width === safeWidth &&
 			this.#renderCache.copiedIndex === this.#copiedIndex &&
 			this.#renderCache.failedIndex === this.#failedIndex &&
-			this.#renderCache.levelsKey === levelsKey
+			this.#renderCache.levelsKey === levelsKey &&
+			this.#renderCache.frame === frame
 		) {
 			this.#lineMapping = this.#renderCache.lineMapping;
 			return this.#renderCache.lines;
@@ -293,9 +323,7 @@ export class NestedCallsView implements Component, Collapsible {
 			if (!call) continue;
 			const toolName = "toolName" in call ? call.toolName : (call as { name: string }).name;
 			const isError = Boolean(call.isError || ("status" in call && call.status === "error"));
-			const isRunning =
-				("status" in call && call.status === "running") ||
-				(!("status" in call) && (call as CapturedToolCall).result === undefined);
+			const isRunning = isLiveCall(call);
 			const expansionLevel = this.#getExpansionLevel(i);
 			const isExpanded = expansionLevel !== 0;
 
@@ -387,6 +415,7 @@ export class NestedCallsView implements Component, Collapsible {
 			copiedIndex: this.#copiedIndex,
 			failedIndex: this.#failedIndex,
 			levelsKey,
+			frame,
 			lines,
 			lineMapping: this.#lineMapping,
 		};

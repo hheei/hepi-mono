@@ -244,7 +244,7 @@ interface Attachment {
 	observe(): void;
 }
 
-function attach(host: Host, run: RunBox): Attachment {
+function attach(host: Host, run: RunBox, background: () => boolean): Attachment {
 	const chat = host.chat;
 	const original = {
 		render: chat.render,
@@ -261,8 +261,6 @@ function attach(host: Host, run: RunBox): Attachment {
 	if (!Object.isExtensible(chat)) throw new Error("Pi transcript cannot accept instance methods");
 	const projection = new Container();
 	let groups = new Map<Component, ToolGroupView>();
-	/** One wrapper per tail component, so its reserved height survives a transcript rebuild. */
-	let tails = new Map<Component, TailUnit>();
 	let active = true;
 	const disposeGroups = (): void => {
 		for (const group of groups.values()) group.dispose();
@@ -311,7 +309,6 @@ function attach(host: Host, run: RunBox): Attachment {
 	};
 	const rebuild = () => {
 		const next = new Map<Component, ToolGroupView>();
-		const nextTails = new Map<Component, TailUnit>();
 		const children: Component[] = [];
 		const blocks: {
 			group: ToolGroupView;
@@ -330,6 +327,17 @@ function attach(host: Host, run: RunBox): Attachment {
 		 */
 		const flush = (ended: boolean, boundary?: Component) => {
 			const first = members[0]?.component;
+			// Empty assistant/tool-call placeholders do not replace the last visible tail.
+			const tail = ended
+				? undefined
+				: [...members]
+						.reverse()
+						.find(
+							(member) =>
+								member.kind !== "thinking" ||
+								(member.thinking !== undefined && member.thinking !== ""),
+						);
+			const inside = members.filter((member) => member !== tail);
 			let weight = 0;
 			for (const member of members) {
 				if (member.kind === "tool") weight += 1;
@@ -340,30 +348,18 @@ function attach(host: Host, run: RunBox): Attachment {
 					weight += 0.5;
 			}
 			if (first !== undefined && weight >= 2) {
-				const group = groups.get(first) ?? new ToolGroupView(host.ui, host.requestRender);
-				const tail = ended ? undefined : members.at(-1);
-				const inside = tail === undefined ? members : members.slice(0, -1);
+				const group =
+					groups.get(first) ?? new ToolGroupView(host.ui, host.requestRender, background);
 				const boundaryTime =
 					ended && boundary !== undefined
 						? (run.observed.get(boundary)?.at ?? performance.now())
 						: undefined;
-				blocks.push({
-					group,
-					members: inside,
-					tail,
-					requests,
-					clock: clockOf(members, boundaryTime),
-				});
+				const clock = clockOf(members, boundaryTime);
+				blocks.push({ group, members: inside, tail, requests, clock });
 				next.set(first, group);
 				children.push(group);
-				if (tail !== undefined) {
-					const key = memberParts(tail)[0];
-					const unit = (key === undefined ? undefined : tails.get(key)) ?? new TailUnit(tail);
-					unit.update(tail);
-					if (key !== undefined) nextTails.set(key, unit);
-					children.push(unit);
-				}
-			} else children.push(...members.flatMap(memberParts));
+			} else children.push(...inside.flatMap(memberParts));
+			if (tail !== undefined) children.push(new TailUnit(tail, background));
 			members = [];
 			requests = [];
 		};
@@ -427,7 +423,6 @@ function attach(host: Host, run: RunBox): Attachment {
 			if (next.get(key) !== group) group.dispose();
 		}
 		groups = next;
-		tails = nextTails;
 		projection.children = children;
 	};
 	const wrappers = {
@@ -602,7 +597,10 @@ function patchState(): PatchState {
 }
 
 /** Private to pi-ext-ui: two process hooks, scoped by the actual host UI facade. */
-export function installHostToolGroups(context: ExtensionContext): {
+export function installHostToolGroups(
+	context: ExtensionContext,
+	background: () => boolean,
+): {
 	dispose(): void;
 	requestRender(): void;
 	beginRun(): void;
@@ -642,7 +640,7 @@ export function installHostToolGroups(context: ExtensionContext): {
 		ui,
 		hosts: new Map(),
 		failed: new WeakSet(),
-		attach: (host) => attach(host, run),
+		attach: (host) => attach(host, run, background),
 	};
 	state.owners.set(ui, owner);
 	// Reload rebuilds history before session_start; reconnect already discovered instances.
