@@ -26,6 +26,7 @@
 
 ### 6. 测试用例与 Fixture 规范
 - 测试代码同样遵循类型严格，禁止为了省事滥用 `as unknown as T`。
+- 例外：`biome.json` 对 `packages/*/test/**` 关闭 `noExplicitAny`。测试替身要顶替 Pi host 的`ExtensionAPI`、事件、模型等外部对象，逐一补齐成员只会把上游类型复述一遍，却不检验被测行为；生产代码仍为 error。能用工厂函数（见下条）表达的数据结构仍应优先工厂，不要因该例外放弃可读性。
 - 面对复杂上游模型（如 `AssistantMessage`、`SessionEntry`、`Usage`），优先编写集中式工厂函数（如 `createAssistantMessage`、`createSessionEntry`）填充符合规范的默认字段。
 - 测试 fixture 在已知且不变的前置断言下，允许使用非空断言 `!`。
 - 验证联合类型或历史条目时，优先使用判别联合守卫（如 `if (entry?.type === "compaction")`），使 TypeScript 自动收窄类型。

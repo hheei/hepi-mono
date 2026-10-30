@@ -80,7 +80,7 @@ export function registerSessionRecoveryGuard(pi: ExtensionAPI): SessionRecoveryG
 
 	pi.on(
 		"agent_before_settle",
-		async (_event, ctx): Promise<AgentBeforeSettleEventResult | void> => {
+		async (_event, ctx): Promise<AgentBeforeSettleEventResult | undefined> => {
 			if (!isGptModel(ctx.model)) return;
 
 			const branch = ctx.sessionManager.getBranch();
