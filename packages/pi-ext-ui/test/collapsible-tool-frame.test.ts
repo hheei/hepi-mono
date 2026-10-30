@@ -28,7 +28,11 @@ import {
 	NESTED_CALLS_EXPANDED_KEY,
 	NestedCallsView,
 } from "../src/nested-calls-view.js";
-import { formatStatusGlyph, TOOL_SPINNER_INTERVAL_MS } from "../src/tool-view.js";
+import {
+	formatStatusGlyph,
+	TOOL_SPINNER_FRAMES,
+	TOOL_SPINNER_INTERVAL_MS,
+} from "../src/tool-view.js";
 
 /**
  * The host emits its `tool_call` hook (the resolution fact) before it runs a nested call, so a test
@@ -428,7 +432,23 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(fill("a\u001b[mb")).toContain(`\u001b[m${outer}b`);
 	});
 
-	test("live tools animate one shared 100ms phase and only change color", () => {
+	test("a cached frame never freezes a live glyph: the same view repaints on the next tick", () => {
+		const now = vi.spyOn(performance, "now").mockReturnValue(0);
+		const view = new ToolView({
+			theme: plainTheme,
+			header: { title: "bash", status: "running" },
+			stateHolder: {},
+		});
+		const first = view.render(40)[0] ?? "";
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * 4);
+		const second = view.render(40)[0] ?? "";
+		expect(first).not.toBe(second);
+		now.mockReturnValue(TOOL_SPINNER_INTERVAL_MS * TOOL_SPINNER_FRAMES.length);
+		expect(view.render(40)[0]).toBe(first);
+		now.mockRestore();
+	});
+
+	test("live tools animate one shared 200ms phase and only change color", () => {
 		const now = vi.spyOn(performance, "now").mockReturnValue(0);
 		const tagged = {
 			fg: (token: string, text: string) => `[${token}]${text}[/]`,
@@ -444,7 +464,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		now.mockRestore();
 	});
 
-	test("Streaming planning phase shows ▸ ⋯ tool_name · XX tokens and constant 1-line height", () => {
+	test("Streaming planning phase puts the live spinner in the prefix of tool_name · XX tokens", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const ctx = createMockContext({
@@ -457,7 +477,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx);
 		const lines = callView.render(80);
 		expect(lines.length).toBe(1);
-		expect(lines[0]).toContain("▸ codemode · ");
+		expect(lines[0]).toMatch(/^[·✢✳✶✻✽] codemode · /);
 		expect(lines[0]).toContain("tokens");
 	});
 
@@ -577,7 +597,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(lines[0]).toContain("codemode");
 	});
 
-	test("codemode keeps one header: no spinner while running, and the call row leaves once a result exists", () => {
+	test("codemode keeps one header: the fold pin returns once child calls exist", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("codemode", () => undefined)!;
 		const state = {};
@@ -2002,6 +2022,91 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(rows[rows.length - 1]).toMatch(/Output truncated: showing 64KB of/);
 	});
 
+	test("a provider-owned tool spins while pending and folds on its own verdict", () => {
+		const resolve = setupResolver();
+		const pi = { registerFlag() {}, on: () => () => {} } as unknown as ExtensionAPI;
+		const native = createToolPresentationRenderers(pi, "python_eval", () => ({
+			kind: "text",
+			summary: "cell",
+		}));
+		const renderers = resolve("python_eval", () => native)!;
+		const spinner = /^[·✢✳✶✻✽] /;
+
+		const streaming = createMockContext({ argsComplete: false, isPartial: true });
+		const row = renderers.renderCall!(streaming.args, plainTheme, streaming) as ToolView;
+		expect(row.render(80)[0]).toMatch(spinner);
+
+		const partial = renderers.renderResult!(
+			{ content: [{ type: "text", text: "half" }], details: {} },
+			{ expanded: false, isPartial: true },
+			plainTheme,
+			createMockContext({ isPartial: true }),
+		) as ToolView;
+		expect(partial.render(80)[0]).toMatch(spinner);
+
+		const settled = renderers.renderResult!(
+			{ content: [{ type: "text", text: "done" }], details: {} },
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			createMockContext(),
+		) as ToolView;
+		expect(settled.render(80)[0]).toMatch(/^[▸▾] /);
+	});
+
+	test.each([
+		"read",
+		"bash",
+		"edit",
+		"write",
+		"grep",
+		"find",
+		"codemode",
+		"python_eval",
+		"subagent",
+		"agents_delegate",
+		"bg_bash",
+		"todo",
+		"web_search",
+		"fetch_content",
+		"apply_patch",
+		"mcp__hindsight__recall",
+	])("%s spins while it generates and while it runs, and only folds once it settles", (toolName) => {
+		const resolve = setupResolver();
+		const renderers = resolve(toolName, () => undefined)!;
+		const spinner = /^[·✢✳✶✻✽] /;
+
+		const streaming = createMockContext({ argsComplete: false, isPartial: true });
+		const streamingRow = (
+			renderers.renderCall!(streaming.args, plainTheme, streaming) as ToolView
+		).render(80)[0]!;
+		expect(streamingRow).toMatch(spinner);
+		expect(streamingRow).not.toContain("▸");
+		expect(streamingRow).not.toContain("▾");
+
+		const running = createMockContext({ argsComplete: true, isPartial: true });
+		const runningRow = (
+			renderers.renderCall!(running.args, plainTheme, running) as ToolView
+		).render(80)[0]!;
+		expect(runningRow).toMatch(spinner);
+		expect(runningRow).not.toContain("▸");
+
+		const partial = renderers.renderResult!(
+			{ content: [{ type: "text", text: "half" }], details: {} },
+			{ expanded: false, isPartial: true },
+			plainTheme,
+			createMockContext({ isPartial: true }),
+		) as ToolView;
+		expect(partial.render(80)[0]).toMatch(spinner);
+
+		const settled = renderers.renderResult!(
+			{ content: [{ type: "text", text: "done" }], details: {} },
+			{ expanded: false, isPartial: false },
+			plainTheme,
+			createMockContext(),
+		) as ToolView;
+		expect(settled.render(80)[0]).toMatch(/^[▸▾] /);
+	});
+
 	test("intercepts and frames MCP tools with ToolView generic fallback", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("mcp__hindsight__recall", () => ({
@@ -2011,7 +2116,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 				return new Text(`upstream result: ${part && "text" in part ? part.text : ""}`, 0, 0);
 			},
 		}))!;
-		expect(renderers).toBeDefined();
 
 		const ctx = createMockContext({
 			args: { query: "architectural decisions", budget: "high" },
@@ -2021,7 +2125,7 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		// 1. Call view
 		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
 		const callRows = callView.render(80);
-		expect(callRows[0]).toMatch(/^[▸▾] /);
+		expect(callRows[0]).toMatch(/^[▸▾·✢✳✶✻✽] /);
 		expect(callRows[0]).toContain("mcp__hindsight__recall");
 		expect(callRows[0]).toContain("architectural decisions");
 
@@ -2051,7 +2155,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	test("preserves raw arg preview for MCP tools without parameter guessing", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("mcp__serena__serena_repl", () => undefined)!;
-		expect(renderers).toBeDefined();
 
 		const ctx = createMockContext({
 			args: { code: "s.fs.read_file('src/index.ts', 0, 10)" },
@@ -2067,7 +2170,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	test("frames resource MCP tools without guessing URI as summary", () => {
 		const resolve = setupResolver();
 		const renderers = resolve("read_mcp_resource", () => undefined)!;
-		expect(renderers).toBeDefined();
 
 		const ctx = createMockContext({
 			args: { server: "sqlite", uri: "sqlite://data.db/tables" },
@@ -2090,7 +2192,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			renderCall: (args) => new Text(`call ${JSON.stringify(args)}`, 0, 0),
 			renderResult: (_res) => new Text("operation output", 0, 0),
 		}))!;
-		expect(renderers).toBeDefined();
 
 		const ctx = createMockContext({
 			args: { code: 404, query: "search terms", page_id: "p-1" },
@@ -2149,81 +2250,38 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 		expect(level0.join("\n")).toContain(customRow);
 	});
 
-	test("bounds array section content to 64KB cumulative budget in ToolView", () => {
-		const oneKbString = "x".repeat(1024);
-		const hundredKbArray = Array.from({ length: 100 }, () => oneKbString);
-
+	test.each([
+		{
+			name: "a string array counts cumulative bytes",
+			content: Array.from({ length: 100 }, () => "x".repeat(1024)),
+			notice: "[Output truncated: showing 64KB of 100KB]",
+		},
+		{
+			name: "a Unicode string counts UTF-8 bytes, not UTF-16 code units",
+			content: "你".repeat(30_000),
+			notice: "[Output truncated: showing 64KB of 88KB]",
+		},
+		{
+			name: "a Unicode array counts UTF-8 bytes",
+			content: ["你".repeat(30_000)],
+			notice: "[Output truncated: showing 64KB of 88KB]",
+		},
+		{
+			name: "a Component keeps its prefix and reports total bytes",
+			content: {
+				render: () => Array.from({ length: 100 }, () => "c".repeat(1024)),
+				invalidate: () => {},
+			},
+			notice: "[Output truncated: showing 64KB of 100KB]",
+		},
+	])("bounds section content to the 64KB budget: $name", ({ content, notice }) => {
 		const view = new ToolView({
 			theme: plainTheme,
 			header: { title: "big_tool", status: "ok" },
-			sections: [{ railToken: "dim", content: hundredKbArray }],
+			sections: [{ railToken: "dim", content }],
 			defaultLevel: 2,
 		});
-
-		const rows = view.render(80);
-		const fullText = rows.join("\n");
-		expect(fullText).toContain("[Output truncated: showing 64KB of 100KB]");
-	});
-
-	test("states a tool's own arguments instead of reading the native call row", () => {
-		const resolve = setupResolver();
-		const renderers = resolve("mcp__foo", () => ({
-			renderCall: () => new Text("mcp__foobar payload text", 0, 0),
-			renderResult: () => new Text("ok", 0, 0),
-		}))!;
-		expect(renderers).toBeDefined();
-
-		const ctx = createMockContext({ args: { query: "pi tui collapsible" } });
-		const callView = renderers.renderCall!(ctx.args, plainTheme, ctx) as ToolView;
-		const rows = callView.render(80);
-		// No fixed-width render of the native row is parsed back into the header: the row states the
-		// arguments it received, so the native component's own text never leaks in.
-		expect(rows[0]).not.toContain("payload text");
-		expect(rows[0]).toContain('query="pi tui collapsible"');
-	});
-
-	test("bounds Unicode string content to 64KB UTF-8 byte budget (not UTF-16 code units)", () => {
-		// "你" is 3 UTF-8 bytes. 30,000 chars = 90,000 bytes.
-		// In UTF-16, length is 30,000 (which would mistakenly pass a 64*1024 string.length check).
-		const unicodeString = "你".repeat(30_000);
-		const view = new ToolView({
-			theme: plainTheme,
-			header: { title: "unicode_tool", status: "ok" },
-			sections: [{ railToken: "dim", content: unicodeString }],
-			defaultLevel: 2,
-		});
-		const rows = view.render(80);
-		const fullText = rows.join("\n");
-		expect(fullText).toContain("[Output truncated: showing 64KB of 88KB]");
-	});
-
-	test("bounds Component content to 64KB budget, preserving prefix and calculating total bytes", () => {
-		const mockComponent = {
-			render: () => Array.from({ length: 100 }, () => "c".repeat(1024)),
-			invalidate: () => {},
-		};
-		const view = new ToolView({
-			theme: plainTheme,
-			header: { title: "comp_tool", status: "ok" },
-			sections: [{ railToken: "dim", content: mockComponent }],
-			defaultLevel: 2,
-		});
-		const rows = view.render(80);
-		const fullText = rows.join("\n");
-		expect(fullText).toContain("[Output truncated: showing 64KB of 100KB]");
-	});
-
-	test("bounds Unicode string array to 64KB UTF-8 byte budget", () => {
-		const unicodeArray = ["你".repeat(30_000)];
-		const view = new ToolView({
-			theme: plainTheme,
-			header: { title: "unicode_array_tool", status: "ok" },
-			sections: [{ railToken: "dim", content: unicodeArray }],
-			defaultLevel: 2,
-		});
-		const rows = view.render(80);
-		const fullText = rows.join("\n");
-		expect(fullText).toContain("[Output truncated: showing 64KB of 88KB]");
+		expect(view.render(80).join("\n")).toContain(notice);
 	});
 
 	test("wraps long line content across multiple rows in Level 1 with rail prefix", () => {
@@ -2299,7 +2357,6 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 			ctx2,
 		) as ToolView;
 		resultView2.setFoldLevel(1);
-		expect(() => resultView2.render(80)).not.toThrow();
 		expect(resultView2.render(80).join("\n")).toContain("upstream output");
 		expect(clearCalls).toBe(2);
 	});

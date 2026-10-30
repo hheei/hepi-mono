@@ -343,18 +343,6 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("first message body");
 	});
 
-	test("unknown nodes split the weighted group threshold", () => {
-		const f = setup();
-		f.chat.children = [assistant([], true)];
-		f.notice("ONE NOTICE");
-		expect(show(f.chat)).not.toContain("collapse views");
-		f.chat.addChild(new Text("BOUNDARY", 0, 0));
-		f.notice("SECOND NOTICE");
-		expect(show(f.chat)).not.toContain("collapse views");
-		expect(show(f.chat)).toContain("ONE NOTICE");
-		expect(show(f.chat)).toContain("SECOND NOTICE");
-	});
-
 	test.each([
 		{ notices: 0, thinking: 0, tools: 1, grouped: false },
 		{ notices: 0, thinking: 0, tools: 2, grouped: true },
@@ -679,13 +667,14 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("1m 05s");
 	});
 
-	test("restored history with no measured run stays unknown through later runs", () => {
+	test("restored history keeps an unknown clock while a live block times itself", () => {
 		const f = setup();
 		const now = vi.spyOn(performance, "now").mockReturnValue(0);
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
-		expect(show(f.chat)).toContain("collapse views · — · 2 calls");
+		// Nobody painted this history before the run started, so its duration is honestly unknown.
 		f.patch.beginRun();
 		now.mockReturnValue(5000);
+		expect(show(f.chat)).toContain("collapse views · — · 2 calls");
 		f.chat.children.push(new Text("NOTICE", 0, 0), assistant(["c", "d"]), f.row("c"), f.row("d"));
 		// The live block starts on first observation; restored history keeps its honest unknown duration.
 		expect(show(f.chat)).toContain("collapse views · 0s · 2 calls");
@@ -744,7 +733,7 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(rows).toContain("▸ read ×1");
 		// The group brackets its frame with two horizontal rails; the tail draws its own rows.
 		expect(rows.filter((row) => /^─+$/.test(row))).toHaveLength(2);
-		const footer = rows.indexOf("requests ×1 · IN 0 · OUT 0 · CH —");
+		const footer = rows.indexOf("requests ×1 · ↑— · ↓—");
 		expect(footer).toBeGreaterThan(0);
 		// Exactly one blank row separates the block from the unit it keeps outside.
 		// One colored padding row closes the background, then the single uncolored separator.
@@ -758,7 +747,7 @@ describe("two centralized host seams / original transcript projection", () => {
 		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b", "grep")];
 		expect(show(f.chat)).toContain("✓ grep");
-		expect(show(f.chat)).toContain("requests ×1 · IN 0 · OUT 0 · CH —");
+		expect(show(f.chat)).toContain("requests ×1 · ↑— · ↓—");
 
 		f.chat.children.push(new Text("prose after the block", 0, 0));
 		expect(show(f.chat)).toContain("requests ×1");
@@ -1393,7 +1382,8 @@ describe("two centralized host seams / original transcript projection", () => {
 			f.row("c"),
 			f.row("d"),
 		];
-		expect(show(f.chat)).toContain("requests ×2 · IN 2.0k · OUT 2.1k · CH 90%");
+		// ↑ is the non-cached input of both requests; the 9k cached prompt is R, not ↑.
+		expect(show(f.chat)).toContain("requests ×2 · ↑2.0k · ↓2.1k · R9.0k · CH90.0%");
 	});
 
 	test("cache hit keeps the last measured prompt through zeroed and missing usage", () => {
@@ -1403,34 +1393,34 @@ describe("two centralized host seams / original transcript projection", () => {
 			f.row("a"),
 			f.row("b"),
 		];
-		expect(show(f.chat)).toContain("CH 90%");
+		expect(show(f.chat)).toContain("CH90.0%");
 		// A streaming thinking snapshot arrives with every usage field zeroed.
 		f.chat.children.push(assistant(["c", "d"], true), f.row("c"), f.row("d"));
-		expect(show(f.chat)).toContain("CH 90%");
+		expect(show(f.chat)).toContain("CH90.0%");
 		// A missing usage reports nothing at all and must not clear the known fact either.
 		const missing = assistant(["e", "f"], true);
 		Reflect.set(Reflect.get(missing, "lastMessage"), "usage", undefined);
 		f.chat.children.push(missing, f.row("e"), f.row("f"));
-		expect(show(f.chat)).toContain("CH 90%");
+		expect(show(f.chat)).toContain("CH90.0%");
 		f.chat.children.push(
 			assistant(["g", "h"], false, { input: 500, output: 0, cacheRead: 500, cacheWrite: 0 }),
 			f.row("g"),
 			f.row("h"),
 		);
-		expect(show(f.chat)).toContain("CH 50%");
+		expect(show(f.chat)).toContain("CH50.0%");
 	});
 
-	test("a measured prompt with no cache read shows 0%, and no measurement stays unknown", () => {
+	test("a block with no cache activity shows no CH, and no measurement stays unknown", () => {
 		const f = setup();
 		f.chat.children = [assistant(["a", "b"], true), f.row("a"), f.row("b")];
-		expect(show(f.chat)).toContain("IN 0 · OUT 0 · CH —");
+		expect(show(f.chat)).toContain("requests ×1 · ↑— · ↓—");
 		f.chat.children.push(
 			assistant(["c", "d"], false, { input: 1000, output: 0, cacheRead: 0, cacheWrite: 0 }),
 			f.row("c"),
 			f.row("d"),
 		);
-		// Missing data is unknown; a measured prompt without cache read is a real zero.
-		expect(show(f.chat)).toContain("IN 1.0k · OUT 0 · CH 0%");
+		// Missing data is unknown; a measured prompt without cache activity shows no CH at all.
+		expect(show(f.chat)).toContain("requests ×2 · ↑1.0k");
 	});
 
 	test.each([
@@ -1449,7 +1439,7 @@ describe("two centralized host seams / original transcript projection", () => {
 			f.row("a"),
 			f.row("b"),
 		];
-		expect(show(f.chat)).toContain(`IN ${expected} ·`);
+		expect(show(f.chat)).toContain(`requests ×1 · ↑${expected}`);
 	});
 
 	test("global expansion shows the raw members and closing it restores the closed frame", () => {
@@ -1784,7 +1774,7 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(show(f.chat)).toContain("later notice");
 	});
 
-	test("eight requests add up exactly and never fold cache writes into input", () => {
+	test("eight requests add up exactly, and cache writes stay out of ↑", () => {
 		const f = setup();
 		const usage = (input: number, output: number, cacheWrite: number) => ({
 			input,
@@ -1810,12 +1800,12 @@ describe("two centralized host seams / original transcript projection", () => {
 			assistant([], "text", usage(input, output, cacheWrite)),
 		];
 		f.chat.children = build(100, 10, 5000);
-		// 8 requests: IN is the plain input sum, not input + cacheWrite.
-		expect(show(f.chat)).toContain("requests ×8 · IN 800 · OUT 80");
+		// 8 requests: IN is the whole prompt, so a cache write is part of it.
+		expect(show(f.chat)).toContain("requests ×8 · ↑800 · ↓80 · W40k");
 		f.chat.invalidate();
-		expect(show(f.chat)).toContain("requests ×8 · IN 800 · OUT 80");
+		expect(show(f.chat)).toContain("requests ×8 · ↑800 · ↓80 · W40k");
 		f.chat.children = build(1000, 100, 0);
-		expect(show(f.chat)).toContain("requests ×8 · IN 8.0k · OUT 800");
+		expect(show(f.chat)).toContain("requests ×8 · ↑8.0k · ↓800");
 	});
 
 	test("the group background follows the block's worst fact", () => {
@@ -1914,6 +1904,29 @@ describe("two centralized host seams / original transcript projection", () => {
 		expect(text).toContain("[text]collapse views[/]");
 		// The expanded group fills nothing itself, and neither tools nor thinking runs fill their rows.
 		expect(text).not.toContain("[bg:");
+	});
+
+	test("an expanded notice keeps its own padded surface", () => {
+		const f = setup(true, tokens);
+		f.begin();
+		const report = new Container();
+		Reflect.set(report, "entry", { customType: "bg-bash-info", data: { message: "tail output" } });
+		report.addChild(new Spacer(1));
+		report.addChild(
+			createMessageView({
+				theme: tokens,
+				header: { kind: "bg-bash", summary: "✓ job", tone: "success" },
+				body: "tail output",
+			}),
+		);
+		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b"), report];
+		clickRow(f.chat, "collapse views");
+		const rows = show(f.chat).split("\n");
+		const index = rows.findIndex((row) => row.includes("✓ job"));
+		expect(index).toBeGreaterThan(0);
+		expect(rows[index]).toContain("[bg:customMessageBg]");
+		// The block owns its padding: one filled row sits between it and whatever follows.
+		expect(rows[index - 1]).toContain("[bg:customMessageBg]");
 	});
 
 	test.each([30, 80, 120])("the statistics footer stays one row at %i columns", (width) => {

@@ -22,6 +22,23 @@ test("a standalone message draws its own custom-message block background", () =>
 	expect(tokens).toContain("customMessageBg");
 });
 
+test("a standalone message gives its surface one padding row above and below", () => {
+	const spy = {
+		fg: (_token: string, text: string) => text,
+		bg: (_token: string, text: string) => `\x1b[48;5;236m${text}\x1b[49m`,
+	} as unknown as Theme;
+	const message = createMessageView({
+		theme: spy,
+		header: { kind: "memory", summary: "page" },
+		preview: ["alpha"],
+	});
+	const rows = message.render(20);
+	// A colored block that owns its rows also owns the breathing room around them.
+	expect(rows[0]).toBe(`\x1b[48;5;236m${" ".repeat(20)}\x1b[49m`);
+	expect(rows.at(-1)).toBe(`\x1b[48;5;236m${" ".repeat(20)}\x1b[49m`);
+	expect(rows[1]).toContain("memory");
+});
+
 test("a cache hit returns the filled rows, not the pre-shell lines", () => {
 	const spy = {
 		fg: (_token: string, text: string) => text,
@@ -73,15 +90,19 @@ describe("MessageView", () => {
 		const invalidate = vi.fn();
 		const message = view({ invalidate });
 		expect(rendered(message)).toEqual([
+			"",
 			"[dim]▸[/] [dim]memory[/][dim] · [/][dim]2 pages[/]",
 			"  alpha",
+			"",
 		]);
-		expect(message.handleMouse(click(1))).toBeUndefined();
+		// The surface's own padding rows are not the header: only row 1 toggles the body.
+		expect(message.handleMouse(click(0))).toBeUndefined();
+		expect(message.handleMouse(click(2))).toBeUndefined();
 		expect(invalidate).not.toHaveBeenCalled();
-		expect(message.handleMouse(click(0))).toEqual({ handled: true, render: true });
+		expect(message.handleMouse(click(1))).toEqual({ handled: true, render: true });
 		expect(invalidate).toHaveBeenCalledTimes(1);
-		expect(rendered(message)[2]).toBe("  snippet");
-		expect(rendered(message)[0]).toContain("▾");
+		expect(rendered(message)[3]).toBe("  snippet");
+		expect(rendered(message)[1]).toContain("▾");
 	});
 
 	test("remembers expansion on the holder, not on the component", () => {
@@ -90,7 +111,7 @@ describe("MessageView", () => {
 		first.toggle();
 		const second = view({ stateHolder: holder });
 		expect(second.expanded).toBe(true);
-		expect(second.render(80)).toHaveLength(3);
+		expect(second.render(80)).toHaveLength(5);
 	});
 
 	test("draws no pin and ignores clicks when there is nothing to open", () => {
@@ -100,14 +121,15 @@ describe("MessageView", () => {
 			header: { kind: "idle", summary: "2m" },
 		});
 		expect(message.expandable).toBe(false);
-		expect(rendered(message, 40)[0]).toBe("[dim]idle[/][dim] · [/][dim]2m[/]");
+		expect(rendered(message, 40)[1]).toBe("[dim]idle[/][dim] · [/][dim]2m[/]");
 		expect(message.handleMouse(click(0))).toBeUndefined();
+		expect(message.handleMouse(click(1))).toBeUndefined();
 	});
 
 	test("ctrl+o forces the body open and a click there is a collapse for later", () => {
 		const holder = {};
 		const forced = view({ stateHolder: holder, forcedExpanded: true });
-		expect(forced.render(80)).toHaveLength(3);
+		expect(forced.render(80)).toHaveLength(5);
 		forced.toggle();
 		expect(forced.expanded).toBe(true);
 		const released = view({ stateHolder: holder });
@@ -123,9 +145,11 @@ describe("MessageView", () => {
 		});
 		message.toggle();
 		expect(rendered(message)).toEqual([
+			"",
 			"  [dim]▾[/] [dim]agents[/][dim] · [/][error]failed[/]",
 			"    one",
 			"    two",
+			"",
 		]);
 	});
 
@@ -137,8 +161,9 @@ describe("MessageView", () => {
 		});
 		message.toggle();
 		const rows = rendered(message, 40);
-		expect(rows.length).toBeGreaterThan(6);
-		for (const row of rows.slice(1)) {
+		expect(rows.length).toBeGreaterThan(8);
+		// Row 0 and the last row are the surface's padding; row 1 is the header.
+		for (const row of rows.slice(2, -1)) {
 			expect(row.startsWith("  ")).toBe(true);
 		}
 	});

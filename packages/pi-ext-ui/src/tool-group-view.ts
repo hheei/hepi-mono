@@ -78,6 +78,11 @@ export interface ToolGroupClock {
 	endedAt?: number;
 }
 
+/** A tool that has not received its final result yet: its own rows are still changing height. */
+function isLiveTail(member: Member): boolean {
+	return member.kind === "tool" && member.completed !== true;
+}
+
 interface Hit {
 	readonly height: number;
 	readonly action: Action;
@@ -108,11 +113,21 @@ interface PartOffset {
 }
 
 export class TailUnit implements Component {
-	readonly #parts: readonly Component[];
+	#parts: readonly Component[];
 	#offsets: PartOffset[] = [];
+	/** Rows already shown for a live member: a tool that grows may not shrink back and shift the block. */
+	#reserved = 0;
+	#live: boolean;
 
 	constructor(member: Member) {
 		this.#parts = memberParts(member);
+		this.#live = isLiveTail(member);
+	}
+
+	/** The same tail with a newer fact: the component list can grow, the reserved height must not. */
+	update(member: Member): void {
+		this.#parts = memberParts(member);
+		this.#live = isLiveTail(member);
 	}
 
 	render(width: number): string[] {
@@ -128,7 +143,14 @@ export class TailUnit implements Component {
 			rows.push(...own);
 		}
 		this.#offsets = offsets;
-		return rows.length === 0 || rows[0] === "" ? rows : ["", ...rows];
+		if (rows.length === 0) return rows;
+		const out = rows[0] === "" ? rows : ["", ...rows];
+		// A live tail grows downward from a fixed top: the host keeps the transcript's bottom in view, so
+		// a row count that falls back drags everything above it down. Reserve the tallest frame instead.
+		if (this.#live) this.#reserved = Math.max(this.#reserved, out.length);
+		else this.#reserved = 0;
+		while (out.length < this.#reserved) out.push("");
+		return out;
 	}
 
 	handleMouse(event: Parameters<NonNullable<Component["handleMouse"]>>[0]) {
@@ -173,10 +195,11 @@ function formatTokens(count: number): string {
  * streaming placeholder is not that request, and a measured prompt with no cache read is 0%, not
  * unknown — missing data and a real zero must not share one placeholder.
  */
-function cacheHitRate(latestPrompt: Usage | undefined): string {
-	if (latestPrompt === undefined) return "—";
+function cacheHitRate(latestPrompt: Usage | undefined): string | undefined {
+	if (latestPrompt === undefined) return undefined;
 	const prompt = latestPrompt.input + latestPrompt.cacheRead + latestPrompt.cacheWrite;
-	return `${((latestPrompt.cacheRead / prompt) * 100).toFixed(1).replace(/\.0$/, "")}%`;
+	if (prompt <= 0) return undefined;
+	return `${((latestPrompt.cacheRead / prompt) * 100).toFixed(1)}%`;
 }
 
 const PREVIEW_GRAPHEMES = 20;
@@ -353,44 +376,55 @@ export class ToolGroupView extends Container {
 
 	#usage(): {
 		readonly requests: number;
-		/** Whether any assistant reported usage at all; without it IN/OUT stay unknown. */
-		readonly measured: boolean;
 		readonly input: number;
 		readonly output: number;
+		readonly cacheRead: number;
+		readonly cacheWrite: number;
 		/** The last assistant usage that measured a prompt: the only cache-hit fact. */
 		readonly latestPrompt: Usage | undefined;
 	} {
 		let requests = 0;
 		let input = 0;
 		let output = 0;
-		let measured = false;
+		let cacheRead = 0;
+		let cacheWrite = 0;
 		let latestPrompt: Usage | undefined;
 		for (const fact of this.#requests) {
 			requests += 1;
 			const usage = fact.usage;
 			if (usage === undefined) continue;
-			measured = true;
 			input += usage.input;
 			output += usage.output;
+			cacheRead += usage.cacheRead;
+			cacheWrite += usage.cacheWrite;
 			// A streaming snapshot can arrive with every field zeroed; that is a placeholder, not a
 			// measured prompt, so it must not overwrite the last known cache-hit fact.
 			if (usage.input + usage.cacheRead + usage.cacheWrite > 0) latestPrompt = usage;
 		}
-		return { requests, measured, input, output, latestPrompt };
+		return { requests, input, output, cacheRead, cacheWrite, latestPrompt };
 	}
 
-	/** The block footer: the whole block's request and token totals, fixed under the body. */
+	/**
+	 * The block footer: the block's request count, then the same token facts and the same symbols
+	 * Pi's own footer uses (`↑input ↓output RcacheRead WcacheWrite CHrate`). Pi totals the whole
+	 * session; this totals one block, so the two never have to agree on the number.
+	 */
 	#footerRow(): string {
 		const theme = this.#ui.theme;
 		const usage = this.#usage();
-		const input = usage.measured ? formatTokens(usage.input) : "—";
-		const output = usage.measured ? formatTokens(usage.output) : "—";
-		const parts = [
-			`requests ×${usage.requests}`,
-			`IN ${input}`,
-			`OUT ${output}`,
-			`CH ${cacheHitRate(usage.latestPrompt)}`,
-		];
+		const parts = [`requests ×${usage.requests}`];
+		if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite === 0) {
+			parts.push("↑—", "↓—");
+			return theme.fg("dim", parts.join(" · "));
+		}
+		if (usage.input > 0) parts.push(`↑${formatTokens(usage.input)}`);
+		if (usage.output > 0) parts.push(`↓${formatTokens(usage.output)}`);
+		if (usage.cacheRead > 0) parts.push(`R${formatTokens(usage.cacheRead)}`);
+		if (usage.cacheWrite > 0) parts.push(`W${formatTokens(usage.cacheWrite)}`);
+		if (usage.cacheRead > 0 || usage.cacheWrite > 0) {
+			const rate = cacheHitRate(usage.latestPrompt);
+			if (rate !== undefined) parts.push(`CH${rate}`);
+		}
 		return theme.fg("dim", parts.join(" · "));
 	}
 
@@ -419,7 +453,8 @@ export class ToolGroupView extends Container {
 			const wrapper = this.#memberWrapper(member);
 			const own = wrapper.render(Math.max(1, width));
 			if (own.length === 0) continue;
-			// One blank row between adjacent semantic blocks; inner blank rows stay where they are.
+			// One blank row between adjacent semantic blocks. A thinking run has no surface of its own,
+			// so it keeps the plain separator even when tools paint their own padded surfaces.
 			if (lines.length > 0) {
 				lines.push("");
 				hits.push({ height: 1, action: { kind: "none" } });

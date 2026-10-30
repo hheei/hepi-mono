@@ -1,4 +1,5 @@
 import type { Theme, ThemeBg } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 const MARK = "\u0000";
 /** Any SGR sequence: parameters are `;`-separated, an empty parameter list means reset. */
@@ -30,4 +31,22 @@ export function backgroundFill(theme: Theme, token: ThemeBg): (text: string) => 
 		}
 		return `${out}${text.slice(from)}${end}`;
 	};
+}
+
+/**
+ * One independent surface: a filled padding row above and below, every row reaching `width`.
+ *
+ * A block that owns a surface also owns its breathing room, so two adjacent blocks separate with
+ * their own padding rows instead of sharing one unstyled gap.
+ */
+export function surfaceBlock(
+	theme: Theme,
+	token: ThemeBg,
+	rows: readonly string[],
+	width: number,
+): string[] {
+	const fill = backgroundFill(theme, token);
+	const pad = fill(" ".repeat(Math.max(0, width)));
+	const body = rows.map((row) => fill(row + " ".repeat(Math.max(0, width - visibleWidth(row)))));
+	return [pad, ...body, pad];
 }

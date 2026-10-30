@@ -261,6 +261,8 @@ function attach(host: Host, run: RunBox): Attachment {
 	if (!Object.isExtensible(chat)) throw new Error("Pi transcript cannot accept instance methods");
 	const projection = new Container();
 	let groups = new Map<Component, ToolGroupView>();
+	/** One wrapper per tail component, so its reserved height survives a transcript rebuild. */
+	let tails = new Map<Component, TailUnit>();
 	let active = true;
 	const disposeGroups = (): void => {
 		for (const group of groups.values()) group.dispose();
@@ -309,6 +311,7 @@ function attach(host: Host, run: RunBox): Attachment {
 	};
 	const rebuild = () => {
 		const next = new Map<Component, ToolGroupView>();
+		const nextTails = new Map<Component, TailUnit>();
 		const children: Component[] = [];
 		const blocks: {
 			group: ToolGroupView;
@@ -353,7 +356,13 @@ function attach(host: Host, run: RunBox): Attachment {
 				});
 				next.set(first, group);
 				children.push(group);
-				if (tail !== undefined) children.push(new TailUnit(tail));
+				if (tail !== undefined) {
+					const key = memberParts(tail)[0];
+					const unit = (key === undefined ? undefined : tails.get(key)) ?? new TailUnit(tail);
+					unit.update(tail);
+					if (key !== undefined) nextTails.set(key, unit);
+					children.push(unit);
+				}
 			} else children.push(...members.flatMap(memberParts));
 			members = [];
 			requests = [];
@@ -418,6 +427,7 @@ function attach(host: Host, run: RunBox): Attachment {
 			if (next.get(key) !== group) group.dispose();
 		}
 		groups = next;
+		tails = nextTails;
 		projection.children = children;
 	};
 	const wrappers = {

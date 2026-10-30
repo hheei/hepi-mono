@@ -89,8 +89,12 @@ export class MessageView implements Component {
 	 * `customMessageBg` box when no renderer is installed, so this view supplies the same block
 	 * itself. Inside an activity group the rows come from `previewRows`/`bodyRows` and keep the
 	 * group's background instead.
+	 *
+	 * A surface that owns its rows also owns one padding row above and below, the same breathing room
+	 * a Pi-native tool surface gives itself; without it the colored block is a tight strip of text.
 	 */
-	readonly #shell = new Box(0, 0);
+	readonly #padY = 1;
+	readonly #shell = new Box(0, this.#padY);
 
 	constructor(spec: MessageViewSpec) {
 		this.#spec = spec;
@@ -156,8 +160,10 @@ export class MessageView implements Component {
 		const innerX = event.x - pad;
 		const innerWidth = Math.max(1, effectiveWidth - pad * 2);
 		if (innerX < 0 || innerX >= innerWidth) return undefined;
-		if (this.#lastHeight > 0 && (event.y < 0 || event.y >= this.#lastHeight)) return undefined;
-		if (event.y !== 0) return undefined;
+		if (this.#lastHeight > 0 && (event.y < 0 || event.y >= this.#lastHeight + this.#padY))
+			return undefined;
+		// The shell's own padding rows belong to the surface, not to the header row.
+		if (event.y !== this.#padY) return undefined;
 		this.toggle();
 		return { handled: true, render: true };
 	}

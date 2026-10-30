@@ -225,7 +225,7 @@ export default function(pi) {
 		// The footer closes the block, one colored padding row and one blank separator follow, then the
 		// unit the block keeps outside.
 		expect(observed).toMatchObject({
-			text: expect.stringMatching(/requests ×1 · IN 0 · OUT 0 · CH — *\n *\n\n *▸ ✓ read/),
+			text: expect.stringMatching(/requests ×1 · ↑— · ↓— *\n *\n\n *▸ ✓ read/),
 			settled: expect.stringMatching(/requests ×2[^\n]*\n *\n\n/),
 		});
 		const resultText = JSON.stringify(observed);

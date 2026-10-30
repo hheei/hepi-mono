@@ -12,7 +12,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { backgroundFill } from "./background.js";
+import { surfaceBlock } from "./background.js";
 
 export type FoldLevel = 0 | 1 | 2;
 
@@ -152,7 +152,7 @@ function isCopyFailed(stateHolder: unknown, localFailed: boolean): boolean {
 }
 
 export const TOOL_SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"] as const;
-export const TOOL_SPINNER_INTERVAL_MS = 100;
+export const TOOL_SPINNER_INTERVAL_MS = 200;
 
 /**
  * One clock for every live tool, so the phase is shared and never restarts: streaming args and a
@@ -366,6 +366,8 @@ export class ToolView implements Component {
 				readonly copied: boolean;
 				readonly noRail: boolean;
 				readonly surface: string | undefined;
+				/** Spinner frame the rows were drawn with; a live glyph invalidates the cache. */
+				readonly glyph: string;
 				readonly lines: string[];
 		  }
 		| undefined;
@@ -527,9 +529,13 @@ export class ToolView implements Component {
 	#renderHeader(width: number, level: FoldLevel): string {
 		const { theme, header, copy } = this.#spec;
 		const safeWidth = Math.max(1, width);
-		const pinGlyph = level === 0 ? "▸" : "▾";
-		const pin = theme.fg("dim", pinGlyph);
-		const leftContent = `${pin} ${formatToolHeaderText(header, theme)}`;
+		// A live tool says so in its leading slot: one glyph, no `▸` in front of a second status mark.
+		// A container that already lists child calls is not live any more, so it keeps the fold pin.
+		const live = level === 0 && (header.status === "streaming" || header.status === "running");
+		const pin = live
+			? formatStatusGlyph(header.status, theme)
+			: theme.fg("dim", level === 0 ? "▸" : "▾");
+		const leftContent = `${pin} ${formatToolHeaderText(live ? { ...header, status: "none" } : header, theme)}`;
 
 		if (copy === undefined || safeWidth < 6) {
 			return truncate(leftContent, safeWidth);
@@ -660,13 +666,17 @@ export class ToolView implements Component {
 		const native = this.#spec.background?.() === true;
 		const surface = native ? nativeSurface(this.#spec.header.status) : undefined;
 		const noRail = this.#spec.noRail === true || native;
+		// The glyph of a live tool changes on its own clock, so a cached frame would freeze it.
+		const status = this.#spec.header.status;
+		const glyph = status === "streaming" || status === "running" ? toolSpinnerFrame() : "";
 		if (
 			this.#cache !== undefined &&
 			this.#cache.width === width &&
 			this.#cache.level === level &&
 			this.#cache.noRail === noRail &&
 			this.#cache.surface === surface &&
-			this.#cache.copied === copied
+			this.#cache.copied === copied &&
+			this.#cache.glyph === glyph
 		) {
 			return this.#cache.lines;
 		}
@@ -694,16 +704,9 @@ export class ToolView implements Component {
 		}
 		this.#lastTopPad = surface === undefined ? 0 : 1;
 		const lines =
-			surface === undefined
-				? safeLines
-				: ["", ...safeLines, ""].map((line) =>
-						backgroundFill(
-							this.#spec.theme,
-							surface,
-						)(line + " ".repeat(Math.max(0, width - visibleWidth(line)))),
-					);
+			surface === undefined ? safeLines : surfaceBlock(this.#spec.theme, surface, safeLines, width);
 		this.#lastHeight = lines.length;
-		this.#cache = { width, level, copied, noRail, surface, lines };
+		this.#cache = { width, level, copied, noRail, surface, glyph, lines };
 		return lines;
 	}
 

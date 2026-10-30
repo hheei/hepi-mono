@@ -413,9 +413,15 @@ function renderGenericResult(params: {
 
 	const status: ToolStatusKind =
 		toolName === "codemode"
-			? childCalls.length === 0 && isError
-				? "error"
-				: "none"
+			? childCalls.length > 0
+				? "none"
+				: isError
+					? "error"
+					: renderOptions.isPartial === true
+						? context.argsComplete
+							? "running"
+							: "streaming"
+						: "none"
 			: isMetaTool
 				? resolveContainerStatus({
 						isError,
@@ -868,11 +874,9 @@ function createRendererResolver(
 				const isStreamingArgs = context.isPartial && !context.argsComplete;
 				const status: ToolStatusKind = context.isError
 					? "error"
-					: toolName === "codemode"
-						? "none"
-						: isStreamingArgs
-							? "streaming"
-							: "running";
+					: isStreamingArgs
+						? "streaming"
+						: "running";
 
 				const streamedTokens = isStreamingArgs ? estimateStreamingTokens(args) : 0;
 				const header = isStreamingArgs
