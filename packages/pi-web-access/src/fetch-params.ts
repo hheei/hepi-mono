@@ -1,5 +1,13 @@
 import { normalizeProxyUrl } from "./utils.ts";
 
+export const FETCH_MODES = ["readable", "raw", "answer"] as const;
+export type FetchMode = (typeof FETCH_MODES)[number];
+
+export interface FetchModeConfig {
+	defaultMode: FetchMode;
+	allowedModes: readonly FetchMode[];
+}
+
 export interface FetchContentParams {
 	url?: unknown;
 	urls?: unknown;
@@ -23,7 +31,7 @@ export interface NormalizedFetchContentParams {
 		timestamp?: string;
 		frames?: number;
 		model?: string;
-		mode?: "readable" | "raw" | "answer";
+		mode?: FetchMode;
 		answerModel?: string;
 		auth?: true | string;
 		proxy?: string;
@@ -31,9 +39,7 @@ export interface NormalizedFetchContentParams {
 	};
 }
 
-export function normalizeFetchContentParams(
-	params: FetchContentParams,
-): NormalizedFetchContentParams {
+function normalizeFetchContentParams(params: FetchContentParams): NormalizedFetchContentParams {
 	const normalizedUrls = uniqueUrls(normalizeUrlArray(params.urls));
 	const urlList = normalizedUrls.length > 0 ? normalizedUrls : normalizeSingleUrl(params.url);
 	const prompt = normalizeOptionalString(params.prompt);
@@ -84,7 +90,7 @@ function normalizeOptionalString(value: unknown): string | undefined {
 	return trimmed || undefined;
 }
 
-function normalizeMode(value: unknown): "readable" | "raw" | "answer" | undefined {
+function normalizeMode(value: unknown): FetchMode | undefined {
 	if (value === undefined) return undefined;
 	if (value === "readable" || value === "raw" || value === "answer") return value;
 	throw new Error('mode must be "readable", "raw", or "answer"');
@@ -121,4 +127,43 @@ function normalizeOptionalFrameCount(value: unknown): number | undefined {
 
 function uniqueUrls(urls: string[]): string[] {
 	return [...new Set(urls)];
+}
+
+export interface FetchRequest {
+	urlList: string[];
+	mode: FetchMode;
+	options: NormalizedFetchContentParams["options"];
+}
+
+/** Normalizes fetch parameters and rejects the combinations the effective mode cannot honor. */
+export function resolveFetchRequest(
+	params: FetchContentParams,
+	config: FetchModeConfig,
+): FetchRequest {
+	const { urlList, options } = normalizeFetchContentParams(params);
+	const mode = options.mode ?? config.defaultMode;
+	if (!config.allowedModes.includes(mode))
+		throw new Error(`Fetch mode "${mode}" is disabled by fetch.allowedModes.`);
+	if (mode === "answer" && !options.prompt) throw new Error("mode answer requires prompt.");
+	if (
+		mode === "raw" &&
+		(options.forceClone === true ||
+			options.timestamp ||
+			options.frames ||
+			options.prompt ||
+			options.model ||
+			options.answerModel)
+	)
+		throw new Error(
+			"mode raw cannot be combined with forceClone, prompt, timestamp, frames, model, or answerModel.",
+		);
+	if (mode !== "answer" && options.answerModel)
+		throw new Error("answerModel requires mode answer.");
+	if (mode === "answer" && options.model)
+		throw new Error("use answerModel, not model, with mode answer.");
+	if (mode === "answer" && options.auth !== undefined)
+		throw new Error("auth cannot be combined with mode answer.");
+	if (urlList.length === 0)
+		throw new Error("No URL provided. Use the 'url' parameter, or 'urls' for parallel fetches.");
+	return { urlList, mode, options };
 }

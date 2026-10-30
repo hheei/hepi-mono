@@ -120,14 +120,17 @@ function parseJSONBody(req: IncomingMessage): Promise<unknown> {
 	});
 }
 
-async function parseBodyOrSend(req: IncomingMessage, res: ServerResponse): Promise<unknown | null> {
+type ParsedBody = { ok: true; body: unknown } | { ok: false };
+
+/** Parses the body, answering the request itself when the body cannot be read. */
+async function parseBodyOrSend(req: IncomingMessage, res: ServerResponse): Promise<ParsedBody> {
 	try {
-		return await parseJSONBody(req);
+		return { ok: true, body: await parseJSONBody(req) };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Invalid body";
 		const status = message === "Request body too large" ? 413 : 400;
 		sendJson(res, status, { ok: false, error: message });
-		return null;
+		return { ok: false };
 	}
 }
 
@@ -283,59 +286,11 @@ export function startCuratorServer(
 		clientIdleMs !== null &&
 		clientIdleMs >= getEffectiveTimeoutMs();
 
-	function validateToken(body: unknown, res: ServerResponse): boolean {
-		if (!body || typeof body !== "object") {
-			sendJson(res, 400, { ok: false, error: "Invalid body" });
-			return false;
-		}
-		if ((body as { token?: string }).token !== sessionToken) {
-			sendJson(res, 403, { ok: false, error: "Invalid session" });
-			return false;
-		}
-		return true;
-	}
-
+	// Availability by provider name. Unknown names, including prototype keys, are
+	// simply unavailable; `all` is the aggregate flag the page may request.
+	const availabilityByProvider: Record<string, boolean> = { ...availableProviders };
 	function isAvailableProvider(provider: string): boolean {
-		if (provider === "all") return availableProviders.all;
-		if (provider === "openai") return availableProviders.openai;
-		if (provider === "brave") return availableProviders.brave;
-		if (provider === "parallel") return availableProviders.parallel;
-		if (provider === "parallel-mcp") return availableProviders["parallel-mcp"];
-		if (provider === "tinyfish") return availableProviders.tinyfish;
-		if (provider === "search1api") return availableProviders.search1api;
-		if (provider === "searchinfinity") return availableProviders.searchinfinity;
-		if (provider === "querit") return availableProviders.querit;
-		if (provider === "tavily") return availableProviders.tavily;
-		if (provider === "firecrawl") return availableProviders.firecrawl;
-		if (provider === "jina") return availableProviders.jina;
-		if (provider === "serpdive") return availableProviders.serpdive;
-		if (provider === "kagi") return availableProviders.kagi;
-		if (provider === "bocha") return availableProviders.bocha;
-		if (provider === "ollama") return availableProviders.ollama;
-		if (provider === "searxng") return availableProviders.searxng;
-		if (provider === "degoog") return availableProviders.degoog;
-		if (provider === "duckduckgo") return availableProviders.duckduckgo;
-		if (provider === "perplexity") return availableProviders.perplexity;
-		if (provider === "exa") return availableProviders.exa;
-		if (provider === "gemini") return availableProviders.gemini;
-		if (provider === "kimi") return availableProviders.kimi;
-		if (provider === "anysearch") return availableProviders.anysearch;
-		if (provider === "xcrawl") return availableProviders.xcrawl;
-		if (provider === "xai") return availableProviders.xai;
-		if (provider === "mistral") return availableProviders.mistral;
-		if (provider === "brightdata") return availableProviders.brightdata;
-		if (provider === "serpbase") return availableProviders.serpbase;
-		if (provider === "serper") return availableProviders.serper;
-		if (provider === "serply") return availableProviders.serply;
-		if (provider === "you") return availableProviders.you;
-		if (provider === "baizhi") return availableProviders.baizhi;
-		if (provider === "zai") return availableProviders.zai;
-		if (provider === "valyu") return availableProviders.valyu;
-		if (provider === "keenable") return availableProviders.keenable;
-		if (provider === "ceramic") return availableProviders.ceramic;
-		if (provider === "linkup") return availableProviders.linkup;
-		if (provider === "deepseek") return availableProviders.deepseek;
-		return false;
+		return availabilityByProvider[provider] === true;
 	}
 
 	function writeSSE(res: ServerResponse, event: string, data: unknown): boolean {
@@ -387,352 +342,378 @@ export function startCuratorServer(
 		defaultSummaryModel,
 	);
 
+	type RouteHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => void | Promise<void>;
+	type PostHandler = (
+		body: Record<string, unknown>,
+		res: ServerResponse,
+		req: IncomingMessage,
+	) => void | Promise<void>;
+
+	function validateToken(body: unknown, res: ServerResponse): body is Record<string, unknown> {
+		if (!body || typeof body !== "object") {
+			sendJson(res, 400, { ok: false, error: "Invalid body" });
+			return false;
+		}
+		if ((body as { token?: string }).token !== sessionToken) {
+			sendJson(res, 403, { ok: false, error: "Invalid session" });
+			return false;
+		}
+		return true;
+	}
+
+	function requireSessionToken(res: ServerResponse, url: URL, asJson: boolean): boolean {
+		if (url.searchParams.get("session") === sessionToken) return true;
+		if (asJson) {
+			sendJson(res, 403, { ok: false, error: "Invalid session" });
+			return false;
+		}
+		res.writeHead(403, { "Content-Type": "text/plain" });
+		res.end("Invalid session");
+		return false;
+	}
+
+	function servePage(_req: IncomingMessage, res: ServerResponse, url: URL): void {
+		if (!requireSessionToken(res, url, false)) return;
+		touchHeartbeat();
+		res.writeHead(200, {
+			"Content-Type": "text/html; charset=utf-8",
+			"Cache-Control": "no-store",
+		});
+		res.end(pageHtml);
+	}
+
+	function serveEvents(req: IncomingMessage, res: ServerResponse, url: URL): void {
+		if (!requireSessionToken(res, url, false)) return;
+		if (state === "COMPLETED") {
+			sendJson(res, 409, { ok: false, error: "No events available" });
+			return;
+		}
+		if (sseResponse) {
+			try {
+				sseResponse.end();
+			} catch {}
+		}
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-cache",
+			Connection: "keep-alive",
+			"X-Accel-Buffering": "no",
+		});
+		res.flushHeaders();
+		if (res.socket) res.socket.setNoDelay(true);
+		sseResponse = res;
+		replaySSE(res);
+		if (sseKeepalive) clearInterval(sseKeepalive);
+		sseKeepalive = setInterval(() => {
+			if (sseResponse) {
+				try {
+					sseResponse.write(":keepalive\n\n");
+				} catch {}
+			}
+		}, 15000);
+		req.on("close", () => {
+			if (sseResponse === res) sseResponse = null;
+		});
+	}
+
+	function serveState(_req: IncomingMessage, res: ServerResponse, url: URL): void {
+		if (!requireSessionToken(res, url, true)) return;
+		touchHeartbeat();
+		sendJson(res, 200, { ok: true, events: getStreamedEvents(), done: searchStreamDone });
+	}
+
+	function postHeartbeat(body: Record<string, unknown>, res: ServerResponse): void {
+		touchHeartbeat();
+		const heartbeat = body as { idleMs?: unknown; timeoutSec?: unknown };
+		if (
+			typeof heartbeat.timeoutSec === "number" &&
+			Number.isFinite(heartbeat.timeoutSec) &&
+			heartbeat.timeoutSec > 0
+		) {
+			clientTimeoutSeconds = Math.min(600, Math.floor(heartbeat.timeoutSec));
+		}
+		if (
+			typeof heartbeat.idleMs === "number" &&
+			Number.isFinite(heartbeat.idleMs) &&
+			heartbeat.idleMs >= 0
+		) {
+			clientIdleMs = Math.floor(heartbeat.idleMs);
+		}
+		const timedOut = shouldTimeoutFromClientIdle();
+		sendJson(res, 200, { ok: true });
+		if (timedOut && markCompleted()) {
+			setImmediate(() => callbacks.onCancel("timeout"));
+		}
+	}
+
+	function postProvider(body: Record<string, unknown>, res: ServerResponse): void {
+		const { provider } = body as { provider?: string };
+		if (typeof provider !== "string" || provider.length === 0) {
+			sendJson(res, 400, { ok: false, error: "Invalid provider" });
+			return;
+		}
+		if (!isAvailableProvider(provider)) {
+			sendJson(res, 400, { ok: false, error: `Provider unavailable: ${provider}` });
+			return;
+		}
+		setImmediate(() => callbacks.onProviderChange(provider));
+		sendJson(res, 200, { ok: true });
+	}
+
+	async function postSearch(body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+		if (state === "COMPLETED") {
+			sendJson(res, 409, { ok: false, error: "Session closed" });
+			return;
+		}
+		const { query, provider } = body as { query?: string; provider?: string };
+		if (typeof query !== "string" || query.trim().length === 0) {
+			sendJson(res, 400, { ok: false, error: "Invalid query" });
+			return;
+		}
+		if (provider !== undefined) {
+			if (typeof provider !== "string" || provider.length === 0) {
+				sendJson(res, 400, { ok: false, error: "Invalid provider" });
+				return;
+			}
+			if (!isAvailableProvider(provider)) {
+				sendJson(res, 400, { ok: false, error: `Provider unavailable: ${provider}` });
+				return;
+			}
+		}
+		const qi = nextQueryIndex++;
+		const trimmedQuery = query.trim();
+		touchHeartbeat();
+		// A submit or cancel can complete the session while the search is in flight, so
+		// delivery re-checks completion: a closed session accepts no new results and
+		// hands none back to the page.
+		const deliver = (entries: IndexedCuratorSearchEntry[]): void => {
+			if (completed) {
+				sendJson(res, 409, { ok: false, error: "Session closed" });
+				return;
+			}
+			callbacks.onAddSearchResults(entries);
+			sendJson(res, 200, { ok: true, ...entries[0], entries });
+		};
+		try {
+			const results = await callbacks.onAddSearch(trimmedQuery, provider);
+			if (results.length === 0) throw new Error("Search returned no provider results");
+			deliver(
+				results.map(
+					(result, index): IndexedCuratorSearchEntry => ({
+						...result,
+						queryIndex: index === 0 ? qi : nextQueryIndex++,
+						query: trimmedQuery,
+					}),
+				),
+			);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Search failed";
+			deliver([
+				{
+					queryIndex: qi,
+					query: trimmedQuery,
+					answer: "",
+					results: [],
+					error: message,
+					provider:
+						typeof provider === "string" && provider.length > 0 ? provider : defaultProvider,
+				},
+			]);
+		}
+	}
+
+	async function postSummarize(body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+		if (state === "COMPLETED") {
+			sendJson(res, 409, { ok: false, error: "Session closed" });
+			return;
+		}
+
+		const parsed = normalizeSelectedIndices((body as { selected?: unknown }).selected, {
+			allowEmpty: false,
+			maxExclusive: nextQueryIndex,
+		});
+		if ("error" in parsed) {
+			sendJson(res, 400, { ok: false, error: parsed.error });
+			return;
+		}
+
+		let model: string | undefined;
+		const bodyModel = (body as { model?: unknown }).model;
+		if (bodyModel !== undefined) {
+			if (typeof bodyModel !== "string") {
+				sendJson(res, 400, { ok: false, error: "Invalid model" });
+				return;
+			}
+			const trimmedModel = bodyModel.trim();
+			model = trimmedModel.length > 0 ? trimmedModel : undefined;
+		}
+
+		const bodyFeedback = (body as { feedback?: unknown }).feedback;
+		const feedback =
+			typeof bodyFeedback === "string" && bodyFeedback.trim().length > 0
+				? bodyFeedback.trim()
+				: undefined;
+
+		abortInFlightSummarize();
+		const controller = new AbortController();
+		summarizeAbortController = controller;
+		const requestId = ++summarizeRequestSeq;
+
+		try {
+			const result = await callbacks.onSummarize(
+				parsed.indices,
+				controller.signal,
+				model,
+				feedback,
+			);
+			if (requestId !== summarizeRequestSeq || completed) {
+				sendJson(res, 409, { ok: false, error: "Summarize request superseded" });
+				return;
+			}
+			sendJson(res, 200, {
+				ok: true,
+				summary: result.summary,
+				meta: result.meta,
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Summary generation failed";
+			const status = controller.signal.aborted ? 409 : 500;
+			sendJson(res, status, { ok: false, error: message });
+		} finally {
+			if (summarizeAbortController === controller) {
+				summarizeAbortController = null;
+			}
+		}
+	}
+
+	async function postRewrite(
+		body: Record<string, unknown>,
+		res: ServerResponse,
+		req: IncomingMessage,
+	): Promise<void> {
+		if (state === "COMPLETED") {
+			sendJson(res, 409, { ok: false, error: "Session closed" });
+			return;
+		}
+		const { query } = body as { query?: unknown };
+		if (typeof query !== "string" || query.trim().length === 0) {
+			sendJson(res, 400, { ok: false, error: "Invalid query" });
+			return;
+		}
+		const controller = new AbortController();
+		req.on("close", () => controller.abort());
+		touchHeartbeat();
+		try {
+			const rewritten = await callbacks.onRewriteQuery(query.trim(), controller.signal);
+			sendJson(res, 200, { ok: true, query: rewritten });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Rewrite failed";
+			const status = controller.signal.aborted ? 409 : 500;
+			sendJson(res, status, { ok: false, error: message });
+		}
+	}
+
+	function postSubmit(body: Record<string, unknown>, res: ServerResponse): void {
+		const parsed = normalizeSelectedIndices((body as { selected?: unknown }).selected, {
+			allowEmpty: true,
+			maxExclusive: nextQueryIndex,
+		});
+		if ("error" in parsed) {
+			sendJson(res, 400, { ok: false, error: parsed.error });
+			return;
+		}
+
+		let summary: string | undefined;
+		const bodySummary = (body as { summary?: unknown }).summary;
+		if (bodySummary !== undefined) {
+			if (typeof bodySummary !== "string") {
+				sendJson(res, 400, { ok: false, error: "Invalid summary" });
+				return;
+			}
+			const trimmedSummary = bodySummary.trim();
+			summary = trimmedSummary.length > 0 ? trimmedSummary : undefined;
+		}
+
+		let summaryMeta: SummaryMeta | undefined;
+		const bodySummaryMeta = (body as { summaryMeta?: unknown }).summaryMeta;
+		if (bodySummaryMeta !== undefined) {
+			const parsedSummaryMeta = normalizeSummaryMeta(bodySummaryMeta);
+			if (!parsedSummaryMeta) {
+				sendJson(res, 400, { ok: false, error: "Invalid summaryMeta" });
+				return;
+			}
+			summaryMeta = parsedSummaryMeta;
+		}
+
+		if (state !== "SEARCHING" && state !== "RESULT_SELECTION") {
+			sendJson(res, 409, { ok: false, error: "Cannot submit in current state" });
+			return;
+		}
+		if (!markCompleted()) {
+			sendJson(res, 409, { ok: false, error: "Session closed" });
+			return;
+		}
+		const rawResults = (body as { rawResults?: unknown }).rawResults === true;
+		const autoApproveRemainingSearches =
+			(body as { autoApproveRemainingSearches?: unknown }).autoApproveRemainingSearches === true;
+		sendJson(res, 200, { ok: true });
+		setImmediate(() =>
+			callbacks.onSubmit({
+				selectedQueryIndices: parsed.indices,
+				...(summary !== undefined ? { summary } : {}),
+				...(summaryMeta !== undefined ? { summaryMeta } : {}),
+				rawResults,
+				...(autoApproveRemainingSearches ? { autoApproveRemainingSearches: true } : {}),
+			}),
+		);
+	}
+
+	function postCancel(body: Record<string, unknown>, res: ServerResponse): void {
+		if (!markCompleted()) {
+			sendJson(res, 200, { ok: true });
+			return;
+		}
+		const { reason } = body as { reason?: string };
+		sendJson(res, 200, { ok: true });
+		const cancelReason = reason === "timeout" ? "timeout" : "user";
+		setImmediate(() => callbacks.onCancel(cancelReason));
+	}
+
+	/** POST routes share body parsing and token validation; each handler validates its payload. */
+	function jsonPost(handle: PostHandler): RouteHandler {
+		return async (req, res) => {
+			const parsed = await parseBodyOrSend(req, res);
+			if (!parsed.ok) return;
+			if (!validateToken(parsed.body, res)) return;
+			await handle(parsed.body, res, req);
+		};
+	}
+
+	const routes = new Map<string, RouteHandler>([
+		["GET /", servePage],
+		["GET /events", serveEvents],
+		["GET /state", serveState],
+		["POST /heartbeat", jsonPost(postHeartbeat)],
+		["POST /provider", jsonPost(postProvider)],
+		["POST /search", jsonPost(postSearch)],
+		["POST /summarize", jsonPost(postSummarize)],
+		["POST /rewrite", jsonPost(postRewrite)],
+		["POST /submit", jsonPost(postSubmit)],
+		["POST /cancel", jsonPost(postCancel)],
+	]);
+
+	// Routing only: pick the handler and own the top-level error response. Handlers
+	// share this closure's session state and write their own responses.
 	const server = http.createServer(async (req, res) => {
 		try {
-			const method = req.method || "GET";
 			const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
-
-			if (method === "GET" && url.pathname === "/") {
-				const token = url.searchParams.get("session");
-				if (token !== sessionToken) {
-					res.writeHead(403, { "Content-Type": "text/plain" });
-					res.end("Invalid session");
-					return;
-				}
-				touchHeartbeat();
-				res.writeHead(200, {
-					"Content-Type": "text/html; charset=utf-8",
-					"Cache-Control": "no-store",
-				});
-				res.end(pageHtml);
+			const handler = routes.get(`${req.method || "GET"} ${url.pathname}`);
+			if (!handler) {
+				res.writeHead(404, { "Content-Type": "text/plain" });
+				res.end("Not found");
 				return;
 			}
-
-			if (method === "GET" && url.pathname === "/events") {
-				const token = url.searchParams.get("session");
-				if (token !== sessionToken) {
-					res.writeHead(403, { "Content-Type": "text/plain" });
-					res.end("Invalid session");
-					return;
-				}
-				if (state === "COMPLETED") {
-					sendJson(res, 409, { ok: false, error: "No events available" });
-					return;
-				}
-				if (sseResponse) {
-					try {
-						sseResponse.end();
-					} catch {}
-				}
-				res.writeHead(200, {
-					"Content-Type": "text/event-stream",
-					"Cache-Control": "no-cache",
-					Connection: "keep-alive",
-					"X-Accel-Buffering": "no",
-				});
-				res.flushHeaders();
-				if (res.socket) res.socket.setNoDelay(true);
-				sseResponse = res;
-				replaySSE(res);
-				if (sseKeepalive) clearInterval(sseKeepalive);
-				sseKeepalive = setInterval(() => {
-					if (sseResponse) {
-						try {
-							sseResponse.write(":keepalive\n\n");
-						} catch {}
-					}
-				}, 15000);
-				req.on("close", () => {
-					if (sseResponse === res) sseResponse = null;
-				});
-				return;
-			}
-
-			if (method === "GET" && url.pathname === "/state") {
-				const token = url.searchParams.get("session");
-				if (token !== sessionToken) {
-					sendJson(res, 403, { ok: false, error: "Invalid session" });
-					return;
-				}
-				touchHeartbeat();
-				sendJson(res, 200, { ok: true, events: getStreamedEvents(), done: searchStreamDone });
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/heartbeat") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				touchHeartbeat();
-				const heartbeat = body as { idleMs?: unknown; timeoutSec?: unknown };
-				if (
-					typeof heartbeat.timeoutSec === "number" &&
-					Number.isFinite(heartbeat.timeoutSec) &&
-					heartbeat.timeoutSec > 0
-				) {
-					clientTimeoutSeconds = Math.min(600, Math.floor(heartbeat.timeoutSec));
-				}
-				if (
-					typeof heartbeat.idleMs === "number" &&
-					Number.isFinite(heartbeat.idleMs) &&
-					heartbeat.idleMs >= 0
-				) {
-					clientIdleMs = Math.floor(heartbeat.idleMs);
-				}
-				const timedOut = shouldTimeoutFromClientIdle();
-				sendJson(res, 200, { ok: true });
-				if (timedOut && markCompleted()) {
-					setImmediate(() => callbacks.onCancel("timeout"));
-				}
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/provider") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				const { provider } = body as { provider?: string };
-				if (typeof provider !== "string" || provider.length === 0) {
-					sendJson(res, 400, { ok: false, error: "Invalid provider" });
-					return;
-				}
-				if (!isAvailableProvider(provider)) {
-					sendJson(res, 400, { ok: false, error: `Provider unavailable: ${provider}` });
-					return;
-				}
-				setImmediate(() => callbacks.onProviderChange(provider));
-				sendJson(res, 200, { ok: true });
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/search") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				if (state === "COMPLETED") {
-					sendJson(res, 409, { ok: false, error: "Session closed" });
-					return;
-				}
-				const { query, provider } = body as { query?: string; provider?: string };
-				if (typeof query !== "string" || query.trim().length === 0) {
-					sendJson(res, 400, { ok: false, error: "Invalid query" });
-					return;
-				}
-				if (provider !== undefined) {
-					if (typeof provider !== "string" || provider.length === 0) {
-						sendJson(res, 400, { ok: false, error: "Invalid provider" });
-						return;
-					}
-					if (!isAvailableProvider(provider)) {
-						sendJson(res, 400, { ok: false, error: `Provider unavailable: ${provider}` });
-						return;
-					}
-				}
-				const qi = nextQueryIndex++;
-				const trimmedQuery = query.trim();
-				touchHeartbeat();
-				try {
-					const results = await callbacks.onAddSearch(trimmedQuery, provider);
-					if (results.length === 0) throw new Error("Search returned no provider results");
-					const entries = results.map(
-						(result, index): IndexedCuratorSearchEntry => ({
-							...result,
-							queryIndex: index === 0 ? qi : nextQueryIndex++,
-							query: trimmedQuery,
-						}),
-					);
-					callbacks.onAddSearchResults(entries);
-					sendJson(res, 200, { ok: true, ...entries[0], entries });
-				} catch (err) {
-					const message = err instanceof Error ? err.message : "Search failed";
-					const entry: IndexedCuratorSearchEntry = {
-						queryIndex: qi,
-						query: trimmedQuery,
-						answer: "",
-						results: [],
-						error: message,
-						provider:
-							typeof provider === "string" && provider.length > 0 ? provider : defaultProvider,
-					};
-					callbacks.onAddSearchResults([entry]);
-					sendJson(res, 200, { ok: true, ...entry, entries: [entry] });
-				}
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/summarize") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				if (state === "COMPLETED") {
-					sendJson(res, 409, { ok: false, error: "Session closed" });
-					return;
-				}
-
-				const parsed = normalizeSelectedIndices((body as { selected?: unknown }).selected, {
-					allowEmpty: false,
-					maxExclusive: nextQueryIndex,
-				});
-				if ("error" in parsed) {
-					sendJson(res, 400, { ok: false, error: parsed.error });
-					return;
-				}
-
-				let model: string | undefined;
-				const bodyModel = (body as { model?: unknown }).model;
-				if (bodyModel !== undefined) {
-					if (typeof bodyModel !== "string") {
-						sendJson(res, 400, { ok: false, error: "Invalid model" });
-						return;
-					}
-					const trimmedModel = bodyModel.trim();
-					model = trimmedModel.length > 0 ? trimmedModel : undefined;
-				}
-
-				const bodyFeedback = (body as { feedback?: unknown }).feedback;
-				const feedback =
-					typeof bodyFeedback === "string" && bodyFeedback.trim().length > 0
-						? bodyFeedback.trim()
-						: undefined;
-
-				abortInFlightSummarize();
-				const controller = new AbortController();
-				summarizeAbortController = controller;
-				const requestId = ++summarizeRequestSeq;
-
-				try {
-					const result = await callbacks.onSummarize(
-						parsed.indices,
-						controller.signal,
-						model,
-						feedback,
-					);
-					if (requestId !== summarizeRequestSeq || completed) {
-						sendJson(res, 409, { ok: false, error: "Summarize request superseded" });
-						return;
-					}
-					sendJson(res, 200, {
-						ok: true,
-						summary: result.summary,
-						meta: result.meta,
-					});
-				} catch (err) {
-					const message = err instanceof Error ? err.message : "Summary generation failed";
-					const status = controller.signal.aborted ? 409 : 500;
-					sendJson(res, status, { ok: false, error: message });
-				} finally {
-					if (summarizeAbortController === controller) {
-						summarizeAbortController = null;
-					}
-				}
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/rewrite") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				if (state === "COMPLETED") {
-					sendJson(res, 409, { ok: false, error: "Session closed" });
-					return;
-				}
-				const { query } = body as { query?: unknown };
-				if (typeof query !== "string" || query.trim().length === 0) {
-					sendJson(res, 400, { ok: false, error: "Invalid query" });
-					return;
-				}
-				const controller = new AbortController();
-				req.on("close", () => controller.abort());
-				touchHeartbeat();
-				try {
-					const rewritten = await callbacks.onRewriteQuery(query.trim(), controller.signal);
-					sendJson(res, 200, { ok: true, query: rewritten });
-				} catch (err) {
-					const message = err instanceof Error ? err.message : "Rewrite failed";
-					const status = controller.signal.aborted ? 409 : 500;
-					sendJson(res, status, { ok: false, error: message });
-				}
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/submit") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-
-				const parsed = normalizeSelectedIndices((body as { selected?: unknown }).selected, {
-					allowEmpty: true,
-					maxExclusive: nextQueryIndex,
-				});
-				if ("error" in parsed) {
-					sendJson(res, 400, { ok: false, error: parsed.error });
-					return;
-				}
-
-				let summary: string | undefined;
-				const bodySummary = (body as { summary?: unknown }).summary;
-				if (bodySummary !== undefined) {
-					if (typeof bodySummary !== "string") {
-						sendJson(res, 400, { ok: false, error: "Invalid summary" });
-						return;
-					}
-					const trimmedSummary = bodySummary.trim();
-					summary = trimmedSummary.length > 0 ? trimmedSummary : undefined;
-				}
-
-				let summaryMeta: SummaryMeta | undefined;
-				const bodySummaryMeta = (body as { summaryMeta?: unknown }).summaryMeta;
-				if (bodySummaryMeta !== undefined) {
-					const parsedSummaryMeta = normalizeSummaryMeta(bodySummaryMeta);
-					if (!parsedSummaryMeta) {
-						sendJson(res, 400, { ok: false, error: "Invalid summaryMeta" });
-						return;
-					}
-					summaryMeta = parsedSummaryMeta;
-				}
-
-				if (state !== "SEARCHING" && state !== "RESULT_SELECTION") {
-					sendJson(res, 409, { ok: false, error: "Cannot submit in current state" });
-					return;
-				}
-				if (!markCompleted()) {
-					sendJson(res, 409, { ok: false, error: "Session closed" });
-					return;
-				}
-				const rawResults = (body as { rawResults?: unknown }).rawResults === true;
-				const autoApproveRemainingSearches =
-					(body as { autoApproveRemainingSearches?: unknown }).autoApproveRemainingSearches ===
-					true;
-				sendJson(res, 200, { ok: true });
-				setImmediate(() =>
-					callbacks.onSubmit({
-						selectedQueryIndices: parsed.indices,
-						...(summary !== undefined ? { summary } : {}),
-						...(summaryMeta !== undefined ? { summaryMeta } : {}),
-						rawResults,
-						...(autoApproveRemainingSearches ? { autoApproveRemainingSearches: true } : {}),
-					}),
-				);
-				return;
-			}
-
-			if (method === "POST" && url.pathname === "/cancel") {
-				const body = await parseBodyOrSend(req, res);
-				if (!body) return;
-				if (!validateToken(body, res)) return;
-				if (!markCompleted()) {
-					sendJson(res, 200, { ok: true });
-					return;
-				}
-				const { reason } = body as { reason?: string };
-				sendJson(res, 200, { ok: true });
-				const cancelReason = reason === "timeout" ? "timeout" : "user";
-				setImmediate(() => callbacks.onCancel(cancelReason));
-				return;
-			}
-
-			res.writeHead(404, { "Content-Type": "text/plain" });
-			res.end("Not found");
+			await handler(req, res, url);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Server error";
 			sendJson(res, 500, { ok: false, error: message });

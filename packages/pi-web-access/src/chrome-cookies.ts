@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { createDecipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import {
 	copyFileSync,
 	existsSync,
@@ -178,7 +178,51 @@ export async function getGoogleCookies(options?: {
 	});
 }
 
-export async function getBrowserCookiesForHosts(options: {
+/** Everything the per-profile attempts of one lookup share. */
+interface CookieRequest {
+	platform: typeof process.platform;
+	home: string;
+	hosts: string[];
+	requiredCookies: string[] | undefined;
+	cookieNames: string[] | undefined;
+	requestUrl: URL | undefined;
+	requiredLabel: string | undefined;
+	/** Warnings collected across attempts; a successful attempt returns them. */
+	warnings: Set<string>;
+}
+
+/** What one profile attempt observed, whether or not it returned cookies. */
+interface ProfileAttempt {
+	browser: string;
+	profile: string;
+	status: BrowserCookieAttemptStatus;
+	backendFailure: SqliteFailure | undefined;
+	/** The copied database was readable, so the profile was a real candidate. */
+	sawDatabase: boolean;
+	/** The required cookie names were present before decryption. */
+	sawRequired: boolean;
+	/** At least one host cookie decrypted, even if the required set was incomplete. */
+	sawHostCookie: boolean;
+	/** A Windows v20 app-bound cookie was skipped. */
+	sawAppBoundCookie: boolean;
+}
+
+type AttemptOutcome =
+	| { kind: "cookies"; cookies: CookieMap; cookieHeader: string | undefined }
+	| { kind: "skip"; attempt: ProfileAttempt };
+
+/** Key material for one profile's database. */
+interface ProfileKeys {
+	/** Chromium keychain/secret-service keys, tried in order. */
+	browserKeys: Buffer[];
+	/** Windows DPAPI key. */
+	windowsKey: Buffer | null;
+	/** Keychain/secret-service entries, reused by the KWallet fallback. */
+	sources: BrowserPassword[];
+	kwalletAttempted: boolean;
+}
+
+interface BrowserCookieRequestOptions {
 	hosts: string[];
 	browser?: BrowserCookiePreset | undefined;
 	profile?: string | undefined;
@@ -186,307 +230,412 @@ export async function getBrowserCookiesForHosts(options: {
 	cookieNames?: Iterable<string> | undefined;
 	requiredLabel?: string | undefined;
 	requestUrl?: URL | undefined;
-}): Promise<{ cookies: CookieMap; warnings: string[]; cookieHeader?: string } | null> {
+}
+
+export async function getBrowserCookiesForHosts(
+	options: BrowserCookieRequestOptions,
+): Promise<{ cookies: CookieMap; warnings: string[]; cookieHeader?: string } | null> {
 	lastCookieDiagnostic = null;
 	lastCookieDiagnosticDetails = null;
-	if (!isBrowserCookieAccessAllowed()) {
-		setCookieDiagnostic(
-			"Browser cookie access is disabled; enable allowBrowserCookies to use browser cookies.",
-		);
+	const plan = planCookieRequest(options);
+	if (plan.kind === "diagnostic") {
+		setCookieDiagnostic(plan.message);
 		return null;
 	}
 
-	const currentPlatform = process.platform;
+	const { request, configs, requestedProfile } = plan;
+	const attempts: ProfileAttempt[] = [];
+	for (const config of configs) {
+		const profiles = requestedProfile
+			? [requestedProfile]
+			: listBrowserProfiles(request.home, config);
+		for (const profile of profiles) {
+			const outcome = await attemptProfile(request, config, profile);
+			if (outcome.kind === "cookies") {
+				return {
+					cookies: outcome.cookies,
+					warnings: [...request.warnings],
+					...(outcome.cookieHeader !== undefined ? { cookieHeader: outcome.cookieHeader } : {}),
+				};
+			}
+			attempts.push(outcome.attempt);
+		}
+	}
+
+	setCookieDiagnostic(
+		cookieFailureDiagnostic(request, requestedProfile, attempts),
+		attempts.map(({ browser, profile, status }) => ({ browser, profile, status })),
+	);
+	return null;
+}
+
+type CookieRequestPlan =
+	| {
+			kind: "request";
+			request: CookieRequest;
+			configs: BrowserConfig[];
+			requestedProfile: string | undefined;
+	  }
+	| { kind: "diagnostic"; message: string };
+
+/** Validates the request and resolves the browser configs it may read. */
+function planCookieRequest(options: BrowserCookieRequestOptions): CookieRequestPlan {
+	if (!isBrowserCookieAccessAllowed()) {
+		return {
+			kind: "diagnostic",
+			message:
+				"Browser cookie access is disabled; enable allowBrowserCookies to use browser cookies.",
+		};
+	}
+
+	const platform = process.platform;
 	const platformConfigs =
-		currentPlatform === "darwin"
+		platform === "darwin"
 			? MACOS_BROWSER_CONFIGS
-			: currentPlatform === "linux"
+			: platform === "linux"
 				? LINUX_BROWSER_CONFIGS
-				: currentPlatform === "win32"
+				: platform === "win32"
 					? WINDOWS_BROWSER_CONFIGS
 					: [];
 	const configs = options.browser
 		? platformConfigs.filter((config) => config.id === options.browser)
 		: platformConfigs;
 	if (options.browser && configs.length === 0) {
-		setCookieDiagnostic(`Browser preset '${options.browser}' is not supported on this platform.`);
-		return null;
+		return {
+			kind: "diagnostic",
+			message: `Browser preset '${options.browser}' is not supported on this platform.`,
+		};
 	}
 	if (configs.length === 0) {
-		setCookieDiagnostic("Chromium cookie extraction is unsupported on this platform.");
-		return null;
+		return {
+			kind: "diagnostic",
+			message: "Chromium cookie extraction is unsupported on this platform.",
+		};
 	}
 
-	const warningSet = new Set<string>();
 	const rawProfile = typeof options.profile === "string" ? options.profile.trim() : "";
 	const requestedProfile = normalizeProfileName(options.profile);
 	if (rawProfile && !requestedProfile) {
-		setCookieDiagnostic(
-			"Configured Chromium profile must be a profile directory name, not a path.",
-		);
-		return null;
+		return {
+			kind: "diagnostic",
+			message: "Configured Chromium profile must be a profile directory name, not a path.",
+		};
 	}
-	const requiredCookies = normalizeCookieNames(options.requiredCookies);
-	const cookieNames = normalizeCookieNames(
-		options.cookieNames ? [...options.cookieNames] : undefined,
-	);
+
 	const hosts = normalizeHosts(options.hosts);
 	if (hosts.length === 0) {
-		setCookieDiagnostic("No valid cookie hosts were requested.");
-		return null;
+		return { kind: "diagnostic", message: "No valid cookie hosts were requested." };
 	}
-	const attempts: BrowserCookieAttemptDiagnostic[] = [];
-	const home = currentPlatform === "win32" ? process.env.USERPROFILE || homedir() : homedir();
-	let sawCookieDatabase = false;
-	let sawRequiredCookies = false;
-	let sawAnyHostCookie = false;
-	let sawBackendFailure: SqliteFailure | undefined;
-	let sawUnsafeProfilePath = false;
-	let sawWindowsAppBoundCookie = false;
-	let sawDecryptionFailure = false;
 
-	for (const config of configs) {
-		const profiles = requestedProfile ? [requestedProfile] : listBrowserProfiles(home, config);
-		for (const profile of profiles) {
-			const profilePath = resolveProfilePath(home, config, profile);
-			if (profilePath === "outside-root") {
-				sawUnsafeProfilePath = true;
-				recordCookieAttempt(attempts, config, profile, "unsafe-profile");
-				continue;
-			}
-			if (!profilePath) {
-				recordCookieAttempt(attempts, config, profile, "missing-database");
-				continue;
-			}
-			const cookiesPath = cookieDatabasePath(profilePath, config);
-			if (!cookiesPath) {
-				recordCookieAttempt(attempts, config, profile, "missing-database");
-				continue;
-			}
-			sawCookieDatabase = true;
+	return {
+		kind: "request",
+		configs,
+		requestedProfile,
+		request: {
+			platform,
+			home: platform === "win32" ? process.env.USERPROFILE || homedir() : homedir(),
+			hosts,
+			requiredCookies: normalizeCookieNames(options.requiredCookies),
+			cookieNames: normalizeCookieNames(options.cookieNames ? [...options.cookieNames] : undefined),
+			requestUrl: options.requestUrl,
+			requiredLabel: options.requiredLabel,
+			warnings: new Set<string>(),
+		},
+	};
+}
 
-			const tempDir = mkdtempSync(join(tmpdir(), "pi-chrome-cookies-"));
-			try {
-				const tempDb = join(tempDir, "Cookies");
-				copyFileSync(cookiesPath, tempDb);
-				copySidecar(cookiesPath, tempDb, "-wal");
-				copySidecar(cookiesPath, tempDb, "-shm");
+/**
+ * One profile attempt owns its database snapshot: copy, read, decrypt, filter, and
+ * always clean the copy up. Profile path confinement and the cookie database
+ * lookup happen before any copy is made.
+ */
+async function attemptProfile(
+	request: CookieRequest,
+	config: BrowserConfig,
+	profile: string,
+): Promise<AttemptOutcome> {
+	const profilePath = resolveProfilePath(request.home, config, profile);
+	if (profilePath === "outside-root") return skipped(config, profile, "unsafe-profile");
+	if (!profilePath) return skipped(config, profile, "missing-database");
+	const cookiesPath = cookieDatabasePath(profilePath, config);
+	if (!cookiesPath) return skipped(config, profile, "missing-database");
 
-				if (requiredCookies?.length) {
-					const preflight = await hasCookieNames(tempDb, hosts, requiredCookies);
-					if (preflight.failure) {
-						sawBackendFailure = preflight.failure;
-						recordCookieAttempt(
-							attempts,
-							config,
-							profile,
-							preflight.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed",
-						);
-						continue;
-					}
-					if (!preflight.present) {
-						recordCookieAttempt(attempts, config, profile, "missing-required-cookies");
-						continue;
-					}
-					sawRequiredCookies = true;
-				}
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-chrome-cookies-"));
+	try {
+		const tempDb = join(tempDir, "Cookies");
+		copyFileSync(cookiesPath, tempDb);
+		copySidecar(cookiesPath, tempDb, "-wal");
+		copySidecar(cookiesPath, tempDb, "-shm");
+		return await readProfileCookies(request, config, profile, tempDb);
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
+	}
+}
 
-				const browserPasswords =
-					currentPlatform === "win32" ? [] : await readBrowserPasswords(config, currentPlatform);
-				for (const password of browserPasswords)
-					if (password.warning) warningSet.add(password.warning);
-				const windowsKey =
-					currentPlatform === "win32" ? await readWindowsEncryptionKey(config, home) : null;
-				const browserKeys = browserPasswords.flatMap((password) =>
-					password.value
-						? [
-								pbkdf2Sync(
-									password.value,
-									"saltysalt",
-									currentPlatform === "darwin" ? 1003 : 1,
-									16,
-									"sha1",
-								),
-							]
-						: [],
-				);
-				if (currentPlatform === "win32" ? !windowsKey : browserKeys.length === 0) {
-					warningSet.add(
-						currentPlatform === "win32"
-							? `Could not read ${config.name} Windows cookie encryption key`
-							: `Could not read ${config.name} cookie encryption password`,
-					);
-					recordCookieAttempt(attempts, config, profile, "password-read-failed");
-					continue;
-				}
-				const metaVersion = await readMetaVersion(tempDb);
-				if (metaVersion.failure) {
-					sawBackendFailure = metaVersion.failure;
-					recordCookieAttempt(
-						attempts,
-						config,
-						profile,
-						metaVersion.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed",
-					);
-				}
-				if (metaVersion.value === null) continue;
-				const rowsResult = await queryCookieRows(
-					tempDb,
-					hosts,
-					cookieNames ?? null,
-					Boolean(options.requestUrl),
-				);
-				if (rowsResult.status === "failure") {
-					sawBackendFailure = rowsResult.failure;
-					recordCookieAttempt(
-						attempts,
-						config,
-						profile,
-						rowsResult.failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed",
-					);
-					continue;
-				}
-
-				const entries: BrowserCookieEntry[] = [];
-				const cookies: CookieMap = {};
-				const requiredDecryptFailures = new Set<string>();
-				let kwalletAttempted = browserPasswords.some((password) => password.source === "kwallet");
-				for (const row of rowsResult.rows) {
-					const name = typeof row.name === "string" ? row.name : "";
-					if (!name) continue;
-					let value = typeof row.value === "string" && row.value.length > 0 ? row.value : null;
-					if (
-						!value &&
-						typeof row.encrypted_value_hex === "string" &&
-						/^[0-9a-f]*$/i.test(row.encrypted_value_hex)
-					) {
-						const encrypted = Buffer.from(row.encrypted_value_hex, "hex");
-						if (currentPlatform === "win32" && encrypted.subarray(0, 3).toString("utf8") === "v20")
-							sawWindowsAppBoundCookie = true;
-						if (currentPlatform === "win32") {
-							if (windowsKey)
-								value = decryptWindowsCookieValue(encrypted, windowsKey, metaVersion.value >= 24);
-						} else {
-							for (const key of browserKeys) {
-								value = decryptCookieValue(encrypted, key, metaVersion.value >= 24);
-								if (value) break;
-							}
-						}
-						if (
-							!value &&
-							currentPlatform === "linux" &&
-							!kwalletAttempted &&
-							browserPasswords.some((password) => password.source === "secret-service") &&
-							requiredCookies?.includes(name)
-						) {
-							kwalletAttempted = true;
-							const fallback = await readKWalletPassword(config);
-							if (fallback.warning) warningSet.add(fallback.warning);
-							if (fallback.value) {
-								const key = pbkdf2Sync(fallback.value, "saltysalt", 1, 16, "sha1");
-								browserKeys.push(key);
-								value = decryptCookieValue(encrypted, key, metaVersion.value >= 24);
-								if (value) {
-									browserPasswords.push(fallback);
-									browserPasswordCache.set(
-										passwordCacheKey(config, currentPlatform),
-										Promise.resolve([...browserPasswords]),
-									);
-								}
-							}
-						}
-						if (!value && requiredCookies?.includes(name)) requiredDecryptFailures.add(name);
-					}
-					if (!value) continue;
-					const path = typeof row.path === "string" && row.path.startsWith("/") ? row.path : "/";
-					if (options.requestUrl && !pathMatches(options.requestUrl.pathname || "/", path))
-						continue;
-					entries.push({ name, value, path });
-					if (!cookies[name]) cookies[name] = value;
-				}
-
-				if (entries.length > 0) sawAnyHostCookie = true;
-				if (requiredCookies?.length && !requiredCookies.every((name) => Boolean(cookies[name]))) {
-					if (requiredCookies.some((name) => !cookies[name] && requiredDecryptFailures.has(name))) {
-						sawDecryptionFailure = true;
-						recordCookieAttempt(attempts, config, profile, "decryption-failed");
-					} else {
-						recordCookieAttempt(attempts, config, profile, "missing-required-cookies");
-					}
-					continue;
-				}
-				if (entries.length === 0) {
-					recordCookieAttempt(
-						attempts,
-						config,
-						profile,
-						requiredDecryptFailures.size > 0 ? "decryption-failed" : "no-host-cookies",
-					);
-					if (requiredDecryptFailures.size > 0) sawDecryptionFailure = true;
-					continue;
-				}
-				return {
-					cookies,
-					warnings: [...warningSet],
-					...(options.requestUrl ? { cookieHeader: buildCookieHeader(entries) } : {}),
-				};
-			} finally {
-				rmSync(tempDir, { recursive: true, force: true });
-			}
+/** Reads one snapshot: required-cookie preflight, key material, rows, decryption. */
+async function readProfileCookies(
+	request: CookieRequest,
+	config: BrowserConfig,
+	profile: string,
+	tempDb: string,
+): Promise<AttemptOutcome> {
+	const { requiredCookies } = request;
+	if (requiredCookies?.length) {
+		const preflight = await hasCookieNames(tempDb, request.hosts, requiredCookies);
+		if (preflight.failure) return backendFailure(config, profile, preflight.failure);
+		if (!preflight.present) {
+			return skipped(config, profile, "missing-required-cookies", { sawDatabase: true });
 		}
 	}
 
-	if (sawBackendFailure === "unavailable") {
-		setCookieDiagnostic(
-			"SQLite backend unavailable: install sqlite3 or use a runtime with SQLite support.",
-			attempts,
+	const keys = await loadProfileKeys(request, config);
+	if (!keys) {
+		return skipped(config, profile, "password-read-failed", {
+			sawDatabase: true,
+			sawRequired: Boolean(requiredCookies?.length),
+		});
+	}
+
+	const metaVersion = await readMetaVersion(tempDb);
+	if (metaVersion.value === null) return backendFailure(config, profile, "unavailable");
+
+	const rows = await queryCookieRows(
+		tempDb,
+		request.hosts,
+		request.cookieNames ?? null,
+		Boolean(request.requestUrl),
+	);
+	if (rows.status === "failure") return backendFailure(config, profile, rows.failure);
+
+	const observed = {
+		sawDatabase: true,
+		sawRequired: Boolean(requiredCookies?.length),
+	};
+	const entries: BrowserCookieEntry[] = [];
+	const cookies: CookieMap = {};
+	const failedRequired = new Set<string>();
+	let appBoundCookie = false;
+
+	for (const row of rows.rows) {
+		const name = typeof row.name === "string" ? row.name : "";
+		if (!name) continue;
+		let value = typeof row.value === "string" && row.value.length > 0 ? row.value : null;
+		const encryptedHex = row.encrypted_value_hex;
+		if (!value && typeof encryptedHex === "string" && /^[0-9a-f]*$/i.test(encryptedHex)) {
+			const decrypted = await decryptRowValue(
+				request,
+				config,
+				name,
+				Buffer.from(encryptedHex, "hex"),
+				keys,
+				metaVersion.value,
+				typeof row.host_key === "string" ? row.host_key : "",
+			);
+			value = decrypted.value;
+			if (decrypted.appBoundCookie) appBoundCookie = true;
+			if (!value && requiredCookies?.includes(name)) failedRequired.add(name);
+		}
+		if (!value) continue;
+		const path = typeof row.path === "string" && row.path.startsWith("/") ? row.path : "/";
+		if (request.requestUrl && !pathMatches(request.requestUrl.pathname || "/", path)) continue;
+		entries.push({ name, value, path });
+		if (!cookies[name]) cookies[name] = value;
+	}
+
+	const outcome = {
+		...observed,
+		sawHostCookie: entries.length > 0,
+		sawAppBoundCookie: appBoundCookie,
+	};
+	if (requiredCookies?.length && !requiredCookies.every((name) => Boolean(cookies[name]))) {
+		const decryptFailed = requiredCookies.some(
+			(name) => !cookies[name] && failedRequired.has(name),
 		);
-	} else if (sawBackendFailure === "query") {
-		setCookieDiagnostic(
-			"SQLite query failed while reading the copied Chromium cookie database.",
-			attempts,
-		);
-	} else if (sawUnsafeProfilePath) {
-		setCookieDiagnostic(
-			"Configured Chromium profile must resolve inside the browser profile root.",
-			attempts,
-		);
-	} else if (!sawCookieDatabase) {
-		setCookieDiagnostic(
-			requestedProfile
-				? `Chromium profile '${requestedProfile}' does not contain a cookie database.`
-				: "No detected Chromium profile contains a cookie database.",
-			attempts,
-		);
-	} else if (requiredCookies?.length && !sawRequiredCookies) {
-		setCookieDiagnostic(
-			`No detected Chromium profile contains the required ${options.requiredLabel ?? "browser"} cookies.`,
-			attempts,
-		);
-	} else if (sawWindowsAppBoundCookie) {
-		setCookieDiagnostic("Windows Chromium v20 app-bound cookies are not supported.", attempts);
-	} else if (warningSet.size > 0) {
-		const firstWarn = [...warningSet][0];
-		if (firstWarn) setCookieDiagnostic(firstWarn, attempts);
-	} else if (sawDecryptionFailure) {
-		setCookieDiagnostic(
-			`Required ${options.requiredLabel ?? "browser"} cookies could not be decrypted.`,
-			attempts,
-		);
-	} else if (!sawAnyHostCookie) {
-		setCookieDiagnostic(
-			options.requestUrl
-				? "No detected Chromium profile contains cookies for the requested URL."
-				: "No detected Chromium profile contains cookies for the requested host.",
-			attempts,
-		);
-	} else {
-		setCookieDiagnostic(
-			"Required Gemini cookies were not available or could not be decrypted.",
-			attempts,
+		return skipped(
+			config,
+			profile,
+			decryptFailed ? "decryption-failed" : "missing-required-cookies",
+			outcome,
 		);
 	}
-	return null;
+	if (entries.length === 0) {
+		return skipped(
+			config,
+			profile,
+			failedRequired.size > 0 ? "decryption-failed" : "no-host-cookies",
+			outcome,
+		);
+	}
+	return {
+		kind: "cookies",
+		cookies,
+		cookieHeader: request.requestUrl ? buildCookieHeader(entries) : undefined,
+	};
+}
+
+/** Keychain/secret-service (or Windows DPAPI) key material for one profile. */
+async function loadProfileKeys(
+	request: CookieRequest,
+	config: BrowserConfig,
+): Promise<ProfileKeys | null> {
+	const { platform, home, warnings } = request;
+	const sources = platform === "win32" ? [] : await readBrowserPasswords(config, platform);
+	for (const source of sources) if (source.warning) warnings.add(source.warning);
+	const windowsKey = platform === "win32" ? await readWindowsEncryptionKey(config, home) : null;
+	const browserKeys = sources.flatMap((source) =>
+		source.value
+			? [pbkdf2Sync(source.value, "saltysalt", platform === "darwin" ? 1003 : 1, 16, "sha1")]
+			: [],
+	);
+	if (platform === "win32" ? !windowsKey : browserKeys.length === 0) {
+		warnings.add(
+			platform === "win32"
+				? `Could not read ${config.name} Windows cookie encryption key`
+				: `Could not read ${config.name} cookie encryption password`,
+		);
+		return null;
+	}
+	return {
+		browserKeys,
+		windowsKey,
+		sources,
+		kwalletAttempted: sources.some((source) => source.source === "kwallet"),
+	};
+}
+
+/** Decrypts one row value: DPAPI on Windows, otherwise the key list with a KWallet retry. */
+async function decryptRowValue(
+	request: CookieRequest,
+	config: BrowserConfig,
+	name: string,
+	encrypted: Buffer,
+	keys: ProfileKeys,
+	metaVersion: number,
+	hostKey: string,
+): Promise<{ value: string | null; appBoundCookie: boolean }> {
+	const { platform, requiredCookies, warnings } = request;
+	const appBoundCookie =
+		platform === "win32" && encrypted.subarray(0, 3).toString("utf8") === "v20";
+	const hostHash = metaVersion >= 24 ? createHash("sha256").update(hostKey).digest() : null;
+
+	if (platform === "win32") {
+		return {
+			value: keys.windowsKey
+				? decryptWindowsCookieValue(encrypted, keys.windowsKey, hostHash)
+				: null,
+			appBoundCookie,
+		};
+	}
+
+	for (const key of keys.browserKeys) {
+		const value = decryptCookieValue(encrypted, key, hostHash);
+		if (value) return { value, appBoundCookie };
+	}
+
+	// KWallet gets one shot per profile, and only for a required cookie that the
+	// secret service could not decrypt. A success is cached so later rows skip it.
+	if (platform !== "linux" || keys.kwalletAttempted) return { value: null, appBoundCookie };
+	if (!keys.sources.some((source) => source.source === "secret-service")) {
+		return { value: null, appBoundCookie };
+	}
+	if (!requiredCookies?.includes(name)) return { value: null, appBoundCookie };
+
+	keys.kwalletAttempted = true;
+	const fallback = await readKWalletPassword(config);
+	if (fallback.warning) warnings.add(fallback.warning);
+	if (!fallback.value) return { value: null, appBoundCookie };
+	const key = pbkdf2Sync(fallback.value, "saltysalt", 1, 16, "sha1");
+	keys.browserKeys.push(key);
+	const value = decryptCookieValue(encrypted, key, hostHash);
+	if (!value) return { value: null, appBoundCookie };
+	keys.sources.push(fallback);
+	browserPasswordCache.set(passwordCacheKey(config, platform), Promise.resolve([...keys.sources]));
+	return { value, appBoundCookie };
+}
+
+function skipped(
+	config: BrowserConfig,
+	profile: string,
+	status: BrowserCookieAttemptStatus,
+	observed: Partial<
+		Pick<
+			ProfileAttempt,
+			"backendFailure" | "sawDatabase" | "sawRequired" | "sawHostCookie" | "sawAppBoundCookie"
+		>
+	> = {},
+): AttemptOutcome {
+	return {
+		kind: "skip",
+		attempt: {
+			browser: config.name,
+			profile,
+			status,
+			backendFailure: undefined,
+			sawDatabase: false,
+			sawRequired: false,
+			sawHostCookie: false,
+			sawAppBoundCookie: false,
+			...observed,
+		},
+	};
+}
+
+function backendFailure(
+	config: BrowserConfig,
+	profile: string,
+	failure: SqliteFailure,
+): AttemptOutcome {
+	return skipped(
+		config,
+		profile,
+		failure === "unavailable" ? "sqlite-unavailable" : "sqlite-query-failed",
+		{ sawDatabase: true, backendFailure: failure },
+	);
+}
+
+/** The failure that best explains why no profile produced cookies. */
+function cookieFailureDiagnostic(
+	request: CookieRequest,
+	requestedProfile: string | undefined,
+	attempts: ProfileAttempt[],
+): string {
+	const label = request.requiredLabel ?? "browser";
+	const backendFailure = attempts.reduce<SqliteFailure | undefined>(
+		(last, attempt) => attempt.backendFailure ?? last,
+		undefined,
+	);
+
+	if (backendFailure === "unavailable") {
+		return "SQLite backend unavailable: install sqlite3 or use a runtime with SQLite support.";
+	}
+	if (backendFailure === "query") {
+		return "SQLite query failed while reading the copied Chromium cookie database.";
+	}
+	if (attempts.some((attempt) => attempt.status === "unsafe-profile")) {
+		return "Configured Chromium profile must resolve inside the browser profile root.";
+	}
+	if (!attempts.some((attempt) => attempt.sawDatabase)) {
+		return requestedProfile
+			? `Chromium profile '${requestedProfile}' does not contain a cookie database.`
+			: "No detected Chromium profile contains a cookie database.";
+	}
+	if (request.requiredCookies?.length && !attempts.some((attempt) => attempt.sawRequired)) {
+		return `No detected Chromium profile contains the required ${label} cookies.`;
+	}
+	if (attempts.some((attempt) => attempt.sawAppBoundCookie)) {
+		return "Windows Chromium v20 app-bound cookies are not supported.";
+	}
+	const [firstWarning] = [...request.warnings];
+	if (firstWarning) return firstWarning;
+	if (attempts.some((attempt) => attempt.status === "decryption-failed")) {
+		return `Required ${label} cookies could not be decrypted.`;
+	}
+	if (!attempts.some((attempt) => attempt.sawHostCookie)) {
+		return request.requestUrl
+			? "No detected Chromium profile contains cookies for the requested URL."
+			: "No detected Chromium profile contains cookies for the requested host.";
+	}
+	return "Required Gemini cookies were not available or could not be decrypted.";
 }
 
 function setCookieDiagnostic(
@@ -495,15 +644,6 @@ function setCookieDiagnostic(
 ): void {
 	lastCookieDiagnostic = message;
 	lastCookieDiagnosticDetails = { message, attempts };
-}
-
-function recordCookieAttempt(
-	attempts: BrowserCookieAttemptDiagnostic[],
-	config: BrowserConfig,
-	profile: string,
-	status: BrowserCookieAttemptStatus,
-): void {
-	attempts.push({ browser: config.name, profile, status });
 }
 
 function normalizeProfileName(value: string | undefined): string | undefined {
@@ -609,7 +749,18 @@ function compareProfileNames(a: string, b: string): number {
 	);
 }
 
-function decryptCookieValue(encrypted: Uint8Array, key: Buffer, stripHash: boolean): string | null {
+/** v24+ rows prefix the plaintext with sha256(host_key), which also rejects a wrong key. */
+function stripHostHash(payload: Buffer, hostHash: Buffer | null): Buffer | null {
+	if (!hostHash) return payload;
+	if (payload.length < 32 || !payload.subarray(0, 32).equals(hostHash)) return null;
+	return payload.subarray(32);
+}
+
+function decryptCookieValue(
+	encrypted: Uint8Array,
+	key: Buffer,
+	hostHash: Buffer | null,
+): string | null {
 	const buf = Buffer.from(encrypted);
 	if (buf.length < 3 || !/^v\d\d$/.test(buf.subarray(0, 3).toString("utf8"))) return null;
 	const ciphertext = buf.subarray(3);
@@ -620,8 +771,9 @@ function decryptCookieValue(encrypted: Uint8Array, key: Buffer, stripHash: boole
 		const unpadded = removePkcs7Padding(
 			Buffer.concat([decipher.update(ciphertext), decipher.final()]),
 		);
-		const bytes = stripHash && unpadded.length >= 32 ? unpadded.subarray(32) : unpadded;
-		const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		const payload = stripHostHash(unpadded, hostHash);
+		if (!payload) return null;
+		const decoded = new TextDecoder("utf-8", { fatal: true }).decode(payload);
 		let i = 0;
 		while (i < decoded.length && decoded.charCodeAt(i) < 0x20) i++;
 		return decoded.slice(i);
@@ -633,7 +785,7 @@ function decryptCookieValue(encrypted: Uint8Array, key: Buffer, stripHash: boole
 function decryptWindowsCookieValue(
 	encrypted: Uint8Array,
 	key: Buffer,
-	stripHash: boolean,
+	hostHash: Buffer | null,
 ): string | null {
 	const buf = Buffer.from(encrypted);
 	if (buf.subarray(0, 3).toString("utf8") !== "v10" || buf.length < 3 + 12 + 16) return null;
@@ -642,10 +794,11 @@ function decryptWindowsCookieValue(
 		const ciphertext = buf.subarray(15, -16);
 		const decipher = createDecipheriv("aes-256-gcm", key, nonce);
 		decipher.setAuthTag(buf.subarray(-16));
-		const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-		return new TextDecoder("utf-8", { fatal: true }).decode(
-			stripHash && plaintext.length >= 32 ? plaintext.subarray(32) : plaintext,
+		const payload = stripHostHash(
+			Buffer.concat([decipher.update(ciphertext), decipher.final()]),
+			hostHash,
 		);
+		return payload ? new TextDecoder("utf-8", { fatal: true }).decode(payload) : null;
 	} catch {
 		return null;
 	}

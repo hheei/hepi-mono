@@ -9,7 +9,7 @@ Registers four web tools plus a `web_enable` loader, each renamable through `too
 | Default name | Purpose |
 | --- | --- |
 | `web_search` | Source-linked results or provider answers; `queries` runs 2-4 angles concurrently. Full results are stored for `get_search_content`. |
-| `fetch_content` | Fetch one URL and return extracted content (HTML to markdown, PDF, GitHub repo/issue/PR, video frames). |
+| `fetch_content` | Fetch one URL and return extracted content (HTML to markdown, PDF, GitHub repo/issue/PR, video frames). `mode` picks `readable`, `raw`, or `answer`; `answer` needs a `prompt`. |
 | `get_search_content` | Retrieve the full stored results of an earlier search by `responseId`. |
 | `source_check` | Gather bounded passage-level citations for a claim, for manual review. |
 | `web_enable` | Activate the configured web tools on the next model request; it never searches or fetches. Registered unless discovery is already handled elsewhere (`toolExposure: "deferred"`, `toolActivation` of `eager`/`deferred`/`disabled`, or `enableWebLoader: false`). |

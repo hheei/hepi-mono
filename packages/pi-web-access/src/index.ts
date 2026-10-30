@@ -60,6 +60,7 @@ import { isDeepSeekAvailable } from "./deepseek.ts";
 import { isDegoogAvailable } from "./degoog.ts";
 import { isDuckDuckGoAvailable } from "./duckduckgo.ts";
 import { isExaAvailable } from "./exa.ts";
+import type { FetchMode } from "./fetch-params.ts";
 import { isFirecrawlAvailable } from "./firecrawl.ts";
 import { isGeminiApiAvailable } from "./gemini-api.ts";
 import {
@@ -135,7 +136,6 @@ import {
 	DEFAULT_TOOL_NAMES,
 	expandQueryString,
 	type FetchedContentData,
-	type FetchMode,
 	fetchAllContent,
 	fetchUncoveredContent,
 	getMaxInlineContentChars,
@@ -165,7 +165,7 @@ import { isYouAvailable } from "./you.ts";
 import { isZaiAvailable } from "./zai.ts";
 
 // Match pi-ai's StringEnum without loading its compat barrel during registration.
-function StringEnum<T extends string[]>(
+function StringEnum<T extends readonly string[]>(
 	values: T,
 	options?: { description?: string; default?: T[number] },
 ) {

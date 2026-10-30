@@ -5,7 +5,15 @@ import pLimit from "p-limit";
 import { type AuthFetchProfile, resolveAuthFetchProfile } from "./auth-fetch.ts";
 import { type FindMode, findContent } from "./content-find.ts";
 import type { ExtractedContent, ExtractOptions } from "./extract.ts";
-import { type FetchContentParams, normalizeFetchContentParams } from "./fetch-params.ts";
+import {
+	FETCH_MODES,
+	type FetchContentParams,
+	type FetchMode,
+	type FetchModeConfig,
+	type FetchRequest,
+	type NormalizedFetchContentParams,
+	resolveFetchRequest,
+} from "./fetch-params.ts";
 import {
 	assertSearchProviderSelectionAllowed,
 	normalizeSearchProviderSelection,
@@ -131,9 +139,6 @@ export const DEFAULT_TOOL_NAMES: ToolNames = {
 	getSearchContent: "get_search_content",
 };
 const SEARCH_QUERY_CONCURRENCY = 3;
-const FETCH_MODES = ["readable", "raw", "answer"] as const;
-export type FetchMode = (typeof FETCH_MODES)[number];
-export type FetchModeConfig = { defaultMode: FetchMode; allowedModes: FetchMode[] };
 
 export function resolveFetchModeConfig(config: WebSearchConfig): FetchModeConfig {
 	const configuredModes = config.fetch?.allowedModes ?? FETCH_MODES;
@@ -146,7 +151,7 @@ export function resolveFetchModeConfig(config: WebSearchConfig): FetchModeConfig
 			`fetch.allowedModes in ${WEB_SEARCH_CONFIG_PATH} must be a non-empty array containing only "readable", "raw", or "answer"`,
 		);
 	}
-	const allowedModes = configuredModes as FetchMode[];
+	const allowedModes = configuredModes as readonly FetchMode[];
 	const duplicateMode = allowedModes.find((mode, index) => allowedModes.indexOf(mode) !== index);
 	if (duplicateMode) {
 		throw new Error(
@@ -744,6 +749,175 @@ function sliceWithContinuation(
 	};
 }
 
+/** Everything presenting a fetch result needs. Answers are shown; the original pages are stored. */
+export interface FetchPresentation {
+	mode: FetchMode;
+	/** Retrieval tool to point at, or null when get_search_content is not registered. */
+	getSearchContentTool: string | null;
+	/** responseId of the stored original content, or null when it was not stored. */
+	responseId: string | null;
+	maxChars: number;
+	/** URLs the call asked for, in request order. */
+	urlList: string[];
+	structuredContent: FetchContentStructuredContent;
+}
+
+export function presentSingleFetch(
+	presentation: FetchPresentation,
+	result: ExtractedContent | undefined,
+	params: FetchContentToolParams,
+): WebToolResult {
+	const { mode, getSearchContentTool, responseId, maxChars, urlList, structuredContent } =
+		presentation;
+	if (!result) {
+		return {
+			isError: true,
+			content: [{ type: "text", text: "Error: No result found" }],
+			details: { error: "No result found" },
+		};
+	}
+	if (result.error) {
+		return {
+			isError: true,
+			content: [{ type: "text", text: `Error: ${result.error}` }],
+			structuredContent,
+			details: {
+				urls: urlList,
+				urlCount: 1,
+				successful: 0,
+				error: result.error,
+				...(responseId !== null ? { responseId } : {}),
+				prompt: params.prompt,
+				timestamp: params.timestamp,
+				frames: params.frames,
+			},
+		};
+	}
+
+	const fullLength = result.content.length;
+	const slice = initialContentSlice(result.content, maxChars);
+	const truncated = slice.endOffset < fullLength;
+	let output = slice.text;
+
+	if (truncated) {
+		output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
+		if (mode === "answer")
+			output += "Stored content is the original source, not the remaining answer. ";
+		if (responseId === null) {
+			output += "Authenticated fetch cache is off; repeat the fetch to read more.";
+		} else if (getSearchContentTool === null) {
+			output += "Content retrieval is not registered.";
+		} else if (mode === "answer") {
+			output += `Use ${getSearchContentTool}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to read the original source from the beginning.`;
+		} else {
+			output += `Use ${getSearchContentTool}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`;
+		}
+	}
+
+	const content: WebToolContent[] = [];
+	if (result.frames?.length) {
+		for (const frame of result.frames) {
+			content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
+			content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
+		}
+	} else if (result.thumbnail) {
+		content.push({
+			type: "image",
+			data: result.thumbnail.data,
+			mimeType: result.thumbnail.mimeType,
+		});
+	}
+	content.push({ type: "text", text: output });
+	if (!truncated && responseId !== null && getSearchContentTool !== null) {
+		const storedLabel = mode === "answer" ? "Original source content" : "Full content";
+		content.push({
+			type: "text",
+			text: `\n---\n${storedLabel} is stored as responseId "${responseId}". Use ${getSearchContentTool}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to retrieve it.`,
+		});
+	}
+
+	const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
+	return {
+		content,
+		structuredContent,
+		details: {
+			urls: urlList,
+			urlCount: 1,
+			successful: 1,
+			totalChars: fullLength,
+			title: result.title,
+			...(responseId !== null ? { responseId } : {}),
+			truncated,
+			hasImage: imageCount > 0,
+			imageCount,
+			prompt: params.prompt,
+			timestamp: params.timestamp,
+			frames: params.frames,
+			duration: result.duration,
+			mode,
+			mimeType: result.mimeType,
+			status: result.status,
+			totalBytes: slice.totalBytes,
+			totalLines: slice.totalLines,
+			shownBytes: slice.shownBytes,
+			shownLines: slice.shownLines,
+		},
+	};
+}
+
+export function presentFetchedUrls(
+	presentation: FetchPresentation,
+	results: ExtractedContent[],
+): WebToolResult {
+	const { mode, getSearchContentTool, responseId, maxChars, urlList, structuredContent } =
+		presentation;
+	const successful = results.filter((result) => !result.error).length;
+	const totalChars = results.reduce((sum, result) => sum + result.content.length, 0);
+
+	// Answers are generated, not stored, so they must be shown here in full up to the output limit.
+	let budget = mode === "answer" ? maxChars : 0;
+	let output = mode === "answer" ? "## Page answers\n" : "## Fetched URLs\n\n";
+	for (const { url, title, content, error } of results) {
+		if (mode !== "answer") {
+			output += error
+				? `- ${url}: Error - ${error}\n`
+				: `- ${title || url} (${content.length} chars)\n`;
+		} else if (error) {
+			output += `\n### ${url}\nError: ${error}\n`;
+		} else {
+			const shown = content.slice(0, budget);
+			budget -= shown.length;
+			const marker =
+				shown.length === content.length
+					? ""
+					: `\n[answer ${shown.length ? "truncated at the output limit;" : "omitted; earlier answers used the output limit,"} fetch fewer URLs per call for complete answers]`;
+			output += `\n### ${title || url}\n${shown}${marker}\n`;
+		}
+	}
+	if (responseId === null) {
+		output += "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
+	} else if (getSearchContentTool === null) {
+		output += "\n---\nContent retrieval is not registered.";
+	} else if (mode === "answer") {
+		output += `\n---\nStored content is the original source pages, not the answers. Use ${getSearchContentTool}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to read the first source; urlIndex follows the order above.`;
+	} else {
+		output += `\n---\nUse ${getSearchContentTool}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
+	}
+
+	return {
+		...(successful === 0 ? { isError: true } : {}),
+		content: [{ type: "text", text: output }],
+		structuredContent,
+		details: {
+			urls: urlList,
+			urlCount: urlList.length,
+			successful,
+			totalChars,
+			...(responseId !== null ? { responseId } : {}),
+		},
+	};
+}
+
 export function createWebToolCore(host: WebToolCoreHost): WebToolCoreInstance {
 	const { settings } = host;
 	const toolNames = settings.toolNames;
@@ -1200,762 +1374,427 @@ export function createWebToolCore(host: WebToolCoreHost): WebToolCoreInstance {
 		});
 	}
 
+	/** Answers each fetched page; a page that cannot be answered keeps the fetch error shape. */
+	async function answerFetchedPages(
+		fetchResults: ExtractedContent[],
+		options: NormalizedFetchContentParams["options"],
+		ctx: ExtensionContext | undefined,
+		signal?: AbortSignal,
+	): Promise<ExtractedContent[]> {
+		return Promise.all(
+			fetchResults.map(async (result) => {
+				if (result.error) return result;
+				// Reject image-as-payload results (direct images, video frames — they
+				// set mimeType and/or frames). A text result that merely attaches a
+				// thumbnail (YouTube analysis) stays answerable.
+				if (result.mimeType?.startsWith("image/") || result.frames?.length) {
+					return { ...result, error: "Page answer requires textual fetched content" };
+				}
+				try {
+					if (!host.answerFromPage) throw new Error("this host cannot answer from fetched pages");
+					const answer = await host.answerFromPage(
+						{
+							question: options.prompt ?? "",
+							pageText: result.content,
+							sourceUrl: result.url,
+							...(options.answerModel ? { model: options.answerModel } : {}),
+						},
+						ctx,
+						signal,
+					);
+					return { ...result, content: answer.text };
+				} catch (err) {
+					return {
+						...result,
+						error: `Page answer failed: ${err instanceof Error ? err.message : String(err)}`,
+					};
+				}
+			}),
+		);
+	}
+
+	function extractionRequestOptions(
+		mode: FetchMode,
+		options: NormalizedFetchContentParams["options"],
+		authFetchProfile: AuthFetchProfile | undefined,
+	): ExtractOptions {
+		const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = { ...options, mode };
+		const { prompt: _prompt, ...answerExtractionOptions } = extractionOptions;
+		return fetchOptions(
+			{
+				...(mode === "answer" ? answerExtractionOptions : extractionOptions),
+				...(authFetchProfile ? { authFetchProfile } : {}),
+			},
+			options.proxy,
+		);
+	}
+
 	async function fetchContent(
 		params: FetchContentToolParams,
 		signal?: AbortSignal,
 		call: WebToolCallOptions = {},
 	): Promise<WebToolResult> {
 		const { extensionContext: ctx, onUpdate } = call;
-		let normalized: ReturnType<typeof normalizeFetchContentParams>;
+		let request: FetchRequest;
 		try {
-			normalized = normalizeFetchContentParams(params);
+			request = resolveFetchRequest(params, fetchModeConfig);
 		} catch (err) {
 			const error = err instanceof Error ? err.message : String(err);
 			return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
 		}
-		const { urlList, options } = normalized;
-		const mode = options.mode ?? fetchModeConfig.defaultMode;
-		if (!fetchModeConfig.allowedModes.includes(mode)) {
-			const error = `Fetch mode "${mode}" is disabled by fetch.allowedModes.`;
-			return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
+		const { urlList, mode, options } = request;
+		let authFetchProfile: AuthFetchProfile | undefined;
+		if (options.auth !== undefined) {
+			try {
+				authFetchProfile = resolveAuthFetchProfile(options.auth);
+			} catch (err) {
+				const error = err instanceof Error ? err.message : String(err);
+				return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
+			}
 		}
 		return runWithProxy(options.proxy, async () => {
-			if (mode === "answer" && !options.prompt) {
-				return {
-					content: [{ type: "text", text: "Error: mode answer requires prompt." }],
-					details: { error: "mode answer requires prompt" },
-				};
-			}
-			if (
-				mode === "raw" &&
-				(options.forceClone === true ||
-					options.timestamp ||
-					options.frames ||
-					options.prompt ||
-					options.model ||
-					options.answerModel)
-			) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "Error: mode raw cannot be combined with forceClone, prompt, timestamp, frames, model, or answerModel.",
-						},
-					],
-					details: { error: "Incompatible raw mode options" },
-				};
-			}
-			if (mode !== "answer" && options.answerModel) {
-				return {
-					content: [{ type: "text", text: "Error: answerModel requires mode answer." }],
-					details: { error: "answerModel requires mode answer" },
-				};
-			}
-			if (mode === "answer" && options.model) {
-				return {
-					content: [{ type: "text", text: "Error: use answerModel, not model, with mode answer." }],
-					details: { error: "model is incompatible with mode answer" },
-				};
-			}
-			if (mode === "answer" && options.auth !== undefined) {
-				return {
-					content: [{ type: "text", text: "Error: auth cannot be combined with mode answer." }],
-					details: { error: "auth cannot be combined with mode answer" },
-				};
-			}
-			let authFetchProfile: AuthFetchProfile | undefined;
-			if (options.auth !== undefined) {
-				try {
-					authFetchProfile = resolveAuthFetchProfile(options.auth);
-				} catch (err) {
-					const error = err instanceof Error ? err.message : String(err);
-					return { content: [{ type: "text", text: `Error: ${error}` }], details: { error } };
-				}
-			}
-			if (urlList.length === 0) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "Error: No URL provided. Use the 'url' parameter, or 'urls' for parallel fetches.",
-						},
-					],
-					details: { error: "No URL provided" },
-				};
-			}
-
 			onUpdate?.({
 				content: [{ type: "text", text: `Fetching ${urlList.length} URL(s)...` }],
 				details: { phase: "fetch", progress: 0 },
 			});
-
-			const { answerModel: _answerModel, auth: _auth, ...extractionOptions } = { ...options, mode };
-			const { prompt: _prompt, ...answerExtractionOptions } = extractionOptions;
-			const requestOptions = {
-				...(mode === "answer" ? answerExtractionOptions : extractionOptions),
-				...(authFetchProfile ? { authFetchProfile } : {}),
-			};
+			// Answers are generated for display; the original pages are what get stored, so the
+			// auth fetch cache policy applies to the stored content, never to the presentation.
 			const fetchResults = await fetchAllContent(
 				urlList,
 				signal,
-				fetchOptions(requestOptions, options.proxy),
+				extractionRequestOptions(mode, options, authFetchProfile),
 			);
 			const presentedResults =
 				mode === "answer"
-					? await Promise.all(
-							fetchResults.map(async (result) => {
-								if (result.error) return result;
-								// Reject image-as-payload results (direct images, video frames — they
-								// set mimeType and/or frames). A text result that merely attaches a
-								// thumbnail (YouTube analysis) stays answerable.
-								if (result.mimeType?.startsWith("image/") || result.frames?.length) {
-									return { ...result, error: "Page answer requires textual fetched content" };
-								}
-								try {
-									if (!host.answerFromPage)
-										throw new Error("this host cannot answer from fetched pages");
-									const answer = await host.answerFromPage(
-										{
-											question: options.prompt ?? "",
-											pageText: result.content,
-											sourceUrl: result.url,
-											...(options.answerModel ? { model: options.answerModel } : {}),
-										},
-										ctx,
-										signal,
-									);
-									return { ...result, content: answer.text };
-								} catch (err) {
-									return {
-										...result,
-										error: `Page answer failed: ${err instanceof Error ? err.message : String(err)}`,
-									};
-								}
-							}),
-						)
+					? await answerFetchedPages(fetchResults, options, ctx, signal)
 					: fetchResults;
-			const successful = presentedResults.filter((r) => !r.error).length;
-			const totalChars = presentedResults.reduce((sum, r) => sum + r.content.length, 0);
 
 			const responseId = generateId();
-			const data = {
-				id: responseId,
-				type: "fetch",
-				timestamp: Date.now(),
-				urls: stripThumbnails(fetchResults),
-			} satisfies FetchedContentData;
-			const storedContent = storeFetchResult(responseId, data, authFetchProfile);
-			const structuredContent = fetchStructuredContent(
-				storedContent ? responseId : null,
-				presentedResults,
+			const storedContent = storeFetchResult(
+				responseId,
+				{
+					id: responseId,
+					type: "fetch",
+					timestamp: Date.now(),
+					urls: stripThumbnails(fetchResults),
+				} satisfies FetchedContentData,
+				authFetchProfile,
 			);
-
-			if (urlList.length === 1) {
-				const result = presentedResults[0];
-				if (!result) {
-					return {
-						isError: true,
-						content: [{ type: "text", text: "Error: No result found" }],
-						details: { error: "No result found" },
-					};
-				}
-				if (result.error) {
-					return {
-						isError: true,
-						content: [{ type: "text", text: `Error: ${result.error}` }],
-						structuredContent,
-						details: {
-							urls: urlList,
-							urlCount: 1,
-							successful: 0,
-							error: result.error,
-							...(storedContent ? { responseId } : {}),
-							prompt: params.prompt,
-							timestamp: params.timestamp,
-							frames: params.frames,
-						},
-					};
-				}
-
-				const fullLength = result.content.length;
-				const slice = initialContentSlice(result.content, getMaxInlineContentChars());
-				const truncated = slice.endOffset < fullLength;
-				let output = slice.text;
-
-				if (truncated) {
-					output += `\n\n---\nShowing ${slice.endOffset} of ${fullLength} chars, ${slice.shownBytes} of ${slice.totalBytes} bytes, and ${slice.shownLines} of ${slice.totalLines} lines. `;
-					if (mode === "answer")
-						output += "Stored content is the original source, not the remaining answer. ";
-					output += storedContent
-						? getSearchContentEnabled
-							? mode === "answer"
-								? `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to read the original source from the beginning.`
-								: `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: ${slice.endOffset} }) for the next slice.`
-							: "Content retrieval is not registered."
-						: "Authenticated fetch cache is off; repeat the fetch to read more.";
-				}
-
-				const content: WebToolContent[] = [];
-				if (result.frames?.length) {
-					for (const frame of result.frames) {
-						content.push({ type: "image", data: frame.data, mimeType: frame.mimeType });
-						content.push({ type: "text", text: `Frame at ${frame.timestamp}` });
-					}
-				} else if (result.thumbnail) {
-					content.push({
-						type: "image",
-						data: result.thumbnail.data,
-						mimeType: result.thumbnail.mimeType,
-					});
-				}
-				content.push({ type: "text", text: output });
-				if (!truncated && storedContent && getSearchContentEnabled) {
-					const storedLabel = mode === "answer" ? "Original source content" : "Full content";
-					content.push({
-						type: "text",
-						text: `\n---\n${storedLabel} is stored as responseId "${responseId}". Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to retrieve it.`,
-					});
-				}
-
-				const imageCount = (result.frames?.length ?? 0) + (result.thumbnail ? 1 : 0);
-				return {
-					content,
-					structuredContent,
-					details: {
-						urls: urlList,
-						urlCount: 1,
-						successful: 1,
-						totalChars: fullLength,
-						title: result.title,
-						...(storedContent ? { responseId } : {}),
-						truncated,
-						hasImage: imageCount > 0,
-						imageCount,
-						prompt: params.prompt,
-						timestamp: params.timestamp,
-						frames: params.frames,
-						duration: result.duration,
-						mode,
-						mimeType: result.mimeType,
-						status: result.status,
-						totalBytes: slice.totalBytes,
-						totalLines: slice.totalLines,
-						shownBytes: slice.shownBytes,
-						shownLines: slice.shownLines,
-					},
-				};
-			}
-
-			// Answers are generated, not stored, so they must be shown here in full up to the output limit.
-			let budget = mode === "answer" ? getMaxInlineContentChars() : 0;
-			let output = mode === "answer" ? "## Page answers\n" : "## Fetched URLs\n\n";
-			for (const { url, title, content, error } of presentedResults) {
-				if (mode !== "answer") {
-					output += error
-						? `- ${url}: Error - ${error}\n`
-						: `- ${title || url} (${content.length} chars)\n`;
-				} else if (error) {
-					output += `\n### ${url}\nError: ${error}\n`;
-				} else {
-					const shown = content.slice(0, budget);
-					budget -= shown.length;
-					const marker =
-						shown.length === content.length
-							? ""
-							: `\n[answer ${shown.length ? "truncated at the output limit;" : "omitted; earlier answers used the output limit,"} fetch fewer URLs per call for complete answers]`;
-					output += `\n### ${title || url}\n${shown}${marker}\n`;
-				}
-			}
-			const retrievalHint =
-				mode === "answer"
-					? `Stored content is the original source pages, not the answers. Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0, offset: 0 }) to read the first source; urlIndex follows the order above.`
-					: `Use ${toolNames.getSearchContent}({ responseId: "${responseId}", urlIndex: 0 }) to retrieve bounded content slices.`;
-			output += storedContent
-				? getSearchContentEnabled
-					? `\n---\n${retrievalHint}`
-					: "\n---\nContent retrieval is not registered."
-				: "\n---\nAuthenticated fetch cache is off; repeat the fetch to read content.";
-
-			return {
-				...(successful === 0 ? { isError: true } : {}),
-				content: [{ type: "text", text: output }],
-				structuredContent,
-				details: {
-					urls: urlList,
-					urlCount: urlList.length,
-					successful,
-					totalChars,
-					...(storedContent ? { responseId } : {}),
-				},
+			const storedResponseId = storedContent ? responseId : null;
+			const presentation: FetchPresentation = {
+				mode,
+				getSearchContentTool: getSearchContentEnabled ? toolNames.getSearchContent : null,
+				responseId: storedResponseId,
+				maxChars: getMaxInlineContentChars(),
+				urlList,
+				structuredContent: fetchStructuredContent(storedResponseId, presentedResults),
 			};
+			return urlList.length === 1
+				? presentSingleFetch(presentation, presentedResults[0], params)
+				: presentFetchedUrls(presentation, presentedResults);
 		});
 	}
 
-	async function getSearchContent(rawParams: RawGetSearchContentParams): Promise<WebToolResult> {
-		const maxInlineContentChars = settings.maxInlineContentChars;
-		const params = normalizeGetSearchContentParams(rawParams);
-		if (params.findMode !== undefined && params.findText === undefined) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `findMode ${formatInputValue(params.findMode)} requires findText; provide findText or omit findMode.`,
-					},
-				],
-				details: { error: "findMode requires findText" },
-			};
-		}
-		const data = getResult(params.responseId);
-		if (!data) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `Error: No stored results for responseId ${formatInputValue(params.responseId)}. Use a responseId returned by ${storedContentSources}.`,
-					},
-				],
-				details: { error: "Not found", responseId: params.responseId },
-			};
-		}
+	function storedContentError(text: string, details: Record<string, unknown>): WebToolResult {
+		return { content: [{ type: "text", text }], details };
+	}
 
-		if (data.type === "research") {
-			const artifact = getResearchArtifact(params.responseId);
-			if (!artifact) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Error: stored research artifact for responseId ${formatInputValue(params.responseId)} was not found. Use a responseId returned by ${storedContentSources}.`,
-						},
-					],
-					details: { error: "Artifact not found", responseId: params.responseId },
-				};
-			}
-			const serialized = JSON.stringify(artifact, null, 2);
-			if (params.findText !== undefined) {
-				try {
-					const found = findContent(
-						serialized,
-						normalizeFindQueries(params.findText),
-						params.findMode ?? "case-insensitive",
-					);
-					const { text, ...findDetails } = found;
-					return {
-						content: [{ type: "text", text }],
-						details: {
-							responseId: artifact.id,
-							type: "research",
-							contentLength: serialized.length,
-							findMode: params.findMode ?? "case-insensitive",
-							...findDetails,
-						},
-					};
-				} catch (err) {
-					const error = err instanceof Error ? err.message : String(err);
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Unable to find ${formatInputValue(params.findText)} in research artifact for responseId ${formatInputValue(params.responseId)}: ${error}. Check findText and use a supported findMode.`,
-							},
-						],
-						details: { error, responseId: params.responseId, type: "research" },
-					};
-				}
-			}
-			const offset = params.offset ?? 0;
-			const limit = params.limit ?? maxInlineContentChars;
-			if (!Number.isInteger(offset) || offset < 0) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid offset: received ${formatInputValue(offset)} for responseId ${formatInputValue(params.responseId)}; offset must be a non-negative integer. Use 0 or a larger integer.`,
-						},
-					],
-					details: { error: "Invalid offset", offset },
-				};
-			}
-			if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid limit: received ${formatInputValue(limit)} for responseId ${formatInputValue(params.responseId)}; limit must be an integer from 1 to ${maxInlineContentChars}. Use a value in that range.`,
-						},
-					],
-					details: { error: "Invalid limit", limit, maxLimit: maxInlineContentChars },
-				};
-			}
-			if (offset > serialized.length) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Offset ${offset} is out of range for responseId ${formatInputValue(params.responseId)}. Received offset ${offset}; valid range is 0-${serialized.length}. Use an offset within that range.`,
-						},
-					],
-					details: { error: "Offset out of range", offset, contentLength: serialized.length },
-				};
-			}
-			const { endOffset, text } = sliceWithContinuation(
-				serialized,
-				offset,
-				limit,
-				maxInlineContentChars,
-				(end) =>
-					`\n\n---\nShowing chars ${offset}-${end} of ${serialized.length}. Use ${toolNames.getSearchContent}({ responseId: "${artifact.id}", offset: ${end}, limit: ${limit} }) for the next slice.`,
+	/** One page of stored content: the requested window plus the output ceiling the
+	 * continuation hint has to fit into. */
+	interface StoredContentPage {
+		offset: number;
+		limit: number;
+		maxChars: number;
+	}
+
+	/** What get_search_content selected out of a stored result. Searching and paging only
+	 * need the text, the labels the messages use, and the details the result carries; they
+	 * never care which tool stored it. */
+	interface StoredContentSelection {
+		text: string;
+		details: Record<string, unknown>;
+		errorDetails: Record<string, unknown>;
+		/** Names the selection in offset and limit messages. */
+		target: string;
+		/** Names the selection in out-of-range messages. */
+		rangeTarget: string;
+		/** Names the selection in find errors. */
+		findTarget: string;
+		/** Shown before found text (the fetch page heading). */
+		heading?: string;
+		renderPage(page: StoredContentPage): { text: string; endOffset: number };
+	}
+
+	/** Selectors return either the selection or the tool result explaining why it is unavailable. */
+	function isToolResult<T extends object>(value: T | WebToolResult): value is WebToolResult {
+		return "content" in value;
+	}
+
+	function selectResearchArtifact(
+		params: GetSearchContentParams,
+	): StoredContentSelection | WebToolResult {
+		const artifact = getResearchArtifact(params.responseId);
+		if (!artifact)
+			return storedContentError(
+				`Error: stored research artifact for responseId ${formatInputValue(params.responseId)} was not found. Use a responseId returned by ${storedContentSources}.`,
+				{ error: "Artifact not found", responseId: params.responseId },
 			);
-			const hasMore = endOffset < serialized.length;
-			return {
-				content: [{ type: "text", text }],
-				details: {
-					responseId: artifact.id,
-					type: "research",
-					contentLength: serialized.length,
-					offset,
-					limit,
-					returnedChars: endOffset - offset,
-					nextOffset: hasMore ? endOffset : null,
-					truncated: hasMore,
-				},
-			};
-		}
-
-		if (data.type === "search" && data.queries) {
-			let queryData: QueryResultData | undefined;
-
-			if (params.query !== undefined) {
-				queryData = data.queries.find((q) => q.query === params.query);
-				if (!queryData) {
-					const available = data.queries.map((q) => `"${q.query}"`).join(", ");
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Query ${formatInputValue(params.query)} was not found for responseId ${formatInputValue(params.responseId)}. Received query=${formatInputValue(params.query)}. Available queries: ${available || "none"}. Use one of the available queries or queryIndex.`,
-							},
-						],
-						details: { error: "Query not found" },
-					};
-				}
-			} else if (params.queryIndex !== undefined) {
-				queryData = data.queries[params.queryIndex];
-				if (!queryData) {
-					const available = data.queries.map((q, i) => `${i}: "${q.query}"`).join(", ");
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Query index ${formatInputValue(params.queryIndex)} is out of range for responseId ${formatInputValue(params.responseId)}. Received queryIndex=${formatInputValue(params.queryIndex)}; valid indexes are 0-${data.queries.length - 1}. Available queries: ${available || "none"}. Use one of the available indexes.`,
-							},
-						],
-						details: { error: "Index out of range" },
-					};
-				}
-			} else {
-				const available = data.queries.map((q, i) => `${i}: "${q.query}"`).join(", ");
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Specify query or queryIndex for responseId ${formatInputValue(params.responseId)}. Available queries: ${available || "none"}.`,
-						},
-					],
-					details: { error: "No query specified" },
-				};
-			}
-
-			if (queryData.error) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Error retrieving query ${formatInputValue(queryData.query)} from responseId ${formatInputValue(params.responseId)}: ${queryData.error}. Check the stored search result and retry with another query or queryIndex if needed.`,
-						},
-					],
-					details: { error: queryData.error, query: queryData.query },
-				};
-			}
-
-			const fullResults = formatFullResults(queryData);
-			if (params.findText !== undefined) {
-				try {
-					const found = findContent(
-						fullResults,
-						normalizeFindQueries(params.findText),
-						params.findMode ?? "case-insensitive",
-					);
-					const { text, ...findDetails } = found;
-					return {
-						content: [{ type: "text", text }],
-						details: {
-							responseId: params.responseId,
-							query: queryData.query,
-							resultCount: queryData.results.length,
-							contentLength: fullResults.length,
-							findMode: params.findMode ?? "case-insensitive",
-							...findDetails,
-						},
-					};
-				} catch (err) {
-					const error = err instanceof Error ? err.message : String(err);
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Unable to find ${formatInputValue(params.findText)} in query ${formatInputValue(queryData.query)} for responseId ${formatInputValue(params.responseId)}: ${error}. Check findText and use a supported findMode.`,
-							},
-						],
-						details: { error, query: queryData.query },
-					};
-				}
-			}
-
-			const offset = params.offset ?? 0;
-			const limit = params.limit ?? maxInlineContentChars;
-			if (!Number.isInteger(offset) || offset < 0) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid offset: received ${formatInputValue(offset)} for query ${formatInputValue(queryData.query)}; offset must be a non-negative integer. Use 0 or a larger integer.`,
-						},
-					],
-					details: { error: "Invalid offset", offset },
-				};
-			}
-			if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid limit: received ${formatInputValue(limit)} for query ${formatInputValue(queryData.query)}; limit must be an integer from 1 to ${maxInlineContentChars}. Use a value in that range.`,
-						},
-					],
-					details: { error: "Invalid limit", limit, maxLimit: maxInlineContentChars },
-				};
-			}
-			if (offset > fullResults.length) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Offset ${offset} is out of range for query ${formatInputValue(queryData.query)} in responseId ${formatInputValue(params.responseId)}. Received offset ${offset}; valid range is 0-${fullResults.length}. Use an offset within that range.`,
-						},
-					],
-					details: { error: "Offset out of range", offset, contentLength: fullResults.length },
-				};
-			}
-			const queryIndex = data.queries.indexOf(queryData);
-			const { endOffset, text } = sliceWithContinuation(
-				fullResults,
-				offset,
-				limit,
-				maxInlineContentChars,
-				(end) =>
-					`\n\n---\nShowing chars ${offset}-${end} of ${fullResults.length}. Use ${toolNames.getSearchContent}({ responseId: "${params.responseId}", queryIndex: ${queryIndex}, offset: ${end}, limit: ${limit} }) for the next slice.`,
-			);
-			const returnedChars = endOffset - offset;
-			const hasMore = endOffset < fullResults.length;
-			return {
-				content: [{ type: "text", text }],
-				details: {
-					responseId: params.responseId,
-					query: queryData.query,
-					resultCount: queryData.results.length,
-					contentLength: fullResults.length,
-					offset,
-					limit,
-					returnedChars,
-					nextOffset: hasMore ? endOffset : null,
-					truncated: hasMore,
-				},
-			};
-		}
-
-		if (data.type === "fetch" && data.urls) {
-			let urlData: ExtractedContent | undefined;
-			let selectedUrlIndex = -1;
-
-			if (params.url !== undefined) {
-				selectedUrlIndex = data.urls.findIndex((u) => u.url === params.url);
-				urlData = data.urls[selectedUrlIndex];
-				if (!urlData) {
-					const available = data.urls.map((u) => u.url).join("\n  ");
-					return {
-						content: [
-							{
-								type: "text",
-								text: `URL ${formatInputValue(params.url)} was not found for responseId ${formatInputValue(params.responseId)}. Received url=${formatInputValue(params.url)}. Available URLs:\n  ${available || "  none"}\nUse one of the available URLs or urlIndex.`,
-							},
-						],
-						details: { error: "URL not found" },
-					};
-				}
-			} else if (params.urlIndex !== undefined) {
-				selectedUrlIndex = params.urlIndex;
-				urlData = data.urls[selectedUrlIndex];
-				if (!urlData) {
-					const available = data.urls.map((u, i) => `${i}: ${u.url}`).join("\n  ");
-					return {
-						content: [
-							{
-								type: "text",
-								text: `URL index ${formatInputValue(params.urlIndex)} is out of range for responseId ${formatInputValue(params.responseId)}. Received urlIndex=${formatInputValue(params.urlIndex)}; valid indexes are 0-${data.urls.length - 1}. Available URLs:\n  ${available || "  none"}\nUse one of the available indexes.`,
-							},
-						],
-						details: { error: "Index out of range" },
-					};
-				}
-			} else if (data.urls.length === 1) {
-				// Single stored URL: default to it so calls that omit url and urlIndex
-				// (common with findText on single-URL fetches) succeed without a retry.
-				selectedUrlIndex = 0;
-				urlData = data.urls[0];
-				if (!urlData) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `No stored URL data for responseId ${formatInputValue(params.responseId)}.`,
-							},
-						],
-						details: { error: "No URL data" },
-					};
-				}
-			} else {
-				const available = data.urls.map((u, i) => `${i}: ${u.url}`).join("\n  ");
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Specify url or urlIndex for responseId ${formatInputValue(params.responseId)}. Available URLs:\n  ${available || "  none"}`,
-						},
-					],
-					details: { error: "No URL specified" },
-				};
-			}
-
-			if (urlData.error) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Error retrieving URL ${formatInputValue(urlData.url)} from responseId ${formatInputValue(params.responseId)}: ${urlData.error}. Check the stored fetch result and retry with another URL or urlIndex if needed.`,
-						},
-					],
-					details: { error: urlData.error, url: urlData.url },
-				};
-			}
-
-			if (params.findText !== undefined) {
-				try {
-					const found = findContent(
-						urlData.content,
-						normalizeFindQueries(params.findText),
-						params.findMode ?? "case-insensitive",
-					);
-					const { text, ...findDetails } = found;
-					return {
-						content: [{ type: "text", text: `# ${urlData.title || urlData.url}\n\n${text}` }],
-						details: {
-							url: urlData.url,
-							title: urlData.title,
-							contentLength: urlData.content.length,
-							findMode: params.findMode ?? "case-insensitive",
-							...findDetails,
-						},
-					};
-				} catch (err) {
-					const error = err instanceof Error ? err.message : String(err);
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Unable to find ${formatInputValue(params.findText)} in URL ${formatInputValue(urlData.url)} for responseId ${formatInputValue(params.responseId)}: ${error}. Check findText and use a supported findMode.`,
-							},
-						],
-						details: { error, url: urlData.url },
-					};
-				}
-			}
-
-			const offset = params.offset ?? 0;
-			const limit = params.limit ?? maxInlineContentChars;
-			if (!Number.isInteger(offset) || offset < 0) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid offset: received ${formatInputValue(offset)} for URL ${formatInputValue(urlData.url)}; offset must be a non-negative integer. Use 0 or a larger integer.`,
-						},
-					],
-					details: { error: "Invalid offset", offset },
-				};
-			}
-			if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Invalid limit: received ${formatInputValue(limit)} for URL ${formatInputValue(urlData.url)}; limit must be an integer from 1 to ${maxInlineContentChars}. Use a value in that range.`,
-						},
-					],
-					details: { error: "Invalid limit", limit, maxLimit: maxInlineContentChars },
-				};
-			}
-			if (offset > urlData.content.length) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Offset ${offset} is out of range for URL ${formatInputValue(urlData.url)} in responseId ${formatInputValue(params.responseId)}. Received offset ${offset}; valid range is 0-${urlData.content.length}. Use an offset within that range.`,
-						},
-					],
-					details: { error: "Offset out of range", offset, contentLength: urlData.content.length },
-				};
-			}
-
-			const endOffset = pageEnd(
-				urlData.content,
-				offset,
-				Math.min(offset + limit, urlData.content.length),
-			);
-			const contentSlice = urlData.content.slice(offset, endOffset);
-			const hasMore = endOffset < urlData.content.length;
-			let text = `# ${urlData.title || urlData.url}\n\n${contentSlice}`;
-			if (hasMore || offset > 0) {
-				text += `\n\n---\nShowing chars ${offset}-${endOffset} of ${urlData.content.length}.`;
-				if (hasMore) {
-					text += ` Use ${toolNames.getSearchContent}({ responseId: "${params.responseId}", urlIndex: ${selectedUrlIndex}, offset: ${endOffset}, limit: ${limit} }) for the next slice.`;
-				}
-			}
-
-			return {
-				content: [{ type: "text", text }],
-				details: {
-					url: urlData.url,
-					title: urlData.title,
-					contentLength: urlData.content.length,
-					offset,
-					limit,
-					returnedChars: contentSlice.length,
-					nextOffset: hasMore ? endOffset : null,
-					truncated: hasMore,
-				},
-			};
-		}
-
+		const text = JSON.stringify(artifact, null, 2);
+		const target = `responseId ${formatInputValue(params.responseId)}`;
 		return {
-			content: [
-				{
-					type: "text",
-					text: `Invalid stored data for responseId ${formatInputValue(params.responseId)}: received type ${formatInputValue(data.type)}. Use a responseId returned by ${storedContentSources}.`,
-				},
-			],
-			details: { error: "Invalid data" },
+			text,
+			details: { responseId: artifact.id, type: "research", contentLength: text.length },
+			errorDetails: { responseId: params.responseId, type: "research" },
+			target,
+			rangeTarget: target,
+			findTarget: `research artifact for ${target}`,
+			renderPage: ({ offset, limit, maxChars }) => {
+				const page = sliceWithContinuation(
+					text,
+					offset,
+					limit,
+					maxChars,
+					(end) =>
+						`\n\n---\nShowing chars ${offset}-${end} of ${text.length}. Use ${toolNames.getSearchContent}({ responseId: "${artifact.id}", offset: ${end}, limit: ${limit} }) for the next slice.`,
+				);
+				return { text: page.text, endOffset: page.endOffset };
+			},
 		};
+	}
+
+	/** Resolves the query or queryIndex a call names, or the error explaining why it cannot. */
+	function resolveStoredQuery(
+		params: GetSearchContentParams,
+		queries: QueryResultData[],
+	): { index: number; entry: QueryResultData } | WebToolResult {
+		const indexed = queries.map((entry, index) => `${index}: "${entry.query}"`).join(", ");
+		if (params.query !== undefined) {
+			const index = queries.findIndex((entry) => entry.query === params.query);
+			const entry = queries[index];
+			if (!entry)
+				return storedContentError(
+					`Query ${formatInputValue(params.query)} was not found for responseId ${formatInputValue(params.responseId)}. Received query=${formatInputValue(params.query)}. Available queries: ${queries.map((candidate) => `"${candidate.query}"`).join(", ") || "none"}. Use one of the available queries or queryIndex.`,
+					{ error: "Query not found" },
+				);
+			return { index, entry };
+		}
+		if (params.queryIndex !== undefined) {
+			const entry = queries[params.queryIndex];
+			if (!entry)
+				return storedContentError(
+					`Query index ${formatInputValue(params.queryIndex)} is out of range for responseId ${formatInputValue(params.responseId)}. Received queryIndex=${formatInputValue(params.queryIndex)}; valid indexes are 0-${queries.length - 1}. Available queries: ${indexed || "none"}. Use one of the available indexes.`,
+					{ error: "Index out of range" },
+				);
+			return { index: params.queryIndex, entry };
+		}
+		return storedContentError(
+			`Specify query or queryIndex for responseId ${formatInputValue(params.responseId)}. Available queries: ${indexed || "none"}.`,
+			{ error: "No query specified" },
+		);
+	}
+
+	function selectSearchQuery(
+		params: GetSearchContentParams,
+		queries: QueryResultData[],
+	): StoredContentSelection | WebToolResult {
+		const resolved = resolveStoredQuery(params, queries);
+		if (isToolResult(resolved)) return resolved;
+		const { index, entry } = resolved;
+		if (entry.error)
+			return storedContentError(
+				`Error retrieving query ${formatInputValue(entry.query)} from responseId ${formatInputValue(params.responseId)}: ${entry.error}. Check the stored search result and retry with another query or queryIndex if needed.`,
+				{ error: entry.error, query: entry.query },
+			);
+		const text = formatFullResults(entry);
+		const target = `query ${formatInputValue(entry.query)}`;
+		return {
+			text,
+			details: {
+				responseId: params.responseId,
+				query: entry.query,
+				resultCount: entry.results.length,
+				contentLength: text.length,
+			},
+			errorDetails: { query: entry.query },
+			target,
+			rangeTarget: `${target} in responseId ${formatInputValue(params.responseId)}`,
+			findTarget: `${target} for responseId ${formatInputValue(params.responseId)}`,
+			renderPage: ({ offset, limit, maxChars }) => {
+				const page = sliceWithContinuation(
+					text,
+					offset,
+					limit,
+					maxChars,
+					(end) =>
+						`\n\n---\nShowing chars ${offset}-${end} of ${text.length}. Use ${toolNames.getSearchContent}({ responseId: "${params.responseId}", queryIndex: ${index}, offset: ${end}, limit: ${limit} }) for the next slice.`,
+				);
+				return { text: page.text, endOffset: page.endOffset };
+			},
+		};
+	}
+
+	/** Resolves the url or urlIndex a call names, or the error explaining why it cannot. */
+	function resolveStoredUrl(
+		params: GetSearchContentParams,
+		urls: ExtractedContent[],
+	): { index: number; entry: ExtractedContent } | WebToolResult {
+		const indexed = urls.map((entry, index) => `${index}: ${entry.url}`).join("\n  ");
+		if (params.url !== undefined) {
+			const index = urls.findIndex((entry) => entry.url === params.url);
+			const entry = urls[index];
+			if (!entry)
+				return storedContentError(
+					`URL ${formatInputValue(params.url)} was not found for responseId ${formatInputValue(params.responseId)}. Received url=${formatInputValue(params.url)}. Available URLs:\n  ${urls.map((candidate) => candidate.url).join("\n  ") || "  none"}\nUse one of the available URLs or urlIndex.`,
+					{ error: "URL not found" },
+				);
+			return { index, entry };
+		}
+		if (params.urlIndex !== undefined) {
+			const entry = urls[params.urlIndex];
+			if (!entry)
+				return storedContentError(
+					`URL index ${formatInputValue(params.urlIndex)} is out of range for responseId ${formatInputValue(params.responseId)}. Received urlIndex=${formatInputValue(params.urlIndex)}; valid indexes are 0-${urls.length - 1}. Available URLs:\n  ${indexed}\nUse one of the available indexes.`,
+					{ error: "Index out of range" },
+				);
+			return { index: params.urlIndex, entry };
+		}
+		// A single stored URL is the obvious target, so calls that omit url and urlIndex
+		// (common with findText on single-URL fetches) succeed without a retry.
+		if (urls.length === 1 && urls[0]) return { index: 0, entry: urls[0] };
+		return storedContentError(
+			`Specify url or urlIndex for responseId ${formatInputValue(params.responseId)}. Available URLs:\n  ${indexed}`,
+			{ error: "No URL specified" },
+		);
+	}
+
+	function selectFetchUrl(
+		params: GetSearchContentParams,
+		urls: ExtractedContent[],
+	): StoredContentSelection | WebToolResult {
+		const resolved = resolveStoredUrl(params, urls);
+		if (isToolResult(resolved)) return resolved;
+		const { index, entry } = resolved;
+		if (entry.error)
+			return storedContentError(
+				`Error retrieving URL ${formatInputValue(entry.url)} from responseId ${formatInputValue(params.responseId)}: ${entry.error}. Check the stored fetch result and retry with another URL or urlIndex if needed.`,
+				{ error: entry.error, url: entry.url },
+			);
+		const content = entry.content;
+		const heading = `# ${entry.title || entry.url}\n\n`;
+		const target = `URL ${formatInputValue(entry.url)}`;
+		const inResponse = `${target} in responseId ${formatInputValue(params.responseId)}`;
+		return {
+			text: content,
+			heading,
+			details: { url: entry.url, title: entry.title, contentLength: content.length },
+			errorDetails: { url: entry.url },
+			target,
+			rangeTarget: inResponse,
+			findTarget: `${target} for responseId ${formatInputValue(params.responseId)}`,
+			renderPage: ({ offset, limit }) => {
+				const endOffset = pageEnd(content, offset, Math.min(offset + limit, content.length));
+				const hasMore = endOffset < content.length;
+				let text = `${heading}${content.slice(offset, endOffset)}`;
+				if (hasMore || offset > 0) {
+					text += `\n\n---\nShowing chars ${offset}-${endOffset} of ${content.length}.`;
+					if (hasMore)
+						text += ` Use ${toolNames.getSearchContent}({ responseId: "${params.responseId}", urlIndex: ${index}, offset: ${endOffset}, limit: ${limit} }) for the next slice.`;
+				}
+				return { text, endOffset };
+			},
+		};
+	}
+
+	function selectStoredContent(
+		params: GetSearchContentParams,
+		data: StoredSearchData,
+	): StoredContentSelection | WebToolResult {
+		if (data.type === "research") return selectResearchArtifact(params);
+		if (data.type === "search" && data.queries) return selectSearchQuery(params, data.queries);
+		if (data.type === "fetch" && data.urls) return selectFetchUrl(params, data.urls);
+		return storedContentError(
+			`Invalid stored data for responseId ${formatInputValue(params.responseId)}: received type ${formatInputValue(data.type)}. Use a responseId returned by ${storedContentSources}.`,
+			{ error: "Invalid data" },
+		);
+	}
+
+	/** Finds or pages the selected content; every stored result shape shares this step. */
+	function readStoredContent(
+		params: GetSearchContentParams,
+		selection: StoredContentSelection,
+	): WebToolResult {
+		const maxInlineContentChars = settings.maxInlineContentChars;
+		if (params.findText !== undefined) {
+			const findMode = params.findMode ?? "case-insensitive";
+			try {
+				const { text, ...findDetails } = findContent(
+					selection.text,
+					normalizeFindQueries(params.findText),
+					findMode,
+				);
+				return {
+					content: [{ type: "text", text: `${selection.heading ?? ""}${text}` }],
+					details: { ...selection.details, findMode, ...findDetails },
+				};
+			} catch (err) {
+				const error = err instanceof Error ? err.message : String(err);
+				return storedContentError(
+					`Unable to find ${formatInputValue(params.findText)} in ${selection.findTarget}: ${error}. Check findText and use a supported findMode.`,
+					{ error, ...selection.errorDetails },
+				);
+			}
+		}
+		const offset = params.offset ?? 0;
+		const limit = params.limit ?? maxInlineContentChars;
+		if (!Number.isInteger(offset) || offset < 0)
+			return storedContentError(
+				`Invalid offset: received ${formatInputValue(offset)} for ${selection.target}; offset must be a non-negative integer. Use 0 or a larger integer.`,
+				{ error: "Invalid offset", offset },
+			);
+		if (!Number.isInteger(limit) || limit <= 0 || limit > maxInlineContentChars)
+			return storedContentError(
+				`Invalid limit: received ${formatInputValue(limit)} for ${selection.target}; limit must be an integer from 1 to ${maxInlineContentChars}. Use a value in that range.`,
+				{ error: "Invalid limit", limit, maxLimit: maxInlineContentChars },
+			);
+		if (offset > selection.text.length)
+			return storedContentError(
+				`Offset ${offset} is out of range for ${selection.rangeTarget}. Received offset ${offset}; valid range is 0-${selection.text.length}. Use an offset within that range.`,
+				{ error: "Offset out of range", offset, contentLength: selection.text.length },
+			);
+		const { text, endOffset } = selection.renderPage({
+			offset,
+			limit,
+			maxChars: maxInlineContentChars,
+		});
+		const hasMore = endOffset < selection.text.length;
+		return {
+			content: [{ type: "text", text }],
+			details: {
+				...selection.details,
+				offset,
+				limit,
+				returnedChars: endOffset - offset,
+				nextOffset: hasMore ? endOffset : null,
+				truncated: hasMore,
+			},
+		};
+	}
+
+	async function getSearchContent(rawParams: RawGetSearchContentParams): Promise<WebToolResult> {
+		const params = normalizeGetSearchContentParams(rawParams);
+		if (params.findMode !== undefined && params.findText === undefined)
+			return storedContentError(
+				`findMode ${formatInputValue(params.findMode)} requires findText; provide findText or omit findMode.`,
+				{ error: "findMode requires findText" },
+			);
+		const data = getResult(params.responseId);
+		if (!data)
+			return storedContentError(
+				`Error: No stored results for responseId ${formatInputValue(params.responseId)}. Use a responseId returned by ${storedContentSources}.`,
+				{ error: "Not found", responseId: params.responseId },
+			);
+		const selection = selectStoredContent(params, data);
+		return isToolResult(selection) ? selection : readStoredContent(params, selection);
 	}
 
 	return {

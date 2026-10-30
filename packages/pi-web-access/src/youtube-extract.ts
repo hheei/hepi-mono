@@ -141,7 +141,7 @@ export async function extractYouTube(
 	return { url, title: "", content: "", error };
 }
 
-type StreamInfo = { streamUrl: string; duration: number | null };
+export type StreamInfo = { streamUrl: string; duration: number | null };
 type StreamResult = StreamInfo | { error: string };
 
 function mapYtDlpError(err: unknown): string {
