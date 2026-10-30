@@ -18,7 +18,7 @@
 
 ### 原生背景外壳（已实现）
 
-收起的整个 collapse views 是一个 Pi 原生语义背景块：`ToolGroupView` 用 `Box`（`paddingX=0` 不重复工具自己的 `outputPad`，`paddingY=1` 让背景在 header 上方与 footer 下方各多一行）包住 header、分类行与 footer，并在 header 下、footer 上各画一条 `borderMuted` 组级横向 rail；组前空行留在 Box 外，所以不着色。底色取 block 最后一个有状态成员（组外尾项也算，因为它属于同一 block）：running/streaming → `toolPendingBg`，error → `toolErrorBg`，其余 → `toolSuccessBg`。这是「最后事实」而非「最坏事实」，一个旧失败不会让整个 block 一直红底。block 结算后该底色再保持 5 秒，然后回到中性底色 `toolPendingBg`（Pi 主题里唯一的中性背景槽，chroma 3–5%），因此历史 block 不会堆成彩色面板，也不会变成没有 panel 的裸行。局部分类展开仍在同一个 Box 内，因此保留组底色。`Tool backgrounds` 设置打开后，工具改用 Pi 原生着色（成功 `toolSuccessBg`、失败 `toolErrorBg`、进行中 `toolPendingBg`，上下各一行 padding，去掉 `▎` 前导导轨），组外壳仍保留自己的 block 底色，工具底色只覆盖工具自己的行，reset 后回到最内层底色。整组展开（标题或 Ctrl+O）时不套 Box、也不画组级 rail：外层透明，工具与 thinking run 不填自身背景，notice 的 `customMessageBg` 仍由 `MessageView` 拥有。工具自身的 `▎` 导轨、正文、copy 与折叠层级不变。设计记录见 [12：原生背景块](../plans/pi-ext-ui-rendering-tickets/12-native-background-blocks.md)。
+收起的整个 collapse views 是一个 Pi 原生语义背景块：`ToolGroupView` 用 `Box`（`paddingX=0` 不重复工具自己的 `outputPad`，`paddingY=1` 让背景在 header 上方与 footer 下方各多一行）包住 header、分类行与 footer，并在 header 下、footer 上各画一条 `borderMuted` 组级横向 rail；组前空行留在 Box 外，所以不着色。底色取 block 最后一个有状态成员（组外尾项也算，因为它属于同一 block）：running/streaming → `toolPendingBg`，error → `toolErrorBg`，其余 → `toolSuccessBg`。这是「最后事实」而非「最坏事实」，一个旧失败不会让整个 block 一直红底。block 结算后该底色再保持 5 秒，然后回到中性底色 `toolPendingBg`（Pi 主题里唯一的中性背景槽，chroma 3–5%），因此历史 block 不会堆成彩色面板，也不会变成没有 panel 的裸行。局部分类展开仍在同一个 Box 内，因此保留组底色。`Tool backgrounds` 设置打开后，工具改用 Pi 原生着色（成功 `toolSuccessBg`、失败 `toolErrorBg`、进行中 `toolPendingBg`，上下各一行 padding，去掉 `▎` 前导导轨），组外壳仍保留自己的 block 底色，工具底色只覆盖工具自己的行，reset 后回到最内层底色。整组展开（标题或 Ctrl+O）时不套 Box、也不画组级 rail：外层透明，默认模式下工具与 thinking run 不填自身背景，notice 的 `customMessageBg` 始终由 `MessageView` 拥有并在上下各留一行同色 padding。`Tool backgrounds` 打开后，工具与 notice 各自成块并带自己的 padding，thinking run 仍是原生正文：不填背景、不加 padding，只保留块间那一行空行。工具自身的 `▎` 导轨、正文、copy 与折叠层级不变。设计记录见 [12：原生背景块](../plans/pi-ext-ui-rendering-tickets/12-native-background-blocks.md)。
 
 ### 1. 用户可见目标
 
@@ -31,7 +31,7 @@
 ▉▸ thinking x2 · 800 tokens
 ▉▸ read ×7 · grep ×12
 ▉────────────────────────────────
-▉requests ×3 · IN 24k · OUT 1.5k · CH 75%
+▉requests ×3 · ↑24k · ↓1.5k · R20k · CH75.0%
 
 ◐ codemode
 ```
@@ -58,10 +58,10 @@ footer 是组内最后一行的**固定统计行**，运行态、完成态与被
 ▉▸ notice · memory ×2 · …
 ▉▸ thinking x2 · 800 tokens
 ▉▸ read ×7 · grep ×12
-▉requests ×3 · IN 24k · OUT 1.5k · CH 75%
+▉requests ×3 · ↑24k · ↓1.5k · R20k · CH75.0%
 ```
 
-footer 的 requests/IN/OUT/CH 与 header calls 覆盖同一个事实集合：本 block 的全部顶层单元，含组外尾项，也含正文/异常这类不参与聚合的 assistant 请求。IN 是同一集合 `input` 之和、OUT 是 `output` 之和，不把 `cacheRead`/`cacheWrite` 混入 IN；同一请求的 partial/final 按组件身份只算一次。footer 不删除或隐藏原始内容，检查路径仍是分类详情、原始视图与 Ctrl+O。原生打断内容保持原位；每个新 block 从首次可观测成员开始独立计时。
+footer 的 requests 与 ↑/↓/R/W/CH 和 header calls 覆盖同一个事实集合：本 block 的全部顶层单元，含组外尾项，也含正文/异常这类不参与聚合的 assistant 请求。token 部分沿用 Pi 原生 footer 的符号与字段：`↑input`、`↓output`、`RcacheRead`、`WcacheWrite`、`CH命中率`，各自只在该字段大于 0 时出现（没有任何测到的 token 时显示 `↑— · ↓—`）；同一请求的 partial/final 按组件身份只算一次。footer 不删除或隐藏原始内容，检查路径仍是分类详情、原始视图与 Ctrl+O。原生打断内容保持原位；每个新 block 从首次可观测成员开始独立计时。
 
 ### 2. 三个不同的边界
 
@@ -173,7 +173,7 @@ footer 的 requests/IN/OUT/CH 与 header calls 覆盖同一个事实集合：本
 ### D7. 原生 footer 统计与紧凑格式
 
 - 统计范围为该 block 归属的记录，不是整个 session/run；公式、usage entry 类型与格式均参考原生 Pi footer。范围是有意缩小，不能把 session 累计值复制到每个 block。
-- 累计 IN 只加 usage.input，不加 cacheRead/cacheWrite；OUT 只加 usage.output，不重复加 Thinking 估算。
+- 累计 `↑` 只加 usage.input，`↓` 只加 usage.output，`R`/`W` 分别加 cacheRead/cacheWrite，不重复加 Thinking 估算；CH 的分母仍是 input + cacheRead + cacheWrite。
 - 沿用原生可计量来源：独立 usage、assistant usage、带 usage 的 toolResult、带 usage 的 branch_summary/compaction。单个记录只计一次，压缩不能让已归属的历史 usage 消失。未归属该 block 的记录不强塞进来。
 - CH 取按原始记录顺序最后一条**测到 prompt** 的 assistant 的 cacheRead 占其 input + cacheRead + cacheWrite 的比例，既非累计加权平均，也非命中请求数比例；其他 usage 不改变该 assistant 的身份。
 - 流式快照可能带全零 usage，那是占位而不是测量：它和缺失 usage 都不清空已知 CH，也不会让 CH 退回 —。真正测到的 prompt 缓存读为零时显示 0%，缺数据才显示 —；两者不共用占位。
@@ -264,18 +264,20 @@ footer 的 requests/IN/OUT/CH 与 header calls 覆盖同一个事实集合：本
 已落地：
 
 - 活动 block 的 `collapse views · 用时 · N calls` header、非空分类行与固定统计 footer；组外壳是原生 `Box` 背景块，header 下与 footer 上各一条组级横向 rail（ticket 12）。
+- 组外尾项顶部对齐：尾项在自己那一帧里保留已显示过的最大行数，内容变短时只在下方补空行，所以块不会因为尾项缩回而下移；尾项拿到最终结果后释放保留高度，交回真实行数。
 - 组外尾项（ticket 04）：只有 transcript 最后一个可见顶层单元留在组外，按原组件 Level 0 显示，组与它之间恰好一个空行；新可见单元到来时旧尾项一次性归组，`agent_end`、resize、主题与纯 usage/状态刷新都不改变归属，并行完成顺序也不重排。尾项是工具、thinking run 或 notice，空 assistant/toolCall 占位不成为尾项。
 - 展开工具分类按工具自身 Level 0 逐项渲染（相邻一项一个空行），容器也由自己的组件绘制，`children`/`childCount` 只参与统计；工具箭头与导轨前的单空格由 `outputPad` 拥有。
 - 展开 thinking 分类为每项一行约 20 个 grapheme 预览（隐藏时）或平铺全文（可见时），点行展开/收起，项间不加空行；notice 的 preview 直接可见，只有 body 可展开，普通 notify 正文只出现一次且无子箭头。
 - 每个 block 从首次可观测实时成员开始单调计时；原生断组冻结当前 block，后续 block 独立起算，agent_end 冻结所有活跃 block；没有可观测起点的恢复历史显示 `—`。ticket 10 补充：重绘、成员变化重建与重新连接宿主均保留已建立的 block 时钟。
 - 容器子调用来自提供者的结构化事实（codemode 的 captured calls、python_eval 的 trace rows），只用于有效调用计数与分类名称统计，不再合成子调用行。ticket 10 起只有观察到最后结果（`isPartial === false` 且有 result）的工具进入计数：schema/args 流、执行开始、partial 结果都不计，容器在其最终结果处用有效子数原子替换父计数。
 - Thinking 的字符估算与逐项预览/全文；`hide-thinking-block` 只决定初始展示形态。Notice 按 `header.kind` 与 notify 级别分类，正文与 preview 由 notice 自己布局。
-- footer 始终是 `requests ×N · IN … · OUT … · CH …`，只有一行、不切回工具状态行。ticket 04 起请求事实按 block 收集而不是按可展示成员收集：正文/异常/仅 toolCall 的 assistant 请求也归入它结束的那个 block，partial→final 按组件身份只算一次，IN/OUT 只累加 input/output，不把 cacheRead/cacheWrite 混入 IN。ticket 10 起 CH 只跟随最后一条测到 prompt 的 assistant：流式零占位与缺失 usage 不清空已知值，测到但缓存读为零时显示 0%。
+- footer 始终是 `requests ×N · ↑… · ↓… · R… · W… · CH…`（字段按 Pi 原生规则省略），只有一行、不切回工具状态行。ticket 04 起请求事实按 block 收集而不是按可展示成员收集：正文/异常/仅 toolCall 的 assistant 请求也归入它结束的那个 block，partial→final 按组件身份只算一次，`↑` 只累加 input、`↓` 只累加 output，`R`/`W` 各自累加对应缓存字段。ticket 10 起 CH 只跟随最后一条测到 prompt 的 assistant：流式零占位与缺失 usage 不清空已知值；block 完全没有缓存活动时不显示 CH（与 Pi 原生一致）。
 - 原始成员视图、Ctrl+O 强制展开、单分类／单详情互斥、切换模式时收起内部项目。ticket 05：展开视图不再画组级 rail、不再丢 footer，header 保留；相邻成员之间显式补一个空行（组件自带的 leading 空行先剥掉），正文内部空行原样保留。
 - ticket 12：收起态是一个 `Box(0,1)` 背景块（header、分类、footer 同一底色），token 取 block 最后事实（`toolPendingBg` / `toolErrorBg` / `toolSuccessBg`），结算后保持 5 秒再回到 `toolPendingBg`；header 下与 footer 上各一条 `borderMuted` 组级 rail；局部分类展开仍在同一个 Box 内。整组展开时外层透明、无组级 rail，工具与 thinking run 不填背景，notice 的 `customMessageBg` 由 `MessageView` 拥有；组层不 strip 子组件 ANSI。`paddingX=0` 避免与工具 `outputPad` 双重缩进；`paddingY=1` 只在组底色内加一行上下留白；组前空行在 Box 之外所以不着色。 底色填充在每个子组件 reset 之后重新开始并补到整行宽度，否则一行里第一个 `\x1b[0m` 之后的文字会失去底色。 工具自身底色是可选项：`Tool backgrounds` 打开后工具用 Pi 原生底色与上下 padding、去掉前导导轨，组外壳保留自己的底色，两者按最内层优先嵌套。
 - thinking run 粒度：连续 thinking block 合成一个成员（`parts` 保留原始组件，`component` 是第一个，身份稳定），段落以空行保留；中间出现工具/正文则分成不同 run。分类计数、预览、全文与成组权重都用 run 粒度。
 - 模块边界：`tool-group-view.ts` 只负责 block 内布局、统计与命中测试，`host-transcript-patch.ts` 只负责 host seam、成员提取与安装/卸载。
 - 语义着色（ticket 06）：词汇与 token 表见 [DESIGN.md](../../DESIGN.md) 的 Semantic color table。工具行由 `formatToolHeaderText` 统一给出 `状态字形 + toolTitle(bold(名称)) + 摘要 + dim(meta)`，摘要语义由拥有该工具的层提供（read 的 accent 路径与 warning 行范围、bash 的 toolTitle+bold 命令），分组不按工具名补色、不合成着色子行；容器看板通过 `NestedCallsView.headerSummary` 复用同一语义。分组 header 与分类标签用 `text`（展开时 `accent`）、rails 用 `borderMuted`、统计仍 `dim`，notice 的 `info` 正文用 `text`。`renderer.ts` 不再 `render(120)` 后去 ANSI 取首行反推原生 call 行。
+- 实时工具的 spinner 占该行的前导槽：live 时显示 200ms 轮换的 `· ✢ ✳ ✶ ✻ ✽`（streaming 用 `muted`、running 用 `accent`），结算后才回到 `▸`/`▾` 折叠 pin，一行不会同时出现两个状态字形。容器（`codemode`、`python_eval`）在生成中和「运行但还没有子调用」时保持 spinner，一旦列出子调用就换回 `▸`。`ToolView` 的缓存键包含当前 spinner 帧，否则 200ms 重绘会命中旧缓存、把动画冻住。
 - 每帧都重新解析 transcript（`rebuild()`）而不是缓存投影：host 没有提供「transcript 已变化」的信号——`Container.addChild` 不触发 invalidate，宿主只调 `requestRender()`，而那与宽度变化、我们自己的重绘无法区分。实测 200 个成员（40 组）每帧 0.100 ms，200 × 20 KB thinking 时 0.241 ms，都低于未分组时的 0.133 ms，因此不为缓存引入可能过期的信号；若将来成为瓶颈，正确做法是 host 暴露 transcript revision，而不是按组件 identity 缓存。
 
 已知缺口（后续单独处理）：

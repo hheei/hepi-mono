@@ -1,7 +1,7 @@
 # pi-ext-ui 渲染修正 Tickets
 
 来源：[只读排查](../pi-ext-ui-rendering-audit.md)。本批取代旧 collapse-views tickets 的冲突行为，不修改旧票的历史完成记录。
-状态：00 已定稿；01–07、09、10、12 已实现并记录验证（未提交、未发布、未建 GitHub issue）；04/05/12 与 thinking run 粒度由本轮实现；08 是剩余验收票。
+状态：00 已定稿；01–07、09、10、12 已实现并随 0.7.0 发布（08 仍未验收）；本轮 0.7.1 补上尾项顶部对齐、原生 footer 字段、spinner 前导槽与原生 surface padding；08 是剩余验收票。
 
 | 票 | 交付 | 依赖 | 状态 |
 | --- | --- | --- | --- |

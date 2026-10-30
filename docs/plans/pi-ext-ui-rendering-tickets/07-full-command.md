@@ -131,7 +131,7 @@
 
 ### 测试
 
-- `payload-parser.test.ts`：请求字节原样保留（含引号、制表符、首尾空白）；全空白请求仍为 `undefined`。
+- `native-tools.test.ts`：请求字节原样保留（含引号、制表符、首尾空白）；全空白请求仍为 `undefined`。
 - `collapsible-tool-frame.test.ts`
   - 顶层 bash：引号、glob、管道、Unicode、>120 列单行、末尾唯一标记 `ZZ_TAIL_07`、控制序列；折叠态只有首行摘要，展开含标记且无 ESC，每行不超过 80 列；copy 与请求字节相等，shift+copy 为请求 + `---` + 输出。
   - codemode live 嵌套 bash：命令长于 70 字符摘要，标记只在展开正文出现；copy 精确；结果里的 `\u001b[32m` 保留，请求里的 `\u001b[31m` 不进入展示。
