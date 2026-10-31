@@ -272,27 +272,25 @@ describe("tail total-height minimum", () => {
 	test.each([
 		false,
 		true,
-	])("colored tool, thinking and notice tails share four rows (grouped=%s)", (grouped) => {
+	])("a tail that can still grow keeps the four-row floor (grouped=%s)", (grouped) => {
 		const f = setup();
 		f.begin();
 		const prefix = grouped ? [assistant(["a", "b"]), f.row("a"), f.row("b")] : [];
 		backgrounds = true;
 		try {
 			for (const width of [30, 120]) {
-				const tool = f.row("tail");
+				const tool = f.row("tail", "read", "ok", false, false);
 				f.chat.children = [...prefix, tool];
 				const native = tool.render(width);
-				expect(native).toHaveLength(5);
-				expect(f.chat.render(width).slice(-5)).toEqual(native);
-				const thinking = assistant([], true, undefined, "one thought");
-				f.chat.children = [...prefix, thinking];
-				expect(f.chat.render(width).slice(-5)).toEqual([...thinking.render(width), "", "", ""]);
-				f.notice("short notice");
+				expect(native.length).toBeLessThanOrEqual(4);
 				const first = f.chat.render(width);
-				expect(first.at(-4)).toContain("short notice");
-				expect(first.slice(-3)).toEqual(["", "", ""]);
+				const tail = first.slice(-4);
+				expect(tail.slice(0, native.length)).toEqual(native);
+				expect(tail.slice(native.length)).toEqual(
+					Array.from({ length: 4 - native.length }, () => ""),
+				);
 				expect(f.chat.render(width)).toEqual(first);
-				for (let y = first.length - 3; y < first.length; y++) {
+				for (let y = first.length - (4 - native.length); y < first.length; y++) {
 					expect(click(f.chat, y, width)?.handled).not.toBe(true);
 				}
 			}
@@ -301,7 +299,7 @@ describe("tail total-height minimum", () => {
 		}
 	});
 
-	test.each([false, true])("one-row tails pad outside the surface (grouped=%s)", (grouped) => {
+	test.each([false, true])("one-row tails pass through without padding (grouped=%s)", (grouped) => {
 		const colored = {
 			...theme,
 			bg: (_token: string, text: string) => `\x1b[44m${text}\x1b[49m`,
@@ -313,16 +311,15 @@ describe("tail total-height minimum", () => {
 		message.addChild(new Spacer(1));
 		message.addChild(createMessageView({ theme: colored, header: { kind: "notice" } }));
 		const thinking = assistant([], true, undefined, "one thought");
+		thinking.setHideThinkingBlock(true);
 		for (const tail of [message, thinking]) {
 			f.chat.children = [...prefix, tail];
 			const native = tail.render(40);
 			const render = vi.spyOn(tail, "render");
 			const first = f.chat.render(40);
 			expect(render).toHaveBeenCalledTimes(1);
-			const expected = tail === thinking ? [...native, ""] : native;
-			expect(first.slice(-expected.length)).toEqual(expected);
+			expect(first.slice(-native.length)).toEqual(native);
 			expect(f.chat.render(40)).toEqual(first);
-			if (tail === thinking) expect(click(f.chat, first.length - 1, 40)?.handled).not.toBe(true);
 			render.mockRestore();
 		}
 	});
@@ -350,9 +347,8 @@ describe("tail total-height minimum", () => {
 					);
 					f.chat.children = [...prefix, assistant(["tail"]), tool];
 					const native = tool.render(40);
-					const expected = count === 1 ? [...native, ""] : native;
 					const first = f.chat.render(40);
-					expect(first.slice(-expected.length)).toEqual(expected);
+					expect(first.slice(-native.length)).toEqual(native);
 					expect(f.chat.render(40)).toEqual(first);
 				}
 			} finally {
@@ -372,16 +368,15 @@ describe("tail total-height minimum", () => {
 		expect(f.chat.render(40).at(-1)).toBe("");
 		f.notice("short notice");
 		const first = f.chat.render(40);
-		expect(first.at(-1)).toBe("");
-		expect(first.at(-2)).toContain("short notice");
+		expect(first.at(-1)).toContain("short notice");
 		expect(f.chat.render(40)).toEqual(first);
 	});
 
-	test("an empty assistant placeholder leaves the preceding visible tail padded", () => {
+	test("an empty assistant placeholder leaves the preceding visible tail", () => {
 		const f = setup();
 		f.notice("visible");
 		f.chat.addChild(assistant(["pending"]));
-		expect(f.chat.render(40).map((row) => row.trimEnd())).toEqual(["", " visible", ""]);
+		expect(f.chat.render(40).map((row) => row.trimEnd())).toEqual(["", " visible"]);
 	});
 
 	test.each([30, 120])("custom notices preserve 1/2/3 content rows at width %i", (width) => {
@@ -413,8 +408,7 @@ describe("tail total-height minimum", () => {
 		thinking.setHideThinkingBlock(true);
 		f.chat.children = [thinking];
 		const folded = f.chat.render(width);
-		expect(folded).toHaveLength(3);
-		expect(folded.at(-1)).toBe("");
+		expect(folded).toEqual(thinking.render(width));
 		expect(click(f.chat, 1, width)?.handled).toBe(true);
 		const expanded = f.chat.render(width);
 		expect(expanded.length).toBeGreaterThan(3);
@@ -426,24 +420,23 @@ describe("tail total-height minimum", () => {
 	test("streaming tool completion and background changes refresh decoration even on cached renders", () => {
 		const f = setup();
 		const tool = f.row("tail", "read", "ok", false, false);
-		f.chat.children = [assistant(["tail"]), tool];
+		f.chat.children = [tool];
 		backgrounds = true;
 		try {
 			const first = f.chat.render(40);
-			expect(first).toHaveLength(5);
-			expect(first.at(-1)).toBe("");
+			expect(first.join("\n")).toContain(tool.render(40).join("\n"));
 			tool.setArgsComplete();
 			tool.updateResult({ content: [{ type: "text", text: "done" }], isError: false });
 			const view: unknown = Reflect.get(tool, "resultRendererComponent");
 			if (!(view instanceof ToolView)) throw new Error("Expected the installed tool renderer");
 			view.setFoldLevel(0);
 			const completed = f.chat.render(40);
-			expect(completed).toHaveLength(5);
-			expect(completed.at(-1)).toBe("");
+			expect(completed.join("\n")).toContain(view.render(40).join("\n"));
 			expect(f.chat.render(40)).toEqual(completed);
 			backgrounds = false;
-			expect(f.chat.render(40)).toHaveLength(3);
-			expect(f.chat.render(40).at(-1)).toBe("");
+			const quiet = f.chat.render(40);
+			expect(quiet.length).toBeLessThan(completed.length);
+			expect(quiet.join("\n")).toContain(view.render(40).join("\n"));
 		} finally {
 			backgrounds = false;
 		}
@@ -463,22 +456,24 @@ describe("tail total-height minimum", () => {
 		expect(f.chat.render(40)).toEqual(rows);
 	});
 
-	test("ending a run or fading its surface does not retract a displayed tail's minimum", () => {
+	test("ending a run absorbs the tail and the surface fade keeps the row count", () => {
 		const now = vi.spyOn(performance, "now").mockReturnValue(0);
 		const f = setup();
 		f.begin();
 		f.chat.children = [assistant(["a", "b"]), f.row("a"), f.row("b")];
 		f.notice("tail notice");
-		const first = f.chat.render(40);
-		expect(first.at(-1)).toBe("");
+		const live = f.chat.render(40);
+		expect(live.at(-1)).toContain("tail notice");
 		f.patch.endRun();
 		now.mockReturnValue(6_000);
-		expect(f.chat.render(40)).toEqual(first);
+		const ended = f.chat.render(40);
+		expect(ended.some((row) => row.includes("tail notice"))).toBe(true);
+		expect(ended.length).toBeLessThanOrEqual(live.length);
 		const prose = assistant([], "text");
 		f.chat.addChild(prose);
-		const ended = f.chat.render(40);
-		expect(ended.at(-1)).not.toBe("");
-		expect(ended.slice(-prose.render(40).length)).toEqual(prose.render(40));
+		const after = f.chat.render(40);
+		expect(after.at(-1)).not.toBe("");
+		expect(after.slice(-prose.render(40).length)).toEqual(prose.render(40));
 	});
 });
 

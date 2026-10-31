@@ -105,6 +105,17 @@ function isBlankRow(row: string | undefined): boolean {
 }
 
 /**
+ * Whether this tail's own rows can still change. A tool earns the floor until its final result
+ * arrives, and a thinking run while its text is streaming into a visible body; a settled tool, a
+ * hidden thinking preview, and a notice have drawn their last frame, so padding them adds no
+ * stability and only empty rows.
+ */
+function stillGrowing(member: Member): boolean {
+	if (member.kind === "tool") return member.completed !== true;
+	return member.kind === "thinking" && member.thinkingHidden !== true;
+}
+
+/**
  * The one visible unit a block keeps outside itself: the transcript's last top-level unit, drawn by
  * its original component so its own Level 0, copy, and fold state stay intact. It normalizes the
  * single blank row that separates it from the block and forwards mouse events to the real parts.
@@ -120,11 +131,13 @@ interface PartOffset {
 export class TailUnit implements Component {
 	readonly #parts: readonly Component[];
 	readonly #background: () => boolean;
+	readonly #floor: boolean;
 	#offsets: PartOffset[] = [];
 
 	constructor(member: Member, background: () => boolean) {
 		this.#parts = memberParts(member);
 		this.#background = background;
+		this.#floor = stillGrowing(member);
 	}
 
 	render(width: number): string[] {
@@ -154,7 +167,7 @@ export class TailUnit implements Component {
 		const shift = out.length - rows.length;
 		this.#offsets = offsets.map((offset) => ({ ...offset, top: offset.top + shift }));
 		// Surface padding counts toward the minimum; added rows stay outside surfaces and hit areas.
-		const minimum = this.#background() ? 4 : 2;
+		const minimum = this.#floor ? (this.#background() ? 4 : 2) : 0;
 		if (contentRows > 0) {
 			for (let row = contentRows; row < minimum; row++) out.push("");
 		}

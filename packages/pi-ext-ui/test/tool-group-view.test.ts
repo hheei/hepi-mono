@@ -101,7 +101,6 @@ describe("TailUnit total height minimum", () => {
 	test.each([
 		"tool",
 		"thinking",
-		"notice",
 	] as const)("colored %s tails use four total rows and track background toggles", (kind) => {
 		let colored = true;
 		let rows = ["head"];
@@ -120,6 +119,22 @@ describe("TailUnit total height minimum", () => {
 		rows = [];
 		colored = true;
 		expect(tail.render(30)).toEqual([]);
+	});
+
+	test.each([
+		["tool", { completed: true }],
+		["thinking", { thinkingHidden: true }],
+		["notice", {}],
+	] as const)("a %s tail that cannot grow gets no floor", (kind, extra) => {
+		let colored = true;
+		const rows = ["head"];
+		const tail = new TailUnit(
+			{ kind, component: { render: () => rows, invalidate() {} }, ...extra },
+			() => colored,
+		);
+		expect(tail.render(30)).toEqual(["", "head"]);
+		colored = false;
+		expect(tail.render(30)).toEqual(["", "head"]);
 	});
 });
 
