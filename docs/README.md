@@ -123,6 +123,7 @@ Use each source for the question it owns:
 - Current implementation and observed behavior: source code and focused tests.
 - Required UI/UX behavior: [DESIGN.md](../DESIGN.md).
 - Repository engineering rules: [AGENTS.md](../AGENTS.md) and [DESIGN_TS.md](../DESIGN_TS.md).
+- Shared vocabulary: [GLOSSARY.md](../GLOSSARY.md) for module and domain terms, [CONTEXT.md](../CONTEXT.md) for cross-package tool contracts.
 - Installation and compatibility: package manifests and package READMEs.
 - Intended boundaries and agreed decisions: current architecture guides, specifications, and ADRs.
 - Background evidence: current research documents and plans.

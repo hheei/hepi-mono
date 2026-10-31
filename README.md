@@ -38,6 +38,8 @@ Node/pnpm monorepo for [Pi Coding Agent](https://github.com/earendil-works/pi) e
 - **[TUI 设计规范 (DESIGN.md)](./DESIGN.md)**：Pi 交互与视觉设计基线（宽度、颜色、视口保护）。
 - **[工程与产品规范 (AGENTS.md)](./AGENTS.md)**：仓库约束、发版安全策略与开发工作流。
 - **[TypeScript 规范 (DESIGN_TS.md)](./DESIGN_TS.md)**：TypeScript 类型设计、边界验证与代码精简准则。
+- **[领域词汇表 (GLOSSARY.md)](./GLOSSARY.md)**：核心模块与领域术语的规范定义。
+- **[共享术语 (CONTEXT.md)](./CONTEXT.md)**：跨包工具契约与用户可见资源的统一用语。
 - **[架构设计参考 (docs/architecture/)](./docs/architecture/)**：
   - [Subagents 多 Agent 架构](./docs/architecture/pi-subagents.md)
   - [后台任务与交付契约 (Background Tasks)](./docs/architecture/background-tasks.md)
