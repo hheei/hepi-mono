@@ -1925,7 +1925,8 @@ describe("registerCollapsibleToolRenderer & formatTurnFlow", () => {
 	});
 
 	test("NestedCallsView and ToolView sanitize multiline commands into strict single-line elements", () => {
-		const multilineCommand = "ssh dcu-cluster '\n  export PATH=/opt/bin:$PATH\n  cmake --build build\n'";
+		const multilineCommand =
+			"ssh dcu-cluster '\n  export PATH=/opt/bin:$PATH\n  cmake --build build\n'";
 		const ncv = new NestedCallsView({
 			calls: [
 				{
