@@ -1446,7 +1446,7 @@ export class SubagentManager {
 			// Refused before anything is dispatched: a conflicted wait must not steer first.
 			return failure(
 				"delegate",
-				`Child ${input.id ?? ""} already has a waiting delegation ${active.delegationId}`,
+				`Child ${input.id ?? ""} already has a waiting delegation`,
 				input.id,
 			);
 		}

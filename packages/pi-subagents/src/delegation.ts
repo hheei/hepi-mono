@@ -43,7 +43,7 @@ export function delegationView(
 	options?: { readonly includeOutput?: boolean },
 ): DelegationView {
 	if (receipt.childId === undefined || receipt.revision === undefined) {
-		throw new Error(`Delegation ${receipt.delegationId} has no public identity`);
+		throw new Error("Delegation has no public identity");
 	}
 	const text = receipt.resultText;
 	const hasOutput = receiptCarriesOutput(receipt.status, text);
