@@ -191,6 +191,7 @@ git tag vX.Y.Z && git push origin vX.Y.Z  # 推送 tag 触发 GitHub Actions Rel
 ## 关键规则
 
 - **必须**保持修改聚焦、类型严格、运行时边界经过验证，并确保具体 extension 的依赖关系有明确意图且无循环。
+- **必须**在每次提交前做数据脱敏：仓库公开，不得提交本机绝对路径、用户名、内网主机名、凭据、token 或个人身份信息；文档与测试中的路径用仓库相对形式或占位符（如 `<node_modules>/`、`dcu-cluster`），fixture 用通用假值。
 - **绝不能**无必要地保留废弃的旧命名兼容逻辑，或修改与任务无关的用户工作。
 - **应该**优先选择简单、可见、可组合且幂等的机制。
 - 共享 TypeScript 基线是 `tsconfig.base.json`；各 package 应继承它。
