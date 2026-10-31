@@ -125,7 +125,6 @@ export async function launchChild(
 		options.registry,
 		record.subagentId,
 		{ type: "runtime-gone", outcome: "clear" },
-		undefined,
 		plan.runtimeIdentity,
 	);
 	return { failure: `Child ${record.subagentId} never connected to the parent bridge` };
@@ -217,7 +216,6 @@ export async function openChildPanel(
 		options.registry,
 		record.subagentId,
 		{ type: "runtime-gone", outcome: "clear" },
-		undefined,
 		plan.runtimeIdentity,
 	);
 	const detail = earlyExitObserved?.detail ? ` (${earlyExitObserved.detail.trim()})` : "";

@@ -88,8 +88,8 @@ test("keeps concurrent updates of different children from losing fields", async 
 		await first.create(record("sa_bbbb", join(directory, "b")));
 
 		await Promise.all([
-			first.update("sa_aaaa", 1, (current) => ({ ...current, state: "running" })),
-			second.update("sa_bbbb", 1, (current) => ({
+			first.update("sa_aaaa", (current) => ({ ...current, state: "running" })),
+			second.update("sa_bbbb", (current) => ({
 				...current,
 				state: "done",
 				latestSummary: "done",
@@ -105,13 +105,13 @@ test("keeps concurrent updates of different children from losing fields", async 
 	});
 });
 
-test("rejects stale revisions, duplicate ids, unknown children, and mismatched runtimes", async (): Promise<void> => {
+test("rejects duplicate ids, unknown children, and mismatched runtimes", async (): Promise<void> => {
 	await withTempDir("pi-subagents-registry-", async (directory) => {
 		const path = join(directory, "registry.json");
 		const store = registry(path);
 		const cwd = join(directory, "work");
 		await store.create(record("sa_aaaa", cwd));
-		await store.update("sa_aaaa", 1, (current) => ({
+		await store.update("sa_aaaa", (current) => ({
 			...current,
 			state: "running",
 			runtime: { runtimeIdentity: "runtime-2", endpoint: "/tmp/socket" },
@@ -120,16 +120,12 @@ test("rejects stale revisions, duplicate ids, unknown children, and mismatched r
 		const cases: ReadonlyArray<{ readonly code: string; readonly run: () => Promise<unknown> }> = [
 			{ code: "duplicate_child", run: () => store.create(record("sa_aaaa", cwd)) },
 			{
-				code: "stale_revision",
-				run: () => store.update("sa_aaaa", 1, (current) => ({ ...current, state: "done" })),
-			},
-			{
 				code: "unknown_child",
-				run: () => store.update("sa_zzzz", 1, (current) => current),
+				run: () => store.update("sa_zzzz", (current) => current),
 			},
 			{
 				code: "runtime_mismatch",
-				run: () => store.update("sa_aaaa", 2, (current) => current, "runtime-1"),
+				run: () => store.update("sa_aaaa", (current) => current, "runtime-1"),
 			},
 		];
 		for (const item of cases) {
@@ -141,7 +137,7 @@ test("rejects stale revisions, duplicate ids, unknown children, and mismatched r
 			expect((error as SubagentRegistryError).code).toBe(item.code);
 		}
 
-		expect(await store.update("sa_aaaa", 2, (current) => current, "runtime-2")).toMatchObject({
+		expect(await store.update("sa_aaaa", (current) => current, "runtime-2")).toMatchObject({
 			revision: 3,
 			state: "running",
 		});
@@ -154,13 +150,13 @@ test("fails closed on a corrupt child row and hides other parents in the same fi
 		const store = registry(path);
 		const db = new DatabaseSync(path);
 		db.prepare(
-			"INSERT INTO children (parent_session_id, subagent_id, revision, record) VALUES (?, ?, ?, ?)",
-		).run(PARENT_SESSION_ID, "sa_bad", 1, "{not json");
+			"INSERT INTO children (parent_session_id, subagent_id, record) VALUES (?, ?, ?)",
+		).run(PARENT_SESSION_ID, "sa_bad", "{not json");
 		await expect(store.list()).rejects.toThrow();
 		db.prepare("DELETE FROM children WHERE subagent_id = ?").run("sa_bad");
 		db.prepare(
-			"INSERT INTO children (parent_session_id, subagent_id, revision, record) VALUES (?, ?, ?, ?)",
-		).run("someone-else", "sa_other", 1, "{}");
+			"INSERT INTO children (parent_session_id, subagent_id, record) VALUES (?, ?, ?)",
+		).run("someone-else", "sa_other", "{}");
 		expect(await store.list()).toEqual([]);
 	});
 });
@@ -256,7 +252,7 @@ test("keeps another parent's rows when this parent updates its own", async (): P
 		await other.create(
 			record("sa_cccc", join(directory, "work"), { parentSessionId: "01J7-other" }),
 		);
-		await store.update("sa_aaaa", 1, (current) => ({ ...current, state: "running" }));
+		await store.update("sa_aaaa", (current) => ({ ...current, state: "running" }));
 		expect((await store.list()).map((item) => item.subagentId)).toEqual(["sa_aaaa", "sa_bbbb"]);
 		expect((await other.list()).map((item) => item.subagentId)).toEqual(["sa_cccc"]);
 	});
@@ -285,7 +281,7 @@ test("applies an update with an undefined expected revision and guards a replace
 		const store = registry(path);
 		const cwd = join(directory, "work");
 		await store.create(record("sa_atomic", cwd));
-		const updated = await store.update("sa_atomic", undefined, (current) => ({
+		const updated = await store.update("sa_atomic", (current) => ({
 			...current,
 			state: "running",
 			runtime: { runtimeIdentity: "runtime-atomic", endpoint: "/tmp/atomic.sock" },
@@ -295,12 +291,7 @@ test("applies an update with an undefined expected revision and guards a replace
 
 		// A stale writer naming the runtime it replaced must not overwrite the newer launch.
 		await expect(
-			store.update(
-				"sa_atomic",
-				undefined,
-				(current) => ({ ...current, state: "done" }),
-				"runtime-old",
-			),
+			store.update("sa_atomic", (current) => ({ ...current, state: "done" }), "runtime-old"),
 		).rejects.toMatchObject({ code: "runtime_mismatch" });
 		expect((await store.get("sa_atomic"))?.state).toBe("running");
 	});

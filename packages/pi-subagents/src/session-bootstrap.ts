@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
@@ -194,28 +194,18 @@ export async function planSessionPlacement(
 	return { sessionId: options.sessionId, sessionDir, persistence: "never_flushed" };
 }
 
-let nextSubagentIndex = 0;
-
-export function resetSubagentIdCounter(value = 0): void {
-	nextSubagentIndex = value;
-}
-
+/**
+ * A child id is a label, not a capability: short enough for a status line and a lock file name,
+ * and lowercase so it cannot collide with a differently cased copy on a case-insensitive
+ * filesystem. Nothing arbitrates allocation across processes; `existingIds` is the local check and
+ * the ledger's primary key is the backstop.
+ */
 export function createSubagentId(existingIds?: readonly string[]): string {
-	if (existingIds !== undefined && existingIds.length > 0) {
-		let max = 0;
-		for (const id of existingIds) {
-			const match = /^agent-(\d+)$/u.exec(id);
-			if (match?.[1]) {
-				const num = Number.parseInt(match[1], 10);
-				if (num > max) max = num;
-			}
-		}
-		if (max > 0) {
-			nextSubagentIndex = Math.max(nextSubagentIndex, max);
-		}
+	for (let attempt = 0; attempt < 100; attempt++) {
+		const id = `agent-${randomBytes(3).toString("hex")}`;
+		if (existingIds === undefined || !existingIds.includes(id)) return id;
 	}
-	nextSubagentIndex += 1;
-	return `agent-${nextSubagentIndex}`;
+	throw new Error("Could not allocate a unique subagent id");
 }
 
 export interface ResolveSubagentLaunchOptions {

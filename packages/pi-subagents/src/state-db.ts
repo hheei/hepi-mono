@@ -13,13 +13,12 @@ export function defaultStatePath(): string {
  * instead of being rewritten: this file is runtime state, but silently discarding another build's
  * records is worse than failing to start.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const TABLES = `
 CREATE TABLE IF NOT EXISTS children (
   parent_session_id TEXT NOT NULL,
   subagent_id TEXT NOT NULL,
-  revision INTEGER NOT NULL,
   record TEXT NOT NULL,
   PRIMARY KEY (parent_session_id, subagent_id)
 );
@@ -86,6 +85,11 @@ const ADDED_COLUMNS: readonly (readonly [table: string, column: string, type: st
 	["delegations", "side_effects", "TEXT"],
 ];
 
+/** Columns dropped from a table that already exists, the mirror of {@link ADDED_COLUMNS}. */
+const DROPPED_COLUMNS: readonly (readonly [table: string, column: string])[] = [
+	["children", "revision"],
+];
+
 const connections = new Map<string, DatabaseSync>();
 
 function schemaVersion(db: DatabaseSync): number {
@@ -108,6 +112,11 @@ function migrate(db: DatabaseSync): void {
 			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
 			if (columns.some((existing) => existing.name === column)) continue;
 			db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+		}
+		for (const [table, column] of DROPPED_COLUMNS) {
+			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+			if (!columns.some((existing) => existing.name === column)) continue;
+			db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
 		}
 		// The bridge token had no reader once the mailbox replaced the socket handshake.
 		db.exec("DROP TABLE IF EXISTS tokens");
@@ -198,16 +207,15 @@ export function insertChild(
 	db: DatabaseSync,
 	parentSessionId: string,
 	subagentId: string,
-	revision: number,
 	record: string,
 ): boolean {
 	const result = db
 		.prepare(
-			`INSERT INTO children (parent_session_id, subagent_id, revision, record)
-			 VALUES (?, ?, ?, ?)
+			`INSERT INTO children (parent_session_id, subagent_id, record)
+			 VALUES (?, ?, ?)
 			 ON CONFLICT DO NOTHING`,
 		)
-		.run(parentSessionId, subagentId, revision, record);
+		.run(parentSessionId, subagentId, record);
 	return Number(result.changes) === 1;
 }
 
@@ -215,13 +223,11 @@ export function readChild(
 	db: DatabaseSync,
 	parentSessionId: string,
 	subagentId: string,
-): { readonly revision: number; readonly record: string } | undefined {
+): string | undefined {
 	const row = db
-		.prepare(
-			"SELECT revision, record FROM children WHERE parent_session_id = ? AND subagent_id = ?",
-		)
-		.get(parentSessionId, subagentId) as { revision: number; record: string } | undefined;
-	return row;
+		.prepare("SELECT record FROM children WHERE parent_session_id = ? AND subagent_id = ?")
+		.get(parentSessionId, subagentId) as { record: string } | undefined;
+	return row?.record;
 }
 
 export function listChildRecords(db: DatabaseSync, parentSessionId: string): readonly string[] {
@@ -235,24 +241,14 @@ export function replaceChild(
 	db: DatabaseSync,
 	parentSessionId: string,
 	subagentId: string,
-	expectedRevision: number | undefined,
-	revision: number,
 	record: string,
 ): boolean {
-	const result =
-		expectedRevision === undefined
-			? db
-					.prepare(
-						`UPDATE children SET revision = ?, record = ?
-						 WHERE parent_session_id = ? AND subagent_id = ?`,
-					)
-					.run(revision, record, parentSessionId, subagentId)
-			: db
-					.prepare(
-						`UPDATE children SET revision = ?, record = ?
-						 WHERE parent_session_id = ? AND subagent_id = ? AND revision = ?`,
-					)
-					.run(revision, record, parentSessionId, subagentId, expectedRevision);
+	const result = db
+		.prepare(
+			`UPDATE children SET record = ?
+			 WHERE parent_session_id = ? AND subagent_id = ?`,
+		)
+		.run(record, parentSessionId, subagentId);
 	return Number(result.changes) === 1;
 }
 

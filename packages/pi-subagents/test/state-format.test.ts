@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { openStateDb } from "../src/state-db.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** A ledger from before the delegation receipt gained its revision, retry and side-effect fields. */
 function writeLegacyLedger(path: string): void {
@@ -82,6 +82,13 @@ test("adds the columns an older ledger lacks instead of failing on its indexes",
 				.prepare("SELECT record FROM children WHERE parent_session_id = ? AND subagent_id = ?")
 				.get("parent-1", "agent-1"),
 		).toEqual({ record: '{"state":"done"}' });
+		// A child row no longer carries a revision column: the record itself is the whole state.
+		const childColumns = db.prepare("PRAGMA table_info(children)").all() as Array<{ name: string }>;
+		expect(childColumns.map((column) => column.name)).toEqual([
+			"parent_session_id",
+			"subagent_id",
+			"record",
+		]);
 
 		// The bridge token had no reader once the mailbox replaced the socket handshake.
 		expect(db.prepare("SELECT 1 FROM sqlite_schema WHERE name = 'tokens'").get()).toBeUndefined();
@@ -106,6 +113,6 @@ test("refuses a ledger written by a newer version instead of rewriting it", asyn
 		future.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
 		future.close();
 
-		expect(() => openStateDb(path)).toThrow(/written by a newer version \(schema 3\)/u);
+		expect(() => openStateDb(path)).toThrow(/written by a newer version \(schema 4\)/u);
 	});
 });

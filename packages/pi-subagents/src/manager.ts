@@ -25,12 +25,8 @@ import { isOperationError } from "./domain.js";
 import type { HostAttachment } from "./host-adapter.js";
 import { stripHindsightContent } from "./launch-spec.js";
 import type { HostDirectory, LeaseReady } from "./lease.js";
-import {
-	commitLease,
-	createConversationLease,
-	RUNTIME_ENDED_RESUME,
-	type RuntimeGoneOutcome,
-} from "./lease.js";
+import { commitLease, createConversationLease, type RuntimeGoneOutcome } from "./lease.js";
+import { processLockHeld, processLockPath } from "./process-lock.js";
 import {
 	BridgeError,
 	type BridgeOperation,
@@ -951,6 +947,39 @@ export class SubagentManager {
 	}
 
 	/**
+	 * A child's writer holds its process lock for the whole run, so a free lock means no writer —
+	 * including a child another parent process started, which this process never had a handle for.
+	 * A probe that fails is not evidence of death.
+	 */
+	#runtimeAlive(record: SubagentRecord): boolean {
+		const lockPath = processLockPath(
+			this.#deps.registry.path,
+			record.parentSessionId,
+			record.subagentId,
+		);
+		if (lockPath === undefined) return false;
+		try {
+			return processLockHeld(lockPath);
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * The public projection every read returns. Liveness is computed here, never written back: a
+	 * record that still says `running` while no writer holds its lock is reported as blocked.
+	 */
+	#project(record: SubagentRecord): PublicSubagent {
+		const snapshot = this.#withSnapshot(record);
+		const live = this.#isLive(record.subagentId) || this.#runtimeAlive(record);
+		return publicChild(
+			live || snapshot.state !== "running" ? snapshot : { ...snapshot, state: "blocked" },
+			live,
+			this.#paths.get(record.subagentId),
+		);
+	}
+
+	/**
 	 * True only when the host positively reports the panel is gone. An unobservable panel is not a
 	 * closed one, and treating it as closed is what would let a second runtime start for a session
 	 * whose first process may still be running.
@@ -1861,8 +1890,7 @@ export class SubagentManager {
 	public async get(id: string): Promise<PublicSubagent | OperationError> {
 		const record = await this.#deps.registry.get(id);
 		if (record === undefined) return failure("get", "Unknown child", id);
-		const live = this.#isLive(id);
-		return publicChild(this.#withSnapshot(record), live, this.#paths.get(id));
+		return this.#project(record);
 	}
 
 	/**
@@ -1891,11 +1919,9 @@ export class SubagentManager {
 				record.state,
 			);
 		}
-		return agentView(
-			receipt,
-			publicChild(this.#withSnapshot(record), this.#isLive(input.id), this.#paths.get(input.id)),
-			{ includeOutput: input.includeOutput === true },
-		);
+		return agentView(receipt, this.#project(record), {
+			includeOutput: input.includeOutput === true,
+		});
 	}
 
 	/** Every agent of this parent: runtime state now, latest delegation status, no result bodies. */
@@ -1906,15 +1932,15 @@ export class SubagentManager {
 		for (const record of records) {
 			const summary = summaries.get(record.subagentId);
 			if (summary === undefined) continue;
-			const live = this.#withSnapshot(record);
+			const snapshot = this.#withSnapshot(record);
 			children.push({
 				id: record.subagentId,
 				agent: record.launchConfig.agent.name,
-				runtimeState: live.state,
+				runtimeState: this.#project(record).state,
 				revision: summary.revision,
 				status: summary.status,
 				hasOutput: summary.hasOutput,
-				...(live.latestSummary === undefined ? {} : { summary: live.latestSummary }),
+				...(snapshot.latestSummary === undefined ? {} : { summary: snapshot.latestSummary }),
 			});
 		}
 		const count = (state: SubagentState): number =>
@@ -1938,13 +1964,7 @@ export class SubagentManager {
 
 	public async list(): Promise<readonly PublicSubagent[]> {
 		const records = await this.#deps.registry.list();
-		return records.map((record) =>
-			publicChild(
-				this.#withSnapshot(record),
-				this.#isLive(record.subagentId),
-				this.#paths.get(record.subagentId),
-			),
-		);
+		return records.map((record) => this.#project(record));
 	}
 
 	public stop(id: string): Promise<OperationError | PublicSubagent> {
@@ -2375,7 +2395,6 @@ export class SubagentManager {
 				rebound: recovery.recovered,
 				rehydrated: [],
 				stopped: [],
-				released: [],
 			};
 		}
 		const lease = createConversationLease({
@@ -2396,17 +2415,7 @@ export class SubagentManager {
 				if (runtime !== undefined) this.#watchRuntime(id, runtime);
 			}
 		}
-		for (const id of result.released) {
-			await this.#noteReleasedRuntime(id);
-		}
 		return result;
-	}
-
-	/** A writer the lease already dropped. Same ledger line as a watched exit. */
-	async #noteReleasedRuntime(id: string): Promise<void> {
-		const record = await this.#deps.registry.get(id);
-		if (record?.state !== "blocked" || record.interrupted !== RUNTIME_ENDED_RESUME) return;
-		this.#scheduleAutoReport(id, record);
 	}
 
 	#withSnapshot(record: SubagentRecord): SubagentRecord {
@@ -2435,9 +2444,9 @@ export class SubagentManager {
 		updater: (record: SubagentRecord) => SubagentRecord,
 		workVersion?: number,
 	): Promise<SubagentRecord> {
-		// The store re-reads the record inside its own write, so an undefined revision cannot
-		// lose a concurrent field update and no stale_revision retry is needed.
-		const next = await this.#deps.registry.update(id, undefined, updater);
+		// The store re-reads the record inside its own write, so the write cannot lose a concurrent
+		// field update and needs no retry.
+		const next = await this.#deps.registry.update(id, updater);
 		if (workVersion === undefined || workVersion === (this.#workVersions.get(id) ?? 0)) {
 			if (next.state === "running") this.#working.add(id);
 			else if (next.state !== "error") this.#working.delete(id);

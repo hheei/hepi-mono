@@ -20,6 +20,7 @@ its value as the rationale for the current shape and stays here.
 - [async-task-orchestration](async-task-orchestration.md): asynchronous task orchestration design.
 - [task-concurrency-in-core](task-concurrency-in-core.md): moving task concurrency into ext-core (design draft, not implemented).
 - [subagent-as-task-unification](subagent-as-task-unification.md): folding subagents into the unified task surface (design reviewed, not implemented).
+- [pi-subagents-lww-child-state](pi-subagents-lww-child-state.md): locally generated child ids, last-write-wins child records, read-time liveness (proposal).
 
 ## Rendering
 

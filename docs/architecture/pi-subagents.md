@@ -18,10 +18,13 @@ ext-core no longer has an in-process subagent coordinator. This package owns chi
 Control is one sqlite file (`state.sqlite`): child rows are the ledger, command rows are the mailbox.
 Parent and child both open it. A dropped poll is not a dead child. Each child holds an exclusive lock
 file while it is that child's writer; the kernel releases it on process death. The lock is the only
-liveness fact — there is no presence row. A lock file that is already free at reconcile, or a background pid that is already dead, is a gone
-runtime. A child that was still running is marked blocked and reported once. Panel and pid still say whether a surface should be opened again. Parent reload drops only
-local state (timers, projectors, subscriptions); a surviving child keeps writing the same file, and a
-background child is held by its stdin pipe, so it ends with the parent process.
+liveness fact — there is no presence row, and liveness is never written back: a record that still says
+`running` while no writer holds its lock is projected as `blocked` on read. Reconcile therefore repairs
+surfaces, not states: it rebinds a panel that is still there and reopens the panels a new host
+generation took down, and it writes nothing about a child that merely died. A background pid is a
+diagnostic, not evidence — pids are reused, so only the lock answers whether a writer is alive. Parent
+reload drops only local state (timers, projectors, subscriptions); a surviving child keeps writing the
+same file, and a background child is held by its stdin pipe, so it ends with the parent process.
 
 There is no attach or detach: a child is presented where it was spawned and never switches
 afterwards. `agents_delegate` prefers a panel (a new Herdr tab or cmux surface
@@ -31,7 +34,7 @@ trust cannot interrupt startup. The presentation is frozen in the registry as `p
 [`spec.md`](../pi-subagents/spec.md) §2.2).
 Native `/resume` of the same session outside the managed path is not intercepted.
 
-系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。写者消失（进程锁已空，或本进程看见自己的后台进程退出）记 `blocked` 并回报一次，不改成 stopped intent；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
+系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。本进程看见自己的后台进程退出时记 `blocked` 并回报一次，不改成 stopped intent；进程锁只是空了的情况不写盘，读时投影成 `blocked`；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
 `agents_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §6.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
@@ -44,7 +47,7 @@ manager 的默认启动 deadline 为 60 秒。
 
 ## 紧凑状态与交互报告
 
-父会话通过原生 `setStatus("pi-subagents", text)` 发布机器人 emoji、运行 glyph 与正在运行的 child 编号；`agent-21` 显示为 `#21`，显示编号不改变真实工具 ID。`pi-status` 在 Footer 第二行右侧按 agent、TODO 顺序组合，以 ` ‧ ` 分隔。缺少 pi-status 时使用 Pi 原生状态展示，不需要修改 Pi host 或依赖具体扩展。
+父会话通过原生 `setStatus("pi-subagents", text)` 发布机器人 emoji、运行 glyph 与正在运行的 child 编号；`agent-3f9a1c` 显示为 `#3f9a1c`，显示编号不改变真实工具 ID。`pi-status` 在 Footer 第二行右侧按 agent、TODO 顺序组合，以 ` ‧ ` 分隔。缺少 pi-status 时使用 Pi 原生状态展示，不需要修改 Pi host 或依赖具体扩展。
 
 移除父会话的多行 Widget、elapsed 刷新和终态保留计时器。状态投影从 manager 读取，过期异步读取不能覆盖新快照；session 切换、reload 或 shutdown 移除状态并取消订阅。子会话自己的身份展示不受影响，完整管理仍通过 `/subagents`。
 

@@ -41,7 +41,7 @@ const delegateSchema = Type.Object(
 			Type.String({
 				minLength: 1,
 				description:
-					"Existing agent id, e.g. agent-1. Takes precedence over agent and reuses its session.",
+					"Existing agent id, e.g. agent-3f9a1c. Takes precedence over agent and reuses its session.",
 			}),
 		),
 		agent: Type.Optional(
@@ -58,7 +58,7 @@ const delegateSchema = Type.Object(
 );
 const getSchema = Type.Object(
 	{
-		id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-1" }),
+		id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-3f9a1c" }),
 		revision: Type.Optional(
 			Type.Integer({
 				minimum: 1,
@@ -75,7 +75,7 @@ const getSchema = Type.Object(
 	{ additionalProperties: false },
 );
 const idSchema = Type.Object({
-	id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-1" }),
+	id: Type.String({ minLength: 1, description: "Agent id, e.g. agent-3f9a1c" }),
 });
 const dashboardSchema = Type.Object({}, { additionalProperties: false });
 const contactSchema = Type.Object({
@@ -115,7 +115,7 @@ export function formatAvailableAgents(agents: readonly DiscoveredAgent[]): strin
 function getDelegateDescription(agents: readonly DiscoveredAgent[]): string {
 	return [
 		"Delegate work to an agent. New: omit id and supply agent. Continue: use an existing id; agent/cwd are ignored. Unknown or blank ids fail.",
-		'Create: agents_delegate({ agent: "worker", task: "..." }). Continue: agents_delegate({ id: "agent-2", task: "..." }).',
+		'Create: agents_delegate({ agent: "worker", task: "..." }). Continue: agents_delegate({ id: "agent-3f9a1c", task: "..." }).',
 		"Returns { id, revision, status, hasOutput }: revision identifies this delegation of that agent, and a finished delegation carries its result when wait is true. Results are delivered automatically when the task finishes, so do independent work or end your turn instead of polling agents_get.",
 		"Related agent tools: agents_get, agents_stop, agents_dashboard.",
 		formatAvailableAgents(agents),
@@ -124,7 +124,7 @@ function getDelegateDescription(agents: readonly DiscoveredAgent[]): string {
 const GET_DESCRIPTION =
 	"Read one agent delegation: the newest by default, or one revision, with its result body when includeOutput is true. Use it for inspection, not completion polling. Related agent tools: agents_delegate, agents_stop, agents_dashboard.";
 const STOP_DESCRIPTION =
-	"Stop an agent runtime by id (e.g. 'agent-1'). Open delegations end as failed; finished results and the session are kept, so a later agents_delegate with this id resumes it. Related agent tools: agents_delegate, agents_get, agents_dashboard.";
+	"Stop an agent runtime by id (e.g. 'agent-3f9a1c'). Open delegations end as failed; finished results and the session are kept, so a later agents_delegate with this id resumes it. Related agent tools: agents_delegate, agents_get, agents_dashboard.";
 const DASHBOARD_DESCRIPTION =
 	"List this session's agents with their runtime state and latest delegation. Related agent tools: agents_delegate, agents_get, agents_stop.";
 const CONTACT_DESCRIPTION =

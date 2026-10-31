@@ -11,11 +11,8 @@ import {
 	readHostGeneration,
 	writeHostGeneration,
 } from "../src/lease.js";
-import type { ParentChannelReport } from "../src/manager.js";
-import { SubagentManager } from "../src/manager.js";
 import { holdProcessLock, processLockPath } from "../src/process-lock.js";
-import { createSubagentRegistry, SubagentRegistryError } from "../src/registry.js";
-import { until, useFakeClock, useRealClock } from "./helpers/fake-clock.js";
+import { createSubagentRegistry } from "../src/registry.js";
 import { withTempDir } from "./helpers/tmp-dir.js";
 
 const PARENT = "01J7-parent";
@@ -110,7 +107,7 @@ function directory(
 	};
 }
 
-test("commit writes intent and attachment once, and a stale revision cannot replace the tab", async () => {
+test("commit writes intent and attachment once and never replaces a bound tab", async () => {
 	await withTempDir("pi-subagents-lease-", async (directoryPath) => {
 		const registry = store(join(directoryPath, "registry.json"));
 		const cwd = join(directoryPath, "work");
@@ -119,7 +116,7 @@ test("commit writes intent and attachment once, and a stale revision cannot repl
 		);
 		const spawned = await commitLease(registry, "sa_aaaa", { type: "spawn-intent" });
 		expect(spawned.revision).toBe(1);
-		await registry.update("sa_aaaa", 1, (current) => ({
+		await registry.update("sa_aaaa", (current) => ({
 			...current,
 			runtime: { runtimeIdentity: "rt", endpoint: "/tmp/bridge.sock" },
 		}));
@@ -134,9 +131,6 @@ test("commit writes intent and attachment once, and a stale revision cannot repl
 		});
 		expect(again.revision).toBe(bound.revision);
 		expect(again.runtime?.attachment).toEqual({ kind: "panel", host: "herdr", id: "tab-1" });
-		await expect(
-			commitLease(registry, "sa_aaaa", { type: "stop-intent" }, bound.revision - 1),
-		).rejects.toBeInstanceOf(SubagentRegistryError);
 		expect((await registry.get("sa_aaaa"))?.runtime?.attachment).toEqual({
 			kind: "panel",
 			host: "herdr",
@@ -191,7 +185,6 @@ test("reload rebinds a live tab without writing, and fork does not copy the old 
 			rebound: ["sa_aaaa"],
 			rehydrated: [],
 			stopped: [],
-			released: [],
 		});
 		expect(hosts.opens).toEqual([]);
 		expect(await registry.get("sa_aaaa")).toEqual(before);
@@ -227,7 +220,7 @@ test("a new host generation reopens panels that were still attached, and not sto
 		]);
 		hosts.open = async (child) => {
 			hosts.opens.push(child.subagentId);
-			await registry.update(child.subagentId, undefined, (current) => ({
+			await registry.update(child.subagentId, (current) => ({
 				...current,
 				runtime: {
 					runtimeIdentity: current.runtime?.runtimeIdentity ?? "rt",
@@ -318,7 +311,7 @@ test("a child session a human already resumed is not reopened", async () => {
 			hosts,
 			processes: { alive: () => false },
 		}).ready();
-		expect(ready).toEqual({ ok: true, rebound: [], rehydrated: [], stopped: [], released: [] });
+		expect(ready).toEqual({ ok: true, rebound: [], rehydrated: [], stopped: [] });
 		expect(hosts.opens).toEqual([]);
 		expect((await registry.get("sa_aaaa"))?.runtime?.attachment).toEqual({
 			kind: "panel",
@@ -329,7 +322,7 @@ test("a child session a human already resumed is not reopened", async () => {
 	});
 });
 
-test("a dead background pid is cleared and a live one is rebound without a new process", async () => {
+test("a live background pid is rebound and a dead one is left to the read-time projection", async () => {
 	await withTempDir("pi-subagents-lease-", async (directoryPath) => {
 		const path = join(directoryPath, "registry.json");
 		const registry = store(path);
@@ -361,9 +354,12 @@ test("a dead background pid is cleared and a live one is rebound without a new p
 			hosts,
 			processes: { alive: (pid) => pid === 22 },
 		}).ready();
-		expect(ready).toMatchObject({ ok: true, rebound: ["sa_live"], released: ["sa_dead"] });
+		expect(ready).toMatchObject({ ok: true, rebound: ["sa_live"] });
 		expect(hosts.opens).toEqual([]);
-		expect((await registry.get("sa_dead"))?.runtime).toBeUndefined();
+		expect((await registry.get("sa_dead"))?.runtime?.attachment).toEqual({
+			kind: "process",
+			pid: 11,
+		});
 		expect((await registry.get("sa_live"))?.runtime?.attachment).toEqual({
 			kind: "process",
 			pid: 22,
@@ -371,7 +367,7 @@ test("a dead background pid is cleared and a live one is rebound without a new p
 	});
 });
 
-test("a free process lock drops the runtime even when its panel tab is still present", async () => {
+test("a free process lock writes nothing, even when its panel tab is still present", async () => {
 	await withTempDir("pi-subagents-lease-", async (directoryPath) => {
 		const path = join(directoryPath, "registry.json");
 		const registry = store(path);
@@ -399,79 +395,31 @@ test("a free process lock drops the runtime even when its panel tab is still pre
 			id: "tab-sa_lock",
 		});
 		held.release();
+		const before = await registry.get("sa_lock");
 		const released = await lease.ready();
-		expect(released).toMatchObject({ ok: true, rebound: [], released: ["sa_lock"] });
-		expect((await registry.get("sa_lock"))?.runtime).toBeUndefined();
-		expect(await registry.get("sa_lock")).toMatchObject({
-			state: "blocked",
-			interrupted: expect.stringContaining("a send resumes it"),
-		});
+		expect(released).toMatchObject({ ok: true, rebound: ["sa_lock"] });
+		expect(await registry.get("sa_lock")).toEqual(before);
 	});
 });
 
-test("a runtime released while this process was away is blocked and reported once", async () => {
-	useFakeClock();
-	try {
-		await withTempDir("pi-subagents-lease-", async (directoryPath) => {
-			const path = join(directoryPath, "registry.json");
-			const registry = store(path);
-			const cwd = join(directoryPath, "work");
-			await registry.create(record("sa_away", cwd));
-			const lockPath = processLockPath(path, PARENT, "sa_away");
-			if (lockPath === undefined) throw new Error("lock path");
-			holdProcessLock(lockPath).release();
-			const reports: ParentChannelReport[] = [];
-			let markDelivered: () => void = () => {};
-			const delivered = new Promise<void>((resolve) => {
-				markDelivered = resolve;
-			});
-			const manager = new SubagentManager({
-				parentSessionId: PARENT,
-				registry,
-				bridge: {
-					isConnected: () => false,
-					disconnect() {},
-					request: async () => undefined,
-					onEvent: () => () => {},
-					onConnectionChange: () => () => {},
-				},
-				resolve: async () => {
-					throw new Error("unused");
-				},
-				bootstrap: async () => {
-					throw new Error("unused");
-				},
-				launch: async () => {
-					throw new Error("unused");
-				},
-				connect: async () => false,
-				directory: directory({
-					known: true,
-					generation: "gen-1",
-					present: new Set(["tab-sa_away"]),
-				}),
-				channel: {
-					async deliver(report) {
-						reports.push(report);
-						markDelivered();
-					},
-				},
-			});
-			const ready = await manager.reconcile();
-			expect(ready).toMatchObject({ ok: true, released: ["sa_away"], rebound: [] });
-			expect((await registry.get("sa_away"))?.runtime).toBeUndefined();
-			expect(await registry.get("sa_away")).toMatchObject({
-				state: "blocked",
-				interrupted: expect.stringContaining("a send resumes it"),
-			});
-			// The report batches on the manager's own clock; the delivery itself is the event.
-			await until(delivered);
-			expect(reports.map((report) => report.reason)).toEqual(["blocked"]);
-			expect(reports).toHaveLength(1);
-		});
-	} finally {
-		useRealClock();
-	}
+test("reconcile never writes a child's state", async () => {
+	await withTempDir("pi-subagents-lease-", async (directoryPath) => {
+		const path = join(directoryPath, "registry.json");
+		const registry = store(path);
+		await registry.create(record("sa_away", join(directoryPath, "work")));
+		const before = await registry.get("sa_away");
+		const ready = await createConversationLease({
+			registry,
+			hosts: directory({
+				known: true,
+				generation: "gen-1",
+				present: new Set(["tab-sa_away"]),
+			}),
+			processes: { alive: () => false },
+		}).ready();
+		expect(ready).toMatchObject({ ok: true, rebound: ["sa_away"] });
+		expect(await registry.get("sa_away")).toEqual(before);
+	});
 });
 
 test("runtime edges are the only way a runtime is written or removed", async () => {
@@ -502,7 +450,7 @@ test("runtime edges are the only way a runtime is written or removed", async () 
 			outcome: "drop",
 		});
 		expect(repeat.revision).toBe(dropped.revision);
-		await registry.update("sa_edge", repeat.revision, (current) => ({
+		await registry.update("sa_edge", (current) => ({
 			...current,
 			state: "running",
 			runtime: { runtimeIdentity: "rt-2", endpoint: "/tmp/bridge.sock" },

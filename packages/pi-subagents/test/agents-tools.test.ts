@@ -205,7 +205,7 @@ describe("agent tools", () => {
 		expect(description).toContain("New: omit id and supply agent");
 		expect(description).toContain("Unknown or blank ids fail");
 		expect(description).toContain('Create: agents_delegate({ agent: "worker", task: "..." })');
-		expect(description).toContain('Continue: agents_delegate({ id: "agent-2", task: "..." })');
+		expect(description).toContain('Continue: agents_delegate({ id: "agent-3f9a1c", task: "..." })');
 		expect(description).toContain("- worker: Worker");
 		// Minimal prompt surface: guidance stays in the tool description, not a rewritten prompt.
 		expect(description.split("\n").length).toBeLessThanOrEqual(7);

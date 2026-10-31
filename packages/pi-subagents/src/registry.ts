@@ -42,7 +42,6 @@ export type RegistryErrorCode =
 	| "invalid_record"
 	| "duplicate_child"
 	| "unknown_child"
-	| "stale_revision"
 	| "runtime_mismatch"
 	| "stopped_child";
 
@@ -69,14 +68,12 @@ export interface SubagentRegistry {
 	list(signal?: AbortSignal): Promise<readonly SubagentRecord[]>;
 	create(record: SubagentRecord, signal?: AbortSignal): Promise<SubagentRecord>;
 	/**
-	 * Conditional write. `expectedRevision` guards against stale writers, and
-	 * `expectedRuntimeIdentity` additionally refuses updates whose target runtime has
-	 * already been replaced by a newer one. The registry owns `revision` and
+	 * Last write wins. `expectedRuntimeIdentity` refuses an update whose target runtime
+	 * has already been replaced by a newer one. The registry owns `revision` and
 	 * `updatedAt`; the updater's values for those fields are ignored.
 	 */
 	update(
 		id: string,
-		expectedRevision: number | undefined,
 		updater: (record: SubagentRecord) => SubagentRecord,
 		expectedRuntimeIdentity?: string,
 		signal?: AbortSignal,
@@ -532,9 +529,9 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 	const db = openStateDb(path);
 
 	const load = (id: string): SubagentRecord | undefined => {
-		const row = readChild(db, parentSessionId, id);
-		if (row === undefined) return undefined;
-		return parseSubagentRecord(JSON.parse(row.record) as unknown, id, parentSessionId, path);
+		const record = readChild(db, parentSessionId, id);
+		if (record === undefined) return undefined;
+		return parseSubagentRecord(JSON.parse(record) as unknown, id, parentSessionId, path);
 	};
 
 	return {
@@ -561,13 +558,7 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 		async create(record) {
 			const candidate = parseSubagentRecord(record, record.subagentId, parentSessionId, path);
 			const inserted = withWrite(db, () =>
-				insertChild(
-					db,
-					parentSessionId,
-					candidate.subagentId,
-					candidate.revision,
-					JSON.stringify(candidate),
-				),
+				insertChild(db, parentSessionId, candidate.subagentId, JSON.stringify(candidate)),
 			);
 			if (!inserted) {
 				throw new SubagentRegistryError(
@@ -577,17 +568,11 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 			}
 			return candidate;
 		},
-		async update(id, expectedRevision, updater, expectedRuntimeIdentity) {
+		async update(id, updater, expectedRuntimeIdentity) {
 			return withWrite(db, () => {
 				const current = load(id);
 				if (current === undefined) {
 					throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
-				}
-				if (expectedRevision !== undefined && current.revision !== expectedRevision) {
-					throw new SubagentRegistryError(
-						"stale_revision",
-						`Child ${id} is at revision ${current.revision}, not ${expectedRevision}`,
-					);
 				}
 				if (
 					expectedRuntimeIdentity !== undefined &&
@@ -611,19 +596,9 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 					parentSessionId,
 					path,
 				);
-				const replaced = replaceChild(
-					db,
-					parentSessionId,
-					id,
-					current.revision,
-					next.revision,
-					JSON.stringify(next),
-				);
+				const replaced = replaceChild(db, parentSessionId, id, JSON.stringify(next));
 				if (!replaced) {
-					throw new SubagentRegistryError(
-						"stale_revision",
-						`Child ${id} changed while it was being updated`,
-					);
+					throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
 				}
 				return next;
 			});

@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
 import type { SubagentRecord } from "./domain.js";
-import { processLockHeld, processLockPath } from "./process-lock.js";
 import { type SubagentRegistry, SubagentRegistryError } from "./registry.js";
 import { openStateDb, readMeta, writeMeta } from "./state-db.js";
 
@@ -64,13 +62,11 @@ export type LeaseReady =
 			readonly rebound: readonly string[];
 			readonly rehydrated: readonly string[];
 			readonly stopped: readonly string[];
-			/** Children whose runtime was dropped because the writer is gone. */
-			readonly released: readonly string[];
 	  }
 	| { readonly ok: false; readonly reason: "unknown" };
 
 export interface ConversationLease {
-	commit(id: string, edge: LeaseEdge, expectedRevision?: number): Promise<SubagentRecord>;
+	commit(id: string, edge: LeaseEdge): Promise<SubagentRecord>;
 	roster(): Promise<readonly SubagentRecord[]>;
 	ready(): Promise<LeaseReady>;
 }
@@ -84,8 +80,8 @@ export function createConversationLease(options: {
 }): ConversationLease {
 	const { registry, hosts, processes } = options;
 	return {
-		commit(id, edge, expectedRevision) {
-			return commitLease(registry, id, edge, expectedRevision);
+		commit(id, edge) {
+			return commitLease(registry, id, edge);
 		},
 		roster() {
 			return registry.list();
@@ -100,7 +96,6 @@ export async function commitLease(
 	registry: Pick<SubagentRegistry, "get" | "update">,
 	id: string,
 	edge: LeaseEdge,
-	expectedRevision?: number,
 	expectedRuntimeIdentity?: string,
 ): Promise<SubagentRecord> {
 	const current = await registry.get(id);
@@ -109,12 +104,7 @@ export async function commitLease(
 	}
 	const next = applyLeaseEdge(current, edge);
 	if (next === undefined) return current;
-	return registry.update(
-		id,
-		expectedRevision ?? current.revision,
-		() => next,
-		expectedRuntimeIdentity,
-	);
+	return registry.update(id, () => next, expectedRuntimeIdentity);
 }
 
 /** `undefined` means the edge changes nothing, so the caller must not write. */
@@ -210,22 +200,7 @@ async function reconcile(
 	const list = await hosts.list();
 	if (!list.known) return { ok: false, reason: "unknown" };
 	const all = await registry.list();
-	const released = new Set<string>();
-	for (const record of all) {
-		if (record.runtime === undefined) continue;
-		const lockPath = processLockPath(registry.path, record.parentSessionId, record.subagentId);
-		if (lockPath === undefined || !existsSync(lockPath)) continue;
-		let held = true;
-		try {
-			held = processLockHeld(lockPath);
-		} catch {
-			continue;
-		}
-		if (held) continue;
-		await releaseRuntime(registry, record, { type: "runtime-gone", outcome: "drop" });
-		released.add(record.subagentId);
-	}
-	const records = all.filter((record) => !released.has(record.subagentId));
+	const records = all;
 	const parentSessionId = all[0]?.parentSessionId;
 	const stored =
 		parentSessionId === undefined
@@ -272,16 +247,13 @@ async function reconcile(
 	for (const record of records) {
 		const attachment = record.runtime?.attachment;
 		if (attachment?.kind !== "process") continue;
-		if (processes.alive(attachment.pid)) {
-			rebound.push(record.subagentId);
-			continue;
-		}
-		await releaseRuntime(registry, record, { type: "runtime-gone", outcome: "drop" });
-		released.add(record.subagentId);
+		// A dead pid is a liveness answer, and liveness is read from the lock, never written back.
+		// An alive one still has to be re-watched after a reload.
+		if (processes.alive(attachment.pid)) rebound.push(record.subagentId);
 	}
 	if (!held && parentSessionId !== undefined && stored !== list.generation)
 		await writeHostGeneration(registry.path, parentSessionId, list.generation);
-	return { ok: true, rebound, rehydrated, stopped, released: [...released] };
+	return { ok: true, rebound, rehydrated, stopped };
 }
 
 function panelId(record: SubagentRecord): string | undefined {

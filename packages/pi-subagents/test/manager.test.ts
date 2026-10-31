@@ -11,6 +11,7 @@ import {
 	type ParentChannelReport,
 	SubagentManager,
 } from "../src/manager.js";
+import { holdProcessLock, processLockPath } from "../src/process-lock.js";
 import { BridgeError, type BridgeOperation } from "../src/protocol.js";
 import {
 	latestReceiptForChild,
@@ -310,7 +311,7 @@ async function harness(
 		};
 		runtimes.set(record.subagentId, runtime);
 		// The real launcher records which runtime it started before the child connects.
-		await registry.update(record.subagentId, undefined, (current) => ({
+		await registry.update(record.subagentId, (current) => ({
 			...current,
 			runtime: { runtimeIdentity: `runtime-${sequence}`, endpoint: "/tmp/parent.sock" },
 		}));
@@ -1388,6 +1389,31 @@ describe("SubagentManager over the bridge", () => {
 		expect(await test1.manager.get("sa_quiet")).toMatchObject({ freshness: "live" });
 	});
 
+	test("a running record with no writer reads as blocked and is never written back", async () => {
+		const test1 = await harness();
+		const record = await test1.addChild("sa_orphan", { state: "running" });
+		const before = await test1.registry.get(record.subagentId);
+		expect(await test1.manager.get(record.subagentId)).toMatchObject({
+			state: "blocked",
+			freshness: "last_known",
+		});
+		expect(await test1.registry.get(record.subagentId)).toEqual(before);
+
+		const lockPath = processLockPath(test1.registry.path, test1.parentSessionId, record.subagentId);
+		if (lockPath === undefined) throw new Error("lock path");
+		const held = holdProcessLock(lockPath);
+		try {
+			// Another parent process owns this child; its lock is the only evidence of life.
+			expect(await test1.manager.get(record.subagentId)).toMatchObject({
+				state: "running",
+				freshness: "live",
+			});
+		} finally {
+			held.release();
+		}
+		expect(await test1.registry.get(record.subagentId)).toEqual(before);
+	});
+
 	test("stops a child by writing the intent first and ending the process", async () => {
 		const test1 = await harness();
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
@@ -2252,7 +2278,7 @@ describe("SubagentManager over the bridge", () => {
 		const attachment = test1.panels.get(spawned.child.id);
 		if (attachment === undefined) throw new Error("no panel was opened");
 
-		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+		await test1.registry.update(spawned.child.id, (current) => ({
 			...current,
 			state: "running",
 		}));
@@ -2343,7 +2369,7 @@ describe("SubagentManager over the bridge", () => {
 		const spawned = await test1.manager.spawn({ agent: "worker", task: "Do the work." });
 		if ("reason" in spawned) throw new Error(spawned.reason);
 		const sessionPath = await writeSession([assistantEntry("The answer.")]);
-		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+		await test1.registry.update(spawned.child.id, (current) => ({
 			...current,
 			state: "running",
 			persistence: "flushed",
@@ -2374,7 +2400,7 @@ describe("SubagentManager over the bridge", () => {
 			assistantEntry("Earlier."),
 			{ type: "message", id: "user-1", message: { role: "user", content: "continue" } },
 		]);
-		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+		await test1.registry.update(spawned.child.id, (current) => ({
 			...current,
 			state: "running",
 			persistence: "flushed",
@@ -2401,7 +2427,7 @@ describe("SubagentManager over the bridge", () => {
 		const attachment = test1.panels.get(spawned.child.id);
 		if (attachment === undefined) throw new Error("no panel was opened");
 
-		await test1.registry.update(spawned.child.id, undefined, (current) => ({
+		await test1.registry.update(spawned.child.id, (current) => ({
 			...current,
 			state: "done",
 		}));
