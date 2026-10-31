@@ -340,7 +340,7 @@ fallback  = chunk 最后一条 source entry 的本地时间；再 fallback = 记
 **夹具与集成**
 
 6. 事故形状夹具（838 obs / 367 refl / summary ≈186k tokens）：hook 返回 ≤ budget，`details.budget.trimmedObservations > 0`，投影 < 触发阈值——即"压缩收敛"回归测试。
-7. 事故回放脚本（手工、不进 CI）：直接读取本机事故会话文件 `~/.pi/agent/sessions/--ovito--/2026-09-30T12-09-44-721Z_01a0f238-….jsonl` 的 ledger 条目，跑投影 + 裁剪，断言渲染 ≤ 21.8k tokens（默认预算）而不是 198k。
+7. 事故回放脚本（手工、不进 CI）：直接读取本机事故会话文件 `~/.pi/agent/sessions/--repo-session-/2026-09-30T12-09-44-721Z_01a0f238-….jsonl` 的 ledger 条目，跑投影 + 裁剪，断言渲染 ≤ 21.8k tokens（默认预算）而不是 198k。
 8. 空记忆 → 仍交回原生 summarizer；tail 过大 → 裁剪 + 单次 warning。
 9. worker 可见性：observer/reflector/dropper 的输入在超预算池下不超过 `budgetCap`。
 

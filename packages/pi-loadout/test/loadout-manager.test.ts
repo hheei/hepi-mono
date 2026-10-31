@@ -10,7 +10,7 @@ describe("resourceDisplayName", () => {
 				category: "extensions",
 				path: "/repo/packages/pi-ext-tools/dist/extension.js",
 				origin: "package",
-				source: "../../Documents/dev/pi-mono/packages/pi-ext-tools",
+				source: "../../pi-mono/packages/pi-ext-tools",
 				baseDir: "/repo/packages/pi-ext-tools",
 			}),
 		).toBe("pi-ext-tools");

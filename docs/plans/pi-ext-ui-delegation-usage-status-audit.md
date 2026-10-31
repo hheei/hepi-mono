@@ -125,7 +125,7 @@ Requests ×8 对应同一集合的 8 次请求。IN、OUT 是这 8 次请求的�
 证据（按链逐段核对，未修改任何 Pi host 代码）：
 
 1. 仓库契约：`packages/pi-subagents/src/tools.ts` delegateSchema 的 `required` 只有 `["task"]`；`wait/id/agent/cwd` 为 `Type.Optional`。已安装的 `~/.pi/agent/npm/node_modules/@hheei/pi-subagents@0.8.0` dist 与仓库源一致。
-2. 会话记录（模型实际收到的声明）：`~/.pi/agent/sessions/--pi-mono--/2026-10-28T17-54-53-219Z_01a183a6-....jsonl` 中 system message 的 `toolsAdded` 记录为
+2. 会话记录（模型实际收到的声明）：`~/.pi/agent/sessions/--repo-session-/2026-10-28T17-54-53-219Z_01a183a6-....jsonl` 中 system message 的 `toolsAdded` 记录为
    `{"type":"object","required":["task"],"properties":{"task","wait","id","agent","cwd"},"additionalProperties":false}`。
    全目录扫描只找到这一份 agents_delegate 声明，说明当时暴露的就是正确形状。
 3. host 桥接：`dist/core/tools/tool-definition-wrapper.js`、`dist/core/extensions/wrapper.js` 原样复制 `parameters`；`_applyToolLoadout`/`prepareLoadout` 只改 description 与隐藏项，不改 schema。
