@@ -17,7 +17,7 @@
 
 ### 验证与并发
 
-- 语法错误、缺原子 replace 在任何 path 改变前拒绝整次 request。同一 workspace 的 apply_patch / edit / write 共用一把 mutation lock；后到的请求排队，取消排队中的请求不会改 workspace。
+- 语法错误、缺原子 replace 在任何 path 改变前拒绝整次 request。写入工具之间没有共享锁：并发的 apply_patch 各自独立 Publish，`write` 与 `edit` 由 Pi 原生工具执行。
 - patch bytes、operation 数、hunk 数和 hunk 行数有硬上限；超限在 mutation 前拒绝，要求模型拆分 patch。
 - V4A 不包含可信源行号。重复上下文不得因伪造 unified-diff line hint 而静默选择文件中最早位置。
 - Rejected hunk 的行号描述 **patch 执行完后的文件**，不是拒绝发生那一刻的中间 buffer：同一 operation 内后续 hunk 会插入/删除行，后续 operation 也会 publish 自己的位移。诊断在全部 hunk 与 operation 结束后针对最终内容重新定位，所以 `candidateStartLines` 与 hint 行号都能被模型直接在 `read` 结果里找到。重新定位只在定位本身成功时改写行号；定位失败时保留原诊断，不伪造坐标。
@@ -35,7 +35,6 @@
 ```text
 V4A patch
   -> parser + structural path validation
-  -> mutation lock
   -> per-path sequential hunk staging
   -> Publish once when at least one hunk succeeded
   -> Patch Outcome
@@ -46,7 +45,7 @@ V4A patch
 
 ## Ownership
 
-`pi-apply-patch` 拥有 V4A parse、内部单 hunk unified-diff 编译、jsdiff worker 匹配、local path resolution / external-write warning、Publish、共享 mutation lock 的调用、`fuzzFactor` admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
+`pi-apply-patch` 拥有 V4A parse、内部单 hunk unified-diff 编译、jsdiff worker 匹配、local path resolution / external-write warning、Publish、`fuzzFactor` admission、Patch Outcome、model formatter、Pi `tool_result` error marking、renderer 和 Trace footer。
 
 ext-core 不拥有 patch policy 或结果；它只提供已有的 shared lifecycle primitives。没有自有 N-API bridge 或 vendored mpatch。
 
@@ -58,7 +57,7 @@ V4A compiler 生成内部 unified diff 时没有真实旧行号。路径只来�
 
 每个 Update 的全部 hunk 在一个短生命周期 worker thread 中顺序作用于内存 copy。worker 不写 staging 目录、不启动 native process。取消 `terminate()` 该 worker。文件上限仍为 32 MiB。
 
-匹配计算集中在 package 内部的同步模块 `jsdiff-matching.ts`：输入为源字节、逐 hunk 的 V4A 与内部 unified diff、`fuzzFactor` 和 snapshot path，输出为 `PreparedPatchUpdate`。它不拥有线程、文件 I/O 或取消信号；生产环境只由 worker 调用，匹配测试可直接调用。worker 入口只负责执行与结果/错误回传；`jsdiff.ts` 继续拥有启动、取消、退出清理与跨线程结果验证。匹配规则使用内存表驱动测试，线程传输、错误和取消保留真实 Worker 测试，文件发布、锁与恢复由 executor 测试覆盖。
+匹配计算集中在 package 内部的同步模块 `jsdiff-matching.ts`：输入为源字节、逐 hunk 的 V4A 与内部 unified diff、`fuzzFactor` 和 snapshot path，输出为 `PreparedPatchUpdate`。它不拥有线程、文件 I/O 或取消信号；生产环境只由 worker 调用，匹配测试可直接调用。worker 入口只负责执行与结果/错误回传；`jsdiff.ts` 继续拥有启动、取消、退出清理与跨线程结果验证。匹配规则使用内存表驱动测试，线程传输、错误和取消保留真实 Worker 测试，文件发布与恢复由 executor 测试覆盖。
 
 worker 只从 `@hheei/pi-ext-core/errors` 取共享的 error helper：导入 ext-core 桶入口会让每个 worker 先把整套 ext-core 模块图载入新线程（实测每次 operation 约 220ms，一个多文件 patch 每个文件各付一次）。新增 worker 依赖时保持这条边界，不要在 worker 内引用桶入口。
 
@@ -128,9 +127,9 @@ partial 结果明确区分 Changed / Rejected / Unconfirmed / NotApplied。`cont
 
 ## TUI
 
-模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `󰄰 create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace、取得锁或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
+模型生成 arguments 时，TUI 只走纯计算的 call renderer：partial `args.patch` 每出现一个已换行的 operation header 就增加一行 `󰄰 create|modify|delete path`，hunk `+/-` 行到达后更新 planned delta。该 preview 不得读取 workspace 或声称 validated/applied。`execute()` 仍只在完整 tool 参数后开始。
 
-执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：状态 glyph 使用 Nerd Font 字符 `󰄰` pending、`󰄴` applied、`󰪠` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected（`edit`/`write` 的远端 Unconfirmed/NotApplied 行复用后两者）：`󰄰` 尚未 Publish，`󰄴` 是 exact/whitespace Changed，`󰪠` 是 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`󰾞` 是 fuzzy Changed，`󰅚` 是 Rejected，`󰘥` 是 Unconfirmed，dim `󰍷` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。final Patch Outcome 替代 live state，resume 不恢复 `󰄰` rows 或 model-time preview。
+执行中，Patch Core 在完整 envelope 通过后发送 typed Patch Progress，每个 path Publish 或拒绝后再发下一份 snapshot。live state 只属于当前 Trace：状态 glyph 使用 Nerd Font 字符 `󰄰` pending、`󰄴` applied、`󰪠` partial、`󰾞` fuzzy、`󰘥` unconfirmed、`󰍷` not applied、`󰅚` rejected：`󰄰` 尚未 Publish，`󰄴` 是 exact/whitespace Changed，`󰪠` 是 Changed+Rejected partial（显示 `N/M hunks applied` 与拒绝原因），`󰾞` 是 fuzzy Changed，`󰅚` 是 Rejected，`󰘥` 是 Unconfirmed，dim `󰍷` 是 NotApplied。header 的 `+/-` 只累计已确认 operation。final Patch Outcome 替代 live state，resume 不恢复 `󰄰` rows 或 model-time preview。
 
 未展开的完成结果显示 operation rows；prior Trace collapse 由 shared frame 显示 header、空行、tool-owned footer。footer 是 typed metrics，不解析模型 content：
 
@@ -153,7 +152,7 @@ warning glyph `󰪠` 用于 Changed+Rejected partial；Unconfirmed/NotApplied �
 - parser、path 与 matching failure 保留稳定错误分类；parser errors 带 source line（若有）。transport 失败不能被静默重试。
 - 准备、jsdiff worker 与 Publish 服从 `AbortSignal`。取消不撤回已 Changed 的 path。尚未发出 replace/remove 的为 NotApplied；已发出未见 ACK 的为 Unconfirmed。
 - local 无逾时，只靠取消。
-- mutation lock 串行化 apply_patch、write 与 edit：按 local workspace，原语为平台原生 exclusive lock。后到的请求排队直到持锁者释放；取消排队中的请求不会取得锁、也不会改 workspace。锁不能阻止外部写入；apply_patch 的源基线复核只提供上述尽力而为的冲突检测。
+- 没有写入锁：并发的 apply_patch 各自 Publish，`write` 与 `edit` 由 Pi 原生工具执行，彼此不协调。apply_patch 的源基线复核只提供上述尽力而为的冲突检测。
 - `/reload` 取消 execute，不重连进行中的 mutation。
 - 现有文件（含 Delete 与 Move 源）大于 32 MiB 在读完整内容前拒绝；Add/Update 结果也不得超过 32 MiB。
 - details 是 result persistence source；resume 和 global expand 从它渲染 completed outcome，不恢复 pending preview state。
@@ -168,7 +167,7 @@ warning glyph `󰪠` 用于 Changed+Rejected partial；Unconfirmed/NotApplied �
 4. fuzzy applied result 保存 line range，不保存 score；ordinary exact 不扩大模型内容。
 5. actual changed paths、Changed/Rejected/Unconfirmed/NotApplied grouping、6-candidate model cap。
 6. collapsed footer、warning partial glyph、expanded stable hunk diff、resume/global expand，以及 renderer 不读取 current workspace。
-7. 取消保留已 Changed path；后到的 mutation 排队直到锁释放或排队请求被取消；过大文件拒绝。
+7. 取消保留已 Changed path；过大文件拒绝。
 8. 多个 `toolcall_delta` 在 `toolcall_end` / `execute()` 之前逐步更新 call preview；abort 在 execute 前不 Publish；两条并行 preview 的 state 不串线。
 9. 锚点定位、缺失锚点、范围内歧义、EOF 与纯移动；CRLF、LF、无末尾换行和未修改的混合换行行。
 10. 准备期间源发生外部修改时 Update/Delete/Move 拒绝；Move 目标发布后源冲突保留两者并如实报告。

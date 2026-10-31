@@ -71,7 +71,7 @@ core 的目标是以最小协调原语支持独立 extension 组合。未安装�
 - **工具注册与装配**：工具一律使用 Pi 原生 `pi.registerTool`；需要按需发现的工具声明 `exposure: "deferred"` 与 `defaultActive: false`，激活与 inventory 策略由 `pi-loadout` 拥有。deferred 工具族的介绍文字用 `setOptionalToolBullet` 写入结构化 prompt 的 `optional_tools` 段落。
 - **工具展示**：内容语义用 `createToolPresentationRenderers` 提供 `ToolPresentation`；加载 `@hheei/pi-ext-ui` 时由 ToolView 负责折叠与交互，未加载时同一函数给出 Pi 原生 Text 渲染。
 - **全屏或弹出式 UI**：使用 `openTuiSurface` 或 `openExtensionPageRouter`，不得在扩展内自行监听原始键盘事件打断 Pi 渲染循环。
-- **编辑器附着组件**：使用 `registerWidget` 挂载上下组件，配合 `EditorWorkingStatusIndicator` 展示转轮动画。
+- **编辑器附着组件**：使用 `registerWidget` 挂载编辑器上下组件；需要临时隐藏全部挂件时调用 `suspendWidgets`。
 - **持久化配置**：必须使用 `readJsonSettingsSection` / `readMergedJsonSettingsSection` / `updateJsonSettingsRoot`，配置统一落盘至 `ext_settings.json`，严禁写入 Pi 原生 `settings.json`。
 - **错误提取与取消**：跨不可信或未知边界提取异常字符串必须使用 `errorMessage`；取消一律使用 `abortError` 或 `throwIfAborted`。
 
@@ -126,7 +126,7 @@ consumer 数量不是硬门槛：一个有实际中间层价值、可由其他 e
 
 ## Tool Contributor
 
-所有 HEPI-owned non-native executable tool 在 extension composition root 直接调用 `pi.registerTool`。需要按需发现的
+所有 Pi-owned non-native executable tool 在 extension composition root 直接调用 `pi.registerTool`。需要按需发现的
 工具声明 `exposure: "deferred"` 与 `defaultActive: false`，用 `setOptionalToolBullet` 把自己的条目写进结构化 prompt
 的 `optional_tools` 段落。active 集合由 Pi host 的 `getActiveTools` / `setActiveTools` 决定，extension 不自行维护
 第二份 activation policy。展示语义用 `createToolPresentationRenderers` 提供 `ToolPresentation`；加载 `pi-ext-ui` 时

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Shared UI/UX rules for HEPI terminal surfaces: visual hierarchy, theme usage, layout, interaction, responsive behavior, and accessibility.
+Shared UI/UX rules for Pi terminal surfaces: visual hierarchy, theme usage, layout, interaction, responsive behavior, and accessibility.
 
 Feature architecture, persistence, lifecycle, command semantics, and feature-specific UI contracts belong elsewhere.
 
@@ -10,7 +10,7 @@ Feature specs MAY specialize these rules but MUST NOT silently contradict them.
 
 ## Principles
 
-HEPI is **quiet, semantic, content-first, and terminal-native**.
+The Pi TUI is **quiet, semantic, content-first, and terminal-native**.
 
 - Content dominates; color, borders, backgrounds, spacing, and typography communicate state or hierarchy, never decoration.
 - Prefer whitespace, alignment, and familiar terminal interaction over extra containers or custom interaction.

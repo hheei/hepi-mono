@@ -89,16 +89,16 @@ Pi 把 `registerCommand(name, options)` 的 `options.getArgumentCompletions(argu
 
 ### Pi context usage
 
-`resolvePiContextUsage()` 是纯函数：任意时刻把 Pi `getContextUsage()` 读数解成可展示的输入量。
-它不读 `ExtensionContext`、不持有 session state、也不决定 historian / compaction policy。
+`estimateEntryTokens(entry)` 与 `estimateTextTokens(text)` 是纯估算函数，不读 `ExtensionContext`、
+不持有 session state、也不决定 historian / compaction policy。
 
-Pi 只估 session messages（最后一条有效 assistant usage + 之后 chars/4）。因此：
+`estimateEntryTokens` 对 Pi session branch entry 给出 token 数：`message` 走 host 的
+`estimateTokens`，`custom_message` 的 string 或 text block 与 `branch_summary` 走
+`estimateTextTokens`，其他 type 为 0。`estimateTextTokens` 是 `ceil(length / 4)` 的结构化
+fallback，不是模型 tokenizer；需要精度的 consumer 自己接 tokenizer。
 
-- `tokens > 0`：直接用 live。这个数已包含上一轮的 system prompt、`<available_skills>` 目录与 `tools[]`。
-- `tokens === 0`：新 session。用调用方传入的 `prefixTokens` 做下限（通常是 `estimatePiPrefixTokens(systemPrompt, tools)`；技能正文要等 `read`）。
-- `tokens === null` 或缺少：compaction 后未知。不用 prefix 冒充，`tokens` / `percent` 为 `undefined`。
-
-调用方自己读 `getContextUsage` / `getSystemPrompt` / `getAllTools`。默认 prefix 估算是 `ceil(chars/4)`；需要模型 tokenizer 的包传 `estimateTokens`。
+live 上下文读数仍由 consumer 从 Pi `getContextUsage()` 读取；core 不解释它，也不提供 prefix
+或水位判定。
 
 ### Extension JSON Settings
 
@@ -379,13 +379,9 @@ singleton。
 - `openTuiSurface(ctx, options)`: 打开全屏独立 TUI Surface。
 - `TuiSurfaceQueueFullError`: 并发排队异常。
 
-### 7. 挂件与编辑器底栏状态 (Widgets & Editor Status)
+### 7. 挂件 (Widgets)
 - `registerWidget(pi, placement, widget)`: 在编辑器上下方挂载展示组件。
 - `suspendWidgets(pi)`: 临时挂起所有活动挂件。
-- `EditorWorkingStatusIndicator`: 点阵微旋转动画状态指示器。
-- `registerActiveEditor(editor)` / `unregisterActiveEditor`: 编辑器实例跟踪。
-- `setPreTurnWorkingStatus(options)`: 设定回合前即时状态。
-- `BRAILLE_SPINNER_FRAMES`: 标准点阵动画帧。
 
 ### 8. 配置持久化与存储 (JSON Settings Transport)
 - `readJsonSettingsRoot(path)` / `updateJsonSettingsRoot(path, updater)`: JSON 配置根对象原子读写。
@@ -403,10 +399,8 @@ singleton。
 - `thinkingGlyph(level)`: 获取级别指示符号。
 
 ### 10. 上下文用量与 Token 估算 (Context Usage & Token Estimation)
-- `resolvePiContextUsage(reading, options)`: 规范化上下文压力读数。
-- `estimatePiPrefixTokens(systemPrompt, tools)`: 估算前缀 token。
-- `estimatePiToolDefinitionTokens(tools)`: 估算工具定义 token。
-- `estimateTextTokens(text)`: 纯文本字符 token 估算。
+- `estimateEntryTokens(entry)`: 估算一个 Pi session branch entry 的 token 数。
+- `estimateTextTokens(text)`: 纯文本字符 token 估算（`ceil(length / 4)`）。
 
 ### 11. 进程内子代理协调器（已移除）
 
@@ -415,8 +409,8 @@ singleton。
 ### 12. 响应遥测与编辑器底轨 (Response Telemetry & Editor Rail)
 - `createResponseStatusFeature(pi, options)`: 模型性能遥测组件。
 - `formatTelemetryStatus(metrics)`: 遥测文本格式化。
-- `renderBottomRailBorder(options)`: 底栏边框对齐渲染。
-- `wrapEditorBottomRail(editor, renderRail)`: 编辑器底栏渲染装饰器。
+- `formatCompactNumber(value)` / `formatRate(value)` / `formatDurationColor(durationMs, theme)`: 遥测数值、速率与耗时着色格式化。
+- `TELEMETRY_DISMISS_DELAY_MS`: 遥测状态自动消失的延迟。
 
 ### 13. 通用辅助工具 (Utilities)
 - `runCommand(command, args, options?)`: 一次性安全进程执行。
@@ -425,9 +419,17 @@ singleton。
 - `expandHome(filepath, env?)`: 家目录展开。
 - `splitSubcommand(text)` / `subcommandCompletions(subcommands, options?)`: 斜杠命令双层子命令自动补全。
 - `fitRow(text, width)`: ANSI 彩色单行文本等宽截断或填充。
+- `extractShellCommands(command)` / `isSearchOnlyCommand(command)` / `SEARCH_TIMEOUT_MS` / `SEARCH_BASH_TIMEOUT_SECONDS`: 从 bash 调用中识别只读搜索命令并给出其超时。
+- `BashOutputSink` / `DEFAULT_VISIBLE_TAIL_BYTES`: 流式 bash 输出的尾部缓冲。
+- `defaultShellPath(env?)`: 解析默认 shell 可执行文件。
+- `panelScrollbar(total, top, rows)`: 视口行到滚动轨单元格的共享几何。
+- `pad` / `WIDE_COLUMNS` / `PANEL_ROWS` / `STACKED_LIST_ROWS` / `LIST_HINT_ROWS` / `calculateScrollTop(...)`: 双栏与堆叠面板的共享布局常量与计算。
 - `isRecord(value)`: 非空 Plain Object 严格守卫。
 - `escapeXml(str)`: XML 字符转义。
 - `textToolResult(text, isError?)` / `agentResultText(result)` / `formatDuration(ms)`: 工具结果与耗时格式化。
+- `capToolResult(pi, result)` / `outputPrefixFor(...)`: 工具结果的共享封顶与 Output 前缀。
+- `createOptionalToolRenderers(...)` / `getRegisteredToolRenderers(pi, name)` / `hasOptionalToolRenderers(...)` / `toolRendererPoint`: 可选专用 renderer 的注册与解析点。
+- `messageViewPoint` / `readMessageView(...)`: transcript notice 的 MessageView 挂载点。
 
 ## 包和测试布局
 
@@ -440,7 +442,6 @@ packages/pi-ext-core/
     context-usage.ts
     custom-surface.ts
     disposer-registry.ts
-    editor-working-status.ts
     errors.ts
     extension-point.ts
     global-state.ts
@@ -449,19 +450,27 @@ packages/pi-ext-core/
     lifecycle.ts
     message-view-point.ts
     model-selection.ts
+    output-tail.ts
     page-router.ts
+    panel-layout.ts
     panel-scrollbar.ts
     paths.ts
     process.ts
     prompt-section.ts
     record.ts
+    render-throttle.ts
     response-status.ts
     row-fit.ts
     runtime-identity.ts
+    search-command.ts
     service.ts
     settings.ts
+    shell.ts
     text.ts
+    tool-output-cap.ts
+    tool-output.ts
     tool-presentation.ts
+    tool-renderer-point.ts
     tool-result.ts
     widgets.ts
 ```
@@ -497,4 +506,4 @@ behavior 预建测试。
 15. v1 只支持 Pi 完整 reload lifecycle，不提供单一 Service HMR replace 后门。
 16. Pi 串行 session start 下，consumer 不得 await `waitForService()`；改以自行处理的
     non-blocking continuation 等待 provider。
-17. `resolvePiContextUsage()` 只解释 Pi live usage；不解释 consumer 自己持久化的 context pressure 或阈值。
+17. `estimateEntryTokens()` 只估算单个 branch entry；不读取 Pi live usage，也不解释 consumer 自己持久化的 context pressure 或阈值。

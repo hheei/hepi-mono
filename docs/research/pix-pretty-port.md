@@ -65,9 +65,9 @@ Pi 0.84.0 `ToolDefinition` 已公开 `execute(signal, onUpdate, ctx)`、`renderS
 全局 `0.84.1` 与仓库 `0.84.0` 的 extension type diff 只增加 `ToolCallEventResult.terminate`；read declarations 额外导出 `readToolSystemPromptContribution`。两者都与 Pretty renderer、TUI、session lifecycle 无关，故本次建议不依赖它们。
 
 - 仓库版本：`node_modules/@earendil-works/pi-coding-agent/package.json:3`。
-- 全局版本：`<node_modules>/@earendil-works/pi-coding-agent/package.json:3`。
-- `0.84.1` 新增 `terminate`：`<node_modules>/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts:786`。
-- `0.84.1` 新增 read prompt export：`<node_modules>/@earendil-works/pi-coding-agent/dist/core/tools/read.d.ts:10`。
+- 全局版本：`<global-node_modules>/@earendil-works/pi-coding-agent/package.json:3`。
+- `0.84.1` 新增 `terminate`：`<global-node_modules>/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts:786`。
+- `0.84.1` 新增 read prompt export：`<global-node_modules>/@earendil-works/pi-coding-agent/dist/core/tools/read.d.ts:10`。
 
 ## 迁移风险
 

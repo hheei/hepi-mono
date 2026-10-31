@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { isPatchPathOutsideWorkspace, resolvePatchPath } from "../src/apply-patch/paths.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-apply-patch-paths-");
+const temporaryDirectory = temporaryDirectories("pi-apply-patch-paths-");
 
 describe("apply_patch paths", () => {
 	test("resolves relative paths from the workspace", async (): Promise<void> => {

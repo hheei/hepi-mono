@@ -1,7 +1,7 @@
 # pi-subagents 范围与实施路线
 
 本文记录 V1 的用户目标、明确不做、完成定义与实施顺序。运行时合同在 [spec.md](spec.md)；
-已发布行为以 package README、源码与测试为准；设计历史在 [archive/](archive/)。
+已发布行为以 package README、源码与测试为准；设计历史在 [archive/](../archive/pi-subagents/)。
 
 ## 用户目标
 
@@ -28,7 +28,7 @@ V1不包含：
 - 因 idle 回收或 `intent=stop` 自动打开 panel，或自动重放中断任务和未确认消息；宿主重启回灌只拉回当时仍有 attachment 的 panel（§6.7），不是模型工具；
 - 阻止用户直接原生`/resume`同一session；
 - durable event ledger、process history、handoff history或通用cross-extension message bus；
-- 未定义语义的agent字段和兼容旧HEPI/subagent实现的shim。
+- 未定义语义的agent字段和兼容旧Pi/subagent实现的shim。
 
 ## 完成定义
 

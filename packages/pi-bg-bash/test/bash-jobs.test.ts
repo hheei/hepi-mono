@@ -61,7 +61,7 @@ test.concurrent("retains a bounded terminal result and reports completion", asyn
 
 test.concurrent("keeps a terminal result inside the byte bound while the log holds everything", async (context) => {
 	const jobs = registry(context, 128 * 1024);
-	const dir = await mkdtemp(join(tmpdir(), "hepi-bash-bound-"));
+	const dir = await mkdtemp(join(tmpdir(), "pi-bash-bound-"));
 	try {
 		const started = jobs.start({
 			command: `node -e "process.stdout.write('界😀'.repeat(30000))"`,
@@ -171,7 +171,7 @@ test.concurrent("a shell that cannot be spawned fails with its error and one res
 
 test.concurrent("a released record already has its complete log on disk", async (context) => {
 	const jobs = registry(context);
-	const dir = await mkdtemp(join(tmpdir(), "hepi-bash-flush-"));
+	const dir = await mkdtemp(join(tmpdir(), "pi-bash-flush-"));
 	try {
 		const started = jobs.start({
 			command: "echo flushed",

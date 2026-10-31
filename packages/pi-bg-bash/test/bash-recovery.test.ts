@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 
 function fixture() {
-	const directory = ledgerTemporaryDirectory("hepi-bash-recovery-");
+	const directory = ledgerTemporaryDirectory("pi-bash-recovery-");
 	cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
 	const file = join(directory, "bash.sqlite");
 	const ledger = new BashExecutionLedger(file);

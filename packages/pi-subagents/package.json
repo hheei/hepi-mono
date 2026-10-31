@@ -31,13 +31,12 @@
 		"pi",
 		"pi-package",
 		"pi-extension",
-		"hepi",
 		"subagents"
 	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"url": "git+https://github.com/hheei/pi-mono.git",
 		"directory": "packages/pi-subagents"
 	},
 	"publishConfig": {

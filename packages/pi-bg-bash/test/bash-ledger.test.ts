@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 function temporaryDirectory(): string {
-	const directory = ledgerTemporaryDirectory("hepi-bash-ledger-");
+	const directory = ledgerTemporaryDirectory("pi-bash-ledger-");
 	// One cleanup, so the mode reset always runs before the removal and on a directory that exists.
 	cleanups.push(() => {
 		chmodSync(directory, 0o700);

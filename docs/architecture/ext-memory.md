@@ -24,7 +24,7 @@
 - 全局路径：`~/.pi/agent/settings.json` 下的 `"pi-ext-memory"` 对象
 - 项目级路径：`<cwd>/.pi/settings.json` 下的 `"pi-ext-memory"` 对象
 
-然而，在 HEPI Monorepo 体系下，所有 concrete extension 的持久化配置统一遵循 ext-core 定义的 `ext_settings.json` 契约，以解耦宿主核心配置与扩展配置。
+然而，在 Pi Monorepo 体系下，所有 concrete extension 的持久化配置统一遵循 ext-core 定义的 `ext_settings.json` 契约，以解耦宿主核心配置与扩展配置。
 
 **本次变更目标：**
 将 `@hheei/pi-ext-memory` 的配置持久化路径全面迁移至 `ext_settings.json`，直接使用 ext-core 规范的全局和项目文件路径。

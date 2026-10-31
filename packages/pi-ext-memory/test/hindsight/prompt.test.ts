@@ -62,14 +62,14 @@ describe("hindsight prompt injection", () => {
 
 	it("describes the repository and its tools in the preamble", () => {
 		const text = renderHindsightPreamble({
-			repo: "hepi-mono",
+			repo: "pi-mono",
 			bankId: "hheei",
 			isolationMode: "tagged-shared-bank",
 			pagesAvailable: true,
 			pages: [{ id: "kp-1", title: "Conventions", description: "repo-wide rules" }],
 		});
 		expect(text).toContain(MEMORY_PREAMBLE_HEADING);
-		expect(text).toContain("`repo:hepi-mono` tag");
+		expect(text).toContain("`repo:pi-mono` tag");
 		expect(text).toContain("mcp__hindsight__search_knowledge_base");
 		expect(text).toContain("mcp__hindsight__reflect");
 		expect(text).toContain("Correction: <topic>");
@@ -78,17 +78,17 @@ describe("hindsight prompt injection", () => {
 
 	it("names the dedicated bank and reports an empty or unsupported page index", () => {
 		const dedicated = renderHindsightPreamble({
-			repo: "hepi-mono",
-			bankId: "coding-agent::hepi-mono",
+			repo: "pi-mono",
+			bankId: "coding-agent::pi-mono",
 			isolationMode: "dedicated-bank",
 			pagesAvailable: true,
 			pages: [],
 		});
-		expect(dedicated).toContain("its own bank `coding-agent::hepi-mono`");
+		expect(dedicated).toContain("its own bank `coding-agent::pi-mono`");
 		expect(dedicated).toContain("No knowledge pages exist yet");
 
 		const unsupported = renderHindsightPreamble({
-			repo: "hepi-mono",
+			repo: "pi-mono",
 			bankId: "hheei",
 			isolationMode: "tagged-shared-bank",
 			pagesAvailable: false,

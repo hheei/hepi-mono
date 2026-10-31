@@ -129,7 +129,7 @@ Release CI uses [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishe
 through GitHub Actions OIDC, not a long-lived token secret. The publish job explicitly
 installs npm 11.21.0: OIDC publishing requires npm CLI >=11.5.1 and Node >=22.14.0;
 the npm bundled with Node 22.19.0 is too old. Keep `id-token: write` enabled.
-Each public package's npm Trusted Publisher must match `hheei`, `hepi-mono`, and
+Each public package's npm Trusted Publisher must match `hheei`, `pi-mono`, and
 `release.yml` (filename only), permit direct `npm publish`, and omit an environment
 restriction unless the publish job declares the same GitHub environment.
 

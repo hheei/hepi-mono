@@ -1,6 +1,6 @@
 # Domain Glossary
 
-This document records canonical domain terms and module concepts in `hepi-mono` to guide deep module design, naming, and architectural seams.
+This document records canonical domain terms and module concepts in `pi-mono` to guide deep module design, naming, and architectural seams.
 
 ## Core Concepts
 

@@ -96,7 +96,7 @@ describe("ToolExecutionComponent smoke", () => {
 	});
 
 	test("keeps native write preview body after final host completion", async (): Promise<void> => {
-		const cwd = await mkdtemp(join(tmpdir(), "hepi-native-write-smoke-"));
+		const cwd = await mkdtemp(join(tmpdir(), "pi-native-write-smoke-"));
 		const { pi, tools: registered } = framedHost();
 		registerTools(pi);
 		const tool = toolFor(registered, "write");

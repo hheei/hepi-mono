@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the package architecture for HEPI work. Installable packages are
+This is the package architecture for Pi work. Installable packages are
 independent `@hheei/pi-<name>` extensions backed by `@hheei/pi-ext-core`.
 
 ## Package Boundaries

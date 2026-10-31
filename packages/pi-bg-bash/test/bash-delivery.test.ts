@@ -129,7 +129,7 @@ function harness(
 	function start(command = "build", anchor?: string, logged = false) {
 		const child = mockChild();
 		mocked.spawn.mockReturnValueOnce(child);
-		const logDir = logged ? ledgerTemporaryDirectory("hepi-delivery-") : undefined;
+		const logDir = logged ? ledgerTemporaryDirectory("pi-delivery-") : undefined;
 		if (logDir !== undefined) directories.push(logDir);
 		const job = jobs.start({
 			command,
@@ -199,7 +199,7 @@ function harness(
 }
 
 test("reconciles recovered reports against raw current branch receipts and redelivers on eligible branch", async () => {
-	const directory = ledgerTemporaryDirectory("hepi-delivery-recovery-");
+	const directory = ledgerTemporaryDirectory("pi-delivery-recovery-");
 	const ledger = new BashExecutionLedger(join(directory, "bash.sqlite"));
 	ledger.save(
 		{
@@ -259,7 +259,7 @@ test("reconciles recovered reports against raw current branch receipts and redel
 });
 
 test("startup automatically reports an uncertain restored execution with partial-log warning", async () => {
-	const directory = ledgerTemporaryDirectory("hepi-delivery-unknown-");
+	const directory = ledgerTemporaryDirectory("pi-delivery-unknown-");
 	const ledger = new BashExecutionLedger(join(directory, "bash.sqlite"));
 	ledger.save(
 		{

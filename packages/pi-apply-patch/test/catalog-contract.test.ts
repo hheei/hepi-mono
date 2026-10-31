@@ -6,7 +6,7 @@ import { registerApplyPatchTool } from "../src/apply-patch/tool.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-apply-patch-catalog-");
+const temporaryDirectory = temporaryDirectories("pi-apply-patch-catalog-");
 
 /** The extension owns apply_patch alone, so the host double stays caller-chosen. */
 function registeredTool(): ReturnType<typeof toolFor> {

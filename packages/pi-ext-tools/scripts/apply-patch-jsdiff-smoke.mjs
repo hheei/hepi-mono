@@ -114,7 +114,7 @@ async function main() {
 		return;
 	}
 
-	const root = await mkdtemp(join(tmpdir(), "hepi-jsdiff-smoke-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-jsdiff-smoke-"));
 	try {
 		for (const withInvalidNative of [false, true]) {
 			const name = withInvalidNative ? "invalid-native" : "no-native";

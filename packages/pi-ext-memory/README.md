@@ -2,7 +2,7 @@
 
 > **Make Pi sessions feel endless.**
 
-`@hheei/pi-ext-memory` 是 HEPI Monorepo 中基于 [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory) 构建与维护的会话观测式记忆扩展。
+`@hheei/pi-ext-memory` 是 Pi Monorepo 中基于 [pi-observational-memory](https://github.com/elpapi42/pi-observational-memory) 构建与维护的会话观测式记忆扩展。
 它通过分层的 Observations（观测）与 Reflections（反思）机制，在后台持续提炼会话中的关键事实与决策，从而在执行上下文压缩（Compaction）时保持会话连贯性，显著减少模型上下文退化。
 
 ---

@@ -8,7 +8,7 @@ import { registerReadTool } from "../src/read.js";
 import { toolFor, toolHost } from "./fixtures/harness.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-ext-tools-codemode-test-");
+const temporaryDirectory = temporaryDirectories("pi-ext-tools-codemode-test-");
 
 describe("file tools contract aligned with upstream pi 1.0.0", () => {
 	test("read, grep, find contract aligned with upstream pi and declare readOnly hints", async () => {

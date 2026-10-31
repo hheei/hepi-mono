@@ -252,5 +252,5 @@ TUI 渲染、折叠、导航、复制、ANSI／单元格布局
 - **[L3]** [ext-core 开发约定](../development/pi-ext-core.md)。
 - **[L4]** [Extension reference architecture](../architecture/extension-reference.md)。
 - **[L5]** [lifecycle.ts](../../packages/pi-ext-core/src/lifecycle.ts)、[ext-core exports](../../packages/pi-ext-core/src/index.ts)。
-- **[L6]** [todo/model.ts](../../packages/pi-ext-tools/src/todo/model.ts)、[todo.ts](../../packages/pi-ext-tools/src/todo/todo.ts)、[apply-patch-tool.ts](../../packages/pi-ext-tools/src/apply-patch-tool.ts)、[eval/tool.ts](../../packages/pi-ext-tools/src/eval/tool.ts)。
+- **[L6]** [todo/model.ts](../../packages/pi-todo/src/model.ts)、[todo.ts](../../packages/pi-todo/src/todo.ts)、[apply-patch-tool.ts](../../packages/pi-apply-patch/src/apply-patch-tool.ts)、[eval/tool.ts](../../packages/pi-python-eval/src/tool.ts)。
 - **[L7]** [Subagent 执行架构](../architecture/subagents.md)、[后台任务契约](../architecture/background-tasks.md)。二者不能视为同一套 runner 契约。

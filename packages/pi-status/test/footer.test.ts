@@ -157,7 +157,7 @@ describe("CompactFooterComponent", () => {
 			thinkingLevel: "high",
 			getContextUsage: () => ({ percent: 12.3, contextWindow: 1_000_000, tokens: 123_000 }),
 			sessionManager: {
-				getCwd: () => "/home/user/hepi-mono",
+				getCwd: () => "/home/user/pi-mono",
 				getSessionName: () => "Optimize footer",
 			},
 		} as unknown as ExtensionContext;
@@ -174,7 +174,7 @@ describe("CompactFooterComponent", () => {
 		expect(lines).toHaveLength(2);
 
 		// Line 1: cwd + branch on left, session name on right
-		expect(lines[0]).toContain("hepi-mono");
+		expect(lines[0]).toContain("pi-mono");
 		expect(lines[0]).toContain("main");
 		expect(lines[0]).toContain("Optimize footer");
 
@@ -206,7 +206,7 @@ describe("CompactFooterComponent", () => {
 			thinkingLevel: "high",
 			getContextUsage: () => ({ percent: 5, contextWindow: 1_000_000, tokens: 50_000 }),
 			sessionManager: {
-				getCwd: () => "/home/user/hepi-mono",
+				getCwd: () => "/home/user/pi-mono",
 				getSessionName: () => undefined,
 			},
 		} as unknown as ExtensionContext;
@@ -250,7 +250,7 @@ function mountFooter(extensionStatuses: Map<string, string>): CompactFooterCompo
 		thinkingLevel: "high",
 		getContextUsage: () => ({ percent: 12.3, contextWindow: 1_000_000, tokens: 123_000 }),
 		sessionManager: {
-			getCwd: () => "/home/user/hepi-mono",
+			getCwd: () => "/home/user/pi-mono",
 			getSessionName: () => "Optimize footer",
 		},
 	} as ExtensionContext;

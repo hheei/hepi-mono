@@ -8,7 +8,7 @@ Start with the section that matches your question, not with the whole tree.
 ## User Guides
 
 - [Getting started](user/getting-started.md): published installation, local builds, and explicit extension loading.
-- [Package catalogue](user/packages.md): current HEPI packages and prerequisites.
+- [Package catalogue](user/packages.md): current Pi packages and prerequisites.
 - Package READMEs under `packages/*/README.md`: installation and compatibility by package.
 
 ## Development
@@ -17,7 +17,7 @@ Start with the section that matches your question, not with the whole tree.
 - [Local Pi development](development/pi-dev.md): incrementally build and load a fixed local extension set while retaining the default Pi profile.
 - [pi-ext-core development](development/pi-ext-core.md): ext-core and consumer-specific development rules.
 - [Advisor core conversation](development/advisor-core-conversation.md): implementation record for the advisor conversation path.
-- [HEPI TUI design](../DESIGN.md): required specification for UI and UX work.
+- [Pi TUI design](../DESIGN.md): required specification for UI and UX work.
 
 ## Architecture
 
@@ -38,6 +38,7 @@ Tools and their execution:
 - [Unified grep architecture](architecture/grep.md): canonical ripgrep match contract, compact rendering, and Output recovery.
 - [Search tools](tools/search.md): the unified file and content search surface.
 - [File tools](ext-tools/README.md): file tool behaviour and the independent tool packages.
+- [Web access](../packages/pi-web-access/README.md): web search, URL/PDF/GitHub extraction, tool names and exposure, and the `webSearch` config section.
 - [Apply Patch result architecture](architecture/apply-patch.md): V4A outcome, jsdiff diagnostics, model recovery, stable diff, and Trace rendering.
 - [Python Eval](architecture/eval.md): the interactive kernel and its execution facts ledger.
 
@@ -103,7 +104,7 @@ READMEs, or specifications.
 - [Codex conversion rendering](research/codex-conversion-rendering.md): `pi-codex-conversion` rendering and tool result passing.
 - [Responsive side panel](research/responsive-side-panel.md): side panel behaviour in Pi 1.2.0.
 - [Pix Pretty port](research/pix-pretty-port.md): the port study.
-- [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the HEPI TUI design.
+- [Original Pi theme analysis](research/pi-original-theme.md): research used to derive the Pi TUI design.
 
 ## Plans
 

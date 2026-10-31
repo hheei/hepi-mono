@@ -41,4 +41,4 @@
 | 整组展开（Ctrl+O） | 外层透明、无组级 rail，成员保留自己的样式 | 一致：`frame-expanded.ansi` 中 `48;2;` 出现 0 次；切回收起后底色恢复 |
 | 尾项 | 组外最后可见单元与组之间恰好一个空行 | 一致：footer 下 padding 行、空行、再 `AUDIT_COMPLETE` 正文 |
 
-证据文件：`/tmp/hepi-ui-smoke-1793291642854/frame-collapsed.ansi`、`frame-expanded.ansi`、`frame-collapsed.txt`、`frame-expanded.txt`。未覆盖：分类/单项点击坐标、copy、主题切换与 30 列现场对照（CLI 无鼠标注入）；这些仍由单测与集成测试覆盖，本票保持未完成。
+证据文件：`/tmp/pi-ui-smoke-1793291642854/frame-collapsed.ansi`、`frame-expanded.ansi`、`frame-collapsed.txt`、`frame-expanded.txt`。未覆盖：分类/单项点击坐标、copy、主题切换与 30 列现场对照（CLI 无鼠标注入）；这些仍由单测与集成测试覆盖，本票保持未完成。

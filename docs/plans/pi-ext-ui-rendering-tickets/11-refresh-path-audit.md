@@ -22,7 +22,7 @@
 
 ## Pi host 静态证据
 
-本机 Pi 1.3.0 路径基准：<node_modules>/@earendil-works/pi-coding-agent。
+本机 Pi 1.3.0 路径基准：<global-node_modules>/@earendil-works/pi-coding-agent。
 
 - node_modules/@earendil-works/pi-tui/dist/tui.js：MIN_RENDER_INTERVAL_MS=16；普通 requestRender → nextTick(scheduleRender) → setTimeout(max(0,16-elapsed)) → doRender。这是最小帧间隔，不是每次点击固定额外等 16ms。
 - node_modules/@earendil-works/pi-tui/dist/tui-alt-screen.js：鼠标 listener 消费输入；组件返回 render=true 后走普通 requestRender。group 自己发请求与 host 处理 render=true 会合并，不等于两次终端绘制。

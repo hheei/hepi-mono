@@ -240,7 +240,7 @@ amos 的开关状态**写入 ledger**（`pi.appendEntry("om.enabled", {enabled})
 
 - **`.memory/` 主题文件 + JOURNEY**：与 Hindsight 争夺"跨会话长记忆"owner，会出现第二个 recall 面、第二套去重与第二套 `/tree` 语义。如果确实想要"文件即记忆、可用 `grep`"的形态，应当作为 **Hindsight 之外的替代方案**单独评估，而不是叠加。
 - **子进程 worker**：能换来 worker session 可审计，但要放弃 in-process 对宿主 provider/凭据的复用（local 已经为此修过 #30），并新增 spawn/IPC/路径解析/进程生命周期一整套面。除非"worker 可审计"被明确列为需求，否则不划算。
-- **`/om:view` 与 recall 工具**：local 已有，且比 amos 的"文件系统即接口"更贴合 HEPI 的 id 可溯源模型。
+- **`/om:view` 与 recall 工具**：local 已有，且比 amos 的"文件系统即接口"更贴合 Pi 的 id 可溯源模型。
 
 ## 7. 不应照抄的实现细节
 

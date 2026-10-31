@@ -62,8 +62,8 @@ Settings schema 同时定义运行时类型与有效值，原生菜单/参数命
 ## 来源与归属
 
 Prompt content and RTK corrections are adapted from
-[`hheei/oh-my-pi`, `packages/hepi/omp-optimizer`](https://github.com/hheei/oh-my-pi/tree/5d30ef8e55d54788afa3f316bf67348f6920987d/packages/hepi/omp-optimizer)
-under the included MIT license. T2S and the Pi RTK execution boundary reuse the HEPI implementations owned by this package.
+[`hheei/oh-my-pi`](https://github.com/hheei/oh-my-pi/tree/5d30ef8e55d54788afa3f316bf67348f6920987d)
+under the included MIT license. T2S and the Pi RTK execution boundary reuse the Pi implementations owned by this package.
 
 ## 验证
 

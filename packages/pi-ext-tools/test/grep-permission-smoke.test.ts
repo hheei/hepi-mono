@@ -18,7 +18,7 @@ function outputOccurrences(component: ToolExecutionComponent, output: string): n
 describe("grep inaccessible-path ToolExecutionComponent smoke", () => {
 	test("renders an incomplete search once across invalidation and resume", async () => {
 		initTheme("dark");
-		const cwd = await mkdtemp(join(tmpdir(), "hepi-grep-permission-render-"));
+		const cwd = await mkdtemp(join(tmpdir(), "pi-grep-permission-render-"));
 		const blocked = join(cwd, "blocked");
 		try {
 			await writeFile(join(cwd, "visible.txt"), "needle\n", "utf8");

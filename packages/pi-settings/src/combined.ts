@@ -63,7 +63,7 @@ export function combineSettingsProviders(providers: readonly SettingsProvider[])
 		id: "pi-settings",
 		title: "Settings",
 		origin: "@hheei/pi-settings",
-		description: "Settings supplied by installed HEPI extensions.",
+		description: "Settings supplied by installed Pi extensions.",
 		groups,
 		panels: providers.flatMap((provider) => provider.panels ?? []),
 		storage: {

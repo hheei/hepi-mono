@@ -36,8 +36,8 @@ pnpm run check:changed:fix
 pnpm run verify:changed
 
 # 手动指定文件检查或修复
-pnpm exec biome check <changed-files...>
-pnpm exec biome check --write <changed-files...>
+pnpm -w exec biome check <changed-files...>
+pnpm -w exec biome check --write <changed-files...>
 
 # 单个或多个测试文件
 pnpm exec vitest run <test-paths...>
@@ -149,8 +149,8 @@ TypeScript 的目标是让设计更清楚，不是把每个值都包成类型、
 - **必须**在实现前记录公共契约、架构、持久化和重要 UI/UX 变更；小型 bug 修复和局部重构可以不新增设计文档。
 - 高层设计文档应使用简体中文。
 - 记录持久化、迁移、取消、并发、验证、回退和关键 UI 行为中不明显的不变量。
-- 新 extension 遵循 `docs/architecture/[extension-reference.md](http://extension-reference.md)`。
-- [`DESIGN.md`](http://DESIGN.md) 是 UI/UX 规范；达成一致的 UI/UX 契约发生变化时，**必须**更新它。
+- 新 extension 遵循 [`docs/architecture/extension-reference.md`](docs/architecture/extension-reference.md)。
+- [`DESIGN.md`](DESIGN.md) 是 UI/UX 规范；达成一致的 UI/UX 契约发生变化时，**必须**更新它。
 - 将 `docs/plans/` 视为历史背景，不视为当前行为的来源。
 
 ## 工作流
@@ -166,7 +166,7 @@ TypeScript 的目标是让设计更清楚，不是把每个值都包成类型、
 
 对于小型修复/重构：检查调用方，进行合理范围的修改；行为发生变化时更新聚焦测试，并运行聚焦的格式、类型和测试验证。
 
-对于 UI 工作：遵循 [`DESIGN.md`](http://DESIGN.md)，适当复用 ext-core 基础能力，确保输出 ANSI/单元格宽度安全，在状态变化后请求重新渲染，并测试受影响的窄/宽布局。
+对于 UI 工作：遵循 [`DESIGN.md`](DESIGN.md)，适当复用 ext-core 基础能力，确保输出 ANSI/单元格宽度安全，在状态变化后请求重新渲染，并测试受影响的窄/宽布局。
 
 ## 发布
 
@@ -191,7 +191,7 @@ git tag vX.Y.Z && git push origin vX.Y.Z  # 推送 tag 触发 GitHub Actions Rel
 ## 关键规则
 
 - **必须**保持修改聚焦、类型严格、运行时边界经过验证，并确保具体 extension 的依赖关系有明确意图且无循环。
-- **绝不能**无必要地保留废弃的 HEPI 兼容逻辑，或修改与任务无关的用户工作。
+- **绝不能**无必要地保留废弃的旧命名兼容逻辑，或修改与任务无关的用户工作。
 - **应该**优先选择简单、可见、可组合且幂等的机制。
 - 共享 TypeScript 基线是 `tsconfig.base.json`；各 package 应继承它。
 

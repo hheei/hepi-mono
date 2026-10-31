@@ -8,7 +8,7 @@
 
 ## 1. 背景：一次真实事故
 
-会话 `01a0f238`（cwd `ovito`，58.1 MB，32 次 compaction）在当前实现下进入不可恢复状态：
+会话 `01a0f238`（cwd `~/Documents/dev/ovito`，58.1 MB，32 次 compaction）在当前实现下进入不可恢复状态：
 
 | 观测值 | 数值 |
 | --- | --- |

@@ -212,7 +212,7 @@ describe("Runtime V3 behavior", () => {
 	it("resets session-owned state and rejects stale consolidation mutations", async () => {
 		const runtime = new Runtime();
 		const first = new AbortController();
-		const firstGeneration = await runtime.startSession("/tmp/hepi-memory-test", first.signal);
+		const firstGeneration = await runtime.startSession("/tmp/pi-memory-test", first.signal);
 		runtime.configLoaded = true;
 		runtime.resolveFailureNotified = true;
 		runtime.availabilityRecheckedAt.set("anthropic", Date.now());
@@ -232,7 +232,7 @@ describe("Runtime V3 behavior", () => {
 		);
 
 		const second = new AbortController();
-		const secondGeneration = await runtime.startSession("/tmp/hepi-memory-test", second.signal);
+		const secondGeneration = await runtime.startSession("/tmp/pi-memory-test", second.signal);
 		runtime.consolidationInFlight = true;
 		runtime.recordConsolidationStageError(
 			{ hasUI: false, sessionGeneration: firstGeneration },
@@ -255,7 +255,7 @@ describe("Runtime V3 behavior", () => {
 	it("records worker runs and provider-reported cost, and resets them per session", async () => {
 		const runtime = new Runtime();
 		const first = new AbortController();
-		await runtime.startSession("/tmp/hepi-memory-test", first.signal);
+		await runtime.startSession("/tmp/pi-memory-test", first.signal);
 
 		runtime.recordWorkerRun("observer");
 		runtime.recordWorkerRun("observer");
@@ -270,7 +270,7 @@ describe("Runtime V3 behavior", () => {
 		expect(runtime.workerCost.totalUsd).toBeCloseTo(0.0035, 10);
 
 		const second = new AbortController();
-		await runtime.startSession("/tmp/hepi-memory-test", second.signal);
+		await runtime.startSession("/tmp/pi-memory-test", second.signal);
 
 		expect(runtime.workerCost).toEqual({
 			totalUsd: 0,
@@ -281,7 +281,7 @@ describe("Runtime V3 behavior", () => {
 	it("starts session and updates generation", async () => {
 		const runtime = new Runtime();
 		const controller = new AbortController();
-		const generation = await runtime.startSession("/tmp/hepi-memory-test", controller.signal);
+		const generation = await runtime.startSession("/tmp/pi-memory-test", controller.signal);
 		expect(runtime.sessionGeneration).toBe(generation);
 		runtime.endSession(generation);
 	});

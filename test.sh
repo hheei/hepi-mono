@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(mktemp -d "${TMPDIR:-/tmp}/hepi-test.XXXXXX")"
+root="$(mktemp -d "${TMPDIR:-/tmp}/pi-test.XXXXXX")"
 trap 'rm -rf -- "$root"' EXIT
 mkdir -p "$root/home/.config" "$root/tmp" "$root/cache/pnpm"
 

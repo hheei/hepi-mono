@@ -200,7 +200,7 @@ export default function piExtAddonExtension(pi: ExtensionAPI): void {
 				}
 			} catch (error) {
 				runtime.extension.ui.notify(
-					`Unable to load HEPI automatic title settings: ${errorMessage(error)}`,
+					`Unable to load Pi automatic title settings: ${errorMessage(error)}`,
 					"error",
 				);
 			}

@@ -149,7 +149,7 @@ under `packages/`.
    tests; default calls prove byte-for-byte host delegation.
 2. **Async jobs:** implement registry, `bash_job`, shell setting, cancellation and lifecycle cleanup; test
    start/status/logs/stop, non-zero completion, group kill and session shutdown.
-3. **Native PTY:** add minimal HEPI-owned bridge PTY module plus focused native write/resize/timeout/group-kill
+3. **Native PTY:** add minimal Pi-owned bridge PTY module plus focused native write/resize/timeout/group-kill
    tests. Build and smoke-test it outside the tool UI.
 4. **PTY surface:** add lazy xterm overlay; test narrow/wide layout, input, arrow keys, resize, Esc, timeout and
    disposal. Live-test an interactive command before exposing `pty: true`.

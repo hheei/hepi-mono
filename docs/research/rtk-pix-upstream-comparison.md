@@ -43,7 +43,7 @@ config modal、全局 metrics 或 renderer 改写。这样保留现有 Bash 的�
 `onUpdate` 流式返回 sink snapshot；结束时结果保留 `output`、`truncated`、可选 `outputUri`、`exitCode` 和可选 `timedOut`。
 因此两个 fd 间不存在可承诺的原始全局顺序，现有合并行为不应被 RTK 改变。
 [本地 Bash 执行](../../packages/pi-ext-tools/src/bash.ts#L145-L205)
-[本地 output sink](../../packages/pi-ext-tools/src/bash-output.ts#L23-L91)。
+[本地 output sink](../../packages/pi-ext-tools/src/bash.ts)。
 
 上游改写 subprocess 使用 `pi.exec()` 的独立 stdout/stderr：stdout 仅用于取得 rewritten command，stderr 仅用于诊断；它不把
 `rtk rewrite` 自身输出并入 Bash result。
@@ -64,7 +64,7 @@ config modal、全局 metrics 或 renderer 改写。这样保留现有 Bash 的�
 [Bash routes](../../packages/pi-ext-tools/src/bash.ts#L22-L60)
 [前台取消](../../packages/pi-ext-tools/src/bash.ts#L145-L205)
 [async/PTY 分派](../../packages/pi-ext-tools/src/bash.ts#L321-L382)
-[async group cleanup](../../packages/pi-ext-tools/src/bash-jobs.ts#L73-L219)。
+[async group cleanup](../../packages/pi-bg-bash/src/bash-jobs.ts#L73-L219)。
 
 上游 RTK extension 没有 PTY 或 background-job implementation。它在 `tool_call` await 至多 3 秒的 rewrite provider，运行时可用性
 缓存 30 秒；其 `tool_execution_*` hooks 只观察/修改 streamed result content，不控制 subprocess lifecycle。

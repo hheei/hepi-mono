@@ -51,7 +51,7 @@ function spawnOnce(): MockChild {
 
 test("a synchronous spawn failure leaves no running record or open log", async () => {
 	const jobs = registry();
-	const dir = tempDirectory("hepi-bash-spawnthrow-");
+	const dir = tempDirectory("pi-bash-spawnthrow-");
 	const logPath = join(dir, "throw.log");
 	// A NUL byte passes the tool schema but the platform rejects it before any process exists.
 	mocked.spawn.mockImplementationOnce(() => {
@@ -282,7 +282,7 @@ test("dispose stops owned processes, waits for their exit, and is idempotent", a
 
 test("a released record already flushed its log before the result was reported", async () => {
 	const jobs = registry();
-	const directory = tempDirectory("hepi-bash-lifecycle-flush-");
+	const directory = tempDirectory("pi-bash-lifecycle-flush-");
 	const runtime = spawnOnce();
 	const started = jobs.start({
 		command: "echo flushed",

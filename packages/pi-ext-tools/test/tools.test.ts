@@ -10,7 +10,7 @@ import { toolFor, toolHost } from "./fixtures/harness.js";
 import { plainTheme, roleTheme, taggedTheme } from "./fixtures/theme.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-ext-tools-");
+const temporaryDirectory = temporaryDirectories("pi-ext-tools-");
 
 const renderContext = { isError: false, isPartial: false, lastComponent: undefined } as never;
 const _renderCallContext = { isError: false, isPartial: true, lastComponent: undefined } as never;

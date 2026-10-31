@@ -22,6 +22,8 @@
 | [`pi-status`](../../packages/pi-status/README.md) | 会话响应遥测展示 |
 | [`pi-subagents`](../../packages/pi-subagents/README.md) | 独立后台与面板 Pi 子代理会话编排，拥有持久化恢复与自动报告 |
 | [`pi-ext-memory`](../../packages/pi-ext-memory/README.md) | 基于分层观测与反思的会话记忆与瞬间压缩扩展 |
+| [`pi-ext-ui`](../../packages/pi-ext-ui/README.md) | 共享 UI 原语、专用工具视图与活动分组折叠 |
+| [`pi-web-access`](../../packages/pi-web-access/README.md) | 网络检索、URL 提取、GitHub 与多格式抓取工具 |
 
 ## 共享基础包
 

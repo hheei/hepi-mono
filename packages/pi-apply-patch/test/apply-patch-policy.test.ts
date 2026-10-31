@@ -7,7 +7,7 @@ import { DEFAULT_APPLY_PATCH_POLICY, loadApplyPatchPolicy } from "../src/apply-p
 let paths: { globalPath: string; projectPath: string; root: string };
 
 beforeEach(async () => {
-	const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-policy-"));
+	const root = await mkdtemp(join(tmpdir(), "pi-apply-patch-policy-"));
 	paths = { root, globalPath: join(root, "global.json"), projectPath: join(root, "project.json") };
 });
 

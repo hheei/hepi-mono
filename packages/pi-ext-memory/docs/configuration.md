@@ -6,7 +6,7 @@ V3 keeps the existing `pi-ext-memory` settings namespace, but the setting names 
 
 ## Where settings live
 
-Settings live in HEPI ext-core `ext_settings.json`:
+Settings live in Pi ext-core `ext_settings.json`:
 
 1. Global settings: `~/.pi/agent/ext_settings.json`
 2. Project settings: `<project>/.pi/ext_settings.json`

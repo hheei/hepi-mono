@@ -50,7 +50,7 @@ async function shellPid(directory: string): Promise<number> {
 test.skipIf(process.platform === "win32")(
 	"SIGKILL releases ledger ownership; resume reports unknown without rerun or adoption",
 	async () => {
-		const directory = await mkdtemp(join(tmpdir(), "hepi-bash-crash-"));
+		const directory = await mkdtemp(join(tmpdir(), "pi-bash-crash-"));
 		const controller = spawn(
 			process.execPath,
 			[

@@ -2,7 +2,7 @@
 
 ## 1. 背景与问题诊断
 
-Loadout 机制最初在 HEPI 早期设计，旨在提供一个全局与项目级的资源装配清单（覆盖 Tools、Skills 与 Subagents）。随着系统演进与 Pi 宿主（1.1.0+）能力的成熟，Loadout 暴露出了根本性的架构冲突与脱节：
+Loadout 机制最初在 Pi 早期设计，旨在提供一个全局与项目级的资源装配清单（覆盖 Tools、Skills 与 Subagents）。随着系统演进与 Pi 宿主（1.1.0+）能力的成熟，Loadout 暴露出了根本性的架构冲突与脱节：
 
 1. **工具面脱节**：工具所有权属于各个功能扩展自身的能力包，Loadout 重算 active tool 会破坏动态激活，已在前期完全下线。
 2. **技能面脱节与虚假控制**：Pi 宿主自身通过 `settings.json` 的 `skills` 字段（支持 `+path`、`-name`、`!glob` 规则）及原生 `pi config` TUI 统一管理技能加载。Loadout 在 `ext_settings.json` 写入的 `loadout` delta 并不被 Pi 宿主读取，导致技能管理成为无法真实控制命令与提示词的影子层。

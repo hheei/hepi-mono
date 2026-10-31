@@ -108,7 +108,7 @@
                         "functionCall": {
                           "name": "python_eval",
                           "args": {
-                            "code": "# Let's inspect Pi's openai-responses provider: what does buildParams send?\nwith open(\"hepi-mono/node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_@aws-sdk+credential-provider-node@3.972.83_@smith_3a803e5942dc975e3ba50a1992b94a2e/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/openai-responses-EZ7FJ2KL.js\") as f:\n    content = f.read()\n\nidx = content.find(\"buildParams\")\nprint(content[idx:idx+800])\n"
+                            "code": "# Let's inspect Pi's openai-responses provider: what does buildParams send?\nwith open(\"node_modules/.pnpm/@earendil-works+pi-coding-agent@1.0.2_@aws-sdk+credential-provider-node@3.972.83_@smith_3a803e5942dc975e3ba50a1992b94a2e/node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/openai-responses-EZ7FJ2KL.js\") as f:\n    content = f.read()\n\nidx = content.find(\"buildParams\")\nprint(content[idx:idx+800])\n"
                           },
                           "id": "call_210652"
                         }

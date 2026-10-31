@@ -26,14 +26,13 @@
 		"pi",
 		"pi-package",
 		"pi-extension",
-		"hepi",
 		"background-bash",
 		"tools"
 	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/hheei/hepi-mono.git",
+		"url": "git+https://github.com/hheei/pi-mono.git",
 		"directory": "packages/pi-bg-bash"
 	},
 	"publishConfig": {

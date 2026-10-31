@@ -28,7 +28,7 @@ pi install npm:@hheei/pi-todo
 
 ## 文件写入与取消
 
-`edit`、`write` 和 `apply_patch` 使用 ext-core 的 `withMutationLock` / `acquireMutationLock`，相同 cwd key 共用原 socket/pipe 协议。等待者可取消，运行结束在 finally 中释放。锁只协调合作调用，不能阻止任意 shell 或外部编辑器写入。文件工具不拥有 Bash runtime 或会话级进程状态。
+`edit`、`write` 和 `apply_patch` 的文件编辑状态直接由原生 UI 驱动，不再维护全局 `mutationLock`。等待者可取消，文件工具不拥有 Bash runtime 或会话级进程状态。
 
 `read` 复用 Pi host 原生读取和图像结果；`grep`、`find` 保持搜索 schema、只读提示、超时与分页行为。`edit`、`write` 保存执行时 diff view，恢复历史结果时不从当前 workspace 反推旧内容。
 

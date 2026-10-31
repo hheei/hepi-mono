@@ -58,6 +58,6 @@ Pi's plain-text print renderer does not display custom entries; JSON/RPC consume
 
 ## Source
 
-Prompt content and RTK corrections are adapted from [`hheei/oh-my-pi`, `packages/hepi/omp-optimizer`](https://github.com/hheei/oh-my-pi/tree/5d30ef8e55d54788afa3f316bf67348f6920987d/packages/hepi/omp-optimizer) under the included MIT license. T2S and the Pi RTK execution boundary reuse the existing HEPI implementations.
+Prompt content and RTK corrections are adapted from [`hheei/oh-my-pi`](https://github.com/hheei/oh-my-pi/tree/5d30ef8e55d54788afa3f316bf67348f6920987d) under the included MIT license. T2S and the Pi RTK execution boundary reuse the existing Pi implementations.
 
 See [the optimizer design](../../docs/optimizer/README.md) for ownership, persistence, and lifecycle contracts.

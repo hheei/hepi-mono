@@ -8,7 +8,7 @@ import { parseV4aPatch } from "../src/apply-patch/parser.js";
 import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-apply-patch-executor-");
+const temporaryDirectory = temporaryDirectories("pi-apply-patch-executor-");
 
 const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
 const fuzzy: ApplyPatchPolicy = { fuzzFactor: 2 };

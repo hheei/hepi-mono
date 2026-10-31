@@ -159,7 +159,7 @@ describe("apply_patch tool_result contract", () => {
 	});
 
 	test("forwards parse progress to the tool update callback", async () => {
-		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
+		const root = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
 		const updates: { readonly details: { readonly operations: readonly unknown[] } }[] = [];
 		try {
 			const result = await createApplyPatchTool().execute(
@@ -188,7 +188,7 @@ describe("apply_patch tool_result contract", () => {
 	});
 
 	test("reports and preserves successful hunks from a partial update", async () => {
-		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
+		const root = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
 		try {
 			await writeFile(join(root, "value.txt"), "one\ntwo\nthree\nfour\nfive\nsix\n");
 			const result = await createApplyPatchTool().execute(
@@ -236,8 +236,8 @@ describe("apply_patch tool_result contract", () => {
 	});
 
 	test("allows absolute paths and warns only for confirmed external writes", async () => {
-		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
-		const outside = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
+		const root = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
+		const outside = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
 		const insidePath = join(root, "inside.txt");
 		const outsidePath = join(outside, "outside.txt");
 		try {
@@ -278,8 +278,8 @@ describe("apply_patch tool_result contract", () => {
 	});
 
 	test("does not warn for a workspace symlink that targets outside", async () => {
-		const root = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
-		const outside = await mkdtemp(join(tmpdir(), "hepi-apply-patch-tool-result-"));
+		const root = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
+		const outside = await mkdtemp(join(tmpdir(), "pi-apply-patch-tool-result-"));
 		try {
 			await writeFile(join(outside, "linked.txt"), "before\n");
 			await symlink(join(outside, "linked.txt"), join(root, "linked.txt"));

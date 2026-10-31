@@ -37,7 +37,7 @@ function beforeStart(
 	prompt: string,
 	systemPrompt = "BASE PROMPT",
 ): BeforeAgentStartEvent & { readonly sections: Record<string, string> } {
-	const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/hepi-mono" });
+	const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/pi-mono" });
 	return {
 		type: "before_agent_start",
 		messageType: "user",
@@ -171,7 +171,7 @@ describe("hindsight session prompt injection", () => {
 		});
 		await original.session.beforeAgentStart(first);
 		const previous = buildSystemPromptSections(first.systemPromptOptions);
-		const sessionManager = SessionManager.inMemory("/work/hepi-mono");
+		const sessionManager = SessionManager.inMemory("/work/pi-mono");
 		sessionManager.appendMessage({ role: "system", content: "", sections: previous, timestamp: 1 });
 		const gateway = fakeGateway({
 			listPages: vi.fn(async () => ({
@@ -182,7 +182,7 @@ describe("hindsight session prompt injection", () => {
 		vi.spyOn(config, "loadHindsightConfig").mockResolvedValue(fakeResolved());
 		vi.spyOn(client, "openHindsightGateway").mockResolvedValue(gateway);
 		const started = await startHindsightSession(
-			{ cwd: "/work/hepi-mono", sessionManager },
+			{ cwd: "/work/pi-mono", sessionManager },
 			new AbortController().signal,
 		);
 		expect(started.status).toBe("ready");
@@ -200,7 +200,7 @@ describe("hindsight session prompt injection", () => {
 	it("builds a new guide when resumed bank configuration differs", async () => {
 		const first = beforeStart("first");
 		await sessionWith().session.beforeAgentStart(first);
-		const sessionManager = SessionManager.inMemory("/work/hepi-mono");
+		const sessionManager = SessionManager.inMemory("/work/pi-mono");
 		sessionManager.appendMessage({
 			role: "system",
 			content: "",
@@ -213,7 +213,7 @@ describe("hindsight session prompt injection", () => {
 		);
 		vi.spyOn(client, "openHindsightGateway").mockResolvedValue(gateway);
 		const started = await startHindsightSession(
-			{ cwd: "/work/hepi-mono", sessionManager },
+			{ cwd: "/work/pi-mono", sessionManager },
 			new AbortController().signal,
 		);
 		if (started.status !== "ready") throw new Error("Hindsight failed to resume");
@@ -272,7 +272,7 @@ describe("hindsight session prompt injection", () => {
 		const { session } = sessionWith({
 			listPages: vi.fn(async () => ({ pages: [], pagesAvailable: true })),
 		});
-		const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/hepi-mono" });
+		const systemPromptOptions = normalizeBuildSystemPromptOptions({ cwd: "/work/pi-mono" });
 		const customEvent = {
 			type: "before_agent_start",
 			messageType: "custom",

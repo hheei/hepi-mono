@@ -1,8 +1,8 @@
 {
-	"name": "hepi-mono",
+	"name": "pi-mono",
 	"version": "0.5.2",
 	"private": true,
-	"description": "Monorepo for HEPI Pi Coding Agent extensions.",
+	"description": "Monorepo for Pi Coding Agent extensions.",
 	"type": "module",
 	"packageManager": "pnpm@12.4.1",
 	"scripts": {

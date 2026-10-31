@@ -61,8 +61,8 @@ describe("hindsight SDK adapter", () => {
 		expect(options.updateMode).toBe("append");
 		expect(options.async).toBe(true);
 		expect(options.documentId).toBe("pi-session-s1");
-		expect(options.tags).toEqual(["repo:hepi-mono", "source:codex"]);
-		expect(options.metadata).toEqual({ project: "hepi-mono", cwd: "/work/hepi-mono" });
+		expect(options.tags).toEqual(["repo:pi-mono", "source:codex"]);
+		expect(options.metadata).toEqual({ project: "pi-mono", cwd: "/work/pi-mono" });
 		expect(options.operationId).toBe(first.operationId);
 
 		// Same content again -> same operation id, so a retry folds server-side.

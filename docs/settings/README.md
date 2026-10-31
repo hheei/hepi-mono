@@ -2,7 +2,7 @@
 
 ## 用户意图
 
-`pi-settings` 是 `/ext-settings [page-id]` 宿主。它让安装的 HEPI extension 在同一 Pi custom
+`pi-settings` 是 `/ext-settings [page-id]` 宿主。它让安装的 Pi extension 在同一 Pi custom
 surface 中提供规范的双栏设置页面（`DualPaneListView`）；它不拥有其他 concrete extension 的 schema 或业务状态。
 
 ## 包与宿主边界

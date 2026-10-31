@@ -1,6 +1,6 @@
 # @hheei/pi-settings
 
-Interactive settings-surface host for HEPI Pi extensions.
+Interactive settings-surface host for Pi Pi extensions.
 
 ```bash
 pi install npm:@hheei/pi-settings

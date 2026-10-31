@@ -52,7 +52,7 @@ function spawnOnce(): MockChild {
 }
 
 function tempDir(): string {
-	const dir = ledgerTemporaryDirectory("hepi-bg-tools-");
+	const dir = ledgerTemporaryDirectory("pi-bg-tools-");
 	directories.push(dir);
 	return dir;
 }

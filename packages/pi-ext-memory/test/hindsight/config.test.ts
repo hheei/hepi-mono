@@ -26,7 +26,7 @@ function writeJson(path: string, value: unknown): void {
 }
 
 describe("hindsight config resolution", () => {
-	const base = { cwd: "/work/hepi-mono", repo: "hepi-mono" };
+	const base = { cwd: "/work/pi-mono", repo: "pi-mono" };
 
 	it("stays disabled until the option is explicitly true", () => {
 		expect(
@@ -60,11 +60,11 @@ describe("hindsight config resolution", () => {
 		expect(resolved).toBeDefined();
 		if (resolved === undefined) return;
 		expect(resolved.config).toEqual(HINDSIGHT_DEFAULTS);
-		expect(resolved.bankId).toBe("coding-agent::hepi-mono");
+		expect(resolved.bankId).toBe("coding-agent::pi-mono");
 		expect(resolved.bankSource).toBe("derived");
 		expect(resolved.isolationMode).toBe("dedicated-bank");
 		expect(resolved.scopeTags).toEqual([]);
-		expect(resolved.retainMetadata).toEqual({ project: "hepi-mono", cwd: "/work/hepi-mono" });
+		expect(resolved.retainMetadata).toEqual({ project: "pi-mono", cwd: "/work/pi-mono" });
 	});
 
 	it("prefers settings over environment over the fallback file", () => {
@@ -111,11 +111,11 @@ describe("hindsight config resolution", () => {
 		});
 		expect(resolved?.config.apiUrl).toBe("http://oracle-kr:38888");
 		expect(resolved?.isolationMode).toBe("tagged-shared-bank");
-		expect(resolved?.scopeTags).toEqual(["repo:hepi-mono"]);
-		expect(resolved?.retainTags).toEqual(["repo:hepi-mono", "source:codex", "host:judy"]);
+		expect(resolved?.scopeTags).toEqual(["repo:pi-mono"]);
+		expect(resolved?.retainTags).toEqual(["repo:pi-mono", "source:codex", "host:judy"]);
 		expect(resolved?.retainMetadata).toEqual({
-			project: "hepi-mono",
-			cwd: "/work/hepi-mono",
+			project: "pi-mono",
+			cwd: "/work/pi-mono",
 			source_host: "judy",
 		});
 	});
@@ -128,7 +128,7 @@ describe("hindsight config resolution", () => {
 			...base,
 		});
 		expect(resolved?.bankId).toBe("other");
-		expect(resolved?.retainTags).toEqual(["repo:hepi-mono"]);
+		expect(resolved?.retainTags).toEqual(["repo:pi-mono"]);
 	});
 
 	it("routes by longest matching path prefix", () => {
@@ -136,7 +136,7 @@ describe("hindsight config resolution", () => {
 			settings: { enabled: true },
 			env: {},
 			fallback: {
-				mapPathToBank: { "/work": "broad", "/work/hepi-mono": "specific" },
+				mapPathToBank: { "/work": "broad", "/work/pi-mono": "specific" },
 				bankId: "static",
 			},
 			...base,
@@ -144,7 +144,7 @@ describe("hindsight config resolution", () => {
 		expect(resolved?.bankId).toBe("specific");
 		expect(resolved?.bankSource).toBe("path-map");
 		// A mapped bank is treated as shared: the repo tag still separates repositories.
-		expect(resolved?.scopeTags).toEqual(["repo:hepi-mono"]);
+		expect(resolved?.scopeTags).toEqual(["repo:pi-mono"]);
 	});
 
 	it("falls back past an unmatching path map to the template", () => {
@@ -157,7 +157,7 @@ describe("hindsight config resolution", () => {
 			},
 			...base,
 		});
-		expect(resolved?.bankId).toBe("coding-agent::hepi-mono");
+		expect(resolved?.bankId).toBe("coding-agent::pi-mono");
 		expect(resolved?.bankSource).toBe("template");
 		expect(resolved?.isolationMode).toBe("dedicated-bank");
 	});
@@ -182,7 +182,7 @@ describe("hindsight config resolution", () => {
 		expect(resolved?.config.autoRecall).toBe(HINDSIGHT_DEFAULTS.autoRecall);
 		expect(resolved?.config.retainSessions).toBe(false);
 		// A blank bank id is not a bank id.
-		expect(resolved?.bankId).toBe("coding-agent::hepi-mono");
+		expect(resolved?.bankId).toBe("coding-agent::pi-mono");
 	});
 
 	it.each([
@@ -284,11 +284,11 @@ describe("resolveRepoName", () => {
 	});
 
 	it("uses the repository root name from any subdirectory", async () => {
-		const repo = join(root, "hepi-mono");
+		const repo = join(root, "pi-mono");
 		const nested = join(repo, "packages", "pi-ext-memory");
 		mkdirSync(nested, { recursive: true });
 		mkdirSync(join(repo, ".git"), { recursive: true });
-		expect(await resolveRepoName(nested)).toBe("hepi-mono");
+		expect(await resolveRepoName(nested)).toBe("pi-mono");
 	});
 
 	it("accepts a worktree gitdir file", async () => {

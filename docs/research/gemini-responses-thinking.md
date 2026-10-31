@@ -105,10 +105,10 @@ Bifrost 非流式带签名 thought 的 `Summary` 可为非 nil 空切片（`resp
 
 - `node /tmp/pi-gemini-reasoning-probe.mjs`：历史 reasoning SSE 回放、medium payload 无网络断言、跨 provider 历史转换三项通过。
 - 五次独立在线探测：已保存脱敏请求与 JSON 事件。Python 断言工具正文存在、native 正文无 thought 标记、非工具 reasoning 存在、中性工具请求无正文；JSON 可解析且不含调用凭据，全部通过。
-- CPA 离线测试：在 `/tmp/cpa-copy` 的 v8.0.8 源码副本加入临时 `TestZZProbe`（请求 fixture 为 gemini-3-pro，线上模型为 gemini-3.8-flash），工具请求映射为 `thinkingLevel:medium,includeThoughts:true`；thought:true 输入输出 reasoning；无标记输入输出 message，随后 function carrier；非流式类型序列同样正确。五个测试加入明确断言后全部通过，覆盖以上四类行为。命令：`GOFLAGS=-mod=mod GOPROXY=file://go/pkg/mod/cache/download GOSUMDB=off go test -count=1 -v -run 'TestZZProbe' ./internal/translator/antigravity/openai/responses/`（工作目录 `/tmp/cpa-copy`）。
+- CPA 离线测试：在 `/tmp/cpa-copy` 的 v8.0.8 源码副本加入临时 `TestZZProbe`（请求 fixture 为 gemini-3-pro，线上模型为 gemini-3.8-flash），工具请求映射为 `thinkingLevel:medium,includeThoughts:true`；thought:true 输入输出 reasoning；无标记输入输出 message，随后 function carrier；非流式类型序列同样正确。五个测试加入明确断言后全部通过，覆盖以上四类行为。命令：`GOFLAGS=-mod=mod GOPROXY=file://$GOPATH/pkg/mod/cache/download GOSUMDB=off go test -count=1 -v -run 'TestZZProbe' ./internal/translator/antigravity/openai/responses/`（工作目录 `/tmp/cpa-copy`）。
 - 离线测试首次因依赖缓存缺少 x/net 0.57.0、x/crypto 0.54.0、x/text 0.40.0 失败；仅在临时副本改用已有缓存版本 0.58.0、0.55.0、0.41.0 后通过，未修改被审仓库。该测试验证转换行为，不等于部署环境完整构建。
 - `git diff --check -- docs/README.md docs/research/gemini-responses-thinking.md docs/research/gemini-responses-thinking-probes.json`：通过。Biome 对证据 JSON 报告路径被配置忽略、未处理文件；JSON 已单独解析校验。
-- `GOFLAGS=-mod=mod GOPROXY=file://go/pkg/mod/cache/download GOSUMDB=off go test -count=1 -v -run TestZZUpstreamCaptureReplay ./internal/translator/antigravity/openai/responses/`（`/tmp/cpa-copy`）：真实 Google 事件回放通过，内部思考与正文文本完整保留且互不混入。只替换脱敏签名为占位，不验证 Google 签名校验。
+- `GOFLAGS=-mod=mod GOPROXY=file://$GOPATH/pkg/mod/cache/download GOSUMDB=off go test -count=1 -v -run TestZZUpstreamCaptureReplay ./internal/translator/antigravity/openai/responses/`（`/tmp/cpa-copy`）：真实 Google 事件回放通过，内部思考与正文文本完整保留且互不混入。只替换脱敏签名为占位，不验证 Google 签名校验。
 - 父代理加强真实回放测试为完整文本相等断言，并保存 23 条转换后事件到 `/tmp/cpa-upstream-normalized-events.json`；再次运行 TestZZUpstreamCaptureReplay 通过。
 - `node /tmp/google-cpa-pi-replay.mjs`：将同一组 Google 原始事件经 CPA 转换后交给安装的 Pi processResponsesStream；184 字符内部 thought 与 249 字符可见 text 分别完整保留，block 序列为 thinking/text/thinking（空签名载体）/toolCall，lookup 工具调用保留，全部断言通过。
 - 线上数据库读取均 mode=ro；未修改运行时代码、部署配置或重启服务，未执行全仓检查。

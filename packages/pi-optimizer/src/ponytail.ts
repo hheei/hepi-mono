@@ -1,6 +1,5 @@
 /**
- * Ponytail prompt fragments derived from hheei/oh-my-pi
- * packages/hepi/omp-optimizer at 5d30ef8e55d54788afa3f316bf67348f6920987d (MIT).
+ * Ponytail prompt fragments derived from hheei/oh-my-pi at 5d30ef8e55d54788afa3f316bf67348f6920987d (MIT).
  */
 
 export const PONYTAIL_LEVELS = ["off", "lite", "full", "ultra"] as const;

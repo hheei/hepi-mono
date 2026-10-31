@@ -3,15 +3,15 @@
 ## 1. 目标与背景
 
 ### 1.1 现状与背景
-当前在 `@hheei/hepi-mono` 体系内，记忆与上下文能力分布如下：
+当前在 `@hheei/pi-mono` 体系内，记忆与上下文能力分布如下：
 1. **`@hheei/pi-ext-memory`（活跃）**：基于 Observational Memory (OM) 的会话内记忆扩展，通过后台异步生成 Observations / Reflections，实现瞬时 Compaction 渲染与 12 字符证据回溯（`recall` 工具）。其关注的是**单会话内长文本抗退化与工作记忆保真**。
 2. **`packages/pi-hindsight/`（脱轨与沉睡）**：早期基于 `luxus/pi-hindsight` 分支改造的持久化记忆扩展，目前被 `scripts/pi-dev.ts` 明确排除自动加载。其内部暴露了 14 个偏底层的运维与探索工具（如 `hindsight_recall`、`hindsight_scope`、`hindsight_mental_model` 等），并内置了庞大的本地 JSONL 离线重试队列和 1000+ 行的 TUI 配置向导，与当前官方的 Hindsight Coding Agent 认知模型脱节。
-3. **官方 `hindsight-coding-agent`（本机运行中）**：由 `@vectorize-io/hindsight-coding-agents` 驱动，本机配置位于 `~/.hindsight/coding-agent.json`（指向 `http://oracle-kr.leo-gentoo.ts.net:38888`，bank 为 `hheei`）。官方体系已经围绕 **5 张标准知识页（Knowledge Pages）**、**Initiative 计划跟踪**、**纠错与文档摄入（Document Ingest）** 和 **深度推理（Reflect）** 建立了成熟的开发者工作流与 Skill 指引（见 `.agents/skills/hindsight-coding-agent/SKILL.md`）。
+3. **官方 `hindsight-coding-agent`（本机运行中）**：由 `@vectorize-io/hindsight-coding-agents` 驱动，本机配置位于 `~/.hindsight/coding-agent.json`（指向 `http://oracle-kr.leo-gentoo.ts.net:38888`，bank 为 `hheei`）。官方体系已经围绕 **5 张标准知识页（Knowledge Pages）**、**Initiative 计划跟踪**、**纠错与文档摄入（Document Ingest）** 和 **深度推理（Reflect）** 建立了成熟的开发者工作流与 Skill 指引（见 `~/.agents/skills/hindsight-coding-agent/SKILL.md`）。
 
 ### 1.2 核心目标
 在 `@hheei/pi-ext-memory` 中集成 **Hindsight 跨会话长期记忆**，作为显式 Opt-in 功能：
 - **职责收拢**：`pi-ext-memory` 统管 Pi 会话的全周期记忆能力——**会话内短中期由 OM 负责**，**跨会话/仓库级长周期由 Hindsight 负责**。
-- **官方规范工具集（严格带 `hindsight_` 前缀，只注册有前缀）**：对齐官方 Skill（`.agents/skills/hindsight-coding-agent/SKILL.md`）与官方客户端契约，统一仅注册带 `hindsight_` 前缀的标准工具（`hindsight_search_knowledge_pages` 等）。不注册任何无前缀别名，保证跨环境迁移与 Prompt 规范 100% 互通。
+- **官方规范工具集（严格带 `hindsight_` 前缀，只注册有前缀）**：对齐官方 Skill（`~/.agents/skills/hindsight-coding-agent/SKILL.md`）与官方客户端契约，统一仅注册带 `hindsight_` 前缀的标准工具（`hindsight_search_knowledge_pages` 等）。不注册任何无前缀别名，保证跨环境迁移与 Prompt 规范 100% 互通。
 - **严格 Opt-in 工具门禁（Zero Tool Pollution）**：`enabled` 默认 `false`。当未显式配置或 `enabled === false` 时，**坚决不向 Pi 注册任何 Hindsight 工具**，不注入提示词钩子，不发起任何网络请求或文件读取，确保零副作用与零工具污染。
 - **极简架构与可靠边界**：遵循 `AGENTS.md`“不隐藏意图、不盲目自动化、避免重复基础设施”原则。不引入冗余的本地复杂 SQLite/重试重型队列；定义明确的会话轮次交付语义（At-most-once with bounded delivery & operationId 去重），保证写回失败时 fail-open 不阻断交互，同时支持生命周期取消。
 - **多仓库隔离防护**：针对跨仓库共享 Bank 的常见部署，提供自动的作用域标签（`repo:<name>`）隔离与推导，防止不同项目间的记忆相互污染。
@@ -156,7 +156,7 @@
 5. **Git 目录自动命名**：若上述均未提供，基于 Git 根目录推导 `"coding-agent::{gitProject}"`（非 Git 目录使用 `path.basename(cwd)`）
 
 #### 共享 Bank 作用域标签隔离（Mandatory Scope Tagging）：
-- **隔离规则**：若解析得到的 `bankId` 是通用静态共享 Bank（非以 `coding-agent::{gitProject}` 命名的独立 Bank），系统**自动计算仓库唯一标识标签**：`repo:<gitProject>`（例如 `repo:hepi-mono`）。
+- **隔离规则**：若解析得到的 `bankId` 是通用静态共享 Bank（非以 `coding-agent::{gitProject}` 命名的独立 Bank），系统**自动计算仓库唯一标识标签**：`repo:<gitProject>`（例如 `repo:pi-mono`）。
 - **检索隔离**：在调用 `reflect` 或 `searchKnowledgePages` 时，检索请求中强制附带 `tags: ["repo:<gitProject>"]`，服务端仅返回命中该仓库标签的事实。
 - **写回隔离**：在 `agent_end` 写回记忆时，所有 turns 自动附带 `tags: ["repo:<gitProject>", ...(banks.<id>.retainTags ?? [])]`，并注入 metadata `{ "project": "<gitProject>", "cwd": "<cwd>" }`。
 - **可检查性**：调用 `hindsight_diagnose` 工具时，显式展示当前生效的 `bankId`、`scopeTags`、`isolationMode: "dedicated-bank" | "tagged-shared-bank"`，确保符合 `AGENTS.md`“必须让重要的读取/操作可检查”约束。
@@ -166,7 +166,7 @@
 1. **严格 Opt-in 注册门禁（Zero Tool Pollution）**：
    - 当配置中未开启长期记忆（`enabled: false`，默认值）时，扩展**坚决不向 Pi 注册任何 Hindsight 工具**。`pi.registerTool` 与 `registerManagedLoadoutTool` 均不会被调用，模型在此模式下看不到任何 `hindsight_*` 工具，杜绝任何意图外的工具占用与污染。
 2. **官方前缀规范（只注册有前缀，零歧义）**：
-   - 当显式配置 `enabled: true` 时，扩展仅向 Pi 注册官方规范约定的 8 个带 `hindsight_` 前缀的原生工具，**不注册任何无前缀工具或别名**。这与 `.agents/skills/hindsight-coding-agent/SKILL.md` 的既有规范完美契合。
+   - 当显式配置 `enabled: true` 时，扩展仅向 Pi 注册官方规范约定的 8 个带 `hindsight_` 前缀的原生工具，**不注册任何无前缀工具或别名**。这与 `~/.agents/skills/hindsight-coding-agent/SKILL.md` 的既有规范完美契合。
    - 统一使用 `@hheei/pi-ext-core` 的 `registerManagedLoadoutTool` 结合 `defineTool` 注册，归入 `"Hindsight Memory"` 工具组。
 
 在首轮系统提示词 Preamble 中注入官方 Skill 标准工具指引（如调用 `hindsight_search_knowledge_pages`、`hindsight_reflect` 等），使模型在 prompt 阶段即明确获知当前可用的确切工具名。

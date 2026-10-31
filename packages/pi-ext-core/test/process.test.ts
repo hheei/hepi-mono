@@ -73,7 +73,7 @@ describe("runCommand", () => {
 	});
 
 	test("rejects when the command cannot start", async () => {
-		await expect(runCommand("/nonexistent/hepi-command", [])).rejects.toThrow();
+		await expect(runCommand("/nonexistent/pi-command", [])).rejects.toThrow();
 	});
 });
 

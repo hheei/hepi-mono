@@ -22,7 +22,7 @@
 
 ```text
 pi-ext-tools 或 Pi 原生工具
-  参数校验、读写、锁、远程执行、取消、真实 outcome
+  参数校验、读写、取消、真实 outcome
                  ↓ Pi renderCall/renderResult
 pi-ext-ui
   少量专用 renderer + ToolView/DiffView 视觉 API
@@ -34,9 +34,9 @@ Pi host
 ```
 
 - 执行方拥有事实：哪些路径／hunks 已确认改变，哪些拒绝、未执行或结果未确认。UI 不根据请求 patch 推断执行成功。
-- pi-ext-ui 拥有主题、排版、折叠呈现和复制文本选择；渲染不读取文件、发起 SSH 或重跑工具。
+- pi-ext-ui 拥有主题、排版、折叠呈现和复制文本选择；渲染不读取文件或重跑工具。
 - 工具 details 保持 JSON-safe，不存 ANSI、Component、Theme 或闭包。Component 只存在于前端渲染过程。
-- 本次采用 UI 解耦路径：pi-ext-tools 保留必要执行注册、远程能力和 eval 调用注入。彻底删除 read/edit/write 注册、回归纯原生执行会改变能力，作为单独范围决策处理。
+- 本次采用 UI 解耦路径：pi-ext-tools 保留 read/grep/find/edit/write 执行注册与渲染接入。彻底删除这些注册、回归纯原生执行会改变能力，作为单独范围决策处理。
 - pi-ext-ui 不加载时，执行及模型收到的 content 仍完整可用；保留简洁的原生／文本 renderer 回退。
 
 ## 4. 抽象：复用现有容器，增加必要的呈现能力
@@ -136,7 +136,7 @@ apply_patch 保持一个真实工具调用；UI 可用 edit／create／delete／
 1. **先验证数据通路**：用真实 read/edit/write/apply_patch 和原生 codemode 核对 args、details、事件 id、错误和取消行为。以有界缓存及历史降级为当前路径；记录实际数据缺口。
 2. **建立纵向路径**：先完成 edit 的独立单列 DiffView 与嵌套摘要，覆盖宽度变化和失败回退，再接 read/write。write 无基线时展示内容，UI 不补读文件。
 3. **接 apply_patch**：直接适配现有 operations/outcomes/snapshots，验证单文件 partial、多文件 partial、unconfirmed、move、取消和恢复提示。它是本次真实消费者，不是只预留空接口。
-4. **删除旧渲染**：新路径和无 UI 回退验证后，移除旧 pretty renderer 的调用及无消费者代码。先查 apply_patch 等所有引用；保留执行锁、验证、远程能力、eval 注入和依赖 ownership。将默认匹配集合改为语义准确的名字，不继续把文件工具加进 WEB_ACCESS_PILOT_TOOLS。
+4. **删除旧渲染**：新路径和无 UI 回退验证后，移除旧 pretty renderer 的调用及无消费者代码。先查 apply_patch 等所有引用；保留验证、执行行为和依赖 ownership。将默认匹配集合改为语义准确的名字，不继续把文件工具加进 WEB_ACCESS_PILOT_TOOLS。
 5. **对齐文档与聚焦验证**：实施时同步 DESIGN.md 及折叠设计文档，替换过时的相关渲染测试，保留执行行为测试。
 
 主要验收：独立／嵌套状态一致但显示规则不同；未知工具保留 next() 回退；ANSI、中文和宽字符在窄宽布局均不越界；图片读取及截断提示保留；复制内容真实；并发同名调用不串数据；历史信息不足时可解释地降级。

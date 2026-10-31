@@ -215,7 +215,7 @@ export async function openHindsightGateway(
 		const client = new HindsightClient({
 			baseUrl: resolved.config.apiUrl,
 			...(resolved.config.apiToken === undefined ? {} : { apiKey: resolved.config.apiToken }),
-			userAgent: "hepi-pi-ext-memory",
+			userAgent: "pi-ext-memory",
 		});
 		return createHindsightGateway(resolved, client);
 	} catch (error) {

@@ -8,7 +8,7 @@
 
 ## Solution
 
-保留 pi-ext-tools 为基础文件工具与前台 Bash 扩展，新增 pi-bg-bash、pi-apply-patch、pi-python-eval 和 pi-todo。每包独立安装、恰有一个 extension 入口、拥有自身状态和生命周期。具体 extension 之间无直接依赖；可选 UI 仍通过 ext-core 接入。Pi host 负责工具执行，ext-core 提供共享写入锁和可选展示契约。
+保留 pi-ext-tools 为基础文件工具与前台 Bash 扩展，新增 pi-bg-bash、pi-apply-patch、pi-python-eval 和 pi-todo。每包独立安装、恰有一个 extension 入口、拥有自身状态和生命周期。具体 extension 之间无直接依赖；可选 UI 仍通过 ext-core 接入。Pi host 负责工具执行，ext-core 提供可选展示契约。
 
 ## User Stories
 
@@ -42,7 +42,7 @@
 - 每个包独立注册设置和 lifecycle。删除旧综合入口对已拆功能的注册，不保留自动安装或转发入口。各包只注册自身功能。
 - Python bridge 仅依赖 Pi host 的 ExtensionToolContext.executeTool，保留当前七种允许嵌套的工具及 active 检查，删除直接调用 ToolDefinition 的 fallback 和重复参数验证；host 返回的执行结果决定错误状态。缺少工具或权限拒绝均传播为工具失败，保留 trace、structuredContent 和取消。
 - 文件工具不再接受未使用的 Bash runtime state。Bash runtime 归 pi-bg-bash，不进入 ext-core。
-- ext-core 提供 acquireMutationLock 和 withMutationLock，保留现有 key、哈希、socket/pipe 路径协议、等待者取消和 finally 释放。edit、write、apply_patch 使用同一实现；锁仅协调相同 key 的合作调用，不保证任意 shell 写入互斥。导入不创建锁或后台工作。
+- 工具编辑状态由原生 UI 驱动，不维护全局 mutationLock。edit、write、apply_patch 独立执行各自写入与取消，导入不创建锁或后台工作。
 - 保留工具名、参数、defaultActive 和 exposure。保持 Python details format、edit/write view key、patch details、Todo 状态 key 与 customType、bg-bash-report。保留 Bash 账本、日志、ID、anchor 和分支收据。
 - 设置仍使用 ext_settings.json 及原 bash、eval、applyPatch group；Todo 没有独立设置 provider；provider ID 和 origin 更新为新 owner，无需新增旧 ID alias。
 - 前台 Bash 通过 Pi host 的本地执行能力管理当前调用，清理和取消由其进程树管理负责；后台 Bash 独立拥有 BashJobRegistry、账本与通知。前台不依赖后台包，不创建后台记录；输出边界、错误传播和超时保持。恢复不接管旧 PID、不发信号、不重跑；未知终态继续 unknown。
@@ -54,7 +54,7 @@
 
 - 主要 seam 为 Pi extension 注册与 Pi host 工具执行；检查独立安装、组合安装、默认启用和错误 hooks。
 - Python 测试提供原生 executeTool 的 host fixture，验证参数与错误由 host 处理、active/允许列表、trace、structuredContent 和取消，不重新模拟生产工具 registry。
-- 三个写入调用方共用锁的测试覆盖持锁等待和取消，保持已有补丁算法、路径、文件发布测试。
+- 保持已有补丁算法、路径、文件发布与取消测试。
 - 保留 Bash 账本/分支交付/进程清理和真实子进程集成测试，保留 Todo 分支恢复与 footer 测试。使用现有 fake timers 和事件协调。
 - UI payload、窄宽布局已有测试继续生效；产物测试验证新入口、Python 资产和 Worker 启动。
 - 因涉及共享导出、依赖与发布包边界，完成全仓 check、integration 和 package artifact 门禁，并更新 Graphify AST。禁止在主 worktree 安装、构建或启动 pi-dev。

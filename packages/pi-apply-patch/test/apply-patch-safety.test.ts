@@ -6,7 +6,7 @@ import { createLocalPatchFs, FsTransportError } from "../src/apply-patch/fs.js";
 import { type ApplyPatchPolicy, DEFAULT_APPLY_PATCH_POLICY } from "../src/apply-patch/policy.js";
 import { temporaryDirectories } from "./fixtures/tmp-dir.js";
 
-const temporaryDirectory = temporaryDirectories("hepi-apply-patch-safety-");
+const temporaryDirectory = temporaryDirectories("pi-apply-patch-safety-");
 
 const noFuzzy: ApplyPatchPolicy = DEFAULT_APPLY_PATCH_POLICY;
 const movePatch =

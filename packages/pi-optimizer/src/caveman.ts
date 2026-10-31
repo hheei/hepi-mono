@@ -1,6 +1,5 @@
 /**
- * Caveman prompt fragments derived from hheei/oh-my-pi
- * packages/hepi/omp-optimizer at 5d30ef8e55d54788afa3f316bf67348f6920987d (MIT).
+ * Caveman prompt fragments derived from hheei/oh-my-pi at 5d30ef8e55d54788afa3f316bf67348f6920987d (MIT).
  */
 
 export const CAVEMAN_LEVELS = ["off", "lite", "full", "ultra", "micro"] as const;

@@ -42,8 +42,8 @@ describe("apply-patch jsdiff matching", () => {
 		{
 			name: "tolerates unicode punctuation and quotes",
 			before: "title: ‘Hello World’\nrange: 10–20\n",
-			body: "-title: 'Hello World'\n+title: 'Hello Hepi'\n range: 10-20",
-			after: "title: 'Hello Hepi'\nrange: 10–20\n",
+			body: "-title: 'Hello World'\n+title: 'Hello Pi'\n range: 10-20",
+			after: "title: 'Hello Pi'\nrange: 10–20\n",
 		},
 		{
 			name: "retains baseline indentation despite drift",

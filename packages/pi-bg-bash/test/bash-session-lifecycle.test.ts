@@ -38,7 +38,7 @@ afterEach(async () => {
 
 /** One extension session: the lifecycle handlers Pi would call, over a real settings registry. */
 function lifecycle(existing?: SessionManager): Lifecycle {
-	const directory = ledgerTemporaryDirectory("hepi-bash-lifecycle-");
+	const directory = ledgerTemporaryDirectory("pi-bash-lifecycle-");
 	const host = toolHost();
 	const handlers = new Map<string, (event: unknown, context: unknown) => Promise<void> | void>();
 	const warnings: string[] = [];

@@ -1,6 +1,6 @@
 # 测试运行时
 
-HEPI 的日常开发、构建和测试控制平面使用 pnpm、Node 22.19+ 与 Vitest。Pi 的 npm host 是 Node，因此默认测试必须在 Node 中执行。仓库开发工具链与用户侧 `pi install npm:@hheei/...` 无关。
+Pi 的日常开发、构建和测试控制平面使用 pnpm、Node 22.19+ 与 Vitest。Pi 的 npm host 是 Node，因此默认测试必须在 Node 中执行。仓库开发工具链与用户侧 `pi install npm:@hheei/...` 无关。
 
 ```text
 pnpm install --frozen-lockfile --ignore-scripts -> pnpm run build -> pnpm run check -> Vitest (Node)

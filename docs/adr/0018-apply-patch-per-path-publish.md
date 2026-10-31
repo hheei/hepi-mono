@@ -1,5 +1,7 @@
 # apply_patch 是逐 path 独立 Publish，不再用 Linux coordinator 事务
 
+> 状态：部分被取代。SSH Target 子系统与共享 mutation lock 已从实现中移除；仍然成立的是逐 path Publish、不 rollback、Path Outcome 与 32 MiB 上限。当前行为见 [apply-patch 架构](../architecture/apply-patch.md)。
+
 local Linux/macOS/Windows 与 Unix-like SSH Target 共用同一套 Patch Core：每个 path 独立 Publish，已确认的 mutation 不 rollback。放弃 detached coordinator、directory fd、inode identity、request journal。现有文件（含 delete 与 Update+Move 的源）大于 32 MiB 在读完整内容前拒绝；Add/Update 的 new bytes 也不得超过 32 MiB。公开方言仍是 V4A Add / Delete / Update / `Move to`，不新增独立 rename。
 
 ## 考虑过的方案

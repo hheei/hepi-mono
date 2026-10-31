@@ -36,7 +36,8 @@ Pi 参数直接追加，例如 `pi-dev --model <provider/model>`。
 | `pi-settings` | `packages/pi-settings/dist/extension.js` | 增量构建 TypeScript |
 | `pi-status` | `packages/pi-status/dist/extension.js` | 增量构建 TypeScript |
 | `pi-subagents` | `packages/pi-subagents/dist/extension.js` | 增量构建 TypeScript |
-| `pi-web-access` | `npm:pi-web-access` | 外部包（无需本地构建） |
+| `pi-loadout` | `packages/pi-loadout/dist/extension.js` | 增量构建 TypeScript |
+| `pi-web-access` | `packages/pi-web-access/dist/extension.js` | 增量构建 TypeScript |
 | `codemode`（内置） | `builtin:codemode` | 无需构建；由 `pi-ext-ui` 通过 `registerToolRenderer` 提供折叠与元工具看板渲染 |
 | `mcp`（内置） | `builtin:mcp` | 无需构建；消费配置文件及 extension 的原生 MCP server 注册 |
 
