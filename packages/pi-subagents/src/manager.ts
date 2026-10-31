@@ -2415,6 +2415,18 @@ export class SubagentManager {
 				if (runtime !== undefined) this.#watchRuntime(id, runtime);
 			}
 		}
+		// A writer that was already gone when this process started cannot report itself, and the read
+		// projection is not a delivery: the parent would only find out by asking. Settling it here is
+		// the one place liveness is written back, through the same lease edge an exit takes, and it
+		// runs once per process because `ready` is memoized. A panel this pass just reopened is
+		// skipped: its writer is starting, not gone.
+		const reopened = new Set(result.rehydrated);
+		for (const record of await this.#deps.registry.list()) {
+			if (record.state !== "running" || record.intent === "stopped") continue;
+			if (reopened.has(record.subagentId)) continue;
+			if (this.#isLive(record.subagentId) || this.#runtimeAlive(record)) continue;
+			await this.#settleUnrecovered(record);
+		}
 		return result;
 	}
 

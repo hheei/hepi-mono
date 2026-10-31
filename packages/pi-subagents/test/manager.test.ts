@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vit
 import type { EffectiveLaunchConfig, SpawnSubagentInput, SubagentRecord } from "../src/domain.js";
 import type { HostAttachment, HostObservation } from "../src/host-adapter.js";
 import { assembleChildPrompt } from "../src/launch-spec.js";
+import type { HostDirectory } from "../src/lease.js";
 import {
 	type ChildBridgeTransport,
 	extractLastAssistantText,
@@ -261,6 +262,8 @@ async function harness(
 		host?: boolean;
 		/** Set when the host cannot report focus, which is how cmux behaves today. */
 		blindHost?: boolean;
+		/** Set to exercise the host-listing restore path instead of the bridge-only one. */
+		directory?: HostDirectory;
 		parentSessionId?: string;
 	} = {},
 ): Promise<Harness> {
@@ -358,6 +361,7 @@ async function harness(
 		...(options.host === true
 			? { presentation: { reason: "default host herdr is available", openPanel } }
 			: {}),
+		...(options.directory === undefined ? {} : { directory: options.directory }),
 		channel: {
 			async deliver(report): Promise<void> {
 				reports.push(report);
@@ -1412,6 +1416,42 @@ describe("SubagentManager over the bridge", () => {
 			held.release();
 		}
 		expect(await test1.registry.get(record.subagentId)).toEqual(before);
+	});
+
+	test("reports a panel child whose writer was already gone when the parent started", async () => {
+		const test1 = await harness({
+			directory: {
+				host: "herdr",
+				list: async () => ({ known: true, generation: "g1", present: new Set<string>() }),
+				open: async () => ({ failure: "no panel" }),
+			},
+		});
+		await test1.addChild("sa_gone", { state: "running", presentation: "panel" });
+		expect(await test1.manager.ready()).toMatchObject({ ok: true });
+		await until(test1.reportsArrived(1));
+		expect(test1.reports[0]).toMatchObject({ childId: "sa_gone", reason: "blocked" });
+		expect(test1.reports[0]?.message).toContain("runtime ended");
+		expect(await test1.registry.get("sa_gone")).toMatchObject({
+			state: "blocked",
+			interrupted: expect.stringContaining("runtime ended"),
+		});
+	});
+
+	test("leaves a background child the parent process ended to its own exit note", async () => {
+		const test1 = await harness({
+			directory: {
+				host: "herdr",
+				list: async () => ({ known: true, generation: "g1", present: new Set<string>() }),
+				open: async () => ({ failure: "no panel" }),
+			},
+		});
+		await test1.addChild("sa_bg", { state: "running", presentation: "background" });
+		await test1.manager.ready();
+		expect(await test1.registry.get("sa_bg")).toMatchObject({
+			state: "done",
+			interrupted: expect.stringContaining("parent process"),
+		});
+		expect(test1.reports).toEqual([]);
 	});
 
 	test("stops a child by writing the intent first and ending the process", async () => {

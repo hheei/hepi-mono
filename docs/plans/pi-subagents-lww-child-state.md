@@ -185,6 +185,6 @@ CREATE TABLE children (
 
 1. **`#ready` memo 保留**（见 §5）。判活变成读时投影后不需要每 turn 刷新，而 `hosts.list()` 是子进程调用，不该每 turn 跑。
 2. **判活落在 `SubagentManager.#project()`**，而不是 `delegationView`。`PublicSubagent` 本来就是 manager 的投影，探锁在那里只发生一次；放进 view 会让每次重绘都开一次 sqlite。
-3. **外部杀死不再回报一次**。原先是 `reconcile` 写 `blocked` + `#noteReleasedRuntime` 触发自动报告。删掉写盘后这条路径没有数据来源，一并删除；本进程看见自己的后台进程退出时仍走事件路径写 `blocked` 并回报一次。外部杀死的 child 现在只在读时显示 `blocked`。
+3. **外部杀死改为启动时结算一次**。原先 `reconcile` 在锁空的记录上写 `blocked` + `#noteReleasedRuntime` 触发自动报告；写盘删掉后这条路径没有数据来源。但读时投影不是投递——`#performAutoReport` 会重读记录并在 `state === "running"` 时直接返回，所以纯投影的回报会被静默丢弃。最终做法：`#reconcile()` 在 surface 修复之后跑一趟 `#settleUnrecovered()`（`recover()` 已在用的同一个原语），只处理 `running`、没有写者、也不在本次 `rehydrated` 里的记录。panel child 走 `#recordWriterGone`（已完成回复则交付结果，否则 `blocked` + 回报），background child 走 `parent-exit`（`done` + 退出说明，不回报）。频率由 `#ready` memo 固定为每个 parent 进程一次，投递频率仍由既有的 500ms/10s 批处理收敛。
 
 `children` 表丢掉 `revision` 列（`DROP_COLUMNS` 修复，行保留），`SCHEMA_VERSION` 2 → 3。

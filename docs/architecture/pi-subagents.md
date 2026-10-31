@@ -18,13 +18,16 @@ ext-core no longer has an in-process subagent coordinator. This package owns chi
 Control is one sqlite file (`state.sqlite`): child rows are the ledger, command rows are the mailbox.
 Parent and child both open it. A dropped poll is not a dead child. Each child holds an exclusive lock
 file while it is that child's writer; the kernel releases it on process death. The lock is the only
-liveness fact — there is no presence row, and liveness is never written back: a record that still says
-`running` while no writer holds its lock is projected as `blocked` on read. Reconcile therefore repairs
-surfaces, not states: it rebinds a panel that is still there and reopens the panels a new host
-generation took down, and it writes nothing about a child that merely died. A background pid is a
-diagnostic, not evidence — pids are reused, so only the lock answers whether a writer is alive. Parent
-reload drops only local state (timers, projectors, subscriptions); a surviving child keeps writing the
-same file, and a background child is held by its stdin pipe, so it ends with the parent process.
+liveness fact — there is no presence row. Every read projects it: a record that still says `running`
+while no writer holds its lock reads as `blocked`, so a death this process can see happen writes
+nothing. The one exception is startup. A writer that was already gone cannot report itself, and a
+projection is not a delivery, so `ready` settles those children once through the same lease edge an
+exit takes: a panel child becomes `blocked` and is reported, a background child becomes `done` with the
+parent-exit note. Reconcile otherwise repairs surfaces only — it rebinds a panel that is still there
+and reopens the panels a new host generation took down. A background pid is a diagnostic, not
+evidence, because pids are reused. Parent reload drops only local state (timers, projectors,
+subscriptions); a surviving child keeps writing the same file, and a background child is held by its
+stdin pipe, so it ends with the parent process.
 
 There is no attach or detach: a child is presented where it was spawned and never switches
 afterwards. `agents_delegate` prefers a panel (a new Herdr tab or cmux surface
@@ -34,7 +37,7 @@ trust cannot interrupt startup. The presentation is frozen in the registry as `p
 [`spec.md`](../pi-subagents/spec.md) §2.2).
 Native `/resume` of the same session outside the managed path is not intercepted.
 
-系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。本进程看见自己的后台进程退出时记 `blocked` 并回报一次，不改成 stopped intent；进程锁只是空了的情况不写盘，读时投影成 `blocked`；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
+系统确认成功的 idle 回收保留可恢复身份：后续 `agents_delegate` 使用同一 session。本进程看见自己的后台进程退出时记 `blocked` 并回报一次，不改成 stopped intent；进程锁只是空了的情况不写盘，读时投影成 `blocked`（唯一例外是 parent 启动：写者已经消失、无法自己回报的 child 由 `ready` 一次性落库并回报）；后续 `agents_delegate` 用同一 session 再起 runtime，调用方不要为此另建 agent。宿主已确认 panel 进程不在时关掉空标签；标签还在则留着，要收掉由调用方 `agents_stop`。只有本进程的进程句柄还活着时，send 才拒绝再起一个 runtime，并要求先 stop 这个 child。锁还被持有时输入交给当前写者，不另起一个。
 `agents_stop` 仍先写 stopped intent。runtime 的写入和删除只走会话租约的边（`runtime-bound` / `runtime-gone`），manager 不再直接改 runtime。panel 身份按 [`spec.md`](../pi-subagents/spec.md) §6.7 写进会话租约。reload 只重绑还在的 tab 或 pid。宿主换代时，`before_agent_start` 之前把当时仍挂着的 panel 拉回。
 
 启动失败必须写回 registry 的 `error` 状态，工具结果保留 child ID、已发生的副作用和安全重试条件。
