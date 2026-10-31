@@ -28,4 +28,4 @@ Browser-cookie extraction (`chrome-cookies`) and Gemini Web reuse an existing br
 
 ## Compatibility
 
-Requires Pi host `>=1.3.0`. No other Pi extension is required: settings and rendering primitives come from `@hheei/pi-ext-core`, and richer tool views appear only when `@hheei/pi-ext-ui` is loaded. Native tool text stays complete without it.
+Requires Pi host `>=1.0.1`. No other Pi extension is required: settings and rendering primitives come from `@hheei/pi-ext-core`, and richer tool views appear only when `@hheei/pi-ext-ui` is loaded. Native tool text stays complete without it.

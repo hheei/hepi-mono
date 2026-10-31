@@ -123,6 +123,15 @@ The publisher uses `pnpm pack` to resolve workspace ranges, validates the result
 then passes that same archive to `npm publish`; never publish a workspace source directory
 with `npm publish`. Host-provided `typebox` belongs in `peerDependencies` with a `"*"` range,
 not runtime dependencies. These checks also apply to ext-core and other shared packages.
+
+Host packages (`@earendil-works/pi-coding-agent`, `pi-tui`, `pi-agent-core`, `pi-ai`) belong in
+`peerDependencies` with the lowest host version that compiles the package's `src/`, not with the
+version currently installed. Raising a floor is required only when a package starts using a newer
+host API. Today most packages need `>=1.0.1`; `pi-subagents` needs `>=1.1.0`
+(`AgentSettledEvent.aborted`); `pi-ext-memory` needs `>=1.2.0` (`BeforeAgentStartEvent.messageType`)
+and `pi-ext-tools` / `pi-python-eval` need `>=1.2.0` (`ToolDefinition.reachesTools`). Workspace
+`devDependencies` track the `latest` dist-tag instead of a fixed host version, so `pnpm run pi-dev`
+runs the newest host; nothing in the repository pins or rewrites either side automatically.
 A real tag or publish still requires explicit approval for that exact version and action.
 
 Release CI uses [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)
