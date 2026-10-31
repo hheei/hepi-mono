@@ -23,6 +23,7 @@ npm-debug.log*
 .pi-dev/
 .codex/
 outputs/
+.scratch/
 graphify-out/
 .agents/
 pi-session-*.html
