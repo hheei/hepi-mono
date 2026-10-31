@@ -966,17 +966,15 @@ export class SubagentManager {
 	}
 
 	/**
-	 * The public projection every read returns. Liveness is computed here, never written back: a
-	 * record that still says `running` while no writer holds its lock is reported as blocked.
+	 * The public projection every read returns: a record that still says `running` while no writer
+	 * holds its lock reads as blocked. Nothing is written, so a death this process did not see happen
+	 * still reads correctly.
 	 */
 	#project(record: SubagentRecord): PublicSubagent {
 		const snapshot = this.#withSnapshot(record);
 		const live = this.#isLive(record.subagentId) || this.#runtimeAlive(record);
-		return publicChild(
-			live || snapshot.state !== "running" ? snapshot : { ...snapshot, state: "blocked" },
-			live,
-			this.#paths.get(record.subagentId),
-		);
+		const state = live || snapshot.state !== "running" ? snapshot.state : "blocked";
+		return publicChild({ ...snapshot, state }, live, this.#paths.get(record.subagentId));
 	}
 
 	/**
@@ -1932,15 +1930,15 @@ export class SubagentManager {
 		for (const record of records) {
 			const summary = summaries.get(record.subagentId);
 			if (summary === undefined) continue;
-			const snapshot = this.#withSnapshot(record);
+			const child = this.#project(record);
 			children.push({
-				id: record.subagentId,
-				agent: record.launchConfig.agent.name,
-				runtimeState: this.#project(record).state,
+				id: child.id,
+				agent: child.agent,
+				runtimeState: child.state,
 				revision: summary.revision,
 				status: summary.status,
 				hasOutput: summary.hasOutput,
-				...(snapshot.latestSummary === undefined ? {} : { summary: snapshot.latestSummary }),
+				...(child.summary === undefined ? {} : { summary: child.summary }),
 			});
 		}
 		const count = (state: SubagentState): number =>
@@ -2415,18 +2413,19 @@ export class SubagentManager {
 				if (runtime !== undefined) this.#watchRuntime(id, runtime);
 			}
 		}
-		// A writer that was already gone when this process started cannot report itself, and the read
-		// projection is not a delivery: the parent would only find out by asking. Settling it here is
-		// the one place liveness is written back, through the same lease edge an exit takes, and it
-		// runs once per process because `ready` is memoized. A panel this pass just reopened is
-		// skipped: its writer is starting, not gone.
-		const reopened = new Set(result.rehydrated);
-		for (const record of await this.#deps.registry.list()) {
-			if (record.state !== "running" || record.intent === "stopped") continue;
-			if (reopened.has(record.subagentId)) continue;
-			if (this.#isLive(record.subagentId) || this.#runtimeAlive(record)) continue;
-			await this.#settleUnrecovered(record);
-		}
+		// A writer that was already gone when this process started cannot report itself, and a
+		// projection is not a delivery. This is the one place liveness is written back, once per
+		// process because `ready` is memoized, through the edge an exit takes. A panel this pass just
+		// reopened is skipped: its writer is starting, not gone.
+		const gone = (await this.#deps.registry.list()).filter(
+			(record) =>
+				record.state === "running" &&
+				record.intent !== "stopped" &&
+				!result.rehydrated.includes(record.subagentId) &&
+				!this.#isLive(record.subagentId) &&
+				!this.#runtimeAlive(record),
+		);
+		for (const record of gone) await this.#settleUnrecovered(record);
 		return result;
 	}
 

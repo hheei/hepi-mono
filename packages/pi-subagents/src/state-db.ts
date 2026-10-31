@@ -92,6 +92,11 @@ const DROPPED_COLUMNS: readonly (readonly [table: string, column: string])[] = [
 
 const connections = new Map<string, DatabaseSync>();
 
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+	const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+	return columns.some((existing) => existing.name === column);
+}
+
 function schemaVersion(db: DatabaseSync): number {
 	return Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
 }
@@ -109,14 +114,11 @@ function migrate(db: DatabaseSync): void {
 		if (schemaVersion(db) === SCHEMA_VERSION) return;
 		db.exec(TABLES);
 		for (const [table, column, type] of ADDED_COLUMNS) {
-			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-			if (columns.some((existing) => existing.name === column)) continue;
-			db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+			if (!hasColumn(db, table, column))
+				db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 		}
 		for (const [table, column] of DROPPED_COLUMNS) {
-			const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-			if (!columns.some((existing) => existing.name === column)) continue;
-			db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+			if (hasColumn(db, table, column)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
 		}
 		// The bridge token had no reader once the mailbox replaced the socket handshake.
 		db.exec("DROP TABLE IF EXISTS tokens");
@@ -242,14 +244,11 @@ export function replaceChild(
 	parentSessionId: string,
 	subagentId: string,
 	record: string,
-): boolean {
-	const result = db
-		.prepare(
-			`UPDATE children SET record = ?
-			 WHERE parent_session_id = ? AND subagent_id = ?`,
-		)
-		.run(record, parentSessionId, subagentId);
-	return Number(result.changes) === 1;
+): void {
+	db.prepare(
+		`UPDATE children SET record = ?
+		 WHERE parent_session_id = ? AND subagent_id = ?`,
+	).run(record, parentSessionId, subagentId);
 }
 
 export function readMeta(

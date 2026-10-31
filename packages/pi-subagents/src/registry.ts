@@ -596,10 +596,7 @@ export function createSubagentRegistry(options: CreateSubagentRegistryOptions): 
 					parentSessionId,
 					path,
 				);
-				const replaced = replaceChild(db, parentSessionId, id, JSON.stringify(next));
-				if (!replaced) {
-					throw new SubagentRegistryError("unknown_child", `Unknown child ${id} in ${path}`);
-				}
+				replaceChild(db, parentSessionId, id, JSON.stringify(next));
 				return next;
 			});
 		},

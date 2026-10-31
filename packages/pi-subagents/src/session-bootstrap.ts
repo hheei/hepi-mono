@@ -200,10 +200,10 @@ export async function planSessionPlacement(
  * filesystem. Nothing arbitrates allocation across processes; `existingIds` is the local check and
  * the ledger's primary key is the backstop.
  */
-export function createSubagentId(existingIds?: readonly string[]): string {
+export function createSubagentId(existingIds: readonly string[] = []): string {
 	for (let attempt = 0; attempt < 100; attempt++) {
 		const id = `agent-${randomBytes(3).toString("hex")}`;
-		if (existingIds === undefined || !existingIds.includes(id)) return id;
+		if (!existingIds.includes(id)) return id;
 	}
 	throw new Error("Could not allocate a unique subagent id");
 }
